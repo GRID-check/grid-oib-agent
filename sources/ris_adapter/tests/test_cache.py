@@ -32,6 +32,20 @@ class TestKeys:
         assert doc_cache_key("https://x") == doc_cache_key("https://x")
         assert doc_cache_key("https://x") != doc_cache_key("https://y")
 
+    def test_the_doc_key_moves_with_the_text_conversion(self):
+        # The cache holds converted text for a week. If this fails you changed
+        # what html_to_text keeps: bump DOC_TEXT_VERSION, then update both
+        # values here, or cached laws keep the old text until they expire.
+        from ris_adapter.cache import DOC_TEXT_VERSION
+        from ris_adapter.client import html_to_text
+
+        markup = (
+            "<html><head><title>T</title><script>x</script></head><body><div id='nav'>Nav</div>"
+            "<div id='content'><span aria-hidden='true'>a)</span><span class='sr-only'>Litera a</span>"
+            "<p>§ 63.</p><p>(1)\xa0 Text  hier</p></div></body></html>"
+        )
+        assert (DOC_TEXT_VERSION, html_to_text(markup)) == (2, ("T", "a)\n§ 63.\n(1) Text hier"))
+
     def test_search_key_prefixed_and_input_scoped(self):
         assert search_cache_key("a|b").startswith("ris:search:")
         assert search_cache_key("a|b") != search_cache_key("a|c")

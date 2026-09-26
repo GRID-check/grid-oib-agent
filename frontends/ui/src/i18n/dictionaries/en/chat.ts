@@ -314,6 +314,7 @@ export const chat = {
     copyLink: 'Copy link',
     copyLinkAria: 'Copy a link to this passage: {label}',
     markerAria: 'Source {number}: {label} — open preview',
+    pendingAria: 'Source {number} — being checked',
     lociLabel: '{count, plural, one {# passage} other {# passages}}',
     lociAria: 'Passages in this document',
     lociPosition: '{index}/{count}',
@@ -373,6 +374,8 @@ export const chat = {
     // appears on every one of them: verdict, missing figure, provenance.
     kit: {
       eyebrow: 'Sketch',
+      // A card whose figure is a scale or a set of bars, not a drawing.
+      eyebrowCheck: 'Check',
       status: {
         pass: 'met',
         fail: 'not met',
@@ -920,8 +923,8 @@ export const chat = {
     // Transient "checking" state (FIX 3): shown while the reconnect recovery
     // fetch is in flight, so a turn that only LOOKS interrupted does not flash
     // the "lost" copy before we have confirmed the answer is really gone.
-    recovering: 'Reconnecting',
-    recoveringNotice: 'Reconnecting — checking for a finished answer …',
+    recovering: 'Fetching the answer',
+    recoveringNotice: 'Piloti is still working — the answer appears here as soon as it is ready …',
     done: 'Done',
     elapsedAria: 'Elapsed: {seconds, plural, one {# second} other {# seconds}}',
     // Live one-liners describing what the assistant is doing right now, chosen
@@ -1035,9 +1038,10 @@ export const chat = {
         // "the citations" in the abstract but every one of them, against what
         // was actually retrieved.
         citations: 'Checking every citation against the sources …',
-        // A citation or a quote failed verification; one more search and one
-        // rewrite are tried before the answer ships with its markers.
-        repair: 'A citation did not hold up — searching again …',
+        // A quotation no passage holds verbatim is corrected in place to the
+        // cited passage's own wording (ADR-0067). No search, no rewrite; a quote
+        // it cannot correct keeps its marker.
+        repair: 'A quotation differs from the source’s wording — correcting it against the original …',
         escalation: 'A quick lookup is not enough — starting deep research',
       },
     },

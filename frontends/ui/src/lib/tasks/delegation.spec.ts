@@ -257,6 +257,29 @@ describe('delegateTask', () => {
     expect(run?.error).toContain('backend unreachable')
   })
 
+  it('does not call a submitted run failed when recording it fails (#723)', async () => {
+    // The backend accepted the job; the database write after it did not land.
+    // The run is running, and saying `failed` would tell the reader it is not.
+    vi.mocked(repository.updateRun).mockRejectedValue(new Error('connect EHOSTUNREACH 10.0.0.1:5432'))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const { run } = await delegateTask(session, { projectId: PROJECT, kind: 'document', goal: 'Schreib das' })
+
+    expect(run?.status).toBe('running')
+    expect(run?.backendJobId).toBeTruthy()
+    expect(vi.mocked(repository.updateRun).mock.calls.map(([, , patch]) => patch.status)).toEqual(['running'])
+  })
+
+  it('still returns the failed run when recording the failure fails too', async () => {
+    vi.mocked(submitAgentRun).mockRejectedValue(new JobSubmitError('backend unreachable', 502))
+    vi.mocked(repository.updateRun).mockRejectedValue(new Error('the database system is shutting down'))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const { run } = await delegateTask(session, { projectId: PROJECT, kind: 'document', goal: 'Schreib das' })
+
+    expect(run?.status).toBe('failed')
+  })
+
   it('audits the creation as `task.created`, with the trigger named', async () => {
     await delegateTask(session, { projectId: PROJECT, kind: 'compliance_check', goal: 'Prüf das' })
     expect(recordAuditEvent).toHaveBeenCalledWith(

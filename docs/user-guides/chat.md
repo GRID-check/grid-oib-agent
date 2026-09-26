@@ -103,7 +103,7 @@ When collaboration is enabled (ADR-0032…0036), a chat can have a named audienc
 
 **Waiting for a person.** A message that addresses a person by name hands the thread over to them: the agent deliberately stays silent until they answer, and a banner says who is being waited for — with, per person, the question they were asked and who asked it, so a thread waiting on two colleagues still shows both. The banner always offers an escape — **Continue without waiting**, **Ask Piloti instead** (pre-fills an agent mention), or **Ask {name} back** (re-mentions the asker) — and those offers really route as mentions, so the agent is asked rather than the text sitting in the chat. When the awaited person answers, a transient offer appears — "{name} replied — let Piloti carry on?" — which pre-fills the composer with an agent mention so Piloti actually picks the thread back up. In a thread with several people talking, a plain message is a remark for everyone, and the addressee line says so; an offer can switch the thread to *answer only when mentioned* mode.
 
-**Watching a colleague's turn.** When somebody else in a shared chat asks Piloti a question, you do not wait at a spinner: the answer streams in as it is written and the *Herleitung* builds alongside it, the same reasoning chain the person who asked is looking at. If Piloti puts a question back to them, you are told that the chat is waiting on an answer — the question is theirs to answer, so no control appears for you. The live view is a preview, not the record: the finished answer replaces it a moment later, with its sources, confidence and feedback controls. Where live delivery is not available in your deployment, this falls back to a short "Piloti is answering {name}'s question" strip and the finished answer, exactly as before.
+**Watching a colleague's turn.** When somebody else in a shared chat asks Piloti a question, you do not wait at a spinner: the answer streams in as it is written and the *Herleitung* builds alongside it, the same reasoning chain the person who asked is looking at. If Piloti puts a question back to them, you are told that the chat is waiting on an answer — the question is theirs to answer, so no control appears for you. You see the asker's own answer as it is written: its title, its sources and its cards, in the same layout they get. Only the feedback, copy and card-decision controls are theirs, so those do not appear for you. Where live delivery is not available in your deployment, this falls back to a short "Piloti is answering {name}'s question" strip and the finished answer, exactly as before.
 
 **Who is writing.** While one or more colleagues are composing, their names and three dots appear at the foot of the chat — deliberately a different shape from Piloti's own status, so a pause is legible at a glance as a person thinking rather than the assistant working. It survives a pause mid-sentence on purpose, rather than blinking off the moment someone stops to think or to check a document; it disappears when they send, clear the box or switch chats, and otherwise after about 45 seconds without a keystroke. A closed tab or a dropped connection takes a few seconds longer, because nothing can announce that on the way out — the claim simply expires. Nothing about it is stored.
 
@@ -230,11 +230,44 @@ The empty chat in a project says the same thing in one sentence, because
 otherwise the only people who find out that Piloti writes are the ones who
 happen to phrase a request as a commission.
 
+## How an answer arrives
+
+Piloti writes the answer on screen while the model writes it. Nothing waits for
+the end.
+
+- **Text streams.** Each paragraph appears as it is written.
+- **Citations settle while you read.** An inline `[N]` first shows as pending
+  (read out as „Quelle N — wird geprüft"). It becomes a source once it is
+  checked, still during the stream.
+- **Things above and beside the text keep their place.** The title block and
+  every card reserve their space before the text moves past them, so the line
+  you are reading does not jump.
+- **The finished answer stays**, except that a corrected quotation takes the
+  source's wording (see below). It is not otherwise replaced when the stream
+  ends.
+- **Text written before a lookup can be withdrawn.** When Piloti starts writing
+  and then decides to look something up, that first text goes and the answer
+  continues from the lookup.
+- **Quotes are checked against the source.** A slightly misquoted passage is
+  corrected to the source's own wording. A quote that cannot be corrected is
+  marked `[nicht wörtlich in der Quelle belegt]`.
+- **Answers are Markdown.** Tables state their result, a check against
+  criteria is a table with a status column, what you still have to hand in is
+  a task list, and variants sit in tabs.
+- **Relations are drawn.** A process or decision path, a tree or outline of a
+  Regelwerk, a handoff between parties, a schedule of dated phases, and the
+  shares of one whole each become a diagram.
+- **Your question stays at the top.** A sent question is anchored near the top
+  of the view and the answer grows below it. A short answer does not drop when
+  it finishes.
+- **Wide content scrolls sideways.** A wide table or diagram scrolls inside
+  its own frame. The frame can take keyboard focus, so arrow keys scroll it.
+
 ## Answer sources ("Belegt durch")
 
 Answers that already carry source data show a provenance block: structured citations from shallow/deep research (`origin` plus optional `file_name`/`page`/`number`, with `[KB]`/`[RIS]`/`[Web]` tokens and URL heuristics as fallback) and the laws named by `legal_basis` cards. Sources are tinted by origin (law / project / web) and always pair icon + label with the color; web and RIS sources link out. Answers without source data show no block — sources are never fabricated.
 
-**One row, not a row plus a written list.** A verified answer ends in a written sources section (`## Quellen` / `**References:**`, produced by the backend's citation verification). That section is *not* rendered a second time under the answer: it is lifted out of the answer body and folded into the chip row. The chip keeps its compact shape and gains the citation's `[N]`; everything else the written list said — the untruncated title, the cited page or host, and a copyable citation — sits **one click away**, in the chip's existing preview popover or document dialog. Each chip is also the anchor its inline `[N]` marker scrolls to. The `[N]` → source binding comes from the backend (`sources[].number`, resolved by `verify_citations`); when it is absent (legacy messages, deep-research SSE) the frontend falls back to matching on document identity, and an answer whose sources were never numbered simply shows no indices.
+**One row, not a row plus a written list.** A verified answer ends in a written sources section (`## Quellen` / `**References:**`, produced by the backend's citation verification). Its sources settle during the stream, so the chips are there before the answer ends. That section is *not* rendered a second time under the answer: it is lifted out of the answer body and folded into the chip row. The chip keeps its compact shape and gains the citation's `[N]`; everything else the written list said — the untruncated title, the cited page or host, and a copyable citation — sits **one click away**, in the chip's existing preview popover or document dialog. Each chip is also the anchor its inline `[N]` marker scrolls to. The `[N]` → source binding comes from the backend (`sources[].number`, resolved by `verify_citations`); when it is absent (legacy messages, deep-research SSE) the frontend falls back to matching on document identity, and an answer whose sources were never numbered simply shows no indices.
 
 ### Citing a source elsewhere
 

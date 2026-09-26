@@ -16,32 +16,30 @@
  *    observer is told that the thread is waiting on them; the prompt is not
  *    theirs to answer (the server refuses it anyway — a control that always fails
  *    is worse than none).
- *  - **It is not the answer.** Nothing here is persisted or citable. The real
- *    message lands over the ordinary message path a moment later and replaces
- *    this entirely — with its citations, confidence, cards and feedback controls,
- *    none of which are rendered here precisely because they would be a
- *    lower-fidelity copy of the thing about to arrive.
+ *  - **It is not the answer.** Nothing here is persisted. The real message
+ *    lands over the ordinary message path a moment later and replaces this.
+ *    What it shows until then is the asker's own answer surface, fed by the
+ *    same live frames (ADR-0066): the masthead before the first word, the
+ *    citations once verified, the cards as each is written, all gated by the
+ *    backend before they are sent. A compact, card-less preview here made the
+ *    swap to the persisted answer a jump from one layout to another; the same
+ *    `AgentResponse` makes it a swap of like for like. It is drawn
+ *    `readOnly`: no feedback, no copy controls (the persisted answer that
+ *    replaces it carries its own) and no card decisions. A card that acts is
+ *    not even delivered here (`spectator-frames.ts`, rule 4); `readOnly` is
+ *    the second wall, so one that slipped through still has nothing to press
+ *    and no project of the observer's to write to.
  *  - **It never blocks the fallback.** The caller keeps the banner whenever this
  *    has nothing to show, so a missing cache tier, a dropped stream or a gated
  *    org degrades to exactly the previous behaviour.
  */
 
 import type { FC } from 'react'
-import type { PluggableList } from 'unified'
 import { ChatThinking } from '@/features/chat/components/ChatThinking'
-import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
-import { remarkCardMarkers } from '@/features/grid-cards/card-markers'
+import { AgentResponse } from '@/features/chat/components/AgentResponse'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { SpectatedTurnState } from '../lib/spectator-frames'
-
-/**
- * A spectator sees the answer's prose, never its cards — this view carries no
- * `cards` array to draw. Running the marker plugin with a count of zero strips
- * every `[[card:N]]` the asker's answer placed, so the spectator reads the
- * answer instead of its wiring.
- */
-const STRIP_CARD_MARKERS: PluggableList = [[remarkCardMarkers, { count: 0 }]]
 
 export interface SpectatedTurnProps {
   /** The turn so far. */
@@ -97,23 +95,15 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
         <p className="text-muted-foreground text-xs">{t('thread.spectatorFailed')}</p>
       )}
 
-      {turn.answer && (
-        <div className="text-foreground text-sm">
-          <MarkdownRenderer
-            content={turn.answer}
-            isStreaming={!turn.done}
-            compact
-            remarkPlugins={STRIP_CARD_MARKERS}
-          />
-          {/* A caret, so a pause between tokens reads as "still writing" rather
-          than as a finished — and oddly truncated — answer. */}
-          {!turn.done && (
-            <span
-              className="bg-foreground/70 ml-0.5 inline-block h-3.5 w-[2px] animate-pulse align-text-bottom motion-reduce:animate-none"
-              aria-hidden="true"
-            />
-          )}
-        </div>
+      {(turn.answer || turn.answerMeta || turn.cards?.some((card) => card !== undefined)) && (
+        <AgentResponse
+          content={turn.answer}
+          isStreaming={!turn.done}
+          answerMeta={turn.answerMeta}
+          citations={turn.citations}
+          cards={turn.cards}
+          readOnly
+        />
       )}
     </div>
   )

@@ -3,6 +3,7 @@
 from aiq_agent.common import _create_chat_response
 from aiq_agent.turn.streaming import fold_chunks_to_response
 from aiq_agent.turn.streaming import iter_answer_deltas
+from aiq_agent.turn.streaming import live_chunk
 from aiq_agent.turn.streaming import response_to_chunks
 from nat.data_models.api_server import ChatResponseChunk
 
@@ -191,3 +192,60 @@ class TestFoldChunksToResponse:
         deltas = [ChatResponseChunk.create_streaming_chunk(t, finish_reason=None) for t in ["Hel", "lo!"]]
         folded = fold_chunks_to_response(deltas)
         assert folded.choices[0].message.content == "Hello!"
+
+    def test_fold_takes_the_extras_from_the_terminal_not_the_live_frames(self):
+        # The live masthead and card were provisional; the terminal gated both out.
+        live = [
+            live_chunk("", answer_meta={"verdict": {"status": "erfüllt"}}),
+            live_chunk("Vorläufig ", cards=[{"type": "summary"}]),
+        ]
+        terminal = response_to_chunks(_answer_response("Endgültig.", confidence="low"), stream=False)
+        folded = fold_chunks_to_response(live + terminal)
+        assert folded.choices[0].message.content == "Endgültig."
+        assert getattr(folded, "answer_meta", None) is None
+        assert getattr(folded, "cards", None) is None
+        assert folded.answer_confidence == "low"
+
+    def test_fold_keeps_an_empty_terminal_empty(self):
+        # Streamed prose, then a retract snapshot, then an empty terminal: the
+        # answer is empty, not the deltas and the snapshot joined.
+        live = [live_chunk("Zurückgezogene "), live_chunk("Prosa."), live_chunk("", sources=[])]
+        terminal = response_to_chunks(_answer_response(""), stream=False)
+        folded = fold_chunks_to_response(live + terminal)
+        assert folded.choices[0].message.content == ""
+
+    def test_fold_without_a_terminal_lets_a_snapshot_replace_the_deltas(self):
+        live = [live_chunk("Roh [9] "), live_chunk("Text."), live_chunk("Gesetzt [1].", sources=[{"k": 1}])]
+        live.append(live_chunk(" Mehr."))
+        folded = fold_chunks_to_response(live)
+        assert folded.choices[0].message.content == "Gesetzt [1]. Mehr."
+
+    def test_fold_without_a_terminal_lets_a_retraction_take_back_the_masthead_and_cards(self):
+        # A tool round streamed a masthead, prose and a card, then was retracted.
+        live = [
+            live_chunk("", answer_meta={"verdict": {"status": "erfüllt"}}),
+            live_chunk("Runde.", cards=[{"type": "summary"}]),
+            live_chunk("", sources=[]),
+        ]
+        folded = fold_chunks_to_response(live)
+        assert folded.choices[0].message.content == ""
+        assert getattr(folded, "answer_meta", None) is None
+        assert getattr(folded, "cards", None) is None
+
+    def test_fold_without_a_terminal_lets_a_snapshot_without_a_masthead_remove_it(self):
+        live = [
+            live_chunk("", answer_meta={"verdict": {"status": "erfüllt"}}),
+            live_chunk("Roh [9].", cards=[{"type": "summary"}]),
+            live_chunk("Gesetzt [1].", sources=[{"k": 1}]),
+        ]
+        folded = fold_chunks_to_response(live)
+        assert getattr(folded, "answer_meta", None) is None
+        assert folded.cards == [{"type": "summary"}]
+
+    def test_fold_names_the_response_after_the_terminal_not_a_live_chunk_before_it(self):
+        # A live chunk carries a random id and a placeholder model; the terminal
+        # carries the turn's own.
+        resp = _create_chat_response("Fin.", response_id="research_response", model="research_workflow")
+        folded = fold_chunks_to_response([live_chunk("Fin"), *response_to_chunks(resp, stream=False)])
+        assert folded.id == "research_response"
+        assert folded.model == "research_workflow"

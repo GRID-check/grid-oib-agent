@@ -393,16 +393,28 @@ tasks:
       - 'for d in sources/*/tests; do "{{.PY}}" -X faulthandler -m pytest "$d" -q || exit 1; done'
 
   prompts:pull:
-    desc: 'Refresh the bundled fallback prompt from Langfuse: task prompts:pull [-- --label <label>]'
+    desc: 'Bring a Langfuse prompt version into review: task prompts:pull [-- --label <label>]'
     env:
       PYTHONPATH: src
     cmds:
-      # Langfuse owns the platform prompt; this only ever READS it. The file it
-      # writes (`agents/piloti/prompts/piloti_static.md`) is the fallback a
-      # process renders when prompt management is off or Langfuse is
-      # unreachable, so it is allowed to lag and nothing gates on the diff.
-      # There is deliberately no push and no drift check.
+      # Git is the platform prompt's source of truth (ADR-0060 (a)). This only
+      # ever READS Langfuse: it writes the version under a label into
+      # `agents/piloti/prompts/piloti_static.md`, so an edit made in Langfuse
+      # can be committed and reviewed like any other.
       - '{{.PY}} scripts/prompts_pull.py {{.CLI_ARGS}}'
+
+  prompts:push:
+    desc: 'Check (or with -- --apply, publish) the committed platform prompt under a Langfuse label: task prompts:push [-- --label <label> [--apply]]'
+    env:
+      PYTHONPATH: src
+    cmds:
+      # CHECK by default: prints what publishing would change and writes
+      # nothing. `--apply` (with `--label` named, production included) creates
+      # a version whose commit message names its commit and moves the label to
+      # it; the fleet serving that label renders it within the prompt cache
+      # TTL. It refuses a label whose version no commit holds (edited in
+      # Langfuse: pull it into review first) and a file with uncommitted changes.
+      - '{{.PY}} scripts/prompts_push.py {{.CLI_ARGS}}'
 
   be:eval:retrieval:
     desc: 'Retrieval structure check — the Punkt arm''s citable-unit share (model-free, offline; NEEDS the operator corpus in data/oib)'
@@ -449,6 +461,41 @@ tasks:
       # question and a fixed description of the six families, ~a cent for the
       # whole set. Exit 0 = the three floors hold; 1 = keep turn_decisions off.
       - '{{.PY}} scripts/decision_eval.py {{.CLI_ARGS}}'
+
+  be:eval:decisions:offpath:
+    desc: 'Decision-model eval for the annotations — upload tags, Dokumentart, feedback causes — on the hand-labelled tuning sets (NEEDS OPENROUTER_API_KEY; no backend)'
+    cmds:
+      # ADR-0064 uses 4, 8 and 9. Exit 0 = the floors in the script hold.
+      - '{{.PY}} scripts/decision_eval_offpath.py {{.CLI_ARGS}}'
+
+  be:eval:decisions:holdout:
+    desc: 'Held-out check for the decision-model uses, on sets written blind to the wording — never tune on them (NEEDS OPENROUTER_API_KEY; no backend)'
+    cmds:
+      # Exit 0 = every floor holds; the floors sit just under the last result
+      # so a regression fails.
+      - '{{.PY}} scripts/decision_eval_holdout.py {{.CLI_ARGS}}'
+
+  be:eval:turn-census:
+    desc: 'Turn census — run a chat question through the real agent and count every model call, token and second it cost; writes to /tmp/turn_census unless --out, takes --override KEY VALUE (NEEDS OPENROUTER_API_KEY and the corpus ingested locally)'
+    cmds:
+      # The measurement the turns audit could only reconstruct. Runs `nat run`
+      # with a recorder on httpx; no backend, no BFF. Example:
+      #   task be:eval:turn-census -- "Was weißt du über die OIB 2?" --runs 3
+      #   task be:eval:turn-census -- --report /tmp/turn_census/*.jsonl
+      - '{{.PY}} scripts/turn_census/census.py {{.CLI_ARGS}}'
+
+  be:eval:answer-suite:
+    desc: 'Answer suite — the reference questions through the real agent, timed and checked, with a report (NEEDS OPENROUTER_API_KEY and the corpus ingested; -- --ingest syncs it first)'
+    env:
+      PYTHONPATH: src
+    cmds:
+      # The end-to-end check: seconds, reasoning tokens and the answer's own
+      # expectations per question, medians over runs, a baseline diff.
+      #   task be:eval:answer-suite -- --out /tmp/suite/before
+      #   task be:eval:answer-suite -- --out /tmp/suite/after --baseline /tmp/suite/before/results.json
+      #   task be:eval:answer-suite -- --report /tmp/suite/after/results.json
+      # docs/contributing/testing-and-verification.md, "The answer suite".
+      - '{{.PY}} scripts/turn_census/suite.py {{.CLI_ARGS}}'
 
   be:eval:loop:
     desc: 'Agentic-loop shape eval — rounds, locator use, checkpoint source, truncation (NEEDS a running backend with the corpus; set GRID_LOOP_EVAL_URL)'

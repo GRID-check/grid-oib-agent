@@ -12,6 +12,7 @@
  * own auth guard, and pages like onboarding must render without an org.
  */
 
+import type { JSX } from 'react'
 import { type ReactNode } from 'react'
 import { getGridSession } from '@/lib/auth/session'
 import { runWithTenantSlot } from '@/lib/db/tenant-context'

@@ -9,7 +9,6 @@ import json
 import logging
 import re
 from collections.abc import Callable
-from collections.abc import Sequence
 from functools import lru_cache
 from typing import Any
 
@@ -124,25 +123,6 @@ def prune_tool_results(messages: list[BaseMessage], *, keep_turns: int = 1) -> l
             message = prose
         pruned.append(message)
     return pruned
-
-
-def prose_history(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
-    """The messages with every tool call and tool result gone: what was said.
-
-    For a request that must not carry the turn's calls at all, such as the
-    repair rewrite, which gets the thread without the tool results.
-    """
-    kept: list[BaseMessage] = []
-    for message in messages:
-        if isinstance(message, ToolMessage):
-            continue
-        if isinstance(message, AIMessage) and getattr(message, "tool_calls", None):
-            prose = _prose_only(message)
-            if prose is None:
-                continue
-            message = prose
-        kept.append(message)
-    return kept
 
 
 def _prose_only(message: AIMessage) -> AIMessage | None:

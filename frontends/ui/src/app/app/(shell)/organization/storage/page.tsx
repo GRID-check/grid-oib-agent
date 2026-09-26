@@ -13,6 +13,7 @@
  * not be limited — so there is no editor here for any role.
  */
 
+import type { JSX } from 'react'
 import { HardDrive } from 'lucide-react'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'

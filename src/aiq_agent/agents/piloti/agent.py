@@ -17,8 +17,8 @@ round stopped being a proxy for cost the moment it stopped being one call.
 nodes on the LangGraph config, so a turn costs one ``bind_tools`` at most and
 never a prompt read or a graph compile.
 
-The post-answer pipeline lives in :mod:`.answer_pipeline`, the repair pass in
-:mod:`.repair`, the wire and ledger in :mod:`.ledger`, prompt assembly in
+The post-answer pipeline lives in :mod:`.answer_pipeline`, the quote repair in
+:mod:`.quote_patch`, the wire and ledger in :mod:`.ledger`, prompt assembly in
 :mod:`.prompt`.
 """
 
@@ -63,6 +63,7 @@ from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.cost_tracking import grid_cost_tracker_var
 from aiq_agent.common.data_sources import disabled_source_notice
+from aiq_agent.common.deferred_tool_loading import DeferredToolBinding
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.grounding_block import begin_grounding_capture
@@ -97,11 +98,15 @@ from aiq_agent.observability.langfuse_trace_attributes import end_turn_prompt_li
 from aiq_agent.tools.bim.measurement_sources import begin_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import end_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import get_measurement_captures
+from aiq_agent.turn.answer_stream import streaming_call
 
 from .answer_pipeline import CardRepairFn
 from .answer_pipeline import FinalAnswer
+from .answer_pipeline import LiveAnswer
 from .answer_pipeline import RepairFn
 from .answer_pipeline import finalize_answer
+from .answer_pipeline import looked_up_this_turn
+from .envelope_call import ainvoke
 from .envelope_call import ainvoke_with_envelope_json_mode
 from .grounding import tool_result_is_measurement
 from .ledger import assemble_result
@@ -111,8 +116,7 @@ from .prompt import render_system_prompt
 from .prompt import shelf_label
 from .prompt import stamp_static_prompt_for_turn
 from .prompt import system_prompt_template
-from .repair import VerificationFailures
-from .repair import repair_answer
+from .quote_patch import quote_patcher
 from .tool_search import ToolSearchIndex
 from .tool_search import ToolSearchSettings
 from .tool_search import build_query_parts
@@ -763,6 +767,14 @@ def _turn_input_tokens() -> int:
     return tracker.prompt_tokens
 
 
+def _live_answer(state: ResearchAgentState) -> LiveAnswer | None:
+    """What the stream may show ahead of the pipeline, gated against the registry this turn answers from."""
+    registry = get_session_registry()
+    if registry is None:
+        return None
+    return LiveAnswer(registry, lookup_attempted=looked_up_this_turn(state.messages))
+
+
 def _turn_cutoff(state: ResearchAgentState, binding: TurnBinding) -> str | None:
     """Which bound (if any) this turn has already crossed.
 
@@ -931,9 +943,9 @@ class PilotiAgent:
                 OpenRouter-routed providers accept the parameter and then stop
                 emitting tool calls, a silent degradation the per-call
                 fallback cannot see.
-            repair_pass: One bounded repair after verification (``repair.py``).
-                Off is the pre-repair behaviour: ship the markers, never
-                re-search.
+            repair_pass: Correct a misremembered quotation in place, on
+                ``card_repair_llm`` (``quote_patch.py``, ADR-0067). Off, or
+                without that model, ships the marker.
             card_repair_llm: The small model that fixes ONE envelope card
                 whose shape the validator refused (``cards/repair.py``): a few
                 thousand tokens instead of the full-context round the
@@ -1167,10 +1179,19 @@ class PilotiAgent:
             return await self._forced_synthesis(state, binding, system_prompt, cutoff=cutoff)
 
         messages = [SystemMessage(content=system_prompt), *state.messages]
+        # Every round may be the answer, and only its tokens say so; each
+        # streams, and the reader shows nothing from a round that is not an
+        # envelope. The deferred binding stays buffered (its fallback would
+        # replay tokens it already streamed).
+        answering, call_config = (
+            (llm_with_tools, None)
+            if isinstance(llm_with_tools, DeferredToolBinding)
+            else streaming_call(llm_with_tools, live=_live_answer(state))
+        )
         if self.envelope_json_mode_with_tools:
-            response = await ainvoke_with_envelope_json_mode(llm_with_tools, messages)
+            response = await ainvoke_with_envelope_json_mode(answering, messages, call_config)
         else:
-            response = await llm_with_tools.ainvoke(messages)
+            response = await ainvoke(answering, messages, call_config)
         # The tool calls are over and the answer is being written. Without
         # this the live line keeps showing the last retrieval event through
         # the whole synthesis call.
@@ -1259,7 +1280,8 @@ class PilotiAgent:
             emit_synthesis()
         # Anchored at the end to combat "Loss in the Middle".
         messages = [SystemMessage(content=system_prompt), *state.messages, HumanMessage(content=_SYNTHESIS_ANCHOR)]
-        response = await ainvoke_with_envelope_json_mode(binding.llm, messages)
+        answering, call_config = streaming_call(binding.llm, live=_live_answer(state))
+        response = await ainvoke_with_envelope_json_mode(answering, messages, call_config)
         return {
             "messages": [response],
             "tool_iterations": state.tool_iterations,
@@ -1376,23 +1398,11 @@ class PilotiAgent:
             config["callbacks"] = self.callbacks
         return config
 
-    def _repairer(self, binding: TurnBinding, graph_result: dict[str, Any]) -> RepairFn | None:
-        """The turn's one repair, bound to this turn's LLM and tools; ``None`` when off."""
-        if not self.repair_pass:
+    def _repairer(self) -> RepairFn | None:
+        """The turn's quote patch on the small model; ``None`` when off or when there is none."""
+        if not self.repair_pass or self.card_repair_llm is None:
             return None
-        system_prompt = graph_result.get("cached_system_prompt") or self.system_prompt
-
-        async def repair(prose: str, failures: VerificationFailures, history: list[Any]) -> Any:
-            return await repair_answer(
-                prose,
-                failures=failures,
-                tools=binding.tools,
-                llm=binding.llm,
-                system_prompt=system_prompt,
-                history=history,
-            )
-
-        return repair
+        return quote_patcher(self.card_repair_llm)
 
     def _card_repairer(self) -> CardRepairFn | None:
         """The turn's card repair on the small model; ``None`` when none is configured."""
@@ -1534,20 +1544,19 @@ class PilotiAgent:
             graph_result.get("messages") or [],
             registry=registry,
             tools=binding.tools,
-            repair=self._repairer(binding, graph_result),
+            repair=self._repairer(),
             turn_sources=turn_sources,
             card_repair=self._card_repairer(),
         )
         self._emit_final_report(final)
         # The "already read" digest, appended at turn end: this turn's captures
-        # (plus an adopted repair's reads) merged over the incoming lines, so
-        # the next turn re-opens with `read_passage` instead of re-searching.
-        combined_sources = [*turn_sources, *final.repair_sources]
-        merged_digest = merge_digest(state.already_read_digest, combined_sources, _turn_index(state))
+        # merged over the incoming lines, so the next turn re-opens with
+        # `read_passage` instead of re-searching.
+        merged_digest = merge_digest(state.already_read_digest, turn_sources, _turn_index(state))
         result = assemble_result(
             graph_result,
             final,
-            turn_sources=combined_sources,
+            turn_sources=turn_sources,
             turn_measurements=turn_measurements,
             lane_hits=lane_hits,
         )

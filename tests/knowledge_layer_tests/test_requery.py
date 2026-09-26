@@ -381,3 +381,42 @@ class TestLaneToolScope:
         await _search(_config())
 
         assert current_lane_tool() is None
+
+
+class TestTheSearchRetrieverHandle:
+    async def test_teardown_clears_the_warm_up_handle(self, loop_harness):
+        """The handle was last-wins and never cleared: a torn-down tool's
+        retriever stayed alive and kept being warmed."""
+        from aiq_agent.knowledge import factory
+
+        retriever = _FakeRetriever({})
+        loop_harness(retriever, None)
+
+        async with knowledge_retrieval(_config(), MagicMock()):
+            assert factory._SEARCH_RETRIEVER is retriever
+
+        assert factory._SEARCH_RETRIEVER is None
+
+    async def test_teardown_leaves_a_later_tools_handle(self, loop_harness, monkeypatch):
+        from aiq_agent.knowledge import factory
+
+        # Restored even when the assert fails, so no later test inherits the handle.
+        monkeypatch.setattr(factory, "_SEARCH_RETRIEVER", None)
+        loop_harness(_FakeRetriever({}), None)
+        later = object()
+
+        async with knowledge_retrieval(_config(), MagicMock()):
+            factory.set_search_retriever(later)
+
+        assert factory._SEARCH_RETRIEVER is later
+
+
+def test_the_prefetch_requery_switch_stays_removed():
+    """`requery_on_prefetch: false` was measured 3.4 s slower on the turns it
+    applied to (turn-latency-measured-2026-09.md §3.5) and removed with its
+    marker; the PR that measured it carries the
+    implementation if it is ever needed again."""
+    from aiq_agent.common import turn_status
+
+    assert "requery_on_prefetch" not in KnowledgeRetrievalConfig.model_fields
+    assert not hasattr(turn_status, "in_prefetch") and not hasattr(turn_status, "prefetch_scope")

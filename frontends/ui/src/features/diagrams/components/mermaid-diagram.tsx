@@ -5,20 +5,25 @@
  *
  * ## The three states, and why the fallback is the source
  *
- *   - **streaming** — the fence is still arriving, so nothing is drawn. The
- *     stabiliser in `MarkdownRenderer` appends a synthetic closing fence to
- *     half-arrived markdown, which means an in-flight mermaid block LOOKS
- *     complete on every token. Handing that to mermaid renders a parse error
- *     per token, so the rule is simply: while the answer is streaming, a
- *     mermaid fence is a code block. It becomes a diagram once, when the answer
- *     is finished and the text has stopped changing.
+ *   - **streaming** — the fence is still arriving, so nothing is drawn.
+ *     CommonMark runs an unclosed fence to the end of the text, which means an
+ *     in-flight mermaid block LOOKS complete on every token; handing that to
+ *     mermaid renders a parse error per token. So the fence still being
+ *     written (`isOpenFence` in `MarkdownRenderer`) shows the drawing's
+ *     placeholder, not its source, and every fence already closed is drawn
+ *     while the rest of the answer streams (ADR-0066).
  *   - **failed** — the model writes broken mermaid regularly, and that must
  *     cost the reader nothing they did not already have. A failure renders the
  *     source, exactly as it rendered before this component existed, plus one
  *     quiet line saying the drawing did not work. Never a red box, never a
  *     thrown error inside somebody's answer.
- *   - **drawn** — the SVG, one line saying it claims no dimensions, and (only
- *     where a surface supplied a filing target) the button that files it.
+ *   - **drawn** — in one of two forms. Where the source parses into a model
+ *     this product has a view for (`../use-diagram-model.ts`), that view, on a
+ *     soft `bg-muted/40` plane, with no dimensions line (it has no geometry to
+ *     claim one with) and the filing button only inside a project. Otherwise
+ *     mermaid's SVG in a hairline frame, one line saying it claims no
+ *     dimensions, and (only where a surface supplied a filing target) the
+ *     button that files it.
  *
  * ## The drawing has no ground of its own
  *
@@ -29,8 +34,9 @@
  * whose design language has no accent colour at all.
  *
  * A drawing is not a page. A flowchart is line and text; the paper under it
- * belongs to whatever it is lying on, which here is the card. So the figure
- * paints no background, the SVG carries none (mermaid's is dropped by
+ * belongs to whatever it is lying on, which here is the card. So mermaid's
+ * figure paints no background (the view form's `bg-muted/40` is a plane in
+ * the card's own tokens, not a sheet of paper), the SVG carries none (mermaid's is dropped by
  * `flattenComputedStyles`, which does not copy `background-color`), and the
  * card surface shows through in both themes. What the drawing is MADE of — its
  * ink — comes from the product's tokens, per theme, via
@@ -48,16 +54,21 @@
  * `securityLevel: 'strict'` alone — it is that the string was put through the
  * SERVER'S validator and re-serialised from its allow-list before it got here
  * (`renderMermaid` in `../render-diagram.ts`). So the markup below contains
- * only elements and attributes `lib/diagrams/svg.ts` writes, and it is
- * byte-for-byte what the filing button will send.
+ * only elements and attributes `lib/diagrams/svg.ts` writes. The copy the
+ * filing button sends is drawn the same way on paper (`fileSvg`, or
+ * `renderPaperDiagram` when a view is shown).
  */
 
+import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
 import { CodeBlock } from '@/shared/components/CodeBlock'
-import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslations } from '@/i18n'
-import { useRenderedDiagram } from '../use-rendered-diagram'
-import { useDiagramFiling } from '../use-diagram-filing'
+import { diagramFrameStyle } from '../diagram-size'
+import { renderPaperDiagram, useRenderedDiagram } from '../use-rendered-diagram'
+import { useDiagramModel } from '../use-diagram-model'
+import { DiagramView } from '../views/diagram-views'
+import { titleFromSource, useDiagramFiling } from '../use-diagram-filing'
 import { DiagramFilingControls } from './diagram-filing-controls'
+import { DrawingSkeleton } from './drawing-skeleton'
 
 export interface MermaidDiagramProps {
   source: string
@@ -65,53 +76,69 @@ export interface MermaidDiagramProps {
   isStreaming?: boolean
 }
 
-/**
- * The drawing's space while mermaid lays the graph out.
- *
- * Three bars and not a spinner, and not the source either. The shape the reader
- * is waiting for is a graph, so a single grey block reads as an image that
- * failed; and swapping a fifteen-line code block for a picture is a bigger jump
- * than growing a placeholder. It is the same skeleton the `diagram` CARD holds
- * (`features/grid-cards/components/DiagramCard.tsx`) — Jakob's law inside one
- * product: the two surfaces that draw the same mermaid must wait the same way.
- *
- * The height is representative, not a reservation: a mermaid drawing's height
- * is unknown until the graph is laid out, so the figure does resize when the
- * SVG lands. Nothing animates it — the design language forbids animating
- * height, and this changes in one paint.
- */
-function DrawingSkeleton() {
-  return (
-    <div className="flex h-[132px] flex-col justify-center gap-3" aria-hidden="true">
-      <Skeleton className="h-4 w-2/5 rounded-md" />
-      <Skeleton className="h-4 w-3/5 rounded-md" />
-      <Skeleton className="h-4 w-1/3 rounded-md" />
-    </div>
-  )
-}
-
 export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramProps) {
   const t = useTranslations('diagrams')
+  const tCommon = useTranslations('common')
   // The render itself is `useRenderedDiagram` — shared with the `diagram` card,
   // which draws the same sources through the same renderer. One drive, so the
   // fresh id, the cancellation and the "a failure is not a throw" rule cannot
   // come out different on the two surfaces.
-  const { svg, fileSvg, failed } = useRenderedDiagram(source, !isStreaming)
+  // Drawn by this product's own views when mermaid's parser can read it into
+  // a model (`docs/design/answer-visuals.md`); mermaid's SVG is then only the
+  // FILE, drawn on paper when the reader files it and not before. Without a
+  // model the SVG is the picture, as before.
+  const model = useDiagramModel(source, !isStreaming)
+  const { svg, fileSvg, failed } = useRenderedDiagram(source, !isStreaming && model === null)
   // And one WRITE, shared with the card for the same reason. `fileSvg` and not
   // `svg`: the bytes that go into the project are always the paper ones.
-  const filing = useDiagramFiling({ source, fileSvg })
+  const filing = useDiagramFiling({ source, fileSvg, renderFileSvg: model ? () => renderPaperDiagram(source, model) : undefined })
 
-  // Streaming, or refused to draw: the source, which is what the reader saw
-  // before this component existed. NOT the "still drawing" case — that one gets
-  // the skeleton below, because replacing a code block with a picture a second
-  // later is a bigger jump than growing a placeholder into one.
-  if (isStreaming || failed) {
+  // Still being written: the drawing's place, not its source. A code block that
+  // turned into a picture when its fence closed was the largest jump a
+  // streamed answer made; a placeholder growing into the figure is the small
+  // one the drawing state below already makes (ADR-0066). Still being parsed
+  // (`model === undefined`) holds the same placeholder: which of the two
+  // pictures it becomes is not known yet, and mermaid's frame with its
+  // „Schematisch" line flashed before this product's view replaced it.
+  if (isStreaming || model === undefined) {
+    return (
+      <figure data-testid="mermaid-diagram" data-state={isStreaming ? 'streaming' : 'drawing'} className="my-4" aria-busy="true">
+        <div className="border-border rounded-lg border p-3">
+          <DrawingSkeleton />
+        </div>
+      </figure>
+    )
+  }
+
+  if (!model && failed) {
     const lineCount = source.split('\n').length
     return (
-      <div data-testid="mermaid-diagram" data-state={failed ? 'failed' : 'streaming'}>
+      <div data-testid="mermaid-diagram" data-state="failed">
         <CodeBlock value={source} language="mermaid" collapsible={lineCount > 15} maxLines={15} />
-        {failed ? <p className="mt-1 text-xs text-muted-foreground">{t('fallback')}</p> : null}
+        <p className="text-muted-foreground mt-1 text-xs">{t('fallback')}</p>
       </div>
+    )
+  }
+
+  if (model) {
+    return (
+      <figure data-testid="mermaid-diagram" data-state="drawn" data-view={model.kind} className="my-4">
+        {/* A soft plane, not a frame: the nodes are cards and read on it
+            without a box around a box. */}
+        <div className="bg-muted/40 rounded-xl p-3 @container">
+          <DiagramView model={model} label={titleFromSource(source) ?? t(`kind.${model.kind}`)} />
+        </div>
+        {/* No „Schematisch — ohne Maßangabe." here: that line tells a reader a
+            DRAWING claims no measurement, and these views have no geometry
+            to claim one with. What is left is the filing action, and only
+            inside a project (`DiagramFilingControls` renders nothing without
+            a target). A filed copy carries the disclaimer in its own text. */}
+        {filing.target ? (
+          <figcaption className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 text-xs">
+            <DiagramFilingControls filing={filing} />
+          </figcaption>
+        ) : null}
+      </figure>
     )
   }
 
@@ -121,7 +148,10 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
           whatever surface it is lying on, which is the card — in both themes.
           A hairline frame is all it needs to read as a figure rather than as
           loose marks in the prose. */}
-      <div className="overflow-x-auto rounded-lg border border-border p-3 [&_svg]:h-auto [&_svg]:max-w-full">
+      <HorizontalScroll
+        className="border-border rounded-lg border p-3 [&_svg]:h-auto [&_svg]:max-w-full"
+        aria-label={tCommon('markdown.scrollDiagram')}
+      >
         {svg ? (
           <div
             // Safe because of what produced the string, not because of where it is
@@ -132,13 +162,15 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
             // producer, which the scanner cannot see — a false positive, argued
             // out the same way as `scripts/release_notes.py`.
             // nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
+            // Its own width, not the column's: see `diagram-size.ts`.
+            style={diagramFrameStyle(svg)}
             dangerouslySetInnerHTML={{ __html: svg }}
           />
         ) : (
           <DrawingSkeleton />
         )}
-      </div>
-      <figcaption className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+      </HorizontalScroll>
+      <figcaption className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 text-xs">
         {/* The doctrine, where the reader is. Fifteen schematic cards in this
             product compute their geometry so they cannot disagree with their
             own numbers; a model-authored diagram has no such guarantee, so it

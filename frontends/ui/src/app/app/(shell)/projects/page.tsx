@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { getNavFlags } from '@/lib/authz/nav'
 import { canManageCompliance } from '@/lib/authz/organizations'

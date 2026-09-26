@@ -253,6 +253,20 @@ _METADATA_FIELDS = (
 _TITLE_KEYS = ("Kurztitel", "Titel", "Dokumenttitel", "Kurzinformation", "Geschaeftszahl")
 
 
+#: The host OGD-RIS started stating in 2026-09 for document and whole-law URLs.
+#: It answers with a 301 to ``ris.bka.gv.at``, is on no allow-list, and written
+#: into the norm catalog it replaced every pointer the reader can open.
+_OGD_HOST_PREFIX = "https://ogd.ris.bka.gv.at/"
+_PUBLIC_HOST_PREFIX = "https://www.ris.bka.gv.at/"
+
+
+def public_host(url: str) -> str:
+    """A RIS URL on the public host the citations, the catalog and the fetch use."""
+    if url.startswith(_OGD_HOST_PREFIX):
+        return _PUBLIC_HOST_PREFIX + url[len(_OGD_HOST_PREFIX) :]
+    return url
+
+
 def _parse_hit(ref: Any) -> RisHit:
     """Normalize one OgdDocumentReference node into a RisHit."""
     hit = RisHit()
@@ -272,8 +286,8 @@ def _parse_hit(ref: Any) -> RisHit:
             hit.title = title
             break
 
-    hit.citation_url = _as_text(_find_first(metadaten, "DokumentUrl"))
-    hit.full_law_url = _as_text(_find_first(metadaten, "GesamteRechtsvorschriftUrl"))
+    hit.citation_url = public_host(_as_text(_find_first(metadaten, "DokumentUrl")))
+    hit.full_law_url = public_host(_as_text(_find_first(metadaten, "GesamteRechtsvorschriftUrl")))
 
     for key, label in _METADATA_FIELDS:
         value = _as_text(_find_first(metadaten, key))
@@ -370,6 +384,13 @@ def html_to_text(markup: str) -> tuple[str, str]:
 
         soup = BeautifulSoup(markup, "html.parser")
         for tag in soup(["script", "style", "noscript", "head"]):
+            tag.decompose()
+        # RIS states every marker twice: ``a)`` for the eye (aria-hidden) and
+        # ``Litera a`` for a screen reader (.sr-only), and every citation again
+        # spelled out ("Paragraph 118, Absatz eins"). Kept, the spoken twin was
+        # a third of the Bauordnung für Wien and half of some §§, and it pushed
+        # the provision itself out of the passage the agent reads.
+        for tag in soup.select(".sr-only"):
             tag.decompose()
         root = soup.select_one(_RIS_CONTENT_SELECTOR) or soup
         text = root.get_text("\n")
@@ -553,6 +574,7 @@ class RisClient:
         Raises:
             RisError: For disallowed URLs, transport failures, or binary payloads.
         """
+        url = public_host(url)
         self._validate_document_url(url)
 
         cached = self._doc_cache.get(url)

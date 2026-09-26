@@ -43,6 +43,7 @@
  * every render, so the panel never fights the person using it.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'

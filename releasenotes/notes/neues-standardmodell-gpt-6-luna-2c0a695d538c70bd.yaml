@@ -1,0 +1,9 @@
+---
+other:
+  - >
+    Neue Installationen antworten standardmäßig mit GPT-6 Luna: gründlicher,
+    etwas langsamer, pro Antwort günstiger. Bestehende Installationen behalten
+    für Antworten ihr Modell (umstellen unter Plattform → Modelle).
+    Dokumentzusammenfassungen, Relevanz- und Konsistenzprüfung sowie
+    Bildbeschreibungen wechseln überall auf GPT-6 Luna, außer eine
+    Umgebungsvariable legt ihr Modell fest.

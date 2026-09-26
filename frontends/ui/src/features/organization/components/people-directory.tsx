@@ -38,6 +38,7 @@
  * token endpoint, and a backend-free screenshot route has none.
  */
 
+import type { JSX } from 'react'
 import { useMemo } from 'react'
 import { UsersManagement, WorkOsWidgets } from '@workos-inc/widgets'
 import { Users } from 'lucide-react'

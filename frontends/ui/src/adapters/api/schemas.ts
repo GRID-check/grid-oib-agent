@@ -463,6 +463,9 @@ export const NATSystemResponseMessageSchema = z.object({
   // here, bounded by `sanitizeRetrievalLedger` before anything stores or
   // renders it — same split as `answer_meta`.
   retrieval_ledger: z.array(z.unknown()).optional().catch(undefined),
+  // A live frame whose text REPLACES the streaming bubble's: the prose with
+  // its citations settled mid-stream, before the cards (ADR-0066).
+  stream_replace: z.boolean().optional().catch(undefined),
 })
 
 /** Intermediate step content */

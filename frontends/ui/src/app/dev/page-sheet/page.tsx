@@ -13,6 +13,7 @@
  * grabber's pull-down dismissal, the exit — not just the resting frame.
  */
 
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { notFound } from 'next/navigation'
 import { Button } from '@/components/ui/button'

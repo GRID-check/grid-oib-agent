@@ -311,7 +311,7 @@ def render_system_prompt(
         # no section.
         skills_block=state.skills_block,
         # The shapes of the cards this turn is likely to earn (ADR-0064),
-        # beyond the eight the static envelope contract already teaches.
+        # beyond the shapes the envelope teaches (ENVELOPE_SHAPE_TYPES).
         card_shapes_block=state.card_shapes_block,
     )
     if os.environ.get("DEBUG_PROMPTS"):

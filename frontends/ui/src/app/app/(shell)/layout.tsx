@@ -31,6 +31,7 @@
  * exactly once, here, rather than in the eight places that each used to.
  */
 
+import type { JSX } from 'react'
 import { type ReactNode } from 'react'
 import { AppShellChrome } from '@/components/shell/app-shell-chrome'
 import { RouteFocus } from '@/shared/components/route-focus'

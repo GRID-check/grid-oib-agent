@@ -343,33 +343,30 @@ every chat-scoped skill to deep research as well.
 
 Every builtin declares `grid-agents`, and the value splits the corpus in two.
 
-The five in `research/` and `synthesis/` declare `deep_researcher` **and nothing
+The six in `research/` and `synthesis/` declare `deep_researcher` **and nothing
 else**. They are DeepAgents subagent skills: their instructions call `execute`,
 read and write `/shared/` and return `ResearchNotes`, none of which exists in a
 chat turn. That one key is what keeps Piloti from being
 offered a procedure it cannot carry out.
 
-The six in `bim/`, `oib/` and `presentation/` are chat skills and say so.
-`ifc-spatial-reasoning` and the four `oib/` domain skills name both agents;
-`diagrams` names **`researcher` alone**, and the reason is
-worth stating because it looks like an omission. A builtin FILE does not reach
-deep research through `grid-agents` at all: `resolve_served_skills` keeps only
-BFF-served rows (`origin == "org"`), and the builtins reach deep subagents
-through the collection assignment in `deep_research_skills` instead — which
-today names `research` and `synthesis` and nothing else. So naming
-`deep_researcher` on a file in a new collection would claim a channel that does
-not exist. The four `oib/` skills carry it harmlessly; a skill added now should
-not copy it without checking.
+The nine in `bim/` and `oib/` are chat skills: `ifc-spatial-reasoning` and the
+eight `oib/` domain skills name both agents, because the questions they are
+about get asked in chat. A builtin FILE does not reach deep research through
+`grid-agents` at all: `resolve_served_skills` keeps only BFF-served rows
+(`origin == "org"`), and the builtins reach deep subagents through the
+collection assignment in `deep_research_skills` instead, which today names
+`research` and `synthesis` and nothing else. So `deep_researcher` on these nine
+claims a channel that does not exist. It is harmless, and a skill added now
+should not copy it without checking.
+
+There is no `presentation/` collection any more. Its one skill, `diagrams`,
+was retired because every rule it held was already in the static prompt
+(`piloti_static.md` `<formatting>`), and loading it cost a full round. What a
+diagram is drawn as, and why, is in
+[`docs/design/answer-visuals.md`](../design/answer-visuals.md).
 
 Since `grid-agents` is the ONLY thing doing the targeting,
 `platform-skills.spec.ts` asserts every builtin still declares it. The BFF forwards platform metadata
-The research and synthesis builtins declare `grid-agents: deep_researcher`
-and nothing else. They are DeepAgents subagent skills: their instructions call
-`execute`, read and write `/shared/` and return `ResearchNotes`, none of which
-exists in a chat turn. That one key is what keeps Piloti
-from being offered a procedure it cannot carry out. The OIB and BIM skills
-name both agents, because the questions they are about get asked in chat.
-`platform-skills.spec.ts` asserts every builtin still declares `grid-agents`. The BFF forwards platform metadata
 **verbatim** on the resolve endpoint (an empty `metadata: {}` would merge over
 the backend's own filesystem copy and erase this targeting), and the agent
 filter applies to platform rows as well as org rows.

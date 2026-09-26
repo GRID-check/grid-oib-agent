@@ -32,6 +32,7 @@
  * org header stands behind the sheet.
  */
 
+import type { JSX } from 'react'
 import * as React from 'react'
 import { usePathname } from 'next/navigation'
 

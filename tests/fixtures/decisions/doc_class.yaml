@@ -1,0 +1,82 @@
+# Hand-labelled, written for ADR-0064 use 8 (2026-09-25). Not captured payloads:
+# openings in the shape of each Dokumentart the base corpus holds, under file
+# names that carry no OIB hint (the case the filename guess sends to
+# `sonstiges`). `doc_class` is what a platform owner would pick. Re-run with
+# `task be:eval:decisions:offpath`.
+- file_name: RL_Brand_2023_final.pdf
+  doc_class: oib_richtlinie
+  text: >-
+    OIB-Richtlinie 2 Brandschutz. Ausgabe: Mai 2023. Diese Richtlinie basiert auf den Beratungen
+    der von der Landesamtsdirektorenkonferenz zur Ausarbeitung eines Vorschlages für
+    harmonisierte bautechnische Vorschriften eingesetzten Länderexpertengruppe. 1 Begriffsbestimmungen.
+    Es gelten die Begriffsbestimmungen des Dokumentes „OIB-Richtlinien – Begriffsbestimmungen“.
+    2 Allgemeine Anforderungen und Tragfähigkeit im Brandfall.
+- file_name: leitfaden_abweichungen.pdf
+  doc_class: oib_leitfaden
+  text: >-
+    OIB-Leitfaden Abweichungen im Brandschutz und Brandschutzkonzepte. Ausgabe Mai 2023. Dieser
+    Leitfaden dient als Hilfestellung bei der Erstellung von Brandschutzkonzepten, wenn von den
+    Anforderungen der OIB-Richtlinie 2 abgewichen wird, und beschreibt, wie die Gleichwertigkeit
+    nachgewiesen werden kann.
+- file_name: RL4_erl.pdf
+  doc_class: oib_erlaeuterung
+  text: >-
+    Erläuternde Bemerkungen zu OIB-Richtlinie 4 „Nutzungssicherheit und Barrierefreiheit“, Ausgabe
+    Mai 2023. Allgemeines: Die Richtlinie wurde im Hinblick auf ... Zu Punkt 2.1: Die Anforderung an
+    die Stufenhöhe wurde beibehalten, weil ... Zu Punkt 4.2: Die Erhöhung der Geländerhöhe begründet sich ...
+- file_name: begriffe_2023.pdf
+  doc_class: oib_begriffe
+  text: >-
+    OIB-Richtlinien Begriffsbestimmungen, Ausgabe Mai 2023. Aufenthaltsraum: Raum, der zum längeren
+    Aufenthalt von Personen bestimmt ist. Brandabschnitt: Bereich, der durch brandabschnittsbildende
+    Wände und Decken von Teilen eines Gebäudes getrennt ist. Fluchtniveau: Höhendifferenz zwischen
+    der Fußbodenoberkante des höchstgelegenen oberirdischen Geschoßes und dem tiefsten Punkt ...
+- file_name: nachweis_waermeschutz_ref.pdf
+  doc_class: oib_referenz
+  text: >-
+    OIB-Dokument zur Definition des Niedrigstenergiegebäudes und zur Festlegung von
+    Zwischenzielen in einem „Nationalen Plan“ gemäß Artikel 9 (3) zu 2010/31/EU. Referenzdokument
+    zur OIB-Richtlinie 6. Tabellen mit Referenzwerten für den Heizwärmebedarf und den
+    Gesamtenergieeffizienz-Faktor.
+- file_name: aenderungen_rl2_2019_2023.pdf
+  doc_class: oib_aenderung
+  text: >-
+    Änderungen der OIB-Richtlinie 2 Ausgabe Mai 2023 gegenüber der Ausgabe April 2019. Die folgende
+    Gegenüberstellung zeigt die geänderten Textstellen: Punkt 3.1.2 alt: ... neu: ... Punkt 5.1.1
+    wurde gestrichen. Tabelle 1b: Anforderung für Gebäudeklasse 4 geändert von R 60 auf ...
+- file_name: B1600_2012.pdf
+  doc_class: norm_extern
+  text: >-
+    ÖNORM B 1600. Barrierefreies Bauen — Planungsgrundlagen. Ausgabe: 2012-02-15. Normengruppe B.
+    Ident (IDT) mit ... Diese ÖNORM legt Planungsgrundlagen für die barrierefreie Gestaltung von
+    baulichen Anlagen fest. 1 Anwendungsbereich. 2 Normative Verweisungen. 3 Begriffe.
+- file_name: EN1991-1-3.pdf
+  doc_class: norm_extern
+  text: >-
+    ÖNORM EN 1991-1-3. Eurocode 1 — Einwirkungen auf Tragwerke — Teil 1-3: Allgemeine Einwirkungen,
+    Schneelasten. Ausgabe 2016. Nationales Vorwort. Diese Europäische Norm enthält Hinweise zur
+    Bestimmung der Schneelast für die Tragwerksberechnung von Hoch- und Ingenieurbauten.
+- file_name: BO_Wien_konsolidiert.pdf
+  doc_class: gesetz
+  text: >-
+    Bauordnung für Wien. LGBl. Nr. 11/1930 in der geltenden Fassung. I. Teil: Stadtplanung. § 1.
+    Flächenwidmungspläne und Bebauungspläne. (1) Zur geordneten und nachhaltigen Gestaltung und
+    Entwicklung des Stadtgebietes hat die Gemeinde Flächenwidmungspläne und Bebauungspläne festzusetzen.
+- file_name: TBO_2022.pdf
+  doc_class: gesetz
+  text: >-
+    Gesetz vom 23. März 2022, mit dem die Tiroler Bauordnung 2022 erlassen wird. Der Landtag hat
+    beschlossen: 1. Abschnitt, Allgemeine Bestimmungen. § 1 Geltungsbereich. (1) Dieses Gesetz gilt
+    für die Errichtung, Änderung und den Abbruch von baulichen Anlagen im Land Tirol.
+- file_name: merkblatt_stellplaetze.pdf
+  doc_class: sonstiges
+  text: >-
+    Merkblatt der Baubehörde Graz: Hinweise zur Einreichung von Stellplatznachweisen. Bitte legen
+    Sie dem Bauansuchen einen Lageplan mit eingezeichneten Stellplätzen bei. Die Stellplatzanzahl
+    ist nach dem Steiermärkischen Baugesetz zu ermitteln. Kontakt: Bauamt, Zimmer 214.
+- file_name: praesentation_brandschutztag.pdf
+  doc_class: sonstiges
+  text: >-
+    Brandschutztag 2024 — Vortrag. Folie 1: Neuerungen in der OIB-Richtlinie 2. Folie 2: Was hat sich
+    bei den Fluchtwegen geändert? Folie 3: Praxisbeispiele aus Wien und Graz. Folie 4: Fragen und
+    Diskussion. Referent: Ing. Huber, Brandschutzplanung.

@@ -16,6 +16,7 @@
  * and the picker search. Not linked from anywhere and 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { PlatformModelDefaults } from '@/app/app/(shell)/platform/models/platform-model-defaults'
 import { AGENT_GROUPS as REGISTRY } from '@/lib/model-config/agent-groups'
@@ -46,7 +47,7 @@ const DEFAULTS = {
   },
 }
 
-const WORKFLOW_DEFAULTS = Object.fromEntries(AGENT_GROUPS.map((group) => [group.id, 'openai/gpt-5.6-luna']))
+const WORKFLOW_DEFAULTS = Object.fromEntries(AGENT_GROUPS.map((group) => [group.id, 'openai/gpt-6-luna']))
 
 // The thinking-level half of the same card. Pinned at both ends of the scale
 // (`follow_ups` → none, `deep_research` → xhigh) so the cheapest and most expensive

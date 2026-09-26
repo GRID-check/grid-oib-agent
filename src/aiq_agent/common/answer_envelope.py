@@ -40,8 +40,10 @@ agents share must not live in one agent's package.
 
 Fail-open in every direction, and the asymmetry is deliberate: a malformed
 envelope may cost the ENRICHMENT, never the ANSWER. Parsing is safe to attempt
-at all because the chat pipeline is fully buffered — nothing streams to the
-reader before this module has run (docs/design/streaming-chat-answer.md).
+at all because what the reader sees before this module has run is only
+provisional frames (the masthead, the ``answer`` prose with its markers pending,
+the cards as they close), and the terminal frame built from this module's output
+replaces them (ADR-0066).
 
 The gates are the point, not an accident (see ``docs/architecture/cards.md``):
 
@@ -97,17 +99,28 @@ ENVELOPE_FENCE = "answer_json"
 # bare JSON object with an "answer" key, because that is the most common way a
 # model drops the fence and the answer inside it must not be lost to a
 # formatting slip.
+#
+# The block ENDS where its JSON object ends, not at the first ``` after it. The
+# `answer` string is Markdown and may carry a fence of its own — a ```mermaid
+# drawing, a listing — and a lazy match stopped at that inner fence, so the
+# object was cut mid-string, failed to parse, and the reader got the raw JSON
+# instead of the answer. `_envelope_blocks` finds the object's end with the
+# same string-aware brace scan `_parse_object` uses, and only falls back to
+# the first closing fence for an object that never closes (a truncated reply).
+_ANSWER_JSON_OPEN_RE = re.compile(rf"```{ENVELOPE_FENCE}[ \t]*\n")
 _ANSWER_JSON_FENCE_RE = re.compile(rf"```{ENVELOPE_FENCE}[ \t]*\n(.*?)\n?```", re.DOTALL)
+_FENCE_CLOSE_RE = re.compile(r"[ \t]*\n?```")
 
 #: A verdict is a VALUE — a number, a class, a short ruling. Anything longer is
 #: a sentence pressed into a header. 60 chars fits „Nicht geregelt (Wiener
 #: BauO)" with room and refuses a paragraph.
 VERDICT_VALUE_MAX_CHARS = 60
 
-#: A summary is the whole answer in ONE to TWO sentences — the standfirst the
-#: reader gets before the prose. It is owed on every researched answer longer
-#: than two sentences, whatever the kind; at two sentences or fewer the reply
-#: is its own summary. Above this it is a paragraph
+#: A summary is ONE to TWO sentences the reader gets before the prose: the
+#: consequence for THIS reader that the opening does not state (what to do
+#: next, what it means for their project). The prompt asks for it only when
+#: there is such a consequence (``piloti_static.md``); otherwise the opening
+#: already answers and the field is omitted. Above this it is a paragraph
 #: wearing a summary's name, and it is dropped whole — the prose's own lede
 #: then does the job, so nothing is lost.
 SUMMARY_MAX_CHARS = 320
@@ -259,7 +272,14 @@ class AnswerMeta(_EnvelopeModel):
     )
     summary: str | None = Field(
         default=None,
-        description="the whole answer in 1-2 sentences: outcome plus the decisive qualifier, in the answer's language",
+        # Was "the whole answer in 1-2 sentences: outcome plus the decisive
+        # qualifier", which is a restatement by definition: every live summary
+        # in the September 2026 census restated the prose's opening and was
+        # gated out (`_summary_redundant`). The prompt's rule is the consequence.
+        description=(
+            "omit unless the answer has a consequence for this reader that its opening does not state: "
+            "what to do next or what it means for their project, 1-2 sentences, in the answer's language"
+        ),
     )
     verdict: AnswerMetaVerdict | None = None
     topic: str | None = Field(
@@ -364,6 +384,90 @@ class GateContext:
     #: empty set makes the verdict gate below a no-op, so a caller that cannot
     #: reach a registry loses nothing it had.
     agent_authored_documents: frozenset[str] = frozenset()
+    #: The answer's prose without its sources section. Empty where a caller has
+    #: none to give (the deep writer), which turns the gates reading it off.
+    prose: str = ""
+    #: Whether a drop is recorded as a turn event. Off for the live stream's
+    #: provisional gating (``LiveAnswer``), which runs the gates again as the
+    #: answer settles; the finished answer's gating records each drop once.
+    record: bool = True
+
+    def anatomy_dropped(self, *, field: str, reason: str) -> None:
+        if self.record:
+            emit_anatomy_dropped(field=field, reason=reason)
+
+    def verdict_dropped(self, *, reason: str) -> None:
+        if self.record:
+            emit_verdict_dropped(reason=reason)
+
+
+#: Share of a summary's content words its prose's opening paragraph may also
+#: carry before the summary counts as that paragraph said again. Calibrated on
+#: live answers (September 2026 census): three restating summaries scored 0.46
+#: to 0.53; the prompt's own consequence-summary („Danach ausschreiben …")
+#: scores 0 against its opening.
+SUMMARY_RESTATES_OVERLAP = 0.4
+
+_CONTENT_WORD = re.compile(r"[a-zäöüß0-9]{4,}")
+_NOT_PROSE_BLOCK = ("|", "```", "[[", "#", "- ", "* ", "> ", "$$")
+
+
+def _content_words(text: str) -> set[str]:
+    """Words that carry meaning, clipped to a crude stem so „Gebäude"/„Gebäuden" match."""
+    plain = re.sub(r"\[\d+\]|\*\*|\[\[[^\]]*\]\]", " ", text.lower())
+    return {word[:5] for word in _CONTENT_WORD.findall(plain)}
+
+
+#: Abbreviations whose period ends no sentence, for counting a reply's
+#: sentences. A letter-period run („z. B.", „u. a.", „d. h.", „i. d. R.") is
+#: matched by shape; the words are the ones a regulation answer cites a
+#: provision with. „etc." and „usw." are left out on purpose: they end a
+#: sentence as often as not. No library covers this: nltk's Punkt needs a data
+#: download at runtime, and a miss only costs a summary the gate keeps.
+_ABBREVIATION = re.compile(
+    r"\b(?:[A-Za-zÄÖÜäöü]\.\s?)+[A-Za-zÄÖÜäöü]\."
+    r"|\b(?:gem|Pkt|Abs|Nr|lt|bzw|vgl|ca|inkl|bzgl|lit|Art|Ziff|Kap|Abb|Tab|Anm|mind|zzgl|ggf|evtl|sog|Bsp)\.",
+    re.IGNORECASE,
+)
+_SENTENCE = re.compile(r"[^.!?]+[.!?](?:\s*\[\d+\])*(?=\s|$)")
+
+
+def _sentence_count(text: str) -> int:
+    """How many sentences `text` has, not counting an abbreviation's period as an end."""
+    return len(_SENTENCE.findall(_ABBREVIATION.sub(lambda m: m.group().replace(".", ""), text)))
+
+
+def _prose_paragraphs(prose: str) -> list[str]:
+    return [
+        block.strip()
+        for block in re.split(r"\n\s*\n", prose)
+        if block.strip() and not block.lstrip().startswith(_NOT_PROSE_BLOCK)
+    ]
+
+
+def _summary_redundant(summary: str, prose: str) -> str | None:
+    """Why the prose already says what the summary says, or None.
+
+    The standfirst sits directly above the prose, and the prose is told to
+    open with the answer, so a summary earns its place only by saying what the
+    opening does not: the consequence for this reader (the prompt's
+    "Vier Fächer" rule). Two cases say it twice: a reply of two sentences or
+    fewer, which is its own summary, and a summary whose words are mostly the
+    opening paragraph's.
+    """
+    if not prose.strip():
+        return None
+    blocks = [block for block in re.split(r"\n\s*\n", prose) if block.strip()]
+    paragraphs = _prose_paragraphs(prose)
+    if paragraphs and len(paragraphs) == len(blocks):
+        if _sentence_count(" ".join(paragraphs)) <= 2:
+            return "short_answer"
+    if not paragraphs:
+        return None
+    words = _content_words(summary)
+    if words and len(words & _content_words(paragraphs[0])) / len(words) >= SUMMARY_RESTATES_OVERLAP:
+        return "restates_lede"
+    return None
 
 
 def _gate_summary(meta: AnswerMeta, ctx: GateContext) -> str | None:
@@ -378,7 +482,12 @@ def _gate_summary(meta: AnswerMeta, ctx: GateContext) -> str | None:
             len(summary),
             SUMMARY_MAX_CHARS,
         )
-        emit_anatomy_dropped(field="summary", reason="too_long")
+        ctx.anatomy_dropped(field="summary", reason="too_long")
+        return None
+    redundant = _summary_redundant(summary, ctx.prose)
+    if redundant:
+        logger.info("answer_meta summary gated out: %s — the prose already says it", redundant)
+        ctx.anatomy_dropped(field="summary", reason=redundant)
         return None
     return summary
 
@@ -395,7 +504,7 @@ def _gate_topic(meta: AnswerMeta, ctx: GateContext) -> str | None:
             len(topic),
             TOPIC_MAX_CHARS,
         )
-        emit_anatomy_dropped(field="topic", reason="too_long")
+        ctx.anatomy_dropped(field="topic", reason="too_long")
         return None
     return topic
 
@@ -412,7 +521,7 @@ def _gate_context(meta: AnswerMeta, ctx: GateContext) -> str | None:
             len(context),
             CONTEXT_MAX_CHARS,
         )
-        emit_anatomy_dropped(field="context", reason="too_long")
+        ctx.anatomy_dropped(field="context", reason="too_long")
         return None
     return context
 
@@ -489,7 +598,7 @@ def _gate_verdict(meta: AnswerMeta, ctx: GateContext) -> dict | None:
             meta.verdict.reference.document if meta.verdict.reference else None,
             len(ctx.agent_authored_documents),
         )
-        emit_verdict_dropped(reason=drop)
+        ctx.verdict_dropped(reason=drop)
         return None
     verdict: dict = {"value": value, "subject": subject}
     if meta.verdict.reference is not None:
@@ -539,11 +648,11 @@ def _gate_takeaways(meta: AnswerMeta, ctx: GateContext) -> list | None:
             ctx.prose_chars,
             TAKEAWAYS_MIN_PROSE_CHARS,
         )
-        emit_anatomy_dropped(field="takeaways", reason="prose_too_short")
+        ctx.anatomy_dropped(field="takeaways", reason="prose_too_short")
         return None
     if len(takeaways) < 2:
         logger.info("answer_meta takeaways gated out: a single takeaway is a sentence, not a block")
-        emit_anatomy_dropped(field="takeaways", reason="single_item")
+        ctx.anatomy_dropped(field="takeaways", reason="single_item")
         return None
     return [_takeaway_payload(t) for t in takeaways]
 
@@ -577,22 +686,12 @@ ANATOMY_FIELDS: tuple[AnatomyField, ...] = (
 # ---------------------------------------------------------------------------
 
 
-def _parse_object(raw: str) -> dict | None:
-    """One JSON object out of ``raw``, tolerating trailing junk; None if none.
+def _object_end(raw: str, start: int) -> int | None:
+    """The index just past the JSON object opening at ``raw[start]``, or None.
 
-    ``strict=False`` for the same reason ``emit_card`` uses it: a raw newline
-    inside a JSON string is how a model writes a two-sentence detail. When a
-    direct parse fails, a brace-balanced re-scan from the first ``{`` recovers
-    the common failure of text before/after an otherwise well-formed object.
+    String-aware, so a brace or a fence inside a string value is text, not
+    structure. None when the object never closes.
     """
-    try:
-        payload = json.loads(raw, strict=False)
-        return payload if isinstance(payload, dict) else None
-    except (json.JSONDecodeError, TypeError):
-        pass
-    start = raw.find("{")
-    if start == -1:
-        return None
     depth = 0
     in_string = False
     escaped = False
@@ -613,12 +712,75 @@ def _parse_object(raw: str) -> dict | None:
         elif char == "}":
             depth -= 1
             if depth == 0:
-                try:
-                    payload = json.loads(raw[start : i + 1], strict=False)
-                except (json.JSONDecodeError, TypeError):
-                    return None
-                return payload if isinstance(payload, dict) else None
+                return i + 1
     return None
+
+
+def _envelope_blocks(content: str) -> list[tuple[int, int, str]]:
+    """Every fenced envelope as ``(start, end, body)``, in order.
+
+    ``body`` is the JSON object; ``start``/``end`` span the whole block, fences
+    included, so the trailer form can cut it out of the prose.
+    """
+    blocks: list[tuple[int, int, str]] = []
+    position = 0
+    while opening := _ANSWER_JSON_OPEN_RE.search(content, position):
+        body_start = opening.end()
+        brace = content.find("{", body_start)
+        # Only a brace that opens the body: one past non-blank text is prose
+        # after this block's own closing fence, not its object.
+        if brace != -1 and content[body_start:brace].strip():
+            brace = -1
+        end = _object_end(content, brace) if brace != -1 else None
+        if end is None:
+            lazy = _ANSWER_JSON_FENCE_RE.match(content, opening.start())
+            if lazy is None:
+                break
+            blocks.append((lazy.start(), lazy.end(), lazy.group(1)))
+            position = lazy.end()
+            continue
+        close = _FENCE_CLOSE_RE.match(content, end)
+        block_end = close.end() if close else end
+        blocks.append((opening.start(), block_end, content[body_start:end]))
+        position = block_end
+    return blocks
+
+
+def _without_blocks(content: str, blocks: list[tuple[int, int, str]]) -> str:
+    """``content`` with every envelope block cut out."""
+    kept: list[str] = []
+    position = 0
+    for start, end, _ in blocks:
+        kept.append(content[position:start])
+        position = end
+    kept.append(content[position:])
+    return "".join(kept)
+
+
+def _parse_object(raw: str) -> dict | None:
+    """One JSON object out of ``raw``, tolerating trailing junk; None if none.
+
+    ``strict=False`` for the same reason ``emit_card`` uses it: a raw newline
+    inside a JSON string is how a model writes a two-sentence detail. When a
+    direct parse fails, a brace-balanced re-scan from the first ``{`` recovers
+    the common failure of text before/after an otherwise well-formed object.
+    """
+    try:
+        payload = json.loads(raw, strict=False)
+        return payload if isinstance(payload, dict) else None
+    except (json.JSONDecodeError, TypeError):
+        pass
+    start = raw.find("{")
+    if start == -1:
+        return None
+    end = _object_end(raw, start)
+    if end is None:
+        return None
+    try:
+        payload = json.loads(raw[start:end], strict=False)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _validated_meta(payload: dict) -> AnswerMeta | None:
@@ -629,6 +791,11 @@ def _validated_meta(payload: dict) -> AnswerMeta | None:
         logger.warning("answer envelope anatomy failed validation, dropped: %s", exc)
         return None
     return None if meta.empty else meta
+
+
+#: Loose text beside a complete envelope past which it is a second copy of the
+#: answer rather than a stray line.
+_PROSE_OUTSIDE_WARN_CHARS = 200
 
 
 def extract_answer_envelope(content: object) -> tuple[object, AnswerMeta | None]:
@@ -655,17 +822,27 @@ def extract_answer_envelope(content: object) -> tuple[object, AnswerMeta | None]
     if not isinstance(content, str):
         return content, None
 
-    matches = list(_ANSWER_JSON_FENCE_RE.finditer(content))
-    if matches:
-        payload = _parse_object(matches[-1].group(1))
+    blocks = _envelope_blocks(content)
+    if blocks:
+        payload = _parse_object(blocks[-1][2])
         if payload is None:
             logger.warning("answer_json envelope is not parseable JSON; leaving the reply untouched")
             return content, None
         answer = payload.get("answer")
         if isinstance(answer, str) and answer.strip():
+            outside = _without_blocks(content, blocks).strip()
+            if len(outside) > _PROSE_OUTSIDE_WARN_CHARS:
+                # The reply wrote its answer twice: once loose, once in the
+                # fence. The fence wins and the reader sees it once, but every
+                # token of the loose copy was generated and paid for; the
+                # September 2026 census caught one in three doing it.
+                logger.warning(
+                    "answer_prose_outside_envelope: %d chars of prose outside the answer_json fence discarded",
+                    len(outside),
+                )
             return answer.strip(), _validated_meta(payload)
         # Trailer form: the prose lives outside the fence.
-        stripped = _ANSWER_JSON_FENCE_RE.sub("", content).strip()
+        stripped = _without_blocks(content, blocks).strip()
         if stripped:
             return stripped, _validated_meta(payload)
         logger.warning("answer_json envelope has no usable answer field; leaving the reply untouched")
@@ -679,7 +856,77 @@ def extract_answer_envelope(content: object) -> tuple[object, AnswerMeta | None]
             if isinstance(answer, str) and answer.strip():
                 return answer.strip(), _validated_meta(payload)
 
+    headless = _salvage_headless(content)
+    if headless is not None:
+        return headless
+
     return content, None
+
+
+#: The tail of an envelope whose head never arrived: the prose, then `", "kind":`
+#: and the rest of the object, then the closing fence.
+_HEADLESS_TAIL_RE = re.compile(r'"\s*,\s*(?="kind"\s*:)')
+
+
+def _salvage_headless(content: str) -> tuple[str, AnswerMeta | None] | None:
+    """An envelope whose opening (the fence and `{"answer": "`) is missing.
+
+    Seen live (September 2026 suite, 1 reply in 27): the model began with the
+    prose itself and switched into JSON half way, `…p.5", "kind":"ruling",
+    "confidence":{…}}` plus the closing fence. Read as plain prose, the reader
+    got that JSON tail under the answer and the turn lost its verdict, its
+    confidence and its cards. Whatever stands before `", "kind":` is the
+    answer; the rest, opened with `{`, is the object. The FIRST `", "kind":`
+    whose tail parses whole as one object with an answer kind is taken, so a
+    nested card's kind is never the cut and prose quoting JSON is untouched.
+
+    A reply that opens with `{` or the ``answer_json`` fence HAS its head: it is
+    an object that did not parse, and a nested `", "kind":` (a callout's) would
+    cut it into a JSON fragment passed off as prose. It is left to the caller's
+    fail-open path instead.
+    """
+    head = content.lstrip()
+    if head.startswith("{") or head.startswith(f"```{ENVELOPE_FENCE}"):
+        return None
+    # Only the closing fence at the very end: a ```mermaid fence inside the
+    # prose keeps its own.
+    body = re.sub(r"\n?```\s*$", "", content.rstrip()).rstrip()
+    if not body.endswith("}"):
+        return None
+    found = next(
+        (
+            (split, payload)
+            for split in _HEADLESS_TAIL_RE.finditer(body)
+            if (payload := _headless_tail(body[split.end() :])) is not None
+        ),
+        None,
+    )
+    if found is None:
+        return None
+    split, payload = found
+    prose = body[: split.start()].strip()
+    if not prose:
+        return None
+    logger.warning(
+        "answer_envelope_headless: salvaged an envelope whose opening was missing (%d chars of prose)", len(prose)
+    )
+    return prose, _validated_meta({**payload, "answer": prose})
+
+
+def _headless_tail(tail: str) -> dict | None:
+    """``tail`` as the envelope's remaining top-level object, or None.
+
+    The whole tail must be ONE object carrying an answer kind. A nested card's
+    `", "kind":` (a callout's ``hinweis``) leaves `]}` after its own object and
+    a kind that is no answer kind, so it is refused rather than cut at.
+    """
+    try:
+        payload, end = json.JSONDecoder(strict=False).raw_decode("{" + tail)
+    except json.JSONDecodeError:
+        return None
+    if end != len(tail) + 1 or not isinstance(payload, dict):
+        return None
+    return payload if payload.get("kind") in ANSWER_KINDS else None
 
 
 def gate_answer_meta(
@@ -687,6 +934,8 @@ def gate_answer_meta(
     *,
     prose_chars: int,
     agent_authored_documents: frozenset[str] = frozenset(),
+    prose: str = "",
+    record: bool = True,
 ) -> dict | None:
     """Run the registry's gates and return the versioned wire payload, or None.
 
@@ -703,8 +952,14 @@ def gate_answer_meta(
     refusal is not the first one being over-eager. Defaulted so a caller with no
     registry — the deep writer's report path, a test — behaves exactly as
     before.
+
+    ``record=False`` gates without recording a drop as a turn event: the live
+    stream gates the same masthead provisionally, twice, and the finished
+    answer's gating is the one that counts.
     """
-    ctx = GateContext(prose_chars=prose_chars, agent_authored_documents=agent_authored_documents)
+    ctx = GateContext(
+        prose_chars=prose_chars, agent_authored_documents=agent_authored_documents, prose=prose, record=record
+    )
     payload: dict = {}
     for field in ANATOMY_FIELDS:
         survived = field.gate(meta, ctx)
@@ -848,6 +1103,21 @@ def _strict_object(model_cls: type[BaseModel]) -> dict:
     }
 
 
+#: The fields the reader sees ABOVE the prose (the masthead, and the kind that
+#: names the answer), written before ``answer`` in this order. The reply
+#: streams as it is written (ADR-0066): a masthead written after the prose was
+#: inserted above text the reader was already reading, and moved it 80-230 px.
+MASTHEAD_FIELDS = ("kind", "topic", "context", "verdict", "summary")
+
+
+def _masthead_first(properties: dict) -> dict:
+    """``properties`` reordered: the masthead fields, then ``answer``, then the rest."""
+    head = {name: properties[name] for name in MASTHEAD_FIELDS if name in properties}
+    answer = {"answer": properties["answer"]} if "answer" in properties else {}
+    rest = {name: value for name, value in properties.items() if name not in head and name != "answer"}
+    return {**head, **answer, **rest}
+
+
 def render_envelope_response_format() -> dict:
     """The provider-enforced shape of a research reply, for ``response_format``.
 
@@ -860,18 +1130,28 @@ def render_envelope_response_format() -> dict:
     earn takeaways); this only guarantees the syntax and the shape.
     """
     schema = _strict_object(AnswerMeta)
-    schema["properties"] = {
-        "answer": {
-            "type": "string",
-            "description": "the full written answer: markdown prose with [N] citations and the sources section",
-        },
-        **schema["properties"],
-    }
+    schema["properties"] = _masthead_first(
+        {
+            "answer": {
+                "type": "string",
+                "description": "the full written answer: markdown prose with [N] citations and the sources section",
+            },
+            **schema["properties"],
+        }
+    )
     schema["required"] = list(schema["properties"])
     return {
         "type": "json_schema",
         "json_schema": {"name": "answer_envelope", "strict": True, "schema": schema},
     }
+
+
+def _masthead_lines_first(lines: list[str]) -> list[str]:
+    """The schema lines in the order the reply is written: masthead, answer, rest."""
+    named = {line.split(":", 1)[0].rstrip("*"): line for line in lines}
+    order = [*MASTHEAD_FIELDS, "answer"]
+    head = [named[name] for name in order if name in named]
+    return head + [line for line in lines if line not in head]
 
 
 def render_envelope_schema() -> str:
@@ -917,9 +1197,10 @@ def render_envelope_schema() -> str:
             lines.append(f"{field.name}: string ({description})")
     cards_description = AnswerMeta.model_fields["cards"].description
     lines.append(f"cards: [ {{ type*: string, …the fields of that type }} ] ({cards_description})")
+    lines = _masthead_lines_first(lines)
     rendered = "\n".join(f"  {line}" for line in lines)
     # The cards contract — which trigger takes which card, the index, the
-    # shapes of the common eight, the placement rule — rendered from the card
+    # three shapes the envelope teaches, the placement rule — rendered from the card
     # catalog so it cannot drift from the validator. Imported here because the
     # cards package validates with pydantic models of its own and never needs
     # this module; the dependency runs one way.

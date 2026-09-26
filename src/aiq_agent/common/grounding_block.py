@@ -102,8 +102,6 @@ class GroundingHit(BaseModel):
     #: versions). Its own header line, never inside the body: a body is text
     #: the answer may quote.
     status_note: str | None
-    #: Where the passage can be read online. RIS states one; the corpus does not.
-    source_url: str | None
     #: The passage itself, already cut to the producer's budget.
     body: str
     #: Whether :attr:`body` was cut, which appends the truncation marker. The
@@ -218,8 +216,6 @@ def _header_lines(hit: GroundingHit) -> Iterator[str]:
     newline, so they go in as they are.
     """
     yield f"Source: {_line(hit.display_title)}"
-    if hit.source_url:
-        yield f"Source URL: {_line(hit.source_url)}"
     if hit.collection:
         yield f"Collection: {_line(hit.collection)}"
     if hit.shelf is not None:

@@ -43,3 +43,14 @@ def stub_private_dns(monkeypatch):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.42.0.7", port or 0))]
 
     monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_decisions(monkeypatch):
+    """The decision model (ADR-0064) is off unless a test turns it on.
+
+    Same guard as ``tests/conftest.py``: the feedback digest now labels its
+    down-votes on it, and a developer's OpenRouter key would otherwise send a
+    test's fixtures to the live endpoint.
+    """
+    monkeypatch.setenv("GRID_DECISIONS_ENABLED", "false")

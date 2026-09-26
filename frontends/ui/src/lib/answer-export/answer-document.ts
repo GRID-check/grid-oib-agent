@@ -65,7 +65,7 @@ export interface AnswerDocumentInput {
    * documents that need it.
    */
   agentAuthored?: boolean
-  /** Printed instead of a mermaid fence's source — see `markdownToBlocks`. */
+  /** Printed instead of a mermaid fence's or a `diagram` card's source — see `diagramBlocks`. */
   diagramPlaceholder?: string
 }
 
@@ -248,7 +248,7 @@ export function buildAnswerSections(
   const confidence = input.confidence ? confidenceBlocks(input.confidence, t) : []
 
   const findings = findingsBlocks(input.findings, t)
-  const cards = cardsBlocks(input.cards, t)
+  const cards = cardsBlocks(input.cards, t, { diagramPlaceholder: input.diagramPlaceholder })
   const cardSection: DocBlock[] =
     cards.length > 0 ? [{ kind: 'heading', level: 2, text: t('findings') }, ...cards] : []
 

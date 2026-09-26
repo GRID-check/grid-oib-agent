@@ -106,8 +106,8 @@ async def test_passages_come_from_at_most_two_documents(lookup, catalog, monkeyp
 
     output = await lookup.run(question="Was regelt die Bauordnung?", jurisdiction="Wien")
 
-    urls = {line for line in output.splitlines() if line.startswith("Source URL: ")}
-    assert len(urls) <= MAX_DOCUMENTS == 2
+    laws = {line for line in output.splitlines() if line.startswith("Source: ")}
+    assert len(laws) <= MAX_DOCUMENTS == 2
 
 
 async def test_a_nine_hundred_kilobyte_law_does_not_reach_the_transcript(lookup, catalog):

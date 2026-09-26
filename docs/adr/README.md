@@ -124,6 +124,9 @@ Consequences, where a reader looks for them.
 | [0062](0062-a-run-is-a-message-in-the-thread-that-commissioned-it.md) | A run is one message in the thread that commissioned it, and its ledger is what the reader sees | Proposed |
 | [0063](0063-short-skill-bodies-ride-the-prompt.md) | A short skill body rides the prompt; the catalog line is for the long ones | Proposed |
 | [0064](0064-a-decision-model-decides-and-never-withholds.md) | A decision model decides before the answer, and may only add to the turn | Proposed |
+| [0065](0065-a2ui-renders-every-card.md) | A2UI renders every card, and an answer may compose them | Accepted |
+| [0066](0066-the-answer-prose-streams-and-the-verified-frame-settles-it.md) | The answer's prose streams as it is written, and the verified frame settles it | Accepted |
+| [0067](0067-the-repair-corrects-a-misremembered-quote-in-place.md) | The repair corrects a misremembered quote in place, and nothing else | Accepted |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off

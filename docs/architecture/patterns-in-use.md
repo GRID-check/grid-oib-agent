@@ -72,7 +72,35 @@ many tenants concurrently and module state leaks across both turns and tenants.
 
 `cards/registry.py` and `common/citation_verification.py` are the reference
 pair; `common/cost_tracking.py`, `common/profiler.py` and
-`tools/bim/measurement_sources.py` follow it.
+`tools/bim/measurement_sources.py` follow it. One narrower use of the same
+shape: `turn/answer_stream.py` binds the turn's answer-stream sink (`_SINK`)
+with `bound_answer_stream` only while `conversation_register._start_answer`
+starts the answering task, whose copied context keeps it for the whole answer,
+and resets it right after: the runner's own context never holds it.
+(Another, `turn_status.prefetch_scope`, marked the turn decision's prefetch
+for a requery switch that was measured 3.4 s slower and removed with it:
+[`turn-latency-measured-2026-09.md`](turn-latency-measured-2026-09.md) §3.5.)
+
+A `ContextVar` set inside `asyncio.gather` (or any task) dies with that task,
+because each task runs in a COPIED context: return the value instead. The entry
+is under "A value a setup step sets in a `ContextVar` is empty when the turn
+reads it" in [`../contributing/gotchas.md`](../contributing/gotchas.md#data-and-correctness).
+
+**Module-level state that is allowed** is a bounded cache keyed by model id or by
+content, whose value is the same whichever tenant or turn asks, or a
+process-lifetime handle holding no tenant or turn data:
+
+- the query-embedding LRU with its in-flight dedupe, keyed by (model, text), on
+  the retriever in `sources/knowledge_layer/src/llamaindex/adapter.py`;
+- `knowledge/factory._SEARCH_RETRIEVER`, the retriever handle recorded when the
+  knowledge tool is built;
+- `agents/piloti/register._WARMING`, strong references to running warm-ups, so
+  the loop does not drop a task it holds only weakly;
+- the parsed-model cache in `frontends/ui/src/features/diagrams/use-diagram-model.ts`,
+  keyed by the mermaid source text and capped at 64.
+
+Anything keyed by a tenant, a user, a conversation or a turn goes behind a
+`ContextVar` or into the database.
 **Enforced by:** review.
 
 ## Idempotent global registration
@@ -110,6 +138,18 @@ That makes the same script a drift detector, and the `WorkOS drift` workflow
 runs it in check mode against staging on a schedule.
 [`../deployment/workos-provisioning.md`](../deployment/workos-provisioning.md),
 ADR-0038. **Enforced by:** the `workos-drift` workflow and `authz-coverage.spec.ts`.
+
+The platform prompt follows the same shape without the drift gate.
+`scripts/prompts_push.py` (`task prompts:push`) checks by default and publishes
+the committed `piloti_static.md` under a Langfuse label only with `--apply`. It
+never overwrites a Langfuse version that did not come from git. Provenance is
+read off the version itself: what Langfuse serves must be byte-identical to a
+committed text, either the file at the commit the version's message names or
+the file at any commit in its history. Tags do not count, because Langfuse
+keeps one tag list per prompt, not per version. Neither arm asks whether the
+commit was reviewed, so text published from a branch that never merges stays
+unreviewed; publish with `--apply` from `develop`. ADR-0060. **Enforced by:** `tests/test_prompts_push.py`; no drift
+workflow runs it on a schedule.
 
 ## Already recorded elsewhere
 

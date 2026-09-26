@@ -70,9 +70,17 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
 
 
+#: The shape of the text ``client.html_to_text`` makes, in the document key.
+#: The cache holds CONVERTED text for days, so a change to the conversion is
+#: invisible until every entry expires unless the key moves with it. Bump it
+#: with any change to what ``html_to_text`` keeps. 2: screen-reader twins
+#: (``.sr-only``) dropped.
+DOC_TEXT_VERSION = 2
+
+
 def doc_cache_key(url: str) -> str:
-    """Cache key for a fetched RIS document, keyed on its URL."""
-    return f"ris:doc:{_digest(url)}"
+    """Cache key for a fetched RIS document, keyed on its URL and text shape."""
+    return f"ris:doc:v{DOC_TEXT_VERSION}:{_digest(url)}"
 
 
 def search_cache_key(payload: str) -> str:

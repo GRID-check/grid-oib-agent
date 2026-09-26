@@ -65,11 +65,11 @@ def questions():
 
 
 class TestTheQuestionSet:
-    """The fixture the runner reads. Twenty-seven questions, each answerable."""
+    """The fixture the runner reads. Twenty-nine questions, each answerable."""
 
-    def test_it_is_twenty_seven_questions_with_unique_ids(self, questions):
-        assert len(questions) == 27
-        assert len({q.id for q in questions}) == 27
+    def test_it_is_twenty_nine_questions_with_unique_ids(self, questions):
+        assert len(questions) == 29
+        assert len({q.id for q in questions}) == 29
 
     def test_every_question_declares_an_expected_kind(self, questions):
         assert {q.kind for q in questions} <= {"ruling", "walkthrough", "direct"}
@@ -177,6 +177,19 @@ class TestOneRow:
     def test_a_turn_that_touched_no_family_leaves_the_cell_empty(self):
         question = loop_eval.Question(id="q", question="?", family=None, punkt=None, kind="direct")
         assert loop_eval.observe(question, [], "", {}).family_coverage == ""
+
+
+class TestLocatorEligible:
+    """A search that names a file the locator could open is eligible."""
+
+    def test_the_name_the_oib_publishes_a_richtlinie_under_counts(self):
+        """The OIB publishes 2.2 as ``oib-richtlinie_2.2_ausgabe_mai_2023.pdf``.
+        The stem alone, without the ``.pdf`` that another alternative matches,
+        must still read as a file."""
+        question = loop_eval.Question(id="q", question="?", family=None, punkt=None, kind="walkthrough")
+        payloads = [("retrieve.knowledge_search", {"input": {"query": "oib-richtlinie_2.2_ausgabe_mai_2023"}})]
+
+        assert loop_eval.flag_locator_eligible(question, payloads, ["knowledge_search"]) == "yes"
 
 
 class TestTheCsv:

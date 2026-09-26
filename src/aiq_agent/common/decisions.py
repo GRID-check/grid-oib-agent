@@ -89,7 +89,7 @@ URL_ENV = "GRID_DECISIONS_URL"
 # @required false
 # A dedicated key for the Decisions endpoint. Falls back to OPENROUTER_API_KEY
 # through the shared credential resolver, BYOK first.
-API_KEY_ENV = "GRID_DECISIONS_API_KEY"  # pragma: allowlist secret
+DEDICATED_ENV = "GRID_DECISIONS_API_KEY"  # pragma: allowlist secret
 
 DEFAULT_MODEL = "typesafe/jev-1.13"
 DEFAULT_PATH = "/api/alpha/decisions"
@@ -119,6 +119,8 @@ SKIPPED_BYOK_HOST = "byok_host"
 SKIPPED_BREAKER = "breaker"
 SKIPPED_TIMEOUT = "timeout"
 SKIPPED_ERROR = "error"
+#: The caller did not ask: a first message of fewer than three words (Piloti).
+SKIPPED_TOO_SHORT = "too_short"
 
 #: Consecutive failures before the breaker opens, and how long it stays open.
 #: Module-level: the failure is the endpoint's, not one caller's.
@@ -293,7 +295,7 @@ def _resolve_endpoint_blocking(organization_id: str | None) -> tuple[_Endpoint |
         from aiq_agent.common.credential_resolution import resolve_llm_credential
 
         resolved = resolve_llm_credential(
-            primary_env=API_KEY_ENV,
+            primary_env=DEDICATED_ENV,
             fallback_envs=(_FALLBACK_KEY_ENV,),
             default_base_url=_DEFAULT_BASE_URL,
             default_model=model,
@@ -302,7 +304,7 @@ def _resolve_endpoint_blocking(organization_id: str | None) -> tuple[_Endpoint |
         api_key, base_url, byok = resolved.api_key, resolved.base_url, resolved.source == "byok"
     except Exception:  # noqa: BLE001 — type only; the message can carry the key
         logger.warning("Decision credential resolution failed; trying the environment directly")
-        api_key = os.environ.get(API_KEY_ENV, "") or os.environ.get(_FALLBACK_KEY_ENV, "")
+        api_key = os.environ.get(DEDICATED_ENV, "") or os.environ.get(_FALLBACK_KEY_ENV, "")
         base_url, byok = _DEFAULT_BASE_URL, False
     if not api_key:
         return None, SKIPPED_NO_KEY
@@ -316,11 +318,17 @@ def _resolve_endpoint_blocking(organization_id: str | None) -> tuple[_Endpoint |
     return _Endpoint(url=url, api_key=api_key, model=model, byok=byok), None
 
 
-def _zdr_only_blocking() -> bool:
-    try:
-        from aiq_agent.common.model_overrides import get_zdr_only_from_context
+def _zdr_only_blocking(organization_id: str | None = None) -> bool:
+    """Whether the organization enforces ZDR routing.
 
-        return bool(get_zdr_only_from_context())
+    By the id the caller named, not the request context: ingestion runs in a
+    detached thread with no request, so a context read would say "no org"
+    and send a ZDR org's document text to the endpoint.
+    """
+    try:
+        from aiq_agent.common.model_overrides import resolve_org_zdr_only
+
+        return bool(resolve_org_zdr_only(organization_id))
     except Exception:  # noqa: BLE001 — an unknown policy is not a ZDR policy
         return False
 
@@ -330,10 +338,11 @@ async def _endpoint(organization_id: str | None) -> tuple[_Endpoint | None, str 
         return None, SKIPPED_DISABLED
     if _breaker_open():
         return None, SKIPPED_BREAKER
-    zdr = await asyncio.to_thread(_zdr_only_blocking)
+    organization_id = organization_id or _context_organization_id()
+    zdr = await asyncio.to_thread(_zdr_only_blocking, organization_id)
     if zdr:
         return None, SKIPPED_ZDR
-    return await asyncio.to_thread(_resolve_endpoint_blocking, organization_id or _context_organization_id())
+    return await asyncio.to_thread(_resolve_endpoint_blocking, organization_id)
 
 
 def _context_organization_id() -> str | None:
@@ -476,6 +485,17 @@ def _record(slot: str, values: dict[str, Any]) -> None:
         logger.debug("Decision record for %s not emitted", slot, exc_info=True)
 
 
+def record_skipped(slot: str, reason: str, detail: str | None = None) -> None:
+    """Log and record a decision that did not run, and why.
+
+    INFO, not DEBUG: a decision that silently misses its budget looks, in
+    every log, exactly like a turn that never asked for one. A caller that
+    chose not to ask records its own reason here, beside the endpoint's.
+    """
+    logger.info("Decision %s did not run: %s", slot, reason)
+    _record(slot, {"skipped": reason, **({"detail": detail} if detail else {})})
+
+
 async def decide(
     state: Any,
     questions: Mapping[str, Mapping[str, Any]],
@@ -495,11 +515,11 @@ async def decide(
         return None
     endpoint, skipped = await _endpoint(organization_id)
     if endpoint is None:
-        _record(slot, {"skipped": skipped})
+        record_skipped(slot, skipped or SKIPPED_ERROR)
         return None
     outcome = await _post(endpoint, state, questions, timeout=timeout, transport=transport)
     if outcome.decision is None:
-        _record(slot, {"skipped": outcome.skipped, **({"detail": outcome.detail} if outcome.detail else {})})
+        record_skipped(slot, outcome.skipped or SKIPPED_ERROR, outcome.detail)
         return None
     decision = outcome.decision
     _record(
@@ -507,6 +527,47 @@ async def decide(
         {"answers": decision.summary(), "latencyMs": decision.latency_ms, "inputTokens": decision.input_tokens},
     )
     return decision
+
+
+def decide_blocking(
+    state: Any,
+    questions: Mapping[str, Mapping[str, Any]],
+    *,
+    slot: str,
+    timeout: float = DEFAULT_TIMEOUT_S,
+    organization_id: str | None = None,
+) -> Decision | None:
+    """:func:`decide` for synchronous code: ingestion's worker threads, scripts.
+
+    Runs on a loop of its own with a client of its own, closed after the call:
+    the shared keep-alive client is bound to the loop that opened it, and a
+    loop made per call would orphan one client per document. Ingestion pays
+    the TLS handshake per call for that, which it can afford. Called from a
+    thread that already runs a loop, the call moves to a thread of its own
+    rather than failing, because ``asyncio.run`` refuses to nest.
+    """
+    import httpx
+
+    def _run() -> Decision | None:
+        return asyncio.run(
+            decide(
+                state,
+                questions,
+                slot=slot,
+                timeout=timeout,
+                organization_id=organization_id,
+                transport=httpx.AsyncHTTPTransport(),
+            )
+        )
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return _run()
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(_run).result()
 
 
 async def decide_many(

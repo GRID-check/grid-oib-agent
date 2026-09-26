@@ -2481,12 +2481,14 @@ class TestVerifiedCitedSourceStream:
         the assertion would hold whether or not the emit site was ever fixed —
         false comfort, in the shape of a passing test.
 
-        So the never-retrieved URL is hung off the line naming the real OIB
-        Richtlinie. Verification reads the URL, finds it unbacked, and drops
-        the whole line, so the verified report no longer claims that document —
-        while the DRAFT still names it and the callback's document matcher
-        would happily accept it, because the run really did retrieve it. That
-        is a stripped citation the old code announced.
+        So line [1] names the real OIB Richtlinie in the shape of an
+        already-read digest line, which cites the conversation's index rather
+        than a passage. Verification drops the whole line, so the verified
+        report no longer claims that document — while the DRAFT still names it
+        and the callback's document matcher would happily accept it, because
+        the run really did retrieve it. That is a stripped citation the old
+        code announced. (An unbacked URL on the line no longer does this: the
+        document's key now carries the line and only the link is dropped.)
         """
         from aiq_agent.common.citation_verification import verify_citations
 
@@ -2494,8 +2496,7 @@ class TestVerifiedCitedSourceStream:
         draft = (
             "Brandabschnitte sind zu begrenzen [1]. Weiters [2].\n\n"
             "## Quellen\n"
-            "- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12: "
-            "https://fabricated.example.org/nie-abgerufen\n"
+            "- [1] oib-rl_2_ausgabe_mai_2023.pdf | oib_knowledge | Seiten 12 | Punkte 3 | Turn 1\n"
             "- [2] [Web] Beispiel: https://example.com/a\n"
         )
         verification = verify_citations(draft, registry)

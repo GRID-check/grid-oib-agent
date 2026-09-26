@@ -1554,7 +1554,6 @@ def _grounding_hit(chunk, *, resolved, resolved_titles, resolved_folders, ambigu
         provenance=_hit_provenance(chunk),
         stored_image_index=_stored_image_index(metadata),
         status_note=None,
-        source_url=None,
         body=content[:_CHUNK_TRUNCATE_CHARS] if truncated else content,
         body_truncated=truncated,
     )
@@ -1676,6 +1675,14 @@ class _FamilyBranch:
 
 #: No family branch ran: an ordinary search, with nothing to say about one.
 _NO_FAMILY_BRANCH = _FamilyBranch()
+
+#: Ranked passages kept BESIDE a family overview. The overview already opens
+#: every part at its Geltungsbereich and lists its Gliederung; the ranked
+#: search around it is context, not the answer. Measured on „Was weißt du über
+#: die OIB 2?" (2026-09-23, live): with the full sixteen, the block was 25.5k
+#: characters (~7.4k tokens), half of it Leitfaden and Erläuterungen excerpts
+#: that an overview answer never cites, re-sent on every later call of the turn.
+_FAMILY_RANKED_HITS = 4
 
 
 async def _family_branch(entries, family_key: str) -> _FamilyBranch:
@@ -1852,6 +1859,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     configure_norm_store(config.summary_db)
 
     retriever = _get_retriever(config)
+    # The turn-start warm-up (Piloti) embeds the question in THIS retriever's
+    # cache while the turn decision runs, so the prefetch search skips the
+    # round trip. See ``warm_search_query``.
+    from aiq_agent.knowledge.factory import set_search_retriever
+
+    set_search_retriever(retriever)
 
     _initialize_ingestor(config, summary_llm_obj)
 
@@ -2195,6 +2208,19 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     from knowledge_layer.requery import requery_already_fired
                     from knowledge_layer.requery import should_skip_judge
 
+                    if family_task is not None and (await family_task).overview is not None:
+                        # An overview question is answered by the overview. The
+                        # judge's own criterion counts a scope note and a
+                        # Gliederung as NOT answering, so on this shape it said
+                        # "insufficient" by construction and fanned out two more
+                        # retrievals into a block that already held every part.
+                        # Keyed on the overview PRODUCED, not on the query's
+                        # shape: a corpus without the family, or an overview
+                        # that failed open, leaves ranked passages only, and
+                        # those keep their requery.
+                        requery_skipped_reason = "family"
+                        logger.info("Retrieval loop judge skipped (family) for %r", query[:60])
+                        return None
                     if requery_already_fired():
                         requery_skipped_reason = "already_fired"
                         logger.info("Retrieval loop judge skipped (already_fired) for %r", query[:60])
@@ -2338,10 +2364,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 # corpus that answered nothing.
                 overview = None
             family_note = overview.preamble if overview is not None else ""
+            dropped_by_family = 0
             if overview is not None:
-                merged = merged.model_copy(
-                    update={"chunks": [*overview.chunks, *_without_chunks(merged.chunks, overview.chunks)]}
-                )
+                unaddressed = _without_chunks(merged.chunks, overview.chunks)
+                ranked = unaddressed[:_FAMILY_RANKED_HITS]
+                dropped_by_family = len(unaddressed) - len(ranked)
+                merged = merged.model_copy(update={"chunks": [*overview.chunks, *ranked]})
 
             # The picking, as a first-class observation (ADR-0044): one
             # `retrieve.knowledge_search` span carrying query, collections,
@@ -2389,6 +2417,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     search_input["requery_fired"] = bool(requery_fired)
                     if dropped_by_cap:
                         search_input["dropped_by_cap"] = dropped_by_cap
+                    if dropped_by_family:
+                        search_input["dropped_by_family"] = dropped_by_family
                     if not merged.chunks:
                         search_input["empty"] = True
                     if getattr(merged, "error_message", None):
@@ -2506,10 +2536,15 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         )
     else:
         diversity_clause = "ranked purely by relevance, with no per-document diversity cap."
-    yield FunctionInfo.from_fn(
-        search,
-        description=(
-            f"{_KNOWLEDGE_SEARCH_DESCRIPTION} "
-            f"Returns up to {top_k} excerpts (platform-configurable), {diversity_clause}"
-        ),
-    )
+    try:
+        yield FunctionInfo.from_fn(
+            search,
+            description=(
+                f"{_KNOWLEDGE_SEARCH_DESCRIPTION} "
+                f"Returns up to {top_k} excerpts (platform-configurable), {diversity_clause}"
+            ),
+        )
+    finally:
+        from aiq_agent.knowledge.factory import clear_search_retriever
+
+        clear_search_retriever(retriever)

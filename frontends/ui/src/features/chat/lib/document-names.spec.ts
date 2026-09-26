@@ -14,6 +14,13 @@ describe('oibDisplayTitle — mirror of norm_registry.guess_display_title', () =
     ['oib-rl_2_leitfaden_ausgabe_mai_2023.pdf', 'OIB-Richtlinie 2 – Leitfaden, Ausgabe Mai 2023'],
     ['erlaeuterungen_oib-rl_2_ausgabe_mai_2023.pdf', 'Erläuterungen zu OIB-Richtlinie 2, Ausgabe Mai 2023'],
     ['aenderungen_oib-rl_5_ausgabe_mai_2023.pdf', 'Änderungen zu OIB-Richtlinie 5, Ausgabe Mai 2023'],
+    // OIB-RL 2.2 is the one part oib.or.at publishes under `oib-richtlinie_`.
+    ['oib-richtlinie_2.2_ausgabe_mai_2023.pdf', 'OIB-Richtlinie 2.2, Ausgabe Mai 2023'],
+    [
+      'erlaeuterungen-zu-oib-richtlinie_2.2_ausgabe_mai_2023.pdf',
+      'Erläuterungen zu OIB-Richtlinie 2.2, Ausgabe Mai 2023',
+    ],
+    ['aenderungen_oib-richtlinie_2.2_ausgabe_mai_2023.pdf', 'Änderungen zu OIB-Richtlinie 2.2, Ausgabe Mai 2023'],
     ['oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf', 'OIB-Richtlinie Begriffsbestimmungen, Ausgabe Mai 2023'],
     [
       'oib-rl_zitierte_normen_und_sonstige_technische_regelwerke_ausgabe_mai_2023_rev.1.pdf',
@@ -30,6 +37,8 @@ describe('oibDisplayTitle — mirror of norm_registry.guess_display_title', () =
   test('returns null for anything that is not an OIB corpus filename', () => {
     expect(oibDisplayTitle('Grundriss_EG.pdf')).toBeNull()
     expect(oibDisplayTitle('Bauordnung für Wien')).toBeNull()
+    expect(oibDisplayTitle('meine-oib-richtlinie_2.2_notizen.pdf')).toBeNull()
+    expect(oibDisplayTitle('erlaeuterungen-zu-bauordnung.pdf')).toBeNull()
     expect(oibDisplayTitle('')).toBeNull()
   })
 })

@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import type { SkillCategoryListItem } from '@/adapters/api/skills-client'
 
 /**

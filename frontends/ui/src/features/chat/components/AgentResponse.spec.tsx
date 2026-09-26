@@ -6,6 +6,8 @@ import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils
 import type { ChatStoreWithHydration } from '../store'
 import type { SourcePreviewChipProps } from './SourcePreview'
 import type { MessageStages } from '@/lib/conversations/message-stages'
+import type { GridCard } from '@/shared/cards/schemas'
+import { useAnswerFileReferences } from '../hooks/use-answer-file-references'
 
 /**
  * A turn the post-answer reflection stage recorded something for. No hook is
@@ -19,11 +21,15 @@ const NOTED: MessageStages = {
   },
 }
 
+// The project the READER has open; null unless a test sets it.
+const storeFixture = vi.hoisted(() => ({ projectId: null as string | null }))
+
 // Mock the chat store
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
     const state: DeepPartial<ChatStoreWithHydration> = {
       currentConversation: null,
+      projectId: storeFixture.projectId,
       patchConversationMessage: vi.fn(),
     }
     return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
@@ -59,6 +65,12 @@ vi.mock('./SourcePreview', async (importOriginal) => {
   }
 })
 
+// The real hook, observed: a read-only answer must still resolve the files it names.
+vi.mock('../hooks/use-answer-file-references', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../hooks/use-answer-file-references')>()
+  return { ...actual, useAnswerFileReferences: vi.fn(actual.useAnswerFileReferences) }
+})
+
 // Mock MarkdownRenderer to render content as plain text for testing
 vi.mock('@/shared/components/MarkdownRenderer', () => ({
   MarkdownRenderer: ({ content }: { content: string }) => <span>{content}</span>,
@@ -67,6 +79,45 @@ vi.mock('@/shared/components/MarkdownRenderer', () => ({
 describe('AgentResponse', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    storeFixture.projectId = null
+  })
+
+  describe('a read-only answer (somebody else\'s turn)', () => {
+    const proposal = {
+      type: 'memory_proposal',
+      title: 'Merken?',
+      content: 'Fluchtweg über den Innenhof',
+      kind: 'decision',
+      confidence: 'medium',
+    } as unknown as GridCard
+
+    test('offers no feedback even when it is handed a message id', () => {
+      render(<AgentResponse content="Answer" messageId="m1" readOnly />)
+      expect(
+        screen.queryByRole('button', { name: 'Mark this answer as helpful' })
+      ).not.toBeInTheDocument()
+    })
+
+    test('draws no card that can decide, even when it is handed a message id', () => {
+      render(<AgentResponse content="Answer" messageId="m1" cards={[proposal]} readOnly />)
+      expect(screen.getByText('Fluchtweg über den Innenhof')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Yes, remember org-wide' })).not.toBeInTheDocument()
+    })
+
+    test('still resolves the files it names in the reader\'s project', () => {
+      storeFixture.projectId = 'p1'
+      // Answered here, not by the network: the real hook would fetch the
+      // project's files and outlive this test.
+      const hook = vi.mocked(useAnswerFileReferences)
+      const real = hook.getMockImplementation()
+      hook.mockImplementation(() => ({ fileNames: [], resolve: () => null }))
+      try {
+        render(<AgentResponse content="Siehe plan.pdf" readOnly />)
+        expect(hook).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'p1' }))
+      } finally {
+        if (real) hook.mockImplementation(real)
+      }
+    })
   })
 
   test('renders response content', () => {
@@ -214,14 +265,14 @@ describe('AgentResponse', () => {
     expect(screen.getByText('Summary content')).toBeInTheDocument()
     expect(screen.getByText('Point one')).toBeInTheDocument()
     // An unplaced legal_basis is not a fallback-grid item: it renders flat
-    // above the prose (`EvidenceBlock`) — eyebrow, one Fundstelle line, quote
+    // right after the prose (`EvidenceBlock`) — eyebrow, one Fundstelle line, quote
     // and disclaimer, but never the framed card's plain-language summary.
     expect(screen.getByText('Legal basis')).toBeInTheDocument()
     expect(screen.getByText('GDPR · 5 · 1')).toBeInTheDocument()
     expect(screen.getByText('Original legal text')).toBeInTheDocument()
     expect(screen.queryByText('Summary of the legal basis')).not.toBeInTheDocument()
     const text = container.textContent ?? ''
-    expect(text.indexOf('Legal basis')).toBeLessThan(text.indexOf('Response with cards'))
+    expect(text.indexOf('Legal basis')).toBeGreaterThan(text.indexOf('Response with cards'))
   })
 
   // Cards used to open the answer, which is the one place they cannot help: two
@@ -260,6 +311,17 @@ describe('AgentResponse', () => {
     render(<AgentResponse content={'Die Antwort.\n\n[[card:1]]'} cards={cards} />)
 
     expect(screen.queryByText('Platzierte Karte')).not.toBeInTheDocument()
+  })
+
+  test('shows the masthead of a streaming answer before its first word', () => {
+    render(
+      <AgentResponse
+        content=""
+        isStreaming
+        answerMeta={{ v: 1, kind: 'walkthrough', topic: 'Zweiter Fluchtweg in GK 4' }}
+      />
+    )
+    expect(screen.getByText('Zweiter Fluchtweg in GK 4')).toBeInTheDocument()
   })
 
   describe('"Belegt durch" answer sources row (WS-3)', () => {
@@ -805,10 +867,19 @@ describe('AgentResponse', () => {
       expect(hasLede(container)).toBe(false)
     })
 
-    test('a streaming answer gets no lede — the opening is still arriving', () => {
-      const { container } = render(<AgentResponse content={longAnswer} isStreaming />)
-
+    test('a streaming answer takes its lede once it has earned it (ADR-0066)', () => {
+      // Decided at the end, the lede reflowed the top of an answer the reader
+      // was already halfway down; decided as it streams, it only ever grows.
+      const { container, rerender } = render(
+        <AgentResponse content={longAnswer.slice(0, 200)} isStreaming />
+      )
       expect(hasLede(container)).toBe(false)
+
+      rerender(<AgentResponse content={longAnswer} isStreaming />)
+      expect(hasLede(container)).toBe(true)
+
+      rerender(<AgentResponse content={longAnswer} />)
+      expect(hasLede(container)).toBe(true)
     })
   })
   // Getting the answer OUT: the copy actions live in the merged footer's meta

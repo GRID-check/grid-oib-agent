@@ -30,6 +30,7 @@
  * run with.
  */
 
+import type { JSX } from 'react'
 import { useRef, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { ArrowUp, Layers } from 'lucide-react'

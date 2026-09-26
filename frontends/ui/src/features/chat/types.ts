@@ -132,6 +132,13 @@ export type ErrorCode =
  */
 export type RecoveryOutcome = 'recovered' | 'superseded' | 'nothing'
 
+/** A question a reload cut off mid-answer, and the WS id its frames carry as `parent_id`. */
+export interface ResumableTurn {
+  conversationId: string
+  userMessageId: string
+  wsParentId: string
+}
+
 export type PromptType = 'clarification' | 'approval' | 'choice' | 'text-input' | 'plan_approval'
 
 /**
@@ -761,6 +768,16 @@ export interface ChatState {
    */
   isRecoveryPending: boolean
   /**
+   * A turn a reload interrupted, waiting for its socket to rebuild it from the
+   * replay stream (`GET /api/conversations/:id/frames`). Set by
+   * `restoreSessionState` when the finished-answer recovery finds nothing: a
+   * turn still running on the server has no finished answer yet, and its
+   * frames, read back, continue it. Taken by the socket hook once it is
+   * connected (`resumeTurn`), which ends the turn with the banner if the
+   * stream no longer holds it. Never persisted.
+   */
+  resumableTurn: ResumableTurn | null
+  /**
    * Whether the server conversation list has been asked for at least once. A
    * `?session=<id>` deep link needs this to tell "stale id" from "not fetched
    * yet" before it strips itself from the URL (see the sessions slice).
@@ -974,7 +991,20 @@ export interface ChatActions {
     content: string,
     cards?: (GridCard | undefined)[],
     answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[]
+    citations?: CitationSource[],
+    /** The masthead, when a live frame carries it ahead of the prose (ADR-0066). */
+    answerMeta?: AnswerMeta
+  ) => void
+  /**
+   * Replace the streaming bubble's text with a settled snapshot (ADR-0066):
+   * the prose so far with its `[N]` markers verified and renumbered, the
+   * sources they now point at, and the masthead re-gated against the prose.
+   * The bubble keeps streaming; the terminal frame still finalizes it.
+   */
+  replaceStreamingAgentResponse: (
+    content: string,
+    citations?: CitationSource[],
+    answerMeta?: AnswerMeta
   ) => void
   /**
    * Finalize the accumulating answer bubble on the terminal `complete` frame:
@@ -996,6 +1026,17 @@ export interface ChatActions {
    * turn — every frame of a turn carries the same `parent_id`.
    */
   setTurnWsParentId: (wsParentId: string) => void
+  /**
+   * Stamp the question with the WS id it was sent under (`wsParentId`), so a
+   * reload can tell which of the conversation's replayed frames answer it.
+   */
+  markTurnWsParentId: (userMessageId: string, wsParentId: string) => void
+  /**
+   * Take the turn a reload left to resume, if it is this conversation's, and
+   * open it again: it is the current turn, streaming, with the thinking steps
+   * the reload kept dropped, because the replay rebuilds them.
+   */
+  resumeTurn: (conversationId: string) => ResumableTurn | null
   /**
    * Apply a post-answer stage frame to the turn it addresses
    * (`docs/architecture/post-answer-stages.md` §4.3, §8).
@@ -1077,8 +1118,15 @@ export interface ChatActions {
    */
   _recoverInterruptedAssistantMessage: (
     conversationId: string,
-    afterUserMessageId: string
+    afterUserMessageId: string,
+    options?: { quiet?: boolean }
   ) => Promise<RecoveryOutcome>
+  /**
+   * Wait for the server's finished answer to a turn this page lost track of,
+   * for as long as the turn is still producing frames (its heartbeat), then
+   * look once more. `nothing` only when the turn has ended without one.
+   */
+  _awaitServerAnswer: (conversationId: string, afterUserMessageId: string) => Promise<RecoveryOutcome>
 
   // Session busy checks (for disabling UI controls)
 

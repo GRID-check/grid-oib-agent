@@ -27,6 +27,7 @@ from aiq_agent.cards import surface_documents as _surface_documents  # noqa: F40
 # Re-exported so the shape-hint retry loop and tests keep importing them from
 # here; the definitions live in the framing-free catalog module.
 from aiq_agent.cards.catalog import CARD_EXAMPLES as _CARD_EXAMPLES  # noqa: F401
+from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
 from aiq_agent.cards.catalog import model_facing_card_types
 from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.cards.catalog import render_card_doctrine
@@ -95,7 +96,7 @@ def _build_tool_description() -> str:
         "required; omit optional ones rather than passing null. Numbers are plain JSON numbers. For "
         "schematic cards, supply the measured/actual value from the question or project profile and "
         "the OIB limit in `required`; if a value is unknown, omit it and set that check's status to "
-        '"needs_input" — never estimate.\n\n' + render_card_index()
+        '"needs_input" — never estimate.\n\n' + render_card_index(exclude=CHAT_ONLY_CARD_TYPES)
     )
 
 
@@ -175,6 +176,14 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
         # envelope's `cards` field (``cards/envelope.py``): the shape check,
         # the system-card channel and the envelope-field channel. What this
         # tool adds is its own advice — which call to make next.
+        if isinstance(payload, dict) and payload.get("type") in CHAT_ONLY_CARD_TYPES:
+            # A surface's `Text` [N] are held to the answer's citations on the
+            # chat pipeline only; here they would reach the reader unrecited.
+            logger.warning("emit_card rejected a '%s' card: chat envelope only", payload["type"])
+            return None, (
+                f"Error: card type '{payload['type']}' cannot be emitted with emit_card. Emit the cards it "
+                "would hold one by one."
+            )
         validated, refusal = validate_model_card(payload)
         if refusal is None:
             return validated, None
@@ -301,12 +310,13 @@ async def describe_card(tool_config: DescribeCardConfig, builder: Builder):
         if not requested:
             return "Error: pass at least one card type name, e.g. 'stair_diagram'."
 
-        known = model_facing_card_types()
+        # This tool serves `emit_card`, which refuses the chat-only types.
+        known = model_facing_card_types() - CHAT_ONLY_CARD_TYPES
         # Report the unknown names rather than rendering only what resolved: a
         # silently shorter answer reads as "that card does not exist", and the
         # model's next move would be to invent a shape for it.
         unknown = [t for t in requested if t not in known]
-        detail = render_card_details(requested)
+        detail = render_card_details([t for t in requested if t in known])
 
         if not detail:
             return f"No such card type: {', '.join(unknown)}. Available types: {', '.join(sorted(known))}."

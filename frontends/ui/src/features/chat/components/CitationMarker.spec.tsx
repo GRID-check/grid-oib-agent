@@ -362,3 +362,36 @@ describe('an inline citation marker', () => {
     })
   })
 })
+
+describe('a citation still being settled (ADR-0066)', () => {
+  beforeEach(() => {
+    resetSourcePreviewIndexCache()
+    fetchMock.mockClear()
+    fetchMock.mockImplementation(defaultFetch)
+    chatStore.projectId = null
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  test('is a pending pill with the live pill’s box, so settling only changes its colour', () => {
+    const { rerender } = render(
+      <AgentResponse content="Zwei Fluchtwege sind erforderlich [1]" messageId="m1" isStreaming routingDecision="deep" />
+    )
+    const pending = document.querySelector('[data-citation-pending="1"]')
+    expect(pending).not.toBeNull()
+    expect(pending).toHaveAccessibleName(/Source 1/)
+    expect(screen.queryByRole('button', { name: /Source 1:/ })).toBeNull()
+
+    rerender(<AgentResponse content={answer} messageId="m1" citations={citations} routingDecision="deep" />)
+    const live = screen.getByRole('button', { name: /Source 1: OIB-Richtlinie 2\.1/i })
+    const box = (el: Element) =>
+      el.className
+        .split(/\s+/)
+        .filter((c) => /^(inline-flex|items-center|rounded-sm|px-|relative|-top-|text-\[|font-|leading-|tabular-|pointer-coarse:)/.test(c))
+        .sort()
+    expect(box(pending as Element)).toEqual(box(live))
+  })
+})

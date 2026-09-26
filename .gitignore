@@ -153,6 +153,8 @@ apm_modules/
 coverage.xml
 report-core.xml
 report-api.xml
+report-aiqapi.xml
+coverage-aiqapi.xml
 
 # The OIB corpus is operator-provided; see data/oib/README.md
 data/oib/*.pdf

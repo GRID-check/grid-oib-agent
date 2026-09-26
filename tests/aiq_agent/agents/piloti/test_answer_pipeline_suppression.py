@@ -367,14 +367,15 @@ class TestMarkerOnlyContent:
         assert kept_content == ""
 
 
-class TestTrailerCapturesCombineToolReadsAndRepairs:
-    def test_explicit_turn_sources_lead_and_repair_sources_append(self):
+class TestTrailerCaptures:
+    def test_explicit_turn_sources_are_the_log(self):
+        # The repair no longer retrieves (ADR-0067), so this turn's reads are
+        # the whole of what a trailer value may be grounded in.
         from aiq_agent.agents.piloti.answer_pipeline import _trailer_captures
 
         turn = _oib_source()
-        repair = SourceEntry(citation_key="plan.pdf, p.3", title="Plan", source_type="knowledge_layer")
 
-        assert _trailer_captures([turn], [repair]) == [turn, repair]
+        assert _trailer_captures([turn]) == [turn]
 
     def test_both_kinds_of_source_ground_a_verdict(self):
         extracted = _Extracted(

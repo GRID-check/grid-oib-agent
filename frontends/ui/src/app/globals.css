@@ -617,35 +617,47 @@ body {
    Guided "thinking" affordances
 
    While the assistant is working, a long wait should read as *active*, not
-   stalled. Two subtle, monochrome (paper-language) motions carry that: a soft
-   shimmer sweeping the live-activity label, and a slim indeterminate bar
-   sweeping under the status header. Both collapse to a static state under the
-   global prefers-reduced-motion rule above.
+   stalled. Two subtle, monochrome (paper-language) motions carry that: the
+   live-activity label breathing, and a slim indeterminate bar sweeping under
+   the status header. Both are opacity or transform, which the compositor runs
+   without a repaint, and both collapse to a static state under the global
+   prefers-reduced-motion rule above.
    ============================================================================= */
 @keyframes grid-text-shimmer {
-  0% {
-    background-position: 150% 0;
-  }
+  0%,
   100% {
-    background-position: -150% 0;
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
   }
 }
 
-/* Gradient-clipped text: a brighter ink band travels across muted-ink copy. */
+/* The live label breathes: its ink fades down and back.
+   It used to be a gradient band swept across gradient-clipped text, by
+   animating `background-position`. No compositor can run that: the label
+   repainted on the main thread every frame for as long as a turn worked,
+   about half of what a live turn cost a 4x throttled phone at rest (measured
+   on /dev/chat-turn). An opacity animation runs on the compositor. */
 @utility animate-text-shimmer {
-  background-image: linear-gradient(
-    100deg,
-    var(--muted-foreground) 0%,
-    var(--muted-foreground) 38%,
-    var(--foreground) 50%,
-    var(--muted-foreground) 62%,
-    var(--muted-foreground) 100%
-  );
-  background-size: 220% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  animation: grid-text-shimmer 2.6s linear infinite;
+  animation: grid-text-shimmer 2.2s ease-in-out infinite;
+}
+
+@keyframes grid-typing-dot {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateY(-2px);
+    opacity: 1;
+  }
+}
+
+/* The three dots of a turn waiting for its first step. */
+@utility animate-typing-dot {
+  animation: grid-typing-dot var(--motion-quick) var(--ease-out) infinite;
 }
 
 @keyframes grid-progress-sweep {
@@ -1126,4 +1138,107 @@ body {
   [data-sonner-toast] {
     animation: none !important;
   }
+}
+
+/* =============================================================================
+   ANSWER TABLES ON A PHONE (`MarkdownRenderer/table-shape.ts`).
+   A table of three or more columns (`data-stack`) stacks each row below 30rem
+   of its OWN container, the answer column or a tab, not the viewport: a row
+   becomes a block whose first cell is its title and whose other cells name
+   their column from `data-label`. Scrolling a four-column check sideways hid
+   the Status and the Fundstelle, the two cells a reader came for.
+   Unlayered on purpose: the cells carry Tailwind padding utilities, and only
+   an unlayered rule outranks the utilities layer on a phone without an
+   `!important` on every line.
+   ============================================================================= */
+@container answer-table (max-width: 30rem) {
+  table[data-stack] {
+    display: block;
+  }
+  table[data-stack] > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  table[data-stack] > tbody,
+  table[data-stack] > tbody > tr {
+    display: block;
+  }
+  table[data-stack] > tbody > tr {
+    padding: 0.5rem 0.75rem;
+  }
+  table[data-stack] > tbody > tr > td {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    padding: 0.125rem 0;
+    text-align: left;
+  }
+  table[data-stack] > tbody > tr > td::before {
+    content: attr(data-label);
+    flex: 0 0 38%;
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+  }
+  table[data-stack] > tbody > tr > td:first-child {
+    font-weight: 600;
+    padding-bottom: 0.25rem;
+  }
+  table[data-stack] > tbody > tr > td:first-child::before {
+    display: none;
+  }
+  table[data-stack] > caption {
+    display: block;
+  }
+  table[data-stack][data-labels="above"] > tbody > tr > td {
+    display: block;
+  }
+  table[data-stack][data-labels="above"] > tbody > tr > td:not(:first-child)::before {
+    display: block;
+  }
+}
+
+/* A table whose cells hold sentences stacks at EVERY width (`data-stack="always"`,
+   `table-shape.ts`): each row a block, each cell under its column's name. */
+table[data-stack="always"] {
+  display: block;
+}
+table[data-stack="always"] > thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+table[data-stack="always"] > tbody,
+table[data-stack="always"] > tbody > tr {
+  display: block;
+}
+table[data-stack="always"] > tbody > tr {
+  padding: 0.75rem 1rem;
+}
+table[data-stack="always"] > tbody > tr > td {
+  display: block;
+  padding: 0.25rem 0;
+  text-align: left;
+}
+table[data-stack="always"] > tbody > tr > td::before {
+  content: attr(data-label);
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+table[data-stack="always"] > tbody > tr > td:first-child {
+  font-weight: 600;
+}
+table[data-stack="always"] > tbody > tr > td:first-child::before {
+  display: none;
+}
+table[data-stack="always"] > caption {
+  display: block;
 }

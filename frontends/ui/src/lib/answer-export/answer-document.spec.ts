@@ -618,6 +618,21 @@ describe('the drawing this export cannot draw', () => {
     expect(fromCard).toContain('BW->>BB: Einreichunterlagen')
   })
 
+  it('prints the placeholder for a drawing inside a composed tab (ADR-0065)', () => {
+    const tab = {
+      type: 'surface',
+      components: [
+        { id: 'root', component: 'Tabs', tabs: [{ title: 'Ablauf', child: 'a' }] },
+        { id: 'a', component: 'Text', text: '```mermaid\nsequenceDiagram\n  BW->>BB: Einreichunterlagen\n```' },
+      ],
+    }
+    const output = text(
+      buildAnswerDocument(input({ answer: '', cards: [tab], diagramPlaceholder: 'Als Grafik in Piloti.' }), german, 'de')
+    )
+    expect(output).toContain('Als Grafik in Piloti.')
+    expect(output).not.toContain('BW->>BB')
+  })
+
   it('carries the words around the drawing that the picture cannot', () => {
     // The title heads it, the caption says what the drawing leaves out, and the
     // Fundstelle is what makes it a Verfahren from somewhere rather than from

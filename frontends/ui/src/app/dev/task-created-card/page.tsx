@@ -28,6 +28,7 @@
  * copy under review is the German copy. 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { TaskCreatedCard } from '@/features/grid-cards/components/TaskCreatedCard'

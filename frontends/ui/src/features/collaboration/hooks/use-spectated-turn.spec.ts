@@ -93,6 +93,30 @@ describe('useSpectatedTurn', () => {
     expect(result.current.turn?.answer).toBe('Ja, ')
   })
 
+  it('goes live on a masthead alone, before the first word', async () => {
+    // A direct reply can open with live_chunk("", answer_meta=…): the masthead
+    // is something to show, and the banner must give way to it.
+    const { result } = renderHook(() =>
+      useSpectatedTurn({ conversationId: 'conv_1', enabled: true })
+    )
+    const masthead = { ...delta(''), answer_meta: { v: 1, kind: 'direct', topic: 'Kurz' } }
+    act(() => FakeEventSource.instances[0].emit(frame(1, masthead)))
+    await waitFor(() => expect(result.current.live).toBe(true))
+    expect(result.current.turn?.answer).toBe('')
+  })
+
+  it('goes live on cards alone, before the first word', async () => {
+    const { result } = renderHook(() =>
+      useSpectatedTurn({ conversationId: 'conv_1', enabled: true })
+    )
+    const cards = {
+      ...delta(''),
+      cards: [{ type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' }],
+    }
+    act(() => FakeEventSource.instances[0].emit(frame(1, cards)))
+    await waitFor(() => expect(result.current.live).toBe(true))
+  })
+
   it('ignores a frame it has already applied', async () => {
     const { result } = renderHook(() =>
       useSpectatedTurn({ conversationId: 'conv_1', enabled: true })

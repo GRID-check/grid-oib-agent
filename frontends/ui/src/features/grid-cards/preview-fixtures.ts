@@ -824,6 +824,44 @@ const RAW_FIXTURES: CardInput[] = [
     basis: '1 Stellplatz je Wohneinheit (14 WE)',
     reference: { document: 'Wiener Garagengesetz 2008', section: '§ 48' },
   },
+  // A composition (ADR-0065): two variants of one question as tabs, each the
+  // card it would be on its own. Values show the form, not the Richtlinie.
+  {
+    type: 'surface',
+    title: 'Zweiter Fluchtweg — zwei Varianten',
+    components: [
+      {
+        id: 'root',
+        component: 'Tabs',
+        tabs: [
+          { title: 'Außentreppe', child: 'aussen' },
+          { title: 'Zweites Treppenhaus', child: 'treppenhaus' },
+        ],
+      },
+      {
+        id: 'aussen',
+        component: 'process_map',
+        title: 'Außentreppe als zweiter Fluchtweg',
+        steps: [
+          { label: 'Lage klären', summary: 'Abstand zu Fenstern und Öffnungen prüfen.' },
+          { label: 'Brandschutzkonzept ergänzen', summary: 'Außentreppe als Fluchtweg nachweisen.' },
+          { label: 'Einreichung', summary: 'Mit dem Bauansuchen.' },
+        ],
+        reference: { document: 'OIB-Richtlinie 2', section: 'Pkt. 5.1' },
+      },
+      {
+        id: 'treppenhaus',
+        component: 'process_map',
+        title: 'Zweites Treppenhaus',
+        steps: [
+          { label: 'Grundriss anpassen', summary: 'Zweites Treppenhaus im Gebäudekern.' },
+          { label: 'Fluchtweglängen neu messen', summary: 'Längen zu beiden Treppenhäusern.' },
+          { label: 'Einreichung', summary: 'Mit dem Bauansuchen.' },
+        ],
+        reference: { document: 'OIB-Richtlinie 2', section: 'Pkt. 5.1' },
+      },
+    ],
+  },
 ]
 
 /**

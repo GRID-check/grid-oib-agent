@@ -27,6 +27,7 @@
  *     colleague typed "danke".
  */
 
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { AtSign } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'

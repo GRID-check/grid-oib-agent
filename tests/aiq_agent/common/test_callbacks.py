@@ -310,6 +310,35 @@ class TestVerboseTraceCallback:
         # Should not raise
         callback.on_tool_error(error=Exception("Test error"))
 
+    def test_a_refused_argument_is_a_warning_naming_the_tool(self, caplog):
+        # #656: the ToolNode hands the refusal back and the model fixes the
+        # call, so it must not reach err2issue as an ERROR, and the record
+        # has to say which tool refused.
+        from pydantic import BaseModel
+        from pydantic import ValidationError
+
+        class InputArgsSchema(BaseModel):
+            page: int = 1
+
+        with pytest.raises(ValidationError) as refused:
+            InputArgsSchema.model_validate({"page": ""})
+        callback = VerboseTraceCallback()
+        callback.on_tool_start(serialized={"name": "ris_search"}, input_str="{}", run_id="r1")
+        with caplog.at_level(logging.WARNING, logger="aiq_agent.common.callbacks"):
+            callback.on_tool_error(error=refused.value, run_id="r1")
+        (record,) = caplog.records
+        assert record.levelno == logging.WARNING
+        assert "ris_search" in record.getMessage()
+
+    def test_a_tool_that_raised_is_still_an_error(self, caplog):
+        callback = VerboseTraceCallback()
+        callback.on_tool_start(serialized={"name": "ris_search"}, input_str="{}", run_id="r2")
+        with caplog.at_level(logging.WARNING, logger="aiq_agent.common.callbacks"):
+            callback.on_tool_error(error=RuntimeError("RIS unreachable"), run_id="r2")
+        (record,) = caplog.records
+        assert record.levelno == logging.ERROR
+        assert "ris_search" in record.getMessage()
+
     def test_on_agent_action(self):
         """Test on_agent_action handles agent actions."""
         callback = VerboseTraceCallback()

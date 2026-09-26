@@ -204,6 +204,15 @@ class TestTheFilterIsTheAnswer:
             {"page_label": {"$eq": "12"}},
         ]
 
+    async def test_a_punkt_request_drops_the_page_beside_it(self, store):
+        """Every chunk of a Punkt is filed under its first page, so a page next
+        to the number can only repeat it or empty the read."""
+        await _read(document="OIB-Richtlinie 2, Ausgabe Mai 2023", punkt="3.5.2", page=13)
+
+        (call,) = store.calls
+        assert {"punkt_id": {"$eq": "3.5.2"}} in call["filters"]["$and"]
+        assert not any("page_label" in clause for clause in call["filters"]["$and"])
+
     async def test_the_punkt_reaches_the_store_as_a_filter(self, store):
         await _read(document="OIB-Richtlinie 2, Ausgabe Mai 2023", punkt="3.5.2")
 
@@ -243,6 +252,35 @@ class TestTheFilterIsTheAnswer:
             _chunk(punkt="1.1", page=4, chunk_id="z"),
         ]
         assert [c.chunk_id for c in sorted(chunks, key=_punkt_sort_key)] == ["z", "y", "x"]
+
+    def test_a_long_tables_row_groups_come_back_in_order(self):
+        """Every row group of a table shares page and ``punkt_id`` and its chunk
+        id is a random uuid: "Teil 1 von N" … "Teil N von N" came back shuffled."""
+        from knowledge_layer.llamaindex.captioned_tables import PageTable
+        from knowledge_layer.llamaindex.punkt_chunking import punkt_documents
+
+        body = "\n".join(f"{n} Punkt Nummer {n}\nText zu Punkt {n}, lang genug um zu zählen." for n in range(1, 8))
+        rows = [[f"{n} Bauteil mit einer längeren Bezeichnung", "REI 60", "REI 90"] for n in range(120)]
+        table = PageTable("1a", "Brandverhalten", [["Gegenstand", "GK 4", "GK 5"], *rows], 2)
+        pages = [
+            {"page_number": 1, "text": "OIB-Richtlinie 9 Ausgabe Mai 2023\n" + body},
+            {"page_number": 2, "text": "", "tables": [table]},
+        ]
+        groups = [d for d in punkt_documents(pages, OIB, 1) if d.metadata["chunking"] == "table"]
+        assert len(groups) > 2
+        # Chunk ids that sort against the parts, as a uuid may.
+        chunks = [
+            _chunk(punkt="Tabelle 1a", page=2, content=doc.text, chunk_id=f"{9 - index}")
+            for index, doc in enumerate(groups)
+        ]
+        for chunk, doc in zip(chunks, groups, strict=True):
+            chunk.metadata["table_part"] = doc.metadata["table_part"]
+
+        ordered = sorted(chunks, key=_punkt_sort_key)
+
+        assert [f"Teil {n} von {len(groups)}" in c.content for n, c in enumerate(ordered, start=1)] == [True] * len(
+            groups
+        )
 
 
 class TestFormatParity:

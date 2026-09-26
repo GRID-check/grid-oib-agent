@@ -6,7 +6,9 @@ skills as a ``use_skill`` tool, the model override) as a :class:`TurnConfig`
 and hands it to ``agent.run``; nothing is compiled, read or re-indexed per turn.
 The tool SET no longer varies with the data-source toggles — a switched-off
 source keeps its tool and refuses the call (``common/data_sources.py``), so
-every turn of an org sends the same tool payload to the same cache shard.
+every turn of an org sends the same tool payload to the same cache shard —
+except that a turn without a project is not sent the building-model tools
+(``_tools_in_scope``), which cannot run there.
 """
 
 import asyncio
@@ -34,12 +36,16 @@ from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common import unavailable_source_ids
 from aiq_agent.common import validate_tool_availability
+from aiq_agent.common.agent_tools import load_agent_tools
 from aiq_agent.common.canned_replies import SCOPED_NO_SOURCES_MESSAGE
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.data_source_registry import get_all_sources
+from aiq_agent.common.decisions import SKIPPED_TOO_SHORT
+from aiq_agent.common.decisions import record_skipped
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import verify_deferred_tool_loading
 from aiq_agent.project_context import get_organization_id_from_context
+from aiq_agent.project_context import get_project_id_from_context
 from aiq_agent.skills import SkillResolver
 from aiq_agent.skills import SkillRuntime
 from aiq_agent.skills.events import emit_skills_offered
@@ -61,13 +67,16 @@ from nat.data_models.function import FunctionBaseConfig
 from . import ask_user as _ask_user  # noqa: F401
 from .agent import PilotiAgent
 from .agent import TurnConfig
+from .decisions import SLOT as DECISION_SLOT
 from .decisions import TurnDecisions
 from .decisions import TurnFacts
 from .decisions import attached_card_types
 from .decisions import decide_turn
 from .decisions import prefetch_calls
+from .decisions import prefetch_query
 from .models import ResearchAgentState
 from .tool_search import ToolSearchSettings
+from .tool_search import tool_basename
 
 logger = logging.getLogger(__name__)
 
@@ -125,9 +134,10 @@ class ResearchAgentConfig(FunctionBaseConfig, name="research_agent"):
     repair_pass: bool = Field(
         default=True,
         description=(
-            "After citation and quote verification, try ONE repair when something failed: "
-            "one more retrieval aimed at the failing quote or citation, one rewrite, then "
-            "re-verify and keep the better answer. Off ships the markers as before."
+            "Correct a quotation no retrieved passage holds verbatim, when one passage comes close: "
+            "the small `card_repair_llm` returns that passage's own wording and only the text "
+            "between the quotation marks is replaced, then re-verified (ADR-0067). Off, or without "
+            "`card_repair_llm`, ships the marker."
         ),
     )
     card_repair_llm: LLMRef | None = Field(
@@ -136,7 +146,8 @@ class ResearchAgentConfig(FunctionBaseConfig, name="research_agent"):
             "The small model that fixes ONE card the answer envelope carried and the validator "
             "refused (`cards/repair.py`): the failed object, the refusal and the type's shape in a "
             "message of a few thousand tokens, instead of the full-context round the `emit_card` "
-            "retry cost. Unset drops a card that fails validation, and records that it did."
+            "retry cost. Unset drops a card that fails validation, and records that it did; it also "
+            "turns off the quote repair (`repair_pass`), which runs on this model."
         ),
     )
     verbose: bool = Field(default=False, description="Whether to enable verbose logging")
@@ -224,10 +235,7 @@ class _Deployment:
 
 async def _load_tools(config: ResearchAgentConfig, builder: Builder) -> list[Any]:
     tool_refs = config.tools or get_all_tool_refs()
-    tools = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-    if config.exclude_tools:
-        excluded = set(config.exclude_tools)
-        tools = [t for t in tools if getattr(t, "name", "") not in excluded]
+    tools = await load_agent_tools(builder, tool_refs, config.exclude_tools)
     is_valid, _, _ = validate_tool_availability(tools, research_type=_RESEARCH_TYPE)
     if not is_valid:
         logger.warning(
@@ -360,6 +368,8 @@ def _skills_block(runtime: SkillRuntime) -> str:
 
 def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> TurnFacts:
     """What the decider is shown, from the state the gather already filled."""
+    from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
+    from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
     from aiq_agent.cards.catalog import card_index_entries
     from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
     from aiq_agent.common.applicability import facts_from_project_context
@@ -385,23 +395,32 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
         focus_file_name=state.focus_file_name,
         project_facts={k: str(v) for k, v in facts_from_project_context(state.project_context or "").items()},
         families=get_norm_families(),
-        project_files=sum(1 for doc in documents if getattr(doc, "shelf", None) is Shelf.PROJECT),
-        archive_files=sum(1 for doc in documents if getattr(doc, "shelf", None) is Shelf.ARCHIV),
-        card_types=[entry for entry in card_index_entries() if entry[0] not in ENVELOPE_SHAPE_TYPES],
+        project_files=sum(1 for doc in documents if getattr(doc, "shelf", None) == Shelf.PROJECT),
+        archive_files=sum(1 for doc in documents if getattr(doc, "shelf", None) == Shelf.ARCHIV),
+        # `surface`'s shape IS the compose rule the envelope contract already
+        # carries: attached, it would ride twice and take a shape slot.
+        card_types=[
+            entry
+            for entry in card_index_entries(exclude=MARKDOWN_CARD_TYPES | CHAT_ONLY_CARD_TYPES)
+            if entry[0] not in ENVELOPE_SHAPE_TYPES
+        ],
     )
 
 
-async def _decide_turn(
-    config: ResearchAgentConfig, state: ResearchAgentState, runtime: SkillRuntime | None
-) -> TurnDecisions:
-    """The turn-start decision, or none: never raises, never blocks longer than its timeout."""
-    if not config.turn_decisions:
+async def _decide_turn(facts: TurnFacts | None) -> TurnDecisions:
+    """The turn-start decision, or none: never raises, never blocks longer than its timeout.
+
+    ``facts`` is ``None`` when the config switched the decision off.
+    """
+    if facts is None:
         return TurnDecisions.none()
-    facts = _turn_facts(state, runtime)
     # A first message of one or two words („Hallo", „Danke!") needs no
-    # decision: nothing to prefetch, no method to read in, and the ~0.6 s the
-    # call costs would be a third of the reply's whole latency.
+    # decision: no method to read in, and the ~0.6 s the call costs would be
+    # a third of the reply's whole latency. What it may prefetch needs none
+    # either: a bare family name („OIB 2") is searched by the undecided path
+    # (``prefetch_calls``), and anything else of two words searches nothing.
     if facts.previous_message is None and len(facts.question.split()) < 3:
+        record_skipped(DECISION_SLOT, SKIPPED_TOO_SHORT)
         return TurnDecisions.none()
     try:
         return await decide_turn(facts, organization_id=get_organization_id_from_context())
@@ -410,22 +429,87 @@ async def _decide_turn(
         return TurnDecisions.none()
 
 
+#: The warm-ups still running (see _warm_question).
+_WARMING: set[asyncio.Task[None]] = set()
+
+
+def _warm_question(facts: TurnFacts | None) -> None:
+    """Start embedding the question the round-0 prefetch will search; not awaited.
+
+    The prefetch is known only after the decision, and its search then pays
+    the query embedding (280-980 ms, measured 2026-09-24) before it can rank.
+    The string it will search is known now, so the embedding runs beside the
+    decision and the search finds it cached, or in flight. Nothing waits on it.
+
+    Warmed only where ``prefetch_calls`` can search the raw question, as far
+    as that is known before the decision: a FIRST message of three words or
+    more, which the decision may prefetch, or one that names an OIB family,
+    which is prefetched even undecided — „OIB 2" skips the decision and is
+    still searched. A later message is searched only when the decision rules it
+    self-contained, and without a decision never (``prefetch_calls``), so
+    warming it would mostly be an embedding call nobody reads. A decided
+    first message whose corpus is not searched still wastes one call.
+    """
+    if facts is None or facts.previous_message is not None:
+        return
+    from aiq_agent.common.norm_registry import family_query_number
+
+    query = prefetch_query(facts.question)
+    if len(query.split()) < 3 and family_query_number(query) is None:
+        return
+    from aiq_agent.knowledge.factory import warm_search_query
+
+    # Held until done: the loop keeps only a weak reference to a task.
+    task = asyncio.create_task(warm_search_query(query))
+    _WARMING.add(task)
+    task.add_done_callback(_WARMING.discard)
+
+
+#: Tools that read the PROJECT's building model. Outside a project they can
+#: only answer "no project" (``tools/bim/failures.NO_PROJECT_TEXT``), and
+#: their two schemas are ~8 200 of the ~17 000 tool tokens every call of the
+#: turn re-sends (measured 2026-09-23 on the live request; deferral did not
+#: reduce what was billed).
+_PROJECT_MODEL_TOOLS = frozenset({"ifc_query", "ifc_measure"})
+
+
+def _tools_in_scope(tools: list[Any]) -> list[Any]:
+    """The turn's tools less those that cannot run in its scope.
+
+    The tool payload still does not vary with the data-source toggles (the
+    cache shard stays one per org); it varies with one fact the turn cannot
+    change — whether there is a project — so an org has two shards, not one
+    per combination.
+    """
+    if get_project_id_from_context():
+        return tools
+    # The BASE name: a grouped or MCP tool arrives as ``bim__ifc_query``.
+    return [tool for tool in tools if tool_basename(getattr(tool, "name", "") or "") not in _PROJECT_MODEL_TOOLS]
+
+
 def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtime: SkillRuntime | None) -> None:
     """The two prompt-side effects: the chosen skill's body, and the likely card shapes.
 
     The chosen skill rides this turn's prompt in full (``inline_also``), the
     one method the question is the subject of; the shapes are its preferred
-    cards beyond the eight the envelope teaches — what ``use_skill`` hands
-    over with the body — then the card nouls' picks, capped
-    (``attached_card_types``). Still offers: the model decides.
+    cards beyond the three shapes the envelope teaches, the Markdown-written
+    types and ``surface`` — what ``use_skill`` hands over with the body — then
+    the turn decision's card picks, capped (``attached_card_types``). The
+    Markdown types are left out because the answer writes them as Markdown,
+    not as a card, and ``surface`` because its shape is the envelope's
+    compose rule, already in the prompt. Still offers: the model decides.
     """
+    from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
+    from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
     from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
     from aiq_agent.skills.models import preferred_cards
+
+    withheld_shapes = {*ENVELOPE_SHAPE_TYPES, *MARKDOWN_CARD_TYPES, *CHAT_ONLY_CARD_TYPES}
 
     if runtime is not None and decisions.chosen_skill:
         runtime.inline_also((decisions.chosen_skill,))
     skill_cards = {
-        skill.name: [card for card in preferred_cards(skill.metadata) if card not in ENVELOPE_SHAPE_TYPES]
+        skill.name: [card for card in preferred_cards(skill.metadata) if card not in withheld_shapes]
         for skill in (runtime.skills if runtime is not None else ())
     }
     chosen = attached_card_types(decisions, skill_cards)
@@ -500,35 +584,61 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     # The provider reads (four cache-first BFF lookups) run beside them too:
     # nothing here depends on another, so the turn pays the slowest of the
     # three, not their sum.
+    # The question's embedding is warmed beside them (see _warm_question), so
+    # the round-0 search it prefetches does not pay that round trip after.
+    # The facts only feed the decision, so a config without it builds none.
+    facts = _turn_facts(state, runtime) if config.turn_decisions else None
+    _warm_question(facts)
     draft_tools, decisions, llm_provider = await asyncio.gather(
-        draft_tools_for_turn(), _decide_turn(config, state, runtime), _active_provider(deployment.provider)
+        draft_tools_for_turn(), _decide_turn(facts), _active_provider(deployment.provider)
     )
     _apply_decisions(decisions, state, runtime)
     # After the decision: the skill it inlined is part of what this turn inlined.
     if runtime is not None:
         emit_skills_offered(runtime)
-    turn_tools = list(deployment.tools) + (list(runtime.build_tools()) if runtime is not None else []) + draft_tools
+    turn_tools = _tools_in_scope(
+        list(deployment.tools) + (list(runtime.build_tools()) if runtime is not None else []) + draft_tools
+    )
     turn = TurnConfig(
         llm_provider=llm_provider,
         tools=turn_tools,
         disabled_sources=disabled_sources,
-        prefetch=tuple(
-            prefetch_calls(decisions, _turn_facts(state, runtime).question, focus_file_name=state.focus_file_name)
-        ),
+        prefetch=_turn_prefetch(decisions, facts, state),
     )
     if runtime is not None:
         state.skills_block = _skills_block(runtime)
+    result = await _run_agent(deployment, state, turn)
+    if result is None:
+        return _reply(state, SCOPED_NO_SOURCES_MESSAGE)
+    if runtime is not None:
+        _report_skills(result, runtime)
+    return result
+
+
+def _turn_prefetch(decisions: TurnDecisions, facts: TurnFacts | None, state: ResearchAgentState) -> tuple:
+    """Round 0's tool calls; none when the config switched the decision off."""
+    if facts is None:
+        return ()
+    return tuple(
+        prefetch_calls(
+            decisions,
+            facts.question,
+            focus_file_name=state.focus_file_name,
+            previous_message=facts.previous_message,
+        )
+    )
+
+
+async def _run_agent(deployment: _Deployment, state: ResearchAgentState, turn: TurnConfig) -> ResearchAgentState | None:
+    """The shared agent's run, or None on a scoped miss, which the caller answers."""
     try:
-        result = await deployment.agent.run(state, turn=turn)
+        return await deployment.agent.run(state, turn=turn)
     except EmptySourceRegistryError:
         # A scoped miss (this-file / this-shelf) is a valid empty answer, not
         # an unhandled NAT error. Raising here became err2issue #447 and left
         # the user with no reply.
         logger.warning("Research captured no sources; returning an empty-result answer.")
-        return _reply(state, SCOPED_NO_SOURCES_MESSAGE)
-    if runtime is not None:
-        _report_skills(result, runtime)
-    return result
+        return None
 
 
 @register_function(config_type=ResearchAgentConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])

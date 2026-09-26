@@ -1,0 +1,63 @@
+---
+features:
+  - >
+    Antworten erscheinen, während sie geschrieben werden, statt erst am Ende
+    der Recherche. Jede Fundstelle steht sofort an ihrer Stelle, zunächst als
+    „wird geprüft“, und wird zur anklickbaren Quelle, sobald der Text fertig
+    und geprüft ist, noch bevor Karten und Antwort vollständig sind.
+  - >
+    Titel und Kurzfassung stehen über der Antwort, bevor ihr erstes Wort
+    erscheint, und eine Karte hält ihren Platz im Text frei und wächst dort
+    hinein, statt den Text, den Sie gerade lesen, nach unten zu schieben.
+    Wer einen geteilten Verlauf mitliest, sieht dieselbe Antwort mit Titel,
+    Quellen und Karten, nicht mehr nur ihren Text.
+  - >
+    Diagramme in Antworten sind neu gestaltet: Abläufe als Karten mit
+    beschrifteten Pfeilen und hervorgehobenen Entscheidungen, ein Regelwerk
+    als Baum (auf dem Telefon als Gliederung), Übergaben als Spalten je
+    Beteiligtem, Termine als Balken auf einer Zeitachse. Aufgabenlisten
+    zeigen Markierungen statt Kontrollkästchen.
+  - >
+    Varianten, die Sie vergleichen (zwei Entwurfslösungen, zwei
+    Bundesländer, Bestand und Umbau), erscheinen als Reiter, jede mit ihrer
+    eigenen Tabelle. Zusammengehörige Karten stehen auf breiten Bildschirmen
+    nebeneinander. Im Word-Export stehen die Varianten untereinander, jede
+    mit ihrem Reitertitel.
+  - >
+    Prüftabellen zeigen ihr Ergebnis vorab (etwa „2 erfüllt · 1 offen“),
+    eine Fundstelle, die für alle Zeilen gleich ist, steht einmal unter der
+    Tabelle statt in jeder Zeile, und auf dem Telefon werden breite Tabellen
+    zeilenweise untereinander gezeigt statt seitlich zu scrollen.
+  - >
+    Antworten wiederholen sich weniger: ein Vorspann, der nur den ersten
+    Absatz wiederholt, entfällt, ebenso eine Mindmap, die nur die Tabelle
+    daneben nachzeichnet, und eine Fundstelle steht je Tabellenzeile nur
+    einmal.
+fixes:
+  - >
+    Fragen zu bewilligungsfreien und anzeigepflichtigen Bauvorhaben in
+    Salzburg werden aus dem Baupolizeigesetz beantwortet statt an die
+    ausführliche Recherche übergeben, und die Tiroler Bauordnung wird nach
+    Paragraphen samt Überschrift gelesen statt nach ihrem Inhaltsverzeichnis.
+  - >
+    Antworten zur Bauordnung behalten ihre Fundstellen im RIS und sind
+    schneller: ein genannter Paragraph kommt ganz statt nur sein Anfang, ohne
+    die doppelte Vorlesefassung des RIS, und ist als RIS statt als
+    Wissensbasis gekennzeichnet. Bisher fragte die Suche drei- bis viermal nach
+    dem Rest, und ein zitierter Paragraph konnte aus der Quellenliste fallen.
+  - >
+    Werte aus den Tabellen der OIB-Richtlinien (etwa Tabelle 3 zu
+    Treppenhäusern) werden richtig gelesen und mit der Seite der Tabelle
+    zitiert; bisher verwechselte die Suche die Spalten der Gebäudeklassen.
+  - >
+    Die Punkte von „Das Wichtigste“ stehen bündig untereinander, und
+    Kopieren, Antwortdetails und Bewertung stehen unter einer Antwort in
+    einer Zeile.
+  - >
+    Skizzen sind auf dem Telefon lesbar: Maße und Beschriftungen erscheinen
+    nicht mehr in 5 bis 7 Pixel Größe. Breite Tabellen, Vergleiche und
+    Diagramme zeigen am Rand an, dass es seitlich weitergeht.
+  - >
+    Diagramme erscheinen im dunklen Modus durchgehend dunkel; bisher
+    wechselten mehrere Diagramme in einer Antwort ab dem dritten in die
+    helle Palette, und Achsen, Titel und Legenden wurden unsichtbar.

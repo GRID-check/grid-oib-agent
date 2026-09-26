@@ -13,6 +13,7 @@
  * neither available the section says so instead of rendering an empty column.
  */
 
+import type { JSX } from 'react'
 import { Cpu, KeyRound, ShieldAlert } from 'lucide-react'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { canManageModels } from '@/lib/authz/organizations'

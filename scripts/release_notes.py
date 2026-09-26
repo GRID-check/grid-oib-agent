@@ -281,7 +281,7 @@ def _clean(text: str) -> str:
 
 # ── Translation ─────────────────────────────────────────────────────────────
 
-TRANSLATION_MODEL = os.environ.get("RELEASE_NOTES_TRANSLATION_MODEL", "openai/gpt-5.6-luna")
+TRANSLATION_MODEL = os.environ.get("RELEASE_NOTES_TRANSLATION_MODEL", "openai/gpt-6-luna")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 TRANSLATION_SYSTEM_PROMPT = (

@@ -309,6 +309,7 @@ export const chat: typeof en.chat = {
     copyLink: 'Link kopieren',
     copyLinkAria: 'Link zu dieser Fundstelle kopieren: {label}',
     markerAria: 'Quelle {number}: {label} — Vorschau öffnen',
+    pendingAria: 'Quelle {number} — wird geprüft',
     lociLabel: '{count, plural, one {# Fundstelle} other {# Fundstellen}}',
     lociAria: 'Fundstellen in diesem Dokument',
     lociPosition: '{index}/{count}',
@@ -371,6 +372,8 @@ export const chat: typeof en.chat = {
     // auf jeder einzelnen erscheint: Verdikt, fehlende Angabe, Herkunft.
     kit: {
       eyebrow: 'Skizze',
+      // Eine Karte, deren Figur eine Skala oder Balken ist, keine Zeichnung.
+      eyebrowCheck: 'Prüfung',
       status: {
         pass: 'erfüllt',
         fail: 'nicht erfüllt',
@@ -1024,9 +1027,11 @@ export const chat: typeof en.chat = {
         // wird nicht „irgendetwas an den Belegen“, sondern jede Fundstelle
         // gegen das, was tatsächlich abgerufen wurde.
         citations: 'Belege werden gegen die Quellen geprüft …',
-        // Ein Beleg oder ein Zitat hielt der Prüfung nicht stand; einmal wird
-        // nachrecherchiert und neu formuliert, bevor die Antwort markiert erscheint.
-        repair: 'Ein Beleg hielt der Prüfung nicht stand — wird nachrecherchiert …',
+        // Ein Zitat steht so in keiner Passage; es wird an Ort und Stelle auf
+        // den Wortlaut der zitierten Passage korrigiert (ADR-0067). Keine
+        // Nachrecherche, keine Neuformulierung; was nicht korrigiert werden
+        // kann, bleibt markiert.
+        repair: 'Ein Zitat weicht vom Wortlaut der Quelle ab — wird am Original korrigiert …',
         escalation: 'Kurzrecherche reicht nicht — Tiefenrecherche startet',
       },
     },
@@ -1109,8 +1114,8 @@ export const chat: typeof en.chat = {
     // Wiederherstellungs-Abruf nach einer Wiederverbindung läuft, damit ein
     // Zug, der nur unterbrochen AUSSIEHT, nicht sofort den „verloren“-Hinweis
     // zeigt, bevor bestätigt ist, dass die Antwort wirklich fehlt.
-    recovering: 'Verbindung wird wiederhergestellt',
-    recoveringNotice: 'Verbindung wird wiederhergestellt — prüfe auf fertige Antwort …',
+    recovering: 'Antwort wird geholt',
+    recoveringNotice: 'Piloti arbeitet weiter — die Antwort erscheint hier, sobald sie fertig ist …',
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',

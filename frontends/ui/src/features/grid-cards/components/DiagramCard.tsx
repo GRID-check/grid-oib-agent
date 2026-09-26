@@ -19,12 +19,13 @@
  *
  * ## The three states, and why the failed one is not an error
  *
- *   - **drawing** — mermaid is laying the graph out. The first diagram in a
- *     session also pulls ~214 KB of mermaid, so this is a real moment rather
- *     than a theoretical one, and it holds the drawing's own space so nothing
- *     below it jumps when the picture lands.
- *   - **drawn** — the SVG, on paper (see below), then the caption, then the
- *     doctrine line, then the Fundstelle.
+ *   - **drawing** — mermaid is parsing the source, and laying it out where
+ *     the product has no view for it. The first diagram in a session also
+ *     pulls ~214 KB of mermaid, so this is a real moment rather than a
+ *     theoretical one, and it holds the drawing's own space so nothing below
+ *     it jumps when the picture lands.
+ *   - **drawn** — the product's view, or mermaid's SVG on the card surface,
+ *     then the caption, then the doctrine line, then the Fundstelle.
  *   - **failed** — the model writes invalid mermaid regularly. That must cost
  *     the reader nothing they did not already have, so the card degrades to the
  *     SOURCE in a code block plus one quiet line, exactly as the fence does.
@@ -50,9 +51,10 @@
  *
  * The document argument survives where it is true — the bytes that get FILED
  * are always drawn on paper, whatever theme the reader is in. This card files,
- * so it needs that second render exactly as the fence does: `useRenderedDiagram`
- * hands back `svg` for the screen and `fileSvg` for the file, and the filing
- * hook is given the second one. What was dropped is the claim that the SCREEN
+ * so it follows the fence exactly: where mermaid's SVG is the picture,
+ * `useRenderedDiagram` hands back `svg` for the screen and `fileSvg` for the
+ * file; where this product's view draws it, the paper copy is drawn only when
+ * the reader files (`renderPaperDiagram`). What was dropped is the claim that the SCREEN
  * copy has to look like paper too — a preview of a document is not the same
  * argument as the document.
  *
@@ -79,14 +81,18 @@
 
 import { type FC } from 'react'
 import { Workflow } from 'lucide-react'
+import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
 import { Card } from '@/components/ui/card'
 import { SectionLabel } from '@/components/ui/section-label'
-import { Skeleton } from '@/components/ui/skeleton'
 import { CodeBlock } from '@/shared/components/CodeBlock'
 import { useTranslations } from '@/i18n'
-import { useRenderedDiagram } from '@/features/diagrams/use-rendered-diagram'
+import { diagramFrameStyle } from '@/features/diagrams/diagram-size'
+import { renderPaperDiagram, useRenderedDiagram } from '@/features/diagrams/use-rendered-diagram'
+import { useDiagramModel } from '@/features/diagrams/use-diagram-model'
+import { DiagramView } from '@/features/diagrams/views/diagram-views'
 import { useDiagramFiling } from '@/features/diagrams/use-diagram-filing'
 import { DiagramFilingControls } from '@/features/diagrams/components/diagram-filing-controls'
+import { DrawingSkeleton } from '@/features/diagrams/components/drawing-skeleton'
 import { NormRefFooter } from '../schematics/kit'
 import type { NormReferenceData } from '../schematics/types'
 
@@ -100,41 +106,33 @@ interface DiagramCardProps {
 /** Past this the source is folded, matching the fence. */
 const SOURCE_MAX_LINES = 15
 
-/**
- * The drawing's space while it is being laid out.
- *
- * Three bars rather than one block, because the shape a reader is waiting for
- * is a graph and a single grey rectangle reads as an image that failed.
- *
- * The height is a REPRESENTATIVE one, not a reservation, and the difference is
- * worth being honest about: a mermaid drawing's height is not known until the
- * graph has been laid out, so the card does resize when the SVG lands and no
- * skeleton can prevent that. What the fixed height buys is that the card is not
- * a thin sliver first — a 20px placeholder growing to a 600px sequence diagram
- * moves everything below it much further than a 132px one does. Nothing is
- * animated either way; the design language forbids animating height, and this
- * changes it in one paint.
- */
-const DrawingSkeleton: FC = () => (
-  <div className="flex h-[132px] flex-col justify-center gap-3" aria-hidden="true">
-    <Skeleton className="h-4 w-2/5 rounded-md" />
-    <Skeleton className="h-4 w-3/5 rounded-md" />
-    <Skeleton className="h-4 w-1/3 rounded-md" />
-  </div>
-)
-
 export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, reference }) => {
   const t = useTranslations('chat')
   const tDiagrams = useTranslations('diagrams')
-  const { svg, fileSvg, failed } = useRenderedDiagram(source)
+  const tCommon = useTranslations('common')
+  // Same split as the fence (`mermaid-diagram.tsx`): this product's view when
+  // the parser yields a model, mermaid's SVG only as the fallback — or as the
+  // file, drawn on paper when the reader files it and not before.
+  const model = useDiagramModel(source)
+  const { svg, fileSvg, failed: svgFailed } = useRenderedDiagram(source, model === null)
+  const failed = !model && svgFailed
   // `fileSvg`, never `svg`: the bytes that go into the project are the paper
   // ones whatever theme the reader is in. The card's own title beats anything
   // the source carries — the model wrote it for this drawing.
-  const filing = useDiagramFiling({ source, fileSvg, title })
-  const state = failed ? 'failed' : svg ? 'drawn' : 'drawing'
+  const filing = useDiagramFiling({
+    source,
+    fileSvg,
+    renderFileSvg: model ? () => renderPaperDiagram(source, model) : undefined,
+    title,
+  })
+  const state = failed ? 'failed' : model || svg ? 'drawn' : 'drawing'
+  // Not parsed yet: which picture this becomes is not known, so the card holds
+  // a placeholder and claims nothing about it. Mermaid's frame and its
+  // „Schematisch" line used to flash here before this product's view arrived.
+  const parsing = model === undefined
 
   return (
-    <Card data-testid="diagram-card" data-state={state} className="gap-3 p-5 shadow-xs">
+    <Card data-testid="diagram-card" data-state={state} className="shadow-xs gap-3 p-5">
       <SectionLabel icon={Workflow}>{t('cards.diagram.eyebrow')}</SectionLabel>
       <p className="card-title text-foreground">{title}</p>
 
@@ -146,8 +144,19 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
             collapsible={source.split('\n').length > SOURCE_MAX_LINES}
             maxLines={SOURCE_MAX_LINES}
           />
+        ) : model ? (
+          <div className="bg-muted/40 rounded-xl p-3" data-view={model.kind}>
+            <DiagramView model={model} label={title} />
+          </div>
+        ) : parsing ? (
+          <div className="border-border rounded-md border p-3" aria-busy="true">
+            <DrawingSkeleton />
+          </div>
         ) : (
-          <div className="overflow-x-auto rounded-md border border-border p-3 [&_svg]:h-auto [&_svg]:max-w-full">
+          <HorizontalScroll
+            className="border-border rounded-md border p-3 [&_svg]:h-auto [&_svg]:max-w-full"
+            aria-label={tCommon('markdown.scrollDiagram')}
+          >
             {svg ? (
               <div
                 // Safe because of what produced the string, not because of where
@@ -159,16 +168,20 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
                 // scanner cannot see — a false positive, argued out the same way
                 // as `scripts/release_notes.py`.
                 // nosemgrep: typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml
+                // Its own width, not the column's: see `diagram-size.ts`.
+                style={diagramFrameStyle(svg)}
                 dangerouslySetInnerHTML={{ __html: svg }}
               />
             ) : (
               <DrawingSkeleton />
             )}
-          </div>
+          </HorizontalScroll>
         )}
 
         <figcaption className="flex flex-col gap-1">
-          {caption && <p className="card-body max-w-prose text-pretty text-foreground">{caption}</p>}
+          {caption && (
+            <p className="card-body text-foreground max-w-prose text-pretty">{caption}</p>
+          )}
           {/* The doctrine, where the reader is — and on a failure the line that
               says why they are looking at source instead of a picture. Never
               both: „Schematisch — ohne Maßangabe." is a statement about a
@@ -180,13 +193,17 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
               outrank "save this". Outside a project the control is absent, not
               disabled: `DiagramFilingControls` renders nothing without a
               target. */}
-          <p className="card-caption flex flex-wrap items-center gap-x-3 text-muted-foreground">
-            {state === 'failed' ? tDiagrams('fallback') : tDiagrams('schematicOnly')}
-            {/* A drawing that could not be laid out has no bytes to file, so
-                the control appears only on a real picture — the same rule the
-                fence follows by only reaching its figcaption when it drew. */}
-            {state === 'failed' ? null : <DiagramFilingControls filing={filing} />}
-          </p>
+          {parsing ? null : (
+            <p className="card-caption text-muted-foreground flex flex-wrap items-center gap-x-3 empty:hidden">
+              {/* A view drawn from the model has no geometry to disclaim; only
+                  mermaid's own drawing says it claims no measurement. */}
+              {state === 'failed' ? tDiagrams('fallback') : model ? null : tDiagrams('schematicOnly')}
+              {/* A drawing that could not be laid out has no bytes to file, so
+                  the control appears only on a real picture — the same rule the
+                  fence follows by only reaching its figcaption when it drew. */}
+              {state === 'failed' ? null : <DiagramFilingControls filing={filing} />}
+            </p>
+          )}
         </figcaption>
       </figure>
 

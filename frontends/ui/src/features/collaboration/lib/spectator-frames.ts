@@ -12,7 +12,7 @@
  * fold from frames to display state, with no I/O and no store writes, which is
  * also what makes it directly testable.
  *
- * ## The two rules worth stating
+ * ## The rules worth stating
  *
  *  1. **Answer frames are routed by `status`, not by any flag** — the same
  *     contract the asker's client obeys. `in_progress` frames are deltas that
@@ -23,6 +23,22 @@
  *     per-conversation channel, so the tail of one turn and the head of the next
  *     arrive on the same subscription; without this the second question's answer
  *     would append to the first one's.
+ *  3. **Live-frame semantics mirror `messages-store.ts`.** A delta appends;
+ *     `stream_replace` replaces the text and the citations, and drops a
+ *     masthead the snapshot omits; an EMPTY one (no text, no sources) retracts
+ *     a tool round and takes its live cards back with it; masthead and cards
+ *     frames set without touching the text; a `complete` with text (blank is
+ *     not text) is authoritative, absence included, for a masthead or cards
+ *     a live frame brought and for the citations, which go with the text; a legacy frame's cards, which rode with text,
+ *     are final and stay; a whitespace-only delta is text once the answer
+ *     has begun and nothing before it. Change one fold and you change the other, with a
+ *     spec case in both.
+ *  4. **An observer is never handed a card that acts.** Interactive and
+ *     system cards (a memory proposal, a file operation, a brief patch, a
+ *     draft to file) propose a write in the ASKER's name. They are dropped
+ *     here, leaving their position as a hole so every `[[card:N]]` marker
+ *     after them stays bound, and `SpectatedTurn` draws the rest read-only on
+ *     top of that (ADR-0039 §5).
  *
  * Nothing here is authoritative. The persisted answer arrives over the ordinary
  * message path and replaces all of it — this exists purely so the ninety seconds
@@ -30,7 +46,12 @@
  */
 
 import { NATIncomingMessageSchema, NATMessageType } from '@/adapters/api/schemas'
-import type { ThinkingStep } from '@/features/chat/types'
+import type { CitationSource, ThinkingStep } from '@/features/chat/types'
+import { citationsFromWireList } from '@/features/chat/lib/wire-citation'
+import { sanitizeAnswerMeta, type AnswerMeta } from '@/lib/conversations/message-answer-meta'
+import { validateGridCards, type GridCard } from '@/shared/cards/schemas'
+import { INTERACTIVE_CARD_TYPES } from '@/features/grid-cards/card-decision'
+import { SYSTEM_CARD_TYPES } from '@/features/skills/lib/card-catalog'
 import {
   formatPayload,
   getDisplayName,
@@ -49,6 +70,23 @@ export interface SpectatedTurnState {
   parentId: string | null
   /** The answer so far. Empty while the agent is still working out what to say. */
   answer: string
+  /**
+   * What stands around the prose, as the live frames deliver it to the asker
+   * too (ADR-0066): the masthead before the first word, the sources once the
+   * text is verified, the cards as each is written. All three are gated by the
+   * backend before they are sent, so the observer's copy is the asker's.
+   */
+  answerMeta?: AnswerMeta
+  citations?: CitationSource[]
+  cards?: (GridCard | undefined)[]
+  /**
+   * Whether the masthead or cards on screen came from a LIVE frame (one with
+   * no text of its own, or a snapshot's masthead) rather than a legacy
+   * in_progress frame that carried text. Only live ones are provisional, so
+   * only they are taken back by a terminal that omits them: the store's
+   * `liveMetaShown`.
+   */
+  liveExtras?: boolean
   /** The reasoning chain so far, in the shape `ChatThinking` already renders. */
   steps: ThinkingStep[]
   /**
@@ -138,20 +176,62 @@ export function reduceSpectatedFrame(
     case NATMessageType.SYSTEM_RESPONSE: {
       const text = responseText(message.content)
       const parentId = message.parent_id ?? next.parentId
+      const around = aroundTheProse(message)
       if (message.status === 'complete') {
+        // A terminal with text is authoritative for what the live frames showed
+        // ahead of it, absence included (a suppressed card, a gated masthead).
+        // Blank is not text: the store's finalize uses the same test.
+        const authoritative = text.trim().length > 0
+        const retractLive = authoritative && next.liveExtras === true
         return {
           ...next,
+          ...(authoritative ? { citations: undefined } : {}),
+          ...(retractLive ? { answerMeta: undefined, cards: undefined } : {}),
+          ...around,
+          liveExtras: false,
           parentId,
           // The terminal frame is authoritative — but a backend that sends an
           // EMPTY complete after streaming deltas must not blank the answer.
-          answer: text.trim() ? text : next.answer,
+          answer: authoritative ? text : next.answer,
           steps: next.steps.map((step) => (step.isComplete ? step : { ...step, isComplete: true })),
           waitingOn: null,
           done: true,
         }
       }
-      if (!text) return next === state ? state : next
-      return { ...next, parentId, answer: next.answer + text, waitingOn: null }
+      // A settled snapshot (ADR-0066) REPLACES the text streamed so far; a
+      // spectator that appended it would read the answer twice.
+      // Its masthead is re-gated against that prose, and its sources are all
+      // the text cites, so a snapshot without them takes the live ones back,
+      // as the asker's store does. An EMPTY snapshot is the retraction of a
+      // streamed round that turned out to call tools: checked before the
+      // "nothing to fold" return below, which would otherwise swallow it.
+      if (message.stream_replace === true) {
+        // An empty snapshot with no sources retracts the whole round, the
+        // cards it streamed included: a dead round's cards are not the answer.
+        const retraction = !text && !(message.sources && message.sources.length > 0)
+        return {
+          ...next,
+          answerMeta: undefined,
+          citations: undefined,
+          ...(retraction ? { cards: undefined } : {}),
+          ...around,
+          // A snapshot is a live frame whatever text it carries.
+          liveExtras: next.liveExtras === true || Boolean(around.answerMeta),
+          parentId,
+          answer: text,
+          waitingOn: null,
+        }
+      }
+      // Whitespace is text once the answer has begun (a batched "\n\n" keeps
+      // two paragraphs apart) but not as its first frame, where it opens
+      // nothing on the asker's screen either (the store's `nothingToDraw`).
+      const answerOpen = next.answer !== '' || next.answerMeta !== undefined || next.cards !== undefined
+      const nothingToDraw = answerOpen ? !text : !text.trim()
+      if (nothingToDraw && Object.keys(around).length === 0) return next === state ? state : next
+      // A frame with no text of its own carries only what stands around the
+      // prose: the live shape (the store's `isLiveExtrasFrame`).
+      const liveExtras = next.liveExtras === true || !text
+      return { ...next, ...around, liveExtras, parentId, answer: next.answer + text, waitingOn: null }
     }
 
     case NATMessageType.SYSTEM_INTERMEDIATE: {
@@ -188,6 +268,34 @@ export function reduceSpectatedFrame(
     default:
       return next === state ? state : next
   }
+}
+
+/** The masthead, sources and cards a response frame carries, only those present. */
+function aroundTheProse(message: {
+  answer_meta?: unknown
+  sources?: unknown[] | null
+  cards?: unknown[]
+}): Pick<SpectatedTurnState, 'answerMeta' | 'citations' | 'cards'> {
+  const answerMeta = sanitizeAnswerMeta(message.answer_meta) ?? undefined
+  const citations = citationsFromWireList(message.sources)
+  const cards = message.cards && message.cards.length > 0 ? forObservers(validateGridCards(message.cards)) : undefined
+  return {
+    ...(answerMeta ? { answerMeta } : {}),
+    ...(citations ? { citations } : {}),
+    ...(cards ? { cards } : {}),
+  }
+}
+
+/**
+ * Card types an observer never sees: each proposes a write (or is pushed by a
+ * tool acting for the asker), and a colleague reading along has no standing
+ * to make it. Rule 4 in the header.
+ */
+const NOT_FOR_OBSERVERS: ReadonlySet<string> = new Set<string>([...INTERACTIVE_CARD_TYPES, ...SYSTEM_CARD_TYPES])
+
+/** The cards with every one an observer may not see replaced by a hole, positions kept. */
+function forObservers(cards: (GridCard | undefined)[]): (GridCard | undefined)[] {
+  return cards.map((card) => (card && NOT_FOR_OBSERVERS.has(card.type) ? undefined : card))
 }
 
 function appendGenericStep(steps: ThinkingStep[], content: string): ThinkingStep[] {

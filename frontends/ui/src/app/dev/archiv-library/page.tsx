@@ -19,6 +19,7 @@
  * 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
 import { Archive } from 'lucide-react'

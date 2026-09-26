@@ -13,6 +13,7 @@ from langchain_core.messages import SystemMessage
 
 from aiq_agent.cards.models import validate_cards
 from aiq_agent.cards.prompt import build_card_generation_prompt
+from aiq_agent.common.message_utils import response_text
 
 logger = logging.getLogger(__name__)
 
@@ -46,36 +47,6 @@ def _coerce_to_card_list(parsed: Any) -> list[Any] | None:
     return None
 
 
-def _content_to_text(raw: Any) -> str:
-    """Coerce an LLM message content to text the card parser can read.
-
-    Most providers return ``str``; some return a list of content blocks
-    (``[{"type": "text", "text": "..."}, ...]``, #653). Join the text parts
-    rather than crashing on ``list.strip`` — cards are best-effort.
-    """
-    if isinstance(raw, str):
-        return raw
-    if isinstance(raw, list):
-        parts: list[str] = []
-        for block in raw:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict):
-                text = block.get("text")
-                if isinstance(text, str):
-                    parts.append(text)
-                elif isinstance(text, list):
-                    parts.extend(item for item in text if isinstance(item, str))
-            else:
-                text_attr = getattr(block, "text", None)
-                if isinstance(text_attr, str):
-                    parts.append(text_attr)
-        return "".join(parts)
-    if raw is None:
-        return ""
-    return str(raw)
-
-
 def _parse_cards_text(raw_text: Any) -> list[Any] | None:
     """Tolerantly extract a card list from a raw LLM response.
 
@@ -83,7 +54,7 @@ def _parse_cards_text(raw_text: Any) -> list[Any] | None:
     whole-string ``json.loads``) by salvaging the first balanced ``[...]`` or
     ``{...}`` span. Returns None when nothing parseable is found.
     """
-    text = _content_to_text(raw_text).strip()
+    text = response_text(raw_text).strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
@@ -195,8 +166,7 @@ async def generate_cards_result(llm: Any, query: str, research_context: str) -> 
         return CardGenerationResult(cards=None, failed=True)
 
     try:
-        response_text = response.content if hasattr(response, "content") else str(response)
-        parsed = _parse_cards_text(response_text)
+        parsed = _parse_cards_text(response_text(response))
         if parsed is None:
             # The model answered, but with nothing a card could be read from.
             return CardGenerationResult(cards=None, failed=True)

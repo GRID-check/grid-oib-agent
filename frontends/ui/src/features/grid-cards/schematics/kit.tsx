@@ -23,7 +23,7 @@
 
 'use client'
 
-import { type FC, type ReactNode, useState } from 'react'
+import { createContext, type FC, type ReactNode, useContext, useLayoutEffect, useRef, useState } from 'react'
 import {
   CircleCheck,
   CircleHelp,
@@ -192,6 +192,31 @@ interface SvgLabelProps {
   halo?: string
 }
 
+/**
+ * The canvas's rendered scale (screen pixels per viewBox unit), for labels.
+ *
+ * A drawing scales uniformly with the column (see `SchematicCanvas`), and so
+ * did its text: at phone width a 470-unit building section renders at 0.71,
+ * and labels authored at 8–9.5 units came out at 6–7 px. The geometry may
+ * shrink — it is to scale — but a label is not geometry. `SchematicCanvas`
+ * measures its scale; `SvgLabel` draws itself at no less than
+ * {@link MIN_LABEL_PX} on screen, enlarging by at most
+ * {@link MAX_LABEL_GROWTH} so a label never outgrows the room its template
+ * left for it. A label that already reads at that size is untouched.
+ */
+const CanvasScale = createContext<number | null>(null)
+
+/** The smallest a schematic label is shown, in CSS pixels. */
+export const MIN_LABEL_PX = 10
+/** The most a label is enlarged to reach {@link MIN_LABEL_PX}. */
+export const MAX_LABEL_GROWTH = 1.6
+
+/** The font size, in viewBox units, a label of `size` is drawn at on a canvas at `scale`. */
+export const legibleLabelSize = (size: number, scale: number | null): number => {
+  if (!scale || scale <= 0 || size * scale >= MIN_LABEL_PX) return size
+  return Math.min(MIN_LABEL_PX / scale, size * MAX_LABEL_GROWTH)
+}
+
 /** SVG text with a halo in the card colour so labels stay legible over strokes. */
 export const SvgLabel: FC<SvgLabelProps> = ({
   x,
@@ -205,26 +230,30 @@ export const SvgLabel: FC<SvgLabelProps> = ({
   weight = 500,
   transform,
   halo = 'var(--card)',
-}) => (
-  <text
-    x={x}
-    y={y}
-    textAnchor={anchor}
-    dominantBaseline="central"
-    fontSize={size}
-    fontWeight={weight}
-    fontStyle={italic ? 'italic' : undefined}
-    fontFamily={mono ? 'var(--font-mono)' : 'var(--font-sans)'}
-    fill={fill}
-    stroke={halo}
-    strokeWidth={3}
-    strokeLinejoin="round"
-    transform={transform}
-    style={{ paintOrder: 'stroke' }}
-  >
-    {children}
-  </text>
-)
+}) => {
+  const scale = useContext(CanvasScale)
+  const drawn = legibleLabelSize(size, scale)
+  return (
+    <text
+      x={x}
+      y={y}
+      textAnchor={anchor}
+      dominantBaseline="central"
+      fontSize={drawn}
+      fontWeight={weight}
+      fontStyle={italic ? 'italic' : undefined}
+      fontFamily={mono ? 'var(--font-mono)' : 'var(--font-sans)'}
+      fill={fill}
+      stroke={halo}
+      strokeWidth={(3 * drawn) / size}
+      strokeLinejoin="round"
+      transform={transform}
+      style={{ paintOrder: 'stroke' }}
+    >
+      {children}
+    </text>
+  )
+}
 
 interface ExtensionLineProps {
   x1: number
@@ -387,18 +416,35 @@ interface SchematicCanvasProps {
  * its authored proportion instead of becoming the tallest thing on screen.
  * The scale is uniform in both axes, so no ratio the drawing asserts changes.
  */
-export const SchematicCanvas: FC<SchematicCanvasProps> = ({ viewW, viewH, label, children }) => (
-  <svg
-    viewBox={`0 0 ${viewW} ${viewH}`}
-    preserveAspectRatio="xMidYMid meet"
-    role="img"
-    aria-label={label}
-    className="block h-auto w-full"
-    style={{ maxWidth: Math.round(viewW * MAX_CANVAS_SCALE) }}
-  >
-    {children}
-  </svg>
-)
+export const SchematicCanvas: FC<SchematicCanvasProps> = ({ viewW, viewH, label, children }) => {
+  const ref = useRef<SVGSVGElement>(null)
+  const [scale, setScale] = useState<number | null>(null)
+  // Measured, not derived from a breakpoint: the same card sits in the answer
+  // column, a side panel and a phone, and only the rendered width says which
+  // scale the text ended up at.
+  useLayoutEffect(() => {
+    const svg = ref.current
+    if (!svg || typeof ResizeObserver === 'undefined') return
+    const update = () => setScale(svg.getBoundingClientRect().width / viewW)
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(svg)
+    return () => observer.disconnect()
+  }, [viewW])
+  return (
+    <svg
+      ref={ref}
+      viewBox={`0 0 ${viewW} ${viewH}`}
+      preserveAspectRatio="xMidYMid meet"
+      role="img"
+      aria-label={label}
+      className="block h-auto w-full"
+      style={{ maxWidth: Math.round(viewW * MAX_CANVAS_SCALE) }}
+    >
+      <CanvasScale.Provider value={scale}>{children}</CanvasScale.Provider>
+    </svg>
+  )
+}
 
 /* ── value-vs-limit bar ───────────────────────────────────────────────────── */
 

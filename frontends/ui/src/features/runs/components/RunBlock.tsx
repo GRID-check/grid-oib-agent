@@ -64,6 +64,7 @@
 
 'use client'
 
+import type { JSX } from 'react'
 import { type FC, type ReactNode, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { BookOpen, CheckCircle2, ChevronDown, FileText, XCircle } from 'lucide-react'

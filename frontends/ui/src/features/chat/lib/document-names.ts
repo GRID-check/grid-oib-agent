@@ -39,6 +39,27 @@ const OIB_EDITION_RE = /ausgabe[_-]mai[_-]2023/
 const OIB_REVISION_RE = /rev[_.]?(\d+)/
 const OIB_NUMBER_RE = /^(\d+(?:\.\d+)?)/
 
+/**
+ * The OIB publishes most 2023 parts as `oib-rl_<n>_…`, but OIB-RL 2.2 as
+ * `oib-richtlinie_2.2_…`, `erlaeuterungen-zu-oib-richtlinie_2.2_…` and
+ * `aenderungen_oib-richtlinie_2.2_…`. Mirror of `_OIB_PUBLISHED_STEM_RE`.
+ */
+const OIB_PUBLISHED_STEM_RE = /^(?:(erlaeuterungen|aenderungen)(?:_|-zu-))?oib-(?:rl|richtlinie)_/
+
+/**
+ * Lower-cased `fileName` with a published OIB spelling rewritten to the
+ * `oib-rl_` convention every parser here reads. Mirror of
+ * `norm_registry.canonical_oib_file_name`; any other name comes back
+ * lower-cased and otherwise unchanged.
+ */
+export function canonicalOibFileName(fileName: string): string {
+  const low = fileName.toLowerCase()
+  const match = OIB_PUBLISHED_STEM_RE.exec(low)
+  if (!match) return low
+  const role = match[1] ? `${match[1]}_` : ''
+  return `${role}oib-rl_${low.slice(match[0].length)}`
+}
+
 /** Last path segment of a possibly-pathed file name. */
 const baseName = (name: string): string => name.split(/[/\\]/).pop() || name
 
@@ -61,13 +82,14 @@ const stripUnderscores = (value: string): string => value.replace(/^_+|_+$/g, ''
  *   oib-rl_2_ausgabe_mai_2023.pdf      → "OIB-Richtlinie 2, Ausgabe Mai 2023"
  *   oib-rl_6-leitfaden_…pdf            → "OIB-Richtlinie 6 – Leitfaden, Ausgabe Mai 2023"
  *   erlaeuterungen_oib-rl_2_…pdf       → "Erläuterungen zu OIB-Richtlinie 2, Ausgabe Mai 2023"
+ *   oib-richtlinie_2.2_…pdf            → "OIB-Richtlinie 2.2, Ausgabe Mai 2023"
  */
 export function oibDisplayTitle(fileName: string): string | null {
   if (!fileName?.trim()) return null
   const [stem] = splitExtension(baseName(fileName.trim()))
   // Normalise the one known separator inconsistency (`6-leitfaden` vs
   // `2_leitfaden`) so the rest of the parse is uniform.
-  let low = stem.toLowerCase().replace('-leitfaden', '_leitfaden')
+  let low = canonicalOibFileName(stem).replace('-leitfaden', '_leitfaden')
 
   let rolePrefix = ''
   for (const [marker, german] of OIB_ROLE_PREFIXES) {

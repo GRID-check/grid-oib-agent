@@ -36,6 +36,8 @@ const EVERY_BLOCK: DocBlock[] = [
   { kind: 'heading', level: 1, text: 'Fluchtwege und Ausgänge' },
   { kind: 'heading', level: 2, text: 'Beurteilung' },
   { kind: 'heading', level: 3, text: 'Gebäudeklasse 4' },
+  { kind: 'heading', level: 4, text: 'Variante A' },
+  { kind: 'heading', level: 5, text: 'Rechtsgrundlage' },
   {
     kind: 'paragraph',
     runs: [
@@ -247,6 +249,36 @@ describe('the shapes the renderer reads off a block', () => {
     expect((links[0].props as { src: string }).src).toBe('https://www.oib.or.at/rl2.pdf')
     expect(textsIn(nodes)).toContain('OIB-RL 2')
     expect(textsIn(nodes)).toContain(', S. 18')
+  })
+
+  it('keeps a surface tab’s title on the page with its card, and sets it above the card', () => {
+    // A tab title stranded at a page bottom reads as a tab with nothing in it,
+    // and one the size of the card heading beneath it reads as a second card.
+    const blocks = cardsBlocks(
+      [
+        {
+          type: 'surface',
+          title: 'Varianten',
+          components: [
+            { id: 'root', component: 'Tabs', tabs: [{ title: 'Variante A', child: 'a' }] },
+            { id: 'a', component: 'legal_basis', law: 'OIB-Richtlinie 2', summary: 'REI 60.' },
+          ],
+        },
+      ],
+      t
+    )
+    const headings = elementsIn(blockNodes(blocks)).filter(
+      (element) => (element.props as { minPresenceAhead?: number }).minPresenceAhead !== undefined
+    )
+    const byText = (text: string) => headings.find((element) => textsIn(element).includes(text))
+    const tab = byText('Variante A')
+    const card = headings[2]
+    expect(headings).toHaveLength(3)
+    expect(tab).toBeDefined()
+    const size = (element: React.ReactElement | undefined) =>
+      (element?.props as { style: { fontSize: number } }).style.fontSize
+    expect(size(byText('Varianten'))).toBeGreaterThan(size(tab))
+    expect(size(tab)).toBeGreaterThan(size(card))
   })
 
   it('renders one node per block, for every kind', () => {

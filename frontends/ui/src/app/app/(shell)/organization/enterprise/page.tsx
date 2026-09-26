@@ -14,6 +14,7 @@
  * never renders twice.
  */
 
+import type { JSX } from 'react'
 import { ShieldAlert } from 'lucide-react'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { isOrgAdmin } from '@/lib/authz/organizations'

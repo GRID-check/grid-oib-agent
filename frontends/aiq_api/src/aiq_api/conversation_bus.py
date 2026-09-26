@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import json
 import logging
 import os
@@ -57,7 +58,12 @@ _INPUT = "conv:{id}:input"  # relays publish, owner subscribes
 _OWNER = "conv:{id}:owner"  # SET NX EX — which replica runs the turn
 _STREAM = "conv:{id}:stream"  # Redis stream: replayable copy of events for reconnect
 
-_STREAM_MAXLEN = int(os.environ.get("GRID_CONV_STREAM_MAXLEN", "500") or "500")
+# Every frame of a turn lands here, and a client that lost its socket reads back
+# what it missed (`GET /api/conversations/:id/frames?after=<entry id>`). A long
+# turn is a few hundred frames (deltas, steps, heartbeats), so the cap holds a
+# few turns; the TTL bounds a conversation nobody comes back to.
+_STREAM_MAXLEN = int(os.environ.get("GRID_CONV_STREAM_MAXLEN", "2000") or "2000")
+_STREAM_TTL_SECONDS = int(os.environ.get("GRID_CONV_STREAM_TTL_SECONDS", "3600") or "3600")
 _OWNER_TTL_SECONDS = int(os.environ.get("GRID_CONV_OWNER_TTL_SECONDS", "15") or "15")
 
 
@@ -72,18 +78,22 @@ class Envelope:
     seq: int = 0
     origin: str = ""
     v: int = 1
+    # The frame's entry in the replay stream, once it has one. The cursor a
+    # client resumes from: monotonic across replicas and restarts, unlike `seq`.
+    entry_id: str | None = None
 
     def encode(self) -> str:
-        return json.dumps(
-            {
-                "v": self.v,
-                "conv": self.conv,
-                "seq": self.seq,
-                "origin": self.origin,
-                "type": self.type,
-                "payload": self.payload,
-            }
-        )
+        body: dict[str, Any] = {
+            "v": self.v,
+            "conv": self.conv,
+            "seq": self.seq,
+            "origin": self.origin,
+            "type": self.type,
+            "payload": self.payload,
+        }
+        if self.entry_id:
+            body["entry_id"] = self.entry_id
+        return json.dumps(body)
 
     @staticmethod
     def decode(raw: str) -> Envelope:
@@ -95,7 +105,16 @@ class Envelope:
             seq=int(d.get("seq", 0) or 0),
             origin=d.get("origin", ""),
             v=int(d.get("v", 1) or 1),
+            entry_id=d.get("entry_id") or None,
         )
+
+
+@dataclass(frozen=True)
+class PublishedFrame:
+    """What `publish_frame` assigned: the owner's `seq`, and the frame's replay entry id."""
+
+    seq: int
+    entry_id: str | None
 
 
 class BusTransport(Protocol):
@@ -103,7 +122,7 @@ class BusTransport(Protocol):
 
     async def publish(self, channel: str, data: str) -> None: ...
     def subscribe(self, channel: str) -> AsyncIterator[str]: ...
-    async def xadd(self, stream: str, data: str, maxlen: int) -> None: ...
+    async def xadd(self, stream: str, data: str, maxlen: int, ttl: int) -> str | None: ...
     async def xrange(self, stream: str) -> list[str]: ...
     async def set_nx_ex(self, key: str, value: str, ttl: int) -> bool: ...
     async def renew(self, key: str, value: str, ttl: int) -> bool: ...
@@ -122,6 +141,7 @@ class InMemoryTransport:
         self._streams: dict[str, list[str]] = {}
         self._keys: dict[str, str] = {}
         self._lock = asyncio.Lock()
+        self._entry_counter = 0
 
     async def publish(self, channel: str, data: str) -> None:
         for q in list(self._subs.get(channel, ())):
@@ -138,11 +158,13 @@ class InMemoryTransport:
             if subs and q in subs:
                 subs.remove(q)
 
-    async def xadd(self, stream: str, data: str, maxlen: int) -> None:
+    async def xadd(self, stream: str, data: str, maxlen: int, ttl: int) -> str | None:
         buf = self._streams.setdefault(stream, [])
         buf.append(data)
         if len(buf) > maxlen:
             del buf[: len(buf) - maxlen]
+        self._entry_counter += 1
+        return f"{self._entry_counter}-0"
 
     async def xrange(self, stream: str) -> list[str]:
         return list(self._streams.get(stream, ()))
@@ -223,8 +245,13 @@ class RedisTransport:
                 await pubsub.unsubscribe(channel)
                 await pubsub.aclose()
 
-    async def xadd(self, stream: str, data: str, maxlen: int) -> None:
-        await self._redis.xadd(stream, {"d": data}, maxlen=maxlen, approximate=True)
+    async def xadd(self, stream: str, data: str, maxlen: int, ttl: int) -> str | None:
+        # One round trip for both: this runs for every streamed delta.
+        async with self._redis.pipeline(transaction=False) as pipe:
+            pipe.xadd(stream, {"d": data}, maxlen=maxlen, approximate=True)
+            pipe.expire(stream, ttl)
+            entry_id, _ = await pipe.execute()
+        return entry_id
 
     async def xrange(self, stream: str) -> list[str]:
         entries = await self._redis.xrange(stream)
@@ -283,16 +310,16 @@ class ConversationBus:
         self._seq.pop(conv, None)
 
     # ---- owner -> relays (outbound frames) ------------------------------
-    async def publish_frame(self, conv: str, frame: dict, *, terminal: bool = False) -> int:
-        """Publish an outbound WS frame; also append to the replay stream. Returns
-        the assigned seq. Called from the emit choke point on the owner."""
+    async def publish_frame(self, conv: str, frame: dict, *, terminal: bool = False) -> PublishedFrame:
+        """Append an outbound WS frame to the replay stream, then publish it with
+        its entry id. Called from the emit choke point on the owner."""
         seq = self._seq.get(conv, 0) + 1
         self._seq[conv] = seq
         env = Envelope(conv=conv, type=TURN_END if terminal else FRAME, payload=frame, seq=seq, origin=self.replica_id)
-        raw = env.encode()
-        await self._t.xadd(_STREAM.format(id=conv), raw, _STREAM_MAXLEN)
-        await self._t.publish(_EVENTS.format(id=conv), raw)
-        return seq
+        entry_id = await self._t.xadd(_STREAM.format(id=conv), env.encode(), _STREAM_MAXLEN, _STREAM_TTL_SECONDS)
+        published = dataclasses.replace(env, entry_id=entry_id) if entry_id else env
+        await self._t.publish(_EVENTS.format(id=conv), published.encode())
+        return PublishedFrame(seq=seq, entry_id=entry_id)
 
     async def subscribe_frames(self, conv: str) -> AsyncIterator[Envelope]:
         """Relay side: yield outbound frames as they are published by the owner.

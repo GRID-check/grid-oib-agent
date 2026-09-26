@@ -24,8 +24,8 @@ whose answer can only ADD to the turn:
   is what keeps a wrong skill from being pushed). What it may do: read the
   chosen skill's BODY into this turn's prompt — the one method the question
   is the subject of, ~400 tokens, or the IFC method on a model question —
-  and attach its preferred card shapes beyond the eight the envelope
-  already teaches. Inlining every short method cost ~4 600 tokens on every
+  and attach its preferred card shapes beyond the three shapes the envelope
+  teaches, the Markdown-written types and ``surface``. Inlining every short method cost ~4 600 tokens on every
   call for methods most turns never use (ADR-0063, amended); one chosen
   body costs a tenth of that and only when a question calls for it. The
   body stays an offer: the model decides whether to follow it, and the
@@ -46,8 +46,11 @@ tools node, so it costs no budget, files its sources, stamps its hits and
 is answered by the duplicate-fetch guard when the model asks again).
 
 Every function here returns something a caller can act on without a
-decision having run: ``TurnDecisions.none()`` prefetches nothing, attaches
-nothing and inlines nothing, which is the turn as it ran before.
+decision having run: ``TurnDecisions.none()`` attaches nothing and inlines
+nothing, and prefetches nothing with one exception: a FIRST message that
+names an OIB family („OIB 2") still gets its own search as round 0
+(``_undecided_prefetch``, ADR-0064's amendment), so ``prefetch_calls`` on it
+is not the turn as it ran before the decisions.
 """
 
 from __future__ import annotations
@@ -328,8 +331,23 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
     return decided
 
 
+def prefetch_query(question: str | None) -> str:
+    """The question as round 0 searches it: whitespace folded, at most 300 characters.
+
+    One definition, because the turn-start warm-up embeds this exact string
+    and a warm-up for a different string is a wasted round trip.
+    """
+    # Stripped after the cut: a cut on a space would leave one, and the search
+    # strips its query, so the warm-up would have embedded another string.
+    return " ".join((question or "").split())[:300].rstrip()
+
+
 def prefetch_calls(
-    decisions: TurnDecisions, question: str, *, focus_file_name: str | None = None
+    decisions: TurnDecisions,
+    question: str,
+    *,
+    focus_file_name: str | None = None,
+    previous_message: str | None = None,
 ) -> list[dict[str, Any]]:
     """The tool calls round 0 runs, as the agent's tools node reads them.
 
@@ -344,15 +362,31 @@ def prefetch_calls(
     families' overviews — ``knowledge_search`` recognises ``OIB-Richtlinie n``
     as a family query and returns every member's scope and Gliederung. Nothing
     for the model corpus (a measurement needs the model, not a search) and
-    nothing when the decision did not run or said no evidence is needed.
+    nothing when the decision said no evidence is needed.
+
+    When the decision did NOT run, a question that names an OIB family
+    („Was weißt du über die OIB 2?") still prefetches its own search: that
+    is the evidence question by construction, and without this a missed
+    decision silently took the prefetch with it and the model paid a whole
+    round for the same search. How often it misses is the endpoint's latency:
+    p50 2.7 s against the 1.5 s budget, 10 of 12 over, on 2026-09-23; a median
+    0.54 s, p90 0.62 s over two suites on 2026-09-24, with no change to the
+    call in between (ADR-0064's amendment). A two-word first message („OIB
+    2") is never decided at all (``register._decide_turn``).
+    Only on a FIRST message (``previous_message is None``): without the
+    decision's ``self_contained`` answer a later message may be a follow-up
+    („Was sagt die OIB 2 dazu?"), which the decided path refuses to prefetch,
+    and a family overview would fill round 0 with the wrong subject.
     """
+    if not decisions.decided:
+        return [] if previous_message is not None else _undecided_prefetch(question)
     if not decisions.wants_evidence or not decisions.searchable:
         return []
     if decisions.corpus not in {"baurecht", "projekt", "buero"} or decisions.corpus_p < CORPUS_THRESHOLD:
         return []
     from aiq_agent.common.norm_registry import family_query_number
 
-    query = " ".join((question or "").split())[:300]
+    query = prefetch_query(question)
     if not query:
         return []
     args: dict[str, Any] = {"query": query}
@@ -367,13 +401,25 @@ def prefetch_calls(
     return calls
 
 
+def _undecided_prefetch(question: str) -> list[dict[str, Any]]:
+    """The prefetch a question earns without a decision: its own search, when it names a family."""
+    from aiq_agent.common.norm_registry import family_query_number
+
+    query = prefetch_query(question)
+    if not query or family_query_number(query) is None:
+        return []
+    return [{"name": KNOWLEDGE_SEARCH, "args": {"query": query}}]
+
+
 def attached_card_types(decisions: TurnDecisions, skill_cards: Mapping[str, Sequence[str]]) -> list[str]:
     """The card types whose full shape rides this turn's prompt, in order, capped.
 
     The chosen skill's preferred cards first — the shapes ``use_skill`` used
     to hand over with the body — then the types the card nouls picked; each
-    once, at most ``MAX_ATTACHED_SHAPES``. Types the taught envelope already
-    carries (``ENVELOPE_SHAPE_TYPES``) are left out by the caller's list.
+    once, at most ``MAX_ATTACHED_SHAPES``. The caller's lists already leave
+    out the three shapes the envelope teaches (``ENVELOPE_SHAPE_TYPES``), the
+    Markdown-written types (``MARKDOWN_CARD_TYPES``) and ``surface``
+    (``CHAT_ONLY_CARD_TYPES``).
     """
     ordered: list[str] = []
     skill = decisions.chosen_skill

@@ -77,7 +77,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           # Same default the script carries; set here so the model can be moved
           # without a code change.
-          RELEASE_NOTES_TRANSLATION_MODEL: ${{ vars.RELEASE_NOTES_TRANSLATION_MODEL || 'openai/gpt-5.6-luna' }}
+          RELEASE_NOTES_TRANSLATION_MODEL: ${{ vars.RELEASE_NOTES_TRANSLATION_MODEL || 'openai/gpt-6-luna' }}
           # With a key present, an untranslated note is a failure — shipping
           # English onto the German page is the thing this workflow exists to
           # prevent. Without one it is a warning, and the site stays live.

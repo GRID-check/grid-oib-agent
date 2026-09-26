@@ -22,6 +22,11 @@
  *
  * ## Two copies, and why that is not two pictures
  *
+ * This hook runs only where mermaid's SVG IS the picture: a source this
+ * product has no view for (`use-diagram-model.ts` answered null). Where a view
+ * draws the diagram, nothing here runs on mount; the file is drawn by
+ * {@link renderPaperDiagram} when the reader files it, and not before.
+ *
  * The drawing on screen is drawn in the READER'S theme, so it sits on the card
  * rather than on a white slab punched into a charcoal page. The drawing that
  * gets FILED is drawn on paper, always, because it becomes an SVG previewed on
@@ -46,6 +51,10 @@
  */
 
 import { useEffect, useState } from 'react'
+import { parseDiagramSvg, serializeDiagramSvg } from '@/lib/diagrams/svg'
+import { diagramThemeVariables } from './diagram-palette'
+import { canvasTextMeasure, mapSvg } from './map-svg'
+import type { DiagramModel } from './model'
 import { diagramRendererFor } from './render-diagram'
 import { useDiagramTheme } from './use-diagram-theme'
 
@@ -80,12 +89,37 @@ function freshId(): string {
 }
 
 /**
+ * The paper copy of `source` alone, for a surface that draws the diagram with
+ * its own view and needs an SVG only as the FILE. Called when the reader files,
+ * so a diagram nobody files costs no layout at all. Rejects when the drawing
+ * cannot be made; the filing hook reports that as a failed filing.
+ *
+ * A map is drawn from its model (`map-svg.ts`), so the file is the tree the
+ * answer shows rather than mermaid's mindmap, which keeps a bare branch's
+ * quotes and clips the root's label. Every other kind is mermaid's render.
+ */
+export async function renderPaperDiagram(source: string, model?: DiagramModel | null): Promise<string> {
+  if (model?.kind === 'map') {
+    const paper = diagramThemeVariables('light')
+    if (paper) {
+      const ink = { ink: String(paper.primaryTextColor), line: String(paper.lineColor), fill: String(paper.mainBkg) }
+      // Through the server's validator, like every drawing mermaid makes.
+      return serializeDiagramSvg(parseDiagramSvg(mapSvg(model, ink, canvasTextMeasure())).root)
+    }
+  }
+  const renderer = diagramRendererFor('mermaid')
+  if (!renderer) throw new Error('no mermaid renderer')
+  return renderer({ source, id: freshId(), theme: 'light' })
+}
+
+/**
  * Draw `source`, unless `enabled` is false.
  *
- * `enabled` exists for the streaming fence: `MarkdownRenderer` auto-closes a
- * half-arrived fence, so an in-flight diagram LOOKS complete on every token and
- * handing it to mermaid renders one parse error per token. A card never
- * streams — its payload arrives whole or not at all — so it passes `true`.
+ * `enabled` exists for the streaming fence, and for a surface whose own view
+ * draws the diagram: a half-arrived fence is parsed to the end of the text, so
+ * an in-flight diagram LOOKS complete on every token and handing it to mermaid
+ * renders one parse error per token; and a diagram a view draws needs no
+ * mermaid picture at all. Both surfaces pass `model === null` for the latter.
  */
 export function useRenderedDiagram(source: string, enabled = true): RenderedDiagram {
   const theme = useDiagramTheme()

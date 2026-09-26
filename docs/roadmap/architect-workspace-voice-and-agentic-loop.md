@@ -41,12 +41,14 @@
 > repair as workflows the agent could neither see nor react to. Both now leave
 > an observation the model reads: a widened `knowledge_search` leads its result
 > with one German line naming the alternative formulations and why they were
-> tried (`sources/knowledge_layer/src/requery.py::requery_notice`), and a
-> failed verification reaches the rewrite as a `citation_check` tool result
-> naming the marker and the quote that failed
-> (`agents/piloti/repair.py::verification_observation`), with
-> `status:repair` carrying `{citationsRemoved, quotesFailed}` as the
-> Herleitung's technical detail. §5's layer map is now closed on the drawing
+> tried (`sources/knowledge_layer/src/requery.py::requery_notice`). The
+> repair half did not last: a failed verification used to reach the rewrite
+> as a `citation_check` tool result naming the marker and the quote that
+> failed, and that observation went with the rewrite
+> ([ADR-0067](../adr/0067-the-repair-corrects-a-misremembered-quote-in-place.md)).
+> There is no rewrite left for it to feed. `status:repair` now carries only
+> `{quotesFailed}` as the Herleitung's technical detail
+> (`turn_status.emit_answer_repair`). §5's layer map is now closed on the drawing
 > side too (ledger row 19): the sources hang off the checkpoint that fetched
 > them, each checkpoint FOLDS to the count of what that fetch returned, and a
 > spine of three or more rounds arrives with everything but the newest layer
@@ -311,11 +313,11 @@ Two quality loops already exist. Both are **workflows inside a tool or after the
 
 **Requery (CRAG-shaped, inside `knowledge_search`).** If `requery_llm` is set, a sufficiency judge may fire alternative formulations against every in-scope collection, fuse them with RRF, and rerank. The live line can show `status.retrieval.requery`. The model issued one search. The pipeline widened it. (`sources/knowledge_layer/src/requery.py`, `register.py` around the `judge_sufficiency` call; `turn_status.py:164–167`)
 
-**Repair pass (evaluator-optimizer, after verification).** If a citation or quote fails, the turn may retrieve once more aimed at the failing text and rewrite, then re-verify (`repair_pass: true`). The reader may see `status.repair`. The model did not choose this.
+**Repair pass (evaluator-optimizer, after verification).** If a citation or quote fails, the turn may retrieve once more aimed at the failing text and rewrite, then re-verify (`repair_pass: true`). The reader may see `status.repair`. The model did not choose this. *(2026-09-24: superseded by [ADR-0067](../adr/0067-the-repair-corrects-a-misremembered-quote-in-place.md). With the prose streaming, the rewrite replaced an answer the reader had read; the repair now corrects only a misremembered quote, in place, on the small model.)*
 
 The 2026-09-01 review said there was no repair and no retrieval loop. On this develop tip the code has both. The review’s *product* claim still holds: the reader is not shown a decision, only a status key, and the model is not the one looping.
 
-**[LANDED — the model is now told, ledger row 20.]** Neither loop is silent to the agent any more. A widened search leads its tool result with `Hinweis: die Suche wurde um N Umformulierungen erweitert (…), weil die ersten Treffer die Frage nicht abdeckten.`, naming each alternative formulation (`requery.py::requery_notice`, prefixed in `register.py` onto both the excerpts and the empty-result message); a failed verification reaches the rewrite as a `citation_check` tool call and its result, naming which `[N]` and which quote failed (`agents/piloti/repair.py::verification_observation`). Neither instructs — what to do about it is the model's next decision, which is the whole point. Still true: the pipeline, not the model, DECIDES to widen and to repair.
+**[HALF LANDED — ledger row 20, half reopened.]** The requery is told to the model; the repair's observation went with the rewrite (ADR-0067). A widened search leads its tool result with `Hinweis: die Suche wurde um N Umformulierungen erweitert (…), weil die ersten Treffer die Frage nicht abdeckten.`, naming each alternative formulation (`requery.py::requery_notice`, prefixed in `register.py` onto both the excerpts and the empty-result message). Until ADR-0067 a failed verification also reached the rewrite as a `citation_check` tool call and its result, naming which `[N]` and which quote failed. That went with the rewrite: the repair now corrects a misremembered quote in place, the model is not told, and `status:repair` carries `{quotesFailed}` only. The notice does not instruct: what to do about it is the model's next decision, which is the whole point. Still true: the pipeline, not the model, DECIDES to widen and to repair.
 
 Deep research is the one place the backend is genuinely multi-agent (orchestrator, source router, planner, up to six researchers, writer). Chat-path shallow is a single agent with a short leash. Escalation is an envelope field, not a continuation of the same loop.
 
@@ -348,7 +350,7 @@ And: showing search queries in the Herleitung was built and reverted at stakehol
 
 Live activity is a **replacing** one-liner (`turn_status.py:71–73`: “the live line REPLACES rather than accumulates”). Tool rounds can emit `status.retrieval.withQuery` (query clipped to 32 characters), but they do not accumulate as checkpoints. “Ausgeführt:” chips collapse to **one chip per source kind** (OIB-Wissen, RIS, Websuche…), not per round (`executed-steps.ts`). Budget exhaustion emits `status:budget` on the **technical** channel only — the reader is not told the search was cut off.
 
-The answer is fully buffered, then delta-streamed (`chat_researcher/register.py`). No reasoning tokens reach the UI while tools run. After the turn, `prune-message-for-storage.ts` drops step `content` / `rawPayload` and keeps `traceLanes` (source cards) plus `turnEvent` (the retrieval query can survive storage after Loop A). A colleague opening a shared thread sees the fan-out of documents, not the decisions.
+Since ADR-0066 the answer's prose streams live while the final call writes it, each `[N]` pending until one snapshot settles the citations; the terminal frame then replaces the text. Only a turn with no live prose (a buffered LLM, a reply that is not an envelope) still sends the finished text cut into deltas. No reasoning tokens reach the UI while tools run. After the turn, `prune-message-for-storage.ts` drops step `content` / `rawPayload` and keeps `traceLanes` (source cards) plus `turnEvent` (the retrieval query can survive storage after Loop A). A colleague opening a shared thread sees the fan-out of documents, not the decisions.
 
 So even a turn that internally did `use_skill` → `knowledge_search` → `ifc_query` → `ifc_measure` → `emit_card` (the documented 6-call Fluchtweg / Lichteinfall chains) will usually render as: framing, a handful of source cards in parallel, an assessment with a confidence chip. The checkpoints are in Langfuse and the NAT step log, behind an opt-in “Technische Herleitung”.
 

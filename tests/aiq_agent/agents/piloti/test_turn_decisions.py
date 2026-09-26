@@ -17,6 +17,7 @@ from aiq_agent.agents.piloti.decisions import TurnFacts
 from aiq_agent.agents.piloti.decisions import attached_card_types
 from aiq_agent.agents.piloti.decisions import decide_turn
 from aiq_agent.agents.piloti.decisions import prefetch_calls
+from aiq_agent.agents.piloti.decisions import prefetch_query
 from aiq_agent.agents.piloti.decisions import questions_for
 from aiq_agent.common.decisions import Decision
 from aiq_agent.common.norm_registry import oib_families
@@ -153,6 +154,29 @@ class TestThePrefetch:
         assert prefetch_calls(self._decided("baurecht", evidence=0.3), "q") == []
         assert prefetch_calls(self._decided("baurecht", p=0.4), "q") == []
 
+    def test_a_decision_that_missed_its_budget_still_prefetches_a_family_question(self):
+        """The decider rarely lands in 1.5 s; the family question is evidence by construction."""
+        assert prefetch_calls(TurnDecisions.none(), "Was weißt du über die OIB 2?") == [
+            {"name": "knowledge_search", "args": {"query": "Was weißt du über die OIB 2?"}}
+        ]
+
+    def test_without_a_decision_a_later_message_prefetches_nothing(self):
+        """„Was sagt die OIB 2 dazu?" after a stair question is a follow-up; the
+        decided path would refuse it, so the undecided one may not guess it
+        is a family overview."""
+        assert (
+            prefetch_calls(
+                TurnDecisions.none(),
+                "Was sagt die OIB 2 dazu?",
+                previous_message="Wie breit muss die Stiege sein?",
+            )
+            == []
+        )
+
+    def test_without_a_decision_nothing_else_is_guessed(self):
+        assert prefetch_calls(TurnDecisions.none(), "Wie lang darf der Fluchtweg sein?") == []
+        assert prefetch_calls(TurnDecisions.none(), "Hallo, was kannst du?") == []
+
 
 class TestTheSkillsShapes:
     """The chosen skill's preferred cards ride the turn — what `use_skill` used to hand over."""
@@ -230,3 +254,10 @@ class TestTheOpenDocument:
         decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="baurecht", corpus_p=0.9)
         calls = prefetch_calls(decided, "Wie lang darf der Fluchtweg sein?", focus_file_name="EG_Grundriss.pdf")
         assert calls == [{"name": "knowledge_search", "args": {"query": "Wie lang darf der Fluchtweg sein?"}}]
+
+
+def test_the_prefetch_query_carries_no_trailing_blank():
+    # A 300-character cut can land on a space; the search strips its query,
+    # so a blank left here makes the warm-up embed a different string.
+    question = "x" * 299 + " und mehr"
+    assert prefetch_query(question) == prefetch_query(question).strip()
