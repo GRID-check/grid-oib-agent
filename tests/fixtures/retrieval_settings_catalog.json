@@ -1,5 +1,17 @@
 [
   {
+    "key": "chat.answer_streaming",
+    "defaultValue": 1,
+    "min": 0,
+    "max": 1,
+    "allowedValues": [
+      0,
+      1
+    ],
+    "label": "Chat: Antwort live streamen",
+    "description": "An: die Antwort erscheint Wort für Wort, während das Modell sie schreibt. Aus: sie erscheint vollständig, sobald sie fertig ist; die Herleitung läuft in beiden Fällen live. Gilt ab der nächsten Frage, spätestens nach einer Minute."
+  },
+  {
     "key": "lessons.holdout_pct",
     "defaultValue": 0,
     "min": 0,

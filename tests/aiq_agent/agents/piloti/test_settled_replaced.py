@@ -95,7 +95,8 @@ async def test_a_stream_the_reader_abandons_unwinds_the_answer_before_the_ledger
     monkeypatch.setattr(cr, "turn_identity", lambda *_a: None)
     monkeypatch.setattr(cr, "track_agent_profile", lambda **_kw: contextlib.nullcontext())
     monkeypatch.setattr(cr, "_prepare_turn", prepare)
-    monkeypatch.setattr(cr, "_start_answer", lambda _turn: (sink, asyncio.create_task(answer())))
+    monkeypatch.setattr(cr, "answer_streaming_enabled", lambda: True)
+    monkeypatch.setattr(cr, "_start_answer", lambda _turn, **_kw: (sink, asyncio.create_task(answer())))
     monkeypatch.setattr(cr, "flush_after_answer", flush)
     config = types.SimpleNamespace(enable_clarifier=False)
 
@@ -104,3 +105,78 @@ async def test_a_stream_the_reader_abandons_unwinds_the_answer_before_the_ledger
     await stream.aclose()  # the reader walked away after the first word
 
     assert order == ["answer unwound", "ledgers flushed"]
+
+
+async def _sink_seen_by_the_answer(monkeypatch, *, stream: bool):
+    """What the answering task finds bound, when ``_start_answer`` runs with ``stream``."""
+    from aiq_agent.turn import answer_stream
+
+    seen: dict[str, object] = {}
+
+    async def answer_in_registries(*_args, **_kwargs):
+        seen["sink"] = answer_stream._SINK.get()
+        return object(), object()
+
+    monkeypatch.setattr(cr, "_answer_in_registries", answer_in_registries)
+    monkeypatch.setattr(cr, "_answer_chunks", lambda *_a, **_kw: [])
+    runtime = types.SimpleNamespace(
+        thread_id="t", identity=None, metadata={}, ledgers=None, workflow_id="wf", stage_llms={}
+    )
+    turn = types.SimpleNamespace(
+        runtime=runtime,
+        agent=object(),
+        state=object(),
+        session_registry=object(),
+        request=types.SimpleNamespace(organization_id=None),
+        context=object(),
+        inputs=object(),
+    )
+    sink, answering = cr._start_answer(turn, stream=stream)
+    assert await answering == []
+    return sink, seen["sink"]
+
+
+async def test_with_streaming_on_the_answer_writes_into_the_turns_sink(monkeypatch):
+    sink, seen = await _sink_seen_by_the_answer(monkeypatch, stream=True)
+    assert seen is sink
+
+
+async def test_with_streaming_switched_off_the_answer_finds_no_sink(monkeypatch):
+    """No sink, so ``streaming_call`` hands back the buffered call and the answer goes out whole."""
+    _sink, seen = await _sink_seen_by_the_answer(monkeypatch, stream=False)
+    assert seen is None
+
+
+async def test_the_runner_asks_the_platform_switch_before_starting_the_answer(monkeypatch):
+    asked: list[bool] = []
+    sink = AnswerStreamSink()
+
+    async def prepare(*_args, **_kwargs):
+        return object()
+
+    async def flush(*_ledgers):
+        return None
+
+    async def answer():
+        return []
+
+    def start(_turn, *, stream):
+        asked.append(stream)
+        return sink, asyncio.create_task(answer())
+
+    monkeypatch.setattr(cr.Context, "get", staticmethod(lambda: types.SimpleNamespace(conversation_id="c1")))
+    monkeypatch.setattr(cr.GridRequestContext, "from_context", staticmethod(lambda: None))
+    monkeypatch.setattr(cr, "extract_turn_inputs", lambda _q: types.SimpleNamespace(query_text="q", data_sources=[]))
+    monkeypatch.setattr(cr, "get_scoped_collections_from_context", lambda: None)
+    monkeypatch.setattr(cr, "turn_identity", lambda *_a: None)
+    monkeypatch.setattr(cr, "track_agent_profile", lambda **_kw: contextlib.nullcontext())
+    monkeypatch.setattr(cr, "_prepare_turn", prepare)
+    monkeypatch.setattr(cr, "answer_streaming_enabled", lambda: False)
+    monkeypatch.setattr(cr, "_start_answer", start)
+    monkeypatch.setattr(cr, "flush_after_answer", flush)
+    config = types.SimpleNamespace(enable_clarifier=False)
+
+    chunks = [chunk async for chunk in cr._turn_runner(object(), config, {}, "wf")("q")]
+
+    assert chunks == []
+    assert asked == [False]
