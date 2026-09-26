@@ -532,6 +532,10 @@
     "de": "Diagramme in einer Antwort werden erneut gezeichnet, statt als Codeblock angezeigt zu werden. Ein Diagramm, dessen Quelltext keine Sprachkennzeichnung enthält, wird als Shell-Auflistung ausgegeben; eines mit Beschriftungen in Anführungszeichen wird zudem durch den Hinweis auf ein nicht verifiziertes Zitat völlig beschädigt."
   },
   {
+    "en": "Die Antwortdetails zeigen jetzt, wie lange Piloti für die Antwort gebraucht hat, gemessen vom Absenden der Frage bis zur fertigen Antwort. Die Angabe bleibt nach dem Neuladen des Gesprächs erhalten.",
+    "de": "Die Antwortdetails zeigen jetzt, wie lange Piloti für die Antwort benötigt – gemessen vom Absenden der Frage bis zur fertigen Antwort. Die Angabe bleibt auch nach dem Neuladen des Gesprächs erhalten."
+  },
+  {
     "en": "Die Antwortdetails öffnen sich jetzt von selbst, wenn die Antwort etwas trägt, das nicht übersehen werden darf: eine abgebrochene Recherche, entfernte Belege oder eine geringe Sicherheit. Bisher lagen diese Hinweise hinter dem zugeklappten Auslöser, und die Antwort sah wie eine vollständige aus.",
     "de": "Die Antwortdetails öffnen sich jetzt automatisch, wenn die Antwort einen wichtigen Hinweis enthält, der nicht übersehen werden darf: eine abgebrochene Recherche, entfernte Belege oder eine geringe Sicherheit. Bisher waren diese Hinweise hinter dem eingeklappten Auslöser verborgen, sodass die Antwort vollständig wirkte."
   },

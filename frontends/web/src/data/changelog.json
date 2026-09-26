@@ -46,6 +46,10 @@
               "de": "Plattform-Betreiber können unter Plattform → Abruf einstellen, ob Antworten live Wort für Wort erscheinen oder vollständig, sobald sie fertig sind. Die Herleitung läuft in beiden Fällen live mit. Die Einstellung gilt für alle Organisationen ab der nächsten Frage."
             },
             {
+              "en": "Die Antwortdetails zeigen jetzt, wie lange Piloti für die Antwort gebraucht hat, gemessen vom Absenden der Frage bis zur fertigen Antwort. Die Angabe bleibt nach dem Neuladen des Gesprächs erhalten.",
+              "de": "Die Antwortdetails zeigen jetzt, wie lange Piloti für die Antwort benötigt – gemessen vom Absenden der Frage bis zur fertigen Antwort. Die Angabe bleibt auch nach dem Neuladen des Gesprächs erhalten."
+            },
+            {
               "en": "Wer eine neue Organisation anlegt, sieht danach eine kurze Produkttour durch die Projektübersicht: wo Projekte entstehen, Archiv und Postfach, wo Kolleginnen und Kollegen eingeladen werden, und die wichtigsten Tastenkürzel.",
               "de": "Wenn Sie eine neue Organisation anlegen, führt Sie anschließend eine kurze Produkttour durch die Projektübersicht: Sie zeigt, wo Projekte erstellt werden, wo Sie Archiv und Postfach finden, wie Sie Kolleginnen und Kollegen einladen und welche Tastenkürzel besonders wichtig sind."
             },
