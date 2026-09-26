@@ -367,13 +367,11 @@ config:
 
   # true before flipping it:
 
-  #   1. `err2issueImage` is digest-pinned. It currently defaults to a moving
+  #   1. `err2issueImage` is digest-pinned. Done: the default in src/config.ts
 
-  #      `:latest` because upstream publishes no tags; a moving tag on a pod
+  #      is v0.5.0 by digest, and the trivy job in .github/workflows/security.yml
 
-  #      holding a repo-write token is not a prod posture, and the trivy job in
-
-  #      .github/workflows/security.yml only scans pinned refs.
+  #      scans it.
 
   #   2. Steady-state error volume is known from dev, so
 
@@ -389,7 +387,6 @@ config:
 
   #   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:err2issueGithubToken ghp_... --secret
 
-  #   pulumi config set        grid-oib:err2issueImage       ghcr.io/matthiasbigl/err2issue@sha256:...
   grid-oib:err2issueEnabled: "false"
   grid-oib:protectDataResources: "true"
   grid-oib:seaweedfsPerOrgBuckets: "true"

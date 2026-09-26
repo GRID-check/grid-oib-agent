@@ -1111,9 +1111,9 @@ export interface GridConfig {
      */
     enabled: boolean;
     /**
-     * Image reference. Upstream publishes no version tags yet, so this
-     * defaults to a MOVING `:latest` (pulled Always — see err2issue.ts).
-     * Digest-pin it before enabling in prod.
+     * Image reference, digest-pinned (v0.5.0 by default). Upstream tags each
+     * build `:sha-<commit>` and `:latest`; bump the digest deliberately, it is
+     * scanned by the trivy job in .github/workflows/security.yml.
      */
     image: string;
     /** Fallback destination repo (`owner/repo`) for unrouted services. */
@@ -1138,6 +1138,21 @@ export interface GridConfig {
     maxNewFingerprintsPerDay: number;
     /** Drop errors from services the route map does not match. */
     dropUnrouted: boolean;
+    /**
+     * Link each issue's trace id to the Aspire dashboard's trace view
+     * (`E2I_TRACE_URL_TEMPLATE`, err2issue >= 0.5). Empty when the
+     * observability tier is off: there is nothing to link to.
+     */
+    traceUrlTemplate: string;
+    /**
+     * Reopen an issue a human closed as *not planned* or *duplicate* when its
+     * error recurs (`E2I_REOPEN_NOT_PLANNED`). Off, as upstream: closing one of
+     * those is a decision about the error, and a recurrence only raises its
+     * count. Issues closed as *completed* reopen either way.
+     */
+    reopenNotPlanned: boolean;
+    /** GitHub logins assigned to new issues (`E2I_ISSUE_ASSIGNEES`, max 10). Empty leaves them unassigned. */
+    issueAssignees: string;
   };
 }
 
@@ -2445,10 +2460,12 @@ export function loadConfig(): GridConfig {
 
     err2issue: {
       enabled: err2issueEnabled,
-      // NOT digest-pinned, unlike every other image here: upstream publishes
-      // no tags or releases yet, so `:latest` is the only reference that
-      // exists. Pin this before prod — see the dev/prod stack notes.
-      image: cfg.get("err2issueImage") ?? "ghcr.io/matthiasbigl/err2issue:latest",
+      // Digest-pinned: v0.5.0, published as `:sha-7c25265a0aff27b17db4474ed2d3c72432532a02`.
+      // Upstream cuts no release tags, so the digest is the version; the
+      // CHANGELOG names the commit. Scanned by the trivy job in security.yml.
+      image:
+        cfg.get("err2issueImage") ??
+        "ghcr.io/matthiasbigl/err2issue@sha256:56744298691adc08fe9f596db8e9957b9d4adf8d9ddcfae5cf62d8604bd992da",
       githubRepo: err2issueGithubRepo,
       githubToken: err2issueGithubToken ?? pulumi.output(""),
       routeMap: cfg.get("err2issueRouteMap") ?? "",
@@ -2461,6 +2478,12 @@ export function loadConfig(): GridConfig {
       // once the steady-state volume is known.
       maxNewFingerprintsPerDay: num(cfg, "err2issueMaxNewFingerprintsPerDay", 20),
       dropUnrouted: bool(cfg, "err2issueDropUnrouted", true),
+      // The Aspire dashboard's trace view. It holds traces in memory, so a link
+      // on an old issue can outlive the trace it names; the id in the issue
+      // stays the thing to search by.
+      traceUrlTemplate: observabilityEnabled ? `https://${otelDomain}/traces/detail/{trace_id}` : "",
+      reopenNotPlanned: bool(cfg, "err2issueReopenNotPlanned", false),
+      issueAssignees: cfg.get("err2issueIssueAssignees") ?? "",
     },
   };
 }
