@@ -292,6 +292,28 @@ the volume runs out of the picture: the series' one close shot among its long on
 - **Shadows.** Stair and landing shadows are projected steps, merged with the house
   and column shadows into one union.
 
+## Collateral compositions
+
+Plates II–VIII also serve the founders' kit off the site
+([`../collateral/PRINT.md`](../collateral/PRINT.md) maps every piece), so
+banners, slides and cards are not all plate I's house. Each is a new framing
+in the plate's `FIT` table, drawn from the same geometry, exported to
+`art/riso/out/tafeln/`:
+
+| Plate | Composition | Format | Use |
+|---|---|---|---|
+| II | `corner` | `deck` | the stack small in a slide's bottom-right corner (content slides) |
+| III | `linkedin` | `linkedin` | Matthias Bigl's banner |
+| IV | `cover` | `deck` | section divider |
+| V | `sqlow` | `social` | announcement square, the upper half left for a title |
+| VI | `linkedin`, `sqlow`, `a6` | `linkedin`, `social`, `postcard` | Jonathan Uhlemann's banner, a square, an alternative card |
+| VII | `linkedin` | `linkedin` | Ferdinand Rubenbauer's banner |
+| VIII | `cover` | `deck` | closing slide |
+
+The numeral moves to the right end on the banners and clear of the press
+margin on the card. Adding them changed no site file: every Tafeln site export
+came back byte-identical.
+
 ## Inspected
 
 Plate VIII: the full frame at 720 and 1440, at three framings (the first left the door
