@@ -133,6 +133,57 @@ default: the vendor's own legal-retrieval numbers (top-1 5 % → 18 %, top-10
 38 % → 62 %) are a useful reranker's, not a trained cross-encoder's, and the
 golden set decides.
 
+*Amended 2026-09-26:* three annotations off the reader's path. Each labels
+something a person or the agent reads; none of them withholds anything, and
+each acts only at 0.8.
+
+**Use 4 — ingestion tags** (`knowledge/document_classification.py`,
+`decide_document_tags`). The document type and the 0–3 OIB disciplines stored
+with every upload were a generative call on `summary_llm` returning a JSON
+array that a post-filter held to the vocabulary. They are one choice over the
+twelve types and one noul per discipline, over the text the summary reads;
+below 0.8 on the type, or when no decision ran, the prompt tags as before.
+Tags annotate a file (the inventory line, the Files panel) and nothing filters
+on them. Tuning set (twelve hand-labelled German openings): types 12/12 (the
+prompt on the default model: 11/12), 0.2–0.3 s against 0.8–1.9 s, $0.00005 per
+document; clear disciplines at 0.96–0.98, everything else at or below 0.52, so
+no false tag at 0.8, where the prompt had one. The decider does not tag a plan
+Brandschutz for drawing a compartment line, which is what the prompt's own
+„nur wenn der Fachbereich eindeutig zutrifft" asks. One type only: the old
+second type was a choice's runner-up, which cannot reach 0.8. Ingestion has no
+request context, so the org id travels in the job config and the endpoint
+resolves ZDR by the id it is given (`common/decisions._zdr_only_blocking`).
+
+**Use 8 — a Dokumentart for a person to accept**
+(`knowledge/document_classification.suggest_doc_class`). A base-corpus file
+whose name carries no OIB hint lands in `sonstiges`, the neutral lane, until a
+platform owner reclassifies it. At ingestion the decision model chooses one of
+the nine classes from the text; a pick at 0.8 or above that is not `sonstiges`
+is stored BESIDE the class (`document_metadata.doc_class_suggestion`), never as
+it, and the base-knowledge page offers it under the picker („Aus dem Text
+erkannt: … Übernehmen"). Accepting is the same PATCH the picker sends, and any
+PATCH clears the offer. `doc_class` drives lanes and source kinds, so it stays
+human-set. Tuning set (twelve openings under hint-less file names): 12/12 at
+0.97–1.00, where the filename guess had 3/12.
+
+**Use 9 — why a down-vote was cast** (`common/feedback_causes.py`, the
+feedback digest route). A down-vote carries one of four coarse chips and
+sometimes a comment; the comment names the defect („In GK 4 ist es R 60",
+„Das ist die Wiener Regelung, wir sind in Tirol" are both `inaccurate` to the
+chip). When the digest is built, each sampled down-vote is filed under one of
+ten causes by a choice over its question, chip and comment; the counts go into
+the digest's brief and back to the Quality page as one line. A label below 0.8
+is left unlabelled, not guessed. The comment now leaves the BFF with its
+sample, fenced as data like the question. Tuning set (sixteen down-votes):
+16/16.
+
+**Held out.** The tuning numbers above were measured on the rows the criteria
+were written against. A held-out set per use, written blind to the wording from
+plain label definitions (`tests/fixtures/decisions/holdout/`,
+`task be:eval:decisions:holdout`, never tuned on): tags 24/24 types, 13 of 14
+disciplines, no false one; Dokumentart 13/13 offered right, none wrong;
+feedback causes 20/24 right, 1 wrong, 3 left unlabelled.
+
 **Not a use.** Intent or model routing, the escalation decision, confidence,
 verdict extraction, anything whose wrong answer removes a capability
 (ADR-0052, unchanged). Card selection and skill suggestion, which the audit
@@ -218,6 +269,15 @@ numbers above are one run on German questions the product actually gets.
 - `tests/knowledge_layer_tests/test_decisions_in_retrieval.py`: a sufficient
   head costs no judge call, an absent decision runs the judge, a flagged
   passage is kept, the reranker's order.
+- `tests/knowledge_layer_tests/test_document_classification.py`: the tag
+  questions are the vocabulary, a decision replaces the generative call, an
+  unsure or failed one falls back to it; the Dokumentart is offered, never set.
+- `tests/aiq_agent/common/test_feedback_causes.py`, `frontends/aiq_api/tests/test_feedback_digest.py`:
+  each down-vote asked with its comment, an unsure label left out, a
+  labelling failure leaves the digest whole.
+- `tests/conftest.py::_no_live_decisions` (and its twin in
+  `frontends/aiq_api/tests/conftest.py`): the suites never reach the live
+  endpoint unless a test turns decisions on and stubs it.
 - `tests/test_decision_eval.py`: the adoption gate's arithmetic;
   `tests/fixtures/herleitung/decision_eval_2026-09-22.csv`: its last result.
 

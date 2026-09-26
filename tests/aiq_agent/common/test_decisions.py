@@ -40,6 +40,7 @@ QUESTIONS = {
 
 #: The real resolver, captured before the fixture below replaces it.
 _RESOLVE_ENDPOINT = decisions._resolve_endpoint_blocking
+_ZDR_ONLY = decisions._zdr_only_blocking
 _ENDPOINT = decisions._Endpoint(url="https://openrouter.ai/api/alpha/decisions", api_key="k", model="typesafe/jev-1.13")
 
 
@@ -182,6 +183,28 @@ class TestFailOpen:
             await decisions._endpoint(None)
             await decisions._endpoint("org-given")
         assert [c.args[0] for c in resolve.call_args_list] == ["org-ctx", "org-given"]
+
+    async def test_zdr_is_the_named_organizations_policy(self):
+        """Ingestion runs with no request context: the org it names decides ZDR."""
+        with (
+            patch("aiq_agent.project_context.get_organization_id_from_context", return_value=None),
+            patch("aiq_agent.common.model_overrides.resolve_org_zdr_only", return_value=True) as zdr,
+            patch.object(decisions, "_zdr_only_blocking", _ZDR_ONLY),
+        ):
+            endpoint, skipped = await decisions._endpoint("org-upload")
+        assert (endpoint, skipped) == (None, "zdr")
+        zdr.assert_called_once_with("org-upload")
+
+    def test_decide_blocking_runs_from_sync_code_and_inside_a_loop(self, records):
+        with patch.object(httpx, "AsyncHTTPTransport", side_effect=lambda: _transport(_ok)):
+            assert decisions.decide_blocking("s", QUESTIONS, slot="t").noul("needs_evidence") == 0.93
+
+            async def inside():
+                return decisions.decide_blocking("s", QUESTIONS, slot="t")
+
+            import asyncio
+
+            assert asyncio.run(inside()).noul("needs_evidence") == 0.93
 
     async def test_the_breaker_opens_after_repeated_server_failures(self, records):
         transport = _transport(lambda r: httpx.Response(503))

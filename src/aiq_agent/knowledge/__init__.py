@@ -47,6 +47,7 @@ from .factory import set_active_ingestor
 from .factory import set_active_retriever
 from .factory import set_document_display_title
 from .factory import set_document_doc_class
+from .factory import set_document_doc_class_suggestion
 from .factory import set_document_folder_path
 from .factory import set_document_provenance
 from .factory import unregister_summary
@@ -96,6 +97,7 @@ __all__ = [
     "unregister_summary",
     "update_document_tags",
     "set_document_doc_class",
+    "set_document_doc_class_suggestion",
     "get_document_doc_class",
     "set_document_display_title",
     "get_document_display_title",

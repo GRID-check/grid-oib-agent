@@ -540,6 +540,7 @@ def add_oib_routes(router: APIRouter) -> None:
         """
         from aiq_agent import oib_sync
         from aiq_agent.knowledge.factory import set_document_doc_class
+        from aiq_agent.knowledge.factory import set_document_doc_class_suggestion
 
         name = Path(file_name).name
         if request.doc_class is None or not is_valid_doc_class(request.doc_class):
@@ -559,6 +560,11 @@ def add_oib_routes(router: APIRouter) -> None:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"No summary found for '{name}' in the base corpus",
             )
+        # A person has decided; the suggestion has nothing left to offer.
+        try:
+            await asyncio.to_thread(set_document_doc_class_suggestion, oib_sync.COLLECTION_NAME, name, None)
+        except Exception:  # noqa: BLE001 — the class is set; a stale offer is cosmetic
+            logger.warning("Could not clear the Dokumentart suggestion for %s", name)
         return {"file_name": name, "doc_class": request.doc_class}
 
     class UpdateDisplayTitleRequest(BaseModel):
