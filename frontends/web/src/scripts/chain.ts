@@ -62,7 +62,42 @@ const portBox = (card: HTMLElement, cam: HTMLElement, selector: string): Box => 
   return { x, y, w, h, cx: x + w / 2, cy: y + h / 2, right: x + w, bottom: y + h }
 }
 
+/** The board only exists from lg up; below it the chain is the column list. */
+const BOARD = '(min-width: 1024px)'
+
 export function initChain() {
+  initChainBoard()
+  initChainList()
+}
+
+/**
+ * The phone column: the finished chain is in the markup, so without motion (or
+ * without JS) there is nothing to do. With motion, the four steps arrive in
+ * order as the list comes into view and the spine grows down to meet each one
+ * — once, and never tied to the scroll position.
+ */
+function initChainList() {
+  const list = document.querySelector<HTMLElement>('[data-chain-list]')
+  if (!list) return
+  const steps = Array.from(list.querySelectorAll<HTMLElement>('[data-chain-step]'))
+  const spine = list.querySelector<HTMLElement>('[data-chain-spine]')
+
+  gsap.matchMedia().add(`(max-width: 1023.98px) and (prefers-reduced-motion: no-preference)`, () => {
+    if (list.getBoundingClientRect().top < window.innerHeight * 0.8) return
+    gsap.set(steps, { autoAlpha: 0, y: 14 })
+    if (spine) gsap.set(spine, { scaleY: 0 })
+    const tl = gsap.timeline({
+      defaults: { ease: 'power2.out' },
+      scrollTrigger: { trigger: list, start: 'top 75%', once: true },
+    })
+    steps.forEach((step, i) => {
+      tl.to(step, { autoAlpha: 1, y: 0, duration: 0.5 }, i * 0.55)
+      if (spine) tl.to(spine, { scaleY: (i + 1) / steps.length, duration: 0.5, ease: 'none' }, i * 0.55)
+    })
+  })
+}
+
+function initChainBoard() {
   const anchor = document.querySelector<HTMLElement>('[data-chat-anchor]')
   const stage = anchor?.querySelector<HTMLElement>('[data-stage]')
   const cam = anchor?.querySelector<HTMLElement>('[data-cam]')
@@ -248,7 +283,7 @@ export function initChain() {
 
   const mm = gsap.matchMedia()
 
-  mm.add('(prefers-reduced-motion: no-preference)', () => {
+  mm.add(`${BOARD} and (prefers-reduced-motion: no-preference)`, () => {
     const w = draw()
     const cards = sources.flatMap((n) => node(n)).concat(node('dec'), node('impl'))
     // Strokes and dots are set up differently: a dot is a filled circle with no
@@ -346,20 +381,6 @@ export function initChain() {
       tl.kill()
     }
   })
-
-  // Without motion the chain is simply the finished diagram, drawn and still.
-  mm.add('(prefers-reduced-motion: reduce)', () => {
-    draw()
-    qText.textContent = L.question
-    gsap.set(caretT, { display: 'none' })
-    // The chain is finished here, so the spinner that means "still looking"
-    // has nothing to say.
-    gsap.set(scan, { autoAlpha: 0 })
-    gsap.set(Array.from(wires.children), { autoAlpha: 1, drawSVG: '100%' })
-    gsap.set(cam, frame(['all']))
-    gsap.set([...optT(0), ...optT(2)], { opacity: 0.32 })
-    gsap.set(optT(1), { backgroundColor: '#eef6ee', borderLeftColor: '#17914d' })
-    status.textContent = L.beats[10]
-    if (replay) replay.hidden = true
-  })
+  // Without motion there is no board at all: ChatMock shows the column list
+  // in its place (`motion-reduce:`), which is the finished chain at full size.
 }

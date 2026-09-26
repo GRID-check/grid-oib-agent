@@ -1,0 +1,58 @@
+---
+/**
+ * The questions an office asks first, answered in facts. Native
+ * <details>/<summary>, so every answer is in the HTML (search engines and
+ * answer engines read it without running a script) and works without JS.
+ * The same items feed the FAQPage JSON-LD here and /llms-full.txt, through
+ * `faqItems()`.
+ */
+import SectionTag from '../atoms/SectionTag.astro'
+import { ui, type Locale } from '../../i18n/ui'
+import { faqItems, faqPageLd, ldJson } from '../../lib/seo'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale].faq
+const items = faqItems(locale)
+---
+
+<section
+  id="faq"
+  aria-labelledby="faq-title"
+  class="mx-auto box-border max-w-[85rem] px-4 py-16 sm:px-10 sm:py-24 lg:px-16"
+>
+  <div class="grid grid-cols-1 items-start gap-y-8 lg:grid-cols-[5fr_7fr] lg:gap-x-16">
+    <div data-reveal>
+      <SectionTag class="mb-5">{t.tag}</SectionTag>
+      <h2 id="faq-title" class="m-0 font-voice text-v2 text-panel" style="text-wrap: balance">
+        {t.title}
+      </h2>
+    </div>
+    <div class="border-b border-ink/12">
+      {
+        items.map(({ q, a }) => (
+          <details class="group border-t border-ink/12">
+            <summary class="flex min-h-11 cursor-pointer list-none items-start justify-between gap-4 py-4 text-left font-display text-lg font-semibold leading-snug tracking-tight text-panel [&::-webkit-details-marker]:hidden">
+              <span>{q}</span>
+              <span
+                class="mt-0.5 shrink-0 font-mono text-base leading-none text-accent-600 transition-transform group-open:rotate-45 motion-reduce:transition-none"
+                aria-hidden="true"
+              >
+                +
+              </span>
+            </summary>
+            <p
+              class="m-0 max-w-2xl pb-5 pr-8 text-base leading-relaxed text-ink-soft"
+              style="text-wrap: pretty"
+            >
+              {a}
+            </p>
+          </details>
+        ))
+      }
+    </div>
+  </div>
+  <script is:inline type="application/ld+json" set:html={ldJson([faqPageLd(locale)])} />
+</section>

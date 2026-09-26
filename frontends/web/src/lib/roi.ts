@@ -7,9 +7,12 @@
  * the two can never disagree.
  *
  * The split between what is fixed and what the visitor sets is deliberate and
- * is the whole honesty of the section. The constants below are *our* claims and
- * are stated as such; the inputs are the visitor's own office, which we cannot
- * know and do not pretend to. A claim is not a dial — a slider under "how much
+ * is the whole honesty of the section. The constants below are *our*
+ * assumptions and are stated as such — Piloti is a proof of concept, and no
+ * customer has measured them yet. The inputs are the visitor's own office,
+ * which we cannot know, plus the seat price, which is an example: Piloti has no
+ * price list, so the price is a dial rather than a figure we would have to
+ * defend as an offer. The assumptions are not dials — a slider under "how much
  * time does Piloti give back?" would invite the visitor to author our promise,
  * and whatever number they landed on would be worth nothing to them.
  */
@@ -29,21 +32,31 @@ export const WORK_WEEKS = 44
 /** Hours per person per year — the divisor turning a salary into an hourly cost. */
 export const HOURS_PER_YEAR = WEEK_HOURS * WORK_WEEKS
 
-/** Our claim: the share of a planner's week that goes to looking things up. */
+/** Our assumption: the share of a planner's week that goes to looking things up. */
 export const RESEARCH_SHARE = 0.3
 
-/** Our claim: the share of that research time Piloti gives back. */
+/** Our assumption: the share of that research time Piloti gives back. */
 export const TIME_SAVED = 0.4
 
-/** List price of one Piloti seat, € per month. */
-export const SEAT_COST_MONTHLY = 120
-
-/** What the visitor sets, because it is theirs and we cannot know it. */
+/** What the visitor sets: their office, and an example price to test it against. */
 export interface RoiInputs {
   /** People in the office who get a seat. */
   seats: number
   /** Median gross salary of one of those people, € per year. */
   salary: number
+  /** Example price of one seat, € per month. Not an offer: there is no price list yet. */
+  price: number
+}
+
+/**
+ * The span each input may take. The sliders are drawn from it and the working
+ * page clamps its query string to it, so a link can never state an office the
+ * calculator could not have produced.
+ */
+export const ROI_RANGES: Record<keyof RoiInputs, { min: number; max: number; step: number }> = {
+  seats: { min: 1, max: 60, step: 1 },
+  salary: { min: 40_000, max: 90_000, step: 2_500 },
+  price: { min: 100, max: 200, step: 10 },
 }
 
 export interface RoiResult {
@@ -63,7 +76,7 @@ export interface RoiResult {
   valuePerSeat: number
   /** Value of the hours the team gives back, € per year. */
   grossValue: number
-  /** What one seat costs, € per year. */
+  /** What one seat costs at the example price, € per year. */
   licencePerSeat: number
   /** What the seats cost, € per year. */
   licenceCost: number
@@ -80,7 +93,31 @@ export interface RoiResult {
 export const ROI_DEFAULTS: RoiInputs = {
   seats: 10,
   salary: 50_000,
+  price: 150,
 }
+
+/**
+ * Read an office from a query string, clamped to `ROI_RANGES`. The values come
+ * from a URL, which is to say from anyone: a NaN or a negative seat count must
+ * not reach the page. Anything missing or unreadable falls back to the default.
+ */
+export function parseRoiInputs(params: URLSearchParams): RoiInputs {
+  const read = (key: keyof RoiInputs) => {
+    const raw = params.get(key)
+    const n = Number(raw)
+    if (raw === null || raw === '' || !Number.isFinite(n)) return ROI_DEFAULTS[key]
+    const { min, max } = ROI_RANGES[key]
+    return Math.min(max, Math.max(min, Math.round(n)))
+  }
+  return { seats: read('seats'), salary: read('salary'), price: read('price') }
+}
+
+/** The query string that carries an office to the working page and back. */
+export const roiQuery = ({ seats, salary, price }: RoiInputs) =>
+  `?seats=${seats}&salary=${salary}&price=${price}`
+
+export const isRoiDefault = (inputs: RoiInputs) =>
+  (Object.keys(ROI_DEFAULTS) as (keyof RoiInputs)[]).every((k) => inputs[k] === ROI_DEFAULTS[k])
 
 /**
  * Value of the time Piloti gives back, against what the seats cost.
@@ -91,7 +128,7 @@ export const ROI_DEFAULTS: RoiInputs = {
  * (Lohnnebenkosten, roughly +30 % in Austria) are left out, so the figure is
  * the conservative end of the range rather than the flattering one.
  */
-export function computeRoi({ seats, salary }: RoiInputs): RoiResult {
+export function computeRoi({ seats, salary, price }: RoiInputs): RoiResult {
   const researchHoursPerWeek = WEEK_HOURS * RESEARCH_SHARE
   const hoursPerWeek = researchHoursPerWeek * TIME_SAVED
   const hoursPerYear = hoursPerWeek * WORK_WEEKS * seats
@@ -102,7 +139,7 @@ export function computeRoi({ seats, salary }: RoiInputs): RoiResult {
   // answer out of this.
   const valuePerSeat = hoursPerWeek * WORK_WEEKS * hourlyCost
   const grossValue = valuePerSeat * seats
-  const licencePerSeat = SEAT_COST_MONTHLY * 12
+  const licencePerSeat = price * 12
   const licenceCost = licencePerSeat * seats
 
   return {

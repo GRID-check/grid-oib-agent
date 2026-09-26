@@ -1,7 +1,7 @@
 ---
 import Logo from '../atoms/Logo.astro'
 import Pill from '../atoms/Pill.astro'
-import { CONTACT_EMAIL } from '../../consts'
+import { CONTACT_EMAILS, mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
 
@@ -31,9 +31,10 @@ const columns = [
   {
     heading: t.footer.companyHeading,
     links: [
+      { label: t.footer.team, href: `${home}#team` },
+      { label: t.ki.tag, href: `${home}#datenschutz` },
       { label: t.footer.blog, href: translatePath('/blog/') },
       { label: t.footer.changelog, href: translatePath('/changelog/') },
-      { label: t.ki.tag, href: `${home}#datenschutz` },
     ],
   },
   {
@@ -47,23 +48,20 @@ const columns = [
 ---
 
 <!-- The footer is where a visitor lands who did not convert: it has to say who
-     we are, where everything is, and how to reach a person — which is why it is
-     a full sheet rather than the single line of links it used to be. -->
-<footer class="px-4 pb-8 pt-4">
+     we are, where everything is, and how to reach a person. On a phone it is
+     the same sheet folded tighter — link groups side by side, 44px rows — not
+     a column of everything stacked. -->
+<footer class="px-2 pb-2 pt-4 sm:px-4 sm:pb-8">
   <div
-    class="mx-auto box-border max-w-[85rem] rounded-panel bg-surface-dim px-6 py-16 sheet-light sm:px-16 sm:py-20"
+    class="mx-auto box-border max-w-[85rem] rounded-panel bg-surface-dim px-5 py-10 sheet-light sm:px-16 sm:py-16 lg:py-20"
   >
-    <div class="grid grid-cols-[1.6fr_1fr_1fr_1fr] gap-x-10 gap-y-12 max-lg:grid-cols-2 max-sm:grid-cols-1">
-      <div class="max-w-xs">
+    <div
+      class="grid grid-cols-2 gap-x-6 gap-y-8 sm:gap-x-10 sm:gap-y-12 lg:grid-cols-[1.6fr_1fr_1fr_1fr]"
+    >
+      <div class="col-span-2 max-w-sm lg:col-span-1 lg:max-w-xs">
         <Logo href={`${home}#top`} label={t.nav.logoLabel} size="sm" />
-        <p class="m-0 mt-5 text-sm leading-relaxed text-ink-soft" style="text-wrap: pretty">
+        <p class="m-0 mt-4 text-base leading-relaxed text-ink-soft sm:mt-5 sm:text-sm" style="text-wrap: pretty">
           {t.footer.tagline}
-        </p>
-        <p
-          class="m-0 mt-5 inline-flex items-center gap-2 rounded-full border border-accent-600/35 px-3 py-1.5 font-mono text-2xs uppercase tracking-widest text-accent-600"
-        >
-          <span class="size-1.5 rounded-full bg-accent-500" aria-hidden="true"></span>
-          {t.footer.privacyPromise}
         </p>
       </div>
 
@@ -73,10 +71,13 @@ const columns = [
             <h2 class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
               {col.heading}
             </h2>
-            <ul class="m-0 mt-5 list-none space-y-3 p-0">
+            <ul class="m-0 mt-2 list-none p-0 sm:mt-5 sm:space-y-3">
               {col.links.map((l) => (
                 <li>
-                  <a class="text-sm text-ink-soft transition-colors hover:text-accent-600" href={l.href}>
+                  <a
+                    class="flex min-h-11 items-center text-base text-ink-soft transition-colors hover:text-accent-600 sm:inline sm:min-h-0 sm:text-sm"
+                    href={l.href}
+                  >
                     {l.label}
                   </a>
                 </li>
@@ -88,49 +89,60 @@ const columns = [
     </div>
 
     <div
-      class="mt-14 grid grid-cols-[1.6fr_3fr] items-end gap-x-10 gap-y-8 border-t border-ink/12 pt-10 max-lg:grid-cols-1"
+      class="mt-8 grid grid-cols-1 items-end gap-x-10 gap-y-5 border-t border-ink/12 pt-8 sm:mt-14 sm:pt-10 lg:grid-cols-[1.6fr_3fr]"
     >
       <div>
         <h2 class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
           {t.footer.contactHeading}
         </h2>
-        <a
-          class="mt-3 inline-block font-display text-xl font-semibold tracking-tight text-panel hover:text-accent-600"
-          href={`mailto:${CONTACT_EMAIL}`}
-        >
-          {CONTACT_EMAIL}
-        </a>
-        <p class="m-0 mt-2 max-w-sm text-sm leading-relaxed text-ink-mute">
+        <p class="m-0 mt-2 max-w-sm text-base leading-relaxed text-ink-mute sm:text-sm">
           {t.footer.contactBody}
         </p>
+        <ul class="m-0 mt-2 list-none p-0">
+          {
+            CONTACT_EMAILS.map((email) => (
+              <li>
+                <a
+                  class="inline-flex min-h-11 items-center font-display text-lg font-semibold tracking-tight text-panel hover:text-accent-600 sm:min-h-0 sm:py-0.5"
+                  href={mailtoHref()}
+                >
+                  {email}
+                </a>
+              </li>
+            ))
+          }
+        </ul>
       </div>
       <div class="flex justify-end max-lg:justify-start">
-        <Pill href={`mailto:${CONTACT_EMAIL}?subject=${t.cta.subjectDemo}`} variant="solid" size="md">
-          {t.footer.demo}
+        <Pill
+          href={mailtoHref(t.cta.subjectPilot)}
+          variant="solid"
+          size="md"
+          class="max-sm:w-full max-sm:py-3"
+        >
+          {t.footer.cta}
         </Pill>
       </div>
     </div>
 
     <!-- The foot of the sheet states what the sheet is, the way a drawing does
          in the corner where its title block sits. -->
-    <div class="mt-12 border-t border-ink/12 pt-6">
-      <dl
-        class="m-0 grid grid-cols-[1.4fr_1fr_1fr_1fr] gap-x-6 gap-y-3 max-sm:grid-cols-2"
-      >
+    <div class="mt-8 border-t border-ink/12 pt-6 sm:mt-12">
+      <dl class="m-0 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
         {
           block.map((cell) => (
-            <div class="flex items-baseline gap-2.5 whitespace-nowrap">
-              <dt class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-ghost">
+            <div class="flex min-w-0 items-baseline gap-2.5 last:col-span-2 sm:last:col-span-1">
+              <dt class="m-0 shrink-0 font-mono text-2xs uppercase tracking-widest text-ink-ghost">
                 {cell.label}
               </dt>
-              <dd class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-mute">
+              <dd class="m-0 truncate font-mono text-2xs uppercase tracking-widest text-ink-mute">
                 {cell.value}
               </dd>
             </div>
           ))
         }
       </dl>
-      <p class="m-0 mt-6 text-2xs text-ink-faint">© Piloti {year}. {t.footer.rights}</p>
+      <p class="m-0 mt-5 text-xs text-ink-faint sm:mt-6 sm:text-2xs">© Piloti {year}. {t.footer.rights}</p>
     </div>
   </div>
 </footer>

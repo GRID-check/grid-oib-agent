@@ -1,37 +1,79 @@
 ---
+/**
+ * A resolved source in the story's hub diagram — a clause, a guideline, a past
+ * project. `stage` and `tile` as in FragCard: the desktop piece is positioned
+ * and flown by scripts/landing.ts; the tile sits in the phone diagram's grid,
+ * with the value moved under the title so a half-width cell holds it.
+ */
 interface Props {
   glyph: string
   tile: string
   title: string
   sub: string
   value: string
-  dx: number
-  dy: number
-  fx: number
-  fy: number
-  pos: Partial<Record<'left' | 'right' | 'top' | 'bottom', number>>
+  variant?: 'stage' | 'tile'
+  dx?: number
+  dy?: number
+  fx?: number
+  fy?: number
+  pos?: Partial<Record<'left' | 'right' | 'top' | 'bottom', number>>
 }
-const { glyph, tile, title, sub, value, dx, dy, fx, fy, pos } = Astro.props
+const {
+  glyph,
+  tile,
+  title,
+  sub,
+  value,
+  variant = 'stage',
+  dx = 0,
+  dy = 0,
+  fx = 0.5,
+  fy = 0.5,
+  pos = {},
+} = Astro.props
 
 const posStyle = Object.entries(pos)
   .map(([k, v]) => `${k}:${(v * 100).toFixed(1)}%`)
   .join(';')
 ---
 
-<div
-  class="absolute flex items-center gap-3 rounded-xl bg-surface py-3 pl-3 pr-4 shadow-float"
-  style={posStyle}
-  data-frag={`${dx},${dy}`}
-  data-target={`${fx},${fy}`}
->
-  <span
-    class="inline-flex size-8 items-center justify-center rounded-lg text-sm"
-    style={`background: ${tile}`}
-    aria-hidden="true">{glyph}</span
-  >
-  <span>
-    <span class="block text-sm font-semibold tracking-tight text-panel">{title}</span>
-    <span class="block text-2xs text-ink-mute">{sub}</span>
-  </span>
-  <span class="ml-2 text-sm font-semibold text-panel">{value}</span>
-</div>
+{
+  variant === 'stage' ? (
+    <div
+      class="absolute flex items-center gap-3 rounded-xl bg-surface py-3 pl-3 pr-4 shadow-float"
+      style={posStyle}
+      data-frag={`${dx},${dy}`}
+      data-target={`${fx},${fy}`}
+    >
+      <span
+        class="inline-flex size-8 items-center justify-center rounded-lg text-sm"
+        style={`background: ${tile}`}
+        aria-hidden="true"
+      >
+        {glyph}
+      </span>
+      <span>
+        <span class="block text-sm font-semibold tracking-tight text-panel">{title}</span>
+        <span class="block text-2xs text-ink-mute">{sub}</span>
+      </span>
+      <span class="ml-2 text-sm font-semibold text-panel">{value}</span>
+    </div>
+  ) : (
+    <div data-hub-node class="relative flex min-w-0 items-start gap-2.5 rounded-xl bg-surface p-2.5 shadow-float">
+      <span
+        class="inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-xs"
+        style={`background: ${tile}`}
+        aria-hidden="true"
+      >
+        {glyph}
+      </span>
+      <span class="min-w-0">
+        <span class="block break-words text-[0.8125rem] font-semibold leading-tight tracking-tight text-panel">
+          {title}
+        </span>
+        <span class="mt-0.5 block text-2xs leading-snug text-ink-mute">{sub}</span>
+        <span class="mt-1 block text-xs font-semibold text-accent-600">{value}</span>
+      </span>
+    </div>
+  )
+}

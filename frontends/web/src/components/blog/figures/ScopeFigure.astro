@@ -5,6 +5,7 @@
  * outward from where it is asked, and a level is invisible outside its owner.
  */
 import FigureFrame from './FigureFrame.astro'
+import ScopeNest from './ScopeNest.astro'
 
 interface Level {
   label: string
@@ -97,4 +98,10 @@ const arrowY = inner.y + inner.h / 2
       x={inner.x + 58}
       y={arrowY + 22}>{search}</text>
   </svg>
+
+  {/* Below xl: the same nesting as HTML boxes (ScopeNest), which reflow instead of shrinking. */}
+  <div slot="mobile" class="fpm-flow">
+    <ScopeNest levels={levels} />
+    <p class="fpm-accent fpm-note">↑ {search}</p>
+  </div>
 </FigureFrame>

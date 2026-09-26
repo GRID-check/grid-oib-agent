@@ -1,0 +1,122 @@
+---
+import { Image } from 'astro:assets'
+import SectionTag from '../atoms/SectionTag.astro'
+import TapedPrint from '../craft/TapedPrint.astro'
+import { PLATES } from '../craft/plates'
+import { founders } from '../../data/founders'
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+const [sheetNo] = t.sheets.team.split(' ')
+
+// Each founder is a small print taped to the sheet, in the site's duotone
+// (see scripts/build-team-photos.mjs). A founder without a photo is drawn the
+// way a drawing set marks a detail instead — a circle split by a rule, the
+// initials above it and the number below.
+const people = founders.map((f, i) => {
+  const words = f.name.split(' ')
+  return {
+    name: f.name,
+    role: f.role[locale],
+    photo: f.photo,
+    initials: `${words[0][0]}${words[words.length - 1][0]}`,
+    no: String(i + 1).padStart(2, '0'),
+    // Taped up by hand, so never quite square to each other.
+    tilt: [-1.5, 1.2, -0.8][i % 3],
+  }
+})
+---
+
+<section
+  id="team"
+  data-screen-label={t.sheets.team}
+  class="mx-auto box-border max-w-[85rem] overflow-x-clip px-4 py-16 sm:px-10 sm:py-24 lg:px-16"
+>
+  <div class="grid grid-cols-1 items-start gap-y-10 lg:grid-cols-[5fr_7fr] lg:gap-x-16">
+    <div data-reveal>
+      <SectionTag no={sheetNo} class="mb-5">{t.team.tag}</SectionTag>
+      <h2 class="m-0 mb-5 font-voice text-v2 text-panel sm:mb-6" style="text-wrap: balance">
+        {t.team.title}
+      </h2>
+      <p class="m-0 text-base leading-relaxed text-ink-soft sm:text-lg" style="text-wrap: pretty">
+        {t.team.body}
+      </p>
+
+      <!-- Where the project stands, stated the way the footer's title block
+           states the sheet: three cells, no adjectives. -->
+      <dl class="m-0 mt-8 grid grid-cols-3 border-y border-ink/12">
+        {
+          t.team.facts.map((f) => (
+            <div class="border-l border-ink/12 px-3 py-3 first:border-l-0 first:pl-0">
+              <dt class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+                {f.label}
+              </dt>
+              <dd class="m-0 mt-1 text-sm leading-snug text-panel">{f.value}</dd>
+            </div>
+          ))
+        }
+      </dl>
+    </div>
+
+    <!-- A list on a phone, three sheets side by side from `sm` up. On a wide
+         screen it spans both rows, so the plate can sit under the intro. -->
+    <ul
+      aria-label={t.team.listLabel}
+      class="m-0 grid list-none grid-cols-1 p-0 sm:grid-cols-3 sm:gap-4 lg:row-span-2 lg:gap-5 lg:self-center"
+    >
+      {
+        people.map((p) => (
+          <li
+            data-reveal
+            class="flex items-center gap-4 border-t border-ink/12 py-4 last:border-b sm:flex-col sm:items-start sm:gap-6 sm:rounded-card sm:border-0 sm:bg-paper sm:p-6 sm:shadow-card sm:ring-1 sm:ring-ink/8 sm:last:border-b-0 lg:aspect-[4/5] lg:justify-between"
+          >
+            {p.photo ? (
+              <TapedPrint size="photo" rotate={p.tilt} class="mt-2 shrink-0 sm:mt-1">
+                <Image
+                  src={p.photo}
+                  alt={p.name}
+                  widths={[96, 104, 192, 208]}
+                  sizes="(min-width: 640px) 104px, 96px"
+                  class="size-24 object-cover sm:size-26"
+                />
+              </TapedPrint>
+            ) : (
+              <span
+                class="relative grid size-14 shrink-0 grid-rows-2 place-items-center rounded-full border border-panel/40 bg-paper sm:size-20"
+                aria-hidden="true"
+              >
+                <span class="absolute inset-x-0 top-1/2 h-px bg-panel/40" />
+                <span class="self-end pb-0.5 font-voice text-xl leading-none text-panel sm:pb-1 sm:text-3xl">
+                  {p.initials}
+                </span>
+                <span class="self-start pt-1 font-mono text-2xs leading-none text-ink-faint sm:pt-1.5">
+                  {p.no}
+                </span>
+              </span>
+            )}
+            <div class="min-w-0">
+              <p class="m-0 font-display text-lg font-semibold leading-snug tracking-tight text-panel">
+                {p.name}
+              </p>
+              <p class="m-0 mt-1 text-base leading-snug text-ink-soft sm:text-sm">{p.role}</p>
+            </div>
+          </li>
+        ))
+      }
+    </ul>
+
+    <!-- The section's plate. It renders only once the file is in public/art/,
+         so the layout above holds with or without it. -->
+    <TapedPrint
+      name={PLATES.I}
+      size="half"
+      rotate={1.5}
+      caption={t.team.plateCaption}
+      class="max-lg:mx-auto lg:col-start-1 lg:row-start-2 lg:mt-2"
+    />
+  </div>
+</section>
