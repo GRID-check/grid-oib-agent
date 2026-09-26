@@ -174,6 +174,7 @@ TEMPLATE_MARKERS = [
     "name what is going away",
     "only when the reader has to do something themselves",
     "anything genuinely user-visible",
+    "only for the people running the platform; never published",
     "replace this text",
 ]
 
