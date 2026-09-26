@@ -1,0 +1,69 @@
+# Hand-labelled, written for ADR-0064 use 5 (2026-09-25). Not captured payloads:
+# German project exchanges, shortened, labelled by a person. `durable` is whether
+# memory should get a row; the reflection call agreed on all sixteen. Re-run with
+# `task be:eval:decisions:offpath`.
+- durable: false
+  question: Welchen Feuerwiderstand brauchen tragende Wände in Gebäudeklasse 5?
+  answer: Nach OIB-Richtlinie 2, Tabelle 1b, müssen tragende Wände in GK 5 in den oberirdischen Geschoßen
+    R 90 und A2 erfüllen, im obersten Geschoß R 60 [1].
+- durable: false
+  question: Was sagt die OIB 4 zur Geländerhöhe?
+  answer: Absturzsicherungen müssen mindestens 1,00 m hoch sein, ab 12 m Absturzhöhe 1,10 m (OIB-RL 4,
+    Punkt 4.2.1) [1].
+- durable: false
+  question: Wie breit muss ein barrierefreier Durchgang sein?
+  answer: Mindestens 90 cm lichte Durchgangsbreite nach ÖNORM B 1600 und OIB-RL 4 Punkt 8.2 [1].
+- durable: true
+  question: Wir haben uns mit dem Bauherrn auf eine Holzfassade geeinigt. Was heißt das für den Brandschutz?
+  answer: Bei GK 4 ist eine Holzfassade nach OIB-RL 2 Punkt 3.5 zulässig, wenn geschoßweise Brandschutzabschottungen
+    vorgesehen werden [1].
+- durable: true
+  question: Unser Gebäude hat vier oberirdische Geschoße und ein Fluchtniveau von 10,5 m, sieben Wohnungen.
+    Welche Gebäudeklasse ist das?
+  answer: Mit einem Fluchtniveau von 10,5 m und mehr als drei oberirdischen Geschoßen ist das Gebäude
+    der Gebäudeklasse 4 zuzuordnen (OIB-Begriffsbestimmungen) [1].
+- durable: true
+  question: Die Behörde hat uns heute mitgeteilt, dass die Tiefgarage eine CO-Anlage braucht. Wie dimensionieren
+    wir die?
+  answer: Die CO-Warnanlage ist nach OIB-RL 2.2 Punkt 5 für geschlossene Garagen über 400 m² erforderlich
+    [1]...
+- durable: false
+  question: Danke, das hilft!
+  answer: Gerne!
+- durable: false
+  question: Fass mir die OIB-Richtlinie 3 kurz zusammen.
+  answer: 'Die OIB-RL 3 regelt Hygiene, Gesundheit und Umweltschutz: Belichtung, Belüftung, Sanitäreinrichtungen,
+    Feuchtigkeitsschutz, Radon ...'
+- durable: true
+  question: 'Korrektur: das Grundstück liegt nicht in Wien, sondern in Niederösterreich. Welche Bauordnung
+    gilt dann?'
+  answer: Dann gilt die NÖ Bauordnung 2014 samt NÖ Bautechnikverordnung, die OIB-Richtlinien sind dort
+    für verbindlich erklärt [1].
+- durable: true
+  question: Offen ist noch, ob wir einen zweiten Fluchtweg brauchen, der Statiker meldet sich nächste
+    Woche. Was hängt davon ab?
+  answer: Ein zweiter Fluchtweg ist nach OIB-RL 2 Punkt 5.1 erforderlich, wenn die Fluchtweglänge 40 m
+    übersteigt [1].
+- durable: false
+  question: Wie hoch ist der Keller?
+  answer: Laut Modell beträgt die lichte Raumhöhe im Keller 2,45 m (IfcBuildingStorey 'UG', gemessen OK
+    FFB bis UK Decke).
+- durable: false
+  question: Was ist der Unterschied zwischen REI und EI?
+  answer: REI bezeichnet Tragfähigkeit, Raumabschluss und Wärmedämmung; EI nur Raumabschluss und Wärmedämmung,
+    für nichttragende Bauteile [1].
+- durable: true
+  question: Wir planen im Erdgeschoß eine Arztpraxis statt der Wohnung Top 1. Brauchen wir dann andere
+    Fluchtwege?
+  answer: Eine Arztpraxis ist eine Nutzungsänderung; OIB-RL 2 verlangt für Räume mit Publikumsverkehr
+    ... [1].
+- durable: false
+  question: Welche Unterlagen verlangt die Baubehörde in Wien für die Einreichung?
+  answer: 'Nach § 63 BO für Wien: Baupläne in dreifacher Ausfertigung, Grundbuchsauszug, Zustimmung der
+    Eigentümer, Energieausweis ... [1].'
+- durable: true
+  question: Bitte in diesem Projekt immer die Tiroler Bauordnung zugrunde legen, wir sind in Innsbruck.
+  answer: Verstanden — für dieses Projekt gilt die Tiroler Bauordnung 2022 mit der TBV 2016 [1].
+- durable: false
+  question: Und in GK 4?
+  answer: In GK 4 genügt für tragende Wände R 60 (OIB-RL 2, Tabelle 1b) [1].

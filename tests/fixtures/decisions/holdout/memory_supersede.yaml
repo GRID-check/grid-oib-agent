@@ -1,0 +1,66 @@
+# Held-out set, written blind to the classifier wording (2026-09-26). Do not tune on it.
+memory:
+  - "Das Gebäude hat vier oberirdische Geschoße und ein Kellergeschoß."
+  - "Die Tiefgarage umfasst 38 Stellplätze."
+  - "Beheizt wird über eine Luft-Wasser-Wärmepumpe mit Fußbodenheizung."
+  - "Die Außenwände werden in Holzriegelbauweise ausgeführt."
+  - "Bauherr ist die Gemeinnützige Siedlungsgenossenschaft Ennstal."
+  - "Die Einreichung bei der Baubehörde ist für 15. Oktober 2026 geplant."
+  - "Das Erdgeschoß wird als Geschäftslokal genutzt."
+  - "Offen ist, ob das Stiegenhaus eine Rauchabzugsöffnung über Dach oder eine Druckbelüftung bekommt."
+  - "Die Fassadendämmung ist mit 20 cm Mineralwolle geplant."
+  - "Das Fluchtniveau liegt bei 10,40 m, das Gebäude ist daher Gebäudeklasse 4."
+  - "Das Flachdach wird extensiv begrünt."
+  - "Die Fenster werden als Holz-Alu-Fenster mit Dreifachverglasung ausgeführt."
+  - "Brandschutzplaner ist das Büro Kofler Brandschutz GmbH."
+  - "Die Wohnungen im Dachgeschoß sollen nicht barrierefrei, sondern nur anpassbar ausgeführt werden."
+  - "Das Grundstück ist als Bauland-Wohngebiet gewidmet."
+findings:
+  - finding: "Auftraggeber ist inzwischen die Wohnbau Ennstal GmbH; die Genossenschaft hat das Vorhaben an sie abgetreten."
+    supersedes: "Bauherr ist die Gemeinnützige Siedlungsgenossenschaft Ennstal."
+  - finding: "Nach der Umplanung der Rampe bleiben in der Garage nur noch 32 Abstellplätze."
+    supersedes: "Die Tiefgarage umfasst 38 Stellplätze."
+  - finding: "Die Wärmeversorgung erfolgt nun über einen Anschluss an das Fernwärmenetz der Stadtwärme."
+    supersedes: "Beheizt wird über eine Luft-Wasser-Wärmepumpe mit Fußbodenheizung."
+  - finding: "Wegen der Kosten werden die Umfassungswände jetzt doch massiv in Hochlochziegel gemauert."
+    supersedes: "Die Außenwände werden in Holzriegelbauweise ausgeführt."
+  - finding: "Das Einreichdatum wurde auf den 3.12. verschoben."
+    supersedes: "Die Einreichung bei der Baubehörde ist für 15. Oktober 2026 geplant."
+  - finding: "Im Parterre kommt anstelle des Shops ein zweigruppiger Kindergarten."
+    supersedes: "Das Erdgeschoß wird als Geschäftslokal genutzt."
+  - finding: "Für das Treppenhaus hat man sich mit dem Brandschutzplaner auf eine Druckbelüftungsanlage geeinigt."
+    supersedes: "Offen ist, ob das Stiegenhaus eine Rauchabzugsöffnung über Dach oder eine Druckbelüftung bekommt."
+  - finding: "Die Außendämmung wird auf 24 cm Steinwolle verstärkt."
+    supersedes: "Die Fassadendämmung ist mit 20 cm Mineralwolle geplant."
+  - finding: "Laut aktualisiertem Schnitt liegt der Fußboden des obersten Aufenthaltsgeschoßes 11,30 m über dem Gelände, womit GK 5 gilt."
+    supersedes: "Das Fluchtniveau liegt bei 10,40 m, das Gebäude ist daher Gebäudeklasse 4."
+  - finding: "Am Dach wird statt Gründach eine vollflächige Photovoltaikanlage auf Kiesschüttung montiert."
+    supersedes: "Das Flachdach wird extensiv begrünt."
+  - finding: "Das Brandschutzkonzept erstellt künftig DI Hauser vom Ingenieurbüro Brandsicher, Kofler ist ausgestiegen."
+    supersedes: "Brandschutzplaner ist das Büro Kofler Brandschutz GmbH."
+  - finding: "Weil die Wohnbauförderung es verlangt, werden auch die DG-Wohnungen vollständig barrierefrei geplant."
+    supersedes: "Die Wohnungen im Dachgeschoß sollen nicht barrierefrei, sondern nur anpassbar ausgeführt werden."
+  - finding: "Auf Wunsch des Auftraggebers kommt ein zusätzliches Staffelgeschoß als fünfte oberirdische Ebene dazu."
+    supersedes: "Das Gebäude hat vier oberirdische Geschoße und ein Kellergeschoß."
+  - finding: "Die Fensterelemente werden aus Kunststoff gefertigt; die Dreifachverglasung bleibt."
+    supersedes: "Die Fenster werden als Holz-Alu-Fenster mit Dreifachverglasung ausgeführt."
+  - finding: "Der aktuelle Flächenwidmungsplan weist den Bauplatz als Bauland-Kerngebiet aus."
+    supersedes: "Das Grundstück ist als Bauland-Wohngebiet gewidmet."
+  - finding: "Die Fußbodenheizung wird auf eine Vorlauftemperatur von 35 °C ausgelegt."
+    supersedes: null
+  - finding: "In der Garage werden zusätzlich vier Wallboxen für E-Autos vorgesehen."
+    supersedes: null
+  - finding: "Der Einreichtermin Mitte Oktober hält, die Pläne sind zu rund 90 % fertig."
+    supersedes: null
+  - finding: "Die Holzriegelwände erhalten raumseitig eine 6 cm Installationsebene."
+    supersedes: null
+  - finding: "Bei der Siedlungsgenossenschaft ist jetzt Mag. Reiter unser Ansprechpartner."
+    supersedes: null
+  - finding: "Das Stiegenhaus wird mit einer Laufbreite von 1,30 m geplant."
+    supersedes: null
+  - finding: "Das Gründach bekommt 12 cm Substrat mit Sedum-Ansaat."
+    supersedes: null
+  - finding: "Das Geschäftslokal im EG erhält einen eigenen Zugang von der Hauptstraße."
+    supersedes: null
+  - finding: "Der Brandschutzplaner hat die Einstufung in Gebäudeklasse 4 bestätigt."
+    supersedes: null

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Held-out check for the decision-model annotations (ADR-0064, uses 4, 8 and 9): does the wording generalise?
+"""Held-out check for every decision-model use (ADR-0064): does the wording generalise?
 
 WHY THIS EXISTS
 ---------------
@@ -28,7 +28,11 @@ when every floor holds.
 THE LAST RUN
 ------------
 2026-09-26, two runs, identical: tags 24/24 types, 13 of 14 disciplines, no
-false one; Dokumentart 13/13; feedback causes 20/24 (1 wrong, 3 unlabelled).
+false one; reflection skipped 13/13 empty passes and lost no durable one;
+supersede 15/15 corrections, no wrong retirement; Dokumentart 13/13;
+feedback causes 20/24 (1 wrong, 3 unlabelled); turn: needs_evidence 30/30,
+self_contained 25/27, family 16/21 with one false pick on a follow-up,
+skill 25/30.
 """
 
 from __future__ import annotations
@@ -50,6 +54,7 @@ sys.path.insert(0, str(ROOT))
 from aiq_agent.common import decisions  # noqa: E402
 from aiq_agent.common.decisions import choice  # noqa: E402
 from aiq_agent.common.decisions import decide_many  # noqa: E402
+from aiq_agent.common.decisions import noul  # noqa: E402
 
 H = ROOT / "tests" / "fixtures" / "decisions" / "holdout"
 T = 0.8
@@ -89,6 +94,59 @@ async def tags():
         "disc_fp": fp,
         "disc_fn": fn,
         "false_disciplines": fps,
+    }
+
+
+async def reflection():
+    from aiq_agent.memory import reflection as R
+
+    rows = load("reflection_exchanges.yaml")
+    new = hasattr(R, "nothing_durable_probability")
+    fn = R.nothing_durable_probability if new else R.durable_probability
+    ps = [await fn(r["question"], r["answer"], organization_id=None) for r in rows]
+    if new:
+        skip = [p is not None and p >= R.REFLECTION_SKIP_THRESHOLD for p in ps]
+    else:
+        skip = [p is not None and p < R.REFLECTION_SKIP_THRESHOLD for p in ps]
+    lost = [(r["question"][:50], round(p, 2)) for r, p, s in zip(rows, ps, skip) if r["durable"] and s]
+    return {
+        "rows": len(rows),
+        "question": "nothing" if new else "durable",
+        "skipped_non_durable": sum(1 for r, s in zip(rows, skip) if not r["durable"] and s),
+        "non_durable": sum(1 for r in rows if not r["durable"]),
+        "lost_durable": lost,
+    }
+
+
+async def supersede():
+    from aiq_agent.memory import supersede as S
+
+    data = load("memory_supersede.yaml")
+    q = {"r": noul(S._REPLACES, true=S._REPLACES_TRUE, false=S._REPLACES_FALSE)}
+    found = wrong = missed = 0
+    details = []
+    for f in data["findings"]:
+        ds = await decide_many(
+            [{"new_finding": f["finding"], "existing_entry": e} for e in data["memory"]], q, slot="h", timeout=15
+        )
+        ps = {e: (d.noul("r") if d else 0.0) for d, e in zip(ds, data["memory"])}
+        best, p = max(ps.items(), key=lambda kv: kv[1])
+        pick = best if p >= S.REPLACES_THRESHOLD else None
+        exp = f["supersedes"]
+        if pick and pick == exp:
+            found += 1
+        elif pick and pick != exp:
+            wrong += 1
+            details.append(("WRONG", f["finding"][:45], best[:40], round(p, 2)))
+        elif exp:
+            missed += 1
+            details.append(("miss", f["finding"][:45], round(ps.get(exp, 0), 2)))
+    return {
+        "corrections": sum(1 for f in data["findings"] if f["supersedes"]),
+        "found": found,
+        "wrong_retirements": wrong,
+        "missed": missed,
+        "details": details,
     }
 
 
@@ -159,10 +217,80 @@ async def causes():
     return {"rows": len(rows), "right": right, "wrong": wrong, "unlabelled": unlabelled, "details": bad}
 
 
+async def turn():
+    from aiq_agent.agents.piloti import decisions as P
+    from aiq_agent.cards.catalog import card_index_entries
+    from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
+    from aiq_agent.common.norm_registry import oib_families
+    from aiq_agent.skills.builtin import discover_builtin_skills
+    from aiq_agent.skills.resolver import _skill_applies_to_agent
+    from scripts.decision_eval import CORPUS_FILES
+
+    fam = oib_families(CORPUS_FILES)
+    cards = [e for e in card_index_entries() if e[0] not in ENVELOPE_SHAPE_TYPES]
+    skills = [P.skill_option(s) for s in discover_builtin_skills() if _skill_applies_to_agent(s, "researcher")]
+    rows = load("turn_questions.yaml")
+    res = {
+        "needs_evidence": [0, 0, []],
+        "self_contained": [0, 0, []],
+        "family": [0, 0, []],
+        "family_false": [],
+        "skill": [0, 0, []],
+    }
+    for r in rows:
+        facts = P.TurnFacts(
+            question=r["message"],
+            previous_message=r.get("previous_message"),
+            families=fam,
+            card_types=cards,
+            skills=skills,
+        )
+        td = await P.decide_turn(facts)
+        ne = td.needs_evidence or 0
+        ok = (ne >= P.NEEDS_EVIDENCE_THRESHOLD) == bool(r["needs_evidence"])
+        res["needs_evidence"][0] += ok
+        res["needs_evidence"][1] += 1
+        if not ok:
+            res["needs_evidence"][2].append((r["id"], r["needs_evidence"], round(ne, 2)))
+        if r["needs_evidence"]:
+            sc = td.self_contained or 0
+            ok = (sc >= P.SELF_CONTAINED_THRESHOLD) == bool(r["self_contained"])
+            res["self_contained"][0] += ok
+            res["self_contained"][1] += 1
+            if not ok:
+                res["self_contained"][2].append((r["id"], r["self_contained"], round(sc, 2)))
+        fps = dict(td.families)
+        chosen = set(td.chosen_families())
+        if r.get("family"):
+            ok = str(r["family"]) in chosen
+            res["family"][0] += ok
+            res["family"][1] += 1
+            if not ok:
+                res["family"][2].append((r["id"], r["family"], round(fps.get(str(r["family"]), 0), 2)))
+        res["family_false"] += [(r["id"], k, round(fps.get(k, 0), 2)) for k in chosen if k != str(r.get("family"))]
+        loaded = td.chosen_skill
+        exp = r.get("skill")
+        ok = loaded == exp
+        res["skill"][0] += ok
+        res["skill"][1] += 1
+        if not ok:
+            res["skill"][2].append((r["id"], exp, td.skill, round(td.skill_p, 2), td.skill_veto))
+    return res
+
+
 FLOORS = {
     "tags": lambda r: r["type_right_at_0.8"] >= 22 and r["disc_fp"] <= 1,
+    "reflection": lambda r: not r["lost_durable"] and r["skipped_non_durable"] >= 10,
+    "supersede": lambda r: r["wrong_retirements"] == 0 and r["found"] >= 13,
     "doc_class": lambda r: r["wrong"] == 0 and r["right"] >= 11,
     "causes": lambda r: r["right"] >= 18 and r["wrong"] <= 2,
+    "turn": lambda r: (
+        r["needs_evidence"][0] >= 28
+        and r["self_contained"][0] >= 23
+        and r["family"][0] >= 14
+        and len(r["family_false"]) <= 2
+        and r["skill"][0] >= 23
+    ),
 }
 
 
@@ -171,8 +299,11 @@ async def main() -> int:
     with patch.object(decisions, "_zdr_only_blocking", return_value=False):
         for name, fn in (
             ("tags", tags),
+            ("reflection", reflection),
+            ("supersede", supersede),
             ("doc_class", doc_class),
             ("causes", causes),
+            ("turn", turn),
         ):
             result = await fn()
             held = FLOORS[name](result)

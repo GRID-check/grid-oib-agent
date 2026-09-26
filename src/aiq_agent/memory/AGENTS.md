@@ -22,7 +22,9 @@ finding poisons every project in the org, and no human saw this one.
 **A supersede must quote one COMPLETE entry of the digest the model was
 shown.** The frontend resolves supersedes fuzzily (≥0.7 Jaccard), so a
 truncated or paraphrased quote would retire an entry nobody named. Reflection
-drops the quote and keeps the finding.
+drops the quote and keeps the finding. A quote the model did not give is
+supplied by `supersede.py` from `digest_entries`, which yields whole entries
+only; never build one from a fragment or a search hit.
 
 ## Obligations
 
