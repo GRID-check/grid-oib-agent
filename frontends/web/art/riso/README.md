@@ -193,13 +193,13 @@ frame. `TapedPrint` does all of this for a plate (`src/components/craft/`).
 | `tafeln/stuetzen/plate` | I Drei Stützen | Team section |
 | `tafeln/stuetzen/og` | I Drei Stützen | Landing page share card, and the default (`defaultOgImage`) |
 | `tafeln/stuetzen/banner` | I Drei Stützen | Bautagebuch / blog header |
-| `tafeln/schichten/plate` | II Schichten | Section plate |
+| `tafeln/schichten/plate` | II Schichten | Section "Quellen und Daten" |
 | `tafeln/schichten/og`, `…/cover` | II Schichten | "Wie Piloti funktioniert": share card and cover; the Bautagebuch share card |
-| `tafeln/schleife/plate` | III Schleife | Section plate |
+| `tafeln/schleife/plate` | III Schleife | Not on a page yet (its cover and share card are) |
 | `tafeln/schleife/og`, `…/cover` | III Schleife | "Ein System, das aus Ihrem Frust lernt": share card and cover |
 | `tafeln/bauplatz/plate` | IV Bauplatz | 404 page |
 | `tafeln/bauplatz/og` | IV Bauplatz | Changelog share card |
-| `tafeln/pruefstand/plate` | V Prüfstand | Section "Daten & Transparenz" |
+| `tafeln/pruefstand/plate` | V Prüfstand | Not on a page: the sources section wears II (one plate per section) |
 | `tafeln/pruefstand/og` | V Prüfstand | Share card of the legal pages |
 | `tafeln/zeichentisch/plate` | VI Zeichentisch | Section "Nutzung" |
 | `tafeln/zeichentisch/og` | VI Zeichentisch | Share card of the blog and the Journal |

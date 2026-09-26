@@ -2,6 +2,8 @@
 import SectionTag from '../atoms/SectionTag.astro'
 import ChatMock from '../molecules/ChatMock.astro'
 import ChainStories from '../molecules/ChainStories.astro'
+import TapedPrint from '../craft/TapedPrint.astro'
+import { PLATES } from '../craft/plates'
 import { ui, type Locale } from '../../i18n/ui'
 
 interface Props {
@@ -9,6 +11,7 @@ interface Props {
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
+const [sheetNo] = t.sheets.nutzung.split(' ')
 ---
 
 <section
@@ -17,11 +20,22 @@ const t = ui[locale]
   class="mx-auto box-border max-w-[85rem] px-2 py-9 sm:px-4 sm:py-12 lg:flex lg:min-h-screen lg:flex-col lg:justify-center lg:px-10 lg:py-24"
 >
   <div
-    class="box-border rounded-[1.5rem] bg-surface-dim px-3 pb-3 pt-12 sheet-light sm:rounded-panel sm:px-10 sm:pb-10 sm:pt-16 lg:px-16 lg:py-20"
+    class="box-border rounded-panel bg-surface-dim px-3 pb-3 pt-12 sheet-light sm:px-10 sm:pb-10 sm:pt-16 lg:px-16 lg:py-20"
   >
     <div class="grid grid-cols-1 items-center gap-x-14 gap-y-10 lg:grid-cols-[minmax(20rem,5fr)_7fr]">
       <div data-reveal class="px-2 sm:px-0">
-        <SectionTag no="03" class="mb-5">{t.nutzung.tag}</SectionTag>
+        <!-- Plate VI, the drafting table the answers arrive on. From lg only:
+             on a phone the stories are the picture, and a print would push
+             them a screen down. Still, because the chain is the moment. -->
+        <TapedPrint
+          name={PLATES.VI}
+          locale={locale}
+          caption={t.plates.VI}
+          size="third"
+          still
+          class="mb-10 max-lg:hidden"
+        />
+        <SectionTag no={sheetNo} class="mb-5">{t.nutzung.tag}</SectionTag>
         <h2 class="m-0 mb-5 font-voice text-v4 sm:mb-6" style="text-wrap: balance">
           {t.nutzung.title}
         </h2>

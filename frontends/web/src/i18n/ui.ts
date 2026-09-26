@@ -123,11 +123,22 @@ const de = {
     hero: '01 Start',
     story: '02 Problem und Lösung',
     nutzung: '03 Nutzung',
-    daten: '04 Datengrundlage',
-    ki: '05 Daten und Transparenz',
-    wert: '06 Wert',
-    team: '07 Team',
+    daten: '04 Quellen und Daten',
+    wert: '05 Wert',
+    team: '06 Team',
+    faq: '07 Häufige Fragen',
     kontakt: '08 Kontakt',
+  },
+  // Captions under the riso plates, by plate numeral (see craft/plates.ts).
+  // Here rather than from the art manifest, whose captions are set with an
+  // em dash; German wants the spaced en dash.
+  plates: {
+    I: 'Tafel I – Drei Stützen',
+    II: 'Tafel II – Schichten',
+    IV: 'Tafel IV – Bauplatz',
+    VI: 'Tafel VI – Zeichentisch',
+    VII: 'Tafel VII – Waage',
+    VIII: 'Tafel VIII – Offene Tür',
   },
   nav: {
     ariaLabel: 'Hauptnavigation',
@@ -143,8 +154,7 @@ const de = {
     sections: [
       { href: '#problem', label: 'Problem und Lösung' },
       { href: '#nutzung', label: 'Nutzung' },
-      { href: '#daten', label: 'Datengrundlage' },
-      { href: '#ki', label: 'Daten und Transparenz' },
+      { href: '#daten', label: 'Quellen und Daten' },
       { href: '#wert', label: 'Wertrechner' },
       { href: '#team', label: 'Team' },
       { href: '#faq', label: 'Häufige Fragen' },
@@ -191,9 +201,11 @@ const de = {
     sub: 'gemessene typische Antwortzeit, mit Verweis auf Paragraf, Richtlinie und Herleitung.',
   },
   daten: {
-    tag: 'Datengrundlage',
+    tag: 'Quellen und Daten',
     title: 'Quellen, die Sie prüfen können.',
-    body: 'Piloti stützt sich auf das geltende Baurecht, auf die Unterlagen Ihres Büros und Ihres Projekts und, wo nötig, auf aktuelle Quellen aus dem Web. Jede Antwort nennt ihre Quellen, bis auf Paragraf, Punkt oder Seite.',
+    body: 'Jede Antwort nennt ihre Quellen, bis auf Paragraf, Punkt oder Seite. Die Verantwortung für die Planung bleibt bei Ihnen.',
+    // Heads the list of sources, in the voice of the sheet's own headings.
+    sourcesHeading: 'Worauf Piloti sich stützt',
     // Only sources the product actually has. There is no material or CO₂
     // database, so there is no card for one.
     cards: [
@@ -202,14 +214,6 @@ const de = {
       { title: 'Ihr Projekt', body: 'Standort, Grundstück, Auflagen' },
       { title: 'Web-Recherche', body: 'Aktuelle Quellen, jede mit Link belegt' },
     ],
-  },
-  ki: {
-    tag: 'Daten & Transparenz',
-    title: 'Keine Blackbox. Jede Antwort zeigt, woher sie kommt.',
-    // The section's claim is that everything here can be checked. So the right
-    // column is a sheet you could check it against: what accompanies every
-    // answer, and what happens to the office's data — with the page that has to
-    // hold us to it linked at the foot.
     proof: {
       tag: 'Prüfblatt',
       answerHeading: 'Zu jeder Antwort',
@@ -230,25 +234,6 @@ const de = {
       ],
       link: 'In der Datenschutzerklärung nachlesen',
     },
-    // `lead` is the card in one line, which is all a phone shows; `body` adds
-    // the detail from `sm` up.
-    cards: [
-      {
-        title: 'Spezialisiert auf Architektur',
-        lead: 'Gebaut für Architektur- und Planungsbüros.',
-        body: 'Piloti arbeitet mit den Landesbauordnungen, den OIB-Richtlinien und einem Normenverzeichnis und bezieht den Kontext Ihres Projekts ein.',
-      },
-      {
-        title: 'Nachvollziehbar bis zur Quelle',
-        lead: 'Jede Antwort nennt ihre Quellen.',
-        body: 'Zu jeder Empfehlung sehen Sie Begründung, Annahmen und Regeln. Jeder Verweis führt zu der Stelle, aus der er stammt: zum Paragrafen der Landesbauordnung, zum OIB-Punkt, zur Web-Quelle oder zu Ihrem eigenen Projekt. Die Verantwortung für die Planung bleibt bei Ihnen.',
-      },
-      {
-        title: 'Ihre Daten, Ihre Kontrolle',
-        lead: 'Ihre Pläne bleiben Ihre Pläne.',
-        body: 'Pläne und Projekte bleiben Eigentum Ihres Büros, und wir trainieren keine Modelle mit Ihren Daten. Welche KI-Anbieter Ihre Anfragen verarbeiten, steht in der Datenschutzerklärung. Dokumente und Antworten laden Sie jederzeit einzeln herunter.',
-      },
-    ],
   },
   roi: {
     tag: 'Wert',
@@ -367,8 +352,6 @@ const de = {
     title: 'Drei Gründer, ein Ziel: Wissen dort, wo geplant wird.',
     body: 'Piloti ist in Gründung. Bis zur Eintragung arbeiten wir auf Basis einer Absichtserklärung (Letter of Intent) zusammen. Und wir suchen Pilotbüros, die mitentwickeln.',
     listLabel: 'Die Gründer',
-    // The caption under the section's riso plate (see craft/plates.ts).
-    plateCaption: 'Tafel I – Drei Stützen',
     facts: [
       { label: 'Ort', value: 'Wien' },
       { label: 'Stand', value: 'Pilotphase' },
@@ -378,11 +361,6 @@ const de = {
   cta: {
     tag: 'Kontakt',
     title: 'Werden Sie Pilotbüro.',
-    // The words of the title that get the pencil line; must occur in `title`.
-    titleMark: 'Pilotbüro',
-    // Decorative (aria-hidden): the section already says we are looking for
-    // early pilot offices, so the stamp repeats it rather than saying it alone.
-    stamp: 'Pilotphase',
     body: 'Wir entwickeln Piloti gemeinsam mit wenigen Büros, die früh dabei sein wollen.',
     getsLabel: 'Sie bekommen',
     gets: [
@@ -513,7 +491,7 @@ const de = {
     contactBody: 'Fragen, Einwände oder Interesse an der Pilotphase?',
     cta: 'Schreiben Sie uns',
     usage: 'Nutzung',
-    data: 'Datengrundlage',
+    data: 'Quellen und Daten',
     value: 'Wertrechner',
     working: 'Rechenweg',
     team: 'Team',
@@ -739,11 +717,19 @@ const en: typeof de = {
     hero: '01 Start',
     story: '02 Problem and solution',
     nutzung: '03 Usage',
-    daten: '04 Data foundation',
-    ki: '05 Data and transparency',
-    wert: '06 Value',
-    team: '07 Team',
+    daten: '04 Sources and data',
+    wert: '05 Value',
+    team: '06 Team',
+    faq: '07 Questions',
     kontakt: '08 Contact',
+  },
+  plates: {
+    I: 'Plate I – Three columns',
+    II: 'Plate II – Layers',
+    IV: 'Plate IV – Building plot',
+    VI: 'Plate VI – Drafting table',
+    VII: 'Plate VII – Balance',
+    VIII: 'Plate VIII – Open door',
   },
   nav: {
     ariaLabel: 'Main navigation',
@@ -759,8 +745,7 @@ const en: typeof de = {
     sections: [
       { href: '#problem', label: 'Problem and solution' },
       { href: '#nutzung', label: 'Usage' },
-      { href: '#daten', label: 'Data foundation' },
-      { href: '#ki', label: 'Data and transparency' },
+      { href: '#daten', label: 'Sources and data' },
       { href: '#wert', label: 'Value calculator' },
       { href: '#team', label: 'Team' },
       { href: '#faq', label: 'Questions' },
@@ -806,19 +791,17 @@ const en: typeof de = {
     sub: 'measured typical response time, with references to the clause, the guideline and the derivation.',
   },
   daten: {
-    tag: 'Data foundation',
+    tag: 'Sources and data',
     title: 'Sources you can check.',
-    body: 'Piloti draws on the building law in force, on the documents of your office and your project and, where needed, on current sources from the web. Every answer names its sources, down to the section, clause or page.',
+    body: 'Every answer names its sources, down to the section, clause or page. Responsibility for the design stays with you.',
+    // Heads the list of sources, in the voice of the sheet's own headings.
+    sourcesHeading: 'What Piloti draws on',
     cards: [
       { title: 'Regulations', body: 'State building codes, OIB guidelines, a register of standards' },
       { title: 'Your office', body: 'Plans, documents, experience from past projects' },
       { title: 'Your project', body: 'Site, plot, official requirements' },
       { title: 'Web research', body: 'Current sources, each backed by a link' },
     ],
-  },
-  ki: {
-    tag: 'Data & transparency',
-    title: 'No black box. Every answer shows where it comes from.',
     proof: {
       tag: 'Check sheet',
       answerHeading: 'With every answer',
@@ -837,23 +820,6 @@ const en: typeof de = {
       ],
       link: 'Read it in the privacy policy',
     },
-    cards: [
-      {
-        title: 'Specialised in architecture',
-        lead: 'Built for architecture and planning offices.',
-        body: 'Piloti works with the state building codes, the OIB guidelines and a register of standards, and takes the context of your project into account.',
-      },
-      {
-        title: 'Traceable to the source',
-        lead: 'Every answer names its sources.',
-        body: 'Every recommendation shows its reasoning, assumptions and rules. Every reference leads to the place it came from: the clause of the state building code, the OIB section, the web source or your own project. Responsibility for the design stays with you.',
-      },
-      {
-        title: 'Your data, your control',
-        lead: 'Your plans remain your plans.',
-        body: 'Plans and projects remain the property of your office, and we do not train models on your data. The privacy policy names the AI providers that process your requests. You can download documents and answers individually at any time.',
-      },
-    ],
   },
   roi: {
     tag: 'Value',
@@ -972,7 +938,6 @@ const en: typeof de = {
     title: 'Three founders, one aim: knowledge where the planning happens.',
     body: 'Piloti is still being founded. Until it is registered, we work together under a letter of intent. And we are looking for pilot offices to build it with us.',
     listLabel: 'The founders',
-    plateCaption: 'Plate I – Three columns',
     facts: [
       { label: 'Place', value: 'Vienna' },
       { label: 'Stage', value: 'Pilot phase' },
@@ -982,8 +947,6 @@ const en: typeof de = {
   cta: {
     tag: 'Contact',
     title: 'Become a pilot office.',
-    titleMark: 'pilot office',
-    stamp: 'Pilot phase',
     body: 'We are building Piloti together with a small number of offices that want to be in early.',
     getsLabel: 'You get',
     gets: [
@@ -1110,7 +1073,7 @@ const en: typeof de = {
     contactBody: 'Questions, objections, or interested in the pilot phase?',
     cta: 'Write to us',
     usage: 'Usage',
-    data: 'Data foundation',
+    data: 'Sources and data',
     value: 'Value calculator',
     working: 'The maths',
     team: 'Team',

@@ -1,19 +1,35 @@
 # Craft kit
 
 The tactile layer of the drawing-set metaphor. The riso plates are the site's
-main picture language; this kit is only what serves them, plus one stamp and
-one pencil line. Pure CSS, SVG and plain `<img>`: no dependencies, no fonts.
+main picture language; this kit is only what serves them. Pure CSS, SVG and
+plain `<img>`: no dependencies, no fonts.
 
 | Piece | What it is | Used on |
 |---|---|---|
-| `TapedPrint.astro` | A print on a white paper margin, one strip of tape, a little off square (clamped to ±2°), optional mono caption. Takes a riso print by art id (with `locale`, its declared alt text and caption), or any slot (a photo, a blog cover). | Team (plate I, founder photos), blog posts (cover, or the plate `POST_PLATES` assigns: II on "Wie Piloti funktioniert") |
+| `TapedPrint.astro` | A print on a white paper margin, one strip of tape, optional mono caption. Takes a riso print by art id (with `locale`, its declared alt text), or any slot (a photo, a blog cover). A plate hangs straight; only a slot leans (clamped to ±2°). `phone="third"` shows a plate at a third below `sm`. | Every landing section's plate (below), founder photos, the 404, blog covers (`COVER_PLATES`) |
 | `plates.ts` | The Tafeln plates by number → their art id, and which blog posts wear one. File names live only in `src/data/art.json`. | wherever a plate is shown |
 | `Tape.astro` | The strip of masking tape: translucent crepe with a torn zigzag at both ends. | inside TapedPrint only |
-| `Stamp.astro` | A rubber stamp in olive ink with uneven coverage, optionally "thudding" in once (260 ms). Decorative, `aria-hidden`. | Kontakt: "Pilotphase" |
-| `PencilUnderline.astro` | A two-stroke hand-drawn line under a few words, drawn in once (320 ms). | Kontakt: under "Pilotbüro" |
-| `craft-in.ts` | Marks a `[data-craft-in]` element `craft-in` when it scrolls into view; Stamp and PencilUnderline animate off that class. | imported by those two |
+| `craft-in.ts` | Marks a `[data-craft-in]` element `craft-in` when it scrolls into view; a mark drawn on the sheet animates off that class. | The Prüfblatt's ticks (Quellen) |
+
+A stamp ("Pilotphase") and a pencil underline were built for Kontakt and cut
+when plate VIII took that section: one object per section. They are in the
+repository's history if a section without a plate ever needs one.
 
 ## Plates
+
+One plate per section, and no plate twice on a page. The landing page:
+
+| Section | Plate | Desktop | Phone |
+|---|---|---|---|
+| 03 Nutzung | VI Zeichentisch | third, above the tag, still | hidden: the stories are the picture |
+| 04 Quellen und Daten | II Schichten | half, beside the claim, still | third, above the tag |
+| 05 Wert | VII Waage | third, above the tag | hidden: the calculator comes first |
+| 06 Team | I Drei Stützen | half, beside the intro | third, above the tag |
+| 08 Kontakt | VIII Offene Tür | half, beside the invitation | third, above the tag |
+
+`still` where the section already has its moment (the chain, the ticks).
+Plate IV Bauplatz is the 404's; V Prüfstand and III Schleife are for the blog.
+Captions are `ui.plates`, not the manifest's, which are set with an em dash.
 
 Prints come from the riso works in `art/riso/` and reach a page only by art id
 through `src/data/art.json` (`src/lib/art.ts`); the file names and their
@@ -36,10 +52,7 @@ Photos are not screened, so a photo goes into the slot as an `astro:assets`
 
 The rule, from the person who asked for all this: playful, never overdone.
 
-- One tactile object per section at most. A taped print is the default; a
-  stamp or a pencil line only where no print competes with it.
-- One stamp on the whole landing page. Whatever a stamp says, the text around
-  it must already say, because it is `aria-hidden`.
+- One tactile object per section at most, and that is its plate.
 - Nothing that carries text people must read is rotated more than 2°.
 - Motion is short (the `quick` and `base` tokens of
   [the motion system](../../../../../docs/ux/motion.md)), happens once, and not at all under

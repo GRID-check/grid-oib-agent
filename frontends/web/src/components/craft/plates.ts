@@ -10,13 +10,13 @@ import type { ArtId } from '../../lib/art'
 export const PLATES = {
   /** Drei Stützen / Three columns: the Team section. */
   I: 'tafeln/stuetzen/plate',
-  /** Schichten / Layers: the post on how Piloti works. */
+  /** Schichten / Layers: the sources section, and the post on how Piloti works. */
   II: 'tafeln/schichten/plate',
   /** Schleife / Loop: the post on learning from corrections. */
   III: 'tafeln/schleife/plate',
   /** Bauplatz / Building plot: the 404 page. */
   IV: 'tafeln/bauplatz/plate',
-  /** Prüfstand / Test bench: data and transparency. */
+  /** Prüfstand / Test bench: for the blog (the sources section wears II). */
   V: 'tafeln/pruefstand/plate',
   /** Zeichentisch / Drafting table: how Piloti is used. */
   VI: 'tafeln/zeichentisch/plate',

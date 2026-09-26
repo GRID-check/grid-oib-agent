@@ -40,7 +40,7 @@ Defined twice, once per runtime, and kept in step by a check:
 | Token | Value | For |
 |---|---|---|
 | `--duration-tick` | 120ms | State feedback: hover, press; a menu closing |
-| `--duration-quick` | 200ms | Small things: a menu opening, a digit turning, a stamp, a page crossfade |
+| `--duration-quick` | 200ms | Small things: a menu opening, a digit turning, a page crossfade |
 | `--duration-base` | 320ms | One element changing: a tick drawn, a colour change, the nav hiding |
 | `--duration-slow` | 480ms | The longest single move on the site: a block arriving, an ink settling |
 | `--ease-settle` | `cubic-bezier(0.16, 1, 0.3, 1)` | Almost everything: moves at once, comes to rest slowly |
@@ -69,12 +69,11 @@ Each entry is the one thing the section does, and what it explains.
 | Story (lg) | Pinned, scrubbed: fragments drift in, the problem gives way to the answer, the net pulls them in and wires them, then holds. 240vh (ring) or 200vh (grid) | Scattered knowledge becoming one structure: the section's argument | scrubbed |
 | Story (phone) | The hub grid's nodes and hub fade in, then the wires draw, once | The nodes are wired to one hub | slow, settle, draft |
 | Nutzung, desktop chain | Plays once when in view; pause/resume while it runs, replay after | How an answer is derived: question, sources, decision, steps | slow, draft |
-| Daten & Transparenz (Prüfblatt) | The four ticks draw in order, 60ms apart, once | Each claim is checked, one by one | base, draft, row |
+| Quellen und Daten (Prüfblatt) | The four ticks draw in order, 60ms apart, once | Each claim is checked, one by one | base, draft, row |
 | Wertrechner | When a slider moves, only the digits that changed turn on their wheels | Which part of the figure your office moved | quick, settle |
 | A riso plate (TapedPrint) | Ink pass: each ink 2–3px out of register settles into it, ~600ms in all, once | The print is a print: inks laid one after another | slow, settle, hair, row |
 | Phone menu | Opens 200ms, closes 120ms, 8px; the page behind does not scroll | Where the sheet comes from | quick, tick, settle |
 | Navigation rail | Condenses at 60% of the hero; over a dark panel it turns dark (colour, 320ms) | Legibility, not decoration | base, draft |
-| Craft kit | Stamp settles from 1.04; pencil line draws, once | A mark made on the sheet | quick, base |
 
 ### The ink pass
 
@@ -142,7 +141,7 @@ one:
   `no-preference` query);
 - no pin and no runway: the story is its resolved hub on one screen;
 - the chain board is replaced by the finished column list;
-- reveals, ticks, stamp, pencil and the ink pass are armed only under
+- reveals, ticks and the ink pass are armed only under
   `no-preference`, so their elements are in their final state from the start;
 - the calculator sets its figure instead of turning it;
 - the global rule in `global.css` stops any remaining CSS animation.
@@ -163,7 +162,7 @@ hides an element only through a class its script adds.
   frame. The hero keeps one (it had four; see the comment in `Hero.astro` for
   the numbers).
 - Pages that do not need GSAP do not load it: the ink pass, the counter, the
-  menu and the craft kit use the Web Animations API or CSS.
+  menu and the Prüfblatt ticks use the Web Animations API or CSS.
 
 ## When not to animate
 

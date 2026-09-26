@@ -1,6 +1,8 @@
 ---
 import SectionTag from '../atoms/SectionTag.astro'
 import Pill from '../atoms/Pill.astro'
+import TapedPrint from '../craft/TapedPrint.astro'
+import { PLATES } from '../craft/plates'
 import { mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
@@ -69,10 +71,10 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
 <section
   id="wert"
   data-screen-label={t.sheets.wert}
-  class="mx-auto box-border max-w-[85rem] px-2 py-16 sm:px-10 sm:py-24 lg:flex lg:min-h-screen lg:flex-col lg:justify-center"
+  class="mx-auto box-border max-w-[85rem] px-2 py-9 sm:px-4 sm:py-12 lg:flex lg:min-h-screen lg:flex-col lg:justify-center lg:px-10 lg:py-24"
 >
   <div
-    class="box-border rounded-panel bg-accent-900 px-4 py-12 text-surface sheet-dark sm:px-16 sm:py-20"
+    class="box-border rounded-panel bg-accent-900 px-3 py-12 text-surface sheet-dark sm:px-10 sm:py-16 lg:px-16 lg:py-20"
   >
     <!-- Three areas rather than two columns, so a phone can read the case, then
          work it, then act on it: on a wide screen the call to action tucks under
@@ -81,6 +83,16 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
       class="grid grid-cols-1 gap-y-10 lg:grid-cols-[5fr_7fr] lg:grid-rows-[auto_1fr] lg:gap-x-16 lg:gap-y-8 lg:[grid-template-areas:'intro_calc'_'cta_calc']"
     >
       <div data-reveal class="px-2 sm:px-0 lg:[grid-area:intro]">
+        <!-- Plate VII, the balance tipping towards the paper: the case the
+             calculator weighs. From lg only; a phone has the calculator to get
+             through first. -->
+        <TapedPrint
+          name={PLATES.VII}
+          locale={locale}
+          caption={t.plates.VII}
+          size="third"
+          class="mb-10 max-lg:hidden"
+        />
         <SectionTag no={sheetNo} tone="dark" class="mb-5">{t.roi.tag}</SectionTag>
         <h2 class="m-0 mb-5 font-voice text-v2 text-surface sm:mb-6" style="text-wrap: balance">
           {t.roi.title}
@@ -109,7 +121,7 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
 
       <div
         data-reveal
-        class="sm:rounded-card sm:border sm:border-surface/15 sm:bg-accent-800/70 sm:p-8 lg:[grid-area:calc]"
+        class="sm:rounded-card sm:border sm:border-surface/15 sm:bg-accent-800/70 sm:p-8 lg:[grid-area:calc] lg:self-start"
       >
         <div class="mb-1 flex items-center justify-between gap-4 px-2 sm:px-0">
           <p class="m-0 font-mono text-2xs uppercase tracking-widest text-on-dark-label">

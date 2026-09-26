@@ -185,8 +185,12 @@
   --tracking-label: 0.17em;
   --tracking-logo: 0.2em;
 
+  /* Three radii for the site's own surfaces: a panel (a section's sheet), a
+     card on it, a chip. The panel is tighter on a phone, where it runs to 8px
+     of the edge. Mock product UIs keep their own. */
+  --radius-chip: 0.5rem;
   --radius-card: 1.25rem;
-  --radius-panel: 2rem;
+  --radius-panel: 1.5rem;
 
   --shadow-card: 0 1px 2px rgb(32 38 24 / 0.06), 0 4px 14px -6px rgb(32 38 24 / 0.1);
   --shadow-lift: 0 2px 4px rgb(24 28 16 / 0.05), 0 18px 44px -14px rgb(24 28 16 / 0.16);
@@ -194,6 +198,12 @@
   --shadow-frag: 0 8px 24px rgb(0 0 0 / 0.35);
   --shadow-float: 0 18px 40px -22px rgb(0 0 0 / 0.6);
   --shadow-hero: 0 24px 60px -24px rgb(0 0 0 / 0.7);
+}
+
+@media (min-width: 40rem) {
+  :root {
+    --radius-panel: 2rem;
+  }
 }
 
 /* Motion tokens. The same values are exported for scripts by src/lib/motion.ts,

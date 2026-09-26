@@ -32,7 +32,6 @@ const columns = [
     heading: t.footer.companyHeading,
     links: [
       { label: t.footer.team, href: `${home}#team` },
-      { label: t.ki.tag, href: `${home}#datenschutz` },
       { label: t.footer.blog, href: translatePath('/blog/') },
       { label: t.footer.changelog, href: translatePath('/changelog/') },
     ],
@@ -51,9 +50,9 @@ const columns = [
      we are, where everything is, and how to reach a person. On a phone it is
      the same sheet folded tighter — link groups side by side, 44px rows — not
      a column of everything stacked. -->
-<footer class="px-2 pb-2 pt-4 sm:px-4 sm:pb-8">
+<footer class="px-2 pb-2 pt-4 sm:px-4 sm:pb-8 lg:px-10">
   <div
-    class="mx-auto box-border max-w-[85rem] rounded-panel bg-surface-dim px-5 py-10 sheet-light sm:px-16 sm:py-16 lg:py-20"
+    class="mx-auto box-border max-w-[80rem] rounded-panel bg-surface-dim px-5 py-10 sheet-light sm:px-10 sm:py-16 lg:px-16 lg:py-20"
   >
     <div
       class="grid grid-cols-2 gap-x-6 gap-y-8 sm:gap-x-10 sm:gap-y-12 lg:grid-cols-[1.6fr_1fr_1fr_1fr]"
