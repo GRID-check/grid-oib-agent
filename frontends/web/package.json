@@ -7,7 +7,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "check": "astro check && node scripts/lint-content.mjs && node scripts/lint-claims.mjs && node scripts/build-brand-assets.mjs --check"
+    "check": "astro check && node scripts/lint-content.mjs && node scripts/lint-claims.mjs && node scripts/lint-typography.mjs && node scripts/lint-contrast.mjs && node scripts/build-brand-assets.mjs --check"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.4",

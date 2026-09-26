@@ -17,10 +17,11 @@ const rules = {
   light: 'bg-accent-600/45',
   dark: 'bg-on-dark-label/45',
 }
-// The number is set quieter than the name: it is a reference, not a title.
+// The number is set quieter than the name: it is a reference, not a title. It
+// is quieter by weight, not by alpha: at 55 % the 11px figure fell to 2.3:1.
 const numbers = {
-  light: 'text-accent-600/55',
-  dark: 'text-on-dark-label/55',
+  light: 'font-normal',
+  dark: 'font-normal',
 }
 ---
 
