@@ -3,7 +3,8 @@
 import type { JSX } from 'react'
 import { Fragment, useCallback, useMemo, useState, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
-import { Search, SearchX, FilterX, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'
+import { Search, SearchX, FilterX, FolderOpen, Sparkles } from 'lucide-react'
+import { RisoPrint } from '@/components/brand/riso-print'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -470,7 +471,7 @@ export function FileBrowserPane({
     return (
       <div className="flex h-full items-center justify-center p-8">
         <EmptyState
-          icon={UploadCloud}
+          art={<RisoPrint id="vignetten/planschrank/empty" />}
           title={t('browser.noDocumentsTitle')}
           description={t('browser.noDocumentsDescription')}
           action={uploadControl}

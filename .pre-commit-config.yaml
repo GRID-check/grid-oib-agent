@@ -60,7 +60,11 @@ repos:
         # detect-secrets sees a high-entropy blob with no surrounding code.
         # Excluded rather than baselined for the same line-number reason as
         # the lockfiles above. gitleaks in security.yml still sees it.
-        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$|^deploy/pulumi/aspire-dashboard\.pin$)
+        #
+        # frontends/web/art/riso/kit.json pins the riso kit to a public git
+        # commit sha: hex by construction, secret by none, and JSON cannot
+        # carry the inline pragma.
+        exclude: (^frontends/web/art/riso/kit\.json$|^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$|^deploy/pulumi/aspire-dashboard\.pin$)
         # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
         # failing again a few commits later:
         #

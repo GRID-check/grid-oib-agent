@@ -5,6 +5,7 @@ import type { IHTTPRouteSpec } from "@kubernetes-models/gateway-api/gateway.netw
 import type { IBackendTrafficPolicySpec } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/BackendTrafficPolicySpec";
 import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import type { ICompression } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/Compression";
 import type { IRetry } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/Retry";
 import type { IRateLimitRule } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/RateLimitRule";
 import type { IRateLimitSpec } from "@kubernetes-models/envoy-gateway/gateway.envoyproxy.io/v1alpha1/RateLimitSpec";
@@ -44,6 +45,28 @@ const edgeRetry: IRetry = {
     backOff: { baseInterval: EDGE_RETRY.baseInterval, maxInterval: EDGE_RETRY.maxInterval },
   },
 };
+
+/**
+ * Response compression for the landing site, Brotli preferred over gzip.
+ *
+ * `compressor`, not `compression`: the latter is deprecated since Envoy Gateway
+ * v1.6, which introduced this field with the same item shape and made list
+ * order the tie-break when a browser weighs both encodings equally (every
+ * current browser sends `br` and `gzip` at q=1). A cluster still on EG < v1.6
+ * prunes the unknown field silently, so the proof is a `content-encoding: br`
+ * on the live site, not a green `pulumi up`.
+ *
+ * Envoy's default content-type list applies (HTML, CSS, JS, JSON, SVG, plain
+ * text, XML), so fonts and WebP, which are compressed already, pass through
+ * untouched. The filter also adds `Vary: Accept-Encoding` and weakens a strong
+ * ETag on the bodies it rewrites, which is what caches need.
+ *
+ * Web only, on purpose. The app route streams chat and SSE through the BFF, and
+ * a compressor can hold output back until its window fills, turning a token
+ * stream into bursts. Nobody has measured what Envoy does to those streams, so
+ * that route gets a compressor only after someone does.
+ */
+export const WEB_COMPRESSOR: ICompression[] = [{ type: "Brotli" }, { type: "Gzip" }];
 
 /**
  * One per-client-IP rate limit rule (ADR-0040 layer L1).
@@ -261,6 +284,7 @@ export function installHttpRoutes(
   const webBackendPolicySpec: IBackendTrafficPolicySpec = {
     targetRefs: [{ group: "gateway.networking.k8s.io", kind: "HTTPRoute", name: "grid-web" }],
     retry: edgeRetry,
+    compressor: WEB_COMPRESSOR,
     // Prerendered marketing pages: a human reads a few per minute, a scraper
     // reads hundreds. This is the one route where the honest and abusive
     // patterns are far enough apart that a tight number is safe.

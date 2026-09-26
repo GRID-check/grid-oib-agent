@@ -1,24 +1,20 @@
 ---
 fixes:
   - >
-    Eine Antwort, deren Quellen beim Abschluss neu nummeriert werden, springt
-    nicht mehr zurück und tippt sich neu ab. Die fertige Antwort erscheint im
-    selben Moment, in dem sich die Herleitung zusammenklappt, und die ersten
-    Worte erscheinen sofort.
+    An answer whose sources are renumbered at the end no longer jumps back and
+    retypes itself. The finished answer appears as the derivation folds away,
+    and the first words appear at once.
   - >
-    Tabellen füllen sich beim Schreiben Zelle für Zelle, statt Zeile für Zeile
-    zu stocken.
+    Tables fill in cell by cell while Piloti writes, instead of stalling row
+    by row.
   - >
-    Der Hinweis, woran Piloti gerade arbeitet, flackert nicht mehr und ist auf
-    dem Telefon wieder lesbar; ein heller Streifen läuft über ihn. In der
-    Herleitung fällt ein Punkt in den neuesten Schritt, ohne das Telefon zu
-    belasten.
+    The note on what Piloti is working on no longer flickers and is readable
+    on a phone again.
   - >
-    Die Knöpfe in der Herleitung (Ebenen falten, Quelle ansehen) reagieren
-    wieder auf Klick und Tippen. Bei der ersten Frage eines neuen Chats läuft
-    die Seite nicht mehr der wachsenden Herleitung hinterher.
+    The buttons in the derivation, for folding levels and viewing a source,
+    respond to clicks and taps again. On the first question of a new chat the
+    page no longer chases the growing derivation.
   - >
-    Der Chat bleibt auf dem Telefon auch mit langem Verlauf flüssig: Eine
-    entstehende Antwort zeichnet frühere Antworten nicht mehr bei jedem Wort
-    neu, und Tippen, jeder Schritt der Herleitung und das Öffnen der Antwort
-    speichern nicht mehr den ganzen Verlauf im Browser.
+    Chat stays smooth on a phone even with a long history: an answer being
+    written no longer redraws earlier answers with every word, and typing no
+    longer saves the whole history in the browser.

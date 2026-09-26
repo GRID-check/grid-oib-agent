@@ -1,0 +1,20 @@
+---
+/**
+ * The unlisted image page, at the one path in src/lib/unlisted.ts: prerendered
+ * for that slug alone, noindex and nofollow, out of the sitemap, linked from
+ * nowhere. frontends/web/AGENTS.md, "Unlisted pages".
+ */
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import Bildmaterial from '../../components/organisms/Bildmaterial.astro'
+import { ui } from '../../i18n/ui'
+import { SHARE_ART } from '../../lib/seo'
+import { DOWNLOADS_SLUG } from '../../lib/unlisted'
+
+export const getStaticPaths = () => [{ params: { unlisted: DOWNLOADS_SLUG } }]
+
+const t = ui.de.bildmaterial
+---
+
+<BaseLayout locale="de" title={t.title} description={t.description} ogArt={SHARE_ART.bildmaterial} noindex="nofollow">
+  <Bildmaterial locale="de" />
+</BaseLayout>

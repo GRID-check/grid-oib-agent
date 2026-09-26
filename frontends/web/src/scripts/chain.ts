@@ -1,8 +1,9 @@
-import { gsap } from 'gsap'
 import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin'
 import { TextPlugin } from 'gsap/TextPlugin'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { landingScript } from '../i18n/ui'
+import { MQ, sec } from '../lib/motion'
+import { gsap } from './motion-gsap'
 
 gsap.registerPlugin(DrawSVGPlugin, TextPlugin, ScrollTrigger)
 
@@ -62,7 +63,44 @@ const portBox = (card: HTMLElement, cam: HTMLElement, selector: string): Box => 
   return { x, y, w, h, cx: x + w / 2, cy: y + h / 2, right: x + w, bottom: y + h }
 }
 
+/** The board only exists from lg up; below it the chain is the column list. */
+const BOARD = MQ.staged
+/** The smallest the camera may draw the board: below it the cards are unreadable. */
+const MIN_SCALE = 0.85
+
 export function initChain() {
+  initChainBoard()
+  initChainList()
+}
+
+/**
+ * The phone column: the finished chain is in the markup, so without motion (or
+ * without JS) there is nothing to do. With motion, the four steps arrive in
+ * order as the list comes into view and the spine grows down to meet each one
+ * — once, and never tied to the scroll position.
+ */
+function initChainList() {
+  const list = document.querySelector<HTMLElement>('[data-chain-list]')
+  if (!list) return
+  const steps = Array.from(list.querySelectorAll<HTMLElement>('[data-chain-step]'))
+  const spine = list.querySelector<HTMLElement>('[data-chain-spine]')
+
+  gsap.matchMedia().add(`(max-width: 1023.98px) and (prefers-reduced-motion: no-preference)`, () => {
+    if (list.getBoundingClientRect().top < window.innerHeight * 0.8) return
+    gsap.set(steps, { autoAlpha: 0, y: 14 })
+    if (spine) gsap.set(spine, { scaleY: 0 })
+    const tl = gsap.timeline({
+      defaults: { ease: 'power2.out' },
+      scrollTrigger: { trigger: list, start: 'top 75%', once: true },
+    })
+    steps.forEach((step, i) => {
+      tl.to(step, { autoAlpha: 1, y: 0, duration: 0.5 }, i * 0.55)
+      if (spine) tl.to(spine, { scaleY: (i + 1) / steps.length, duration: 0.5, ease: 'none' }, i * 0.55)
+    })
+  })
+}
+
+function initChainBoard() {
   const anchor = document.querySelector<HTMLElement>('[data-chat-anchor]')
   const stage = anchor?.querySelector<HTMLElement>('[data-stage]')
   const cam = anchor?.querySelector<HTMLElement>('[data-cam]')
@@ -71,6 +109,8 @@ export function initChain() {
   const caret = anchor?.querySelector<HTMLElement>('[data-q-caret]')
   const status = anchor?.querySelector<HTMLElement>('[data-status]')
   const replay = anchor?.querySelector<HTMLButtonElement>('[data-replay]')
+  const pause = anchor?.querySelector<HTMLButtonElement>('[data-chain-pause]')
+  const live = anchor?.querySelector<HTMLElement>('[data-chain-live]')
   if (!anchor || !stage || !cam || !wires || !qText || !status) return
 
   const node = (name: string) => Array.from(cam.querySelectorAll<HTMLElement>(`[data-node="${name}"]`))
@@ -231,7 +271,13 @@ export function initChain() {
     const x1 = Math.max(...b.map((v) => v.right)) + margin
     const y1 = Math.max(...b.map((v) => v.bottom)) + margin
 
-    const scale = Math.min(1, (vw - inset.left - inset.right) / (x1 - x0), (vh - inset.top - inset.bottom) / (y1 - y0))
+    // Never below 0.85: a pan that shrinks the board to fit everything set the
+    // cards' text at about 6px mid-move. A frame that does not fit at 0.85
+    // is cropped by the stage's soft edge instead.
+    const scale = Math.max(
+      names.includes('all') ? 0 : MIN_SCALE,
+      Math.min(1, (vw - inset.left - inset.right) / (x1 - x0), (vh - inset.top - inset.bottom) / (y1 - y0))
+    )
     const cx = (x0 + x1) / 2 - (inset.left - inset.right) / 2 / scale
     const cy = (y0 + y1) / 2 - (inset.top - inset.bottom) / 2 / scale
     return { x: vw / 2 - cx * scale, y: vh / 2 - cy * scale, scale }
@@ -243,12 +289,12 @@ export function initChain() {
     if (status.textContent !== L.beats[i]) status.textContent = L.beats[i]
   }
   /** A tween that moves the camera onto the named nodes. */
-  const camTo = (names: string[], duration = 1) =>
-    gsap.to(cam, { ...frame(names), duration, ease: 'power2.inOut' })
+  const camTo = (names: string[], duration = sec('slow')) =>
+    gsap.to(cam, { ...frame(names), duration, ease: 'draft' })
 
   const mm = gsap.matchMedia()
 
-  mm.add('(prefers-reduced-motion: no-preference)', () => {
+  mm.add(`${BOARD} and (prefers-reduced-motion: no-preference)`, () => {
     const w = draw()
     const cards = sources.flatMap((n) => node(n)).concat(node('dec'), node('impl'))
     // Strokes and dots are set up differently: a dot is a filled circle with no
@@ -258,7 +304,14 @@ export function initChain() {
     const strokes = () => Array.from(wires.querySelectorAll<SVGPathElement>('path'))
     const dots = () => Array.from(wires.querySelectorAll<SVGCircleElement>('[data-wire="dot"]'))
 
-    const tl = gsap.timeline({ repeat: -1, repeatDelay: 1.6, paused: true, defaults: { ease: 'power2.out' } })
+    // Once, ending on the finished chain. It used to loop forever, which is
+    // motion a reader cannot stop (WCAG 2.2.2) and a decision that never
+    // stays decided; the replay button starts it again.
+    const tl = gsap.timeline({
+      paused: true,
+      defaults: { ease: 'settle' },
+      onComplete: () => setRunning(false),
+    })
 
     // The opening state is applied now, not when the timeline first plays.
     // A paused timeline renders nothing, so what stood on the page until the
@@ -274,11 +327,12 @@ export function initChain() {
       gsap.set(caretT, { display: 'inline-block' })
       gsap.set(cam, frame(['q', 's1']))
       status.textContent = L.typing
+      options.forEach((o) => o?.classList.remove('opt--receded'))
     }
     reset()
     tl.call(reset)
 
-    tl.to(qText, { duration: 1.5, ease: 'none', text: { value: L.question, delimiter: '' } })
+    tl.to(qText, { duration: 0.7, ease: 'none', text: { value: L.question, delimiter: '' } })
       .set(caretT, { display: 'none' })
       .call(say(0))
       .to(scan, { autoAlpha: 1, duration: 0.3 }, '-=0.1')
@@ -297,37 +351,69 @@ export function initChain() {
 
     tl.call(say(5), [], '+=0.3')
       .add(camTo(sources), '<')
-      .to(w.merges, { drawSVG: '100%', duration: 0.8, stagger: 0.14 }, '+=0.1')
+      .to(w.merges, { drawSVG: '100%', duration: 0.5, ease: 'draft', stagger: 0.14 }, '+=0.1')
       .call(say(6), [], '<')
-      .add(camTo([...sources, 'dec'], 1.1), '<')
+      .add(camTo([...sources, 'dec']), '<')
       .to(node('dec'), { autoAlpha: 1, y: 0, duration: 0.5 }, '-=0.3')
       .call(say(7))
       .add(camTo(['dec']), '<')
 
-    // The option is chosen: the others recede rather than disappear.
-    tl.to([...optT(0), ...optT(2)], { opacity: 0.32, duration: 0.5 }, '+=0.5')
-      .to(optT(1), { backgroundColor: '#eef6ee', borderLeftColor: '#17914d', duration: 0.5 }, '<')
+    // The option is chosen: the others recede to the muted ink, not to a
+    // transparency that would take their text below 4.5:1.
+    const ok = getComputedStyle(document.documentElement).getPropertyValue('--color-ok').trim() || '#0f7a3d'
+    tl.call(() => [...optT(0), ...optT(2)].forEach((o) => o.classList.add('opt--receded')), [], '+=0.5')
+      .to(optT(1), { backgroundColor: '#eef6ee', borderLeftColor: ok, duration: sec('base') }, '<')
       .call(say(8), [], '<')
 
     if (w.toImpl) {
       tl.to(w.toImpl, { drawSVG: '100%', duration: 0.7 }, '+=0.35')
-        .add(camTo(['dec', 'impl'], 1.1), '<')
+        .add(camTo(['dec', 'impl']), '<')
         .to(node('impl'), { autoAlpha: 1, y: 0, duration: 0.5 }, '-=0.2')
         .call(say(9))
         .add(camTo(['impl']), '<')
     }
 
-    tl.call(say(10), [], '+=0.6').add(camTo(['all'], 1.3), '<')
+    tl.call(say(10), [], '+=0.6').add(camTo(['all'], sec('slow')), '<')
 
+    // Held by the reader, it stays held: scrolling away and back does not
+    // resume what they stopped.
+    let held = false
+    let inView = false
+    const setRunning = (on: boolean) => {
+      if (live) live.style.animationPlayState = on ? 'running' : 'paused'
+      if (pause) {
+        pause.hidden = tl.progress() >= 1
+        pause.setAttribute('aria-pressed', String(held))
+        pause.textContent = (held ? pause.dataset.labelResume : pause.dataset.labelPause) ?? ''
+      }
+    }
+    const sync = () => {
+      const run = inView && !held && tl.progress() < 1
+      if (run) tl.play()
+      else tl.pause()
+      setRunning(run)
+    }
     ScrollTrigger.create({
       trigger: anchor,
       start: 'top 85%',
       end: 'bottom 15%',
-      onToggle: (self) => (self.isActive ? tl.play() : tl.pause()),
+      onToggle: (self) => {
+        inView = self.isActive
+        sync()
+      },
     })
 
-    const onReplay = () => tl.restart()
+    const onReplay = () => {
+      held = false
+      tl.restart()
+      sync()
+    }
+    const onPause = () => {
+      held = !held
+      sync()
+    }
     replay?.addEventListener('click', onReplay)
+    pause?.addEventListener('click', onPause)
 
     // The mock's size decides both the wires and the framing, so a resize
     // re-derives them; ScrollTrigger already debounces that for us.
@@ -342,24 +428,11 @@ export function initChain() {
 
     return () => {
       replay?.removeEventListener('click', onReplay)
+      pause?.removeEventListener('click', onPause)
       ScrollTrigger.removeEventListener('refresh', rebuild)
       tl.kill()
     }
   })
-
-  // Without motion the chain is simply the finished diagram, drawn and still.
-  mm.add('(prefers-reduced-motion: reduce)', () => {
-    draw()
-    qText.textContent = L.question
-    gsap.set(caretT, { display: 'none' })
-    // The chain is finished here, so the spinner that means "still looking"
-    // has nothing to say.
-    gsap.set(scan, { autoAlpha: 0 })
-    gsap.set(Array.from(wires.children), { autoAlpha: 1, drawSVG: '100%' })
-    gsap.set(cam, frame(['all']))
-    gsap.set([...optT(0), ...optT(2)], { opacity: 0.32 })
-    gsap.set(optT(1), { backgroundColor: '#eef6ee', borderLeftColor: '#17914d' })
-    status.textContent = L.beats[10]
-    if (replay) replay.hidden = true
-  })
+  // Without motion there is no board at all: ChatMock shows the column list
+  // in its place (`motion-reduce:`), which is the finished chain at full size.
 }

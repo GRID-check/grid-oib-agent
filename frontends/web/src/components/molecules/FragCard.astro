@@ -1,25 +1,46 @@
 ---
+/**
+ * A knowledge fragment in the story's hub diagram.
+ *
+ * `stage` is the desktop piece: absolutely placed, flown in and pulled onto the
+ * ring by scripts/landing.ts, which reads `data-frag` / `data-target`.
+ * `tile` is the same fragment as a cell of the phone diagram's grid, in flow.
+ */
 interface Props {
   tag: string
-  dx: number
-  dy: number
-  fx: number
-  fy: number
-  pos: Partial<Record<'left' | 'right' | 'top' | 'bottom', number>>
+  variant?: 'stage' | 'tile'
+  dx?: number
+  dy?: number
+  fx?: number
+  fy?: number
+  pos?: Partial<Record<'left' | 'right' | 'top' | 'bottom', number>>
 }
-const { tag, dx, dy, fx, fy, pos } = Astro.props
+const { tag, variant = 'stage', dx = 0, dy = 0, fx = 0.5, fy = 0.5, pos = {} } = Astro.props
 
 const posStyle = Object.entries(pos)
   .map(([k, v]) => `${k}:${(v * 100).toFixed(1)}%`)
   .join(';')
 ---
 
-<div
-  class="absolute rounded-xl bg-ink px-3.5 py-2.5 shadow-frag"
-  style={posStyle}
-  data-frag={`${dx},${dy}`}
-  data-target={`${fx},${fy}`}
->
-  <p class="font-display text-2xs uppercase tracking-label text-white/60">{tag}</p>
-  <p class="mt-1.5 font-mono text-2xs leading-normal text-white/90"><slot /></p>
-</div>
+{
+  variant === 'stage' ? (
+    <div
+      class="absolute rounded-xl bg-ink px-3.5 py-2.5 shadow-frag"
+      style={posStyle}
+      data-frag={`${dx},${dy}`}
+      data-target={`${fx},${fy}`}
+    >
+      <p class="font-display text-2xs uppercase tracking-label text-white/60">{tag}</p>
+      <p class="mt-1.5 font-mono text-2xs leading-normal text-white/90">
+        <slot />
+      </p>
+    </div>
+  ) : (
+    <div data-hub-node class="relative min-w-0 rounded-xl bg-ink px-3 py-2.5 shadow-frag">
+      <p class="m-0 font-display text-2xs uppercase tracking-wider text-white/60">{tag}</p>
+      <p class="m-0 mt-1 break-words font-mono text-xs leading-snug text-white/90">
+        <slot />
+      </p>
+    </div>
+  )
+}

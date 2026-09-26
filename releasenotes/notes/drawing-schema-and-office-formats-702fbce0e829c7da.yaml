@@ -1,23 +1,18 @@
 ---
 features:
   - >
-    Sie können jetzt auch Excel-Tabellen (.xlsx), PowerPoint-Präsentationen
-    (.pptx), CSV-Dateien und WebP-Bilder hochladen. Tabellen werden pro
-    Arbeitsblatt, Präsentationen pro Folie erfasst — Antworten verweisen also
-    auf das richtige Blatt oder die richtige Folie statt nur auf die Datei.
+    You can now upload Excel workbooks, PowerPoint presentations, CSV files and
+    WebP images. Answers cite the right sheet or slide rather than just the
+    file.
 improvements:
   - >
-    Pläne werden genauer ausgewertet: Blätter mit mehreren Teilzeichnungen
-    (Grundriss, Schnitt, Detail) werden je Teilzeichnung mit eigenem Maßstab
-    erfasst — samt Räumen, Erschließung, Tragwerk, Gebäudetechnik, Materialien
-    und Bauteilaufbauten. Kennzahlen behalten ihre Bedeutung, und unsichere
-    Bildinterpretationen sind als solche markiert.
+    Plans are read more precisely: each drawing on a sheet, such as a floor
+    plan, a section or a detail, is captured with its own scale, rooms,
+    structure and build-ups. Uncertain readings of the image are marked as such.
   - >
-    Auch als Bild hochgeladene Pläne (PNG, JPG, WebP) bekommen jetzt dieselbe
-    strukturierte Auswertung wie Pläne in einer PDF, und die Detailansicht
-    einer Datei zeigt die erkannten Inhalte je Teilzeichnung.
+    Plans uploaded as images get the same structured reading as plans in a PDF,
+    and a file's detail view shows what was recognised on each drawing.
 fixes:
   - >
-    Word-Dokumente (.docx) wurden beim Hochladen zwar angenommen, aber nicht
-    ausgewertet und als fehlgeschlagen markiert. Sie werden jetzt korrekt
-    eingelesen und sind in Antworten zitierbar.
+    Word documents are read correctly and can be cited in answers. They used to
+    be accepted on upload and then marked as failed.

@@ -1,7 +1,6 @@
 ---
-features:
+operators:
   - >
-    Plattform-Betreiber können unter Plattform → Abruf einstellen, ob Antworten
-    live Wort für Wort erscheinen oder vollständig, sobald sie fertig sind. Die
-    Herleitung läuft in beiden Fällen live mit. Die Einstellung gilt für alle
-    Organisationen ab der nächsten Frage.
+    Under Platform → Retrieval, operators choose whether answers appear live
+    word by word or complete once they are finished; the Herleitung runs live
+    either way. The setting applies to all organizations from the next question.
