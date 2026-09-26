@@ -354,39 +354,61 @@ const de = {
   legal: {
     tag: 'Rechtliches',
     emailLabel: 'E-Mail',
+    updated: 'Stand: September 2026',
     impressum: {
       metaTitle: 'Impressum — Piloti',
-      metaDescription: 'Impressum und Medieninhaber der Piloti-Website.',
+      metaDescription: 'Impressum und Offenlegung der Piloti-Website.',
       heading: 'Impressum',
-      ownerHeading: 'Medieninhaber und Herausgeber',
+      ownerHeading: 'Medieninhaber, Herausgeber und Diensteanbieter',
+      legalForm: 'Gesellschaft bürgerlichen Rechts (GesbR)',
+      brand: 'auftretend unter der Projektbezeichnung „Piloti"',
+      statusHeading: 'Status',
+      status:
+        'Piloti befindet sich in Gründung. Eine im Firmenbuch eingetragene Gesellschaft besteht noch nicht; die Gründer arbeiten auf Grundlage einer Absichtserklärung (Letter of Intent) zusammen. Es gibt daher weder eine Firmenbuchnummer noch eine UID-Nummer.',
       purposeHeading: 'Unternehmensgegenstand',
-      purpose: 'Softwareentwicklung und Bereitstellung von KI-gestützten Planungswerkzeugen.',
-      registerHeading: 'Angaben gemäß § 5 ECG und § 25 MedienG',
-      registerNumberLabel: 'Firmenbuchnummer',
-      registerCourtLabel: 'Firmenbuchgericht',
-      uidLabel: 'UID-Nummer',
-      registerNote: 'Zuständige Kammer und Behörde — wird vor dem Livegang ergänzt.',
-      liabilityHeading: 'Haftung für Inhalte',
+      purpose: 'Entwicklung einer KI-gestützten Wissensplattform für Architektur- und Planungsbüros.',
+      directionHeading: 'Grundlegende Richtung',
+      direction:
+        'Information über Piloti sowie Beiträge zu Planungspraxis, Baurecht und zur Entwicklung der Plattform.',
+      liabilityHeading: 'Haftung für Inhalte und Links',
       liability:
-        'Die Inhalte dieser Website werden mit Sorgfalt erstellt. Für Richtigkeit, Vollständigkeit und Aktualität wird keine Gewähr übernommen. Inhalte zu baurechtlichen Themen stellen keine Rechtsberatung dar.',
+        'Die Inhalte dieser Website werden mit Sorgfalt erstellt. Für Richtigkeit, Vollständigkeit und Aktualität wird keine Gewähr übernommen. Inhalte zu baurechtlichen Themen stellen keine Rechtsberatung dar. Für die Inhalte verlinkter externer Seiten sind ausschließlich deren Betreiber verantwortlich.',
     },
     datenschutz: {
       metaTitle: 'Datenschutz — Piloti',
       metaDescription: 'Datenschutzerklärung der Piloti-Website.',
       heading: 'Datenschutzerklärung',
       controllerHeading: 'Verantwortlicher',
-      siteHeading: 'Diese Website',
-      siteHtml:
-        'Diese Website setzt <strong>keine Cookies</strong> und verwendet <strong>keine Tracking- oder Analysewerkzeuge</strong>. Es werden keine personenbezogenen Daten zu statistischen oder Marketingzwecken verarbeitet.',
-      logsHeading: 'Server-Logdateien',
-      logsHtml:
-        'Beim Aufruf der Website verarbeitet der Hosting-Betreiber technisch notwendige Verbindungsdaten (z.&nbsp;B. IP-Adresse, Zeitpunkt, abgerufene Seite) in Server-Logs, um den Betrieb und die Sicherheit der Website zu gewährleisten (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;f DSGVO). Diese Daten werden nicht mit anderen Datenquellen zusammengeführt.',
-      contactHeading: 'Kontaktaufnahme',
-      contactHtml:
-        'Bei Kontaktaufnahme per E-Mail verarbeiten wir die übermittelten Daten (Name, E-Mail-Adresse, Inhalt der Anfrage) zur Bearbeitung der Anfrage (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO). Die Daten werden gelöscht, sobald sie für den Zweck nicht mehr erforderlich sind.',
-      rightsHeading: 'Ihre Rechte',
-      rightsHtml:
-        'Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch. Beschwerderecht bei der österreichischen Datenschutzbehörde (dsb.gv.at).',
+      sections: [
+        {
+          heading: 'Diese Website',
+          html: 'Die öffentlichen Seiten dieser Website setzen <strong>keine Cookies</strong> und verwenden <strong>keine Tracking- oder Analysewerkzeuge</strong>. Schriften und Skripte werden von unserem eigenen Server geladen; es werden keine Inhalte von Drittanbietern eingebunden.',
+        },
+        {
+          heading: 'Hosting und Server-Logs',
+          html: 'Die Website wird bei der XPAX GmbH (IPAX), Österreich, betrieben. Beim Aufruf werden technisch notwendige Verbindungsdaten (IP-Adresse, Zeitpunkt, abgerufene Seite) verarbeitet, um Betrieb und Sicherheit der Website zu gewährleisten. Zum Schutz vor Missbrauch zählen wir Anfragen je IP-Adresse kurzzeitig mit (Rate Limiting). Rechtsgrundlage ist unser berechtigtes Interesse (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;f DSGVO). Diese Daten werden nicht mit anderen Datenquellen zusammengeführt.',
+        },
+        {
+          heading: 'Weiterleitung von www.piloti.at',
+          html: 'Aufrufe von <em>www.piloti.at</em> werden über Cloudflare, Inc. (USA) auf <em>piloti.at</em> weitergeleitet. Dabei verarbeitet Cloudflare Ihre IP-Adresse. Cloudflare ist unter dem EU-US Data Privacy Framework zertifiziert (Art.&nbsp;45 DSGVO). Rufen Sie <em>piloti.at</em> direkt auf, ist Cloudflare nicht beteiligt.',
+        },
+        {
+          heading: 'Kontaktaufnahme per E-Mail',
+          html: 'Schreiben Sie uns, verarbeiten wir die übermittelten Daten (Name, E-Mail-Adresse, Inhalt der Anfrage), um Ihre Anfrage zu beantworten (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO bzw. lit.&nbsp;f bei allgemeinen Anfragen). Ihre Nachricht landet in den Postfächern der Gründer und wird bei deren E-Mail-Anbietern gespeichert. Wir löschen sie, sobald sie für die Bearbeitung nicht mehr erforderlich ist und keine gesetzliche Aufbewahrungspflicht besteht.',
+        },
+        {
+          heading: 'Anmeldung und Piloti-Anwendung',
+          html: 'Mit „Anmelden" verlassen Sie diese Website und gelangen zur Piloti-Anwendung; dort gilt deren eigene Datenschutzerklärung. Kurz vorab: Die Anmeldung läuft über WorkOS, Inc. (USA). KI-Anfragen werden über OpenRouter, Inc. (USA) an Modellanbieter weitergeleitet, die ihren Sitz auch außerhalb der EU haben können. Wir selbst trainieren keine KI-Modelle mit Ihren Daten.',
+        },
+        {
+          heading: 'Redaktionsbereich',
+          html: 'Unter <em>/keystatic</em> liegt der Redaktionsbereich, in dem wir Blogbeiträge verfassen. Er ist nicht für Besucher gedacht. Wer ihn öffnet, lädt Dienste von Keystatic Cloud (Thinkmill), GitHub und Google Fonts; zur Anmeldung werden dort Cookies und lokaler Speicher verwendet.',
+        },
+        {
+          heading: 'Ihre Rechte',
+          html: 'Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch. Schreiben Sie uns dazu einfach eine E-Mail. Außerdem können Sie sich bei der Österreichischen Datenschutzbehörde beschweren (Barichgasse 40–42, 1030 Wien, <a href="https://www.dsb.gv.at" rel="noopener">dsb.gv.at</a>).',
+        },
+      ],
     },
   },
 }
@@ -727,39 +749,61 @@ const en: typeof de = {
   legal: {
     tag: 'Legal',
     emailLabel: 'Email',
+    updated: 'Last updated: September 2026',
     impressum: {
       metaTitle: 'Imprint — Piloti',
-      metaDescription: 'Imprint and media owner of the Piloti website.',
+      metaDescription: 'Imprint and disclosure of the Piloti website.',
       heading: 'Imprint',
-      ownerHeading: 'Media owner and publisher',
+      ownerHeading: 'Media owner, publisher and service provider',
+      legalForm: 'civil-law partnership (GesbR) under Austrian law',
+      brand: 'operating under the project name "Piloti"',
+      statusHeading: 'Status',
+      status:
+        'Piloti is being founded. No company is registered in the commercial register yet; the founders work together on the basis of a letter of intent. There is therefore no company register number and no VAT ID.',
       purposeHeading: 'Business purpose',
-      purpose: 'Software development and provision of AI-supported planning tools.',
-      registerHeading: 'Information pursuant to § 5 ECG and § 25 MedienG',
-      registerNumberLabel: 'Commercial register no.',
-      registerCourtLabel: 'Register court',
-      uidLabel: 'VAT ID',
-      registerNote: 'Competent chamber and authority — to be completed before launch.',
-      liabilityHeading: 'Liability for content',
+      purpose: 'Development of an AI-supported knowledge platform for architecture and planning firms.',
+      directionHeading: 'Editorial direction',
+      direction:
+        'Information about Piloti, and articles on planning practice, building law and the development of the platform.',
+      liabilityHeading: 'Liability for content and links',
       liability:
-        'The content of this website is created with care. No guarantee is given for accuracy, completeness or currency. Content on building-law topics does not constitute legal advice.',
+        'The content of this website is created with care. No guarantee is given for accuracy, completeness or currency. Content on building-law topics does not constitute legal advice. The operators of linked external sites are solely responsible for their content.',
     },
     datenschutz: {
       metaTitle: 'Privacy — Piloti',
       metaDescription: 'Privacy policy of the Piloti website.',
       heading: 'Privacy policy',
       controllerHeading: 'Controller',
-      siteHeading: 'This website',
-      siteHtml:
-        'This website sets <strong>no cookies</strong> and uses <strong>no tracking or analytics tools</strong>. No personal data is processed for statistical or marketing purposes.',
-      logsHeading: 'Server log files',
-      logsHtml:
-        'When you visit the website, the hosting provider processes technically necessary connection data (e.g. IP address, time, page requested) in server logs to ensure the operation and security of the website (Art. 6(1)(f) GDPR). This data is not merged with other data sources.',
-      contactHeading: 'Contacting us',
-      contactHtml:
-        'If you contact us by email, we process the data you provide (name, email address, content of your enquiry) in order to handle it (Art. 6(1)(b) GDPR). The data is deleted as soon as it is no longer required for this purpose.',
-      rightsHeading: 'Your rights',
-      rightsHtml:
-        'You have the right of access, rectification, erasure, restriction of processing, data portability and objection. You may lodge a complaint with the Austrian Data Protection Authority (dsb.gv.at).',
+      sections: [
+        {
+          heading: 'This website',
+          html: 'The public pages of this website set <strong>no cookies</strong> and use <strong>no tracking or analytics tools</strong>. Fonts and scripts are served from our own server; no third-party content is embedded.',
+        },
+        {
+          heading: 'Hosting and server logs',
+          html: 'The website is hosted by XPAX GmbH (IPAX), Austria. When you visit it, technically necessary connection data (IP address, time, page requested) is processed to keep the website running and secure. To protect against abuse we briefly count requests per IP address (rate limiting). The legal basis is our legitimate interest (Art. 6(1)(f) GDPR). This data is not merged with other data sources.',
+        },
+        {
+          heading: 'Redirect from www.piloti.at',
+          html: 'Requests to <em>www.piloti.at</em> are redirected to <em>piloti.at</em> by Cloudflare, Inc. (USA), which processes your IP address in doing so. Cloudflare is certified under the EU-US Data Privacy Framework (Art. 45 GDPR). If you open <em>piloti.at</em> directly, Cloudflare is not involved.',
+        },
+        {
+          heading: 'Contacting us by email',
+          html: 'If you write to us, we process the data you send (name, email address, content of your enquiry) to answer it (Art. 6(1)(b) GDPR, or (f) for general enquiries). Your message arrives in the founders\' mailboxes and is stored by their email providers. We delete it once it is no longer needed and no statutory retention period applies.',
+        },
+        {
+          heading: 'Sign-in and the Piloti application',
+          html: '"Sign in" takes you from this website to the Piloti application, which has its own privacy policy. In short: sign-in is handled by WorkOS, Inc. (USA). AI requests are routed through OpenRouter, Inc. (USA) to model providers that may be based outside the EU. We do not train AI models on your data.',
+        },
+        {
+          heading: 'Editorial area',
+          html: '<em>/keystatic</em> is the editorial area where we write blog posts. It is not meant for visitors. Opening it loads services from Keystatic Cloud (Thinkmill), GitHub and Google Fonts, and uses cookies and local storage for sign-in.',
+        },
+        {
+          heading: 'Your rights',
+          html: 'You have the right of access, rectification, erasure, restriction of processing, data portability and objection; just email us. You may also lodge a complaint with the Austrian Data Protection Authority (Barichgasse 40–42, 1030 Vienna, <a href="https://www.dsb.gv.at" rel="noopener">dsb.gv.at</a>).',
+        },
+      ],
     },
   },
 }

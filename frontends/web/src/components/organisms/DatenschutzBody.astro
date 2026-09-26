@@ -1,38 +1,40 @@
 ---
 import SectionTag from '../atoms/SectionTag.astro'
 import { ui, type Locale } from '../../i18n/ui'
-import { legalIdentity } from '../../data/legal'
+import { legalIdentity as id } from '../../data/legal'
 
 interface Props {
   locale?: Locale
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale].legal
-const id = legalIdentity
 ---
 
-<section class="px-6 pb-28 pt-36 md:px-10">
+<section class="px-4 pb-20 pt-28 sm:px-6 sm:pb-28 sm:pt-36 md:px-10">
   <div class="mx-auto max-w-3xl">
     <SectionTag>{t.tag}</SectionTag>
-    <h1
-      class="mt-6 font-voice text-v2 text-ink"
-    >
-      {t.datenschutz.heading}
-    </h1>
+    <h1 class="mt-6 font-voice text-v2 text-ink">{t.datenschutz.heading}</h1>
     <div class="prose-piloti mt-10">
       <h2>{t.datenschutz.controllerHeading}</h2>
       <p>
-        {id.operator}, {id.legalForm}, {id.addressLines.join(', ')}. {t.emailLabel}:
-        <a href={`mailto:${id.email}`}>{id.email}</a>
+        {id.members.join(', ')} ({t.impressum.legalForm}), {id.seat[locale]}<br />
+        {t.emailLabel}:{' '}
+        {id.emails.map((e, i) => (
+          <>
+            {i > 0 && ', '}
+            <a href={`mailto:${e}`}>{e}</a>
+          </>
+        ))}
       </p>
-      <h2>{t.datenschutz.siteHeading}</h2>
-      <p set:html={t.datenschutz.siteHtml} />
-      <h2>{t.datenschutz.logsHeading}</h2>
-      <p set:html={t.datenschutz.logsHtml} />
-      <h2>{t.datenschutz.contactHeading}</h2>
-      <p set:html={t.datenschutz.contactHtml} />
-      <h2>{t.datenschutz.rightsHeading}</h2>
-      <p set:html={t.datenschutz.rightsHtml} />
+      {
+        t.datenschutz.sections.map((s) => (
+          <>
+            <h2>{s.heading}</h2>
+            <p set:html={s.html} />
+          </>
+        ))
+      }
+      <p class="text-sm opacity-70">{t.updated}</p>
     </div>
   </div>
 </section>
