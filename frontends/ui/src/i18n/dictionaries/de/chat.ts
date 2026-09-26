@@ -1121,16 +1121,13 @@ export const chat: typeof en.chat = {
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
-    // Die Kopfzeile der Herleitung, aus zwei Klauseln gebaut. Die Quellen-
-    // Klausel FEHLT, wenn es keine gibt: „0 Quellen“ ist eine wahre Zahl, die
-    // sich wie ein Fehlschlag liest, und eine Antwort aus einer Messung am
-    // Modell hat zu Recht keine Zitate. Gezählt wird, was da ist; über das,
-    // was nicht da ist, sagt die Zeile nichts.
-    herleitungSummary: 'Herleitung · {count, plural, one {# Schritt} other {# Schritte}}',
-    herleitungSummaryWithSources: '{summary} · {count, plural, one {# Quelle} other {# Quellen}}',
-    // Der Zug hat noch keinen Schritt gemeldet — dann nennt die Zeile nur, was
-    // sie ist, statt „0 Schritte“ zu zählen.
-    herleitungSummaryNoSteps: 'Herleitung',
+    // Die Kopfzeile der Herleitung. Keine Schrittzahl: gezählt wurden rohe
+    // NAT-Ereignisnamen, nicht Züge oder Aufrufe (siehe ChatThinking). Die
+    // Quellen-Klausel FEHLT, wenn es keine gibt: „0 Quellen“ ist eine wahre
+    // Zahl, die sich wie ein Fehlschlag liest, und eine Antwort aus einer
+    // Messung am Modell hat zu Recht keine Zitate.
+    herleitungSummary: 'Herleitung',
+    herleitungSummaryWithSources: 'Herleitung · {count, plural, one {# Quelle} other {# Quellen}}',
     // aria-label naming the reasoning graph as one region for screen readers.
     reasoningGraphLabel: 'Herleitung',
     stepsLabel: 'Denkschritte',
