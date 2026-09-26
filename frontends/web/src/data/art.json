@@ -1310,6 +1310,232 @@
           "height": 1440
         }
       ]
+    },
+    "tragwerk/drei/og": {
+      "work": "tragwerk",
+      "plate": "drei",
+      "format": "og",
+      "numeral": "II",
+      "width": 1200,
+      "height": 630,
+      "alt": {
+        "de": "Risografie: drei Säulen aus Gesetzbüchern, Planrollen und Ziegeln tragen gemeinsam eine weiße Platte mit bepflanztem Dach.",
+        "en": "Risograph: three columns of law books, rolled drawings and brick together carry a white slab with a planted roof."
+      },
+      "files": [
+        {
+          "density": 1,
+          "src": "/art/tragwerk-ii-drei-og-1200x630.png?v=fe46097a",
+          "width": 1200,
+          "height": 630
+        }
+      ]
+    },
+    "tragwerk/drei/plate": {
+      "work": "tragwerk",
+      "plate": "drei",
+      "format": "plate",
+      "numeral": "II",
+      "width": 720,
+      "height": 720,
+      "alt": {
+        "de": "Risografie: drei Säulen tragen gemeinsam eine weiße Platte mit bepflanztem Dach. Die erste ist aus gestapelten Gesetzbüchern, die zweite aus gebündelten Planrollen, die dritte aus Ziegeln; alle stehen auf Büchern und tragen Kapitelle aus eingerollten Plänen. Eine kleine Figur steht zwischen ihnen.",
+        "en": "Risograph: three columns together carry a white slab with a planted roof. The first is made of stacked law books, the second of bundled rolled drawings, the third of brick; all stand on books and wear capitals of rolled-up drawings. A small figure stands between them."
+      },
+      "caption": {
+        "de": "Tragwerk II — Drei Säulen",
+        "en": "Structure II — Three columns"
+      },
+      "files": [
+        {
+          "density": 1,
+          "src": "/art/tragwerk-ii-drei-720.webp?v=cddf18e0",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/tragwerk-ii-drei-1440.webp?v=4b64e429",
+          "width": 1440,
+          "height": 1440
+        }
+      ]
+    },
+    "tragwerk/ordnung/og": {
+      "work": "tragwerk",
+      "plate": "ordnung",
+      "format": "og",
+      "numeral": "III",
+      "width": 1200,
+      "height": 630,
+      "alt": {
+        "de": "Risografie wie eine Lehrbuchtafel: fünf Säulenordnungen nebeneinander, aus Ziegeln, Ordnern, eingerollten Plänen, grünen Blättern und Planrollen, davor eine Maßkette.",
+        "en": "Risograph in the manner of a textbook plate: five orders of columns side by side, made of brick, binders, rolled drawings, green leaves and bundled plans, with a chain dimension in front."
+      },
+      "files": [
+        {
+          "density": 1,
+          "src": "/art/tragwerk-iii-ordnung-og-1200x630.png?v=8d9ebad0",
+          "width": 1200,
+          "height": 630
+        }
+      ]
+    },
+    "tragwerk/ordnung/plate": {
+      "work": "tragwerk",
+      "plate": "ordnung",
+      "format": "plate",
+      "numeral": "III",
+      "width": 720,
+      "height": 720,
+      "alt": {
+        "de": "Risografie wie eine Tafel aus einem Architekturlehrbuch: fünf Säulenordnungen in einer Reihe, jede etwas höher – ein Ziegelpfeiler, eine Säule aus Ordnern, die ionische Säule mit eingerollten Plänen als Voluten, eine mit grünen Blättern als Kapitell und eine aus gebündelten Planrollen. Vorn eine Maßkette, links eine Messlatte.",
+        "en": "Risograph in the manner of an architecture textbook plate: five orders of columns in a row, each a little taller – a brick pier, a column of binders, the Ionic column with rolled drawings for volutes, one with green leaves for a capital, and one of bundled rolled drawings. A chain dimension runs in front, a levelling staff stands at the left."
+      },
+      "caption": {
+        "de": "Tragwerk III — Säulenordnung",
+        "en": "Structure III — The orders"
+      },
+      "files": [
+        {
+          "density": 1,
+          "src": "/art/tragwerk-iii-ordnung-720.webp?v=beb615d4",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/tragwerk-iii-ordnung-1440.webp?v=3e907115",
+          "width": 1440,
+          "height": 1440
+        }
+      ]
+    },
+    "tragwerk/saeule/og": {
+      "work": "tragwerk",
+      "plate": "saeule",
+      "format": "og",
+      "numeral": "I",
+      "width": 1200,
+      "height": 630,
+      "alt": {
+        "de": "Risografie in Grüntönen: eine ionische Säule auf Gesetzbüchern, das Kapitell aus eingerollten Plänen, darüber ein Buch mit rotem Lesebändchen; ihr langer Schatten fällt über eine Wiese.",
+        "en": "Green risograph: an Ionic column standing on law books, its capital made of rolled-up drawings under a book with a red bookmark; its long shadow falls across a lawn."
+      },
+      "files": [
+        {
+          "density": 1,
+          "src": "/art/tragwerk-i-saeule-og-1200x630.png?v=dddd3bec",
+          "width": 1200,
+          "height": 630
+        }
+      ]
+    },
+    "tragwerk/saeule/plate": {
+      "work": "tragwerk",
+      "plate": "saeule",
+      "format": "plate",
+      "numeral": "I",
+      "width": 720,
+      "height": 720,
+      "alt": {
+        "de": "Risografie in Grüntönen: eine ionische Säule auf einer Wiese. Ihr Sockel ist ein Stapel Gesetzbücher mit Paragrafenzeichen auf den Rücken, die Voluten des Kapitells sind eingerollte Pläne, die Deckplatte ist ein geschlossenes Buch mit rotem Lesebändchen. Der lange Schatten fällt über den Rasen, daneben steht eine kleine Figur mit einer Planrolle.",
+        "en": "Green risograph: an Ionic column on a lawn. Its base is a stack of law books with section signs on their spines, the volutes of its capital are rolled-up drawings, and its abacus is a closed book with a red bookmark. Its long shadow falls across the grass; a small figure with a rolled drawing stands beside it."
+      },
+      "caption": {
+        "de": "Tragwerk I — Säule",
+        "en": "Structure I — Column"
+      },
+      "files": [
+        {
+          "density": 1,
+          "src": "/art/tragwerk-i-saeule-720.webp?v=71c7b26d",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/tragwerk-i-saeule-1440.webp?v=c6c3df6d",
+          "width": 1440,
+          "height": 1440
+        }
+      ]
+    },
+    "tragwerk/saeule/spot": {
+      "work": "tragwerk",
+      "plate": "saeule",
+      "format": "spot",
+      "numeral": null,
+      "width": 96,
+      "height": 96,
+      "alt": {
+        "de": "Kleine ionische Säule auf drei Büchern, mit rotem Lesebändchen am Kapitell.",
+        "en": "A small Ionic column on three books, with a red bookmark at its capital."
+      },
+      "files": [
+        {
+          "density": 1,
+          "src": "/art/tragwerk-i-saeule-spot-96.webp?v=8e37657f",
+          "width": 96,
+          "height": 96
+        },
+        {
+          "density": 2,
+          "src": "/art/tragwerk-i-saeule-spot-192.webp?v=96332e80",
+          "width": 192,
+          "height": 192
+        }
+      ]
+    },
+    "tragwerk/ziegel/og": {
+      "work": "tragwerk",
+      "plate": "ziegel",
+      "format": "og",
+      "numeral": "IV",
+      "width": 1200,
+      "height": 630,
+      "alt": {
+        "de": "Risografie: über einem gemauerten Ziegelpfeiler schwebt am Kranhaken ein Säulenkapitell aus eingerollten Plänen, gleich wird es aufgesetzt.",
+        "en": "Risograph: a column capital of rolled-up drawings hangs from a crane hook above a brick pier, about to be set down on it."
+      },
+      "files": [
+        {
+          "density": 1,
+          "src": "/art/tragwerk-iv-ziegel-og-1200x630.png?v=a9920a7a",
+          "width": 1200,
+          "height": 630
+        }
+      ]
+    },
+    "tragwerk/ziegel/plate": {
+      "work": "tragwerk",
+      "plate": "ziegel",
+      "format": "plate",
+      "numeral": "IV",
+      "width": 720,
+      "height": 720,
+      "alt": {
+        "de": "Risografie: ein gemauerter Ziegelpfeiler, oben ein Mörtelbett; darüber schwebt am Kranhaken ein Säulenkapitell aus eingerollten Plänen und einem Buch mit rotem Lesebändchen. Ein Ziegel im Pfeiler ist ein gefalteter Plan, daneben liegt ein kleiner Stapel Ziegel.",
+        "en": "Risograph: a brick pier with a bed of mortar on top; above it a column capital of rolled-up drawings and a book with a red bookmark hangs from a crane hook. One brick in the pier is a folded drawing; a small stack of bricks lies beside it."
+      },
+      "caption": {
+        "de": "Tragwerk IV — Ziegelpfeiler",
+        "en": "Structure IV — Brick pier"
+      },
+      "files": [
+        {
+          "density": 1,
+          "src": "/art/tragwerk-iv-ziegel-720.webp?v=2a83c237",
+          "width": 720,
+          "height": 720
+        },
+        {
+          "density": 2,
+          "src": "/art/tragwerk-iv-ziegel-1440.webp?v=e1ee5477",
+          "width": 1440,
+          "height": 1440
+        }
+      ]
     }
   }
 }
