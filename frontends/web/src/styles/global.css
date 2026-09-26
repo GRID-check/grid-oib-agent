@@ -395,6 +395,92 @@ html:not(.js) [data-solution-card] {
   transform: translate(-50%, -50%) scale(1);
 }
 
+/* ── Page transitions ────────────────────────────────────────────────────────
+   Native cross-document view transitions (docs/ux/motion.md says why not
+   Astro's ClientRouter). Every page is a sheet of the same drawing set: going
+   forward lays the next sheet over the current one from below, going back
+   takes the top sheet away, and switching language crossfades the same sheet
+   in place. The navigation bar is one object on every sheet and stays put, or
+   morphs between its two states (over the hero, and the rail). A post's title
+   flies from its card to its page; src/scripts/page-transitions.js decides the
+   kind of change and names the title. */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition {
+    navigation: auto;
+  }
+}
+
+[data-nav-bar] {
+  view-transition-name: site-nav;
+}
+
+::view-transition-group(*) {
+  animation-duration: var(--duration-draw);
+  animation-timing-function: var(--ease-sheet);
+}
+
+::view-transition-old(root) {
+  animation: vt-underneath var(--duration-draw) var(--ease-sheet) both;
+}
+::view-transition-new(root) {
+  animation: vt-lay-down var(--duration-draw) var(--ease-sheet) both;
+}
+
+html:active-view-transition-type(back)::view-transition-old(root) {
+  z-index: 1;
+  animation: vt-take-away var(--duration-draw) var(--ease-sheet) both;
+}
+html:active-view-transition-type(back)::view-transition-new(root) {
+  animation: vt-underneath var(--duration-draw) var(--ease-sheet) reverse both;
+}
+
+html:active-view-transition-type(lang)::view-transition-old(root) {
+  animation: vt-fade var(--duration-base) var(--ease-draft) reverse both;
+}
+html:active-view-transition-type(lang)::view-transition-new(root) {
+  animation: vt-fade var(--duration-base) var(--ease-draft) both;
+}
+
+/* The title is one object moving between two sizes: the group interpolates
+   its box and the two snapshots crossfade inside it, both scaled to its width,
+   which is what the UA does by default. It flies above the sheet change. */
+::view-transition-group(post-title) {
+  z-index: 2;
+}
+/* Two faces at two sizes do not crossfade cleanly, so they hand over rather
+   than overlap: the card's title is gone by the time the page's arrives. */
+::view-transition-old(post-title) {
+  animation: vt-fade calc(var(--duration-draw) * 0.45) var(--ease-draft) reverse both;
+}
+::view-transition-new(post-title) {
+  animation: vt-fade calc(var(--duration-draw) * 0.6) var(--ease-draft) calc(var(--duration-draw) * 0.35) both;
+}
+
+/* The sheet edge: the arriving page's top edge travels up the screen. */
+@keyframes vt-lay-down {
+  from {
+    clip-path: inset(100% 0 0 0);
+    transform: translateY(var(--travel-lg));
+  }
+}
+@keyframes vt-take-away {
+  to {
+    clip-path: inset(100% 0 0 0);
+    transform: translateY(var(--travel-lg));
+  }
+}
+/* The sheet underneath recedes a shade, as paper does under another sheet. */
+@keyframes vt-underneath {
+  to {
+    opacity: 0.55;
+  }
+}
+@keyframes vt-fade {
+  from {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
