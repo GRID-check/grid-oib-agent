@@ -34,7 +34,7 @@ async def _raise_auth_error(*args, **kwargs):
 class TestWebSocketAuthErrors:
     @pytest.mark.asyncio
     async def test_run_workflow_emits_auth_error_message(self, monkeypatch):
-        monkeypatch.setattr("aiq_api.websocket_reconnect.generate_streaming_response", _raise_auth_error)
+        monkeypatch.setattr("aiq_api.websocket_reconnect.stream_workflow", _raise_auth_error)
 
         handler = SimpleNamespace(
             _flow_handler=None,
