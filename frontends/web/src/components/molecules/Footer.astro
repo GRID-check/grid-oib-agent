@@ -1,7 +1,7 @@
 ---
 import Logo from '../atoms/Logo.astro'
 import Pill from '../atoms/Pill.astro'
-import { CONTACT_EMAIL } from '../../consts'
+import { CONTACT_EMAIL, mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
 
@@ -96,7 +96,7 @@ const columns = [
         </h2>
         <a
           class="mt-3 inline-block font-display text-xl font-semibold tracking-tight text-panel hover:text-accent-600"
-          href={`mailto:${CONTACT_EMAIL}`}
+          href={mailtoHref()}
         >
           {CONTACT_EMAIL}
         </a>
@@ -105,7 +105,7 @@ const columns = [
         </p>
       </div>
       <div class="flex justify-end max-lg:justify-start">
-        <Pill href={`mailto:${CONTACT_EMAIL}?subject=${t.cta.subjectDemo}`} variant="solid" size="md">
+        <Pill href={mailtoHref(t.cta.subjectDemo)} variant="solid" size="md">
           {t.footer.demo}
         </Pill>
       </div>

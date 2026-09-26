@@ -1,7 +1,7 @@
 ---
 import SectionTag from '../atoms/SectionTag.astro'
 import Pill from '../atoms/Pill.astro'
-import { CONTACT_EMAIL } from '../../consts'
+import { mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
 import {
@@ -104,7 +104,7 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
         </dl>
 
         <Pill
-          href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(t.roi.subject)}`}
+          href={`${mailtoHref(t.roi.subject)}`}
           variant="light"
           size="md"
           class="mt-8"
