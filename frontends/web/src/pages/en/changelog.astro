@@ -2,11 +2,12 @@
 import BaseLayout from '../../layouts/BaseLayout.astro'
 import Changelog from '../../components/organisms/Changelog.astro'
 import { ui } from '../../i18n/ui'
+import { SHARE_ART } from '../../lib/seo'
 
 const t = ui.en.seo.pages.changelog
 ---
 
-<BaseLayout locale="en" title={t.title} description={t.description}>
+<BaseLayout locale="en" title={t.title} description={t.description} ogArt={SHARE_ART.changelog}>
   <Changelog locale="en" />
 </BaseLayout>
 

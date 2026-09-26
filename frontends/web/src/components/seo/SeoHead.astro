@@ -13,8 +13,10 @@ import {
   absoluteUrl,
   defaultOgImage,
   ldJson,
+  ogImageFor,
   siteGraph,
   type Article,
+  type OgArtId,
   type OgImage,
 } from '../../lib/seo'
 
@@ -26,15 +28,16 @@ interface Props {
   paths: { de: string; en: string } | null
   /** This page's own path when it has no twin. */
   selfPath: string
+  ogArt?: OgArtId
   ogImage?: OgImage
   article?: Article
   jsonLd?: object[]
   noindex?: boolean
 }
-const { title, description, locale, paths, selfPath, article, jsonLd = [], noindex = false } =
+const { title, description, locale, paths, selfPath, ogArt, article, jsonLd = [], noindex = false } =
   Astro.props
 const site = Astro.site
-const ogImage = Astro.props.ogImage ?? defaultOgImage(locale)
+const ogImage = Astro.props.ogImage ?? (ogArt ? ogImageFor(ogArt, locale) : defaultOgImage(locale))
 const other: Locale = locale === 'de' ? 'en' : 'de'
 
 const canonical = absoluteUrl(paths ? paths[locale] : selfPath, site)
