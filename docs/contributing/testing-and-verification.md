@@ -278,6 +278,80 @@ writing it again against `src/app/dev/` rather than against a registry — and i
 should not be part of `verify` when it returns, because a browser pass over ~120
 surfaces is a deliberate run rather than a per-commit tax.
 
+## The smoke
+
+`task be:smoke` serves the backend the way the container does
+(`deploy/start_web.py`: the shipped config, prompt, model and tools) and drives it
+over the chat socket the way the UI does (`scripts/turn_census/served.py`), with
+two things a reader does:
+
+1. ask "Was weißt du über die OIB-Richtlinie 2?" and read the answer to its
+   COMPLETE frame, answering a clarifying question with its first option if the
+   agent asks one;
+2. ask again and, while that answer is still being written, send a follow-up:
+   the first turn is cancelled, and the follow-up must complete.
+
+It waits for the post-answer stages to go quiet and fails on what production
+would have filed from the first question on: any log record at ERROR or
+CRITICAL, a traceback, a RuntimeWarning (an unawaited coroutine is one), no
+answer, or a follow-up that never completed. A backend that never serves fails
+too; what it logs while starting is shown as a note, since it runs without the
+BFF and the internal-API check rightly says so. With the OIB corpus ingested it
+also checks the answer is a real one: none of the canned non-answers, at least
+one `[KB]` source in its Quellen, and (for the default question) about
+Brandschutz. Without the corpus only that gate runs, and the output says so; in
+CI that lasts only until a corpus snapshot is published, after which a missing
+corpus fails the job (`--require-corpus`).
+
+It exists because the unit suites fake the seams where September 2026's issues
+lived: a tool schema the model's arguments did not fit (#656), a reply shape a
+parser did not expect (#653), a payload a dependency's callback could not read
+(#635), the teardown of a turn cancelled mid-answer (#334, #337, #338, #759).
+Each of those logged at ERROR, and ERROR is the level the collector forwards to
+err2issue, so "no ERROR on a real turn" is the same test production runs, taken
+before merge. It goes through the socket rather than `nat run` because the last
+of those lived in `frontends/aiq_api`, which `nat run` never reaches: the smoke
+on `nat run` passed against the socket handler that leaked, and this one fails
+on it with a hundred-odd `Task exception was never retrieved` records.
+
+`.github/workflows/smoke-live.yml` runs it on pull requests that touch the
+agent, on pushes to `develop`, and on demand, with the repository secret
+`OPENROUTER_API_KEY`. Its offline half, the reading of the log and of the
+socket frames, is `tests/test_smoke.py`.
+
+### The corpus snapshot
+
+The corpus is ingested once, not per run. `scripts/corpus_snapshot.py` keeps
+what an ingest writes (the PDFs, the vectors in `AIQ_CHROMA_DIR`,
+`summaries.db`, `data/oib_registry.json`) as a private OCI artifact,
+`ghcr.io/grid-check/grid-oib-corpus`, tagged `format-<CHUNK_FORMAT_VERSION>`.
+`task be:corpus:pull` restores it; `oib_sync.sync()` afterwards is a no-op
+unless a PDF or the chunk format changed, which the registry already decides.
+Measured on a two-page fixture: 34 s to ingest, 3 s to restore and sync, and
+the real corpus's ingest is minutes and model calls.
+
+**Where it comes from: staging.** Upload the Richtlinien in staging's
+Platform → Knowledge and let it sync, as for any deployment. The workflow
+*Corpus snapshot from staging* (`.github/workflows/corpus-snapshot.yml`)
+copies those uploads out of the backend pod, runs `corpus_snapshot.py mirror`
+(a new or changed PDF is ingested, a removed one is deleted from the index),
+and publishes the snapshot. Two refusals keep a bad run from publishing: the
+copy must match a `sha256sum` list taken inside the pod before anything is
+deleted, and every PDF must have ingested before anything is pushed. A refused
+run leaves the last good snapshot in place. It runs nightly, on a `develop` push that changes
+ingestion, and from its *Run workflow* button when a new upload should reach
+the tests now. It is the only job that reaches the cluster, through the dev
+stack's kubeconfig in the `staging` environment; the smoke on a pull request
+only pulls. A branch that bumps the chunk format re-ingests for its own run
+and publishes nothing.
+
+Locally, `task be:corpus:pull` restores the same snapshot (the `oras` CLI and
+`oras login ghcr.io` with a token that can read packages). It makes the answer
+suite, the turn census and the loop eval runnable without ingesting.
+
+It is one question, not a suite: its job is to catch what breaks every turn.
+Whether answers are right and how long they take is the answer suite's job.
+
 ## The answer suite
 
 `task be:eval:answer-suite` is the end-to-end check: the reference questions
@@ -322,8 +396,9 @@ task be:eval:answer-suite -- --out /tmp/suite/after --baseline /tmp/suite/before
 ```
 
 It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus in
-`data/oib` ingested into `AIQ_CHROMA_DIR` (`-- --ingest` runs the sync
-first). Every run costs model calls: the core set at two runs is twelve
+`data/oib` ingested into `AIQ_CHROMA_DIR`: `task be:corpus:pull` restores it
+without ingesting ([the corpus snapshot](#the-corpus-snapshot)), and `-- --ingest`
+runs the sync first. Every run costs model calls: the core set at two runs is twelve
 turns, about four minutes three at a time. It cannot run in CI for the same
 reason as the loop eval; its bookkeeping is covered offline by
 [`tests/test_answer_suite.py`](../../tests/test_answer_suite.py). The
@@ -361,6 +436,7 @@ measured on 2026-09-24, and the effort A/B:
 
 | Question | Tool | Needs | Cost |
 |---|---|---|---|
+| Does a real turn run without logging an error? | `task be:smoke` | key (corpus optional) | one turn, about two minutes |
 | Is the answer right, and did it get slower or more variable? | `task be:eval:answer-suite` | key and ingested corpus | about 4 minutes for the core set at two runs |
 | What did one turn cost, call by call? | `task be:eval:turn-census -- "<question>"` | key and ingested corpus | one turn per run (`--runs`, default 1); writes to `/tmp/turn_census` unless `--out`; `--override KEY VALUE` per census |
 | What happens in the milliseconds before the first model call? | `scripts/turn_census/startup_probe.py` | key, corpus and document inventory | several questions in one process; the first turn is cold |

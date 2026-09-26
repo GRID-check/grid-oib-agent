@@ -156,5 +156,8 @@ report-api.xml
 report-aiqapi.xml
 coverage-aiqapi.xml
 
-# The OIB corpus is operator-provided; see data/oib/README.md
+# The OIB corpus is operator-provided; see data/oib/README.md. Uploads (and a
+# restored corpus snapshot) land in data/oib_uploads, and are never source.
 data/oib/*.pdf
+/data/oib_uploads/
+/data/oib_excluded.json
