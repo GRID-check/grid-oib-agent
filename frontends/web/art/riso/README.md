@@ -87,7 +87,7 @@ export is one integer time of the page.
 | `banner` | 800×300, 1600×600 | 3.4 / 6.8 | `wide` | site |
 | `cover` | 720×405, 1440×810 | 3.4 / 6.8 | `cover` | site |
 | `spot` | 96², 192² | 3.4 / 6.8 | `spot` | site |
-| `empty` | 320², 640² | 3.4 / 6.8 | `empty` | site |
+| `empty` | 320², 640² | 3.4 / 6.8 | `empty` | app (frontends/ui) |
 | `release` | 64², 128² | 2.4 / 4.8 | `stamp` | site |
 | `email` | 600×120, 1200×240 PNG | 3.4 / 6.8 | `strip` | out |
 | `social` | 1080² PNG | 5.0 | `sq` | out |
@@ -120,6 +120,13 @@ print shop reads.
 
 - `site` files go to `public/art/`, are committed, and are refused by the
   pre-commit hook above 1 MB. Only a file a page of this site shows is `site`.
+- `app` files go to the product app, `frontends/ui/public/art/`, committed
+  under the same 1 MB limit, with their own manifest at
+  `frontends/ui/src/lib/art/art.json`. The app is a second consumer, not a
+  second source: the files are exported from a work here like every other,
+  and `check.mjs` holds both manifests, both folders (orphans) and both source
+  trees (ids, no `/art/` paths) to the JOBS tables. The app reads art through
+  `src/lib/art/` and `components/brand/riso-print.tsx`.
 - `out` files go to `art/riso/out/<work>/`, gitignored and reproducible from
   the pin. Upload them where they are used.
 - **Separations** (formats with `separations: true`) add one grayscale PNG per
@@ -131,8 +138,8 @@ print shop reads.
 
 ## The manifest
 
-Every export ends by rewriting `src/data/art.json` from the JOBS tables of all
-works: one entry per art id (`<work>/<plate>/<format>`) with its CSS size,
+Every export ends by rewriting `src/data/art.json` (and, for `app` formats,
+`frontends/ui/src/lib/art/art.json`) from the JOBS tables of all works: one entry per art id (`<work>/<plate>/<format>`) with its CSS size,
 alt text and caption in `de` and `en`, and a file per density. The site reads
 art only through it (`src/lib/art.ts`), so no page names a file.
 

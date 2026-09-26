@@ -6,8 +6,8 @@
  *   node art/riso/export.mjs --work tafeln                    # one work
  *   node art/riso/export.mjs --work tafeln --only 0,3         # jobs by index (the page's ?t=)
  *   node art/riso/export.mjs --only tafeln/stuetzen/og        # jobs by art id (all densities)
- *   node art/riso/export.mjs --dest site                      # only site assets (or: out)
- *   node art/riso/export.mjs --manifest                       # only rewrite src/data/art.json
+ *   node art/riso/export.mjs --dest site                      # only site assets (or: app, out)
+ *   node art/riso/export.mjs --manifest                       # only rewrite the manifests
  *   node art/riso/export.mjs --engine chromium                # override the engine setup chose
  *
  * Run from frontends/web with its node_modules installed (sharp comes with
@@ -22,8 +22,10 @@
  * (the page's ?sep=<ink> view) and a JSON sheet naming drums and order.
  *
  * site -> public/art/ (committed; the pre-commit hook refuses files > 1 MB)
+ * app  -> ../ui/public/art/ (the product app; committed, same limit)
  * out  -> art/riso/out/<work>/ (gitignored; reproducible from the pin)
- * Always ends by rewriting src/data/art.json from every work's JOBS table, each
+ * Always ends by rewriting the manifests from every work's JOBS table:
+ * src/data/art.json for the site, ../ui/src/lib/art/art.json for the app, each
  * src versioned with ?v=<sha256 of the file> so a re-export busts caches.
  */
 import crypto from 'node:crypto';
@@ -31,7 +33,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
 import {
-  MANIFEST, MAX_BYTES, OUT, args, destOf, evaluateWork, kitBrowser, manifestFrom, manifestText, requireKit, selectWorks,
+  DESTS, MAX_BYTES, OUT, args, destOf, evaluateWork, kitBrowser, manifestFrom, manifestText, requireKit, selectWorks,
 } from './kit.mjs';
 
 const a = args(process.argv.slice(2));
@@ -42,14 +44,19 @@ for (const w of works) {
 }
 
 function writeManifest() {
-  // The manifest spans every work, not only the ones exported now.
+  // A manifest spans every work, not only the ones exported now: one per destination.
   const all = selectWorks(undefined).map((w) => (listed.get(w.name) || evaluateWork(w)).jobs);
-  const { manifest, missing } = manifestFrom(all);
-  if (missing.length) console.warn(`not exported yet, so left out of the manifest: ${missing.map((m) => m.file).join(', ')}`);
-  const text = manifestText(manifest);
-  const before = fs.existsSync(MANIFEST) ? fs.readFileSync(MANIFEST, 'utf8') : '';
-  if (text !== before) { fs.mkdirSync(path.dirname(MANIFEST), { recursive: true }); fs.writeFileSync(MANIFEST, text); }
-  console.log(`manifest ${path.relative(process.cwd(), MANIFEST)}: ${Object.keys(JSON.parse(text).art).length} ids${text === before ? ', unchanged' : ', rewritten'}`);
+  for (const [dest, d] of Object.entries(DESTS)) {
+    const { manifest, missing } = manifestFrom(all, dest);
+    if (missing.length) console.warn(`not exported yet, so left out of the ${dest} manifest: ${missing.map((m) => m.file).join(', ')}`);
+    const text = manifestText(manifest);
+    const before = fs.existsSync(d.manifest) ? fs.readFileSync(d.manifest, 'utf8') : '';
+    const empty = !Object.keys(manifest.art).length;
+    // A destination no work exports to keeps no manifest file at all.
+    if (empty && !before) continue;
+    if (text !== before) { fs.mkdirSync(path.dirname(d.manifest), { recursive: true }); fs.writeFileSync(d.manifest, text); }
+    console.log(`manifest ${path.relative(process.cwd(), d.manifest)}: ${Object.keys(manifest.art).length} ids${text === before ? ', unchanged' : ', rewritten'}`);
+  }
 }
 
 if (a.manifest) { writeManifest(); process.exit(0); }
@@ -114,7 +121,7 @@ try {
       if (meta.width !== j.w || meta.height !== j.h) throw Error(`${j.file}: canvas is ${meta.width}x${meta.height}, the format wants ${j.w}x${j.h}`);
       const out = destOf(j);
       const size = await encode(png, j, out);
-      const over = j.dest === 'site' && size > MAX_BYTES;
+      const over = j.dest in DESTS && size > MAX_BYTES;
       if (over) failures++;
       console.log(`  ${String(i).padStart(2)}  ${j.id.padEnd(34)} ${String(j.density) + 'x'}  ${`${j.w}x${j.h}`.padEnd(9)} ${kb(size).padStart(7)}  png ${sha(png)}  ${path.relative(process.cwd(), out)}${over ? '  OVER 1 MB: the commit hook will refuse it' : ''}`);
       if (!j.separations) continue;

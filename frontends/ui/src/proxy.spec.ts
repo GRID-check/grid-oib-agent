@@ -2,6 +2,7 @@
  * @vitest-environment node
  */
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { artImage } from '@/lib/art'
 
 const mockMiddleware = vi.fn()
 const mockAuthkitMiddleware = vi.fn(() => mockMiddleware)
@@ -39,7 +40,7 @@ describe('AuthKit v4 proxy', () => {
     )
   })
 
-  test('leaves icons, manifest and robots.txt outside the auth redirect', async () => {
+  test('leaves icons, riso art, manifest and robots.txt outside the auth redirect', async () => {
     const { config } = await import('./proxy')
     const matcher = new RegExp(`^${config.matcher[0]}$`)
     const publicFiles = [
@@ -49,6 +50,8 @@ describe('AuthKit v4 proxy', () => {
       '/manifest.webmanifest',
       '/robots.txt',
       '/icons/icon-192.png',
+      // by id, as the app reaches art: a literal /art/ path fails the riso check
+      new URL(artImage('vignetten/bauplatz/empty').src, 'http://localhost').pathname,
     ]
 
     for (const path of publicFiles) expect(matcher.test(path), path).toBe(false)

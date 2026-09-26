@@ -23,7 +23,8 @@
 
 import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
-import { FolderOpen, Search } from 'lucide-react'
+import { Search } from 'lucide-react'
+import { RisoPrint } from '@/components/brand/riso-print'
 import { Button } from '@/components/ui/button'
 import { CountPill } from '@/components/ui/count-pill'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -136,7 +137,7 @@ export function ProjectsGrid({
       <div className="mt-7">
         {!hasProjects ? (
           <EmptyState
-            icon={FolderOpen}
+            art={<RisoPrint id="vignetten/abstecken/empty" />}
             title={t('list.empty.title')}
             description={t('list.empty.description')}
             action={<CreateProjectDialog label={t('list.empty.action')} />}

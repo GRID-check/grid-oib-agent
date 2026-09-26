@@ -390,7 +390,7 @@ function numeral(n, cx, base, h) {
      jobs: [{ plate, format, alt: { de, en }, caption?: { de, en }, compose?, id? }]
        format  a key of FORMATS (formats.js); it brings sizes, pitch, encoding,
                destination and the default composition
-       alt     required for formats with dest 'site' (they reach the manifest)
+       alt     required for formats with dest 'site' or 'app' (they reach a manifest)
        id      default '<work>/<plate>/<format>'; pages use it, never a path
 
    Each job expands to one export per size of its format, so the integer time t
@@ -421,7 +421,7 @@ const Riso = (() => {
       const id = d.id || `${spec.work}/${d.plate}/${d.format}`;
       if (ids.has(id)) throw Error(`art id "${id}" declared twice; give one an explicit id`);
       ids.add(id);
-      if (f.dest === 'site' && !(d.alt && d.alt.de && d.alt.en)) throw Error(`${id}: a site asset needs alt text in de and en`);
+      if (f.dest !== 'out' && !(d.alt && d.alt.de && d.alt.en)) throw Error(`${id}: a ${f.dest} asset needs alt text in de and en`);
       if (d.caption && !(d.caption.de && d.caption.en)) throw Error(`${id}: a caption needs de and en`);
       for (const s of f.sizes) {
         jobs.push({

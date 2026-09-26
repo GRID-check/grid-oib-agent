@@ -1,0 +1,8 @@
+---
+improvements:
+  - >
+    Drei Stellen der App, an denen es noch nichts zu sehen gibt, zeigen jetzt
+    einen kleinen Druck aus der Piloti-Bildserie statt eines Symbols: die
+    Projektübersicht vor dem ersten Projekt, die Dokumente eines Projekts vor
+    dem ersten Upload und die Seite für eine Adresse, die es nicht gibt. Im
+    dunklen Design liegt der Druck als Papierbogen auf der Fläche.
