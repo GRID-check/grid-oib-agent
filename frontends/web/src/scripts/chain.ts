@@ -327,6 +327,7 @@ function initChainBoard() {
       gsap.set(caretT, { display: 'inline-block' })
       gsap.set(cam, frame(['q', 's1']))
       status.textContent = L.typing
+      options.forEach((o) => o?.classList.remove('opt--receded'))
     }
     reset()
     tl.call(reset)
@@ -357,9 +358,11 @@ function initChainBoard() {
       .call(say(7))
       .add(camTo(['dec']), '<')
 
-    // The option is chosen: the others recede rather than disappear.
-    tl.to([...optT(0), ...optT(2)], { opacity: 0.32, duration: 0.5 }, '+=0.5')
-      .to(optT(1), { backgroundColor: '#eef6ee', borderLeftColor: '#17914d', duration: 0.5 }, '<')
+    // The option is chosen: the others recede to the muted ink, not to a
+    // transparency that would take their text below 4.5:1.
+    const ok = getComputedStyle(document.documentElement).getPropertyValue('--color-ok').trim() || '#0f7a3d'
+    tl.call(() => [...optT(0), ...optT(2)].forEach((o) => o.classList.add('opt--receded')), [], '+=0.5')
+      .to(optT(1), { backgroundColor: '#eef6ee', borderLeftColor: ok, duration: sec('base') }, '<')
       .call(say(8), [], '<')
 
     if (w.toImpl) {
