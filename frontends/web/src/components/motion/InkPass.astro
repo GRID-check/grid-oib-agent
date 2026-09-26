@@ -1,0 +1,74 @@
+---
+/**
+ * Wraps one riso print (a single `<img>`) so it arrives as it was printed:
+ * one ink after another, each a hair out of register until it settles. The motion and its limits are in ink-pass.ts;
+ * the language it belongs to is docs/ux/motion.md.
+ *
+ *   <InkPass inks={['mist', 'kelly', 'moss', 'hunter']}><img …></InkPass>
+ *
+ * `inks` names the separations on disk beside the print (`<file>-<ink>.webp`
+ * plus `<file>-paper.webp`); leave it out and the pass is approximated from
+ * the print itself. TapedPrint wraps every plate in this; nothing else needs
+ * to.
+ *
+ * Without script, or under reduced motion, the print is simply there.
+ */
+interface Props {
+  inks?: string[]
+  /** Render the print as it is, with no wrapper and no pass. */
+  off?: boolean
+  class?: string
+}
+const { inks = [], off = false, class: className = '' } = Astro.props
+---
+
+{
+  off ? (
+    <slot />
+  ) : (
+    <div class:list={['ink-pass', className]} data-ink-pass data-inks={inks.join(',') || undefined}>
+      <slot />
+    </div>
+  )
+}
+
+<script>
+  import './ink-pass'
+</script>
+
+<style>
+  .ink-pass {
+    position: relative;
+    display: block;
+  }
+  /* Hidden only once the script has armed it, so a page whose script never
+     runs shows the print. */
+  @media (prefers-reduced-motion: no-preference) {
+    .ink-pass:global(.ink-pass--armed:not(.ink-pass--done)) > :global(img) {
+      opacity: 0;
+    }
+  }
+  @media print {
+    .ink-pass > :global(img) {
+      opacity: 1 !important;
+    }
+  }
+  .ink-pass :global(.ink-pass__stage) {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    /* The inks multiply with each other and the paper, not with the sheet
+       the print is taped to. */
+    isolation: isolate;
+    pointer-events: none;
+  }
+  .ink-pass :global(.ink-pass__layer) {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    will-change: transform, opacity;
+  }
+</style>

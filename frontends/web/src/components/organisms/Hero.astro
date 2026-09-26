@@ -45,32 +45,21 @@ const portrait = await getImage({ src: heroPortrait, widths: [480, 828, 1170], f
       data-portrait-media={portraitMedia}
       class="pointer-events-none absolute inset-0 h-full w-full"
       aria-hidden="true"></canvas>
-    <!-- The photograph does not stop, it settles. Four blur layers, each masked
-         to start lower than the last, ramp the focus out towards the foot of the
-         hero instead of the single hard edge a lone backdrop-blur would leave;
-         the tint over them carries the same fall so the headline keeps its
-         contrast. -->
-    <div class="pointer-events-none absolute inset-x-0 bottom-0 h-[42%]" aria-hidden="true">
-      <div
-        class="absolute inset-0 backdrop-blur-[2px]"
-        style="-webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 26%); mask-image: linear-gradient(to bottom, transparent 0%, #000 26%)"
-      >
-      </div>
-      <div
-        class="absolute inset-0 backdrop-blur-[5px]"
-        style="-webkit-mask-image: linear-gradient(to bottom, transparent 28%, #000 56%); mask-image: linear-gradient(to bottom, transparent 28%, #000 56%)"
-      >
-      </div>
-      <div
-        class="absolute inset-0 backdrop-blur-[11px]"
-        style="-webkit-mask-image: linear-gradient(to bottom, transparent 54%, #000 82%); mask-image: linear-gradient(to bottom, transparent 54%, #000 82%)"
-      >
-      </div>
-      <div
-        class="absolute inset-0 backdrop-blur-[20px]"
-        style="-webkit-mask-image: linear-gradient(to bottom, transparent 76%, #000 100%); mask-image: linear-gradient(to bottom, transparent 76%, #000 100%)"
-      >
-      </div>
+    <!-- The photograph does not stop, it settles: one blur, masked to come in
+         gradually towards the foot of the hero, so the focus ramps out rather
+         than ending on a hard edge; the tint over it carries the same fall so
+         the headline keeps its contrast. It was four stacked blurs (2, 5, 11
+         and 20px), which looked a shade smoother and re-blurred the animated
+         aura four times on every frame. Idle hero at 1440x900, headless
+         Chromium, median frame: four blurs 83ms, one blur 33ms, no blur
+         16.7ms. Clipping the aura out of the band does not help (Chromium
+         re-blurs on every frame the canvas draws); a pre-blurred crop of the
+         photograph would take the rest. -->
+    <div
+      class="pointer-events-none absolute inset-x-0 bottom-0 h-[42%] backdrop-blur-[12px]"
+      style="-webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgb(0 0 0 / 0.25) 30%, rgb(0 0 0 / 0.7) 62%, #000 88%); mask-image: linear-gradient(to bottom, transparent 0%, rgb(0 0 0 / 0.25) 30%, rgb(0 0 0 / 0.7) 62%, #000 88%)"
+      aria-hidden="true"
+    >
     </div>
 
     <div
@@ -93,6 +82,7 @@ const portrait = await getImage({ src: heroPortrait, widths: [480, 828, 1170], f
            under the buttons on the landscape one, where above would be on the
            table. -->
       <p
+        data-hero-stage
         class="m-0 inline-flex max-w-full items-center gap-2 text-center text-xs leading-snug text-ink-mute lg:order-last"
         style="text-wrap: balance"
       >
@@ -100,13 +90,14 @@ const portrait = await getImage({ src: heroPortrait, widths: [480, 828, 1170], f
         {t.hero.stage}
       </p>
       <h1
+        data-hero-title
         class="m-0 max-w-5xl text-center font-voice text-v-display text-ink"
         style="text-wrap: balance"
       >
         {t.hero.title}
       </h1>
 
-      <div data-hero-cta class="flex w-full flex-col items-center gap-6 transition duration-500">
+      <div data-hero-cta class="flex w-full flex-col items-center gap-6">
         <p
           class="m-0 max-w-md text-center text-base leading-relaxed text-ink-mid"
           style="text-wrap: pretty"
@@ -119,12 +110,8 @@ const portrait = await getImage({ src: heroPortrait, widths: [480, 828, 1170], f
         </div>
       </div>
     </div>
-    <div
-      class="absolute bottom-5 left-1/2 hidden h-8 w-px -translate-x-1/2 bg-panel/30 lg:block"
-      style="animation: scrollhint 2s ease-in-out infinite"
-      aria-hidden="true"
-    >
-    </div>
+    <!-- No scroll hint. The pulsing hairline here said nothing a reader did
+         not know, and it kept the page moving after they had stopped. -->
   </header>
 </div>
 

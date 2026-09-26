@@ -31,7 +31,7 @@ with. See the [root README](../README.md) for what Grid is, and
 | [`deployment/`](deployment/) | Compose, Kubernetes, Coolify, environment variables, secrets | You are deploying, or you need to know what a variable does |
 | [`user-guides/`](user-guides/) | What the product does, from the user's side | You need to know how a feature is meant to behave |
 | [`design/`](design/) | Design language, card charter, UI specs | You are building a surface |
-| [`ux/`](ux/) | UX playbooks: visual evidence, file explorer | You are adding a user-visible component |
+| [`ux/`](ux/) | UX playbooks: visual evidence, file explorer, motion on the public site ([`ux/motion.md`](ux/motion.md)) | You are adding a user-visible component, or animating anything on the site |
 | [`product/`](product/) | Vision, positioning, long-form writing | You want the why behind the roadmap |
 | [`roadmap/`](roadmap/) | Where this is going: the agentic workspace review, the artifact design of record, its product-perspective review, IFC, spatial reasoning, cross-project RAG; the continuous-improvement ledger ([`continuous-improvement-ledger.md`](roadmap/continuous-improvement-ledger.md)) is the loop's running state | You are scoping something that is not built yet |
 | [`audit/`](audit/) | Frozen run logs from past audit and feedback-triage loops | You are tracing where a finding or a spec's evidence came from |

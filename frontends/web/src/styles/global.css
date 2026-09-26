@@ -196,6 +196,28 @@
   --shadow-hero: 0 24px 60px -24px rgb(0 0 0 / 0.7);
 }
 
+/* Motion tokens. The same values are exported for scripts by src/lib/motion.ts,
+   and `npm run check` (scripts/lint-motion.mjs) fails when the two disagree.
+   What each one is for, and when not to animate at all: docs/ux/motion.md.
+   `static`, because most readers are `var()` in scoped styles and scripts,
+   which Tailwind cannot see; `--ease-*` also gives the `ease-draft` utilities. */
+@theme static {
+  --duration-tick: 120ms;
+  --duration-quick: 200ms;
+  --duration-base: 320ms;
+  --duration-slow: 480ms;
+
+  --ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-draft: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --stagger-row: 60ms;
+  --stagger-max: 240ms;
+
+  --travel-hair: 3px;
+  --travel-sm: 8px;
+  --travel-md: 16px;
+}
+
 /* Panels are sheets of drafting paper: they carry the same grid the page
    background does, so a coloured panel reads as a sheet laid on the drawing
    rather than as a card pasted over it. */
@@ -224,34 +246,10 @@
     scroll-padding-top: 76px;
   }
 
-  /* Snapping only where every section is a screen tall. Below lg the sections
-     take their natural height, and proximity snapping on a column of uneven
-     blocks is a page that keeps tugging the thumb back. */
-  @media (min-width: 1024px) {
-    html {
-      scroll-snap-type: y proximity;
-    }
-    [data-screen-label] {
-      scroll-snap-align: start;
-    }
-    [data-pin] {
-      scroll-snap-align: none;
-    }
-    #nutzung,
-    #daten,
-    #datenschutz,
-    #wert {
-      scroll-snap-align: center;
-    }
-
-    /* The last section must not be a snap target. Snapping it — to centre or
-       to start — parks the viewport on it and pulls back out of the footer,
-       which is shorter than the snap it is fighting, so the footer became
-       unreachable. */
-    #kontakt {
-      scroll-snap-align: none;
-    }
-  }
+  /* No scroll snapping, at any width. Proximity snapping on top of scrubbed,
+     pinned runways swallowed single wheel notches at the top of the page
+     (three 100px notches left scrollY at 0), and the page is long-form: the
+     scroll belongs to the reader. docs/ux/motion.md, "When not to animate". */
 
   /* Decoration may bleed past the page edge (a glow, a rotated fragment) but
      may never widen it. On a phone one such element grows the layout viewport,
@@ -334,17 +332,6 @@
     transform: rotate(360deg);
   }
 }
-@keyframes scrollhint {
-  0%,
-  100% {
-    transform: translateY(0);
-    opacity: 0.7;
-  }
-  50% {
-    transform: translateY(8px);
-    opacity: 0.3;
-  }
-}
 
 
 /* Tailwind v4 compiles `-translate-x-1/2` / `scale-*` to the standalone
@@ -373,10 +360,84 @@ html:not(.js) [data-solution-card] {
   transform: translate(-50%, -50%) scale(1);
 }
 
+/* ── Mechanical counter (src/scripts/counter.ts) ─────────────────────────────
+   One window per digit, one line tall, with a wheel of digits behind it. */
+.counter {
+  white-space: nowrap;
+  user-select: none;
+}
+.counter__window {
+  display: inline-block;
+  height: 1lh;
+  overflow: hidden;
+  vertical-align: top;
+}
+.counter__wheel {
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
+}
+.counter__wheel > span {
+  display: block;
+  height: 1lh;
+}
+
+/* ── The navigation rail over a dark sheet ───────────────────────────────────
+   nav.ts sets `data-tone="dark"` while a dark panel is under the bar. Unlayered
+   on purpose, so it outranks the rail's own utilities; the bar already
+   transitions its background, and the labels follow at the same pace. */
+[data-nav-bar] :is(a, span, button) {
+  transition-property: color, background-color;
+  transition-duration: var(--duration-base);
+  transition-timing-function: var(--ease-draft);
+}
+[data-nav-bar][data-tone='dark'].rounded-full {
+  background-color: rgb(34 39 26 / 0.88);
+  --tw-ring-color: rgb(238 242 228 / 0.12);
+}
+[data-nav-bar][data-tone='dark'].rounded-full :is(.text-ink, .text-ink-ghost) {
+  color: var(--color-on-dark-strong);
+}
+[data-nav-bar][data-tone='dark'].rounded-full .text-ink-ghost {
+  color: var(--color-on-dark);
+}
+[data-nav-bar][data-tone='dark'].rounded-full a:hover {
+  color: var(--color-accent-400);
+}
+/* The CTA inverts, as Pill's `light` variant does on a dark panel. */
+[data-nav-bar][data-tone='dark'].rounded-full a.bg-accent-800 {
+  background-color: var(--color-surface);
+  color: var(--color-accent-900);
+}
+
+/* ── Page transitions ────────────────────────────────────────────────────────
+   Native cross-document view transitions (docs/ux/motion.md says why not
+   Astro's ClientRouter): a plain, short crossfade between two pages, so a
+   change of page reads as one document turning to the next instead of a
+   blank flash. The navigation bar is named, so the one object that is the
+   same on every page stays still while the rest changes under it. Nothing
+   slides and nothing flies: a sheet slide and a title morph were built and
+   removed, as more motion than a page change is worth. */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition {
+    navigation: auto;
+  }
+}
+
+[data-nav-bar] {
+  view-transition-name: site-nav;
+}
+
+::view-transition-group(*),
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-duration: var(--duration-quick);
+  animation-timing-function: var(--ease-draft);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
-    scroll-snap-type: none;
   }
   *,
   *::before,

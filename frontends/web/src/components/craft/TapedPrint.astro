@@ -25,6 +25,7 @@
 import { art, artFile, type ArtId } from '../../lib/art'
 import type { Locale } from '../../i18n/ui'
 import Tape from './Tape.astro'
+import InkPass from '../motion/InkPass.astro'
 
 interface Props {
   /** An art id, e.g. `tafeln/stuetzen/plate`. Omit when passing a slot. */
@@ -40,15 +41,30 @@ interface Props {
   rotate?: number
   align?: 'start' | 'center' | 'end'
   loading?: 'lazy' | 'eager'
+  /** A plate arrives by ink pass (components/motion/InkPass); `still` opts out. */
+  still?: boolean
   class?: string
 }
-const { name, locale, size = 'half', rotate = -1, align = 'start', loading = 'lazy', class: className = '' } = Astro.props
+const {
+  name,
+  locale,
+  size = 'half',
+  rotate = -1,
+  align = 'start',
+  loading = 'lazy',
+  still = false,
+  class: className = '',
+} = Astro.props
 
 const TAPE = { full: '8rem', half: '6rem', third: '4.5rem', photo: '3.25rem' }[size]
-const tilt = Math.max(-2, Math.min(2, rotate))
+// A plate is a screened bitmap shown at an integer scale: rotating it by even
+// one degree resamples the dots into moiré. Plates hang straight and the tape
+// carries the tilt; only photos (the slot) lean.
 const ALIGN = { start: '', center: 'mx-auto', end: 'ml-auto' }
 
 const hasSlot = Astro.slots.has('default')
+const lean = Math.max(-2, Math.min(2, rotate))
+const tilt = hasSlot ? lean : 0
 const print = !hasSlot && name ? art(name) : undefined
 const DIVISOR = { full: 1, half: 2, third: 3, photo: 1 }[size]
 let plate: { src: string; srcset?: string; width: number; height: number } | undefined
@@ -73,18 +89,20 @@ const show = hasSlot || plate !== undefined
       class:list={['craft-print', `craft-print--${size}`, 'm-0', ALIGN[align], className]}
       style={`--rot: ${tilt}deg`}
     >
-      <Tape class="-top-2.5 left-1/2 -translate-x-1/2" length={TAPE} rotate={-tilt * 1.5} seed={name?.length ?? 1} />
+      <Tape class="-top-2.5 left-1/2 -translate-x-1/2" length={TAPE} rotate={-lean * 1.5} seed={name?.length ?? 1} />
       <div class="craft-print__sheet">
         {plate ? (
-          <img
-            src={plate.src}
-            srcset={plate.srcset}
-            width={plate.width}
-            height={plate.height}
-            alt={alt}
-            loading={loading}
-            decoding="async"
-          />
+          <InkPass off={still}>
+            <img
+              src={plate.src}
+              srcset={plate.srcset}
+              width={plate.width}
+              height={plate.height}
+              alt={alt}
+              loading={loading}
+              decoding="async"
+            />
+          </InkPass>
         ) : (
           <slot />
         )}

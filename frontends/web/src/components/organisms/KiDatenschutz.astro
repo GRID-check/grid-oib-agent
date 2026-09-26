@@ -47,10 +47,10 @@ const privacy = useTranslatedPath(locale)('/datenschutz/')
           <p class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
             {p.answerHeading}
           </p>
-          <ul class="m-0 mt-3 list-none p-0">
+          <ul class="pruef-ticks m-0 mt-3 list-none p-0" data-craft-in>
             {
-              p.answer.map((row) => (
-                <li class="grid grid-cols-[auto_1fr] items-baseline gap-x-3 border-t border-ink/10 py-2.5 first:border-t-0 first:pt-0">
+              p.answer.map((row, i) => (
+                <li style={`--i: ${i}`} class="grid grid-cols-[auto_1fr] items-baseline gap-x-3 border-t border-ink/10 py-2.5 first:border-t-0 first:pt-0">
                   <svg
                     viewBox="0 0 24 24"
                     class="size-3 translate-y-px text-accent-600"
@@ -61,7 +61,7 @@ const privacy = useTranslatedPath(locale)('/datenschutz/')
                     stroke-linejoin="round"
                     aria-hidden="true"
                   >
-                    <path d="m4 12 6 6L20 6" />
+                    <path d="m4 12 6 6L20 6" pathLength="1" />
                   </svg>
                   <p class="m-0 text-[0.9375rem] leading-snug text-panel sm:text-sm">
                     {row.label}
@@ -123,3 +123,30 @@ const privacy = useTranslatedPath(locale)('/datenschutz/')
     </div>
   </div>
 </section>
+
+<script>
+  import '../craft/craft-in'
+</script>
+
+<style>
+  /* The sheet is checked, not decorated: once it is on screen the ticks are
+     drawn one row after another, as someone going down the list with a pen.
+     Without script or motion they are simply there. */
+  @media (prefers-reduced-motion: no-preference) {
+    .pruef-ticks path {
+      stroke-dasharray: 1;
+    }
+    /* Hidden as well as undrawn: a round cap on a zero-length dash still
+       prints a dot, which read as a tick waiting to happen. */
+    .pruef-ticks:global(.craft-armed:not(.craft-in)) path {
+      stroke-dashoffset: 1;
+      opacity: 0;
+    }
+    .pruef-ticks:global(.craft-in) path {
+      --at: calc(var(--duration-quick) + var(--i) * var(--stagger-row));
+      transition:
+        stroke-dashoffset var(--duration-base) var(--ease-draft) var(--at),
+        opacity 0s linear var(--at);
+    }
+  }
+</style>
