@@ -147,13 +147,14 @@ _ensureConversationExists: async () => {
 
 ## localStorage persistence
 
-The Zustand store uses the `persist` middleware with `createResilientStorage()` (`store.ts:123`):
+The Zustand store uses the `persist` middleware with `createResilientStorage()` (`features/chat/stores/chat-storage.ts`):
 
-- **Key**: `aiq-chat-store`
-- **Persisted fields**: `currentUserId`, `conversations`, `currentConversation`, `pendingInteraction`
-- **Pruning**: `prunePersistedChatState()` strips heavy fields (full thinking-step payloads, legacy intermediate steps) from stored messages; `currentConversation` is stored as just an ID reference
-- **Hydration transforms**: Connection error messages are stripped on read; `currentConversation` is reconstructed from the stored ID
-- **Quota handling**: On `QuotaExceededError`, falls back to clearing all sessions as a last resort
+- **Keys**: `aiq-chat-store:index` (the conversation list without messages, `currentUserId`, the open conversation's id, `pendingInteraction`, `composerDrafts`) and `aiq-chat-store:messages:<conversationId>` (that conversation's messages)
+- **Writes**: only what changed since the last write, compared by reference: a send or a settled answer writes that conversation's messages and the index; a switch or a draft writes the index alone. A live turn's growth (the streaming answer, the question's reasoning steps) is never written; a draft is written 400 ms after the last keystroke and on `pagehide`
+- **Pruning**: `pruneMessageForStorage()` strips heavy fields (full thinking-step payloads, legacy intermediate steps, long citation text) from stored messages
+- **Hydration transforms**: interrupted streaming answers and connection error messages are dropped on read; `currentConversation` is reconstructed from the stored ID; a conversation whose messages are not stored reads back with none and is fetched from the server when opened (`hydrateConversationMessages`)
+- **Quota handling**: past `CHAT_STORAGE_BUDGET_CHARS` or on `QuotaExceededError`, the least recently updated conversations' messages are evicted (never the open conversation's, nor one with a live run); the index is never evicted. The server holds every evicted message, so nothing is lost
+- **Migration**: the old single key `aiq-chat-store` is split into this shape on the first load after the change, and then removed
 
 ## WebSocket persistence
 

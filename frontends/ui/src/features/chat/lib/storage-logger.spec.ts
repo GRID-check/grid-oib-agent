@@ -1,17 +1,13 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   logStorageWrite,
-  logQuotaExceededPruning,
-  logCriticalSessionsClear,
-  logPruningFailure,
+  logStorageEviction,
+  logStorageFailure,
+  logStorageMigration,
   logExternalStorageEvent,
   logStoreHydration,
   logStorageAvailability,
-  logStorageCleanup,
-  logStorageCapacity,
-  logStorageWarning,
 } from './storage-logger'
-import type { Conversation } from '../types'
 
 describe('storage-logger', () => {
   let consoleDebugSpy: ReturnType<typeof vi.spyOn>
@@ -35,103 +31,60 @@ describe('storage-logger', () => {
     test('logs in development mode', () => {
       vi.stubEnv('NODE_ENV', 'development')
 
-      const conversations: Conversation[] = [
-        {
-          id: 's_test_1',
-          userId: 'user123',
-          title: 'Test Session',
-          messages: [],
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ]
-
-      logStorageWrite(conversations, 'user123')
+      logStorageWrite('s_test_1', 2048)
 
       expect(consoleDebugSpy).toHaveBeenCalledWith(
         expect.stringContaining('[SessionsStore]'),
-        expect.objectContaining({
-          userId: 'user123',
-          sessionIds: ['s_test_1'],
-        })
+        expect.objectContaining({ conversationId: 's_test_1', chars: 2048 })
       )
     })
 
     test('does not log in production mode', () => {
       vi.stubEnv('NODE_ENV', 'production')
 
-      const conversations: Conversation[] = []
-      logStorageWrite(conversations, 'user123')
+      logStorageWrite('s_test_1', 2048)
 
       expect(consoleDebugSpy).not.toHaveBeenCalled()
     })
   })
 
-  describe('logQuotaExceededPruning', () => {
-    test('logs pruning attempt in development', () => {
-      vi.stubEnv('NODE_ENV', 'development')
+  describe('logStorageEviction', () => {
+    test('ALWAYS logs an eviction (even in production)', () => {
+      vi.stubEnv('NODE_ENV', 'production')
 
-      logQuotaExceededPruning(5, 3, 100, 60)
+      logStorageEviction('s_old', 4096)
 
       expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('QUOTA EXCEEDED'),
-        expect.objectContaining({
-          before: { sessions: 5, sizeKB: 100 },
-          after: { sessions: 3, sizeKB: 60 },
-        })
+        expect.stringContaining('Evicted'),
+        expect.objectContaining({ conversationId: 's_old', chars: 4096 })
       )
-    })
-
-    test('does not log in production', () => {
-      vi.stubEnv('NODE_ENV', 'production')
-
-      logQuotaExceededPruning(5, 3, 100, 60)
-
-      expect(consoleWarnSpy).not.toHaveBeenCalled()
     })
   })
 
-  describe('logCriticalSessionsClear', () => {
-    test('ALWAYS logs critical data loss (even in production)', () => {
+  describe('logStorageFailure', () => {
+    test('ALWAYS logs a write that could not be stored (even in production)', () => {
       vi.stubEnv('NODE_ENV', 'production')
 
-      const lostSessions = ['s_test_1', 's_test_2', 's_test_3']
-      const error = new Error('QuotaExceededError')
-
-      logCriticalSessionsClear('user123', lostSessions, error)
+      logStorageFailure('aiq-chat-store:messages:s_huge', 9_000_000, new Error('QuotaExceededError'))
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('CRITICAL'),
-        expect.objectContaining({
-          userId: 'user123',
-          lostSessions,
-          sessionCount: 3,
-          error: 'QuotaExceededError',
-        })
+        expect.stringContaining('nothing left to evict'),
+        expect.objectContaining({ key: 'aiq-chat-store:messages:s_huge', error: 'QuotaExceededError' })
       )
     })
+  })
 
-    test('logs in development mode', () => {
+  describe('logStorageMigration', () => {
+    test('logs in development mode only', () => {
+      vi.stubEnv('NODE_ENV', 'production')
+      logStorageMigration(3)
+      expect(consoleDebugSpy).not.toHaveBeenCalled()
+
       vi.stubEnv('NODE_ENV', 'development')
-
-      logCriticalSessionsClear('user123', ['s_test_1'], new Error('Test'))
-
-      expect(consoleErrorSpy).toHaveBeenCalled()
-    })
-  })
-
-  describe('logPruningFailure', () => {
-    test('ALWAYS logs pruning failure (even in production)', () => {
-      vi.stubEnv('NODE_ENV', 'production')
-
-      const error = new Error('Failed to prune')
-      logPruningFailure(error)
-
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Pruning failed'),
-        expect.objectContaining({
-          error: 'Failed to prune',
-        })
+      logStorageMigration(3)
+      expect(consoleDebugSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Moved 3 conversations'),
+        expect.any(Object)
       )
     })
   })
@@ -204,90 +157,6 @@ describe('storage-logger', () => {
       logStorageAvailability(true)
 
       expect(consoleWarnSpy).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('logStorageCleanup', () => {
-    test('ALWAYS logs cleanup (even in production)', () => {
-      vi.stubEnv('NODE_ENV', 'production')
-
-      const deletedSessions = ['s_old_1', 's_old_2']
-      logStorageCleanup(deletedSessions, 1.5, 4.5, 3.0)
-
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Auto-cleanup'),
-        expect.objectContaining({
-          deletedSessionIds: deletedSessions,
-          freedSpaceMB: '1.50',
-          beforeStorageMB: '4.50',
-          afterStorageMB: '3.00',
-        })
-      )
-    })
-
-    test('logs in development mode', () => {
-      vi.stubEnv('NODE_ENV', 'development')
-
-      logStorageCleanup(['s_old'], 0.5, 4.1, 3.6)
-
-      expect(consoleWarnSpy).toHaveBeenCalled()
-    })
-  })
-
-  describe('logStorageCapacity', () => {
-    test('logs capacity in development when healthy', () => {
-      vi.stubEnv('NODE_ENV', 'development')
-
-      logStorageCapacity(2.5, 5, 50, true)
-
-      expect(consoleDebugSpy).toHaveBeenCalledWith(
-        expect.stringContaining('✓ Storage'),
-        expect.any(Object)
-      )
-    })
-
-    test('logs capacity in development when unhealthy', () => {
-      vi.stubEnv('NODE_ENV', 'development')
-
-      logStorageCapacity(4.2, 5, 84, false)
-
-      expect(consoleDebugSpy).toHaveBeenCalledWith(
-        expect.stringContaining('⚠️ Storage'),
-        expect.any(Object)
-      )
-    })
-
-    test('does not log in production', () => {
-      vi.stubEnv('NODE_ENV', 'production')
-
-      logStorageCapacity(3.0, 5, 60, true)
-
-      expect(consoleDebugSpy).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('logStorageWarning', () => {
-    test('ALWAYS logs warning when over threshold', () => {
-      vi.stubEnv('NODE_ENV', 'production')
-
-      logStorageWarning(4.3, 4.0, 8)
-
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Storage approaching limit'),
-        expect.objectContaining({
-          currentStorageMB: '4.30',
-          thresholdMB: 4.0,
-          sessionCount: 8,
-        })
-      )
-    })
-
-    test('logs in development mode', () => {
-      vi.stubEnv('NODE_ENV', 'development')
-
-      logStorageWarning(4.1, 4.0, 5)
-
-      expect(consoleWarnSpy).toHaveBeenCalled()
     })
   })
 })

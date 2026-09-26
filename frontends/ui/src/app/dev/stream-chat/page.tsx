@@ -16,12 +16,14 @@
  *
  *   - `commits`: React commits under the chat, with their actual durations;
  *   - `storageWrites`: localStorage writes of the persisted chat store, which
- *     persists under its own key here so the fixture never replaces the
- *     developer's sessions;
+ *     persists under its own keys here (`aiq-chat-store:stream-chat:*`) so
+ *     the fixture never replaces the developer's sessions;
  *   - `longTasks`: main-thread tasks over 50 ms.
  *
  * `history` is the number of persisted conversations seeded beside the open
- * one (ten turns each, the recorded answer as every reply). `shell=1` mounts
+ * one (ten turns each, the recorded answer as every reply); `extras=1` gives
+ * every seeded answer the sources, cards and masthead the recorded one
+ * settled with, the weight real answers carry into storage. `shell=1` mounts
  * the whole `MainLayout` (toolbar, sessions panel, chat, composer) instead of
  * the chat and the composer alone. Development only.
  */
@@ -37,6 +39,8 @@ import { MainLayout } from '@/features/layout'
 import { useChatStore } from '@/features/chat'
 import type { ChatMessage, Conversation } from '@/features/chat/types'
 import { citationsFromWireList } from '@/features/chat/lib/wire-citation'
+import { validateGridCards } from '@/shared/cards/schemas'
+import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { STREAM_FRAMES } from '../_fixtures/stream-frames'
 
 const config: AppConfig = {
@@ -69,7 +73,21 @@ declare global {
 const HARNESS_STORAGE_KEY = 'aiq-chat-store:stream-chat'
 
 const TURN = STREAM_FRAMES.varianten
-const ANSWER = TURN.frames[TURN.frames.length - 1]?.content ?? ''
+const TERMINAL = TURN.frames[TURN.frames.length - 1]
+const ANSWER = TERMINAL?.content ?? ''
+/**
+ * What the recorded answer settled with besides its text: its sources, its
+ * cards and its masthead. A real answer carries them into storage, and they
+ * are most of its weight: forty conversations of bare text are 1.4 M
+ * characters, with these about 5 M, past the quota that used to wipe the
+ * whole history (`extras=1`).
+ */
+const ANSWER_EXTRAS: Partial<ChatMessage> = {
+  citations: citationsFromWireList(TERMINAL?.sources),
+  cards: validateGridCards(TERMINAL?.cards ?? []),
+  answerMeta: sanitizeAnswerMeta(TERMINAL?.answer_meta) ?? undefined,
+  answerConfidence: TERMINAL?.answer_confidence,
+}
 // The id `useAuth`'s no-backend fallback resolves to (`adapters/auth/use-auth.ts`).
 // Any other id is reset by `setCurrentUser` on mount, and the cross-user guard
 // then empties the open thread and the sidebar: with 'dev-user' this harness
@@ -78,7 +96,7 @@ const ANSWER = TURN.frames[TURN.frames.length - 1]?.content ?? ''
 const USER = 'default-user'
 
 /** `turns` question-and-answer pairs, every answer the recorded one. */
-const turnMessages = (prefix: string, turns: number): ChatMessage[] =>
+const turnMessages = (prefix: string, turns: number, extras: boolean): ChatMessage[] =>
   Array.from({ length: turns }, (_, i): ChatMessage[] => [
     {
       id: `${prefix}-u${i}`,
@@ -93,18 +111,23 @@ const turnMessages = (prefix: string, turns: number): ChatMessage[] =>
       content: ANSWER,
       timestamp: new Date(2026, 8, 24, 9, i, 30),
       messageType: 'assistant',
+      ...(extras ? ANSWER_EXTRAS : {}),
     },
   ]).flat()
 
-/** One seeded conversation of `turns` turns. */
-const conversation = (id: string, turns: number): Conversation => ({
+/**
+ * One seeded conversation of `turns` turns, updated `rank` minutes before
+ * the newest: the storage evicts the least recently updated first, so the
+ * seeded history must have an order.
+ */
+const conversation = (id: string, turns: number, extras: boolean, rank: number): Conversation => ({
   id,
   userId: USER,
   projectId: null,
   title: `Verlauf ${id}`,
-  messages: turnMessages(id, turns),
+  messages: turnMessages(id, turns, extras),
   createdAt: new Date(2026, 8, 24, 9),
-  updatedAt: new Date(2026, 8, 24, 9, turns),
+  updatedAt: new Date(2026, 8, 24, 10, 0 - rank),
 })
 
 /** Record every commit under a profiled subtree with its actual duration. */
@@ -114,11 +137,11 @@ const onRender =
     probe.commits.push({ id, ms: Math.round(actualDuration * 10) / 10 })
   }
 
-/** Count and time the persisted store's localStorage writes. */
+/** Count and time the persisted store's localStorage writes, one per key written. */
 const instrumentStorage = (probe: StreamChatProbe): (() => void) => {
   const original = Storage.prototype.setItem
   Storage.prototype.setItem = function (this: Storage, key: string, value: string) {
-    if (key !== HARNESS_STORAGE_KEY) return original.call(this, key, value)
+    if (!key.startsWith(HARNESS_STORAGE_KEY)) return original.call(this, key, value)
     const started = performance.now()
     original.call(this, key, value)
     probe.storageWrites += 1
@@ -178,6 +201,7 @@ export default function StreamChatPage() {
   // on its own, clear of the page's mount.
   const sendDelay = Number(params.get('delay') ?? '300') || 300
   const shell = params.get('shell') === '1'
+  const extras = params.get('extras') === '1'
   const [probe] = useState<StreamChatProbe>(() => ({
     done: false,
     sentAt: 0,
@@ -195,23 +219,23 @@ export default function StreamChatPage() {
     const previous = useChatStore.getState()
     const persistedAs = useChatStore.persist.getOptions().name
     useChatStore.persist.setOptions({ name: HARNESS_STORAGE_KEY })
-    const current = conversation('open', 6)
+    const current = conversation('open', 6, extras, 0)
     useChatStore.setState({
       currentUserId: USER,
       currentConversation: current,
       conversations: [
         current,
-        ...Array.from({ length: history }, (_, i) => conversation(`h${i}`, 10)),
+        ...Array.from({ length: history }, (_, i) => conversation(`h${i}`, 10, extras, i + 1)),
       ],
       hasHydrated: true,
     })
     setReady(true)
     return () => {
       useChatStore.setState(previous)
+      useChatStore.persist.clearStorage()
       useChatStore.persist.setOptions({ name: persistedAs })
-      localStorage.removeItem(HARNESS_STORAGE_KEY)
     }
-  }, [history])
+  }, [history, extras])
 
   useEffect(() => {
     if (!ready) return

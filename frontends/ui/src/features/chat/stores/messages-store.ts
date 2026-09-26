@@ -24,7 +24,6 @@ import { reconcileCardInteractions } from '@/features/grid-cards/card-decision'
 import { errorConcernsTheThread, getErrorMeta } from '../lib/error-registry'
 import { mergeTraceLaneCards, parseTraceLanesBlock } from '../lib/trace-lanes'
 import { useLayoutStore } from '@/features/layout/store'
-import { ensureStorageCapacity, checkStorageHealth } from '../lib/storage-manager'
 import {
   sanitizeFollowUpsStage,
   sanitizeMemoryReflectionStage,
@@ -132,8 +131,8 @@ export type MessagesSlice = {
    * Per-session composer drafts keyed by conversation id: the user's own
    * in-progress, unsent text. Unlike `composerPrefill` (one-shot, external),
    * a draft is long-lived — it survives session switches and reloads because
-   * it is persisted to the `aiq-chat-store` localStorage namespace alongside
-   * the conversations. It is a plain serialisable map (SSR-safe) and is cleared
+   * it is persisted in the chat store's localStorage index (`aiq-chat-store:index`,
+   * `stores/chat-storage.ts`), the part of storage that is never evicted. It is a plain serialisable map (SSR-safe) and is cleared
    * only on successful send or when its session is deleted. Keyed by
    * conversation id, so it is inherently project/user-scoped (a session id is
    * already scoped to one project + user) and cannot leak across contexts.
@@ -1362,21 +1361,6 @@ export const createMessagesSlice: StateCreator<
         'addAgentResponse'
       )
 
-      if (!checkStorageHealth().isHealthy) {
-        const { currentUserId } = get()
-        const cleanedUpIds = ensureStorageCapacity(currentConversation.id, currentUserId)
-        if (cleanedUpIds.length > 0) {
-          // Cleanup only edits localStorage; prune in-memory state too or the
-          // next persist write resurrects every deleted session.
-          const deleted = new Set(cleanedUpIds)
-          set(
-            (state) => ({ conversations: state.conversations.filter((c) => !deleted.has(c.id)) }),
-            false,
-            'storageCleanupPrune'
-          )
-        }
-      }
-
       get()._appendMessage(responseMessage)
     },
 
@@ -1642,21 +1626,8 @@ export const createMessagesSlice: StateCreator<
         'finalizeAgentResponse'
       )
 
-      // Mirror addAgentResponse's storage-health guard and server persistence,
-      // but run them ONCE at finalize rather than per delta.
-      if (!checkStorageHealth().isHealthy) {
-        const { currentUserId } = get()
-        const cleanedUpIds = ensureStorageCapacity(currentConversation.id, currentUserId)
-        if (cleanedUpIds.length > 0) {
-          const deleted = new Set(cleanedUpIds)
-          set(
-            (state) => ({ conversations: state.conversations.filter((c) => !deleted.has(c.id)) }),
-            false,
-            'storageCleanupPrune'
-          )
-        }
-      }
-
+      // Mirror addAgentResponse's server persistence, but ONCE at finalize
+      // rather than per delta.
       if (finalizedMessage) {
         get()._appendMessage(finalizedMessage)
         void get()._persistTurnProvenance()
