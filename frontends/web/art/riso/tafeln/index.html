@@ -987,9 +987,12 @@ const III = (() => {
   const LIFT = 3.2;                                   // centre height above the table
   const FIT = { sq: { fill: 0.78, fillH: 0.74, cx: 0.5, cy: 0.5 } };
   // twist concentrated at the back (u ≈ π/2), so the front lies flat and readable
+  // phi jumps from π back to 0 where the parameter wraps; the band itself is continuous
+  // there (flat, v reversed), so the wrap sits on a station boundary, never inside a card
+  const WRAP = Math.PI + 0.42 + 2 * (TAU + 0.28 - Math.PI - 0.42) / 5;
   const phi = (u) => {
     const a = ((u % TAU) + TAU) % TAU;
-    return Math.PI * smooth(Math.PI / 2 - 1.35, Math.PI / 2 + 1.35, a < Math.PI * 1.5 - 0.2 ? a : a - TAU);
+    return Math.PI * smooth(Math.PI / 2 - 1.35, Math.PI / 2 + 1.35, a < WRAP ? a : a - TAU);
   };
   const ct = Math.cos(TILT), st = Math.sin(TILT);
   /** band surface point: u round the band, v across it (−1 … 1) */
@@ -1068,7 +1071,7 @@ const III = (() => {
     const shp = new Path2D();
     const du = TAU / NQ;
     for (let i = 0; i < NQ; i++) {
-      const u0 = i * du, u1 = u0 + du * 1.02;
+      const u0 = WRAP + i * du, u1 = u0 + du * 1.02;
       shp.addPath(pathOf([B(u0, -1), B(u1, -1), B(u1, 1), B(u0, 1)].map((p) => P(onGround(p, SUN_SERIES, 0)))));
     }
     const sc = c.scratch;
@@ -1079,7 +1082,7 @@ const III = (() => {
     /* quads far to near; each owns its patch, then gets its marks and its edges */
     const quads = [];
     for (let i = 0; i < NQ; i++) {
-      const u0 = i * du, u1 = u0 + du;
+      const u0 = WRAP + i * du, u1 = u0 + du;
       const q = [B(u0, -1), B(u1, -1), B(u1, 1), B(u0, 1)];
       const cen = B(u0 + du / 2, 0);
       let n = (() => { const a = v3.sub(q[1], q[0]), b = v3.sub(q[3], q[0]); return v3.norm([a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]); })();
@@ -1090,21 +1093,23 @@ const III = (() => {
     const pinU = lerp(...sU(4), 0.1 + 0.0), pinV = 0.38;
     for (const qd of quads) {
       // overlap a hair so neighbouring quads leave no seam
-      const e = du * 0.06;
-      const patch = pathOf([M(qd.u0 - e, -1), M(qd.u1 + e, -1), M(qd.u1 + e, 1), M(qd.u0 - e, 1)]);
+      // overlap stops at the parameter wrap, where v flips and an overlap would cross the band
+      const e = du * 0.06, w = (x) => ((x % TAU) + TAU) % TAU;
+      const eL = w(qd.u0) >= WRAP && w(qd.u0 - e) < WRAP ? 0 : e, eR = w(qd.u1) >= WRAP && w(qd.u1 - du) < WRAP ? 0 : e;
+      const patch = pathOf([M(qd.u0 - eL, -1), M(qd.u1 + eR, -1), M(qd.u1 + eR, 1), M(qd.u0 - eL, 1)]);
       own(c, patch, { moss: clamp((0.7 - qd.l) * 0.9, 0, 0.55), mist: clamp((0.8 - qd.l) * 0.6, 0, 0.3) });
       // this patch's marks, clipped to it so nearer paper hides them
       c.g.save(); c.L.save(); c.g.clip(patch); c.L.clip(patch);
       for (const m of MK) {
         // a mark may straddle u = 2π; test it where it is and one turn back
-        const hit = [0, -TAU].some((sft) => m.b + sft >= qd.u0 - 0.1 && m.a + sft <= qd.u1 + 0.1);
+        const hit = [-TAU, 0, TAU].some((sft) => m.b + sft >= qd.u0 - 0.1 && m.a + sft <= qd.u1 + 0.1);
         if (!hit) continue;
         const path = pathOf(m.pts.map(([u, v]) => M(u, v)), false);
         if (m.fill) lineFill(c, path, m.spec); else line(c, path, m.w, m.spec);
       }
       c.g.restore(); c.L.restore();
-      line(c, pathOf([M(qd.u0 - e, -1), M(qd.u1 + e, -1)], false), 1.5, KEY);
-      line(c, pathOf([M(qd.u0 - e, 1), M(qd.u1 + e, 1)], false), 1.5, KEY);
+      line(c, pathOf([M(qd.u0 - eL, -1), M(qd.u1 + eR, -1)], false), 1.5, KEY);
+      line(c, pathOf([M(qd.u0 - eL, 1), M(qd.u1 + eR, 1)], false), 1.5, KEY);
       if (pinU >= qd.u0 && pinU < qd.u1) pin(c, P, B(pinU, pinV));
     }
   }
@@ -1112,8 +1117,8 @@ const III = (() => {
   /** A pushpin standing on the band: lime head, a short steel needle, its own small shadow. */
   function pin(c, P, at) {
     const up = [0, -st * 0.0, 1];
-    const head = v3.add(at, [0, 0, 0.55]);
-    const a = P(at), h = P(head), r = 0.26 * P.s;
+    const head = v3.add(at, [0, 0, 0.75]);
+    const a = P(at), h = P(head), r = 0.34 * P.s;
     const sh = P(onGround(head, SUN_SERIES, at[2]));
     const shp = new Path2D(); shp.moveTo(a[0], a[1]); shp.lineTo(sh[0], sh[1]);
     line(c, shp, 1.6, { mist: 0.9, moss: 0.3 });

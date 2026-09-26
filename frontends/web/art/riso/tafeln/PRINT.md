@@ -159,7 +159,39 @@ Details:
   otherwise flattens a tick into a V.
 - **Labels.** No words: text is bars. The post's diagram carries the labels.
 
+### III. Schleife (loop)
+
+The cover for "Ein System, das aus Ihrem Frust lernt". The learning loop is one strip of
+drawing paper closed with a half twist. A Möbius band has one side and no end, so a
+correction that goes all the way round comes back on the face it started from. The band
+(radius 6.4, width 2.1) is tipped 0.42 rad toward the camera and floats 3.2 above a
+table, which takes its shadow as a Mist field.
+
+- **Twist.** Concentrated at the back (`phi(u)`, a smoothstep over ±1.35 rad around
+  u = π/2), so the front lies flat and its five stations read, left to right in the
+  loop's direction:
+  1. a floor plan with a red revision cloud round one room: the thumbs-down, and the
+     plate's single red mark;
+  2. the note, with two redaction bars;
+  3. the distilled lesson, three short lines;
+  4. the audit stamp;
+  5. the lesson card, held by a lime pushpin that stands up from the band and casts its
+     own shadow.
+- **Direction.** Chevrons on the centre line give the direction all the way round,
+  through the twist.
+- **Rendering.** 260 quads, sorted far to near. Each quad owns its patch, then draws the
+  marks clipped to itself, so nearer paper hides farther marks. Faces are lit by the
+  normal that faces the camera, which darkens the underside showing in the twist.
+- **The join.** The twist parameter has to jump from π back to 0 somewhere. There the
+  band is continuous but `v` reverses, so the jump sits on a station boundary (a
+  mirrored card is the bug it caused first) and on a quad boundary (a bow-tie quad
+  notched the edge). What shows is one straight join across the strip, where a paper
+  Möbius band is glued.
+
 ## Inspected
+
+Plate III: the full frame at 720 and 1440, and a 1:1 crop of the join and the front
+stations at 1440.
 
 Plate II: the full frame at 720 and 1440, and a 1:1 crop of the index, search and check
 sheets at 1440.
@@ -192,3 +224,10 @@ every job.
     the others.
   - The ticks have a long right arm.
   - The 1440 WebP is 535 KB, because the screened fields cover most of the frame.
+- **III.**
+  - The drawing is high-key. The band is almost all stock, and only the twist's
+    underside and the table shadow carry tone, so it is the quietest plate.
+  - The station marks are small at 720: the red cloud and the pin read, the redaction
+    and the stamp only just.
+  - Chevrons turn with the band and some read as carets.
+  - The glued join is a line across the strip beside a chevron.
