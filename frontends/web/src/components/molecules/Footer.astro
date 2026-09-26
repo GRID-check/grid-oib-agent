@@ -1,6 +1,5 @@
 ---
 import Logo from '../atoms/Logo.astro'
-import Pill from '../atoms/Pill.astro'
 import { CONTACT_EMAILS, mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
@@ -87,9 +86,9 @@ const columns = [
       }
     </div>
 
-    <div
-      class="mt-8 grid grid-cols-1 items-end gap-x-10 gap-y-5 border-t border-ink/12 pt-8 sm:mt-14 sm:pt-10 lg:grid-cols-[1.6fr_3fr]"
-    >
+    <!-- The addresses are the links: a button beside them would be a third way
+         to the same two inboxes. -->
+    <div class="mt-8 border-t border-ink/12 pt-8 sm:mt-14 sm:pt-10">
       <div>
         <p class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
           {t.footer.contactHeading}
@@ -111,16 +110,6 @@ const columns = [
             ))
           }
         </ul>
-      </div>
-      <div class="flex justify-end max-lg:justify-start">
-        <Pill
-          href={mailtoHref(t.cta.subjectPilot)}
-          variant="solid"
-          size="md"
-          class="max-sm:w-full max-sm:py-3"
-        >
-          {t.footer.cta}
-        </Pill>
       </div>
     </div>
 

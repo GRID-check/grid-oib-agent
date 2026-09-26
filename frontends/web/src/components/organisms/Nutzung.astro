@@ -1,5 +1,4 @@
 ---
-import SectionTag from '../atoms/SectionTag.astro'
 import ChatMock from '../molecules/ChatMock.astro'
 import ChainStories from '../molecules/ChainStories.astro'
 import PagePrint from '../craft/PagePrint.astro'
@@ -11,11 +10,11 @@ interface Props {
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
-const [sheetNo] = t.sheets.nutzung.split(' ')
 ---
 
 <section
   id="nutzung"
+  aria-labelledby="nutzung-title"
   data-screen-label={t.sheets.nutzung}
   class="mx-auto box-border max-w-[85rem] px-2 py-9 sm:px-4 sm:py-12 lg:flex lg:min-h-screen lg:flex-col lg:justify-center lg:px-10 lg:py-24"
 >
@@ -28,8 +27,7 @@ const [sheetNo] = t.sheets.nutzung.split(' ')
              on a phone the stories are the picture, and a print would push
              them a screen down. Still, because the chain is the moment. -->
         <PagePrint name={PLATES.VI} locale={locale} size="third" still class="mb-10 max-lg:hidden" />
-        <SectionTag no={sheetNo} class="mb-5">{t.nutzung.tag}</SectionTag>
-        <h2 class="m-0 mb-5 font-voice text-v4 sm:mb-6" style="text-wrap: balance">
+        <h2 id="nutzung-title" class="m-0 mb-5 font-voice text-v4 sm:mb-6" style="text-wrap: balance">
           {t.nutzung.title}
         </h2>
         <p class="m-0 mb-8 text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">

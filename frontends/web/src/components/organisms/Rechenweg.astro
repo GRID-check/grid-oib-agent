@@ -1,5 +1,4 @@
 ---
-import SectionTag from '../atoms/SectionTag.astro'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
 import { computeRoi, RESEARCH_SHARE, ROI_DEFAULTS, TIME_SAVED, WEEK_HOURS } from '../../lib/roi'
@@ -84,13 +83,9 @@ const legend: Origin[] = ['ours', 'yours', 'price']
 <section class="mx-auto box-border max-w-[85rem] px-2 pb-16 pt-24 sm:px-10 sm:pb-28 sm:pt-32">
   <div class="box-border rounded-panel bg-paper px-5 py-12 shadow-card ring-1 ring-ink/8 sheet-light sm:px-16 sm:py-20">
     <div data-reveal class="mb-10 max-w-2xl sm:mb-12">
-      <SectionTag no="A" class="mb-5">{r.tag}</SectionTag>
-      <h1 class="m-0 mb-5 font-voice text-v3 text-panel" style="text-wrap: balance">
+      <h1 class="m-0 font-voice text-v3 text-panel" style="text-wrap: balance">
         {r.title}
       </h1>
-      <p class="m-0 text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">
-        {r.intro}
-      </p>
       <!-- The script rewrites the link with the office it painted, so "change
            the numbers" returns the visitor to their own sliders. -->
       <p class="m-0 mt-6 border-t border-ink/15 pt-5 text-base text-ink-mute sm:text-sm">

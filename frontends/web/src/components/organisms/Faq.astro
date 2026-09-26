@@ -6,7 +6,6 @@
  * The same items feed the FAQPage JSON-LD here and /llms-full.txt, through
  * `faqItems()`.
  */
-import SectionTag from '../atoms/SectionTag.astro'
 import { ui, type Locale } from '../../i18n/ui'
 import { faqItems, faqPageLd, ldJson } from '../../lib/seo'
 
@@ -16,7 +15,6 @@ interface Props {
 const { locale = 'de' } = Astro.props
 const t = ui[locale].faq
 const sheet = ui[locale].sheets.faq
-const [sheetNo] = sheet.split(' ')
 const items = faqItems(locale)
 ---
 
@@ -28,7 +26,6 @@ const items = faqItems(locale)
 >
   <div class="grid grid-cols-1 items-start gap-y-8 lg:grid-cols-[5fr_7fr] lg:gap-x-16">
     <div data-reveal>
-      <SectionTag no={sheetNo} class="mb-5">{t.tag}</SectionTag>
       <h2 id="faq-title" class="m-0 font-voice text-v2 text-panel" style="text-wrap: balance">
         {t.title}
       </h2>

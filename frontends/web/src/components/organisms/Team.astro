@@ -1,6 +1,5 @@
 ---
 import { Image } from 'astro:assets'
-import SectionTag from '../atoms/SectionTag.astro'
 import TapedPrint from '../craft/TapedPrint.astro'
 import { TRAGWERK } from '../craft/plates'
 import { founders } from '../../data/founders'
@@ -11,7 +10,6 @@ interface Props {
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
-const [sheetNo] = t.sheets.team.split(' ')
 
 // Each founder is a small print taped to the sheet, in the site's duotone
 // (see scripts/build-team-photos.mjs). A founder without a photo is drawn the
@@ -50,28 +48,12 @@ const people = founders.map((f, i) => {
     />
 
     <div data-reveal class="lg:col-start-1 lg:row-start-1">
-      <SectionTag no={sheetNo} class="mb-5">{t.team.tag}</SectionTag>
       <h2 class="m-0 mb-5 font-voice text-v2 text-panel sm:mb-6" style="text-wrap: balance">
         {t.team.title}
       </h2>
       <p class="m-0 max-w-[34rem] text-base leading-relaxed text-ink-soft sm:text-lg" style="text-wrap: pretty">
         {t.team.body}
       </p>
-
-      <!-- Where the project stands, stated the way the footer's title block
-           states the sheet: three cells, no adjectives. -->
-      <dl class="m-0 mt-8 grid max-w-[34rem] grid-cols-3 border-y border-ink/12">
-        {
-          t.team.facts.map((f) => (
-            <div class="border-l border-ink/12 px-3 py-3 first:border-l-0 first:pl-0">
-              <dt class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
-                {f.label}
-              </dt>
-              <dd class="m-0 mt-1 text-sm leading-snug text-panel">{f.value}</dd>
-            </div>
-          ))
-        }
-      </dl>
     </div>
 
     <!-- A list on a phone, three sheets side by side from `sm` up. -->

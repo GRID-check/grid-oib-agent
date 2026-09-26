@@ -189,19 +189,17 @@ const de = {
     },
   },
   nutzung: {
-    tag: 'Nutzung',
     title: 'Zu jeder Planungsaufgabe das passende Wissen.',
     body: 'Sie entwerfen, Piloti liefert den Kontext: die Vorschrift, die greift, die Erfahrung aus Ihren früheren Projekten und die Auflagen Ihres Grundstücks. Die Entscheidung treffen Sie.',
     // Measured: the median chat answer takes about 30 seconds.
     big: '≈\u202f30\u00a0s',
-    sub: 'gemessene typische Antwortzeit, mit Verweis auf Paragraf, Richtlinie und Herleitung.',
+    sub: 'gemessene typische Antwortzeit',
   },
   daten: {
-    tag: 'Quellen und Daten',
     title: 'Quellen, die Sie prüfen können.',
-    body: 'Jede Antwort nennt ihre Quellen, bis auf Paragraf, Punkt oder Seite. Die Verantwortung für die Planung bleibt bei Ihnen.',
-    // Heads the list of sources, in the voice of the sheet's own headings.
-    sourcesHeading: 'Worauf Piloti sich stützt',
+    body: 'Die Verantwortung für die Planung bleibt bei Ihnen.',
+    // The list's accessible name; the heading above says the rest.
+    sourcesLabel: 'Worauf Piloti sich stützt',
     // Only sources the product actually has. There is no material or CO₂
     // database, so there is no card for one.
     cards: [
@@ -211,7 +209,6 @@ const de = {
       { title: 'Web-Recherche', body: 'Aktuelle Quellen, jede mit Link belegt' },
     ],
     proof: {
-      tag: 'Prüfblatt',
       answerHeading: 'Zu jeder Antwort',
       answer: [
         { label: 'Begründung', value: 'warum die Antwort so lautet' },
@@ -223,20 +220,16 @@ const de = {
       // No residency promise of any kind: model calls may leave the EU. What
       // is stated here is what Piloti itself controls.
       data: [
-        { label: 'KI-Training', value: 'Wir trainieren keine Modelle mit Ihren Daten' },
-        { label: 'Pläne und Projekte', value: 'Bleiben Eigentum Ihres Büros' },
-        { label: 'KI-Modelle', value: 'Anbieter in der Datenschutzerklärung genannt' },
-        { label: 'Downloads', value: 'Dokumente und Antworten einzeln herunterladbar' },
+        'Wir trainieren keine Modelle mit Ihren Daten.',
+        'Pläne und Projekte bleiben Eigentum Ihres Büros.',
+        'Dokumente und Antworten laden Sie einzeln herunter.',
       ],
-      link: 'In der Datenschutzerklärung nachlesen',
+      link: 'Welche KI-Anbieter beteiligt sind, steht in der Datenschutzerklärung',
     },
   },
   roi: {
-    tag: 'Wert',
     title: 'Rechnen Sie selbst nach.',
     body: 'Wir nehmen an, dass rund 30\u00a0% einer Planungswoche in die Suche gehen, nach Normen, Vorprojekten und Kennwerten, und dass Piloti davon 40\u00a0% zurückgibt. Gemessen hat das noch niemand. Setzen Sie Ihr Büro und einen Beispielpreis ein und sehen Sie, was die Annahme wert wäre.',
-    badge: 'Beispielrechnung',
-    inputsLabel: 'Ihr Büro',
     fields: {
       seats: 'Planer:innen mit Piloti',
       salary: 'Durchschnittliches Bruttojahresgehalt',
@@ -244,7 +237,6 @@ const de = {
     },
     stepDown: 'Einen Platz weniger',
     stepUp: 'Einen Platz mehr',
-    priceNote: 'Nur zum Durchspielen. Piloti hat noch keine Preisliste, dieser Preis ist kein Angebot.',
     salaryNote: 'je Person, mit 13. und 14. Gehalt, ohne Lohnnebenkosten',
     claimsLabel: 'Unsere Annahmen',
     claims: {
@@ -252,21 +244,16 @@ const de = {
       research: 'Anteil Recherche',
       saved: 'Davon gibt Piloti zurück',
     },
-    claimsNote: 'Annahmen, keine Messwerte aus Kundenprojekten.',
     resultLabel: 'Jahreswert · Beispiel',
     resultNote: 'netto nach Beispielpreis, für Ihr ganzes Büro, wenn die Annahmen zutreffen',
     metrics: {
       hours: 'Zurückgewonnene Zeit',
       payback: 'Amortisiert nach',
-      paybackNote: 'danach trägt sich jeder Platz selbst',
       ratio: 'Wert je Euro',
-      ratioNote: 'Wert je 1\u00a0€ zum Beispielpreis',
     },
     footnote:
       'Eine Beispielrechnung aus unseren Annahmen, Ihren Zahlen und einem Beispielpreis. Kein Angebot und keine Zusage. Jeder Schritt steht im',
     footnoteLink: 'ganzen Rechenweg',
-    cta: 'Zahlen gemeinsam durchgehen',
-    subject: 'ROI-Rechnung',
     units: {
       hours: '{value}\u00a0h/Jahr',
       hoursPlain: '{value}\u00a0h',
@@ -288,10 +275,7 @@ const de = {
   },
   rechenweg: {
     back: 'Zahlen ändern',
-    tag: 'Rechenweg',
     title: 'Die ganze Rechnung, offen.',
-    intro:
-      'Eine Zahl mit Nachkommastelle ist noch kein Argument. Deshalb steht hier jeder Schritt, der zu ihr führt, samt der Stellen, an denen wir etwas annehmen, statt es zu wissen.',
     origins: {
       ours: 'Annahme',
       yours: 'Ihre Zahl',
@@ -341,39 +325,23 @@ const de = {
       },
     ],
     honesty:
-      'Diese Zahlen sind Annahmen, keine Messwerte aus Kundenprojekten. Gemessen hat das noch niemand. Auch der Preis ist ein Beispiel, kein Angebot. Alles steht hier offen, damit Sie es durch Ihre eigenen Zahlen ersetzen können. Liegt Ihre Recherchezeit bei 20\u00a0%, halbiert sich der Wert je Platz fast.',
+      'Diese Zahlen sind Annahmen, keine Messwerte aus Kundenprojekten. Auch der Preis ist ein Beispiel, kein Angebot. Liegt Ihre Recherchezeit bei 20\u00a0%, halbiert sich der Wert je Platz fast.',
   },
   team: {
-    tag: 'Team',
     title: 'Drei Gründer, ein Ziel: Wissen dort, wo geplant wird.',
-    body: 'Piloti ist in Gründung. Bis zur Eintragung arbeiten wir auf Basis einer Absichtserklärung (Letter of Intent) zusammen. Und wir suchen Pilotbüros, die mitentwickeln.',
+    body: 'Piloti ist in Gründung. Bis zur Eintragung arbeiten wir auf Basis einer Absichtserklärung (Letter of Intent) zusammen.',
     listLabel: 'Die Gründer',
-    facts: [
-      { label: 'Ort', value: 'Wien' },
-      { label: 'Stand', value: 'Pilotphase' },
-      { label: 'Form', value: 'in Gründung' },
-    ],
   },
   cta: {
-    tag: 'Kontakt',
     title: 'Werden Sie Pilotbüro.',
-    body: 'Wir entwickeln Piloti gemeinsam mit wenigen Büros, die früh dabei sein wollen.',
-    getsLabel: 'Sie bekommen',
-    gets: [
-      'Frühen Zugang zu Piloti',
-      'Einen direkten Draht zu uns Gründern',
-      'Einfluss darauf, was als Nächstes gebaut wird',
-    ],
-    givesLabel: 'Sie geben',
-    gives: ['Ehrliches Feedback', 'Echte Planungsfragen aus Ihrem Büroalltag'],
+    body: 'Wir entwickeln Piloti mit wenigen Büros. Sie bekommen früh Zugang, einen direkten Draht zu uns Gründern und Einfluss darauf, was wir als Nächstes bauen. Wir bekommen Ihre Planungsfragen aus dem Büroalltag und ehrliches Feedback.',
     primary: 'Pilotbüro werden',
     secondary: 'Gespräch anfragen',
     subjectPilot: 'Pilotbüro',
     subjectCall: 'Gespräch',
-    direct: 'Oder schreiben Sie direkt an',
   },
   chat: {
-    header: 'Piloti · Entscheidungskette',
+    header: 'Piloti',
     fictional: 'Fiktives Beispiel',
     questionLabel: 'Frage',
     sourcesLabel: 'Quellen',
@@ -441,7 +409,6 @@ const de = {
   // fictional example, not quotations.
   stories: {
     region: 'Entscheidungskette, fiktives Beispiel',
-    intro: 'Eine Frage aus dem Büroalltag und wie Piloti sie beantwortet. In vier Schritten.',
     leads: [
       'Sie fragen, wie Sie eine Kollegin fragen würden.',
       'Piloti findet die Stellen, die gelten: im Baurecht und in Ihren Plänen.',
@@ -456,7 +423,6 @@ const de = {
     play: 'Abspielen',
     replay: '↻ Nochmal',
     flipHint: 'Karte antippen: Auszug',
-    nextHint: 'Weiter: wischen oder ›',
     context: [
       ['Projekt', 'Wohnbau, Wien 1030'],
       ['Gebäudeklasse', 'GK\u00a04'],
@@ -485,7 +451,6 @@ const de = {
     legalHeading: 'Rechtliches',
     contactHeading: 'Kontakt',
     contactBody: 'Fragen, Einwände oder Interesse an der Pilotphase?',
-    cta: 'Schreiben Sie uns',
     usage: 'Nutzung',
     data: 'Quellen und Daten',
     value: 'Wertrechner',
@@ -509,16 +474,11 @@ const de = {
   // src/lib/categories.ts, next to their ids, because the content schema and
   // the CMS read them too.
   blog: {
-    tag: 'Blog',
     heading: 'Aus dem Büro und von der Baustelle.',
-    intro:
-      'Zwei Stränge: Im Journal schreiben wir für Architektur- und Planungsbüros. Im Bautagebuch halten wir fest, wie Piloti entsteht, Eintrag für Eintrag.',
     filterLabel: 'Beiträge nach Kategorie',
     filterAll: 'Alle',
     categoryLabel: 'Kategorie',
     entry: 'Eintrag',
-    logProject: 'Projekt',
-    logEntries: 'Einträge',
     empty: 'Noch keine Beiträge. Der erste Artikel ist in Arbeit.',
     readMore: 'Weiterlesen →',
     allPosts: '← Alle Beiträge',
@@ -527,16 +487,12 @@ const de = {
   // src/data/changelog.json, generated from releasenotes/notes/ on merge — see
   // docs/contributing/release-notes.md. Only the page chrome is translated here.
   changelog: {
-    tag: 'Neuerungen',
     heading: 'Was sich in Piloti getan hat.',
-    intro:
-      'Jede Änderung, die Sie in der Anwendung bemerken: neue Funktionen, Verbesserungen, behobene Fehler. Neueste zuerst.',
     empty: 'Noch keine Einträge. Die erste Änderung erscheint hier, sobald sie ausgeliefert ist.',
     unreleased: 'In Kürze',
     versionLabel: 'Version',
     olderHeading: 'Frühere Neuerungen',
     buildHeading: 'Bauverlauf',
-    buildNote: 'Piloti wächst Woche für Woche. Jeder Druck steht für eine Woche, rot umrandet ist, was dazukam.',
     weekShort: 'KW\u00a0{n}',
     monthCount: '{count} Wochen',
     monthCountOne: '1 Woche',
@@ -546,10 +502,8 @@ const de = {
     body: 'Die gesuchte Seite existiert nicht oder wurde verschoben.',
     home: 'Zur Startseite',
     blog: 'Zum Blog',
-    contact: 'Kontakt',
   },
   legal: {
-    tag: 'Rechtliches',
     emailLabel: 'E-Mail',
     updated: 'Stand: September 2026',
     impressum: {
@@ -775,18 +729,16 @@ const en: typeof de = {
     },
   },
   nutzung: {
-    tag: 'Usage',
     title: 'The right knowledge for every planning task.',
     body: 'You design, Piloti supplies the context: the regulation that applies, the experience from your past projects and the conditions on your plot. The decision stays yours.',
     big: '≈\u202f30\u00a0s',
-    sub: 'measured typical response time, with references to the clause, the guideline and the derivation.',
+    sub: 'measured typical response time',
   },
   daten: {
-    tag: 'Sources and data',
     title: 'Sources you can check.',
-    body: 'Every answer names its sources, down to the section, clause or page. Responsibility for the design stays with you.',
-    // Heads the list of sources, in the voice of the sheet's own headings.
-    sourcesHeading: 'What Piloti draws on',
+    body: 'Responsibility for the design stays with you.',
+    // The list's accessible name; the heading above says the rest.
+    sourcesLabel: 'What Piloti draws on',
     cards: [
       { title: 'Regulations', body: 'State building codes, OIB guidelines, a register of standards' },
       { title: 'Your office', body: 'Plans, documents, experience from past projects' },
@@ -794,7 +746,6 @@ const en: typeof de = {
       { title: 'Web research', body: 'Current sources, each backed by a link' },
     ],
     proof: {
-      tag: 'Check sheet',
       answerHeading: 'With every answer',
       answer: [
         { label: 'Reasoning', value: 'why the answer is what it is' },
@@ -804,20 +755,16 @@ const en: typeof de = {
       ],
       dataHeading: 'With your data',
       data: [
-        { label: 'AI training', value: 'We do not train models on your data' },
-        { label: 'Plans and projects', value: 'Remain the property of your office' },
-        { label: 'AI models', value: 'Providers named in the privacy policy' },
-        { label: 'Downloads', value: 'Documents and answers downloadable one by one' },
+        'We do not train models on your data.',
+        'Plans and projects remain the property of your office.',
+        'You download documents and answers one by one.',
       ],
-      link: 'Read it in the privacy policy',
+      link: 'Which AI providers are involved is set out in the privacy policy',
     },
   },
   roi: {
-    tag: 'Value',
     title: 'Do the maths yourself.',
     body: 'We assume that around 30% of a planning week goes into searching, for codes, past projects and reference values, and that Piloti gives 40% of that back. Nobody has measured this yet. Put in your office and an example price and see what the assumption would be worth.',
-    badge: 'Example calculation',
-    inputsLabel: 'Your office',
     fields: {
       seats: 'Planners using Piloti',
       salary: 'Average gross annual salary',
@@ -825,7 +772,6 @@ const en: typeof de = {
     },
     stepDown: 'One seat fewer',
     stepUp: 'One seat more',
-    priceNote: 'Only for trying things out. Piloti has no price list yet, and this price is not an offer.',
     salaryNote: 'per person, including 13th and 14th salaries, excluding employer on-costs',
     claimsLabel: 'Our assumptions',
     claims: {
@@ -833,21 +779,16 @@ const en: typeof de = {
       research: 'Share spent searching',
       saved: 'Of that, Piloti gives back',
     },
-    claimsNote: 'Assumptions, not measurements from customer projects.',
     resultLabel: 'Annual value · example',
     resultNote: 'net of the example price, across your whole office, if the assumptions hold',
     metrics: {
       hours: 'Time recovered',
       payback: 'Pays for itself in',
-      paybackNote: 'after that every seat carries itself',
       ratio: 'Value per euro',
-      ratioNote: 'value per €1 at the example price',
     },
     footnote:
       'An example calculation from our assumptions, your numbers and an example price. Not an offer and not a promise. Every step is laid out in',
     footnoteLink: 'the full working',
-    cta: 'Walk through the numbers with us',
-    subject: 'ROI calculation',
     units: {
       hours: '{value}\u00a0h/year',
       hoursPlain: '{value}\u00a0h',
@@ -869,10 +810,7 @@ const en: typeof de = {
   },
   rechenweg: {
     back: 'Change the numbers',
-    tag: 'The maths',
     title: 'The whole calculation, in the open.',
-    intro:
-      'A figure with a decimal point is not yet an argument. So every step behind it is written out here, including the places where we assume something rather than know it.',
     origins: {
       ours: 'Assumed',
       yours: 'Yours',
@@ -922,39 +860,23 @@ const en: typeof de = {
       },
     ],
     honesty:
-      'These are assumptions, not measurements from customer projects. Nobody has measured this yet. The price is an example too, not an offer. It is all in the open so you can replace it with your own numbers. If your search time is 20%, the value per seat nearly halves.',
+      'These are assumptions, not measurements from customer projects. The price is an example too, not an offer. If your search time is 20%, the value per seat nearly halves.',
   },
   team: {
-    tag: 'Team',
     title: 'Three founders, one aim: knowledge where the planning happens.',
-    body: 'Piloti is still being founded. Until it is registered, we work together under a letter of intent. And we are looking for pilot offices to build it with us.',
+    body: 'Piloti is still being founded. Until it is registered, we work together under a letter of intent.',
     listLabel: 'The founders',
-    facts: [
-      { label: 'Place', value: 'Vienna' },
-      { label: 'Stage', value: 'Pilot phase' },
-      { label: 'Form', value: 'Being founded' },
-    ],
   },
   cta: {
-    tag: 'Contact',
     title: 'Become a pilot office.',
-    body: 'We are building Piloti together with a small number of offices that want to be in early.',
-    getsLabel: 'You get',
-    gets: [
-      'Early access to Piloti',
-      'A direct line to us, the founders',
-      'A say in what gets built next',
-    ],
-    givesLabel: 'You give',
-    gives: ['Honest feedback', 'Real planning questions from your office'],
+    body: 'We are building Piloti with a small number of offices. You get early access, a direct line to us founders and a say in what we build next. We get the planning questions from your working day, and honest feedback.',
     primary: 'Become a pilot office',
     secondary: 'Request a call',
     subjectPilot: 'Pilot office',
     subjectCall: 'Call',
-    direct: 'Or write directly to',
   },
   chat: {
-    header: 'Piloti · Decision chain',
+    header: 'Piloti',
     fictional: 'Fictional example',
     questionLabel: 'Question',
     sourcesLabel: 'Sources',
@@ -1018,7 +940,6 @@ const en: typeof de = {
   },
   stories: {
     region: 'Decision chain, fictional example',
-    intro: 'A question from everyday office work, and how Piloti answers it. In four steps.',
     leads: [
       'You ask, the way you would ask a colleague.',
       'Piloti finds the provisions that apply, in building law and in your drawings.',
@@ -1033,7 +954,6 @@ const en: typeof de = {
     play: 'Play',
     replay: '↻ Again',
     flipHint: 'Tap a card: excerpt',
-    nextHint: 'Next: swipe or ›',
     context: [
       ['Project', 'Housing, Vienna 1030'],
       ['Building class', 'GK\u00a04'],
@@ -1062,7 +982,6 @@ const en: typeof de = {
     legalHeading: 'Legal',
     contactHeading: 'Contact',
     contactBody: 'Questions, objections, or interested in the pilot phase?',
-    cta: 'Write to us',
     usage: 'Usage',
     data: 'Sources and data',
     value: 'Value calculator',
@@ -1081,31 +1000,22 @@ const en: typeof de = {
     ],
   },
   blog: {
-    tag: 'Blog',
     heading: 'From the office and from the site.',
-    intro:
-      'Two strands: in the Journal we write for architecture and planning offices. In the build log we record how Piloti comes together, entry by entry.',
     filterLabel: 'Posts by category',
     filterAll: 'All',
     categoryLabel: 'Category',
     entry: 'Entry',
-    logProject: 'Project',
-    logEntries: 'Entries',
     empty: 'No posts yet. The first article is in the works.',
     readMore: 'Read on →',
     allPosts: '← All posts',
   },
   changelog: {
-    tag: 'What’s new',
     heading: 'What has changed in Piloti.',
-    intro:
-      'Every change you can notice in the product: new features, improvements, fixes. Newest first.',
     empty: 'Nothing here yet. The first change appears the day it ships.',
     unreleased: 'Coming up',
     versionLabel: 'Version',
     olderHeading: 'Earlier changes',
     buildHeading: 'Construction log',
-    buildNote: 'Piloti grows week by week. Each print is one week; the red outline marks what was added.',
     weekShort: 'Week\u00a0{n}',
     monthCount: '{count} weeks',
     monthCountOne: '1 week',
@@ -1115,10 +1025,8 @@ const en: typeof de = {
     body: 'The page you are looking for does not exist or has been moved.',
     home: 'Back to the homepage',
     blog: 'Read the blog',
-    contact: 'Contact',
   },
   legal: {
-    tag: 'Legal',
     emailLabel: 'Email',
     updated: 'Last updated: September 2026',
     impressum: {

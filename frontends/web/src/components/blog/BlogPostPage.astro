@@ -7,7 +7,6 @@
 import { render } from 'astro:content'
 import { Image, getImage } from 'astro:assets'
 import BaseLayout from '../../layouts/BaseLayout.astro'
-import SectionTag from '../atoms/SectionTag.astro'
 import BlogCard from '../molecules/BlogCard.astro'
 import BuildLog from './BuildLog.astro'
 import CategoryChip from './CategoryChip.astro'
@@ -80,20 +79,17 @@ const jsonLd = postLd({
       >
         {t.allPosts}
       </a>
-      <div class="mt-5">
-        {
-          /* A build-log post carries its entry number the way a section
-             carries its sheet number. */
-          category === 'bautagebuch' && number ? (
-            <SectionTag no={String(number).padStart(2, '0')}>{t.entry}</SectionTag>
-          ) : (
-            <SectionTag>{t.tag}</SectionTag>
-          )
-        }
-      </div>
       <h1 class="mt-5 break-words font-voice text-v2 text-ink">{title}</h1>
       <p class="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
         <CategoryChip category={category} locale={locale} href={blogPath(locale, category)} />
+        {
+          /* A build-log post carries its entry number, as a diary page does. */
+          category === 'bautagebuch' && number ? (
+            <span class="font-mono text-2xs uppercase tracking-label text-ink-mute">
+              {t.entry} {String(number).padStart(2, '0')}
+            </span>
+          ) : null
+        }
         <time
           datetime={pubDate.toISOString()}
           class="font-mono text-2xs uppercase tracking-label text-ink-mute"
@@ -159,8 +155,7 @@ const jsonLd = postLd({
                 posts={more}
                 numbers={numbers}
                 locale={locale}
-                titleAs="div"
-                total={inCategory.length}
+                titleAs="none"
                 viewAll
               />
             </div>
