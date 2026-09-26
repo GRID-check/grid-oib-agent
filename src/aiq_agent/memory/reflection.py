@@ -225,44 +225,47 @@ REFLECTION_SYSTEM_PROMPT = (
 
 #: The technical-record slot: ``status:decision:memory_reflection``.
 REFLECTION_DECISION_SLOT = "memory_reflection"
-#: Below this p(durable) the reflection call is skipped. Measured 2026-09-25 on
+#: At or above this p(nothing about this project) the reflection call is
+#: skipped. The question is asked the way round the skip needs it, so the
+#: skip, like every decision here, acts at 0.8 (2026-09-26). Measured on
 #: sixteen German project exchanges, labelled by hand and by the reflection
-#: call itself (which agreed on all sixteen): every exchange that produced a
-#: finding scored 0.45-0.94; seven of nine that produced none scored
-#: 0.03-0.16, the other two 0.31-0.35 (a bare follow-up) and 0.72 (a model
-#: measurement). 0.3 skips those seven and loses none, 0.15 below the lowest
-#: finding; not higher, because the follow-up sits just above it and a wrong
-#: skip loses a memory row.
-REFLECTION_SKIP_THRESHOLD = 0.3
+#: call itself (which agreed on all sixteen), two runs: every exchange that
+#: produced a finding scored at most 0.42; eight of the nine that produced
+#: none scored 0.8 or above — the regulation lookups once the criteria say
+#: that naming a Gebäudeklasse or a Land in a general question is not a fact
+#: about this project (0.56-0.65 before). The ninth, a value read from the
+#: model, reflects as before.
+REFLECTION_SKIP_THRESHOLD = 0.8
 _DECISION_ANSWER_CHARS = 1500
 
-_DURABLE_QUESTION = (
-    "Does this exchange establish something about THIS specific project that should be remembered "
-    "for future conversations?"
+_NOTHING_QUESTION = (
+    "Is there nothing in this exchange worth remembering about THIS specific project for future conversations?"
 )
-_DURABLE_TRUE = (
-    "The user states or the answer concludes a fact, decision, constraint, open question, correction or "
-    "preference about this project: its location, use, size, class, materials, agreements, authority "
-    "requirements or how to work on it."
+_NOTHING_TRUE = (
+    "The user asks what a regulation, standard or authority generally requires — a value, a class, a list of "
+    "documents, a definition — and the answer states it, even when it names a Gebäudeklasse, a Land or a "
+    "number. Or it is a value read from the building model, small talk, thanks, or a short follow-up. Nothing "
+    "new about this particular project is said."
 )
-_DURABLE_FALSE = (
-    "The exchange is general building-code knowledge, a definition, a lookup of what a regulation says, "
-    "a measurement read from the model, small talk, or a follow-up that adds nothing about the project."
+_NOTHING_FALSE = (
+    "The user tells something about this particular project — where it is, what it will be, what was decided "
+    "or agreed, what an authority required of it, what is still open, what changed, how they want to work — or "
+    "the answer concludes a fact about this project from its own data."
 )
 
 
-async def durable_probability(query: str, answer: str, *, organization_id: str | None) -> float | None:
-    """p(the exchange establishes something about this project), or ``None`` when no decision ran."""
+async def nothing_durable_probability(query: str, answer: str, *, organization_id: str | None) -> float | None:
+    """p(the exchange says nothing new about this project), or ``None`` when no decision ran."""
     from aiq_agent.common.decisions import decide
     from aiq_agent.common.decisions import noul
 
     decision = await decide(
         {"question": query.strip()[:_MAX_QUERY_CHARS], "answer": answer.strip()[:_DECISION_ANSWER_CHARS]},
-        {"durable": noul(_DURABLE_QUESTION, true=_DURABLE_TRUE, false=_DURABLE_FALSE)},
+        {"nothing": noul(_NOTHING_QUESTION, true=_NOTHING_TRUE, false=_NOTHING_FALSE)},
         slot=REFLECTION_DECISION_SLOT,
         organization_id=organization_id,
     )
-    return decision.noul("durable") if decision is not None else None
+    return decision.noul("nothing") if decision is not None else None
 
 
 def _build_user_prompt(query: str, answer: str, memory_digest: str | None) -> str:

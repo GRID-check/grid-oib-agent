@@ -76,14 +76,14 @@ KNOWLEDGE_SEARCH = "knowledge_search"
 #: note, rewrite and e-mail requests) at 0.03-0.24, the 35 loop-eval and
 #: follow-up questions at 0.70-0.98 (standalone 0.82-0.98), so 0.6 sits in
 #: the gap with room on both sides.
-NEEDS_EVIDENCE_THRESHOLD = 0.6
+NEEDS_EVIDENCE_THRESHOLD = 0.8
 #: A family is prefetched at or above this; the top ``MAX_FAMILY_PREFETCH``.
 #: Measured, not guessed: on the 27 loop-eval questions (2026-09-22,
 #: ``tests/fixtures/herleitung/decision_eval_2026-09-22.csv``) the expected
 #: family's probability ran 0.54-0.97 and no Bauordnung row's top family
 #: passed 0.49, so 0.5 is recall 1.0 at precision 1.0 where 0.6 lost two
 #: rows. Re-run ``task be:eval:decisions`` before moving it.
-FAMILY_THRESHOLD = 0.5
+FAMILY_THRESHOLD = 0.8
 MAX_FAMILY_PREFETCH = 2
 #: A card type gets its shape attached at or above this; the top ``MAX_CARD_SHAPES``.
 #: 0.7, not 0.6: on the 2026-09-25 run ``norm_chain`` scored 0.60-0.69 on nine
@@ -91,14 +91,14 @@ MAX_FAMILY_PREFETCH = 2
 #: the picks that named the answer's shape (a guardrail check, a checklist of
 #: Unterlagen, two variants side by side) scored 0.73-0.87. Each attached
 #: shape is tokens on every call of the turn.
-CARD_THRESHOLD = 0.7
+CARD_THRESHOLD = 0.8
 MAX_CARD_SHAPES = 2
 #: The chosen corpus must reach this before its prefetch runs. Every
 #: regulation question chose ``baurecht`` at 0.94-1.00 on the 2026-09-25 run;
 #: the one row below 0.7 was a folder listing („Was liegt im Ordner
 #: Brandschutz?", ``projekt`` 0.34), which ``surface_documents`` answers and a
 #: search of the question does not.
-CORPUS_THRESHOLD = 0.7
+CORPUS_THRESHOLD = 0.8
 #: A skill's body and shapes ride the turn when the choice lands on it at
 #: this probability AND its own "fits" noul clears ``SKILL_FIT_THRESHOLD``.
 #: The choice carries the decision; the fit only vetoes a name-match — a
@@ -110,11 +110,11 @@ CORPUS_THRESHOLD = 0.7
 #: and „Was liegt im Ordner Brandschutz?" (0.06), both about a project file,
 #: fell below 0.2. Asked alone over six such traps the fit stayed at or
 #: below 0.13.
-SKILL_THRESHOLD = 0.6
+SKILL_THRESHOLD = 0.8
 SKILL_FIT_THRESHOLD = 0.2
 #: Below this p(self_contained) the message itself is not searched.
 #: Standalone questions 0.71-0.95, follow-ups 0.02-0.25 (2026-09-25).
-SELF_CONTAINED_THRESHOLD = 0.6
+SELF_CONTAINED_THRESHOLD = 0.8
 #: How many card shapes the turn may attach in all (skill's plus the nouls').
 MAX_ATTACHED_SHAPES = 5
 
@@ -151,7 +151,8 @@ FAMILY_SCOPE: Mapping[str, str] = {
     ),
     "3": (
         "OIB-Richtlinie 3 — hygiene, health and environmental protection: Belichtung, Belüftung, "
-        "daylight, ventilation, sanitary rooms, water, moisture, radon, waste."
+        "daylight, ventilation, sanitary rooms, water, moisture and protection against ground moisture "
+        "(Feuchtigkeit, erdberührte Bauteile, Abdichtung), radon, waste."
     ),
     "4": (
         "OIB-Richtlinie 4 — safety in use and accessibility: Nutzungssicherheit, Barrierefreiheit, "
@@ -160,7 +161,8 @@ FAMILY_SCOPE: Mapping[str, str] = {
     "5": "OIB-Richtlinie 5 — sound insulation: Schallschutz, airborne and impact sound, Luftschall, Trittschall.",
     "6": (
         "OIB-Richtlinie 6 — energy saving and thermal insulation: Wärmeschutz, Energieausweis, U-Werte, "
-        "heating demand, thermal envelope."
+        "heating demand, thermal envelope, and summer overheating protection (sommerlicher Wärmeschutz, "
+        "Überwärmung, Verglasung, Sonnenschutz)."
     ),
 }
 
@@ -269,8 +271,12 @@ def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
     for family in facts.families:
         scope = FAMILY_SCOPE.get(str(family.key), family.label)
         questions[f"family_{family.key}"] = noul(
-            f"Does answering this message require reading {family.label}?",
-            true=f"The message is about the subject of this Richtlinie. {scope}",
+            f"Is this message about the subject {family.label} regulates?",
+            true=(
+                f"The message asks about this Richtlinie itself, or about something it sets requirements for: "
+                f"{scope} A question that names a Gebäudeklasse, a value or a building element in this subject "
+                "counts."
+            ),
             false="The message is about another subject, another regulation, or needs no regulation.",
         )
     for card_type, doc in facts.card_types:
@@ -281,7 +287,11 @@ def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
         )
     questions["self_contained"] = noul(
         "Can this message be searched for on its own, without the previous message, and still find what it asks about?",
-        true=("The message names its own subject: the rule, the document, the element, the value it asks about."),
+        true=(
+            "The message names its own subject — a rule, a regulation, a document or folder of the project, a "
+            "building element, a value, a situation or variants to compare — so a search for it finds what it "
+            "asks about, however short it is."
+        ),
         false=(
             "The message refers to something only the previous message names — 'und in GK 4?', 'was gilt "
             "dort?', 'und das zweite?' — or is a bare follow-up word such as 'warum', 'genauer', 'mehr'."

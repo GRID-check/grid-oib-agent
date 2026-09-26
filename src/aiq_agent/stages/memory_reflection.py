@@ -169,15 +169,15 @@ async def _handler(ctx: StageContext) -> dict[str, Any] | StageEmpty | None:
     a payload. ``decided_nothing_durable`` when the decision model said so
     confidently enough that the reflection call was not made (ADR-0064, use 5)."""
     from aiq_agent.memory.reflection import REFLECTION_SKIP_THRESHOLD
-    from aiq_agent.memory.reflection import durable_probability
+    from aiq_agent.memory.reflection import nothing_durable_probability
     from aiq_agent.memory.reflection import run_memory_reflection
 
     facts = ctx.facts
     if not facts.remembered_this_turn:
         # A turn whose `remember` call wrote something is plainly about the
         # project; it reflects without asking.
-        durable = await durable_probability(facts.query, facts.answer, organization_id=facts.organization_id)
-        if durable is not None and durable < REFLECTION_SKIP_THRESHOLD:
+        nothing = await nothing_durable_probability(facts.query, facts.answer, organization_id=facts.organization_id)
+        if nothing is not None and nothing >= REFLECTION_SKIP_THRESHOLD:
             return StageEmpty("decided_nothing_durable")
     recorded = await run_memory_reflection(
         llm=ctx.llm,

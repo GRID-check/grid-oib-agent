@@ -371,7 +371,10 @@ DOCUMENT_TYPE_CRITERIA: dict[str, str] = {
     "Schnitt": "A section drawing (Schnitt): the building cut vertically, storey heights and levels.",
     "Ansicht": "An elevation drawing (Ansicht): a facade seen from outside.",
     "Detail": "A construction detail drawing: a joint, a layer build-up, a connection at large scale.",
-    "Gutachten": "An expert report or assessment (Gutachten, Stellungnahme, Nachweis, Berechnung by an expert).",
+    "Gutachten": (
+        "An expert's report, concept or assessment for the project (Gutachten, Konzept such as a "
+        "Brandschutzkonzept, Stellungnahme, Nachweis, Berechnung)."
+    ),
     "Bescheid": "An official decision or notice by an authority (Bescheid, Baubewilligung, Auflagen).",
     "Norm/Richtlinie": "A standard, guideline, regulation or law text (OIB-Richtlinie, ÖNORM, Bauordnung).",
     "Vertrag": "A contract or agreement between parties.",
@@ -389,24 +392,24 @@ DISCIPLINE_CRITERIA: dict[str, str] = {
     "Energieeinsparung/Wärmeschutz": "Energy saving and thermal insulation: U-values, Energieausweis.",
 }
 
-#: The chosen type is always kept; a second type rides along at this
-#: probability — when the decider is as sure of it as of a coin, not a third.
-SECOND_TYPE_THRESHOLD = 0.5
-#: A discipline is tagged at this probability or above, the top three.
-#: Measured 2026-09-25 on twelve hand-labelled German document openings
-#: (types 12/12 against the generative prompt's 11/12). The answers split in
-#: two: every clear discipline at 0.96-0.98, everything else at or below
-#: 0.52 — a false Standsicherheit on a meeting protocol because a Statiker
-#: attended (0.47) beside a true Schallschutz in a bauphysik report (0.52).
-#: Any threshold from 0.48 to 0.96 gives the same result on the set, so it
-#: sits mid-gap, 0.23 above the highest false tag, not on the 0.03 between
-#: 0.47 and 0.52: a tag rides in the inventory line of every prompt, and a
-#: false one tells the agent what a document is about. The borderline
-#: Schallschutz is the price, the one discipline the prompt found and this
-#: does not. A plan that merely draws a fire compartment is not tagged
-#: Brandschutz (0.30), which the prompt's own "nur wenn der Fachbereich
-#: eindeutig zutrifft" asks for.
-DISCIPLINE_THRESHOLD = 0.7
+#: Every decision here acts at 0.8 (2026-09-26). The type is kept at this
+#: probability; below it the decision is treated as not made and the
+#: generative prompt tags the document. Measured on twelve openings, two
+#: runs: every type at 0.99-1.00 once `Gutachten` names a Konzept (a
+#: Brandschutzkonzept sat at 0.80, split with `Sonstiges`, before).
+#: One type only: a second type was the choice's runner-up, which cannot
+#: reach 0.8 beside a chosen one, and it never rode along in a measurement.
+TYPE_THRESHOLD = 0.8
+#: A discipline is tagged at this probability or above, the top three. The
+#: answers split in two (2026-09-25, same twelve openings): every clear
+#: discipline at 0.96-0.98, everything else at or below 0.52 — a false
+#: Standsicherheit on a meeting protocol because a Statiker attended (0.47)
+#: beside a true Schallschutz in a bauphysik report (0.52). A tag rides in the
+#: inventory line of every prompt, and a false one tells the agent what a
+#: document is about, so the borderline Schallschutz is left out. A plan that
+#: merely draws a fire compartment is not tagged Brandschutz (0.30), which
+#: the prompt's own "nur wenn der Fachbereich eindeutig zutrifft" asks for.
+DISCIPLINE_THRESHOLD = 0.8
 MAX_DISCIPLINE_TAGS = 3
 #: The technical-record slot: ``status:decision:document_tags``.
 TAG_DECISION_SLOT = "document_tags"
@@ -435,17 +438,11 @@ def tag_questions() -> dict[str, dict]:
 
 
 def tags_from_decision(decision) -> list[str] | None:
-    """The tags a decision earns, in the vocabulary's order of kinds; ``None`` if it chose nothing."""
+    """The tags a decision earns: the type, then the disciplines; ``None`` when it chose no type at 0.8."""
     chosen, distribution = decision.choice("type")
-    if chosen not in DOCUMENT_TYPE_TAGS:
+    if chosen not in DOCUMENT_TYPE_TAGS or distribution.get(chosen, 0.0) < TYPE_THRESHOLD:
         return None
     tags = [chosen]
-    runner_up = max(
-        (tag for tag in DOCUMENT_TYPE_TAGS if tag not in {chosen, "Sonstiges"}),
-        key=lambda tag: distribution.get(tag, 0.0),
-    )
-    if chosen != "Sonstiges" and distribution.get(runner_up, 0.0) >= SECOND_TYPE_THRESHOLD:
-        tags.append(runner_up)
     disciplines = sorted(
         (
             (p, index)

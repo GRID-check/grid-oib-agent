@@ -41,15 +41,16 @@ CAUSES: dict[str, str] = {
         "The content may be right but the form is the problem: too long, unclear, badly structured, a table that "
         "does not help."
     ),
-    "slow": "The answer took too long.",
+    "slow": "The answer took too long — also when the reader only picked the reason 'too_slow' and wrote nothing.",
     "broken": "The answer is cut off, empty, garbled or shows an error.",
     "other": "None of the above, or no way to tell from what was written.",
 }
 
 #: A label counts at this probability; below it the vote is unlabelled. Measured
-#: 2026-09-25 on sixteen down-votes (``tests/fixtures/decisions/feedback_causes.yaml``):
-#: 16/16 right at 0.79-1.00, the lowest the one vote without a comment.
-CAUSE_THRESHOLD = 0.6
+#: 2026-09-26 on sixteen down-votes (``tests/fixtures/decisions/feedback_causes.yaml``):
+#: 16/16 right, the lowest 0.89 once `slow` covers a bare 'too_slow' chip
+#: with no comment (0.75-0.79 before).
+CAUSE_THRESHOLD = 0.8
 SLOT = "feedback_causes"
 _MAX_TEXT = 300
 

@@ -14,8 +14,8 @@ THE FLOORS
 ----------
 - tags: the decided type is a labelled type on every row, and no discipline
   is tagged that the row does not carry.
-- reflection: no row labelled ``durable`` falls below the skip threshold
-  (a wrong skip loses a memory row).
+- reflection: no row labelled ``durable`` reaches the skip threshold on
+  "nothing about this project" (a wrong skip loses a memory row).
 - Dokumentart: every suggestion offered is the labelled class (a wrong one
   is offered to a person, who may accept it).
 - feedback causes: at least 14 of the 16 labelled down-votes filed under
@@ -82,13 +82,15 @@ def eval_reflection() -> bool:
     rows = yaml.safe_load((FIXTURES / "reflection_exchanges.yaml").read_text(encoding="utf-8"))
 
     async def run() -> list[float | None]:
-        return [await reflection.durable_probability(r["question"], r["answer"], organization_id=None) for r in rows]
+        return [
+            await reflection.nothing_durable_probability(r["question"], r["answer"], organization_id=None) for r in rows
+        ]
 
     probabilities = asyncio.run(run())
     threshold = reflection.REFLECTION_SKIP_THRESHOLD
     lost = skipped = 0
     for row, p in zip(rows, probabilities):
-        mark = "skip" if p is not None and p < threshold else "run"
+        mark = "skip" if p is not None and p >= threshold else "run"
         lost += row["durable"] and mark == "skip"
         skipped += (not row["durable"]) and mark == "skip"
         print(f"  durable={row['durable']!s:5s} p={p} {mark:4s} {row['question'][:60]}")

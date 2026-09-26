@@ -94,7 +94,7 @@ class TestWhatTheAnswersBecome:
                 "corpus": {"type": "choice", "choice": "baurecht", "probabilities": {"baurecht": 0.8, "none": 0.2}},
                 "family_2": {"type": "noul", "noul": 0.95},
                 "family_4": {"type": "noul", "noul": 0.1},
-                "card_fire_compartment": {"type": "noul", "noul": 0.7},
+                "card_fire_compartment": {"type": "noul", "noul": 0.85},
                 "card_stair_diagram": {"type": "noul", "noul": 0.2},
             },
             latency_ms=210,
@@ -119,8 +119,8 @@ class TestWhatTheAnswersBecome:
         decided = TurnDecisions(
             decided=True,
             needs_evidence=0.9,
-            families=(("2", 0.51), ("4", 0.9), ("3", 0.7), ("6", 0.49)),
-            cards=(("a", 0.59), ("b", 0.95), ("c", 0.8), ("d", 0.61)),
+            families=(("2", 0.79), ("4", 0.9), ("3", 0.85), ("6", 0.49)),
+            cards=(("a", 0.79), ("b", 0.95), ("c", 0.8), ("d", 0.61)),
         )
         assert decided.chosen_families() == ["4", "3"]
         assert decided.chosen_cards() == ["b", "c"]
@@ -189,7 +189,7 @@ class TestTheSkillsShapes:
             skill="brandschutz",
             skill_p=0.8,
             skill_fit=0.9,
-            cards=(("egress_diagram", 0.9), ("stair_diagram", 0.7)),
+            cards=(("egress_diagram", 0.9), ("stair_diagram", 0.8)),
         )
         assert attached_card_types(decided, self.SKILL_CARDS) == ["fire_compartment", "egress_diagram", "stair_diagram"]
 
@@ -202,7 +202,7 @@ class TestTheSkillsShapes:
         assert unsure.chosen_skill is None
         # The lowest right pick measured had fit 0.27 and still loads; a project
         # file that names the subject („Was steht im Brandschutzkonzept?", 0.11) does not.
-        weak_fit = TurnDecisions(decided=True, skill="waermeschutz", skill_p=0.64, skill_fit=0.27)
+        weak_fit = TurnDecisions(decided=True, skill="waermeschutz", skill_p=0.84, skill_fit=0.27)
         assert weak_fit.chosen_skill == "waermeschutz"
         file_question = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.79, skill_fit=0.11)
         assert file_question.chosen_skill is None
@@ -213,7 +213,7 @@ class TestTheSkillsShapes:
                 "skill": {
                     "type": "choice",
                     "choice": "brandschutz",
-                    "probabilities": {"brandschutz": 0.7, "none": 0.3},
+                    "probabilities": {"brandschutz": 0.85, "none": 0.15},
                 },
                 "fits_brandschutz": {"type": "noul", "noul": 0.85},
                 "self_contained": {"type": "noul", "noul": 0.2},

@@ -27,7 +27,7 @@ def _deciding(answers):
 
 
 async def test_each_vote_is_asked_with_its_comment_reason_and_question():
-    fake, seen = _deciding([("wrong_value", 1.0), ("slow", 0.79)])
+    fake, seen = _deciding([("wrong_value", 1.0), ("slow", 0.89)])
     with patch("aiq_agent.common.decisions.decide_many", fake):
         labels = await feedback_causes.label_causes([_sample(comment="R 60, nicht R 90"), _sample(reason="too_slow")])
     assert labels == ["wrong_value", "slow"]

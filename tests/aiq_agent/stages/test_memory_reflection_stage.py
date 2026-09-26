@@ -138,7 +138,7 @@ class TestHandler:
     @pytest.fixture(autouse=True)
     def _no_decision(self):
         """No decision ran: the pass reflects exactly as it did before decisions."""
-        with patch("aiq_agent.memory.reflection.durable_probability", return_value=None):
+        with patch("aiq_agent.memory.reflection.nothing_durable_probability", return_value=None):
             yield
 
     @pytest.mark.asyncio
@@ -189,7 +189,7 @@ class TestTheDecisionSkipsOnlyAConfidentNo:
     @pytest.mark.asyncio
     async def test_a_confident_no_skips_the_call_and_says_why(self):
         with (
-            patch("aiq_agent.memory.reflection.durable_probability", return_value=0.05) as decided,
+            patch("aiq_agent.memory.reflection.nothing_durable_probability", return_value=0.95) as decided,
             patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=_WRITTEN) as run,
         ):
             result = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
@@ -198,10 +198,10 @@ class TestTheDecisionSkipsOnlyAConfidentNo:
         assert decided.await_args.kwargs == {"organization_id": "org_1"}
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("p", [0.3, 0.45, 0.9])
+    @pytest.mark.parametrize("p", [0.79, 0.45, 0.1])
     async def test_doubt_or_yes_reflects(self, p):
         with (
-            patch("aiq_agent.memory.reflection.durable_probability", return_value=p),
+            patch("aiq_agent.memory.reflection.nothing_durable_probability", return_value=p),
             patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=_WRITTEN) as run,
         ):
             await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
@@ -210,7 +210,7 @@ class TestTheDecisionSkipsOnlyAConfidentNo:
     @pytest.mark.asyncio
     async def test_a_turn_that_remembered_something_is_not_asked(self):
         with (
-            patch("aiq_agent.memory.reflection.durable_probability", return_value=0.0) as decided,
+            patch("aiq_agent.memory.reflection.nothing_durable_probability", return_value=1.0) as decided,
             patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=[]) as run,
         ):
             await MEMORY_REFLECTION.handler(

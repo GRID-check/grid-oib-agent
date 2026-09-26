@@ -32,13 +32,13 @@ DIGEST_ENTRY_RE = re.compile(r'^\s*-\s*\[([^\]]*)\]\s*"(.*)"\s*$')
 #: The technical-record slot: ``status:decision:memory_supersede``.
 SLOT = "memory_supersede"
 #: At or above this p(replaces) the entry is quoted as superseded. Measured
-#: 2026-09-25 on a twelve-entry memory and sixteen findings
+#: 2026-09-26 over two runs on a twelve-entry memory and sixteen findings
 #: (``tests/fixtures/decisions/memory_supersede.yaml``): the eight corrections
-#: named the right entry at 0.80-0.97, the next entry at most 0.22; the eight
-#: additions stayed at or below 0.37. Nearer the corrections than the gap's
-#: middle, because a wrong retirement loses a fact and a missed one is how
-#: memory behaved before.
-REPLACES_THRESHOLD = 0.75
+#: named the right entry at 0.88-0.97 once the criteria say that Projekt and
+#: Grundstück name the same location (without it, „Das Grundstück liegt in
+#: St. Pölten" against „Das Projekt liegt in Wien" scored 0.79-0.81); no other
+#: pair above 0.41.
+REPLACES_THRESHOLD = 0.8
 #: How many entries are asked about; the digest is bounded at 6 000
 #: characters upstream, which is about this many one-sentence entries.
 MAX_ENTRIES = 40
@@ -48,7 +48,9 @@ _REPLACES = (
 )
 _REPLACES_TRUE = (
     "Both are about the same property of the project (its location, a count, a material, a use, a date, an "
-    "open question) and the new finding states a different value or settles it, so the entry no longer holds."
+    "open question) and the new finding states a different value or settles it, so the entry no longer holds. "
+    "The same property is often named with different words: Projekt, Grundstück, Standort and Bauplatz all "
+    "name where the project is."
 )
 _REPLACES_FALSE = (
     "The new finding adds a detail, restates the entry, or is about a different property of the project; the "

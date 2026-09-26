@@ -203,22 +203,23 @@ class TestTagsAreDecided:
         llm.invoke.assert_not_called()
         assert seen["body"]["state"]["file_name"] == "bp.pdf"
 
-    def test_a_second_type_rides_along_when_likely(self, endpoint):
+    def test_an_unsure_type_is_no_decision_and_the_prompt_tags(self, endpoint):
+        """Every decision acts at 0.8: a type below it hands the document to the prompt."""
         install, _ = endpoint
-        with install(_decision("Bebauungsplan", {"Bebauungsplan": 0.45, "Flächenwidmungsplan": 0.5}, {})):
-            tags = classify_document_tags("Plandokument …", "pd.pdf", None)
-        assert tags == ["Bebauungsplan", "Flächenwidmungsplan"]
+        with install(_decision("Bebauungsplan", {"Bebauungsplan": 0.55, "Flächenwidmungsplan": 0.45}, {})):
+            tags = classify_document_tags("Plandokument …", "pd.pdf", _llm_returning('["Flächenwidmungsplan"]'))
+        assert tags == ["Flächenwidmungsplan"]
 
-    def test_sonstiges_carries_no_second_type(self, endpoint):
+    def test_one_type_only(self, endpoint):
         install, _ = endpoint
-        with install(_decision("Sonstiges", {"Sonstiges": 0.5, "Vertrag": 0.45}, {})):
+        with install(_decision("Sonstiges", {"Sonstiges": 0.85, "Vertrag": 0.15}, {})):
             assert classify_document_tags("Protokoll …", "p.pdf", None) == ["Sonstiges"]
 
     def test_at_most_three_disciplines_most_likely_first(self, endpoint):
         install, _ = endpoint
-        with install(_decision("Gutachten", {"Gutachten": 1.0}, {0: 0.7, 1: 0.9, 2: 0.6, 3: 0.8})):
+        with install(_decision("Gutachten", {"Gutachten": 1.0}, {0: 0.82, 1: 0.95, 2: 0.7, 3: 0.9, 4: 0.85})):
             tags = classify_document_tags("…", "g.pdf", None)
-        assert tags == ["Gutachten", "Brandschutz", "Nutzungssicherheit/Barrierefreiheit", "Standsicherheit"]
+        assert tags == ["Gutachten", "Brandschutz", "Nutzungssicherheit/Barrierefreiheit", "Schallschutz"]
 
     def test_a_failed_decision_falls_back_to_the_prompt(self, endpoint):
         install, _ = endpoint
