@@ -1,0 +1,12 @@
+---
+fixes:
+  - >
+    Die Modellauswahl lässt sich wieder speichern. Unter Plattform → Modelle
+    und unter Organisation → Modelle scheiterte jedes Speichern mit einem
+    Fehler, sobald noch eine Einstellung für eine Aufgabe gespeichert war, die
+    es nicht mehr gibt. Solche Einstellungen werden jetzt übergangen und beim
+    nächsten Speichern entfernt.
+  - >
+    Die Zeile „OIB compliance check" ist aus der Modellauswahl verschwunden.
+    Sie gehörte zu einer Prüfung, die Piloti nicht mehr ausführt; eine
+    Normprüfung als Auftrag funktioniert unverändert.
