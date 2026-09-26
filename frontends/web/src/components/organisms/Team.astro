@@ -2,7 +2,7 @@
 import { Image } from 'astro:assets'
 import SectionTag from '../atoms/SectionTag.astro'
 import TapedPrint from '../craft/TapedPrint.astro'
-import { PLATES } from '../craft/plates'
+import { TRAGWERK } from '../craft/plates'
 import { founders } from '../../data/founders'
 import { ui, type Locale } from '../../i18n/ui'
 
@@ -41,11 +41,11 @@ const people = founders.map((f, i) => {
        sheets beneath both, their names on one line. -->
   <div class="grid grid-cols-1 items-start gap-y-10 lg:grid-cols-[7fr_5fr] lg:gap-x-16 lg:gap-y-14">
     <TapedPrint
-      name={PLATES.I}
+      name={TRAGWERK.I}
       locale={locale}
       size="half"
       phone="third"
-      caption={t.plates.I}
+      caption={t.plates.saeule}
       class="lg:col-start-2 lg:row-start-1 lg:justify-self-end"
     />
 

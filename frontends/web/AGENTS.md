@@ -53,7 +53,7 @@ JSON-LD graph. The builders live in `src/lib/seo.ts`; the strings in `ui.ts`:
 
 Every page type has its own riso share card, by art id in `SHARE_ART`
 (`src/lib/seo.ts`), passed as `ogArt`; a page that passes none shares the
-landing page's plate I. Give a new page type its own card rather than the
+landing page's column (Tragwerk I). Give a new page type its own card rather than the
 default. `ogImage` is only for an image that is not riso art.
 
 A new page: add its title (about 60 characters) and description (about 155) to

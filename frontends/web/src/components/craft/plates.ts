@@ -8,15 +8,15 @@
 import type { ArtId, OnPageArtId } from '../../lib/art'
 
 export const PLATES = {
-  /** Drei Stützen / Three columns: the Team section. */
+  /** Drei Stützen / Three columns: kept for the banner and share cards; Team now wears Tragwerk I. */
   I: 'tafeln/stuetzen/plate',
-  /** Schichten / Layers: the sources section, and the post on how Piloti works. */
+  /** Schichten / Layers: the post on how Piloti works (the sources section wears Tragwerk II). */
   II: 'tafeln/schichten/plate',
   /** Schleife / Loop: the post on learning from corrections. */
   III: 'tafeln/schleife/plate',
-  /** Bauplatz / Building plot: the 404 page. */
+  /** Bauplatz / Building plot: the changelog's share card (the 404 wears Tragwerk IV). */
   IV: 'tafeln/bauplatz/plate',
-  /** Prüfstand / Test bench: for the blog (the sources section wears II). */
+  /** Prüfstand / Test bench: for the blog. */
   V: 'tafeln/pruefstand/plate',
   /** Zeichentisch / Drafting table: how Piloti is used. */
   VI: 'tafeln/zeichentisch/plate',
@@ -26,7 +26,23 @@ export const PLATES = {
   VIII: 'tafeln/tuer/plate',
 } as const satisfies Record<string, OnPageArtId>
 
-export type PlateName = (typeof PLATES)[keyof typeof PLATES]
+/**
+ * The Tragwerk series (art/riso/tragwerk): the Piloti column, a brand staple,
+ * by number. I is the Team's taped print, II the sources section's plate, IV
+ * the 404's; III wears only its share card (the Journal's).
+ */
+export const TRAGWERK = {
+  /** Säule / Column: the Team section, taped beside the founder photos. */
+  I: 'tragwerk/saeule/plate',
+  /** Drei Säulen / Three columns: the sources section. */
+  II: 'tragwerk/drei/plate',
+  /** Säulenordnung / The orders. */
+  III: 'tragwerk/ordnung/plate',
+  /** Ziegelpfeiler / Brick pier: the 404 page. */
+  IV: 'tragwerk/ziegel/plate',
+} as const satisfies Record<string, OnPageArtId>
+
+export type PlateName = (typeof PLATES)[keyof typeof PLATES] | (typeof TRAGWERK)[keyof typeof TRAGWERK]
 
 type CoverArtId = Extract<OnPageArtId, `${string}/cover`>
 type OgArtId = Extract<ArtId, `${string}/og`>
