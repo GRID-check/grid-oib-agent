@@ -108,13 +108,18 @@ The retriever is a **cached singleton** (`get_active_retriever` in `aiq_agent.kn
 
 ## Chat / Generation
 
-| Method | Path | Description | Request | Response | Handler |
-|--------|------|-------------|---------|----------|---------|
-| `POST` | `/chat/stream` | Chat completion SSE stream | `{ messages, projectId?, conversationId?, data_sources? }` | SSE stream | NAT framework internal |
-| `POST` | `/generate/stream` | Agent generation SSE stream (thinking, searching, planning, writing, complete, error, prompt, intermediate events) | `{ query, projectId?, conversationId?, ... }` | SSE stream | NAT framework internal |
-| `POST` | `/generate/respond` | HITL prompt response | `{ promptId, response, conversationId?, ... }` | `{}` | NAT framework internal |
+A turn runs over one route: the chat socket, `/websocket`
+([`websocket-protocol.md`](websocket-protocol.md)).
 
-These routes are **not registered by custom code** — they are provided by the NAT (NeMo Agent Toolkit) FastAPI front-end plugin internally. The BFF routes (`/api/chat`, `/api/generate`, `/api/generate/respond`) proxy to them.
+NAT's FastAPI front end would also serve the workflow over HTTP by default
+(`/v1/workflow*`, `/generate*`, `/chat*`, `/v1/chat`, `/v1/chat/completions`, and
+`/evaluate*`). This front end serves none of them, and a config that sets one is
+refused at startup (`AIQAPIConfig` and `AIQAPIWorker.add_default_route` in
+`aiq_api.plugin`). Those routes stream through NAT's `generate_streaming_response`,
+which leaves the workflow's task running when the reader stops early
+(`aiq_api.workflow_stream` has the account). They also skip the socket's per-turn
+handling, and the context envelope was enforced on none of them. Scripts that
+need a turn speak the socket the way the UI does: `scripts/turn_census/served.py`.
 
 ## Async Jobs
 
@@ -181,7 +186,7 @@ These routes are **not registered by custom code** — they are provided by the 
 
 The `AuthMiddleware` (`frontends/aiq_api/src/aiq_api/auth/middleware.py`) wraps all routes:
 
-- **Path allowlist**: External requests only reach allowed paths (`/health`, `/docs`, `/chat`, `/chat/stream`, `/v1/chat/completions`, `/v1/data_sources`, `/v1/jobs/async/agents`, `/v1/jobs/async/submit`, `/v1/jobs/async/job/*`).
+- **Path allowlist**: External requests only reach allowed paths (`/health`, `/docs`, `/v1/data_sources`, `/v1/jobs/async/agents`, `/v1/jobs/async/submit`, `/v1/jobs/async/job/*`).
 - **Auth exempt**: `/health`, `/docs`, `/redoc`, `/openapi.json` require no token even on external requests.
 - **Validator chain**: Token validators are registered via `register_validator()` or `aiq_api.validators` entry points. The first successful validation wins.
 - **Caller type detection**: Sets `user.type` to `"jwt"`, `"internal"`, `"unverified_jwt"`, or `"anonymous"` for downstream logic (e.g., clarifier bypass for headless callers).
