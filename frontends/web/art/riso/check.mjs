@@ -16,6 +16,9 @@
  *     edit): run node art/riso/export.mjs --manifest, or a full export
  *   - a manifest file is missing, has other pixel dimensions than declared, or
  *     is over 1 MB (the pre-commit hook's limit)
+ *   - an on-page file (formats with `onPage`) is missing, differs in size
+ *     or densities from its paper twin, has no alpha, or does not reproduce
+ *     the paper file when multiplied onto the paper colour (onPageParity)
  *   - alt text or a caption is missing in a locale, or still says TODO
  *   - a file in either public/art/ is in no manifest entry (an orphan)
  *   - the site's or the app's src/ names an art id not in its own manifest, or
@@ -39,9 +42,35 @@ const rel = (p) => path.relative(WEB, p);
 if (!fs.existsSync(path.join(HERE, 'LICENSE-NOTICE.md'))) fail('art/riso/LICENSE-NOTICE.md is missing (the kit is MIT: its notice must ship with adapted code)');
 const works = listWorks();
 const jobsByWork = [];
+const paperOf = new Map();
 for (const w of works) {
   if (!fs.existsSync(path.join(w.dir, 'PRINT.md'))) fail(`${rel(w.dir)}/PRINT.md is missing: every work records its design, inspection and weaknesses`);
-  try { jobsByWork.push(evaluateWork(w).jobs); } catch (e) { fail(`${rel(w.html)}: ${e.message}`); }
+  try {
+    const { jobs, paper } = evaluateWork(w);
+    jobsByWork.push(jobs);
+    paperOf.set(w.name, [1, 3, 5].map((i) => parseInt(paper.slice(i, i + 2), 16)));
+  } catch (e) { fail(`${rel(w.html)}: ${e.message}`); }
+}
+
+/**
+ * Does the on-page file hold the paper file's inks, in register? Multiply it
+ * onto the flat paper colour and compare with the paper file pixel by pixel.
+ * The paper's mottling and both files' WebP error keep every pixel within 40
+ * levels (measured: at most 0.03 % beyond it); the same file one pixel out of
+ * register puts 3–19 % beyond it, another plate's inks more. The share of
+ * pixels beyond 40 levels, as a fraction.
+ */
+async function onPageParity(paperFile, pageFile, paper) {
+  const { data: p, info } = await sharp(paperFile).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const g = await sharp(pageFile).ensureAlpha().raw().toBuffer();
+  let bad = 0;
+  for (let i = 0, o = 0; i < p.length; i += 3, o += 4) {
+    const a = g[o + 3] / 255;
+    let d = 0;
+    for (let c = 0; c < 3; c++) d += Math.abs(p[i + c] - paper[c] * (1 - a * (1 - g[o + c] / 255)));
+    if (d > 120) bad++;
+  }
+  return bad / (info.width * info.height);
 }
 
 // ── each destination: its manifest, its files, its orphans, its references ──
@@ -89,6 +118,26 @@ for (const [dest, d] of Object.entries(DESTS)) {
       if (bytes > MAX_BYTES) fail(`${id}: ${rel(file)} is ${(bytes / 1024).toFixed(0)} KB, over the 1 MB commit limit`);
       const m = await sharp(file).metadata();
       if (m.width !== f.width || m.height !== f.height) fail(`${id}: ${rel(file)} is ${m.width}x${m.height}, the manifest says ${f.width}x${f.height}`);
+    }
+    // the on-page twins: same densities and sizes as the paper files, alpha, the same inks
+    if (!e.page) continue;
+    const twins = (e.files || []).map((f) => `${f.density}:${f.width}x${f.height}`).join(' ');
+    if (e.page.map((f) => `${f.density}:${f.width}x${f.height}`).join(' ') !== twins) fail(`${id}: its on-page files are not at the paper files' densities and sizes (${twins})`);
+    for (const f of e.page) {
+      if (!/\?v=[0-9a-f]{8}$/.test(f.src)) fail(`${id}: ${f.src} carries no ?v=<hash>`);
+      const file = path.join(d.root, 'public', srcPath(f.src));
+      listed.add(path.basename(file));
+      if (!fs.existsSync(file)) { fail(`${id}: ${rel(file)} does not exist`); continue; }
+      const bytes = fs.statSync(file).size;
+      if (bytes > MAX_BYTES) fail(`${id}: ${rel(file)} is ${(bytes / 1024).toFixed(0)} KB, over the 1 MB commit limit`);
+      const m = await sharp(file).metadata();
+      if (m.width !== f.width || m.height !== f.height) fail(`${id}: ${rel(file)} is ${m.width}x${m.height}, the manifest says ${f.width}x${f.height}`);
+      if (!m.hasAlpha) { fail(`${id}: ${rel(file)} has no alpha; an on-page file is the inks alone`); continue; }
+      const twin = e.files.find((p) => p.density === f.density);
+      const paperFile = twin && path.join(d.root, 'public', srcPath(twin.src));
+      if (!paperFile || !fs.existsSync(paperFile) || m.width !== f.width) continue;
+      const off = await onPageParity(paperFile, file, paperOf.get(e.work) || [0xf4, 0xf2, 0xe8]);
+      if (off > 0.005) fail(`${id}: ${rel(file)} multiplied onto the paper misses ${rel(paperFile)} in ${(off * 100).toFixed(1)} % of its pixels (out of register, or another bake): re-export both, node art/riso/export.mjs --only ${id}`);
     }
   }
 

@@ -20,6 +20,9 @@
      file       name template: {base} {w} {h}
      numeral    false leaves the plate numeral off (tiny formats)
      separations  also write one grayscale PNG per ink for a riso print shop
+     onPage     also write the on-page file, '<file>-page.<encode>': the same
+                inks with no paper, as alpha, for a print shown bare on the
+                page with mix-blend-mode: multiply (art/riso/README.md)
      use        where it goes; the pitch reasoning is in art/riso/README.md
 
    Adding a format: add it here, give the plates that should wear it a
@@ -30,7 +33,7 @@
 const FORMATS = {
   plate: {
     use: 'Section plate: 720 CSS px (or 360/240 at half/third) square',
-    compose: 'sq', encode: 'webp', dest: 'site', file: '{base}-{w}',
+    compose: 'sq', encode: 'webp', dest: 'site', file: '{base}-{w}', onPage: true,
     sizes: [{ density: 1, w: 720, h: 720, pitch: 3.4 }, { density: 2, w: 1440, h: 1440, pitch: 6.8 }],
   },
   og: {
@@ -45,7 +48,7 @@ const FORMATS = {
   },
   cover: {
     use: 'Blog post cover, 720 CSS px wide, 16:9',
-    compose: 'cover', encode: 'webp', dest: 'site', file: '{base}-cover-{w}x{h}',
+    compose: 'cover', encode: 'webp', dest: 'site', file: '{base}-cover-{w}x{h}', onPage: true,
     sizes: [{ density: 1, w: 720, h: 405, pitch: 3.4 }, { density: 2, w: 1440, h: 810, pitch: 6.8 }],
   },
   spot: {
@@ -55,7 +58,7 @@ const FORMATS = {
   },
   release: {
     use: 'Release stamp beside a changelog entry, 64 CSS px square. Its own composition: solid shapes, heavy lines, one screened field at most',
-    compose: 'stamp', encode: 'webp', dest: 'site', file: '{base}-{w}', numeral: false,
+    compose: 'stamp', encode: 'webp', dest: 'site', file: '{base}-{w}', numeral: false, onPage: true,
     sizes: [{ density: 1, w: 64, h: 64, pitch: 2.4 }, { density: 2, w: 128, h: 128, pitch: 4.8 }],
   },
   empty: {
