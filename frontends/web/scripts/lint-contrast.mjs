@@ -11,10 +11,15 @@
 import { readFileSync } from 'node:fs'
 
 const css = readFileSync(new URL('../src/styles/global.css', import.meta.url), 'utf8')
+// Keep the first declaration of each token.
+const tokens = new Map()
+for (const [, name, hex] of css.matchAll(/--color-([\w-]+):\s*(#[0-9a-f]{6})/gi)) {
+  if (!tokens.has(name)) tokens.set(name, hex)
+}
 const token = (name) => {
-  const m = css.match(new RegExp(`--color-${name}:\\s*(#[0-9a-f]{6})`, 'i'))
-  if (!m) throw new Error(`token --color-${name} not found in global.css`)
-  return m[1]
+  const hex = tokens.get(name)
+  if (!hex) throw new Error(`token --color-${name} not found in global.css`)
+  return hex
 }
 
 const channel = (c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)

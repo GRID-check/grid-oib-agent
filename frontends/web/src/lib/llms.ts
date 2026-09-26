@@ -68,8 +68,9 @@ function mdxToMarkdown(body: string, site: URL | undefined) {
   return body
     .replace(/^(import|export) .*$/gm, '')
     .replace(/<([A-Z]\w*)\b[\s\S]*?\/>/g, (block) => {
-      const attr = (name: string) => block.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1]
-      const parts = [attr('alt'), attr('caption')].filter(Boolean)
+      const alt = block.match(/\balt="([^"]*)"/)?.[1]
+      const caption = block.match(/\bcaption="([^"]*)"/)?.[1]
+      const parts = [alt, caption].filter(Boolean)
       return parts.length ? `[${parts.join(' — ')}]` : ''
     })
     // A post's own headings sit below the post title (###) in this file.
