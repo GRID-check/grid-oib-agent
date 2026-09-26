@@ -93,6 +93,14 @@
             {
               "en": "Vorschaubilder in der Dateiablage laden auch in einem Tab, der seit Tagen offen ist, statt nach einiger Zeit als „nicht verfügbar\" zu erscheinen.",
               "de": "Vorschaubilder in der Dateiablage werden auch in einem Tab geladen, der seit Tagen geöffnet ist, statt nach einiger Zeit als „nicht verfügbar“ zu erscheinen."
+            },
+            {
+              "en": "Die Modellauswahl lässt sich wieder speichern. Unter Plattform → Modelle und unter Organisation → Modelle scheiterte jedes Speichern mit einem Fehler, sobald noch eine Einstellung für eine Aufgabe gespeichert war, die es nicht mehr gibt. Solche Einstellungen werden jetzt übergangen und beim nächsten Speichern entfernt.",
+              "de": "Die Modellauswahl lässt sich wieder speichern. Unter Plattform → Modelle und Organisation → Modelle schlug das Speichern fehl, wenn noch eine Einstellung für eine nicht mehr vorhandene Aufgabe gespeichert war. Solche Einstellungen werden jetzt ignoriert und beim nächsten Speichern entfernt."
+            },
+            {
+              "en": "Die Zeile „OIB compliance check\" ist aus der Modellauswahl verschwunden. Sie gehörte zu einer Prüfung, die Piloti nicht mehr ausführt; eine Normprüfung als Auftrag funktioniert unverändert.",
+              "de": "Die Zeile „OIB compliance check“ ist aus der Modellauswahl verschwunden. Sie gehörte zu einer Prüfung, die Piloti nicht mehr ausführt; eine Normprüfung als Auftrag funktioniert unverändert."
             }
           ]
         }

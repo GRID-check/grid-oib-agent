@@ -612,6 +612,10 @@
     "de": "Die Fundstellenliste bleibt jetzt immer neben dem Dokument sichtbar – auch wenn eine Quelle nur an einer Stelle gelesen wurde. Beim Scrollen zeigt sie, welche Passage gerade geprüft wird, und die aktuelle Fundstelle vollständig an. Der Kasten oberhalb des Dokuments entfällt, sodass das Dokument größer dargestellt wird."
   },
   {
+    "en": "Die Modellauswahl lässt sich wieder speichern. Unter Plattform → Modelle und unter Organisation → Modelle scheiterte jedes Speichern mit einem Fehler, sobald noch eine Einstellung für eine Aufgabe gespeichert war, die es nicht mehr gibt. Solche Einstellungen werden jetzt übergangen und beim nächsten Speichern entfernt.",
+    "de": "Die Modellauswahl lässt sich wieder speichern. Unter Plattform → Modelle und Organisation → Modelle schlug das Speichern fehl, wenn noch eine Einstellung für eine nicht mehr vorhandene Aufgabe gespeichert war. Solche Einstellungen werden jetzt ignoriert und beim nächsten Speichern entfernt."
+  },
+  {
     "en": "Die Nachrecherche nach einem fehlgeschlagenen Zitat sucht jetzt gezielt in dem Dokument, dem die Antwort das Zitat zugeschrieben hat. Bisher listete die Herleitung danach fast alle Projektdateien als gelesen auf.",
     "de": "Nach einem fehlgeschlagenen Zitat sucht die Nachrecherche jetzt gezielt in dem Dokument, dem die Antwort das Zitat zugeordnet hat. Bisher führte die Herleitung danach fast alle Projektdateien als gelesen auf."
   },
@@ -690,6 +694,10 @@
   {
     "en": "Die Zeile „Belegt durch“ zeigt jetzt bei mehr als acht Quellen „+N weitere“ und klappt auf Wunsch alle auf; „Alle Quellen kopieren“ übernimmt stets jede Quelle der Antwort, nicht nur die sichtbaren.",
     "de": "Die Zeile „Belegt durch“ zeigt bei mehr als acht Quellen jetzt „+N weitere“ an und lässt sich auf Wunsch vollständig ausklappen; „Alle Quellen kopieren“ kopiert immer alle Quellen der Antwort, nicht nur die sichtbaren."
+  },
+  {
+    "en": "Die Zeile „OIB compliance check\" ist aus der Modellauswahl verschwunden. Sie gehörte zu einer Prüfung, die Piloti nicht mehr ausführt; eine Normprüfung als Auftrag funktioniert unverändert.",
+    "de": "Die Zeile „OIB compliance check“ ist aus der Modellauswahl verschwunden. Sie gehörte zu einer Prüfung, die Piloti nicht mehr ausführt; eine Normprüfung als Auftrag funktioniert unverändert."
   },
   {
     "en": "Die Zeilennummern beider Fassungen stehen nebeneinander. Wird oben etwas eingefügt, laufen sie ab dieser Stelle sichtbar auseinander — damit ist erkennbar, dass wirklich verglichen und nicht nur Zeile für Zeile übereinandergelegt wird.",
