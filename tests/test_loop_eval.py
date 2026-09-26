@@ -449,3 +449,43 @@ class TestTheCli:
 
         assert loop_eval.main(["--compare", str(before), str(after)]) == 0
         assert "rounds" in capsys.readouterr().out
+
+
+class TestATurnOffTheSocket:
+    """A row from a turn as the chat socket sent it, not as a test wrote it.
+
+    Every test above builds steps as ``{"name", "payload": json}``. The socket
+    sends NAT's rendering instead: ``Function Start/Complete: X`` frames around
+    fenced blocks. ``socket_turn_steps.json`` is a real turn's step frames
+    (2026-09-26, two rounds, no corpus), and a row read off it must see those
+    two rounds, or every other test here measures a shape nothing sends.
+    """
+
+    def _records(self) -> list[dict]:
+        import json
+
+        import served
+
+        turn = served.Turn(message_id="m")
+        for frame in json.loads((REPO_ROOT / "tests/fixtures/herleitung/socket_turn_steps.json").read_text()):
+            served.read_frame(turn, frame)
+        return served.step_records(turn.steps)
+
+    def _row(self, answer_meta: dict | None = None) -> loop_eval.Observation:
+        question = loop_eval.Question(id="q", question="?", family="OIB-RL 2", punkt=None, kind="overview")
+        return loop_eval.observe(question, self._records(), "", answer_meta)
+
+    def test_rounds_and_checkpoints_come_through(self):
+        row = self._row()
+        assert row.rounds == "2"
+        assert row.checkpoint_sources == "none>argument"
+        assert row.read_passage == "no" and row.truncated == "no"
+
+    def test_each_step_counts_once_though_the_socket_sends_it_twice(self):
+        names = [record["name"] for record in self._records()]
+        assert names.count("status:retrieval:1") == 1
+        assert names.count("retrieve.knowledge_search") == 2
+
+    def test_kind_and_verdict_are_read_off_the_answer_s_anatomy(self):
+        row = self._row({"v": 1, "kind": "ruling", "verdict": {"value": "zulässig"}})
+        assert (row.kind, row.verdict) == ("ruling", "yes")

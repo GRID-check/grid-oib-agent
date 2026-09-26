@@ -25,6 +25,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -56,6 +57,8 @@ class Turn:
     frames: int = 0
     clarifications: int = 0
     completed: bool = False
+    #: The answer's gated anatomy (``kind``, ``verdict``, …), lifted onto the response frame.
+    answer_meta: dict | None = None
 
 
 @dataclass
@@ -161,21 +164,28 @@ def read_frame(turn: Turn, frame: dict) -> None:
     if frame.get("type") != "system_response_message" or frame.get("parent_id") != turn.message_id:
         return
     turn.frames += 1
+    if isinstance(frame.get("answer_meta"), dict):
+        turn.answer_meta = frame["answer_meta"]
     if frame.get("status") == "complete":
         turn.answer = str(content.get("text") or "")
         turn.completed = True
 
 
-async def ask(server: Server, question: str) -> Turn:
-    """Ask ``question`` on a new conversation and read the turn to its COMPLETE frame."""
+def socket_url(base_url: str) -> str:
+    """The chat socket of the backend at ``base_url`` (``http://host:port``)."""
+    return re.sub(r"^http", "ws", base_url.rstrip("/")) + "/websocket"
+
+
+async def ask(url: str, question: str, *, timeout: float = TURN_SECONDS) -> Turn:
+    """Ask ``question`` on a new conversation over the socket at ``url`` and read the turn to its COMPLETE frame."""
     import websockets
 
     conversation_id = f"served-{uuid.uuid4().hex[:12]}"
-    async with websockets.connect(_url(server, conversation_id), max_size=None) as ws:
+    async with websockets.connect(_url(url, conversation_id), max_size=None) as ws:
         frame, message_id = user_message(question, conversation_id)
         turn = Turn(message_id=message_id)
         await ws.send(frame)
-        await asyncio.wait_for(_read_until_complete(ws, turn), TURN_SECONDS)
+        await asyncio.wait_for(_read_until_complete(ws, turn), timeout)
         return turn
 
 
@@ -188,7 +198,7 @@ async def ask_and_interrupt(server: Server, question: str, follow_up: str, *, af
     import websockets
 
     conversation_id = f"served-{uuid.uuid4().hex[:12]}"
-    async with websockets.connect(_url(server, conversation_id), max_size=None) as ws:
+    async with websockets.connect(_url(server.socket_url, conversation_id), max_size=None) as ws:
         frame, first_id = user_message(question, conversation_id)
         first = Turn(message_id=first_id)
         await ws.send(frame)
@@ -200,8 +210,8 @@ async def ask_and_interrupt(server: Server, question: str, follow_up: str, *, af
         return second
 
 
-def _url(server: Server, conversation_id: str) -> str:
-    return f"{server.socket_url}?conversationId={conversation_id}&conversation_id={conversation_id}"
+def _url(url: str, conversation_id: str) -> str:
+    return f"{url}?conversationId={conversation_id}&conversation_id={conversation_id}"
 
 
 async def _read_until_complete(ws, turn: Turn) -> None:
@@ -247,3 +257,38 @@ def clarification_reply(turn: Turn, frame: dict) -> str | None:
             "content": {"messages": [{"role": "user", "content": [{"type": "text", "text": text}]}]},
         }
     )
+
+
+#: A finished step's frame name, and the fenced blocks NAT's step adaptor renders its payload as:
+#: ```json for what serialises (status events, spans), ```python (a repr) for the rest.
+_COMPLETE_STEP = re.compile(r"^Function Complete:\s*(.+)$")
+_FENCED = re.compile(r"\*\*Function (Input|Output):\*\*\s*```\w*\n(.*?)\n?```", re.DOTALL)
+
+
+def step_records(steps: list[dict]) -> list[dict]:
+    """The turn's finished steps as ``{"name", "payload"}`` records, the payload the step's own data.
+
+    The socket carries each step as NAT's step adaptor renders it for a reader:
+    ``Function Start: X`` and ``Function Complete: X`` frames whose payload is
+    markdown around fenced blocks. Only the Complete frame is kept, since it
+    repeats the input, so a step is counted once. A status event's data is what
+    it was called with (``emit_status``); any other step's is its input and
+    output, as ``{"input": …, "output": …}``.
+    """
+    records = []
+    for step in steps:
+        match = _COMPLETE_STEP.match(str(step.get("name") or ""))
+        if not match:
+            continue
+        name = match.group(1).strip()
+        blocks = {kind.lower(): _json_or_text(body) for kind, body in _FENCED.findall(str(step.get("payload") or ""))}
+        payload = blocks.get("input") if name.startswith("status:") else blocks
+        records.append({"name": name, "payload": payload})
+    return records
+
+
+def _json_or_text(body: str) -> object:
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError:
+        return body
