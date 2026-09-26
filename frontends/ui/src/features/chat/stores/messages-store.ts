@@ -497,6 +497,15 @@ const createNewConversation = (userId: string): Conversation => ({
   updatedAt: new Date(),
 })
 
+/**
+ * How often buffered answer deltas reach the store while an answer streams.
+ * Each flush re-renders everything subscribed to the open conversation; once
+ * per animation frame, that was a 50–70 ms task every few frames on a 4×
+ * throttled CPU. What the reader sees is paced separately (`usePacedText`),
+ * so the flush can be this coarse without the text arriving in steps.
+ */
+export const DELTA_FLUSH_MS = 100
+
 export const initialMessagesState = {
   isStreaming: false,
   isLoading: false,
@@ -621,9 +630,11 @@ export const createMessagesSlice: StateCreator<
   // --- Streamed-delta batching ------------------------------------------------
   // Rather than rebuilding the whole conversation object on every token (one
   // set() per delta), subsequent answer deltas accumulate in this buffer and
-  // flush to the store once per animation frame. In the browser this collapses
-  // N per-token writes into ~1 per frame; in non-DOM / test envs we flush
-  // synchronously so `append` then a synchronous read still observes the text.
+  // flush to the store every `DELTA_FLUSH_MS`. Every flush re-renders what
+  // subscribes to the conversation, so it is coarse on purpose: the reader
+  // does not see the flush cadence, because the answer paces its own reveal
+  // (`usePacedText`). In non-DOM / test envs we flush synchronously so
+  // `append` then a synchronous read still observes the text.
   let pendingDeltaText = ''
   let pendingDeltaMeta: {
     cards?: (GridCard | undefined)[]
@@ -649,20 +660,19 @@ export const createMessagesSlice: StateCreator<
     cards: (GridCard | undefined)[] | undefined,
     answerMeta: AnswerMeta | undefined
   ): boolean => !content && (Boolean(answerMeta) || (cards?.length ?? 0) > 0)
-  let deltaRafHandle: number | null = null
+  let deltaFlushTimer: ReturnType<typeof setTimeout> | null = null
 
   const canBatchDeltas = (): boolean =>
     typeof window !== 'undefined' &&
-    typeof window.requestAnimationFrame === 'function' &&
     // Keep tests deterministic: they append then read synchronously, so never
     // defer under vitest (NODE_ENV is statically 'production'/'development' in
     // the browser bundle, so this branch tree-shakes out there).
     process.env.NODE_ENV !== 'test'
 
   const cancelScheduledFlush = (): void => {
-    if (deltaRafHandle !== null) {
-      window.cancelAnimationFrame(deltaRafHandle)
-      deltaRafHandle = null
+    if (deltaFlushTimer !== null) {
+      clearTimeout(deltaFlushTimer)
+      deltaFlushTimer = null
     }
   }
 
@@ -738,11 +748,11 @@ export const createMessagesSlice: StateCreator<
   }
 
   const scheduleDeltaFlush = (): void => {
-    if (deltaRafHandle !== null) return
-    deltaRafHandle = window.requestAnimationFrame(() => {
-      deltaRafHandle = null
+    if (deltaFlushTimer !== null) return
+    deltaFlushTimer = setTimeout(() => {
+      deltaFlushTimer = null
       flushDeltaBuffer()
-    })
+    }, DELTA_FLUSH_MS)
   }
 
   return {
