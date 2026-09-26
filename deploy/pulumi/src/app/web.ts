@@ -66,8 +66,11 @@ export function installWeb(
                 image: webImage(cfg),
                 imagePullPolicy: appPullPolicy(cfg, webImage(cfg)),
                 securityContext: hardenedContainerSecurityContext(),
-                // Astro node adapter: entry.mjs reads HOST/PORT from env.
-                command: ["node", "dist/server/entry.mjs"],
+                // No `command`: the image's CMD (`node runtime/server.mjs`, the
+                // Astro node adapter behind a Cache-Control step) is the one
+                // source for how the site starts, so an image and this program
+                // can never disagree about an entry file the other lacks. The
+                // server reads HOST/PORT from the env below.
                 ports: [{ containerPort: PORT.web, name: "http" }],
                 env: [
                   { name: "HOST", value: "0.0.0.0" },
