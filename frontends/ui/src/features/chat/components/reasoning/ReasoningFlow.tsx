@@ -630,8 +630,14 @@ export interface ReasoningFlowProps {
    * filename match, which is what every turn before the ledger had.
    */
   retrievalLedger?: RetrievalLedger
-  /** Turn is still streaming — edges animate and the graph keeps growing. */
+  /** Turn is still streaming — the newest row carries the motion and the graph keeps growing. */
   live?: boolean
+  /**
+   * The citation model of these steps and citations, when the caller has built
+   * it already (ChatThinking counts its sources from it). Built here otherwise;
+   * building it twice per step cost the phone twice.
+   */
+  sourceCards?: CitedDocument[]
 }
 
 // ── layout constants ──────────────────────────────────────────────────────────
@@ -1379,6 +1385,42 @@ export function buildGraph(
   return { nodes, edges, rows }
 }
 
+/**
+ * Is a rebuilt node's data the same as what the node already shows? Compared
+ * by value, because `buildGraph` builds every node afresh. Functions count as
+ * equal: the ones in node data are labels and handlers rebuilt from the same
+ * translations and props, and they do not change what a node draws; the fold
+ * toggle reads the round count through a ref for that reason. Exported for its
+ * own spec.
+ */
+export function sameNodeData(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (typeof a === 'function' && typeof b === 'function') return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  if (a instanceof Map || b instanceof Map) {
+    if (!(a instanceof Map && b instanceof Map) || a.size !== b.size) return false
+    for (const [key, value] of a) if (!b.has(key) || !sameNodeData(value, b.get(key))) return false
+    return true
+  }
+  if (a instanceof Set || b instanceof Set) {
+    if (!(a instanceof Set && b instanceof Set) || a.size !== b.size) return false
+    for (const value of a) if (!b.has(value)) return false
+    return true
+  }
+  if (a instanceof Date || b instanceof Date) {
+    return a instanceof Date && b instanceof Date && a.getTime() === b.getTime()
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!(Array.isArray(a) && Array.isArray(b)) || a.length !== b.length) return false
+    return a.every((value, i) => sameNodeData(value, b[i]))
+  }
+  const aFields: Record<string, unknown> = { ...a }
+  const bFields: Record<string, unknown> = { ...b }
+  const keys = Object.keys(aFields)
+  if (keys.length !== Object.keys(bFields).length) return false
+  return keys.every((key) => key in bFields && sameNodeData(aFields[key], bFields[key]))
+}
+
 // Module constants, not literals in the JSX: React Flow compares these by
 // identity, and a new object on every ReasoningFlow render re-rendered its
 // GraphView, FlowRenderer and ZoomPane each time (React performance audit, 2026-09).
@@ -1429,9 +1471,18 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
           const rowY = rowYRef.current[rowIndexById.get(n.id) ?? -1]
           return { ...n, position: { x: n.position.x, y: rowY ?? rowYRef.current.at(-1) ?? 0 } }
         }
+        // Nothing about the node changed: keep the very object, so React Flow
+        // neither re-renders nor re-measures it. Every node used to be a new
+        // object on every step, and each arriving round re-rendered and
+        // re-measured the whole graph: a 65–70 ms task per round on a 4×
+        // throttled phone (Herleitung audit, 2026-09).
+        if (old.position.x === n.position.x && old.type === n.type && sameNodeData(old.data, n.data)) {
+          return old
+        }
         return { ...old, ...n, position: { x: n.position.x, y: old.position.y } }
       })
-      return next
+      const unchanged = next.length === prev.length && next.every((n, i) => n === prev[i])
+      return unchanged ? prev : next
     })
   }, [nodes, rowIndexById])
 
@@ -1610,6 +1661,7 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
     escalationReason,
     retrievalLedger,
     live,
+    sourceCards,
   } = props
   const t = useTranslations('chat')
   const showTechnicalReasoning = useLayoutStore((s) => s.showTechnicalReasoning)
@@ -1633,8 +1685,8 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
    * alone and had no way to reach the other.
    */
   const cards = useMemo(
-    () => buildCitationModel({ traceLanes: deriveTraceLanes(steps), citations }),
-    [steps, citations]
+    () => sourceCards ?? buildCitationModel({ traceLanes: deriveTraceLanes(steps), citations }),
+    [sourceCards, steps, citations]
   )
   const layout = useMemo(() => planFan(width || FALLBACK_W, cards.length), [width, cards.length])
 
@@ -1655,22 +1707,29 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
    */
   const [foldOverrides, setFoldOverrides] = useState<ReadonlyMap<number, boolean>>(new Map())
   const roundCount = useMemo(() => retrievalRounds(steps).length, [steps])
+  // Read at click time, not captured: a node whose data did not change keeps
+  // the handler it was built with (`sameNodeData`), across later rounds too.
+  const roundCountRef = useRef(roundCount)
+  useEffect(() => {
+    roundCountRef.current = roundCount
+  }, [roundCount])
+  const toggleFold = useCallback(
+    (index: number) =>
+      setFoldOverrides((prev) => {
+        const next = new Map(prev)
+        next.set(index, !(prev.get(index) ?? defaultFoldedRounds(roundCountRef.current).has(index)))
+        return next
+      }),
+    []
+  )
   const folding = useMemo<SpineFolding>(() => {
     const byDefault = defaultFoldedRounds(roundCount)
     const folded = new Set<number>()
     for (let i = 0; i < roundCount; i++) {
       if (foldOverrides.get(i) ?? byDefault.has(i)) folded.add(i)
     }
-    return {
-      folded,
-      onToggle: (index: number) =>
-        setFoldOverrides((prev) => {
-          const next = new Map(prev)
-          next.set(index, !(prev.get(index) ?? defaultFoldedRounds(roundCount).has(index)))
-          return next
-        }),
-    }
-  }, [foldOverrides, roundCount])
+    return { folded, onToggle: toggleFold }
+  }, [foldOverrides, roundCount, toggleFold])
 
   /**
    * Card ids that have already played their enter animation.
