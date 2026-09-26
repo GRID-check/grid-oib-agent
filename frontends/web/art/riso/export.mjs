@@ -23,7 +23,8 @@
  *
  * site -> public/art/ (committed; the pre-commit hook refuses files > 1 MB)
  * out  -> art/riso/out/<work>/ (gitignored; reproducible from the pin)
- * Always ends by rewriting src/data/art.json from every work's JOBS table.
+ * Always ends by rewriting src/data/art.json from every work's JOBS table, each
+ * src versioned with ?v=<sha256 of the file> so a re-export busts caches.
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -40,7 +41,9 @@ const listed = new Map(works.map((w) => [w.name, evaluateWork(w)]));
 function writeManifest() {
   // The manifest spans every work, not only the ones exported now.
   const all = selectWorks(undefined).map((w) => (listed.get(w.name) || evaluateWork(w)).jobs);
-  const text = manifestText(manifestFrom(all));
+  const { manifest, missing } = manifestFrom(all);
+  if (missing.length) console.warn(`not exported yet, so left out of the manifest: ${missing.join(', ')}`);
+  const text = manifestText(manifest);
   const before = fs.existsSync(MANIFEST) ? fs.readFileSync(MANIFEST, 'utf8') : '';
   if (text !== before) { fs.mkdirSync(path.dirname(MANIFEST), { recursive: true }); fs.writeFileSync(MANIFEST, text); }
   console.log(`manifest ${path.relative(process.cwd(), MANIFEST)}: ${Object.keys(JSON.parse(text).art).length} ids${text === before ? ', unchanged' : ', rewritten'}`);

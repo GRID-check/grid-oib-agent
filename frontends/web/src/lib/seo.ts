@@ -11,6 +11,7 @@
 import { CONTACT_EMAIL, SITE_NAME } from '../consts'
 import { founders } from '../data/founders'
 import { languages, ui, type Locale } from '../i18n/ui'
+import { art, artFile, type ArtId } from './art'
 
 export interface OgImage {
   /** Site-relative or absolute URL. */
@@ -20,14 +21,11 @@ export interface OgImage {
   height: number
 }
 
-/**
- * The share image every page uses unless it passes its own. Interim: rendered
- * by `scripts/build-brand-assets.mjs`. When the riso print lands at
- * `public/art/og-piloti.png` (1200×630), point `src` at `OG_ART` instead.
- */
-export const OG_ART = '/art/og-piloti.png'
+/** The riso print every page shares unless it passes its own: plate I in its OG composition. */
+export const OG_ART: ArtId = 'tafeln/stuetzen/og'
 export function defaultOgImage(locale: Locale): OgImage {
-  return { src: `/og/default-${locale}.png`, alt: ui[locale].seo.ogImageAlt, width: 1200, height: 630 }
+  const og = art(OG_ART)
+  return { src: artFile(og).src, alt: og.alt[locale], width: og.width, height: og.height }
 }
 
 /** What an article page adds to its head: og:type article and its dates. */

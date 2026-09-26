@@ -14,7 +14,7 @@
  * Output
  *   frontends/web/public/  favicon.svg, favicon.ico, apple-touch-icon.png,
  *                          icons/icon-{192,512}.png, icons/icon-maskable-512.png,
- *                          og/default-{de,en}.png (interim share image)
+ *                          og/default-{de,en}.png (text share card, no longer the default)
  *   frontends/ui/src/app/  icon.svg, favicon.ico, apple-icon.png (Next file conventions)
  *   frontends/ui/public/   icons/icon-{192,512}.png, icons/icon-maskable-512.png
  *
@@ -126,8 +126,9 @@ for (const [name, data] of Object.entries(manifestIcons)) {
 }
 
 // ── Interim share image (1200×630) ─────────────────────────────────────────
-// Stands in until the riso print lands at public/art/og-piloti.png; see
-// DEFAULT_OG_IMAGE in src/lib/seo.ts.
+// No longer the site default: defaultOgImage in src/lib/seo.ts shares riso
+// plate I (art id tafeln/stuetzen/og). Kept as a text card for any page that
+// wants one; remove it with ui.ts seo.ogImageAlt once nothing does.
 const font = (file) => openFont(readFileSync(resolve(webRoot, 'public/fonts', file)))
 const fonts = {
   logo: font('poppins-500-latin.woff2'),
