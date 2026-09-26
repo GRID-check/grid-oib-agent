@@ -38,6 +38,7 @@
  */
 
 import 'server-only'
+import { compareFrameIds } from '@/lib/conversations/frame-id'
 
 /** A frame the backend sent to the asker, on its way to an observer. */
 export interface ConversationFrame {
@@ -153,6 +154,103 @@ function createSubscriberClient(url: string): any {
     connectTimeout: 1000,
     maxRetriesPerRequest: 1,
     enableOfflineQueue: false,
+    lazyConnect: false,
+  })
+  client.on('error', (error: unknown) => {
+    console.warn('[conversation-frames] redis error:', error)
+  })
+  return client
+}
+
+// ── Replay: what a client missed while its socket was down ──────────────────
+
+/** The replay stream `ConversationBus.publish_frame` appends every frame to. */
+function conversationStream(conversationId: string): string {
+  return `conv:${conversationId}:stream`
+}
+
+/** Most frames one replay returns. A turn is a few hundred; the stream keeps a few turns. */
+export const MAX_REPLAYED_FRAMES = 2000
+
+/** A missed frame, tagged with its entry id the way the live socket tags it. */
+export interface ReplayedFrame {
+  id: string
+  /** The raw NAT WebSocket frame, with `grid_frame_id` set to `id`. */
+  payload: Record<string, unknown>
+}
+
+/**
+ * Decode `XRANGE` output into the frames after `afterId`, in stream order.
+ *
+ * Exported for the unit test, for the same reason as
+ * {@link decodeConversationFrame}: this is the contract with another service's
+ * storage, worth pinning without a Redis in the loop.
+ */
+export function framesFromStreamEntries(
+  entries: [string, string[]][],
+  afterId: string | null,
+): ReplayedFrame[] {
+  const frames: ReplayedFrame[] = []
+  for (const [id, fields] of entries) {
+    if (afterId && compareFrameIds(id, afterId) <= 0) continue
+    // Fields come flat: ['d', '<envelope json>', ...].
+    const at = fields.indexOf('d')
+    const raw = at >= 0 ? fields[at + 1] : undefined
+    if (raw === undefined) continue
+    const frame = decodeConversationFrame(raw)
+    if (!frame || typeof frame.payload !== 'object' || frame.payload === null) continue
+    frames.push({ id, payload: { ...(frame.payload as Record<string, unknown>), grid_frame_id: id } })
+  }
+  return frames
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let replayClient: any = null
+
+/**
+ * The frames of one conversation after `afterId` (every frame the stream holds
+ * when it is null), oldest first. `null` when there is no stream to read: no
+ * `REDIS_URL`, or the read failed. The caller then says "nothing to resume",
+ * and the client falls back to asking for the finished answer.
+ */
+export async function readConversationFramesAfter(
+  conversationId: string,
+  afterId: string | null,
+): Promise<ReplayedFrame[] | null> {
+  const url = process.env.REDIS_URL
+  if (!url) return null
+  try {
+    replayClient ??= createCommandClient(url)
+    const stream = conversationStream(conversationId)
+    // Without a cursor (a reload), the NEWEST frames: the stream is trimmed
+    // approximately, so it can hold more than one read returns, and the turn
+    // being rebuilt is the latest one. Read backwards, then put them in order.
+    // With a cursor, forwards from it; the start is inclusive and filtered
+    // below, because an exclusive `(` range is not every server's to give.
+    const entries: [string, string[]][] =
+      afterId === null
+        ? (await replayClient.xrevrange(stream, '+', '-', 'COUNT', MAX_REPLAYED_FRAMES)).reverse()
+        : await replayClient.xrange(stream, afterId, '+', 'COUNT', MAX_REPLAYED_FRAMES)
+    return framesFromStreamEntries(entries, afterId)
+  } catch (error) {
+    console.warn('[conversation-frames] replay read failed:', error)
+    return null
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function createCommandClient(url: string): any {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const IORedis = require('ioredis')
+  const client = new IORedis(url, {
+    connectTimeout: 1000,
+    commandTimeout: 2000,
+    maxRetriesPerRequest: 1,
+    // Queued, not refused, until the connection is up. The client is created
+    // on the first replay a process serves, and that replay is the one a phone
+    // coming back is waiting on; with no queue it fails with "Stream isn't
+    // writeable" before the connect lands. `commandTimeout` still bounds it.
+    enableOfflineQueue: true,
     lazyConnect: false,
   })
   client.on('error', (error: unknown) => {

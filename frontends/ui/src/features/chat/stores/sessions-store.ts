@@ -9,6 +9,7 @@ import type {
   ChatMessage,
   PendingInteraction,
   RecoveryOutcome,
+  ResumableTurn,
 } from '../types'
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
@@ -50,6 +51,8 @@ export type SessionsSlice = {
    * settles back to false with nothing recovered.
    */
   isRecoveryPending: boolean
+  /** See `ChatState.resumableTurn`. */
+  resumableTurn: ResumableTurn | null
 
   /**
    * Whether the server conversation list has been ASKED for at least once
@@ -563,6 +566,7 @@ export const initialSessionsState = {
   currentConversation: null as Conversation | null,
   conversations: [] as Conversation[],
   isRecoveryPending: false,
+  resumableTurn: null as ResumableTurn | null,
   serverConversationsLoaded: false,
 }
 
@@ -1198,7 +1202,12 @@ export const createSessionsSlice: StateCreator<
         .reverse()
         .find((m) => meaningfulTypes.has(m.messageType ?? ''))
 
-      if (lastMeaningful?.messageType === 'user' && lastMeaningful.thinkingSteps?.length) {
+      // A question this browser sent carries the turn id it went out under
+      // (`wsParentId`): even with no thinking step yet, its turn is known.
+      const lastIsOpenQuestion =
+        lastMeaningful?.messageType === 'user' &&
+        Boolean(lastMeaningful.thinkingSteps?.length || lastMeaningful.wsParentId)
+      if (lastMeaningful && lastIsOpenQuestion) {
         // The turn LOOKS interrupted (last meaningful local message is the user
         // turn, with thinking steps but no assistant reply). But the client may
         // simply have been disconnected when the terminal frame was sent — the
@@ -1206,12 +1215,33 @@ export const createSessionsSlice: StateCreator<
         // that case. Refetch server history first: if the finished assistant
         // message is there, render it and skip the banner. Only when the
         // refetch yields nothing do we fall back to today's interrupted banner.
+        //
+        // Nothing finished yet does not mean nothing is coming: a turn still
+        // running on the server has no finished answer, and "answer lost" over
+        // it is wrong. Its frames are in the replay stream, so the socket hook
+        // rebuilds the turn from them (`resumableTurn`), and puts this banner
+        // up itself when the stream no longer holds it.
         const interruptedUserId = lastMeaningful.id
+        const wsParentId = lastMeaningful.wsParentId
         void (async () => {
           const outcome = await get()._recoverInterruptedAssistantMessage(
             conversation.id,
             interruptedUserId
           )
+          if (outcome === 'nothing' && wsParentId) {
+            set(
+              {
+                resumableTurn: {
+                  conversationId: conversation.id,
+                  userMessageId: interruptedUserId,
+                  wsParentId,
+                },
+              },
+              false,
+              'restoreSessionState:resumable'
+            )
+            return
+          }
           if (outcome === 'nothing') {
             // No explicit message: ErrorBanner localizes the registry default
             // via `agent.response_interrupted`'s messageKey.

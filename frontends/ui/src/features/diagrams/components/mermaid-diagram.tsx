@@ -91,7 +91,7 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
   const { svg, fileSvg, failed } = useRenderedDiagram(source, !isStreaming && model === null)
   // And one WRITE, shared with the card for the same reason. `fileSvg` and not
   // `svg`: the bytes that go into the project are always the paper ones.
-  const filing = useDiagramFiling({ source, fileSvg, renderFileSvg: model ? () => renderPaperDiagram(source) : undefined })
+  const filing = useDiagramFiling({ source, fileSvg, renderFileSvg: model ? () => renderPaperDiagram(source, model) : undefined })
 
   // Still being written: the drawing's place, not its source. A code block that
   // turned into a picture when its fence closed was the largest jump a

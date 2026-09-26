@@ -415,7 +415,24 @@ Three things to know before consuming it:
    replay stream is per conversation rather than per turn, so buffering would mean
    guessing which frames belong to the turn running *now* — and guessing wrong
    shows a colleague a stale answer under a live banner. Opening a thread mid-turn
-   therefore loses the tokens already spoken, and nothing else.
+   therefore loses the tokens already spoken, and nothing else. The asker's own
+   socket does resume (`/frames`, below), because it knows where it stopped: the
+   entry id of the last frame it applied, or the id its question went out under.
+
+### `GET /api/conversations/{id}/frames?after=<entry id>`
+
+What a dropped socket missed. Every frame the agent sends over the asker's
+WebSocket is also appended to the conversation's replay stream (`conv:<id>:stream`,
+ADR-0028) and reaches the socket tagged `grid_frame_id`, the stream entry id. A
+client that lost its socket asks for every frame after the last id it applied and
+feeds them to its live frame handler. Requires `viewer`.
+
+- `{"frames": [<NAT frame>, ...]}`, oldest first, each with `grid_frame_id` set.
+  Without `after`, every frame the stream still holds (a reload, which lost its
+  cursor; the client applies them from its question's first frame on).
+- `{"frames": null}`: nothing to read (no `REDIS_URL`, or the read failed). The
+  client falls back to fetching the finished answer.
+- `400` when `after` is not an entry id (`<ms>-<n>`). `Cache-Control: no-store`.
 
 ### `POST /api/internal/collaboration/prune`
 

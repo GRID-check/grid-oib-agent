@@ -135,6 +135,20 @@ def _may_answer_interaction(awaited_subject: str | None, answered_by: str | None
     return answered_by is not None and answered_by == awaited_subject
 
 
+def with_frame_id(frame: Any, entry_id: str | None) -> Any:
+    """The frame as the client receives it: tagged with its replay entry id.
+
+    `grid_frame_id` is the client's resume cursor. After a dropped socket it
+    asks `GET /api/conversations/:id/frames?after=<id>` for everything later,
+    and drops a live frame at or before the last id it has applied, so a frame
+    that arrives both ways is applied once. A frame the stream never took (no
+    bus) goes out untagged, and the client then has nothing to resume from.
+    """
+    if not entry_id or not isinstance(frame, dict):
+        return frame
+    return {**frame, "grid_frame_id": entry_id}
+
+
 class WebSocketSessionRegistry:
     """Keep track of active sockets, pending HITL responses, and running workflow tasks."""
 
@@ -193,7 +207,7 @@ class WebSocketSessionRegistry:
             try:
                 async for env in get_bus().subscribe_frames(conversation_id):
                     try:
-                        await socket.send_json(env.payload)
+                        await socket.send_json(with_frame_id(env.payload, env.entry_id))
                     except Exception:
                         logger.debug("Relay socket write failed for %s; stopping relay", conversation_id)
                         return
@@ -227,17 +241,21 @@ class WebSocketSessionRegistry:
         """
         if not conversation_id:
             return False
+        frame = message.model_dump()
         if is_multi_replica_bus():
             try:
-                await get_bus().publish_frame(conversation_id, message.model_dump())
+                published = await get_bus().publish_frame(conversation_id, frame)
+                frame = with_frame_id(frame, published.entry_id)
             except Exception:
                 logger.warning("Bus publish failed for conversation %s", conversation_id, exc_info=True)
         async with self._lock:
             socket = self._sockets.get(conversation_id)
         if not socket:
+            # Not lost: the frame is in the replay stream, and a client that comes
+            # back asks for what it missed from the last `grid_frame_id` it saw.
             return False
         try:
-            await socket.send_json(message.model_dump())
+            await socket.send_json(frame)
             return True
         except Exception as exc:  # pragma: no cover
             logger.warning("Failed to send websocket message after reconnect: %s", exc)

@@ -176,6 +176,9 @@ function readingOrder(model: FlowModel): string[] {
 /** Where a flow is drawn as a graph rather than listed: two readable nodes side by side. */
 const FLOW_GRAPH_MIN_REM = 28
 
+/** Below this a map is an outline: root, parts and leaves need three columns. */
+const MAP_TREE_MIN_REM = 34
+
 /**
  * The width of the element `ref` is put on, in rem; null until it is measured.
  * Measured before the first paint, so the form chosen from it is the first one
@@ -277,15 +280,17 @@ export function MapDiagram({ model, label }: { model: MapModel; label: string })
     }),
     [nodes]
   )
+  // A tree needs three columns of room; below that it is an outline. Only the
+  // one that is shown mounts: both used to, with a container query hiding one,
+  // so every map on a phone still paid for the tree's dagre pass and canvas.
+  const [ref, width] = useWidthRem()
   return (
-    <div className="@container">
-      {/* A tree needs three columns of room; below that it is an outline. */}
-      <div className="hidden @[34rem]:block">
+    <div ref={ref}>
+      {width === null ? null : width >= MAP_TREE_MIN_REM ? (
         <GraphCanvas build={build} label={label} nodeTypes={MAP_NODE_TYPES} nodesep={10} ranksep={36} arrows={false} />
-      </div>
-      <div className="@[34rem]:hidden">
+      ) : (
         <MapOutline model={model} />
-      </div>
+      )}
     </div>
   )
 }

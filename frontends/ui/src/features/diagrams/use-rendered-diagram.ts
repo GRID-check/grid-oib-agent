@@ -51,6 +51,10 @@
  */
 
 import { useEffect, useState } from 'react'
+import { parseDiagramSvg, serializeDiagramSvg } from '@/lib/diagrams/svg'
+import { diagramThemeVariables } from './diagram-palette'
+import { canvasTextMeasure, mapSvg } from './map-svg'
+import type { DiagramModel } from './model'
 import { diagramRendererFor } from './render-diagram'
 import { useDiagramTheme } from './use-diagram-theme'
 
@@ -86,11 +90,23 @@ function freshId(): string {
 
 /**
  * The paper copy of `source` alone, for a surface that draws the diagram with
- * its own view and needs mermaid's SVG only as the FILE. Called when the reader
- * files, so a diagram nobody files costs no mermaid layout at all. Rejects when
- * mermaid refuses the source; the filing hook reports that as a failed filing.
+ * its own view and needs an SVG only as the FILE. Called when the reader files,
+ * so a diagram nobody files costs no layout at all. Rejects when the drawing
+ * cannot be made; the filing hook reports that as a failed filing.
+ *
+ * A map is drawn from its model (`map-svg.ts`), so the file is the tree the
+ * answer shows rather than mermaid's mindmap, which keeps a bare branch's
+ * quotes and clips the root's label. Every other kind is mermaid's render.
  */
-export async function renderPaperDiagram(source: string): Promise<string> {
+export async function renderPaperDiagram(source: string, model?: DiagramModel | null): Promise<string> {
+  if (model?.kind === 'map') {
+    const paper = diagramThemeVariables('light')
+    if (paper) {
+      const ink = { ink: String(paper.primaryTextColor), line: String(paper.lineColor), fill: String(paper.mainBkg) }
+      // Through the server's validator, like every drawing mermaid makes.
+      return serializeDiagramSvg(parseDiagramSvg(mapSvg(model, ink, canvasTextMeasure())).root)
+    }
+  }
   const renderer = diagramRendererFor('mermaid')
   if (!renderer) throw new Error('no mermaid renderer')
   return renderer({ source, id: freshId(), theme: 'light' })

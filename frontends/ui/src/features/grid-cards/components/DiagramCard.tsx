@@ -122,7 +122,7 @@ export const DiagramCard: FC<DiagramCardProps> = ({ title, source, caption, refe
   const filing = useDiagramFiling({
     source,
     fileSvg,
-    renderFileSvg: model ? () => renderPaperDiagram(source) : undefined,
+    renderFileSvg: model ? () => renderPaperDiagram(source, model) : undefined,
     title,
   })
   const state = failed ? 'failed' : model || svg ? 'drawn' : 'drawing'
