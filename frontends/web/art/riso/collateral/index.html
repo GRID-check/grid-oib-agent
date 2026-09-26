@@ -333,7 +333,7 @@ function pencil(c, T, a, b, r, shadows) {
   const A = T.M(a[0], a[1], r), Bq = T.M(b[0], b[1], r);
   const dx = Bq[0] - A[0], dy = Bq[1] - A[1], L = Math.hypot(dx, dy), d = [dx / L, dy / L], n = [-d[1], d[0]];
   const w = r * T.P.s, at = (f, o) => [A[0] + d[0] * L * f + n[0] * o, A[1] + d[1] * L * f + n[1] * o];
-  const cone = 0.87, lead = 0.965;
+  const cone = 0.87, lead = 0.94;
   if (shadows) {
     const q = [0, cone, 1].map((f) => [lerp(a[0], b[0], f), lerp(a[1], b[1], f)]);
     const sh = q.map(([u, v]) => T.P(T.B.shadowOf(T.B.at(u, v, r * 1.1), SUN_SERIES)));
