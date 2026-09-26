@@ -228,7 +228,32 @@ junction.
 - **Plan detail.** A dimension chain, door swings, a hatched stair, one tinted room and
   tape at the sheet's corners.
 
+### VI. Zeichentisch (drafting table)
+
+For the section "Nutzung": how Piloti is used day to day. A drafting table, seen nearly
+from above, using plate V's tipped-plane device at 1.12 rad. On it:
+
+- a plan taped at the corners: structural axes dash-dotted, column dots on the grid,
+  walls, one tinted room;
+- the brown ring a coffee cup left on the plan earlier;
+- the cup itself, with dark coffee and a looped handle;
+- a triangular scale rule (Dreikantmaßstab) with graduated ticks on its visible face;
+- a pencil;
+- a small potted plant in Kelly, the one living thing on the table.
+
+Knowledge arrives the way it does in practice, as small sheets. Three cards glide in
+from beyond the table's far-right corner at falling heights, each over its own shadow
+projected on the table. Six have already settled on a loose stack. Every card carries a
+heading bar, three lines and a lime dot.
+
+- **Cylinders.** The cup and the pot use `planeCyl`: a hull of their rims in the
+  tipped plane.
+- **Handle.** It is a loop, a key-line stroke with its core cut out. The first version,
+  a flat ribbon, read as a stub.
+
 ## Inspected
+
+Plate VI: the full frame at 720 and 1440.
 
 Plate V: the full frame at 720 and 1440, and a 1:1 crop of the lens at 1440 (it caught
 the clause card outside the magnified field, a doubly scaled § stroke, and the wall
@@ -291,3 +316,9 @@ every job.
   - The magnifier rim is a heavy screened ring and competes with the lens content.
   - The lens shows the magnified plane at the lens height, not the true view down
     through the glass: a drawing convention, not optics.
+- **VI.**
+  - The flying cards leave the table near the frame's top right, so the plate is heavier
+    on the right.
+  - The pencil is thin and its point is lost at 720.
+  - The plan is a generic grid: there is less to find in it than in plate V's.
+  - Only the 720 and 1440 full frames were inspected; no 1:1 crop was taken.

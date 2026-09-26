@@ -54,6 +54,7 @@ To look at one job in a browser, open `tafeln/index.html?t=<job>`. Debug views:
 | `piloti-iii-schleife-720.webp` / `-1440.webp` | 720² / 1440² | III Schleife | Cover of "Ein System, das aus Ihrem Frust lernt" |
 | `piloti-iv-bauplatz-720.webp` / `-1440.webp` | 720² / 1440² | IV Bauplatz | 404 page ("Nicht im Plan") |
 | `piloti-v-pruefstand-720.webp` / `-1440.webp` | 720² / 1440² | V Prüfstand | Section "Daten & Transparenz" |
+| `piloti-vi-zeichentisch-720.webp` / `-1440.webp` | 720² / 1440² | VI Zeichentisch | Section "Nutzung" |
 
 ## Showing them
 
