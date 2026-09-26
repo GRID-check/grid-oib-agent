@@ -38,10 +38,9 @@ const number = (n: number, digits: number) =>
 const size = (bytes: number) =>
   bytes < 1024 * 1024 ? `${number(Math.max(1, Math.round(bytes / 1024)), 0)} KB` : `${number(bytes / 1024 / 1024, 1)} MB`
 
-/** `ecke-klammer` → `Ecke Klammer`: the label of a plate that has no caption. */
-const humanise = (slug: string) => slug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-const captionOf = (i: DownloadItem) => i.caption?.[locale] ?? humanise(i.plate)
-const groupName = (work: string) => t.groups[work] ?? humanise(work)
+/** A plate without a caption is named by its slug, set as the file handle it is. */
+const captionOf = (i: DownloadItem) => i.caption?.[locale] ?? i.plate
+const groupName = (work: string) => t.groups[work] ?? work
 
 function label(f: DownloadFile) {
   if (f.variant === 'sheet') return t.sheet
@@ -52,8 +51,12 @@ function label(f: DownloadFile) {
 const meta = (f: DownloadFile) =>
   [f.width ? `${f.width} × ${f.height}` : null, f.type, size(sizes.get(f.path) ?? 0)].filter(Boolean).join(' · ')
 
-/** A group's column: its widest preview, so a row of plates sits three abreast and a slide takes the row. */
-const columnOf = (items: DownloadItem[]) => Math.max(220, ...items.map((i) => i.preview.width))
+/**
+ * A group's column: its widest preview, so plates sit three abreast and a
+ * slide takes the row; at least 300 px, which keeps a file's label and its
+ * size on one line.
+ */
+const columnOf = (items: DownloadItem[]) => Math.max(300, ...items.map((i) => i.preview.width))
 const all = itemFiles(groups.flatMap((g) => g.items))
 ---
 
@@ -97,7 +100,10 @@ const all = itemFiles(groups.flatMap((g) => g.items))
             {g.items.map((item) => (
               <li class="min-w-0">
                 <figure class="m-0">
-                  <div class="dl-frame" style={`width: min(100%, ${item.preview.width}px); height: ${item.preview.height}px`}>
+                  <div
+                    class="dl-frame"
+                    style={`width: min(100%, ${item.preview.width}px); aspect-ratio: ${item.preview.width} / ${item.preview.height}`}
+                  >
                     <img
                       src={item.preview.src}
                       srcset={item.preview.srcset}
@@ -109,7 +115,9 @@ const all = itemFiles(groups.flatMap((g) => g.items))
                       class:list={[item.preview.onPage && 'mix-blend-multiply']}
                     />
                   </div>
-                  <figcaption class="mt-3 text-sm font-medium text-ink">{captionOf(item)}</figcaption>
+                  <figcaption class:list={['mt-3 text-sm text-ink', item.caption ? 'font-medium' : 'font-mono']}>
+                    {captionOf(item)}
+                  </figcaption>
                 </figure>
                 <ul class="m-0 mt-2 max-w-md list-none p-0">
                   {item.files.map((f) => (
@@ -117,13 +125,13 @@ const all = itemFiles(groups.flatMap((g) => g.items))
                       <a
                         href={f.href}
                         download={f.name}
-                        class="dl-row flex min-h-11 flex-wrap items-center justify-between gap-x-4 border-t border-ink/10 py-2 text-sm text-ink no-underline"
+                        class="dl-row flex min-h-11 items-center justify-between gap-x-4 border-t border-ink/10 py-2 text-sm text-ink no-underline"
                       >
-                        <span>
+                        <span class="min-w-0">
                           <span class="sr-only">{captionOf(item)}: </span>
                           {label(f)}
                         </span>
-                        <span class="font-mono text-2xs tabular-nums text-ink-mute">{meta(f)}</span>
+                        <span class="shrink-0 whitespace-nowrap font-mono text-2xs tabular-nums text-ink-mute">{meta(f)}</span>
                       </a>
                     </li>
                   ))}
@@ -141,19 +149,21 @@ const all = itemFiles(groups.flatMap((g) => g.items))
   .dl-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--col)), 1fr));
-    gap: 3.5rem 2.5rem;
+    /* three 360 px plates abreast in the 1152 px column */
+    gap: 3.5rem 2rem;
   }
-  /* The preview at its own size (or exactly half): wider than the column, it
-     is cropped to the middle rather than resampled into moiré. */
+  /* The preview at its own size (or exactly half): wider than the column (a
+     slide on a phone), the frame keeps the file's proportions and shows its
+     middle at that size, rather than resampling the screen into moiré. */
   .dl-frame {
     display: flex;
+    align-items: center;
     justify-content: center;
     overflow: hidden;
   }
   .dl-frame img {
     flex: none;
     max-width: none;
-    height: auto;
   }
   .dl-row:hover,
   .dl-row:focus-visible {
