@@ -61,12 +61,12 @@ if (!hasSlot && name) {
   // Pages are prerendered, so this runs at build time with the site's root
   // as the working directory.
   const onDisk = (file: string) => existsSync(join(process.cwd(), 'public', 'art', file))
-  if (onDisk(`${name}.png`)) {
-    const src = `/art/${name}.png`
-    const hi = size === 'full' && onDisk(`${name}@2x.png`) ? `/art/${name}@2x.png` : undefined
+  if (onDisk(`${name}-720.webp`)) {
+    const src = `/art/${name}-720.webp`
+    const hi = size === 'full' && onDisk(`${name}-1440.webp`) ? `/art/${name}-1440.webp` : undefined
     plate = { src, srcset: hi ? `${src} 1x, ${hi} 2x` : undefined }
   } else {
-    console.warn(`[TapedPrint] public/art/${name}.png not found; the print is left out.`)
+    console.warn(`[TapedPrint] public/art/${name}-720.webp not found; the print is left out.`)
   }
 }
 const show = hasSlot || plate !== undefined

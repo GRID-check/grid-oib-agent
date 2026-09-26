@@ -93,6 +93,9 @@ const nextConfig: NextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          // Behind sign-in, so in no search index; the public site is what
+          // gets found. Covers non-HTML responses the metadata cannot reach.
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
         ],
       },
       // The base-corpus source-PDF stream is displayed inside a same-origin

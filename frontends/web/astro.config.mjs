@@ -1,5 +1,6 @@
 import { defineConfig } from 'astro/config'
 import mdx from '@astrojs/mdx'
+import sitemap from '@astrojs/sitemap'
 import node from '@astrojs/node'
 import keystatic from '@keystatic/astro'
 import react from '@astrojs/react'
@@ -12,7 +13,20 @@ export default defineConfig({
   // renderer registered, `astro build` still succeeds - the failure only shows
   // up at request time, as a NoMatchingRenderer stream error that reaches the
   // browser as a blank /keystatic page. It must come before keystatic().
-  integrations: [mdx(), react(), keystatic()],
+  integrations: [
+    mdx(),
+    react(),
+    keystatic(),
+    // Lists every prerendered page, paired with its twin in the other locale
+    // (same path under /en). Blog posts whose slugs differ per locale are
+    // paired by the hreflang links in their own <head> instead. Server-rendered
+    // routes (/keystatic, /api, /sign-in, the /de redirect) are never listed;
+    // the filter keeps out what is prerendered but not for search.
+    sitemap({
+      i18n: { defaultLocale: 'de', locales: { de: 'de', en: 'en' } },
+      filter: (page) => !/\/(404|keystatic|api|sign-in)(\/|$)/.test(new URL(page).pathname),
+    }),
+  ],
   adapter: node({ mode: 'standalone' }),
   // Astro's default cache lives in `node_modules/.astro`, which `npm ci` deletes
   // on every CI run — so the image pipeline reprocessed every blog image from

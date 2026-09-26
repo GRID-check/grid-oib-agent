@@ -1,23 +1,23 @@
 /**
- * The riso plates, by number: the one place that knows their file names.
+ * The riso plates: the one place that knows their file names.
  *
  * The files are made by the riso kit and live in `public/art/` as
- * `<name>.png` (720 px, the 1x of a 720 CSS px slot) and `<name>@2x.png`
- * (1440 px). TapedPrint builds both URLs from the base name here, so renaming
- * a plate is one edit in this file.
- *
- * A plate listed here whose file is not (yet) in `public/art/` is skipped at
- * build time with a warning, never rendered as a broken image.
+ * `<name>-720.webp` (the 1x of a 720 CSS px slot) and `<name>-1440.webp`
+ * (the 2x). TapedPrint builds both URLs from the base name here, so renaming
+ * a plate is one edit in this file. List a plate only once its file exists; a
+ * listed plate whose file is missing is left out at build time with a warning.
  */
 export const PLATES = {
   /** Drei Stützen / Three columns: the Team section. */
-  I: 'plate-1',
-  /** Schichten / Layers: Datengrundlage, and Journal posts without a cover. */
-  II: 'plate-2',
-  /** Build-log posts without a cover. */
-  III: 'plate-3',
-  /** Bauplatz / Building site: the 404 page. */
-  IV: 'plate-4',
+  I: 'piloti-i-stuetzen',
+  /** Schichten / Layers: the post on how Piloti works. */
+  II: 'piloti-ii-schichten',
 } as const
 
 export type PlateName = (typeof PLATES)[keyof typeof PLATES]
+
+/** Blog posts (by slug, both locales) that wear a plate as their cover. */
+export const POST_PLATES: Record<string, PlateName | undefined> = {
+  'wie-piloti-funktioniert': PLATES.II,
+  'how-piloti-works': PLATES.II,
+}

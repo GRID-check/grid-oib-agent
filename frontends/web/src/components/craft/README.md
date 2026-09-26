@@ -6,8 +6,8 @@ one pencil line. Pure CSS, SVG and plain `<img>`: no dependencies, no fonts.
 
 | Piece | What it is | Used on |
 |---|---|---|
-| `TapedPrint.astro` | A print on a white paper margin, one strip of tape, a little off square (clamped to ±2°), optional mono caption. Takes a riso plate by base name, or any slot (a photo, a blog cover). | Team (plate I, founder photos), 404 (plate IV), blog posts (cover, or plate II / III) |
-| `plates.ts` | The riso plates by number → their base name in `public/art/`. The one place that knows file names. | wherever a plate is shown |
+| `TapedPrint.astro` | A print on a white paper margin, one strip of tape, a little off square (clamped to ±2°), optional mono caption. Takes a riso plate by base name, or any slot (a photo, a blog cover). | Team (plate I, founder photos), blog posts (cover, or the plate `POST_PLATES` assigns: II on "Wie Piloti funktioniert") |
+| `plates.ts` | The riso plates by number → their base name in `public/art/`, and which blog posts wear one. The one place that knows file names. | wherever a plate is shown |
 | `Tape.astro` | The strip of masking tape: translucent crepe with a torn zigzag at both ends. | inside TapedPrint only |
 | `Stamp.astro` | A rubber stamp in olive ink with uneven coverage, optionally "thudding" in once (260 ms). Decorative, `aria-hidden`. | Kontakt: "Pilotphase" |
 | `PencilUnderline.astro` | A two-stroke hand-drawn line under a few words, drawn in once (300 ms). | Kontakt: under "Pilotbüro" |
@@ -15,8 +15,8 @@ one pencil line. Pure CSS, SVG and plain `<img>`: no dependencies, no fonts.
 
 ## Plates
 
-Files come from the riso kit: `public/art/<name>.png` at 720 px and
-`public/art/<name>@2x.png` at 1440 px. They are screened bitmaps, so they are
+Files come from the riso kit: `public/art/<name>-720.webp` and
+`public/art/<name>-1440.webp`. They are screened bitmaps, so they are
 never resampled by an odd factor (that is what makes moiré):
 
 - `size="full"`: 720 CSS px, 1440 px file on 2x screens.
@@ -25,8 +25,9 @@ never resampled by an odd factor (that is what makes moiré):
 - On a phone narrower than the print, `max-width: 100%`, and nothing else.
 
 A plate whose file is missing is left out at build time with a warning
-(`[TapedPrint] public/art/… not found`), so a section can name its plate before
-the plate exists. Renaming a plate is one edit in `plates.ts`.
+(`[TapedPrint] public/art/… not found`), so a missing file never ships as a
+broken image. List a plate in `plates.ts` only once its file exists; renaming
+one is one edit there.
 
 Photos are not screened, so a photo goes into the slot as an `astro:assets`
 `<Image>`; resizing it is fine.

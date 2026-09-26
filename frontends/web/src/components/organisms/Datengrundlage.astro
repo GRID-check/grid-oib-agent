@@ -7,49 +7,58 @@ interface Props {
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
+// One mark per source, in the order of the cards: the clause, the office's
+// drawer, the plot, the outbound link.
+const glyphs = ['§', '▤', '⌖', '↗']
 ---
 
 <section
   id="daten"
   data-screen-label={t.sheets.daten}
-  class="mx-auto box-border flex min-h-screen max-w-[85rem] flex-col justify-center px-4 py-24 sm:px-10"
+  class="mx-auto box-border max-w-[85rem] px-2 py-9 sm:px-4 sm:py-12 lg:flex lg:min-h-screen lg:flex-col lg:justify-center lg:px-10 lg:py-24"
 >
-  <div class="box-border rounded-panel bg-accent-900 px-6 py-16 text-surface sheet-dark sm:px-16 sm:py-20">
-    <div data-reveal class="mb-12 max-w-3xl sm:mb-16">
+  <div
+    class="box-border rounded-[1.5rem] bg-accent-900 px-5 py-12 text-surface sheet-dark sm:rounded-panel sm:px-10 sm:py-16 lg:px-16 lg:py-20"
+  >
+    <div data-reveal class="mb-9 max-w-3xl sm:mb-14">
       <SectionTag no="04" tone="dark" class="mb-5">{t.daten.tag}</SectionTag>
-      <h2 class="m-0 mb-6 font-voice text-v2 text-surface" style="text-wrap: balance">
+      <h2 class="m-0 mb-5 font-voice text-v2 text-surface sm:mb-6" style="text-wrap: balance">
         {t.daten.title}
       </h2>
-      <p class="m-0 text-lg leading-relaxed text-on-dark" style="text-wrap: pretty">
+      <p class="m-0 text-base leading-relaxed text-on-dark sm:text-lg" style="text-wrap: pretty">
         {t.daten.body}
       </p>
     </div>
 
-    <!-- A drawing legend, not a card row: one spine, a tick per source, columns
-         divided by hairlines. Deliberately the same figure as the story's net —
-         these four sources are the fragments it wires together. -->
-    <div data-reveal class="border-t border-surface/25 pt-0">
-      <ol class="m-0 grid list-none grid-cols-4 gap-px bg-surface/15 p-0 max-lg:grid-cols-2 max-sm:grid-cols-1">
-        {
-          t.daten.cards.map((c, i) => (
-            <li class="group relative bg-accent-900 pb-2 pt-7 transition-colors hover:bg-accent-800 sm:px-6">
+    <!-- The four sources as sheets in a set: a 2×2 block on a phone, one row
+         from lg. Each keeps the legend's tick at its top edge — the same mark
+         the story's net wires into its hub. -->
+    <ol data-reveal class="m-0 grid list-none grid-cols-2 gap-2 p-0 sm:gap-3 lg:grid-cols-4 lg:gap-4">
+      {
+        t.daten.cards.map((c, i) => (
+          <li class="group relative flex min-w-0 flex-col rounded-2xl bg-accent-800 p-4 ring-1 ring-surface/10 transition-colors hover:bg-accent-700/70 sm:p-5 lg:p-6">
+            <span
+              class="absolute left-4 top-0 h-3 w-px bg-surface/40 transition-[height] duration-500 group-hover:h-5 sm:left-5 lg:left-6"
+              aria-hidden="true"
+            />
+            <div class="flex items-center justify-between gap-2">
               <span
-                class="absolute left-0 top-0 h-4 w-px bg-surface/40 transition-[height] duration-500 group-hover:h-7 sm:left-6"
+                class="inline-flex size-8 items-center justify-center rounded-lg bg-surface/10 text-sm text-on-dark-strong"
                 aria-hidden="true"
-              />
-              <p class="m-0 font-mono text-2xs uppercase tracking-widest text-on-dark-label">
-                {`0${i + 1}`}
-              </p>
-              <h3 class="m-0 mt-3 font-display text-lg font-semibold tracking-tight text-surface">
-                {c.title}
-              </h3>
-              <p class="m-0 mt-2 pb-6 text-sm leading-relaxed text-on-dark" style="text-wrap: pretty">
-                {c.body}
-              </p>
-            </li>
-          ))
-        }
-      </ol>
-    </div>
+              >
+                {glyphs[i]}
+              </span>
+              <span class="font-mono text-2xs uppercase tracking-widest text-on-dark-label">{`0${i + 1}`}</span>
+            </div>
+            <h3 class="m-0 mt-4 font-display text-base font-semibold tracking-tight text-surface sm:text-lg">
+              {c.title}
+            </h3>
+            <p class="m-0 mt-1.5 hyphens-auto text-sm leading-snug text-on-dark sm:text-[0.9375rem] sm:leading-relaxed" style="text-wrap: pretty">
+              {c.body}
+            </p>
+          </li>
+        ))
+      }
+    </ol>
   </div>
 </section>

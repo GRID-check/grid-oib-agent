@@ -33,6 +33,29 @@ stored.
 not equal a category id; `npm run check` refuses one. Blog figures have their
 own guide: `src/components/blog/figures/README.md`.
 
+## Head and SEO
+
+Pages never write `<head>` tags. They pass props to `BaseLayout` (`title`,
+`description`, and where it applies `alternates`, `ogImage`, `article`,
+`jsonLd`, `noindex`), and `components/seo/SeoHead.astro` turns them into the
+title, canonical, hreflang, Open Graph, Twitter, RSS links, icons and the
+JSON-LD graph. The builders live in `src/lib/seo.ts`; the strings in `ui.ts`:
+`meta` (the landing page, and the one sentence that says what Piloti is),
+`seo.pages` (every other page's title and description) and `faq`.
+
+A new page: add its title (about 60 characters) and description (about 155) to
+`seo.pages` in both locales and pass them to `BaseLayout`. It lands in the
+sitemap on its own; if it must stay out, filter it in `astro.config.mjs` and
+pass `noindex`. The JSON-LD Organization states name, site, logo and founders
+only: Piloti is not incorporated, so never a legalName, an address or a
+registration. `/robots.txt`, `/llms.txt`, `/llms-full.txt`, the RSS feeds and
+the manifest are endpoints under `src/pages`, generated from the same sources
+as the pages. `src/lib` is inside the claims lint, so what they say is checked.
+
+Icons and the interim share image are rendered from `shared/brand/piloti-mark.svg`
+by `node scripts/build-brand-assets.mjs` (both apps); edit the master, re-run it,
+commit the output. `npm run check` fails when a copy drifted from the master.
+
 ## Reference
 
 - Release notes end-to-end: [`docs/contributing/release-notes.md`](../../docs/contributing/release-notes.md).

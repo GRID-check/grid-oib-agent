@@ -252,6 +252,8 @@ does not exist, so a moved file is caught; a missing row is not.
 | Drizzle schema | `frontends/ui/src/lib/db/schema` | [`docs/database/schema.md`](../database/schema.md) | ADR-0017 |
 | BFF proxy to the agent | `frontends/ui/src/lib/backend-proxy.ts` | [`docs/technical-reference/bff-proxy-pattern.md`](../technical-reference/bff-proxy-pattern.md) | ADR-0003 |
 | Collection scope header | `frontends/ui/src/lib/collection-scope-request.ts` | [`docs/technical-reference/collection-scoping.md`](../technical-reference/collection-scoping.md) | ADR-0013 |
+| Brand mark and every icon rendered from it (favicons, touch and manifest icons, the interim share image) | `shared/brand/piloti-mark.svg`, rendered into both apps by `frontends/web/scripts/build-brand-assets.mjs` | [`frontends/web/AGENTS.md`](../../frontends/web/AGENTS.md#head-and-seo) | — |
+| Public site head: meta, Open Graph, JSON-LD, sitemap, robots, RSS, llms.txt | `frontends/web/src/components/seo/SeoHead.astro`, `frontends/web/src/lib/seo.ts` | [`frontends/web/AGENTS.md`](../../frontends/web/AGENTS.md#head-and-seo) | — |
 
 ## Repo process
 

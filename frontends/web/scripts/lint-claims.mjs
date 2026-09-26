@@ -20,7 +20,7 @@ const FORBIDDEN = [
   [/selben Werktag|same working day/i, 'unsupported claim: response-time promise'],
 ]
 
-const ROOTS = ['src/i18n', 'src/components', 'src/content', 'src/data', 'src/pages', 'src/consts.ts']
+const ROOTS = ['src/i18n', 'src/components', 'src/content', 'src/data', 'src/pages', 'src/lib', 'src/layouts', 'src/consts.ts']
 const SKIP = /changelog\.json$|lint-claims/
 
 function* files(path) {
@@ -35,6 +35,8 @@ for (const root of ROOTS) {
     readFileSync(file, 'utf8')
       .split('\n')
       .forEach((line, i) => {
+        // Comments explain why a claim is gone; only what renders is checked.
+        if (/^\s*(\/\/|\*|\/\*)/.test(line)) return
         for (const [pattern, why, allowed] of FORBIDDEN) {
           if (pattern.test(allowed ? line.replace(allowed, '') : line)) {
             console.error(`${file}:${i + 1}: ${why}\n    ${line.trim().slice(0, 140)}`)

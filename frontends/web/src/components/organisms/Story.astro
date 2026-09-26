@@ -8,47 +8,63 @@ interface Props {
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
+
+// One list of nodes, drawn twice: as the flown-in ring on a desktop panel and
+// as a grid around the hub on a phone. `dx/dy` is where a stage fragment drifts
+// in from, `fx/fy` the direction it takes from the hub, `pos` its authored
+// scatter position — all read by scripts/landing.ts, none by the phone grid.
+//
+// Every node is something Piloti can actually hold: a clause, a guideline, a
+// document, a web source. The U-value is OIB-RL 6, which is building code.
+const frags = [
+  { tag: t.story.tags.norm, lines: ['OIB-RL 2', 'Pkt. 3.5'], dx: -30, dy: -24, fx: 0.13, fy: 0.28, pos: { left: 0.06, top: 0.2 } },
+  { tag: t.story.tags.site, lines: ['WIEN 1030'], dx: 40, dy: -30, fx: 0.87, fy: 0.28, pos: { right: 0.08, top: 0.16 } },
+  { tag: t.story.tags.document, lines: ['Bauantrag.pdf'], dx: -22, dy: -34, fx: 0.32, fy: 0.12, pos: { left: 0.22, top: 0.11 } },
+  { tag: t.story.tags.detail, lines: ['Sockelanschluss'], dx: 40, dy: 4, fx: 0.68, fy: 0.12, pos: { right: 0.05, top: 0.46 } },
+  { tag: t.story.tags.category, lines: ['GK 4'], dx: 44, dy: 32, fx: 0.86, fy: 0.8, pos: { right: 0.1, bottom: 0.15 } },
+  { tag: t.story.tags.web, lines: ['Flächenwidmung ↗'], dx: -46, dy: 26, fx: 0.14, fy: 0.8, pos: { left: 0.09, bottom: 0.18 } },
+]
+const infos = [
+  { glyph: '§', tile: '#cfe0a8', title: '§ 106 BO Wien', sub: t.story.infoSubs.fire, value: 'GK 4', dx: 26, dy: -18, fx: 0.14, fy: 0.57, pos: { right: 0.2, top: 0.3 } },
+  { glyph: '◷', tile: '#f3e6b8', title: 'OIB-RL 6', sub: t.story.infoSubs.energy, value: 'U 0,20', dx: -34, dy: 20, fx: 0.86, fy: 0.57, pos: { left: 0.17, bottom: 0.3 } },
+  { glyph: '▦', tile: '#e9c4a8', title: 'Volksschule Aspern', sub: t.story.infoSubs.connection, value: '2019', dx: 18, dy: 34, fx: 0.3, fy: 0.87, pos: { right: 0.24, bottom: 0.24 } },
+  { glyph: '▤', tile: '#cdd6e6', title: 'Statik_Nachweis', sub: t.story.infoSubs.construction, value: 'PDF', dx: -12, dy: 40, fx: 0.5, fy: 0.895, pos: { left: 0.33, bottom: 0.09 } },
+]
+
+const plan = `<svg width="94" height="60" viewBox="0 0 94 60" fill="none" class="block" aria-hidden="true">
+  <rect x="1" y="1" width="92" height="58" stroke="rgba(185,194,164,0.55)" stroke-width="1"></rect>
+  <line x1="55" y1="1" x2="55" y2="59" stroke="rgba(185,194,164,0.45)" stroke-width="1"></line>
+  <line x1="55" y1="30" x2="93" y2="30" stroke="rgba(185,194,164,0.45)" stroke-width="1"></line>
+  <line x1="1" y1="40" x2="55" y2="40" stroke="rgba(185,194,164,0.45)" stroke-width="1"></line>
+  <path d="M24 40 A16 16 0 0 1 40 56" stroke="rgba(164,208,106,0.7)" stroke-width="1" fill="none"></path>
+  <rect x="22" y="38" width="4" height="4" fill="#a4d06a"></rect>
+</svg>`
 ---
 
 <div data-pin="story" id="problem" data-screen-label={t.sheets.story}>
-  <div data-pin-sticky class="box-border flex min-h-screen items-center p-2 sm:p-4">
+  <div data-pin-sticky class="box-border flex items-center px-2 pb-9 pt-2 sm:px-4 sm:pb-12 sm:pt-4 lg:min-h-screen lg:pb-4">
     <div
       data-story-panel
-      class="relative box-border flex min-h-[calc(100vh-1rem)] w-full flex-col items-center justify-center overflow-hidden rounded-card bg-panel px-6 py-16 sm:min-h-[calc(100vh-2rem)] sm:rounded-panel sm:px-12 sm:py-24"
+      class="relative box-border flex w-full flex-col items-center justify-center overflow-hidden rounded-[1.5rem] bg-panel px-5 py-14 sheet-dark sm:rounded-panel sm:px-10 sm:py-20 lg:min-h-[calc(100vh-2rem)] lg:px-12 lg:py-24 lg:[background-image:none]"
     >
-      <!-- Knowledge-fragment stage. The fragments' resting positions are solved
-           at runtime from the measured panel (see solveStoryLayout in
-           scripts/landing.ts) — the left/top values here are only where each one
-           drifts in from. -->
-      <div data-story-stage class="absolute inset-0" aria-hidden="true">
+      <!-- ── Desktop: the pinned, scrubbed story ─────────────────────────────
+           The fragments' resting positions are solved at runtime from the
+           measured panel (see solveStoryLayout in scripts/landing.ts) — the
+           left/top values here are only where each one drifts in from. -->
+      <div data-story-stage class="absolute inset-0 max-lg:hidden" aria-hidden="true">
         <svg
           data-links
           class="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
           aria-hidden="true"></svg>
 
-        <FragCard tag={t.story.tags.norm} dx={-30} dy={-24} fx={0.13} fy={0.28} pos={{ left: 0.06, top: 0.2 }}>
-          OIB-RL 2<br />Pkt. 3.5
-        </FragCard>
-        <FragCard tag={t.story.tags.site} dx={40} dy={-30} fx={0.87} fy={0.28} pos={{ right: 0.08, top: 0.16 }}>
-          WIEN 1030
-        </FragCard>
-        <FragCard tag={t.story.tags.material} dx={-46} dy={26} fx={0.14} fy={0.8} pos={{ left: 0.09, bottom: 0.18 }}>
-          λ 0,035 W/mK
-        </FragCard>
-        <FragCard tag={t.story.tags.category} dx={44} dy={32} fx={0.86} fy={0.8} pos={{ right: 0.1, bottom: 0.15 }}>
-          GK 4
-        </FragCard>
-        <FragCard tag={t.story.tags.document} dx={-22} dy={-34} fx={0.32} fy={0.12} pos={{ left: 0.22, top: 0.11 }}>
-          Bauantrag.pdf
-        </FragCard>
-        <FragCard tag={t.story.tags.detail} dx={40} dy={4} fx={0.68} fy={0.12} pos={{ right: 0.05, top: 0.46 }}>
-          Sockelanschluss
-        </FragCard>
-
-        <InfoCard glyph="§" tile="#cfe0a8" title="§ 106 BO Wien" sub={t.story.infoSubs.fire} value="GK 4" dx={26} dy={-18} fx={0.14} fy={0.57} pos={{ right: 0.2, top: 0.3 }} />
-        <InfoCard glyph="◷" tile="#f3e6b8" title="OIB-RL 6" sub={t.story.infoSubs.energy} value="U 0,20" dx={-34} dy={20} fx={0.86} fy={0.57} pos={{ left: 0.17, bottom: 0.3 }} />
-        <InfoCard glyph="▦" tile="#e9c4a8" title="Volksschule Aspern" sub={t.story.infoSubs.connection} value="2019" dx={18} dy={34} fx={0.3} fy={0.87} pos={{ right: 0.24, bottom: 0.24 }} />
-        <InfoCard glyph="▤" tile="#cdd6e6" title="Statik_Nachweis" sub={t.story.infoSubs.construction} value="PDF" dx={-12} dy={40} fx={0.5} fy={0.895} pos={{ left: 0.33, bottom: 0.09 }} />
+        {
+          frags.map((f) => (
+            <FragCard tag={f.tag} dx={f.dx} dy={f.dy} fx={f.fx} fy={f.fy} pos={f.pos}>
+              {f.lines.map((l, i) => (i ? [<br />, l] : l))}
+            </FragCard>
+          ))
+        }
+        {infos.map((c) => <InfoCard {...c} />)}
 
         <div
           data-frag="-42,4"
@@ -59,18 +75,11 @@ const t = ui[locale]
           <p class="mb-2 font-display text-2xs font-semibold uppercase tracking-label text-on-dark-tag">
             {t.story.tags.plan}
           </p>
-          <svg width="94" height="60" viewBox="0 0 94 60" fill="none" class="block" aria-hidden="true">
-            <rect x="1" y="1" width="92" height="58" stroke="rgba(185,194,164,0.55)" stroke-width="1"></rect>
-            <line x1="55" y1="1" x2="55" y2="59" stroke="rgba(185,194,164,0.45)" stroke-width="1"></line>
-            <line x1="55" y1="30" x2="93" y2="30" stroke="rgba(185,194,164,0.45)" stroke-width="1"></line>
-            <line x1="1" y1="40" x2="55" y2="40" stroke="rgba(185,194,164,0.45)" stroke-width="1"></line>
-            <path d="M24 40 A16 16 0 0 1 40 56" stroke="rgba(164,208,106,0.7)" stroke-width="1" fill="none"></path>
-            <rect x="22" y="38" width="4" height="4" fill="#a4d06a"></rect>
-          </svg>
+          <Fragment set:html={plan} />
         </div>
       </div>
 
-      <div data-h-problem class="relative z-20 max-w-4xl text-center">
+      <div data-h-problem class="relative z-20 max-w-4xl text-center max-lg:hidden">
         <h2 class="m-0 font-voice text-v3 text-on-dark-strong" style="text-wrap: balance">
           {t.story.problemA}&nbsp;<span class="text-white">{t.story.problemB}</span>
         </h2>
@@ -78,7 +87,7 @@ const t = ui[locale]
 
       <div
         data-h-solution
-        class="absolute left-1/2 top-[21%] z-20 w-[min(51rem,100%-3rem)] text-center opacity-0 sm:w-[min(51rem,100%-6rem)]"
+        class="absolute left-1/2 top-[21%] z-20 w-[min(51rem,100%-6rem)] text-center opacity-0 max-lg:hidden"
       >
         <h2 class="m-0 font-voice text-v4 text-on-dark-strong" style="text-wrap: balance">
           {t.story.solution}
@@ -87,12 +96,59 @@ const t = ui[locale]
 
       <div
         data-solution-card
-        class="absolute left-1/2 top-[57%] z-30 box-border w-68 rounded-card bg-surface px-9 py-7 text-center text-panel opacity-0 shadow-hero"
+        class="absolute left-1/2 top-[57%] z-30 box-border w-68 rounded-card bg-surface px-9 py-7 text-center text-panel opacity-0 shadow-hero max-lg:hidden"
       >
         <p class="m-0 mb-2 font-display text-lg font-bold tracking-tight">Piloti</p>
         <p class="m-0 text-sm leading-normal text-accent-600">
           {t.story.cardTagline}
         </p>
+      </div>
+
+      <!-- ── Phone and tablet: the same statement, read top to bottom ───────
+           No pin and no scrub: the problem, the answer, and the hub drawn as
+           a grid of the same nodes wired into one card. The wires are laid
+           from the measured cells by scripts/landing.ts (initHubGrid). -->
+      <div class="w-full lg:hidden">
+        <h2 class="m-0 font-voice text-v3 text-on-dark-strong" style="text-wrap: balance">
+          {t.story.problemA} <span class="text-white">{t.story.problemB}</span>
+        </h2>
+        <p class="m-0 mt-5 max-w-xl text-lg leading-relaxed text-on-dark" style="text-wrap: pretty">
+          {t.story.solution}
+        </p>
+
+        <div data-hub class="relative mx-auto mt-10 max-w-2xl" aria-hidden="true">
+          <svg data-hub-links class="pointer-events-none absolute inset-0 h-full w-full overflow-visible"></svg>
+
+          <div class="relative grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {
+              frags.map((f) => (
+                <FragCard variant="tile" tag={f.tag}>
+                  {f.lines.join(' · ')}
+                </FragCard>
+              ))
+            }
+          </div>
+
+          <div
+            data-hub-core
+            class="relative mx-auto my-9 max-w-[17rem] rounded-card bg-surface px-6 py-5 text-center text-panel shadow-hero"
+          >
+            <p class="m-0 mb-1.5 font-display text-lg font-bold tracking-tight">Piloti</p>
+            <p class="m-0 text-sm leading-normal text-accent-600">{t.story.cardTagline}</p>
+          </div>
+
+          <div class="relative grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {infos.map((c) => <InfoCard variant="tile" {...c} />)}
+          </div>
+          <div class="relative mt-2 flex justify-center">
+            <div data-hub-node class="rounded-xl border border-surface/15 bg-panel px-3.5 py-3 shadow-frag">
+              <p class="m-0 mb-2 font-display text-2xs font-semibold uppercase tracking-wider text-on-dark-tag">
+                {t.story.tags.plan}
+              </p>
+              <Fragment set:html={plan} />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

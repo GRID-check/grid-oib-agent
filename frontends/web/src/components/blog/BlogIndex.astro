@@ -39,8 +39,7 @@ const filters = [
   })),
 ]
 
-const title = category ? `${cats[category].label} — Piloti Blog` : t.metaTitle
-const description = category ? cats[category].descriptor : t.metaDescription
+const { title, description } = ui[locale].seo.pages[category ?? 'blog']
 ---
 
 <BaseLayout locale={locale} title={title} description={description}>

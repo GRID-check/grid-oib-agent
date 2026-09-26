@@ -215,28 +215,48 @@
 @layer base {
   html {
     scroll-behavior: smooth;
-    scroll-snap-type: y proximity;
-    scroll-padding-top: 52px;
+    scroll-padding-top: 76px;
   }
 
-  [data-screen-label] {
-    scroll-snap-align: start;
-  }
-  [data-pin] {
-    scroll-snap-align: none;
-  }
-  #nutzung,
-  #daten,
-  #datenschutz,
-  #wert {
-    scroll-snap-align: center;
+  /* Snapping only where every section is a screen tall. Below lg the sections
+     take their natural height, and proximity snapping on a column of uneven
+     blocks is a page that keeps tugging the thumb back. */
+  @media (min-width: 1024px) {
+    html {
+      scroll-snap-type: y proximity;
+    }
+    [data-screen-label] {
+      scroll-snap-align: start;
+    }
+    [data-pin] {
+      scroll-snap-align: none;
+    }
+    #nutzung,
+    #daten,
+    #datenschutz,
+    #wert {
+      scroll-snap-align: center;
+    }
+
+    /* The last section must not be a snap target. Snapping it — to centre or
+       to start — parks the viewport on it and pulls back out of the footer,
+       which is shorter than the snap it is fighting, so the footer became
+       unreachable. */
+    #kontakt {
+      scroll-snap-align: none;
+    }
   }
 
-  /* The last section must not be a snap target. Snapping it — to centre or to
-     start — parks the viewport on it and pulls back out of the footer, which is
-     shorter than the snap it is fighting, so the footer became unreachable. */
-  #kontakt {
-    scroll-snap-align: none;
+  /* Decoration may bleed past the page edge (a glow, a rotated fragment) but
+     may never widen it. On a phone one such element grows the layout viewport,
+     and every section then renders off-centre with a gutter on the right —
+     the 429px-wide page on a 390px phone. `clip`, not `hidden`: `hidden` makes
+     a scroll container and breaks every `position: sticky` inside it. And on
+     the page regions, not on body: body's overflow is handed to the viewport,
+     where mobile Chrome still lets it widen the layout. */
+  main,
+  footer {
+    overflow-x: clip;
   }
 
   body {
