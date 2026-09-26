@@ -31,6 +31,10 @@ export interface RoiUnits {
   ratio: string
   /** Shown where a figure has no meaningful value. */
   never: string
+  /** `'≈ {value}'` — a figure rounded because its inputs are assumptions. */
+  approx: string
+  /** `'{value} Planer:innen'` — the seat count as a screen reader should hear it. */
+  seatsSpoken: string
   /** `'… für {seats} Plätze … {salary} … {price}'` — which office a working belongs to. */
   office: string
   /** The same sentence for a single seat, where the plural would read wrong. */
@@ -57,7 +61,14 @@ export interface RoiText {
   netPerSeat: string
   seatsTimes: string
   office: string
+  /** The exact net value, as the working page derives it. */
   net: string
+  /**
+   * The same value as the calculator's headline states it: rounded to hundreds
+   * and marked "≈", because every input behind it is an assumption or an
+   * example. "41.996 €" would claim a precision the model does not have.
+   */
+  headline: string
   hours: string
   fte: string
   payback: string
@@ -91,6 +102,13 @@ const decimal = (locale: Locale, value: number, digits = 0) =>
 
 export const fillTemplate = (template: string, value: string) => template.replace('{value}', value)
 
+/** The step the headline figure is rounded to, in euros. */
+export const HEADLINE_STEP = 100
+
+/** The calculator's headline: rounded to `HEADLINE_STEP` and marked as approximate. */
+export const formatHeadline = (locale: Locale, units: RoiUnits, value: number) =>
+  fillTemplate(units.approx, formatEuro(locale, Math.round(value / HEADLINE_STEP) * HEADLINE_STEP))
+
 export function formatRoi(
   inputs: RoiInputs,
   result: RoiResult,
@@ -122,6 +140,7 @@ export function formatRoi(
       .replace('{salary}', formatEuro(locale, inputs.salary))
       .replace('{price}', formatEuro(locale, inputs.price)),
     net: formatEuro(locale, result.netValue),
+    headline: formatHeadline(locale, units, result.netValue),
     hours: fillTemplate(units.hours, decimal(locale, Math.round(result.hoursPerYear))),
     fte: fillTemplate(units.fte, decimal(locale, result.fte, 1)),
     payback: Number.isFinite(result.paybackMonths)

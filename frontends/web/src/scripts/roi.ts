@@ -9,7 +9,7 @@ import {
   type RoiInputs,
   type RoiResult,
 } from '../lib/roi'
-import { formatEuro, formatRoi, type RoiText } from '../lib/roi-format'
+import { fillTemplate, formatHeadline, formatRoi, type RoiText } from '../lib/roi-format'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -81,12 +81,14 @@ export function initRoi() {
   // number that visibly travels says so before the copy does. Everything else
   // on the page is set instantly — one animated figure reads as emphasis, five
   // read as a slot machine.
-  const headline = document.querySelector<HTMLElement>('#wert [data-roi-out="net"]')
+  const headline = document.querySelector<HTMLElement>('#wert [data-roi-out="headline"]')
   const working = document.querySelector<HTMLAnchorElement>('[data-roi-href]')
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   let shown = computeRoi(readAll()).netValue
   let count: gsap.core.Tween | null = null
 
+  // In flight the figure is rounded exactly as the result is, so a frame caught
+  // mid-count still reads as an estimate ("≈ 41.900 €"), never as "41.996 €".
   const countTo = (value: number, duration: number) => {
     if (!headline || reduced || value === shown) return false
     count?.kill()
@@ -94,12 +96,12 @@ export function initRoi() {
     count = gsap.to(counter, {
       v: value,
       duration,
-      ease: 'power4.out',
+      ease: 'power2.out',
       onUpdate: () => {
-        headline.textContent = formatEuro(locale, counter.v)
+        headline.textContent = formatHeadline(locale, units, counter.v)
       },
       onComplete: () => {
-        headline.textContent = formatEuro(locale, value)
+        headline.textContent = formatHeadline(locale, units, value)
       },
     })
     shown = value
@@ -114,7 +116,7 @@ export function initRoi() {
     const text = formatRoi(inputs, result, locale, units)
     // The headline is mid-flight while it counts; writing the final string over
     // it would cancel the count visually on the very first frame.
-    paint(text, countTo(result.netValue, 0.32) ? 'net' : undefined)
+    paint(text, countTo(result.netValue, 0.32) ? 'headline' : undefined)
 
     // The working page states the same figures, so the link carries them there.
     working?.setAttribute('href', `${working.dataset.roiHref}${roiQuery(inputs)}`)
@@ -123,28 +125,54 @@ export function initRoi() {
       const key = field.dataset.roiField as keyof RoiText
       // The visible readout and what a screen reader hears are the same string:
       // "30 %", not the bare "30" a range would otherwise announce.
-      if (text[key]) field.setAttribute('aria-valuetext', text[key])
+      const spoken = key === 'seats' ? fillTemplate(units.seatsSpoken, text.seats) : text[key]
+      if (spoken) field.setAttribute('aria-valuetext', spoken)
       const min = Number(field.min)
       const span = Number(field.max) - min || 1
       field.style.setProperty('--fill', `${((Number(field.value) - min) / span) * 100}%`)
     }
   }
 
-  fields.forEach((field) => field.addEventListener('input', apply))
-  apply()
+  // The seat stepper nudges the slider and lets it report the change, so the
+  // two controls cannot disagree about the office.
+  const seats = fields.find((f) => f.dataset.roiField === 'seats')
+  const steppers = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-roi-step]'))
+  const syncSteppers = () => {
+    if (!seats) return
+    for (const b of steppers) {
+      const up = Number(b.dataset.roiStep) > 0
+      b.disabled = up ? Number(seats.value) >= Number(seats.max) : Number(seats.value) <= Number(seats.min)
+    }
+  }
+  for (const b of steppers) {
+    b.addEventListener('click', () => {
+      if (!seats) return
+      if (Number(b.dataset.roiStep) > 0) seats.stepUp()
+      else seats.stepDown()
+      seats.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
 
-  // On first sight the figure counts up from nothing — the server already wrote
-  // the final value, so a visitor without motion, or without JS, simply reads it.
-  if (headline && !reduced) {
+  fields.forEach((field) => field.addEventListener('input', () => (apply(), syncSteppers())))
+  apply()
+  syncSteppers()
+
+  // On first sight the figure counts up to its value, from 60 % of it rather
+  // than from nothing: a count from zero spends most of its time on figures
+  // nobody should read. It only runs when the section is still below the fold.
+  // The start value is written before the visitor can see the headline, so the
+  // server's final figure never flashes and then drops. A visitor without
+  // motion or without JS reads the server's figure, and so does one who loads
+  // the page already scrolled to it.
+  if (headline && !reduced && headline.getBoundingClientRect().top > window.innerHeight) {
+    shown *= 0.6
+    headline.textContent = formatHeadline(locale, units, shown)
     ScrollTrigger.create({
       trigger: headline,
       start: 'top 90%',
       once: true,
-      onEnter: () => {
-        const target = shown
-        shown = 0
-        countTo(target, 1.1)
-      },
+      // Read again on entry: a slider moved before this point already set it.
+      onEnter: () => countTo(computeRoi(readAll()).netValue, 0.7),
     })
   }
 }

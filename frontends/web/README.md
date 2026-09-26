@@ -150,3 +150,15 @@ curl -s localhost:4321/keystatic | grep -q 'renderer-url' && echo OK || echo BRO
 docker build -t grid-oib-web:latest .
 docker run -p 4321:4321 -e PUBLIC_APP_URL=https://app.dev.piloti.at grid-oib-web:latest
 ```
+
+The container runs `node runtime/server.mjs` (`npm start`), not the adapter's
+`dist/server/entry.mjs`. It is the same handler behind one step that sets
+Cache-Control on static files: `/_astro/*` immutable for a year, `/fonts/*` and
+`/art/*` fresh for a week plus a day of stale-while-revalidate, HTML left at the
+adapter's `max-age=0` so every view revalidates. Why this is not done in Envoy
+is at the top of `runtime/server.mjs`. Compression is not the server's job:
+Envoy Gateway compresses at the edge
+([`docs/deployment/kubernetes.md`](../../docs/deployment/kubernetes.md) §7).
+
+Files under `public/fonts` and `public/art` are not content-hashed. Replace one
+under a new name, or returning visitors keep the old bytes for up to eight days.
