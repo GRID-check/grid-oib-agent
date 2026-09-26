@@ -56,6 +56,7 @@ To look at one job in a browser, open `tafeln/index.html?t=<job>`. Debug views:
 | `piloti-v-pruefstand-720.webp` / `-1440.webp` | 720² / 1440² | V Prüfstand | Section "Daten & Transparenz" |
 | `piloti-vi-zeichentisch-720.webp` / `-1440.webp` | 720² / 1440² | VI Zeichentisch | Section "Nutzung" |
 | `piloti-vii-waage-720.webp` / `-1440.webp` | 720² / 1440² | VII Waage | Value calculator "Wert" |
+| `piloti-viii-tuer-720.webp` / `-1440.webp` | 720² / 1440² | VIII Offene Tür | "Kontakt / Pilotbüro werden" |
 
 ## Showing them
 

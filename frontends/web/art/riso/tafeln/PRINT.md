@@ -268,7 +268,28 @@ and a pointer and a small graduated arc at the pivot make the tilt readable.
 - **First proof.** A shorter hanger ran the strings through a wider pile. The pile was
   slimmed and the hangers lengthened.
 
+### VIII. Offene Tür (open door)
+
+For "Kontakt / Pilotbüro werden": an invitation. Plate I's house, with the same box,
+columns and lime roof bed, at plate IV's dawn. It is framed close on its west end, and
+the volume runs out of the picture: the series' one close shot among its long ones.
+
+- **The approach.** An outside stair of 20 steps (0.2 rise, 0.3 going) climbs along the
+  west face to a landing. The door stands open with its leaf swung back against the
+  wall, and a handrail rises on posts.
+- **The light.** Lime light from the doorway lies on the landing and the top steps as
+  a radial Kelly ramp: an office at work inside. It is the plate's reason for the
+  accent.
+- **The path.** Seven stepping stones cross the mown lawn from the board's front edge
+  to the stair's foot.
+- **No figure.** The next one up the stair is the viewer.
+- **Shadows.** Stair and landing shadows are projected steps, merged with the house
+  and column shadows into one union.
+
 ## Inspected
+
+Plate VIII: the full frame at 720 and 1440, at three framings (the first left the door
+too small, the second cut the roof).
 
 Plate VII: the full frame at 720 and 1440.
 
@@ -345,4 +366,9 @@ every job.
   - The large empty tabletop in front is calm but plain.
   - The coins are small at 720.
   - The pile's page lines are regular, like a ream rather than loose working sheets.
+  - No 1:1 crop was taken.
+- **VIII.**
+  - The door leaf is a plain panel and reads as a second wall slab more than as a door.
+  - The handrail's upper return floats a little against the paper.
+  - The stair runs in depth, so it is foreshortened into a long diagonal ladder.
   - No 1:1 crop was taken.

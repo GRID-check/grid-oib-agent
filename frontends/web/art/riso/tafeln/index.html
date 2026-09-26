@@ -1724,10 +1724,136 @@ const VII = (() => {
   return { inks: ['mist', 'moss', 'hunter'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
 })();
 
+/* ═════════════════════════════════════════════════════════════════════════════
+   PLATE VIII — Offene Tür
+   For "Kontakt / Pilotbüro werden". Plate I's house at dawn, framed on its
+   west end. A stair climbs along the facade to a door standing open; stepping
+   stones lead across the lawn to the stair's foot; lime light, an office at
+   work inside, spills out onto the landing. Nobody in the picture: the next
+   one up the stair is the viewer.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const VIII = (() => {
+  const BOX = [0, 0, 4.0, 16, 9, 7.4];
+  const COLS = [[2.6, 1.7], [2.6, 7.3], [13.0, 4.5]], R = 0.19;
+  const SUN = v3.norm([0.74, 0.52, -0.34]);            // dawn, as plate IV
+  const SITE = [-7.5, -6.5, 20, 12.2], SLAB = 0.55;
+  const SX0 = -2.0, SX1 = -0.6;                        // stair between these x, along the west face
+  const NSTEP = 20, RISE = 4.0 / NSTEP, GO = 0.3, SY0 = -1.6;   // steps start at y = SY0
+  const LAND = [SY0 + NSTEP * GO, SY0 + NSTEP * GO + 1.4];      // landing y range
+  const DOOR = [LAND[0] + 0.25, LAND[1] - 0.15];                // door y range in the west wall
+  const FIT = { sq: { fill: 0.84, fillH: 0.76, cx: 0.53, cy: 0.5 } };
+
+  function draw(c, fmt) {
+    const [sx0, sy0, sx1, sy1] = SITE;
+    const [x0, y0, z0, x1, y1, z1] = BOX;
+    // framed on the west end: the house runs out of the picture to the right
+    const P = fit(VIEW_SERIES, [[-5.4, -5.6, -SLAB], [x0 - 1, y1, z1 + 0.6], [7.2, y0, z1], [7.2, -5.6, -SLAB]], FIT[fmt]);
+    const E = (a, b) => poly(P, [a, b], false);
+
+    /* — lawn on the board, mown as in plate I — */
+    const top = poly(P, [[sx0, sy0, 0], [sx1, sy0, 0], [sx1, sy1, 0], [sx0, sy1, 0]]);
+    own(c, poly(P, [[sx0, sy0, 0], [sx1, sy0, 0], [sx1, sy0, -SLAB], [sx0, sy0, -SLAB]]), { moss: 0.58 });
+    own(c, poly(P, [[sx0, sy0, 0], [sx0, sy1, 0], [sx0, sy1, -SLAB], [sx0, sy0, -SLAB]]), { moss: 0.3 });
+    own(c, top, {});
+    for (let yy = sy0, i = 0; yy < sy1 - 1e-6; yy += 1.75, i++) {
+      tint(c, poly(P, [[sx0, yy, 0], [sx1, yy, 0], [sx1, Math.min(sy1, yy + 1.75), 0], [sx0, Math.min(sy1, yy + 1.75), 0]]), i % 2 ? { kelly: 0.22, mist: 0.45 } : { kelly: 0.36, mist: 0.28 });
+    }
+    if (c.ink === 'kelly') { c.g.save(); c.g.clip(top); hatch(c.g, null, c.rng, { gap: 4.6, w: 1.0, ang: -0.05, a: 0.3, cut: true }); c.g.restore(); }
+    if (c.ink === 'mist') shade(c.g, top, { x0: 0, y0: P([0, sy1, 0])[1], x1: 0, y1: P([0, sy0, 0])[1], stops: [[0, 0.5], [0.5, 0.12], [1, 0]] });
+
+    /* stepping stones from the board's front edge to the stair's foot */
+    const r = rngFor('tuer:stones');
+    const stones = [];
+    for (let i = 0; i < 7; i++) {
+      const t = i / 6, u = lerp(-5.8, (SX0 + SX1) / 2, t) + Math.sin(t * 3) * 0.6, v = lerp(sy0 + 0.6, SY0 - 0.9, t);
+      const q = []; for (let k = 0; k < 16; k++) { const a = k / 16 * TAU; const rr = 0.42 * (1 + 0.12 * Math.sin(a * 3 + i)); q.push([u + Math.cos(a) * rr * 1.2, v + Math.sin(a) * rr, 0]); }
+      stones.push(poly(P, q));
+      r();
+    }
+    for (const s of stones) { own(c, s, { mist: 0.25 }); line(c, s, 0.9, KEY); }
+    dashed(c, poly(P, [[x0, y0, 0], [x1, y0, 0], [x1, y1, 0], [x0, y1, 0]]), 1.4, { hunter: 0.85 }, [6, 5]);
+
+    /* shadows: house, columns, stair */
+    const sh = new Path2D();
+    sh.addPath(boxShadow(P, boxCorners(...BOX), SUN));
+    for (const [cx, cy] of COLS) sh.addPath(cylShadow(P, cx, cy, R, z0, SUN));
+    for (let i = 0; i < NSTEP; i++) sh.addPath(boxShadow(P, boxCorners(SX0, SY0 + i * GO, 0, SX1, SY0 + (i + 1) * GO, (i + 1) * RISE), SUN));
+    sh.addPath(boxShadow(P, boxCorners(SX0, LAND[0], z0 - 0.25, SX1 + 0.6, LAND[1], z0), SUN));
+    const sc = c.scratch; sc.save(); sc.setTransform(K, 0, 0, K, 0, 0); sc.clearRect(0, 0, W, H); sc.fillStyle = '#000'; sc.clip(top); sc.fill(sh, 'nonzero'); sc.restore();
+    const st = { hunter: 0.6 }[c.ink] || 0;
+    if (st) { c.g.save(); c.g.setTransform(1, 0, 0, 1, 0, 0); c.g.globalAlpha = st; c.g.drawImage(sc.canvas, 0, 0); c.g.restore(); }
+    line(c, top, 1.5, KEY);
+
+    /* columns, far to near (the east one is out of frame) */
+    for (const [cx, cy] of COLS.slice().sort((a, b) => depth(P, [b[0], b[1], 0]) - depth(P, [a[0], a[1], 0]))) {
+      const cyl = cylinder(P, cx, cy, R, 0, z0);
+      own(c, cyl.sil, {});
+      c.L.save(); c.L.clip(cyl.sil); lineFill(c, pathOf([[lerp(cyl.xl, cyl.xr, 0.64), 0], [cyl.xr + 2, 0], [cyl.xr + 2, H], [lerp(cyl.xl, cyl.xr, 0.64), H]]), { moss: 0.5 }); c.L.restore();
+      line(c, cyl.sil, 1.4, KEY);
+    }
+
+    /* — the volume — */
+    const f = boxFaces(P, x0, y0, z0, x1, y1, z1);
+    clearAll(c, f.sil);
+    own(c, f.top, { mist: 0.3 }); own(c, f.west, {}); own(c, f.south, { mist: 0.14 });
+    const wz0 = 5.05, wz1 = 6.2;
+    const winS = poly(P, [[x0 + 0.8, y0, wz0], [x1 - 0.8, y0, wz0], [x1 - 0.8, y0, wz1], [x0 + 0.8, y0, wz1]]);
+    own(c, winS, { hunter: 0.86, moss: 0.62 }); line(c, winS, 1.0, KEY);
+    // west face: a short window to the south of the door, and the door itself
+    const winW = poly(P, [[x0, 0.8, wz0], [x0, DOOR[0] - 0.7, wz0], [x0, DOOR[0] - 0.7, wz1], [x0, 0.8, wz1]]);
+    own(c, winW, { hunter: 0.8, moss: 0.5 }); line(c, winW, 1.0, KEY);
+    const door = poly(P, [[x0, DOOR[0], z0], [x0, DOOR[1], z0], [x0, DOOR[1], z0 + 2.3], [x0, DOOR[0], z0 + 2.3]]);
+    own(c, door, { kelly: 0.9, mist: 0.4 });
+    if (c.ink === 'kelly') shade(c.g, door, { x0: 0, y0: P([x0, DOOR[0], z0 + 2.3])[1], x1: 0, y1: P([x0, DOOR[0], z0])[1], stops: [[0, 0.2], [1, 0]], cut: true });
+    line(c, door, 1.2, KEY);
+    // the leaf, swung out ninety degrees against the wall's north side
+    const leaf = boxFaces(P, x0 - (DOOR[1] - DOOR[0]), DOOR[1], z0, x0, DOOR[1] + 0.06, z0 + 2.3);
+    own(c, leaf.south, { mist: 0.2 }); own(c, leaf.west, { moss: 0.3 });
+    line(c, leaf.sil, 1.1, KEY);
+    // the roof garden of plate I, so it is the same house
+    const bed = boxFaces(P, 2.2, 4.6, z1, 7.4, 8.2, z1 + 0.45);
+    own(c, bed.west, { mist: 0.18 }); own(c, bed.south, { mist: 0.3 });
+    const bedTop = poly(P, [[2.4, 4.8, z1 + 0.45], [7.2, 4.8, z1 + 0.45], [7.2, 8.0, z1 + 0.45], [2.4, 8.0, z1 + 0.45]]);
+    own(c, bedTop, { kelly: 0.78, mist: 0.3 });
+    if (c.ink === 'hunter') { c.g.save(); c.g.clip(bedTop); spray(c.g, null, rngFor('bed'), { n: 2600, r0: 0.6, r1: 1.7, a: 0.6 }); c.g.restore(); }
+    line(c, bed.sil, 1.1, KEY);
+    line(c, E([x0, y0, z0], [x0, y0, z1]), 1.3, KEY);
+    line(c, E([x0, y0, z1], [x1, y0, z1]), 1.1, KEY);
+    line(c, E([x0, y0, z1], [x0, y1, z1]), 1.1, KEY);
+    line(c, f.sil, 1.9, KEY);
+
+    /* — the stair and landing, far to near — */
+    const land = boxFaces(P, SX0, LAND[0], z0 - 0.25, x0, LAND[1], z0);
+    clearAll(c, land.sil);
+    own(c, land.top, {}); own(c, land.west, { mist: 0.2 }); own(c, land.south, { moss: 0.45 });
+    // light from the doorway across the landing
+    if (c.ink === 'kelly') { const a = P([x0, (DOOR[0] + DOOR[1]) / 2, z0]); shade(c.g, land.top, { x: a[0], y: a[1], r0: 0, r: 1.9 * P.s, stops: [[0, 0.7], [0.6, 0.25], [1, 0]] }); }
+    line(c, land.sil, 1.1, KEY);
+    for (let i = NSTEP - 1; i >= 0; i--) {
+      const s = boxFaces(P, SX0, SY0 + i * GO, i * RISE, SX1, SY0 + (i + 1) * GO, (i + 1) * RISE);
+      clearAll(c, s.sil);
+      own(c, s.top, i > NSTEP - 4 ? { kelly: 0.18 * (i - NSTEP + 4) } : {});
+      own(c, s.south, { mist: 0.3 }); own(c, s.west, { moss: 0.12 });
+      line(c, s.sil, 0.8, KEY);
+    }
+    // the stair's stringer seen from the west, and a handrail
+    const strg = poly(P, [[SX0, SY0, 0], [SX0, LAND[0], z0 - 0.25], [SX0, LAND[0], z0], [SX0, SY0, RISE]]);
+    line(c, strg, 1.0, KEY);
+    const rail = new Path2D(); const ra = P([SX0 - 0.05, SY0 + 0.2, 1.1]), rb = P([SX0 - 0.05, LAND[0], z0 + 1.0]), rc = P([SX0 - 0.05, LAND[1] - 0.1, z0 + 1.0]);
+    rail.moveTo(ra[0], ra[1]); rail.lineTo(rb[0], rb[1]); rail.lineTo(rc[0], rc[1]);
+    line(c, rail, 1.3, KEY);
+    for (let i = 0; i <= NSTEP; i += 4) { const y = SY0 + i * GO + 0.15, zb = (i + 1) * RISE; line(c, E([SX0 - 0.05, y, zb], [SX0 - 0.05, y, zb + 1.1 - RISE]), 0.8, KEY); }
+    line(c, E([SX0 - 0.05, LAND[1] - 0.1, z0], [SX0 - 0.05, LAND[1] - 0.1, z0 + 1.0]), 0.8, KEY);
+  }
+
+  return { inks: ['mist', 'kelly', 'moss', 'hunter'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
+})();
+
 /* ═════════════════════════════════════════════════════════════════════════ */
 
-const PLATES = [I, II, III, IV, V, VI, VII];
-const PLATE_NAMES = ['stuetzen', 'schichten', 'schleife', 'bauplatz', 'pruefstand', 'zeichentisch', 'waage'];
+const PLATES = [I, II, III, IV, V, VI, VII, VIII];
+const PLATE_NAMES = ['stuetzen', 'schichten', 'schleife', 'bauplatz', 'pruefstand', 'zeichentisch', 'waage', 'tuer'];
 
 /* Export jobs: integer time → one file at its exact display size. */
 /* pitch is in device px: 3.4 for a 1x file, 6.8 for its 2x twin, so both show the
@@ -1751,6 +1877,8 @@ const JOBS = [
   { plate: 5, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-vi-zeichentisch-1440.webp' },
   { plate: 6, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-vii-waage-720.webp' },
   { plate: 6, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-vii-waage-1440.webp' },
+  { plate: 7, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-viii-tuer-720.webp' },
+  { plate: 7, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-viii-tuer-1440.webp' },
 ];
 
 function setJob(j) {
