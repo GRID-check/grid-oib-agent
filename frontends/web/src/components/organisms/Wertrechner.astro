@@ -1,9 +1,6 @@
 ---
-import SectionTag from '../atoms/SectionTag.astro'
-import Pill from '../atoms/Pill.astro'
 import PagePrint from '../craft/PagePrint.astro'
 import { PLATES } from '../craft/plates'
-import { mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
 import {
@@ -23,9 +20,6 @@ interface Props {
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
 const working = useTranslatedPath(locale)('/rechenweg/')
-// The sheet number is read from the index the margin shows, so renumbering the
-// page is one edit in the dictionary rather than one per section.
-const [sheetNo] = t.sheets.wert.split(' ')
 
 // Rendered for the default office on the server, so the section states a real
 // figure before a single byte of script runs — and keeps stating one if none
@@ -43,7 +37,7 @@ const text = formatRoi(ROI_DEFAULTS, computeRoi(ROI_DEFAULTS), locale, t.roi.uni
 const sliders: { key: keyof RoiInputs & keyof RoiText; label: string; note?: string }[] = [
   { key: 'seats', label: t.roi.fields.seats },
   { key: 'salary', label: t.roi.fields.salary, note: t.roi.salaryNote },
-  { key: 'price', label: t.roi.fields.price, note: t.roi.priceNote },
+  { key: 'price', label: t.roi.fields.price },
 ]
 
 const fill = (key: keyof RoiInputs) => {
@@ -59,12 +53,11 @@ const claims = [
   { label: t.roi.claims.saved, value: formatShare(locale, TIME_SAVED) },
 ]
 
-// `live` marks a note that is itself a computed figure and has to be repainted;
-// `note` is fixed copy.
-const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?: string }[] = [
+// `live` marks a note that is itself a computed figure and has to be repainted.
+const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText }[] = [
   { key: 'hours', label: t.roi.metrics.hours, live: 'fte' },
-  { key: 'payback', label: t.roi.metrics.payback, note: t.roi.metrics.paybackNote },
-  { key: 'ratio', label: t.roi.metrics.ratio, note: t.roi.metrics.ratioNote },
+  { key: 'payback', label: t.roi.metrics.payback },
+  { key: 'ratio', label: t.roi.metrics.ratio },
 ]
 ---
 
@@ -76,18 +69,14 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
   <div
     class="box-border rounded-panel bg-accent-900 px-3 py-12 text-surface sheet-dark sm:px-10 sm:py-16 lg:px-16 lg:py-20"
   >
-    <!-- Three areas rather than two columns, so a phone can read the case, then
-         work it, then act on it: on a wide screen the call to action tucks under
-         the case; on a narrow one it follows the calculator it refers to. -->
-    <div
-      class="grid grid-cols-1 gap-y-10 lg:grid-cols-[5fr_7fr] lg:grid-rows-[auto_1fr] lg:gap-x-16 lg:gap-y-8 lg:[grid-template-areas:'intro_calc'_'cta_calc']"
-    >
-      <div data-reveal class="px-2 sm:px-0 lg:[grid-area:intro]">
+    <!-- The case, then the calculator that works it. The close of the page
+         carries the invitation to talk; this section does not repeat it. -->
+    <div class="grid grid-cols-1 gap-y-10 lg:grid-cols-[5fr_7fr] lg:gap-x-16">
+      <div data-reveal class="px-2 sm:px-0">
         <!-- Plate VII, the balance tipping towards the paper: the case the
              calculator weighs. From lg only; a phone has the calculator to get
              through first. -->
         <PagePrint name={PLATES.VII} locale={locale} size="third" tone="dark" class="mb-10 max-lg:hidden" />
-        <SectionTag no={sheetNo} tone="dark" class="mb-5">{t.roi.tag}</SectionTag>
         <h2 class="m-0 mb-5 font-voice text-v2 text-surface sm:mb-6" style="text-wrap: balance">
           {t.roi.title}
         </h2>
@@ -101,38 +90,25 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
         <dl class="m-0 mt-3">
           {
             claims.map((c) => (
-              <div class="flex items-baseline justify-between gap-4 border-t border-surface/15 py-2.5">
+              <div class="flex items-baseline justify-between gap-4 border-t border-surface/15 py-2.5 last:border-b">
                 <dt class="m-0 text-base text-on-dark sm:text-sm">{c.label}</dt>
                 <dd class="m-0 font-mono text-sm tabular-nums text-surface">{c.value}</dd>
               </div>
             ))
           }
         </dl>
-        <p class="m-0 border-t border-surface/15 pt-2.5 text-sm text-on-dark sm:text-xs">
-          {t.roi.claimsNote}
-        </p>
       </div>
 
       <div
         data-reveal
-        class="sm:rounded-card sm:border sm:border-surface/15 sm:bg-accent-800/70 sm:p-8 lg:[grid-area:calc] lg:self-start"
+        class="sm:rounded-card sm:border sm:border-surface/15 sm:bg-accent-800/70 sm:p-8 lg:self-start"
       >
-        <div class="mb-1 flex items-center justify-between gap-4 px-2 sm:px-0">
-          <p class="m-0 font-mono text-2xs uppercase tracking-widest text-on-dark-label">
-            {t.roi.inputsLabel}
-          </p>
-          <span
-            class="rounded-full border border-surface/25 px-2.5 py-1 font-mono text-2xs uppercase tracking-widest text-on-dark-tag"
-          >
-            {t.roi.badge}
-          </span>
-        </div>
 
         {
           sliders.map((s) => {
             const range = ROI_RANGES[s.key]
             return (
-              <div class="grid grid-cols-[1fr_auto] items-baseline gap-x-4 border-t border-surface/15 px-2 pt-4 pb-1 sm:px-0 sm:pt-5">
+              <div class="grid grid-cols-[1fr_auto] items-baseline gap-x-4 border-t border-surface/15 px-2 pt-4 pb-1 first:border-t-0 first:pt-0 sm:px-0 sm:pt-5 sm:first:pt-0">
                 <label for={`roi-${s.key}`} class="text-base leading-snug text-on-dark sm:text-sm">
                   {s.label}
                 </label>
@@ -229,9 +205,14 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
                   >
                     {text[m.key]}
                   </dd>
-                  <dd class="col-span-2 m-0 mt-1 text-xs leading-relaxed text-on-dark sm:col-span-1 sm:text-2xs">
-                    {m.live ? <span data-roi-out={m.live}>{text[m.live]}</span> : m.note}
-                  </dd>
+                  {m.live && (
+                    <dd
+                      data-roi-out={m.live}
+                      class="col-span-2 m-0 mt-1 text-xs leading-relaxed text-on-dark sm:col-span-1 sm:text-2xs"
+                    >
+                      {text[m.live]}
+                    </dd>
+                  )}
                 </div>
               ))
             }
@@ -252,11 +233,6 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText; note?:
         </p>
       </div>
 
-      <div data-reveal class="px-2 sm:px-0 lg:self-start lg:[grid-area:cta]">
-        <Pill href={mailtoHref(t.roi.subject)} variant="light" size="md" class="max-sm:w-full max-sm:py-3">
-          {t.roi.cta}
-        </Pill>
-      </div>
     </div>
   </div>
 </section>

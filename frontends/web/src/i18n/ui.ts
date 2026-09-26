@@ -228,11 +228,8 @@ const de = {
     },
   },
   roi: {
-    tag: 'Wert',
     title: 'Rechnen Sie selbst nach.',
     body: 'Wir nehmen an, dass rund 30\u00a0% einer Planungswoche in die Suche gehen, nach Normen, Vorprojekten und Kennwerten, und dass Piloti davon 40\u00a0% zurückgibt. Gemessen hat das noch niemand. Setzen Sie Ihr Büro und einen Beispielpreis ein und sehen Sie, was die Annahme wert wäre.',
-    badge: 'Beispielrechnung',
-    inputsLabel: 'Ihr Büro',
     fields: {
       seats: 'Planer:innen mit Piloti',
       salary: 'Durchschnittliches Bruttojahresgehalt',
@@ -240,7 +237,6 @@ const de = {
     },
     stepDown: 'Einen Platz weniger',
     stepUp: 'Einen Platz mehr',
-    priceNote: 'Nur zum Durchspielen. Piloti hat noch keine Preisliste, dieser Preis ist kein Angebot.',
     salaryNote: 'je Person, mit 13. und 14. Gehalt, ohne Lohnnebenkosten',
     claimsLabel: 'Unsere Annahmen',
     claims: {
@@ -248,21 +244,16 @@ const de = {
       research: 'Anteil Recherche',
       saved: 'Davon gibt Piloti zurück',
     },
-    claimsNote: 'Annahmen, keine Messwerte aus Kundenprojekten.',
     resultLabel: 'Jahreswert · Beispiel',
     resultNote: 'netto nach Beispielpreis, für Ihr ganzes Büro, wenn die Annahmen zutreffen',
     metrics: {
       hours: 'Zurückgewonnene Zeit',
       payback: 'Amortisiert nach',
-      paybackNote: 'danach trägt sich jeder Platz selbst',
       ratio: 'Wert je Euro',
-      ratioNote: 'Wert je 1\u00a0€ zum Beispielpreis',
     },
     footnote:
       'Eine Beispielrechnung aus unseren Annahmen, Ihren Zahlen und einem Beispielpreis. Kein Angebot und keine Zusage. Jeder Schritt steht im',
     footnoteLink: 'ganzen Rechenweg',
-    cta: 'Zahlen gemeinsam durchgehen',
-    subject: 'ROI-Rechnung',
     units: {
       hours: '{value}\u00a0h/Jahr',
       hoursPlain: '{value}\u00a0h',
@@ -803,11 +794,8 @@ const en: typeof de = {
     },
   },
   roi: {
-    tag: 'Value',
     title: 'Do the maths yourself.',
     body: 'We assume that around 30% of a planning week goes into searching, for codes, past projects and reference values, and that Piloti gives 40% of that back. Nobody has measured this yet. Put in your office and an example price and see what the assumption would be worth.',
-    badge: 'Example calculation',
-    inputsLabel: 'Your office',
     fields: {
       seats: 'Planners using Piloti',
       salary: 'Average gross annual salary',
@@ -815,7 +803,6 @@ const en: typeof de = {
     },
     stepDown: 'One seat fewer',
     stepUp: 'One seat more',
-    priceNote: 'Only for trying things out. Piloti has no price list yet, and this price is not an offer.',
     salaryNote: 'per person, including 13th and 14th salaries, excluding employer on-costs',
     claimsLabel: 'Our assumptions',
     claims: {
@@ -823,21 +810,16 @@ const en: typeof de = {
       research: 'Share spent searching',
       saved: 'Of that, Piloti gives back',
     },
-    claimsNote: 'Assumptions, not measurements from customer projects.',
     resultLabel: 'Annual value · example',
     resultNote: 'net of the example price, across your whole office, if the assumptions hold',
     metrics: {
       hours: 'Time recovered',
       payback: 'Pays for itself in',
-      paybackNote: 'after that every seat carries itself',
       ratio: 'Value per euro',
-      ratioNote: 'value per €1 at the example price',
     },
     footnote:
       'An example calculation from our assumptions, your numbers and an example price. Not an offer and not a promise. Every step is laid out in',
     footnoteLink: 'the full working',
-    cta: 'Walk through the numbers with us',
-    subject: 'ROI calculation',
     units: {
       hours: '{value}\u00a0h/year',
       hoursPlain: '{value}\u00a0h',
