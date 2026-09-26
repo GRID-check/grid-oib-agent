@@ -456,7 +456,8 @@ const Riso = (() => {
     const lineC = cv(OUT, OUTH), L = lineC.getContext('2d');
     const scratch = cv(OUT, OUTH).getContext('2d');
     const na = (pl.numeral && pl.numeral[j.compose]) || [W / 2, H - 22];
-    const nums = j.number ? numeral(j.number, na[0], na[1], 17) : [];
+    // The numeral belongs to the sheet: a print shown on the page has none.
+    const nums = j.number && !NOPAPER ? numeral(j.number, na[0], na[1], 17) : [];
     for (const ink of pl.inks) {
       if (ONLY && ink !== ONLY) continue;
       if (SEP && ink !== SEP) continue;
