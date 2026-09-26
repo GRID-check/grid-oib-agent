@@ -529,7 +529,7 @@ export const platform: typeof en.platform = {
     },
     retrieval: {
       title: 'Abruf',
-      subtitle: 'Wie viele Treffer jede Suche holt und zusammenführt — flottenweit, wirksam ab der nächsten Anfrage.',
+      subtitle: 'Wie viele Treffer jede Suche holt und zusammenführt, und ob die Antwort live gestreamt wird — flottenweit, wirksam ab der nächsten Anfrage.',
     },
     cards: {
       title: 'Karten',

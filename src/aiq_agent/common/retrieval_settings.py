@@ -56,12 +56,17 @@ _BOUNDS: dict[str, tuple[int, int]] = {
     # Same shape (one bounded platform-wide integer through the same pull), so
     # it rides this catalog rather than growing a second one. 0 = measurement off.
     "lessons.holdout_pct": (0, 50),
+    # Not a count either: whether the answering call streams (1) or the answer
+    # arrives whole with the terminal frame (0). An on/off switch rides the same
+    # pull for the same reason. See turn/answer_stream.answer_streaming_enabled.
+    "chat.answer_streaming": (0, 1),
 }
 
 # Keys whose valid values are a discrete set rather than every int in range
 # (the RIS API only accepts these page sizes).
 _ALLOWED_VALUES: dict[str, frozenset[int]] = {
     "ris.page_size": frozenset({10, 20, 50, 100}),
+    "chat.answer_streaming": frozenset({0, 1}),
 }
 
 

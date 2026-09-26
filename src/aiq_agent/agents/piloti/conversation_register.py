@@ -52,6 +52,7 @@ from aiq_agent.turn.answer_stream import Cards
 from aiq_agent.turn.answer_stream import Item
 from aiq_agent.turn.answer_stream import Masthead
 from aiq_agent.turn.answer_stream import Snapshot
+from aiq_agent.turn.answer_stream import answer_streaming_enabled
 from aiq_agent.turn.answer_stream import bound_answer_stream
 from aiq_agent.turn.api_seam import skip_clarifier_requested
 from aiq_agent.turn.context import TurnContext
@@ -455,8 +456,14 @@ async def _prepare_turn(
     return _Turn(agent, state, session_registry, context, inputs, request, runtime)
 
 
-def _start_answer(turn: _Turn) -> tuple[AnswerStreamSink, asyncio.Task[list[ChatResponseChunk]]]:
-    """Start the answer in its own task, with a sink bound for its live prose (ADR-0066)."""
+def _start_answer(
+    turn: _Turn, *, stream: bool = True
+) -> tuple[AnswerStreamSink, asyncio.Task[list[ChatResponseChunk]]]:
+    """Start the answer in its own task, with a sink bound for its live prose (ADR-0066).
+
+    ``stream=False`` (the platform switch is off) binds nothing: the sink stays
+    empty, the relay only waits for the task, and the answer goes out whole.
+    """
     sink = AnswerStreamSink()
 
     async def answer_and_chunks() -> list[ChatResponseChunk]:
@@ -483,6 +490,8 @@ def _start_answer(turn: _Turn) -> tuple[AnswerStreamSink, asyncio.Task[list[Chat
             live=sink.streamed,
         )
 
+    if not stream:
+        return sink, asyncio.create_task(answer_and_chunks())
     with bound_answer_stream(sink):
         answering = asyncio.create_task(answer_and_chunks())
     return sink, answering
@@ -563,7 +572,8 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
                 )
                 # The answer's prose goes out while the final call writes it
                 # (ADR-0066); the terminal chunk then replaces it verified.
-                sink, answering = _start_answer(turn)
+                stream = await asyncio.to_thread(answer_streaming_enabled)
+                sink, answering = _start_answer(turn, stream=stream)
                 # `aclosing`, because `async for` never closes what it iterates:
                 # a consumer that walks away would reach the flush below with
                 # the relay still suspended and the answer still running.

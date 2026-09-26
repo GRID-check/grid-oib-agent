@@ -93,6 +93,17 @@ answer is cut into deltas, while a live answer, whose prose already went out,
 and a refusal get the terminal alone. There is no env/runtime gate; every
 answer turn streams one way or the other.
 
+### The platform switch
+
+Platform → Abruf carries one on/off setting, `chat.answer_streaming` (catalog:
+`frontends/ui/src/lib/retrieval-settings/catalog.ts`, on by default). The
+backend reads it once per turn through the retrieval-settings pull
+(`turn/answer_stream.py::answer_streaming_enabled`, TTL 60 s). Off, the turn
+binds no `AnswerStreamSink`, so `streaming_call` hands back the buffered call:
+no delta, snapshot, masthead or cards frame goes out, the reasoning steps still
+stream live, and the answer arrives whole with the terminal frame. The client
+needs no change for that; it is the turn as it was before ADR-0066.
+
 ### Live frames (ADR-0066)
 
 `turn/streaming.py::live_chunk` builds every live chunk; all are
