@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<title>Piloti — Vignetten</title>
+<style>
+  /* The export tools read the canvas backing store, never this CSS box. */
+  html, body { margin: 0; background: #22271a; color: #d3ddc0;
+               font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  canvas { display: block; width: 320px; height: auto; }
+  #cap { width: 720px; padding: 10px 0 24px; }
+</style>
+<canvas id="c"></canvas>
+<div id="cap"></div>
+<!-- The shared print kit. Load order matters: formats, engine, series look. -->
+<script src="../lib/formats.js"></script>
+<script src="../lib/engine.js"></script>
+<script src="../lib/piloti.js"></script>
+<script>
+'use strict';
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Piloti — Vignetten (art/riso/vignetten). See PRINT.md beside this file.
+
+   Small quiet prints for the product app (frontends/ui): its not-found page
+   and two first-run empty states. Every plate draws one composition, `empty`
+   (320 CSS px square, 320 and 640 files), so the drawing is made for that size:
+   line weights are fixed units that print at least 1.25 px in the 1x file and
+   the same CSS width in the 2x file (weight() would halve them at 2x), and
+   anything a few screen cells wide is a solid shape on the line layer rather
+   than a dot ramp.
+
+   Same series as Tafeln: the one camera, the series sun (dawn for the plot),
+   paper, the five drums, Kelly only for something alive, red once at most.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Line weights in 1080-unit space for the 320 slot: 1.84, 1.42 and 1.27 px at 1x. */
+const LW = { sil: 6.2, arr: 4.8, note: 4.3 };
+
+/** A model board: its top, and the two near edges that show its thickness. */
+function vBoard(P, s, slab) {
+  const [x0, y0, x1, y1] = s;
+  return {
+    top: poly(P, [[x0, y0, 0], [x1, y0, 0], [x1, y1, 0], [x0, y1, 0]]),
+    edgeS: poly(P, [[x0, y0, 0], [x1, y0, 0], [x1, y0, -slab], [x0, y0, -slab]]),
+    edgeW: poly(P, [[x0, y0, 0], [x0, y1, 0], [x0, y1, -slab], [x0, y0, -slab]]),
+  };
+}
+function vBoardLines(c, b) {
+  line(c, b.top, LW.arr, KEY); line(c, b.edgeS, LW.arr, KEY); line(c, b.edgeW, LW.note, KEY);
+}
+/** Ground shadows as one union clipped to the board, like groundShadow() but with its own path set. */
+function vShadow(c, clip, shapes, spec) { groundShadow(c, clip, shapes, spec); }
+/** A thin peg or stake too narrow for faces: one stroke, and its tip. */
+function vPeg(c, P, x, y, h, w) {
+  line(c, poly(P, [[x, y, 0], [x, y, h]], false), w || LW.arr, KEY);
+  return P([x, y, h]);
+}
+/** Grass tufts along the back and west edges of a board, where nobody walks. Solid blades. */
+function vTufts(c, P, s, key, n, spec) {
+  const [x0, y0, x1, y1] = s, tr = rngFor(key), tufts = new Path2D();
+  for (let i = 0; i < n; i++) {
+    const back = tr() < 0.62;
+    const x = back ? x0 + 0.2 + tr() * (x1 - x0 - 0.4) : x0 + 0.15 + tr() * 0.7;
+    const y = back ? y1 - 0.15 - tr() * 0.7 : y0 + 0.3 + tr() * (y1 - y0 - 0.6);
+    const b = P([x, y, 0]), hgt = (0.2 + tr() * 0.16) * P.s;
+    for (let k = -1; k <= 1; k++) {
+      tufts.addPath(nib([[b[0] + k * 2.2, b[1]], [b[0] + k * 5.5 + (tr() - 0.5) * 2, b[1] - hgt * (1 - Math.abs(k) * 0.22)]],
+        (u) => 2.4 * (1 - u), { raw: true }));
+    }
+  }
+  lineFill(c, tufts, spec);
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   I — Bauplatz (building plot), for the not-found page: "not in the plan".
+   Plate IV of Tafeln brought down to a vignette. A small plot is pegged out on
+   a bare model board at dawn, and inside it stands one piloti with its rebar
+   still sticking out of the head: a column that was never given a house. A
+   surveyor's stake in front carries the plate's one red mark, a ribbon.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const BAUPLATZ = (() => {
+  const SUN = v3.norm([0.74, 0.52, -0.34]);            // dawn: the series azimuth, a low sun
+  const SITE = [-1.1, -2.3, 6.6, 3.9], SLAB = 0.34;
+  const PLOT = [0.2, 0.2, 4.6, 3.1];
+  const COL = [1.5, 1.7], CR = 0.2, CH = 2.9;
+  const STAKE = [4.4, -1.3], SH = 1.1, SR = 0.06;
+  const FIT = { empty: { fill: 0.9, cx: 0.5, cy: 0.52 } };
+
+  function draw(c, fmt) {
+    const [sx0, sy0, sx1, sy1] = SITE;
+    const [px0, py0, px1, py1] = PLOT;
+    const P = fit(VIEW_SERIES, [[sx0, sy0, -SLAB], [sx1, sy0, -SLAB], [sx1, sy1, 0], [sx0, sy1, 0], [COL[0], COL[1], CH + 0.5]], FIT[fmt]);
+    const b = vBoard(P, SITE, SLAB);
+
+    /* bare soil: a pale field, morning haze at the back, tufts where nobody walked */
+    own(c, b.edgeS, { moss: 0.58 });
+    own(c, b.edgeW, { moss: 0.3 });
+    own(c, b.top, {});
+    if (c.ink === 'mist') shade(c.g, b.top, { x0: 0, y0: P([0, sy1, 0])[1], x1: 0, y1: P([0, sy0, 0])[1], stops: [[0, 0.6], [0.55, 0.22], [1, 0]] });
+    vTufts(c, P, SITE, 'vignetten:bauplatz:tufts', 22, { kelly: 0.95 });
+
+    /* the plot, dashed on the ground as it will be drawn */
+    dashed(c, poly(P, [[px0, py0, 0], [px1, py0, 0], [px1, py1, 0], [px0, py1, 0]]), LW.note, { hunter: 0.85 }, [16, 11]);
+
+    /* shadows: one union, long at dawn */
+    const pegs = [[px0, py0], [px1, py0], [px1, py1], [px0, py1]];
+    const PH = 0.55;
+    const shapes = [cylShadow(P, COL[0], COL[1], CR, CH, SUN),
+      boxShadow(P, boxCorners(STAKE[0] - SR, STAKE[1] - SR, 0, STAKE[0] + SR, STAKE[1] + SR, SH), SUN)];
+    for (const [x, y] of pegs) shapes.push(boxShadow(P, boxCorners(x - 0.05, y - 0.05, 0, x + 0.05, y + 0.05, PH), SUN));
+    vShadow(c, b.top, shapes, { hunter: 0.62 });
+    vBoardLines(c, b);
+
+    /* everything that stands, far to near */
+    const items = pegs.map(([x, y]) => ({ d: depth(P, [x, y, 0]), f: () => vPeg(c, P, x, y, PH) }));
+    items.push({ d: depth(P, [COL[0], COL[1], 0]), f: () => column(c, P) });
+    items.push({ d: depth(P, [STAKE[0], STAKE[1], 0]), f: () => surveyStake(c, P) });
+    items.sort((a, b2) => b2.d - a.d);
+    for (const it of items) it.f();
+  }
+
+  /** The lone piloti: lit west half bare, the shade side a solid band (too few cells for a ramp). */
+  function column(c, P) {
+    const cy = cylinder(P, COL[0], COL[1], CR, 0, CH);
+    own(c, cy.sil, {});
+    const wd = cy.xr - cy.xl;
+    c.L.save(); c.L.clip(cy.sil);
+    lineFill(c, pathOf([[cy.xl + wd * 0.6, 0], [cy.xr + 4, 0], [cy.xr + 4, H], [cy.xl + wd * 0.6, H]]), { moss: 0.55 });
+    c.L.restore();
+    own(c, cy.top, { mist: 0.5 });
+    line(c, cy.sil, LW.sil, KEY);
+    line(c, cy.top, LW.note, KEY);
+    // three rebar ends out of the head, bent a little: never given a house
+    const rb = new Path2D();
+    [[0.1, -0.04, 0.62, 0.06], [-0.1, 0.02, 0.48, -0.07], [0.02, 0.12, 0.7, -0.02]].forEach(([dx, dy, h, lean]) => {
+      const a = P([COL[0] + dx, COL[1] + dy, CH]), e = P([COL[0] + dx + lean, COL[1] + dy, CH + h]);
+      rb.moveTo(a[0], a[1]); rb.lineTo(e[0], e[1]);
+    });
+    line(c, rb, LW.note, KEY_DARK);
+  }
+
+  /** A surveyor's stake with a painted head and a red ribbon lifting in the morning air. */
+  function surveyStake(c, P) {
+    const [x, y] = STAKE;
+    const f = boxFaces(P, x - SR, y - SR, 0, x + SR, y + SR, SH);
+    own(c, f.west, {}); own(c, f.south, {});
+    lineFill(c, f.south, { moss: 0.5 });                // a few cells wide: solid, not a ramp
+    tint(c, poly(P, [[x - SR, y - SR, SH - 0.28], [x + SR, y - SR, SH - 0.28], [x + SR, y - SR, SH], [x - SR, y - SR, SH]]), { red: 1 });
+    tint(c, poly(P, [[x - SR, y - SR, SH - 0.28], [x - SR, y + SR, SH - 0.28], [x - SR, y + SR, SH], [x - SR, y - SR, SH]]), { red: 0.7 });
+    line(c, f.sil, LW.arr, KEY);
+    const a = P([x + SR, y, SH - 0.1]), s = P.s;
+    const rib = nib([[a[0], a[1]], [a[0] + 0.3 * s, a[1] + 0.06 * s], [a[0] + 0.62 * s, a[1] - 0.05 * s], [a[0] + 0.95 * s, a[1] + 0.07 * s]],
+      (u) => 0.075 * s * (1 - 0.45 * u), { per: 8 });
+    own(c, rib, { red: 1 });
+  }
+
+  return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], key: 'hunter', draw };
+})();
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   II — Abstecken (setting out), for "no projects yet".
+   A mown model board, and on it a plot staked out with four stakes and a
+   string: the first act of any building project. Someone stands at the near
+   corner with a rolled drawing under the arm, looking at the empty plot. The
+   project begins here. No red: nothing is wrong.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const ABSTECKEN = (() => {
+  const SITE = [-0.9, -1.9, 4.3, 3.0], SLAB = 0.24;
+  const PLOT = [0.9, 0.3, 3.7, 2.4];
+  const FIG = [1.6, -0.9];
+  const STH = 0.8, STR = 0.48, SR = 0.045;            // stake height, string height, stake half-width
+  const FIT = { empty: { fill: 0.9, cx: 0.5, cy: 0.5 } };
+
+  function draw(c, fmt) {
+    const [sx0, sy0, sx1, sy1] = SITE;
+    const [px0, py0, px1, py1] = PLOT;
+    const P = fit(VIEW_SERIES, [[sx0, sy0, -SLAB], [sx1, sy0, -SLAB], [sx1, sy1, 0], [sx0, sy1, 0], [FIG[0], FIG[1], 2.6]], FIT[fmt]);
+    const b = vBoard(P, SITE, SLAB);
+
+    /* a mown lawn: two stripe tones, the living green of the series */
+    own(c, b.edgeS, { moss: 0.58 });
+    own(c, b.edgeW, { moss: 0.3 });
+    own(c, b.top, {});
+    for (let yy = sy0, i = 0; yy < sy1 - 1e-6; yy += 0.98, i++) {
+      const p = poly(P, [[sx0, yy, 0], [sx1, yy, 0], [sx1, Math.min(sy1, yy + 0.98), 0], [sx0, Math.min(sy1, yy + 0.98), 0]]);
+      tint(c, p, i % 2 ? { kelly: 0.1, mist: 0.4 } : { kelly: 0.2, mist: 0.26 });
+    }
+
+    /* the plot, dashed on the ground under its strings */
+    const corners = [[px0, py0], [px1, py0], [px1, py1], [px0, py1]];
+    dashed(c, poly(P, corners.map(([x, y]) => [x, y, 0])), LW.note, { hunter: 0.8 }, [16, 11]);
+
+    /* shadows: stakes and the figure, one union; the strings' shadows as faint lines */
+    const shapes = corners.map(([x, y]) => boxShadow(P, boxCorners(x - SR, y - SR, 0, x + SR, y + SR, STH), SUN_SERIES));
+    shapes.push(cylShadow(P, FIG[0], FIG[1], 0.2, 1.72, SUN_SERIES));
+    vShadow(c, b.top, shapes, { hunter: 0.62 });
+    const sStr = poly(P, corners.map(([x, y]) => onGround([x, y, STR], SUN_SERIES)));
+    c.L.save(); c.L.clip(b.top); line(c, sStr, LW.note * 0.8, { moss: 0.55 }); c.L.restore();
+    vBoardLines(c, b);
+
+    /* stakes far to near, the string between them, then the figure in front */
+    const back = corners.slice().sort((a, e) => depth(P, [e[0], e[1], 0]) - depth(P, [a[0], a[1], 0]));
+    const str = poly(P, corners.map(([x, y]) => [x, y, STR]));
+    for (const [x, y] of back.slice(0, 2)) stakeAt(c, P, x, y);
+    line(c, str, LW.note, { hunter: 0.95 });
+    for (const [x, y] of back.slice(2)) stakeAt(c, P, x, y);
+
+    const foot = P([FIG[0], FIG[1], 0]), fh = 1.75 * P.s;
+    const f = figure(foot, fh, { back: 0.04 });
+    // a figure is a few cells wide: a solid overprint, as the darks of the series are
+    // figure() unions its parts in one path, and under a nonzero fill the
+    // overlaps that wind against each other open slivers (neck, shoulders,
+    // pelvis) that read as white patches at this size: a stroke closes them
+    own(c, f.body, {});
+    lineFill(c, f.body, { hunter: 1, moss: 0.62 });
+    line(c, f.body, 5, { hunter: 1, moss: 0.62 });
+    own(c, f.roll, {});
+    line(c, f.roll, LW.note * 0.7, KEY);
+  }
+
+  function stakeAt(c, P, x, y) {
+    const f = boxFaces(P, x - SR, y - SR, 0, x + SR, y + SR, STH);
+    own(c, f.west, {});
+    own(c, f.south, {});
+    lineFill(c, f.south, { moss: 0.5 });                // a few cells wide: solid, not a ramp
+    line(c, f.sil, LW.note, KEY);
+  }
+
+  return { inks: ['mist', 'kelly', 'moss', 'hunter'], key: 'hunter', draw };
+})();
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   III — Planschrank (plan chest), for "no documents yet".
+   A plan chest of five shallow drawers stands on a board. The top drawer is
+   pulled out, and it is empty: bare paper-white tray, its front panel's
+   shadow lying in it. The drawer is where the drawings go.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const PLANSCHRANK = (() => {
+  const SITE = [-0.4, -1.25, 1.85, 1.2], SLAB = 0.07;
+  const BX = [0, 0, 1.3, 1.0];                         // carcass footprint x0 y0 x1 y1
+  const ZP = 0.06, ZT = 0.84, TOP = 0.025;             // plinth height, carcass top, top slab
+  const N = 5, DZ = (ZT - ZP) / N;                     // drawers
+  const PULL = 0.9, IN = 0.03, SIDE = 0.018;           // pull-out, drawer inset, tray wall thickness
+  const FIT = { empty: { fill: 0.84, cx: 0.5, cy: 0.52 } };
+
+  function draw(c, fmt) {
+    const [sx0, sy0, sx1, sy1] = SITE;
+    const [x0, y0, x1, y1] = BX;
+    const P = fit(VIEW_SERIES, [[sx0, sy0, -SLAB], [sx1, sy0, -SLAB], [sx1, sy1, 0], [sx0, sy1, 0], [x0, y1, ZT + TOP], [x1, y1, ZT + TOP]], FIT[fmt]);
+    const b = vBoard(P, SITE, SLAB);
+    const zd0 = ZP + (N - 1) * DZ + 0.006, zd1 = ZT - 0.006;   // the top drawer's band
+    const dx0 = x0 + IN, dx1 = x1 - IN, dy0 = y0 - PULL, dyb = y0 + 0.04, dzb = zd0 + 0.018;
+    const ix0 = dx0 + SIDE, ix1 = dx1 - SIDE, iy0 = dy0 + SIDE;
+    const pull = (y, z) => poly(P, [[0.5, y, z], [0.8, y, z], [0.8, y, z - 0.03], [0.5, y, z - 0.03]]);
+
+    /* a low platform, the studio floor */
+    own(c, b.edgeS, { moss: 0.58 });
+    own(c, b.edgeW, { moss: 0.3 });
+    own(c, b.top, { mist: 0.26 });
+
+    /* floor shadow of the carcass and the drawer out of it: one union */
+    vShadow(c, b.top, [
+      boxShadow(P, boxCorners(x0, y0, 0, x1, y1, ZT + TOP), SUN_SERIES),
+      boxShadow(P, boxCorners(dx0, dy0, zd0, dx1, y0, zd1), SUN_SERIES),
+    ], { hunter: 0.62 });
+    vBoardLines(c, b);
+
+    /* the carcass: west face bare stock, south face glancing, top in Mist */
+    const f = boxFaces(P, x0, y0, 0, x1, y1, ZT + TOP);
+    own(c, f.west, {});
+    own(c, f.south, { mist: 0.38 });   // glancing; Mist, not a sparse Moss that specks at 320
+    own(c, f.top, { mist: 0.42 });
+    own(c, poly(P, [[x0, y0, 0], [x1, y0, 0], [x1, y0, ZP], [x0, y0, ZP]]), { hunter: 0.5, moss: 0.5 });   // plinth recess
+    const joints = new Path2D(), pulls = new Path2D();
+    for (let k = 1; k < N; k++) { const z = ZP + k * DZ, p0 = P([x0, y0, z]), p1 = P([x1, y0, z]); joints.moveTo(p0[0], p0[1]); joints.lineTo(p1[0], p1[1]); }
+    for (let k = 0; k < N - 1; k++) pulls.addPath(pull(y0, ZP + (k + 0.64) * DZ));
+    line(c, joints, LW.note, KEY);
+    lineFill(c, pulls, { hunter: 1, moss: 0.6 });
+    line(c, poly(P, [[x0, y0, ZT], [x1, y0, ZT]], false), LW.note, KEY);
+    line(c, f.sil, LW.sil, KEY);
+
+    /* the mouth the drawer came out of: dark inside the carcass */
+    own(c, poly(P, [[dx0, y0, zd0], [dx1, y0, zd0], [dx1, y0, zd1], [dx0, y0, zd1]]), { hunter: 0.72, moss: 0.72 });
+
+    /* the pulled drawer, an open tray, and nothing in it */
+    const floor = poly(P, [[ix0, iy0, dzb], [ix1, iy0, dzb], [ix1, dyb, dzb], [ix0, dyb, dzb]]);
+    own(c, floor, {});
+    // the back wall's inner face, under the carcass top: in shade
+    own(c, poly(P, [[ix0, dyb, dzb], [ix1, dyb, dzb], [ix1, dyb, zd1], [ix0, dyb, zd1]]), { moss: 0.34 });
+    // shade in the tray, one union: the front panel's and the west wall's, and the carcass top's over the back
+    const sun = SUN_SERIES, rimW = [[dx0, dy0, zd1], [dx0, dyb, zd1]], rimF = [[dx0, dy0, zd1], [dx1, dy0, zd1]];
+    const sh = new Path2D();
+    for (const edge of [rimW, rimF]) sh.addPath(pathOf(hull(edge.flatMap((p) => [P([p[0], p[1], dzb]), P(onGround(p, sun, dzb))]))));
+    sh.addPath(poly(P, [[ix0, y0, dzb], [ix1, y0, dzb], [ix1, dyb, dzb], [ix0, dyb, dzb]]));
+    if (c.ink === 'hunter') { c.g.save(); c.g.clip(floor); tone(c.g, 0.42); c.g.fill(sh, 'nonzero'); c.g.restore(); }
+    // the east wall's inner face: it faces west, into the light
+    own(c, poly(P, [[ix1, iy0, dzb], [ix1, dyb, dzb], [ix1, dyb, zd1], [ix1, iy0, zd1]]), { mist: 0.3 });
+    // the west wall, seen from outside: bare stock; the front panel, glancing, with its pull
+    own(c, poly(P, [[dx0, dy0, zd0], [dx0, y0, zd0], [dx0, y0, zd1], [dx0, dy0, zd1]]), {});
+    own(c, poly(P, [[dx0, dy0, zd0], [dx1, dy0, zd0], [dx1, dy0, zd1], [dx0, dy0, zd1]]), { mist: 0.38 });
+    lineFill(c, pull(dy0, zd0 + 0.64 * DZ), { hunter: 1, moss: 0.6 });
+    // rims: outer top edges and the inner lip, then the tray's silhouette
+    const rim = new Path2D();
+    rim.addPath(poly(P, [[ix0, y0, zd1], [ix0, iy0, zd1], [ix1, iy0, zd1], [ix1, y0, zd1]], false));
+    rim.addPath(poly(P, [[ix0, iy0, zd1], [ix0, iy0, dzb], [ix1, iy0, dzb]], false));
+    line(c, rim, LW.note, KEY);
+    line(c, pathOf(hull([[dx0, dy0, zd0], [dx1, dy0, zd0], [dx0, y0, zd0], [dx0, dy0, zd1], [dx1, dy0, zd1], [dx1, y0, zd1], [dx0, y0, zd1]].map(P))), LW.arr, KEY);
+    line(c, poly(P, [[dx0, dy0, zd1], [dx0, dy0, zd0]], false), LW.note, KEY);
+  }
+
+  return { inks: ['mist', 'moss', 'hunter'], key: 'hunter', draw };
+})();
+
+/* ═════════════════════════════════════════════════════════════════════════
+   JOBS. The `empty` format goes to the product app (dest 'app'): files in
+   frontends/ui/public/art/, entries in frontends/ui/src/lib/art/art.json.
+   The app shows these beside a heading that says it all, so it renders them
+   with empty alt; the alt here is for any other use.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+Riso.run({
+  work: 'vignetten',
+  plates: [
+    { name: 'bauplatz',    art: BAUPLATZ,    composes: ['empty'] },
+    { name: 'abstecken',   art: ABSTECKEN,   composes: ['empty'] },
+    { name: 'planschrank', art: PLANSCHRANK, composes: ['empty'] },
+  ],
+  jobs: [
+    { plate: 'bauplatz', format: 'empty',
+      alt: { de: 'Ein leerer Bauplatz auf einem Modellbrett im Morgenlicht: ein abgesteckter Grundriss, eine einzelne Stütze mit Bewehrungseisen und ein Vermessungspflock mit rotem Band.',
+             en: 'An empty building plot on a model board at dawn: a pegged-out plot, a single column with rebar sticking out of its head, and a survey stake with a red ribbon.' } },
+    { plate: 'abstecken', format: 'empty',
+      alt: { de: 'Auf einem Rasenbrett ist ein Grundstück mit vier Pflöcken und einer Schnur abgesteckt; eine Figur mit einer Planrolle steht an der Ecke.',
+             en: 'A plot staked out with four stakes and a string on a lawn board; a figure holding a rolled drawing stands at the corner.' } },
+    { plate: 'planschrank', format: 'empty',
+      alt: { de: 'Ein Planschrank mit fünf flachen Laden; die oberste ist herausgezogen und leer.',
+             en: 'A plan chest with five shallow drawers; the top one is pulled out and empty.' } },
+  ],
+});
+</script>
+</html>

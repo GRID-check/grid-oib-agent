@@ -13,7 +13,9 @@
                 screen at the same CSS size. Nothing is ever resized after
                 the bake: resampling a halftone screen makes moiré
      encode     'webp' (quality 95, sharp-YUV) or 'png' (max compression)
-     dest       'site' -> frontends/web/public/art/, committed, in the manifest
+     dest       'site' -> frontends/web/public/art/, committed, in src/data/art.json
+                'app'  -> frontends/ui/public/art/, committed, in the app's
+                          src/lib/art/art.json (the product app, Next.js)
                 'out'  -> art/riso/out/<work>/, gitignored, reproducible
      file       name template: {base} {w} {h}
      numeral    false leaves the plate numeral off (tiny formats)
@@ -52,8 +54,8 @@ const FORMATS = {
     sizes: [{ density: 1, w: 96, h: 96, pitch: 3.4 }, { density: 2, w: 192, h: 192, pitch: 6.8 }],
   },
   empty: {
-    use: 'Empty state in the product UI, 320 CSS px square. A quiet vignette, not a full plate',
-    compose: 'empty', encode: 'webp', dest: 'site', file: '{base}-empty-{w}', numeral: false,
+    use: 'Empty state in the product app (frontends/ui), 320 CSS px square. A quiet vignette, not a full plate',
+    compose: 'empty', encode: 'webp', dest: 'app', file: '{base}-empty-{w}', numeral: false,
     sizes: [{ density: 1, w: 320, h: 320, pitch: 3.4 }, { density: 2, w: 640, h: 640, pitch: 6.8 }],
   },
   email: {
