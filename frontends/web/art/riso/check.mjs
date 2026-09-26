@@ -24,6 +24,10 @@
  *   - the site's or the app's src/ names an art id not in its own manifest, or
  *     a /art/ file path at all: the site reaches art by id through
  *     src/lib/art.ts, the app through ../ui/src/lib/art/
+ *   - public/downloads/ (the out and app files, for the unlisted image page)
+ *     lacks a job's file, holds a file no job names, has a file over 1 MB or
+ *     of other pixel size, a separation that is not grayscale, or
+ *     src/data/downloads.json is stale: node art/riso/downloads.mjs
  *
  * The expensive determinism check is separate: node art/riso/verify.mjs.
  */
@@ -33,6 +37,7 @@ import sharp from 'sharp';
 import {
   DESTS, HERE, MAX_BYTES, WEB, evaluateWork, listWorks, manifestFrom, manifestText, srcPath,
 } from './kit.mjs';
+import { DOWNLOADS, DOWNLOADS_MANIFEST, downloadsFrom, downloadsText } from './downloads.mjs';
 
 const problems = [];
 const fail = (m) => problems.push(m);
@@ -79,11 +84,12 @@ async function onPageParity(paperFile, pageFile, paper) {
 const workNames = works.map((w) => w.name).join('|');
 const idRe = new RegExp(`['"\`]((?:${workNames || '\\u0000'})/[a-z0-9-]+/[a-z0-9-]+)['"\`]`, 'g');
 const pathRe = /['"`(]\/art\/[^'"`)\s]*/g;
+/** Source files that may name art ids; `skip` holds the generated manifests, which list them all. */
 function* files(dir, skip) {
   for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, d.name);
     if (d.isDirectory()) { if (d.name !== 'node_modules') yield* files(p, skip); }
-    else if (/\.(astro|ts|tsx|js|mjs|md|mdx|mdoc|yaml|json)$/.test(d.name) && p !== skip) yield p;
+    else if (/\.(astro|ts|tsx|js|mjs|md|mdx|mdoc|yaml|json)$/.test(d.name) && !skip.has(p)) yield p;
   }
 }
 let totalIds = 0, totalFiles = 0;
@@ -150,7 +156,7 @@ for (const [dest, d] of Object.entries(DESTS)) {
 
   // references from this destination's source tree: by id, and only ids it has
   const ids = new Set(Object.keys(manifest.art || {}));
-  for (const file of files(d.src, d.manifest)) {
+  for (const file of files(d.src, new Set([d.manifest, DOWNLOADS_MANIFEST]))) {
     const text = fs.readFileSync(file, 'utf8');
     for (const m of text.matchAll(idRe)) if (!ids.has(m[1])) fail(`${rel(file)}: art id "${m[1]}" is not in the ${dest} manifest`);
     for (const m of text.matchAll(pathRe)) fail(`${rel(file)}: names the file ${m[0].slice(1)}; reference art by id`);
@@ -158,8 +164,31 @@ for (const [dest, d] of Object.entries(DESTS)) {
   totalIds += ids.size; totalFiles += listed.size;
 }
 
+// ── public/downloads/: what no page shows, for the unlisted image page ──────
+{
+  const { manifest, missing, expected } = downloadsFrom(jobsByWork);
+  for (const m of missing) fail(`public/downloads/${m.file} is missing: node art/riso/export.mjs --only ${m.id} (it publishes the download)`);
+  const committed = fs.existsSync(DOWNLOADS_MANIFEST) ? fs.readFileSync(DOWNLOADS_MANIFEST, 'utf8') : '';
+  if (committed !== downloadsText(manifest)) fail(`${rel(DOWNLOADS_MANIFEST)} is stale against the JOBS tables or public/downloads/: node art/riso/downloads.mjs`);
+  for (const [id, e] of Object.entries(manifest.art)) {
+    const images = [...e.files.map((f) => [f, false]), ...(e.separations?.inks || []).map((f) => [f, true])];
+    for (const [f, sep] of images) {
+      const file = path.join(WEB, 'public', srcPath(f.src));
+      const bytes = fs.statSync(file).size;
+      if (bytes > MAX_BYTES) fail(`${id}: ${rel(file)} is ${(bytes / 1024).toFixed(0)} KB, over the 1 MB commit limit`);
+      const m = await sharp(file).metadata();
+      if (m.width !== f.width || m.height !== f.height) fail(`${id}: ${rel(file)} is ${m.width}x${m.height}, the job says ${f.width}x${f.height}`);
+      if (sep && (m.format !== 'png' || m.channels > 2)) fail(`${id}: ${rel(file)} is a separation, so a grayscale PNG`);
+    }
+  }
+  if (fs.existsSync(DOWNLOADS)) {
+    for (const f of fs.readdirSync(DOWNLOADS)) if (!expected.has(f)) fail(`public/downloads/${f} is named by no job: node art/riso/downloads.mjs removes it`);
+  }
+  totalFiles += expected.size;
+}
+
 if (problems.length) {
   console.error(`riso check: ${problems.length} problem(s)\n  - ${problems.join('\n  - ')}`);
   process.exit(1);
 }
-console.log(`riso check: ${works.length} work(s), ${totalIds} art ids, ${totalFiles} files in ${Object.keys(DESTS).join(' + ')} ok`);
+console.log(`riso check: ${works.length} work(s), ${totalIds} art ids, ${totalFiles} files in ${Object.keys(DESTS).join(' + ')} + downloads ok`);
