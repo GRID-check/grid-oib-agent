@@ -1720,6 +1720,39 @@ pulumi config set grid-oib:langfuseInitUserEmail ops@example.com
 NetworkPolicies are required. There is no separate check for it here: the tier
 depends on §9, whose guard already refuses `networkPolicies=false`.
 
+### Agent access (MCP) without a browser
+
+Langfuse's MCP server is `https://langfuse.<baseDomain>/api/public/mcp`
+(streamable HTTP). Two credentials reach it, one per gate, and both are required:
+
+- **The edge** wants a WorkOS access token holding
+  `platform:organizations:view`, in `x-workos-token` (or `Authorization: Bearer`).
+  A request carrying one skips the browser redirect and meets the same JWKS and
+  permission check a browser session does (`passThroughAuthHeader` in
+  `deploy/pulumi/src/platform/platform-oidc.ts`). No token, or a bad one: 401.
+- **Langfuse** wants a project key pair as `Authorization: Basic
+  base64(pk-lf-…:sk-lf-…)`. Mint one per agent (Langfuse → Settings → API Keys)
+  so each can be revoked alone; do not hand out the seeded `langfusePublicKey`.
+
+The WorkOS token comes from an **M2M application**, one per agent: WorkOS
+dashboard → Applications → Create → M2M, in the platform organization, with
+`platform:organizations:view` assigned under its permissions. Then register the
+server with Claude Code, letting the helper mint a fresh token per connection
+(tokens live minutes):
+
+```bash
+export WORKOS_AUTHKIT_ISSUER=https://<tenant>.authkit.app   # = otelOidcIssuer
+export WORKOS_AGENT_CLIENT_ID=client_… WORKOS_AGENT_CLIENT_SECRET=…
+export LANGFUSE_PUBLIC_KEY=pk-lf-… LANGFUSE_SECRET_KEY=sk-lf-…
+claude mcp add-json langfuse '{"type":"http","url":"https://langfuse.<baseDomain>/api/public/mcp",
+  "headersHelper":"<repo>/scripts/observability-agent-token.sh langfuse-headers"}'
+```
+
+The same edge change applies to the Aspire dashboard host, but does not yet make
+it agent-readable: its Telemetry API (`/api/telemetry/*`, what
+`aspire agent mcp --dashboard-url` reads) still demands the random `x-api-key`
+the dashboard mints at every start. ADR-0044 Amendment 3 records why.
+
 ### Traps worth knowing before the first deploy
 
 - **Web and worker images must be the same Langfuse version.** They are two

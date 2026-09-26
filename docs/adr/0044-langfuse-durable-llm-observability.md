@@ -219,6 +219,37 @@ Two gaps this amendment deliberately does NOT close:
 - **The source router's pick.** Its selection rides in its own LLM output text;
   structuring it needs a contract for parsing that output, which does not exist.
 
+## Amendment 3 (2026-09-26): agents pass the edge with a WorkOS token
+
+Coding agents could not read Langfuse at all. Its MCP server
+(`/api/public/mcp`) and REST API sit behind the edge OIDC gate, which answers
+every request without a browser session with a 302 to the AuthKit login.
+
+**Change:** the shared platform SecurityPolicy sets `passThroughAuthHeader`, and
+its JWT provider reads a token from `Authorization: Bearer` (the browser
+session, as before) or `x-workos-token`. A request carrying one skips the
+redirect and meets the unchanged JWKS check and `platform:organizations:view`
+rule. Agents mint the token from a WorkOS M2M application holding that
+permission (`scripts/observability-agent-token.sh`), and send Langfuse's own
+key pair in `Authorization` as Langfuse expects.
+
+**Rejected: routing `/api/public` past the gate on Langfuse's key alone.**
+Simpler, and how Langfuse Cloud serves it, but it makes a project key a
+cross-tenant read credential by itself, with no WorkOS identity behind it and
+nothing at the edge to revoke. Here both gates still stand: a leaked Langfuse key
+is a 401 at the edge, and a WorkOS token alone gets no further than Langfuse.
+
+**Not closed: the Aspire dashboard.** The policy is shared, so its host accepts
+the token too, but the dashboard's Telemetry API still requires the random
+per-start `x-api-key` it mints, and `aspire agent mcp` can send no other
+credential. Making it agent-readable means running that API `Unsecured` behind
+the edge (the UI's arrangement) and reading the WorkOS token from `x-api-key`;
+that is a separate decision.
+
+**Unverified at merge:** that a WorkOS M2M token carries the assigned permission
+in `scope`. If it does not, agents get 403. That is the fail-closed direction,
+and the fix is a claim rule, not a wider one.
+
 ## Consequences
 
 ### Positive

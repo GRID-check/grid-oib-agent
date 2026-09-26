@@ -389,6 +389,29 @@ describe("with the Langfuse tier enabled", () => {
       expect(spec.oidc.redirectURL).toBe("https://langfuse.example.test/oauth2/callback");
     });
 
+    it("lets an agent present a WorkOS token instead of a browser, and only that", async () => {
+      const spec = (await resolve(
+        find("kubernetes:gateway.envoyproxy.io/v1alpha1:SecurityPolicy", "grid-langfuse-security-policy")
+          .inputs.spec,
+      )) as any;
+
+      // The redirect is skipped only for a request carrying a token the JWT
+      // filter reads, and that filter is NOT optional: the token still meets
+      // the JWKS check and the permission rule above.
+      expect(spec.oidc.passThroughAuthHeader).toBe(true);
+      expect(spec.jwt.providers[0].optional).toBeUndefined();
+      expect(spec.jwt.providers[0].extractFrom.headers).toEqual([
+        // First, and it must stay: where `forwardAccessToken` puts the
+        // browser session's token.
+        { name: "Authorization", valuePrefix: "Bearer " },
+        // Beside `Authorization`, which Langfuse's MCP server needs for its
+        // own Basic credential.
+        { name: "x-workos-token" },
+      ]);
+      // A Langfuse key is never an edge credential: nothing reads `Basic`.
+      expect(JSON.stringify(spec.jwt)).not.toContain("Basic");
+    });
+
     it("serves the hostname on its own TLS listener", async () => {
       const spec = (await resolve(
         find("kubernetes:gateway.networking.k8s.io/v1:Gateway", "grid-gateway").inputs.spec,

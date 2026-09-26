@@ -8,6 +8,15 @@ import { GridConfig } from "../config";
  */
 export const PLATFORM_VIEW_PERMISSION = "platform:organizations:view";
 
+/**
+ * Header a non-browser client (a coding agent, a script) puts its WorkOS access
+ * token in, instead of `Authorization`. Separate because the tools behind these
+ * routes need `Authorization` for their OWN credential: Langfuse's public API
+ * and MCP server take `Basic base64(pk:sk)` there, and a request has only one
+ * such header.
+ */
+export const AGENT_TOKEN_HEADER = "x-workos-token";
+
 export interface PlatformOidcGate {
   /** HTTPRoute the policy attaches to. */
   routeName: string;
@@ -55,6 +64,18 @@ export interface PlatformOidcGate {
  * a complete discovery document, so a stock OIDC client works against it
  * unmodified. The application must be a CONFIDENTIAL client: a public PKCE-only
  * client has no secret, and `clientSecret` is required here.
+ *
+ * **Agents: a token instead of a browser, never instead of WorkOS.** A request
+ * that already carries a WorkOS token (`Authorization: Bearer`, or
+ * {@link AGENT_TOKEN_HEADER}) skips the
+ * browser redirect (`passThroughAuthHeader`) and goes straight to stages 2 and
+ * 3: the same JWKS check and the same permission rule a browser session meets.
+ * The token comes from a WorkOS M2M application holding the permission
+ * (`scripts/observability-agent-token.sh`). Nothing here trusts a tool's own
+ * key: a leaked Langfuse or Aspire key alone still gets a 401 at the edge.
+ * Passing through only ever lands on a check that fails closed — `jwt` is not
+ * optional, so a request whose header holds no valid token is refused, not
+ * admitted. ADR-0044 Amendment 3.
  *
  * **One application, several routes.** Both platform routes gate on the same
  * permission and the same issuer, so they share one Connect application and it
@@ -116,6 +137,11 @@ export function platformOidcSecurityPolicySpec(
       // redirect every few minutes. Envoy's default is already true — pinned
       // because the short TTL above makes the behaviour load-bearing.
       refreshToken: true,
+      // Skip the redirect for a request that carries a token in any header
+      // the JWT provider below reads. The matchers are built FROM that
+      // provider's `extractFrom`, so the two cannot disagree about which
+      // headers count.
+      passThroughAuthHeader: true,
     },
     jwt: {
       providers: [
@@ -123,6 +149,7 @@ export function platformOidcSecurityPolicySpec(
           name: jwtProviderName,
           issuer,
           remoteJWKS: { uri: `${issuer}/oauth2/jwks` },
+          extractFrom: { headers: TOKEN_HEADERS },
         },
       ],
     },
@@ -160,3 +187,12 @@ export function platformOidcSecurityPolicySpec(
     },
   };
 }
+
+/**
+ * Where the JWT filter looks for a WorkOS token. `Authorization: Bearer` stays
+ * first and must stay: it is where `forwardAccessToken` puts the browser
+ * session's token, so dropping it would lock out every browser. Setting
+ * `extractFrom` at all also retires Envoy's `?access_token=` default, which
+ * put tokens in URLs and therefore in access logs.
+ */
+const TOKEN_HEADERS = [{ name: "Authorization", valuePrefix: "Bearer " }, { name: AGENT_TOKEN_HEADER }];
