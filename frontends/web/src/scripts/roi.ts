@@ -1,10 +1,17 @@
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { landingScript } from '../i18n/ui'
+import {
+  computeRoi,
+  isRoiDefault,
+  parseRoiInputs,
+  roiQuery,
+  type RoiInputs,
+  type RoiResult,
+} from '../lib/roi'
+import { formatEuro, formatRoi, type RoiText } from '../lib/roi-format'
 
 gsap.registerPlugin(ScrollTrigger)
-import { computeRoi, ROI_DEFAULTS, type RoiInputs, type RoiResult } from '../lib/roi'
-import { formatEuro, formatRoi, type RoiText } from '../lib/roi-format'
 
 /**
  * Makes the ROI section's sliders live.
@@ -29,26 +36,19 @@ function paint(text: RoiText, skip?: keyof RoiText) {
 
 /**
  * The working page (/rechenweg) shows the same arithmetic for whichever office
- * the visitor set on the home page. The calculator writes those two numbers into
- * the link, so the page they land on states their figures rather than ours.
- *
- * Both are read defensively: they arrive from a URL, which is to say from
- * anyone, and a NaN or a negative seat count must not reach the page.
+ * the visitor set on the home page. The calculator writes its three numbers into
+ * the link, so the page they land on states their figures rather than ours, and
+ * its "change the numbers" link carries them back to the sliders.
  */
 export function initRoiWorking() {
-  const params = new URLSearchParams(window.location.search)
-  const clamp = (raw: string | null, lo: number, hi: number, fallback: number) => {
-    const n = Number(raw)
-    return raw !== null && Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.round(n))) : fallback
-  }
-  const inputs: RoiInputs = {
-    seats: clamp(params.get('seats'), 1, 60, ROI_DEFAULTS.seats),
-    salary: clamp(params.get('salary'), 20_000, 250_000, ROI_DEFAULTS.salary),
-  }
-  if (inputs.seats === ROI_DEFAULTS.seats && inputs.salary === ROI_DEFAULTS.salary) return
+  const inputs = parseRoiInputs(new URLSearchParams(window.location.search))
+  if (isRoiDefault(inputs)) return
 
   const locale = localeOf()
   paint(formatRoi(inputs, computeRoi(inputs), locale, landingScript[locale].roi))
+  document.querySelectorAll<HTMLAnchorElement>('[data-roi-back]').forEach((a) => {
+    a.setAttribute('href', `${a.dataset.roiBack}${roiQuery(inputs)}#wert`)
+  })
 }
 
 export function initRoi() {
@@ -57,8 +57,24 @@ export function initRoi() {
   const fields = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-roi-field]'))
   if (!fields.length) return
 
-  const read = (name: string) =>
+  // Arriving back from the working page, the sliders resume the office the
+  // visitor left there rather than snapping to ours.
+  const params = new URLSearchParams(window.location.search)
+  if (params.has('seats') || params.has('salary') || params.has('price')) {
+    const arrived = parseRoiInputs(params)
+    for (const field of fields) {
+      const key = field.dataset.roiField as keyof RoiInputs
+      if (key in arrived) field.value = String(arrived[key])
+    }
+  }
+
+  const read = (name: keyof RoiInputs) =>
     Number(fields.find((f) => f.dataset.roiField === name)?.value ?? 0)
+  const readAll = (): RoiInputs => ({
+    seats: read('seats'),
+    salary: read('salary'),
+    price: read('price'),
+  })
 
   // The headline figure counts to its value instead of snapping to it: the
   // section's whole argument is that this number moves with your office, and a
@@ -68,7 +84,7 @@ export function initRoi() {
   const headline = document.querySelector<HTMLElement>('#wert [data-roi-out="net"]')
   const working = document.querySelector<HTMLAnchorElement>('[data-roi-href]')
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  let shown = computeRoi({ seats: read('seats'), salary: read('salary') }).netValue
+  let shown = computeRoi(readAll()).netValue
   let count: gsap.core.Tween | null = null
 
   const countTo = (value: number, duration: number) => {
@@ -91,9 +107,9 @@ export function initRoi() {
   }
 
   const apply = () => {
-    // Only the office's own two numbers move; the shares the model applies are
-    // claims the section states, not controls (see lib/roi.ts).
-    const inputs: RoiInputs = { seats: read('seats'), salary: read('salary') }
+    // The office and the example price move; the shares the model applies are
+    // assumptions the section states, not controls (see lib/roi.ts).
+    const inputs = readAll()
     const result: RoiResult = computeRoi(inputs)
     const text = formatRoi(inputs, result, locale, units)
     // The headline is mid-flight while it counts; writing the final string over
@@ -101,10 +117,7 @@ export function initRoi() {
     paint(text, countTo(result.netValue, 0.32) ? 'net' : undefined)
 
     // The working page states the same figures, so the link carries them there.
-    working?.setAttribute(
-      'href',
-      `${working.dataset.roiHref}?seats=${inputs.seats}&salary=${inputs.salary}`
-    )
+    working?.setAttribute('href', `${working.dataset.roiHref}${roiQuery(inputs)}`)
 
     for (const field of fields) {
       const key = field.dataset.roiField as keyof RoiText

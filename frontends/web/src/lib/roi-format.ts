@@ -19,6 +19,8 @@ export interface RoiUnits {
   perHour: string
   /** `'× {value}'` — a multiplier row in the derivation. */
   times: string
+  /** `'12 × {value}'` — the example price over a year. */
+  perYear: string
   /** `'−{value}'` — a deduction, with a typographic minus. */
   minus: string
   /** `'≈ {value} Vollzeitstellen'` */
@@ -29,7 +31,7 @@ export interface RoiUnits {
   ratio: string
   /** Shown where a figure has no meaningful value. */
   never: string
-  /** `'… für {seats} Plätze … {salary}'` — which office a working belongs to. */
+  /** `'… für {seats} Plätze … {salary} … {price}'` — which office a working belongs to. */
   office: string
   /** The same sentence for a single seat, where the plural would read wrong. */
   officeOne: string
@@ -39,6 +41,7 @@ export interface RoiUnits {
 export interface RoiText {
   seats: string
   salary: string
+  price: string
   /** Derivation rows, in the order the section states them. */
   weekHours: string
   planHours: string
@@ -49,6 +52,8 @@ export interface RoiText {
   hourly: string
   perSeat: string
   licencePerSeat: string
+  /** `12 × 120 €` — how the licence row is made up. */
+  licenceWorking: string
   netPerSeat: string
   seatsTimes: string
   office: string
@@ -98,6 +103,7 @@ export function formatRoi(
   return {
     seats: decimal(locale, inputs.seats),
     salary: formatEuro(locale, inputs.salary),
+    price: formatEuro(locale, inputs.price),
     weekHours: hours(WEEK_HOURS),
     planHours: hours(WEEK_HOURS - result.researchHoursPerWeek),
     researchHours: hours(result.researchHoursPerWeek),
@@ -108,11 +114,13 @@ export function formatRoi(
     hourly: fillTemplate(units.perHour, formatEuro2(locale, result.hourlyCost)),
     perSeat: formatEuro(locale, result.valuePerSeat),
     licencePerSeat: fillTemplate(units.minus, formatEuro(locale, result.licencePerSeat)),
+    licenceWorking: fillTemplate(units.perYear, formatEuro(locale, inputs.price)),
     netPerSeat: formatEuro(locale, result.netPerSeat),
     seatsTimes: fillTemplate(units.times, decimal(locale, inputs.seats)),
     office: (inputs.seats === 1 ? units.officeOne : units.office)
       .replace('{seats}', decimal(locale, inputs.seats))
-      .replace('{salary}', formatEuro(locale, inputs.salary)),
+      .replace('{salary}', formatEuro(locale, inputs.salary))
+      .replace('{price}', formatEuro(locale, inputs.price)),
     net: formatEuro(locale, result.netValue),
     hours: fillTemplate(units.hours, decimal(locale, Math.round(result.hoursPerYear))),
     fte: fillTemplate(units.fte, decimal(locale, result.fte, 1)),
