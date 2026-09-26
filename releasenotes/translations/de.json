@@ -1972,6 +1972,10 @@
     "de": "Während ein Durchlauf läuft, fügt „Dokument hinzufügen“ eine weitere Unterlage hinzu, und der Block zeigt für jede genannte Unterlage, ob sie gelesen wurde. Ein Bericht nennt, welche er nicht erreicht hat."
   },
   {
+    "en": "While an answer is being written, Piloti now re-renders only the section that is still growing instead of the whole answer on every step. Long answers stay smooth to the end, even on a phone, at the same pace and with the same look as before.",
+    "de": "Während eine Antwort geschrieben wird, bereitet Piloti nur noch den wachsenden letzten Abschnitt neu auf statt jedes Mal die ganze Antwort. Lange Antworten laufen dadurch auch auf dem Telefon bis zum Ende flüssig, im selben Tempo und mit demselben Aussehen wie bisher."
+  },
+  {
     "en": "While research runs, its block shows what is already evidenced in each round, and Jetzt schreiben ends the research after the current round and writes the report from what is there.",
     "de": "Während die Recherche läuft, zeigt ihr Block je Runde, was schon belegt ist, und „Jetzt schreiben“ beendet die Recherche nach der laufenden Runde und schreibt den Bericht aus dem Vorhandenen."
   },

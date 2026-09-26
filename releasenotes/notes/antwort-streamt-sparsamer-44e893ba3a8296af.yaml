@@ -1,7 +1,7 @@
 ---
 improvements:
   - >
-    Während eine Antwort geschrieben wird, bereitet Piloti nur noch den
-    wachsenden letzten Abschnitt neu auf statt jedes Mal die ganze Antwort.
-    Lange Antworten laufen dadurch auch auf dem Telefon bis zum Ende flüssig,
-    im selben Tempo und mit demselben Aussehen wie bisher.
+    While an answer is being written, Piloti now re-renders only the section
+    that is still growing instead of the whole answer on every step. Long
+    answers stay smooth to the end, even on a phone, at the same pace and with
+    the same look as before.
