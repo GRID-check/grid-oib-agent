@@ -188,7 +188,31 @@ table, which takes its shadow as a Mist field.
   notched the edge). What shows is one straight join across the strip, where a paper
   Möbius band is glued.
 
+### IV. Bauplatz (building plot)
+
+For the 404 page ("Nicht im Plan"). The same model board as plate I, at dawn, with
+nothing built on it. The sun keeps the series' azimuth but is lower (`z = -0.3`), so
+every shadow runs long, and a Mist ramp leaves the back of the board in morning haze.
+
+- **Setting-out.** A 14 × 9 plot is dashed on the ground. It is set out as on a real
+  site, with batter boards (Schnurgerüst): an L of two boards on three posts outside
+  each corner, strings carried across them along the plot lines, and each string's
+  shadow a faint line on the soil.
+- **The lone piloti.** The same column as plate I (0.38 × 4.0 m), with four rebar ends
+  sticking out of its head: a column that was never given a house. It is only a few
+  screen cells wide, so its shade side is a solid band on the line layer, not a dot
+  ramp. The ramp printed as a single row of dots down the column.
+- **Red ribbon.** A surveyor's stake on open ground in front carries the plate's single
+  red mark: a painted head and a ribbon lifting in the air.
+- **Ground.** Bare soil: a Moss stipple over a pale Mist field. Kelly grass tufts grow
+  only along the back and west edges, where nobody has walked.
+- **No figure.** The empty site is the point.
+
 ## Inspected
+
+Plate IV: the full frame at 720 and 1440, a 1:1 crop of the column, ribbon and
+batter boards at 1440, and single-plate views (`?only=moss|mist|hunter`) that found the
+dotted column.
 
 Plate III: the full frame at 720 and 1440, and a 1:1 crop of the join and the front
 stations at 1440.
@@ -231,3 +255,9 @@ every job.
     and the stamp only just.
   - Chevrons turn with the band and some read as carets.
   - The glued join is a line across the strip beside a chevron.
+- **IV.**
+  - The board sits in the lower half, with the upper 40% bare paper. That suits an
+    empty site next to the 404 text, but the plate is bottom-heavy on its own.
+  - The ribbon is small at 720.
+  - Strings are drawn over everything, so one string passes in front of a batter board
+    it should run behind.

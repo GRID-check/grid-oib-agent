@@ -1137,10 +1137,152 @@ const III = (() => {
   return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
 })();
 
+/* ═════════════════════════════════════════════════════════════════════════════
+   PLATE IV — Bauplatz
+   The 404: "Nicht im Plan". The same model board as plate I, at dawn, with
+   nothing built. A plot is set out with batter boards and strings, a
+   surveyor's stake carries the plate's one red ribbon, and in the middle
+   stands a single piloti, rebar still sticking out of its head: a column
+   that was never given a house. Same sun azimuth as the series, lower, so the
+   shadows run long; a morning haze thins toward the front.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const IV = (() => {
+  const SUN = v3.norm([0.74, 0.52, -0.3]);             // dawn: the series' azimuth, a lower sun
+  const PLOT = [0, 0, 14, 9];
+  const SITE = [-3.0, -4.6, 18.4, 11.2], SLAB = 0.55;
+  const COL = [5.0, 3.4], CR = 0.19, CH = 4.0;
+  const STAKE = [9.2, -2.7];
+  const FIT = { sq: { fill: 0.94, cx: 0.5, cy: 0.54 } };
+  const OFF = 1.6, ARM = 1.3, BH = 0.8;                 // batter boards: offset, arm length, board height
+
+  function batter(cx, cy, ox, oy) {
+    const E = [cx + OFF * ox, cy + OFF * oy], A = [cx - ARM * ox, cy + OFF * oy], B = [cx + OFF * ox, cy - ARM * oy];
+    return { posts: [E, A, B], boards: [[E, A], [E, B]] };
+  }
+
+  function draw(c, fmt) {
+    const [sx0, sy0, sx1, sy1] = SITE;
+    const [px0, py0, px1, py1] = PLOT;
+    const P = fit(VIEW_SERIES, [[sx0, sy0, -SLAB], [sx1, sy0, -SLAB], [sx1, sy1, 0], [sx0, sy1, 0], [COL[0], COL[1], CH + 0.6]], FIT[fmt]);
+    const E_ = (a, b) => poly(P, [a, b], false);
+
+    /* — the board: bare ground, a little green only where nobody walks — */
+    const top = poly(P, [[sx0, sy0, 0], [sx1, sy0, 0], [sx1, sy1, 0], [sx0, sy1, 0]]);
+    const edgeS = poly(P, [[sx0, sy0, 0], [sx1, sy0, 0], [sx1, sy0, -SLAB], [sx0, sy0, -SLAB]]);
+    const edgeW = poly(P, [[sx0, sy0, 0], [sx0, sy1, 0], [sx0, sy1, -SLAB], [sx0, sy0, -SLAB]]);
+    own(c, edgeS, { moss: 0.58 });
+    own(c, edgeW, { moss: 0.3 });
+    own(c, top, { mist: 0.18 });
+    if (c.ink === 'moss') { c.g.save(); c.g.clip(top); spray(c.g, null, rngFor('bauplatz:soil'), { n: 9000, r0: 0.45, r1: 1.3, a: 0.42 }); c.g.restore(); }
+    // tufts along the board's back and west edges, where the digger never went
+    const tr = rngFor('bauplatz:tufts');
+    const tufts = new Path2D();
+    for (let i = 0; i < 70; i++) {
+      const edge = tr() < 0.55;
+      const x = edge ? sx0 + tr() * (sx1 - sx0) : sx0 + 0.3 + tr() * 1.6;
+      const y = edge ? sy1 - 0.3 - tr() * 1.8 : sy0 + tr() * (sy1 - sy0);
+      const b = P([x, y, 0]), hgt = (0.18 + tr() * 0.25) * P.s;
+      for (let k = -2; k <= 2; k++) tufts.addPath(nib([[b[0], b[1]], [b[0] + k * 0.9 + (tr() - 0.5), b[1] - hgt * (1 - Math.abs(k) * 0.15)]], (u) => 0.9 * (1 - u), { raw: true }));
+    }
+    lineFill(c, tufts, { kelly: 0.9 });
+
+    /* dawn haze: the back of the board still in mist, thinning toward the front */
+    if (c.ink === 'mist') shade(c.g, top, { x0: 0, y0: P([0, sy1, 0])[1], x1: 0, y1: P([0, sy0, 0])[1], stops: [[0, 0.62], [0.55, 0.22], [1, 0]] });
+
+    /* the plot, dashed on the ground as it will be drawn */
+    dashed(c, poly(P, [[px0, py0, 0], [px1, py0, 0], [px1, py1, 0], [px0, py1, 0]]), 1.3, { hunter: 0.85 }, [6, 5]);
+
+    /* — everything that stands, and its long shadow — */
+    const bats = [batter(px0, py0, -1, -1), batter(px1, py0, 1, -1), batter(px1, py1, 1, 1), batter(px0, py1, -1, 1)];
+    const PR = 0.06;
+    const shadows = new Path2D();
+    for (const b of bats) {
+      for (const [x, y] of b.posts) shadows.addPath(boxShadow(P, boxCorners(x - PR, y - PR, 0, x + PR, y + PR, BH + 0.1), SUN));
+      for (const [a, e] of b.boards) {
+        const bx0 = Math.min(a[0], e[0]) - 0.03, bx1 = Math.max(a[0], e[0]) + 0.03, by0 = Math.min(a[1], e[1]) - 0.03, by1 = Math.max(a[1], e[1]) + 0.03;
+        shadows.addPath(boxShadow(P, boxCorners(bx0, by0, BH - 0.22, bx1, by1, BH), SUN));
+      }
+    }
+    shadows.addPath(cylShadow(P, COL[0], COL[1], CR, CH, SUN));
+    shadows.addPath(boxShadow(P, boxCorners(STAKE[0] - 0.05, STAKE[1] - 0.05, 0, STAKE[0] + 0.05, STAKE[1] + 0.05, 1.7), SUN));
+    const sh = c.scratch;
+    sh.save(); sh.setTransform(K, 0, 0, K, 0, 0); sh.clearRect(0, 0, W, H); sh.fillStyle = '#000'; sh.clip(top); sh.fill(shadows, 'nonzero'); sh.restore();
+    const st = { hunter: 0.62 }[c.ink] || 0;
+    if (st) { c.g.save(); c.g.setTransform(1, 0, 0, 1, 0, 0); c.g.globalAlpha = st; c.g.drawImage(sh.canvas, 0, 0); c.g.restore(); }
+    // the strings' shadows: faint straight lines on the ground
+    const strings = [
+      [[px0 - OFF, py0, BH], [px1 + OFF, py0, BH]], [[px0 - OFF, py1, BH], [px1 + OFF, py1, BH]],
+      [[px0, py0 - OFF, BH], [px0, py1 + OFF, BH]], [[px1, py0 - OFF, BH], [px1, py1 + OFF, BH]],
+    ];
+    for (const [a, b] of strings) line(c, E_(onGround(a, SUN), onGround(b, SUN)), 0.8, { moss: 0.7 });
+    line(c, top, 1.5, KEY); line(c, edgeS, 1.5, KEY); line(c, edgeW, 1.3, KEY);
+
+    /* stands, far to near */
+    const items = [];
+    for (const b of bats) {
+      for (const [x, y] of b.posts) items.push({ d: depth(P, [x, y, 0]), f: () => stake(c, P, x, y, BH + 0.1, { r: PR, w: 0.9 }) });
+      for (const [a, e] of b.boards) {
+        const bx0 = Math.min(a[0], e[0]) - 0.03, bx1 = Math.max(a[0], e[0]) + 0.03, by0 = Math.min(a[1], e[1]) - 0.03, by1 = Math.max(a[1], e[1]) + 0.03;
+        items.push({ d: depth(P, [(bx0 + bx1) / 2, (by0 + by1) / 2, 0]) - 0.05, f: () => {
+          const bf = boxFaces(P, bx0, by0, BH - 0.22, bx1, by1, BH);
+          own(c, bf.top, {}); own(c, bf.west, { mist: 0.2 }); own(c, bf.south, { moss: 0.35 });
+          line(c, bf.sil, 0.9, KEY);
+        } });
+      }
+    }
+    items.push({ d: depth(P, [COL[0], COL[1], 0]), f: () => column(c, P) });
+    items.push({ d: depth(P, [STAKE[0], STAKE[1], 0]), f: () => surveyStake(c, P) });
+    items.sort((a, b) => b.d - a.d);
+    for (const it of items) it.f();
+    for (const [a, b] of strings) line(c, E_(a, b), 0.9, { hunter: 0.95 });
+  }
+
+  /** The lone piloti: the same column as plate I, capped by rebar ends. */
+  function column(c, P) {
+    const cy = cylinder(P, COL[0], COL[1], CR, 0, CH);
+    own(c, cy.sil, {});
+    // a column a few screen cells wide cannot carry a dot ramp: its shade side is a solid band
+    const wd = cy.xr - cy.xl;
+    c.L.save(); c.L.clip(cy.sil);
+    lineFill(c, pathOf([[cy.xl + wd * 0.64, 0], [cy.xr + 2, 0], [cy.xr + 2, H], [cy.xl + wd * 0.64, H]]), { moss: 0.5 });
+    c.L.restore();
+    own(c, cy.top, { mist: 0.4 });
+    line(c, cy.sil, 1.4, KEY);
+    line(c, cy.top, 1.0, KEY);
+    const f = cy.foot, w = cy.xr - cy.xl;
+    const ring = new Path2D(); ring.ellipse(f[0], f[1] + 0.3, w * 0.7, w * 0.22, 0, 0, TAU);
+    tint(c, ring, { hunter: 0.8 });
+    const rb = new Path2D();
+    [[0.09, 0.0, 0.62], [-0.08, 0.05, 0.5], [0.02, -0.09, 0.7], [-0.02, 0.1, 0.44]].forEach(([dx, dy, h], i) => {
+      const a = P([COL[0] + dx, COL[1] + dy, CH]), b = P([COL[0] + dx + (i % 2 ? -0.06 : 0.05), COL[1] + dy, CH + h]);
+      rb.moveTo(a[0], a[1]); rb.lineTo(b[0], b[1]);
+    });
+    line(c, rb, 1.3, KEY_DARK);
+  }
+
+  /** A surveyor's stake, leaning a little, with a red ribbon lifting in the morning air. */
+  function surveyStake(c, P) {
+    const [x, y] = STAKE;
+    const f = boxFaces(P, x - 0.05, y - 0.05, 0, x + 0.05, y + 0.05, 1.7);
+    own(c, f.west, {}); own(c, f.south, { moss: 0.5 });
+    // a band of paint round the head
+    tint(c, poly(P, [[x - 0.05, y - 0.05, 1.4], [x + 0.05, y - 0.05, 1.4], [x + 0.05, y - 0.05, 1.7], [x - 0.05, y - 0.05, 1.7]]), { red: 1 });
+    line(c, f.sil, 1.0, KEY);
+    const a = P([x, y, 1.6]), s = P.s * 1.3;
+    const rib = nib([[a[0], a[1]], [a[0] + 0.25 * s, a[1] + 0.05 * s], [a[0] + 0.55 * s, a[1] - 0.06 * s], [a[0] + 0.85 * s, a[1] + 0.08 * s]], (u) => 0.06 * s * (1 - 0.5 * u), { per: 8 });
+    own(c, rib, { red: 1 });
+    const rib2 = nib([[a[0], a[1] + 1], [a[0] + 0.2 * s, a[1] + 0.2 * s], [a[0] + 0.42 * s, a[1] + 0.18 * s]], (u) => 0.05 * s * (1 - 0.6 * u), { per: 8 });
+    own(c, rib2, { red: 0.85 });
+  }
+
+  return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
+})();
+
 /* ═════════════════════════════════════════════════════════════════════════ */
 
-const PLATES = [I, II, III];
-const PLATE_NAMES = ['stuetzen', 'schichten', 'schleife'];
+const PLATES = [I, II, III, IV];
+const PLATE_NAMES = ['stuetzen', 'schichten', 'schleife', 'bauplatz'];
 
 /* Export jobs: integer time → one file at its exact display size. */
 /* pitch is in device px: 3.4 for a 1x file, 6.8 for its 2x twin, so both show the
@@ -1156,6 +1298,8 @@ const JOBS = [
   { plate: 1, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-ii-schichten-1440.webp' },
   { plate: 2, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-iii-schleife-720.webp' },
   { plate: 2, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-iii-schleife-1440.webp' },
+  { plate: 3, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-iv-bauplatz-720.webp' },
+  { plate: 3, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-iv-bauplatz-1440.webp' },
 ];
 
 function setJob(j) {
