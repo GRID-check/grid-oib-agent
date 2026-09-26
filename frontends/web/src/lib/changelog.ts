@@ -67,6 +67,45 @@ export function releaseTitle(
   )
 }
 
+/** How many of the newest releases the changelog shows open. */
+export const OPEN_RELEASES = 5
+
+export interface ChangelogMonth {
+  /** `2026-08`, also the anchor of the month's group. */
+  key: string
+  /** `August 2026` in the page's language (`Jänner` in German, as Austria writes it). */
+  label: string
+  releases: ChangelogRelease[]
+}
+
+/**
+ * The releases older than the open ones, one group per calendar month, newest
+ * first. The page was a single wall of every release (56,000px on a desktop);
+ * the months fold, and each release keeps its own anchor inside its month.
+ */
+export function olderByMonth(locale: Locale): ChangelogMonth[] {
+  const months = new Map<string, ChangelogRelease[]>()
+  for (const release of releases.slice(OPEN_RELEASES)) {
+    const key = release.date ? release.date.slice(0, 7) : 'undated'
+    months.set(key, [...(months.get(key) ?? []), release])
+  }
+  return [...months].map(([key, list]) => ({
+    key,
+    label:
+      key === 'undated'
+        ? key
+        : new Date(`${key}-01T00:00:00Z`).toLocaleDateString(locale === 'en' ? 'en-GB' : 'de-AT', {
+            year: 'numeric',
+            month: 'long',
+            timeZone: 'UTC',
+          }),
+    releases: list,
+  }))
+}
+
+/** The anchor a release is linked by: `#r-2026-08-27`. */
+export const releaseAnchor = (release: ChangelogRelease) => `r-${release.id}`
+
 /** `datetime` attribute for the release heading, when there is a real date. */
 export function releaseDateTime(release: ChangelogRelease): string | undefined {
   return release.date ?? undefined

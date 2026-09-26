@@ -1,0 +1,59 @@
+---
+import { releaseAnchor, releaseTitle, sectionTitle, type ChangelogRelease } from '../../lib/changelog'
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  release: ChangelogRelease
+  locale: Locale
+  /** `h2` for an open release, `h3` inside a folded month (whose summary is the h2). */
+  headingAs?: 'h2' | 'h3'
+}
+const { release, locale, headingAs: Heading = 'h2' } = Astro.props
+const t = ui[locale].changelog
+const Section = Heading === 'h2' ? 'h3' : 'h4'
+---
+
+<article
+  id={releaseAnchor(release)}
+  class="grid scroll-mt-28 gap-6 border-t border-ink/15 pt-8 md:grid-cols-[11rem_1fr]"
+>
+  <header>
+    <Heading class="font-mono text-2xs uppercase tracking-widest text-accent-600">
+      <a href={`#${releaseAnchor(release)}`} class="text-inherit no-underline hover:underline">
+        {
+          release.date ? (
+            <time datetime={release.date}>{releaseTitle(release, locale, t.unreleased)}</time>
+          ) : (
+            releaseTitle(release, locale, t.unreleased)
+          )
+        }
+      </a>
+    </Heading>
+    {
+      release.kind === 'version' && (
+        <p class="mt-1 text-2xs uppercase tracking-widest text-ink-faint">{t.versionLabel}</p>
+      )
+    }
+  </header>
+
+  <div class="min-w-0">
+    {release.summary && <p class="mb-7 max-w-[38em] text-base leading-relaxed text-ink">{release.summary[locale]}</p>}
+    <div class="space-y-7">
+      {
+        release.sections.map((section) => (
+          <div>
+            <Section class="font-display text-lg font-semibold text-ink">{sectionTitle(section.key, locale)}</Section>
+            <ul class="mt-3 max-w-[40em] space-y-3">
+              {section.notes.map((note) => (
+                <li class="flex gap-3 text-[0.9375rem] leading-relaxed text-ink-soft">
+                  <span aria-hidden="true" class="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-accent-600" />
+                  <span>{note[locale]}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</article>
