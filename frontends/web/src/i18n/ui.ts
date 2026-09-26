@@ -275,10 +275,7 @@ const de = {
   },
   rechenweg: {
     back: 'Zahlen ändern',
-    tag: 'Rechenweg',
     title: 'Die ganze Rechnung, offen.',
-    intro:
-      'Eine Zahl mit Nachkommastelle ist noch kein Argument. Deshalb steht hier jeder Schritt, der zu ihr führt, samt der Stellen, an denen wir etwas annehmen, statt es zu wissen.',
     origins: {
       ours: 'Annahme',
       yours: 'Ihre Zahl',
@@ -328,7 +325,7 @@ const de = {
       },
     ],
     honesty:
-      'Diese Zahlen sind Annahmen, keine Messwerte aus Kundenprojekten. Gemessen hat das noch niemand. Auch der Preis ist ein Beispiel, kein Angebot. Alles steht hier offen, damit Sie es durch Ihre eigenen Zahlen ersetzen können. Liegt Ihre Recherchezeit bei 20\u00a0%, halbiert sich der Wert je Platz fast.',
+      'Diese Zahlen sind Annahmen, keine Messwerte aus Kundenprojekten. Auch der Preis ist ein Beispiel, kein Angebot. Liegt Ihre Recherchezeit bei 20\u00a0%, halbiert sich der Wert je Platz fast.',
   },
   team: {
     title: 'Drei Gründer, ein Ziel: Wissen dort, wo geplant wird.',
@@ -490,16 +487,12 @@ const de = {
   // src/data/changelog.json, generated from releasenotes/notes/ on merge — see
   // docs/contributing/release-notes.md. Only the page chrome is translated here.
   changelog: {
-    tag: 'Neuerungen',
     heading: 'Was sich in Piloti getan hat.',
-    intro:
-      'Jede Änderung, die Sie in der Anwendung bemerken: neue Funktionen, Verbesserungen, behobene Fehler. Neueste zuerst.',
     empty: 'Noch keine Einträge. Die erste Änderung erscheint hier, sobald sie ausgeliefert ist.',
     unreleased: 'In Kürze',
     versionLabel: 'Version',
     olderHeading: 'Frühere Neuerungen',
     buildHeading: 'Bauverlauf',
-    buildNote: 'Piloti wächst Woche für Woche. Jeder Druck steht für eine Woche, rot umrandet ist, was dazukam.',
     weekShort: 'KW\u00a0{n}',
     monthCount: '{count} Wochen',
     monthCountOne: '1 Woche',
@@ -509,10 +502,8 @@ const de = {
     body: 'Die gesuchte Seite existiert nicht oder wurde verschoben.',
     home: 'Zur Startseite',
     blog: 'Zum Blog',
-    contact: 'Kontakt',
   },
   legal: {
-    tag: 'Rechtliches',
     emailLabel: 'E-Mail',
     updated: 'Stand: September 2026',
     impressum: {
@@ -819,10 +810,7 @@ const en: typeof de = {
   },
   rechenweg: {
     back: 'Change the numbers',
-    tag: 'The maths',
     title: 'The whole calculation, in the open.',
-    intro:
-      'A figure with a decimal point is not yet an argument. So every step behind it is written out here, including the places where we assume something rather than know it.',
     origins: {
       ours: 'Assumed',
       yours: 'Yours',
@@ -872,7 +860,7 @@ const en: typeof de = {
       },
     ],
     honesty:
-      'These are assumptions, not measurements from customer projects. Nobody has measured this yet. The price is an example too, not an offer. It is all in the open so you can replace it with your own numbers. If your search time is 20%, the value per seat nearly halves.',
+      'These are assumptions, not measurements from customer projects. The price is an example too, not an offer. If your search time is 20%, the value per seat nearly halves.',
   },
   team: {
     title: 'Three founders, one aim: knowledge where the planning happens.',
@@ -1022,16 +1010,12 @@ const en: typeof de = {
     allPosts: '← All posts',
   },
   changelog: {
-    tag: 'What’s new',
     heading: 'What has changed in Piloti.',
-    intro:
-      'Every change you can notice in the product: new features, improvements, fixes. Newest first.',
     empty: 'Nothing here yet. The first change appears the day it ships.',
     unreleased: 'Coming up',
     versionLabel: 'Version',
     olderHeading: 'Earlier changes',
     buildHeading: 'Construction log',
-    buildNote: 'Piloti grows week by week. Each print is one week; the red outline marks what was added.',
     weekShort: 'Week\u00a0{n}',
     monthCount: '{count} weeks',
     monthCountOne: '1 week',
@@ -1041,10 +1025,8 @@ const en: typeof de = {
     body: 'The page you are looking for does not exist or has been moved.',
     home: 'Back to the homepage',
     blog: 'Read the blog',
-    contact: 'Contact',
   },
   legal: {
-    tag: 'Legal',
     emailLabel: 'Email',
     updated: 'Last updated: September 2026',
     impressum: {

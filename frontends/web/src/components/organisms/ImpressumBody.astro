@@ -1,5 +1,4 @@
 ---
-import SectionTag from '../atoms/SectionTag.astro'
 import { ui, type Locale } from '../../i18n/ui'
 import { legalIdentity as id } from '../../data/legal'
 
@@ -12,8 +11,7 @@ const t = ui[locale].legal
 
 <section class="px-4 pb-20 pt-28 sm:px-6 sm:pb-28 sm:pt-36 md:px-10">
   <div class="mx-auto max-w-3xl">
-    <SectionTag>{t.tag}</SectionTag>
-    <h1 class="mt-6 font-voice text-v2 text-ink">{t.impressum.heading}</h1>
+    <h1 class="font-voice text-v2 text-ink">{t.impressum.heading}</h1>
     <div class="prose-piloti mt-10">
       <h2>{t.impressum.ownerHeading}</h2>
       <p>

@@ -1,5 +1,4 @@
 ---
-import SectionTag from '../atoms/SectionTag.astro'
 import ChangelogRelease from '../molecules/ChangelogRelease.astro'
 import { getReleases, olderByMonth, OPEN_RELEASES, releaseAnchor, type ChangelogRelease as Release } from '../../lib/changelog'
 import { releaseStamp } from '../../lib/release-stamp'
@@ -34,17 +33,11 @@ const count = (n: number) => (n === 1 ? t.monthCountOne : t.monthCount.replace('
 
 <section class="px-6 pb-28 pt-36 md:px-10">
   <div class="mx-auto max-w-4xl">
-    <SectionTag>{t.tag}</SectionTag>
-    <h1 class="mt-6 max-w-2xl font-voice text-v3 text-ink">{t.heading}</h1>
-    <p class="mt-5 max-w-xl text-base leading-relaxed text-ink-soft">{t.intro}</p>
+    <h1 class="max-w-2xl font-voice text-v3 text-ink">{t.heading}</h1>
 
     {
       log.length > 1 && (
-        <figure class="build-log mt-12 border-y border-ink/15 py-6">
-          <figcaption class="mb-4 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-            <span class="font-mono text-2xs uppercase tracking-widest text-accent-600">{t.buildHeading}</span>
-            <span class="text-sm text-ink-mute">{t.buildNote}</span>
-          </figcaption>
+        <figure aria-label={t.buildHeading} class="build-log mt-10 border-y border-ink/15 py-6">
           <ol class="build-log__track m-0 flex list-none gap-2 overflow-x-auto p-0 pb-2" data-build-log>
             {log.map(({ r, stamp }, i) => (
               <li class="shrink-0">
