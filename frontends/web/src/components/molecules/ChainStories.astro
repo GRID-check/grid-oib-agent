@@ -1,0 +1,778 @@
+---
+/**
+ * The decision chain on a phone, told as stories: one step per frame, a
+ * segmented progress bar, tap right for the next step and left for the one
+ * before, swipe sideways, press and hold to stop. Below `lg` only; from `lg`
+ * up the animated board in ChatMock tells the same chain.
+ *
+ * The desktop board is a camera flying over a 1160px diagram. A phone cannot
+ * hold that frame, so it does not try: each frame holds one moment of the
+ * chain, at a size you can read without leaning in.
+ *
+ * Every string is in the markup, in its final state. scripts/chain-stories.ts
+ * adds the order (which frame shows) and the motion (the `is-playing` class
+ * runs a frame's arrival in CSS). Without script the frames are a sideways
+ * scroll-snap strip; under `prefers-reduced-motion: reduce` nothing plays on
+ * its own and every frame arrives finished.
+ */
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+const s = t.stories
+const total = s.frames.length
+const labelOf = (i: number) =>
+  s.stepOf
+    .replace('{n}', String(i + 1))
+    .replace('{total}', String(total))
+    .replace('{name}', s.frames[i])
+
+/** Keep a class and its number on one line: "GK 4" never breaks before the 4. */
+const nb = (text: string) => text.replace(/\bGK (\d)/g, 'GK\u00a0$1')
+
+const sources = [
+  { chip: 'OIB-RL 2', law: true, title: t.chat.oibTitle, sub: nb(t.chat.oibSub), gist: s.gists[0], r: -2.2 },
+  { chip: 'BO Wien', law: true, title: t.chat.boTitle, sub: t.chat.boSub, gist: s.gists[1], r: 1.6 },
+  { chip: t.chat.projTag, law: false, title: 'Einreichplan_EG.pdf', sub: t.chat.projSub, gist: s.gists[2], r: -0.8 },
+]
+const options = [
+  { key: 'A', title: t.chat.optATitle, sub: t.chat.optASub, why: s.why[0], chosen: false },
+  { key: 'B', title: t.chat.optBTitle, sub: t.chat.optBSub, why: s.why[1], chosen: true },
+  { key: 'C', title: t.chat.optCTitle, sub: t.chat.optCSub, why: s.why[2], chosen: false },
+]
+const pad = (i: number) => String(i + 1).padStart(2, '0')
+---
+
+<div
+  data-stories
+  data-tone="dark"
+  data-paused
+  class="stories mx-auto w-full max-w-[28rem] lg:hidden max-sm:-mx-1 max-sm:w-[calc(100%+0.5rem)]"
+  role="region"
+  aria-roledescription="carousel"
+  aria-label={s.region}
+>
+  <p class="stories-caption m-0 mb-3 flex items-center gap-2.5 px-1" aria-hidden="true">
+    <span class="size-1.5 rounded-full bg-ok"></span>
+    <span>{t.chat.fictional}</span>
+  </p>
+
+  <div data-stories-stage class="stories-stage">
+    <div class="stories-progress" aria-hidden="true">
+      {s.frames.map(() => <span class="seg"><span data-seg class="seg-fill"></span></span>)}
+    </div>
+
+    <!-- 1 · Frage: the question, alone on a dark sheet. -->
+    <div data-frame class="frame frame--dark" role="group" aria-label={labelOf(0)}>
+      <p class="meta" aria-hidden="true"><span>{s.frames[0]}</span><span>1/{total}</span></p>
+      <p class="q m-0">{t.chat.question}</p>
+    </div>
+
+    <!-- 2 · Quellen: three index cards dealt onto the drawing grid. -->
+    <div data-frame class="frame frame--paper" role="group" aria-label={labelOf(1)}>
+      <p class="meta" aria-hidden="true"><span>{s.frames[1]}</span><span>2/{total}</span></p>
+      <ul class="deck m-0 list-none p-0">
+        {
+          sources.map((src, k) => (
+            <li class="deal" style={`--k:${k};--r:${src.r}deg`}>
+              <button type="button" class="idx" data-flip aria-pressed="false">
+                <span class="idx-in">
+                  <span class="face face--front">
+                    <span class="idx-head">
+                      <span
+                        class={`chip ${src.law ? 'bg-chip-law text-chip-law-ink' : 'bg-chip-project text-chip-project-ink'}`}
+                      >
+                        {src.chip}
+                      </span>
+                      <span class="idx-title">{src.title}</span>
+                    </span>
+                    <span class="idx-sub">{src.sub}</span>
+                  </span>
+                  <span class="face face--back">
+                    <span class="gist-label">{s.gistLabel}</span>
+                    <span class="gist">{src.gist}</span>
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))
+        }
+      </ul>
+      <p class="hint" aria-hidden="true">{s.flipHint}</p>
+    </div>
+
+    <!-- 3 · Entscheidung: three ways, one marked in lime ink. -->
+    <div data-frame class="frame frame--dark" role="group" aria-label={labelOf(2)}>
+      <p class="meta" aria-hidden="true"><span>{s.frames[2]}</span><span>3/{total}</span></p>
+      <p class="intro m-0">{nb(t.chat.decisionIntro)}</p>
+      <ul class="opts m-0 list-none p-0">
+        {
+          options.map((o, k) => (
+            <li class="rise" style={`--k:${k}`}>
+              <button type="button" class:list={['opt', { 'is-chosen': o.chosen }]} data-why aria-expanded="false">
+                <span class="opt-in">
+                  <span class="opt-key">
+                    {o.key}
+                    {o.chosen && (
+                      <svg class="ink" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+                        <path pathLength="1" d="M31 6.5C20 3 7.5 9 5.8 21.5 4.3 33 13 42.5 25 41.8 36.5 41 43.6 32 42.2 21 41 12 33 6.2 23.5 7.2" />
+                      </svg>
+                    )}
+                  </span>
+                  <span class="opt-text">
+                    <span class="opt-title">{o.title}</span>
+                    <span class="opt-swap">
+                      <span class="opt-sub">{o.sub}</span>
+                      <span class="opt-why">{o.why}</span>
+                    </span>
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))
+        }
+      </ul>
+      <p class="hint" aria-hidden="true">{s.whyHint}</p>
+    </div>
+
+    <!-- 4 · Umsetzung: the steps tick off, the chain closes, the cost lands. -->
+    <div data-frame class="frame frame--sage" role="group" aria-label={labelOf(3)}>
+      <p class="meta" aria-hidden="true"><span>{t.chat.impl}</span><span>4/{total}</span></p>
+      <ol class="steps m-0 list-none p-0">
+        {
+          t.chat.steps.map((step, k) => (
+            <li class="step rise" style={`--k:${k}`}>
+              <svg class="box" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <rect x="2.5" y="2.5" width="19" height="19" rx="4" />
+                <path pathLength="1" d="M7 12.4l3.4 3.4L17.4 8.2" style={`--k:${k}`} />
+              </svg>
+              <span class="step-text" style={`--k:${k}`}>
+                <span class="step-no" aria-hidden="true">{pad(k)}</span> {step}
+              </span>
+            </li>
+          ))
+        }
+      </ol>
+      <div class="done">
+        <p class="done-line m-0">{s.complete} <span aria-hidden="true">✓</span></p>
+        <p class="cost m-0">{s.cost}</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="stories-controls">
+    <button type="button" data-prev class="ctl" aria-label={s.prev}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M14.5 6l-6 6 6 6" /></svg>
+    </button>
+    <button
+      type="button"
+      data-toggle
+      class="ctl ctl--pill"
+      data-label-pause={s.pause}
+      data-label-play={s.play}
+      data-label-replay={s.replay}>{s.pause}</button
+    >
+    <button type="button" data-next class="ctl" aria-label={s.next}>
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9.5 6l6 6-6 6" /></svg>
+    </button>
+  </div>
+  <p data-live class="sr-only" aria-live="polite"></p>
+</div>
+
+<script>
+  import { initChainStories } from '../../scripts/chain-stories'
+  initChainStories()
+</script>
+
+<style>
+  /* ── The card ──────────────────────────────────────────────────────────── */
+  .stories-caption {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-mute);
+  }
+  .stories-stage {
+    --st-track: rgb(238 242 228 / 0.22);
+    --st-fill: var(--color-on-dark-strong);
+    position: relative;
+    display: grid;
+    overflow: hidden;
+    border-radius: 1.25rem;
+    background: var(--color-panel);
+    box-shadow: var(--shadow-mock);
+    /* The page keeps the vertical axis; the story only claims a gesture once
+       it is clearly sideways (scripts/chain-stories.ts). */
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* At least 4:5, and taller when a locale needs it: a spacer in the frames'
+     grid cell, since aspect-ratio gives up its content floor under
+     overflow: hidden. Padding in a grid item resolves against the cell width. */
+  .stories-stage::before {
+    content: '';
+    grid-area: 1 / 1;
+    padding-top: 125%;
+  }
+  [data-tone='paper'] .stories-stage,
+  [data-tone='sage'] .stories-stage {
+    --st-track: rgb(42 48 31 / 0.14);
+    --st-fill: var(--color-accent-900);
+  }
+
+  .stories-progress {
+    position: absolute;
+    inset: 0.875rem 1rem auto;
+    z-index: 3;
+    display: flex;
+    gap: 0.3125rem;
+    pointer-events: none;
+  }
+  .seg {
+    flex: 1;
+    height: 3px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: var(--st-track);
+  }
+  .seg-fill {
+    display: block;
+    height: 100%;
+    background: var(--st-fill);
+    transform: scaleX(0);
+    transform-origin: left;
+  }
+
+  /* ── Frames ────────────────────────────────────────────────────────────── */
+  .frame {
+    grid-area: 1 / 1;
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 2.5rem 1.25rem 1.25rem;
+  }
+  .frame--dark {
+    background: var(--color-panel);
+    color: var(--color-on-dark-strong);
+  }
+  .frame--paper {
+    background-color: var(--color-paper);
+    background-image:
+      linear-gradient(rgb(42 48 31 / 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(42 48 31 / 0.05) 1px, transparent 1px);
+    background-size: 22px 22px;
+    background-position: -1px -1px;
+    color: var(--color-ink);
+  }
+  .frame--sage {
+    background: var(--color-surface);
+    color: var(--color-ink);
+  }
+  /* Enhanced: the frames lie on one another and the script picks the top. */
+  [data-ready] .frame:not(.is-current) {
+    visibility: hidden;
+  }
+  [data-ready] .frame.is-current {
+    z-index: 1;
+  }
+  /* Without script: a sideways strip that still reads in order. */
+  [data-stories]:not([data-ready]) .stories-stage {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    touch-action: auto;
+  }
+  [data-stories]:not([data-ready]) .frame {
+    flex: 0 0 100%;
+    scroll-snap-align: start;
+  }
+  [data-stories]:not([data-ready]) .stories-progress,
+  [data-stories]:not([data-ready]) .stories-controls {
+    display: none;
+  }
+
+  .meta {
+    display: flex;
+    margin: 0;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-mute);
+  }
+  .frame--dark .meta {
+    color: var(--color-on-dark-tag);
+  }
+  .hint {
+    margin: auto 0 0;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--color-ink-faint);
+  }
+  .frame--dark .hint {
+    color: var(--color-on-dark-tag);
+  }
+
+  /* 1 · Frage */
+  .q {
+    margin-top: 0.75rem;
+    font-family: var(--font-voice);
+    font-size: clamp(1.75rem, 7.6vw, 2.25rem);
+    line-height: 1.12;
+    letter-spacing: -0.004em;
+    text-wrap: pretty;
+  }
+
+  /* 2 · Quellen */
+  .deck {
+    display: flex;
+    flex-direction: column;
+    margin-top: 0.25rem;
+  }
+  .deal + .deal {
+    margin-top: -0.375rem;
+  }
+  .deal {
+    transform: rotate(var(--r));
+  }
+  .deal:nth-child(2) {
+    margin-left: 0.75rem;
+    margin-right: -0.25rem;
+  }
+  .idx {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    perspective: 900px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .idx-in {
+    display: grid;
+    transform-style: preserve-3d;
+    transition: transform 400ms var(--st-state, cubic-bezier(0.4, 0, 0.2, 1));
+  }
+  .idx[aria-pressed='true'] .idx-in {
+    transform: rotateY(180deg);
+  }
+  .face {
+    grid-area: 1 / 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    border-radius: 0.75rem;
+    padding: 0.75rem 0.875rem 0.8125rem;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+  .face--front {
+    background: #fff;
+    box-shadow:
+      0 0 0 1px var(--color-hairline),
+      var(--shadow-card);
+  }
+  .face--back {
+    background: var(--color-accent-900);
+    color: var(--color-on-dark-strong);
+    transform: rotateY(180deg);
+    box-shadow: var(--shadow-card);
+  }
+  .idx-head {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    min-width: 0;
+  }
+  .chip {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    height: 1.5rem;
+    border-radius: 0.375rem;
+    padding: 0 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+  .idx-title {
+    min-width: 0;
+    font-family: var(--font-voice);
+    font-size: 1.375rem;
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+  }
+  .idx-sub {
+    font-size: 0.875rem;
+    line-height: 1.35;
+    color: var(--color-ink-mute);
+  }
+  .gist-label {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    letter-spacing: 0.04em;
+    color: var(--color-on-dark-label);
+  }
+  .gist {
+    font-size: 0.9375rem;
+    line-height: 1.35;
+  }
+  .idx:focus-visible {
+    outline: none;
+  }
+  .idx:focus-visible .face {
+    outline: 2px solid var(--color-accent-500);
+    outline-offset: 2px;
+  }
+
+  /* 3 · Entscheidung */
+  .intro {
+    margin-bottom: -0.25rem;
+    font-size: 1rem;
+    line-height: 1.4;
+    color: var(--color-on-dark);
+  }
+  .opts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+  .opt {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    border: 0;
+    border-radius: 0.875rem;
+    padding: 0.5rem 0.75rem;
+    background: rgb(238 242 228 / 0.06);
+    box-shadow: inset 0 0 0 1px rgb(238 242 228 / 0.12);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .opt.is-chosen {
+    background: rgb(164 208 106 / 0.1);
+    box-shadow: inset 0 0 0 1px rgb(164 208 106 / 0.4);
+  }
+  .opt:focus-visible {
+    outline: 2px solid var(--color-accent-400);
+    outline-offset: 2px;
+  }
+  .opt-in {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.875rem;
+  }
+  .opt:not(.is-chosen) .opt-in {
+    opacity: 0.5;
+  }
+  .opt[aria-expanded='true'] .opt-in {
+    opacity: 1 !important;
+  }
+  .opt-key {
+    position: relative;
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    font-family: var(--font-voice);
+    font-size: 1.5rem;
+    line-height: 1;
+    color: var(--color-on-dark-label);
+  }
+  .is-chosen .opt-key {
+    color: var(--color-accent-400);
+  }
+  .ink {
+    position: absolute;
+    inset: -0.375rem;
+    width: calc(100% + 0.75rem);
+    height: calc(100% + 0.75rem);
+    overflow: visible;
+    pointer-events: none;
+  }
+  .ink path {
+    fill: none;
+    stroke: var(--color-accent-400);
+    stroke-width: 2.6;
+    stroke-linecap: round;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+  .opt-text {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.125rem;
+    padding-top: 0.125rem;
+  }
+  .opt-title {
+    font-family: var(--font-voice);
+    font-size: 1.3125rem;
+    line-height: 1.15;
+  }
+  .opt-swap {
+    display: grid;
+  }
+  .opt-sub,
+  .opt-why {
+    grid-area: 1 / 1;
+    font-size: 0.875rem;
+    line-height: 1.35;
+    color: var(--color-on-dark);
+    transition: opacity 240ms var(--st-state, cubic-bezier(0.4, 0, 0.2, 1));
+  }
+  .opt-why {
+    color: var(--color-on-dark-strong);
+    opacity: 0;
+  }
+  .opt[aria-expanded='true'] .opt-sub {
+    opacity: 0;
+  }
+  .opt[aria-expanded='true'] .opt-why {
+    opacity: 1;
+  }
+
+  /* 4 · Umsetzung */
+  .frame--sage .meta {
+    color: var(--color-accent-600);
+  }
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    margin-top: 0.25rem;
+  }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  .box {
+    flex-shrink: 0;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-top: -0.0625rem;
+  }
+  .box rect {
+    fill: #fff;
+    stroke: var(--color-accent-500);
+    stroke-width: 1.4;
+  }
+  .box path {
+    fill: none;
+    stroke: var(--color-accent-900);
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+  .step-text {
+    font-size: 0.9375rem;
+    line-height: 1.4;
+  }
+  .step-no {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--color-accent-500);
+  }
+  .done {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.625rem;
+    margin-top: auto;
+    border-top: 1px solid rgb(42 48 31 / 0.14);
+    padding-top: 1rem;
+  }
+  .done-line {
+    font-family: var(--font-voice);
+    font-size: clamp(1.75rem, 7.6vw, 2.125rem);
+    line-height: 1.05;
+    color: var(--color-accent-900);
+  }
+  .cost {
+    border-radius: 0.5rem;
+    padding: 0.375rem 0.625rem;
+    background: var(--color-accent-400);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--color-accent-900);
+  }
+
+  /* ── Controls ──────────────────────────────────────────────────────────── */
+  .stories-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 0.625rem;
+  }
+  .ctl {
+    display: grid;
+    place-items: center;
+    min-width: 2.75rem;
+    height: 2.75rem;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    box-shadow: inset 0 0 0 1px rgb(42 48 31 / 0.16);
+    color: var(--color-ink-soft);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .ctl svg {
+    width: 1.25rem;
+    height: 1.25rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .ctl--pill {
+    padding: 0 1.125rem;
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .ctl:focus-visible {
+    outline: 2px solid var(--color-accent-500);
+    outline-offset: 2px;
+  }
+  .ctl:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+
+  /* ── Arrival, per frame ────────────────────────────────────────────────────
+     Base styles above are the finished frame. These run only while a frame is
+     `is-playing`, which the script sets on entering it, and only with motion.
+     Timings are CSS variables the script writes from the one table at the
+     top of chain-stories.ts, so the CSS and the autoplay clock agree. */
+  @media (prefers-reduced-motion: no-preference) {
+    [data-paused] .frame * {
+      animation-play-state: paused !important;
+    }
+
+    .is-playing .q {
+      animation: st-rise var(--st-enter) var(--st-ease) both;
+      animation-delay: var(--st-lead);
+    }
+
+    .is-playing .deal {
+      animation: st-deal var(--st-enter) var(--st-ease) both;
+      animation-delay: calc(var(--st-lead) + var(--k) * var(--st-stagger));
+    }
+    .is-playing .hint,
+    .is-playing .intro {
+      animation: st-fade var(--st-enter) var(--st-ease) both;
+      animation-delay: calc(var(--st-lead) + 3 * var(--st-stagger) + 200ms);
+    }
+    .is-playing .intro {
+      animation-delay: var(--st-lead);
+    }
+
+    .is-playing .rise {
+      animation: st-rise var(--st-enter) var(--st-ease) both;
+      animation-delay: calc(var(--st-lead) + 120ms + var(--k) * var(--st-stagger));
+    }
+    .is-playing .ink path {
+      animation: st-draw var(--st-enter) var(--st-state) both;
+      animation-delay: var(--st-mark-at);
+    }
+    .is-playing .opt:not(.is-chosen) .opt-in {
+      animation: st-dim var(--st-quick) var(--st-state) both;
+      animation-delay: calc(var(--st-mark-at) + 280ms);
+    }
+
+    .is-playing .box path {
+      animation: st-draw var(--st-quick) var(--st-state) both;
+      animation-delay: calc(var(--st-check-at) + var(--k) * var(--st-check-gap));
+    }
+    .is-playing .step-text {
+      animation: st-ink var(--st-quick) var(--st-state) both;
+      animation-delay: calc(var(--st-check-at) + var(--k) * var(--st-check-gap));
+    }
+    .is-playing .done {
+      animation: st-rise var(--st-enter) var(--st-ease) both;
+      animation-delay: var(--st-done-at);
+    }
+    .is-playing .cost {
+      animation: st-rise var(--st-enter) var(--st-ease) both;
+      animation-delay: calc(var(--st-done-at) + 180ms);
+    }
+  }
+
+  /* Under reduced motion the card still turns, instantly. */
+  @media (prefers-reduced-motion: reduce) {
+    .idx-in,
+    .opt-sub,
+    .opt-why {
+      transition: none;
+    }
+  }
+
+  @keyframes st-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes st-rise {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 12px, 0);
+    }
+  }
+  @keyframes st-deal {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 12px, 0) rotate(var(--r));
+    }
+    to {
+      opacity: 1;
+      transform: rotate(var(--r));
+    }
+  }
+  /* A round cap at dashoffset 1 still paints a dot where the stroke will
+     start, so the stroke is invisible until it begins to draw. */
+  @keyframes st-draw {
+    0% {
+      stroke-dashoffset: 1;
+      opacity: 0;
+    }
+    1% {
+      opacity: 1;
+    }
+  }
+  @keyframes st-dim {
+    from {
+      opacity: 1;
+    }
+  }
+  @keyframes st-ink {
+    from {
+      opacity: 0.45;
+    }
+  }
+</style>

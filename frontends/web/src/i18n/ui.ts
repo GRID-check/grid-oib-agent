@@ -454,6 +454,35 @@ const de = {
       ['PROJEKTARCHIV', 'Wohnbau Ottakring', 'Fassadenschnitt'],
     ] as (string | string[] | null)[],
   },
+  // The decision chain on phones, told one step per frame (ChainStories).
+  // Question, sources, options and steps are read from `chat`; only what the
+  // story adds lives here. The clause gists are paraphrases written for the
+  // fictional example, not quotations.
+  stories: {
+    region: 'Entscheidungskette, fiktives Beispiel',
+    frames: ['Frage', 'Quellen', 'Entscheidung', 'Umsetzung'],
+    stepOf: 'Schritt {n} von {total}: {name}',
+    prev: 'Vorheriger Schritt',
+    next: 'Nächster Schritt',
+    pause: 'Anhalten',
+    play: 'Abspielen',
+    replay: '↻ Nochmal',
+    flipHint: 'Karte antippen: Auszug',
+    gistLabel: 'Sinngemäß, fiktiv',
+    gists: [
+      'EPS über 10 cm bei GK 4 nur mit einem umlaufenden Brandschutzschott in jedem Geschoß.',
+      'Ein ins Freie geführtes Stiegenhaus bleibt rauchfrei; die Loggia bleibt offen.',
+      'Schnitt A–A: 14 cm EPS über 1. und 2. OG, kein Schott eingetragen.',
+    ],
+    whyHint: 'Weg antippen: Begründung',
+    why: [
+      'Nicht gewählt: Material teurer, die Fassade wird zweigeteilt.',
+      'Gewählt: hält GK 4 ein, die Dämmstärke bleibt.',
+      'Nicht gewählt: Ausgang offen, das Verfahren verzögert sich.',
+    ],
+    complete: 'Vollständige Kette',
+    cost: '≈ 4.200 € in die Kostenschätzung',
+  },
   footer: {
     ariaLabel: 'Footer',
     tagline: 'Die KI-Plattform für Architektur- und Planungsbüros. Entwickelt in Wien.',
@@ -997,6 +1026,31 @@ const en: typeof de = {
       ['PROJECT ARCHIVE', 'VS Aspern 2019', 'Connection detail'],
       ['PROJECT ARCHIVE', 'Wohnbau Ottakring', 'Façade section'],
     ] as (string | string[] | null)[],
+  },
+  stories: {
+    region: 'Decision chain, fictional example',
+    frames: ['Question', 'Sources', 'Decision', 'Implementation'],
+    stepOf: 'Step {n} of {total}: {name}',
+    prev: 'Previous step',
+    next: 'Next step',
+    pause: 'Pause',
+    play: 'Play',
+    replay: '↻ Again',
+    flipHint: 'Tap a card: excerpt',
+    gistLabel: 'Paraphrased, fictional',
+    gists: [
+      'EPS over 10 cm in GK 4 only with a continuous fire stop on every storey.',
+      'A stairwell led outside stays smoke-free; the loggia stays open.',
+      'Section A–A: ETICS 14 cm EPS across 1st and 2nd floor, no fire stop drawn.',
+    ],
+    whyHint: 'Tap an option: reasoning',
+    why: [
+      'Not chosen: costlier material, the façade is split in two.',
+      'Chosen: meets GK 4, the insulation thickness stays.',
+      'Not chosen: outcome open, the procedure is delayed.',
+    ],
+    complete: 'Complete chain',
+    cost: '≈ €4,200 into the cost estimate',
   },
   footer: {
     ariaLabel: 'Footer',
