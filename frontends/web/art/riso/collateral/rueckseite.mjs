@@ -24,7 +24,7 @@ import { OUT, WEB, kitBrowser, requireKit } from '../kit.mjs';
 
 const DIR = path.join(OUT, 'collateral');
 const STEM = 'piloti-karte-rueckseite-a6-1240x1748';
-const FRONT = path.join(DIR, 'piloti-karte-vorderseite-a6-1240x1748.png');
+const FRONT = path.join(DIR, 'piloti-kaffee-a6-1240x1748.png');
 const BACK = path.join(DIR, `${STEM}.png`);
 const SEP = path.join(DIR, `${STEM}-sep-1-hunter.png`);
 for (const f of [FRONT, BACK, SEP]) {
