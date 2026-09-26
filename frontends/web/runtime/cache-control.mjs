@@ -20,8 +20,8 @@ export const IMMUTABLE = 'public, max-age=31536000, immutable'
  * Unhashed files under `public/`. A week fresh, then one more day served stale
  * while the browser revalidates in the background against the ETag. Replacing
  * one of these files in place reaches a returning visitor up to eight days
- * late; give the new version a new name instead (the art already carries its
- * width in the name).
+ * late; give the new version a new name instead. Art keeps its name and gets a
+ * new URL: the manifest (src/data/art.json) versions every src with ?v=<hash>.
  */
 export const LONG_REVALIDATE = 'public, max-age=604800, stale-while-revalidate=86400'
 
