@@ -1,7 +1,6 @@
 """Tests for the clarification step."""
 
 import asyncio
-import json
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -22,9 +21,7 @@ from aiq_agent.agents.piloti.clarify import ClarifyDeps
 from aiq_agent.agents.piloti.clarify import build_deps
 from aiq_agent.agents.piloti.clarify import clarify
 from aiq_agent.agents.piloti.clarify import fallback_clarification
-from aiq_agent.agents.piloti.clarify import format_plan_for_user
 from aiq_agent.agents.piloti.clarify import parse_json_response
-from aiq_agent.agents.piloti.clarify import parse_plan_reply
 from aiq_agent.agents.piloti.models import ClarificationResponse
 from aiq_agent.agents.piloti.models import ClarifyRequest
 from aiq_agent.agents.piloti.models import PlanResponse
@@ -132,9 +129,15 @@ class TestBuildDeps:
         assert planner.bind.call_args.kwargs["response_format"]["json_schema"]["name"] == "PlanResponse"
 
     def test_the_limits_come_from_the_settings(self):
-        deps = deps_for(make_llm(), max_turns=5, enable_plan_approval=True, max_plan_iterations=2)
+        deps = deps_for(make_llm(), max_turns=5, plan_approval="ask", plan_grace_seconds=20)
 
-        assert (deps.max_turns, deps.enable_plan_approval, deps.max_plan_iterations) == (5, True, 2)
+        assert (deps.max_turns, deps.plan_approval, deps.plan_grace_seconds) == (5, "ask", 20)
+
+    def test_a_yaml_predating_the_plan_primitive_still_means_auto(self):
+        """``enable_plan_approval: true`` is how every deployment spelled it before ADR-0068."""
+        settings = ClarifierSettings(llm="clarifier_llm", enable_plan_approval=True, max_plan_iterations=3)
+        assert settings.plan_approval == "auto"
+        assert ClarifierSettings(llm="clarifier_llm", enable_plan_approval=False).plan_approval == "off"
 
     def test_the_tools_are_addressable_by_name(self):
         """A tool call names a tool; the step looks it up rather than scanning."""
@@ -199,12 +202,11 @@ class TestPrompts:
         assert CLARIFICATION_PROMPT.count('"needs_clarification"') == CLARIFICATION_PROMPT.count('"options"')
 
     def test_plan_generation_prompt_localizes_content(self):
-        """Plan-generation prompt localizes title/sections but not the approval envelope."""
+        """Plan-generation prompt localizes title/sections and asks for JSON alone."""
         assert "same language as the user's request" in PLAN_GENERATION_PROMPT.lower()
-        # The byte-stable approval envelope contract is documented and must not
-        # be emitted by the model.
-        assert "APPROVAL ENVELOPE" in PLAN_GENERATION_PROMPT
-        assert "PLAN_REPLIES" in PLAN_GENERATION_PROMPT
+        # No approval envelope any more (ADR-0068): the JSON becomes a plan row.
+        assert "OUTPUT CONTRACT" in PLAN_GENERATION_PROMPT
+        assert "PLAN_REPLIES" not in PLAN_GENERATION_PROMPT
 
     def test_localization_contract_comments_stay_out_of_rendered_prompts(self):
         """The byte-stable contract notes are Jinja comments — never sent to the model."""
@@ -315,79 +317,6 @@ class TestFallbackClarification:
         assert response.is_valid() is True
 
 
-class TestParsePlanReply:
-    """Three literal tokens, one bare refusal, everything else is feedback."""
-
-    @pytest.mark.parametrize("reply", ["approve", "APPROVE", "  approve  "])
-    def test_approve(self, reply):
-        assert parse_plan_reply(reply) == ("approved", "")
-
-    def test_shallow(self):
-        assert parse_plan_reply("shallow") == ("shallow", "")
-
-    def test_cancel(self):
-        assert parse_plan_reply("cancel") == ("cancelled", "")
-
-    @pytest.mark.parametrize("reply", ["no", "nein", "nope", "reject"])
-    def test_a_bare_refusal_falls_through_to_shallow(self, reply):
-        """The user said no to the PLAN, not to being answered."""
-        assert parse_plan_reply(reply) == ("shallow", "")
-
-    @pytest.mark.parametrize("reply", ["stop", "abbrechen"])
-    def test_a_bare_cancellation_ends_the_turn(self, reply):
-        assert parse_plan_reply(reply) == ("cancelled", "")
-
-    @pytest.mark.parametrize(
-        "reply",
-        [
-            "no, focus only on Wien",
-            "don't include costs in the plan",
-            "add a section about fire safety",
-            "keine Kosten bitte",
-        ],
-    )
-    def test_a_sentence_is_feedback_not_a_verdict(self, reply):
-        """A revision must stay a revision: these are the plan being improved,
-        not the plan being refused."""
-        decision, feedback = parse_plan_reply(reply)
-
-        assert decision == "feedback"
-        assert feedback == reply
-
-    def test_json_wrapped_reply(self):
-        assert parse_plan_reply('{"query": "approve"}') == ("approved", "")
-
-    def test_json_wrapped_feedback(self):
-        assert parse_plan_reply('{"query": "add a security section"}') == ("feedback", "add a security section")
-
-    def test_json_with_a_non_string_query_is_not_unwrapped(self):
-        """A number here used to crash the turn on .strip()."""
-        decision, _ = parse_plan_reply('{"query": 42}')
-
-        assert decision == "feedback"
-
-
-class TestPlanFormatting:
-    """The envelope the UI regex-matches."""
-
-    def test_format_plan_for_user(self):
-        result = format_plan_for_user(PlanResponse(title="AI Research Report", sections=["Introduction", "Analysis"]))
-
-        assert "**Research Plan Preview**" in result
-        assert "**Title:** AI Research Report" in result
-        assert "1. Introduction" in result
-        assert "2. Analysis" in result
-        assert "approve" in result.lower()
-        assert "shallow" in result.lower()
-        assert "cancel" in result.lower()
-
-    def test_format_plan_for_user_empty_sections(self):
-        result = format_plan_for_user(PlanResponse(title="Test Plan", sections=[]))
-
-        assert "**Title:** Test Plan" in result
-        assert "**Sections:**" in result
-
-
 class TestTheQuestionLoop:
     """Asking, skipping, and stopping."""
 
@@ -398,7 +327,7 @@ class TestTheQuestionLoop:
 
         result = await clarify(request_for(), deps_for(make_llm(clarification()), ask=ask))
 
-        assert result.outcome is None
+        assert result.plan is None
         assert result.research_context == ""
         ask.assert_not_called()
 
@@ -519,33 +448,43 @@ class TestTheTraceRow:
         assert order == ["traced", "asked"]
 
 
-class TestPlanApproval:
-    """The plan preview and the user's verdict."""
+class TestThePlanIsDraftedNotAsked:
+    """ADR-0068: the plan is drafted and handed back; nobody is asked about it."""
 
     @staticmethod
-    def deps(ask, planner, **settings) -> ClarifyDeps:
-        return deps_for(make_llm(clarification()), ask=ask, planner=planner, enable_plan_approval=True, **settings)
+    def deps(planner, ask=None, **settings) -> ClarifyDeps:
+        return deps_for(
+            make_llm(clarification()), ask=ask or AsyncMock(), planner=planner, plan_approval="auto", **settings
+        )
 
     @pytest.mark.asyncio
-    async def test_approved(self):
+    async def test_the_plan_comes_back_without_a_question(self):
         planner = make_llm('{"title": "Test Research Plan", "sections": ["Intro", "Analysis", "Conclusion"]}')
+        ask = AsyncMock()
 
-        result = await clarify(request_for(), self.deps(AsyncMock(return_value="approve"), planner))
+        result = await clarify(request_for(), self.deps(planner, ask))
 
-        assert result.outcome == "approved"
-        # The approved plan is appended to the transcript as the one string
-        # deep research reads (`orchestrator.j2`), not as separate fields.
-        assert "**Approved Research Plan**" in result.research_context
-        assert "Title: Test Research Plan" in result.research_context
-        assert "- Intro" in result.research_context
+        ask.assert_not_called()
+        assert result.plan is not None and result.plan.title == "Test Research Plan"
+        assert result.draft is not None
+        assert result.draft.sections == ["Intro", "Analysis", "Conclusion"]
+        assert result.draft.question == "Research AI"
+        assert result.start is not None and result.start.policy == "auto" and result.start.graceSeconds == 45
+
+    @pytest.mark.asyncio
+    async def test_ask_holds_the_plan_for_a_person(self):
+        planner = make_llm('{"title": "T", "sections": ["A"]}')
+        deps = deps_for(make_llm(clarification()), planner=planner, plan_approval="ask")
+
+        result = await clarify(request_for(), deps)
+
+        assert result.start is not None and result.start.policy == "ask"
 
     @pytest.mark.asyncio
     async def test_plan_generation_anchors_on_current_request(self):
         """The planner is anchored on the CURRENT request, not an earlier-turn
-        topic still sitting in history — guards against stale-plan carry-over
-        (an aborted research bleeding into a new, unrelated request)."""
+        topic still sitting in history — guards against stale-plan carry-over."""
         planner = make_llm('{"title": "T", "sections": ["A", "B"]}')
-        # History carries an earlier, since-abandoned topic; the latest turn is new.
         request = ClarifyRequest(
             messages=[
                 HumanMessage(content="Research the 17-basement high-rise fire code"),
@@ -554,130 +493,45 @@ class TestPlanApproval:
             ]
         )
 
-        await clarify(request, self.deps(AsyncMock(return_value="approve"), planner))
+        await clarify(request, self.deps(planner))
 
         anchor = planner.ainvoke.await_args.args[0][-1].content
         assert "CURRENT request" in anchor
         assert "summarize the daylight rules for small dwellings" in anchor
 
     @pytest.mark.asyncio
-    async def test_a_bare_refusal_declines_the_plan(self):
-        """The caller falls through to shallow: the question is still answerable."""
-        planner = make_llm('{"title": "Test Plan", "sections": ["Section 1"]}')
-
-        result = await clarify(request_for(), self.deps(AsyncMock(return_value="reject"), planner))
-
-        assert result.outcome == "shallow"
-        assert "**Approved Research Plan**" not in result.research_context
-
-    @pytest.mark.asyncio
-    async def test_the_explicit_middle_way_declines_the_plan(self):
-        """„Kurz beantworten" declines the plan the same way a rejection does."""
-        planner = make_llm('{"title": "Test Plan", "sections": ["Section 1"]}')
-
-        result = await clarify(request_for(), self.deps(AsyncMock(return_value="shallow"), planner))
-
-        assert result.outcome == "shallow"
-
-    @pytest.mark.asyncio
-    async def test_cancelled(self):
-        """An explicit cancellation is neither an approval nor a decline-to-shallow."""
-        planner = make_llm('{"title": "Test Plan", "sections": ["Section 1"]}')
-
-        result = await clarify(request_for(), self.deps(AsyncMock(return_value="cancel"), planner))
-
-        assert result.outcome == "cancelled"
-
-    @pytest.mark.asyncio
-    async def test_feedback_then_approve(self):
-        planner = make_llm(
-            '{"title": "Initial Plan", "sections": ["Intro", "Analysis"]}',
-            '{"title": "Revised Plan", "sections": ["Intro", "Security", "Analysis"]}',
-        )
-        ask = AsyncMock(side_effect=["add a security section", "approve"])
-
-        result = await clarify(request_for(), self.deps(ask, planner))
-
-        assert result.outcome == "approved"
-        assert "Title: Revised Plan" in result.research_context
-        assert "- Security" in result.research_context
-
-    @pytest.mark.asyncio
-    async def test_feedback_reaches_the_next_plan(self):
-        """The revision is what the user asked for, not a fresh guess."""
-        planner = make_llm('{"title": "P", "sections": ["A"]}')
-        ask = AsyncMock(side_effect=["add a security section", "approve"])
-
-        await clarify(request_for(), self.deps(ask, planner))
-
-        second_system_prompt = planner.ainvoke.await_args_list[1].args[0][0].content
-        assert "add a security section" in second_system_prompt
-
-    @pytest.mark.asyncio
-    async def test_max_iterations_auto_approves(self):
-        planner = make_llm('{"title": "Test Plan", "sections": ["Section 1"]}')
-        ask = AsyncMock(return_value="make it better")
-
-        result = await clarify(request_for(), self.deps(ask, planner, max_plan_iterations=2))
-
-        assert result.outcome == "approved"
-        assert ask.await_count == 2
-
-    @pytest.mark.asyncio
     async def test_an_unusable_plan_falls_back_to_the_generic_outline(self):
-        planner = make_llm("not valid json")
+        result = await clarify(request_for(), self.deps(make_llm("not valid json")))
 
-        result = await clarify(request_for(), self.deps(AsyncMock(return_value="approve"), planner))
-
-        assert result.outcome == "approved"
-        assert "Title: Research Report" in result.research_context
-        assert "- Introduction" in result.research_context
+        assert result.plan is not None and result.plan.title == "Research Report"
+        assert "Introduction" in result.plan.sections
 
     @pytest.mark.asyncio
-    async def test_zero_iterations_uses_the_fallback_and_asks_nothing(self):
-        planner = make_llm('{"title": "Test Plan", "sections": ["Section 1"]}')
-        ask = AsyncMock()
-
-        result = await clarify(request_for(), self.deps(ask, planner, max_plan_iterations=0))
-
-        assert result.outcome == "approved"
-        assert "Title: Research Report" in result.research_context
-        ask.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_plan_approval_off_ends_without_a_plan(self):
-        """Without plan approval the dialog ends when clarification does."""
+    async def test_planning_off_ends_without_a_plan(self):
         ask = AsyncMock()
 
         result = await clarify(request_for(), deps_for(make_llm(clarification()), ask=ask))
 
-        assert result.outcome is None
+        assert result.plan is None and result.draft is None
         ask.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_the_planner_llm_is_used_when_configured(self):
-        """The planner ref exists so plan generation can run on another model."""
         clarifier_llm = make_llm(clarification())
         planner = make_llm('{"title": "T", "sections": ["A"]}')
-        deps = deps_for(
-            clarifier_llm, ask=AsyncMock(return_value="approve"), planner=planner, enable_plan_approval=True
-        )
 
-        await clarify(request_for(), deps)
+        await clarify(request_for(), deps_for(clarifier_llm, planner=planner, plan_approval="auto"))
 
         assert planner.ainvoke.await_count == 1
         assert clarifier_llm.ainvoke.await_count == 1
 
     @pytest.mark.asyncio
     async def test_without_a_planner_the_clarifier_model_plans(self):
-        """`planner_llm` is optional; the same model then does both calls."""
         llm = make_llm(clarification(), '{"title": "T", "sections": ["A"]}')
 
-        result = await clarify(
-            request_for(), deps_for(llm, ask=AsyncMock(return_value="approve"), enable_plan_approval=True)
-        )
+        result = await clarify(request_for(), deps_for(llm, plan_approval="auto"))
 
-        assert result.outcome == "approved"
+        assert result.plan is not None
         assert llm.ainvoke.await_count == 2
 
 
@@ -766,7 +620,7 @@ class TestTools:
 
         result = await clarify(request_for(), deps_for(llm, tools=[web_search_tool], ask=AsyncMock()))
 
-        assert result.outcome is None
+        assert result.plan is None
         assert llm.ainvoke.await_count == 2
         second_request = llm.ainvoke.await_args_list[1].args[0]
         assert any(isinstance(message, ToolMessage) for message in second_request)
@@ -802,7 +656,7 @@ class TestTools:
         with caplog.at_level("WARNING"):
             result = await clarify(request_for(), deps_for(llm, tools=[broken_tool], ask=AsyncMock()))
 
-        assert result.outcome is None
+        assert result.plan is None
         tool_reply = llm.ainvoke.await_args_list[1].args[0][-2]
         assert isinstance(tool_reply, ToolMessage)
         assert "upstream is down" in tool_reply.content
@@ -870,71 +724,38 @@ class TestTools:
             result = await clarify(request_for(), deps_for(llm, tools=[web_search_tool], ask=ask))
 
         assert llm.ainvoke.await_count == MAX_TOOL_ROUNDS + 1
-        assert result.outcome is None
+        assert result.plan is None
         ask.assert_not_called()
         assert "kept searching" in caplog.text
 
 
-class TestThePlanCard:
-    """The plan travels as data beside its text, and comes back edited."""
+class TestThePlanDraft:
+    """The drafted plan, as the BFF's plan primitive takes it."""
 
-    def test_the_preview_carries_the_plan_as_json_beside_the_list(self):
-        plan = PlanResponse(
-            title="Brandschutz", sections=["GK", "Fluchtwege"], genre="pruefbericht", depth="kurzpruefung"
+    def test_the_draft_names_documents_and_carries_the_inventory_and_the_rahmen(self):
+        from aiq_agent.agents.piloti.clarify import plan_draft
+
+        plan = PlanResponse(title="T", sections=["A"], grundlage=["Einreichplan.pdf"], genre="vergleich")
+        request = ClarifyRequest(
+            messages=[HumanMessage(content="Vergleiche die Varianten")],
+            data_sources=["knowledge_base"],
+            available_documents=[
+                {
+                    "file_name": "Einreichplan.pdf",
+                    "display_title": "Einreichplan EG",
+                    "shelf": "project",
+                    "summary": "x",
+                },
+                {"summary": "a row without a name is not a document"},
+            ],
         )
-        text = format_plan_for_user(plan)
-        assert "```plan_json\n" in text
-        payload = json.loads(text.split("```plan_json\n", 1)[1].split("\n```", 1)[0])
-        assert payload == {
-            "title": "Brandschutz",
-            "sections": ["GK", "Fluchtwege"],
-            "genre": "pruefbericht",
-            "depth": "kurzpruefung",
-            "grundlage": [],
-            "ausgeschlossen": [],
-        }
-        assert text.rstrip().endswith("or provide feedback to revise the plan.")
-
-    def test_the_preview_lists_what_the_run_can_read(self):
-        plan = PlanResponse(title="T", sections=["A"], grundlage=["Einreichplan.pdf"])
-        inventory = [
-            {"file_name": "Einreichplan.pdf", "display_title": "Einreichplan EG", "shelf": "project", "summary": "x"},
-            {"file_name": "Notiz.md", "shelf": "session"},
-            {"summary": "a row without a name is not a document"},
+        draft = plan_draft(request, plan, query="Vergleiche die Varianten")
+        assert draft.question == "Vergleiche die Varianten"
+        assert draft.grundlage == ["Einreichplan.pdf"] and draft.genre == "vergleich"
+        assert draft.dataSources == ["knowledge_base"]
+        assert [(d.name, d.title, d.shelf) for d in draft.unterlagen] == [
+            ("Einreichplan.pdf", "Einreichplan EG", "project")
         ]
-        text = format_plan_for_user(plan, inventory)
-        payload = json.loads(text.split("```plan_json\n", 1)[1].split("\n```", 1)[0])
-        assert payload["grundlage"] == ["Einreichplan.pdf"]
-        assert payload["unterlagen"] == [
-            {"name": "Einreichplan.pdf", "title": "Einreichplan EG", "shelf": "project"},
-            {"name": "Notiz.md", "shelf": "session"},
-        ]
-
-    def test_the_unterlagen_edits_land_and_resolve_against_the_inventory(self):
-        from aiq_agent.agents.piloti.clarify import apply_plan_edits
-        from aiq_agent.agents.piloti.clarify import plan_data_sources
-        from aiq_agent.agents.piloti.clarify import plan_documents
-
-        plan = PlanResponse(title="T", sections=["A"])
-        reply = (
-            '{"grundlage": ["Einreichplan EG", "erfunden.pdf"], "ausgeschlossen": ["alt.pdf"], '
-            '"data_sources": ["knowledge_base", " web_search "]}'
-        )
-        edited = apply_plan_edits(plan, reply)
-        assert edited.grundlage == ["Einreichplan EG", "erfunden.pdf"]
-        assert edited.ausgeschlossen == ["alt.pdf"]
-        inventory = [
-            {"file_name": "Einreichplan.pdf", "display_title": "Einreichplan EG", "shelf": "project"},
-            {"file_name": "alt.pdf", "shelf": "archiv"},
-        ]
-        docs = plan_documents(edited, inventory)
-        assert docs is not None
-        # A title resolves to its file; an invented name falls out.
-        assert [d.name for d in docs.grundlage] == ["Einreichplan.pdf"]
-        assert docs.grundlage[0].title == "Einreichplan EG" and docs.grundlage[0].shelf == "project"
-        assert [d.name for d in docs.ausgeschlossen] == ["alt.pdf"]
-        assert plan_data_sources(reply) == ["knowledge_base", "web_search"]
-        assert plan_data_sources('{"sections": ["A"]}') is None
 
     def test_an_excluded_name_beats_the_same_name_in_the_grundlage(self):
         from aiq_agent.agents.piloti.clarify import plan_documents
@@ -956,28 +777,6 @@ class TestThePlanCard:
         assert "Grundlage (documents to read in full" in text
         assert "- Einreichplan EG — Einreichplan.pdf [project]" in text
         assert "Ausgeschlossen (documents that may not be used" in text and "- alt.pdf" in text
-
-    def test_an_edited_approval_is_approved_with_its_edits(self):
-        decision, edits = parse_plan_reply('approve {"sections": ["Nur Wien"], "depth": "gutachten"}')
-        assert decision == "approved"
-        assert json.loads(edits) == {"sections": ["Nur Wien"], "depth": "gutachten"}
-
-    def test_the_edits_land_on_the_plan_and_the_title_stays(self):
-        from aiq_agent.agents.piloti.clarify import apply_plan_edits
-
-        plan = PlanResponse(title="T", sections=["A", "B"])
-        edited = apply_plan_edits(plan, '{"sections": ["B", " C "], "genre": "aktenvermerk", "depth": "kurzpruefung"}')
-        assert edited.title == "T"
-        assert edited.sections == ["B", "C"]
-        assert edited.genre == "aktenvermerk" and edited.depth == "kurzpruefung"
-
-    def test_unreadable_or_invalid_edits_run_the_plan_as_shown(self):
-        from aiq_agent.agents.piloti.clarify import apply_plan_edits
-
-        plan = PlanResponse(title="T", sections=["A"])
-        assert apply_plan_edits(plan, "not json") == plan
-        assert apply_plan_edits(plan, '{"genre": "roman"}') == plan
-        assert apply_plan_edits(plan, '{"sections": []}') == plan
 
     def test_the_approved_context_binds_genre_depth_and_the_points(self):
         from aiq_agent.agents.piloti.clarify import approved_plan_context

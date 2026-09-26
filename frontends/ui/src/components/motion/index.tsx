@@ -48,7 +48,7 @@
 'use client'
 
 import { type ReactNode } from 'react'
-import { motion, type HTMLMotionProps, type Transition, type Variants } from 'motion/react'
+import { AnimatePresence, motion, type HTMLMotionProps, type Transition, type Variants } from 'motion/react'
 
 /** A cubic-bezier control-point pair, in motion.dev's `ease` tuple form. */
 type Bezier = [number, number, number, number]
@@ -255,6 +255,26 @@ export const motionQuickExit: Transition = { duration: 0.18, ease: EASE_EXIT }
 export const motionDeliberate: Transition = { duration: 0.32, ease: EASE_OUT }
 
 /**
+ * A CLOCK — the one linear one-shot in the vocabulary.
+ *
+ * Everything else here eases, because a thing that moves decides at the
+ * start and settles at the end. A countdown is not a thing that moves: it is
+ * time passing, and time passes at a constant rate. Ease it and the bar lies —
+ * it drains fast, then dawdles, and the reader's sense of "how long is left"
+ * comes out of the curve instead of the clock.
+ *
+ * The other honest option, stepping the bar once a second on `motionDeliberate`
+ * (320ms of travel, 680ms of stillness), reads as a clock that stutters. So the
+ * bar is set ONCE, from its current fraction to zero over the seconds that
+ * remain, and left to run. `seconds` is data, never a design number — which is
+ * why this is a function and not a constant.
+ */
+export const motionCountdown = (seconds: number): Transition => ({
+  duration: Math.max(0, seconds),
+  ease: 'linear',
+})
+
+/**
  * The change with no motion — what every transition here becomes under
  * `prefers-reduced-motion`. `<MotionConfig reducedMotion="user">` already drops
  * transforms; opacity still tweens under it, and a DELAYED opacity is an
@@ -396,5 +416,57 @@ export const StaggerItem = ({ children, ...props }: HTMLMotionProps<'div'>): Rea
   </motion.div>
 )
 
+interface SwapProps {
+  /** Identity of what is shown: a change of key is a change of content. */
+  swapKey: string
+  children?: ReactNode
+  /** Vertical settle in px; 0 for a pure crossfade. */
+  distance?: number
+  className?: string
+  /**
+   * Whether the first render animates. Off by default: a state that was
+   * already there when the surface appeared did not just change.
+   */
+  animateFirst?: boolean
+  /**
+   * `wait` (default): the old one leaves, then the new one arrives — for a
+   * small thing in one place. `popLayout`: the new one is there at once and
+   * the old one fades out over it — for a press that opens something, where
+   * waiting out an exit would read as the press not landing.
+   */
+  mode?: 'wait' | 'popLayout'
+}
+
+/**
+ * One thing replacing another in the same place — a status line, an icon, a
+ * brief giving way to its editor. The old one leaves on the exit curve one
+ * step shorter than the new one arrives (the design language's rule for
+ * exits), and the new one waits for it, so the two never overlap as a smear.
+ *
+ * Not for lists (their rows enter and leave on their own) and not for text
+ * that changes every second (a countdown's number is not a new state).
+ */
+export const Swap = ({
+  swapKey,
+  children,
+  distance = 4,
+  className,
+  animateFirst = false,
+  mode = 'wait',
+}: SwapProps): ReactNode => (
+  <AnimatePresence mode={mode} initial={animateFirst}>
+    <motion.div
+      key={swapKey}
+      className={className}
+      initial={{ opacity: 0, y: distance }}
+      animate={{ opacity: 1, y: 0, transition: motionEntrance }}
+      exit={{ opacity: 0, y: -distance / 2, transition: motionQuickExit }}
+    >
+      {children}
+    </motion.div>
+  </AnimatePresence>
+)
+
 /** Re-export for components that need bespoke micro-interactions. */
-export { motion, AnimatePresence } from 'motion/react'
+export { motion, AnimatePresence, LayoutGroup, useReducedMotion } from 'motion/react'
+export type { Variants } from 'motion/react'

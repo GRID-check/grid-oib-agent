@@ -30,6 +30,7 @@ import {
   FolderRowSkeleton,
 } from './folder-navigation'
 import { AssignmentFaces } from './assignment-faces'
+import type { FileSelection } from '../lib/file-selection'
 
 /** Finder-style drill-down wiring — see `folder-navigation.tsx`. */
 export interface FolderNavigation {
@@ -37,9 +38,13 @@ export interface FolderNavigation {
   /** The level the reader is standing in; null is the root. */
   currentFolderId: string | null
   onNavigate: (id: string | null) => void
-  onCreateFolder: (name: string, parentId?: string) => Promise<boolean>
-  onRenameFolder: (folderId: string, name: string) => Promise<boolean>
-  onDeleteFolder: (folderId: string) => Promise<boolean>
+  /**
+   * The edits, all absent on a surface that browses folders without owning
+   * them (the document picker): the tiles and the path row are then read-only.
+   */
+  onCreateFolder?: (name: string, parentId?: string) => Promise<boolean>
+  onRenameFolder?: (folderId: string, name: string) => Promise<boolean>
+  onDeleteFolder?: (folderId: string) => Promise<boolean>
 }
 
 interface FileBrowserPaneProps {
@@ -122,6 +127,12 @@ interface FileBrowserPaneProps {
   onViewChange?: (view: 'cards' | 'list') => void
   onPickFiles?: () => void
   onPickFolder?: () => void
+  /**
+   * Choosing instead of opening: every card and row carries a checkbox, and a
+   * click marks the document (the caller's `onSelectFile` decides what a click
+   * does). The document picker's mode — see {@link FileSelection}.
+   */
+  selection?: FileSelection
 }
 
 export function FileBrowserPane({
@@ -147,6 +158,7 @@ export function FileBrowserPane({
   onPickFolder,
   sort = DEFAULT_FILE_SORT,
   onSortChange,
+  selection,
 }: FileBrowserPaneProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
@@ -179,6 +191,8 @@ export function FileBrowserPane({
   }, [orderedFiles, files, searchFiles, query, sort, locale])
 
   const currentFolderId = folderNav?.currentFolderId ?? null
+  // A surface that browses folders without owning them hands over no edits.
+  const editableFolders = Boolean(folderNav?.onRenameFolder || folderNav?.onDeleteFolder)
   const [createFolderIn, setCreateFolderIn] = useState<string | null | undefined>(undefined)
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
 
@@ -199,7 +213,7 @@ export function FileBrowserPane({
         view,
         sort,
         onNewFolder:
-          folderNav && !semantic.active && query.trim() === ''
+          folderNav?.onCreateFolder && !semantic.active && query.trim() === ''
             ? () => setCreateFolderIn(currentFolderId)
             : undefined,
         onUploadFiles: onPickFiles,
@@ -233,6 +247,19 @@ export function FileBrowserPane({
         footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
         actions={renderActions?.(file)}
         draggable={Boolean(onDropDocumentInFolder)}
+        // Choosing, „zitierbar" on every card is noise: only a status that
+        // bears on the choice (still being read, failed) is worth a badge.
+        hideStatusWhenReady={Boolean(selection)}
+        selectable={
+          selection
+            ? {
+                checked: selection.isChecked(file),
+                onToggle: () => selection.onToggle(file),
+                disabledReason: selection.disabledReason?.(file) ?? null,
+                label: selection.label(file),
+              }
+            : undefined
+        }
       />
     )
     return wrapFile ? wrapFile(file, card) : card
@@ -249,12 +276,12 @@ export function FileBrowserPane({
       onDropDocument: onDropDocumentInFolder,
       onDropFolder: onDropFolderInFolder,
       canAcceptFolder,
-      actions: folderNav ? <FolderActionsTrigger /> : undefined,
+      actions: folderNav && editableFolders ? <FolderActionsTrigger /> : undefined,
       editing: editingFolderId === folder.id,
       onEditingChange: (next: boolean) => setEditingFolderId(next ? folder.id : null),
     }
     const tile = asRow ? <FolderRow {...props} /> : <FolderCard {...props} />
-    if (!folderNav) return tile
+    if (!folderNav || !editableFolders) return tile
     return (
       <FolderObjectMenu
         folder={folder}
@@ -268,7 +295,7 @@ export function FileBrowserPane({
             ? (parentId) => void onDropFolderInFolder(folder.id, parentId)
             : undefined
         }
-        onDelete={() => void folderNav.onDeleteFolder(folder.id)}
+        onDelete={() => void folderNav.onDeleteFolder?.(folder.id)}
       >
         {tile}
       </FolderObjectMenu>
@@ -592,6 +619,7 @@ export function FileBrowserPane({
               onSelectFile={onSelectFile}
               renderActions={renderActions}
               wrapRow={wrapFileRow}
+              selection={selection}
             />
           </div>
         ) : (
@@ -630,6 +658,7 @@ export function FileBrowserPane({
               onSelectFile={onSelectFile}
               renderActions={renderActions}
               wrapRow={wrapFileRow}
+              selection={selection}
               sort={sort}
               onSortChange={onSortChange}
             />
@@ -678,6 +707,7 @@ export function FileBrowserPane({
                 onSelectFile={onSelectFile}
                 renderActions={renderActions}
                 wrapRow={wrapFileRow}
+                selection={selection}
                 sort={sort}
                 onSortChange={onSortChange}
                 draggable={Boolean(onDropDocumentInFolder)}
@@ -735,13 +765,13 @@ export function FileBrowserPane({
         </motion.div>
       )}
       </ActionMenu>
-      {folderNav && (
+      {folderNav?.onCreateFolder && (
         <NewFolderDialog
           open={createFolderIn !== undefined}
           onOpenChange={(open) => {
             if (!open) setCreateFolderIn(undefined)
           }}
-          onCreate={(name) => folderNav.onCreateFolder(name, createFolderIn ?? undefined)}
+          onCreate={(name) => folderNav.onCreateFolder?.(name, createFolderIn ?? undefined) ?? Promise.resolve(false)}
         />
       )}
     </div>

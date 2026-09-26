@@ -127,6 +127,7 @@ Consequences, where a reader looks for them.
 | [0065](0065-a2ui-renders-every-card.md) | A2UI renders every card, and an answer may compose them | Accepted |
 | [0066](0066-the-answer-prose-streams-and-the-verified-frame-settles-it.md) | The answer's prose streams as it is written, and the verified frame settles it | Accepted |
 | [0067](0067-the-repair-corrects-a-misremembered-quote-in-place.md) | The repair corrects a misremembered quote in place, and nothing else | Accepted |
+| [0068](0068-the-research-plan-is-a-workspace-primitive-the-run-waits-on.md) | The research plan is a workspace primitive the run waits on, not a reply the reader owes | Proposed |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off

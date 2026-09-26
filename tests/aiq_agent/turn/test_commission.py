@@ -92,6 +92,8 @@ class TestWhatItAsksFor:
         assert payload["documents"] == {
             "grundlage": [{"name": "Einreichplan.pdf", "title": "Einreichplan EG", "shelf": "project"}],
             "ausgeschlossen": [{"name": "alt.pdf"}],
+            # The BFF's documents schema accepts it: `lib/runs/plan-documents.ts`.
+            "nur_grundlage": False,
         }
 
     async def test_an_empty_unterlagen_list_is_absent(self, commissioning):
@@ -181,3 +183,53 @@ class TestWhatItRefuses:
         # The work is commissioned; what is missing is the block, not the run.
         assert run.run_id == "run-1"
         assert run.run_message_id is None
+
+
+class TestAPlannedRun:
+    """ADR-0068: the drafted plan and its run go to the BFF in one call."""
+
+    @pytest.fixture
+    def posted(self, monkeypatch):
+        from aiq_agent.turn import commission as module
+
+        seen: list[dict] = []
+
+        def fake_post(payload, envelope):
+            seen.append(payload)
+            return {"runId": "run-1", "runMessageId": "msg-1", "conversationId": "s_conv", "planId": "plan-1"}
+
+        monkeypatch.setattr(module, "post_task", fake_post)
+        monkeypatch.setattr(module.project_context, "get_project_id_from_context", lambda: "proj-1")
+        monkeypatch.setattr(module.project_context, "get_request_envelope_from_context", lambda: ("h", "s"))
+        return seen
+
+    async def test_the_plan_op_carries_the_draft_the_start_and_the_questions(self, posted):
+        from aiq_agent.common.research_plan import PlanStart
+        from aiq_agent.common.research_plan import ResearchPlanDraft
+        from aiq_agent.turn.commission import commission_planned_run
+
+        draft = ResearchPlanDraft(question="Fluchtwege prüfen", title="Fluchtwege", sections=["Bestand"])
+        run = await commission_planned_run(
+            draft, start=PlanStart(policy="ask", graceSeconds=30), context="Frage: Bestand? Antwort: ja"
+        )
+
+        assert run.run_id == "run-1" and run.run_message_id == "msg-1"
+        assert posted == [
+            {
+                "op": "plan",
+                "projectId": "proj-1",
+                "plan": {
+                    "question": "Fluchtwege prüfen",
+                    "title": "Fluchtwege",
+                    "sections": ["Bestand"],
+                    "genre": "bericht",
+                    "depth": "gutachten",
+                    "grundlage": [],
+                    "ausgeschlossen": [],
+                    "nurGrundlage": False,
+                    "unterlagen": [],
+                },
+                "start": {"policy": "ask", "graceSeconds": 30},
+                "context": "Frage: Bestand? Antwort: ja",
+            }
+        ]

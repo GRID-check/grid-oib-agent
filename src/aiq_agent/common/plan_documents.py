@@ -8,6 +8,12 @@ different things with each:
   Grundlage document the run never reached is named as unread on the report:
   it marks the report rather than blocking it, because a report that names
   what it missed is still worth more than no report.
+- **Nur Grundlage** — a switch, not a list: of the reader's own documents
+  (project, Archiv, this chat) the run may use the Grundlage and nothing
+  else. By default the run may read every document it can find and the
+  Grundlage is only its focus; this narrows it. Norms and laws on the base
+  shelf stay available either way, because they are the measure a report
+  holds the reader's documents against.
 - **Ausgeschlossen** — documents the run may not use. An excluded document
   never enters the run's source registry, so it can neither be cited nor
   quoted; a citation to it is stripped like one to a source that does not
@@ -60,6 +66,8 @@ class PlanDocuments(BaseModel):
 
     grundlage: list[PlanDocument] = Field(default_factory=list, max_length=MAX_PLAN_DOCUMENTS)
     ausgeschlossen: list[PlanDocument] = Field(default_factory=list, max_length=MAX_PLAN_DOCUMENTS)
+    #: Of the reader's own documents, only the Grundlage may be used.
+    nur_grundlage: bool = False
 
     def is_empty(self) -> bool:
         return not self.grundlage and not self.ausgeschlossen
@@ -101,6 +109,8 @@ def sanitize_plan_documents(raw: Any) -> PlanDocuments | None:
                 continue
             seen.add(_fold(doc.name))
             target.append(doc)
+    # A confinement to nothing would refuse every document the reader owns.
+    out.nur_grundlage = bool(out.grundlage) and (raw.get("nur_grundlage") is True or raw.get("nurGrundlage") is True)
     return None if out.is_empty() else out
 
 

@@ -50,6 +50,10 @@ from .outcome_notify import notify_job_outcome
 from .phase_events import PHASE_DONE
 from .phase_events import PhaseProgressCallback
 from .phase_events import emit_phase_event
+from .plan_client import PlanClient
+from .plan_start import StartedPlan
+from .plan_start import await_plan_start
+from .plan_start import started_plan
 from .run_ledger_fold import RunLedgerFold
 
 logger = logging.getLogger(__name__)
@@ -921,6 +925,9 @@ async def run_agent_job(
     # The Unterlagen the reader named on the plan card (``plan_documents``
     # contract), sanitised here into the agent state and the run ledger.
     documents: dict | None = None,
+    # The research plan this run waits on (ADR-0068). When set, the agent does
+    # not start until the plan does, and runs the plan as it is at that instant.
+    plan_id: str | None = None,
 ):
     """
     Dask task to run any registered agent with cancellation support and telemetry.
@@ -1382,6 +1389,12 @@ async def run_agent_job(
                         grundlage=[doc.model_dump() for doc in plan_documents.grundlage] if plan_documents else None,
                     )
                     cancellation_monitor.on_document_added = run_ledger_fold.add_grundlage
+                    if plan_id:
+                        started = await _start_planned_run(
+                            plan_id, cancellation_monitor, run_ledger_fold, raw_event_store, clarifier_result
+                        )
+                        clarifier_result = started.clarifier_result
+                        plan_documents = started.documents
                     event_store = run_ledger_fold.observing(event_store)
                     agent_event_callback = AgentEventCallback(event_store)
                     callbacks.append(agent_event_callback)
@@ -1973,6 +1986,30 @@ async def _run_agent(
             reset_write_now(token)
 
     raise TypeError(f"Agent {type(agent).__name__} does not have a run method")
+
+
+async def _start_planned_run(
+    plan_id: str,
+    monitor: CancellationMonitor,
+    fold: RunLedgerFold,
+    event_store: Any,
+    clarifier_result: str | None,
+) -> StartedPlan:
+    """Wait for the run's plan to start, inside the run's own cancellation wrapper.
+
+    A cancel while waiting raises ``CancelledError`` exactly as a cancel during
+    the research does, so the job ends through the path it always ended by. The
+    Grundlage on the ledger becomes the plan's as it was at start.
+    """
+    plan = await run_with_cancellation(
+        await_plan_start(plan_id, PlanClient(), fold),
+        monitor,
+        event_store=event_store,
+    )
+    started = started_plan(plan, clarifier_result)
+    fold.replace_grundlage(list(started.documents.grundlage) if started.documents else [])
+    logger.info("Plan %s started: %d sections", plan_id, len(plan.sections))
+    return started
 
 
 def _get_agent_state_class(agent) -> type | None:

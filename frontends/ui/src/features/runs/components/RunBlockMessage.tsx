@@ -30,8 +30,13 @@ import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import type { RunStatus } from '@/lib/runs/run-ledger-types'
 import { runDisplayStatus } from '@/lib/runs/run-vocabulary'
 import { useRunLedger } from '../hooks/use-run-ledger'
-import { useProjectInventory } from '../hooks/use-project-inventory'
-import { UnterlagenDialog } from './UnterlagenDialog'
+import { DocumentPickerDialog } from '@/features/documents/components/document-picker/DocumentPickerDialog'
+import { useDocumentLibrary } from '@/features/documents/hooks/use-document-library'
+import { useTranslations } from '@/i18n'
+import { foldName } from '@/lib/text/fold'
+import { RunPlan } from './RunPlan'
+import { usePlan } from '../hooks/use-plan'
+import { useLayoutStore } from '@/features/layout/store'
 import { openFilePeek } from '@/features/documents/lib/open-file-peek'
 import type { RunLedgerDoc } from '@/lib/runs/run-ledger-types'
 import { landingDelays } from '../lib/choreography'
@@ -70,7 +75,18 @@ export function RunBlockMessage({
   // is fetched only once one of them is wanted.
   const [picking, setPicking] = useState(false)
   const [wantsInventory, setWantsInventory] = useState(false)
-  const inventory = useProjectInventory(projectId ?? null, wantsInventory)
+  const inventory = useDocumentLibrary(projectId ?? null, wantsInventory)
+  const t = useTranslations('runs')
+  const named = new Set((ledger?.grundlage ?? []).map((doc) => foldName(doc.name)))
+  const plan = usePlan(projectId ?? null, message.planId ?? null)
+  const availableSources = useLayoutStore((state) => state.availableDataSources)
+  const rahmen = plan.plan?.dataSources
+    ? {
+        labels: plan.plan.dataSources.map(
+          (id) => (availableSources ?? []).find((source) => source.id === id)?.name ?? id
+        ),
+      }
+    : undefined
   // A chip clicked before the listing has arrived is remembered and opened
   // once it does; otherwise the first click on a finished run would do nothing.
   const [pendingDoc, setPendingDoc] = useState<RunLedgerDoc | null>(null)
@@ -81,12 +97,12 @@ export function RunBlockMessage({
   useEffect(() => {
     if (!pendingDoc || !inventory.documents) return
     setPendingDoc(null)
-    const key = pendingDoc.name.trim().toLocaleLowerCase()
-    const found = inventory.documents.find((row) => row.name.trim().toLocaleLowerCase() === key)
+    const key = foldName(pendingDoc.name)
+    const found = inventory.documents.find((row) => foldName(row.name) === key)
     if (!found) return
     openFilePeek({
       file: found.file,
-      source: found.source,
+      source: found.shelf === 'archiv' ? 'buero' : 'projekt',
       projectId: projectId ?? null,
       presentation: 'modal',
       bindComposerSubject: false,
@@ -127,16 +143,34 @@ export function RunBlockMessage({
         }
         onOpenDocument={projectId ? openDocument : null}
         onContinue={onContinue ?? null}
+        plan={
+          plan.plan ? (
+            <RunPlan
+              plan={plan.plan}
+              rahmen={rahmen}
+              projectId={projectId ?? null}
+              pending={plan.pending}
+              onEdit={plan.edit}
+              onHold={plan.hold}
+              onStart={plan.start}
+            />
+          ) : null
+        }
       />
       {addDocument && (
-        <UnterlagenDialog
-          mode="add"
+        <DocumentPickerDialog
           open={picking}
           onOpenChange={setPicking}
+          title={t('unterlagen.addTitle')}
+          description={t('unterlagen.addDescription')}
           documents={inventory.documents ?? []}
+          folders={inventory.folders}
           loading={inventory.loading}
-          named={(ledger.grundlage ?? []).map((doc) => doc.name)}
-          onAdd={(doc) => addDocument(doc)}
+          disabledReason={(doc) => (named.has(foldName(doc.name)) ? t('unterlagen.alreadyNamed') : null)}
+          confirmLabel={t('unterlagen.add')}
+          onConfirm={(docs) => {
+            for (const { name, title, shelf } of docs) void addDocument({ name, ...(title ? { title } : {}), shelf })
+          }}
         />
       )}
       {showAnswer ? (

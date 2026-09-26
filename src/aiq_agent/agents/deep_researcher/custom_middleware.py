@@ -27,6 +27,9 @@ from aiq_agent.common.citation_verification import extract_sources_from_tool_res
 from aiq_agent.common.citation_verification import get_session_registry
 from aiq_agent.common.cost_tracking import BudgetExceededError
 from aiq_agent.common.deferred_tool_loading import tool_payload_name
+from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
+from aiq_agent.common.source_kinds import parse_shelf
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +315,10 @@ class ToolVisibilityMiddleware(AgentMiddleware):
         return await handler(request.override(tools=self._filter_tools(request.tools)))
 
 
+#: The shelves that hold the reader's own documents: what „Nur diese" confines.
+_READER_SHELVES = frozenset({Shelf.PROJECT, Shelf.ARCHIV, Shelf.SESSION})
+
+
 class SourceRegistryMiddleware(AgentMiddleware):
     """Intercepts tool call results to build a registry of actual sources.
 
@@ -341,6 +348,7 @@ class SourceRegistryMiddleware(AgentMiddleware):
         source_tool_names: set[str] | None = None,
         *,
         excluded_file_names: Iterable[str] = (),
+        only_file_names: Iterable[str] = (),
     ) -> None:
         self.registry = SourceRegistry()
         self._source_tool_names = source_tool_names or set()
@@ -350,26 +358,52 @@ class SourceRegistryMiddleware(AgentMiddleware):
         # it can neither be cited nor quoted and a citation to it is stripped
         # like one to a source that never existed.
         self._excluded_keys = {self._locator_key(name) for name in excluded_file_names if name and name.strip()}
+        # „Nur diese": of the reader's OWN documents only these may be used.
+        # Refused by shelf, so a norm or a law on the base shelf, and anything
+        # from the web, stays available: the confinement is to the reader's
+        # files, never to the measure the report holds them against.
+        self._only_keys = {self._locator_key(name) for name in only_file_names if name and name.strip()}
         # The documents THIS run captured a passage from. Not the active
         # registry: in conversation mode that is the session's, and a document
         # read in an earlier turn would count as read by this run.
         self._read_keys: set[str] = set()
+        # Keys „Nur diese" refused on a passage this run saw. The confinement
+        # is decided per entry (it needs the shelf); a bare citation key or a
+        # lane hit carries none, so a key refused once is remembered here and
+        # the locator check can refuse it everywhere else.
+        self._confined_keys: set[str] = set()
         self._lock = asyncio.Lock()
 
     def is_excluded(self, entry: SourceEntry) -> bool:
-        """Whether the reader excluded the document this entry came from."""
-        if not self._excluded_keys:
+        """Whether the reader excluded the document this entry came from.
+
+        Two ways: the document is on the Ausgeschlossen, or the plan confines
+        the reader's own documents to its Grundlage and this one is theirs
+        and not on it. A passage whose shelf nobody stated is not refused by
+        the confinement: refusing it could refuse a norm, and the plan never
+        said to stop reading those.
+        """
+        if not self._excluded_keys and not self._only_keys:
             return False
         key = self._entry_key(entry)
-        return key is not None and key in self._excluded_keys
+        if key is None:
+            return False
+        if key in self._excluded_keys:
+            return True
+        if not self._only_keys or entry.url or key in self._only_keys:
+            return False
+        return (parse_shelf(entry.shelf) or legacy_shelf_for_collection_name(entry.collection)) in _READER_SHELVES
 
     def read_file_names(self) -> set[str]:
         """The file names (page-stripped, lowercased) this run captured a passage from."""
         return set(self._read_keys)
 
     def is_excluded_locator(self, locator: str) -> bool:
-        """Whether a citation key or file name names a document the reader excluded."""
-        return bool(self._excluded_keys) and self._locator_key(locator) in self._excluded_keys
+        """Whether a citation key or file name names a document the reader excluded or confined away."""
+        if not self._excluded_keys and not self._confined_keys:
+            return False
+        key = self._locator_key(locator)
+        return key in self._excluded_keys or key in self._confined_keys
 
     def active_registry(self) -> SourceRegistry:
         """Return the session-scoped registry if set, otherwise the instance registry."""
@@ -446,8 +480,13 @@ class SourceRegistryMiddleware(AgentMiddleware):
         source_id = get_source_id_for_tool(tool_name)
         # Parsed off the text the tool returned, before anything is cut: the
         # structured records are filed under the hash of exactly these bytes.
-        sources = extract_sources_from_tool_result(tool_name, str(result.content), source_id=source_id)
-        sources = [s for s in sources if not self.is_excluded(s)]
+        extracted = extract_sources_from_tool_result(tool_name, str(result.content), source_id=source_id)
+        sources = [s for s in extracted if not self.is_excluded(s)]
+        self._confined_keys.update(
+            key
+            for key in (self._entry_key(s) for s in extracted if self.is_excluded(s))
+            if key and key not in self._excluded_keys
+        )
         result = self._without_excluded_passages(result, tool_name)
         async with self._lock:
             active_registry = self.active_registry()
@@ -466,18 +505,21 @@ class SourceRegistryMiddleware(AgentMiddleware):
         return result
 
     def _without_excluded_passages(self, result: ToolMessage, tool_name: str) -> ToolMessage:
-        """The result with every passage from an excluded document cut out.
+        """The result with every passage the plan refuses cut out.
 
+        Two kinds: a document on the Ausgeschlossen, and one of the reader's
+        own documents „Nur diese" confines away (its key remembered in
+        ``_confined_keys`` when ``awrap_tool_call`` refused its entry).
         Refusing the source at the registry is not enough on its own: the
         researcher model reads this ToolMessage, and a passage it has read it
         can paraphrase without citing. So the passage never reaches it.
         """
-        if not self._excluded_keys or not isinstance(result.content, str):
+        if not (self._excluded_keys or self._confined_keys) or not isinstance(result.content, str):
             return result
         content, cut = _without_results(result.content, self.is_excluded_locator)
         if not cut:
             return result
-        logger.info("[CitationRegistry] Cut %d passage(s) from %s: excluded by the reader", cut, tool_name)
+        logger.info("[CitationRegistry] Cut %d passage(s) from %s: excluded or confined by the plan", cut, tool_name)
         return result.model_copy(update={"content": content})
 
     def get_source_entries(self, mode: str = "compact") -> list[SourceEntry]:

@@ -2,6 +2,18 @@ import type { en } from '../en'
 
 /** files namespace — populated during component i18n. */
 export const files: typeof en.files = {
+  // Die Dokumentauswahl: ein Öffnen-Fenster über der Seite, für jede Stelle,
+  // an der Unterlagen benannt werden.
+  picker: {
+    placesLabel: 'Orte',
+    places: { project: 'Projekt', archiv: 'Büroarchiv', selected: 'Ausgewählt' },
+    choose: '{name} auswählen',
+    nothingSelected: 'Nichts ausgewählt',
+    selectedCount: '{count, plural, one {# Dokument} other {# Dokumente}} ausgewählt',
+    clear: 'Auswahl aufheben',
+    cancel: 'Abbrechen',
+  },
+
   uploadZone: {
     clickToUpload: 'Zum Hochladen klicken',
     orDragAndDrop: ' oder per Drag-and-drop ablegen',
@@ -284,6 +296,7 @@ export const files: typeof en.files = {
   // Detailansicht des Explorers – Spaltenüberschriften der sortierbaren Liste.
   list: {
     columns: {
+      choose: 'Auswählen',
       relevance: 'Relevanz',
       name: 'Name',
       status: 'Status',

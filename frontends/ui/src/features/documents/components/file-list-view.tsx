@@ -16,6 +16,8 @@ import { documentDisplayName } from '@/lib/documents/display-name'
 import { documentDragProps } from '../hooks/use-document-drag'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Checkbox } from '@/components/ui/checkbox'
+import type { FileSelection } from '../lib/file-selection'
 
 /**
  * The explorer's detail view — the one a person reaches for when the corpus has
@@ -74,6 +76,12 @@ interface FileListViewProps {
    * flat Archiv) cannot make.
    */
   draggable?: boolean
+  /**
+   * Choosing instead of opening (the document picker): a leading checkbox
+   * column, and a ticked row reads as selected. What a row click does stays
+   * the caller's `onSelectFile`.
+   */
+  selection?: FileSelection
 }
 
 /** A 0..1 backend score as the whole percent the reader sees. */
@@ -93,6 +101,7 @@ export function FileListView({
   sort: controlledSort,
   onSortChange,
   draggable = false,
+  selection,
 }: FileListViewProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
@@ -170,6 +179,11 @@ export function FileListView({
       >
         <TableHeader>
           <TableRow className="hover:bg-transparent">
+            {selection && (
+              <TableHead scope="col" className="h-auto w-10 p-0">
+                <span className="sr-only">{t('list.columns.choose')}</span>
+              </TableHead>
+            )}
             <SortHeader
               label={t('list.columns.name')}
               column="name"
@@ -248,7 +262,9 @@ export function FileListView({
         <TableBody ref={bodyRef}>
           {rows.map((file, index) => {
             const ext = fileExtensionLabel(file.filename)
-            const isSelected = selectedFileId === file.id
+            const checked = selection?.isChecked(file) ?? false
+            const reason = selection?.disabledReason?.(file) ?? null
+            const isSelected = selectedFileId === file.id || checked
             // The badge rule's subject, with the listing's nulls narrowed to
             // what the rule reads: `null` lifecycle is "the working set", i.e.
             // absent, and an unknown state is no badge.
@@ -279,8 +295,24 @@ export function FileListView({
                   'focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50'
                 )}
               >
+                {selection && (
+                  <TableCell
+                    className="pl-3 pr-0"
+                    onClick={(event) => event.stopPropagation()}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      disabled={Boolean(reason)}
+                      onCheckedChange={() => selection.onToggle(file)}
+                      aria-label={selection.label(file)}
+                      tabIndex={-1}
+                      data-testid="file-list-check"
+                    />
+                  </TableCell>
+                )}
                 <TableCell className={CELL}>
-                  <div className="flex min-h-8 min-w-0 items-center gap-2.5">
+                  <div className={cn('flex min-h-8 min-w-0 items-center gap-2.5', reason && 'opacity-60')}>
                     <span
                       aria-hidden
                       // 8.5px is load-bearing and stays: this glyph holds a four-letter
@@ -306,7 +338,11 @@ export function FileListView({
                           here. The summary describes the document; the snippet
                           answers the query, and a search result that hides it
                           asks the reader to take the ranking on trust. */}
-                      {semantic ? (
+                      {reason ? (
+                        <span className="block truncate text-xs leading-tight text-muted-foreground" data-testid="file-list-reason">
+                          {reason}
+                        </span>
+                      ) : semantic ? (
                         (file.snippet ?? '') !== '' && (
                           <span
                             className="block truncate text-xs leading-tight text-muted-foreground"

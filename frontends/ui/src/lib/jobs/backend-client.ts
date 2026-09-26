@@ -66,6 +66,8 @@ export interface JobSubmitPayload {
   clarifier_result?: string
   /** The Unterlagen the reader named on the plan card (`lib/runs/plan-documents`). */
   documents?: PlanDocuments
+  /** The research plan the run waits on; the worker claims its start by this id (ADR-0068). */
+  plan_id?: string
   data_sources: string[] | null
   collection_scope: string[] | null
   project_context: string | null

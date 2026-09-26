@@ -265,6 +265,7 @@ class DeepResearcherAgent:
         source_registry_middleware = SourceRegistryMiddleware(
             source_tool_names=self.source_tool_names,
             excluded_file_names=[doc.name for doc in documents.ausgeschlossen] if documents else (),
+            only_file_names=[doc.name for doc in documents.grundlage] if documents and documents.nur_grundlage else (),
         )
         rounds = RetrievalRounds()
         tool_set = build_deep_research_tool_set(

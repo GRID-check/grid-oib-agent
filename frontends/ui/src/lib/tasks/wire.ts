@@ -10,6 +10,7 @@
 
 import { z } from 'zod'
 import { planDocumentsSchema } from '@/lib/runs/plan-documents'
+import { MAX_PLAN_GRACE_SECONDS, PLAN_START_POLICIES, researchPlanDraftSchema } from '@/lib/plans/plan-types'
 import { DELEGATABLE_TASK_KINDS } from '@/lib/db/schema'
 
 /**
@@ -111,6 +112,27 @@ export const internalTaskRequestSchema = z.discriminatedUnion('op', [
       documents: planDocumentsSchema.optional(),
     })
     .strict(),
+  /**
+   * A plan the clarifier proposes, and the run that waits on it (ADR-0068).
+   * One op for both, so a plan without a run and a run without a plan are
+   * impossible. `start` is the deployment's policy: `auto` gives the plan a
+   * clock of `graceSeconds`, `ask` holds it until a person presses Starten.
+   */
+  z
+    .object({
+      op: z.literal('plan'),
+      projectId: z.string().uuid(),
+      plan: researchPlanDraftSchema,
+      /** The clarifier's questions and answers; the plan itself does not carry them. */
+      context: z.string().trim().min(1).max(RESEARCH_CONTEXT_MAX_CHARS).optional(),
+      start: z
+        .object({
+          policy: z.enum(PLAN_START_POLICIES),
+          graceSeconds: z.number().int().min(0).max(MAX_PLAN_GRACE_SECONDS).optional(),
+        })
+        .strict(),
+    })
+    .strict(),
 ])
 
 export type InternalTaskRequest = z.infer<typeof internalTaskRequestSchema>
@@ -151,6 +173,17 @@ export const internalResearchResponseSchema = z.object({
 })
 
 export type InternalResearchResponse = z.infer<typeof internalResearchResponseSchema>
+
+/** What the `plan` op answers with: the plan's id and clock beside the run's ids. */
+export const internalPlanResponseSchema = internalResearchResponseSchema.extend({
+  planId: z.string(),
+  /** proposed | held | approved — how the plan waits. */
+  planStatus: z.string(),
+  /** When the run starts on its own, or null while it waits for a person. */
+  startsAt: z.string().nullable(),
+})
+
+export type InternalPlanResponse = z.infer<typeof internalPlanResponseSchema>
 
 /**
  * The deadline, as an instant, or `null` when the string is not one.

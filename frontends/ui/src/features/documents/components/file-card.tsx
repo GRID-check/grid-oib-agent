@@ -19,6 +19,7 @@ import { DocumentStatusBadge, isCitableStatus, isSettlingStatus } from './docume
 import { SemanticMatch } from './semantic-match'
 import { GridTileBody, GridTileFooter, GridTileMedia, GridTileShell } from './grid-tile'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Checkbox } from '@/components/ui/checkbox'
 
 /** Provenance tint per corpus, from the shared `--source-*` token family. */
 const SOURCE_TINT: Record<'projekt' | 'buero', CSSProperties> = {
@@ -233,6 +234,18 @@ export interface FileCardProps {
    * cannot make — the Archiv, for one, has no folders at all.
    */
   draggable?: boolean
+  /**
+   * The card as a CHOICE rather than a door (the document picker): a checkbox
+   * that is always there — not a hover reveal, which a finger never gets —
+   * and the card's ring while it is ticked. A document that cannot be chosen
+   * here says why in place of its summary.
+   */
+  selectable?: {
+    checked: boolean
+    onToggle: () => void
+    disabledReason?: string | null
+    label: string
+  }
 }
 
 /**
@@ -259,6 +272,7 @@ export function FileCard({
   testId = 'file-card',
   actions,
   draggable = false,
+  selectable,
 }: FileCardProps) {
   const t = useTranslations('files')
   const name = documentDisplayName(file)
@@ -277,9 +291,10 @@ export function FileCard({
       interactive
       className={cn(
         'group/card',
-        isSelected && 'ring-2 ring-ring shadow-md',
+        (isSelected || selectable?.checked) && 'ring-2 ring-ring shadow-md',
         isBusy && 'cursor-progress opacity-70',
-        !isSelected && 'hover:border-border/80'
+        selectable?.disabledReason && 'opacity-60',
+        !isSelected && !selectable?.checked && 'hover:border-border/80'
       )}
       // Dragging is opt-in per surface: the Archiv has no folders to drop into,
       // and a card that lifts under the finger where nothing can receive it is
@@ -295,6 +310,24 @@ export function FileCard({
           {actions}
         </div>
       )}
+      {selectable && (
+        <div
+          className="absolute right-2 top-2 z-[1] flex rounded-md bg-background p-1 shadow-xs"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <Checkbox
+            checked={selectable.checked}
+            disabled={Boolean(selectable.disabledReason)}
+            onCheckedChange={() => selectable.onToggle()}
+            aria-label={selectable.label}
+            // Over a page image the input hairline all but vanishes; the box
+            // has to read as a box before anything is checked.
+            className="data-[state=unchecked]:border-muted-foreground/70"
+            data-testid="file-card-check"
+          />
+        </div>
+      )}
       {/* `aria-current`, not `aria-pressed`: pressing this OPENS the file, it
           does not toggle anything. The card used to close the preview when you
           clicked the row you were already looking at — the one surface in the
@@ -306,6 +339,7 @@ export function FileCard({
         type="button"
         onClick={onSelect}
         aria-current={isSelected ? 'true' : undefined}
+        aria-disabled={selectable?.disabledReason ? true : undefined}
         aria-label={ariaLabel}
         aria-busy={isBusy}
         data-testid={testId}
@@ -379,7 +413,11 @@ export function FileCard({
                 className="mt-1"
               />
             )}
-            {match ? (
+            {selectable?.disabledReason ? (
+              <p className="mt-1 line-clamp-2 text-xs leading-[1.45] text-muted-foreground" data-testid="file-card-reason">
+                {selectable.disabledReason}
+              </p>
+            ) : match ? (
               <SemanticMatch snippet={match.snippet} page={match.page} score={match.score} />
             ) : isFailed ? (
               <p className="mt-1 line-clamp-2 text-xs leading-[1.45] text-destructive" title={failureReason}>

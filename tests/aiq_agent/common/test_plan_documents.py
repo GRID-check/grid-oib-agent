@@ -68,3 +68,13 @@ class TestUnread:
         added = [PlanDocument(name="C.pdf"), PlanDocument(name="B.PDF"), PlanDocument(name="d.pdf")]
         assert [d.name for d in unread_grundlage(docs, {"a.pdf", "d.pdf"}, added)] == ["b.pdf", "C.pdf"]
         assert [d.name for d in unread_grundlage(None, set(), added)] == ["C.pdf", "B.PDF", "d.pdf"]
+
+
+def test_nur_grundlage_survives_only_with_a_grundlage():
+    from aiq_agent.common.plan_documents import sanitize_plan_documents
+
+    confined = sanitize_plan_documents({"grundlage": ["Plan.pdf"], "nur_grundlage": True})
+    assert confined is not None and confined.nur_grundlage is True
+    # A confinement to nothing would refuse every document the reader owns.
+    empty = sanitize_plan_documents({"ausgeschlossen": ["Alt.pdf"], "nurGrundlage": True})
+    assert empty is not None and empty.nur_grundlage is False

@@ -1,0 +1,33 @@
+---
+features:
+  - >
+    Eine Tiefenrecherche wartet nicht mehr auf Ihre Freigabe im Verlauf. Der
+    Rechercheplan steht am Laufblock und die Recherche startet nach einem
+    kurzen Countdown von selbst. „Anpassen“ hält sie an und öffnet den Plan:
+    Abschnitte, Berichtsart, Tiefe und Unterlagen lassen sich ändern, bevor
+    Sie mit „Starten“ freigeben.
+  - >
+    „Recherche planen“ in der Kopfzeile eines Projektverlaufs öffnet einen
+    Dialog, in dem Sie selbst eine Frage und einen Plan anlegen. Die Recherche
+    startet sofort. Die Auftragsliste zeigt je Recherche Berichtsart, Tiefe und
+    Zahl der Abschnitte.
+  - >
+    Der Rechercheplan führt in drei Schritten durch Gliederung, Berichtsart
+    und Unterlagen, mit Gliederungsvorschlägen je Berichtsart. Unterlagen sind
+    optional: Piloti durchsucht die Quellen des Auftrags. Gewählte Unterlagen
+    liest die Recherche zuerst; mit „Nur diese verwenden“ nur diese Ihrer
+    Unterlagen. Ausschließen ist unter „Unterlagen ausschließen“ möglich.
+  - >
+    Unterlagen wählen Sie in einem Auswahlfenster mit den Dateikarten und der
+    Liste aus „Dateien“, samt echter Vorschaubilder, Ordnern, Büroarchiv und
+    Suche. Es öffnet sich im Rechercheplan und bei „Unterlage hinzufügen“ an
+    einer laufenden Recherche.
+  - >
+    „Bericht fortschreiben“ übernimmt den Rechercheplan des letzten Berichts
+    mit seinen zitierten Unterlagen und zeigt ihn am neuen Laufblock, wo er
+    nach dem Countdown startet oder angepasst werden kann.
+upgrade:
+  - >
+    Die Einstellung enable_plan_approval heißt jetzt plan_approval (auto, ask
+    oder off) mit plan_grace_seconds. Der alte Schlüssel wird weiterhin als
+    auto gelesen.

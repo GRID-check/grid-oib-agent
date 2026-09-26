@@ -1064,7 +1064,7 @@ workflow:
   # in `piloti/conversation_register.py`.
   max_history_tokens: 40000
   enable_clarifier: true
-  # The clarification step that confirms a research plan before deep research
+  # The clarification step that drafts a research plan before deep research
   # runs. A block on the workflow rather than its own function: it has one
   # caller and is never chosen by a model. The `clarifier` agent group is
   # unchanged, so a per-org model override still re-points it.
@@ -1072,7 +1072,11 @@ workflow:
     llm: clarifier_llm
     planner_llm: clarifier_llm
     max_turns: 3
-    enable_plan_approval: true
+    # ADR-0068: the plan is drafted without asking and shown on the run block;
+    # `auto` starts the run after plan_grace_seconds unless the reader holds
+    # or edits it, `ask` waits for Starten, `off` drafts no plan.
+    plan_approval: auto
+    plan_grace_seconds: 45
     log_response_max_chars: 2000
     verbose: true
   use_async_deep_research: true

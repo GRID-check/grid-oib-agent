@@ -35,6 +35,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
+| `research-plans.ts` | `research_plans` — the plan a deep research waits on (migration 0092, ADR-0068) |
 
 ---
 
@@ -577,6 +578,40 @@ export const userPreferences = pgTable('user_preferences', {
 | `prefs` | `jsonb` | NOT NULL, DEFAULT `{}` | Arbitrary user preferences |
 
 ---
+
+## research_plans (migration 0092, ADR-0068)
+
+The plan a deep research is about, as one row the clarifier, the reader and the
+worker all read. It used to be prose in an agent message and a chat reply the
+reader owed; the run now waits on this row instead.
+
+- **Columns:** `id` (uuid), `organization_id`, `project_id` (FK `projects`,
+  cascade), `conversation_id` (the thread it was proposed in), `run_id` (the
+  `task_runs` row it was commissioned into; text, no FK, because the plan is
+  created before the run and outlives it), `author` (`agent` | `user`),
+  `status`, `question`, `title`, `sections` (jsonb, 1–12 strings), `genre`,
+  `depth`, `grundlage` / `ausgeschlossen` (jsonb, resolved documents, ≤20 each),
+  `nur_grundlage` (boolean, migration 0093: the reader's own documents are
+  confined to the Grundlage),
+  `data_sources` (jsonb, the Rahmen, null keeps the worker's default),
+  `unterlagen` (jsonb, the inventory the plan was drafted against, ≤200),
+  `starts_at`, `held_at`, `approved_at`, `started_at`, `created_by`,
+  `created_at`, `updated_at`.
+- **Lifecycle:** `proposed` (with a clock, `starts_at`) → `held` (no clock) →
+  `approved` → `started`, or `superseded`. `started` is read-only.
+- **CHECKs:** the status, author, genre and depth vocabularies, derived from
+  the tuples in `lib/plans/plan-types.ts`; `research_plans_held_has_no_clock`
+  (`status <> 'held' OR starts_at IS NULL`); and
+  `research_plans_nur_has_grundlage` (`NOT nur_grundlage OR
+  jsonb_array_length(grundlage) > 0`), so a plan can never confine a run to
+  none of the reader's documents.
+- **Indexes:** `(project_id, created_at)`, `(organization_id)`, and the partial
+  `idx_research_plans_run_id` (`WHERE run_id IS NOT NULL`), migration-only.
+- **RLS:** secured like `task_runs`: the organization AND the project's
+  organization.
+- **Pointers:** the run's message carries `metadata.plan_id`; the run row's
+  `plan.research` is a frozen copy (id, title, genre, depth, sections) for the
+  task card.
 
 ## Database Relationships
 

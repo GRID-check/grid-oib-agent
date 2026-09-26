@@ -103,7 +103,9 @@ export function StageTrack({
             data-stage={stage}
             data-done={done || undefined}
             className={cn(
-              'h-1 flex-1 rounded-full',
+              // A stage filling in is a change of colour and weight, so it
+              // tweens — never springs (no chroma from motion).
+              'h-1 flex-1 rounded-full transition-[background-color,opacity,border-color] duration-base ease-out motion-reduce:transition-none',
               done && TONE_FILL[tone],
               !done && 'bg-border',
               // The segment the subject is IN: the same fill at half weight. A

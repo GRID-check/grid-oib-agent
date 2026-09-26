@@ -41,8 +41,8 @@ vi.mock('@/features/runs/hooks/use-run-ledger', () => ({
 // The run block's document chips read the project inventory over HTTP; nothing
 // here opens one, and an unmocked listing would reach for a server that is not
 // there.
-vi.mock('@/features/runs/hooks/use-project-inventory', () => ({
-  useProjectInventory: () => ({ documents: null, loading: false }),
+vi.mock('@/features/documents/hooks/use-document-library', () => ({
+  useDocumentLibrary: () => ({ documents: null, folders: [], loading: false }),
 }))
 vi.mock('@/features/runs/components/RunBlock', () => ({
   RunBlock: ({ ledger, title }: { ledger: { status: string }; title?: string | null }) => (

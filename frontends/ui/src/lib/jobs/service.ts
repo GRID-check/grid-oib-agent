@@ -541,6 +541,12 @@ export interface AgentRunSpec {
   clarifierResult?: string | null
   /** The Unterlagen the reader named on the plan card. */
   documents?: PlanDocuments | null
+  /**
+   * The research plan the run waits on (ADR-0068). The worker claims its
+   * start by this id and reads the plan then; the run's message carries it
+   * so the block can show the plan from the first second.
+   */
+  planId?: string | null
 }
 
 /**
@@ -604,6 +610,7 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
     run_id: spec.runId,
     ...(spec.clarifierResult ? { clarifier_result: spec.clarifierResult } : {}),
     ...(spec.documents ? { documents: spec.documents } : {}),
+    ...(spec.planId ? { plan_id: spec.planId } : {}),
     data_sources: withAlwaysOnSources(spec.dataSources ?? null),
     collection_scope: collectionScope,
     project_context: projectContext,
@@ -636,7 +643,7 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
 
   const { jobId } = await submitJob(payload, contextHeaders)
   const runMessageId = conversationId
-    ? await mintRunMessage(conversationId, spec.runId, spec.title)
+    ? await mintRunMessage(conversationId, spec.runId, spec.title, spec.planId ?? null)
     : null
   return { backendJobId: jobId, conversationId, runMessageId }
 }
@@ -654,9 +661,10 @@ async function mintRunMessage(
   conversationId: string,
   runId: string,
   title: string | null,
+  planId: string | null,
 ): Promise<string | null> {
   try {
-    const message = await createRunMessage(conversationId, runId, { title })
+    const message = await createRunMessage(conversationId, runId, { title, planId })
     return message.id
   } catch (err) {
     console.warn('[runs] could not create the run message for run', runId, err)

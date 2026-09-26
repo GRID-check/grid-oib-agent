@@ -231,6 +231,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
             conversationId={currentConversationId ?? null}
             isCollaborationEnabled={canCollaborate}
             currentUserId={currentUserId}
+            projectId={projectId ?? null}
           />
 
           {isMobile && peekedFile && previewMode !== 'modal' && previewMode !== 'expanded' && (

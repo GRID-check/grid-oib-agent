@@ -20,6 +20,8 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
 from aiq_agent.common.plan_documents import PlanDocuments
+from aiq_agent.common.research_plan import PlanStart
+from aiq_agent.common.research_plan import ResearchPlanDraft
 from aiq_agent.knowledge import AvailableDocument
 
 #: Which path a turn took. ``meta`` and ``shallow`` are OBSERVED off the
@@ -80,6 +82,10 @@ class ConversationState(BaseModel):
     # full, Ausgeschlossen never to use), resolved against this turn's
     # inventory. Set with the hand-off, carried onto the run beside the text.
     plan_documents: PlanDocuments | None = None
+    #: The plan the clarifier drafted (ADR-0068). Posted as the plan the run
+    #: waits on; rendered and run at once on the inline path.
+    plan_draft: ResearchPlanDraft | None = None
+    plan_start: PlanStart | None = None
     original_query: str | None = None
     available_documents: list[AvailableDocument] | None = None
     in_flight_documents: list[str] | None = None

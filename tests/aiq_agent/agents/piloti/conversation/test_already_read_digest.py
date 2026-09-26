@@ -117,7 +117,7 @@ class TestDigestTravelsTheGraph:
         async def clarifier(request):
             from aiq_agent.agents.piloti.models import ClarifyResult
 
-            return ClarifyResult(research_context="Kontext", outcome="approved")
+            return ClarifyResult(research_context="Kontext")
 
         agent = ConversationGraph(research_fn=escalating, deep_research_fn=deep, clarifier_fn=clarifier)
         result = await agent.run(ConversationState(messages=[HumanMessage(content="Vergleich?")]))

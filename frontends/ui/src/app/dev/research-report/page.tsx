@@ -2,7 +2,8 @@
 
 /**
  * Dev preview for what a reader steers a deep research with, and what it hands
- * back: the Rechercheplan checklist (its „Unterlagen wählen" opens the picker),
+ * back: the Rechercheplan checklist (its document step opens the picker, which
+ * lists nothing here: nothing is fetched; `/dev/run-plan` routes a listing),
  * and the report's
  * Befundmatrix in both of its forms — a table that judged (Befunde, with a
  * status per row) and one that only compared (Ergebnisse, no status column).
@@ -15,7 +16,7 @@ import { useState, type ReactNode } from 'react'
 import { notFound } from 'next/navigation'
 
 import { FindingsMatrix } from '@/features/chat/components/FindingsMatrix'
-import { PlanChecklist, type PlanShape } from '@/features/chat/components/PlanChecklist'
+import { PlanChecklist, type PlanShape } from '@/features/runs/components/PlanChecklist'
 import { I18nProvider } from '@/i18n'
 import type { Findings } from '@/lib/conversations/message-findings'
 import type { PlanDocument } from '@/lib/runs/plan-documents'
@@ -40,6 +41,7 @@ const PLAN: PlanShape = {
   depth: 'kurzpruefung',
   grundlage: ['Brandschutzkonzept_v3.pdf', 'Einreichplan_EG.pdf'],
   ausgeschlossen: ['Stellungnahme_MA37_alt.pdf'],
+  nurGrundlage: false,
   unterlagen: UNTERLAGEN,
 }
 
@@ -90,10 +92,12 @@ const Section = ({ label, children }: { label: string; children: ReactNode }) =>
 )
 
 export default function ResearchReportPreviewPage() {
+  // Hooks first: a hook after a conditional exit is called on some renders and
+  // not others, which is what the rules of hooks forbid.
+  const [plan, setPlan] = useState<PlanShape>(PLAN)
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }
-  const [plan, setPlan] = useState<PlanShape>(PLAN)
 
   return (
     <I18nProvider initialLocale="de" fixedLocale>

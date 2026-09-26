@@ -76,16 +76,17 @@ class TestClarifierSettings:
         assert first.tools == [] and first.tools is not second.tools
 
     def test_the_field_names_are_the_ones_the_yaml_already_used(self):
-        """The block moved onto the workflow; the keys inside it did not change,
-        so an existing deployment re-indents its YAML and nothing else."""
+        """The keys the YAML block takes. ``enable_plan_approval`` became
+        ``plan_approval`` with ADR-0068; the old key is still read (see
+        ``test_a_yaml_predating_the_plan_primitive_still_means_auto``)."""
         assert set(ClarifierSettings.model_fields) == {
             "llm",
             "planner_llm",
             "tools",
             "exclude_tools",
             "max_turns",
-            "enable_plan_approval",
-            "max_plan_iterations",
+            "plan_approval",
+            "plan_grace_seconds",
             "log_response_max_chars",
             "verbose",
         }

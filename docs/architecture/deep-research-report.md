@@ -44,16 +44,46 @@ Every string is bounded on both sides, because the payload is jsonb and a table.
 
 ## The Rechercheplan, before the run
 
-With plan approval on (`configs/*.yml` `enable_plan_approval`), the plan preview
-carries the plan as data beside its text (a `plan_json` fence the client strips),
-and the bubble renders it as controls (`PlanChecklist.tsx`): the sections as a
-list the reader can strike and extend, the genre (`pruefbericht`,
-`aktenvermerk`, `vergleich`, `checkliste`, `bericht`) and the depth
-(`kurzpruefung`, `gutachten`) as choices. An untouched plan approves with the
-bare keyword; an edited one sends the keyword and the edits as JSON
-(`clarify.parse_plan_reply`, `apply_plan_edits`). The decision model
-pre-selects genre and depth before the planner runs (`plan_decisions.py`), and
-the planner is told.
+The plan is a row of its own, `research_plans`, with one HTTP API that the
+clarifier, the reader and the worker all use (ADR-0068). Nobody owes it a
+reply. The path of an escalated question:
+
+1. The clarifier asks its clarifying questions, if any, then drafts the plan
+   (`clarify.draft_plan`): sections, genre (`pruefbericht`, `aktenvermerk`,
+   `vergleich`, `checkliste`, `bericht`), depth (`kurzpruefung`, `gutachten`),
+   the documents to read and the ones to leave out. The decision model
+   pre-selects genre and depth before the planner runs (`plan_decisions.py`).
+2. The turn posts the plan and its run in one call (`POST /api/internal/tasks`,
+   op `plan`, `turn/commission.commission_planned_run`). The run's block
+   appears in the thread at once and carries the plan's id (`metadata.plan_id`).
+3. The block shows the plan (`RunPlan.tsx`). Under `plan_approval: auto` it
+   counts down `plan_grace_seconds` and the run starts on its own; „Anpassen"
+   stops the clock and opens the plan as controls (`PlanChecklist.tsx`), every
+   edit is a `PATCH`, and „Starten" approves. Under `plan_approval: ask` the
+   plan is held from the start.
+4. The worker takes its slot and waits on the plan
+   (`aiq_api/jobs/plan_start.py`), asking `POST /api/internal/plans/{id}/start`
+   until the plan may start. While the plan is held the ledger reads `wartet`,
+   the status for a run waiting on a person; a countdown waits on nobody and
+   leaves it `angelegt`, so no inbox row appears for an ordinary run. The plan
+   it is handed then is the plan it runs, rendered into the same prompt text
+   every deep-research prompt reads (`common/research_plan.render_plan_context`).
+   Once started the plan is read-only.
+
+„Bericht fortschreiben" on a run that had a plan carries that plan forward:
+the new run's plan keeps the sections, genre, depth, Rahmen and exclusions,
+adds the report's cited documents to its Grundlage, and is proposed with the
+usual countdown (`carry-forward.continuationPlan`). A run without a plan
+continues as before.
+
+A reader can also write a plan from nothing: „Recherche planen" in the thread
+header opens the same controls in a dialog (`PlanDialog.tsx`), and the plan is
+created approved, so its run starts at once. The task card shows the plan as one
+line (genre, depth, number of sections) from a copy frozen onto the run row
+(`TaskPlan.research`).
+
+Without a worker, the drafted plan runs in process as drafted: there is no
+block to edit it on.
 
 The approved plan is binding: it reaches the orchestrator, the planner and the
 writer (`factory.py` `prompt_values`); the sections become the required
@@ -63,12 +93,35 @@ Prüfpunkt in a fixed shape, which is also what the findings extraction reads.
 
 ### Unterlagen: what the run reads, and what it may not
 
-The plan card names documents as well as sections. The fence carries the turn's
-inventory (`unterlagen`, the project's and the Archiv's documents by name,
-title and shelf), and a dialog over the card (`UnterlagenDialog.tsx`, mode
-`pick`) lets the reader mark each one:
+The plan names documents as well as sections. By default a deep research may
+read every document it can find, and naming documents is optional. The plan
+carries the turn's inventory (`unterlagen`, the project's and the Archiv's
+documents by name, title and shelf). Its document step (`PlanUnterlagen.tsx`,
+on the block and in „Recherche planen") opens the document picker
+(`DocumentPickerDialog`, [`run-block.md`](../design/run-block.md#the-document-picker)),
+which offers the whole project listing with its folders and the Büroarchiv,
+loaded when a picker first opens. A document picked from that listing travels
+with the edit (`edit.unterlagen`),
+so an agent's plan drafted without an inventory can still be told what to
+read. By default the research reads everything it was given; the step says
+so, naming the sources. Choosing documents narrows it in two steps:
 
-- **Grundlage** — read in full, whatever else the research finds. The planner
+- **Zuerst gelesen**, the default for a choice. A chosen document is read
+  first and in full, and the research still reads anything else it finds.
+- **Nur diese** (`nurGrundlage`, the „Nur diese verwenden" checkbox in the
+  picker's footer). Of the reader's own documents on the
+  project, Archiv and chat shelves, the research uses the marked ones and no
+  other. `SourceRegistryMiddleware` enforces it: a passage from one of those
+  shelves that is not in the Grundlage is refused before it becomes a source.
+  Norms and laws on the base shelf and the web stay available, and so does a
+  passage whose shelf nobody stated, because refusing it could refuse a norm.
+  The switch is never on without a Grundlage: the table's CHECK
+  (`research_plans_nur_has_grundlage`) holds that, and the BFF and both
+  sanitisers drop the switch with the last document.
+
+What each mark does:
+
+- **Grundlage**: read in full, whatever else the research finds. The planner
   is told to plan one dedicated query per document; the finalizer marks any it
   never opened (`## Nicht gelesene Unterlagen`, degraded token
   `grundlage_unread`), and the block's receipt lists each one as read, with
@@ -82,19 +135,17 @@ title and shelf), and a dialog over the card (`UnterlagenDialog.tsx`, mode
   remains is the file NAME in the result's `## Trace-Lanes` line and in the
   Herleitung's raw tool step, not its text. An exclusion beats a Grundlage
   mark for the same name.
-- **Rahmen** — the composer's data-source toggles at the moment of approval,
-  shown as chips on the card and carried as `data_sources` in the approval.
+- **Rahmen** — the turn's data sources when the plan was drafted, named in
+  the document step's opening sentence. Fixed when the run is commissioned,
+  because the worker filters its tools by the sources it was submitted with.
 
-The names travel as `grundlage` / `ausgeschlossen` in the approval JSON
-(`clarify.apply_plan_edits`), are resolved against the inventory
-(`common/plan_documents.py` — `documents_from_plan`) and reach the worker as
-`documents` on the submission (`turn/commission.py`, the BFF's `TaskPlan`,
-`submitAgentRun`, `POST /v1/internal/skills/submit`) beside the approved plan
-as `clarifier_result`. `MAX_PLAN_DOCUMENTS` (20) bounds each list on every
-side.
+The plan names documents by file name, and the BFF resolves the names against
+the plan's own inventory once, for every client (`lib/plans/service.ts`
+`resolveNamedDocuments`). The worker reads the resolved lists off the plan it
+is handed at start. `MAX_PLAN_DOCUMENTS` (20) bounds each list on every side.
 
-While the run goes, „Dokument hinzufügen" on the block opens the same dialog
-in mode `add`: the addition travels as a job event
+While the run goes, „Dokument hinzufügen" on the block opens a dialog
+(the same `DocumentPickerDialog`, with documents already named ruled out): each addition travels as a job event
 (`POST /v1/jobs/async/job/{id}/documents` → `job.document_added`), the
 worker's monitor hands it to the research tool before its next batch
 (`deep_researcher/control.py` — `take_added_documents`, an

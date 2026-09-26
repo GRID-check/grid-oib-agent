@@ -822,6 +822,18 @@ class TestExcludedDocumentsNeverBecomeSources:
         )
         assert [e.citation_key for e in mw.get_source_entries()] == ["neu.pdf, p.2"]
 
+    def test_nur_diese_confines_the_readers_documents_and_leaves_the_norms(self):
+        """„Nur diese": of the reader's own shelves only the Grundlage; the base shelf and the web stay open."""
+        mw = SourceRegistryMiddleware(source_tool_names={"knowledge_search"}, only_file_names=["Plan.pdf"])
+        assert not mw.is_excluded(SourceEntry(citation_key="plan.pdf, p.2", shelf="project"))
+        assert mw.is_excluded(SourceEntry(citation_key="statik.pdf, p.1", shelf="project"))
+        assert mw.is_excluded(SourceEntry(citation_key="vorlage.pdf, p.1", shelf="archiv"))
+        assert mw.is_excluded(SourceEntry(citation_key="skizze.pdf, p.1", shelf="session"))
+        assert not mw.is_excluded(SourceEntry(citation_key="OIB-RL 2.pdf, p.4", shelf="base"))
+        assert not mw.is_excluded(SourceEntry(url="https://www.ris.bka.gv.at/x", title="BO Wien"))
+        # A shelf nobody stated is not refused: it could be a norm.
+        assert not mw.is_excluded(SourceEntry(citation_key="unklar.pdf, p.1"))
+
     @pytest.mark.asyncio
     async def test_the_model_never_reads_an_excluded_passage(self):
         """Refusing the source is not enough: the ToolMessage is what the researcher reads."""
@@ -845,6 +857,29 @@ class TestExcludedDocumentsNeverBecomeSources:
         assert "## Query: Fluchtweg" in result.content and result.content.count("## Trace-Lanes") == 2
         assert (result.tool_call_id, result.id) == ("tc1", "m1")
         assert [s.citation_key for s in mw.registry.all_sources()] == ["neu.pdf, p.2"]
+
+    @pytest.mark.asyncio
+    async def test_the_model_never_reads_a_passage_nur_diese_confines_away(self):
+        """„Nur diese" cuts the reader's other documents from the result; a norm stays in it."""
+        mw = SourceRegistryMiddleware(source_tool_names={"knowledge_search"}, only_file_names=["plan.pdf"])
+        content = (
+            "--- Result 1 ---\nSource: statik.pdf\nShelf: project\nPage: 3\nCitation: statik.pdf, p.3\n"
+            "Relevance Score: 0.90\n\nFremder Absatz.\n\n"
+            "--- Result 2 ---\nSource: plan.pdf\nShelf: project\nPage: 2\nCitation: plan.pdf, p.2\n"
+            "Relevance Score: 0.85\n\nPlan-Text.\n\n"
+            "--- Result 3 ---\nSource: OIB-RL 2.pdf\nShelf: base\nPage: 4\nCitation: OIB-RL 2.pdf, p.4\n"
+            "Relevance Score: 0.80\n\nNorm-Text.\n\n## Trace-Lanes\n{}\n"
+        )
+        handler = AsyncMock(return_value=ToolMessage(content=content, tool_call_id="tc1"))
+
+        result = await mw.awrap_tool_call(self._make_request("knowledge_search"), handler)
+
+        assert "Fremder Absatz" not in result.content
+        assert "Plan-Text." in result.content and "Norm-Text." in result.content
+        assert sorted(s.citation_key for s in mw.registry.all_sources()) == ["OIB-RL 2.pdf, p.4", "plan.pdf, p.2"]
+        # Remembered, so a lane hit or a streamed citation naming it is refused too.
+        assert mw.is_excluded_locator("statik.pdf, p.3")
+        assert not mw.is_excluded_locator("OIB-RL 2.pdf, p.4")
 
     @pytest.mark.asyncio
     async def test_a_result_with_nothing_excluded_is_returned_as_it_came(self):

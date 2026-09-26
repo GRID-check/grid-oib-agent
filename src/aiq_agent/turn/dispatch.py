@@ -19,6 +19,7 @@ from typing import Protocol
 from aiq_agent.common import get_latest_user_query
 from aiq_agent.turn.api_seam import async_job_dispatch
 from aiq_agent.turn.commission import CommissionedRun
+from aiq_agent.turn.commission import commission_planned_run
 from aiq_agent.turn.commission import commission_research_run
 
 if TYPE_CHECKING:
@@ -67,6 +68,12 @@ def build_run_commissioner(config: DispatchSettings) -> RunCommissioner | None:
     logger.info("An escalated question is commissioned as a run (dispatch=%s)", dispatch)
 
     async def _commission(state: ConversationState) -> CommissionedRun:
+        # A drafted plan is posted as the plan the run waits on (ADR-0068);
+        # the reader edits, holds or starts it on the block.
+        if state.plan_draft is not None:
+            return await commission_planned_run(
+                state.plan_draft, start=state.plan_start, context=state.clarifier_result
+            )
         # What the clarifier settled travels with the question: the run starts
         # where the conversation got to, instead of asking it all again.
         return await commission_research_run(

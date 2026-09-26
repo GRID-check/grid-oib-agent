@@ -139,6 +139,127 @@ rounds reached, derived from the steps (`grundlageReceipt`) — or not yet read.
 The ledger's `grundlage` field is the list; the loci are never stored twice.
 A row opens the document as a dialog over the thread, never a pane beside it.
 
+## The plan on the block
+
+A run commissioned with a research plan shows it first in its body
+(`RunPlan.tsx`, ADR-0068), because what the run is about comes before what it
+did. One row, three readings, and none of them is a question:
+
+- **Proposed** — the brief at a glance: the genre's glyph in a well, the
+  plan's title (up to two lines), a line of facts (genre, depth, sections,
+  „n zuerst gelesen" or „nur n Unterlagen", exclusions), the first four sections as a numbered outline and
+  the named documents in their provenance colours, over a bar draining toward
+  the start. Doing nothing is
+  a complete answer: the run starts on its own. „Anpassen" stops the clock and
+  opens the plan as controls; „Jetzt starten" skips the wait.
+- **Held** — the plan open as three steps, each titled by what it decides and
+  with one line on what deciding it does: *Was der Bericht behandelt* (the
+  outline with its add row, and suggestions for the chosen genre that skip
+  what the outline already covers), *Wie er aussieht* (genres as
+  `ChoiceCard`s, a radio group; depth as a segmented choice) and *Was Piloti
+  liest* (optional, below). The steps carry no numerals: the outline beneath
+  them is numbered, and two counters in one column read as one. Every edit is
+  saved as it is made, applied to the block at once (`applyPlanEdit`) so the
+  next edit is diffed against it; the status line says so, in the same line
+  that says where the plan stands. „Starten" sits both in the header and at
+  the end of the plan, where the reader finished. The ledger reads `wartet`
+  meanwhile, so the header's clock stops and the inbox tells the requester.
+- **Started** — the brief the run is running, folded and read-only.
+
+A plan the reader wrote in „Recherche planen" reads „Ihr Rechercheplan" and
+starts at once. The dialog asks the question first and then shows the same
+steps; its document step names the sources the composer has switched on. An empty outline offers the genre's ready outline in one press. Beside
+the steps a preview shows the brief as the block will show it. The footer
+ticks off what is still missing (a question, a section), so the reader is not
+left guessing why the button is grey. The pieces are the plan's own atom kit
+(`features/runs/components/plan-atoms.tsx`) and `PlanBrief.tsx`; the block and
+the dialog compose the same ones.
+
+### What Piloti reads
+
+The document step is optional and opens as a sentence, not a setting:
+„Piloti durchsucht [Wissensbasis] [Projektunterlagen] und wählt selbst, was
+zur Frage passt." The chips are the sources the run was commissioned with, so
+„alles" has a name. Nothing in the step needs touching for that to happen.
+
+Then one action, „Bestimmte Unterlagen zuerst lesen …", opens the document
+picker. The chosen documents are read in full before anything else, and show
+as chips under „Zuerst gelesen:". In the picker's footer one checkbox, „Nur
+diese verwenden", narrows it: of the reader's own documents the run uses only
+these, while norms and laws stay available. The chips then read „Nur diese:",
+with a line saying what stays available. The choice sits beside the documents
+it is about, not in a scope switch the reader must understand first.
+
+Excluding is rare, so it sits behind the product's one disclosure
+(`Advanced`), whose trigger says „· 1 ausgeschlossen" when something is set.
+Exclusions stay when „Nur diese" is on; the note says they have no effect
+while it holds. Striking the last chip under „Nur diese" lifts „Nur diese"
+with it.
+
+### How the plan moves
+
+Every motion below comes from the kit (`components/motion`) and the rules in
+[`grid-design-language.md`](grid-design-language.md#motion-vocabulary); the
+atoms carry it (`features/runs/components/plan-atoms.tsx`), so the block and
+„Recherche planen" move the same way.
+
+| What happens | How it moves | Why |
+|---|---|---|
+| The grace runs down | The bar drains once, linearly, over the seconds left (`motionCountdown`) | A clock passes time at a constant rate. Stepping it once a second on a 320ms tween read as a stutter |
+| The clock stops, the plan is held or started | The bar fades out; the status line swaps (`Swap`) | A new state in the same place. The line swaps with the status, not with every tick |
+| „Anpassen" | The editor is there at once, the brief fades out over it (`Swap`, `popLayout`) | Waiting out an exit would read as the press not landing |
+| „Anpassen" leaves, „Starten" takes its place | Each action fades in or out; the other glides over (`PlanAction`) | The reader sees which control went and which stayed |
+| A section is added, struck or taken from a suggestion | The row rises in where it lands; a struck row folds away left; the rows below glide up (`layout`, `motionBase`) | The travel is a row, not a panel, so a tween; the glide shows which one went |
+| The outline first paints | A capped cascade (`staggerMaxSteps`) | A reading cue, finished inside 200ms |
+| A genre is chosen | The card's check lands (`ChoiceCard`) and the well's glyph on `springSnap` | A mark landing under the hand, under 24px of travel |
+| Depth | The chosen segment's pill travels (`ToggleGroup`, `springGlide`) | The same segmented control as everywhere else |
+| A document is named or struck | The chip fades and scales in or out, its neighbours glide (tweens only) | Provenance is evidence: it never springs |
+| A requirement in the dialog is met | Its tick lands on `springSnap` | Confirmation of the reader's own input |
+
+Reduced motion drops all of it: the kit's `MotionConfig` zeroes transforms, the
+cascade's delays go to zero (`useReducedMotion`), the countdown bar shows how
+much is left without draining, and every state still reads from its words.
+
+## The document picker
+
+Every place that asks the reader to name documents opens the same modal: the
+plan's „zuerst lesen" (with „Nur diese verwenden") and its exclusions,
+„Unterlage hinzufügen" on a running block, and whatever asks next
+(`features/documents/components/document-picker/DocumentPickerDialog.tsx`,
+preview at `/dev/document-picker`).
+
+It is the Files browser in a dialog, not a second one. The listing is
+`FileBrowserPane` with a `selection` (`features/documents/lib/file-selection.ts`):
+the same `FileCard`s with their real page thumbnails
+(`/api/documents/{id}/thumbnail`, falling back to the kind sketch), the same
+detail list (`FileListView`) with its sortable columns, the same folder cards,
+path row and back control, the same search, empty states and level motion.
+Folders are browsed read-only: without the rename, delete and create handlers
+the folder atoms show no menu and no „Neuer Ordner". What the picker adds is
+only what a picker is:
+
+- **Places** on the left: the project, the Büroarchiv (when the organization
+  has one), and Ausgewählt, which lists what is chosen across both. On a phone
+  the places become a row under the toolbar.
+- **A checkbox on every document**, top right on a card, a leading column in
+  the list. A click on the card toggles it too. A document the caller rules
+  out („Ausgeschlossen", „Zuerst gelesen", „benannt") says why in place of its
+  summary and cannot be checked.
+- **Footer**: how many are chosen, „Auswahl aufheben", the caller's own
+  control (`PickerFooterCheck`), „Abbrechen" and the caller's button.
+  Confirming an empty choice is allowed when it is a change: that is how a
+  list is cleared.
+
+A single-choice picker confirms on the click. How it moves (`picker-atoms.tsx`):
+the places' highlight is one element that travels to the place chosen
+(`springGlide`), as the app rail's does; everything in the listing moves as
+the Files browser moves; „Auswahl aufheben" fades in with a selection and out
+without one.
+
+The picker knows nothing of what a choice means; the caller names the button
+and the reasons. Its listing comes from `useDocumentLibrary`, read only while
+a picker is open.
+
 ## The actions
 
 One action fits each state — „Antworten", „Prüfen", „Bericht öffnen", „Erneut

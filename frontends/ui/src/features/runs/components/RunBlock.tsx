@@ -184,6 +184,11 @@ export interface RunBlockProps {
    * re-commissioning the work from scratch. Offered on a finished report only.
    */
   onContinue?: (() => void | Promise<void>) | null
+  /**
+   * The plan the run waits on (ADR-0068), rendered first in the body: what
+   * the run is about before what it did.
+   */
+  plan?: ReactNode
   /** fertig & unreviewed: „Prüfen". */
   reviewHref?: string | null
   /** fertig & reviewed: „Bericht öffnen". */
@@ -530,6 +535,7 @@ export function RunBlock({
   onAddDocument,
   onOpenDocument,
   onContinue,
+  plan,
   connection,
   reviewHref,
   reportHref,
@@ -874,6 +880,7 @@ export function RunBlock({
               className="overflow-hidden"
               data-testid="run-body"
             >
+              {plan}
               {/* The receipt: every document the reader named, read (with where)
                   or not. Above the rounds, because it is the promise the rounds
                   are measured against. */}

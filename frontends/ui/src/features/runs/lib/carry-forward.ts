@@ -13,6 +13,13 @@ import {
   type PlanDocument,
   type PlanDocuments,
 } from '@/lib/runs/plan-documents'
+import type { CreatePlanInput } from '@/lib/plans/plan-client'
+import {
+  MAX_PLAN_INVENTORY_ROWS,
+  MAX_PLAN_QUESTION_CHARS,
+  MAX_PLAN_TITLE_CHARS,
+  type ResearchPlan,
+} from '@/lib/plans/plan-types'
 
 export interface RunBrief {
   question: string
@@ -102,4 +109,41 @@ export function previousRunFindings(
     if (candidate?.runLedger && candidate.findings) return candidate.findings
   }
   return undefined
+}
+
+/**
+ * A continuation as a plan (ADR-0068): the last run's plan carried forward —
+ * its sections, genre, depth, Rahmen and exclusions — with the report's cited
+ * documents added to its Grundlage and the earlier findings as context. It is
+ * proposed with a countdown, so the new block shows it and the reader may
+ * adjust it, or not.
+ */
+export function continuationPlan(
+  brief: RunBrief,
+  previous: ResearchPlan,
+  conversationId: string
+): CreatePlanInput {
+  const cited = brief.documents?.grundlage ?? []
+  const grundlage = [...previous.grundlage.map((doc) => doc.name), ...cited.map((doc) => doc.name)].filter(
+    (name, index, all) => all.findIndex((other) => other.toLocaleLowerCase() === name.toLocaleLowerCase()) === index
+  )
+  const unterlagen = [...previous.unterlagen, ...cited].filter(
+    (doc, index, all) => all.findIndex((other) => other.name === doc.name) === index
+  )
+  return {
+    conversationId,
+    question: brief.question.slice(0, MAX_PLAN_QUESTION_CHARS),
+    title: `Fortschreibung: ${previous.title}`.slice(0, MAX_PLAN_TITLE_CHARS),
+    sections: [...previous.sections],
+    genre: previous.genre,
+    depth: previous.depth,
+    grundlage: grundlage.slice(0, MAX_PLAN_DOCUMENTS),
+    ausgeschlossen: previous.ausgeschlossen.map((doc) => doc.name),
+    // A plan confined to its documents stays confined; the cited ones join them.
+    nurGrundlage: previous.nurGrundlage,
+    dataSources: previous.dataSources,
+    unterlagen: unterlagen.slice(0, MAX_PLAN_INVENTORY_ROWS),
+    ...(brief.context ? { context: brief.context } : {}),
+    countdown: true,
+  }
 }

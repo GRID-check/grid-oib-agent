@@ -282,12 +282,20 @@ def test_the_settled_plan_and_the_unterlagen_reach_the_worker(client, prod_token
     assert kwargs["documents"] == documents
 
 
+def test_the_plan_a_run_waits_on_reaches_the_worker(client, prod_token, submit_mock):
+    """ADR-0068: the worker claims the plan's start by this id before the agent runs."""
+    resp = _post(client, _valid_body(plan_id="plan-1"))
+    assert resp.status_code == 200
+    assert submit_mock.await_args.kwargs["plan_id"] == "plan-1"
+
+
 def test_a_run_that_settled_nothing_sends_neither(client, prod_token, submit_mock):
     resp = _post(client, _valid_body())
     assert resp.status_code == 200
     kwargs = submit_mock.await_args.kwargs
     assert kwargs["clarifier_result"] is None
     assert kwargs["documents"] is None
+    assert kwargs["plan_id"] is None
 
 
 def test_successful_submit_forwards_identity_and_scope(client, prod_token, submit_mock):

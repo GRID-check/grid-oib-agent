@@ -13,6 +13,7 @@
  * two ends from drifting.
  */
 
+import type { TaskPlanResearch } from '@/lib/db/schema'
 import type { RunStatus } from '@/lib/runs/run-ledger-types'
 import type {
   TaskKind,
@@ -28,6 +29,8 @@ export interface TaskWireRow {
   title: string
   /** What the requester asked for, in their words. Null for a scheduled run. */
   goal: string | null
+  /** The research plan the run waits on, as frozen on the row (ADR-0068). Null for every other run. */
+  research?: TaskPlanResearch | null
   status: TaskRunStatus
   /** How a person judged the result. Null until somebody did. */
   review: TaskReview | null

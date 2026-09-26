@@ -1,5 +1,15 @@
 /** files namespace — populated during component i18n. */
 export const files = {
+  picker: {
+    placesLabel: 'Places',
+    places: { project: 'Project', archiv: 'Office archive', selected: 'Selected' },
+    choose: 'Select {name}',
+    nothingSelected: 'Nothing selected',
+    selectedCount: '{count, plural, one {# document} other {# documents}} selected',
+    clear: 'Clear selection',
+    cancel: 'Cancel',
+  },
+
   uploadZone: {
     clickToUpload: 'Click to upload',
     orDragAndDrop: ' or drag and drop',
@@ -306,6 +316,7 @@ export const files = {
   // Explorer detail view — column headings for the sortable listing.
   list: {
     columns: {
+      choose: 'Select',
       relevance: 'Relevance',
       name: 'Name',
       status: 'Status',

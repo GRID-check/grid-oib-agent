@@ -81,6 +81,8 @@ const BOUNDARY_MIGRATIONS = [
   // a set one is that org's own, so the predicate carries a NULL arm.
   // Renumbered from 0087: develop took 0087 and 0088 first.
   '0089_skill_categories.sql',
+  // Adds research_plans — the plan a deep research is about (ADR-0068). Project-scoped tenant data, secured the way task_runs is.
+  '0092_research_plans.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

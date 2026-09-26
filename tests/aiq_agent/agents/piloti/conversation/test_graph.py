@@ -67,7 +67,7 @@ class TestConversationGraph:
         """A clarification step that asked its questions and got a plan approved."""
 
         async def clarifier(request):
-            return ClarifyResult(research_context="User clarified: technical focus", outcome="approved")
+            return ClarifyResult(research_context="User clarified: technical focus")
 
         return clarifier
 
@@ -394,7 +394,7 @@ class TestRoutingBoundary:
 
         async def clarifier(request):
             calls["clarifier"] = True
-            return ClarifyResult(research_context="clarified", outcome="approved")
+            return ClarifyResult(research_context="clarified")
 
         return calls, research_answering, deep, clarifier
 
@@ -686,7 +686,7 @@ class TestTheWholeTurnIsWrittenBack:
             return DeepResearchAgentState(messages=list(state.messages))
 
         async def clarifier(request):
-            return ClarifyResult(research_context="", outcome="approved")
+            return ClarifyResult(research_context="")
 
         graph = ConversationGraph(research_fn=research, deep_research_fn=deep, clarifier_fn=clarifier)
         call = {"name": "read_passage", "args": {"document": "OIB-RL 2"}, "id": "c1"}

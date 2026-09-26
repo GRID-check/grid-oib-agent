@@ -256,3 +256,23 @@ describe('stagger cap', () => {
     expect(delayFor(30)).toBeLessThanOrEqual(motionBase.duration as number)
   })
 })
+
+describe('motionCountdown — the one linear one-shot', () => {
+  it('drains at the rate time passes, over exactly the seconds left, never backwards', async () => {
+    const { motionCountdown } = await import('./index')
+    expect(motionCountdown(37)).toEqual({ duration: 37, ease: 'linear' })
+    expect(motionCountdown(-2)).toEqual({ duration: 0, ease: 'linear' })
+  })
+})
+
+describe('Swap', () => {
+  it('shows the content for the current key, and replaces it when the key changes', async () => {
+    const { render, screen, waitFor } = await import('@testing-library/react')
+    const { Swap } = await import('./index')
+    const { rerender } = render(<Swap swapKey="a">first</Swap>)
+    expect(screen.getByText('first')).toBeInTheDocument()
+    rerender(<Swap swapKey="b">second</Swap>)
+    await waitFor(() => expect(screen.getByText('second')).toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('first')).toBeNull())
+  })
+})

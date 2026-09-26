@@ -460,6 +460,11 @@ export interface ChatMessage {
    */
   runTitle?: string
   /**
+   * The research plan this run waits on (`metadata.plan_id`, ADR-0068). The
+   * block fetches the plan by it and shows it as controls until the run starts.
+   */
+  planId?: string
+  /**
    * The WS turn id (`parent_id`) this answer belongs to
    * (`docs/architecture/post-answer-stages.md` §1.6, §4.1).
    *

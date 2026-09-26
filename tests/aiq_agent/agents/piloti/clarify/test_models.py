@@ -187,22 +187,18 @@ class TestClarifyRequest:
 
 
 class TestClarifyResult:
-    """One outcome, one finished string — no booleans that can disagree."""
+    """The transcript, and the plan when planning is on — no verdict to route on (ADR-0068)."""
 
-    def test_no_plan_was_shown(self):
-        """Plan approval off: the questions were asked, deep research proceeds."""
+    def test_no_plan_was_drafted(self):
+        """Planning off: the questions were asked, deep research proceeds."""
         result = ClarifyResult(research_context="Turn 1")
 
-        assert result.outcome is None
+        assert result.plan is None and result.draft is None and result.start is None
         assert result.research_context == "Turn 1"
-
-    @pytest.mark.parametrize("outcome", ["approved", "shallow", "cancelled"])
-    def test_the_three_endings_are_one_value(self, outcome):
-        assert ClarifyResult(research_context="", outcome=outcome).outcome == outcome
 
     def test_it_is_frozen(self):
         """The caller routes on this; nothing downstream may edit it."""
         result = ClarifyResult(research_context="x")
 
         with pytest.raises(FrozenInstanceError):
-            result.outcome = "approved"  # type: ignore[misc]
+            result.research_context = "edited"  # type: ignore[misc]
