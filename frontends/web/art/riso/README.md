@@ -88,7 +88,7 @@ export is one integer time of the page.
 | `cover` | 720×405, 1440×810 | 3.4 / 6.8 | `cover` | site |
 | `spot` | 96², 192² | 3.4 / 6.8 | `spot` | site |
 | `empty` | 320², 640² | 3.4 / 6.8 | `empty` | site |
-| `email` | 600×120, 1200×240 PNG | 3.4 / 6.8 | `strip` | out |
+| `email` | 600×120, 1200×240 PNG | 3.4 / 6.8 | `strip` | site (mail clients load it from piloti.at) |
 | `social` | 1080² PNG | 5.0 | `sq` | out |
 | `linkedin` | 1584×396 PNG | 5.0 | `linkedin` | out |
 | `deck` | 1920×1080 PNG | 5.0 | `cover` | out |
