@@ -1509,24 +1509,11 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
       aria-label={label}
     >
       <span className="flex items-center gap-1 motion-reduce:hidden" aria-hidden="true">
-        <motion.span
-          className="bg-muted-foreground/70 size-1.5 rounded-full"
-          initial={{ y: 0, opacity: 0.4 }}
-          animate={{ y: [0, -2, 0], opacity: [0.4, 1, 0.4] }}
-          transition={{ ...motionQuick, repeat: Infinity, delay: 0 }}
-        />
-        <motion.span
-          className="bg-muted-foreground/70 size-1.5 rounded-full"
-          initial={{ y: 0, opacity: 0.4 }}
-          animate={{ y: [0, -2, 0], opacity: [0.4, 1, 0.4] }}
-          transition={{ ...motionQuick, repeat: Infinity, delay: 0.12 }}
-        />
-        <motion.span
-          className="bg-muted-foreground/70 size-1.5 rounded-full"
-          initial={{ y: 0, opacity: 0.4 }}
-          animate={{ y: [0, -2, 0], opacity: [0.4, 1, 0.4] }}
-          transition={{ ...motionQuick, repeat: Infinity, delay: 0.24 }}
-        />
+        {/* CSS, not a JS loop: transform and opacity run on the compositor,
+            so the dots cost the main thread nothing while a phone waits. */}
+        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full" />
+        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full [animation-delay:120ms]" />
+        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full [animation-delay:240ms]" />
       </span>
       <span
         className="text-muted-foreground/70 hidden text-xs motion-reduce:inline"

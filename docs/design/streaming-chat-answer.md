@@ -65,7 +65,7 @@ first delta left only after the answer was generated, verified, and sanitized.
 Since ADR-0066 that holds only for a turn with nothing streamed live (a
 buffered LLM, a reply that was not an envelope).
 
-**And the deltas carry no pace** — see [There is no typewriter](#there-is-no-typewriter).
+**And the deltas carry no pace**: the client paces the reveal, see [The reveal is paced, not typed](#the-reveal-is-paced-not-typed).
 
 ## Wire contract
 
@@ -162,23 +162,30 @@ Two folds consume these frames: the asker's store (`messages-store.ts`) and
 the observer's (`spectator-frames.ts`, via `GET /api/conversations/{id}/live`).
 Both must apply the same rules.
 
-**What a delta may cost.** Deltas are buffered and applied once per animation
-frame, and each flush replaces the open conversation in the store, so every
-subscriber to `currentConversation` or `conversations` re-renders and every
-persisted write runs once per flush. Two rules keep that to the answer bubble:
+**What a delta may cost.** Deltas are buffered and applied to the store every
+`DELTA_FLUSH_MS` (100 ms, `messages-store.ts`), and each flush replaces the
+open conversation in the store, so every subscriber to `currentConversation`
+or `conversations` re-renders once per flush. The flush used to run once per
+animation frame; on a 4× throttled CPU that was a 50–70 ms task every few
+frames. It can be this coarse because the reader does not see it: the answer
+paces its own reveal ([The reveal is paced](#the-reveal-is-paced-not-typed)).
+Three rules keep the rest to the answer bubble:
 
-- The persisted store writes a streaming answer at most once per
-  `STREAMING_PERSIST_INTERVAL_MS` (`sessions-store.ts`). Only the open
-  answer's growth waits: any other change in that window (a deletion, a
-  rename, a draft, a new session), and the settled answer, is written at
-  once, so a browser that dies inside the window cannot restore a deleted
-  conversation. A deferred write that fails is held for the next flush or
-  `pagehide`. A store update that leaves every persisted field the same
-  object (a loading flag, a thinking step) writes nothing and serializes
-  nothing. Before this, each flush pruned,
-  serialized and wrote the whole history; with forty conversations beside the
-  open one that was 74 writes of 1.3 MB for one answer, and eight of its twelve
-  seconds with the main thread blocked.
+- The persisted store never writes a streaming answer's growth
+  (`sessions-store.ts`). `getItem` drops an answer still marked streaming, so
+  a stored fragment would read back exactly as the last write does: the turn
+  is rebuilt from the replay stream or fetched finished
+  ([A dropped socket resumes](#a-dropped-socket-resumes)). Any other change
+  while it streams (a deletion, a rename, a draft, a new session) is written
+  at once, and the settled answer is written when it settles. A store update
+  that leaves every persisted field the same object (a loading flag, a
+  thinking step) writes nothing and serializes nothing. History: each flush
+  once pruned, serialized and wrote the whole history, 74 writes of 1.3 MB
+  for one answer beside forty conversations; coalesced to one write per two
+  seconds it was still a 100 ms task plus a 55 ms native write every two
+  seconds on a 4× throttled CPU, the regular hitch a phone showed mid-answer.
+  Removing it took the worst frame of a streamed answer from 1.4 s to 250 ms
+  (production build, `/dev/stream-chat?history=40&shell=1`, 390 px, 4×).
 - Nothing outside the chat list subscribes to the conversation objects. The
   shell, the composer and their hooks select what they show (an id, a title, a
   count, a boolean), and the sessions panel's rows keep their identity across a
@@ -204,7 +211,9 @@ of its own and its terminal frame carries the whole answer. The dropped
 fragment used to stay beside that bubble with a caret, and it hid the
 unanswered question from `restoreSessionState`'s recovery, which fetches a
 finished answer the server kept while the page was away. A reload mid-answer
-now takes the same path as a reload before the first word.
+now takes the same path as a reload before the first word, and a turn still
+running is rebuilt from the replay stream
+([A dropped socket resumes](#a-dropped-socket-resumes)).
 
 `/dev/stream-chat?history=40` measures this: the real store and the real shell
 (`&shell=1`), fed a recorded answer at its recorded pace, with commits, storage
@@ -221,10 +230,93 @@ it: deltas append, a snapshot (`stream_replace`) replaces the text before it
 and drops the masthead, and an empty snapshot with no sources (a retraction)
 drops the cards as well.
 
-## There is no typewriter
+## A dropped socket resumes
 
-This section is about a buffered turn; on a live turn the pace is the
-model's own.
+iOS closes a page's WebSocket the moment the app goes to the background, and a
+phone on the move loses it for a few seconds anyway. The answer must still
+arrive when the reader comes back (2026-09).
+
+Before, the first `onclose` ended the turn (`setStreaming(false)`), every later
+frame of it was dropped as stale, and the server, seeing a socket attached again,
+left persisting the answer to the client that had just thrown it away. The
+reader got „Verbindung kurz unterbrochen — Antwort ging verloren" for an answer
+that had finished.
+
+**The cursor.** `ConversationBus.publish_frame` appends every outbound frame to
+the conversation's replay stream on Dragonfly (`conv:<id>:stream`, ADR-0028),
+also when no socket is attached, and the frame reaches the socket tagged with
+its stream entry id, `grid_frame_id` (`<ms>-<n>`, monotonic across replicas and
+restarts). The client keeps the id of the last frame it applied
+(`NATWebSocketClient.lastFrameId`) and drops a frame at or before it, so a
+frame that arrives both replayed and live counts once.
+
+**A reconnect.** While the client is reconnecting and has a cursor
+(`canResume()`), the turn stays open: the hook does not end it on
+`disconnected`, and the watchdog re-arms instead of calling the gone socket
+evidence. On the next open the client holds live frames, reads
+`GET /api/conversations/:id/frames?after=<cursor>`, applies what it missed
+through the same handler as live frames, then releases the held ones
+(`onResume`). `unavailable` (no shared cache, a failed read) ends the turn the
+way a dead socket always did: ask the server for a finished answer, and show
+the banner only if there is none.
+
+**A reload.** A page that reloads has lost its cursor with its memory. The
+question is stamped with the id it went out under (`wsParentId`, persisted with
+the store); `restoreSessionState` first asks for the finished answer, and when
+there is none leaves `resumableTurn`. Once the socket is up the hook reopens the
+turn (`resumeTurn`), reads the newest frames the stream holds (backwards, then
+in order, since approximate trimming can leave more than one read returns) and
+applies them from the question's first frame on (`replayTurn`), so an older
+turn's frames never come back to life. A prompt of a later turn is dropped as
+stale like any other frame of another turn. The stream no longer holding the turn ends it with the
+banner.
+
+**One answer, not two.** A turn may finish while nobody is attached: the server
+persists the answer, and the phone, back online, replays the terminal frame and
+writes it too. Both use `uuid5(grid:assistant:<conversation>:<turn>)`
+(`deterministic_assistant_message_id`, `turnAnswerId`), so the second write
+collides on `messages.id` and no-ops, and the recovery dedupes by id.
+
+**Bounds.** `GRID_CONV_STREAM_MAXLEN` (2000 frames, a few turns) and
+`GRID_CONV_STREAM_TTL_SECONDS` (an hour since the last frame). A reader away
+longer than that gets the finished answer from Postgres, or the banner.
+
+## The reveal is paced, not typed
+
+A live turn's prose arrives in bursts: the model writes a sentence, the
+network clumps two frames, the store flushes every 100 ms. Painted as it
+arrived, the answer lurched forward a sentence at a time. Since 2026-09 it is
+shown at a steady pace a beat behind what has arrived (`usePacedText`, rules
+in `features/chat/lib/stream-pace.ts`):
+
+- The reveal aims to sit `TARGET_LAG_MS` (450 ms) behind the arrivals, never
+  slower than `MIN_CHARS_PER_SECOND`, and never holds text back longer than
+  `MAX_LAG_MS` (1.2 s).
+- It steps every `PACE_TICK_MS` (50 ms), not every frame: each step re-parses
+  the answer as Markdown, and a phone pays for that per step.
+- It cuts only where the renderer can draw cleanly: at a store flush
+  boundary, which the backend's display-safe deltas make clean, or at a word
+  gap outside an open `**`, link, code span, fence or table row. A table row
+  appears whole.
+- A snapshot that rewrites the text keeps what it shares with what is shown.
+  When the turn ends, the rest drains within `DRAIN_MS` (250 ms).
+- `AgentResponse` treats the answer as still arriving until the reveal has
+  caught up, so the copy actions and the unplaced cards wait for the prose.
+
+Measured on the recorded answer (production build, 390 px, 4× throttle): the
+visible text grows in steps of 15 characters every 50 ms (median) where it
+used to grow in 25-character steps every 83 ms with gaps up to 400 ms, and
+long tasks during the answer fell from 9–12 to 4–7.
+
+This is not the typewriter below. That one simulated a latency the system
+did not have, over text that was already finished; this one smooths a
+latency the system does have, and is bounded by `MAX_LAG_MS`. A buffered turn
+still paints at once: its deltas arrive within a frame or two, and its end
+drains the rest in `DRAIN_MS`.
+
+### The typewriter that was removed
+
+This section is about a buffered turn.
 
 The delta sequence is a SHAPE, not a pace. `response_to_chunks` cuts a finished
 answer into ~24-character pieces (`iter_answer_deltas`) and yields them as fast

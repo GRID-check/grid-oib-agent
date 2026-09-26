@@ -132,6 +132,13 @@ export type ErrorCode =
  */
 export type RecoveryOutcome = 'recovered' | 'superseded' | 'nothing'
 
+/** A question a reload cut off mid-answer, and the WS id its frames carry as `parent_id`. */
+export interface ResumableTurn {
+  conversationId: string
+  userMessageId: string
+  wsParentId: string
+}
+
 export type PromptType = 'clarification' | 'approval' | 'choice' | 'text-input' | 'plan_approval'
 
 /**
@@ -761,6 +768,16 @@ export interface ChatState {
    */
   isRecoveryPending: boolean
   /**
+   * A turn a reload interrupted, waiting for its socket to rebuild it from the
+   * replay stream (`GET /api/conversations/:id/frames`). Set by
+   * `restoreSessionState` when the finished-answer recovery finds nothing: a
+   * turn still running on the server has no finished answer yet, and its
+   * frames, read back, continue it. Taken by the socket hook once it is
+   * connected (`resumeTurn`), which ends the turn with the banner if the
+   * stream no longer holds it. Never persisted.
+   */
+  resumableTurn: ResumableTurn | null
+  /**
    * Whether the server conversation list has been asked for at least once. A
    * `?session=<id>` deep link needs this to tell "stale id" from "not fetched
    * yet" before it strips itself from the URL (see the sessions slice).
@@ -1009,6 +1026,17 @@ export interface ChatActions {
    * turn — every frame of a turn carries the same `parent_id`.
    */
   setTurnWsParentId: (wsParentId: string) => void
+  /**
+   * Stamp the question with the WS id it was sent under (`wsParentId`), so a
+   * reload can tell which of the conversation's replayed frames answer it.
+   */
+  markTurnWsParentId: (userMessageId: string, wsParentId: string) => void
+  /**
+   * Take the turn a reload left to resume, if it is this conversation's, and
+   * open it again: it is the current turn, streaming, with the thinking steps
+   * the reload kept dropped, because the replay rebuilds them.
+   */
+  resumeTurn: (conversationId: string) => ResumableTurn | null
   /**
    * Apply a post-answer stage frame to the turn it addresses
    * (`docs/architecture/post-answer-stages.md` §4.3, §8).

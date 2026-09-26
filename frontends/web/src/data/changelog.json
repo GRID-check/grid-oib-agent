@@ -79,6 +79,14 @@
           "key": "fixes",
           "notes": [
             {
+              "en": "Eine Antwort geht nicht mehr verloren, wenn die Verbindung kurz abreißt, etwa wenn Sie auf dem iPhone die App wechseln oder das Telefon sperren. Sobald Sie zurück sind, erscheint der Rest der Antwort, auch nach einem Neuladen der Seite. Bisher stand stattdessen „Verbindung kurz unterbrochen — Antwort ging verloren“, obwohl die Antwort fertig war.",
+              "de": "Eine Antwort geht nicht mehr verloren, wenn die Verbindung kurz abreißt, etwa wenn Sie auf dem iPhone die App wechseln oder das Telefon sperren. Sobald Sie zurück sind, erscheint der Rest der Antwort, auch nach einem Neuladen der Seite. Bisher stand stattdessen „Verbindung kurz unterbrochen — Antwort ging verloren“, obwohl die Antwort fertig war."
+            },
+            {
+              "en": "Mindmaps zeigen ihre Äste ohne Anführungszeichen, und auf dem Telefon erscheint nur noch die Gliederung statt zusätzlich eines unlesbar kleinen Baums. Eine im Projekt abgelegte Mindmap ist derselbe übersichtliche Baum wie in der Antwort, mit vollständigen Beschriftungen statt bunter Blasen mit abgeschnittenem Titel.",
+              "de": "Mindmaps zeigen ihre Äste ohne Anführungszeichen, und auf dem Telefon erscheint nur noch die Gliederung statt zusätzlich eines unlesbar kleinen Baums. Eine im Projekt abgelegte Mindmap ist derselbe übersichtliche Baum wie in der Antwort, mit vollständigen Beschriftungen statt bunter Blasen mit abgeschnittenem Titel."
+            },
+            {
               "en": "Während eine Antwort erscheint, bleibt die Seite wieder flüssig. Bisher wurde bei jedem neuen Textstück der ganze Chatverlauf im Browser neu gespeichert und die ganze Oberfläche neu gezeichnet; mit längerem Verlauf stockte die Seite, solange die Antwort lief, und Eingaben reagierten verzögert.",
               "de": "Während eine Antwort erscheint, bleibt die Seite wieder flüssig. Bisher wurde bei jedem neuen Textstück der ganze Chatverlauf im Browser neu gespeichert und die ganze Oberfläche neu gezeichnet; mit längerem Verlauf stockte die Seite, solange die Antwort lief, und Eingaben reagierten verzögert."
             },

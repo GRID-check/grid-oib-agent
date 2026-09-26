@@ -70,8 +70,13 @@ exclusive, so `2026-10-01, 14d` reads „01.10.–14.10.".
 
 The fifteen schematic cards (a section, a stair, a setback, …) are drawings
 to scale, computed from their parameters: geometry is what SVG is for. A
-filed diagram is an SVG and a PDF, because a file must stand on its own; the
-file is still Mermaid's render, made only when the reader files it.
+filed diagram is an SVG and a PDF, because a file must stand on its own. It
+is made only when the reader files it: a map is drawn from its model
+(`features/diagrams/map-svg.ts`, the same tree the answer shows, on paper),
+every other kind is still Mermaid's render. Mermaid's mindmap kept a bare
+branch's quotes, clipped the root's label to its circle and coloured every
+branch from its own palette, so a filed map did not look like the one on
+screen.
 
 ## Tables: the prompt and the renderer read the same words
 

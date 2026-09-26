@@ -617,35 +617,47 @@ body {
    Guided "thinking" affordances
 
    While the assistant is working, a long wait should read as *active*, not
-   stalled. Two subtle, monochrome (paper-language) motions carry that: a soft
-   shimmer sweeping the live-activity label, and a slim indeterminate bar
-   sweeping under the status header. Both collapse to a static state under the
-   global prefers-reduced-motion rule above.
+   stalled. Two subtle, monochrome (paper-language) motions carry that: the
+   live-activity label breathing, and a slim indeterminate bar sweeping under
+   the status header. Both are opacity or transform, which the compositor runs
+   without a repaint, and both collapse to a static state under the global
+   prefers-reduced-motion rule above.
    ============================================================================= */
 @keyframes grid-text-shimmer {
-  0% {
-    background-position: 150% 0;
-  }
+  0%,
   100% {
-    background-position: -150% 0;
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
   }
 }
 
-/* Gradient-clipped text: a brighter ink band travels across muted-ink copy. */
+/* The live label breathes: its ink fades down and back.
+   It used to be a gradient band swept across gradient-clipped text, by
+   animating `background-position`. No compositor can run that: the label
+   repainted on the main thread every frame for as long as a turn worked,
+   about half of what a live turn cost a 4x throttled phone at rest (measured
+   on /dev/chat-turn). An opacity animation runs on the compositor. */
 @utility animate-text-shimmer {
-  background-image: linear-gradient(
-    100deg,
-    var(--muted-foreground) 0%,
-    var(--muted-foreground) 38%,
-    var(--foreground) 50%,
-    var(--muted-foreground) 62%,
-    var(--muted-foreground) 100%
-  );
-  background-size: 220% 100%;
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  animation: grid-text-shimmer 2.6s linear infinite;
+  animation: grid-text-shimmer 2.2s ease-in-out infinite;
+}
+
+@keyframes grid-typing-dot {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateY(-2px);
+    opacity: 1;
+  }
+}
+
+/* The three dots of a turn waiting for its first step. */
+@utility animate-typing-dot {
+  animation: grid-typing-dot var(--motion-quick) var(--ease-out) infinite;
 }
 
 @keyframes grid-progress-sweep {

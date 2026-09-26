@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   conversationFramesAvailable,
   decodeConversationFrame,
+  framesFromStreamEntries,
 } from './conversation-frames'
 
 /** An envelope in the shape `ConversationBus.publish_frame` writes. */
@@ -84,5 +85,41 @@ describe('conversationFramesAvailable', () => {
   it('is true when one is configured', () => {
     process.env.REDIS_URL = 'redis://dragonfly:6379'
     expect(conversationFramesAvailable()).toBe(true)
+  })
+})
+
+describe('framesFromStreamEntries', () => {
+  // `XRANGE` output: entry id, then the fields flat. The backend writes one, `d`.
+  const entry = (id: string, overrides: Record<string, unknown> = {}): [string, string[]] => [
+    id,
+    ['d', envelope(overrides)],
+  ]
+
+  it('returns the raw frames tagged with their entry id, in stream order', () => {
+    const frames = framesFromStreamEntries([entry('1727-0'), entry('1727-1')], null)
+    expect(frames.map((f) => f.id)).toEqual(['1727-0', '1727-1'])
+    expect(frames[0]?.payload).toMatchObject({
+      type: 'system_response_message',
+      grid_frame_id: '1727-0',
+    })
+  })
+
+  it('drops the cursor entry itself: the range read is inclusive', () => {
+    const frames = framesFromStreamEntries([entry('1727-0'), entry('1727-1')], '1727-0')
+    expect(frames.map((f) => f.id)).toEqual(['1727-1'])
+  })
+
+  it('compares ids as numbers, not text', () => {
+    // As strings "999-0" > "1000-0"; as stream ids it is older.
+    const frames = framesFromStreamEntries([entry('999-0'), entry('1000-0')], '999-0')
+    expect(frames.map((f) => f.id)).toEqual(['1000-0'])
+  })
+
+  it('skips an entry it cannot decode rather than failing the read', () => {
+    const frames = framesFromStreamEntries(
+      [['1-0', ['d', '{not json']], ['2-0', ['x', 'y']], entry('3-0', { type: 'observer_gone' }), entry('4-0')],
+      null
+    )
+    expect(frames.map((f) => f.id)).toEqual(['4-0'])
   })
 })

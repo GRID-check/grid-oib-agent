@@ -1,17 +1,18 @@
 /**
- * The persisted chat store writes a streaming answer at most once per
- * `STREAMING_PERSIST_INTERVAL_MS`, and everything else at once.
+ * The persisted chat store never writes a streaming answer's growth, and
+ * writes everything else at once.
  *
  * Every delta flush is a store update, and each update used to prune,
  * serialize and write the whole history to localStorage on the main thread:
  * 74 writes of 1.3 MB for one twelve-second answer, measured on
- * `/dev/stream-chat`.
+ * `/dev/stream-chat`. Coalesced to one write per two seconds, it was still a
+ * regular hitch on a phone, for bytes a reload drops on read.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { StorageValue } from 'zustand/middleware'
 import type { ChatMessage, Conversation } from '../types'
-import { STREAMING_PERSIST_INTERVAL_MS, createResilientStorage } from './sessions-store'
+import { createResilientStorage } from './sessions-store'
 
 const KEY = 'aiq-chat-store-spec'
 
@@ -36,19 +37,23 @@ const OTHER: Conversation = {
   updatedAt: new Date(2026, 8, 24),
 }
 
+const OPEN: Conversation = {
+  id: 'c1',
+  userId: 'u1',
+  title: 'T',
+  messages: [],
+  createdAt: new Date(2026, 8, 25),
+  updatedAt: new Date(2026, 8, 25),
+}
+
 const value = (
   content: string,
   isStreaming: boolean,
   { others = [] as Conversation[], drafts = NO_DRAFTS } = {}
 ) => {
-  const conversation: Conversation = {
-    id: 'c1',
-    userId: 'u1',
-    title: 'T',
-    messages: [message(content, isStreaming)],
-    createdAt: new Date(2026, 8, 25),
-    updatedAt: new Date(2026, 8, 25),
-  }
+  // Every field but the messages is the same object from call to call, as
+  // the store keeps what a flush does not touch.
+  const conversation: Conversation = { ...OPEN, messages: [message(content, isStreaming)] }
   const state = {
     currentUserId: 'u1',
     conversations: [conversation, ...others],
@@ -73,55 +78,50 @@ describe('createResilientStorage', () => {
     localStorage.clear()
   })
   afterEach(() => {
-    // Every storage listens for pagehide for good; let each test's leftovers
-    // land now, before the next test clears storage, not inside a later test.
-    window.dispatchEvent(new Event('pagehide'))
     vi.useRealTimers()
   })
 
-  test('a streaming answer is written once per window, with its newest text', () => {
+  test('a streaming answer is not written while it grows, however long it streams', () => {
     const storage = createResilientStorage()!
+    storage.setItem(KEY, value('a', true))
     const setItem = vi.spyOn(localStorage, 'setItem')
 
-    storage.setItem(KEY, value('a', true))
     storage.setItem(KEY, value('ab', true))
     storage.setItem(KEY, value('abc', true))
-    expect(setItem).toHaveBeenCalledTimes(1)
-    expect(storedContent()).toBe('a')
+    vi.advanceTimersByTime(60_000)
+    window.dispatchEvent(new Event('pagehide'))
 
-    vi.advanceTimersByTime(STREAMING_PERSIST_INTERVAL_MS)
-    expect(setItem).toHaveBeenCalledTimes(2)
-    expect(storedContent()).toBe('abc')
+    expect(setItem).not.toHaveBeenCalled()
     setItem.mockRestore()
   })
 
-  test('the settled answer is written at once and replaces the held one', () => {
+  test('a rename while the answer streams is written at once', () => {
+    const storage = createResilientStorage()!
+    storage.setItem(KEY, value('a', true))
+    const renamed = value('ab', true)
+    const conversation = { ...renamed.state.currentConversation!, title: 'Neuer Titel' }
+    storage.setItem(KEY, {
+      ...renamed,
+      state: { ...renamed.state, currentConversation: conversation, conversations: [conversation] },
+    })
+    expect(JSON.parse(localStorage.getItem(KEY)!).state.conversations[0].title).toBe('Neuer Titel')
+  })
+
+  test('the settled answer is written at once', () => {
     const storage = createResilientStorage()!
     storage.setItem(KEY, value('a', true))
     storage.setItem(KEY, value('ab', true))
     storage.setItem(KEY, value('abc final', false))
     expect(storedContent()).toBe('abc final')
-
-    // The held streaming value must not land afterwards over the settled one.
-    vi.advanceTimersByTime(STREAMING_PERSIST_INTERVAL_MS * 2)
-    expect(storedContent()).toBe('abc final')
   })
 
-  test('leaving the page writes what a streaming answer still holds', () => {
+  test('what a reload reads is the same whether or not the growth was written', async () => {
+    // `getItem` drops an answer still marked streaming; that is why skipping
+    // its growth loses nothing a reload could use.
     const storage = createResilientStorage()!
     storage.setItem(KEY, value('a', true))
-    storage.setItem(KEY, value('ab', true))
-    window.dispatchEvent(new Event('pagehide'))
-    expect(storedContent()).toBe('ab')
-  })
-
-  test('removing the item drops what a streaming answer still holds', () => {
-    const storage = createResilientStorage()!
-    storage.setItem(KEY, value('a', true))
-    storage.setItem(KEY, value('ab', true))
-    storage.removeItem(KEY)
-    vi.advanceTimersByTime(STREAMING_PERSIST_INTERVAL_MS * 2)
-    expect(localStorage.getItem(KEY)).toBeNull()
+    const restored = await storage.getItem(KEY)
+    expect(restored?.state.conversations?.[0]?.messages).toEqual([])
   })
 
   test('a call whose persisted fields are the same objects does no work at all', () => {
@@ -165,7 +165,7 @@ describe('createResilientStorage', () => {
     expect(storedIds()).toEqual(['c1', 'c2'])
 
     storage.setItem(KEY, value('abc', true))
-    // Not held for the window: a browser that dies now must not bring it back.
+    // Not skipped: a browser that dies now must not bring it back.
     expect(storedIds()).toEqual(['c1'])
     expect(storedContent()).toBe('abc')
   })
@@ -175,23 +175,5 @@ describe('createResilientStorage', () => {
     storage.setItem(KEY, value('a', true))
     storage.setItem(KEY, value('ab', true, { drafts: { c1: 'Nachfrage' } }))
     expect(JSON.parse(localStorage.getItem(KEY)!).state.composerDrafts).toEqual({ c1: 'Nachfrage' })
-  })
-
-  test('a deferred write that fails is held again, and the next flush writes it', () => {
-    const storage = createResilientStorage()!
-    storage.setItem(KEY, value('a', true))
-    storage.setItem(KEY, value('ab', true))
-    const setItem = vi.spyOn(localStorage, 'setItem').mockImplementationOnce(() => {
-      throw new Error('SecurityError')
-    })
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    vi.advanceTimersByTime(STREAMING_PERSIST_INTERVAL_MS)
-    expect(storedContent()).toBe('a')
-
-    window.dispatchEvent(new Event('pagehide'))
-    expect(storedContent()).toBe('ab')
-    setItem.mockRestore()
-    error.mockRestore()
   })
 })

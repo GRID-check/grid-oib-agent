@@ -9,6 +9,7 @@ import type {
   ChatMessage,
   PendingInteraction,
   RecoveryOutcome,
+  ResumableTurn,
 } from '../types'
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
@@ -50,6 +51,8 @@ export type SessionsSlice = {
    * settles back to false with nothing recovered.
    */
   isRecoveryPending: boolean
+  /** See `ChatState.resumableTurn`. */
+  resumableTurn: ResumableTurn | null
 
   /**
    * Whether the server conversation list has been ASKED for at least once
@@ -152,16 +155,6 @@ const prunePersistedChatState = (value: PersistedChatStorageValue): PersistedCha
   }
 }
 
-/**
- * How often a streaming answer may write the persisted store: at most once in
- * this window. Every delta flush is a store update, and every store update
- * would otherwise prune, serialize and write the WHOLE history — megabytes, on
- * the main thread, ten times a second for as long as the answer streams. What
- * a refresh inside the window loses is at most this much of a half-written
- * answer. The first update and the settling one write at once.
- */
-export const STREAMING_PERSIST_INTERVAL_MS = 2000
-
 /** Is an answer still streaming into the open conversation? Its bubble is the last message. */
 const isStreamingAnswer = (value: PersistedChatStorageValue): boolean => {
   const messages = value.state.currentConversation?.messages
@@ -170,7 +163,7 @@ const isStreamingAnswer = (value: PersistedChatStorageValue): boolean => {
 
 /**
  * The persisted chat store's localStorage adapter: prunes what it writes,
- * recovers from a full quota, coalesces a streaming answer's writes, and
+ * recovers from a full quota, never writes a streaming answer's growth, and
  * restores what a reload can use. `undefined` where there is no localStorage.
  */
 export const createResilientStorage = (): PersistStorage<PersistedChatState> | undefined => {
@@ -236,21 +229,14 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
     }
   }
 
-  // The newest value a streaming answer has not written yet, and the timer
-  // that will write it. Anything that is not a streaming update writes at
-  // once and takes the held value's place, so every other action persists
-  // exactly as before, and the answer's settled state is never the one held.
-  let pending: { name: string; value: PersistedChatStorageValue } | null = null
-  let pendingTimer: ReturnType<typeof setTimeout> | null = null
-  let lastWriteAt = Number.NEGATIVE_INFINITY
   // What storage holds, as of the last write that succeeded.
   let lastWritten: PersistedChatState | null = null
 
   /**
    * Is the open conversation's answer the only thing new since the last write?
-   * Only that may wait. A deletion, a rename, a draft or a new session in the
-   * same window is written at once (with the answer so far), so a browser that
-   * dies inside the window cannot bring a deleted conversation back.
+   * Only that is skipped. A deletion, a rename, a draft or a new session while
+   * an answer streams is written at once, so a browser that dies mid-answer
+   * cannot bring a deleted conversation back.
    */
   const onlyTheOpenAnswerChanged = (next: PersistedChatState): boolean => {
     const written: Record<string, unknown> | null = lastWritten
@@ -266,43 +252,44 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
     const after = next.conversations ?? []
     return (
       before.length === after.length &&
-      after.every((c, i) => c === before[i] || (c.id === openId && before[i]?.id === openId))
+      after.every(
+        (c, i) => c === before[i] || (c.id === openId && onlyItsAnswerGrew(before[i], c))
+      ) &&
+      onlyItsAnswerGrew(lastWritten?.currentConversation ?? undefined, next.currentConversation)
     )
   }
 
-  /** Forget the held streaming value and its timer. */
-  const dropPending = (): void => {
-    if (pendingTimer !== null) clearTimeout(pendingTimer)
-    pendingTimer = null
-    pending = null
+  /**
+   * Is the streaming answer at its end the only difference between the two
+   * copies of one conversation? Its title, its other fields and every earlier
+   * message must be the very same objects: a rename or a card decision while
+   * an answer streams is written at once, only the answer's growth waits.
+   * The store keeps an untouched message as the same object on every flush.
+   */
+  const onlyItsAnswerGrew = (
+    before: Conversation | null | undefined,
+    after: Conversation | null | undefined
+  ): boolean => {
+    if (!before || !after || before.id !== after.id) return false
+    const beforeFields: Record<string, unknown> = { ...before }
+    const afterFields: Record<string, unknown> = { ...after }
+    for (const key of new Set([...Object.keys(beforeFields), ...Object.keys(afterFields)])) {
+      if (key !== 'messages' && afterFields[key] !== beforeFields[key]) return false
+    }
+    const was = before.messages
+    const now = after.messages
+    const last = now[now.length - 1]
+    if (!last?.isStreaming) return false
+    // The answer opened since the last write (one more message), or grew (same count).
+    if (now.length !== was.length && now.length !== was.length + 1) return false
+    for (let i = 0; i < now.length - 1; i++) if (now[i] !== was[i]) return false
+    return true
   }
 
-  /** Write now, superseding whatever a streaming answer held. */
   const write = (name: string, value: PersistedChatStorageValue): void => {
-    dropPending()
-    lastWriteAt = Date.now()
     writeNow(name, value)
     lastWritten = value.state
   }
-
-  /**
-   * Write what a streaming answer holds, if anything. Nothing awaits it, so a
-   * failure is logged, and the value is held again for the next flush or
-   * `pagehide` unless a newer one has taken its place.
-   */
-  const flushPending = (): void => {
-    if (!pending) return
-    const held = pending
-    try {
-      write(held.name, held.value)
-    } catch (error) {
-      console.error('[SessionsStore] deferred persist failed', error)
-      pending ??= held
-    }
-  }
-
-  // A tab closed mid-answer still leaves its latest state behind.
-  window.addEventListener('pagehide', flushPending)
 
   // What the last call was handed. `persist` calls setItem on EVERY store
   // update — a loading flag, a status line, a thinking step — and each call
@@ -359,7 +346,6 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
       return raw
     },
     removeItem: (name: string) => {
-      dropPending()
       lastState = null
       lastWritten = null
       return base.removeItem(name)
@@ -368,15 +354,16 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
       if (unchangedSinceLastCall(value)) return
       lastState = value.state
       lastVersion = value.version
-      if (!isStreamingAnswer(value) || !onlyTheOpenAnswerChanged(value.state)) {
-        write(name, value)
-        return
-      }
-      pending = { name, value }
-      if (pendingTimer !== null) return
-      const wait = lastWriteAt + STREAMING_PERSIST_INTERVAL_MS - Date.now()
-      if (wait <= 0) flushPending()
-      else pendingTimer = setTimeout(flushPending, wait)
+      // A streaming answer's growth is never written. `getItem` drops an
+      // answer still marked streaming, so the stored state would read back
+      // exactly as the last write does: the turn is rebuilt from the replay
+      // stream or fetched finished. Writing it cost a prune, a serialize and a
+      // write of the WHOLE history every couple of seconds while the answer
+      // streamed: 100 ms of script and a 55 ms native write per round on a
+      // 4× throttled CPU with 40 conversations, the regular hitch a phone
+      // showed mid-answer. The answer is written once, when it settles.
+      if (isStreamingAnswer(value) && onlyTheOpenAnswerChanged(value.state)) return
+      write(name, value)
     },
   }
 }
@@ -563,6 +550,7 @@ export const initialSessionsState = {
   currentConversation: null as Conversation | null,
   conversations: [] as Conversation[],
   isRecoveryPending: false,
+  resumableTurn: null as ResumableTurn | null,
   serverConversationsLoaded: false,
 }
 
@@ -1198,7 +1186,12 @@ export const createSessionsSlice: StateCreator<
         .reverse()
         .find((m) => meaningfulTypes.has(m.messageType ?? ''))
 
-      if (lastMeaningful?.messageType === 'user' && lastMeaningful.thinkingSteps?.length) {
+      // A question this browser sent carries the turn id it went out under
+      // (`wsParentId`): even with no thinking step yet, its turn is known.
+      const lastIsOpenQuestion =
+        lastMeaningful?.messageType === 'user' &&
+        Boolean(lastMeaningful.thinkingSteps?.length || lastMeaningful.wsParentId)
+      if (lastMeaningful && lastIsOpenQuestion) {
         // The turn LOOKS interrupted (last meaningful local message is the user
         // turn, with thinking steps but no assistant reply). But the client may
         // simply have been disconnected when the terminal frame was sent — the
@@ -1206,12 +1199,33 @@ export const createSessionsSlice: StateCreator<
         // that case. Refetch server history first: if the finished assistant
         // message is there, render it and skip the banner. Only when the
         // refetch yields nothing do we fall back to today's interrupted banner.
+        //
+        // Nothing finished yet does not mean nothing is coming: a turn still
+        // running on the server has no finished answer, and "answer lost" over
+        // it is wrong. Its frames are in the replay stream, so the socket hook
+        // rebuilds the turn from them (`resumableTurn`), and puts this banner
+        // up itself when the stream no longer holds it.
         const interruptedUserId = lastMeaningful.id
+        const wsParentId = lastMeaningful.wsParentId
         void (async () => {
           const outcome = await get()._recoverInterruptedAssistantMessage(
             conversation.id,
             interruptedUserId
           )
+          if (outcome === 'nothing' && wsParentId) {
+            set(
+              {
+                resumableTurn: {
+                  conversationId: conversation.id,
+                  userMessageId: interruptedUserId,
+                  wsParentId,
+                },
+              },
+              false,
+              'restoreSessionState:resumable'
+            )
+            return
+          }
           if (outcome === 'nothing') {
             // No explicit message: ErrorBanner localizes the registry default
             // via `agent.response_interrupted`'s messageKey.

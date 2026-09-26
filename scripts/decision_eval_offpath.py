@@ -41,11 +41,11 @@ USAGE
 
 THE LAST RUN
 ------------
-2026-09-25: tags 12/12 types, disciplines 4 of 8 labelled with none false at
-0.7 (clear disciplines 0.96-0.98, the highest false one 0.47); reflection:
-durable rows 0.45-0.94, seven of nine others 0.03-0.16; memory supersede 8/8
-corrections, no wrong retirement; Dokumentart 10/10 offered, none wrong;
-feedback causes 16/16.
+2026-09-26: tags 12/12 types, disciplines 4 of 8 labelled with none false at
+0.8 (clear disciplines 0.96-0.98, the highest false one 0.47); reflection:
+skipped 8/9 empty passes at 0.7, lost none; memory supersede 8/8 corrections,
+no wrong retirement; Dokumentart 10/10 offered, none wrong; feedback causes
+16/16.
 """
 
 from __future__ import annotations

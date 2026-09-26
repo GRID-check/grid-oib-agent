@@ -133,95 +133,92 @@ default: the vendor's own legal-retrieval numbers (top-1 5 % → 18 %, top-10
 38 % → 62 %) are a useful reranker's, not a trained cross-encoder's, and the
 golden set decides.
 
-*Amended 2026-09-25, thresholds.* A re-run of `task be:eval:decisions`
-(35 rows, all decided, mean 253 ms) and ten messages that need nothing
-(greetings, thanks, a memory note, rewrite and e-mail requests) moved four of
-them up, each into the gap the numbers left: `needs_evidence` 0.5 → 0.6
-(nothing-needed 0.03–0.24, questions 0.70–0.98), `corpus` 0.5 → 0.7
-(regulation questions 0.94–1.00; the one row below was a folder listing that
-`surface_documents` answers), `self_contained` 0.5 → 0.6 (standalone
-0.71–0.95, follow-ups ≤ 0.25), the card shape 0.6 → 0.7 (`norm_chain` at
-0.60–0.69 on nine different rulings is noise; the picks that named the
-answer's shape ran 0.73–0.87). The family threshold stays at 0.5: its
-precision is 1.00 at every level from 0.3 to 0.9, so raising it only loses
-recall (0.96 → 0.93 at 0.6). The skill choice stays at 0.6: it was right or
-abstained on every row (Schallschutz → `waermeschutz` is right; that skill's
-description is „U-Wert, HWB und Schall"). The fit question was the weak
-part: worded "is this exactly the case the method is written for", it rated
-right picks at 0.12–0.17 and a folder listing at 0.47. Reworded as "would
-an expert apply this method to answer it", right picks ran 0.27–0.95 inside
-the whole decision and the two project-file questions that name Brandschutz
-0.06 and 0.11, so the fit veto moves from 0.1 to 0.2 and now holds back the
-Brandschutzkonzept question the old one let through.
-
-*Amended 2026-09-26, every decision at 0.7 or 0.8, checked on held-out
-data.* Every threshold now acts on a confident answer: 0.8 for
-`needs_evidence`, `corpus`, `self_contained`, card shapes, document type
-and disciplines, Dokumentart and feedback causes; 0.7 for family, skill,
-skill veto, supersede and the reflection skip, where held-out data showed
-0.8 cost right answers. Two gates were turned round so they, too, act on a
-confident yes: reflection is skipped when "is there nothing about this
-project here?" reaches 0.7 (was: "does it establish something?" below 0.3),
-and a skill is withheld when "does the message ask for something other than
-an expert answer?" reaches 0.7 (was: a per-skill "fits" noul above 0.2).
-The family is one choice over the Richtlinien and `none`, not a noul per
-family: independent nouls read each scope as a keyword list and missed
-questions whose words were not on it. The skill options carry the heading
-each skill's body opens with. The second document type is gone: a choice's
-runner-up cannot reach 0.8.
-
-The criteria were tuned on the sets the earlier numbers were measured on,
-so those numbers overstate. A held-out set per use, written blind to the
-wording from plain label definitions (`tests/fixtures/decisions/holdout/`,
-`task be:eval:decisions:holdout`), was scored once per structural change and
-never tuned on. On it: tags 24/24 types, no false discipline; reflection
-13/13 empty passes skipped, none lost; supersede 15/15, no wrong
-retirement; Dokumentart 13/13; feedback causes 20/24; turn `needs_evidence`
-30/30, `self_contained` 25/27, family 16/21 (the reworded nouls 15/21, the
-original 9/21), skill 25/30 (24/30 before). Four one-row wording fixes made
-on the tuning sets (Projekt/Grundstück, a Konzept is a Gutachten, a bare
-`too_slow` chip, summer overheating in the family scope) changed nothing on
-the held-out set; they stay because they are true, not because they were
-measured to help.
-
-*Amended 2026-09-25:* two uses off the reader's path.
+*Amended 2026-09-26:* three annotations off the reader's path. Each labels
+something a person or the agent reads; none of them withholds anything, and
+each acts only at 0.8.
 
 **Use 4 — ingestion tags** (`knowledge/document_classification.py`,
-`decide_document_tags`). The 1–2 document types and 0–3 OIB disciplines
-stored with every upload were a generative call on `summary_llm` returning a
-JSON array that a post-filter held to the vocabulary. They are one choice
-over the twelve types and one noul per discipline, over the text the summary
-reads; the prompt runs only when no decision did. Tags annotate a file (the
-inventory line, the Files panel), nothing filters on them, so a wrong tag
-withholds nothing. Measured on twelve hand-labelled German document openings:
-types 12/12 (the prompt on the default model: 11/12, a Statik-Vorbemessung
-typed `Sonstiges`), 0.2–0.3 s against 0.8–1.9 s, $0.00005 per document. The
-decider tags fewer disciplines (4 of 8 labelled, no false tag, against the
-prompt's 8 with one false). Its answers split: clear disciplines at
-0.96–0.98, the rest at or below 0.52, with a false tag at 0.47 and a true
-one at 0.52; the threshold is 0.7, mid-gap, because a tag rides in every
-prompt's inventory line and a false one misinforms the agent, where a
-missing one only says less. It does not tag a plan Brandschutz for drawing
-a compartment line, which is what the prompt's own „nur wenn der
-Fachbereich eindeutig zutrifft" asks. Ingestion has no request
-context, so the org id travels in the job config and the endpoint resolves
-ZDR by the id it is given (`common/decisions._zdr_only_blocking`).
+`decide_document_tags`). The document type and the 0–3 OIB disciplines stored
+with every upload were a generative call on `summary_llm` returning a JSON
+array that a post-filter held to the vocabulary. They are one choice over the
+twelve types and one noul per discipline, over the text the summary reads;
+below 0.8 on the type, or when no decision ran, the prompt tags as before.
+Tags annotate a file (the inventory line, the Files panel) and nothing filters
+on them. Tuning set (twelve hand-labelled German openings): types 12/12 (the
+prompt on the default model: 11/12), 0.2–0.3 s against 0.8–1.9 s, $0.00005 per
+document; clear disciplines at 0.96–0.98, everything else at or below 0.52, so
+no false tag at 0.8, where the prompt had one. The decider does not tag a plan
+Brandschutz for drawing a compartment line, which is what the prompt's own
+„nur wenn der Fachbereich eindeutig zutrifft" asks. One type only: the old
+second type was a choice's runner-up, which cannot reach 0.8. Ingestion has no
+request context, so the org id travels in the job config and the endpoint
+resolves ZDR by the id it is given (`common/decisions._zdr_only_blocking`).
 
-**Use 5 — whether memory reflection runs** (`memory/reflection.durable_probability`,
+**Use 8 — a Dokumentart for a person to accept**
+(`knowledge/document_classification.suggest_doc_class`). A base-corpus file
+whose name carries no OIB hint lands in `sonstiges`, the neutral lane, until a
+platform owner reclassifies it. At ingestion the decision model chooses one of
+the nine classes from the text; a pick at 0.8 or above that is not `sonstiges`
+is stored BESIDE the class (`document_metadata.doc_class_suggestion`), never as
+it, and the base-knowledge page offers it under the picker („Aus dem Text
+erkannt: … Übernehmen"). Accepting is the same PATCH the picker sends, and any
+PATCH clears the offer. `doc_class` drives lanes and source kinds, so it stays
+human-set. Tuning set (twelve openings under hint-less file names): 12/12 at
+0.97–1.00, where the filename guess had 3/12.
+
+**Use 9 — why a down-vote was cast** (`common/feedback_causes.py`, the
+feedback digest route). A down-vote carries one of four coarse chips and
+sometimes a comment; the comment names the defect („In GK 4 ist es R 60",
+„Das ist die Wiener Regelung, wir sind in Tirol" are both `inaccurate` to the
+chip). When the digest is built, each sampled down-vote is filed under one of
+ten causes by a choice over its question, chip and comment; the counts go into
+the digest's brief and back to the Quality page as one line. A label below 0.8
+is left unlabelled, not guessed. The comment now leaves the BFF with its
+sample, fenced as data like the question. Tuning set (sixteen down-votes):
+16/16.
+
+**Held out.** The tuning numbers above were measured on the rows the criteria
+were written against. A held-out set per use, written blind to the wording from
+plain label definitions (`tests/fixtures/decisions/holdout/`,
+`task be:eval:decisions:holdout`, never tuned on): tags 24/24 types, 13 of 14
+disciplines, no false one; Dokumentart 13/13 offered right, none wrong;
+feedback causes 20/24 right, 1 wrong, 3 left unlabelled.
+
+*Amended 2026-09-26, the turn decision and project memory at 0.7–0.8,
+checked on held-out data.* Every threshold of the turn decision now acts on a
+confident answer: 0.8 for `needs_evidence`, `corpus`, `self_contained` and
+card shapes; 0.7 for the family and the skill, where held-out data showed 0.8
+cost right answers. The family is one choice over the Richtlinien and `none`,
+not a noul per family: independent nouls read each scope as a keyword list
+and missed questions whose words were not on it (Holzfassade → OIB 2 at
+0.27). One family is prefetched. The skill options carry the heading each
+skill's body opens with („Treppe, Geländer, Türbreite" never said
+Barrierefreiheit), and one veto noul — does the message ask for something
+other than an expert answer — replaces the per-skill "fits" nouls; a skill
+is withheld when the veto reaches 0.7. Held-out (30 questions written blind,
+`task be:eval:decisions:holdout`, never tuned on): `needs_evidence` 30/30,
+`self_contained` 25/27, family 16/21 (the reworded nouls 15/21, the original
+9/21), skill 25/30 (24/30 before). The one-row wording fixes made on the
+tuning set (summer overheating and ground moisture in the family scopes)
+changed nothing on the held-out set; they stay because they are true.
+
+**Use 5 — whether memory reflection runs** (`memory/reflection.nothing_durable_probability`,
 `stages/memory_reflection._handler`). Reflection is a reasoning call on the
 memory group's model after every project turn, and its prompt calls an empty
 result "the common and correct outcome". One noul over the question and the
-answer's opening — does the exchange establish anything about this project —
-skips the call below 0.3. This is the one use whose wrong answer loses
-something (a memory row the in-turn `remember` tool also did not write), so
-the threshold sits far below the evidence: on sixteen German exchanges the
-reflection call itself agreed with the hand labels on all sixteen, every
-exchange that produced a finding scored 0.45–0.94, and seven of the nine
-that produced none scored 0.03–0.16. A decision that did not run reflects;
-a turn whose `remember` call wrote something reflects without asking; the
-skip is `StageEmpty("decided_nothing_durable")` on the stage's span, so its
-rate is measured in production like every other stage outcome. It never
-touches the answer, which has shipped before the stage starts.
+answer's opening — is there nothing in this exchange worth remembering about
+this project — skips the call at 0.7 or above. The question is asked the way
+round the skip needs it, so the skip acts on a confident answer. This is the
+one use whose wrong answer loses something (a memory row the in-turn
+`remember` tool also did not write). Tuning set (sixteen exchanges, labelled
+by hand and by the reflection call itself, which agreed on all sixteen):
+durable exchanges at most 0.42, eight of nine empty ones 0.8 or above.
+Held-out (24 exchanges written blind): durable at most 0.28, empty 0.76–0.95,
+so 0.7 skipped 13/13 and lost none. A decision that did not run reflects; a
+turn whose `remember` call wrote something reflects without asking; the skip
+is `StageEmpty("decided_nothing_durable")` on the stage's span, so its rate
+is measured in production like every other stage outcome. It never touches
+the answer, which has shipped before the stage starts.
 
 **Use 7 — which memory entry a correction retires** (`memory/supersede.py`).
 A yes/no per pair: does this new finding make that stored entry wrong. The
@@ -231,38 +228,14 @@ differently and not quoted („Das Grundstück liegt in St. Pölten" against
 „Das Projekt liegt in Wien") left both live, which the memory design names as
 outstanding (§3.2). Both agent writers — the `remember` tool on a project
 write and reflection — now ask it for every project entry of the digest when
-the model gave no quote, and send the most likely entry at 0.75 or above as
-the quote, through the same field: the writer's rules still hold (a quote
-that does not resolve is ignored; a pinned, user-confirmed or user-authored
-entry is never retired by an agent). Measured on a twelve-entry memory and
-sixteen findings: the eight corrections named the right entry at
-0.80–0.97, the next entry at most 0.22; the eight additions at most 0.37.
-The model's own quote always wins and is not second-guessed.
-
-**Use 8 — a Dokumentart for a person to accept** (`knowledge/document_classification.suggest_doc_class`).
-A base-corpus file whose name carries no OIB hint lands in `sonstiges`, the
-neutral lane, until a platform owner reclassifies it. At ingestion the
-decision model chooses one of the nine classes from the text; a pick at 0.8
-or above that is not `sonstiges` is stored BESIDE the class
-(`document_metadata.doc_class_suggestion`), never as it, and the
-base-knowledge page offers it under the picker („Aus dem Text erkannt: …
-Übernehmen"). Accepting is the same PATCH the picker sends, and any PATCH
-clears the offer. `doc_class` drives lanes and source kinds, so it stays
-human-set, as it was (`doc_class` beats every guess). Measured on twelve
-openings under hint-less file names (`tests/fixtures/decisions/doc_class.yaml`):
-12/12 at 0.97–1.00, where the filename guess had 3/12.
-
-**Use 9 — why a down-vote was cast** (`common/feedback_causes.py`, the
-feedback digest route). A down-vote carries one of four coarse chips and
-sometimes a comment; the comment names the defect („In GK 4 ist es R 60",
-„Das ist die Wiener Regelung, wir sind in Tirol" are both `inaccurate` to the
-chip). When the digest is built, each sampled down-vote is filed under one of
-ten causes by a choice over its question, chip and comment; the counts go into
-the digest's brief and back to the Quality page as one line. A label below 0.6
-is left unlabelled, not guessed, and nothing a reader sees depends on it. The
-comment now leaves the BFF with its sample, fenced as data like the question.
-Measured on sixteen down-votes (`tests/fixtures/decisions/feedback_causes.yaml`):
-16/16 at 0.79–1.00.
+the model gave no quote, and send the most likely entry at 0.7 or above as the
+quote, through the same field: the writer's rules still hold (a quote that
+does not resolve is ignored; a pinned, user-confirmed or user-authored entry
+is never retired by an agent). The model's own quote always wins. Tuning set
+(twelve entries, sixteen findings): the eight corrections at 0.88–0.97, no
+other pair above 0.41. Held-out (fifteen entries, 24 findings written blind,
+most corrections worded unlike their entry): 15/15 found, no wrong
+retirement.
 
 **Not a use.** Intent or model routing, the escalation decision, confidence,
 verdict extraction, anything whose wrong answer removes a capability
@@ -349,15 +322,21 @@ numbers above are one run on German questions the product actually gets.
 - `tests/knowledge_layer_tests/test_decisions_in_retrieval.py`: a sufficient
   head costs no judge call, an absent decision runs the judge, a flagged
   passage is kept, the reranker's order.
-- `tests/knowledge_layer_tests/test_document_classification.py::TestTagsAreDecided`:
-  the questions are the vocabulary, a decision replaces the generative call,
-  a failed or off-vocabulary decision falls back to it.
+- `tests/knowledge_layer_tests/test_document_classification.py`: the tag
+  questions are the vocabulary, a decision replaces the generative call, an
+  unsure or failed one falls back to it; the Dokumentart is offered, never set.
+- `tests/aiq_agent/common/test_feedback_causes.py`, `frontends/aiq_api/tests/test_feedback_digest.py`:
+  each down-vote asked with its comment, an unsure label left out, a
+  labelling failure leaves the digest whole.
+- `tests/aiq_agent/agents/piloti/test_turn_decisions.py`: one family choice,
+  the skill heading and veto, the thresholds each read back.
 - `tests/aiq_agent/stages/test_memory_reflection_stage.py::TestTheDecisionSkipsOnlyAConfidentNo`
   and `tests/aiq_agent/memory/test_reflection.py::TestDurableProbability`.
 - `tests/aiq_agent/memory/test_supersede.py`: the digest read back
   unescaped, org-wide entries left out, the writer's quote first, both
-  writers send the decided one; `memory_supersede.yaml` in the off-path eval.
-- `tests/conftest.py::_no_live_decisions`: the suite never reaches the live
+  writers send the decided one.
+- `tests/conftest.py::_no_live_decisions` (and its twin in
+  `frontends/aiq_api/tests/conftest.py`): the suites never reach the live
   endpoint unless a test turns decisions on and stubs it.
 - `tests/test_decision_eval.py`: the adoption gate's arithmetic;
   `tests/fixtures/herleitung/decision_eval_2026-09-22.csv`: its last result.

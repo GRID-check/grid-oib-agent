@@ -14,8 +14,10 @@ import type {
   CitationSource,
   AnswerTransparency,
   HumanPromptInputType,
+  ResumableTurn,
 } from '../types'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
+import { turnAnswerId } from '@/lib/conversations/turn-answer-id'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import { reconcileCardInteractions } from '@/features/grid-cards/card-decision'
@@ -217,6 +219,10 @@ export type MessagesSlice = {
    * turn — every frame of a turn carries the same `parent_id`.
    */
   setTurnWsParentId: (wsParentId: string) => void
+  /** See `ChatActions.markTurnWsParentId`. */
+  markTurnWsParentId: (userMessageId: string, wsParentId: string) => void
+  /** See `ChatActions.resumeTurn`. */
+  resumeTurn: (conversationId: string) => ResumableTurn | null
   /**
    * Apply a post-answer stage frame to the turn it addresses
    * (`docs/architecture/post-answer-stages.md` §4.3, §8).
@@ -491,6 +497,15 @@ const createNewConversation = (userId: string): Conversation => ({
   updatedAt: new Date(),
 })
 
+/**
+ * How often buffered answer deltas reach the store while an answer streams.
+ * Each flush re-renders everything subscribed to the open conversation; once
+ * per animation frame, that was a 50–70 ms task every few frames on a 4×
+ * throttled CPU. What the reader sees is paced separately (`usePacedText`),
+ * so the flush can be this coarse without the text arriving in steps.
+ */
+export const DELTA_FLUSH_MS = 100
+
 export const initialMessagesState = {
   isStreaming: false,
   isLoading: false,
@@ -515,6 +530,16 @@ export const initialMessagesState = {
  * to today's single-shot response for the same store state — this is what
  * preserves backward compatibility.
  */
+/**
+ * The id this turn's answer is created under: the one the backend would persist
+ * it under, once the turn's WS id is known (see `turnAnswerId`), so an answer
+ * written by both tiers is one row. A fresh uuid before that.
+ */
+const answerIdFor = (state: ChatStore): string =>
+  state.currentConversation && state.currentTurnWsParentId
+    ? turnAnswerId(state.currentConversation.id, state.currentTurnWsParentId)
+    : uuidv4()
+
 const buildAgentResponseMessage = (
   state: ChatStore,
   id: string,
@@ -605,9 +630,11 @@ export const createMessagesSlice: StateCreator<
   // --- Streamed-delta batching ------------------------------------------------
   // Rather than rebuilding the whole conversation object on every token (one
   // set() per delta), subsequent answer deltas accumulate in this buffer and
-  // flush to the store once per animation frame. In the browser this collapses
-  // N per-token writes into ~1 per frame; in non-DOM / test envs we flush
-  // synchronously so `append` then a synchronous read still observes the text.
+  // flush to the store every `DELTA_FLUSH_MS`. Every flush re-renders what
+  // subscribes to the conversation, so it is coarse on purpose: the reader
+  // does not see the flush cadence, because the answer paces its own reveal
+  // (`usePacedText`). In non-DOM / test envs we flush synchronously so
+  // `append` then a synchronous read still observes the text.
   let pendingDeltaText = ''
   let pendingDeltaMeta: {
     cards?: (GridCard | undefined)[]
@@ -633,20 +660,19 @@ export const createMessagesSlice: StateCreator<
     cards: (GridCard | undefined)[] | undefined,
     answerMeta: AnswerMeta | undefined
   ): boolean => !content && (Boolean(answerMeta) || (cards?.length ?? 0) > 0)
-  let deltaRafHandle: number | null = null
+  let deltaFlushTimer: ReturnType<typeof setTimeout> | null = null
 
   const canBatchDeltas = (): boolean =>
     typeof window !== 'undefined' &&
-    typeof window.requestAnimationFrame === 'function' &&
     // Keep tests deterministic: they append then read synchronously, so never
     // defer under vitest (NODE_ENV is statically 'production'/'development' in
     // the browser bundle, so this branch tree-shakes out there).
     process.env.NODE_ENV !== 'test'
 
   const cancelScheduledFlush = (): void => {
-    if (deltaRafHandle !== null) {
-      window.cancelAnimationFrame(deltaRafHandle)
-      deltaRafHandle = null
+    if (deltaFlushTimer !== null) {
+      clearTimeout(deltaFlushTimer)
+      deltaFlushTimer = null
     }
   }
 
@@ -722,11 +748,11 @@ export const createMessagesSlice: StateCreator<
   }
 
   const scheduleDeltaFlush = (): void => {
-    if (deltaRafHandle !== null) return
-    deltaRafHandle = window.requestAnimationFrame(() => {
-      deltaRafHandle = null
+    if (deltaFlushTimer !== null) return
+    deltaFlushTimer = setTimeout(() => {
+      deltaFlushTimer = null
       flushDeltaBuffer()
-    })
+    }, DELTA_FLUSH_MS)
   }
 
   return {
@@ -1293,7 +1319,7 @@ export const createMessagesSlice: StateCreator<
       const { currentConversation, conversations } = state
       if (!currentConversation) return
 
-      const responseMessage = buildAgentResponseMessage(state, uuidv4(), content, {
+      const responseMessage = buildAgentResponseMessage(state, answerIdFor(state), content, {
         cards,
         answerConfidence,
         citations,
@@ -1367,7 +1393,7 @@ export const createMessagesSlice: StateCreator<
         resetDeltaBuffer()
         liveMetaShown = isLiveExtrasFrame(content, cards, answerMeta)
 
-        const id = uuidv4()
+        const id = answerIdFor(state)
         const message = buildAgentResponseMessage(state, id, content, {
           cards: cards && cards.length > 0 ? cards : undefined,
           answerConfidence,
@@ -1617,6 +1643,64 @@ export const createMessagesSlice: StateCreator<
       if (!wsParentId) return
       if (get().currentTurnWsParentId === wsParentId) return
       set({ currentTurnWsParentId: wsParentId }, false, 'setTurnWsParentId')
+    },
+
+    markTurnWsParentId: (userMessageId: string, wsParentId: string) => {
+      const { currentConversation, conversations } = get()
+      if (!currentConversation || !wsParentId) return
+      const index = currentConversation.messages.findIndex((m) => m.id === userMessageId)
+      if (index < 0 || currentConversation.messages[index]?.wsParentId === wsParentId) return
+      const messages = [...currentConversation.messages]
+      messages[index] = { ...messages[index]!, wsParentId }
+      // No `updatedAt` bump: a local handle on the turn, not something said.
+      const updatedConversation: Conversation = { ...currentConversation, messages }
+      set(
+        {
+          currentConversation: updatedConversation,
+          conversations: updateConversationInList(conversations, updatedConversation),
+        },
+        false,
+        'markTurnWsParentId'
+      )
+    },
+
+    resumeTurn: (conversationId: string) => {
+      const {
+        resumableTurn: turn,
+        currentConversation,
+        conversations,
+        thinkingSteps,
+        isStreaming,
+      } = get()
+      if (!turn || turn.conversationId !== conversationId) return null
+      // Something newer owns the conversation: a question sent since, or a
+      // turn already streaming. The reload's turn is not the current one.
+      const last = currentConversation?.messages.findLast((m) => m.messageType === 'user')
+      if (isStreaming || !currentConversation || last?.id !== turn.userMessageId) {
+        set({ resumableTurn: null }, false, 'resumeTurn:stale')
+        return null
+      }
+      const messages = currentConversation.messages.map((m) =>
+        m.id === turn.userMessageId && m.thinkingSteps ? { ...m, thinkingSteps: undefined } : m
+      )
+      const updatedConversation: Conversation = { ...currentConversation, messages }
+      set(
+        {
+          resumableTurn: null,
+          currentUserMessageId: turn.userMessageId,
+          currentTurnWsParentId: turn.wsParentId,
+          streamingAssistantMessageId: null,
+          thinkingSteps: thinkingSteps.filter((s) => s.userMessageId !== turn.userMessageId),
+          activeThinkingStepId: null,
+          isStreaming: true,
+          isLoading: true,
+          currentConversation: updatedConversation,
+          conversations: updateConversationInList(conversations, updatedConversation),
+        },
+        false,
+        'resumeTurn'
+      )
+      return turn
     },
 
     applyStageFrame: (frame: StageFrame): string | null => {

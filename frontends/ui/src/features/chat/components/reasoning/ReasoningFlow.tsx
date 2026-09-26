@@ -1457,10 +1457,17 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
     if (changed.length > 0) updateNodeInternals(changed)
   }, [handleSigs, updateNodeInternals])
 
-  // While the turn streams, the connectors march (React Flow's built-in
-  // animated dashes); a finished turn freezes them solid.
+  // While the turn streams, the connectors are dashed; a finished turn draws
+  // them solid. They used to march (React Flow's `animated`), which animates
+  // `stroke-dashoffset`: no compositor can run that, so the graph repainted
+  // every frame for the whole turn, about half of what a live turn cost a 4×
+  // throttled phone at rest (measured on `/dev/chat-turn`). The dash alone
+  // still says "not finished".
   const renderedEdges = useMemo(
-    () => (live ? edges.map((e) => ({ ...e, animated: true })) : edges),
+    () =>
+      live
+        ? edges.map((e) => ({ ...e, style: { ...e.style, strokeDasharray: '5 4' } }))
+        : edges,
     [edges, live]
   )
 

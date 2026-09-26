@@ -463,17 +463,16 @@ tasks:
       - '{{.PY}} scripts/decision_eval.py {{.CLI_ARGS}}'
 
   be:eval:decisions:offpath:
-    desc: 'Decision-model eval for the uses off the reader path — tags, reflection pre-check, memory supersede, Dokumentart, feedback causes — on the hand-labelled sets (NEEDS OPENROUTER_API_KEY; no backend)'
+    desc: 'Decision-model eval for the annotations — upload tags, Dokumentart, feedback causes — on the hand-labelled tuning sets (NEEDS OPENROUTER_API_KEY; no backend)'
     cmds:
-      # ADR-0064 uses 4 and 5. Exit 0 = every type right, no false discipline,
-      # and no durable exchange below the reflection skip threshold.
+      # ADR-0064 uses 4, 8 and 9. Exit 0 = the floors in the script hold.
       - '{{.PY}} scripts/decision_eval_offpath.py {{.CLI_ARGS}}'
 
   be:eval:decisions:holdout:
-    desc: 'Held-out check for every decision-model use, on sets written blind to the wording — never tune on them (NEEDS OPENROUTER_API_KEY; no backend)'
+    desc: 'Held-out check for the decision-model uses, on sets written blind to the wording — never tune on them (NEEDS OPENROUTER_API_KEY; no backend)'
     cmds:
-      # ADR-0064, amended 2026-09-26. Exit 0 = every floor holds; the floors
-      # sit just under the last result so a regression fails.
+      # Exit 0 = every floor holds; the floors sit just under the last result
+      # so a regression fails.
       - '{{.PY}} scripts/decision_eval_holdout.py {{.CLI_ARGS}}'
 
   be:eval:turn-census:

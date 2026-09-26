@@ -50,6 +50,7 @@ import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import { useChatStore } from '../store'
 import { useAnswerFileReferences } from '../hooks/use-answer-file-references'
+import { usePacedText } from '../hooks/use-paced-text'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
@@ -805,19 +806,20 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // prose become links to its rows. Answers without such a section are untouched.
   const fallbackId = useId()
   const anchorPrefix = answerSourceAnchorPrefix(messageId ?? fallbackId)
-  // The prose streams while the model writes it (ADR-0066), so `isStreaming`
-  // is a window of seconds, not a frame or two. The client-side typewriter that used to pace the reveal (`use-typed-reveal`)
-  // was removed deliberately: the full text paints as soon as it arrives.
-  // "Still arriving" is therefore the real streaming window only — the caret
-  // trails the text, the footer stays reserved at its height, and nothing that
-  // acts on a WHOLE answer — the copy actions, the cards no marker claimed —
-  // is offered over half of one.
-  const stillArriving = isStreaming
+  // The prose streams while the model writes it (ADR-0066), in bursts. It is
+  // shown at a steady pace a beat behind what has arrived (`usePacedText`,
+  // rules in `../lib/stream-pace.ts`), so it reads as being written rather
+  // than lurching forward a sentence at a time. "Still arriving" lasts until
+  // the shown text has caught up: the caret trails it, the footer stays
+  // reserved at its height, and nothing that acts on a WHOLE answer — the copy
+  // actions, the cards no marker claimed — is offered over half of one.
+  const shownContent = usePacedText(content, isStreaming)
+  const stillArriving = isStreaming || shownContent.length < content.length
   const {
     body,
     entries: sourceEntries,
     numbers: citationNumbers,
-  } = useMemo(() => splitAnswerBody(content), [content])
+  } = useMemo(() => splitAnswerBody(shownContent), [shownContent])
 
   // The lede is suppressed when the envelope carries a summary or a topic:
   // the masthead's standfirst or title holds that emphasis, and a 17px
