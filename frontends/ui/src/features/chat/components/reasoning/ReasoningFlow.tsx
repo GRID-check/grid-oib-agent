@@ -133,7 +133,7 @@ import { ChevronDown } from 'lucide-react'
 import {
   ReactFlow,
   ReactFlowProvider,
-  BaseEdge,
+  EdgeLabelRenderer,
   Handle,
   Position,
   applyNodeChanges,
@@ -172,6 +172,16 @@ import { stepNameLabel } from '../../lib/executed-steps'
 import { retrievalRounds, roundFan, type FanCard } from '../../lib/retrieval-rounds'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import type { ChoicePrompt } from './citations'
+import {
+  DRAW_MS,
+  ReasoningMotionContext,
+  prefersReducedMotion,
+  useEdgeDraw,
+  useFlowAlongPath,
+  useNodeEntrance,
+  useSettleNudge,
+  type ReasoningMotion,
+} from './reasoning-motion'
 
 /** Hidden connection handle (edges anchor to it; the dot itself is invisible). */
 const H = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 'none', background: 'transparent' } as const
@@ -351,20 +361,38 @@ type RoundData = {
 }
 
 // ── node components ───────────────────────────────────────────────────────────
-const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
-  <div className="w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs">
-    <Eyebrow>
-      <span className="inline-flex items-center gap-1.5">
-        {data.label}
-      </span>
-    </Eyebrow>
-    <p className="mt-1 text-sm leading-relaxed text-foreground">{data.question}</p>
-    {data.escalation && <p className="mt-1.5 text-xs leading-relaxed text-warning">{data.escalation}</p>}
-    {data.sources.map((h) => (
-      <Handle key={h.id} id={h.id} type="source" position={Position.Bottom} style={{ ...H, left: h.left }} />
-    ))}
-  </div>
-)
+/**
+ * The motion every banner node shares: its entrance on first arrival in a live
+ * graph, and the settle when a later round pushes it down. See
+ * `reasoning-motion.tsx`.
+ */
+function useBannerMotion(id: string, y: number) {
+  const ref = useRef<HTMLDivElement>(null)
+  const entering = useNodeEntrance(id)
+  useSettleNudge(ref, y)
+  return { ref, className: entering ? 'reasoning-enter' : undefined }
+}
+
+const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ id, data, positionAbsoluteY }) => {
+  const motion = useBannerMotion(id, positionAbsoluteY)
+  return (
+    <div
+      ref={motion.ref}
+      className={cn('w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs', motion.className)}
+    >
+      <Eyebrow>
+        <span className="inline-flex items-center gap-1.5">
+          {data.label}
+        </span>
+      </Eyebrow>
+      <p className="mt-1 text-sm leading-relaxed text-foreground">{data.question}</p>
+      {data.escalation && <p className="mt-1.5 text-xs leading-relaxed text-warning">{data.escalation}</p>}
+      {data.sources.map((h) => (
+        <Handle key={h.id} id={h.id} type="source" position={Position.Bottom} style={{ ...H, left: h.left }} />
+      ))}
+    </div>
+  )
+}
 
 /**
  * One checkpoint layer, and the control that folds the fan under it.
@@ -382,8 +410,16 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
  * `data-id` rather than `id`. Pointing at an id that does not exist is worse
  * than pointing at nothing.
  */
-const RoundFlowNode: FC<NodeProps<Node<RoundData>>> = ({ data }) => (
-  <div className="relative w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs">
+const RoundFlowNode: FC<NodeProps<Node<RoundData>>> = ({ id, data, positionAbsoluteY }) => {
+  const motion = useBannerMotion(id, positionAbsoluteY)
+  return (
+  <div
+    ref={motion.ref}
+    className={cn(
+      'relative w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs',
+      motion.className
+    )}
+  >
     {data.targets.map((h) => (
       <Handle key={h.id} id={h.id} type="target" position={Position.Top} style={{ ...H, left: h.left }} />
     ))}
@@ -436,7 +472,8 @@ const RoundFlowNode: FC<NodeProps<Node<RoundData>>> = ({ data }) => (
       <Handle key={h.id} id={h.id} type="source" position={Position.Bottom} style={{ ...H, left: h.left }} />
     ))}
   </div>
-)
+  )
+}
 
 /**
  * One fan-out column. Exactly two edges touch it — framing → column and
@@ -445,7 +482,16 @@ const RoundFlowNode: FC<NodeProps<Node<RoundData>>> = ({ data }) => (
  * a short hairline in the same ink as the edges, so the stack reads as "these
  * were searched together", not as a sequence of steps.
  */
-const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) => {
+const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ id, data, positionAbsoluteY }) => {
+  const ref = useRef<HTMLDivElement>(null)
+  useSettleNudge(ref, positionAbsoluteY)
+  // The grouped box is chrome of its own, so it fades in with the cards — but
+  // only when it arrives WITH them (every card still to play its entrance). A
+  // column re-created by a re-pack holds cards that were on screen a frame ago.
+  const boxEnters = useNodeEntrance(
+    id,
+    data.grouped && data.cards.every((slot) => slot.card !== undefined && data.enterOrder.has(slot.card.id))
+  )
   const stack = (
     <div role="list" aria-label={data.groupLabel} className="flex w-full flex-col">
       {data.cards.map((fanCard, i) => {
@@ -507,6 +553,7 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
 
   return (
     <div
+      ref={ref}
       className="max-w-full"
       style={{ width: data.colW !== undefined ? `${data.colW}px` : 'var(--source-w)' }}
     >
@@ -515,7 +562,7 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
         // No entrance on the container itself — the cards inside carry it, and
         // this wrapper re-mounts whenever the width crosses GROUPED_MAX_W, which
         // faded the whole box back in on top of them on every such resize.
-        <div className="rounded-xl border bg-muted px-3 py-3">
+        <div className={cn('rounded-xl border bg-muted px-3 py-3', boxEnters && 'reasoning-enter-fade')}>
           <Eyebrow>{data.groupLabel}</Eyebrow>
           <div className="mt-2">{stack}</div>
         </div>
@@ -527,13 +574,17 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
   )
 }
 
-const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ data }) => (
+const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ id, data, positionAbsoluteY }) => {
+  const motion = useBannerMotion(id, positionAbsoluteY)
+  return (
   <div
+    ref={motion.ref}
     className={cn(
       'w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs',
       // Pending reads as in-flight rather than as an empty result: dashed
       // hairline, no fill — the same visual grammar the gap source cards use.
-      data.pending && 'border-dashed bg-transparent shadow-none'
+      data.pending && 'border-dashed bg-transparent shadow-none',
+      motion.className
     )}
   >
     {data.targets.map((h) => (
@@ -541,9 +592,9 @@ const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ data }) => (
     ))}
     <Eyebrow>
       <span className="inline-flex items-center gap-1.5">
-        {data.pending && (
-          <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-brand" />
-        )}
+        {/* Still: the dot flowing along the connectors into this node is the
+            graph's one loop (see `FlowInner`), and a pulse here was a second. */}
+        {data.pending && <span aria-hidden="true" className="size-1.5 rounded-full bg-brand" />}
         {data.label}
       </span>
     </Eyebrow>
@@ -588,10 +639,19 @@ const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ data }) => (
     )}
     <Handle id={data.source.id} type="source" position={Position.Bottom} style={{ ...H, left: data.source.left }} />
   </div>
-)
+  )
+}
 
-const BranchesFlowNode: FC<NodeProps<Node<BranchesData>>> = ({ data }) => (
-  <div className="w-[var(--banner-w)] max-w-full rounded-xl border border-input bg-card px-4 py-3 text-left shadow-xs">
+const BranchesFlowNode: FC<NodeProps<Node<BranchesData>>> = ({ id, data, positionAbsoluteY }) => {
+  const motion = useBannerMotion(id, positionAbsoluteY)
+  return (
+  <div
+    ref={motion.ref}
+    className={cn(
+      'w-[var(--banner-w)] max-w-full rounded-xl border border-input bg-card px-4 py-3 text-left shadow-xs',
+      motion.className
+    )}
+  >
     {data.targets.map((h) => (
       <Handle key={h.id} id={h.id} type="target" position={Position.Top} style={{ ...H, left: h.left }} />
     ))}
@@ -604,7 +664,8 @@ const BranchesFlowNode: FC<NodeProps<Node<BranchesData>>> = ({ data }) => (
       onSelect={(option) => data.onRespond(data.prompt.promptId, option)}
     />
   </div>
-)
+  )
+}
 
 const nodeTypes = {
   framing: FramingFlowNode,
@@ -753,6 +814,8 @@ const TRUNK_ELBOW = ROW_GAP / 2
  */
 function trunkEdge(anchor: 'source' | 'target'): FC<EdgeProps> {
   const TrunkEdge: FC<EdgeProps> = ({
+    id,
+    data,
     sourceX,
     sourceY,
     sourcePosition,
@@ -784,10 +847,53 @@ function trunkEdge(anchor: 'source' | 'target'): FC<EdgeProps> {
       // the trunk as two near-parallel lines. Keep it well under TRUNK_ELBOW.
       offset: TRUNK_ELBOW / 2,
     })
-    return <BaseEdge path={path} markerEnd={markerEnd} style={style} />
+    return <MotionEdgePath id={id} path={path} markerEnd={markerEnd} style={style} flow={data?.flow === true} />
   }
   TrunkEdge.displayName = anchor === 'source' ? 'SplitEdge' : 'MergeEdge'
   return TrunkEdge
+}
+
+/**
+ * The stroke of a connector, and its two motions (`reasoning-motion.tsx`).
+ *
+ * `BaseEdge`'s path, minus the invisible 20px hit path beside it: nothing in
+ * this graph takes a pointer on an edge (`edgesFocusable`, `elementsSelectable`
+ * are off). A new connector draws itself in once (`reasoning-edge-draw`, a
+ * one-shot dash offset over `pathLength` 1). A connector into the frontier
+ * carries the flowing dot, an HTML element in React Flow's label layer — which
+ * sits under the nodes, so the dot slips in beneath the card it feeds.
+ * Exported for its own spec: a DOM with no layout never measures a handle, so
+ * React Flow draws no edge there at all.
+ */
+export const MotionEdgePath: FC<{
+  id: string
+  path: string
+  markerEnd: string | undefined
+  style: React.CSSProperties | undefined
+  flow: boolean
+}> = ({ id, path, markerEnd, style, flow }) => {
+  const pathRef = useRef<SVGPathElement>(null)
+  const dotRef = useRef<HTMLDivElement>(null)
+  const drawing = useEdgeDraw(id)
+  useFlowAlongPath(pathRef, dotRef, path, flow, drawing ? DRAW_MS : 0)
+  return (
+    <>
+      <path
+        ref={pathRef}
+        d={path}
+        fill="none"
+        className={cn('react-flow__edge-path', drawing && 'reasoning-edge-draw')}
+        style={style}
+        markerEnd={markerEnd}
+        pathLength={drawing ? 1 : undefined}
+      />
+      {flow ? (
+        <EdgeLabelRenderer>
+          <div ref={dotRef} aria-hidden="true" className="reasoning-flow-dot" />
+        </EdgeLabelRenderer>
+      ) : null}
+    </>
+  )
 }
 
 const edgeTypes = {
@@ -1427,8 +1533,18 @@ export function sameNodeData(a: unknown, b: unknown): boolean {
 const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 }
 const PRO_OPTIONS = { hideAttribution: true }
 
-const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = ({ built, layout, live }) => {
+const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean; reducedMotion: boolean }> = ({
+  built,
+  layout,
+  live,
+  reducedMotion,
+}) => {
   const t = useTranslations('chat')
+  // Which ids already had their entrance, for THIS mounted graph: a Herleitung
+  // opened on a finished turn registers everything without playing anything.
+  const [motionRegistry] = useState(() => ({ entered: new Set<string>(), drawn: new Set<string>() }))
+  const enter = live && !reducedMotion
+  const motion = useMemo<ReasoningMotion>(() => ({ enter, ...motionRegistry }), [enter, motionRegistry])
   const { nodes, edges, rows } = built
   const initialized = useNodesInitialized()
   const paneRef = useRef<HTMLDivElement>(null)
@@ -1515,22 +1631,31 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
   }, [handleSigs, updateNodeInternals])
 
   // The connectors are solid. While the turn streams, the newest row carries
-  // the motion instead: a dot drops into each of its nodes
-  // (`.reasoning-frontier`, globals.css), moved by transform and opacity on
-  // an HTML pseudo-element, which the compositor runs without a repaint. No
-  // SVG connector may loop an animation: `stroke-dashoffset` (React Flow's
-  // `animated`) cannot be composited, so even one short marching connector
-  // kept the phone repainting 60 times a second, 245 ms of main thread per
-  // second at rest on a 4× throttled CPU, off screen too (Herleitung audit,
-  // 2026-09). #757's dashed-and-still connectors cost nothing but read as
-  // "planned, not connected".
+  // the graph's one loop: a dot flows along every connector INTO it
+  // (`useFlowAlongPath`), an HTML element moved by a WAAPI transform and
+  // opacity animation, which the compositor runs without a repaint. A frontier
+  // with no connector into it yet (the framing card, alone at the start of a
+  // turn) gets the dot dropping into it instead (`.reasoning-frontier`,
+  // globals.css), the same compositor-only way. No SVG connector may loop an
+  // animation: `stroke-dashoffset` (React Flow's `animated`), an SVG
+  // `<animateMotion>` and a CSS `offset-distance` all repaint on the main
+  // thread, and one short marching connector kept the phone repainting 60
+  // times a second, 245 ms of main thread per second at rest on a 4× throttled
+  // CPU, off screen too (Herleitung audit, 2026-09). #757's dashed-and-still
+  // connectors cost nothing but read as "planned, not connected".
+  const frontier = useMemo(() => new Set(enter ? (rows.at(-1) ?? []) : []), [enter, rows])
+  const renderedEdges = useMemo(
+    () =>
+      frontier.size === 0 ? edges : edges.map((e) => (frontier.has(e.target) ? { ...e, data: { flow: true } } : e)),
+    [edges, frontier]
+  )
   const renderedNodes = useMemo(() => {
-    if (!live) return rfNodes
-    const frontier = new Set(rows.at(-1) ?? [])
+    if (frontier.size === 0) return rfNodes
+    const fed = new Set(renderedEdges.filter((e) => e.data?.flow === true).map((e) => e.target))
     return rfNodes.map((n) =>
-      frontier.has(n.id) ? { ...n, className: cn(n.className, 'reasoning-frontier') } : n
+      frontier.has(n.id) && !fed.has(n.id) ? { ...n, className: cn(n.className, 'reasoning-frontier') } : n
     )
-  }, [rfNodes, live, rows])
+  }, [rfNodes, frontier, renderedEdges])
 
   const rowsKey = useMemo(() => rows.map((r) => r.join('|')).join('/'), [rows])
 
@@ -1598,13 +1723,16 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
   }, [initialized, rowsKey, rfNodes, layout.contentW, layout.colW, live])
 
   return (
+    <ReasoningMotionContext.Provider value={motion}>
     <div
       ref={paneRef}
       style={{
         height: height ?? undefined,
         minHeight: height ? undefined : 160,
+        // The gate hides the provisional first layout and nothing else: it
+        // lifts in one frame. The motion is the nodes' own entrances, and a
+        // finished turn opened later is simply there.
         opacity: laidOut ? 1 : 0,
-        transition: 'opacity 150ms ease-out',
         ['--banner-w' as string]: `${layout.contentW}px`,
         ['--source-w' as string]: `${layout.colW}px`,
       }}
@@ -1612,14 +1740,21 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
       // React Flow's stylesheet takes and this graph never uses. See the rule in
       // globals.css — without it the whole Herleitung is a dead zone under a
       // finger, and it is the tallest thing in a turn.
-      className="reasoning-flow-scrollable w-full"
+      //
+      // `reasoning-flow-grow`: a live graph GROWS to its new height instead of
+      // jumping (a height transition, like an accordion's). Only this box
+      // animates; React Flow inside is sized to the final height at once, so its
+      // own resize observer sees one change rather than one per frame, and this
+      // box's overflow reveals the new row as it opens.
+      className={cn('reasoning-flow-scrollable w-full overflow-hidden', enter && 'reasoning-flow-grow')}
       data-testid="reasoning-flow"
       role="group"
       aria-label={t('thinking.reasoningGraphLabel')}
     >
       <ReactFlow
+        style={height ? { height } : undefined}
         nodes={renderedNodes}
-        edges={edges}
+        edges={renderedEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
@@ -1647,6 +1782,7 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
         proOptions={PRO_OPTIONS}
       />
     </div>
+    </ReasoningMotionContext.Provider>
   )
 }
 
@@ -1666,6 +1802,7 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
   const t = useTranslations('chat')
   const showTechnicalReasoning = useLayoutStore((s) => s.showTechnicalReasoning)
   const containerRef = useRef<HTMLDivElement>(null)
+  const [reducedMotion] = useState(prefersReducedMotion)
   const [width, setWidth] = useState(0)
 
   useLayoutEffect(() => {
@@ -1754,15 +1891,23 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
    */
   const animatedRef = useRef<Set<string>>(new Set())
   const [entered, setEntered] = useState(0)
+  const animateCards = Boolean(live) && !reducedMotion
   const enterOrder = useMemo(() => {
     const order = new Map<string, number>()
+    // A settled turn (finished, or opened later) and a reader who asked for
+    // less motion get the cards with no entrance — and the cards on screen now
+    // count as entered, so the turn landing never replays them.
+    if (!animateCards) {
+      for (const c of cards) animatedRef.current.add(c.id)
+      return order
+    }
     let slot = 0
     for (const c of cards) if (!animatedRef.current.has(c.id)) order.set(c.id, slot++)
     return order
     // `entered` is the settle signal, not a value this reads — it invalidates
     // the memo once the batch below has finished playing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cards, entered])
+  }, [cards, entered, animateCards])
   useEffect(() => {
     if (enterOrder.size === 0) return
     const settle =
@@ -1823,7 +1968,7 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
   return (
     <div ref={containerRef} className="flex w-full flex-col gap-3">
       <ReactFlowProvider>
-        <FlowInner built={built} layout={layout} live={live ?? false} />
+        <FlowInner built={built} layout={layout} live={live ?? false} reducedMotion={reducedMotion} />
       </ReactFlowProvider>
 
       {showTechnicalReasoning && steps.length > 0 && (

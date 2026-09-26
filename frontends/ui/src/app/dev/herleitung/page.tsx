@@ -29,6 +29,13 @@
  *   - spine-folded → THREE rounds, which is where the graph stops being a shape
  *     and becomes a scroll: the older two layers arrive folded to their counts
  *     and the newest is open. Neither folded caption names a query (PF-12).
+ *   - stream   → the spine ARRIVING: a live turn replayed frame by frame (the
+ *     checkpoint, then the files it returned, three rounds), so the streaming
+ *     motion can be watched and measured. One instance, at the column width.
+ *     `&every=<ms>` sets the pace (default 1400); `&every=0` waits for
+ *     `window.__herleitung.next()`, which a headless capture calls per round.
+ *     `&settle=1` lands the turn after the last frame; without it the turn
+ *     stays live, which is the at-rest state worth measuring.
  */
 
 import { useEffect, useState } from 'react'
@@ -367,6 +374,69 @@ const liveCommon = {
   enabledDataSources: defaultCommon.enabledDataSources,
 }
 
+// Stream scenario: the frames a live spine turn delivers, in wire order — the
+// runner's own step, then per round its `status:retrieval:N` checkpoint and,
+// when the tool returns, the merged `knowledge_search` completion growing by
+// that round's hits (the store merges completions by name, so it is ONE step
+// that grows, not one per round).
+const streamFrames = (): ThinkingStep[][] => {
+  const agent: ThinkingStep = { ...liveCommon.steps[0]! }
+  const frames: ThinkingStep[][] = [[agent]]
+  let steps: ThinkingStep[] = [agent]
+  SPINE_ROUNDS.forEach((round, i) => {
+    steps = [...steps, retrievalStep(i, round.query, round.reason)]
+    frames.push(steps)
+    const hits = mergedHits(SPINE_ROUNDS.slice(0, i + 1).map((r) => r.hits))
+    steps = [...steps.filter((s) => s.id !== 'kb-spine'), hits]
+    frames.push(steps)
+  })
+  return frames
+}
+
+declare global {
+  interface Window {
+    __herleitung?: { next: () => number; frames: number }
+  }
+}
+
+function StreamPreview({ every, settle }: { every: number; settle: boolean }) {
+  const [frames] = useState(streamFrames)
+  const [frame, setFrame] = useState(0)
+  const done = frame >= frames.length - 1
+  useEffect(() => {
+    window.__herleitung = {
+      frames: frames.length,
+      next: () => {
+        setFrame((f) => Math.min(f + 1, frames.length - 1))
+        return frames.length
+      },
+    }
+    return () => {
+      delete window.__herleitung
+    }
+  }, [frames])
+  useEffect(() => {
+    if (every <= 0 || done) return
+    const timer = setTimeout(() => setFrame((f) => f + 1), every)
+    return () => clearTimeout(timer)
+  }, [every, done, frame])
+  const [landed, setLanded] = useState(false)
+  useEffect(() => {
+    if (!settle || !done) return
+    const timer = setTimeout(() => setLanded(true), Math.max(every, 1400))
+    return () => clearTimeout(timer)
+  }, [settle, done, every])
+  return (
+    <ChatThinking
+      steps={frames[frame]!}
+      isThinking={!landed}
+      defaultOpen
+      userQuestion={spineCommon(3).userQuestion}
+      enabledDataSources={defaultCommon.enabledDataSources}
+    />
+  )
+}
+
 export default function HerleitungPreviewPage() {
   if (process.env.NODE_ENV !== 'development') {
     notFound()
@@ -375,9 +445,27 @@ export default function HerleitungPreviewPage() {
   // Read the requested variant after mount (not during render) so the fixture is
   // stable and screenshot-deterministic.
   const [variant, setVariant] = useState<string | null>(null)
+  const [stream, setStream] = useState({ every: 1400, settle: false })
   useEffect(() => {
-    setVariant(new URLSearchParams(window.location.search).get('variant'))
+    const params = new URLSearchParams(window.location.search)
+    setVariant(params.get('variant'))
+    setStream({ every: Number(params.get('every') ?? 1400), settle: params.get('settle') === '1' })
   }, [])
+
+  if (variant === 'stream') {
+    return (
+      <main className="bg-background min-h-dvh px-4 py-10">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+          <h1 className="text-muted-foreground font-mono text-xs" data-testid="herleitung-preview">
+            /dev/herleitung?variant=stream — a live spine turn, replayed frame by frame
+          </h1>
+          <div className="w-[680px] max-w-full">
+            <StreamPreview every={stream.every} settle={stream.settle} />
+          </div>
+        </div>
+      </main>
+    )
+  }
 
   const common =
     variant === 'branches'
@@ -405,9 +493,9 @@ export default function HerleitungPreviewPage() {
               : '/dev/herleitung — reasoning graph (desktop + mobile)'
 
   return (
-    <main className="min-h-dvh bg-background px-4 py-10">
+    <main className="bg-background min-h-dvh px-4 py-10">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
-        <h1 className="font-mono text-xs text-muted-foreground" data-testid="herleitung-preview">
+        <h1 className="text-muted-foreground font-mono text-xs" data-testid="herleitung-preview">
           {label}
         </h1>
         {/* Same box the real thread gives the Herleitung (ChatArea's
@@ -417,7 +505,7 @@ export default function HerleitungPreviewPage() {
           <ChatThinking {...common} />
         </div>
         <div>
-          <div className="mb-2 font-mono text-xs text-muted-foreground">↓ mobile width (380px)</div>
+          <div className="text-muted-foreground mb-2 font-mono text-xs">↓ mobile width (380px)</div>
           <div className="w-[380px] max-w-full">
             <ChatThinking {...common} />
           </div>
