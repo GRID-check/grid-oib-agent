@@ -511,26 +511,6 @@ tasks:
       # skip reason, so a run without the key says so instead of going green.
       - '{{.PY}} -X faulthandler -m pytest tests/benchmarks/test_turn_shapes_live.py -q -rs'
 
-  be:smoke:
-    desc: 'Smoke — one real question through the real agent, failing on any ERROR it logs (NEEDS OPENROUTER_API_KEY; the answer is checked too when the OIB corpus is ingested)'
-    env:
-      PYTHONPATH: src
-    cmds:
-      # What err2issue would have filed, caught before it ships: every record at
-      # ERROR, a traceback, an unawaited coroutine, or no answer at all.
-      #   task be:smoke
-      #   task be:smoke -- "Welche Fluchtweglänge gilt in GK 4?" --out /tmp/smoke
-      # docs/contributing/testing-and-verification.md, "The smoke".
-      - '{{.PY}} scripts/turn_census/smoke.py {{.CLI_ARGS}}'
-
-  be:corpus:pull:
-    desc: 'Restore the ingested OIB corpus (PDFs, vectors, summaries) from its snapshot, instead of ingesting it (NEEDS the oras CLI and `oras login ghcr.io`)'
-    cmds:
-      # After this, `oib_sync.sync()` is a no-op unless a PDF or the chunk
-      # format changed. Set AIQ_CHROMA_DIR first if the vectors should not go to
-      # /tmp/chroma_data. See scripts/corpus_snapshot.py.
-      - '{{.PY}} scripts/corpus_snapshot.py pull {{.CLI_ARGS}}'
-
   be:test:ci:
     desc: Backend core suite with the coverage gate CI enforces
     cmds:
