@@ -20,6 +20,7 @@
  *    under-configured project look like a clean one.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,

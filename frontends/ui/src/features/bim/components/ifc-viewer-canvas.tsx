@@ -61,6 +61,7 @@
  * viewport behaves exactly as it did when it was a single element.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 /**
  * The renderer, typed by the renderer.

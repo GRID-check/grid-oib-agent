@@ -36,6 +36,8 @@ import json
 import logging
 import re
 
+from aiq_agent.common.message_utils import response_text
+
 logger = logging.getLogger(__name__)
 
 # Text longer than this is truncated before being sent to the summary/tagging
@@ -203,8 +205,7 @@ def summarize_document_text(text_content: str, file_name: str, llm) -> str | Non
 
     try:
         response = llm.invoke(prompt)
-        content = response.content if hasattr(response, "content") else str(response)
-        summary = content.strip()
+        summary = response_text(response).strip()
         logger.info("[SUMMARY] Generated (%d chars)", len(summary))
         return summary or None
     except Exception as e:

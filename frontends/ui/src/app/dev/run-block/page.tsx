@@ -22,6 +22,7 @@
  * is the German copy. 404s outside development (the `/dev` layout).
  */
 
+import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'

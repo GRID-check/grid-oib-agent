@@ -20,6 +20,7 @@
  * reading org spend, and sharing a card implied otherwise.
  */
 
+import type { JSX } from 'react'
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react'
 import { WorkOsWidgets, UsersManagement } from '@workos-inc/widgets'
 import '@radix-ui/themes/styles.css'

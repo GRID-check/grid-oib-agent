@@ -14,6 +14,7 @@
  *     thumbnail header, mirroring the click-dummy's Dateien cards.
  */
 
+import type { JSX } from 'react'
 import type { ReactNode, SVGProps } from 'react'
 import { ImageIcon, ImageOff } from 'lucide-react'
 import type { DocumentKind } from '../document-kind'

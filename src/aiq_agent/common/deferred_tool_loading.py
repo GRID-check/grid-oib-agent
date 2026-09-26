@@ -412,10 +412,10 @@ class DeferredToolLoadingModels(BaseModel):
             "Model ids or globs verified to accept the namespace and echo `defer_loading` "
             "back. Matched EXACTLY (a `:variant` suffix does not inherit an allow — it "
             "routes elsewhere and was not the thing measured); write `model*` to include "
-            "variants deliberately. A runtime rejection does not unlist it. While "
-            "`probe_unknown` is on, the capability probe still measures the saving once, "
-            "off the request path, and a model that bills its deferred schemas anyway "
-            "binds full schemas; with it off, an allow entry is trusted on its echo alone "
+            "variants deliberately. While `probe_unknown` is on, an allowed model binds "
+            "full schemas until the capability probe has measured the saving off the "
+            "request path, and keeps binding them if it bills its deferred schemas anyway; "
+            "with it off, an allow entry is trusted on its echo alone "
             "(the workflow's own model is still measured at build time)."
         ),
     )
@@ -446,8 +446,8 @@ class DeferredToolLoadingModels(BaseModel):
             "Spend one live capability probe per unclassified, undenied model id — off the "
             "request path — and cache the verdict. That covers an unlisted model, a "
             "`provisional` one and an `allow` one, whose echo is not a measured saving. "
-            "Until the verdict lands an unlisted model gets full schemas and a listed one "
-            "defers. Set false to stop request-time probing: the lists alone decide, and "
+            "Until the verdict lands only a `provisional` model defers; an unlisted or "
+            "`allow` one gets full schemas. Set false to stop request-time probing: the lists alone decide, and "
             "an `allow` model's echo is trusted without measuring the saving. The build-"
             "time check of the workflow's own model runs either way."
         ),
@@ -620,9 +620,10 @@ def capability_verdict(model_id: str, models: DeferredToolLoadingModels) -> bool
     * ``deny``      → False. Operator's word, final.
     * measured ignored → False. The probe billed a deferred schema in full
                       (:func:`record_deferral_ignored`); this outranks ``allow``.
-    * ``allow``     → True. Operator's assertion that the shape is accepted; a
-                      rejection does not overturn it (the per-binding latch
-                      still protects a turn).
+    * ``allow``     → the probe's measured verdict, None until it lands. The
+                      list asserts only that the shape is accepted and echoed,
+                      which is not a saving. With ``probe_unknown`` off nothing
+                      can measure one, and the echo alone answers True.
     * ``provisional`` → True *until* a verdict says otherwise. This is the
                       exception: it states an intent, not a measurement, so it
                       yields to what the runtime actually observes.
@@ -635,9 +636,14 @@ def capability_verdict(model_id: str, models: DeferredToolLoadingModels) -> bool
         return None
     if model_is_denied(model_id, models) or model_id in _DEFERRAL_IGNORED:
         return False
-    if _matches_any(model_id, models.allow):
-        return True
     cached = cached_model_verdict(model_id)
+    if _matches_any(model_id, models.allow):
+        # The allowlist records an echo, and an echo is not a saving: every
+        # model measured on 2026-09-23 echoed `defer_loading` and billed the
+        # schemas in full. While the probe can measure the saving, an allowed
+        # model waits for it like any other (full schemas meanwhile, which is
+        # always correct). Only with probing switched off does the echo decide.
+        return cached if models.probe_unknown else True
     if _matches_any(model_id, models.provisional):
         return True if cached is None else cached
     return cached

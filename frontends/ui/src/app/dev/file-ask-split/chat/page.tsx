@@ -63,6 +63,7 @@
  *                  at that ratio needs evidence.
  */
 
+import type { JSX } from 'react'
 import { useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { I18nProvider } from '@/i18n'

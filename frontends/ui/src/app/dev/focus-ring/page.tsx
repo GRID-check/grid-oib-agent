@@ -8,6 +8,7 @@
  * than squaring off. 404s outside development. See docs/ux/visual-screenshots.md.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'

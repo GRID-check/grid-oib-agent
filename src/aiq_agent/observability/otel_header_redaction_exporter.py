@@ -88,7 +88,11 @@ class _DisabledSpanExporter(BaseExporter):
     which no-ops on the same missing env var.
     """
 
-    async def export(self, event: Any) -> None:
+    def export(self, event: Any) -> None:
+        # Synchronous, like BaseExporter.export: NAT calls it without awaiting
+        # (base_exporter's on_next_wrapper), so an `async def` here made an
+        # unawaited coroutine per trace event in every deployment without a
+        # collector ("RuntimeWarning: coroutine ... was never awaited").
         return None
 
 

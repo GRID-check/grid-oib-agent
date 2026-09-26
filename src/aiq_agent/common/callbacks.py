@@ -5,6 +5,8 @@ from typing import Any
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.outputs import LLMResult
 
+from aiq_agent.common.tool_errors import is_argument_rejection
+
 logger = logging.getLogger(__name__)
 
 
@@ -102,6 +104,7 @@ class VerboseTraceCallback(BaseCallbackHandler):
         self.max_chars = max_chars
         self.current_input: str | None = None
         self.active_chains: dict[Any, str] = {}
+        self.active_tools: dict[Any, str] = {}
         self.depth = 0
 
     def for_new_run(self) -> "VerboseTraceCallback":
@@ -223,6 +226,8 @@ class VerboseTraceCallback(BaseCallbackHandler):
 
     def on_tool_start(self, serialized: dict | None, input_str: str, **kwargs) -> None:
         tool_name = serialized.get("name", "unknown") if serialized else kwargs.get("name", "unknown")
+        if kwargs.get("run_id") is not None:
+            self.active_tools[kwargs["run_id"]] = tool_name
         logger.info("%s[Tool Start] %s%s", GREEN, tool_name, RESET)
         preview = input_str[:500] + "..." if len(input_str) > 500 else input_str
         logger.info("%s  Input: %s%s", DIM, preview, RESET_ALL)
@@ -233,7 +238,12 @@ class VerboseTraceCallback(BaseCallbackHandler):
         logger.info("%s[Tool Result] %s%s", GREEN, preview, RESET)
 
     def on_tool_error(self, error: Exception, **kwargs) -> None:
-        logger.error("%s[Tool Error] %s%s", RED, error, RESET)
+        tool_name = self.active_tools.pop(kwargs.get("run_id"), None) or kwargs.get("name") or "unknown"
+        # Arguments the schema refused never reached the tool; the ToolNode hands
+        # the refusal back and the model fixes the call. At ERROR, each one filed
+        # an issue (#656) for a turn that recovered on its own.
+        level = logging.WARNING if is_argument_rejection(error) else logging.ERROR
+        logger.log(level, "%s[Tool Error] %s: %s%s", RED, tool_name, error, RESET)
 
     def on_agent_action(self, action: Any, **kwargs) -> None:
         tool_name = getattr(action, "tool", "unknown")

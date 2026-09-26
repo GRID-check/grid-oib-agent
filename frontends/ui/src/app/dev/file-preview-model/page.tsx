@@ -24,6 +24,7 @@
  * Not linked from anywhere and 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'

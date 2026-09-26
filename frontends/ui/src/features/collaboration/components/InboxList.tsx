@@ -23,6 +23,7 @@
  *     inbox is empty" are different facts and collapsing them misleads.
  */
 
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { AlertCircle, CheckCircle2, Inbox as InboxIcon } from 'lucide-react'
 

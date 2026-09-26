@@ -19,6 +19,7 @@
  * look like one switch is off rather than like something is wrong.
  */
 
+import type { JSX } from 'react'
 import type { KeyboardEvent, MouseEvent } from 'react'
 import { useState } from 'react'
 import { CalendarClock } from 'lucide-react'

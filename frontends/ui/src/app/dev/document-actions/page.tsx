@@ -23,6 +23,7 @@
  * Not linked from anywhere and 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { Download } from 'lucide-react'

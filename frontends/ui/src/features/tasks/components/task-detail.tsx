@@ -49,6 +49,7 @@
  * with the schedules themselves.
  */
 
+import type { JSX } from 'react'
 import Link from 'next/link'
 import { ArrowRight, CalendarPlus, FileText, MessageSquare, MessagesSquare } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
