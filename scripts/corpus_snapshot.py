@@ -92,7 +92,11 @@ def unpack(archive: Path) -> None:
         if any(m.name.split("/", 1)[0] == _CHROMA_MEMBER for m in members):
             shutil.rmtree(target, ignore_errors=True)
         with tempfile.TemporaryDirectory() as staging:
-            tar.extractall(staging, filter="data")
+            # Member by member, and only the members just checked against the
+            # layout: `filter="data"` still refuses links, devices and absolute
+            # or escaping paths on each one.
+            for member in members:
+                tar.extract(member, staging, filter="data")
             staged = Path(staging)
             if (staged / _CHROMA_MEMBER).is_dir():
                 target.parent.mkdir(parents=True, exist_ok=True)
