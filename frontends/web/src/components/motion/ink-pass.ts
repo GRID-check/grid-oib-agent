@@ -1,12 +1,11 @@
-import { DURATION, STAGGER, TRAVEL, cssEase, reducedMotion } from '../../lib/motion'
+import { DURATION, TRAVEL, cssEase, reducedMotion, staggerFor } from '../../lib/motion'
 
 /**
- * The ink pass: a riso print arrives the way a riso prints it, one ink at a
- * time. Each ink is laid down by a drum passing over the sheet from top to
- * bottom (a clip wipe), lands a hair out of register and settles into it.
- * When the last ink has settled, the layers are removed and the untouched
- * print is shown, so at rest the page holds exactly the file on disk, at its
- * own pixel size, with no transform on it.
+ * The ink pass: a riso print arrives the way a riso prints it, one ink after
+ * another, each laid 2–3px out of register and settling into it. The whole
+ * pass is over in about 600ms. When the last ink has settled, the layers are
+ * removed and the untouched print is shown, so at rest the page holds exactly
+ * the file on disk, at its own pixel size, with no transform on it.
  *
  * Two sources for the inks:
  *
@@ -16,13 +15,13 @@ import { DURATION, STAGGER, TRAVEL, cssEase, reducedMotion } from '../../lib/mot
  *   they are the print, so the pass is the real one.
  * - **Bands** (no separations on disk): the print itself, split by an SVG
  *   filter into a pale ground ink and a middle ink by how dark each pixel is,
- *   then the whole print as the key pass. An approximation: every ink on these
+ *   then the whole print as the key. An approximation: every ink on these
  *   plates is a green, so there is no hue to separate them by, but the light
  *   ink really is printed first and the key really is printed last.
  *
- * Once per element, only when it is on screen, only after any page transition
- * has landed, and never under `prefers-reduced-motion`. Opacity, transform and
- * clip-path only.
+ * Once per element (never again on scrolling back), only when it is on
+ * screen, and never under `prefers-reduced-motion`, where the print is simply
+ * there. Opacity and transform only.
  */
 
 /** Print order: the lightest ink first, the key last. */
@@ -54,9 +53,6 @@ const MISS: Record<Ink | 'band-1' | 'band-2' | 'key', [number, number]> = {
   'band-2': [-0.6, 1],
   key: [0, -0.35],
 }
-
-/** Time between one drum starting and the next. */
-const PASS_GAP = STAGGER.step * 2.5
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
@@ -143,7 +139,7 @@ async function build(root: HTMLElement, img: HTMLImageElement) {
     )
   }
   for (const p of passes) {
-    p.el.style.clipPath = 'inset(0 0 100% 0)'
+    p.el.style.opacity = '0'
     stage.appendChild(p.el)
   }
   root.appendChild(stage)
@@ -155,24 +151,20 @@ async function build(root: HTMLElement, img: HTMLImageElement) {
 const snap = (v: number) => Math.round(v * devicePixelRatio) / devicePixelRatio
 
 async function play(root: HTMLElement, img: HTMLImageElement) {
-  await (window as Window & { __pageSettled?: Promise<unknown> }).__pageSettled
   const { stage, passes } = await build(root, img)
   root.classList.add('ink-pass--printing')
 
+  const gap = staggerFor(passes.length)
   const runs = passes.map((p, i) => {
-    const delay = i * PASS_GAP
     const [mx, my] = p.miss.map((m) => snap(m * TRAVEL.hair))
-    // The drum: the ink appears from the top edge down, as the sheet feeds.
-    const wipe = p.el.animate(
-      [{ clipPath: 'inset(0 0 100% 0)' }, { clipPath: 'inset(0 0 0% 0)' }],
-      { duration: DURATION.draw, delay, easing: cssEase('draft'), fill: 'both' }
-    )
-    // Registration: laid a hair off, drawn into register.
-    const reg = p.el.animate(
-      [{ transform: `translate(${mx}px, ${my}px)` }, { transform: 'translate(0, 0)' }],
-      { duration: DURATION.slow, delay: delay + DURATION.quick, easing: cssEase('settle'), fill: 'both' }
-    )
-    return Promise.all([wipe.finished, reg.finished])
+    // Laid a hair out of register, and drawn into it.
+    return p.el.animate(
+      [
+        { opacity: 0, transform: `translate(${mx}px, ${my}px)` },
+        { opacity: 1, transform: 'translate(0, 0)' },
+      ],
+      { duration: DURATION.slow, delay: i * gap, easing: cssEase('settle'), fill: 'both' }
+    ).finished
   })
   await Promise.all(runs).catch(() => {})
   root.classList.remove('ink-pass--printing')
