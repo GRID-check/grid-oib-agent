@@ -129,16 +129,26 @@ def _target(repository: str, tag: str, oci_layout: Path | None) -> list[str]:
     return [f"{repository}:{tag}"]
 
 
-def pull(repository: str, oci_layout: Path | None) -> str | None:
-    """Restore the newest snapshot for this chunk format, else ``latest``; the tag used, or None."""
+def pull(repository: str, oci_layout: Path | None) -> tuple[str | None, list[str]]:
+    """Restore the newest snapshot for this chunk format, else ``latest``.
+
+    Returns the tag restored (or None) and, per tag that failed, what the
+    registry said. GHCR answers "denied" alike for a package that does not
+    exist and for one the token may not read, so the answer is reported rather
+    than interpreted: a missing snapshot and a broken login must both be
+    visible in the log.
+    """
+    refusals = []
     for tag in tags(chunk_format_version()):
         with tempfile.TemporaryDirectory() as out:
             done = _oras("pull", *_target(repository, tag, oci_layout), "-o", out)
             archive = Path(out) / ARCHIVE
             if done.returncode == 0 and archive.exists():
                 unpack(archive)
-                return tag
-    return None
+                return tag, refusals
+            said = (done.stderr or done.stdout).strip().splitlines()
+            refusals.append(f"{tag}: {said[-1] if said else 'no archive in the artifact'}")
+    return None, refusals
 
 
 def push(repository: str, oci_layout: Path | None) -> list[str]:
@@ -170,9 +180,11 @@ def main(argv: list[str] | None = None) -> int:
         print("corpus snapshot: the oras CLI is not installed (https://oras.land/docs/installation)", file=sys.stderr)
         return 2
     if args.command == "pull":
-        tag = pull(args.repository, args.oci_layout)
+        tag, refusals = pull(args.repository, args.oci_layout)
         if tag is None:
-            print("corpus snapshot: none published yet; the sync will ingest from data/oib")
+            print("corpus snapshot: none restored; the sync will ingest from data/oib if it has PDFs")
+            for refusal in refusals:
+                print(f"  {args.repository}:{refusal}")
             return 0
         print(f"corpus snapshot: restored {tag}")
         return 0
