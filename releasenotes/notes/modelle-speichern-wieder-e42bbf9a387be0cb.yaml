@@ -1,12 +1,10 @@
 ---
 fixes:
   - >
-    Die Modellauswahl lässt sich wieder speichern. Unter Plattform → Modelle
-    und unter Organisation → Modelle scheiterte jedes Speichern mit einem
-    Fehler, sobald noch eine Einstellung für eine Aufgabe gespeichert war, die
-    es nicht mehr gibt. Solche Einstellungen werden jetzt übergangen und beim
-    nächsten Speichern entfernt.
+    Your organization's model choice can be saved again; saving failed while a
+    setting for a retired task was still stored.
+operators:
   - >
-    Die Zeile „OIB compliance check" ist aus der Modellauswahl verschwunden.
-    Sie gehörte zu einer Prüfung, die Piloti nicht mehr ausführt; eine
-    Normprüfung als Auftrag funktioniert unverändert.
+    Saving under Platform → Models works again: settings for tasks that no
+    longer exist are skipped and removed on the next save, and the retired OIB
+    compliance check row is gone from the list.
