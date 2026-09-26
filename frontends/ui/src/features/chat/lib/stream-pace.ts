@@ -25,6 +25,8 @@
  * next state.
  */
 
+import { isDelimiterRow } from '@/lib/text/markdown-table'
+
 /** How far behind the arrivals the reveal aims to sit. */
 export const TARGET_LAG_MS = 450
 /** The most the reveal may hold back: past this it catches up at once. */
@@ -59,22 +61,41 @@ export const initialPace = (length: number): PaceState => ({
 /**
  * Could the renderer draw `text` as it stands, without a construct left open?
  * An open one would flash as raw markdown until its closing half arrived: a
- * `**` with no partner, a link with no `)`, a code span, a fence, half a
- * table row. Deliberately conservative: a cut it refuses only waits for the
- * next one.
+ * link with no `)`, a code span, a fence, a table cell. An open `**` on the
+ * last line is not one (the streaming renderer closes it), and a table row
+ * may end after any finished cell. Deliberately conservative: a cut it
+ * refuses only waits for the next one.
  */
 export function isCleanCut(text: string): boolean {
   const fences = text.match(/^\s*(```|~~~)/gm)?.length ?? 0
   if (fences % 2 === 1) return false
   const lineStart = text.lastIndexOf('\n') + 1
   const line = text.slice(lineStart)
-  // A table row is drawn a whole row at a time.
-  if (/^\s*\|/.test(line)) return false
+  // A table row may end after a finished cell, once the table has its
+  // delimiter row: GFM pads a short row with empty cells, so the row appears
+  // and fills cell by cell. Holding it until it was whole stalled the reveal
+  // 0.5–1 s per row and then dropped 170–260 characters at once (stream
+  // audit, 2026-09).
+  if (/^\s*\|/.test(line)) return /\|\s*$/.test(line) && tableHasDelimiter(text, lineStart)
   if ((line.match(/`/g)?.length ?? 0) % 2 === 1) return false
-  if ((line.match(/\*\*/g)?.length ?? 0) % 2 === 1) return false
+  // An open `**` is fine: the renderer closes it while the answer streams
+  // (`stabilizeStreamingMarkdown`), so the phrase is bold from its first word.
   if ((line.match(/\[/g)?.length ?? 0) !== (line.match(/\]/g)?.length ?? 0)) return false
   if ((line.match(/\(/g)?.length ?? 0) > (line.match(/\)/g)?.length ?? 0)) return false
   return true
+}
+
+/** Do the table lines above `lineStart` include the delimiter row (`| --- |`)? */
+function tableHasDelimiter(text: string, lineStart: number): boolean {
+  let end = lineStart - 1
+  while (end > 0) {
+    const start = text.lastIndexOf('\n', end - 1) + 1
+    const line = text.slice(start, end)
+    if (!/^\s*\|/.test(line)) return false
+    if (isDelimiterRow(line)) return true
+    end = start - 1
+  }
+  return false
 }
 
 /** Is `i` a word gap: just after a space or a line break, so no word is split? */

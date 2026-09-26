@@ -70,7 +70,12 @@ const HARNESS_STORAGE_KEY = 'aiq-chat-store:stream-chat'
 
 const TURN = STREAM_FRAMES.varianten
 const ANSWER = TURN.frames[TURN.frames.length - 1]?.content ?? ''
-const USER = 'dev-user'
+// The id `useAuth`'s no-backend fallback resolves to (`adapters/auth/use-auth.ts`).
+// Any other id is reset by `setCurrentUser` on mount, and the cross-user guard
+// then empties the open thread and the sidebar: with 'dev-user' this harness
+// measured an empty thread for every `history=` it was given (React
+// performance audit, 2026-09; gotchas.md).
+const USER = 'default-user'
 
 /** `turns` question-and-answer pairs, every answer the recorded one. */
 const turnMessages = (prefix: string, turns: number): ChatMessage[] =>

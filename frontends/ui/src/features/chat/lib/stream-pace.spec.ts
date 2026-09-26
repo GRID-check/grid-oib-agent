@@ -33,13 +33,22 @@ describe('isCleanCut', () => {
     expect(isCleanCut('Ein zweiter Fluchtweg ')).toBe(true)
   })
 
-  it('refuses a cut inside bold, a link, a code span, a fence or a table row', () => {
-    expect(isCleanCut('Das ist **wichtig ')).toBe(false)
+  it('refuses a cut inside a link, a code span, a fence or a table cell', () => {
     expect(isCleanCut('Siehe [OIB-RL 2 ')).toBe(false)
     expect(isCleanCut('Siehe [OIB-RL 2](https://example ')).toBe(false)
     expect(isCleanCut('Der Wert `a ')).toBe(false)
     expect(isCleanCut('```mermaid\nflowchart ')).toBe(false)
-    expect(isCleanCut('| Spalte | Wert ')).toBe(false)
+    expect(isCleanCut('| Spalte | Wert |\n| --- | --- |\n| Treppe | offe')).toBe(false)
+  })
+
+  it('accepts a cut inside a bold phrase: the streaming renderer closes it', () => {
+    expect(isCleanCut('**Die Außentreppe ist ')).toBe(true)
+  })
+
+  it('accepts a table row after a finished cell, once the delimiter row is there', () => {
+    expect(isCleanCut('| Spalte | Wert |\n| --- | --- |\n| Treppe | ')).toBe(true)
+    // A header row alone is still held: without its delimiter it is no table yet.
+    expect(isCleanCut('| Spalte | ')).toBe(false)
   })
 
   it('accepts the same constructs once they are closed', () => {
@@ -101,13 +110,24 @@ describe('advancePace', () => {
     expect(shown[0]).toBe(nextCleanCut(text, 0))
   })
 
-  it('does not end a reveal where a delta ended inside a bold phrase', () => {
-    // The recorded first delta of a real answer: its end is not a clean cut.
+  it('shows the first words of an answer that opens in bold at once', () => {
+    // The recorded first delta of a real answer.
     const text = '**Die Außentreppe ist in GK 4 in A2'
     const start = noteArrival(initialPace(0), text.length, 0)
-    const { shown } = run(start, text, MAX_LAG_MS - PACE_TICK_MS)
-    expect(shown.every((n) => n === 0)).toBe(true)
+    const { shown } = run(start, text, PACE_TICK_MS)
+    expect(shown[0]).toBe('**Die '.length)
   })
+
+  it('fills a table cell by cell instead of holding each row back', () => {
+    const head = '| Nachweis | Außentreppe | Treppenhaus |\n| --- | --- | --- |\n'
+    const text = `${head}| Brandschutz | offen, nicht brennbar | REI 90 |\n`
+    const start = noteArrival(initialPace(head.length), text.length, 0)
+    const { shown } = run(start, text, 1000)
+    const partial = shown.filter((n) => n > head.length && n < text.length)
+    expect(partial.length).toBeGreaterThan(0)
+    for (const n of partial) expect(text.slice(0, n).trimEnd().endsWith('|')).toBe(true)
+  })
+
 
   it('does not show half of a bold phrase while it streams', () => {
     const text = 'Das ist **sehr wichtig** und gilt immer. '

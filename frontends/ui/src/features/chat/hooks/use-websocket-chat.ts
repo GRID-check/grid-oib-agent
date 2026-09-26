@@ -63,7 +63,6 @@ import type {
   PromptType,
   PendingInteraction,
   StatusType,
-  ThinkingStep,
   ErrorCode,
   AnswerTransparency,
 } from '../types'
@@ -465,10 +464,6 @@ interface UseWebSocketChatReturn {
   createConversation: () => void
   /** Select a conversation by ID */
   selectConversation: (conversationId: string) => void
-  /** Thinking steps from Details Panel */
-  thinkingSteps: ThinkingStep[]
-  /** Current status type */
-  currentStatus: StatusType | null
   /** Pending interaction requiring user response */
   pendingInteraction: PendingInteraction | null
 }
@@ -751,13 +746,13 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   // The conversation's id and whether its newest turn is mine, not the
   // conversation itself: the conversation is a new object on every streamed
   // delta, and this hook's host (the composer) would re-render with each one.
+  // Nor the thinking steps or the status: nobody read them, and selecting them
+  // re-rendered the whole composer on every step (React performance audit, 2026-09).
   const {
     currentConversationId,
     ownsUnansweredTurn,
     isStreaming,
     isLoading,
-    thinkingSteps,
-    currentStatus,
     pendingInteraction,
   } = useChatStore(
     useShallow((s) => ({
@@ -765,8 +760,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       ownsUnansweredTurn: ownsUnansweredTurnIn(s.currentConversation?.messages, s.currentUserId),
       isStreaming: s.isStreaming,
       isLoading: s.isLoading,
-      thinkingSteps: s.thinkingSteps,
-      currentStatus: s.currentStatus,
       pendingInteraction: s.pendingInteraction,
     }))
   )
@@ -2738,8 +2731,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     isLoading,
     createConversation,
     selectConversation,
-    thinkingSteps,
-    currentStatus,
     pendingInteraction,
   }
 }

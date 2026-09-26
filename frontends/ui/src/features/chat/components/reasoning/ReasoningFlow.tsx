@@ -1379,6 +1379,12 @@ export function buildGraph(
   return { nodes, edges, rows }
 }
 
+// Module constants, not literals in the JSX: React Flow compares these by
+// identity, and a new object on every ReasoningFlow render re-rendered its
+// GraphView, FlowRenderer and ZoomPane each time (React performance audit, 2026-09).
+const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 }
+const PRO_OPTIONS = { hideAttribution: true }
+
 const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = ({ built, layout, live }) => {
   const t = useTranslations('chat')
   const { nodes, edges, rows } = built
@@ -1559,7 +1565,7 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
-        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+        defaultViewport={DEFAULT_VIEWPORT}
         minZoom={1}
         maxZoom={1}
         nodesDraggable={false}
@@ -1580,7 +1586,7 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
         panOnDrag={false}
         panOnScroll={false}
         preventScrolling={false}
-        proOptions={{ hideAttribution: true }}
+        proOptions={PRO_OPTIONS}
       />
     </div>
   )

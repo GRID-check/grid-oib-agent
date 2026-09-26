@@ -963,7 +963,6 @@ export const createMessagesSlice: StateCreator<
         updatedConversation = {
           ...currentConversation,
           messages: updatedMessages,
-          updatedAt: new Date(),
         }
 
         updatedConversations = updateConversationInList(conversations, updatedConversation)
@@ -1017,7 +1016,6 @@ export const createMessagesSlice: StateCreator<
         updatedConversation = {
           ...currentConversation,
           messages: updatedMessages,
-          updatedAt: new Date(),
         }
 
         updatedConversations = updateConversationInList(conversations, updatedConversation)
@@ -1061,7 +1059,6 @@ export const createMessagesSlice: StateCreator<
         updatedConversation = {
           ...currentConversation,
           messages: updatedMessages,
-          updatedAt: new Date(),
         }
 
         updatedConversations = updateConversationInList(conversations, updatedConversation)
@@ -1114,7 +1111,6 @@ export const createMessagesSlice: StateCreator<
         updatedConversation = {
           ...currentConversation,
           messages: updatedMessages,
-          updatedAt: new Date(),
         }
 
         updatedConversations = updateConversationInList(conversations, updatedConversation)
@@ -1403,10 +1399,14 @@ export const createMessagesSlice: StateCreator<
           transparency: answerMeta ? { answerMeta } : undefined,
         })
 
+        // No `updatedAt` bump: the send set it and the settle sets it again.
+        // A bump here made the opening a full write of the persisted history
+        // (1.97 MB and a 330 ms freeze with 40 conversations on a 4× throttled
+        // phone, the moment the first words appeared); the snapshot, the
+        // steps and the deltas leave it alone for the same reason.
         const updatedConversation: Conversation = {
           ...currentConversation,
           messages: [...currentConversation.messages, message],
-          updatedAt: new Date(),
         }
 
         set(
@@ -1488,7 +1488,6 @@ export const createMessagesSlice: StateCreator<
               }
             : msg
         ),
-        updatedAt: new Date(),
       }
       set(
         {

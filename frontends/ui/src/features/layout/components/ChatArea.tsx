@@ -36,7 +36,8 @@ import {
   useElapsedSeconds,
   formatElapsed,
 } from '@/features/chat'
-import type { ChatMessage, StatusType } from '@/features/chat'
+import type { ChatMessage, StatusType, ThinkingStep } from '@/features/chat'
+import type { ChoicePrompt } from '@/features/chat/components/reasoning'
 // Imported from its own module rather than the `@/features/chat` barrel so the
 // shared-thread additions do not depend on that barrel's mock in existing specs.
 import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
@@ -147,6 +148,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const activeProjectId = useChatStore((s) => s.projectId)
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const getThinkingStepsForMessage = useChatStore((s) => s.getThinkingStepsForMessage)
+  const stableStepsRef = useRef(new Map<string, ThinkingStep[]>())
+  const stableChoicePromptRef = useRef(new WeakMap<ChatMessage, ChoicePrompt>())
   const dismissErrorCard = useChatStore((s) => s.dismissErrorCard)
   const retryLastUserMessage = useChatStore((s) => s.retryLastUserMessage)
   const t = useTranslations('research')
@@ -534,16 +537,27 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
    * Filters out deep research steps: a run's progress is the run block's
    * (`RunBlockMessage`), not the turn's thinking trace.
    */
-  const getStepsForUserMessage = (messageId: string) => {
+  const getStepsForUserMessage = (messageId: string): ThinkingStep[] => {
     // First try ephemeral store (for active session)
     // getThinkingStepsForMessage already filters out deep research steps
     const storeSteps = getThinkingStepsForMessage(messageId)
-    if (storeSteps.length > 0) return storeSteps
-
     // Fall back to persisted steps in message (for restored sessions)
     // Filter out deep research steps here as well
-    const message = currentConversation?.messages.find((m) => m.id === messageId)
-    return (message?.thinkingSteps || []).filter((step) => !step.isDeepResearch)
+    const steps =
+      storeSteps.length > 0
+        ? storeSteps
+        : (currentConversation?.messages.find((m) => m.id === messageId)?.thinkingSteps || []).filter(
+            (step) => !step.isDeepResearch
+          )
+    // Both branches build a new array per call. Hand back the previous one while
+    // its steps are the same objects, so the memoised ChatThinking of a turn that
+    // did not change skips the render every delta flush of the live answer.
+    const previous = stableStepsRef.current.get(messageId)
+    if (previous && previous.length === steps.length && previous.every((step, i) => step === steps[i])) {
+      return previous
+    }
+    stableStepsRef.current.set(messageId, steps)
+    return steps
   }
 
   // ── Stick-to-bottom scroll controller ──────────────────────────────────────
@@ -816,7 +830,14 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               and a spacer inside the observed box resized it again at the same
               depth, a "ResizeObserver loop" error once per frame. */}
                   <div ref={contentRef} className="flex flex-col gap-4">
-                    <AnimatePresence initial={false}>
+                    {/* `presenceAffectsLayout={false}`: nothing in the list uses
+                        layout animation, and with the default each row got a new
+                        PresenceContext on every render, which re-rendered every
+                        `motion.*` inside every earlier answer through context,
+                        past MessageRenderer's memo: 920 fibers and 69 ms per delta
+                        flush in a 40-message thread on a 4× throttled phone
+                        (React performance audit, 2026-09). */}
+                    <AnimatePresence initial={false} presenceAffectsLayout={false}>
                       {displayableMessages.map((message, index) => {
                         const isUserMessage =
                           message.messageType === 'user' || message.role === 'user'
@@ -868,15 +889,21 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             m.promptType === 'choice' &&
                             (m.promptOptions?.length ?? 0) > 0
                         )
-                        const choicePrompt = choicePromptMsg
-                          ? {
+                        // One object per prompt message, so ChatThinking's memo holds.
+                        let choicePrompt: ChoicePrompt | undefined
+                        if (choicePromptMsg) {
+                          choicePrompt = stableChoicePromptRef.current.get(choicePromptMsg)
+                          if (!choicePrompt) {
+                            choicePrompt = {
                               promptId: choicePromptMsg.promptId ?? choicePromptMsg.id,
                               text: choicePromptMsg.content,
                               options: choicePromptMsg.promptOptions ?? [],
                               isResponded: !!choicePromptMsg.isPromptResponded,
                               selected: choicePromptMsg.promptResponse,
                             }
-                          : undefined
+                            stableChoicePromptRef.current.set(choicePromptMsg, choicePrompt)
+                          }
+                        }
 
                         // Whether this turn earns the „Als Aktenvermerk schreiben"
                         // chip — a walkthrough or a ruling, in a project, long enough

@@ -13,7 +13,7 @@
 
 'use client'
 
-import { type FC, useMemo, useState, useEffect, useRef } from 'react'
+import { type FC, memo, useMemo, useState, useEffect, useRef } from 'react'
 import { ShimmerText } from '@/components/ui/shimmer-text'
 import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -96,7 +96,7 @@ export interface ChatThinkingProps {
   autoOpen?: boolean
 }
 
-export const ChatThinking: FC<ChatThinkingProps> = ({
+const ChatThinkingView: FC<ChatThinkingProps> = ({
   steps,
   isThinking = true,
   isInterrupted = false,
@@ -462,3 +462,12 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
     </div>
   )
 }
+
+/**
+ * Memoised: the thread renders one per turn, and the list re-renders on every
+ * delta flush of the live answer. Unmemoised, every earlier turn's Herleitung
+ * re-rendered per flush (723 renders in one answer of a 40-message thread,
+ * React performance audit 2026-09). ChatArea keeps `steps` and `choicePrompt`
+ * referentially stable for that reason.
+ */
+export const ChatThinking = memo(ChatThinkingView)

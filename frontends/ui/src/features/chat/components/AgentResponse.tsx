@@ -645,7 +645,25 @@ const ReadSourcesSection: FC<{ readSources?: CitationSource[] }> = ({ readSource
  * inside. Feedback stays out on purpose: rating the answer must not cost a
  * click first.
  */
-const AnswerDetails: FC<{
+const AnswerDetails = memo(function AnswerDetails({
+  hasConfidence,
+  answerConfidence,
+  answerConfidenceCappedReason,
+  answerConfidenceReason,
+  memoryItems,
+  skillsActivated,
+  skillsHidden,
+  showReasoning,
+  researchTruncated,
+  truncationReason,
+  degradedReasons,
+  citationsRemoved,
+  readSources,
+  hasAnswerSources,
+  timestamp,
+  before,
+  after,
+}: {
   hasConfidence: boolean
   answerConfidence?: AnswerConfidence
   answerConfidenceCappedReason?: AnswerConfidenceCappedReason
@@ -664,25 +682,7 @@ const AnswerDetails: FC<{
   /** Set on the trigger's own line: the footer's copy actions before it, feedback after. */
   before?: ReactNode
   after?: ReactNode
-}> = ({
-  hasConfidence,
-  answerConfidence,
-  answerConfidenceCappedReason,
-  answerConfidenceReason,
-  memoryItems,
-  skillsActivated,
-  skillsHidden,
-  showReasoning,
-  researchTruncated,
-  truncationReason,
-  degradedReasons,
-  citationsRemoved,
-  readSources,
-  hasAnswerSources,
-  timestamp,
-  before,
-  after,
-}) => {
+}) {
   const t = useTranslations('chat')
   // Without the locale `formatTime` uses the RUNTIME default, so a German user on
   // an en-US browser got "03:35 PM" beside cards that all say "15:35".
@@ -754,7 +754,7 @@ const AnswerDetails: FC<{
       </CollapsibleContent>
     </Collapsible>
   )
-}
+})
 
 /**
  * Agent response bubble component for completed responses
@@ -1067,6 +1067,31 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     [projectId, messageId]
   )
 
+  // Memoised elements: the footer's `AnswerDetails` is memoised, and a new
+  // element on every reveal tick re-rendered it and the feedback buttons with
+  // it, about 3 ms of each 16 ms tick on a 4× throttled phone (React
+  // performance audit, 2026-09).
+  const answerActions = useMemo(
+    () =>
+      hasAnswerActions ? (
+        <AnswerActions
+          content={content}
+          body={body}
+          documents={documents}
+          conversationId={conversationId}
+          messageId={messageId}
+        />
+      ) : null,
+    [hasAnswerActions, content, body, documents, conversationId, messageId]
+  )
+  const feedback = useMemo(
+    () =>
+      hasFeedback && messageId ? (
+        <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
+      ) : null,
+    [hasFeedback, messageId, conversationId]
+  )
+
   // Guard against null, undefined, empty, or literal "null" string content
   // when no cards are present. Cards can render even with empty text.
   // A streaming answer whose masthead arrived before its first word is not
@@ -1223,20 +1248,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       </DiagramFilingProvider>
     )
   }
-
-  const answerActions = hasAnswerActions ? (
-    <AnswerActions
-      content={content}
-      body={body}
-      documents={documents}
-      conversationId={conversationId}
-      messageId={messageId}
-    />
-  ) : null
-  const feedback =
-    hasFeedback && messageId ? (
-      <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
-    ) : null
 
   // Default variant — the click-dummy "Ergebnis" card: a role tab over a
   // tinted shell whose white inner block carries the composed answer, then a

@@ -5,10 +5,18 @@ fixes:
     nicht mehr zurück und tippt sich neu ab; sie bleibt stehen und wird nur
     korrigiert. Die fertige Antwort erscheint im selben Moment, in dem sich die
     Herleitung zusammenklappt, statt in zwei Rucken, und die ersten Worte
-    erscheinen sofort.
+    erscheinen sofort, auch wenn die Antwort fett beginnt. Tabellen füllen sich
+    Zelle für Zelle, statt Zeile für Zeile zu stocken.
   - >
     Der Hinweis, woran Piloti gerade arbeitet, flackert beim Schrittwechsel
     nicht mehr; ein heller Streifen läuft wieder über ihn, statt dass er
     pulsiert. In der Herleitung laufen nur die Verbindungen zum neuesten Schritt,
     die übrigen sind durchgezogen. Die drei Punkte beim Warten wandern ruhig von
     links nach rechts.
+  - >
+    Der Chat bleibt auf dem Telefon auch mit langem Verlauf flüssig: Eine
+    Antwort, die gerade geschrieben wird, zeichnet frühere Antworten nicht mehr
+    bei jedem Wort neu, und Tippen im Eingabefeld, jeder Schritt der Herleitung
+    und das Öffnen der Antwort speichern nicht mehr jedes Mal den ganzen Verlauf
+    im Browser. Das Eingabefeld reagierte mit vielen gespeicherten Unterhaltungen
+    bisher eine Viertelsekunde verzögert auf jeden Tastendruck.
