@@ -1,5 +1,6 @@
-import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
+import { gsap } from './motion-gsap'
+import { MQ, STAGGER, TRAVEL, sec } from '../lib/motion'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -14,12 +15,17 @@ gsap.registerPlugin(ScrollTrigger)
  * Only what is below the fold at load starts hidden. Elements already on screen
  * are left alone — hiding them first and revealing them a frame later is how a
  * page ends up flashing its own content at whoever just opened it.
+ *
+ * Opacity and a short rise, nothing else. This used to un-blur as well, and a
+ * `filter` on a block the size of a panel is repainted every frame of the
+ * tween, which is the one thing the performance budget in docs/ux/motion.md
+ * rules out.
  */
 export function initReveals() {
-  gsap.matchMedia().add('(prefers-reduced-motion: no-preference)', () => {
+  gsap.matchMedia().add(MQ.motion, () => {
     const els = gsap.utils.toArray<HTMLElement>('[data-reveal]')
     const below = els.filter((el) => el.getBoundingClientRect().top > window.innerHeight * 0.92)
-    gsap.set(below, { opacity: 0, y: 18, filter: 'blur(6px)' })
+    gsap.set(below, { opacity: 0, y: TRAVEL.md })
 
     ScrollTrigger.batch(below, {
       start: 'top 88%',
@@ -27,11 +33,11 @@ export function initReveals() {
         gsap.to(batch, {
           opacity: 1,
           y: 0,
-          filter: 'blur(0px)',
-          duration: 0.9,
-          ease: 'power3.out',
-          stagger: 0.08,
+          duration: sec('slow'),
+          ease: 'settle',
+          stagger: STAGGER.row / 1000,
           overwrite: true,
+          clearProps: 'transform',
         }),
     })
   })

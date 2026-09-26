@@ -190,6 +190,34 @@
   --shadow-hero: 0 24px 60px -24px rgb(0 0 0 / 0.7);
 }
 
+/* Motion tokens. The same values are exported for scripts by src/lib/motion.ts,
+   and `npm run check` (scripts/lint-motion.mjs) fails when the two disagree.
+   What each one is for, and when not to animate at all: docs/ux/motion.md.
+   `static`, because most readers are `var()` in scoped styles and scripts,
+   which Tailwind cannot see; `--ease-*` also gives the `ease-draft` utilities. */
+@theme static {
+  --duration-tick: 120ms;
+  --duration-quick: 200ms;
+  --duration-base: 320ms;
+  --duration-draw: 560ms;
+  --duration-slow: 900ms;
+
+  --ease-draft: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-lift: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-sheet: cubic-bezier(0.4, 0, 0.1, 1);
+  --ease-press: cubic-bezier(0.3, 0.7, 0.4, 1.3);
+
+  --stagger-row: 60ms;
+  --stagger-step: 120ms;
+  --stagger-max: 360ms;
+
+  --travel-hair: 3px;
+  --travel-sm: 8px;
+  --travel-md: 16px;
+  --travel-lg: 32px;
+}
+
 /* Panels are sheets of drafting paper: they carry the same grid the page
    background does, so a coloured panel reads as a sheet laid on the drawing
    rather than as a card pasted over it. */

@@ -66,14 +66,14 @@ const { tone = 'lime', class: className = '' } = Astro.props
     .craft-pencil.craft-armed:not(.craft-in) path {
       stroke-dashoffset: 1;
     }
-    /* 300 ms end to end: the long stroke, and the short one going back over
+    /* `--duration-base` (320 ms) end to end: the long stroke, and the short one going back over
        it starting a beat later and finishing with it. */
     .craft-pencil.craft-in path {
-      transition: stroke-dashoffset 300ms cubic-bezier(0.5, 0, 0.3, 1);
+      transition: stroke-dashoffset var(--duration-base) var(--ease-draft);
     }
     .craft-pencil.craft-in path + path {
-      transition-duration: 200ms;
-      transition-delay: 100ms;
+      transition-duration: var(--duration-quick);
+      transition-delay: var(--duration-tick);
     }
   }
 </style>

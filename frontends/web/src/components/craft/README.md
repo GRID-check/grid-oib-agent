@@ -10,7 +10,7 @@ one pencil line. Pure CSS, SVG and plain `<img>`: no dependencies, no fonts.
 | `plates.ts` | The riso plates by number → their base name in `public/art/`, and which blog posts wear one. The one place that knows file names. | wherever a plate is shown |
 | `Tape.astro` | The strip of masking tape: translucent crepe with a torn zigzag at both ends. | inside TapedPrint only |
 | `Stamp.astro` | A rubber stamp in olive ink with uneven coverage, optionally "thudding" in once (260 ms). Decorative, `aria-hidden`. | Kontakt: "Pilotphase" |
-| `PencilUnderline.astro` | A two-stroke hand-drawn line under a few words, drawn in once (300 ms). | Kontakt: under "Pilotbüro" |
+| `PencilUnderline.astro` | A two-stroke hand-drawn line under a few words, drawn in once (320 ms). | Kontakt: under "Pilotbüro" |
 | `craft-in.ts` | Marks a `[data-craft-in]` element `craft-in` when it scrolls into view; Stamp and PencilUnderline animate off that class. | imported by those two |
 
 ## Plates
@@ -41,7 +41,8 @@ The rule, from the person who asked for all this: playful, never overdone.
 - One stamp on the whole landing page. Whatever a stamp says, the text around
   it must already say, because it is `aria-hidden`.
 - Nothing that carries text people must read is rotated more than 2°.
-- Motion is short (≤ 300 ms), happens once, and not at all under
+- Motion is short (the `quick` and `base` tokens of
+  [the motion system](../../../../../docs/ux/motion.md)), happens once, and not at all under
   `prefers-reduced-motion`: the object is then in its final state from the
   start, as it is when the script never runs.
 - No textures on cards, no sticky notes, no pins, no dog-ears. They were tried
