@@ -162,10 +162,32 @@ const prunePersistedChatState = (value: PersistedChatStorageValue): PersistedCha
   }
 }
 
-/** Is an answer still streaming into the open conversation? Its bubble is the last message. */
-const isStreamingAnswer = (value: PersistedChatStorageValue): boolean => {
-  const messages = value.state.currentConversation?.messages
-  return messages?.[messages.length - 1]?.isStreaming === true
+/** How long after the last keystroke a composer draft is written. */
+const DRAFT_WRITE_DELAY_MS = 400
+
+/** Are `a` and `b` the same in every field but `except`, field by field? */
+function sameExcept(a: Conversation, b: Conversation, except: 'messages'): boolean
+function sameExcept(a: ChatMessage, b: ChatMessage, except: 'thinkingSteps'): boolean
+function sameExcept(
+  a: Conversation | ChatMessage,
+  b: Conversation | ChatMessage,
+  except: 'messages' | 'thinkingSteps'
+): boolean {
+  const aFields: Record<string, unknown> = { ...a }
+  const bFields: Record<string, unknown> = { ...b }
+  for (const key of new Set([...Object.keys(aFields), ...Object.keys(bFields)])) {
+    if (key !== except && aFields[key] !== bFields[key]) return false
+  }
+  return true
+}
+
+/** Where the newest question is: the last message from a person. */
+const lastUserMessageIndex = (messages: readonly ChatMessage[]): number => {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]!
+    if (message.messageType === 'user' || message.role === 'user') return i
+  }
+  return -1
 }
 
 /**
@@ -240,56 +262,97 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
   let lastWritten: PersistedChatState | null = null
 
   /**
-   * Is the open conversation's answer the only thing new since the last write?
-   * Only that is skipped. A deletion, a rename, a draft or a new session while
-   * an answer streams is written at once, so a browser that dies mid-answer
-   * cannot bring a deleted conversation back.
+   * Is nothing but the open conversation's live turn, and the composer
+   * drafts, new since the last write? The live turn's growth is skipped and a
+   * draft is written a moment later (`holdDraft`). A deletion, a rename or a
+   * new session is written at once, so a browser that dies mid-answer cannot
+   * bring a deleted conversation back.
    */
-  const onlyTheOpenAnswerChanged = (next: PersistedChatState): boolean => {
+  const onlyTheOpenTurnOrDraftsChanged = (next: PersistedChatState): boolean => {
     const written: Record<string, unknown> | null = lastWritten
-    const openId = next.currentConversation?.id
-    if (written === null || !openId || lastWritten?.currentConversation?.id !== openId) return false
+    if (written === null) return false
     const nextFields: Record<string, unknown> = next
     const keys = new Set([...Object.keys(written), ...Object.keys(nextFields)])
     for (const key of keys) {
-      if (key === 'conversations' || key === 'currentConversation') continue
+      if (key === 'conversations' || key === 'currentConversation' || key === 'composerDrafts') continue
       if (nextFields[key] !== written[key]) return false
     }
     const before = lastWritten?.conversations ?? []
     const after = next.conversations ?? []
+    const beforeOpen = lastWritten?.currentConversation ?? null
+    const afterOpen = next.currentConversation ?? null
+    if (after === before && afterOpen === beforeOpen) return true
+    const openId = afterOpen?.id
+    if (!openId || beforeOpen?.id !== openId) return false
     return (
       before.length === after.length &&
       after.every(
-        (c, i) => c === before[i] || (c.id === openId && onlyItsAnswerGrew(before[i], c))
+        (c, i) => c === before[i] || (c.id === openId && onlyTheLiveTurnGrew(before[i], c))
       ) &&
-      onlyItsAnswerGrew(lastWritten?.currentConversation ?? undefined, next.currentConversation)
+      onlyTheLiveTurnGrew(beforeOpen, afterOpen)
     )
   }
 
+  // A draft is written this long after the last keystroke, and when the page
+  // is hidden. Written with every key it serialised the whole history inside
+  // the input event: 264 ms a keystroke on a 4× throttled phone with 20
+  // conversations stored, React's share 6 ms (React performance audit, 2026-09).
+  let heldDraft: { name: string; value: PersistedChatStorageValue } | null = null
+  let heldDraftTimer: ReturnType<typeof setTimeout> | undefined
+  const writeHeldDraft = (): void => {
+    clearTimeout(heldDraftTimer)
+    const held = heldDraft
+    heldDraft = null
+    if (held) write(held.name, held.value)
+  }
+  const holdDraft = (name: string, value: PersistedChatStorageValue): void => {
+    heldDraft = { name, value }
+    clearTimeout(heldDraftTimer)
+    heldDraftTimer = setTimeout(writeHeldDraft, DRAFT_WRITE_DELAY_MS)
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', writeHeldDraft)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') writeHeldDraft()
+    })
+  }
+
   /**
-   * Is the streaming answer at its end the only difference between the two
-   * copies of one conversation? Its title, its other fields and every earlier
+   * Is the live turn's growth the only difference between the two copies of
+   * one conversation: the streaming answer at its end, and the reasoning steps
+   * of the question it answers? Its title, its other fields and every other
    * message must be the very same objects: a rename or a card decision while
-   * an answer streams is written at once, only the answer's growth waits.
-   * The store keeps an untouched message as the same object on every flush.
+   * a turn works is written at once. The store keeps an untouched message as
+   * the same object on every flush.
+   *
+   * The steps count as growth because each one wrote the whole history: 5–6
+   * writes of 250–1000 ms per turn on a 4× throttled phone with 40
+   * conversations stored (React performance audit, 2026-09). The turn's user
+   * message was written when it was sent, and the settled turn is written
+   * with its steps; a page that dies between gets the turn back from the
+   * replay stream or the server.
    */
-  const onlyItsAnswerGrew = (
+  const onlyTheLiveTurnGrew = (
     before: Conversation | null | undefined,
     after: Conversation | null | undefined
   ): boolean => {
     if (!before || !after || before.id !== after.id) return false
-    const beforeFields: Record<string, unknown> = { ...before }
-    const afterFields: Record<string, unknown> = { ...after }
-    for (const key of new Set([...Object.keys(beforeFields), ...Object.keys(afterFields)])) {
-      if (key !== 'messages' && afterFields[key] !== beforeFields[key]) return false
-    }
+    if (!sameExcept(before, after, 'messages')) return false
     const was = before.messages
     const now = after.messages
-    const last = now[now.length - 1]
-    if (!last?.isStreaming) return false
     // The answer opened since the last write (one more message), or grew (same count).
     if (now.length !== was.length && now.length !== was.length + 1) return false
-    for (let i = 0; i < now.length - 1; i++) if (now[i] !== was[i]) return false
+    const last = now[now.length - 1]
+    if (now.length === was.length + 1 && !last?.isStreaming) return false
+    const question = lastUserMessageIndex(now)
+    for (let i = 0; i < now.length; i++) {
+      const message = now[i]!
+      const previous = was[i]
+      if (message === previous) continue
+      if (i === now.length - 1 && message.isStreaming) continue
+      if (i === question && previous && sameExcept(previous, message, 'thinkingSteps')) continue
+      return false
+    }
     return true
   }
 
@@ -353,6 +416,8 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
       return raw
     },
     removeItem: (name: string) => {
+      heldDraft = null
+      clearTimeout(heldDraftTimer)
       lastState = null
       lastWritten = null
       return base.removeItem(name)
@@ -368,8 +433,15 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
       // write of the WHOLE history every couple of seconds while the answer
       // streamed: 100 ms of script and a 55 ms native write per round on a
       // 4× throttled CPU with 40 conversations, the regular hitch a phone
-      // showed mid-answer. The answer is written once, when it settles.
-      if (isStreamingAnswer(value) && onlyTheOpenAnswerChanged(value.state)) return
+      // showed mid-answer. The answer is written once, when it settles. The
+      // turn's reasoning steps likewise (`onlyTheLiveTurnGrew`).
+      if (onlyTheOpenTurnOrDraftsChanged(value.state)) {
+        if (value.state.composerDrafts !== lastWritten?.composerDrafts) holdDraft(name, value)
+        return
+      }
+      // Anything else is written at once, and carries the drafts with it.
+      heldDraft = null
+      clearTimeout(heldDraftTimer)
       write(name, value)
     },
   }

@@ -1,6 +1,7 @@
 /**
- * The persisted chat store never writes a streaming answer's growth, and
- * writes everything else at once.
+ * The persisted chat store never writes a live turn's growth (the streaming
+ * answer, the question's reasoning steps), writes a composer draft a moment
+ * after the last keystroke, and writes everything else at once.
  *
  * Every delta flush is a store update, and each update used to prune,
  * serialize and write the whole history to localStorage on the main thread:
@@ -146,6 +147,7 @@ describe('createResilientStorage', () => {
     storage.setItem(KEY, first)
 
     storage.setItem(KEY, { ...first, state: { ...first.state, composerDrafts: { c1: 'Entwurf' } } })
+    vi.advanceTimersByTime(1_000)
     expect(JSON.parse(localStorage.getItem(KEY)!).state.composerDrafts).toEqual({ c1: 'Entwurf' })
 
     // The skip lets it through to the write path, which reads what is stored
@@ -170,10 +172,75 @@ describe('createResilientStorage', () => {
     expect(storedContent()).toBe('abc')
   })
 
-  test('a draft typed while an answer streams is written at once', () => {
+  test('a draft is written once, a moment after the last keystroke, not with every key', () => {
+    const storage = createResilientStorage()!
+    const first = value('a', false)
+    storage.setItem(KEY, first)
+    const setItem = vi.spyOn(localStorage, 'setItem')
+    for (const typed of ['N', 'Na', 'Nac', 'Nach']) {
+      // A keystroke changes the drafts and nothing else.
+      storage.setItem(KEY, { ...first, state: { ...first.state, composerDrafts: { c1: typed } } })
+      vi.advanceTimersByTime(100)
+    }
+    expect(setItem).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(1_000)
+    expect(setItem).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(localStorage.getItem(KEY)!).state.composerDrafts).toEqual({ c1: 'Nach' })
+    setItem.mockRestore()
+  })
+
+  test('a draft typed while an answer streams is written a moment later, and when the page hides', () => {
     const storage = createResilientStorage()!
     storage.setItem(KEY, value('a', true))
     storage.setItem(KEY, value('ab', true, { drafts: { c1: 'Nachfrage' } }))
+    window.dispatchEvent(new Event('pagehide'))
     expect(JSON.parse(localStorage.getItem(KEY)!).state.composerDrafts).toEqual({ c1: 'Nachfrage' })
+  })
+
+  test('the reasoning steps of the question being answered are not written as they arrive', () => {
+    const storage = createResilientStorage()!
+    const question: ChatMessage = {
+      id: 'u1',
+      role: 'user',
+      content: 'Frage',
+      timestamp: new Date(2026, 8, 25),
+      messageType: 'user',
+    }
+    const withSteps = (count: number) => {
+      const conversation: Conversation = {
+        ...OPEN,
+        messages: [
+          count === 0
+            ? question
+            : {
+                ...question,
+                thinkingSteps: Array.from({ length: count }, (_, i) => ({
+                  id: `s${i}`,
+                  userMessageId: 'u1',
+                  category: 'tools' as const,
+                  functionName: 'knowledge_search',
+                  displayName: 'Suche',
+                  content: '',
+                  timestamp: new Date(2026, 8, 25),
+                  isComplete: false,
+                })),
+              },
+        ],
+      }
+      const state = {
+        currentUserId: 'u1',
+        conversations: [conversation],
+        currentConversation: conversation,
+        pendingInteraction: null,
+        composerDrafts: NO_DRAFTS,
+      }
+      return { state, version: 0 } as StorageValue<typeof state>
+    }
+    storage.setItem(KEY, withSteps(0))
+    const setItem = vi.spyOn(localStorage, 'setItem')
+    storage.setItem(KEY, withSteps(1))
+    storage.setItem(KEY, withSteps(2))
+    expect(setItem).not.toHaveBeenCalled()
+    setItem.mockRestore()
   })
 })

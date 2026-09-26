@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { ShimmerText } from '@/components/ui/shimmer-text'
 import { AlertCircle, Check, ChevronDown, RotateCcw, X } from 'lucide-react'
 import type { TrackedFile } from '../types'
 import {
@@ -421,11 +422,10 @@ function UploadRow({
             'w-[68px] shrink-0 text-right text-xs font-medium tabular-nums',
             phase === 'ready' && 'text-success',
             isFailed && 'text-destructive',
-            phase !== 'ready' && !isFailed && 'text-muted-foreground',
-            phase === 'processing' && 'animate-text-shimmer'
+            phase !== 'ready' && !isFailed && 'text-muted-foreground'
           )}
         >
-          {phaseLabel(phase, percent, t)}
+          <ShimmerText active={phase === 'processing'}>{phaseLabel(phase, percent, t)}</ShimmerText>
         </span>
 
         {canCancel && (
