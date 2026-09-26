@@ -1,0 +1,9 @@
+---
+improvements:
+  - >
+    Eine Antwort, die gerade geschrieben wird, belastet das Gerät weniger,
+    besonders auf dem Telefon. Bisher wurde bei jedem Schritt die ganze
+    bisherige Antwort neu aufbereitet, sodass lange Antworten zum Ende hin
+    immer träger liefen. Jetzt wird nur der letzte Abschnitt neu aufbereitet, der gerade
+    wächst. Die Antwort erscheint im selben Tempo und sieht genauso aus wie
+    bisher.

@@ -5,7 +5,7 @@ import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
 import { type FC, type ReactNode, createContext, memo, useContext, useMemo } from 'react'
 import { useTranslations } from '@/i18n'
 import dynamic from 'next/dynamic'
-import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown'
+import ReactMarkdown, { type Components, type ExtraProps, type Options } from 'react-markdown'
 import type { PluggableList } from 'unified'
 import rehypeKatex from 'rehype-katex'
 import remarkGfm from 'remark-gfm'
@@ -17,6 +17,12 @@ import { scrollToAnchor, useInPageAnchorRenderer } from './anchor-context'
 import { MARKDOWN_SLOT_TAG, useMarkdownSlotRenderer } from './slot-context'
 import { isInternalHref, useInternalLinkRenderer } from './internal-link-context'
 import { markdownHeadings } from './headings'
+import {
+  type MarkdownBlock,
+  rehypeBlockSeparator,
+  remarkBlockContinues,
+  splitMarkdownBlocks,
+} from './markdown-blocks'
 import { getLanguageFromClassName, headingAnchorId, isMermaidFence } from './utils'
 import { isStatusTone, statusTone } from './status-marks'
 import { parseTally, rehypeTableShape } from './table-shape'
@@ -610,8 +616,99 @@ const MARKDOWN_COMPONENTS = {
   ),
 } as Components
 
+/** The rehype list of every block after the first: the document's own, then the separator the whole document puts before a block. */
+const REHYPE_PLUGINS_AFTER_FIRST: PluggableList = [...REHYPE_PLUGINS, rehypeBlockSeparator]
+
+type FootnoteOptions = NonNullable<Options['remarkRehypeOptions']>
+
+interface MarkdownBlockViewProps {
+  source: string
+  /**
+   * This block's heading ids as JSON `[line within the block, id]` pairs, or
+   * `''`. A string, so a block whose headings did not change compares equal.
+   */
+  headingIds: string
+  compact: boolean
+  /** The text is streaming and this is its last block: the one fence that may still be open is in it. */
+  open: boolean
+  remarkPlugins: PluggableList
+  rehypePlugins: PluggableList
+  footnoteOptions: FootnoteOptions
+}
+
+/**
+ * One top-level block of the document, parsed on its own.
+ *
+ * Memoised on its props, each of them a string, a boolean or a list the
+ * renderer keeps the identity of, so a block whose source did not change is
+ * neither parsed nor reconciled again when the text after it grows. Where the
+ * text is cut, and why that is safe: `markdown-blocks.ts`.
+ */
+const MarkdownBlockView = memo(function MarkdownBlockView({
+  source,
+  headingIds,
+  compact,
+  open,
+  remarkPlugins,
+  rehypePlugins,
+  footnoteOptions,
+}: MarkdownBlockViewProps) {
+  const ids = useMemo(
+    (): ReadonlyMap<number, string> =>
+      headingIds ? new Map(JSON.parse(headingIds) as [number, string][]) : NO_HEADINGS,
+    [headingIds]
+  )
+  // The lines a code block's position points into, while there can be a
+  // fence still being written; trailing blank lines do not end a block.
+  const streamingLines = useMemo(() => (open ? source.trimEnd().split('\n') : null), [open, source])
+  const renderState = useMemo(
+    (): MarkdownRenderState => ({ compact, headingIds: ids, streamingLines }),
+    [compact, ids, streamingLines]
+  )
+  return (
+    <MarkdownRenderStateContext.Provider value={renderState}>
+      <ReactMarkdown
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
+        // The footnote chrome the mdast→hast step writes on its own: named in
+        // the reader's language instead of the converter's English defaults.
+        remarkRehypeOptions={footnoteOptions}
+        components={MARKDOWN_COMPONENTS}
+      >
+        {source}
+      </ReactMarkdown>
+    </MarkdownRenderStateContext.Provider>
+  )
+})
+
+/**
+ * The id of every heading in the document, per block, keyed by the line
+ * within the block it was written on (as {@link MarkdownBlockViewProps.headingIds}).
+ *
+ * Ids are unique per document — two „Bewertung" sections are `bewertung`
+ * and `bewertung-2` — and that uniqueness cannot be established from inside
+ * a per-heading callback, which knows nothing about the headings before it
+ * and runs whenever React decides to run it, nor from inside one block. So it
+ * is settled here, by a pure pass over the whole string, and the overrides
+ * only look their answer up. See {@link markdownHeadings} for why every
+ * counting variant of this fails.
+ */
+function headingIdsByBlock(content: string, blocks: readonly MarkdownBlock[]): string[] {
+  const perBlock: [number, string][][] = blocks.map(() => [])
+  let at = 0
+  for (const heading of markdownHeadings(content)) {
+    // `heading.line` is 1-based; a block's `line` is the 0-based index of its first line.
+    while (at + 1 < blocks.length && blocks[at + 1].line < heading.line) at += 1
+    perBlock[at].push([heading.line - blocks[at].line, heading.id])
+  }
+  return perBlock.map((entries) => (entries.length > 0 ? JSON.stringify(entries) : ''))
+}
+
 /**
  * MarkdownRenderer - Renders markdown content with shadcn-idiomatic styling
+ *
+ * The text is rendered block by block (`markdown-blocks.ts`), so a streamed
+ * answer re-parses only the block that grew, not everything above it.
  *
  * @param content - Markdown string to render
  * @param isStreaming - Whether content is still streaming: stabilise half-arrived Markdown and hold the open fence's place
@@ -623,7 +720,7 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
   ({ content, className = '', compact = false, isStreaming = false, remarkPlugins }) => {
     const t = useTranslations('common')
     const footnoteOptions = useMemo(
-      () => ({
+      (): FootnoteOptions => ({
         footnoteLabel: t('markdown.footnotes'),
         footnoteLabelProperties: { className: ['sr-only'] },
         footnoteBackLabel: (referenceIndex: number) =>
@@ -631,10 +728,12 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
       }),
       [t]
     )
-    const plugins = useMemo(
-      (): PluggableList => [remarkGfm, remarkMath, ...(remarkPlugins ?? [])],
-      [remarkPlugins]
-    )
+    // Every block but the last runs `remarkBlockContinues` first, so a plugin
+    // that acts on the document's end knows the tree it sees is not the end.
+    const plugins = useMemo(() => {
+      const last: PluggableList = [remarkGfm, remarkMath, ...(remarkPlugins ?? [])]
+      return { last, notLast: [remarkBlockContinues, ...last] }
+    }, [remarkPlugins])
     // While streaming, run partial content through the stabilizer so a
     // half-formed table doesn't thrash the layout token-by-token. Finalized
     // content is rendered verbatim.
@@ -642,50 +741,35 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
       () => (isStreaming ? stabilizeStreamingMarkdown(content) : content),
       [isStreaming, content]
     )
-    // The lines a code block's position points into, while there can be a
-    // fence still being written; trailing blank lines do not end a block.
-    const streamingLines = useMemo(
-      () => (isStreaming ? renderedContent.trimEnd().split('\n') : null),
-      [isStreaming, renderedContent]
+    // A text that cannot be split safely is one block: the whole document,
+    // rendered at once.
+    const blocks = useMemo(
+      () => splitMarkdownBlocks(renderedContent) ?? [{ source: renderedContent, line: 0 }],
+      [renderedContent]
     )
-    /**
-     * The id of every heading in this document, keyed by the source line it was
-     * written on.
-     *
-     * Ids are unique per document — two „Bewertung" sections are `bewertung`
-     * and `bewertung-2` — and that uniqueness cannot be established from inside
-     * a per-heading callback, which knows nothing about the headings before it
-     * and runs whenever React decides to run it. So it is settled here, by a
-     * pure pass over the same string `ReactMarkdown` is handed, and the
-     * overrides only look their answer up. See {@link markdownHeadings} for why
-     * every counting variant of this fails.
-     */
-    const headingIds = useMemo(() => {
-      const byLine = new Map<number, string>()
-      for (const heading of markdownHeadings(renderedContent)) byLine.set(heading.line, heading.id)
-      return byLine
-    }, [renderedContent])
-    const renderState = useMemo(
-      (): MarkdownRenderState => ({ compact, headingIds, streamingLines }),
-      [compact, headingIds, streamingLines]
-    )
+    const headingIds = useMemo(() => headingIdsByBlock(renderedContent, blocks), [renderedContent, blocks])
 
     return (
       <div
         className={`markdown-content break-words [overflow-wrap:anywhere] [&>*:last-child]:mb-0 ${className}`}
       >
-        <MarkdownRenderStateContext.Provider value={renderState}>
-          <ReactMarkdown
-            remarkPlugins={plugins}
-            rehypePlugins={REHYPE_PLUGINS}
-            // The footnote chrome the mdast→hast step writes on its own: named in
-            // the reader's language instead of the converter's English defaults.
-            remarkRehypeOptions={footnoteOptions}
-            components={MARKDOWN_COMPONENTS}
-          >
-            {renderedContent}
-          </ReactMarkdown>
-        </MarkdownRenderStateContext.Provider>
+        {blocks.map((block, index) => {
+          const last = index === blocks.length - 1
+          return (
+            <MarkdownBlockView
+              // By position: the block the reveal is writing keeps its place,
+              // and everything drawn in it, while it grows.
+              key={index}
+              source={block.source}
+              headingIds={headingIds[index] ?? ''}
+              compact={compact}
+              open={isStreaming && last}
+              remarkPlugins={last ? plugins.last : plugins.notLast}
+              rehypePlugins={index === 0 ? REHYPE_PLUGINS : REHYPE_PLUGINS_AFTER_FIRST}
+              footnoteOptions={footnoteOptions}
+            />
+          )
+        })}
       </div>
     )
   }
