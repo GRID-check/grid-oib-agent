@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- The Piloti mark: a slab with a ribbon window, lifted on three pilotis
+       above the ground line. MASTER copy: frontends/web/scripts/build-icons.mjs
+       copies it into both apps and renders every raster icon from it. Edit this
+       file, then run `node scripts/build-icons.mjs` in frontends/web.
+       The tile carries its own dark ground, so it needs no dark-scheme variant. -->
+  <title>Piloti</title>
+  <rect width="32" height="32" rx="7" fill="#2a301f"/>
+  <g id="mark">
+    <rect x="4" y="6" width="24" height="10" fill="#a4d06a"/>
+    <rect x="8" y="10" width="16" height="2" fill="#2a301f"/>
+    <rect x="7" y="16" width="2" height="8" fill="#eef2e4"/>
+    <rect x="15" y="16" width="2" height="8" fill="#eef2e4"/>
+    <rect x="23" y="16" width="2" height="8" fill="#eef2e4"/>
+    <rect x="2" y="24" width="28" height="2" fill="#eef2e4"/>
+  </g>
+</svg>

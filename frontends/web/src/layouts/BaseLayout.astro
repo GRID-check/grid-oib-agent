@@ -3,8 +3,10 @@ import '../styles/global.css'
 import NavBar from '../components/molecules/NavBar.astro'
 import SheetIndex from '../components/molecules/SheetIndex.astro'
 import Footer from '../components/molecules/Footer.astro'
+import SeoHead from '../components/seo/SeoHead.astro'
 import { ui, defaultLang, type Locale } from '../i18n/ui'
 import { getLangFromUrl, getPathWithoutLocale } from '../i18n/utils'
+import type { Article, OgImage } from '../lib/seo'
 
 interface Props {
   title?: string
@@ -12,6 +14,14 @@ interface Props {
   locale?: Locale
   alternates?: { de: string; en: string } | false
   switchTo?: string
+  /** Share image; defaults to `defaultOgImage(locale)` in lib/seo.ts. */
+  ogImage?: OgImage
+  /** Marks the page an article (og:type, article:published_time). */
+  article?: Article
+  /** Page-specific JSON-LD nodes, added to the site graph every page carries. */
+  jsonLd?: object[]
+  /** Keeps the page out of search indexes (404, anything unfinished). */
+  noindex?: boolean
 }
 const {
   title,
@@ -19,17 +29,17 @@ const {
   locale = getLangFromUrl(Astro.url),
   alternates,
   switchTo,
+  ogImage,
+  article,
+  jsonLd,
+  noindex,
 } = Astro.props
 
 const t = ui[locale]
-const pageTitle = title ?? t.meta.title
-const pageDescription = description ?? t.meta.description
 
 const autoDe = getPathWithoutLocale(Astro.url.pathname)
 const auto = { de: autoDe, en: `/en${autoDe === '/' ? '/' : autoDe}` }
 const paths = alternates === false ? null : (alternates ?? auto)
-const canonicalPath = (paths ?? auto)[locale]
-const canonical = new URL(canonicalPath, Astro.site)
 const other: Locale = locale === defaultLang ? 'en' : defaultLang
 const switchPath = switchTo ?? (paths ?? auto)[other]
 ---
@@ -39,35 +49,24 @@ const switchPath = switchTo ?? (paths ?? auto)[other]
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{pageTitle}</title>
-    <meta name="description" content={pageDescription} />
-    <link rel="canonical" href={canonical} />
-    {
-      paths && (
-        <>
-          <link rel="alternate" hreflang="de" href={new URL(paths.de, Astro.site)} />
-          <link rel="alternate" hreflang="en" href={new URL(paths.en, Astro.site)} />
-          <link rel="alternate" hreflang="x-default" href={new URL(paths.de, Astro.site)} />
-        </>
-      )
-    }
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content={pageTitle} />
-    <meta property="og:description" content={pageDescription} />
-    <meta property="og:url" content={canonical} />
-    <meta property="og:locale" content={locale === 'de' ? 'de_AT' : 'en_GB'} />
-    <meta property="og:locale:alternate" content={locale === 'de' ? 'en_GB' : 'de_AT'} />
+    <SeoHead
+      title={title ?? t.meta.title}
+      description={description ?? t.meta.description}
+      locale={locale}
+      paths={paths}
+      selfPath={Astro.url.pathname}
+      ogImage={ogImage}
+      article={article}
+      jsonLd={jsonLd}
+      noindex={noindex}
+    />
+    <!-- Only the faces the first screen sets: body, display voice, wordmark.
+         Archivo (35 KB) sets headings further down; preloading it made it
+         compete with the hero's LCP text for the phone's first round trips. -->
     <link rel="preload" href="/fonts/inter-var-latin.woff2" as="font" type="font/woff2" crossorigin />
     <link
       rel="preload"
       href="/fonts/instrument-serif-400-latin.woff2"
-      as="font"
-      type="font/woff2"
-      crossorigin
-    />
-    <link
-      rel="preload"
-      href="/fonts/archivo-var-latin.woff2"
       as="font"
       type="font/woff2"
       crossorigin
@@ -79,7 +78,6 @@ const switchPath = switchTo ?? (paths ?? auto)[other]
       type="font/woff2"
       crossorigin
     />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a301f'/%3E%3Ctext x='16' y='21' font-family='sans-serif' font-size='14' font-weight='700' fill='%23eef2e4' text-anchor='middle'%3EP%3C/text%3E%3C/svg%3E" />
     <script is:inline>
       document.documentElement.classList.add('js')
     </script>

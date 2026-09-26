@@ -20,7 +20,7 @@ const FORBIDDEN = [
   [/selben Werktag|same working day/i, 'unsupported claim: response-time promise'],
 ]
 
-const ROOTS = ['src/i18n', 'src/components', 'src/content', 'src/data', 'src/pages', 'src/consts.ts']
+const ROOTS = ['src/i18n', 'src/components', 'src/content', 'src/data', 'src/pages', 'src/lib', 'src/layouts', 'src/consts.ts']
 const SKIP = /changelog\.json$|lint-claims/
 
 function* files(path) {

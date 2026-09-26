@@ -9,9 +9,114 @@ export const defaultLang: Locale = 'de'
 export const showDefaultLang = false
 
 const de = {
+  // The landing page's head, and the fallback for any page that sets none.
+  // `description` is also the one sentence that says what Piloti is, wherever
+  // a machine reads it: og:description, the JSON-LD graph and /llms.txt.
   meta: {
-    title: 'Piloti — Die KI-Plattform für Architektur- und Planungsbüros',
-    description: 'Die KI-Plattform für Architektur- und Planungsbüros',
+    title: 'KI für Architektur- und Planungsbüros in Österreich — Piloti',
+    description:
+      'Piloti ist die KI-Wissensplattform für Architektur- und Planungsbüros in Österreich: Antworten zu Baurecht, OIB-Richtlinien und Projektunterlagen, mit Quellen.',
+  },
+  // Every other page's <title> and meta description, and what the head needs
+  // around them. Titles stay near 60 characters, descriptions near 155.
+  seo: {
+    pages: {
+      blog: {
+        title: 'Blog: Baurecht, Planungspraxis und KI im Büro — Piloti',
+        description:
+          'Das Journal für Architektur- und Planungsbüros und das Bautagebuch aus der Entwicklung: Baurecht in Österreich, OIB-Richtlinien und wie Piloti gebaut ist.',
+      },
+      journal: {
+        title: 'Journal: Baurecht und Planungspraxis für Büros — Piloti Blog',
+        description:
+          'Für Architektur- und Planungsbüros: Baurecht in Österreich verständlich, OIB-Richtlinien und Landesbauordnungen eingeordnet, und was KI im Büroalltag ändert.',
+      },
+      bautagebuch: {
+        title: 'Bautagebuch: Notizen aus der Entwicklung — Piloti Blog',
+        description:
+          'Wie Piloti gebaut ist und warum: Notizen aus der Entwicklung einer KI-Wissensplattform für Baurecht, Projektunterlagen und Bürowissen, geschrieben in Wien.',
+      },
+      changelog: {
+        title: 'Neuerungen: neue Funktionen und Verbesserungen — Piloti',
+        description:
+          'Was sich in Piloti geändert hat: neue Funktionen, Verbesserungen und Fehlerbehebungen der KI-Wissensplattform für Architekturbüros, laufend aktualisiert.',
+      },
+      rechenweg: {
+        title: 'Rechenweg: So rechnet der Piloti-Wertrechner — Piloti',
+        description:
+          'Jeder Schritt hinter der Beispielrechnung von Piloti: unsere Annahmen, Ihre Zahlen, ein Beispielpreis, und was die Rechnung bewusst weglässt.',
+      },
+      impressum: {
+        title: 'Impressum — Piloti',
+        description:
+          'Impressum und Offenlegung der Piloti-Website nach § 5 ECG und § 25 MedienG: wer hinter Piloti steht, wo wir sitzen und wie Sie uns erreichen.',
+      },
+      datenschutz: {
+        title: 'Datenschutzerklärung — Piloti',
+        description:
+          'Wie die Piloti-Website mit Ihren Daten umgeht: keine Cookies, kein Tracking, welche Dienste beteiligt sind und welche Anbieter die Piloti-Anwendung nutzt.',
+      },
+      notFound: {
+        title: 'Seite nicht gefunden — Piloti',
+        description: 'Diese Seite existiert nicht oder wurde verschoben.',
+      },
+    },
+    postTitleSuffix: ' — Piloti',
+    ogImageAlt: 'Piloti: Planen. Statt suchen. KI für Architektur- und Planungsbüros.',
+    breadcrumbHome: 'Start',
+    byline: 'Von',
+    and: 'und',
+    rssTitle: 'Piloti Blog',
+    rssDescription:
+      'Journal und Bautagebuch von Piloti: Baurecht, Planungspraxis und die Entwicklung einer KI-Wissensplattform für Architekturbüros.',
+    llmsPages: 'Seiten (Deutsch)',
+    llmsPosts: 'Blog (Deutsch)',
+    llmsFacts: 'Entwickelt in Wien von {founders}. Kontakt: {email}.',
+  },
+  // Answers an office, or an answer engine asked on its behalf, looks for.
+  // Facts only: `{founders}` and `{email}` are filled from founders.ts and
+  // consts.ts by `faqItems()` in lib/seo.ts.
+  faq: {
+    tag: 'Häufige Fragen',
+    title: 'Was Büros uns fragen.',
+    items: [
+      {
+        q: 'Was ist Piloti?',
+        a: 'Piloti ist eine KI-Wissensplattform für Architektur- und Planungsbüros. Sie beantwortet Planungsfragen aus dem geltenden Baurecht, den Unterlagen Ihres Büros und Ihres Projekts und nennt zu jeder Antwort die Quellen. Piloti ist ein Proof of Concept und wird derzeit mit ausgewählten Pilotbüros erprobt.',
+      },
+      {
+        q: 'Für wen ist Piloti gedacht?',
+        a: 'Für Architektur- und Planungsbüros in Österreich, die im Alltag Baurecht, OIB-Richtlinien, Normen und Projektunterlagen gegeneinander prüfen müssen, etwa zu Brandschutz, Fluchtwegen oder Energieeffizienz.',
+      },
+      {
+        q: 'Welche Quellen nutzt Piloti?',
+        a: 'Die Landesbauordnungen aus dem Rechtsinformationssystem des Bundes (RIS), die OIB-Richtlinien, ein Register der einschlägigen Normen, die Unterlagen Ihres Büros und Ihres Projekts und, wo nötig, eine Web-Recherche, bei der jede Quelle verlinkt ist.',
+      },
+      {
+        q: 'Wie nachvollziehbar sind die Antworten?',
+        a: 'Zu jeder Antwort zeigt Piloti die Begründung, die Annahmen, die greifende Vorschrift und den Quellenverweis bis auf Paragraf, Punkt oder Seite. So lässt sich jede Aussage am Original prüfen. Die Verantwortung für die Planung bleibt bei Ihnen, und Piloti ersetzt keine Rechtsberatung.',
+      },
+      {
+        q: 'Trainiert Piloti KI-Modelle mit meinen Daten?',
+        a: 'Nein. Wir trainieren keine Modelle mit Ihren Daten, und Pläne und Projektunterlagen bleiben Eigentum Ihres Büros. Dokumente und Antworten können Sie einzeln herunterladen.',
+      },
+      {
+        q: 'Wo werden meine Daten verarbeitet?',
+        a: 'Die Anmeldung läuft über WorkOS, Inc. (USA). KI-Anfragen werden über OpenRouter, Inc. (USA) an Modellanbieter weitergeleitet, die ihren Sitz auch außerhalb der EU haben können. Welche Anbieter beteiligt sind, steht in der Datenschutzerklärung.',
+      },
+      {
+        q: 'Was kostet Piloti?',
+        a: 'Eine Preisliste gibt es noch nicht. Während der Pilotphase besprechen wir die Bedingungen mit jedem Pilotbüro einzeln. Der Wertrechner auf dieser Seite rechnet mit einem Beispielpreis, nicht mit einem Angebot.',
+      },
+      {
+        q: 'Wer steht hinter Piloti?',
+        a: 'Drei Gründer in Wien: {founders}. Piloti ist in Gründung; bis zur Eintragung arbeiten die drei auf Grundlage einer Absichtserklärung (Letter of Intent) zusammen.',
+      },
+      {
+        q: 'Wie wird mein Büro Pilotbüro?',
+        a: 'Schreiben Sie uns an {email}. Wir entwickeln Piloti mit wenigen Büros, die es mit echten Planungsfragen aus ihrem Alltag erproben und uns ehrlich sagen, was fehlt.',
+      },
+    ],
   },
   skipLink: 'Zum Inhalt springen',
   // Drawing-set index shown in the page margin (see SheetIndex.astro).
@@ -196,9 +301,6 @@ const de = {
     },
   },
   rechenweg: {
-    metaTitle: 'Rechenweg — Piloti',
-    metaDescription:
-      'Jeder Schritt hinter der Beispielrechnung von Piloti: unsere Annahmen, Ihre Zahlen, ein Beispielpreis, und was die Rechnung bewusst weglässt.',
     back: 'Zahlen ändern',
     tag: 'Rechenweg',
     title: 'Die ganze Rechnung, offen.',
@@ -378,9 +480,6 @@ const de = {
   // src/lib/categories.ts, next to their ids, because the content schema and
   // the CMS read them too.
   blog: {
-    metaTitle: 'Blog — Piloti',
-    metaDescription:
-      'Das Journal für Büros und das Bautagebuch aus der Entwicklung: Planungspraxis, Baurecht und wie Piloti gebaut ist.',
     tag: 'Blog',
     heading: 'Aus dem Büro und von der Baustelle.',
     intro:
@@ -399,9 +498,6 @@ const de = {
   // src/data/changelog.json, generated from releasenotes/notes/ on merge — see
   // docs/contributing/release-notes.md. Only the page chrome is translated here.
   changelog: {
-    metaTitle: 'Neuerungen — Piloti',
-    metaDescription:
-      'Was sich in Piloti geändert hat: neue Funktionen, Verbesserungen und Fehlerbehebungen, laufend aktualisiert.',
     tag: 'Neuerungen',
     heading: 'Was sich in Piloti getan hat.',
     intro:
@@ -411,8 +507,6 @@ const de = {
     versionLabel: 'Version',
   },
   notFound: {
-    metaTitle: 'Seite nicht gefunden — Piloti',
-    metaDescription: 'Diese Seite existiert nicht.',
     heading: 'Diese Seite liegt nicht im Plan.',
     body: 'Die gesuchte Seite existiert nicht oder wurde verschoben.',
     home: 'Zur Startseite',
@@ -422,8 +516,6 @@ const de = {
     emailLabel: 'E-Mail',
     updated: 'Stand: September 2026',
     impressum: {
-      metaTitle: 'Impressum — Piloti',
-      metaDescription: 'Impressum und Offenlegung der Piloti-Website.',
       heading: 'Impressum',
       ownerHeading: 'Medieninhaber, Herausgeber und Diensteanbieter',
       legalForm: 'Gesellschaft bürgerlichen Rechts (GesbR)',
@@ -441,8 +533,6 @@ const de = {
         'Die Inhalte dieser Website werden mit Sorgfalt erstellt. Für Richtigkeit, Vollständigkeit und Aktualität wird keine Gewähr übernommen. Inhalte zu baurechtlichen Themen stellen keine Rechtsberatung dar. Für die Inhalte verlinkter externer Seiten sind ausschließlich deren Betreiber verantwortlich.',
     },
     datenschutz: {
-      metaTitle: 'Datenschutz — Piloti',
-      metaDescription: 'Datenschutzerklärung der Piloti-Website.',
       heading: 'Datenschutzerklärung',
       controllerHeading: 'Verantwortlicher',
       sections: [
@@ -481,8 +571,105 @@ const de = {
 
 const en: typeof de = {
   meta: {
-    title: 'Piloti — The AI platform for architecture and planning firms',
-    description: 'The AI platform for architecture and planning firms',
+    title: 'AI for architecture and planning firms in Austria — Piloti',
+    description:
+      'Piloti is the AI knowledge platform for architecture and planning firms in Austria: answers on building law, OIB guidelines and project documents, with sources.',
+  },
+  seo: {
+    pages: {
+      blog: {
+        title: 'Blog: building law, planning practice and AI — Piloti',
+        description:
+          'The Journal for architecture and planning offices and the build log from development: Austrian building law, OIB guidelines and how Piloti is built.',
+      },
+      journal: {
+        title: 'Journal: building law and planning practice — Piloti Blog',
+        description:
+          'For architecture and planning offices: Austrian building law made readable, OIB guidelines and state building codes in context, and what AI changes at work.',
+      },
+      bautagebuch: {
+        title: 'Build log: notes from development — Piloti Blog',
+        description:
+          'How Piloti is built, and why: notes from developing an AI knowledge platform for building law, project documents and office knowledge, written in Vienna.',
+      },
+      changelog: {
+        title: "What's new: features and improvements — Piloti",
+        description:
+          'What changed in Piloti: new features, improvements and fixes to the AI knowledge platform for architecture and planning firms, updated continuously.',
+      },
+      rechenweg: {
+        title: 'The maths behind the Piloti value calculator — Piloti',
+        description:
+          'Every step behind the Piloti example calculation: our assumptions, your numbers, an example price, and what the calculation leaves out.',
+      },
+      impressum: {
+        title: 'Imprint — Piloti',
+        description:
+          'Imprint and disclosure for the Piloti website under Austrian law (§ 5 ECG, § 25 MedienG): who is behind Piloti, where we are based and how to reach us.',
+      },
+      datenschutz: {
+        title: 'Privacy policy — Piloti',
+        description:
+          'How the Piloti website handles your data: no cookies, no tracking, which services are involved, and which providers the Piloti application relies on.',
+      },
+      notFound: {
+        title: 'Page not found — Piloti',
+        description: 'This page does not exist or has been moved.',
+      },
+    },
+    postTitleSuffix: ' — Piloti',
+    ogImageAlt: 'Piloti: Plan. Instead of searching. AI for architecture and planning firms.',
+    breadcrumbHome: 'Home',
+    byline: 'By',
+    and: 'and',
+    rssTitle: 'Piloti Blog',
+    rssDescription:
+      "Piloti's Journal and build log: building law, planning practice and the development of an AI knowledge platform for architecture firms.",
+    llmsPages: 'Pages (English)',
+    llmsPosts: 'Blog (English)',
+    llmsFacts: 'Built in Vienna by {founders}. Contact: {email}.',
+  },
+  faq: {
+    tag: 'Questions',
+    title: 'What offices ask us.',
+    items: [
+      {
+        q: 'What is Piloti?',
+        a: 'Piloti is an AI knowledge platform for architecture and planning firms. It answers planning questions from the building law in force and from your office and project documents, and names the sources for every answer. Piloti is a proof of concept, currently being trialled with a small number of pilot offices.',
+      },
+      {
+        q: 'Who is Piloti for?',
+        a: 'For architecture and planning firms in Austria that spend their days checking building law, OIB guidelines, standards and project documents against each other, for example on fire safety, escape routes or energy efficiency.',
+      },
+      {
+        q: 'Which sources does Piloti use?',
+        a: "The Austrian states' building codes from the federal legal information system (RIS), the OIB guidelines, a register of the relevant standards, your office and project documents and, where needed, web research in which every source is linked.",
+      },
+      {
+        q: 'How traceable are the answers?',
+        a: 'With every answer Piloti shows the reasoning, the assumptions, the rule that applies and the source reference down to the section, clause or page, so every statement can be checked against the original. Responsibility for the design stays with you, and Piloti is not legal advice.',
+      },
+      {
+        q: 'Does Piloti train AI models on my data?',
+        a: 'No. We do not train models on your data, and drawings and project documents remain the property of your office. You can download documents and answers individually.',
+      },
+      {
+        q: 'Where is my data processed?',
+        a: 'Sign-in runs through WorkOS, Inc. (USA). AI requests are routed through OpenRouter, Inc. (USA) to model providers that may be based outside the EU. The privacy policy lists which providers are involved.',
+      },
+      {
+        q: 'What does Piloti cost?',
+        a: 'There is no price list yet. During the pilot phase we agree terms with each pilot office individually. The value calculator on this page uses an example price, not an offer.',
+      },
+      {
+        q: 'Who is behind Piloti?',
+        a: 'Three founders in Vienna: {founders}. Piloti is being founded; until it is registered, the three work together under a letter of intent.',
+      },
+      {
+        q: 'How does my office become a pilot office?',
+        a: 'Write to us at {email}. We are building Piloti with a few offices that try it on real planning questions from their daily work and tell us honestly what is missing.',
+      },
+    ],
   },
   skipLink: 'Skip to content',
   // Drawing-set index shown in the page margin (see SheetIndex.astro).
@@ -655,9 +842,6 @@ const en: typeof de = {
     },
   },
   rechenweg: {
-    metaTitle: 'The maths — Piloti',
-    metaDescription:
-      'Every step behind the Piloti example calculation: our assumptions, your numbers, an example price, and what the calculation leaves out.',
     back: 'Change the numbers',
     tag: 'The maths',
     title: 'The whole calculation, in the open.',
@@ -832,9 +1016,6 @@ const en: typeof de = {
     ],
   },
   blog: {
-    metaTitle: 'Blog — Piloti',
-    metaDescription:
-      'The Journal for offices and the build log from development: planning practice, building law and how Piloti is built.',
     tag: 'Blog',
     heading: 'From the office and from the site.',
     intro:
@@ -850,9 +1031,6 @@ const en: typeof de = {
     allPosts: '← All posts',
   },
   changelog: {
-    metaTitle: "What's new — Piloti",
-    metaDescription:
-      'What changed in Piloti: new features, improvements and fixes, updated continuously.',
     tag: "What's new",
     heading: 'What has changed in Piloti.',
     intro:
@@ -862,8 +1040,6 @@ const en: typeof de = {
     versionLabel: 'Version',
   },
   notFound: {
-    metaTitle: 'Page not found — Piloti',
-    metaDescription: 'This page does not exist.',
     heading: 'This page is not in the plan.',
     body: 'The page you are looking for does not exist or has been moved.',
     home: 'Back to the homepage',
@@ -873,8 +1049,6 @@ const en: typeof de = {
     emailLabel: 'Email',
     updated: 'Last updated: September 2026',
     impressum: {
-      metaTitle: 'Imprint — Piloti',
-      metaDescription: 'Imprint and disclosure of the Piloti website.',
       heading: 'Imprint',
       ownerHeading: 'Media owner, publisher and service provider',
       legalForm: 'civil-law partnership (GesbR) under Austrian law',
@@ -892,8 +1066,6 @@ const en: typeof de = {
         'The content of this website is created with care. No guarantee is given for accuracy, completeness or currency. Content on building-law topics does not constitute legal advice. The operators of linked external sites are solely responsible for their content.',
     },
     datenschutz: {
-      metaTitle: 'Privacy — Piloti',
-      metaDescription: 'Privacy policy of the Piloti website.',
       heading: 'Privacy policy',
       controllerHeading: 'Controller',
       sections: [

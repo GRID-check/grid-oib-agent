@@ -5,9 +5,10 @@ import { ui } from '../i18n/ui'
 
 const de = ui.de.notFound
 const en = ui.en.notFound
+const head = ui.de.seo.pages.notFound
 ---
 
-<BaseLayout locale="de" title={de.metaTitle} description={de.metaDescription} alternates={false}>
+<BaseLayout locale="de" title={head.title} description={head.description} alternates={false} noindex>
   <section class="flex min-h-[70vh] flex-col items-center justify-center px-6 pb-24 pt-36 text-center">
     <p class="font-mono text-xs uppercase tracking-label text-accent-600">404</p>
     <div data-404-de>
