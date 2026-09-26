@@ -5,33 +5,36 @@
  *
  * Two uses:
  *
- *   A riso plate from `public/art/`, by base name (see plates.ts):
+ *   A riso print, by art id (see src/lib/art.ts and plates.ts):
  *     <TapedPrint name={PLATES.I} size="half" caption="Tafel I — Drei Stützen" />
  *
  *   Anything else, passed as the slot (a photo, a blog cover):
  *     <TapedPrint size="photo"><Image src={…} alt="…" /></TapedPrint>
  *
- * Plates are screened bitmaps, so they are a plain <img> at an integer
+ * Prints are screened bitmaps, so they are a plain <img> at an integer
  * fraction of their pixel size, never astro:assets: resampling a halftone
- * screen by an odd factor produces moiré. `full` shows the 720 px file at 720
- * CSS px with the 1440 px file for 2x screens; `half` and `third` show the 720
- * px file at exactly 1/2 and 1/3. The only other scaling is `max-width: 100%`
+ * screen by an odd factor produces moiré. `full` shows the 1x file at its own
+ * CSS size with the 2x file for 2x screens; `half` and `third` show the 1x
+ * file at exactly 1/2 and 1/3. The only other scaling is `max-width: 100%`
  * on a phone narrower than the print.
  *
- * A plate whose file is missing renders nothing (with a build warning), so a
- * section can name its plate before the plate exists.
+ * With `locale`, alt text and caption default to the ones the work declared
+ * (src/data/art.json); `alt` and `caption` passed here win. Without it the
+ * print is decorative (empty alt), for when the text beside it says it all.
  */
-import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { art, artFile, type ArtId } from '../../lib/art'
+import type { Locale } from '../../i18n/ui'
 import Tape from './Tape.astro'
 
 interface Props {
-  /** A plate's base name in `public/art/`. Omit when passing a slot. */
-  name?: string
-  /** Empty (the default) when the print sits beside text that says it all. */
+  /** An art id, e.g. `tafeln/stuetzen/plate`. Omit when passing a slot. */
+  name?: ArtId
+  /** Picks the declared alt text and caption for a print. */
+  locale?: Locale
+  /** Empty (the default without `locale`) when the print sits beside text that says it all. */
   alt?: string
   caption?: string
-  /** CSS width of a plate: 720, 360 or 240 px. `photo` fits the slot. */
+  /** CSS width: the print's own (720 px for a plate), half or a third of it. `photo` fits the slot. */
   size?: 'full' | 'half' | 'third' | 'photo'
   /** Degrees, clamped to ±2: anything more and a caption starts to lean. */
   rotate?: number
@@ -39,36 +42,28 @@ interface Props {
   loading?: 'lazy' | 'eager'
   class?: string
 }
-const {
-  name,
-  alt = '',
-  caption,
-  size = 'half',
-  rotate = -1,
-  align = 'start',
-  loading = 'lazy',
-  class: className = '',
-} = Astro.props
+const { name, locale, size = 'half', rotate = -1, align = 'start', loading = 'lazy', class: className = '' } = Astro.props
 
-const WIDTH = { full: 720, half: 360, third: 240, photo: undefined }[size]
 const TAPE = { full: '8rem', half: '6rem', third: '4.5rem', photo: '3.25rem' }[size]
 const tilt = Math.max(-2, Math.min(2, rotate))
 const ALIGN = { start: '', center: 'mx-auto', end: 'ml-auto' }
 
 const hasSlot = Astro.slots.has('default')
-let plate: { src: string; srcset?: string } | undefined
-if (!hasSlot && name) {
-  // Pages are prerendered, so this runs at build time with the site's root
-  // as the working directory.
-  const onDisk = (file: string) => existsSync(join(process.cwd(), 'public', 'art', file))
-  if (onDisk(`${name}-720.webp`)) {
-    const src = `/art/${name}-720.webp`
-    const hi = size === 'full' && onDisk(`${name}-1440.webp`) ? `/art/${name}-1440.webp` : undefined
-    plate = { src, srcset: hi ? `${src} 1x, ${hi} 2x` : undefined }
-  } else {
-    console.warn(`[TapedPrint] public/art/${name}-720.webp not found; the print is left out.`)
+const print = !hasSlot && name ? art(name) : undefined
+const DIVISOR = { full: 1, half: 2, third: 3, photo: 1 }[size]
+let plate: { src: string; srcset?: string; width: number; height: number } | undefined
+if (print) {
+  const lo = artFile(print, 1)
+  const hi = size === 'full' ? print.files.find((f) => f.density === 2) : undefined
+  plate = {
+    src: lo.src,
+    srcset: hi ? `${lo.src} 1x, ${hi.src} 2x` : undefined,
+    width: print.width / DIVISOR,
+    height: print.height / DIVISOR,
   }
 }
+const alt = Astro.props.alt ?? (print && locale ? print.alt[locale] : '')
+const caption = Astro.props.caption ?? (print && locale ? print.caption?.[locale] : undefined)
 const show = hasSlot || plate !== undefined
 ---
 
@@ -84,8 +79,8 @@ const show = hasSlot || plate !== undefined
           <img
             src={plate.src}
             srcset={plate.srcset}
-            width={WIDTH}
-            height={WIDTH}
+            width={plate.width}
+            height={plate.height}
             alt={alt}
             loading={loading}
             decoding="async"

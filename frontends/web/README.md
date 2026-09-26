@@ -160,5 +160,9 @@ is at the top of `runtime/server.mjs`. Compression is not the server's job:
 Envoy Gateway compresses at the edge
 ([`docs/deployment/kubernetes.md`](../../docs/deployment/kubernetes.md) §7).
 
-Files under `public/fonts` and `public/art` are not content-hashed. Replace one
+Files under `public/fonts` and `public/art` are not content-hashed. Replace a font
 under a new name, or returning visitors keep the old bytes for up to eight days.
+Art keeps its name and changes its URL instead: pages take it from
+`src/data/art.json`, where every `src` carries `?v=<hash of the file>`, and
+`npm run check` fails when a hash no longer matches
+([`art/riso/README.md`](art/riso/README.md#the-manifest)).

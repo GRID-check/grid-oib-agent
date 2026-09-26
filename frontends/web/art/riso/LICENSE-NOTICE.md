@@ -1,6 +1,6 @@
 # Third-party code in art/riso
 
-`tafeln/index.html` contains code adapted from **riso-windowseat**
+`lib/engine.js` contains code adapted from **riso-windowseat**
 (https://github.com/sevenevesai/riso-windowseat, commit `1275fdaf81eb1817b729ee69cbf7b6b6fe535a4e`):
 
 - the print engine from `prints/workings/index.html` and `prints/cabinet/index.html`:
@@ -11,14 +11,17 @@
   `spray`;
 - Cabinet's engraved plate numeral, `numeral`.
 
-Changes are listed in the header comment of `tafeln/index.html` and in `tafeln/PRINT.md`.
-The drawings themselves (plates, geometry, props) are original to this repository.
+The code first lived in `tafeln/index.html` and moved to `lib/engine.js` so every work
+shares it, with the same output: the numeral gained an X glyph, and the bake a JOBS table and
+a separation view. Changes from the kit are listed in the header comment of `lib/engine.js`
+and in `tafeln/PRINT.md`. The series look (`lib/piloti.js`), the formats and the drawings
+themselves (plates, geometry, props) are original to this repository.
 
 The ink colours are real Riso drum colours; their hex values come from the
 `riso-colors` list by Matt DesLauriers (MIT). No code from it is included.
 
-The export workflow uses the kit's `tools/still.mjs` from a local clone; no tool code
-is copied into this repository.
+The export workflow drives the kit's `tools/` (its browser harness and `verify.mjs`) from a
+clone pinned in `kit.json`, outside the repository; no tool code is copied into it.
 
 ## riso-windowseat licence
 

@@ -17,6 +17,7 @@ is the one Node tree here that bun does not install.
 | Change the content schema | Update `keystatic.config.ts` with it | The CMS writes content the site cannot render, and only the platform owner sees it |
 | Write or edit copy (`ui.ts`, a post) | German typography: spaced en dash ` – `, „…“ quotes, ` ` between a number and its unit or after `§`. Claim only what the product does and what was measured: `scripts/lint-claims.mjs` lists retracted phrases and why | `npm run check` (`lint-typography`, `lint-claims`) |
 | Change a text colour token or put one on a new background | Keep it at 4.5:1 or better; add the pair to `scripts/lint-contrast.mjs` | `npm run check` (`lint-contrast`) |
+| Add or change riso art, or show it on a page | Run `node art/riso/export.mjs` and `node art/riso/check.mjs` (`task art:export`, `task art:check`), commit `public/art/` with `src/data/art.json`, and reference art by manifest id through `src/lib/art.ts`, never by file path. The `aiq-piloti-riso` skill has the workflow and the series rules | `npm run check` (stale manifest, orphan or oversized file, missing alt text, unknown id or `/art/` path in `src/`) |
 | Add or rename a blog category | Edit `src/lib/categories.ts` only: ids, labels and descriptors live there, and the schema's `z.enum`, the Keystatic select, the `/blog/<category>/` routes and `scripts/lint-content.mjs` all read it | A second list drifts, and a post lands in a category with no listing |
 
 ## The blog
@@ -60,5 +61,6 @@ commit the output. `npm run check` fails when a copy drifted from the master.
 
 ## Reference
 
+- Riso art (the prints, the pinned kit, formats, the manifest): [`art/riso/README.md`](art/riso/README.md).
 - Release notes end-to-end: [`docs/contributing/release-notes.md`](../../docs/contributing/release-notes.md).
 - The blog preview workflow: `.github/workflows/blog-preview.yml`.
