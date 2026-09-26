@@ -471,6 +471,12 @@ const de = {
     play: 'Abspielen',
     replay: '↻ Nochmal',
     flipHint: 'Karte antippen: Auszug',
+    nextHint: 'Weiter: wischen oder ›',
+    context: [
+      ['Projekt', 'Wohnbau, Wien 1030'],
+      ['Gebäudeklasse', 'GK\u00a04'],
+      ['Gefragt von', 'Projektleitung'],
+    ],
     gistLabel: 'Sinngemäß, fiktiv',
     gists: [
       'EPS über 10\u00a0cm bei GK\u00a04 nur mit einem umlaufenden Brandschutzschott in jedem Geschoß.',
@@ -1048,6 +1054,12 @@ const en: typeof de = {
     play: 'Play',
     replay: '↻ Again',
     flipHint: 'Tap a card: excerpt',
+    nextHint: 'Next: swipe or ›',
+    context: [
+      ['Project', 'Housing, Vienna 1030'],
+      ['Building class', 'GK\u00a04'],
+      ['Asked by', 'Project lead'],
+    ],
     gistLabel: 'Paraphrased, fictional',
     gists: [
       'EPS over 10\u00a0cm in GK\u00a04 only with a continuous fire stop on every storey.',
