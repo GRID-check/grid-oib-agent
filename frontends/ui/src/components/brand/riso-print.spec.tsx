@@ -35,7 +35,7 @@ describe('RisoPrint', () => {
   it('sits on dark mode as a paper sheet, not inverted', () => {
     const { container } = render(<RisoPrint id="vignetten/abstecken/empty" />)
     const img = container.querySelector('img')!
-    expect(img).toHaveClass('dark:rounded-md', 'dark:shadow-sm')
+    expect(img).toHaveClass('rounded-md', 'dark:shadow-sm')
     expect(img.className).not.toMatch(/invert/)
   })
 })

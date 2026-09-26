@@ -14,11 +14,11 @@ import { cn } from '@/lib/utils'
  *   width of the layout's choosing: any other scale resamples the dot screen
  *   into moiré. So no `next/image` (it re-encodes and resizes), no
  *   `max-width: 100%`, no `object-fit`.
- * - **Paper, not ink.** In light mode the paper sits on the app's warm paper
- *   plane and needs no frame. In dark mode it is not inverted or tinted: it is
- *   a printed sheet lying on the charcoal, so it gets the sheet's rounded
- *   corners and the raised-plane shadow, and is dimmed a step so a bright
- *   square does not glare out of a dark page.
+ * - **Paper, not ink.** The print is a sheet, so it has the sheet's rounded
+ *   corners. In light mode its paper sits on the app's warm paper plane and
+ *   needs nothing more. In dark mode it is not inverted or tinted: it is a
+ *   printed sheet lying on the charcoal, so it takes the raised-plane shadow
+ *   and is dimmed a step so a bright square does not glare out of a dark page.
  *
  * Decorative: every placement stands next to a heading that says what the
  * picture says, so it carries empty alt and stays out of the accessibility tree.
@@ -46,8 +46,8 @@ export function RisoPrint({ id, className }: { id: ArtId; className?: string }):
       draggable={false}
       style={style}
       className={cn(
-        'w-(--art-w-half) sm:w-(--art-w) block h-auto max-w-none shrink-0 select-none',
-        'dark:rounded-md dark:shadow-sm dark:brightness-[0.92]',
+        'w-(--art-w-half) sm:w-(--art-w) block h-auto max-w-none shrink-0 select-none rounded-md',
+        'dark:shadow-sm dark:brightness-[0.92]',
         className
       )}
     />
