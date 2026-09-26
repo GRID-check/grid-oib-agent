@@ -1113,6 +1113,27 @@ see §10.
   `xffNumTrustedHops` defaults to 0 — correct only if the managed LoadBalancer
   preserves the source IP. If it SNATs instead, every caller is bucketed as the
   LB and a per-client limit silently becomes a per-product one.
+- **Edge compression, landing site only.** `grid-web-timeouts` (the web
+  route's `BackendTrafficPolicy`) carries `compressor: [Brotli, Gzip]`, Brotli
+  winning the tie when a browser weighs both equally. Envoy's default
+  content-type list applies, so HTML, CSS, JS, JSON, SVG and text are
+  compressed and WebP and WOFF2 pass through. `compressor` is the Envoy Gateway
+  v1.6+ field (`compression` is its deprecated predecessor); `gateway-helm` is
+  unpinned, and an older controller prunes the unknown field without an error,
+  so check the live site rather than the plan:
+  `curl -sI -H 'Accept-Encoding: br, gzip' https://<webDomain>/ | grep -i content-encoding`
+  must print `br`. The app route has no compressor on purpose: it streams chat
+  through the BFF, and nobody has measured what a compressor does to that
+  stream. The S3 route serves presigned PDFs and images, which do not shrink.
+- **Static caching is the web image's job, not Envoy's.** The container runs
+  `frontends/web/runtime/server.mjs`, which sets `Cache-Control` on files that
+  exist: `/_astro/*` `public, max-age=31536000, immutable`, `/fonts/*` and
+  `/art/*` `public, max-age=604800, stale-while-revalidate=86400`, HTML left at
+  `public, max-age=0` with an ETag so every view revalidates. An HTTPRoute
+  `ResponseHeaderModifier` would stamp the same header on a 404, and during a
+  surge rollout a new page can request an asset from an old pod that does not
+  have it yet. The Deployment sets no `command`; the image's `CMD` is the one
+  place the entry file is named.
 
 ## 7b. Rolling updates — how a deploy actually lands
 
