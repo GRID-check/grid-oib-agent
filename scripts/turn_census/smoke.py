@@ -17,9 +17,13 @@ reply, and fails on what production would have filed:
 - no answer inside the census timeout.
 
 With the OIB corpus ingested (`AIQ_CHROMA_DIR`) it also asks the answer to be a
-real one: not the "nothing found" reply, and about Brandschutz, which is what
-OIB-Richtlinie 2 is. Without the corpus that check is skipped and says so; the
-ERROR gate runs either way.
+real one: none of the canned non-answers (`canned_replies.NON_ANSWER_PREFIXES`),
+and at least one `[KB]` source in its Quellen, the origin token the backend
+(never the model) writes for a knowledge-base passage. For the default question
+the answer must also be about Brandschutz, which is what OIB-Richtlinie 2 is.
+Without the corpus those checks are skipped and say so, unless
+`--require-corpus` says one should be there (the CI passes it once a snapshot
+is published); the ERROR gate runs either way.
 
 Needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`). One question costs one turn.
 
@@ -47,6 +51,8 @@ from census import run_stamp  # noqa: E402
 from suite import _corpus_ready  # noqa: E402
 from suite import final_answer  # noqa: E402
 
+from aiq_agent.common.canned_replies import NON_ANSWER_PREFIXES  # noqa: E402
+
 QUESTION = "Was weißt du über die OIB-Richtlinie 2?"
 
 #: A log record at a level err2issue files: `2026-09-25 19:18:33 - ERROR    - module:line - …`.
@@ -56,8 +62,9 @@ _TRACEBACK = "Traceback (most recent call last)"
 _RUNTIME_WARNING = re.compile(r"^.*RuntimeWarning: (?!Enable tracemalloc).*$", re.MULTILINE)
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
-#: The replies that mean the turn found nothing to answer from.
-_NOTHING_FOUND = "nichts gefunden, worauf sich"
+#: A Quellen line naming a knowledge-base passage: `- [1] [KB] oib-rl_2_….pdf, p.1`.
+#: `[KB]` is `citation_verification.source_origin_token`, deterministic backend output.
+_KB_SOURCE = re.compile(r"^\s*[-*]\s*\[\d+\]\s*\[KB\]", re.MULTILINE)
 
 
 @dataclass
@@ -77,7 +84,7 @@ def _counted(failures: list[str]) -> list[str]:
     return [failure if n == 1 else f"{failure} (x{n})" for failure, n in counts.items()]
 
 
-def judge(log_text: str, *, corpus: bool) -> Verdict:
+def judge(log_text: str, *, corpus: bool, question: str = QUESTION, require_corpus: bool = False) -> Verdict:
     """The smoke's verdict on one run's `nat run` output. Pure, so it is tested offline."""
     plain = _ANSI.sub("", log_text)
     verdict = Verdict(answer=final_answer(log_text))
@@ -93,19 +100,36 @@ def judge(log_text: str, *, corpus: bool) -> Verdict:
         verdict.failures.append("no answer before the census timeout")
         return verdict
     if not corpus:
-        verdict.notes.append("no OIB corpus ingested: answer content not checked, only the ERROR gate")
+        if require_corpus:
+            verdict.failures.append("a corpus snapshot is published but none is ingested here")
+        else:
+            verdict.notes.append("no OIB corpus ingested: answer content not checked, only the ERROR gate")
         return verdict
-    if _NOTHING_FOUND in verdict.answer:
-        verdict.failures.append("the corpus is ingested and the answer says nothing was found")
-    elif "brandschutz" not in verdict.answer.lower():
-        verdict.failures.append("an answer about OIB-Richtlinie 2 that never says Brandschutz")
+    verdict.failures.extend(_content_failures(verdict.answer, question))
     return verdict
+
+
+def _content_failures(answer: str, question: str) -> list[str]:
+    """What is wrong with an answer given with the corpus ingested: a non-answer, no KB source, off topic."""
+    if answer.startswith(NON_ANSWER_PREFIXES):
+        return [f"the corpus is ingested and the answer is a canned non-answer: {answer[:120]}"]
+    failures = []
+    if not _KB_SOURCE.search(answer):
+        failures.append("the corpus is ingested and the answer cites no [KB] source")
+    if question == QUESTION and "brandschutz" not in answer.lower():
+        failures.append("an answer about OIB-Richtlinie 2 that never says Brandschutz")
+    return failures
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("question", nargs="?", default=QUESTION)
     parser.add_argument("--out", type=Path, default=None, help="where the run's log is kept (default: a temp dir)")
+    parser.add_argument(
+        "--require-corpus",
+        action="store_true",
+        help="fail when no corpus is ingested instead of skipping the content checks",
+    )
     args = parser.parse_args(argv)
     if not ensure_key():
         print("smoke: OPENROUTER_API_KEY (or OPENROUTER_KEY) is not set; nothing ran", file=sys.stderr)
@@ -116,7 +140,12 @@ def main(argv: list[str] | None = None) -> int:
     conversation_id = f"smoke-{run_stamp()}"
     run_once(args.question, out, conversation_id)
     log = out / f"{conversation_id}.log"
-    verdict = judge(log.read_text(errors="replace"), corpus=_corpus_ready())
+    verdict = judge(
+        log.read_text(errors="replace"),
+        corpus=_corpus_ready(),
+        question=args.question,
+        require_corpus=args.require_corpus,
+    )
 
     print(f"smoke: {args.question}")
     print(f"log: {log}")

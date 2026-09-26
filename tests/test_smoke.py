@@ -12,16 +12,18 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts" / "turn_census"))
 
+from smoke import QUESTION  # noqa: E402
 from smoke import judge  # noqa: E402
 
+from aiq_agent.common.canned_replies import NON_ANSWER_PREFIXES  # noqa: E402
+from aiq_agent.common.canned_replies import SCOPED_NO_SOURCES_MESSAGE  # noqa: E402
+
+_SOURCES = "\n\n## Quellen\n- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.1"
 _ANSWER = (
-    "\x1b[32mWorkflow Result:\nDie OIB-Richtlinie 2 regelt den Brandschutz.\x1b[39m\n"
+    f"\x1b[32mWorkflow Result:\nDie OIB-Richtlinie 2 regelt den Brandschutz [1].{_SOURCES}\x1b[39m\n"
     "--------------------------------------------------\n"
 )
-_NOTHING = (
-    "Workflow Result:\nIch habe die verfügbaren Quellen durchsucht, "
-    "aber nichts gefunden, worauf sich eine Antwort stützen ließe.\n"
-)
+_NOTHING = f"Workflow Result:\n{SCOPED_NO_SOURCES_MESSAGE}\n"
 _INFO = "2026-09-25 19:18:43 - INFO     - aiq_agent.agents.piloti.conversation:679 - Conversation: Starting turn\n"
 _WARNING = "2026-09-25 19:18:48 - WARNING  - knowledge_layer.llamaindex.adapter:4293 - Collection 'x' not found\n"
 
@@ -29,7 +31,7 @@ _WARNING = "2026-09-25 19:18:48 - WARNING  - knowledge_layer.llamaindex.adapter:
 def test_a_clean_run_with_a_real_answer_passes():
     verdict = judge(_INFO + _WARNING + _ANSWER, corpus=True)
     assert verdict.failures == []
-    assert verdict.answer == "Die OIB-Richtlinie 2 regelt den Brandschutz."
+    assert verdict.answer.startswith("Die OIB-Richtlinie 2 regelt den Brandschutz [1].")
 
 
 def test_an_error_record_fails_it_whatever_the_answer():
@@ -69,7 +71,35 @@ def test_without_the_corpus_only_the_error_gate_runs_and_says_so():
     assert verdict.notes and "not checked" in verdict.notes[0]
 
 
-def test_with_the_corpus_an_empty_or_off_topic_answer_fails():
-    assert judge(_NOTHING, corpus=True).failures == ["the corpus is ingested and the answer says nothing was found"]
-    off_topic = "Workflow Result:\nDie OIB-Richtlinie 2 regelt die Raumhöhe.\n"
-    assert judge(off_topic, corpus=True).failures == ["an answer about OIB-Richtlinie 2 that never says Brandschutz"]
+def test_with_the_corpus_every_canned_non_answer_fails():
+    # Matched on the replies' own constants, not a copied phrase: a reworded
+    # canned reply must not slip past the smoke the way a paraphrase could.
+    for reply in NON_ANSWER_PREFIXES:
+        failures = judge(f"Workflow Result:\n{reply} Brandschutz.{_SOURCES}\n", corpus=True).failures
+        assert len(failures) == 1 and "canned non-answer" in failures[0], reply
+
+
+def test_with_the_corpus_an_answer_without_a_knowledge_base_source_fails():
+    # "Ich habe nichts zum Brandschutz gefunden" says Brandschutz and is no
+    # canned reply; what it lacks is a passage from the corpus.
+    paraphrase = "Workflow Result:\nIch habe nichts zum Brandschutz gefunden.\n"
+    assert judge(paraphrase, corpus=True).failures == ["the corpus is ingested and the answer cites no [KB] source"]
+    web_only = "Workflow Result:\nBrandschutz [1].\n\n## Quellen\n- [1] [Web] https://www.oib.or.at\n"
+    assert judge(web_only, corpus=True).failures == ["the corpus is ingested and the answer cites no [KB] source"]
+
+
+def test_the_brandschutz_check_belongs_to_the_default_question_only():
+    off_topic = f"Workflow Result:\nDie OIB-Richtlinie 2 regelt die Raumhöhe [1].{_SOURCES}\n"
+    assert judge(off_topic, corpus=True, question=QUESTION).failures == [
+        "an answer about OIB-Richtlinie 2 that never says Brandschutz"
+    ]
+    escape_route = f"Workflow Result:\nIn GK 4 gelten 40 m Fluchtweglänge [1].{_SOURCES}\n"
+    assert judge(escape_route, corpus=True, question="Welche Fluchtweglänge gilt in GK 4?").failures == []
+
+
+def test_a_required_corpus_that_is_missing_fails_instead_of_skipping():
+    # Once a snapshot is published, not restoring it is a broken restore, not
+    # the bootstrap case, and must not pass as "only the ERROR gate ran".
+    verdict = judge(_INFO + _ANSWER, corpus=False, require_corpus=True)
+    assert verdict.failures == ["a corpus snapshot is published but none is ingested here"]
+    assert verdict.notes == []

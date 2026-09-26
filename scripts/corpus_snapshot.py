@@ -12,7 +12,9 @@ OCI artifact in the organisation's registry (private GHCR, like the images):
     summaries.db             document summaries, inventory, chunk-text mirror (AIQ_SUMMARY_DB default)
     chroma/                  the vectors ($AIQ_CHROMA_DIR)
 
-`pull` restores it; `oib_sync.sync()` afterwards is a no-op when nothing changed,
+`pull` restores it, `data/oib_uploads` exactly as the snapshot carries it
+(`data/oib`, a developer's own corpus, is only added to); `oib_sync.sync()`
+afterwards is a no-op when nothing changed,
 ingests only a new or changed PDF when one did, and re-ingests everything when
 the chunk format moved, because that is what its registry already decides.
 `push` publishes the result under the format's tag, so the next run anywhere
@@ -21,12 +23,15 @@ starts from it.
 `mirror DIR` makes the uploaded corpus exactly the PDFs in DIR, the way the
 admin UI would: a new or changed PDF is ingested, one DIR no longer has is
 removed from disk, registry and index (`oib_sync.remove_uploaded_document`).
+With `--manifest` (`sha256sum` taken where the PDFs came from) it first refuses
+a DIR that is not exactly that set, and it always refuses to finish when a PDF
+did not ingest, so neither a partial copy nor a failed ingest is published.
 `.github/workflows/corpus-snapshot.yml` runs pull, mirror and push with DIR
 copied from staging, so what an admin uploads and syncs there becomes the
 snapshot every test run restores. Only that workflow publishes.
 
     python scripts/corpus_snapshot.py pull              # ghcr.io/<owner>/grid-oib-corpus:format-<N>
-    python scripts/corpus_snapshot.py mirror /tmp/staging-uploads
+    python scripts/corpus_snapshot.py mirror /tmp/staging-uploads --manifest /tmp/staging-manifest.txt
     python scripts/corpus_snapshot.py push
     python scripts/corpus_snapshot.py pull --oci-layout /tmp/store   # a local OCI layout, for tests
 
@@ -37,6 +42,7 @@ with a token that can read (pull) or write (push) packages.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import shutil
 import subprocess
@@ -53,7 +59,8 @@ ARTIFACT_TYPE = "application/vnd.grid.oib-corpus.v1"
 
 #: Files and directories under the repo root that make up an ingested corpus.
 _FILES = ("data/oib_registry.json", "data/oib_excluded.json", "summaries.db")
-_PDF_DIRS = ("data/oib", "data/oib_uploads")
+_UPLOADS = "data/oib_uploads"
+_PDF_DIRS = ("data/oib", _UPLOADS)
 _CHROMA_MEMBER = "chroma"
 
 
@@ -114,9 +121,25 @@ def unpack(archive: Path) -> None:
                     (ROOT / name).parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(staged / name, ROOT / name)
             for pdf_dir in _PDF_DIRS:
-                (ROOT / pdf_dir).mkdir(parents=True, exist_ok=True)
-                for pdf in (staged / pdf_dir).glob("*.pdf"):
-                    shutil.copy2(pdf, ROOT / pdf_dir / pdf.name)
+                _restore_pdfs(staged / pdf_dir, ROOT / pdf_dir, exact=pdf_dir == _UPLOADS)
+
+
+def _restore_pdfs(staged: Path, destination: Path, *, exact: bool) -> None:
+    """Copy the snapshot's PDFs into ``destination``; with ``exact``, drop the ones it does not carry.
+
+    The uploads directory is exact: it is staging's upload set, and a PDF left
+    over from before the restore would be ingested by the next sync on top of
+    the restored index. `data/oib` is not: it is where a developer keeps a
+    corpus of their own, and a pull must not delete it.
+    """
+    destination.mkdir(parents=True, exist_ok=True)
+    carried = {pdf.name for pdf in staged.glob("*.pdf")}
+    if exact:
+        for stale in destination.glob("*.pdf"):
+            if stale.name not in carried:
+                stale.unlink()
+    for name in carried:
+        shutil.copy2(staged / name, destination / name)
 
 
 def _expected(name: str) -> bool:
@@ -180,15 +203,21 @@ def push(repository: str, oci_layout: Path | None) -> list[str]:
     return pushed
 
 
-def mirror(source: Path) -> dict[str, list[str]]:
+def mirror(source: Path, manifest: Path | None = None) -> dict[str, list[str]]:
     """Make the uploaded corpus exactly the PDFs in ``source``, then sync; what changed.
 
-    Refuses an empty ``source``: a copy that failed must not read as "every
-    document was deleted" and empty the index.
+    Refuses, before touching anything, an empty ``source`` (a copy that failed
+    must not read as "every document was deleted") and, given ``manifest``
+    (`sha256sum` output taken where the PDFs live), a ``source`` that is not
+    exactly that set: a partial copy would otherwise delete what it missed.
+    Refuses, after the sync, a corpus in which any PDF did not ingest, so a
+    failed ingest is never published as the snapshot.
     """
     wanted = {pdf.name: pdf for pdf in source.glob("*.pdf")}
     if not wanted:
         raise SystemExit(f"corpus snapshot: {source} holds no PDFs; refusing to mirror an empty corpus")
+    if manifest is not None:
+        _check_against_manifest(wanted, manifest)
     os.chdir(ROOT)  # oib_sync resolves data/... against the working directory
     sys.path.insert(0, str(ROOT / "src"))
     from aiq_agent import oib_sync
@@ -205,20 +234,47 @@ def mirror(source: Path) -> dict[str, list[str]]:
             shutil.copy2(pdf, target)
             added.append(name)
     oib_sync.sync()
+    registry = oib_sync._load_registry()
+    failed = [name for name in sorted(wanted) if registry.get(str(uploads / name)) != _sha256(uploads / name)]
+    if failed:
+        raise SystemExit(f"corpus snapshot: {len(failed)} PDF(s) did not ingest, refusing to publish: {failed[:5]}")
     return {"added_or_changed": added, "removed": removed}
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _check_against_manifest(wanted: dict[str, Path], manifest: Path) -> None:
+    """Refuse a copy that is not byte for byte the set ``manifest`` lists (`sha256sum` lines)."""
+    expected = {}
+    for line in manifest.read_text().splitlines():
+        digest, _, name = line.strip().partition(" ")
+        if digest:
+            expected[Path(name.strip().lstrip("*")).name] = digest
+    copied = {name: _sha256(pdf) for name, pdf in wanted.items()}
+    if copied != expected:
+        missing = sorted(set(expected) - set(copied))
+        differ = sorted(n for n in set(expected) & set(copied) if expected[n] != copied[n])
+        extra = sorted(set(copied) - set(expected))
+        raise SystemExit(
+            f"corpus snapshot: the copy does not match the manifest (missing {missing[:5]}, "
+            f"different {differ[:5]}, unlisted {extra[:5]}); refusing to mirror a partial copy"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("command", choices=["pull", "push", "mirror"])
     parser.add_argument("source", nargs="?", type=Path, help="mirror: the directory of PDFs to mirror")
+    parser.add_argument("--manifest", type=Path, default=None, help="mirror: `sha256sum` of the PDFs at their origin")
     parser.add_argument("--repository", default=os.environ.get("GRID_CORPUS_REPOSITORY", DEFAULT_REPOSITORY))
     parser.add_argument("--oci-layout", type=Path, default=None, help="a local OCI layout dir, not a registry")
     args = parser.parse_args(argv)
     if args.command == "mirror":
         if args.source is None:
             parser.error("mirror needs the directory of PDFs to mirror")
-        changes = mirror(args.source)
+        changes = mirror(args.source, args.manifest)
         print(f"corpus snapshot: mirrored {args.source}: {changes}")
         return 0
     if shutil.which("oras") is None:

@@ -3,9 +3,11 @@ name: Corpus snapshot from staging
 # Turns the OIB corpus as uploaded in staging into the snapshot every test run
 # restores. The button a person presses is the one that already exists: upload
 # the PDFs in staging's Platform → Knowledge and let it sync. This workflow then
-# copies those PDFs out of the backend pod, brings the snapshot to exactly that
-# set (a new or changed PDF is ingested, a removed one is deleted from the
-# index, nothing else is touched) and publishes it as
+# copies those PDFs out of the backend pod, checks the copy against a sha256
+# list taken inside the pod, brings the snapshot to exactly that set (a new or
+# changed PDF is ingested, a removed one is deleted from the index, nothing
+# else is touched), refuses to go on if any PDF did not ingest, and only then
+# publishes it as
 # ghcr.io/<owner>/grid-oib-corpus:format-<CHUNK_FORMAT_VERSION>.
 # scripts/corpus_snapshot.py (pull, mirror, push) does the work.
 #
@@ -42,6 +44,12 @@ concurrency:
   group: corpus-snapshot
   cancel-in-progress: false
 
+defaults:
+  run:
+    # `bash -eo pipefail`: GitHub's unnamed default is `bash -e`, under which a
+    # mirror that refused, piped into `tee`, would let the publish step run.
+    shell: bash
+
 jobs:
   snapshot:
     name: Mirror staging's corpus into the test snapshot
@@ -74,8 +82,14 @@ jobs:
           # Written straight to a file, never echoed: it is a cluster credential.
           pulumi config get grid-oib:kubeconfig --stack matthiasbigl/grid-oib/dev > "$RUNNER_TEMP/kubeconfig"
           export KUBECONFIG="$RUNNER_TEMP/kubeconfig"
+          uploads=/app/data/oib_uploads
+          # What is there, hashed where it lives, then the PDFs themselves. The
+          # mirror refuses a copy that is not exactly this list, so a transfer
+          # that stopped short can never read as "these documents were deleted".
+          kubectl -n grid exec aiq-agent-0 -- sh -c "cd $uploads && sha256sum -- *.pdf" > "$RUNNER_TEMP/staging-manifest.txt"
           mkdir -p "$RUNNER_TEMP/staging-uploads"
-          kubectl -n grid cp aiq-agent-0:/app/data/oib_uploads "$RUNNER_TEMP/staging-uploads"
+          kubectl -n grid exec aiq-agent-0 -- sh -c "cd $uploads && tar -cf - -- *.pdf" \
+            | tar -C "$RUNNER_TEMP/staging-uploads" -xf -
           rm -f "$RUNNER_TEMP/kubeconfig"
           count="$(find "$RUNNER_TEMP/staging-uploads" -maxdepth 1 -name '*.pdf' | wc -l)"
           echo "staging holds ${count} uploaded PDF(s)"
@@ -91,7 +105,8 @@ jobs:
           repository="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/grid-oib-corpus"
           echo "$GH_TOKEN" | oras login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           .venv/bin/python scripts/corpus_snapshot.py pull --repository "$repository"
-          .venv/bin/python scripts/corpus_snapshot.py mirror "$RUNNER_TEMP/staging-uploads" | tee "$RUNNER_TEMP/mirror.txt"
+          .venv/bin/python scripts/corpus_snapshot.py mirror "$RUNNER_TEMP/staging-uploads" \
+            --manifest "$RUNNER_TEMP/staging-manifest.txt" | tee "$RUNNER_TEMP/mirror.txt"
           .venv/bin/python scripts/corpus_snapshot.py push --repository "$repository"
           {
             echo "## Corpus snapshot"

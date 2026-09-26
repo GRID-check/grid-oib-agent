@@ -20,8 +20,9 @@ name: Smoke (live agent)
 # only restores that snapshot and never publishes. The sync after the restore is
 # a no-op unless the chunk format changed, so a pull request that changes it
 # pays for its own re-ingest and leaves the shared snapshot alone. With a corpus
-# the answer itself is checked too: not "nothing found", and about Brandschutz.
-# Without one only the ERROR gate runs, and the log says so.
+# the answer itself is checked too: no canned non-answer, a [KB] source, and
+# about Brandschutz. Without one only the ERROR gate runs, and the log says so,
+# until a snapshot is published: from then on a missing corpus fails the job.
 #
 # Costs one model turn per run. On a pull request it runs only for the paths
 # that change what the agent does. It skips (with a notice) only where GitHub
@@ -40,6 +41,7 @@ on:
       - "uv.lock"
       - "scripts/turn_census/**"
       - "scripts/corpus_snapshot.py"
+      - "Taskfile.yml"
       - ".github/workflows/smoke-live.yml"
   push:
     branches: [develop]
@@ -50,6 +52,10 @@ on:
       - "frontends/aiq_api/**"
       - "pyproject.toml"
       - "uv.lock"
+      - "scripts/turn_census/**"
+      - "scripts/corpus_snapshot.py"
+      - "Taskfile.yml"
+      - ".github/workflows/smoke-live.yml"
   workflow_dispatch:
 
 permissions:
@@ -109,14 +115,25 @@ jobs:
             # A no-op when the snapshot matches this branch's chunk format;
             # a full re-ingest, for this run only, when it does not.
             .venv/bin/python -c "from aiq_agent import oib_sync; print('sync', oib_sync.sync())"
+          fi
+          # Once a snapshot is published, the smoke requires the corpus: a
+          # restore that silently failed must not pass as "only the ERROR gate
+          # ran". GHCR says "denied" alike for a missing package and a refused
+          # login, so whether one exists is asked of the packages API instead.
+          if gh api --silent "/orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/grid-oib-corpus"; then
+            echo "required=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::No corpus snapshot yet: run 'Corpus snapshot from staging' once the corpus is uploaded there. Only the ERROR gate runs."
+            echo "::notice::No corpus snapshot published yet: run 'Corpus snapshot from staging' once the corpus is uploaded there. Only the ERROR gate runs."
           fi
       - name: Smoke
         if: ${{ steps.key.outputs.present == 'true' }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: task be:smoke -- --out "$RUNNER_TEMP/smoke"
+          REQUIRE_CORPUS: ${{ steps.corpus.outputs.required }}
+        run: |
+          args=(--out "$RUNNER_TEMP/smoke")
+          if [ "$REQUIRE_CORPUS" = "true" ]; then args+=(--require-corpus); fi
+          task be:smoke -- "${args[@]}"
       - name: Keep the run's log
         if: ${{ always() && steps.key.outputs.present == 'true' }}
         uses: actions/upload-artifact@v7

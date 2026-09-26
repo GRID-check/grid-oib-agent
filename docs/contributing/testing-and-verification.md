@@ -285,8 +285,11 @@ OIB-Richtlinie 2?") through `nat run` with the shipped config, prompt, model and
 tools, waits through the post-answer stages, and fails on what production would
 have filed as an issue: any log record at ERROR or CRITICAL, a traceback, a
 RuntimeWarning (an unawaited coroutine is one), or no answer. With the OIB corpus
-ingested it also checks the answer is a real one about Brandschutz; without it
-only that gate runs, and the output says so.
+ingested it also checks the answer is a real one: none of the canned
+non-answers, at least one `[KB]` source in its Quellen, and (for the default
+question) about Brandschutz. Without the corpus only that gate runs, and the
+output says so; in CI that lasts only until a corpus snapshot is published,
+after which a missing corpus fails the job (`--require-corpus`).
 
 It exists because the unit suites fake the seams where September 2026's issues
 lived: a tool schema the model's arguments did not fit (#656), a reply shape a
@@ -317,7 +320,10 @@ Platform → Knowledge and let it sync, as for any deployment. The workflow
 *Corpus snapshot from staging* (`.github/workflows/corpus-snapshot.yml`)
 copies those uploads out of the backend pod, runs `corpus_snapshot.py mirror`
 (a new or changed PDF is ingested, a removed one is deleted from the index),
-and publishes the snapshot. It runs nightly, on a `develop` push that changes
+and publishes the snapshot. Two refusals keep a bad run from publishing: the
+copy must match a `sha256sum` list taken inside the pod before anything is
+deleted, and every PDF must have ingested before anything is pushed. A refused
+run leaves the last good snapshot in place. It runs nightly, on a `develop` push that changes
 ingestion, and from its *Run workflow* button when a new upload should reach
 the tests now. It is the only job that reaches the cluster, through the dev
 stack's kubeconfig in the `staging` environment; the smoke on a pull request
