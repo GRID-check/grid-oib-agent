@@ -8,15 +8,21 @@
  * until `astro build` dies on a Rollup "failed to resolve import" trace that
  * means nothing to whoever wrote the post.
  *
- * This catches both failure modes at check time, with a message an author can
+ * This catches these failure modes at check time, with a message an author can
  * act on:
  *   1. an image reference that points at no file
  *   2. an image with no alt text
+ *   3. a missing or unknown `category` (the schema's z.enum would reject it too,
+ *      but as a Zod trace in the middle of a build log)
+ *   4. a post slug equal to a category id: /blog/<slug>/ and /blog/<category>/
+ *      share a URL level, and the two pages would collide
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+// The one list of categories. Node strips the types (22.18+ does so unflagged).
+import { CATEGORY_IDS } from '../src/lib/categories.ts'
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const blogRoot = resolve(webRoot, 'src/content/blog')
@@ -25,6 +31,7 @@ const publicRoot = resolve(webRoot, 'public')
 /** `![alt](src "title")` — the only image syntax Keystatic emits. */
 const MARKDOWN_IMAGE = /!\[([^\]]*)\]\(\s*([^)\s]+)(?:\s+"[^"]*")?\s*\)/g
 const FRONTMATTER_COVER = /^cover:\s*(.+?)\s*$/m
+const FRONTMATTER_CATEGORY = /^category:\s*['"]?([^'"\s]*)['"]?\s*$/m
 
 function findMdx(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -71,6 +78,17 @@ for (const file of files) {
   const frontmatter = match ? match[1] : ''
   const body = match ? match[2] : source
 
+  const category = frontmatter.match(FRONTMATTER_CATEGORY)?.[1]
+  if (!category) {
+    problems.push(`${rel}: no category — choose one of ${CATEGORY_IDS.join(', ')}`)
+  } else if (!CATEGORY_IDS.includes(category)) {
+    problems.push(`${rel}: unknown category "${category}" — choose one of ${CATEGORY_IDS.join(', ')}`)
+  }
+  const slug = basename(file, '.mdx')
+  if (CATEGORY_IDS.includes(slug)) {
+    problems.push(`${rel}: the slug "${slug}" is taken by the category listing /blog/${slug}/ — rename the post`)
+  }
+
   const cover = frontmatter.match(FRONTMATTER_COVER)?.[1]?.replace(/^['"]|['"]$/g, '')
   if (cover) {
     const target = resolveRef(cover, file)
@@ -102,7 +120,8 @@ if (problems.length > 0) {
   console.error(
     '\nImages uploaded in Keystatic live under src/content/blog/_images/<slug>/ and\n' +
       'are referenced as ../_images/<slug>/<file>. Fill in the alt text box on the\n' +
-      'image block before publishing.\n'
+      'image block before publishing. Every post needs a category (Kategorie in\n' +
+      'Keystatic); the list lives in src/lib/categories.ts.\n'
   )
   process.exit(1)
 }
