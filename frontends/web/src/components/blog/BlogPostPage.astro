@@ -12,11 +12,12 @@ import BlogCard from '../molecules/BlogCard.astro'
 import BuildLog from './BuildLog.astro'
 import CategoryChip from './CategoryChip.astro'
 import TapedPrint from '../craft/TapedPrint.astro'
-import { POST_PLATES } from '../craft/plates'
+import RisoCover from './RisoCover.astro'
+import { COVER_PLATES } from '../craft/plates'
 import { ui, type Locale } from '../../i18n/ui'
 import { CATEGORIES, blogPath } from '../../lib/categories'
 import { entryNumbers, formatDate, getBlogPosts, postSlug, type BlogPost } from '../../lib/posts'
-import { absoluteUrl, defaultOgImage, founderNames, postLd } from '../../lib/seo'
+import { SHARE_ART, absoluteUrl, founderNames, ogImageFor, postLd } from '../../lib/seo'
 
 interface Props {
   post: BlogPost
@@ -24,7 +25,7 @@ interface Props {
 }
 const { post, locale } = Astro.props
 const { Content } = await render(post)
-const { title, description, pubDate, cover, category, translationSlug } = post.data
+const { title, description, pubDate, cover, plate, category, translationSlug } = post.data
 const t = ui[locale].blog
 const cat = CATEGORIES[locale][category]
 const slug = postSlug(post.id)
@@ -39,14 +40,14 @@ const inCategory = await getBlogPosts(locale, category)
 const numbers = entryNumbers(inCategory)
 const more = inCategory.filter((p) => p.id !== post.id).slice(0, 3)
 const number = numbers.get(post.id)
-// A post can wear a riso plate as its cover (see craft/plates.ts).
-const plate = POST_PLATES[slug]
-
-// Head: the cover as share image when there is one, the post as BlogPosting.
+// Head: the post's plate as its share card (craft/plates.ts), else its
+// uploaded cover, else its category's card. The post as BlogPosting.
 const shareCover = cover && (await getImage({ src: cover, width: 1200, height: 630, format: 'jpg' }))
-const ogImage = shareCover
-  ? { src: shareCover.src, alt: title, width: 1200, height: 630 }
-  : defaultOgImage(locale)
+const ogImage = plate
+  ? ogImageFor(COVER_PLATES[plate].og, locale)
+  : shareCover
+    ? { src: shareCover.src, alt: title, width: 1200, height: 630 }
+    : ogImageFor(SHARE_ART[category], locale)
 const jsonLd = postLd({
   locale,
   url: absoluteUrl(here, Astro.site),
@@ -104,8 +105,10 @@ const jsonLd = postLd({
         </span>
       </p>
       {
-        /* The cover is a print taped onto the page. */
-        cover ? (
+        /* The cover is a print taped onto the page: a riso plate, or an uploaded image. */
+        plate ? (
+          <RisoCover plate={plate} variant="header" locale={locale} loading="eager" class="mt-10" />
+        ) : cover ? (
           <TapedPrint size="photo" rotate={-0.6} class="mt-10 w-full">
             <Image
               src={cover}
@@ -116,9 +119,7 @@ const jsonLd = postLd({
               loading="lazy"
             />
           </TapedPrint>
-        ) : (
-          plate && <TapedPrint name={plate} size="half" rotate={-1} loading="eager" class="mt-10" />
-        )
+        ) : null
       }
       <div class="prose-piloti mt-10 min-w-0">
         <Content />

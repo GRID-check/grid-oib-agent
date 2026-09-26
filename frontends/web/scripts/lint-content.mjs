@@ -16,6 +16,8 @@
  *      but as a Zod trace in the middle of a build log)
  *   4. a post slug equal to a category id: /blog/<slug>/ and /blog/<category>/
  *      share a URL level, and the two pages would collide
+ *   5. an unknown riso `plate`, or a post that sets both `plate` and `cover`
+ *      (it wears one or the other; see COVER_PLATES in craft/plates.ts)
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
@@ -23,6 +25,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // The one list of categories. Node strips the types (22.18+ does so unflagged).
 import { CATEGORY_IDS } from '../src/lib/categories.ts'
+import { COVER_PLATE_IDS } from '../src/components/craft/plates.ts'
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const blogRoot = resolve(webRoot, 'src/content/blog')
@@ -31,6 +34,7 @@ const publicRoot = resolve(webRoot, 'public')
 /** `![alt](src "title")` — the only image syntax Keystatic emits. */
 const MARKDOWN_IMAGE = /!\[([^\]]*)\]\(\s*([^)\s]+)(?:\s+"[^"]*")?\s*\)/g
 const FRONTMATTER_COVER = /^cover:\s*(.+?)\s*$/m
+const FRONTMATTER_PLATE = /^plate:\s*['"]?([^'"\s]*)['"]?\s*$/m
 const FRONTMATTER_CATEGORY = /^category:\s*['"]?([^'"\s]*)['"]?\s*$/m
 
 function findMdx(dir) {
@@ -90,6 +94,13 @@ for (const file of files) {
   }
 
   const cover = frontmatter.match(FRONTMATTER_COVER)?.[1]?.replace(/^['"]|['"]$/g, '')
+  const plate = frontmatter.match(FRONTMATTER_PLATE)?.[1]
+  if (plate && !COVER_PLATE_IDS.includes(plate)) {
+    problems.push(`${rel}: unknown plate "${plate}" — choose one of ${COVER_PLATE_IDS.join(', ')}`)
+  }
+  if (plate && cover) {
+    problems.push(`${rel}: sets both a riso plate ("${plate}") and a cover image — keep one (Tafel or Titelbild in Keystatic)`)
+  }
   if (cover) {
     const target = resolveRef(cover, file)
     if (target && !existsSync(target)) {

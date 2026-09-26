@@ -21,11 +21,44 @@ export interface OgImage {
   height: number
 }
 
-/** The riso print every page shares unless it passes its own: plate I in its OG composition. */
-export const OG_ART: ArtId = 'tafeln/stuetzen/og'
-export function defaultOgImage(locale: Locale): OgImage {
-  const og = art(OG_ART)
+/** An art id in the share-card format (1200 × 630 PNG). */
+export type OgArtId = Extract<ArtId, `${string}/og`>
+
+/**
+ * The riso share card of each kind of page, as art ids. Each is a composition
+ * of its plate for the 1200 × 630 card, not a crop (art/riso/tafeln). A blog
+ * post shares its own plate (`COVER_PLATES` in components/craft/plates.ts)
+ * and falls back to its category's card. Pages pass one to BaseLayout as
+ * `ogArt`. No two kinds of page share a card (the blog index and its Journal
+ * aside), so a link pasted into a chat already says which page it is: the
+ * founders' complaint was every preview showing the same house.
+ */
+export const SHARE_ART = {
+  /** Plate I, Drei Stützen: the house Piloti is named after. The landing page only. */
+  landing: 'tafeln/stuetzen/og',
+  /** Plate VI, Zeichentisch: the blog and its Journal, the office's working day. */
+  blog: 'tafeln/zeichentisch/og',
+  journal: 'tafeln/zeichentisch/og',
+  /** Plate II, Schichten: the build log takes the system apart, layer by layer. */
+  bautagebuch: 'tafeln/schichten/og',
+  /** Plate IV, Bauplatz: a site set out, one column up. What shipped, and what comes next. */
+  changelog: 'tafeln/bauplatz/og',
+  /** Plate VII, Waage: hours against money. */
+  rechenweg: 'tafeln/waage/og',
+  /** Plate V, Prüfstand: the quiet card, a clause under the glass (imprint, privacy, 404). */
+  legal: 'tafeln/pruefstand/og',
+} as const satisfies Record<string, OgArtId>
+
+
+/** The share card for an art id, in the shape SeoHead reads. */
+export function ogImageFor(id: OgArtId, locale: Locale): OgImage {
+  const og = art(id)
   return { src: artFile(og).src, alt: og.alt[locale], width: og.width, height: og.height }
+}
+
+/** The card a page shares when it names none: plate I, which is the landing page's. */
+export function defaultOgImage(locale: Locale): OgImage {
+  return ogImageFor(SHARE_ART.landing, locale)
 }
 
 /** What an article page adds to its head: og:type article and its dates. */

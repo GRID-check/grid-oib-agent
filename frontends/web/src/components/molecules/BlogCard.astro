@@ -1,6 +1,6 @@
 ---
 /**
- * A Journal post as an editorial card: cover if the post has one, the category
+ * A Journal post as an editorial card: its riso plate or cover if it has one, the category
  * chip and date as a kicker, the title set in the serif voice. Build-log posts
  * use LogEntry instead; the two strands are meant to look different.
  */
@@ -9,6 +9,7 @@ import { ui, type Locale } from '../../i18n/ui'
 import { formatDate, postSlug, type BlogPost } from '../../lib/posts'
 import { blogPath } from '../../lib/categories'
 import CategoryChip from '../blog/CategoryChip.astro'
+import RisoCover from '../blog/RisoCover.astro'
 
 interface Props {
   post: BlogPost
@@ -17,7 +18,7 @@ interface Props {
   level?: 2 | 3
 }
 const { post, locale, level = 3 } = Astro.props
-const { title, description, pubDate, cover, category } = post.data
+const { title, description, pubDate, cover, plate, category } = post.data
 const Heading = level === 2 ? 'h2' : 'h3'
 ---
 
@@ -27,7 +28,9 @@ const Heading = level === 2 ? 'h2' : 'h3'
   data-reveal
 >
   {
-    cover && (
+    plate ? (
+      <RisoCover plate={plate} variant="card" />
+    ) : cover && (
       <Image
         src={cover}
         alt=""

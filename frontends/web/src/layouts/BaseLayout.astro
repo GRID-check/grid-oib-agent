@@ -6,7 +6,7 @@ import Footer from '../components/molecules/Footer.astro'
 import SeoHead from '../components/seo/SeoHead.astro'
 import { ui, defaultLang, type Locale } from '../i18n/ui'
 import { getLangFromUrl, getPathWithoutLocale } from '../i18n/utils'
-import type { Article, OgImage } from '../lib/seo'
+import type { Article, OgArtId, OgImage } from '../lib/seo'
 
 interface Props {
   title?: string
@@ -14,7 +14,9 @@ interface Props {
   locale?: Locale
   alternates?: { de: string; en: string } | false
   switchTo?: string
-  /** Share image; defaults to `defaultOgImage(locale)` in lib/seo.ts. */
+  /** Share card by art id, usually from `SHARE_ART` in lib/seo.ts; plate I when neither is set. */
+  ogArt?: OgArtId
+  /** Share image that is not riso art (an uploaded cover); wins over `ogArt`. */
   ogImage?: OgImage
   /** Marks the page an article (og:type, article:published_time). */
   article?: Article
@@ -29,6 +31,7 @@ const {
   locale = getLangFromUrl(Astro.url),
   alternates,
   switchTo,
+  ogArt,
   ogImage,
   article,
   jsonLd,
@@ -55,6 +58,7 @@ const switchPath = switchTo ?? (paths ?? auto)[other]
       locale={locale}
       paths={paths}
       selfPath={Astro.url.pathname}
+      ogArt={ogArt}
       ogImage={ogImage}
       article={article}
       jsonLd={jsonLd}

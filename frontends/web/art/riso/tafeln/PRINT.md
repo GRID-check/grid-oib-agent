@@ -60,6 +60,28 @@ cropped.
 | `sq` | `plate` | 720 / 1440 | 3.4 / 6.8 | 1x / 2x of a 720 CSS px slot, same screen at the same CSS size |
 | `og` | `og` | 1200×630 | 5.0 | Platforms scale it, so it takes a coarser screen that survives reduction |
 | `wide` | `banner` | 800×300 / 1600×600 | 3.4 / 6.8 | 1x / 2x of an 800 CSS px header |
+| `og` | `og` | 1200×630 | 5.0 | Also plates II–VIII (share cards per page type and post) |
+| `cover` | `cover` | 720×405 / 1440×810 | 3.4 / 6.8 | Blog covers: plates II, III, VIII |
+
+### Share cards and covers (2026-09-26)
+
+Request: a share card per page type instead of plate I everywhere, and a blog
+cover for each published post. Each is a composition of its plate for the aspect
+(its own `FIT`, and where needed its own framing points), never a crop, appended to
+JOBS so earlier jobs keep their times and bytes.
+
+- **II, III.** Floating subjects: re-fitted, centred, their table shadow balancing
+  them back-right. II's og and cover sit a little high so the numeral clears the
+  table shadow.
+- **IV.** The board is wider than the card, so the og frames it at 1.2× the width
+  and lets it run past both edges: the lone column and the red ribbon carry the card.
+- **V, VI, VII.** Re-fitted to the wide frame; VI's flying cards keep a margin to the top.
+- **VIII.** The wide frames show the whole house, where the square only shows its
+  west end, so they draw plate I's roof pavilion too (`roofPavilion`); without it the
+  roof read as a different house. The square is unchanged.
+- **Rejected:** a second plate-I card with the next house staked out (`baufeld`)
+  for the build log: legible, but a second house in the previews, which is what the
+  founders complained about. The build log uses II instead.
 
 A 1x pitch of 3.4 px is coarser than the kit's film (3.07 CSS px) and finer than
 Cabinet's print pitch. Both sizes of a plate are one sheet: paper, starvation flecks
@@ -327,7 +349,19 @@ before and after the engine moved to `lib/` (now `node art/riso/verify.mjs --wor
 pixel-identical to each other, as expected; exports use Firefox. `still.mjs` repeats
 every job.
 
+Share cards and covers: every og at 1200×630 and at 600×315 in a mock chat preview
+(`og-previews.png`), every cover at 720 and 1440, and 1:1 crops of the og files of II
+(whole stack), III (front stations), V (lens), VI (cards, cup, plant), VII (pans), VIII
+(pavilion and stair), and of the 2x covers of II, III and VIII.
+
 ## Remaining weaknesses
+
+- **Share cards and covers.**
+  - II is a tall stack in a wide card: at 600×315 it fills a third of the width.
+  - VIII's cards show the whole house, so the door is small; the square plate's close
+    shot on the door does not survive the wide aspect.
+  - Screened tone goes pale when a chat app shrinks a card to 400 px; line carries them.
+  - The build log and "Wie Piloti funktioniert" share plate II's card.
 
 - **I.**
   - The roof plate of the pavilion rests on its walls with no visible bearing, and its
