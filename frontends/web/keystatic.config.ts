@@ -1,5 +1,6 @@
 import { config, fields, collection } from '@keystatic/core'
 import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY } from './src/lib/categories'
+import { COVER_PLATES, COVER_PLATE_IDS } from './src/components/craft/plates'
 
 // Uploads land in `src/`, not `public/`, so Astro's image pipeline processes
 // them: `public/` assets are copied verbatim and served at whatever resolution
@@ -42,6 +43,18 @@ const postSchema = {
         .replace(/[^a-zA-Z0-9.-]+/g, '-')
         .replace(/-+/g, '-')
         .toLowerCase(),
+  }),
+  // A riso plate as the cover; the same list as the content schema's enum.
+  // It also sets the post's share card. A post takes a plate or a Titelbild.
+  plate: fields.select({
+    label: 'Tafel (Titelbild und Vorschaubild)',
+    description:
+      'Eine Riso-Tafel als Titelbild; sie liefert auch das Vorschaubild für geteilte Links. Entweder Tafel oder Titelbild, nicht beides.',
+    options: [
+      { label: 'Keine', value: '' },
+      ...COVER_PLATE_IDS.map((id) => ({ label: COVER_PLATES[id].label, value: id })),
+    ],
+    defaultValue: '',
   }),
   // Without this, Keystatic co-locates inline images next to the entry and
   // writes a bare `![](file.jpg)` that resolves from nowhere — Rollup treats it

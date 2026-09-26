@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<title>Piloti — Baustelle</title>
+<style>
+  /* The export tools read the canvas backing store, never this CSS box. */
+  html, body { margin: 0; background: #22271a; color: #d3ddc0;
+               font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  canvas { display: block; width: 384px; height: auto; image-rendering: pixelated; }
+  #cap { width: 720px; padding: 10px 0 24px; }
+</style>
+<canvas id="c"></canvas>
+<div id="cap"></div>
+<!-- The shared print kit. Load order matters: formats, engine, series look. -->
+<script src="../lib/formats.js"></script>
+<script src="../lib/engine.js"></script>
+<script src="../lib/piloti.js"></script>
+<script>
+'use strict';
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Piloti — Baustelle (art/riso/releases). See PRINT.md beside this file.
+
+   The house of plate I (a white bar on three pilotis, ribbon windows, a roof
+   garden and pavilion), built in STEPS on a model board with a tower crane.
+   Plate n shows the site after step n, and the part that step added prints
+   in Bright Red, the way a revision is marked on a drawing: every release
+   adds one part. The site keeps its place in every stamp, so the set reads as
+   one family.
+
+   The site picks a plate for a release by a stable hash of the release id
+   (src/lib/release-stamp.ts), so a new release needs no new export.
+
+   Small format: lines through weight() stay >= 1.25 device px, fields are few
+   and large, and small parts are solid.
+   ───────────────────────────────────────────────────────────────────────── */
+
+const BAU = (() => {
+  const RED = { red: 1 };
+
+  /* plate I's house, in metres: x east, y north, z up */
+  const BOX = [0, 0, 4.0, 16, 9, 7.4];
+  const DECK = 4.4;                                         // top of the floor slab
+  const BAYS = [[0, 4], [4, 8], [8, 12], [12, 16]];
+  const COLS = [[2.6, 1.7], [2.6, 7.3], [13.0, 4.5]], COLR = 0.3;
+  const WIN = { z0: 5.05, z1: 6.2, inset: 0.8 };
+  const BED = [2.2, 4.6, 7.4, 8.2];
+  const PV = [10.4, 5.2, 7.4, 14.6, 8.2, 9.6];              // roof pavilion
+  const CAN = [9.6, 4.3, 9.6, 15.2, 8.6, 9.76];             // its roof plate
+  const BOARD = [-2.6, -4.4, 20.6, 11.6], SLAB = 0.55;
+  const CRANE = [18.6, 10.0], MAST = 0.4, JIBZ = 11.8, APEX = 13.8, JIB = 19.5, CJIB = 4.6;
+  const HUT = [14.4, -3.6, 0, 19.8, -1.3, 2.6];
+  const WALK = [6.6, 8.2];
+  const FIG = [7.4, -2.4];
+
+  const mid = (i) => (BAYS[i][0] + BAYS[i][1]) / 2;
+  /* The steps, in building order. Each adds one part; `hook` is where the
+     crane sets it down. `unmarked` steps take something away. */
+  const STEPS = [
+    { k: 'peg',     de: 'ein Pflock mit rotem Band',              en: 'a stake with a red ribbon' },
+    { k: 'setout',  de: 'der abgesteckte Grundriss',              en: 'the staked-out footprint' },
+    { k: 'hut',     de: 'der Baucontainer',                       en: 'the site hut' },
+    { k: 'crane',   de: 'der Kran',                               en: 'the crane' },
+    ...COLS.map(([x, y], i) => ({ k: 'pad' + i, de: `das ${i + 1}. Fundament`, en: `footing ${i + 1}`, hook: [x, y, 0.4] })),
+    ...COLS.map(([x, y], i) => ({ k: 'col' + i, de: `die ${i + 1}. Stütze`, en: `piloti ${i + 1}`, hook: [x, y, BOX[2]] })),
+    ...BAYS.map((b, i) => ({ k: 'deck' + i, de: `das ${i + 1}. Deckenfeld`, en: `floor bay ${i + 1}`, hook: [mid(i), 4.5, DECK] })),
+    ...BAYS.map((b, i) => ({ k: 'wall' + i, de: `das ${i + 1}. Wandfeld`, en: `wall bay ${i + 1}`, hook: [mid(i), 4.5, BOX[5]] })),
+    { k: 'winS0',   de: 'das Fensterband, Süd, erste Hälfte',     en: 'the south ribbon window, first half', hook: [4.4, 0, WIN.z1] },
+    { k: 'winS1',   de: 'das Fensterband, Süd, zweite Hälfte',    en: 'the south ribbon window, second half', hook: [11.6, 0, WIN.z1] },
+    { k: 'winW',    de: 'das Fensterband, West',                  en: 'the west ribbon window', hook: [0, 4.5, WIN.z1] },
+    { k: 'bed',     de: 'das Beet des Dachgartens',               en: 'the roof garden bed', hook: [4.8, 6.4, BOX[5] + 0.45] },
+    { k: 'plant',   de: 'die Bepflanzung des Dachgartens',        en: 'the roof garden planting' },
+    { k: 'pav',     de: 'der Dachaufbau',                         en: 'the roof pavilion', hook: [12.5, 6.7, PV[5]] },
+    { k: 'can',     de: 'das Dach des Dachaufbaus',               en: 'the pavilion roof', hook: [12.4, 6.4, CAN[5]] },
+    { k: 'craneOff', de: 'der Kran ist abgebaut',                 en: 'the crane is gone', unmarked: true },
+    { k: 'lawn',    de: 'der Rasen, der Container ist fort',      en: 'the lawn, the hut is gone' },
+    { k: 'walk',    de: 'der Weg',                                en: 'the path' },
+    { k: 'tree',    de: 'ein Baum, wo der Kran stand',            en: 'a tree where the crane stood' },
+    { k: 'figure',  de: 'die erste Besucherin',                   en: 'the first visitor' },
+  ];
+  const AT = Object.fromEntries(STEPS.map((s, i) => [s.k, i]));
+
+  const FIT = { stamp: { fill: 0.96, fillH: 0.9, cx: 0.5, cy: 0.5 } };
+
+  function stage(n) {
+    const has = (k) => AT[k] <= n, isNew = (k) => AT[k] === n;
+    const ks = (k) => (isNew(k) ? RED : KEY);
+    const mark = (c, path, w, k) => (isNew(k) ? redLine(c, path, w) : line(c, path, w, KEY));
+    const craneUp = has('crane') && !has('craneOff');
+    const hutUp = has('hut') && !has('lawn');
+
+    function draw(c, fmt) {
+      const SIL = weight(17), ARR = weight(13), FINE = weight(10);
+      const [bx0, by0, bx1, by1] = BOARD;
+      const [x0, y0, z0, x1, y1, z1] = BOX;
+      const P = fit(VIEW_SERIES, [[bx0, by0, -SLAB], [bx1, by0, -SLAB], [bx1, by1, 0], [bx0, by1, 0],
+        [CRANE[0], CRANE[1], APEX]], FIT[fmt]);
+
+      /* ── board and ground ─────────────────────────────────────────────── */
+      const top = poly(P, [[bx0, by0, 0], [bx1, by0, 0], [bx1, by1, 0], [bx0, by1, 0]]);
+      const edgeS = poly(P, [[bx0, by0, 0], [bx1, by0, 0], [bx1, by0, -SLAB], [bx0, by0, -SLAB]]);
+      const edgeW = poly(P, [[bx0, by0, 0], [bx0, by1, 0], [bx0, by1, -SLAB], [bx0, by0, -SLAB]]);
+      own(c, edgeS, { moss: 1 });
+      own(c, edgeW, { mist: 1 });
+      own(c, top, has('lawn') ? { kelly: 0.3, mist: 1 } : { mist: 0.45 });
+      if (has('walk')) {
+        const w = poly(P, [[WALK[0], by0, 0], [WALK[1], by0, 0], [WALK[1], y0 + 1.2, 0], [WALK[0], y0 + 1.2, 0]]);
+        clearAll(c, w);
+        line(c, w, FINE, isNew('walk') ? RED : { hunter: 0.6 });
+      }
+
+      /* ── ground shadows: one union ────────────────────────────────────── */
+      const L = SUN_SERIES, sh = [];
+      COLS.forEach(([x, y], i) => { if (has('col' + i)) sh.push(cylShadow(P, x, y, COLR, has('deck0') ? z0 : z0, L)); });
+      BAYS.forEach(([a, b], i) => { if (has('deck' + i)) sh.push(boxShadow(P, boxCorners(a, y0, z0, b, y1, has('wall' + i) ? z1 : DECK), L)); });
+      if (craneUp) sh.push(boxShadow(P, boxCorners(CRANE[0] - MAST, CRANE[1] - MAST, 0, CRANE[0] + MAST, CRANE[1] + MAST, JIBZ), L));
+      if (hutUp) sh.push(boxShadow(P, boxCorners(...HUT), L));
+      if (has('tree')) sh.push(treeShadow(P, CRANE[0], CRANE[1], 2.2, L));
+      if (sh.length) groundShadow(c, top, sh, { moss: 1, mist: 1 });
+      line(c, top, SIL, KEY);
+      line(c, edgeS, ARR, KEY);
+      line(c, edgeW, ARR, KEY);
+
+      /* ── setting out, until the footings are in ───────────────────────── */
+      if (!has('pad0')) {
+        if (has('setout')) {
+          dashed(c, poly(P, [[x0, y0, 0], [x1, y0, 0], [x1, y1, 0], [x0, y1, 0]]), FINE, ks('setout'), [30, 22]);
+          for (const [x, y] of [[x1, y1], [x0, y1], [x1, y0]]) mark(c, poly(P, [[x, y, 0], [x, y, 1.4]], false), ARR, 'setout');
+        }
+        // the first stake, at the south-west corner; on the first day it flies a red ribbon
+        line(c, poly(P, [[x0, y0, 0], [x0, y0, 1.6]], false), ARR, KEY);
+        if (isNew('peg')) {
+          const r0 = P([x0, y0, 1.45]);
+          lineFill(c, nib([[r0[0], r0[1]], [r0[0] + 26, r0[1] - 5], [r0[0] + 52, r0[1] + 7]], (u) => 11 * (1 - 0.5 * u), { per: 6 }), RED);
+        }
+      }
+
+      /* ── behind the house: crane mast, or the tree that replaced it ──── */
+      if (craneUp) mast(c, P, ks('crane'), ARR);
+      if (has('tree')) tree(c, P, CRANE[0], CRANE[1], 2.2, ks('tree'), ARR);
+
+      /* ── footings, pilotis, far to near ───────────────────────────────── */
+      const order = [1, 2, 0];                              // north-west, east, south-west
+      for (const i of order) {
+        const [x, y] = COLS[i];
+        if (has('pad' + i) && !has('lawn')) {
+          const f = boxFaces(P, x - 0.8, y - 0.8, 0, x + 0.8, y + 0.8, 0.35);
+          own(c, f.south, { hunter: 1 });
+          own(c, f.top, { mist: 1 });
+          mark(c, f.sil, FINE, 'pad' + i);
+          if (isNew('pad' + i)) lineFill(c, f.sil, RED);
+        }
+      }
+      for (const i of order) {
+        const [x, y] = COLS[i];
+        if (!has('col' + i)) continue;
+        const cy = cylinder(P, x, y, COLR, 0, z0);
+        own(c, cy.sil, {});
+        if (isNew('col' + i)) lineFill(c, cy.sil, RED);
+        mark(c, cy.sil, FINE, 'col' + i);
+      }
+
+      /* ── the bar. Bays go in west to east, so what stands is a walled run
+         [0, w) and a bare deck run [w, d): two boxes, drawn far (east) first.
+         Joints between bays are fine lines; the bay this step set outlines red. */
+      const d = BAYS.filter((b, i) => has('deck' + i)).length;
+      const w = BAYS.filter((b, i) => has('wall' + i)).length;
+      const joint = (x, zt) => line(c, poly(P, [[x, y1, zt], [x, y0, zt], [x, y0, z0]], false), FINE, { hunter: 0.5 });
+      if (d > w) {
+        const f = boxFaces(P, 4 * w, y0, z0, 4 * d, y1, DECK);
+        own(c, f.top, { mist: 1 });
+        own(c, f.west, {});
+        own(c, f.south, { moss: 1 });
+        for (let i = w + 1; i < d; i++) joint(4 * i, DECK);
+        line(c, f.sil, SIL, KEY);
+      }
+      if (w > 0) {
+        const f = boxFaces(P, x0, y0, z0, 4 * w, y1, z1);
+        own(c, f.top, {});
+        own(c, f.west, {});
+        own(c, f.south, {});
+        if (w < 4) for (let i = 1; i < w; i++) joint(4 * i, z1);
+        line(c, poly(P, [[x0, y0, DECK], [4 * w, y0, DECK]], false), FINE, { hunter: 0.5 });
+        line(c, poly(P, [[x0, y0, DECK], [x0, y1, DECK]], false), FINE, { hunter: 0.5 });
+        line(c, f.sil, SIL, KEY);
+      }
+      BAYS.forEach(([a, b], i) => {
+        if (isNew('deck' + i)) redLine(c, boxFaces(P, a, y0, z0, b, y1, DECK).sil, SIL);
+        if (isNew('wall' + i)) redLine(c, boxFaces(P, a, y0, z0, b, y1, z1).sil, SIL);
+      });
+      /* ribbon windows, cut once the bays they cross are walled */
+      const walledAll = [0, 1, 2, 3].every((i) => has('wall' + i));
+      const ribbon = (k, pts) => {
+        if (!has(k) || !walledAll) return;
+        const g = poly(P, pts);
+        own(c, g, { hunter: 1, moss: 1 });
+        mark(c, g, FINE, k);
+      };
+      const { z0: wz0, z1: wz1, inset } = WIN;
+      ribbon('winS0', [[x0 + inset, y0, wz0], [8, y0, wz0], [8, y0, wz1], [x0 + inset, y0, wz1]]);
+      ribbon('winS1', [[8, y0, wz0], [x1 - inset, y0, wz0], [x1 - inset, y0, wz1], [8, y0, wz1]]);
+      ribbon('winW', [[x0, y0 + inset, wz0], [x0, y1 - inset, wz0], [x0, y1 - inset, wz1], [x0, y0 + inset, wz1]]);
+
+      /* ── the roof ─────────────────────────────────────────────────────── */
+      if (walledAll && has('bed')) {
+        const b = boxFaces(P, BED[0], BED[1], z1, BED[2], BED[3], z1 + 0.45);
+        own(c, b.west, {});
+        own(c, b.south, { mist: 1 });
+        own(c, b.top, has('plant') ? { kelly: 1 } : { moss: 1 });
+        mark(c, b.sil, FINE, 'bed');
+        if (isNew('plant')) redLine(c, b.top, FINE);
+      }
+      if (walledAll && has('pav')) {
+        const pv = boxFaces(P, ...PV);
+        own(c, pv.west, {});
+        own(c, pv.south, {});
+        own(c, pv.top, {});
+        own(c, poly(P, [[11.0, PV[1], z1 + 0.9], [14.0, PV[1], z1 + 0.9], [14.0, PV[1], z1 + 1.45], [11.0, PV[1], z1 + 1.45]]), { hunter: 1, moss: 1 });
+        mark(c, pv.sil, ARR, 'pav');
+        if (has('can')) {
+          const cn = boxFaces(P, ...CAN);
+          own(c, cn.top, {});
+          own(c, cn.south, { moss: 1 });
+          own(c, cn.west, { mist: 1 });
+          mark(c, cn.sil, ARR, 'can');
+        }
+      }
+
+      /* ── the site hut, front right ────────────────────────────────────── */
+      if (hutUp) {
+        const f = boxFaces(P, ...HUT);
+        own(c, f.top, { mist: 1 });
+        own(c, f.west, {});
+        own(c, f.south, {});
+        own(c, poly(P, [[HUT[0] + 0.9, HUT[1], 0], [HUT[0] + 1.9, HUT[1], 0], [HUT[0] + 1.9, HUT[1], 2.05], [HUT[0] + 0.9, HUT[1], 2.05]]), { hunter: 1, moss: 1 });
+        mark(c, f.sil, ARR, 'hut');
+      }
+
+      /* ── the visitor on the walk ──────────────────────────────────────── */
+      if (has('figure')) {
+        const fg = figure(P([FIG[0], FIG[1], 0]), 1.75 * P.s, { back: 0.02 });
+        clearAll(c, fg.body); clearAll(c, fg.roll);
+        lineFill(c, fg.body, ks('figure'));
+        lineFill(c, fg.roll, ks('figure'));
+      }
+
+      /* ── the crane's jib, above everything; its hook over this step's part ── */
+      if (craneUp) jib(c, P, STEPS[n].hook, n, ks('crane'), SIL, FINE);
+    }
+
+    return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], key: 'hunter', draw };
+  }
+
+  /** A red outline over parts already drawn: the other inks are knocked out
+      beneath it, so red never overprints the key line into maroon. */
+  function redLine(c, path, w) {
+    if (c.ink === 'red') { line(c, path, w, RED); return; }
+    for (const x of [c.g, c.L]) {
+      x.save(); x.globalAlpha = 1; x.globalCompositeOperation = 'destination-out';
+      x.lineWidth = w * 1.15; x.stroke(path); x.restore();
+    }
+  }
+  const stroke = (c, path, w, spec) => (spec === RED ? redLine(c, path, w) : line(c, path, w, spec));
+  function treeShadow(P, x, y, r, L) {
+    const pts = [];
+    for (let i = 0; i < 24; i++) {
+      const a = i / 24 * TAU;
+      pts.push(onGround([x + Math.cos(a) * r, y + Math.sin(a) * r, 5.2], L));
+    }
+    pts.push([x - 0.2, y, 0], [x + 0.2, y, 0]);
+    return pathOf(hull(pts.map(P)));
+  }
+  function tree(c, P, x, y, r, spec, w) {
+    line(c, poly(P, [[x, y, 0], [x, y, 4.2]], false), w, spec);
+    const ctr = P([x, y, 5.2]), rr = r * P.s;
+    const wob = makeWob(rngFor('releases:tree'), 3);
+    const pts = [];
+    for (let i = 0; i < 40; i++) { const a = i / 40 * TAU, q = rr * (1 + 0.08 * wob(a)); pts.push([ctr[0] + Math.cos(a) * q, ctr[1] + Math.sin(a) * q * 1.1]); }
+    const crown = pathOf(pts);
+    own(c, crown, { kelly: 1 });
+    stroke(c, crown, w, spec);
+  }
+  function mast(c, P, spec, w) {
+    const [x, y] = CRANE;
+    const f = boxFaces(P, x - MAST, y - MAST, 0, x + MAST, y + MAST, JIBZ);
+    own(c, f.west, {});
+    own(c, f.south, {});
+    line(c, f.sil, w, spec);
+    line(c, poly(P, [[x, y, JIBZ], [x, y, APEX]], false), w, spec);
+  }
+  function jib(c, P, hook, n, spec, wj, wf) {
+    const [x, y] = CRANE;
+    const th = hook ? Math.atan2(hook[1] - y, hook[0] - x) : Math.PI * 1.08 + (rngFor(`releases:jib:${n}`)() - 0.5) * 0.5;
+    const d = [Math.cos(th), Math.sin(th)];
+    const tip = [x + d[0] * JIB, y + d[1] * JIB, JIBZ], tail = [x - d[0] * CJIB, y - d[1] * CJIB, JIBZ];
+    line(c, poly(P, [tail, tip], false), wj, spec);
+    line(c, poly(P, [tip, [x, y, APEX], tail], false), wf, spec);
+    const cw = boxFaces(P, tail[0] - 0.8, tail[1] - 0.8, JIBZ - 1.6, tail[0] + 0.8, tail[1] + 0.8, JIBZ);
+    own(c, cw.sil, { hunter: 1, moss: 1 });
+    stroke(c, cw.sil, wf, spec);
+    if (!hook) return;
+    line(c, poly(P, [[hook[0], hook[1], JIBZ], [hook[0], hook[1], hook[2] + 1.0]], false), wf, KEY);
+  }
+
+  return { STEPS, stage };
+})();
+
+/* ═════════════════════════════════════════════════════════════════════════
+   JOBS: one plate per step, one `release` job per plate. The plate name
+   (`bau-01` ...) seeds the plate's streams; frozen once shipped.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const N_STEPS = BAU.STEPS.length;
+const pad2 = (n) => String(n).padStart(2, '0');
+Riso.run({
+  work: 'releases',
+  plates: BAU.STEPS.map((s, i) => ({ name: 'bau-' + pad2(i + 1), art: BAU.stage(i), composes: ['stamp'], number: 0 })),
+  jobs: BAU.STEPS.map((s, i) => ({
+    plate: 'bau-' + pad2(i + 1), format: 'release',
+    alt: {
+      de: `Kleiner Risografie-Stempel einer Baustelle, Schritt ${i + 1} von ${N_STEPS}: ${s.de}${s.unmarked ? '' : ', rot markiert'}.`,
+      en: `Small risograph stamp of a building site, step ${i + 1} of ${N_STEPS}: ${s.en}${s.unmarked ? '' : ', marked in red'}.`,
+    },
+  })),
+});
+</script>
+</html>

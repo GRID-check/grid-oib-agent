@@ -292,7 +292,8 @@ let P_ = null;                                        // set per sheet draw: (sh
 
 const II = (() => {
   const SW = 12, SD = 8.2, GAP = 2.35, N = 6;          // sheet size and spacing, drawing metres
-  const FIT = { sq: { fill: 0.74, fillH: 0.76, cx: 0.5, cy: 0.49 } };
+  const FIT = { sq: { fill: 0.74, fillH: 0.76, cx: 0.5, cy: 0.49 }, og: { fill: 0.9, fillH: 0.8, cx: 0.5, cy: 0.465 },
+                cover: { fill: 0.9, fillH: 0.8, cx: 0.5, cy: 0.47 } };
 
   function draw(c, fmt) {
     const zs = [...Array(N)].map((_, i) => (N - 1 - i) * GAP);   // 0 = top sheet (sources)
@@ -458,7 +459,8 @@ const III = (() => {
   const R = 6.4, HW = 1.05, NQ = 260;                 // centre radius, half width, quads round the band
   const TILT = 0.42;                                  // band tipped toward the viewer about the x axis, radians
   const LIFT = 3.2;                                   // centre height above the table
-  const FIT = { sq: { fill: 0.78, fillH: 0.74, cx: 0.5, cy: 0.5 } };
+  const FIT = { sq: { fill: 0.78, fillH: 0.74, cx: 0.5, cy: 0.5 }, og: { fill: 0.9, fillH: 0.84, cx: 0.5, cy: 0.5 },
+                cover: { fill: 0.88, fillH: 0.8, cx: 0.5, cy: 0.5 } };
   // twist concentrated at the back (u ≈ π/2), so the front lies flat and readable
   // phi jumps from π back to 0 where the parameter wraps; the band itself is continuous
   // there (flat, v reversed), so the wrap sits on a station boundary, never inside a card
@@ -626,7 +628,7 @@ const IV = (() => {
   const SITE = [-3.0, -4.6, 18.4, 11.2], SLAB = 0.55;
   const COL = [5.0, 3.4], CR = 0.19, CH = 4.0;
   const STAKE = [9.2, -2.7];
-  const FIT = { sq: { fill: 0.94, cx: 0.5, cy: 0.54 } };
+  const FIT = { sq: { fill: 0.94, cx: 0.5, cy: 0.54 }, og: { fill: 1.2, fillH: 0.92, cx: 0.5, cy: 0.47 } };   // og: the board runs past both edges, so the lone column carries the card
   const OFF = 1.6, ARM = 1.3, BH = 0.8;                 // batter boards: offset, arm length, board height
 
   function batter(cx, cy, ox, oy) {
@@ -785,7 +787,7 @@ const V = (() => {
   const TILT = 0.95;                                   // board tipped back about x, radians
   const BW = 17, BD = 12, TH = 0.35;                   // board size and thickness, drawing metres
   const LC = [11.4, 6.6], LR = 2.7, LH = 1.3, MAG = 3.6; // lens centre on the board, radius, height, power
-  const FIT = { sq: { fill: 0.92, fillH: 0.84, cx: 0.5, cy: 0.5 } };
+  const FIT = { sq: { fill: 0.92, fillH: 0.84, cx: 0.5, cy: 0.5 }, og: { fill: 0.92, fillH: 0.86, cx: 0.5, cy: 0.5 } };
 
   function draw(c, fmt) {
     const B = boardPlane([0, 0, 0], [1, 0, 0], [0, Math.cos(TILT), Math.sin(TILT)]);
@@ -920,7 +922,7 @@ function planeCyl(P, B, u, v, r, h0, h1) {
 
 const VI = (() => {
   const TILT = 1.12, TW = 19, TD = 13, TT = 0.5;
-  const FIT = { sq: { fill: 0.9, fillH: 0.86, cx: 0.5, cy: 0.5 } };
+  const FIT = { sq: { fill: 0.9, fillH: 0.86, cx: 0.5, cy: 0.5 }, og: { fill: 0.92, fillH: 0.84, cx: 0.5, cy: 0.5 } };
   const STACK = [15.2, 8.6];
   const FLY = [[17.6, 12.2, 3.4, 0.5], [16.9, 11.0, 2.2, 0.32], [16.2, 9.9, 1.15, 0.18]];   // u, v, height, turn
 
@@ -1089,7 +1091,7 @@ const VII = (() => {
   const TOP = [-5.5, -3.2, 5.5, 4.4], SLAB = 0.45;       // tabletop extent
   const POST = 5.6, ARM = 3.4, TH = 0.11;                 // beam pivot height, half span, beam tilt
   const HANG = 3.9, PANR = 1.25, PW = 0.68, PD = 0.5, PH = 1.9;   // hangers; the pile's half footprint and height
-  const FIT = { sq: { fill: 0.84, fillH: 0.84, cx: 0.5, cy: 0.52 } };
+  const FIT = { sq: { fill: 0.84, fillH: 0.84, cx: 0.5, cy: 0.52 }, og: { fill: 0.92, fillH: 0.86, cx: 0.5, cy: 0.52 } };
 
   function draw(c, fmt) {
     const [tx0, ty0, tx1, ty1] = TOP;
@@ -1206,6 +1208,39 @@ const VII = (() => {
    one up the stair is the viewer.
    ═════════════════════════════════════════════════════════════════════════ */
 
+/** Plate I's roof pavilion under its thin projecting plate, for plate VIII's wide cards. */
+function roofPavilion(c, P, roof, z1, SUN) {
+  const PV = [10.4, 5.2, z1, 14.6, 8.2, z1 + 2.2];
+  const CAN = [9.6, 4.3, z1 + 2.2, 15.2, 8.6, z1 + 2.36];
+  const E = (a, b) => poly(P, [a, b], false);
+  const roofSh = new Path2D();
+  roofSh.addPath(boxShadow(P, boxCorners(...PV), SUN, z1));
+  roofSh.addPath(boxShadow(P, boxCorners(...CAN), SUN, z1));
+  c.g.save(); c.g.clip(roof); tint(c, roofSh, { moss: 0.3, mist: 0.2 }); c.g.restore();
+  const pv = boxFaces(P, ...PV);
+  clearAll(c, pv.sil);
+  own(c, pv.west, {});
+  own(c, pv.south, { mist: 0.14 });
+  const band = 0.55;
+  tint(c, poly(P, [[PV[0], PV[1], PV[5] - band], [PV[3], PV[1], PV[5] - band], [PV[3], PV[1], PV[5]], [PV[0], PV[1], PV[5]]]), { moss: 0.38 });
+  tint(c, poly(P, [[PV[0], PV[1], PV[5] - band], [PV[0], PV[4], PV[5] - band], [PV[0], PV[4], PV[5]], [PV[0], PV[1], PV[5]]]), { moss: 0.3 });
+  const door = poly(P, [[PV[0], 6.2, z1], [PV[0], 7.1, z1], [PV[0], 7.1, z1 + 1.95], [PV[0], 6.2, z1 + 1.95]]);
+  own(c, door, { hunter: 0.8, moss: 0.5 });
+  const slot = poly(P, [[11.0, PV[1], z1 + 0.9], [14.0, PV[1], z1 + 0.9], [14.0, PV[1], z1 + 1.45], [11.0, PV[1], z1 + 1.45]]);
+  own(c, slot, { hunter: 0.86, moss: 0.62 });
+  line(c, door, 0.9, KEY); line(c, slot, 0.9, KEY);
+  line(c, pv.sil, 1.2, KEY);
+  line(c, E([PV[0], PV[1], PV[2]], [PV[0], PV[1], PV[5]]), 1.0, KEY);
+  const can = boxFaces(P, ...CAN);
+  clearAll(c, can.sil);
+  own(c, can.top, { mist: 0.25 });
+  own(c, can.west, { mist: 0.2 });
+  own(c, can.south, { moss: 0.3 });
+  line(c, can.sil, 1.2, KEY);
+  line(c, E([CAN[0], CAN[1], CAN[5]], [CAN[3], CAN[1], CAN[5]]), 0.9, KEY);
+  line(c, E([CAN[0], CAN[1], CAN[5]], [CAN[0], CAN[4], CAN[5]]), 0.9, KEY);
+}
+
 const VIII = (() => {
   const BOX = [0, 0, 4.0, 16, 9, 7.4];
   const COLS = [[2.6, 1.7], [2.6, 7.3], [13.0, 4.5]], R = 0.19;
@@ -1215,13 +1250,16 @@ const VIII = (() => {
   const NSTEP = 20, RISE = 4.0 / NSTEP, GO = 0.3, SY0 = -1.6;   // steps start at y = SY0
   const LAND = [SY0 + NSTEP * GO, SY0 + NSTEP * GO + 1.4];      // landing y range
   const DOOR = [LAND[0] + 0.25, LAND[1] - 0.15];                // door y range in the west wall
-  const FIT = { sq: { fill: 0.84, fillH: 0.76, cx: 0.53, cy: 0.5 } };
+  const FIT = { sq: { fill: 0.84, fillH: 0.76, cx: 0.53, cy: 0.5 }, og: { fill: 0.94, fillH: 0.82, cx: 0.5, cy: 0.5 },
+                cover: { fill: 0.94, fillH: 0.82, cx: 0.5, cy: 0.5 } };
 
   function draw(c, fmt) {
     const [sx0, sy0, sx1, sy1] = SITE;
     const [x0, y0, z0, x1, y1, z1] = BOX;
     // framed on the west end: the house runs out of the picture to the right
-    const P = fit(VIEW_SERIES, [[-5.4, -5.6, -SLAB], [x0 - 1, y1, z1 + 0.6], [7.2, y0, z1], [7.2, -5.6, -SLAB]], FIT[fmt]);
+    // the wide cards show the whole house with its roof pavilion (x rises 3° to the right, so its far corner binds)
+    const reach = fmt === 'sq' ? [] : [[x1, y1, z1 + 2.5], [x1 + 1, -5.6, -SLAB]];
+    const P = fit(VIEW_SERIES, [[-5.4, -5.6, -SLAB], [x0 - 1, y1, z1 + 0.6], [7.2, y0, z1], [7.2, -5.6, -SLAB], ...reach], FIT[fmt]);
     const E = (a, b) => poly(P, [a, b], false);
 
     /* — lawn on the board, mown as in plate I — */
@@ -1258,7 +1296,7 @@ const VIII = (() => {
     if (st) { c.g.save(); c.g.setTransform(1, 0, 0, 1, 0, 0); c.g.globalAlpha = st; c.g.drawImage(sc.canvas, 0, 0); c.g.restore(); }
     line(c, top, 1.5, KEY);
 
-    /* columns, far to near (the east one is out of frame) */
+    /* columns, far to near (the east one is out of the square frame) */
     for (const [cx, cy] of COLS.slice().sort((a, b) => depth(P, [b[0], b[1], 0]) - depth(P, [a[0], a[1], 0]))) {
       const cyl = cylinder(P, cx, cy, R, 0, z0);
       own(c, cyl.sil, {});
@@ -1291,6 +1329,8 @@ const VIII = (() => {
     own(c, bedTop, { kelly: 0.78, mist: 0.3 });
     if (c.ink === 'hunter') { c.g.save(); c.g.clip(bedTop); spray(c.g, null, rngFor('bed'), { n: 2600, r0: 0.6, r1: 1.7, a: 0.6 }); c.g.restore(); }
     line(c, bed.sil, 1.1, KEY);
+    // the wide cards reach the east half of the roof, so plate I's pavilion stands there too
+    if (fmt !== 'sq') roofPavilion(c, P, f.top, z1, SUN);
     line(c, E([x0, y0, z0], [x0, y0, z1]), 1.3, KEY);
     line(c, E([x0, y0, z1], [x1, y0, z1]), 1.1, KEY);
     line(c, E([x0, y0, z1], [x0, y1, z1]), 1.1, KEY);
@@ -1333,13 +1373,13 @@ Riso.run({
   work: 'tafeln',
   plates: [
     { name: 'stuetzen',     base: 'piloti-i-stuetzen',      art: I,    composes: ['sq', 'og', 'wide'] },
-    { name: 'schichten',    base: 'piloti-ii-schichten',    art: II,   composes: ['sq'] },
-    { name: 'schleife',     base: 'piloti-iii-schleife',    art: III,  composes: ['sq'] },
-    { name: 'bauplatz',     base: 'piloti-iv-bauplatz',     art: IV,   composes: ['sq'] },
-    { name: 'pruefstand',   base: 'piloti-v-pruefstand',    art: V,    composes: ['sq'] },
-    { name: 'zeichentisch', base: 'piloti-vi-zeichentisch', art: VI,   composes: ['sq'] },
-    { name: 'waage',        base: 'piloti-vii-waage',       art: VII,  composes: ['sq'] },
-    { name: 'tuer',         base: 'piloti-viii-tuer',       art: VIII, composes: ['sq'] },
+    { name: 'schichten',    base: 'piloti-ii-schichten',    art: II,   composes: ['sq', 'og', 'cover'] },
+    { name: 'schleife',     base: 'piloti-iii-schleife',    art: III,  composes: ['sq', 'og', 'cover'] },
+    { name: 'bauplatz',     base: 'piloti-iv-bauplatz',     art: IV,   composes: ['sq', 'og'] },
+    { name: 'pruefstand',   base: 'piloti-v-pruefstand',    art: V,    composes: ['sq', 'og'] },
+    { name: 'zeichentisch', base: 'piloti-vi-zeichentisch', art: VI,   composes: ['sq', 'og'] },
+    { name: 'waage',        base: 'piloti-vii-waage',       art: VII,  composes: ['sq', 'og'] },
+    { name: 'tuer',         base: 'piloti-viii-tuer',       art: VIII, composes: ['sq', 'og', 'cover'] },
   ],
   jobs: [
     { plate: 'stuetzen', format: 'plate',
@@ -1380,6 +1420,37 @@ Riso.run({
       alt: { de: 'Risografie im Morgenlicht: eine Außentreppe führt an einem aufgeständerten Haus zu einer offenen Tür, aus der grünes Licht fällt; Trittsteine queren die Wiese.',
              en: 'Risograph at dawn: an outside stair climbs a raised house to an open door that spills green light; stepping stones cross the lawn.' },
       caption: { de: 'Tafel VIII — Offene Tür', en: 'Plate VIII — Open door' } },
+    /* Share cards (og) and blog covers. Appended, so the jobs above keep their times. */
+    { plate: 'schichten', format: 'og',
+      alt: { de: 'Risografie: sechs übereinander schwebende Blätter als Explosionszeichnung, von den Quellen oben bis zur Antwort mit Belegen unten.',
+             en: 'Risograph: six sheets floating one above another as an exploded drawing, from the sources at the top to an answer with citations at the bottom.' } },
+    { plate: 'schichten', format: 'cover',
+      alt: { de: 'Risografie: sechs übereinander schwebende Blätter als Explosionszeichnung, von Quellen über Aufbereitung, Index, Suche und Prüfung bis zur Antwort mit Belegen.',
+             en: 'Risograph: six sheets floating one above another as an exploded drawing, from sources through preparation, index, search and check to an answer with citations.' } },
+    { plate: 'schleife', format: 'og',
+      alt: { de: 'Risografie: ein zum Möbiusband geschlossener Papierstreifen schwebt über einem Tisch; auf ihm die Stationen einer Korrektur, darunter ein Plan mit roter Revisionswolke.',
+             en: 'Risograph: a strip of paper closed into a Möbius band floats above a table; along it, the stations of a correction, among them a plan with a red revision cloud.' } },
+    { plate: 'schleife', format: 'cover',
+      alt: { de: 'Risografie: ein zum Möbiusband geschlossener Papierstreifen schwebt über einem Tisch; auf ihm die Stationen einer Korrektur, darunter ein Plan mit roter Revisionswolke.',
+             en: 'Risograph: a strip of paper closed into a Möbius band floats above a table; along it, the stations of a correction, among them a plan with a red revision cloud.' } },
+    { plate: 'bauplatz', format: 'og',
+      alt: { de: 'Risografie im Morgenlicht: ein Bauplatz mit Schnurgerüst und abgestecktem Grundriss, eine einzelne Stütze mit Bewehrungsenden und ein Pflock mit rotem Band.',
+             en: 'Risograph at dawn: a building plot with batter boards and a staked-out footprint, a single column with rebar ends and a stake with a red ribbon.' } },
+    { plate: 'pruefstand', format: 'og',
+      alt: { de: 'Risografie: ein Grundriss auf einem schräg gestellten Zeichenbrett, darüber eine Lupe, die einen Wandanschluss und seine Bestimmung vergrößert.',
+             en: 'Risograph: a floor plan on a tilted drawing board, with a magnifier over one wall junction and the clause it refers to.' } },
+    { plate: 'zeichentisch', format: 'og',
+      alt: { de: 'Risografie: ein Zeichentisch von oben mit Plan, Kaffeetasse, Dreikantmaßstab und Topfpflanze; kleine Karten gleiten auf einen Stapel.',
+             en: 'Risograph: a drafting table from above with a plan, a coffee cup, a scale rule and a potted plant; small cards glide onto a stack.' } },
+    { plate: 'waage', format: 'og',
+      alt: { de: 'Risografie: eine Balkenwaage auf einem Tisch, in der einen Schale ein Stapel Blätter, in der anderen fünf Münzen; der Balken neigt sich zu den Blättern.',
+             en: 'Risograph: a balance on a table with a pile of sheets in one pan and five coins in the other; the beam tips toward the sheets.' } },
+    { plate: 'tuer', format: 'og',
+      alt: { de: 'Risografie im Morgenlicht: eine Außentreppe führt an einem aufgeständerten Haus zu einer offenen Tür, aus der grünes Licht fällt.',
+             en: 'Risograph at dawn: an outside stair climbs a raised house to an open door that spills green light.' } },
+    { plate: 'tuer', format: 'cover',
+      alt: { de: 'Risografie im Morgenlicht: eine Außentreppe führt an einem aufgeständerten Haus zu einer offenen Tür, aus der grünes Licht fällt; Trittsteine queren die Wiese.',
+             en: 'Risograph at dawn: an outside stair climbs a raised house to an open door that spills green light; stepping stones cross the lawn.' } },
   ],
 });
 </script>

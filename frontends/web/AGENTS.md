@@ -25,8 +25,11 @@ is the one Node tree here that bun does not install.
 
 Every post's frontmatter carries `title`, `description`, `pubDate`, `draft`,
 `category` (required: `journal` or `bautagebuch`), optional `translationSlug`
-(the other locale's slug, for hreflang and the language switch) and optional
-`cover`. **Journal** is for offices (planning practice, building law, what
+(the other locale's slug, for hreflang and the language switch), and optional
+`plate` or `cover`, never both. `plate` names a riso plate from `COVER_PLATES`
+(`src/components/craft/plates.ts`; Keystatic's "Tafel" select): it is the
+post's cover on the page and on its Journal card (`RisoCover`, native sizes
+only) and its share card. `cover` is an uploaded image. **Journal** is for offices (planning practice, building law, what
 Piloti changes); **Bautagebuch** / *Build log* is notes from development (how
 Piloti is built, and why). The two are styled apart on purpose: Journal as
 editorial cards (`BlogCard`), the build log as a numbered site diary
@@ -40,12 +43,17 @@ own guide: `src/components/blog/figures/README.md`.
 ## Head and SEO
 
 Pages never write `<head>` tags. They pass props to `BaseLayout` (`title`,
-`description`, and where it applies `alternates`, `ogImage`, `article`,
-`jsonLd`, `noindex`), and `components/seo/SeoHead.astro` turns them into the
+`description`, and where it applies `alternates`, `ogArt`, `ogImage`,
+`article`, `jsonLd`, `noindex`), and `components/seo/SeoHead.astro` turns them into the
 title, canonical, hreflang, Open Graph, Twitter, RSS links, icons and the
 JSON-LD graph. The builders live in `src/lib/seo.ts`; the strings in `ui.ts`:
 `meta` (the landing page, and the one sentence that says what Piloti is),
 `seo.pages` (every other page's title and description) and `faq`.
+
+Every page type has its own riso share card, by art id in `SHARE_ART`
+(`src/lib/seo.ts`), passed as `ogArt`; a page that passes none shares the
+landing page's plate I. Give a new page type its own card rather than the
+default. `ogImage` is only for an image that is not riso art.
 
 A new page: add its title (about 60 characters) and description (about 155) to
 `seo.pages` in both locales and pass them to `BaseLayout`. It lands in the

@@ -88,6 +88,7 @@ export is one integer time of the page.
 | `cover` | 720×405, 1440×810 | 3.4 / 6.8 | `cover` | site |
 | `spot` | 96², 192² | 3.4 / 6.8 | `spot` | site |
 | `empty` | 320², 640² | 3.4 / 6.8 | `empty` | site |
+| `release` | 64², 128² | 2.4 / 4.8 | `stamp` | site |
 | `email` | 600×120, 1200×240 PNG | 3.4 / 6.8 | `strip` | out |
 | `social` | 1080² PNG | 5.0 | `sq` | out |
 | `linkedin` | 1584×396 PNG | 5.0 | `linkedin` | out |
@@ -183,15 +184,27 @@ frame. `TapedPrint` does all of this for a plate (`src/components/craft/`).
 | Art id | Plate | Used on |
 |---|---|---|
 | `tafeln/stuetzen/plate` | I Drei Stützen | Team section |
-| `tafeln/stuetzen/og` | I Drei Stützen | Default share image (`defaultOgImage`) |
+| `tafeln/stuetzen/og` | I Drei Stützen | Landing page share card, and the default (`defaultOgImage`) |
 | `tafeln/stuetzen/banner` | I Drei Stützen | Bautagebuch / blog header |
-| `tafeln/schichten/plate` | II Schichten | Section "Quellen und Daten"; cover of "Wie Piloti funktioniert" |
-| `tafeln/schleife/plate` | III Schleife | Cover of "Ein System, das aus Ihrem Frust lernt" |
+| `tafeln/schichten/plate` | II Schichten | Section "Quellen und Daten" |
+| `tafeln/schichten/og`, `…/cover` | II Schichten | "Wie Piloti funktioniert": share card and cover; the Bautagebuch share card |
+| `tafeln/schleife/plate` | III Schleife | Not on a page yet (its cover and share card are) |
+| `tafeln/schleife/og`, `…/cover` | III Schleife | "Ein System, das aus Ihrem Frust lernt": share card and cover |
 | `tafeln/bauplatz/plate` | IV Bauplatz | 404 page |
-| `tafeln/pruefstand/plate` | V Prüfstand | Blog (the sources section wears II: one plate per section) |
+| `tafeln/bauplatz/og` | IV Bauplatz | Changelog share card |
+| `tafeln/pruefstand/plate` | V Prüfstand | Not on a page: the sources section wears II (one plate per section) |
+| `tafeln/pruefstand/og` | V Prüfstand | Share card of the legal pages |
 | `tafeln/zeichentisch/plate` | VI Zeichentisch | Section "Nutzung" |
+| `tafeln/zeichentisch/og` | VI Zeichentisch | Share card of the blog and the Journal |
 | `tafeln/waage/plate` | VII Waage | Value calculator |
+| `tafeln/waage/og` | VII Waage | Rechenweg share card |
 | `tafeln/tuer/plate` | VIII Offene Tür | Contact / become a pilot office |
+| `tafeln/tuer/og`, `…/cover` | VIII Offene Tür | "Willkommen im Piloti-Blog": share card and cover |
+
+Share cards are mapped per page type in `SHARE_ART` (`src/lib/seo.ts`) and per
+post by its `plate` frontmatter field (`COVER_PLATES` in
+`src/components/craft/plates.ts`). No two page types share one: every preview
+showing plate I's house was the founders' complaint.
 
 The "Used on" column is the intended slot. `grep -rn "tafeln/" src` shows where
 each one is placed today. About 5.2 MB for 19 files, but a page loads only the

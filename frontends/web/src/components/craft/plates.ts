@@ -28,8 +28,36 @@ export const PLATES = {
 
 export type PlateName = (typeof PLATES)[keyof typeof PLATES]
 
-/** Blog posts (by slug, both locales) that wear a plate as their cover. */
-export const POST_PLATES: Record<string, PlateName | undefined> = {
-  'wie-piloti-funktioniert': PLATES.II,
-  'how-piloti-works': PLATES.II,
-}
+type CoverArtId = Extract<ArtId, `${string}/cover`>
+type OgArtId = Extract<ArtId, `${string}/og`>
+
+/**
+ * The plates a blog post can wear, by the value of its `plate` frontmatter
+ * field: the cover on the post, its card and its log entry, and the share
+ * card in the same drawing. Only plates exported in both formats are listed,
+ * so a post cannot pick one that would leave its share card on the default.
+ *
+ * The content schema (`content.config.ts`), the Keystatic select and
+ * `scripts/lint-content.mjs` all read `COVER_PLATE_IDS`; `satisfies` makes
+ * `astro check` refuse an id the manifest does not have.
+ */
+export const COVER_PLATES = {
+  schichten: {
+    label: 'II · Schichten',
+    cover: 'tafeln/schichten/cover',
+    og: 'tafeln/schichten/og',
+  },
+  schleife: {
+    label: 'III · Schleife',
+    cover: 'tafeln/schleife/cover',
+    og: 'tafeln/schleife/og',
+  },
+  tuer: {
+    label: 'VIII · Offene Tür',
+    cover: 'tafeln/tuer/cover',
+    og: 'tafeln/tuer/og',
+  },
+} as const satisfies Record<string, { label: string; cover: CoverArtId; og: OgArtId }>
+
+export type CoverPlate = keyof typeof COVER_PLATES
+export const COVER_PLATE_IDS = Object.keys(COVER_PLATES) as [CoverPlate, ...CoverPlate[]]

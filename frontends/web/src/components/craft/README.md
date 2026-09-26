@@ -6,7 +6,7 @@ plain `<img>`: no dependencies, no fonts.
 
 | Piece | What it is | Used on |
 |---|---|---|
-| `TapedPrint.astro` | A print on a white paper margin, one strip of tape, optional mono caption. Takes a riso print by art id (with `locale`, its declared alt text), or any slot (a photo, a blog cover). A plate hangs straight; only a slot leans (clamped to ±2°). `phone="third"` shows a plate at a third below `sm`. | Every landing section's plate (below), founder photos, the 404, blog posts (cover, or the plate `POST_PLATES` assigns) |
+| `TapedPrint.astro` | A print on a white paper margin, one strip of tape, optional mono caption. Takes a riso print by art id (with `locale`, its declared alt text), or any slot (a photo, a blog cover). A plate hangs straight; only a slot leans (clamped to ±2°). `phone="third"` shows a plate at a third below `sm`. | Every landing section's plate (below), founder photos, the 404, blog covers (`COVER_PLATES`) |
 | `plates.ts` | The Tafeln plates by number → their art id, and which blog posts wear one. File names live only in `src/data/art.json`. | wherever a plate is shown |
 | `Tape.astro` | The strip of masking tape: translucent crepe with a torn zigzag at both ends. | inside TapedPrint only |
 | `craft-in.ts` | Marks a `[data-craft-in]` element `craft-in` when it scrolls into view; a mark drawn on the sheet animates off that class. | The Prüfblatt's ticks (Quellen) |
