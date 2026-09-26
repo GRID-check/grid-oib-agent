@@ -1,6 +1,6 @@
 ---
 features:
   - >
-    Die Antwortdetails zeigen jetzt, wie lange Piloti für die Antwort gebraucht
-    hat, gemessen vom Absenden der Frage bis zur fertigen Antwort. Die Angabe
-    bleibt nach dem Neuladen des Gesprächs erhalten.
+    The answer details now show how long Piloti took, from sending the
+    question to the finished answer. The figure stays after the conversation
+    is reloaded.
