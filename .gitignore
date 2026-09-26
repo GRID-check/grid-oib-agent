@@ -30,6 +30,7 @@ lib64/
 !frontends/*/src/**/lib/
 !frontends/ui/src/**/lib/
 !frontends/ui/tests/lib/
+!frontends/web/art/riso/lib/
 parts/
 sdist/
 var/

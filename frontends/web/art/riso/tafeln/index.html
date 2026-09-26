@@ -11,558 +11,31 @@
 </style>
 <canvas id="c"></canvas>
 <div id="cap"></div>
+<!-- The shared print kit: relative classic scripts, which file:// allows and
+     the kit's tools do not block (they abort only non-file requests). -->
+<script src="../lib/formats.js"></script>
+<script src="../lib/engine.js"></script>
+<script src="../lib/piloti.js"></script>
 <script>
 'use strict';
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Piloti — Tafeln. Four riso plates for the Piloti website.
+   Piloti — Tafeln. Eight riso plates for the Piloti website.
 
-   One self-contained Canvas 2D source: no libraries, fonts, images or network.
-   Every integer time is one export JOB (a plate at one exact pixel size), so
-   tools/still.mjs from the riso-windowseat kit exports each file unchanged:
+   Canvas 2D only: no libraries, fonts, images or network. The print engine
+   (screens, paper, starvation, bake, the __riso contract) is ../lib/engine.js,
+   the series look (inks, paper, camera, sun, projection, props) is
+   ../lib/piloti.js, the export slots are ../lib/formats.js. This file holds the
+   drawings and the JOBS table at the end. See PRINT.md beside this file.
+
+   Every integer time is one export job (a plate in one format at one density),
+   so tools/still.mjs from the riso-windowseat kit exports each file unchanged:
      node still.mjs <this file> --at <job> --out <png>
-   JOBS below lists which time is which file. See PRINT.md beside this file.
+   The usual path is node art/riso/export.mjs --work tafeln.
 
-   The print engine (screens, paper, starvation, bake) and the craft helpers are
-   adapted from riso-windowseat (MIT, (c) 2026 sevenevesai), prints/workings and
-   prints/cabinet; LICENSE-NOTICE.md in art/riso/ carries the licence. Changes:
-   non-square formats, per-job pitch, a solid line layer per ink, integer
-   registration offsets, starvation placed in drawing units.
-
-   Debug views by query string:
-     ?t=<job>          which job to show
-     ?only=<ink>       bake a single plate
-     ?debug=lines      construction lines only (world axes, sun rays)
+   Debug views by query string: ?t=<job>, ?only=<ink>, ?sep=<ink>,
+   ?debug=lines (plate I: construction lines only).
    ───────────────────────────────────────────────────────────────────────── */
-
-const QS = new URLSearchParams(location.search);
-const ONLY = QS.get('only');
-const DEBUG = QS.get('debug') || '';
-
-/* Every format is drawn in a 1080-unit wide space. H is the format's height in
-   units. OUT/OUTH/K/PITCH are set per job before a bake. */
-const W = 1080;
-let H = 1080, CX = 540, CY = 540;
-let OUT = 1080, OUTH = 1080, K = 1, PITCH = 4.6;
-
-const PAPER = '#F4F2E8';
-
-/* Real Riso drum colours (hex from the riso-colors list, M. DesLauriers, MIT).
-   mist ≈ the site's sage tint, kelly ≈ its lime accent, moss + hunter overprint
-   ≈ its dark olive panel and ink. red is spent once per plate at most. */
-const INK = {
-  mist:   '#D5E4C0',
-  kelly:  '#67B346',
-  moss:   '#68724D',
-  hunter: '#407060',
-  red:    '#F15060',
-};
-/* Screen angles as rational tangents; each ink keeps its own lattice. */
-const SCREEN = {
-  mist:   { a: 1, b: 0 },   //  0.0°
-  kelly:  { a: 1, b: 1 },   // 45.0°
-  moss:   { a: 1, b: 4 },   // 76.0°
-  hunter: { a: 4, b: 1 },   // 14.0°
-  red:    { a: 2, b: 1 },   // 26.6°
-};
-/* Registration misses, in 1080-space device px; scaled by K and rounded, so a
-   screened bitmap is never drawn at a sub-pixel offset (that would resample it). */
-const REG = {
-  mist:   [ 1.5, -1.0], kelly:  [-1.5,  1.5], moss:   [ 1.0,  1.5],
-  hunter: [ 0.0,  0.0], red:    [-2.0,  1.0],
-};
-
-/* ── deterministic randomness ─────────────────────────────────────────────── */
-
-function mulberry32(a) {
-  return function () {
-    a = a + 0x6D2B79F5 | 0;
-    let t = Math.imul(a ^ a >>> 15, 1 | a);
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
-    return ((t ^ t >>> 14) >>> 0) / 4294967296;
-  };
-}
-function hash(s) {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return h >>> 0;
-}
-const rngFor = (key) => mulberry32(hash(key));
-const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
-const lerp = (a, b, u) => a + (b - a) * u;
-const smooth = (a, b, x) => { const u = clamp((x - a) / (b - a), 0, 1); return u * u * (3 - 2 * u); };
-const TAU = Math.PI * 2;
-
-function cv(w, h) {
-  const c = document.createElement('canvas');
-  c.width = w; c.height = h;
-  return c;
-}
-
-/* ── halftone screens (kit, with Cabinet's pixel-centred dots) ───────────── */
-
-const screens = {};
-function buildScreen(name) {
-  const { a, b } = SCREEN[name];
-  const n = a * a + b * b;
-  const S = Math.max(2, Math.round(PITCH * Math.sqrt(n)));
-  const P = S / Math.sqrt(n);
-  const u = P / Math.sqrt(n);
-  const v1 = [u * a, u * b], v2 = [-u * b, u * a];
-  const pts = [];
-  for (let m = -n; m <= n; m++) {
-    for (let k = -n; k <= n; k++) {
-      const x = m * v1[0] + k * v2[0], y = m * v1[1] + k * v2[1];
-      // +0.5 puts dot centres on pixel centres, so the smallest dots grow 1 → 5 → 9 px
-      const wx = ((x % S) + S + 0.5) % S, wy = ((y % S) + S + 0.5) % S;
-      if (!pts.some(p => Math.abs(p[0] - wx) < 0.01 && Math.abs(p[1] - wy) < 0.01)) pts.push([wx, wy]);
-    }
-  }
-  const wrapped = [];
-  for (const [x, y] of pts) for (const dx of [-S, 0, S]) for (const dy of [-S, 0, S]) wrapped.push([x + dx, y + dy]);
-  const th = new Float32Array(S * S);
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      let d2 = Infinity;
-      for (const [px, py] of wrapped) {
-        const dx = x + 0.5 - px, dy = y + 0.5 - py, q = dx * dx + dy * dy;
-        if (q < d2) d2 = q;
-      }
-      th[y * S + x] = clamp(Math.PI * d2 / (P * P), 0, 1);
-    }
-  }
-  return { S, th };
-}
-const screenOf = (name) => {
-  const key = name + '@' + PITCH;
-  return screens[key] || (screens[key] = buildScreen(name));
-};
-
-const DITHER = (() => { const r = mulberry32(0x5eed), a = new Float32Array(65536); for (let i = 0; i < a.length; i++) a[i] = r(); return a; })();
-
-/** Screen a tone layer to hard dots and union a solid line layer onto it. */
-function screenPlate(tone, line, name) {
-  const sc = screenOf(name);
-  const w = tone.width, h = tone.height;
-  const src = tone.getContext('2d').getImageData(0, 0, w, h), s = src.data;
-  const ln = line.getContext('2d').getImageData(0, 0, w, h).data;
-  for (let y = 0; y < h; y++) {
-    const row = (y % sc.S) * sc.S;
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      const cover = s[i + 3] / 255;
-      const c = cover + (DITHER[(y & 255) * 256 + (x & 255)] - 0.5) * 0.09 * Math.min(1, cover * 10) * (1 - cover);
-      const dot = c >= 1 || c > sc.th[row + (x % sc.S)] ? 255 : 0;
-      // Line work is not screened: a stroke thinner than the pitch would break into
-      // dots. Its antialiased edge is kept, as a scan of a solid printed line shows.
-      s[i + 3] = Math.max(dot, ln[i + 3]);
-    }
-  }
-  const out = cv(w, h);
-  out.getContext('2d').putImageData(src, 0, 0);
-  return out;
-}
-
-/* ── paper (kit), drawn in units so every size of a plate is one sheet ───── */
-
-function bakePaper() {
-  const c = cv(OUT, OUTH), x = c.getContext('2d');
-  x.setTransform(K, 0, 0, K, 0, 0);
-  x.fillStyle = PAPER; x.fillRect(0, 0, W, H);
-  const r = rngFor('paper');
-  for (const [res, maxA] of [[30, 0.09], [72, 0.065], [165, 0.045]]) {
-    const rh = Math.max(2, Math.round(res * H / W));
-    const n = cv(res, rh), nx = n.getContext('2d');
-    const img = nx.createImageData(res, rh);
-    for (let i = 0; i < res * rh; i++) {
-      img.data[i * 4] = 0xB4; img.data[i * 4 + 1] = 0xA6; img.data[i * 4 + 2] = 0x8C;
-      img.data[i * 4 + 3] = Math.pow(r(), 1.8) * 255 * maxA;
-    }
-    nx.putImageData(img, 0, 0);
-    x.save();
-    x.imageSmoothingEnabled = true;
-    x.imageSmoothingQuality = 'high';
-    x.drawImage(n, 0, 0, W, H);
-    x.restore();
-  }
-  x.save();
-  x.strokeStyle = '#8a7f6a';
-  for (let i = 0; i < Math.round(420 * H / W); i++) {
-    const px = r() * W, py = r() * H, len = 5 + r() * 22, ang = r() * Math.PI;
-    x.globalAlpha = 0.008 + r() * 0.016;
-    x.lineWidth = 0.5 + r() * 0.7;
-    x.beginPath();
-    x.moveTo(px, py);
-    x.quadraticCurveTo(px + Math.cos(ang) * len * 0.5 + (r() - 0.5) * 5,
-                       py + Math.sin(ang) * len * 0.5 + (r() - 0.5) * 5,
-                       px + Math.cos(ang) * len, py + Math.sin(ang) * len);
-    x.stroke();
-  }
-  x.restore();
-  x.save();
-  for (let i = 0; i < Math.round(2200 * H / W); i++) {
-    x.globalAlpha = 0.012 + r() * 0.03;
-    x.fillStyle = r() < 0.55 ? '#7d7362' : '#ffffff';
-    x.beginPath();
-    x.arc(r() * W, r() * H, 0.4 + r() * 1.0, 0, TAU);
-    x.fill();
-  }
-  x.restore();
-  return c;
-}
-
-/** Ink starvation: flecks dropped out of the tone layer, placed in units. */
-function starve(g, rng) {
-  g.save();
-  g.globalCompositeOperation = 'destination-out';
-  const n = Math.round(1188 * H / W);
-  for (let i = 0; i < n; i++) {
-    g.globalAlpha = 0.2 + rng() * 0.55;
-    g.beginPath();
-    g.arc(rng() * W, rng() * H, 0.5 + rng() * 2.0, 0, TAU);
-    g.fill();
-  }
-  g.restore();
-}
-
-/* ── craft kit (subset, from the kit's craft block) ──────────────────────── */
-
-function makeWob(rng, harmonics = 3) {
-  const h = [];
-  for (let i = 0; i < harmonics; i++) h.push([2 + i, rng() * 2 - 1, rng() * TAU]);
-  return (th) => h.reduce((s, [k, a, p]) => s + a * Math.sin(k * th + p), 0) / harmonics;
-}
-const tone = (g, a) => { g.globalAlpha = clamp(a, 0, 1); };
-
-function curve(pts, closed, per) {
-  per = per || 12;
-  const n = pts.length, out = [];
-  const at = (i) => pts[closed ? (i + n * 2) % n : clamp(i, 0, n - 1)];
-  const last = closed ? n : n - 1;
-  for (let i = 0; i < last; i++) {
-    const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2);
-    for (let k = 0; k < per; k++) {
-      const u = k / per, u2 = u * u, u3 = u2 * u;
-      out.push([
-        0.5 * (2 * p1[0] + (p2[0] - p0[0]) * u + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * u2
-               + (3 * p1[0] - p0[0] - 3 * p2[0] + p3[0]) * u3),
-        0.5 * (2 * p1[1] + (p2[1] - p0[1]) * u + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * u2
-               + (3 * p1[1] - p0[1] - 3 * p2[1] + p3[1]) * u3),
-      ]);
-    }
-  }
-  if (!closed) out.push(pts[n - 1].slice());
-  return out;
-}
-function nib(pts, wfn, o) {
-  o = o || {};
-  const c = o.raw ? pts : curve(pts, false, o.per || 10);
-  const n = c.length, L = [], R = [];
-  for (let i = 0; i < n; i++) {
-    const a = c[Math.max(0, i - 1)], b = c[Math.min(n - 1, i + 1)];
-    let tx = b[0] - a[0], ty = b[1] - a[1];
-    const m = Math.hypot(tx, ty) || 1; tx /= m; ty /= m;
-    const w = Math.max(0.01, wfn(i / (n - 1)));
-    L.push([c[i][0] - ty * w, c[i][1] + tx * w]);
-    R.push([c[i][0] + ty * w, c[i][1] - tx * w]);
-  }
-  const p = new Path2D();
-  p.moveTo(L[0][0], L[0][1]);
-  for (let i = 1; i < n; i++) p.lineTo(L[i][0], L[i][1]);
-  for (let i = n - 1; i >= 0; i--) p.lineTo(R[i][0], R[i][1]);
-  p.closePath();
-  return p;
-}
-function print(g, path, a) { tone(g, a === undefined ? 1 : a); g.fill(path); }
-function carve(g, path) {
-  g.save();
-  g.globalAlpha = 1;
-  g.globalCompositeOperation = 'destination-out';
-  g.fill(path);
-  g.restore();
-}
-function shade(g, path, o) {
-  g.save();
-  if (path) g.clip(path);
-  const grd = o.r !== undefined
-    ? g.createRadialGradient(o.x, o.y, o.r0 || 0, o.x, o.y, o.r)
-    : g.createLinearGradient(o.x0, o.y0, o.x1, o.y1);
-  for (const [at, a] of o.stops) grd.addColorStop(clamp(at, 0, 1), 'rgba(0,0,0,' + clamp(a, 0, 1) + ')');
-  if (o.cut) g.globalCompositeOperation = 'destination-out';
-  g.globalAlpha = 1;
-  g.fillStyle = grd;
-  g.fillRect(-W, -W, W * 3, W * 3);
-  g.restore();
-}
-function hatch(g, path, rng, o) {
-  o = o || {};
-  const gap = o.gap || 10, span = W * 1.6;
-  const w = o.w || 2.2, a = o.a === undefined ? 1 : o.a;
-  g.save();
-  if (path) g.clip(path);
-  if (o.cut) g.globalCompositeOperation = 'destination-out';
-  g.translate(CX, CY); g.rotate(o.ang === undefined ? -0.5 : o.ang); g.translate(-CX, -CY);
-  g.lineCap = 'round';
-  const n = Math.ceil(span * 2 / gap);
-  for (let i = 0; i < n; i++) {
-    const u = i / (n - 1), f = o.fade ? clamp(o.fade(u), 0, 1) : 1;
-    if (f <= 0.02) continue;
-    g.globalAlpha = a * f;
-    g.lineWidth = w * (0.72 + rng() * 0.5) * clamp(f, 0.3, 1);
-    const y = CY - span + i * gap + (rng() - 0.5) * gap * 0.3;
-    g.beginPath();
-    for (let k = 0; k <= 7; k++) {
-      const x = CX - span + span * 2 * k / 7, yy = y + (rng() - 0.5) * 2.4;
-      k ? g.lineTo(x, yy) : g.moveTo(x, yy);
-    }
-    g.stroke();
-  }
-  g.restore();
-}
-function spray(g, path, rng, o) {
-  o = o || {};
-  const n = o.n || 900, r0 = o.r0 || 0.8, r1 = o.r1 || 3.0;
-  const b = o.box || [0, 0, W, H], a = o.a === undefined ? 1 : o.a;
-  g.save();
-  if (o.cut) g.globalCompositeOperation = 'destination-out';
-  for (let i = 0; i < n; i++) {
-    const x = b[0] + rng() * b[2], y = b[1] + rng() * b[3];
-    const d = o.density ? o.density(x, y) : 1;
-    const keep = rng() < d, rr = r0 + rng() * (r1 - r0), av = 0.45 + rng() * 0.55;
-    if (!keep || (path && !g.isPointInPath(path, x, y))) continue;
-    g.globalAlpha = a * av;
-    g.beginPath();
-    g.arc(x, y, rr, 0, TAU);
-    g.fill();
-  }
-  g.restore();
-}
-
-/* ── plate context: a tone layer (screened) and a line layer (solid) per ink ──
-   c.g is tone, c.L is line. A spec maps ink → tone, e.g. { moss: .4, hunter: .2 }.
-   Painter's order holds on both layers: own() clears tone and line beneath a
-   shape, so an occluder hides the lines behind it as well as the fields.     */
-
-function own(c, path, spec) {
-  carve(c.g, path); carve(c.L, path);
-  const a = spec && spec[c.ink];
-  if (a) print(c.g, path, a);
-}
-function tint(c, path, spec) { const a = spec[c.ink]; if (a) print(c.g, path, a); }
-function clearAll(c, path) { carve(c.g, path); carve(c.L, path); }
-function line(c, path, w, spec) {
-  const a = spec[c.ink];
-  if (!a) return;
-  c.L.save();
-  c.L.globalAlpha = clamp(a, 0, 1);
-  c.L.lineWidth = w;
-  c.L.stroke(path);
-  c.L.restore();
-}
-function lineFill(c, path, spec) {
-  const a = spec[c.ink];
-  if (!a) return;
-  c.L.save(); c.L.globalAlpha = clamp(a, 0, 1); c.L.fill(path); c.L.restore();
-}
-/** Dashed line, dashes in units. */
-function dashed(c, path, w, spec, dash) {
-  const a = spec[c.ink];
-  if (!a) return;
-  c.L.save();
-  c.L.setLineDash(dash || [7, 5]);
-  c.L.lineCap = 'butt';
-  c.L.globalAlpha = a; c.L.lineWidth = w; c.L.stroke(path);
-  c.L.restore();
-}
-
-const KEY = { hunter: 1 };                 // key line
-const KEY_DARK = { hunter: 1, moss: 0.85 };// overprinted line: darkest edge
-
-/* ── geometry: parallel projection, shadows, hulls ─────────────────────────── */
-
-const v3 = {
-  add: (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]],
-  sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
-  mul: (a, s) => [a[0] * s, a[1] * s, a[2] * s],
-  dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
-  norm: (a) => { const m = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / m, a[1] / m, a[2] / m]; },
-};
-
-/**
- * Axonometric camera. World metres: x east, y north, z up. ax/ay are the screen
- * angles of the x and y axes above horizontal (x to the right, y to the left),
- * fx/fy/fz their scale factors; s is units per metre, (ox, oy) the world origin
- * on the sheet. Parallel projection: every line in the world keeps its direction.
- */
-function axo(o) {
-  const ex = [Math.cos(o.ax) * o.fx, -Math.sin(o.ax) * o.fx];
-  const ey = [-Math.cos(o.ay) * o.fy, -Math.sin(o.ay) * o.fy];
-  const ez = [0, -o.fz];
-  const P = (p) => [o.ox + o.s * (p[0] * ex[0] + p[1] * ey[0] + p[2] * ez[0]),
-                    o.oy + o.s * (p[0] * ex[1] + p[1] * ey[1] + p[2] * ez[1])];
-  P.ex = ex; P.ey = ey; P.ez = ez; P.s = o.s;
-  // the world direction that projects to a point: the view ray, oriented into the sheet
-  const r1 = [ex[0], ey[0], ez[0]], r2 = [ex[1], ey[1], ez[1]];
-  let n = [r1[1] * r2[2] - r1[2] * r2[1], r1[2] * r2[0] - r1[0] * r2[2], r1[0] * r2[1] - r1[1] * r2[0]];
-  if (n[2] > 0) n = n.map((v) => -v);
-  P.view = v3.norm(n);
-  return P;
-}
-/**
- * Compose a view for a format: scale and place so the given world points fill
- * `fill` of the sheet's width or height (whichever binds first), centred at
- * (cx, cy) as fractions of the sheet. Linear projection, so one probe at s = 1.
- */
-function fit(o, pts, f) {
-  const probe = axo(Object.assign({}, o, { s: 1, ox: 0, oy: 0 }));
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (const p of pts) { const q = probe(p); x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]); }
-  const s = Math.min(W * f.fill / (x1 - x0), H * (f.fillH || f.fill) / (y1 - y0));
-  return axo(Object.assign({}, o, { s, ox: W * f.cx - s * (x0 + x1) / 2, oy: H * f.cy - s * (y0 + y1) / 2 }));
-}
-/** Where a point's shadow lands on the plane z = z0, sun travelling along L. */
-const onGround = (p, L, z0) => { const t = (p[2] - (z0 || 0)) / -L[2]; return [p[0] + L[0] * t, p[1] + L[1] * t, z0 || 0]; };
-
-function hull(pts) {
-  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
-  const lo = [], up = [];
-  for (const q of p) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
-  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
-  return lo.slice(0, -1).concat(up.slice(0, -1));
-}
-function pathOf(pts, closed = true) {
-  const p = new Path2D();
-  pts.forEach(([x, y], i) => i ? p.lineTo(x, y) : p.moveTo(x, y));
-  if (closed) p.closePath();
-  return p;
-}
-/** World polygon → sheet path. */
-const poly = (P, pts, closed = true) => pathOf(pts.map(P), closed);
-/** Axis-aligned box faces seen from the -x, -y, +z side. */
-function boxFaces(P, x0, y0, z0, x1, y1, z1) {
-  return {
-    top:   poly(P, [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]]),
-    west:  poly(P, [[x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]]),
-    south: poly(P, [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]]),
-    sil:   pathOf(hull([[x0, y0, z0], [x1, y0, z0], [x0, y1, z0], [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]].map(P))),
-  };
-}
-/** Silhouette of a vertical cylinder, and its left/right extreme x on the sheet. */
-function cylinder(P, x, y, r, z0, z1) {
-  const pts = [];
-  for (let i = 0; i < 48; i++) { const a = i / 48 * TAU; pts.push([x + Math.cos(a) * r, y + Math.sin(a) * r]); }
-  const sheet = [];
-  for (const [px, py] of pts) { sheet.push(P([px, py, z0]), P([px, py, z1])); }
-  const hl = hull(sheet);
-  let xl = Infinity, xr = -Infinity;
-  for (const q of hl) { xl = Math.min(xl, q[0]); xr = Math.max(xr, q[0]); }
-  const top = pathOf(pts.map(([px, py]) => P([px, py, z1])));
-  const base = pts.map(([px, py]) => P([px, py, z0]));
-  const front = base.filter((q) => q[1] >= P([x, y, z0])[1] - 0.01).sort((a, b) => a[0] - b[0]);
-  return { sil: pathOf(hl), top, xl, xr, front, foot: P([x, y, z0]), head: P([x, y, z1]) };
-}
-/** Shadow of a vertical cylinder on the ground: a strip from its base. */
-function cylShadow(P, x, y, r, h, L) {
-  const pts = [];
-  for (let i = 0; i < 24; i++) {
-    const a = i / 24 * TAU, bx = x + Math.cos(a) * r, by = y + Math.sin(a) * r;
-    pts.push([bx, by, 0], onGround([bx, by, h], L));
-  }
-  return pathOf(hull(pts.map(P)));
-}
-const boxCorners = (x0, y0, z0, x1, y1, z1) => [[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0],
-                                                [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]];
-function boxShadow(P, corners, L, z0) { return pathOf(hull(corners.map((p) => P(onGround(p, L, z0))))); }
-
-/* ── plate numbers: engraved roman capitals (Cabinet's numeral) ──────────── */
-
-function numeral(n, cx, base, h) {
-  const glyphs = [], romans = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'][n - 1];
-  const thick = h * 0.13, thin = h * 0.045, sw = h * 0.2;
-  const adv = { I: h * 0.36, V: h * 0.78 }, total = [...romans].reduce((s, c) => s + adv[c], 0) + (romans.length - 1) * h * 0.1;
-  let x = cx - total / 2;
-  const stem = (x0, y0, x1, y1, w) => nib([[x0, y0], [x1, y1]], u => w * (1 + 0.25 * Math.pow(Math.abs(u - 0.5) * 2, 6)), { raw: true });
-  const serif = (x0, y, len) => nib([[x0 - len, y], [x0 + len, y]], u => thin * (0.6 + 0.8 * Math.pow(Math.abs(u - 0.5) * 2, 3)), { raw: true });
-  for (const c of romans) {
-    if (c === 'I') {
-      const m = x + adv.I / 2;
-      glyphs.push(stem(m, base - h, m, base, thick / 2), serif(m, base - h + thin / 2, sw), serif(m, base - thin / 2, sw));
-    } else {
-      const l = x + h * 0.08, r = x + adv.V - h * 0.08, m = (l + r) / 2;
-      glyphs.push(stem(l, base - h, m, base, thick / 2), stem(r, base - h, m, base, thin / 2),
-                  serif(l, base - h + thin / 2, sw * 0.9), serif(r, base - h + thin / 2, sw * 0.7));
-    }
-    x += adv[c] + h * 0.1;
-  }
-  return glyphs;
-}
-
-/* ── small shared props ────────────────────────────────────────────────────── */
-
-/** Depth of a world point along the view direction: larger is further away. */
-const depth = (P, p) => v3.dot(p, P.view);
-/** A planar face is seen from its front when its normal points against the view. */
-const facing = (P, n) => v3.dot(n, P.view) < 0;
-/** Lambert term for a face normal under a sun travelling along L. */
-const lit = (n, L) => clamp(-v3.dot(v3.norm(n), L), 0, 1);
-
-/**
- * A 1:100 scale figure: weight on both feet, head tipped back to look up, a
- * rolled drawing under the near arm. Drawn on the sheet around its foot point,
- * so it stays upright in any parallel view; hpx is its height in units.
- */
-function figure(foot, hpx, o) {
-  o = o || {};
-  const h = hpx, [fx, fy] = foot, back = o.back === undefined ? 0.03 : o.back;
-  const hip = [fx - 0.004 * h, fy - 0.5 * h], sh = [fx - back * h, fy - 0.8 * h];
-  const parts = [];
-  parts.push(nib([[hip[0] - 0.035 * h, hip[1]], [fx - 0.05 * h, fy - 0.24 * h], [fx - 0.062 * h, fy]], (u) => 0.03 * h * (1 - 0.35 * u), { per: 6 }));
-  parts.push(nib([[hip[0] + 0.035 * h, hip[1]], [fx + 0.045 * h, fy - 0.25 * h], [fx + 0.06 * h, fy]], (u) => 0.03 * h * (1 - 0.35 * u), { per: 6 }));
-  parts.push(pathOf(curve([[hip[0] - 0.075 * h, hip[1] + 0.02 * h], [sh[0] - 0.105 * h, sh[1] + 0.02 * h], [sh[0] - 0.06 * h, sh[1] - 0.025 * h],
-    [sh[0] + 0.06 * h, sh[1] - 0.025 * h], [sh[0] + 0.105 * h, sh[1] + 0.02 * h], [hip[0] + 0.075 * h, hip[1] + 0.02 * h]], true, 5)));
-  parts.push(nib([[sh[0] - 0.012 * h, sh[1]], [sh[0] - 0.02 * h, sh[1] - 0.05 * h]], () => 0.022 * h, { raw: true }));   // neck
-  // far arm hangs; near arm bent to hold the roll against the body
-  parts.push(nib([[sh[0] - 0.095 * h, sh[1] + 0.01 * h], [sh[0] - 0.11 * h, fy - 0.62 * h], [sh[0] - 0.1 * h, fy - 0.43 * h]], (u) => 0.024 * h * (1 - 0.3 * u), { per: 6 }));
-  parts.push(nib([[sh[0] + 0.095 * h, sh[1] + 0.01 * h], [sh[0] + 0.12 * h, fy - 0.64 * h], [sh[0] + 0.04 * h, fy - 0.6 * h]], (u) => 0.024 * h * (1 - 0.2 * u), { per: 6 }));
-  const hc = [sh[0] - 0.035 * h, sh[1] - 0.11 * h], hr = 0.07 * h;
-  const head = new Path2D(); head.ellipse(hc[0], hc[1], hr * 0.9, hr, -0.5, 0, TAU);
-  parts.push(head);
-  const body = new Path2D(); for (const p of parts) body.addPath(p);
-  // the roll: a thin paper tube across the near elbow
-  const r0 = [sh[0] - 0.02 * h, fy - 0.555 * h], r1 = [sh[0] + 0.3 * h, fy - 0.7 * h];
-  const roll = nib([r0, r1], () => 0.022 * h, { raw: true });
-  const rollEnd = new Path2D(); rollEnd.ellipse(r1[0], r1[1], 0.012 * h, 0.022 * h, -0.4, 0, TAU);
-  return { body, roll, rollEnd, top: [hc[0], hc[1] - hr] };
-}
-
-/* One camera and one sun for the whole series: x nearly level, y receding up-left
-   at half scale, z true; a low sun from the front-left. */
-const VIEW_SERIES = { ax: 0.05, ay: 0.64, fx: 1, fy: 0.52, fz: 1 };
-const SUN_SERIES = v3.norm([0.74, 0.52, -0.62]);
-
-/** A surveyor's stake: a thin square post, lit on its west face. Returns its top on the sheet. */
-function stake(c, P, x, y, h, o) {
-  o = o || {};
-  const r = o.r || 0.045;
-  const f = boxFaces(P, x - r, y - r, 0, x + r, y + r, h);
-  own(c, f.west, {});
-  own(c, f.south, { moss: 0.55 });
-  line(c, f.sil, o.w || 1.0, KEY);
-  return P([x, y, h]);
-}
-/** Setting-out: stakes at the corners of a plan rectangle, strings between them, the line dashed on the ground. */
-function settingOut(c, P, x0, y0, x1, y1, o) {
-  o = o || {};
-  const hs = o.h || 0.9, hz = o.string || 0.55;
-  const corners = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
-  dashed(c, poly(P, corners.map(([x, y]) => [x, y, 0])), 1.2, { hunter: 0.8 }, [5, 5]);
-  const back = corners.slice().sort((a, b) => depth(P, [b[0], b[1], 0]) - depth(P, [a[0], a[1], 0]));
-  const str = poly(P, corners.map(([x, y]) => [x, y, hz]));
-  for (const [x, y] of back.slice(0, 2)) stake(c, P, x, y, hs, o);
-  line(c, str, 0.8, { hunter: 0.9 });
-  for (const [x, y] of back.slice(2)) stake(c, P, x, y, hs, o);
-}
 
 /* ═════════════════════════════════════════════════════════════════════════════
    PLATE I — Drei Stützen
@@ -1850,102 +1323,64 @@ const VIII = (() => {
   return { inks: ['mist', 'kelly', 'moss', 'hunter'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
 })();
 
-/* ═════════════════════════════════════════════════════════════════════════ */
+/* ═════════════════════════════════════════════════════════════════════════
+   JOBS. Plate names seed the random streams (name:compose:ink): freeze them.
+   base is the file stem in public/art/; formats come from ../lib/formats.js.
+   alt and caption go to src/data/art.json, the site's only way to the files.
+   ═════════════════════════════════════════════════════════════════════════ */
 
-const PLATES = [I, II, III, IV, V, VI, VII, VIII];
-const PLATE_NAMES = ['stuetzen', 'schichten', 'schleife', 'bauplatz', 'pruefstand', 'zeichentisch', 'waage', 'tuer'];
-
-/* Export jobs: integer time → one file at its exact display size. */
-/* pitch is in device px: 3.4 for a 1x file, 6.8 for its 2x twin, so both show the
-   same screen at the same CSS size. The OG card is scaled by every platform that
-   shows it, so it takes a coarser 5.0 that survives some reduction. */
-const JOBS = [
-  { plate: 0, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-i-stuetzen-720.webp' },
-  { plate: 0, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-i-stuetzen-1440.webp' },
-  { plate: 0, fmt: 'og',   w: 1200, h: 630,  pitch: 5.0, file: 'piloti-i-stuetzen-og-1200x630.png' },
-  { plate: 0, fmt: 'wide', w: 800,  h: 300,  pitch: 3.4, file: 'piloti-i-stuetzen-banner-800x300.webp' },
-  { plate: 0, fmt: 'wide', w: 1600, h: 600,  pitch: 6.8, file: 'piloti-i-stuetzen-banner-1600x600.webp' },
-  { plate: 1, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-ii-schichten-720.webp' },
-  { plate: 1, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-ii-schichten-1440.webp' },
-  { plate: 2, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-iii-schleife-720.webp' },
-  { plate: 2, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-iii-schleife-1440.webp' },
-  { plate: 3, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-iv-bauplatz-720.webp' },
-  { plate: 3, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-iv-bauplatz-1440.webp' },
-  { plate: 4, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-v-pruefstand-720.webp' },
-  { plate: 4, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-v-pruefstand-1440.webp' },
-  { plate: 5, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-vi-zeichentisch-720.webp' },
-  { plate: 5, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-vi-zeichentisch-1440.webp' },
-  { plate: 6, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-vii-waage-720.webp' },
-  { plate: 6, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-vii-waage-1440.webp' },
-  { plate: 7, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-viii-tuer-720.webp' },
-  { plate: 7, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-viii-tuer-1440.webp' },
-];
-
-function setJob(j) {
-  OUT = j.w; OUTH = j.h; K = OUT / W; H = W * OUTH / OUT; CX = W / 2; CY = H / 2; PITCH = j.pitch;
-}
-
-const baked = new Map();
-function bakeJob(ji) {
-  if (baked.has(ji)) return baked.get(ji);
-  const j = JOBS[ji];
-  setJob(j);
-  const pl = PLATES[j.plate];
-  const out = cv(OUT, OUTH), o = out.getContext('2d');
-  o.drawImage(bakePaper(), 0, 0);
-  const tone = cv(OUT, OUTH), g = tone.getContext('2d');
-  const lineC = cv(OUT, OUTH), L = lineC.getContext('2d');
-  const scratch = cv(OUT, OUTH).getContext('2d');
-  const na = (pl.numeral && pl.numeral[j.fmt]) || [W / 2, H - 22];
-  const nums = numeral(j.plate + 1, na[0], na[1], 17);
-  for (const ink of pl.inks) {
-    if (ONLY && ink !== ONLY) continue;
-    for (const x of [g, L]) {
-      x.setTransform(K, 0, 0, K, 0, 0);
-      x.clearRect(0, 0, W, H);
-      x.globalAlpha = 1;
-      x.globalCompositeOperation = 'source-over';
-      x.fillStyle = x.strokeStyle = '#000';
-      x.lineCap = 'round';
-      x.lineJoin = 'round';
-    }
-    const c = { g, L, ink, scratch, rng: rngFor(PLATE_NAMES[j.plate] + ':' + j.fmt + ':' + ink), sr: rngFor(PLATE_NAMES[j.plate] + ':' + j.fmt + ':shape') };
-    g.save(); L.save();
-    pl.draw(c, j.fmt);
-    g.restore(); L.restore();
-    if (ink === pl.key) { for (const p of nums) { L.save(); L.fill(p); L.restore(); } }
-    starve(g, rngFor(PLATE_NAMES[j.plate] + ':' + ink + ':void'));
-    const dots = screenPlate(tone, lineC, ink);
-    const tin = cv(OUT, OUTH), tx = tin.getContext('2d');
-    tx.drawImage(dots, 0, 0);
-    tx.globalCompositeOperation = 'source-in';
-    tx.fillStyle = INK[ink];
-    tx.fillRect(0, 0, OUT, OUTH);
-    const [rx, ry] = REG[ink];
-    o.save();
-    o.globalCompositeOperation = 'multiply';
-    o.drawImage(tin, Math.round(rx * K * 0.7), Math.round(ry * K * 0.7));
-    o.restore();
-  }
-  baked.set(ji, out);
-  return out;
-}
-
-const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
-const DUR = JOBS.length;
-function render(t) {
-  const ji = clamp(Math.floor(t + 1e-6), 0, JOBS.length - 1);
-  const img = bakeJob(ji);
-  if (canvas.width !== img.width || canvas.height !== img.height) { canvas.width = img.width; canvas.height = img.height; }
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.drawImage(img, 0, 0);
-  document.getElementById('cap').textContent = JOBS[ji].file;
-}
-function seek(t) { render(clamp(t, 0, DUR)); }
-window.__riso = { duration: DUR, ready: false, seek, jobs: JOBS };
-seek(Number(QS.get('t')) || 0);
-window.__riso.ready = true;
+Riso.run({
+  work: 'tafeln',
+  plates: [
+    { name: 'stuetzen',     base: 'piloti-i-stuetzen',      art: I,    composes: ['sq', 'og', 'wide'] },
+    { name: 'schichten',    base: 'piloti-ii-schichten',    art: II,   composes: ['sq'] },
+    { name: 'schleife',     base: 'piloti-iii-schleife',    art: III,  composes: ['sq'] },
+    { name: 'bauplatz',     base: 'piloti-iv-bauplatz',     art: IV,   composes: ['sq'] },
+    { name: 'pruefstand',   base: 'piloti-v-pruefstand',    art: V,    composes: ['sq'] },
+    { name: 'zeichentisch', base: 'piloti-vi-zeichentisch', art: VI,   composes: ['sq'] },
+    { name: 'waage',        base: 'piloti-vii-waage',       art: VII,  composes: ['sq'] },
+    { name: 'tuer',         base: 'piloti-viii-tuer',       art: VIII, composes: ['sq'] },
+  ],
+  jobs: [
+    { plate: 'stuetzen', format: 'plate',
+      alt: { de: 'Risografie in Grüntönen: ein weißer Baukörper auf drei schlanken Stützen über einer Wiese, mit Dachgarten und Bandfenstern; daneben eine kleine Figur mit einer Planrolle.',
+             en: 'Green risograph: a white building raised on three slender columns above a lawn, with a roof garden and ribbon windows; a small figure with a rolled drawing stands nearby.' },
+      caption: { de: 'Tafel I — Drei Stützen', en: 'Plate I — Three columns' } },
+    { plate: 'stuetzen', format: 'og',
+      alt: { de: 'Risografie in Grüntönen: ein weißer Baukörper auf drei schlanken Stützen über einer Wiese, die nach rechts aus dem Bild läuft.',
+             en: 'Green risograph: a white building raised on three slender columns above a lawn that runs off to the right.' } },
+    { plate: 'stuetzen', format: 'banner',
+      alt: { de: 'Risografie in Grüntönen: das Haus auf drei Stützen links, rechts auf der Wiese das abgesteckte Baufeld für das nächste Haus.',
+             en: 'Green risograph: the house on three columns at the left; on the lawn to the right, the staked-out plot for the next house.' } },
+    { plate: 'schichten', format: 'plate',
+      alt: { de: 'Risografie: sechs übereinander schwebende Blätter als Explosionszeichnung, von Quellen über Aufbereitung, Index, Suche und Prüfung bis zur Antwort mit Belegen.',
+             en: 'Risograph: six sheets floating one above another as an exploded drawing, from sources through preparation, index, search and check to an answer with citations.' },
+      caption: { de: 'Tafel II — Schichten', en: 'Plate II — Layers' } },
+    { plate: 'schleife', format: 'plate',
+      alt: { de: 'Risografie: ein Papierstreifen, zu einem Möbiusband geschlossen, schwebt über einem Tisch; auf ihm Stationen einer Korrektur, darunter ein Plan mit einer roten Revisionswolke.',
+             en: 'Risograph: a strip of paper closed into a Möbius band floats above a table; along it, the stations of a correction, among them a plan with a red revision cloud.' },
+      caption: { de: 'Tafel III — Schleife', en: 'Plate III — Loop' } },
+    { plate: 'bauplatz', format: 'plate',
+      alt: { de: 'Risografie im Morgenlicht: ein leerer Bauplatz mit Schnurgerüst und abgestecktem Grundriss, eine einzelne Stütze mit Bewehrungsenden und ein Pflock mit rotem Band.',
+             en: 'Risograph at dawn: an empty building plot with batter boards and a staked-out footprint, a single column with rebar ends and a stake with a red ribbon.' },
+      caption: { de: 'Tafel IV — Bauplatz', en: 'Plate IV — Building plot' } },
+    { plate: 'pruefstand', format: 'plate',
+      alt: { de: 'Risografie: ein Grundriss auf einem schräg gestellten Zeichenbrett, darüber eine Lupe, die einen Wandanschluss vergrößert.',
+             en: 'Risograph: a floor plan on a tilted drawing board, with a magnifier held over one wall junction.' },
+      caption: { de: 'Tafel V — Prüfstand', en: 'Plate V — Test bench' } },
+    { plate: 'zeichentisch', format: 'plate',
+      alt: { de: 'Risografie: ein Zeichentisch von oben mit Plan, Kaffeetasse, Dreikantmaßstab, Bleistift und Topfpflanze; kleine Karten gleiten auf einen Stapel.',
+             en: 'Risograph: a drafting table from above with a plan, a coffee cup, a scale rule, a pencil and a potted plant; small cards glide onto a stack.' },
+      caption: { de: 'Tafel VI — Zeichentisch', en: 'Plate VI — Drafting table' } },
+    { plate: 'waage', format: 'plate',
+      alt: { de: 'Risografie: eine Balkenwaage auf einem Tisch, in der einen Schale ein Stapel Blätter, in der anderen fünf Münzen; der Balken neigt sich zu den Blättern.',
+             en: 'Risograph: a balance on a table with a pile of sheets in one pan and five coins in the other; the beam tips toward the sheets.' },
+      caption: { de: 'Tafel VII — Waage', en: 'Plate VII — Balance' } },
+    { plate: 'tuer', format: 'plate',
+      alt: { de: 'Risografie im Morgenlicht: eine Außentreppe führt an einem aufgeständerten Haus zu einer offenen Tür, aus der grünes Licht fällt; Trittsteine queren die Wiese.',
+             en: 'Risograph at dawn: an outside stair climbs a raised house to an open door that spills green light; stepping stones cross the lawn.' },
+      caption: { de: 'Tafel VIII — Offene Tür', en: 'Plate VIII — Open door' } },
+  ],
+});
 </script>
 </html>
