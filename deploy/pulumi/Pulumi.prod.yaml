@@ -369,7 +369,7 @@ config:
 
   #   1. `err2issueImage` is digest-pinned. Done: the default in src/config.ts
 
-  #      is v0.5.0 by digest, and the trivy job in .github/workflows/security.yml
+  #      is v0.5.1 by digest, and the trivy job in .github/workflows/security.yml
 
   #      scans it.
 

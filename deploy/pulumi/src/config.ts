@@ -1111,7 +1111,7 @@ export interface GridConfig {
      */
     enabled: boolean;
     /**
-     * Image reference, digest-pinned (v0.5.0 by default). Upstream tags each
+     * Image reference, digest-pinned (v0.5.1 by default). Upstream tags each
      * build `:sha-<commit>` and `:latest`; bump the digest deliberately, it is
      * scanned by the trivy job in .github/workflows/security.yml.
      */
@@ -2460,12 +2460,12 @@ export function loadConfig(): GridConfig {
 
     err2issue: {
       enabled: err2issueEnabled,
-      // Digest-pinned: v0.5.0, published as `:sha-7c25265a0aff27b17db4474ed2d3c72432532a02`.
+      // Digest-pinned: v0.5.1, published as `:sha-b7ec93fb291214171638a169975fd5129dc77a6b`.
       // Upstream cuts no release tags, so the digest is the version; the
       // CHANGELOG names the commit. Scanned by the trivy job in security.yml.
       image:
         cfg.get("err2issueImage") ??
-        "ghcr.io/matthiasbigl/err2issue@sha256:56744298691adc08fe9f596db8e9957b9d4adf8d9ddcfae5cf62d8604bd992da",
+        "ghcr.io/matthiasbigl/err2issue@sha256:25254f2b26ef7ff38801aa66747f98b2fc57738f5e0cf2d32bd02130f277c952",
       githubRepo: err2issueGithubRepo,
       githubToken: err2issueGithubToken ?? pulumi.output(""),
       routeMap: cfg.get("err2issueRouteMap") ?? "",
