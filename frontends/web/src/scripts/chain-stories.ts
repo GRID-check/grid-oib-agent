@@ -76,6 +76,7 @@ function initOne(root: HTMLElement) {
   const nextBtn = root.querySelector<HTMLButtonElement>('[data-next]')
   const toggle = root.querySelector<HTMLButtonElement>('[data-toggle]')
   const live = root.querySelector<HTMLElement>('[data-live]')
+  const edge = root.querySelector<HTMLButtonElement>('[data-edge]')
   if (!stage || frames.length === 0 || !toggle) return
 
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -121,6 +122,7 @@ function initOne(root: HTMLElement) {
     toggle!.hidden = !motion() && !hold.ended
     if (prevBtn) prevBtn.disabled = current === 0
     if (nextBtn) nextBtn.disabled = current === last
+    if (edge) edge.hidden = current === last
   }
 
   function startClock() {
@@ -234,12 +236,19 @@ function initOne(root: HTMLElement) {
     e.preventDefault()
   })
 
-  // Flip a source card, or open an option's reasoning. Either one is the
-  // reader asking for a closer look, so the story waits until it is closed.
+  // Taps have one meaning each. The strip at the right edge moves on. A card
+  // flips, an option opens its reasoning: the reader asking for a closer look,
+  // so the story waits until it is closed. Elsewhere on a frame that holds
+  // such content a tap does nothing; on a frame without any, the sheet itself
+  // pages (left third back, the rest onward), as stories do.
   stage.addEventListener('click', (e) => {
     const target = e.target as HTMLElement
     const flip = target.closest<HTMLElement>('[data-flip]')
     const why = target.closest<HTMLElement>('[data-why]')
+    if (target.closest('[data-edge]')) {
+      next(true)
+      return
+    }
     if (flip) {
       flip.setAttribute('aria-pressed', String(flip.getAttribute('aria-pressed') !== 'true'))
     } else if (why) {
@@ -247,7 +256,7 @@ function initOne(root: HTMLElement) {
       frames[current]!.querySelectorAll('[data-why]').forEach((b) => b.setAttribute('aria-expanded', 'false'))
       why.setAttribute('aria-expanded', String(open))
     } else {
-      // A tap on the sheet itself: the left third goes back, the rest onward.
+      if (frames[current]!.querySelector('[data-flip], [data-why]')) return
       const r = stage.getBoundingClientRect()
       if (e.clientX - r.left < r.width / 3) prev(true)
       else next(true)
