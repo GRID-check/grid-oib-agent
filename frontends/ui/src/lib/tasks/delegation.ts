@@ -104,8 +104,7 @@ interface TaskEngine {
 
 const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
   /**
-   * A norm check run by the general agent (the purpose-built
-   * `agents/compliance_checker/` tool is retired and no longer bound).
+   * A norm check run by the general agent.
    * No skill: the run works from the regulation corpus and project files
    * with the retrieval tools it already binds.
    */

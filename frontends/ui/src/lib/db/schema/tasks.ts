@@ -49,8 +49,8 @@ import { jobRuns, jobs } from './jobs'
  *
  *   - `deep-research` · `chat` — a job fired on its timer; the value is
  *     `jobs.output`.
- *   - `compliance_check` — the compliance checker over the project (the engine
- *     exists: `agents/compliance_checker/`).
+ *   - `compliance_check` — a norm check over the project, run by the general
+ *     agent with its retrieval tools (`TASK_ENGINES` in `lib/tasks/delegation.ts`).
  *   - `einreichcheck` — the builtin Einreichcheck skill, whose "Done" section
  *     is literally the work list.
  *   - `document` — write a document and file it as a draft version.
