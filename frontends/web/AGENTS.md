@@ -17,6 +17,7 @@ is the one Node tree here that bun does not install.
 | Change the content schema | Update `keystatic.config.ts` with it | The CMS writes content the site cannot render, and only the platform owner sees it |
 | Write or edit copy (`ui.ts`, a post) | German typography: spaced en dash ` – `, „…“ quotes, ` ` between a number and its unit or after `§`. Claim only what the product does and what was measured: `scripts/lint-claims.mjs` lists retracted phrases and why | `npm run check` (`lint-typography`, `lint-claims`) |
 | Change a text colour token or put one on a new background | Keep it at 4.5:1 or better; add the pair to `scripts/lint-contrast.mjs` | `npm run check` (`lint-contrast`) |
+| Animate anything | Read [`docs/ux/motion.md`](../../docs/ux/motion.md) first: one purposeful moment per section at most, transform and opacity only, reduced motion as a finished page. Use the tokens (`--duration-*`, `--ease-*`, `--stagger-*`, `--travel-*` in `global.css`; `src/lib/motion.ts` in scripts); a new value goes into both and the spec | `npm run check` (`lint-motion`) when CSS and TS disagree; review for the rest |
 | Add or rename a blog category | Edit `src/lib/categories.ts` only: ids, labels and descriptors live there, and the schema's `z.enum`, the Keystatic select, the `/blog/<category>/` routes and `scripts/lint-content.mjs` all read it | A second list drifts, and a post lands in a category with no listing |
 
 ## The blog

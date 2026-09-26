@@ -49,9 +49,12 @@ const portrait = await getImage({ src: heroPortrait, widths: [480, 828, 1170], f
          gradually towards the foot of the hero, so the focus ramps out rather
          than ending on a hard edge; the tint over it carries the same fall so
          the headline keeps its contrast. It was four stacked blurs (2, 5, 11
-         and 20px), which looked a shade smoother and cost a full-screen
-         re-blur of the animated aura four times over on every frame: the
-         median frame went from 83ms to about 17ms without them. -->
+         and 20px), which looked a shade smoother and re-blurred the animated
+         aura four times on every frame. Idle hero at 1440x900, headless
+         Chromium, median frame: four blurs 83ms, one blur 33ms, no blur
+         16.7ms. Clipping the aura out of the band does not help (Chromium
+         re-blurs on every frame the canvas draws); a pre-blurred crop of the
+         photograph would take the rest. -->
     <div
       class="pointer-events-none absolute inset-x-0 bottom-0 h-[42%] backdrop-blur-[12px]"
       style="-webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgb(0 0 0 / 0.25) 30%, rgb(0 0 0 / 0.7) 62%, #000 88%); mask-image: linear-gradient(to bottom, transparent 0%, rgb(0 0 0 / 0.25) 30%, rgb(0 0 0 / 0.7) 62%, #000 88%)"
