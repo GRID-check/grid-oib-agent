@@ -41,6 +41,28 @@ export const conversationsClient = {
   },
 
   /**
+   * Is a turn in this conversation still producing frames? The age of the
+   * newest frame in its replay stream by the server's clock, in ms; `null`
+   * when the stream holds none, `undefined` when there is nothing to ask (no
+   * shared cache, a failed read). Never throws.
+   */
+  async newestFrameAge(id: string): Promise<number | null | undefined> {
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(id)}/frames?peek=1`, {
+        cache: 'no-store',
+      })
+      if (!res.ok) return undefined
+      const body = (await res.json()) as { available?: unknown; newest?: unknown; now?: unknown }
+      if (body.available !== true || typeof body.now !== 'number') return undefined
+      if (typeof body.newest !== 'string') return null
+      const ms = Number(body.newest.split('-')[0])
+      return Number.isFinite(ms) ? Math.max(0, body.now - ms) : undefined
+    } catch {
+      return undefined
+    }
+  },
+
+  /**
    * The frames a dropped socket missed: every frame of the conversation's
    * replay stream after `afterId`, or all it holds when that is null. `null`
    * when there is nothing to read them from (no shared cache, a failed read,

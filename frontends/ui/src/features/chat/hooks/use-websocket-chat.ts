@@ -1029,9 +1029,12 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     // no marker is worse than none, and if the server does have the finished
     // one it would sit above it looking like a separate reply.
     endSilentTurn()
+    // Not one look but a wait: a turn the server is still working on has no
+    // finished answer yet, and the server keeps it when it does, whatever
+    // this page's connection did.
     void useChatStore
       .getState()
-      ._recoverInterruptedAssistantMessage(conversation.id, lastUserMessage.id)
+      ._awaitServerAnswer(conversation.id, lastUserMessage.id)
       .then((outcome) => {
         // ONLY `nothing` earns the banner. `superseded` means another
         // recovery already put the answer on screen (mount and reconnect both
@@ -1039,6 +1042,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         // the reader has already resent — accusing there prints
         // "please resend" underneath a live answer.
         if (outcome !== 'nothing') return
+        // The wait can take minutes, and `addErrorCard` writes into whichever
+        // conversation is open by then.
+        if (useChatStore.getState().currentConversation?.id !== conversation.id) return
         addErrorCard(
           'agent.response_interrupted',
           'The assistant stopped responding. Please resend your message.'

@@ -923,8 +923,8 @@ export const chat = {
     // Transient "checking" state (FIX 3): shown while the reconnect recovery
     // fetch is in flight, so a turn that only LOOKS interrupted does not flash
     // the "lost" copy before we have confirmed the answer is really gone.
-    recovering: 'Reconnecting',
-    recoveringNotice: 'Reconnecting — checking for a finished answer …',
+    recovering: 'Fetching the answer',
+    recoveringNotice: 'Piloti is still working — the answer appears here as soon as it is ready …',
     done: 'Done',
     elapsedAria: 'Elapsed: {seconds, plural, one {# second} other {# seconds}}',
     // Live one-liners describing what the assistant is doing right now, chosen

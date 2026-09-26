@@ -21,10 +21,16 @@ vi.mock('@/lib/auth/require-auth', () => ({
   authzErrorResponse: () => null,
 }))
 vi.mock('@/lib/conversations/live', () => ({ requireConversationSpectator: vi.fn() }))
-vi.mock('@/lib/events/conversation-frames', () => ({ readConversationFramesAfter: vi.fn() }))
+vi.mock('@/lib/events/conversation-frames', () => ({
+  readConversationFramesAfter: vi.fn(),
+  peekNewestConversationFrame: vi.fn(),
+}))
 
 import { requireConversationSpectator } from '@/lib/conversations/live'
-import { readConversationFramesAfter } from '@/lib/events/conversation-frames'
+import {
+  peekNewestConversationFrame,
+  readConversationFramesAfter,
+} from '@/lib/events/conversation-frames'
 import { NotFoundError } from '@/lib/api/errors'
 import { GET } from './route'
 
@@ -71,5 +77,20 @@ describe('GET /api/conversations/:id/frames', () => {
     const res = await get('?after=1-0')
     expect(res.status).toBe(404)
     expect(readConversationFramesAfter).not.toHaveBeenCalled()
+  })
+
+  it('peeks at the newest frame with the server clock, reading no frames', async () => {
+    vi.mocked(peekNewestConversationFrame).mockResolvedValue('1727000000000-0')
+    const res = await get('?peek=1')
+    const body = await res.json()
+    expect(body).toMatchObject({ available: true, newest: '1727000000000-0' })
+    expect(typeof body.now).toBe('number')
+    expect(readConversationFramesAfter).not.toHaveBeenCalled()
+  })
+
+  it('says a peek has nothing to ask when there is no stream', async () => {
+    vi.mocked(peekNewestConversationFrame).mockResolvedValue(undefined)
+    const body = await (await get('?peek=1')).json()
+    expect(body).toMatchObject({ available: false, newest: null })
   })
 })

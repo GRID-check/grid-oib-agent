@@ -218,18 +218,6 @@ class WebSocketSessionRegistry:
 
         self._relay_tasks[conversation_id] = asyncio.create_task(_loop())
 
-    async def has_socket(self, conversation_id: str | None) -> bool:
-        """Return True if a live socket is currently registered for a conversation.
-
-        Used as the dual-write guard before server-side persistence: if a client
-        has (re)connected we must not also POST the message, or the turn would be
-        written twice.
-        """
-        if not conversation_id:
-            return False
-        async with self._lock:
-            return self._sockets.get(conversation_id) is not None
-
     async def send(self, conversation_id: str | None, message: BaseModel) -> bool:
         """Send a message to the current socket for a conversation.
 
@@ -616,8 +604,12 @@ _TRANSPARENCY_EXTRA_FIELDS = (
 # lift so the frontend can mute a house-voice row without dropping it.
 _SKILLS_EXTRA_FIELDS = ("skills_activated", "skills_hidden")
 
-# The extras the server-side persist writes onto the row when the client is
-# gone, beyond the ones ``persist_assistant_message`` names in its signature.
+# Background terminal-answer writes still in flight (the loop holds only weak
+# references to tasks).
+_PERSIST_TASKS: set[asyncio.Task[None]] = set()
+
+# The extras the server-side persist writes onto the row, beyond the ones
+# ``persist_assistant_message`` names in its signature.
 # Each is one the BFF decodes on rehydrate (``agent-answer-metadata.ts``) or
 # stores as provenance: without them a turn that finished after the tab
 # closed reloaded with no verdict, summary, takeaways or callout, a ``meta``
@@ -732,8 +724,8 @@ async def post_internal_conversation_message(
     The single producer for ``POST /api/internal/conversations/{id}/messages``
     from this service: it owns the base-URL/service-token/organization
     preconditions, the wire shape, and the "never raise" contract. Two callers
-    sit on top of it — ``persist_assistant_message`` (a finished socket turn
-    whose client is gone) and the jobs runner's conversation materialisation
+    sit on top of it — ``persist_assistant_message`` (every finished socket
+    turn) and the jobs runner's conversation materialisation
     (``jobs/conversation_output.py``) — so there is exactly one place that
     knows how the backend writes a message, and Python still never touches the
     database.
@@ -880,7 +872,7 @@ async def persist_assistant_message(
     retrieval_ledger: Any = None,
     extras: Mapping[str, Any] | None = None,
 ) -> bool:
-    """Persist a finished assistant turn to the BFF when the client is gone.
+    """Persist a finished assistant turn to the BFF.
 
     Posts to the INTERNAL token-guarded route
     (``/api/internal/conversations/{id}/messages``) authenticated with
@@ -895,17 +887,10 @@ async def persist_assistant_message(
 
     Returns ``True`` only when the message was accepted by the BFF.
     """
-    # Dual-write guard: a client may have (re)connected between the failed send
-    # and now. If a live socket exists, the client owns the write — skip.
-    # SOCKET-PATH ONLY: a jobs run has no socket to defer to, which is why the
-    # runner calls the shared producer below directly instead of this wrapper.
-    if await _registry.has_socket(conversation_id):
-        logger.debug(
-            "Live socket present for conversation %s; skipping server-side persist",
-            conversation_id,
-        )
-        return False
-
+    # No "client owns the write" guard: the server keeps every finished
+    # answer, and the browser's write of the same id is a no-op (see the
+    # caller). A guard on a live socket lost the answer whenever the socket
+    # took the frame and died before the browser saved it.
     metadata: dict[str, Any] = {}
     if cards:
         metadata["cards"] = cards
@@ -931,8 +916,8 @@ async def persist_assistant_message(
     # organization precondition, wire shape and the never-raise contract all
     # live there, so this path and the jobs runner cannot drift apart in how
     # they write a message. What stays here is what is specific to a socket
-    # turn — the dual-write guard above, the terminal-frame metadata, and the
-    # deterministic id that makes a repeated persist a no-op.
+    # turn: the terminal-frame metadata, and the deterministic id that makes a
+    # repeated persist (or the browser's own write) a no-op.
     persisted = await post_internal_conversation_message(
         conversation_id=conversation_id,
         organization_id=organization_id,
@@ -943,7 +928,7 @@ async def persist_assistant_message(
         metadata=metadata,
     )
     if persisted:
-        logger.info("Persisted assistant message server-side for disconnected conversation %s", conversation_id)
+        logger.info("Persisted assistant message server-side for conversation %s", conversation_id)
     return persisted
 
 
@@ -968,11 +953,10 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         * NAT's base restore swaps the disconnected handler's ``_socket`` attr
           but never touches Grid's ``WebSocketSessionRegistry``. The socket was
           cleared from the registry on disconnect, so without re-registering it
-          the ``has_socket`` dual-write guard still reads "client gone" and the
-          running workflow's terminal frame is persisted server-side instead of
-          streamed live down the reconnected socket (and HITL prompts/live
-          sends would not route). Re-register so live delivery, the dual-write
-          guard, and HITL routing all target the new connection.
+          the running workflow's frames would not stream live down the
+          reconnected socket (and HITL prompts/live sends would not route).
+          Re-register so live delivery and HITL routing target the new
+          connection.
         """
         params = self._socket.query_params
         conversation_id = params.get("conversation_id") or params.get("conversationId")
@@ -986,8 +970,8 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         await super()._restore_execution_state()
 
         # Only when a disconnected handler was actually restored: wire the new
-        # socket into the registry so live send + the dual-write guard + HITL
-        # routing target this reconnected connection.
+        # socket into the registry so live send and HITL routing target this
+        # reconnected connection.
         if conversation_id and self._worker.get_conversation_handler(conversation_id):
             await _registry.set_socket(conversation_id, self._socket)
 
@@ -1423,86 +1407,91 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         finally:
             if message is not None:
                 sent = await _registry.send(self._conversation_id, message)
-                if not sent:
-                    if not self._conversation_id:
-                        try:
-                            await self._socket.send_json(message.model_dump())
-                        except Exception as exc:  # pragma: no cover - socket may be closed
-                            logger.warning("Failed to send websocket message: %s", exc)
-                    elif persist_on_drop:
-                        # The client is gone. For a terminal RESPONSE_MESSAGE
-                        # carrying the finished answer (text and/or cards),
-                        # persist it server-side so it is there when the client
-                        # returns; otherwise it would only live in the langgraph
-                        # checkpoint and the frontend would show "interrupted".
-                        # Streamed deltas pass persist_on_drop=False and are
-                        # skipped here — only the terminal frame persists.
-                        await self._persist_terminal_message_if_client_gone(message, message_type)
-                        logger.debug(
-                            "Dropping message for disconnected conversation %s",
-                            self._conversation_id,
-                        )
+                if not sent and not self._conversation_id:
+                    try:
+                        await self._socket.send_json(message.model_dump())
+                    except Exception as exc:  # pragma: no cover - socket may be closed
+                        logger.warning("Failed to send websocket message: %s", exc)
+                elif self._conversation_id and persist_on_drop:
+                    # The finished answer is the server's to keep, whether or
+                    # not a socket took the frame. It used to be persisted only
+                    # when no socket was attached ("the client owns the
+                    # write"), so an answer delivered to a socket that died
+                    # before the browser saved it, or to a phone that went to
+                    # the background mid-frame, was kept by nobody: the reader
+                    # came back to „Antwort ging verloren" over a finished
+                    # turn. The id is deterministic
+                    # (`deterministic_assistant_message_id`) and the BFF inserts
+                    # with ON CONFLICT DO NOTHING, so the browser's own write of
+                    # the same answer is a no-op. Streamed deltas pass
+                    # persist_on_drop=False; only the terminal frame persists.
+                    # Off the frame's path: the COMPLETE frame that follows
+                    # must not wait on the BFF (up to its 10 s timeout).
+                    self._persist_terminal_message_in_background(message, message_type)
 
-    async def _persist_terminal_message_if_client_gone(
-        self,
-        message: BaseModel,
-        message_type: str | None,
-    ) -> None:
-        """Persist a dropped terminal assistant response to the BFF.
+    def _terminal_persist_kwargs(self, message: BaseModel, message_type: str | None) -> dict[str, Any] | None:
+        """What `persist_assistant_message` writes for this frame, or None when it writes nothing.
 
-        Only fires for a RESPONSE_MESSAGE that actually carries the finished
-        answer (non-empty text and/or cards). The empty COMPLETE frame that
+        Only a RESPONSE_MESSAGE that actually carries the finished answer
+        (non-empty text and/or cards) is written. The empty COMPLETE frame that
         merely signals turn completion is skipped so no blank bubble is written.
-        Fail-soft: never raises.
+        Read synchronously, so a background write keeps this turn's conversation
+        and parent even if the handler moves on to the next turn.
+        """
+        if message_type != WebSocketMessageType.RESPONSE_MESSAGE or not self._conversation_id:
+            return None
+        dump = message.model_dump()
+        # A job-admission rejection ("queue full") is a TRANSIENT notice, not
+        # a research answer. It is surfaced live as a warning banner with no
+        # reader for the marker on rehydrate, so persisting it would resurrect
+        # it as a fake answer in history. It is also stale by the time the
+        # client reloads. Never persist it — drop it entirely.
+        if dump.get("job_admission_rejected"):
+            return None
+        content_obj = dump.get("content")
+        text = content_obj.get("text") if isinstance(content_obj, dict) else None
+        cards = dump.get("cards")
+        if not (text and text.strip()) and not cards:
+            return None
+        return {
+            "conversation_id": self._conversation_id,
+            "parent_id": self._message_parent_id,
+            "text": text or "",
+            "organization_id": _org_id_from_scope(getattr(self._socket, "scope", {}) or {}),
+            "cards": cards,
+            "answer_confidence": dump.get("answer_confidence"),
+            "answer_confidence_reason": dump.get("answer_confidence_reason"),
+            "answer_confidence_capped_reason": dump.get("answer_confidence_capped_reason"),
+            "sources": dump.get("sources"),
+            "read_sources": dump.get("read_sources"),
+            "skills_activated": dump.get("skills_activated"),
+            "retrieval_ledger": dump.get("retrieval_ledger"),
+            "extras": {name: dump[name] for name in _PERSISTED_EXTRA_FIELDS if dump.get(name) is not None},
+        }
+
+    def _persist_terminal_message_in_background(self, message: BaseModel, message_type: str | None) -> None:
+        """Persist a terminal assistant response to the BFF, without holding up the frames behind it.
+
+        Fail-soft: never raises. The arguments are read now; only the HTTP write runs later. The task is
+        held in a module set until it finishes, so it is not collected mid-write.
         """
         try:
-            if message_type != WebSocketMessageType.RESPONSE_MESSAGE:
-                return
-            if not self._conversation_id:
-                return
-
-            dump = message.model_dump()
-
-            # A job-admission rejection ("queue full") is a TRANSIENT notice, not
-            # a research answer. It is surfaced live as a warning banner with no
-            # reader for the marker on rehydrate, so persisting it would resurrect
-            # it as a fake answer in history. It is also stale by the time the
-            # client reloads. Never persist it — drop it entirely.
-            if dump.get("job_admission_rejected"):
-                return
-
-            content_obj = dump.get("content")
-            text = content_obj.get("text") if isinstance(content_obj, dict) else None
-            cards = dump.get("cards")
-            answer_confidence = dump.get("answer_confidence")
-            answer_confidence_reason = dump.get("answer_confidence_reason")
-            answer_confidence_capped_reason = dump.get("answer_confidence_capped_reason")
-            sources = dump.get("sources")
-            read_sources = dump.get("read_sources")
-            skills_activated = dump.get("skills_activated")
-            retrieval_ledger = dump.get("retrieval_ledger")
-            extras = {name: dump[name] for name in _PERSISTED_EXTRA_FIELDS if dump.get(name) is not None}
-
-            if not (text and text.strip()) and not cards:
-                return
-
-            await persist_assistant_message(
-                conversation_id=self._conversation_id,
-                parent_id=self._message_parent_id,
-                text=text or "",
-                organization_id=_org_id_from_scope(getattr(self._socket, "scope", {}) or {}),
-                cards=cards,
-                answer_confidence=answer_confidence,
-                answer_confidence_reason=answer_confidence_reason,
-                answer_confidence_capped_reason=answer_confidence_capped_reason,
-                sources=sources,
-                read_sources=read_sources,
-                skills_activated=skills_activated,
-                retrieval_ledger=retrieval_ledger,
-                extras=extras,
-            )
+            kwargs = self._terminal_persist_kwargs(message, message_type)
         except Exception:  # noqa: BLE001 — never let persistence crash the handler
-            logger.warning("Unexpected error while persisting terminal message", exc_info=True)
+            logger.warning("Unexpected error while preparing terminal message persistence", exc_info=True)
+            return
+        if kwargs is None:
+            return
+
+        async def _write() -> None:
+            try:
+                await persist_assistant_message(**kwargs)
+            except Exception:  # noqa: BLE001 — fail-soft, as the awaited path
+                logger.warning("Unexpected error while persisting terminal message", exc_info=True)
+
+        task = asyncio.create_task(_write())
+        _PERSIST_TASKS.add(task)
+        task.add_done_callback(_PERSIST_TASKS.discard)
 
     async def human_interaction_callback(self, prompt: InteractionPrompt) -> HumanResponse:
         """
