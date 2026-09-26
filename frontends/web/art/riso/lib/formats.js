@@ -64,8 +64,8 @@ const FORMATS = {
     sizes: [{ density: 1, w: 320, h: 320, pitch: 3.4 }, { density: 2, w: 640, h: 640, pitch: 6.8 }],
   },
   email: {
-    use: 'Email signature strip, 600 CSS px wide. Hosted by whoever sends the mail, so not a site asset',
-    compose: 'strip', encode: 'png', dest: 'out', file: '{base}-email-{w}x{h}', numeral: false,
+    use: 'Email signature strip, 600 CSS px wide. A site asset because mail clients load it from https://piloti.at/art/; PNG because Outlook and older clients read no WebP',
+    compose: 'strip', encode: 'png', dest: 'site', file: '{base}-email-{w}x{h}', numeral: false,
     sizes: [{ density: 1, w: 600, h: 120, pitch: 3.4 }, { density: 2, w: 1200, h: 240, pitch: 6.8 }],
   },
   social: {

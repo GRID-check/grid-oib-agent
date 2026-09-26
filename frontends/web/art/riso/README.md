@@ -12,6 +12,7 @@ the machinery works.
 | Path | Holds |
 |---|---|
 | `tafeln/` | Plates I–VIII of the first series. Its `PRINT.md` states the series principle every work follows |
+| `collateral/` | The founders' kit off the site: email strip and signatures (`signatures/*.html`), a build-log square, deck slides and the thank-you postcard (still lifes on plate VI's tipped table). Its `PRINT.md` maps every piece, including the Tafeln plates reused for LinkedIn and social |
 | `lib/engine.js` | The print engine: screens, paper, starvation, the bake, the `window.__riso` contract, `Riso.run` |
 | `lib/piloti.js` | The series look: inks, paper, screen angles, registration, camera, sun, projection, props |
 | `lib/formats.js` | Every export slot by name, with pixel sizes, pitch, encoding and destination |
@@ -89,7 +90,7 @@ export is one integer time of the page.
 | `spot` | 96², 192² | 3.4 / 6.8 | `spot` | site |
 | `empty` | 320², 640² | 3.4 / 6.8 | `empty` | app (frontends/ui) |
 | `release` | 64², 128² | 2.4 / 4.8 | `stamp` | site |
-| `email` | 600×120, 1200×240 PNG | 3.4 / 6.8 | `strip` | out |
+| `email` | 600×120, 1200×240 PNG | 3.4 / 6.8 | `strip` | site (mail clients load it from piloti.at) |
 | `social` | 1080² PNG | 5.0 | `sq` | out |
 | `linkedin` | 1584×396 PNG | 5.0 | `linkedin` | out |
 | `deck` | 1920×1080 PNG | 5.0 | `cover` | out |

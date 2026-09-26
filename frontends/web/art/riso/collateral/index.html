@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<title>Piloti — Collateral</title>
+<style>
+  /* The export tools read the canvas backing store, never this CSS box. */
+  html, body { margin: 0; background: #22271a; color: #d3ddc0;
+               font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  canvas { display: block; width: 720px; height: auto; }
+  #cap { width: 720px; padding: 10px 0 24px; }
+</style>
+<canvas id="c"></canvas>
+<div id="cap"></div>
+<!-- The shared print kit. Load order matters: formats, engine, series look. -->
+<script src="../lib/formats.js"></script>
+<script src="../lib/engine.js"></script>
+<script src="../lib/piloti.js"></script>
+<script>
+'use strict';
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Piloti — Collateral (art/riso/collateral). See PRINT.md beside this file.
+
+   Brand collateral for the three founders, off the website: the email
+   signature strip, a social square, pitch-deck backgrounds and an A6
+   thank-you postcard (front and back, with press separations).
+
+   Plate I's house appears only on the strip and the build-log square
+   (sceneDraw, ported from tafeln/index.html so it is the same object). The
+   deck and the postcard are still lifes on plate VI's tipped drawing table
+   (tableView). The founders' LinkedIn banners and two social squares reuse
+   Tafeln plates (JOBS in ../tafeln/index.html); the company banner and the
+   deck title come from the Tragwerk series.
+
+   Canvas 2D only: no libraries, fonts, images, text or network. Top-level code
+   defines constants only; lib/ names (W, H, K, INK, line, own, fit ...) are
+   shared, so none is redeclared here.
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ── the world: plate I's house, in world metres ─────────────────────────── */
+
+const HOUSE_BOX = [0, 0, 4.0, 16, 9, 7.4];                 // x0 y0 z0 x1 y1 z1
+const HOUSE_COLS = [[2.6, 1.7], [2.6, 7.3], [13.0, 4.5]];  // two west, one east
+const COL_R = 0.19;
+const BOARD_SLAB = 0.55;
+
+/**
+ * Draw one scene. S (a spec):
+ *   site  [x0 y0 x1 y1]  the model board
+ *   frame world points fit() fills, fit { fill, fillH, cx, cy }
+ *   dawn  plate IV/VIII's low sun and morning haze
+ *   lw    line-weight scale (small or printed formats go heavier)
+ *   solid column shade as a solid band (small formats) instead of a dot ramp
+ *   house, door (stair + open door, plate VIII), dim (chain dimension),
+ *   figure [x y], walk, stones (x where the path starts), stake [x0 y0 x1 y1]
+ *   (a plot set out for the next house), rohbau (the columns stand, the
+ *   volume is still dashed lines), sprayK (gravel density)
+ */
+function sceneDraw(c, S) {
+  const [sx0, sy0, sx1, sy1] = S.site;
+  const [x0, y0, z0, x1, y1, z1] = HOUSE_BOX;
+  const SUN = SUN_SERIES;
+  const P = fit(VIEW_SERIES, S.frame, S.fit);
+  const lw = (u) => weight(u * (S.lw || 1));
+  const dash = (d) => d.map((v) => v * (S.lw || 1));
+
+  /* — the board, its two near edges showing thickness — */
+  const top = poly(P, [[sx0, sy0, 0], [sx1, sy0, 0], [sx1, sy1, 0], [sx0, sy1, 0]]);
+  const edgeS = poly(P, [[sx0, sy0, 0], [sx1, sy0, 0], [sx1, sy0, -BOARD_SLAB], [sx0, sy0, -BOARD_SLAB]]);
+  const edgeW = poly(P, [[sx0, sy0, 0], [sx0, sy1, 0], [sx0, sy1, -BOARD_SLAB], [sx0, sy0, -BOARD_SLAB]]);
+  own(c, edgeS, { moss: 0.58 });
+  own(c, edgeW, { moss: 0.3 });
+  own(c, top, {});
+  for (let yy = sy0, i = 0; yy < sy1 - 1e-6; yy += 1.75, i++) {
+    const p = poly(P, [[sx0, yy, 0], [sx1, yy, 0], [sx1, Math.min(sy1, yy + 1.75), 0], [sx0, Math.min(sy1, yy + 1.75), 0]]);
+    tint(c, p, i % 2 ? { kelly: 0.22, mist: 0.45 } : { kelly: 0.36, mist: 0.28 });
+  }
+  if (c.ink === 'kelly') { c.g.save(); c.g.clip(top); hatch(c.g, null, c.rng, { gap: 4.6, w: 1.0, ang: -0.05, a: 0.3, cut: true }); c.g.restore(); }
+
+  if (S.house) dashed(c, poly(P, [[x0, y0, 0], [x1, y0, 0], [x1, y1, 0], [x0, y1, 0]]), lw(1.4), { hunter: 0.85 }, dash([6, 5]));
+
+  /* — shadows on the ground: one union, so overlaps do not add up — */
+  const shapes = [];
+  if (S.house) {
+    if (!S.rohbau) shapes.push(boxShadow(P, boxCorners(...HOUSE_BOX), SUN));
+    for (const [cx, cy] of HOUSE_COLS) shapes.push(cylShadow(P, cx, cy, COL_R, z0, SUN));
+  }
+  if (S.figure) shapes.push(cylShadow(P, S.figure[0], S.figure[1], 0.2, 1.72, SUN));
+  groundShadow(c, top, shapes, { hunter: 0.64 });
+  line(c, top, lw(1.5), KEY);
+  line(c, edgeS, lw(1.5), KEY);
+  line(c, edgeW, lw(1.3), KEY);
+
+  /* — what stands on the ground, far to near — */
+  const items = [];
+  if (S.house) for (const [cx, cy] of HOUSE_COLS) items.push({ d: depth(P, [cx, cy, 0]), f: () => column(c, P, S, lw, cx, cy, z0) });
+  if (S.figure) items.push({ d: depth(P, [S.figure[0], S.figure[1], 0]), f: () => {
+    const f = figure(P([S.figure[0], S.figure[1], 0]), 1.75 * P.s * VIEW_SERIES.fz, { back: 0.035 });
+    own(c, f.body, { hunter: 1, moss: 0.62 });
+    own(c, f.roll, {});
+    line(c, f.roll, lw(0.9), KEY);
+  } });
+  items.sort((a, b) => b.d - a.d);
+  for (const it of items) it.f();
+
+  if (S.house && S.rohbau) wireVolume(c, P, lw, dash);
+  else if (S.house) houseVolume(c, P, S, lw);
+}
+
+/** A line between two world points. */
+const E = (P, a, b) => poly(P, [a, b], false);
+
+/** A piloti. */
+function column(c, P, S, lw, cx, cy, h) {
+  const cyl = cylinder(P, cx, cy, COL_R, 0, h);
+  own(c, cyl.sil, {});
+  if (S.solid) {
+    // a column a few screen cells wide cannot carry a dot ramp: a solid band
+    c.L.save(); c.L.clip(cyl.sil);
+    lineFill(c, pathOf([[lerp(cyl.xl, cyl.xr, 0.64), 0], [cyl.xr + 2, 0], [cyl.xr + 2, H], [lerp(cyl.xl, cyl.xr, 0.64), H]]), { moss: 0.5 });
+    c.L.restore();
+  } else if (c.ink === 'moss') {
+    shade(c.g, cyl.sil, { x0: cyl.xl, y0: 0, x1: cyl.xr, y1: 0, stops: [[0, 0], [0.5, 0], [0.7, 0.4], [1, 0.52]] });
+    shade(c.g, cyl.sil, { x0: 0, y0: cyl.head[1], x1: 0, y1: cyl.head[1] + 0.9 * P.s, stops: [[0, 0.45], [1, 0]] });
+  }
+  line(c, cyl.sil, lw(1.4), KEY);
+  const f = cyl.foot, w = cyl.xr - cyl.xl;
+  const ring = new Path2D(); ring.ellipse(f[0], f[1] + 0.3, w * 0.7, w * 0.22, 0, 0, TAU);
+  tint(c, ring, { hunter: 0.8 });
+}
+
+/** The volume not built yet: its twelve edges dashed in the air above the three columns. */
+function wireVolume(c, P, lw, dash) {
+  const [x0, y0, z0, x1, y1, z1] = HOUSE_BOX;
+  const k = boxCorners(x0, y0, z0, x1, y1, z1);
+  const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+  for (const [a, b] of edges) dashed(c, E(P, k[a], k[b]), lw(1.3), { hunter: 0.9 }, dash([7, 5]));
+}
+
+/** Plate I's volume: ribbon windows, roof bed, pavilion. */
+function houseVolume(c, P, S, lw) {
+  const [x0, y0, z0, x1, y1, z1] = HOUSE_BOX;
+  const f = boxFaces(P, x0, y0, z0, x1, y1, z1);
+  clearAll(c, f.sil);
+  own(c, f.top, { mist: 0.3 });
+  own(c, f.west, {});
+  own(c, f.south, { mist: 0.14 });
+  if (c.ink === 'mist') shade(c.g, f.south, { x0: 0, y0: P([0, 0, z1])[1], x1: 0, y1: P([0, 0, z0])[1], stops: [[0, 0], [0.7, 0], [1, 0.3]] });
+  tint(c, poly(P, [[x0, y0, z0], [x1, y0, z0], [x1, y0, z0 + 0.14], [x0, y0, z0 + 0.14]]), { moss: 0.35 });
+
+  const wz0 = 5.05, wz1 = 6.2, inset = 0.8;
+  const winS = poly(P, [[x0 + inset, y0, wz0], [x1 - inset, y0, wz0], [x1 - inset, y0, wz1], [x0 + inset, y0, wz1]]);
+  const wy1 = y1 - inset;
+  const winW = poly(P, [[x0, y0 + inset, wz0], [x0, wy1, wz0], [x0, wy1, wz1], [x0, y0 + inset, wz1]]);
+  own(c, winS, { hunter: 0.86, moss: 0.62 });
+  own(c, winW, { hunter: 0.8, moss: 0.5 });
+  tint(c, poly(P, [[x0 + inset, y0, wz1 - 0.28], [x1 - inset, y0, wz1 - 0.28], [x1 - inset, y0, wz1], [x0 + inset, y0, wz1]]), { moss: 0.35, hunter: 0.14 });
+  if (c.ink === 'hunter' && !S.solid) {
+    shade(c.g, winS, { x0: P([x0, y0, 0])[0], y0: 0, x1: P([x1, y0, 0])[0], y1: 0,
+      stops: [[0, 0.05], [0.3, 0.32], [0.45, 0.06], [0.7, 0.24], [1, 0.02]], cut: true });
+  }
+  if (!S.solid) {
+    const mull = (a, b) => { const m = E(P, a, b); c.g.save(); c.g.lineWidth = 1.6; c.g.globalCompositeOperation = 'destination-out'; c.g.stroke(m); c.g.restore(); };
+    for (let k = 1; k < 8; k++) { const xx = x0 + inset + (x1 - x0 - 2 * inset) * k / 8; mull([xx, y0, wz0], [xx, y0, wz1 - 0.3]); }
+    for (let k = 1; k < 4; k++) { const yy = y0 + inset + (y1 - y0 - 2 * inset) * k / 4; mull([x0, yy, wz0], [x0, yy, wz1]); }
+  }
+  line(c, winS, lw(1.0), KEY);
+  line(c, winW, lw(1.0), KEY);
+
+  /* roof: the planted bed and the plain pavilion under its thin roof plate */
+  const bed = boxFaces(P, 2.2, 4.6, z1, 7.4, 8.2, z1 + 0.45);
+  const bedTop = poly(P, [[2.4, 4.8, z1 + 0.45], [7.2, 4.8, z1 + 0.45], [7.2, 8.0, z1 + 0.45], [2.4, 8.0, z1 + 0.45]]);
+  const PV = [10.4, 5.2, z1, 14.6, 8.2, z1 + 2.2];
+  const CAN = [9.6, 4.3, z1 + 2.2, 15.2, 8.6, z1 + 2.36];
+  const roofSh = new Path2D();
+  roofSh.addPath(boxShadow(P, boxCorners(2.2, 4.6, z1, 7.4, 8.2, z1 + 0.45), SUN_SERIES, z1));
+  roofSh.addPath(boxShadow(P, boxCorners(...PV), SUN_SERIES, z1));
+  roofSh.addPath(boxShadow(P, boxCorners(...CAN), SUN_SERIES, z1));
+  c.g.save(); c.g.clip(f.top); tint(c, roofSh, { moss: 0.3, mist: 0.2 }); c.g.restore();
+  own(c, bed.west, { mist: 0.18 });
+  own(c, bed.south, { mist: 0.3 });
+  own(c, bedTop, { kelly: 0.78, mist: 0.3 });
+  if (c.ink === 'hunter') { c.g.save(); c.g.clip(bedTop); spray(c.g, null, rngFor('bed'), { n: 2600, r0: 0.6, r1: 1.7, a: 0.6 }); c.g.restore(); }
+  line(c, bed.sil, lw(1.1), KEY);
+
+  const pv = boxFaces(P, ...PV);
+  clearAll(c, pv.sil);
+  own(c, pv.west, {});
+  own(c, pv.south, { mist: 0.14 });
+  const band = 0.55;
+  tint(c, poly(P, [[PV[0], PV[1], PV[5] - band], [PV[3], PV[1], PV[5] - band], [PV[3], PV[1], PV[5]], [PV[0], PV[1], PV[5]]]), { moss: 0.38 });
+  tint(c, poly(P, [[PV[0], PV[1], PV[5] - band], [PV[0], PV[4], PV[5] - band], [PV[0], PV[4], PV[5]], [PV[0], PV[1], PV[5]]]), { moss: 0.3 });
+  const door = poly(P, [[PV[0], 6.2, z1], [PV[0], 7.1, z1], [PV[0], 7.1, z1 + 1.95], [PV[0], 6.2, z1 + 1.95]]);
+  own(c, door, { hunter: 0.8, moss: 0.5 });
+  const slot = poly(P, [[11.0, PV[1], z1 + 0.9], [14.0, PV[1], z1 + 0.9], [14.0, PV[1], z1 + 1.45], [11.0, PV[1], z1 + 1.45]]);
+  own(c, slot, { hunter: 0.86, moss: 0.62 });
+  line(c, door, lw(0.9), KEY); line(c, slot, lw(0.9), KEY);
+  line(c, pv.sil, lw(1.2), KEY);
+  line(c, E(P, [PV[0], PV[1], PV[2]], [PV[0], PV[1], PV[5]]), lw(1.0), KEY);
+  const can = boxFaces(P, ...CAN);
+  clearAll(c, can.sil);
+  own(c, can.top, { mist: 0.25 });
+  own(c, can.west, { mist: 0.2 });
+  own(c, can.south, { moss: 0.3 });
+  line(c, can.sil, lw(1.2), KEY);
+  line(c, E(P, [CAN[0], CAN[1], CAN[5]], [CAN[3], CAN[1], CAN[5]]), lw(0.9), KEY);
+  line(c, E(P, [CAN[0], CAN[1], CAN[5]], [CAN[0], CAN[4], CAN[5]]), lw(0.9), KEY);
+
+  line(c, f.sil, lw(1.9), KEY);
+  line(c, E(P, [x0, y0, z0], [x0, y0, z1]), lw(1.3), KEY);
+  line(c, E(P, [x0, y0, z1], [x1, y0, z1]), lw(1.1), KEY);
+  line(c, E(P, [x0, y0, z1], [x0, y1, z1]), lw(1.1), KEY);
+}
+
+/* ── framings: the world points each kind of scene must show ─────────────── */
+
+/** The house and the board's west/front corner; the board runs on to the east. */
+const houseFrame = (site, extra) => [[site[0], site[1], -BOARD_SLAB], [site[0], site[3], 0],
+  [HOUSE_BOX[0], HOUSE_BOX[4], HOUSE_BOX[5] + 2.4], [HOUSE_BOX[3], HOUSE_BOX[4], HOUSE_BOX[5] + 2.4],
+  [HOUSE_BOX[3] + 4, site[1], -BOARD_SLAB], ...(extra || [])];
+/** A plate made from one spec; `key` seeds its random streams. */
+const scenePlate = (key, S, inks) => ({
+  inks: inks || ['mist', 'kelly', 'moss', 'hunter'], key: 'hunter',
+  draw: (c) => sceneDraw(c, Object.assign({ key }, S)),
+});
+
+/* ═════════════════════════════════════════════════════════════════════════
+   1. Email signature strip, 600 × 120 (and 1200 × 240). The house small at
+   the right, the lawn running off the edge; the left three fifths are paper,
+   because the signature text sits above it, not on it.
+   ═════════════════════════════════════════════════════════════════════════ */
+const SIG_SITE = [-3.2, -4.0, 40, 12.2];
+const SIGNATUR = scenePlate('signatur', {
+  site: SIG_SITE, frame: houseFrame(SIG_SITE), fit: { fill: 0.4, fillH: 0.76, cx: 0.8, cy: 0.5 },
+  house: true, solid: true, lw: 1.25, sprayK: 0.6,
+});
+
+/* ═════════════════════════════════════════════════════════════════════════
+   3. Social squares, 1080 × 1080, blog-post announcement templates. The
+   picture holds the lower part; the upper half is paper for the title the
+   founders set in their own tool. No text in the image. The build-log
+   square is here; the other two are plates VI and V (../tafeln/index.html).
+   ═════════════════════════════════════════════════════════════════════════ */
+const SQ_SITE = [-3.2, -4.4, 40, 12.2];
+/* Build log: the three columns stand, the house is still a drawing in the air */
+const SO_ROHBAU = scenePlate('so-rohbau', { site: SQ_SITE, frame: houseFrame(SQ_SITE), fit: { fill: 0.8, fillH: 0.4, cx: 0.5, cy: 0.74 }, house: true, rohbau: true, figure: [7.4, -1.9] });
+
+/* ═════════════════════════════════════════════════════════════════════════
+   STILL LIFES ON THE DRAWING TABLE. New motifs for the deck and the card,
+   none of them the house: a dimension chain, three corner vignettes (a clip
+   on sheets, a folding rule, a stamp and its pad), keys on a folded plan, and
+   two coffee rings on a plan. The table is plate VI's device: a plane tipped
+   toward the viewer (TABLE_TILT) under the series camera and sun, so a sheet
+   reads nearly from above; things lying on it cast short shadows onto it.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const TABLE_TILT = 1.12;
+const SHADE = { mist: 0.45, moss: 0.25 };                  // shadows on paper, as plate VI
+
+/** A plane through O with in-plane axes Ua, Va: (u, v, h) → world, h along the normal (plates V, VI). */
+function boardPlane(O, Ua, Va) {
+  const N = v3.norm([Ua[1] * Va[2] - Ua[2] * Va[1], Ua[2] * Va[0] - Ua[0] * Va[2], Ua[0] * Va[1] - Ua[1] * Va[0]]);
+  const at = (u, v, h) => v3.add(v3.add(v3.add(O, v3.mul(Ua, u)), v3.mul(Va, v)), v3.mul(N, h || 0));
+  const shadowOf = (p, L) => { const t = v3.dot(v3.sub(O, p), N) / v3.dot(L, N); return v3.add(p, v3.mul(L, t)); };
+  return { at, N, shadowOf };
+}
+/** A cylinder standing on the plane: silhouette and top ellipse (plate VI). */
+function planeCyl(P, B, u, v, r, h0, h1) {
+  const ringAt = (h, rr) => { const q = []; for (let i = 0; i < 48; i++) { const a = i / 48 * TAU; q.push(P(B.at(u + Math.cos(a) * rr, v + Math.sin(a) * rr, h))); } return q; };
+  const lo = ringAt(h0, r), hi = ringAt(h1, r);
+  const hl = hull(lo.concat(hi));
+  let xl = Infinity, xr = -Infinity; for (const q of hl) { xl = Math.min(xl, q[0]); xr = Math.max(xr, q[0]); }
+  return { sil: pathOf(hl), top: pathOf(hi), xl, xr };
+}
+
+/** The tipped table framed so the (u, v, h) points fill f; M maps table coordinates to the sheet.
+    A lower tilt shows more of what stands on the table (the stamp), less of what lies on it. */
+function tableView(pts, f, lwk, tilt) {
+  const tl = tilt || TABLE_TILT;
+  const B = boardPlane([0, 0, 0], [1, 0, 0], [0, Math.cos(tl), Math.sin(tl)]);
+  const P = fit(VIEW_SERIES, pts.map(([u, v, h]) => B.at(u, v, h || 0)), f);
+  const M = (u, v, h) => P(B.at(u, v, h || 0));
+  return {
+    B, P, M,
+    lw: (u) => weight(u * (lwk || 1)),
+    pl: (q, h, closed) => pathOf(q.map(([u, v]) => M(u, v, h)), closed !== false),
+    shadow: (q, h) => pathOf(q.map(([u, v]) => P(B.shadowOf(B.at(u, v, h), SUN_SERIES)))),
+  };
+}
+/** Table points turned by a (radians) about (cu, cv); a w × d rectangle so turned. */
+const turned = (cu, cv, a) => ([x, y]) => [cu + x * Math.cos(a) - y * Math.sin(a), cv + x * Math.sin(a) + y * Math.cos(a)];
+const rectQ = (cu, cv, w, d, a) => [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]].map(turned(cu, cv, a || 0));
+/** Local coordinates (s, t in 0..1) across a quad q, at height h. */
+const quadMap = (T, q, h) => (s, t) => T.M(q[0][0] + (q[1][0] - q[0][0]) * s + (q[3][0] - q[0][0]) * t,
+                                          q[0][1] + (q[1][1] - q[0][1]) * s + (q[3][1] - q[0][1]) * t, h);
+/** Shadows of things on the table: one union, one tint, so overlaps do not add up. */
+function tableShadows(c, shapes) {
+  const u = new Path2D();
+  for (const s of shapes) u.addPath(s);
+  tint(c, u, SHADE);
+}
+
+/** A working plan on a sheet: axes, walls, columns, door swings, a stair, a tinted room, a dimension chain. */
+function planDrawing(c, map, lw) {
+  const pth = (q, closed) => pathOf(q.map(([s, t]) => map(s, t)), closed);
+  const axes = new Path2D();
+  for (const s of [0.16, 0.38, 0.6, 0.82]) { const a = map(s, 0.14), b = map(s, 0.86); axes.moveTo(a[0], a[1]); axes.lineTo(b[0], b[1]); }
+  for (const t of [0.22, 0.5, 0.78]) { const a = map(0.1, t), b = map(0.9, t); axes.moveTo(a[0], a[1]); axes.lineTo(b[0], b[1]); }
+  c.L.save(); c.L.setLineDash([5, 3, 1, 3]); line(c, axes, lw(0.6), { hunter: 0.6 }); c.L.restore();
+  tint(c, pth([[0.6, 0.5], [0.82, 0.5], [0.82, 0.78], [0.6, 0.78]], true), { mist: 0.45 });
+  const wall = (q, w) => line(c, pth(q, false), lw(w), { hunter: 1, moss: 0.5 });
+  wall([[0.16, 0.22], [0.82, 0.22], [0.82, 0.78], [0.16, 0.78], [0.16, 0.22]], 2.0);
+  wall([[0.38, 0.22], [0.38, 0.42]], 1.4); wall([[0.38, 0.54], [0.38, 0.78]], 1.4);
+  wall([[0.6, 0.5], [0.82, 0.5]], 1.4); wall([[0.6, 0.62], [0.6, 0.78]], 1.4); wall([[0.16, 0.5], [0.3, 0.5]], 1.4);
+  for (const [s, t, r, a0] of [[0.38, 0.42, 0.1, Math.PI / 2], [0.6, 0.5, 0.1, Math.PI / 2]]) {
+    const arc = [[s, t]]; for (let i = 0; i <= 12; i++) { const a = a0 + i / 12 * Math.PI / 2; arc.push([s + Math.cos(a) * r * 0.8, t + Math.sin(a) * r]); }
+    line(c, pth(arc, false), lw(0.7), { hunter: 0.8 });
+  }
+  const st = new Path2D();
+  for (let i = 0; i <= 7; i++) { const a = map(0.18, 0.54 + i * 0.03), b = map(0.3, 0.54 + i * 0.03); st.moveTo(a[0], a[1]); st.lineTo(b[0], b[1]); }
+  line(c, st, lw(0.6), { hunter: 0.8 });
+  for (const s of [0.16, 0.38, 0.6, 0.82]) for (const t of [0.22, 0.5, 0.78]) {
+    const q = map(s, t), p = new Path2D(); p.rect(q[0] - lw(2.2), q[1] - lw(2.2), lw(4.4), lw(4.4));
+    lineFill(c, p, { hunter: 1 });
+  }
+  line(c, pth([[0.16, 0.12], [0.82, 0.12]], false), lw(0.6), { hunter: 0.85 });
+  for (const s of [0.16, 0.38, 0.6, 0.82]) { const q = map(s, 0.12), tk = new Path2D(); tk.moveTo(q[0] - lw(3), q[1] + lw(3)); tk.lineTo(q[0] + lw(3), q[1] - lw(3)); line(c, tk, lw(1.2), KEY); }
+}
+
+/** A pencil lying from a to b (table u, v), radius r: ferrule, faceted body, bare cone, graphite. */
+function pencil(c, T, a, b, r, shadows) {
+  const A = T.M(a[0], a[1], r), Bq = T.M(b[0], b[1], r);
+  const dx = Bq[0] - A[0], dy = Bq[1] - A[1], L = Math.hypot(dx, dy), d = [dx / L, dy / L], n = [-d[1], d[0]];
+  const w = r * T.P.s, at = (f, o) => [A[0] + d[0] * L * f + n[0] * o, A[1] + d[1] * L * f + n[1] * o];
+  const cone = 0.87, lead = 0.94;
+  if (shadows) {
+    const q = [0, cone, 1].map((f) => [lerp(a[0], b[0], f), lerp(a[1], b[1], f)]);
+    const sh = q.map(([u, v]) => T.P(T.B.shadowOf(T.B.at(u, v, r * 1.1), SUN_SERIES)));
+    shadows.push(nib(sh, (u) => (u < 0.5 ? w : w * (1 - u) * 2), { raw: true }));
+    return;
+  }
+  own(c, pathOf([at(0, w), at(cone, w), at(cone, -w), at(0, -w)]), { mist: 0.62, moss: 0.12 });
+  tint(c, pathOf([at(0, -w * 0.33), at(cone, -w * 0.33), at(cone, -w), at(0, -w)]), { moss: 0.3 });   // the facet away from the sun
+  own(c, pathOf([at(0, w), at(0.05, w), at(0.05, -w), at(0, -w)]), { moss: 0.55, hunter: 0.2 });       // ferrule
+  own(c, pathOf([at(cone, w), at(1, 0), at(cone, -w)]), {});
+  const g = w * (1 - lead) / (1 - cone);
+  lineFill(c, pathOf([at(lead, g), at(1, 0), at(lead, -g)]), { hunter: 1 });
+  line(c, pathOf([at(0, w), at(cone, w), at(1, 0), at(cone, -w), at(0, -w)]), T.lw(0.9), KEY);
+  line(c, pathOf([at(0.05, -w * 0.33), at(cone, -w * 0.33)], false), T.lw(0.6), { hunter: 0.8 });
+}
+
+/** A coffee ring: the dried edge darker and uneven, a faint wash inside, one thin place. ink: { edge, wash } specs. */
+function coffeeRing(c, T, cu, cv, r, h, key, ink) {
+  ink = ink || { edge: { moss: 0.85 }, wash: { moss: 0.12 } };
+  const rng = rngFor(key), wob = makeWob(rng, 3), ph = rng() * TAU;
+  const ring = (rr) => { const q = []; for (let i = 0; i <= 120; i++) { const a = i / 120 * TAU, k = 1 + 0.018 * wob(a); q.push(T.M(cu + Math.cos(a) * rr * k, cv + Math.sin(a) * rr * k, h)); } return q; };
+  tint(c, pathOf(ring(r * 0.985)), ink.wash);
+  const edge = nib(ring(r), (u) => (0.045 + 0.03 * (0.5 + 0.5 * Math.sin(u * TAU + ph)) - (u > 0.62 && u < 0.7 ? 0.03 : 0)) * T.P.s, { raw: true });
+  tint(c, edge, ink.edge);
+}
+
+/** A folding rule (Zollstock) lying in a zigzag from o: one segment of length ls per angle. */
+function zollstock(c, T, o, angles, ls, shadows) {
+  const wd = 0.36, th = 0.05;
+  let p = o;
+  const segs = angles.map((a, i) => {
+    const q = [p, [p[0] + Math.cos(a) * ls, p[1] + Math.sin(a) * ls]];
+    p = q[1];
+    return { q, a, h: th * (i + 1) };
+  });
+  const quad = ({ q, a }, grow) => {
+    const n = [-Math.sin(a) * wd / 2, Math.cos(a) * wd / 2], e = [Math.cos(a) * grow, Math.sin(a) * grow];
+    return [[q[0][0] - e[0] - n[0], q[0][1] - e[1] - n[1]], [q[1][0] + e[0] - n[0], q[1][1] + e[1] - n[1]],
+            [q[1][0] + e[0] + n[0], q[1][1] + e[1] + n[1]], [q[0][0] - e[0] + n[0], q[0][1] - e[1] + n[1]]];
+  };
+  if (shadows) { for (const s of segs) shadows.push(T.shadow(quad(s, 0.12), s.h + 0.06)); return; }
+  for (const s of segs) {
+    const top = T.pl(quad(s, 0.12), s.h);
+    own(c, top, { mist: 0.62 });
+    const ticks = new Path2D(), n = [-Math.sin(s.a) * wd / 2, Math.cos(s.a) * wd / 2];
+    for (let i = 1; i < 20; i++) {
+      const f = i / 20, k = i % 10 === 0 ? 0.5 : i % 2 === 0 ? 0.28 : 0.16;
+      const u = lerp(s.q[0][0], s.q[1][0], f), v = lerp(s.q[0][1], s.q[1][1], f);
+      const p0 = T.M(u + n[0], v + n[1], s.h), p1 = T.M(u + n[0] * (1 - k * 2), v + n[1] * (1 - k * 2), s.h);
+      ticks.moveTo(p0[0], p0[1]); ticks.lineTo(p1[0], p1[1]);
+    }
+    line(c, ticks, T.lw(0.6), { hunter: 0.95 });
+    line(c, top, T.lw(1.0), KEY);
+    for (const e of s.q) { const m = T.M(e[0], e[1], s.h), rv = new Path2D(); rv.ellipse(m[0], m[1], T.lw(2.2), T.lw(2.0), 0, 0, TAU); lineFill(c, rv, { hunter: 1 }); }
+  }
+}
+
+/** A key lying flat at height h: bow with its hole, a blade with bitting, the tip. */
+function keyShape(T, at, a, len, h, k) {
+  const F = (s, t) => { const [u, v] = turned(at[0], at[1], a)([s * k, t * k]); return T.M(u, v, h); };
+  const bow = []; for (let i = 0; i < 40; i++) { const g = i / 40 * TAU; bow.push(F(0.45 + Math.cos(g) * 0.45, Math.sin(g) * 0.4)); }
+  const teeth = [[0.95, -0.14], [1.1, -0.14], [1.16, -0.24], [1.26, -0.14], [1.36, -0.26], [1.48, -0.18], [1.58, -0.26], [1.7, -0.14], [len - 0.1, -0.14], [len, 0]];
+  const blade = [[0.85, 0.2], [0.95, 0.12], [len - 0.08, 0.12], [len, 0.02], ...teeth.slice().reverse(), [0.95, -0.14], [0.85, -0.2]].map(([s, t]) => F(s, t));
+  const body = new Path2D(); body.addPath(pathOf(hull(bow))); body.addPath(pathOf(blade));
+  const hole = new Path2D(); const hc = F(0.2, 0), hr = 0.13 * k * T.P.s; hole.ellipse(hc[0], hc[1], hr, hr * 0.95, 0, 0, TAU);
+  return { body, bowPath: pathOf(hull(bow)), blade: pathOf(blade), hole, groove: pathOf([F(0.98, 0.03), F(len - 0.15, 0.03)], false) };
+}
+
+/* ── the new plates ───────────────────────────────────────────────────── */
+
+/* Deck section divider: one long dimension chain across the slide, the overall
+   dimension beneath it, and the pencil that drew them put down at the end. */
+const MASSKETTE = {
+  inks: ['mist', 'moss', 'hunter'], key: 'hunter',
+  draw(c) {
+    const y = H * 0.7, xs = [0.12, 0.27, 0.35, 0.56, 0.7, 0.8].map((f) => f * W);
+    const tick = (x, yy) => { const t = new Path2D(); t.moveTo(x - 6, yy + 6); t.lineTo(x + 6, yy - 6); line(c, t, 1.9, KEY); };
+    line(c, pathOf([[xs[0] - 12, y], [xs[5] + 12, y]], false), 1.0, { hunter: 0.95 });
+    for (const x of xs) { line(c, pathOf([[x, y - 46], [x, y + 10]], false), 0.8, { hunter: 0.85 }); tick(x, y); }
+    const y2 = y + 30;
+    line(c, pathOf([[xs[0] - 12, y2], [xs[5] + 12, y2]], false), 1.0, { hunter: 0.95 });
+    for (const x of [xs[0], xs[5]]) { line(c, pathOf([[x, y + 10], [x, y2 + 10]], false), 0.8, { hunter: 0.85 }); tick(x, y2); }
+    /* the pencil lies flat on the paper, so the sheet is its table */
+    const T = { P: Object.assign((p) => p, { s: 1 }), M: (u, v) => [u, v], lw: (u) => u };
+    const a = [xs[5] + 24, y + 40], b = [xs[5] + 176, y - 30], sw = 8;
+    tint(c, nib([[a[0] + 4, a[1] + 5], [lerp(a[0], b[0], 0.87) + 4, lerp(a[1], b[1], 0.87) + 5], [b[0] + 4, b[1] + 5]], (u) => (u < 0.5 ? sw : sw * (1 - u) * 2), { raw: true }), { mist: 0.35, moss: 0.15 });
+    pencil(c, T, a, b, 8);
+  },
+};
+
+/* Deck content backgrounds: quiet paper, one small thing in the bottom-right corner. */
+const CORNER_FIT = { fill: 0.2, fillH: 0.26, cx: 0.86, cy: 0.8 };
+const ECKE_KLAMMER = {                                    // three loose sheets, a paper clip on their corner
+  inks: ['mist', 'moss', 'hunter'], key: 'hunter',
+  draw(c) {
+    const T = tableView([[-4.4, -3.2], [4.6, -3.2], [-4.4, 3.4], [4.6, 3.4]], CORNER_FIT);
+    const sheets = [[-0.5, -0.2, -0.12], [0.2, 0.1, 0.05], [-0.1, 0.0, -0.02]];
+    tableShadows(c, [T.shadow(rectQ(-0.1, 0, 6.6, 4.8, -0.04), 0.12)]);
+    sheets.forEach(([du, dv, a], i) => {
+      const q = rectQ(du, dv, 6.2, 4.4, a), h = 0.02 + i * 0.03;
+      own(c, T.pl(q, h), i < 2 ? { mist: 0.08 } : {});
+      if (i === 2) {
+        const m = quadMap(T, q, h);
+        line(c, pathOf([m(0.08, 0.84), m(0.52, 0.84)], false), 1.8, { hunter: 0.95 });
+        for (let k = 0; k < 6; k++) line(c, pathOf([m(0.08, 0.7 - k * 0.1), m(k === 5 ? 0.5 : 0.9, 0.7 - k * 0.1)], false), 0.8, { hunter: 0.85 });
+      }
+      line(c, T.pl(q, h), 1.0, KEY);
+    });
+    /* the clip over the top-left corner: steel wire, and its shadow beside it */
+    const o = rectQ(-0.1, 0.0, 6.2, 4.4, -0.02)[3];
+    const wire = [[0.35, -1.2], [0.35, -0.2], [0.55, 0.0], [0.75, -0.2], [0.75, -1.45], [0.55, -1.62], [0.2, -1.62], [0.0, -1.45], [0.0, -0.1], [0.2, 0.12], [0.55, 0.12], [0.75, -0.1]]
+      .map(([x, y]) => [o[0] + 0.9 + x, o[1] + 0.25 + y]);
+    const path = (h, sh) => pathOf(curve(wire, false, 8).map(([u, v]) => (sh ? T.P(T.B.shadowOf(T.B.at(u, v, h), SUN_SERIES)) : T.M(u, v, h))), false);
+    line(c, path(0.2, true), 3.0, { mist: 0.5, moss: 0.3 });
+    line(c, path(0.1), 2.6, { hunter: 0.9, moss: 0.4 });
+  },
+};
+const ECKE_MASSSTAB = {                                   // a folding rule, half open, and a pencil
+  inks: ['mist', 'moss', 'hunter'], key: 'hunter',
+  draw(c) {
+    const T = tableView([[-4.6, -2.6], [4.6, -2.6], [-4.6, 3.0], [4.6, 3.0]], { fill: 0.24, fillH: 0.3, cx: 0.85, cy: 0.8 });
+    const shapes = [], zs = [-4.2, -1.9], za = [0.3, -0.5, 0.62, -0.18], pa = [-3.4, 2.1], pb = [1.6, 1.2];
+    zollstock(c, T, zs, za, 2.4, shapes);
+    pencil(c, T, pa, pb, 0.15, shapes);
+    tableShadows(c, shapes);
+    zollstock(c, T, zs, za, 2.4);
+    pencil(c, T, pa, pb, 0.15);
+  },
+};
+const ECKE_STEMPEL = {                                    // a stamp, its ink pad, and the mark it just made
+  inks: ['mist', 'moss', 'hunter', 'red'], key: 'hunter',
+  draw(c) {
+    const T = tableView([[-4.6, -3.0], [4.6, -3.0], [-4.6, 5.0], [4.6, 5.0], [2.2, 0.4, 1.8]], CORNER_FIT, 1, 0.62);
+    /* the impression: a framed mark, the plate's one red, a little askew */
+    const m = quadMap(T, rectQ(-2.3, -1.6, 2.6, 1.6, 0.09), 0.01);
+    line(c, pathOf([m(0, 0), m(1, 0), m(1, 1), m(0, 1)]), 2.4, { red: 0.95 });
+    line(c, pathOf([m(0.08, 0.12), m(0.92, 0.12), m(0.92, 0.88), m(0.08, 0.88)]), 1.0, { red: 0.9 });
+    line(c, pathOf([m(0.2, 0.62), m(0.8, 0.62)], false), 1.6, { red: 0.9 });
+    line(c, pathOf([m(0.2, 0.4), m(0.62, 0.4)], false), 1.6, { red: 0.9 });
+    const neck = planeCyl(T.P, T.B, 2.2, 0.4, 0.28, 0.4, 1.3), knob = planeCyl(T.P, T.B, 2.2, 0.4, 0.46, 1.3, 1.75);
+    const knobRing = []; for (let i = 0; i < 24; i++) { const g = i / 24 * TAU; knobRing.push([2.2 + Math.cos(g) * 0.46, 0.4 + Math.sin(g) * 0.46]); }
+    tableShadows(c, [T.shadow([[-3.6, 1.0], [-0.4, 1.0], [-0.4, 3.0], [-3.6, 3.0]], 0.3), T.shadow(rectQ(2.2, 0.4, 1.8, 1.2, 0), 0.4), T.shadow(knobRing, 1.75)]);
+    const box = (u0, v0, u1, v1, h0, h1, topSpec, sideSpec) => {
+      const pts = [[u0, v0, h0], [u1, v0, h0], [u1, v1, h0], [u0, v1, h0], [u0, v0, h1], [u1, v0, h1], [u1, v1, h1], [u0, v1, h1]].map(([u, v, h]) => T.M(u, v, h));
+      const sil = pathOf(hull(pts)), top = pathOf([pts[4], pts[5], pts[6], pts[7]]);
+      own(c, sil, sideSpec); own(c, top, topSpec);
+      line(c, sil, 1.2, KEY); line(c, top, 0.9, KEY);
+    };
+    box(-3.6, 3.1, -0.4, 5.0, 0, 0.1, { mist: 0.25 }, { moss: 0.4 });               // the lid, laid open
+    box(-3.6, 1.0, -0.4, 3.0, 0, 0.3, { mist: 0.3, moss: 0.2 }, { moss: 0.5 });       // the tin
+    const felt = T.pl([[-3.35, 1.2], [-0.65, 1.2], [-0.65, 2.8], [-3.35, 2.8]], 0.3);
+    own(c, felt, { red: 0.72, hunter: 0.12 }); line(c, felt, 0.8, KEY);
+    box(1.3, -0.2, 3.1, 1.0, 0, 0.4, { mist: 0.35 }, { moss: 0.45 });               // the stamp's base
+    own(c, neck.sil, { mist: 0.2 });
+    if (c.ink === 'moss') shade(c.g, neck.sil, { x0: neck.xl, y0: 0, x1: neck.xr, y1: 0, stops: [[0, 0], [0.55, 0], [1, 0.45]] });
+    line(c, neck.sil, 1.1, KEY);
+    own(c, knob.sil, { mist: 0.3 });
+    if (c.ink === 'moss') shade(c.g, knob.sil, { x0: knob.xl, y0: 0, x1: knob.xr, y1: 0, stops: [[0, 0], [0.5, 0], [1, 0.5]] });
+    own(c, knob.top, { mist: 0.15 });
+    line(c, knob.sil, 1.2, KEY); line(c, knob.top, 0.9, KEY);
+  },
+};
+
+/* Deck closing: the keys to the project on a folded plan, a paper tag on their ring. */
+const SCHLUESSEL = {
+  inks: ['mist', 'moss', 'hunter'], key: 'hunter',
+  draw(c) {
+    const T = tableView([[-8.6, -6.4], [8.6, -6.4], [-8.6, 6.4], [8.6, 6.4]], { fill: 0.46, fillH: 0.74, cx: 0.68, cy: 0.54 });
+    const sheet = rectQ(0, 0, 15.6, 11.0, -0.05);
+    tableShadows(c, [T.shadow(sheet, 0.08)]);
+    const m = quadMap(T, sheet, 0.02);
+    own(c, T.pl(sheet, 0.02), {});
+    /* folded in four: the panels catch the light a little differently */
+    tint(c, pathOf([m(0.5, 0), m(1, 0), m(1, 0.5), m(0.5, 0.5)]), { mist: 0.14 });
+    tint(c, pathOf([m(0, 0.5), m(0.5, 0.5), m(0.5, 1), m(0, 1)]), { mist: 0.1 });
+    planDrawing(c, m, (u) => u);
+    line(c, pathOf([m(0.5, 0), m(0.5, 1)], false), 0.9, { mist: 0.9, moss: 0.35 });
+    line(c, pathOf([m(0, 0.5), m(1, 0.5)], false), 0.9, { mist: 0.9, moss: 0.35 });
+    line(c, T.pl(sheet, 0.02), 1.1, KEY);
+    /* the ring through both bows, a tag on a string */
+    const R = [1.6, -1.0], KS = 1.7, rr = 0.92 * KS;
+    const k1 = keyShape(T, [R[0] + 0.55 * KS, R[1] - 0.45 * KS], -0.62, 3.4, 0.12, KS);
+    const k2 = keyShape(T, [R[0] + 0.7 * KS, R[1] + 0.25 * KS], 0.18, 2.8, 0.2, KS);
+    const tag = rectQ(R[0] - 4.6, R[1] - 2.6, 3.6, 2.1, 0.35);
+    const s0 = T.P(T.B.shadowOf(T.B.at(0, 0, 0.3), SUN_SERIES)), o0 = T.M(0, 0, 0);
+    const off = (p) => { const q = new Path2D(); q.addPath(p, new DOMMatrix([1, 0, 0, 1, s0[0] - o0[0], s0[1] - o0[1]])); return q; };
+    tableShadows(c, [off(k1.body), off(k2.body), T.shadow(tag, 0.06)]);
+    own(c, T.pl(tag, 0.05), {});
+    const tm = quadMap(T, tag, 0.05), ec = tm(0.88, 0.5), eye = new Path2D(); eye.ellipse(ec[0], ec[1], 0.24 * T.P.s, 0.24 * T.P.s, 0, 0, TAU);
+    own(c, eye, { mist: 0.5 }); line(c, eye, 0.8, KEY);
+    line(c, T.pl(tag, 0.05), 1.0, KEY);
+    line(c, pathOf(curve([ec, T.M(R[0] - 2.4, R[1] - 0.9, 0.08), T.M(R[0] - rr, R[1] - 0.1, 0.1)], false, 10), false), 0.9, { hunter: 0.9 });
+    for (const [k, spec] of [[k2, { mist: 0.45, moss: 0.18 }], [k1, { mist: 0.3, moss: 0.34 }]]) {
+      own(c, k.body, spec);
+      clearAll(c, k.hole);
+      line(c, k.bowPath, 1.1, KEY); line(c, k.blade, 1.1, KEY); line(c, k.hole, 0.9, KEY);
+      line(c, k.groove, 0.7, { hunter: 0.8 });
+    }
+    const ring = []; for (let i = 0; i <= 64; i++) { const g = i / 64 * TAU; ring.push(T.M(R[0] + Math.cos(g) * rr, R[1] + Math.sin(g) * rr, 0.24)); }
+    line(c, pathOf(ring, false), 3.2, { hunter: 0.9, moss: 0.3 });
+  },
+};
+
+/* Postcard front: a plan after a long meeting. Two coffee rings
+   overlap on it, one cup each; a pencil and a folding rule lie where they were
+   put down. Three drums: Mist, Moss, Hunter. */
+const KAFFEE = {
+  inks: ['mist', 'moss', 'hunter'], key: 'hunter',
+  draw(c) {
+    const T = tableView([[-6.6, -8.6], [6.6, -8.6], [-6.6, 8.2], [6.6, 8.2]], { fill: 0.84, fillH: 0.8, cx: 0.5, cy: 0.5 }, 1.45);
+    const sheet = rectQ(0, 0, 11.2, 15.4, 0.04);
+    const zs = [-5.9, -6.9], za = [0.28, -0.42, 0.9, 0.2], pa = [-1.4, -4.6], pb = [4.6, -2.2];
+    tableShadows(c, [T.shadow(sheet, 0.06)]);
+    own(c, T.pl(sheet, 0.02), {});
+    const m = quadMap(T, sheet, 0.02);
+    planDrawing(c, m, T.lw);
+    for (const [s, t, a] of [[0, 0, 0.7], [1, 0, -0.7], [1, 1, 0.7], [0, 1, -0.7]]) {
+      const [cu, cv] = [sheet[0][0] + (sheet[1][0] - sheet[0][0]) * s + (sheet[3][0] - sheet[0][0]) * t, sheet[0][1] + (sheet[1][1] - sheet[0][1]) * s + (sheet[3][1] - sheet[0][1]) * t];
+      own(c, T.pl(rectQ(cu, cv, 1.2, 0.5, 0.04 + a), 0.04), { mist: 0.75, moss: 0.1 });
+    }
+    line(c, T.pl(sheet, 0.02), T.lw(1.0), KEY);
+    coffeeRing(c, T, 1.7, 3.2, 1.25, 0.03, 'kaffee:a');
+    coffeeRing(c, T, 3.1, 2.3, 1.2, 0.03, 'kaffee:b');
+    const shapes = [];
+    zollstock(c, T, zs, za, 3.1, shapes);
+    pencil(c, T, pa, pb, 0.16, shapes);
+    tableShadows(c, shapes);
+    zollstock(c, T, zs, za, 3.1);
+    pencil(c, T, pa, pb, 0.16);
+  },
+};
+
+/* ═════════════════════════════════════════════════════════════════════════
+   A6 postcard, 1240 × 1748 at 300 dpi, for the pilot offices: a thank-you.
+   Front: KAFFEE above, every mark more than 5 mm inside the card (a riso
+   press leaves that much unprinted); lines 1.45 times heavier, because a
+   0.08 mm hairline does not survive a riso master. Back: one ink (Hunter), a
+   stamp box, a rule and address lines, and the two coffee rings again, small;
+   the words are set on it by rueckseite.mjs.
+   ═════════════════════════════════════════════════════════════════════════ */
+const MM = W / 105;                                        // units per millimetre on the A6 sheet
+const RUECKSEITE = {
+  inks: ['hunter'], key: 'hunter',
+  draw(c) {
+    const m = 9 * MM, lw = (u) => weight(u);
+    /* stamp box, top right */
+    const sb = pathOf([[W - m - 21 * MM, m], [W - m, m], [W - m, m + 25 * MM], [W - m - 21 * MM, m + 25 * MM]]);
+    dashed(c, sb, lw(1.6), KEY, [5 * 1.6, 4 * 1.6]);
+    /* the rule between message and address */
+    const ry = H * 0.56;
+    line(c, pathOf([[m, ry], [W - m, ry]], false), lw(1.8), KEY);
+    /* four address lines, right of centre */
+    for (let i = 0; i < 4; i++) {
+      const y = ry + 26 * MM + i * 11 * MM;
+      line(c, pathOf([[W * 0.4, y], [W - m, y]], false), lw(1.3), { hunter: 0.9 });
+    }
+    /* the front's two coffee rings, small, bottom left: the card's signature */
+    const T = tableView([[-1.6, -1.6], [4.4, -1.6], [-1.6, 4.6], [4.4, 4.6]], { fill: 0.2, fillH: 0.13, cx: m / W + 0.11, cy: 1 - (m + 11 * MM) / H }, 1.5);
+    const one = { edge: { hunter: 0.9 }, wash: {} };
+    coffeeRing(c, T, 0.0, 1.3, 1.25, 0, 'kaffee:a', one);
+    coffeeRing(c, T, 1.4, 0.4, 1.2, 0, 'kaffee:b', one);
+  },
+};
+
+/* ═════════════════════════════════════════════════════════════════════════
+   JOBS. Only the signature strip is a site file (public/art/), because mail
+   clients load it from https://piloti.at/art/; everything else goes to
+   art/riso/out/collateral/. Plate names seed the random streams: frozen.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+Riso.run({
+  work: 'collateral',
+  plates: [
+    { name: 'signatur',      base: 'piloti-signatur',             art: SIGNATUR,      composes: ['strip'], number: 0 },
+    { name: 'so-rohbau',     base: 'piloti-social-rohbau',         art: SO_ROHBAU,     composes: ['sq'], number: 0 },
+    { name: 'masskette',     base: 'piloti-deck-kapitel-masskette', art: MASSKETTE,    composes: ['cover'], number: 0 },
+    { name: 'ecke-klammer',  base: 'piloti-deck-inhalt-klammer',   art: ECKE_KLAMMER,  composes: ['cover'], number: 0 },
+    { name: 'ecke-massstab', base: 'piloti-deck-inhalt-massstab',  art: ECKE_MASSSTAB, composes: ['cover'], number: 0 },
+    { name: 'ecke-stempel',  base: 'piloti-deck-inhalt-stempel',   art: ECKE_STEMPEL,  composes: ['cover'], number: 0 },
+    { name: 'schluessel',    base: 'piloti-deck-schluss-schluessel', art: SCHLUESSEL,  composes: ['cover'], number: 0 },
+    { name: 'kaffee',        base: 'piloti-kaffee',                art: KAFFEE,        composes: ['a6'], number: 0 },
+    { name: 'rueckseite',    base: 'piloti-karte-rueckseite',      art: RUECKSEITE,    composes: ['a6'], number: 0 },
+  ],
+  jobs: [
+    { plate: 'signatur', format: 'email',
+      alt: { de: 'Piloti – ein Haus auf drei Stützen', en: 'Piloti – a house on three columns' } },
+    { plate: 'so-rohbau', format: 'social' },
+    { plate: 'masskette', format: 'deck' },
+    { plate: 'ecke-klammer', format: 'deck' },
+    { plate: 'ecke-massstab', format: 'deck' },
+    { plate: 'ecke-stempel', format: 'deck' },
+    { plate: 'schluessel', format: 'deck' },
+    { plate: 'kaffee', format: 'postcard' },
+    { plate: 'rueckseite', format: 'postcard' },
+  ],
+});
+</script>
+</html>
