@@ -88,6 +88,7 @@ export is one integer time of the page.
 | `cover` | 720×405, 1440×810 | 3.4 / 6.8 | `cover` | site |
 | `spot` | 96², 192² | 3.4 / 6.8 | `spot` | site |
 | `empty` | 320², 640² | 3.4 / 6.8 | `empty` | site |
+| `release` | 64², 128² | 2.4 / 4.8 | `stamp` | site |
 | `email` | 600×120, 1200×240 PNG | 3.4 / 6.8 | `strip` | out |
 | `social` | 1080² PNG | 5.0 | `sq` | out |
 | `linkedin` | 1584×396 PNG | 5.0 | `linkedin` | out |
