@@ -11,7 +11,7 @@ import IsoStackFigure from '../../../components/blog/figures/IsoStackFigure.astr
 import ScopeFigure from '../../../components/blog/figures/ScopeFigure.astro'
 import HybridFigure from '../../../components/blog/figures/HybridFigure.astro'
 
-A typical Piloti question looks harmless. "Which escape route widths apply to this kindergarten?" Behind it sit an OIB guideline, one of nine state building codes, the project brief, and possibly a decree that changed last spring. The answer is only worth something if it names the clause it came from, quotes it correctly, and reflects the version that is actually in force.
+A typical Piloti question looks harmless. “Which escape route widths apply to this kindergarten?” Behind it sit an OIB guideline, one of nine state building codes, the project brief, and possibly a decree that changed last spring. The answer is only worth something if it names the clause it came from, quotes it correctly, and reflects the version that is actually in force.
 
 Getting that right is not a prompt. It is a pipeline with six layers, and this post walks through all of them, including the parts that did not work on the first try.
 
@@ -21,7 +21,7 @@ Getting that right is not a prompt. It is a pipeline with six layers, and this p
   alt="Exploded stack of six layers: sources, ingestion, index, retrieval, verification, answer"
   caption="Every Piloti answer falls through this stack. Each layer only trusts what the layer above already cleaned up."
   layers={[
-    { label: 'SOURCES', sublabel: 'LAW - OFFICE - PROJECT - WEB', glyph: 'tiles' },
+    { label: 'SOURCES', sublabel: 'LAW · OFFICE · PROJECT · WEB', glyph: 'tiles' },
     { label: 'INGESTION', sublabel: 'TEXT, TABLES, PLANS', glyph: 'funnel' },
     { label: 'INDEX', sublabel: 'VECTORS + FULL TEXT, ONE STORE', glyph: 'disc', accent: true },
     { label: 'RETRIEVAL', sublabel: 'TWO CHANNELS IN PARALLEL', glyph: 'lines' },
@@ -44,7 +44,7 @@ Early on we made a decision that shaped everything after it: we do not ask offic
 
 Two structural facts organize what Piloti ingests. The first is what a source *is*: building law, office knowledge, project document, or web. Every source in an answer carries a chip naming its kind, so you always see what class of evidence you are looking at.
 
-The second fact is the important one, and it is a hierarchy: where a source *lives*. Knowledge sits on four nested levels. At the outermost level, the building law everyone shares. Inside it, your office's own archive, which no other office can see. Inside that, each project with its documents, visible to its members. Innermost, the single conversation with whatever you attached to it.
+The second fact is the important one, and it is a hierarchy: where a source *lives*. Knowledge sits on four nested levels. At the outermost level, the building law everyone shares. Inside it, your office’s own archive, which no other office can see. Inside that, each project with its documents, visible to its members. Innermost, the single conversation with whatever you attached to it.
 
 <ScopeFigure
   kicker="FIG. 02"
@@ -60,13 +60,13 @@ The second fact is the important one, and it is a hierarchy: where a source *liv
   search="A QUESTION SEARCHES OUTWARD"
 />
 
-The nesting is what makes the answer trustworthy in both directions. Outward, it means one question reaches everything relevant to it at once, from the sketch you attached a minute ago to the OIB guideline everyone shares. Inward, it means the boundary holds: your office's knowledge improves your office's answers and nobody else's.
+The nesting is what makes the answer trustworthy in both directions. Outward, it means one question reaches everything relevant to it at once, from the sketch you attached a minute ago to the OIB guideline everyone shares. Inward, it means the boundary holds: your office’s knowledge improves your office’s answers and nobody else’s.
 
 One rule sits above all the automation: when a person classifies a document, that classification wins. A filename can suggest what a document is. It cannot outvote the architect who knows.
 
 ## From PDF to something a machine can search
 
-Most building law arrives as PDF, and PDF fights back. This is the ingestion layer, and it extracts page by page. Text is pulled with watermarks stripped, tables are extracted separately so a load table stays a table, and plan pages are rendered and described by a vision model, which turns "the site plan on page 12" into text a search can actually find. The result is split into chunks of roughly a thousand tokens with overlap, so each piece is small enough to match precisely and large enough to keep its context.
+Most building law arrives as PDF, and PDF fights back. This is the ingestion layer, and it extracts page by page. Text is pulled with watermarks stripped, tables are extracted separately so a load table stays a table, and plan pages are rendered and described by a vision model, which turns “the site plan on page 12” into text a search can actually find. The result is split into chunks of roughly a thousand tokens with overlap, so each piece is small enough to match precisely and large enough to keep its context.
 
 Each chunk is then stored twice in the index layer. Once as an embedding, a numeric fingerprint of its meaning that lets the system find a clause even when the question uses entirely different words. And once as plain text in a full-text index, so an exact term can be found exactly. Keeping both is deliberate, and the next section is about why.
 
@@ -76,9 +76,9 @@ This is also where we part ways with a ranking trick that is popular in systems 
 
 ## Why vector search alone was not enough
 
-Our first retrieval was pure embedding search. It was impressive for a week. Embeddings catch paraphrase, which matters in a field where the person asking and the clause answering rarely share vocabulary. Someone asks about wheelchair access, the clause says "stufenlos erreichbar", and vector similarity connects the two anyway.
+Our first retrieval was pure embedding search. It was impressive for a week. Embeddings catch paraphrase, which matters in a field where the person asking and the clause answering rarely share vocabulary. Someone asks about wheelchair access, the clause says “stufenlos erreichbar”, and vector similarity connects the two anyway.
 
-Then the failure cases arrived. When a planner types "OIB-Richtlinie 4, Punkt 2.1.1", semantic similarity has no business deciding what comes back. That question has exactly one right document, and an exact match on the reference is the strongest evidence there is. So the retrieval layer runs every question through two channels at once, a semantic one for paraphrase and a lexical one for norm references, section numbers, and defined terms, and the candidates are merged.
+Then the failure cases arrived. When a planner types “OIB-Richtlinie 4, Punkt 2.1.1”, semantic similarity has no business deciding what comes back. That question has exactly one right document, and an exact match on the reference is the strongest evidence there is. So the retrieval layer runs every question through two channels at once, a semantic one for paraphrase and a lexical one for norm references, section numbers, and defined terms, and the candidates are merged.
 
 <HybridFigure
   kicker="FIG. 03"
@@ -87,11 +87,11 @@ Then the failure cases arrived. When a planner types "OIB-Richtlinie 4, Punkt 2.
   caption="Each channel covers the other's blind spot: embeddings find paraphrase, exact matching finds section numbers. The cap keeps a 200 page guideline from crowding out a two page decree."
   labels={{
     query: 'QUESTION',
-    querySub: '"ESCAPE ROUTE WIDTH, KINDERGARTEN?"',
+    querySub: '“ESCAPE ROUTE WIDTH, KINDERGARTEN?”',
     semantic: 'SEMANTIC CHANNEL',
     semanticSub: 'FINDS PARAPHRASE',
     lexical: 'LEXICAL CHANNEL',
-    lexicalSub: 'FINDS "OIB-4 PUNKT 2.1.1"',
+    lexicalSub: 'FINDS “OIB-4 PUNKT 2.1.1”',
     merge: 'CANDIDATES MERGED',
     mergeSub: 'BOTH CHANNELS COUNT',
     cap: 'CAP PER DOCUMENT',
@@ -105,7 +105,7 @@ One more lesson from production: long documents are bullies. A 200 page guidelin
 
 Retrieval finds candidates. It does not make them true. The verification layer is where evidence earns the right to appear: every Piloti answer cites its sources down to the document and page, and quoted passages are checked against the source text before you see them. If a quote cannot be verified, it does not ship.
 
-This is the part we are least willing to compromise on. In building law, "trust me" is not a feature. An answer you cannot trace is an opinion, and our users can get opinions for free.
+This is the part we are least willing to compromise on. In building law, “trust me” is not a feature. An answer you cannot trace is an opinion, and our users can get opinions for free.
 
 ## Memory that earns its place
 
@@ -117,7 +117,7 @@ When the next question comes in, the stored notes compete for a small budget of 
 
 Two more rules keep the memory honest. It never outranks what you type in the moment; the live turn always wins. And it is never a citation source; memory shapes an answer, the cited clause still has to come from a document.
 
-We did not invent this scoring. The shape comes from Stanford's Generative Agents work, the decay curve from the MemoryBank paper. Borrowing a published, tested design beat a weekend of our own intuition, and we suspect that is true more often than engineers like to admit.
+We did not invent this scoring. The shape comes from Stanford’s Generative Agents work, the decay curve from the MemoryBank paper. Borrowing a published, tested design beat a weekend of our own intuition, and we suspect that is true more often than engineers like to admit.
 
 ## And when the answer is still wrong
 
