@@ -234,6 +234,8 @@ const de = {
     title: 'Drei Gründer, ein Ziel: Wissen dort, wo geplant wird.',
     body: 'Piloti ist in der Gründung. Bis dahin arbeiten wir auf Basis einer Absichtserklärung (Letter of Intent) — und suchen Pilotbüros, die mitentwickeln.',
     listLabel: 'Die Gründer',
+    // The caption under the section's riso plate (see craft/plates.ts).
+    plateCaption: 'Tafel I — Drei Stützen',
     facts: [
       { label: 'Ort', value: 'Wien' },
       { label: 'Stand', value: 'Proof of Concept' },
@@ -243,6 +245,11 @@ const de = {
   cta: {
     tag: 'Kontakt',
     title: 'Werden Sie Pilotbüro.',
+    // The words of the title that get the pencil line; must occur in `title`.
+    titleMark: 'Pilotbüro',
+    // Decorative (aria-hidden): the section already says we are looking for
+    // early pilot offices, so the stamp repeats it rather than saying it alone.
+    stamp: 'Pilotphase',
     body: 'Wir entwickeln Piloti gemeinsam mit wenigen Büros, die früh dabei sein wollen.',
     getsLabel: 'Sie bekommen',
     gets: [
@@ -388,6 +395,7 @@ const de = {
     heading: 'Diese Seite liegt nicht im Plan.',
     body: 'Die gesuchte Seite existiert nicht oder wurde verschoben.',
     home: 'Zur Startseite',
+    plateCaption: 'Tafel IV — Bauplatz',
   },
   legal: {
     tag: 'Rechtliches',
@@ -672,6 +680,7 @@ const en: typeof de = {
     title: 'Three founders, one aim: knowledge where the planning happens.',
     body: 'Piloti is still being founded. Until then we work under a letter of intent — and we are looking for pilot offices to build it with us.',
     listLabel: 'The founders',
+    plateCaption: 'Plate I — Three columns',
     facts: [
       { label: 'Place', value: 'Vienna' },
       { label: 'Stage', value: 'Proof of concept' },
@@ -681,6 +690,8 @@ const en: typeof de = {
   cta: {
     tag: 'Contact',
     title: 'Become a pilot office.',
+    titleMark: 'pilot office',
+    stamp: 'Pilot phase',
     body: 'We are building Piloti together with a small number of offices that want to be in early.',
     getsLabel: 'You get',
     gets: [
@@ -818,6 +829,7 @@ const en: typeof de = {
     heading: 'This page is not in the plan.',
     body: 'The page you are looking for does not exist or has been moved.',
     home: 'Back to the homepage',
+    plateCaption: 'Plate IV — Building site',
   },
   legal: {
     tag: 'Legal',

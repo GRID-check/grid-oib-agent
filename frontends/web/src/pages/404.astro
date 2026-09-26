@@ -1,6 +1,8 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro'
 import Pill from '../components/atoms/Pill.astro'
+import TapedPrint from '../components/craft/TapedPrint.astro'
+import { PLATES } from '../components/craft/plates'
 import { ui } from '../i18n/ui'
 
 const de = ui.de.notFound
@@ -11,6 +13,9 @@ const en = ui.en.notFound
   <section class="flex min-h-[70vh] flex-col items-center justify-center px-6 pb-24 pt-36 text-center">
     <p class="font-mono text-xs uppercase tracking-label text-accent-600">404</p>
     <div data-404-de>
+      <!-- The building site that is not in the plan: plate IV, once it exists.
+           One per language block, so its caption switches with the text. -->
+      <TapedPrint name={PLATES.IV} size="third" rotate={-1.5} align="center" caption={de.plateCaption} class="mb-10 mt-8" />
       <h1
         class="mt-5 max-w-xl font-voice text-v2 text-ink"
       >
@@ -24,6 +29,7 @@ const en = ui.en.notFound
       </div>
     </div>
     <div data-404-en hidden>
+      <TapedPrint name={PLATES.IV} size="third" rotate={-1.5} align="center" caption={en.plateCaption} class="mb-10 mt-8" />
       <h1
         class="mt-5 max-w-xl font-voice text-v2 text-ink"
       >

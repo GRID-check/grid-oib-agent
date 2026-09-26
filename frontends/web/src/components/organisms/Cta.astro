@@ -1,6 +1,8 @@
 ---
 import Pill from '../atoms/Pill.astro'
 import SectionTag from '../atoms/SectionTag.astro'
+import PencilUnderline from '../craft/PencilUnderline.astro'
+import Stamp from '../craft/Stamp.astro'
 import { CONTACT_EMAILS, mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 
@@ -16,12 +18,24 @@ const terms = [
   { label: t.cta.getsLabel, items: t.cta.gets, mark: '+' },
   { label: t.cta.givesLabel, items: t.cta.gives, mark: '→' },
 ]
+
+// The pencil goes under the words the whole page has been leading to. If a
+// translation drops them from the title, the title simply goes without.
+const at = t.cta.title.indexOf(t.cta.titleMark)
+const title =
+  at < 0
+    ? null
+    : {
+        before: t.cta.title.slice(0, at),
+        mark: t.cta.titleMark,
+        after: t.cta.title.slice(at + t.cta.titleMark.length),
+      }
 ---
 
 <section
   id="kontakt"
   data-screen-label={t.sheets.kontakt}
-  class="relative isolate mx-auto box-border max-w-[80rem] px-4 pb-16 pt-12 sm:px-12 sm:pb-20 sm:pt-20 lg:flex lg:min-h-[72vh] lg:flex-col lg:justify-center"
+  class="relative isolate mx-auto box-border max-w-[80rem] overflow-x-clip px-4 pb-16 pt-12 sm:px-12 sm:pb-20 sm:pt-20 lg:flex lg:min-h-[72vh] lg:flex-col lg:justify-center"
 >
   <!-- The page ends on open ground rather than another panel, so the close gets
        one soft light and a closing mark instead of a frame. -->
@@ -37,9 +51,29 @@ const terms = [
 
   <div data-reveal class="text-center">
     <SectionTag no={sheetNo} class="mb-6 justify-center">{t.cta.tag}</SectionTag>
-    <h2 class="m-0 mx-auto mb-5 max-w-4xl font-voice text-v1 text-ink" style="text-wrap: balance">
-      {t.cta.title}
-    </h2>
+    <div class="relative mx-auto max-w-4xl">
+      <h2 class="m-0 mb-5 font-voice text-v1 text-ink" style="text-wrap: balance">
+        {
+          title ? (
+            <>
+              {title.before}<PencilUnderline>{title.mark}</PencilUnderline>{title.after}
+            </>
+          ) : (
+            t.cta.title
+          )
+        }
+      </h2>
+      <!-- Pressed onto the corner of the headline once it is on screen. The
+           section says the same in words. Not on a phone: the headline fills
+           the width there, and the stamp would land on it. -->
+      <Stamp
+        text={t.cta.stamp}
+        rotate={-11}
+        thud
+        delay={350}
+        class="absolute -top-8 right-[4%] max-sm:hidden lg:right-[8%]"
+      />
+    </div>
     <p
       class="m-0 mx-auto max-w-xl text-base leading-relaxed text-ink-soft sm:text-lg"
       style="text-wrap: pretty"
