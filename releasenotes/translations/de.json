@@ -656,6 +656,10 @@
     "de": "Die Punkte unter „Das Wichtigste“ sind bündig ausgerichtet. Kopieren, Antwortdetails und Bewertung stehen jeweils in einer Zeile unter der Antwort."
   },
   {
+    "en": "Die Quellen-Chips, die Nummern im Antworttext und die Quellenkarten der Herleitung bereiten ihre Vorschau erst vor, wenn man sie berührt. Beim Öffnen einer Unterhaltung und einer Herleitung fällt damit ein Teil der Arbeit weg. Mit Maus, Touchscreen und Tastatur verhalten sie sich wie bisher.",
+    "de": "Die Quellen-Chips, Nummern im Antworttext und Quellenkarten der Herleitung bereiten ihre Vorschau erst vor, wenn Sie sie berühren. Dadurch entfällt beim Öffnen einer Unterhaltung oder Herleitung ein Teil der Arbeit. Mit Maus, Touchscreen und Tastatur verhalten sie sich wie bisher."
+  },
+  {
     "en": "Die Quellenliste eines Rechercheberichts trägt jetzt dieselben Nummern, mit denen der Bericht zitiert: Wo im Text „[3]\" steht, ist in der Liste ersichtlich, welche Fundstelle die dritte ist. Bisher kannte die Liste eines live verfolgten oder aus dem Verlauf geöffneten Laufs die Nummern nicht.",
     "de": "Die Quellenliste eines Rechercheberichts verwendet jetzt dieselben Nummern wie die Zitate im Bericht: Wenn im Text „[3]“ steht, ist in der Liste ersichtlich, welche Fundstelle die dritte ist. Bisher waren die Nummern in der Quellenliste bei live verfolgten oder aus dem Verlauf geöffneten Läufen nicht verfügbar."
   },
