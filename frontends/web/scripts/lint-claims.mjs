@@ -35,6 +35,8 @@ for (const root of ROOTS) {
     readFileSync(file, 'utf8')
       .split('\n')
       .forEach((line, i) => {
+        // Comments explain why a claim is gone; only what renders is checked.
+        if (/^\s*(\/\/|\*|\/\*)/.test(line)) return
         for (const [pattern, why, allowed] of FORBIDDEN) {
           if (pattern.test(allowed ? line.replace(allowed, '') : line)) {
             console.error(`${file}:${i + 1}: ${why}\n    ${line.trim().slice(0, 140)}`)
