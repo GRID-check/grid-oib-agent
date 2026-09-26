@@ -261,6 +261,7 @@ const sources = [
     >
       <span
         class="h-1.5 w-1.5 rounded-full bg-accent-500"
+        data-chain-live
         style="animation: chain-pulse 1.4s ease-in-out infinite"
         aria-hidden="true"></span>
       <span
@@ -268,10 +269,21 @@ const sources = [
         class="font-display text-2xs uppercase tracking-widest text-ink-faint transition-opacity duration-400"
         aria-live="polite">{t.chain.typing}</span
       >
+      <!-- The chain plays once and stops on the finished diagram; while it
+           runs it can be held (WCAG 2.2.2), and replayed at any time. -->
+      <button
+        data-chain-pause
+        data-label-pause={t.chat.pause}
+        data-label-resume={t.chat.resume}
+        aria-pressed="false"
+        type="button"
+        class="ml-auto inline-flex min-h-6 cursor-pointer items-center border-none bg-none px-1 font-display text-2xs uppercase tracking-widest text-ink-mute hover:text-accent-600"
+        >{t.chat.pause}</button
+      >
       <button
         data-replay
         type="button"
-        class="ml-auto cursor-pointer border-none bg-none font-display text-2xs uppercase tracking-widest text-ink-ghost hover:text-accent-500"
+        class="inline-flex min-h-6 cursor-pointer items-center border-none bg-none px-1 font-display text-2xs uppercase tracking-widest text-ink-mute hover:text-accent-600"
         >{t.chat.replay}</button
       >
     </div>
