@@ -187,36 +187,3 @@ def test_a_user_message_is_the_frame_the_ui_sends():
     assert frame["id"] == message_id and frame["type"] == "user_message" and frame["schema_type"] == "chat_stream"
     text = frame["content"]["messages"][0]["content"][0]["text"]
     assert json.loads(text) == {"query": "Was weißt du über die OIB-Richtlinie 2?"}
-
-
-def test_the_answer_s_anatomy_is_kept_from_the_frame_that_carries_it():
-    turn = served.Turn(message_id="m1")
-    served.read_frame(turn, {**_complete("m1", _ANSWER), "answer_meta": {"v": 1, "kind": "ruling"}})
-    assert turn.answer_meta == {"v": 1, "kind": "ruling"}
-
-
-def test_a_finished_step_is_read_back_as_its_own_data():
-    status = '{"kind":"status","slot":"retrieval:1","tools":["knowledge_search"]}'
-    steps = [
-        {"name": "Function Start: status:retrieval:1", "payload": f"**Function Input:**\n```json\n{status}\n```"},
-        {
-            "name": "Function Complete: status:retrieval:1",
-            "payload": f"**Function Input:**\n```json\n{status}\n```**Function Output:**\n```json\n{status}\n```",
-        },
-        {
-            "name": "Function Complete: knowledge_search",
-            "payload": (
-                "**Function Input:**\n```python\n{'query': 'x'}\n```**Function Output:**\n```python\nNo passage\n```"
-            ),
-        },
-        {"name": "Tool: knowledge_search", "payload": "**Input:**\n```json\n{}\n```"},
-    ]
-    assert served.step_records(steps) == [
-        {"name": "status:retrieval:1", "payload": json.loads(status)},
-        {"name": "knowledge_search", "payload": {"input": "{'query': 'x'}", "output": "No passage"}},
-    ]
-
-
-def test_the_socket_of_a_backend_url():
-    assert served.socket_url("http://localhost:8000/") == "ws://localhost:8000/websocket"
-    assert served.socket_url("https://api.example") == "wss://api.example/websocket"

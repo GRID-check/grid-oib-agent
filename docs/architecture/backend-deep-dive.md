@@ -251,7 +251,7 @@ never buffers the response body, so SSE routes are unaffected) fail-closed
 rejects (403 / WS policy-violation close) a workflow-invoking request when
 ALL of: `REQUIRE_AUTH=true`; the caller is a WorkOS-authenticated JWT user;
 the path is on the conservative enforced allowlist (`/websocket`,
-`/v1/jobs/async/submit`, `/v1/internal/skills/submit`); and no
+`/v1/jobs/async/submit`, `/v1/internal/workflows/submit`, `/generate`); and no
 valid envelope is present. Exempt regardless of path: anonymous mode,
 internal-token-authenticated service calls, and every non-enumerated path —
 the enforced-path list is an allowlist, not a denylist. Dev fail-open note:

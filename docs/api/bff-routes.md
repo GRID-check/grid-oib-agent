@@ -57,10 +57,13 @@ Source: `frontends/ui/src/app/api/auth/callback/route.ts`, `frontends/ui/src/app
 
 ## Chat
 
-A chat turn does not go through a BFF route: the browser opens the chat socket
-on the same origin (`/websocket`), which the UI server proxies to the backend's.
-[`websocket-protocol.md`](websocket-protocol.md) has the protocol. The backend
-serves no HTTP turn route (`AIQAPIConfig` in `frontends/aiq_api/src/aiq_api/plugin.py`).
+| Method | Path | Auth | Description | Request Body | Response |
+|--------|------|------|-------------|-------------|----------|
+| `POST` | `/api/chat` | Varies | Proxy to `POST /chat/stream` on Python backend. SSE stream of text chunks. | `{ messages, projectId?, conversationId?, data_sources? }` | SSE stream (`text/event-stream`) |
+
+Proxies to: `{BACKEND_URL}/chat/stream`. Forwards `Authorization`, `X-Grid-Collection-Scope` headers.
+
+Source: `frontends/ui/src/app/api/chat/route.ts`
 
 ## Conversations
 

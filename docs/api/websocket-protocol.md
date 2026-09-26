@@ -77,7 +77,7 @@ exactly as before the envelope existed.
 403 / WS policy-violation close): applies only when ALL of — `REQUIRE_AUTH=true`;
 the caller is a WorkOS-authenticated JWT user (not internal-token, not
 anonymous); the path is on the conservative enforced allowlist (`/websocket`,
-`/v1/jobs/async/submit`, `/v1/internal/skills/submit`); and no
+`/v1/jobs/async/submit`, `/v1/internal/skills/submit`, `/generate`); and no
 valid envelope is present. Exempt regardless of path: anonymous mode
 (`REQUIRE_AUTH=false`), internal-token-authenticated service calls, and every
 non-enumerated path — the enforced-path list is an allowlist, not a denylist.
@@ -681,11 +681,15 @@ Each handler also captures the source socket in its closure and checks `this.ws 
 
 ---
 
-## No HTTP alternative for a turn
+## SSE Alternative
 
-The socket is the only route a turn runs through. NAT's HTTP streaming routes
-(`/chat/stream`, `/generate/stream` and the rest) are not served
-([`python-endpoints.md`](python-endpoints.md#chat--generation)).
+For environments where WebSocket is unavailable, the backend also supports streaming via HTTP SSE:
+
+```
+POST /chat/stream
+```
+
+Configured via `apiConfig.chatStreamUrl` pointing to the backend URL. The SSE endpoint provides equivalent functionality for non-streaming or restricted-network scenarios.
 
 ### Run event streams
 

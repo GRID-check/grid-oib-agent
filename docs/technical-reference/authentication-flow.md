@@ -75,7 +75,7 @@ In auth mode, the Next.js BFF acts as an auth gateway. When proxying to the Pyth
 
 | Header | Value | Routes |
 |---|---|---|
-| `Authorization` | `Bearer <accessToken>` | `/v1/*` |
+| `Authorization` | `Bearer <accessToken>` | `/chat/stream`, `/generate/stream`, `/v1/*` |
 | `X-Grid-Collection-Scope` | Base64url-encoded scope array | All proxied routes |
 | `X-Grid-Organization-Id` | `session.organizationId` | WebSocket upgrade only |
 | `X-Grid-User-Id` | `session.userId` | WebSocket upgrade only |

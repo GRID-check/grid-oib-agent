@@ -60,7 +60,6 @@ from dataclasses import fields as dataclass_fields
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "scripts" / "turn_census"))  # served.py, the socket client
 DEFAULT_QUESTIONS = REPO_ROOT / "tests" / "fixtures" / "herleitung" / "loop_eval_questions.yaml"
 
 #: Environment variable naming the backend to measure. Deliberately its own name
@@ -541,8 +540,8 @@ def flag_family_overlap(expected_family: str | None, family_cell: str) -> str:
     return "no"
 
 
-def observe(question: Question, steps: Sequence[dict], answer: str, answer_meta: dict | None) -> Observation:
-    """One turn's row, from the events it emitted and the anatomy its answer carried (``answer_meta``)."""
+def observe(question: Question, steps: Sequence[dict], answer: str, envelope: dict | None) -> Observation:
+    """One turn's row, from the events it emitted and the envelope it produced."""
     payloads = _status_payloads(steps)
     rounds = {int(m.group(1)) for name, _ in payloads if (m := _ROUND_STEP_RE.match(name))}
     # Retrieve spans stamp their own round; a turn that only emitted spans
@@ -572,15 +571,15 @@ def observe(question: Question, steps: Sequence[dict], answer: str, answer_meta:
         if (m := _COVERAGE_STEP_RE.match(name))
     }
     truncated = any(name == _BUDGET_STEP and body.get("truncated") for name, body in payloads)
-    answer_meta = answer_meta or {}
+    envelope = envelope or {}
     family_cell = " ".join(f"{family} {opened}/{listed}" for family, (opened, listed) in sorted(coverage.items()))
     return Observation(
         id=question.id,
         expected_family=question.family or "",
         expected_punkt=question.punkt or "",
         expected_kind=question.kind,
-        kind=str(answer_meta.get("kind") or ""),
-        verdict=_yes_no(bool(answer_meta.get("verdict"))),
+        kind=str(envelope.get("kind") or ""),
+        verdict=_yes_no(bool(envelope.get("verdict"))),
         rounds=str(len(rounds)),
         read_passage=_yes_no("read_passage" in tools),
         punkt_match=punkt_matches(question.punkt, cited_punkte(answer)),
@@ -779,21 +778,60 @@ def format_comparison(before: Sequence[Observation], after: Sequence[Observation
 # --- Running against a backend ----------------------------------------------
 
 
-def _ask(base_url: str, question: str, timeout: float) -> tuple[list[dict], str, dict | None]:
-    """One turn over the backend's chat socket, as ``(steps, answer, answer_meta)``.
+def _post_turn(base_url: str, question: str, timeout: float) -> tuple[list[dict], str, dict | None]:
+    """One turn against `/generate/stream`, as `(steps, answer, envelope)`.
 
-    The socket is what the UI speaks and the only turn route the backend
-    serves (``front_end.workflow`` in the config). ``served`` speaks it the way
-    the UI does, a clarifying question answered included, and hands back the
-    turn's finished steps as records with the step's own data: the status
-    events the loop emits, and the retrieve spans.
+    Deliberately the SSE route rather than the WebSocket: this needs the
+    intermediate steps (which carry the loop's own status events) and one final
+    answer, and nothing about HITL or reconnection.
     """
-    import asyncio
+    import httpx
 
-    import served
+    steps: list[dict] = []
+    answer = ""
+    with httpx.Client(timeout=timeout) as client:
+        with client.stream("POST", f"{base_url.rstrip('/')}/generate/stream", json={"query": question}) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line.startswith("data:"):
+                    continue
+                try:
+                    frame = json.loads(line[len("data:") :].strip())
+                except json.JSONDecodeError:
+                    continue
+                steps.extend(_frame_steps(frame))
+                answer = _frame_answer(frame) or answer
+    return steps, answer, _envelope(answer)
 
-    turn = asyncio.run(served.ask(served.socket_url(base_url), question, timeout=timeout))
-    return served.step_records(turn.steps), turn.answer, turn.answer_meta
+
+def _frame_steps(frame: dict) -> list[dict]:
+    """The intermediate steps one SSE frame carries, if any."""
+    payload = frame.get("intermediate_step") or frame.get("intermediate") or frame.get("payload")
+    if isinstance(payload, dict) and (payload.get("name") or payload.get("functionName")):
+        return [payload]
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    return []
+
+
+def _frame_answer(frame: dict) -> str:
+    """The answer text a terminal SSE frame carries, if any."""
+    for key in ("value", "content", "answer", "output"):
+        value = frame.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
+
+
+def _envelope(answer: str) -> dict | None:
+    """The ``answer_json`` envelope inside the reply, when it parses."""
+    fenced = re.search(r"```answer_json\s*(\{.*?\})\s*```", answer or "", re.DOTALL)
+    if not fenced:
+        return None
+    try:
+        return json.loads(fenced.group(1))
+    except json.JSONDecodeError:
+        return None
 
 
 def run(questions: Sequence[Question], base_url: str, timeout: float) -> list[Observation]:
@@ -807,7 +845,7 @@ def run(questions: Sequence[Question], base_url: str, timeout: float) -> list[Ob
     for index, question in enumerate(questions, 1):
         print(f"[{index}/{len(questions)}] {question.id}", file=sys.stderr, flush=True)
         try:
-            steps, answer, answer_meta = _ask(base_url, question.question, timeout)
+            steps, answer, envelope = _post_turn(base_url, question.question, timeout)
         except Exception as exc:  # noqa: BLE001 — one dead turn must not lose the other nineteen
             rows.append(
                 Observation(
@@ -819,7 +857,7 @@ def run(questions: Sequence[Question], base_url: str, timeout: float) -> list[Ob
                 )
             )
             continue
-        rows.append(observe(question, steps, answer, answer_meta))
+        rows.append(observe(question, steps, answer, envelope))
     return rows
 
 

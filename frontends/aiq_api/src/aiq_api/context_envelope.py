@@ -41,9 +41,8 @@ Enforcement (403 / WS policy-violation close) applies only when ALL of:
    "jwt"``, set by ``JWTValidator.validate`` — see ``auth/jwt_validator.py``);
 3. the request path matches one of the conservative, explicitly enumerated
    ``ENFORCED_*_PATH_PREFIXES`` below (chat WS upgrade, async job submit,
-   and the internal workflow-submit route — easily extended by adding a
-   prefix, nothing else to wire up. NAT's HTTP turn routes are not served at
-   all, see ``AIQAPIConfig``);
+   the internal workflow-submit route, and NAT's ``/generate`` endpoint —
+   easily extended by adding a prefix, nothing else to wire up);
 4. no valid envelope is present (see ``GridRequestContext.from_envelope``
    in ``aiq_agent.project_context`` — the single verify function this module
    calls, shared with the runtime ``from_context()`` parse path).
@@ -99,6 +98,7 @@ logger = logging.getLogger(__name__)
 ENFORCED_HTTP_PATH_PREFIXES: tuple[str, ...] = (
     "/v1/jobs/async/submit",
     "/v1/internal/skills/submit",
+    "/generate",
 )
 ENFORCED_WEBSOCKET_PATH_PREFIXES: tuple[str, ...] = ("/websocket",)
 

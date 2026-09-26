@@ -28,7 +28,6 @@ from collections.abc import Callable
 from fastapi import APIRouter
 from fastapi import FastAPI
 from pydantic import Field
-from pydantic import model_validator
 from typing_extensions import override
 
 from aiq_agent.common.log_redaction import install_presigned_url_scrubbing
@@ -42,8 +41,6 @@ from nat.front_ends.fastapi.fastapi_front_end_config import FastApiFrontEndConfi
 from nat.front_ends.fastapi.fastapi_front_end_plugin import FastApiFrontEndPlugin
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorker
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorkerBase
-from nat.front_ends.fastapi.routes.websocket import add_websocket_routes
-from nat.runtime.session import SessionManager
 
 from .jobs.connection_manager import get_connection_manager
 from .jobs.event_store import EventStore
@@ -143,10 +140,6 @@ def _load_validators_from_entry_points() -> list:
     return validators
 
 
-#: The ``workflow`` endpoint fields that would put an HTTP route in front of a turn.
-_HTTP_TURN_PATHS = ("path", "openai_api_path", "openai_api_v1_path", "legacy_path", "legacy_openai_api_path")
-
-
 class AIQAPIConfig(FastApiFrontEndConfig, name="aiq_api"):
     """
     Configuration for unified AI-Q API endpoints.
@@ -157,35 +150,7 @@ class AIQAPIConfig(FastApiFrontEndConfig, name="aiq_api"):
 
     Async Job API:
         Configure db_url and expiry_seconds for job persistence.
-
-    Turns:
-        The chat socket (``workflow.websocket_path``) is the one route a turn
-        runs through. NAT's own defaults also put the workflow behind
-        ``/v1/workflow``, ``/generate``, ``/chat``, ``/v1/chat`` and
-        ``/v1/chat/completions``, and its ``/evaluate`` routes run it too. None
-        of those is ours: they stream through NAT's
-        ``generate_streaming_response``, whose early stop leaves the producer
-        task running (``workflow_stream`` has the account, #334 #337 #338 #759),
-        they bypass the socket's per-turn handling (cancel, reconnect, the
-        persisted answer), and the context envelope is enforced on none of them.
-        So they are off by default, and a config that turns one back on is
-        refused rather than served.
     """
-
-    workflow: FastApiFrontEndConfig.EndpointBase = Field(
-        default=FastApiFrontEndConfig.EndpointBase(
-            method="POST",
-            websocket_path="/websocket",
-            description="The chat socket: the one route a turn runs through.",
-        ),
-        description="The default workflow's routes: the chat socket only.",
-    )
-    evaluate: FastApiFrontEndConfig.EndpointBase = Field(
-        default=FastApiFrontEndConfig.EndpointBase(method="POST", description="Off: evaluation runs `nat eval`."),
-    )
-    evaluate_item: FastApiFrontEndConfig.EndpointBase = Field(
-        default=FastApiFrontEndConfig.EndpointBase(method="POST", description="Off: evaluation runs `nat eval`."),
-    )
 
     db_url: str = Field(
         default="sqlite+aiosqlite:///./jobs.db",
@@ -197,18 +162,6 @@ class AIQAPIConfig(FastApiFrontEndConfig, name="aiq_api"):
         le=604800,
         description="Job expiry time in seconds (default: 24 hours)",
     )
-
-    @model_validator(mode="after")
-    def _the_socket_is_the_only_turn_route(self) -> "AIQAPIConfig":
-        served = [f"workflow.{name}" for name in _HTTP_TURN_PATHS if getattr(self.workflow, name)]
-        served += [f"{name}.path" for name in ("evaluate", "evaluate_item") if getattr(self, name).path]
-        served += [f"endpoints[{ep.function_name}]" for ep in self.endpoints]
-        if served:
-            raise ValueError(
-                f"aiq_api serves turns over the chat socket only; remove {', '.join(served)} from front_end "
-                "(see AIQAPIConfig)"
-            )
-        return self
 
 
 # Track if shutdown signal has been received (for force exit on second Ctrl+C)
@@ -346,18 +299,6 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         )
 
         return app
-
-    @override
-    async def add_default_route(self, app: FastAPI, session_manager: SessionManager):
-        """The chat socket, and nothing else in front of the workflow (see ``AIQAPIConfig``).
-
-        NAT's version also registers its generate and chat routes, and the async
-        generate route among them is registered whenever Dask is up, whatever
-        ``workflow.path`` says: with no path, as ``None/async`` and
-        ``None/async/job/{job_id}``. So this is where the HTTP routes are left
-        out, not the config alone.
-        """
-        await add_websocket_routes(self, app, self.front_end_config.workflow, session_manager)
 
     @override
     async def add_routes(self, app: FastAPI, builder: WorkflowBuilder):

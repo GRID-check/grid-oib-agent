@@ -2,7 +2,7 @@
  * Shared BFF proxy helpers.
  *
  * Consolidates the boilerplate duplicated across the backend proxy routes
- * (jobs/async, v1): resolving whether
+ * (chat, generate, generate/respond, jobs/async, v1): resolving whether
  * auth is required, computing the backend base URL, building the
  * WorkOS Authorization header, and shaping the `{ error: { code, message } }`
  * envelope returned to the browser.
