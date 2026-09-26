@@ -94,6 +94,7 @@ RUN groupadd --system --gid 1001 nodejs \
 COPY --from=builder --chown=piloti:nodejs /app/dist ./dist
 COPY --from=builder --chown=piloti:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=piloti:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=piloti:nodejs /app/runtime ./runtime
 
 USER piloti
 
@@ -103,4 +104,6 @@ EXPOSE 4321
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=5 \
     CMD curl -sf http://localhost:4321/ || exit 1
 
-CMD ["node", "dist/server/entry.mjs"]
+# The adapter's handler behind a step that sets Cache-Control on static files.
+# Why that is not done in Envoy: the comment at the top of runtime/server.mjs.
+CMD ["node", "runtime/server.mjs"]

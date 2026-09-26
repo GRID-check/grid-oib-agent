@@ -65,7 +65,7 @@ const privacy = useTranslatedPath(locale)('/datenschutz/')
                   </svg>
                   <p class="m-0 text-[0.9375rem] leading-snug text-panel sm:text-sm">
                     {row.label}
-                    <span class="text-ink-mute"> — {row.value}</span>
+                    <span class="text-ink-mute"> – {row.value}</span>
                   </p>
                 </li>
               ))
@@ -106,7 +106,7 @@ const privacy = useTranslatedPath(locale)('/datenschutz/')
         {
           t.ki.cards.map((c, i) => (
             <li class="grid grid-cols-[auto_1fr] gap-x-4 border-t border-panel/15 py-4 first:border-t-0 first:pt-0 last:pb-0 sm:gap-x-5 sm:py-5">
-              <span class="mt-1 font-mono text-2xs uppercase tracking-widest text-accent-600">{`0${i + 1}`}</span>
+              <span class="mt-1 font-mono text-2xs uppercase tracking-widest text-accent-700">{`0${i + 1}`}</span>
               <div>
                 <h3 class="m-0 font-display text-base font-semibold tracking-tight text-panel sm:text-lg">
                   {c.title}

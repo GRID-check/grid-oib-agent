@@ -68,9 +68,9 @@ const columns = [
       {
         columns.map((col) => (
           <nav aria-label={col.heading}>
-            <h2 class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+            <p class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
               {col.heading}
-            </h2>
+            </p>
             <ul class="m-0 mt-2 list-none p-0 sm:mt-5 sm:space-y-3">
               {col.links.map((l) => (
                 <li>
@@ -92,9 +92,9 @@ const columns = [
       class="mt-8 grid grid-cols-1 items-end gap-x-10 gap-y-5 border-t border-ink/12 pt-8 sm:mt-14 sm:pt-10 lg:grid-cols-[1.6fr_3fr]"
     >
       <div>
-        <h2 class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+        <p class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
           {t.footer.contactHeading}
-        </h2>
+        </p>
         <p class="m-0 mt-2 max-w-sm text-base leading-relaxed text-ink-mute sm:text-sm">
           {t.footer.contactBody}
         </p>
@@ -142,7 +142,7 @@ const columns = [
           ))
         }
       </dl>
-      <p class="m-0 mt-5 text-xs text-ink-faint sm:mt-6 sm:text-2xs">© Piloti {year}. {t.footer.rights}</p>
+      <p class="m-0 mt-5 text-xs text-ink-faint sm:mt-6 sm:text-2xs">© {year} Piloti</p>
     </div>
   </div>
 </footer>

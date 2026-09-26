@@ -72,9 +72,15 @@
   --color-ink: #1b1c19;
   --color-ink-soft: #53534c;
   --color-ink-mid: #3b3c36;
-  --color-ink-mute: #726f66;
-  --color-ink-faint: #8d8a80;
-  --color-ink-ghost: #aaa79d;
+  /* The three quiet greys are all text colours, so all three clear WCAG AA
+     (4.5:1) for small text on canvas, paper, surface and surface-dim; mute also
+     on tint, ghost down to hero-bg. The step between them is small because the
+     band that passes on paper is small: hierarchy comes from size and weight,
+     not from fading the words out. Decoration (rules, frames) uses `ink/NN` or
+     `hairline`, never these. Checked by scripts/lint-contrast.mjs. */
+  --color-ink-mute: #5f5c54;
+  --color-ink-faint: #65625a;
+  --color-ink-ghost: #69665d;
   --color-panel: #22271a;
   --color-accent-900: #2a301f;
   --color-accent-800: #2c3620;
@@ -89,7 +95,7 @@
   --color-bubble: #ececea;
   --color-paper-dim: #fafaf8;
   --color-hairline: #dcdfd8;
-  --color-ok: #17914d;
+  --color-ok: #0f7a3d;
   /* Provenance signals — the one place this brand allows colour, taken from the
      product's own tokens (frontends/ui/src/styles/tokens.css) so a mock of the
      app is not a drawing of the app in different paint. */
@@ -443,11 +449,23 @@ html:not(.js) [data-solution-card] {
 }
 
 /* Long-form body copy (legal pages, blog posts). Sized in rem off the theme
-   scale so it stays in step with the `text-h*` page titles above it. */
+   scale so it stays in step with the `text-h*` page titles above it.
+
+   The measure is set on the text, not the column: Inter at this size averages
+   about 0.49em a character, so 34em holds a line near 70 characters (it ran to
+   93 across the full column). Figures, images and code keep the full column. */
 .prose-piloti {
   color: var(--color-ink-soft);
   font-size: 1.0625rem;
-  line-height: 1.75;
+  line-height: 1.65;
+}
+@media (min-width: 1024px) {
+  .prose-piloti {
+    font-size: 1.125rem;
+  }
+}
+.prose-piloti > :where(p, ul, ol, blockquote, h2, h3, h4, dl, table) {
+  max-width: 34em;
 }
 .prose-piloti > * + * {
   margin-top: 1.15em;
@@ -480,7 +498,7 @@ html:not(.js) [data-solution-card] {
   text-underline-offset: 3px;
 }
 .prose-piloti a:hover {
-  color: var(--color-accent-500);
+  color: var(--color-accent-700);
 }
 .prose-piloti strong {
   color: var(--color-ink);

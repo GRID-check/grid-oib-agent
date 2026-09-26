@@ -7,7 +7,7 @@ import {
   type RoiInputs,
   type RoiResult,
 } from '../lib/roi'
-import { formatRoi, type RoiText } from '../lib/roi-format'
+import { fillTemplate, formatRoi, type RoiText } from '../lib/roi-format'
 import { createCounter } from './counter'
 
 /**
@@ -73,13 +73,14 @@ export function initRoi() {
     price: read('price'),
   })
 
-  // The headline figure is a mechanical counter (counter.ts): its wheels turn
-  // to the new value instead of the text snapping to it, because the section's
-  // whole argument is that this number moves with your office. Everything else
-  // on the page is set instantly — one moving figure reads as emphasis, five
-  // read as a slot machine. The other copies of the figure (on the working
-  // page) are plain text.
-  const headline = document.querySelector<HTMLElement>('#wert [data-roi-out="net"]')
+  // The headline figure is a mechanical counter (counter.ts): when a slider
+  // moves, the digits that changed turn on their wheels instead of the text
+  // snapping, because the section's whole argument is that this number moves
+  // with your office. Everything else on the page is set instantly — one
+  // moving figure reads as emphasis, five read as a slot machine. The figure
+  // is the rounded headline ("≈ 42.000 €"), so a turning digit is never a
+  // false precision either.
+  const headline = document.querySelector<HTMLElement>('#wert [data-roi-out="headline"]')
   const working = document.querySelector<HTMLAnchorElement>('[data-roi-href]')
   if (headline) headline.removeAttribute('data-roi-out')
   const counter = headline ? createCounter(headline) : null
@@ -91,7 +92,7 @@ export function initRoi() {
     const result: RoiResult = computeRoi(inputs)
     const text = formatRoi(inputs, result, locale, units)
     paint(text)
-    counter?.set(text.net)
+    counter?.set(text.headline)
 
     // The working page states the same figures, so the link carries them there.
     working?.setAttribute('href', `${working.dataset.roiHref}${roiQuery(inputs)}`)
@@ -100,13 +101,35 @@ export function initRoi() {
       const key = field.dataset.roiField as keyof RoiText
       // The visible readout and what a screen reader hears are the same string:
       // "30 %", not the bare "30" a range would otherwise announce.
-      if (text[key]) field.setAttribute('aria-valuetext', text[key])
+      const spoken = key === 'seats' ? fillTemplate(units.seatsSpoken, text.seats) : text[key]
+      if (spoken) field.setAttribute('aria-valuetext', spoken)
       const min = Number(field.min)
       const span = Number(field.max) - min || 1
       field.style.setProperty('--fill', `${((Number(field.value) - min) / span) * 100}%`)
     }
   }
 
-  fields.forEach((field) => field.addEventListener('input', apply))
+  // The seat stepper nudges the slider and lets it report the change, so the
+  // two controls cannot disagree about the office.
+  const seats = fields.find((f) => f.dataset.roiField === 'seats')
+  const steppers = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-roi-step]'))
+  const syncSteppers = () => {
+    if (!seats) return
+    for (const b of steppers) {
+      const up = Number(b.dataset.roiStep) > 0
+      b.disabled = up ? Number(seats.value) >= Number(seats.max) : Number(seats.value) <= Number(seats.min)
+    }
+  }
+  for (const b of steppers) {
+    b.addEventListener('click', () => {
+      if (!seats) return
+      if (Number(b.dataset.roiStep) > 0) seats.stepUp()
+      else seats.stepDown()
+      seats.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+
+  fields.forEach((field) => field.addEventListener('input', () => (apply(), syncSteppers())))
   apply()
+  syncSteppers()
 }

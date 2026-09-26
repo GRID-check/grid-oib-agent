@@ -13,55 +13,55 @@ const de = {
   // `description` is also the one sentence that says what Piloti is, wherever
   // a machine reads it: og:description, the JSON-LD graph and /llms.txt.
   meta: {
-    title: 'KI für Architektur- und Planungsbüros in Österreich — Piloti',
+    title: 'KI für Architektur- und Planungsbüros in Österreich – Piloti',
     description:
-      'Piloti ist die KI-Wissensplattform für Architektur- und Planungsbüros in Österreich: Antworten zu Baurecht, OIB-Richtlinien und Projektunterlagen, mit Quellen.',
+      'Piloti ist eine KI-Wissensplattform für Architektur- und Planungsbüros in Österreich: Antworten zu Baurecht, OIB-Richtlinien und Projektunterlagen, mit Quellen.',
   },
   // Every other page's <title> and meta description, and what the head needs
   // around them. Titles stay near 60 characters, descriptions near 155.
   seo: {
     pages: {
       blog: {
-        title: 'Blog: Baurecht, Planungspraxis und KI im Büro — Piloti',
+        title: 'Blog: Baurecht, Planungspraxis und KI im Büro – Piloti',
         description:
           'Das Journal für Architektur- und Planungsbüros und das Bautagebuch aus der Entwicklung: Baurecht in Österreich, OIB-Richtlinien und wie Piloti gebaut ist.',
       },
       journal: {
-        title: 'Journal: Baurecht und Planungspraxis für Büros — Piloti Blog',
+        title: 'Journal: Baurecht und Planungspraxis für Büros – Piloti Blog',
         description:
           'Für Architektur- und Planungsbüros: Baurecht in Österreich verständlich, OIB-Richtlinien und Landesbauordnungen eingeordnet, und was KI im Büroalltag ändert.',
       },
       bautagebuch: {
-        title: 'Bautagebuch: Notizen aus der Entwicklung — Piloti Blog',
+        title: 'Bautagebuch: Notizen aus der Entwicklung – Piloti Blog',
         description:
           'Wie Piloti gebaut ist und warum: Notizen aus der Entwicklung einer KI-Wissensplattform für Baurecht, Projektunterlagen und Bürowissen, geschrieben in Wien.',
       },
       changelog: {
-        title: 'Neuerungen: neue Funktionen und Verbesserungen — Piloti',
+        title: 'Neuerungen: neue Funktionen und Verbesserungen – Piloti',
         description:
           'Was sich in Piloti geändert hat: neue Funktionen, Verbesserungen und Fehlerbehebungen der KI-Wissensplattform für Architekturbüros, laufend aktualisiert.',
       },
       rechenweg: {
-        title: 'Rechenweg: So rechnet der Piloti-Wertrechner — Piloti',
+        title: 'Rechenweg: So rechnet der Piloti-Wertrechner – Piloti',
         description:
           'Jeder Schritt hinter der Beispielrechnung von Piloti: unsere Annahmen, Ihre Zahlen, ein Beispielpreis, und was die Rechnung bewusst weglässt.',
       },
       impressum: {
-        title: 'Impressum — Piloti',
+        title: 'Impressum – Piloti',
         description:
-          'Impressum und Offenlegung der Piloti-Website nach § 5 ECG und § 25 MedienG: wer hinter Piloti steht, wo wir sitzen und wie Sie uns erreichen.',
+          'Impressum und Offenlegung der Piloti-Website nach §\u00a05 ECG und §\u00a025 MedienG: wer hinter Piloti steht, wo wir sitzen und wie Sie uns erreichen.',
       },
       datenschutz: {
-        title: 'Datenschutzerklärung — Piloti',
+        title: 'Datenschutzerklärung – Piloti',
         description:
           'Wie die Piloti-Website mit Ihren Daten umgeht: keine Cookies, kein Tracking, welche Dienste beteiligt sind und welche Anbieter die Piloti-Anwendung nutzt.',
       },
       notFound: {
-        title: 'Seite nicht gefunden — Piloti',
+        title: 'Seite nicht gefunden – Piloti',
         description: 'Diese Seite existiert nicht oder wurde verschoben.',
       },
     },
-    postTitleSuffix: ' — Piloti',
+    postTitleSuffix: ' – Piloti',
     ogImageAlt: 'Piloti: Planen. Statt suchen. KI für Architektur- und Planungsbüros.',
     breadcrumbHome: 'Start',
     byline: 'Von',
@@ -94,7 +94,7 @@ const de = {
       },
       {
         q: 'Wie nachvollziehbar sind die Antworten?',
-        a: 'Zu jeder Antwort zeigt Piloti die Begründung, die Annahmen, die greifende Vorschrift und den Quellenverweis bis auf Paragraf, Punkt oder Seite. So lässt sich jede Aussage am Original prüfen. Die Verantwortung für die Planung bleibt bei Ihnen, und Piloti ersetzt keine Rechtsberatung.',
+        a: 'Zu jeder Antwort zeigt Piloti die Begründung, die Annahmen, die greifende Vorschrift und den Quellenverweis bis auf Paragraf, Punkt oder Seite. So können Sie die Antwort am Original prüfen. Die Verantwortung für die Planung bleibt bei Ihnen, und Piloti ersetzt keine Rechtsberatung.',
       },
       {
         q: 'Trainiert Piloti KI-Modelle mit meinen Daten?',
@@ -132,7 +132,7 @@ const de = {
   },
   nav: {
     ariaLabel: 'Hauptnavigation',
-    logoLabel: 'Piloti — Startseite',
+    logoLabel: 'Piloti, Startseite',
     signIn: 'Anmelden',
     signInPending: 'Weiterleitung…',
     cta: 'Pilotbüro werden',
@@ -156,7 +156,7 @@ const de = {
   },
   hero: {
     title: 'Planen. Statt suchen.',
-    sub: 'Das gesamte Wissen für Ihre Planung. An einem Ort.',
+    sub: 'Baurecht, Büro- und Projektwissen. An einem Ort.',
     stage: 'Proof of Concept · Pilotphase mit ausgewählten Büros',
     ctaDemo: 'Pilotbüro werden',
     ctaMore: 'Mehr erfahren',
@@ -165,8 +165,8 @@ const de = {
     problemA: 'Architekt:innen gestalten unsere Zukunft,',
     problemB: 'doch das Wissen dafür liegt verstreut.',
     solution:
-      'Piloti verknüpft Baurecht, Projektunterlagen und Bürowissen zu einer soliden Wissensbasis.',
-    cardTagline: 'Struktur, Verlässlichkeit und Überblick für jede Entwurfsentscheidung.',
+      'Piloti verknüpft Baurecht, Projektunterlagen und Bürowissen zu einer Wissensbasis.',
+    cardTagline: 'Die Stelle im Gesetz, der Plan von 2019, die Auflage vom Amt. In einer Antwort.',
     tags: {
       norm: '▸ NORM',
       site: '▸ STANDORT',
@@ -186,19 +186,19 @@ const de = {
   nutzung: {
     tag: 'Nutzung',
     title: 'Zu jeder Planungsaufgabe das passende Wissen.',
-    body: 'Sie entwerfen, Piloti liefert den Kontext: die Vorschrift, die greift, die Erfahrung aus Ihren früheren Projekten und die Auflagen Ihres Grundstücks — genau das, was Sie brauchen, um die richtige Entscheidung zu treffen.',
+    body: 'Sie entwerfen, Piloti liefert den Kontext: die Vorschrift, die greift, die Erfahrung aus Ihren früheren Projekten und die Auflagen Ihres Grundstücks. Die Entscheidung treffen Sie.',
     // Measured: the median chat answer takes about 30 seconds.
-    big: '≈ 30 s',
-    sub: 'typische Antwortzeit — statt Stunden Suche. Mit Verweis auf Paragraf, Richtlinie und Herleitung.',
+    big: '≈\u202f30\u00a0s',
+    sub: 'gemessene typische Antwortzeit, mit Verweis auf Paragraf, Richtlinie und Herleitung.',
   },
   daten: {
     tag: 'Datengrundlage',
-    title: 'Intelligente Planung auf solider Datenbasis.',
-    body: 'Piloti stützt sich auf Quellen, die Sie selbst prüfen können: das geltende Baurecht, die Unterlagen Ihres Büros und Ihres Projekts und, wo nötig, aktuelle Quellen aus dem Web. Jede Aussage lässt sich bis zu ihrem Ursprung zurückverfolgen.',
+    title: 'Quellen, die Sie prüfen können.',
+    body: 'Piloti stützt sich auf das geltende Baurecht, auf die Unterlagen Ihres Büros und Ihres Projekts und, wo nötig, auf aktuelle Quellen aus dem Web. Jede Antwort nennt ihre Quellen, bis auf Paragraf, Punkt oder Seite.',
     // Only sources the product actually has. There is no material or CO₂
     // database, so there is no card for one.
     cards: [
-      { title: 'Regelwerke', body: 'Landes\u00adbau\u00adordnungen, OIB-Richtlinien, Normen' },
+      { title: 'Regelwerke', body: 'Landes\u00adbau\u00adordnungen, OIB-Richtlinien, Normen\u00adverzeichnis' },
       { title: 'Ihr Büro', body: 'Pläne, Unterlagen, Erfahrung aus vergangenen Projekten' },
       { title: 'Ihr Projekt', body: 'Standort, Grundstück, Auflagen' },
       { title: 'Web-Recherche', body: 'Aktuelle Quellen, jede mit Link belegt' },
@@ -206,8 +206,7 @@ const de = {
   },
   ki: {
     tag: 'Daten & Transparenz',
-    title:
-      'Keine Blackbox. Piloti macht KI und Daten nachvollziehbar — die Verantwortung bleibt bei Ihnen.',
+    title: 'Keine Blackbox. Jede Antwort zeigt, woher sie kommt.',
     // The section's claim is that everything here can be checked. So the right
     // column is a sheet you could check it against: what accompanies every
     // answer, and what happens to the office's data — with the page that has to
@@ -227,8 +226,8 @@ const de = {
       data: [
         { label: 'KI-Training', value: 'Wir trainieren keine Modelle mit Ihren Daten' },
         { label: 'Pläne und Projekte', value: 'Bleiben Eigentum Ihres Büros' },
-        { label: 'KI-Modelle', value: 'Anbieter und Standort offen ausgewiesen' },
-        { label: 'Downloads', value: 'Dokumente und Antworten jederzeit herunterladbar' },
+        { label: 'KI-Modelle', value: 'Anbieter in der Datenschutzerklärung genannt' },
+        { label: 'Downloads', value: 'Dokumente und Antworten einzeln herunterladbar' },
       ],
       link: 'In der Datenschutzerklärung nachlesen',
     },
@@ -238,12 +237,12 @@ const de = {
       {
         title: 'Spezialisiert auf Architektur',
         lead: 'Gebaut für Architektur- und Planungsbüros.',
-        body: 'Piloti kennt Landesbauordnungen, OIB-Richtlinien und Normen, versteht Bauteile, Konstruktionen und Typologien und bezieht den konkreten Kontext Ihres Projekts mit ein.',
+        body: 'Piloti arbeitet mit den Landesbauordnungen, den OIB-Richtlinien und einem Normenverzeichnis und bezieht den Kontext Ihres Projekts ein.',
       },
       {
         title: 'Nachvollziehbar bis zur Quelle',
-        lead: 'Jeder Verweis führt zurück zum Ursprung.',
-        body: 'Zu jeder Empfehlung sehen Sie Begründung, Annahmen und Regeln. Jeder Verweis führt zu der Stelle, aus der er stammt: zum Paragrafen der Landesbauordnung, zum OIB-Punkt, zur Web-Quelle oder zu Ihrem eigenen Projekt.',
+        lead: 'Jede Antwort nennt ihre Quellen.',
+        body: 'Zu jeder Empfehlung sehen Sie Begründung, Annahmen und Regeln. Jeder Verweis führt zu der Stelle, aus der er stammt: zum Paragrafen der Landesbauordnung, zum OIB-Punkt, zur Web-Quelle oder zu Ihrem eigenen Projekt. Die Verantwortung für die Planung bleibt bei Ihnen.',
       },
       {
         title: 'Ihre Daten, Ihre Kontrolle',
@@ -255,15 +254,18 @@ const de = {
   roi: {
     tag: 'Wert',
     title: 'Rechnen Sie selbst nach.',
-    body: 'Wir nehmen an, dass rund 30\u00a0% einer Planungswoche in die Suche gehen — Normen, Vorprojekte, Kennwerte — und dass Piloti davon 40\u00a0% zurückgibt. Gemessen ist das noch nicht: Piloti ist ein Proof of Concept. Setzen Sie Ihr Büro und einen Beispielpreis ein und sehen Sie, was die Annahme wert wäre.',
+    body: 'Wir nehmen an, dass rund 30\u00a0% einer Planungswoche in die Suche gehen, nach Normen, Vorprojekten und Kennwerten, und dass Piloti davon 40\u00a0% zurückgibt. Gemessen hat das noch niemand. Setzen Sie Ihr Büro und einen Beispielpreis ein und sehen Sie, was die Annahme wert wäre.',
     badge: 'Beispielrechnung',
     inputsLabel: 'Ihr Büro',
     fields: {
       seats: 'Planer:innen mit Piloti',
-      salary: 'Medianes Jahresgehalt',
+      salary: 'Durchschnittliches Bruttojahresgehalt',
       price: 'Beispielpreis je Platz und Monat',
     },
-    priceNote: 'Zum Durchspielen: Piloti hat noch keine Preisliste, das ist kein Angebot.',
+    stepDown: 'Einen Platz weniger',
+    stepUp: 'Einen Platz mehr',
+    priceNote: 'Nur zum Durchspielen. Piloti hat noch keine Preisliste, dieser Preis ist kein Angebot.',
+    salaryNote: 'je Person, mit 13. und 14. Gehalt, ohne Lohnnebenkosten',
     claimsLabel: 'Unsere Annahmen',
     claims: {
       week: 'Arbeitswoche',
@@ -278,28 +280,30 @@ const de = {
       payback: 'Amortisiert nach',
       paybackNote: 'danach trägt sich jeder Platz selbst',
       ratio: 'Wert je Euro',
-      ratioNote: 'Wert je 1 € zum Beispielpreis',
+      ratioNote: 'Wert je 1\u00a0€ zum Beispielpreis',
     },
     footnote:
-      'Eine Beispielrechnung: unsere Annahmen, Ihre Zahlen, ein Beispielpreis. Kein Angebot und keine Zusage. Jeder Schritt steht offen —',
-    footnoteLink: 'ganzer Rechenweg',
+      'Eine Beispielrechnung aus unseren Annahmen, Ihren Zahlen und einem Beispielpreis. Kein Angebot und keine Zusage. Jeder Schritt steht im',
+    footnoteLink: 'ganzen Rechenweg',
     cta: 'Zahlen gemeinsam durchgehen',
     subject: 'ROI-Rechnung',
     units: {
-      hours: '{value} h/Jahr',
-      hoursPlain: '{value} h',
+      hours: '{value}\u00a0h/Jahr',
+      hoursPlain: '{value}\u00a0h',
       perHour: '{value}/h',
-      times: '× {value}',
-      perYear: '12 × {value}',
+      times: '×\u00a0{value}',
+      perYear: '12\u00a0×\u00a0{value}',
       minus: '−{value}',
-      fte: '≈ {value} Vollzeitstellen',
-      months: '{value} Monate',
+      fte: '≈\u202f{value} Vollzeitstellen',
+      months: '{value}\u00a0Monate',
       ratio: '{value}×',
-      never: '—',
+      never: '–',
+      approx: '≈\u202f{value}',
+      seatsSpoken: '{value} Planer:innen',
       office:
-        'Diese Rechnung gilt für {seats} Plätze, ein medianes Jahresgehalt von {salary} und einen Beispielpreis von {price} je Platz und Monat.',
+        'Diese Rechnung gilt für {seats} Plätze, ein durchschnittliches Bruttojahresgehalt von {salary} und einen Beispielpreis von {price} je Platz und Monat.',
       officeOne:
-        'Diese Rechnung gilt für einen Platz, ein medianes Jahresgehalt von {salary} und einen Beispielpreis von {price} je Platz und Monat.',
+        'Diese Rechnung gilt für einen Platz, ein durchschnittliches Bruttojahresgehalt von {salary} und einen Beispielpreis von {price} je Platz und Monat.',
     },
   },
   rechenweg: {
@@ -307,7 +311,7 @@ const de = {
     tag: 'Rechenweg',
     title: 'Die ganze Rechnung, offen.',
     intro:
-      'Eine Zahl mit Nachkommastelle ist noch kein Argument. Deshalb steht hier jeder Schritt, der zu ihr führt — samt der Stellen, an denen wir etwas annehmen, statt es zu wissen.',
+      'Eine Zahl mit Nachkommastelle ist noch kein Argument. Deshalb steht hier jeder Schritt, der zu ihr führt, samt der Stellen, an denen wir etwas annehmen, statt es zu wissen.',
     origins: {
       ours: 'Annahme',
       yours: 'Ihre Zahl',
@@ -323,7 +327,7 @@ const de = {
     week: {
       title: 'Die Woche einer Planer:in, wie wir sie annehmen',
       scale: '1 Feld = 1 Stunde',
-      bracket: 'Recherche — 30\u00a0% der Woche',
+      bracket: 'Recherche: 30\u00a0% der Woche',
       plan: 'Entwerfen, abstimmen, ausführen',
       rest: 'Recherche, die bleibt',
       back: 'Gibt Piloti zurück, angenommen',
@@ -357,18 +361,18 @@ const de = {
       },
     ],
     honesty:
-      'Diese Zahlen sind Annahmen, keine Messwerte aus Kundenprojekten: Piloti ist ein Proof of Concept, und gemessen hat das noch niemand. Auch der Preis ist ein Beispiel, kein Angebot. Alles steht hier offen, damit Sie es durch Ihre eigenen Zahlen ersetzen können. Liegt Ihre Recherchezeit bei 20\u00a0%, halbiert sich der Wert je Platz fast.',
+      'Diese Zahlen sind Annahmen, keine Messwerte aus Kundenprojekten. Gemessen hat das noch niemand. Auch der Preis ist ein Beispiel, kein Angebot. Alles steht hier offen, damit Sie es durch Ihre eigenen Zahlen ersetzen können. Liegt Ihre Recherchezeit bei 20\u00a0%, halbiert sich der Wert je Platz fast.',
   },
   team: {
     tag: 'Team',
     title: 'Drei Gründer, ein Ziel: Wissen dort, wo geplant wird.',
-    body: 'Piloti ist in der Gründung. Bis dahin arbeiten wir auf Basis einer Absichtserklärung (Letter of Intent) — und suchen Pilotbüros, die mitentwickeln.',
+    body: 'Piloti ist in Gründung. Bis zur Eintragung arbeiten wir auf Basis einer Absichtserklärung (Letter of Intent) zusammen. Und wir suchen Pilotbüros, die mitentwickeln.',
     listLabel: 'Die Gründer',
     // The caption under the section's riso plate (see craft/plates.ts).
-    plateCaption: 'Tafel I — Drei Stützen',
+    plateCaption: 'Tafel I – Drei Stützen',
     facts: [
       { label: 'Ort', value: 'Wien' },
-      { label: 'Stand', value: 'Proof of Concept' },
+      { label: 'Stand', value: 'Pilotphase' },
       { label: 'Form', value: 'in Gründung' },
     ],
   },
@@ -390,7 +394,7 @@ const de = {
     givesLabel: 'Sie geben',
     gives: ['Ehrliches Feedback', 'Echte Planungsfragen aus Ihrem Büroalltag'],
     primary: 'Pilotbüro werden',
-    secondary: 'Gespräch vereinbaren',
+    secondary: 'Gespräch anfragen',
     subjectPilot: 'Pilotbüro',
     subjectCall: 'Gespräch',
     direct: 'Oder schreiben Sie direkt an',
@@ -403,26 +407,26 @@ const de = {
     question:
       'Ich will das Stiegenhaus ins Freie führen und über eine gedämmte Loggia-Fassade erschließen. Was heißt das brandschutztechnisch?',
     scanning: 'Quellen werden gesichtet …',
-    oibTitle: 'Pkt. 3.5 — Fassaden',
-    oibSub: 'Brandausbreitung über die Außenwand, GK 4',
-    boTitle: '§ 106 — Fluchtwege',
+    oibTitle: 'Pkt.\u00a03.5 – Fassaden',
+    oibSub: 'Brandausbreitung über die Außenwand, GK\u00a04',
+    boTitle: '§\u00a0106 – Fluchtwege',
     boSub: 'Stiegenhaus ins Freie, zweiter Rettungsweg',
     projTag: 'Projekt',
-    projSub: 'WDVS 14 cm EPS, Loggia über 2 Geschoße',
+    projSub: 'WDVS 14\u00a0cm EPS, Loggia über 2\u00a0Geschoße',
     decision: 'Entscheidung',
-    decisionIntro: 'Für Ihr WDVS (GK 4) haben Sie drei Wege:',
+    decisionIntro: 'Für Ihr WDVS (GK\u00a04) haben Sie drei Wege:',
     optATitle: 'Loggia in A2',
-    optASub: 'übrige Fassade EPS ≤ 10 cm',
-    optBTitle: 'EPS > 10 cm mit Schott',
+    optASub: 'übrige Fassade EPS ≤\u202f10\u00a0cm',
+    optBTitle: 'EPS >\u202f10\u00a0cm mit Schott',
     optBSub: 'Brandschutzschott je Geschoß',
     optCTitle: 'Mit der Behörde klären',
-    optCSub: 'Loggia als „offener Durchgang"',
-    impl: 'Umsetzung — B',
-    stepsBadge: '3 Schritte',
+    optCSub: 'Loggia als „offener Durchgang“',
+    impl: 'Umsetzung – B',
+    stepsBadge: '3\u00a0Schritte',
     steps: [
       'Schott je Geschoß im Fassadenschnitt eintragen',
-      'Nachweis OIB-RL 2, Pkt. 3.5 der Einreichung beilegen',
-      'Mehrkosten 4.200 € in die Kostenschätzung übernehmen',
+      'Nachweis OIB-RL\u00a02, Pkt.\u00a03.5 der Einreichung beilegen',
+      'Mehrkosten 4.200\u00a0€ in die Kostenschätzung übernehmen',
     ],
     replay: '↻ Erneut abspielen',
     pause: 'Anhalten',
@@ -438,7 +442,7 @@ const de = {
       'Projektakt wird geprüft',
       'Alle Quellen geprüft',
       'Ergebnisse werden zusammengeführt',
-      'Entscheidung — drei Wege',
+      'Entscheidung: drei Wege',
       'Option B gewählt',
       'Umsetzung abgeleitet',
       'Vollständige Kette',
@@ -460,13 +464,13 @@ const de = {
   },
   footer: {
     ariaLabel: 'Footer',
-    tagline: 'Die KI-Plattform für Architektur- und Planungsbüros. Entwickelt in Wien.',
+    tagline: 'KI für Architektur- und Planungsbüros. Entwickelt in Wien.',
     productHeading: 'Produkt',
     companyHeading: 'Mehr erfahren',
     legalHeading: 'Rechtliches',
     contactHeading: 'Kontakt',
-    contactBody: 'Fragen, Einwände oder ein Pilotprojekt — schreiben Sie uns.',
-    cta: 'Pilotbüro werden',
+    contactBody: 'Fragen, Einwände oder Interesse an der Pilotphase?',
+    cta: 'Schreiben Sie uns',
     usage: 'Nutzung',
     data: 'Datengrundlage',
     value: 'Wertrechner',
@@ -476,7 +480,6 @@ const de = {
     changelog: 'Neuerungen',
     privacy: 'Datenschutz',
     imprint: 'Impressum',
-    rights: 'Alle Rechte vorbehalten.',
     // The title block: what a drawing states about itself in the corner of the
     // sheet. An empty value is filled with the current year.
     block: [
@@ -501,7 +504,7 @@ const de = {
     entry: 'Eintrag',
     logProject: 'Projekt',
     logEntries: 'Einträge',
-    empty: 'Noch keine Beiträge — der erste Artikel ist in Arbeit.',
+    empty: 'Noch keine Beiträge. Der erste Artikel ist in Arbeit.',
     readMore: 'Weiterlesen →',
     allPosts: '← Alle Beiträge',
   },
@@ -512,15 +515,20 @@ const de = {
     tag: 'Neuerungen',
     heading: 'Was sich in Piloti getan hat.',
     intro:
-      'Jede Änderung, die Sie in der Anwendung bemerken — neue Funktionen, Verbesserungen, behobene Fehler. Neueste zuerst.',
-    empty: 'Noch keine Einträge — die erste Änderung erscheint hier, sobald sie ausgeliefert ist.',
+      'Jede Änderung, die Sie in der Anwendung bemerken: neue Funktionen, Verbesserungen, behobene Fehler. Neueste zuerst.',
+    empty: 'Noch keine Einträge. Die erste Änderung erscheint hier, sobald sie ausgeliefert ist.',
     unreleased: 'In Kürze',
     versionLabel: 'Version',
+    olderHeading: 'Frühere Neuerungen',
+    monthCount: '{count} Auslieferungen',
+    monthCountOne: '1 Auslieferung',
   },
   notFound: {
     heading: 'Diese Seite liegt nicht im Plan.',
     body: 'Die gesuchte Seite existiert nicht oder wurde verschoben.',
     home: 'Zur Startseite',
+    blog: 'Zum Blog',
+    contact: 'Kontakt',
   },
   legal: {
     tag: 'Rechtliches',
@@ -530,7 +538,7 @@ const de = {
       heading: 'Impressum',
       ownerHeading: 'Medieninhaber, Herausgeber und Diensteanbieter',
       legalForm: 'Gesellschaft bürgerlichen Rechts (GesbR)',
-      brand: 'auftretend unter der Projektbezeichnung „Piloti"',
+      brand: 'auftretend unter der Projektbezeichnung „Piloti“',
       statusHeading: 'Status',
       status:
         'Piloti befindet sich in Gründung. Eine im Firmenbuch eingetragene Gesellschaft besteht noch nicht; die Gründer arbeiten auf Grundlage einer Absichtserklärung (Letter of Intent) zusammen. Es gibt daher weder eine Firmenbuchnummer noch eine UID-Nummer.',
@@ -565,7 +573,7 @@ const de = {
         },
         {
           heading: 'Anmeldung und Piloti-Anwendung',
-          html: 'Mit „Anmelden" verlassen Sie diese Website und gelangen zur Piloti-Anwendung; dort gilt deren eigene Datenschutzerklärung. Kurz vorab: Die Anmeldung läuft über WorkOS, Inc. (USA). KI-Anfragen werden über OpenRouter, Inc. (USA) an Modellanbieter weitergeleitet, die ihren Sitz auch außerhalb der EU haben können. Wir selbst trainieren keine KI-Modelle mit Ihren Daten.',
+          html: 'Mit „Anmelden“ verlassen Sie diese Website und gelangen zur Piloti-Anwendung; dort gilt deren eigene Datenschutzerklärung. Kurz vorab: Die Anmeldung läuft über WorkOS, Inc. (USA). KI-Anfragen werden über OpenRouter, Inc. (USA) an Modellanbieter weitergeleitet, die ihren Sitz auch außerhalb der EU haben können. Wir selbst trainieren keine KI-Modelle mit Ihren Daten.',
         },
         {
           heading: 'Redaktionsbereich',
@@ -582,60 +590,60 @@ const de = {
 
 const en: typeof de = {
   meta: {
-    title: 'AI for architecture and planning firms in Austria — Piloti',
+    title: 'AI for architecture and planning firms in Austria – Piloti',
     description:
-      'Piloti is the AI knowledge platform for architecture and planning firms in Austria: answers on building law, OIB guidelines and project documents, with sources.',
+      'Piloti is an AI knowledge platform for architecture and planning firms in Austria: answers on building law, OIB guidelines and project documents, with sources.',
   },
   seo: {
     pages: {
       blog: {
-        title: 'Blog: building law, planning practice and AI — Piloti',
+        title: 'Blog: building law, planning practice and AI – Piloti',
         description:
           'The Journal for architecture and planning offices and the build log from development: Austrian building law, OIB guidelines and how Piloti is built.',
       },
       journal: {
-        title: 'Journal: building law and planning practice — Piloti Blog',
+        title: 'Journal: building law and planning practice – Piloti Blog',
         description:
           'For architecture and planning offices: Austrian building law made readable, OIB guidelines and state building codes in context, and what AI changes at work.',
       },
       bautagebuch: {
-        title: 'Build log: notes from development — Piloti Blog',
+        title: 'Build log: notes from development – Piloti Blog',
         description:
           'How Piloti is built, and why: notes from developing an AI knowledge platform for building law, project documents and office knowledge, written in Vienna.',
       },
       changelog: {
-        title: "What's new: features and improvements — Piloti",
+        title: 'What’s new: features and improvements – Piloti',
         description:
           'What changed in Piloti: new features, improvements and fixes to the AI knowledge platform for architecture and planning firms, updated continuously.',
       },
       rechenweg: {
-        title: 'The maths behind the Piloti value calculator — Piloti',
+        title: 'The maths behind the Piloti value calculator – Piloti',
         description:
           'Every step behind the Piloti example calculation: our assumptions, your numbers, an example price, and what the calculation leaves out.',
       },
       impressum: {
-        title: 'Imprint — Piloti',
+        title: 'Imprint – Piloti',
         description:
-          'Imprint and disclosure for the Piloti website under Austrian law (§ 5 ECG, § 25 MedienG): who is behind Piloti, where we are based and how to reach us.',
+          'Imprint and disclosure for the Piloti website under Austrian law (§\u00a05 ECG, §\u00a025 MedienG): who is behind Piloti, where we are based and how to reach us.',
       },
       datenschutz: {
-        title: 'Privacy policy — Piloti',
+        title: 'Privacy policy – Piloti',
         description:
           'How the Piloti website handles your data: no cookies, no tracking, which services are involved, and which providers the Piloti application relies on.',
       },
       notFound: {
-        title: 'Page not found — Piloti',
+        title: 'Page not found – Piloti',
         description: 'This page does not exist or has been moved.',
       },
     },
-    postTitleSuffix: ' — Piloti',
-    ogImageAlt: 'Piloti: Plan. Instead of searching. AI for architecture and planning firms.',
+    postTitleSuffix: ' – Piloti',
+    ogImageAlt: 'Piloti: Plan more. Search less. AI for architecture and planning firms.',
     breadcrumbHome: 'Home',
     byline: 'By',
     and: 'and',
     rssTitle: 'Piloti Blog',
     rssDescription:
-      "Piloti's Journal and build log: building law, planning practice and the development of an AI knowledge platform for architecture firms.",
+      'Piloti’s Journal and build log: building law, planning practice and the development of an AI knowledge platform for architecture firms.',
     llmsPages: 'Pages (English)',
     llmsPosts: 'Blog (English)',
     llmsFacts: 'Built in Vienna by {founders}. Contact: {email}.',
@@ -654,11 +662,11 @@ const en: typeof de = {
       },
       {
         q: 'Which sources does Piloti use?',
-        a: "The Austrian states' building codes from the federal legal information system (RIS), the OIB guidelines, a register of the relevant standards, your office and project documents and, where needed, web research in which every source is linked.",
+        a: 'The Austrian states’ building codes from the federal legal information system (RIS), the OIB guidelines, a register of the relevant standards, your office and project documents and, where needed, web research in which every source is linked.',
       },
       {
         q: 'How traceable are the answers?',
-        a: 'With every answer Piloti shows the reasoning, the assumptions, the rule that applies and the source reference down to the section, clause or page, so every statement can be checked against the original. Responsibility for the design stays with you, and Piloti is not legal advice.',
+        a: 'With every answer Piloti shows the reasoning, the assumptions, the rule that applies and the source reference down to the section, clause or page, so you can check the answer against the original. Responsibility for the design stays with you, and Piloti is not legal advice.',
       },
       {
         q: 'Does Piloti train AI models on my data?',
@@ -696,7 +704,7 @@ const en: typeof de = {
   },
   nav: {
     ariaLabel: 'Main navigation',
-    logoLabel: 'Piloti — homepage',
+    logoLabel: 'Piloti, homepage',
     signIn: 'Sign in',
     signInPending: 'Redirecting…',
     cta: 'Become a pilot office',
@@ -716,11 +724,11 @@ const en: typeof de = {
       { href: '#kontakt', label: 'Contact' },
     ],
     blog: 'Blog',
-    changelog: "What's new",
+    changelog: 'What’s new',
   },
   hero: {
-    title: 'Plan. Instead of searching.',
-    sub: 'All the knowledge for your planning. In one place.',
+    title: 'Plan more. Search less.',
+    sub: 'Building law, office and project knowledge. In one place.',
     stage: 'Proof of concept · Pilot phase with selected offices',
     ctaDemo: 'Become a pilot office',
     ctaMore: 'Learn more',
@@ -729,8 +737,8 @@ const en: typeof de = {
     problemA: 'Architects shape our future,',
     problemB: 'yet the knowledge it takes is scattered.',
     solution:
-      'Piloti connects building law, project documents and office knowledge into one solid knowledge base.',
-    cardTagline: 'Structure, reliability and clarity for every design decision.',
+      'Piloti connects building law, project documents and office knowledge in one knowledge base.',
+    cardTagline: 'The clause in the code, the drawing from 2019, the condition from the authority. In one answer.',
     tags: {
       norm: '▸ NORM',
       site: '▸ SITE',
@@ -750,16 +758,16 @@ const en: typeof de = {
   nutzung: {
     tag: 'Usage',
     title: 'The right knowledge for every planning task.',
-    body: 'You design, Piloti delivers the context: the regulation that applies, the experience from your past projects and the conditions on your plot — exactly what you need to make the right decision.',
-    big: '≈ 30 s',
-    sub: 'typical response time — instead of hours of searching. With references to the clause, the guideline and the derivation.',
+    body: 'You design, Piloti supplies the context: the regulation that applies, the experience from your past projects and the conditions on your plot. The decision stays yours.',
+    big: '≈\u202f30\u00a0s',
+    sub: 'measured typical response time, with references to the clause, the guideline and the derivation.',
   },
   daten: {
     tag: 'Data foundation',
-    title: 'Intelligent planning on a solid data foundation.',
-    body: 'Piloti draws on sources you can check yourself: the building law in force, the documents of your office and your project and, where needed, current sources from the web. Every statement can be traced back to its origin.',
+    title: 'Sources you can check.',
+    body: 'Piloti draws on the building law in force, on the documents of your office and your project and, where needed, on current sources from the web. Every answer names its sources, down to the section, clause or page.',
     cards: [
-      { title: 'Regulations', body: 'State building codes, OIB guidelines, standards' },
+      { title: 'Regulations', body: 'State building codes, OIB guidelines, a register of standards' },
       { title: 'Your office', body: 'Plans, documents, experience from past projects' },
       { title: 'Your project', body: 'Site, plot, official requirements' },
       { title: 'Web research', body: 'Current sources, each backed by a link' },
@@ -767,7 +775,7 @@ const en: typeof de = {
   },
   ki: {
     tag: 'Data & transparency',
-    title: 'No black box. Piloti makes AI and data traceable — responsibility stays with you.',
+    title: 'No black box. Every answer shows where it comes from.',
     proof: {
       tag: 'Check sheet',
       answerHeading: 'With every answer',
@@ -781,8 +789,8 @@ const en: typeof de = {
       data: [
         { label: 'AI training', value: 'We do not train models on your data' },
         { label: 'Plans and projects', value: 'Remain the property of your office' },
-        { label: 'AI models', value: 'Providers and location disclosed openly' },
-        { label: 'Downloads', value: 'Documents and answers downloadable at any time' },
+        { label: 'AI models', value: 'Providers named in the privacy policy' },
+        { label: 'Downloads', value: 'Documents and answers downloadable one by one' },
       ],
       link: 'Read it in the privacy policy',
     },
@@ -790,12 +798,12 @@ const en: typeof de = {
       {
         title: 'Specialised in architecture',
         lead: 'Built for architecture and planning offices.',
-        body: 'Piloti knows state building codes, OIB guidelines and standards, understands components, constructions and typologies, and factors in the concrete context of your project.',
+        body: 'Piloti works with the state building codes, the OIB guidelines and a register of standards, and takes the context of your project into account.',
       },
       {
         title: 'Traceable to the source',
-        lead: 'Every reference leads back to its origin.',
-        body: 'Every recommendation shows its reasoning, assumptions and rules. Every reference leads to the place it came from: the clause of the state building code, the OIB section, the web source or your own project.',
+        lead: 'Every answer names its sources.',
+        body: 'Every recommendation shows its reasoning, assumptions and rules. Every reference leads to the place it came from: the clause of the state building code, the OIB section, the web source or your own project. Responsibility for the design stays with you.',
       },
       {
         title: 'Your data, your control',
@@ -807,15 +815,18 @@ const en: typeof de = {
   roi: {
     tag: 'Value',
     title: 'Do the maths yourself.',
-    body: 'We assume that around 30% of a planning week goes into the search — codes, past projects, reference values — and that Piloti gives 40% of that back. Nobody has measured this yet: Piloti is a proof of concept. Put in your office and an example price and see what the assumption would be worth.',
+    body: 'We assume that around 30% of a planning week goes into searching, for codes, past projects and reference values, and that Piloti gives 40% of that back. Nobody has measured this yet. Put in your office and an example price and see what the assumption would be worth.',
     badge: 'Example calculation',
     inputsLabel: 'Your office',
     fields: {
       seats: 'Planners using Piloti',
-      salary: 'Median annual salary',
+      salary: 'Average gross annual salary',
       price: 'Example price per seat per month',
     },
-    priceNote: 'For trying things out: Piloti has no price list yet, and this is not an offer.',
+    stepDown: 'One seat fewer',
+    stepUp: 'One seat more',
+    priceNote: 'Only for trying things out. Piloti has no price list yet, and this price is not an offer.',
+    salaryNote: 'per person, including 13th and 14th salaries, excluding employer on-costs',
     claimsLabel: 'Our assumptions',
     claims: {
       week: 'Work week',
@@ -833,25 +844,27 @@ const en: typeof de = {
       ratioNote: 'value per €1 at the example price',
     },
     footnote:
-      'An example calculation: our assumptions, your numbers, an example price. Not an offer and not a promise. Every step is in the open —',
-    footnoteLink: 'the whole calculation',
+      'An example calculation from our assumptions, your numbers and an example price. Not an offer and not a promise. Every step is laid out in',
+    footnoteLink: 'the full working',
     cta: 'Walk through the numbers with us',
     subject: 'ROI calculation',
     units: {
-      hours: '{value} h/year',
-      hoursPlain: '{value} h',
+      hours: '{value}\u00a0h/year',
+      hoursPlain: '{value}\u00a0h',
       perHour: '{value}/h',
-      times: '× {value}',
-      perYear: '12 × {value}',
+      times: '×\u00a0{value}',
+      perYear: '12\u00a0×\u00a0{value}',
       minus: '−{value}',
-      fte: '≈ {value} full-time roles',
-      months: '{value} months',
+      fte: '≈\u202f{value} full-time roles',
+      months: '{value}\u00a0months',
       ratio: '{value}×',
-      never: '—',
+      never: '–',
+      approx: '≈\u202f{value}',
+      seatsSpoken: '{value} planners',
       office:
-        'This working is for {seats} seats, a median salary of {salary} and an example price of {price} per seat per month.',
+        'This working is for {seats} seats, an average gross salary of {salary} and an example price of {price} per seat per month.',
       officeOne:
-        'This working is for one seat, a median salary of {salary} and an example price of {price} per seat per month.',
+        'This working is for one seat, an average gross salary of {salary} and an example price of {price} per seat per month.',
     },
   },
   rechenweg: {
@@ -859,7 +872,7 @@ const en: typeof de = {
     tag: 'The maths',
     title: 'The whole calculation, in the open.',
     intro:
-      'A figure with a decimal point is not yet an argument. So every step behind it is written out here — including the places where we assume something rather than know it.',
+      'A figure with a decimal point is not yet an argument. So every step behind it is written out here, including the places where we assume something rather than know it.',
     origins: {
       ours: 'Assumed',
       yours: 'Yours',
@@ -875,7 +888,7 @@ const en: typeof de = {
     week: {
       title: 'One planner’s week, as we assume it',
       scale: '1 cell = 1 hour',
-      bracket: 'Searching — 30% of the week',
+      bracket: 'Searching: 30% of the week',
       plan: 'Designing, coordinating, delivering',
       rest: 'Searching that remains',
       back: 'Piloti gives back, assumed',
@@ -909,17 +922,17 @@ const en: typeof de = {
       },
     ],
     honesty:
-      'These are assumptions, not measurements from customer projects: Piloti is a proof of concept, and nobody has measured this yet. The price is an example too, not an offer. It is all in the open so you can replace it with your own numbers. If your search time is 20%, the value per seat nearly halves.',
+      'These are assumptions, not measurements from customer projects. Nobody has measured this yet. The price is an example too, not an offer. It is all in the open so you can replace it with your own numbers. If your search time is 20%, the value per seat nearly halves.',
   },
   team: {
     tag: 'Team',
     title: 'Three founders, one aim: knowledge where the planning happens.',
-    body: 'Piloti is still being founded. Until then we work under a letter of intent — and we are looking for pilot offices to build it with us.',
+    body: 'Piloti is still being founded. Until it is registered, we work together under a letter of intent. And we are looking for pilot offices to build it with us.',
     listLabel: 'The founders',
-    plateCaption: 'Plate I — Three columns',
+    plateCaption: 'Plate I – Three columns',
     facts: [
       { label: 'Place', value: 'Vienna' },
-      { label: 'Stage', value: 'Proof of concept' },
+      { label: 'Stage', value: 'Pilot phase' },
       { label: 'Form', value: 'Being founded' },
     ],
   },
@@ -938,38 +951,38 @@ const en: typeof de = {
     givesLabel: 'You give',
     gives: ['Honest feedback', 'Real planning questions from your office'],
     primary: 'Become a pilot office',
-    secondary: 'Book a call',
+    secondary: 'Request a call',
     subjectPilot: 'Pilot office',
     subjectCall: 'Call',
     direct: 'Or write directly to',
   },
   chat: {
-    header: 'Piloti · Decision Chain',
+    header: 'Piloti · Decision chain',
     fictional: 'Fictional example',
     questionLabel: 'Question',
     sourcesLabel: 'Sources',
     question:
-      'I want to lead the stairwell to the outside and provide access via an insulated loggia façade. What does that mean in terms of fire protection?',
+      'I want to open the stair core to the outside and reach the units through an insulated loggia façade. What does that mean for fire safety?',
     scanning: 'Reviewing sources …',
-    oibTitle: 'Sec. 3.5 — Façades',
-    oibSub: 'Fire spread across the exterior wall, GK 4',
-    boTitle: '§ 106 — Escape routes',
+    oibTitle: 'Sec.\u00a03.5 – Façades',
+    oibSub: 'Fire spread across the exterior wall, GK\u00a04',
+    boTitle: '§\u00a0106 – Escape routes',
     boSub: 'Stairwell to the outside, second escape route',
     projTag: 'Project',
-    projSub: 'ETICS 14 cm EPS, loggia across 2 storeys',
+    projSub: 'ETICS 14\u00a0cm EPS, loggia across 2\u00a0storeys',
     decision: 'Decision',
-    decisionIntro: 'For your ETICS (GK 4) you have three options:',
+    decisionIntro: 'For your ETICS (GK\u00a04) you have three options:',
     optATitle: 'Loggia in A2',
-    optASub: 'remaining façade EPS ≤ 10 cm',
-    optBTitle: 'EPS > 10 cm with fire stop',
+    optASub: 'remaining façade EPS ≤\u202f10\u00a0cm',
+    optBTitle: 'EPS >\u202f10\u00a0cm with fire stop',
     optBSub: 'fire stop on each storey',
     optCTitle: 'Clarify with the authority',
-    optCSub: 'loggia as an "open passage"',
-    impl: 'Implementation — B',
-    stepsBadge: '3 steps',
+    optCSub: 'loggia as an “open passage”',
+    impl: 'Implementation – B',
+    stepsBadge: '3\u00a0steps',
     steps: [
       'Add the fire stop on each storey in the façade section',
-      'Attach the OIB-RL 2, Sec. 3.5 verification to the submission',
+      'Attach the OIB-RL\u00a02, Sec.\u00a03.5 verification to the submission',
       'Carry the additional €4,200 into the cost estimate',
     ],
     replay: '↻ Replay',
@@ -986,7 +999,7 @@ const en: typeof de = {
       'Checking project file',
       'All sources checked',
       'Merging results',
-      'Decision — three options',
+      'Decision: three options',
       'Option B selected',
       'Implementation derived',
       'Complete chain',
@@ -1008,23 +1021,22 @@ const en: typeof de = {
   },
   footer: {
     ariaLabel: 'Footer',
-    tagline: 'The AI platform for architecture and planning firms. Built in Vienna.',
+    tagline: 'AI for architecture and planning firms. Built in Vienna.',
     productHeading: 'Product',
     companyHeading: 'Learn more',
     legalHeading: 'Legal',
     contactHeading: 'Contact',
-    contactBody: 'Questions, objections or a pilot project — write to us.',
-    cta: 'Become a pilot office',
+    contactBody: 'Questions, objections, or interested in the pilot phase?',
+    cta: 'Write to us',
     usage: 'Usage',
     data: 'Data foundation',
     value: 'Value calculator',
     working: 'The maths',
     team: 'Team',
     blog: 'Blog',
-    changelog: "What's new",
+    changelog: 'What’s new',
     privacy: 'Privacy',
     imprint: 'Imprint',
-    rights: 'All rights reserved.',
     block: [
       { label: 'Project', value: 'Piloti' },
       { label: 'Issue', value: '' },
@@ -1044,23 +1056,28 @@ const en: typeof de = {
     entry: 'Entry',
     logProject: 'Project',
     logEntries: 'Entries',
-    empty: 'No posts yet — the first article is in the works.',
+    empty: 'No posts yet. The first article is in the works.',
     readMore: 'Read on →',
     allPosts: '← All posts',
   },
   changelog: {
-    tag: "What's new",
+    tag: 'What’s new',
     heading: 'What has changed in Piloti.',
     intro:
-      'Every change you can notice in the product — new features, improvements, fixes. Newest first.',
-    empty: 'Nothing here yet — the first change appears the day it ships.',
+      'Every change you can notice in the product: new features, improvements, fixes. Newest first.',
+    empty: 'Nothing here yet. The first change appears the day it ships.',
     unreleased: 'Coming up',
     versionLabel: 'Version',
+    olderHeading: 'Earlier changes',
+    monthCount: '{count} releases',
+    monthCountOne: '1 release',
   },
   notFound: {
     heading: 'This page is not in the plan.',
     body: 'The page you are looking for does not exist or has been moved.',
     home: 'Back to the homepage',
+    blog: 'Read the blog',
+    contact: 'Contact',
   },
   legal: {
     tag: 'Legal',
@@ -1070,7 +1087,7 @@ const en: typeof de = {
       heading: 'Imprint',
       ownerHeading: 'Media owner, publisher and service provider',
       legalForm: 'civil-law partnership (GesbR) under Austrian law',
-      brand: 'operating under the project name "Piloti"',
+      brand: 'operating under the project name “Piloti”',
       statusHeading: 'Status',
       status:
         'Piloti is being founded. No company is registered in the commercial register yet; the founders work together on the basis of a letter of intent. There is therefore no company register number and no VAT ID.',
@@ -1101,11 +1118,11 @@ const en: typeof de = {
         },
         {
           heading: 'Contacting us by email',
-          html: 'If you write to us, we process the data you send (name, email address, content of your enquiry) to answer it (Art. 6(1)(b) GDPR, or (f) for general enquiries). Your message arrives in the founders\' mailboxes and is stored by their email providers. We delete it once it is no longer needed and no statutory retention period applies.',
+          html: 'If you write to us, we process the data you send (name, email address, content of your enquiry) to answer it (Art. 6(1)(b) GDPR, or (f) for general enquiries). Your message arrives in the founders’ mailboxes and is stored by their email providers. We delete it once it is no longer needed and no statutory retention period applies.',
         },
         {
           heading: 'Sign-in and the Piloti application',
-          html: '"Sign in" takes you from this website to the Piloti application, which has its own privacy policy. In short: sign-in is handled by WorkOS, Inc. (USA). AI requests are routed through OpenRouter, Inc. (USA) to model providers that may be based outside the EU. We do not train AI models on your data.',
+          html: '“Sign in” takes you from this website to the Piloti application, which has its own privacy policy. In short: sign-in is handled by WorkOS, Inc. (USA). AI requests are routed through OpenRouter, Inc. (USA) to model providers that may be based outside the EU. We do not train AI models on your data.',
         },
         {
           heading: 'Editorial area',
