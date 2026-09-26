@@ -462,6 +462,19 @@ tasks:
       # whole set. Exit 0 = the three floors hold; 1 = keep turn_decisions off.
       - '{{.PY}} scripts/decision_eval.py {{.CLI_ARGS}}'
 
+  be:eval:decisions:offpath:
+    desc: 'Decision-model eval for the annotations — upload tags, Dokumentart, feedback causes — on the hand-labelled tuning sets (NEEDS OPENROUTER_API_KEY; no backend)'
+    cmds:
+      # ADR-0064 uses 4, 8 and 9. Exit 0 = the floors in the script hold.
+      - '{{.PY}} scripts/decision_eval_offpath.py {{.CLI_ARGS}}'
+
+  be:eval:decisions:holdout:
+    desc: 'Held-out check for the decision-model uses, on sets written blind to the wording — never tune on them (NEEDS OPENROUTER_API_KEY; no backend)'
+    cmds:
+      # Exit 0 = every floor holds; the floors sit just under the last result
+      # so a regression fails.
+      - '{{.PY}} scripts/decision_eval_holdout.py {{.CLI_ARGS}}'
+
   be:eval:turn-census:
     desc: 'Turn census — run a chat question through the real agent and count every model call, token and second it cost; writes to /tmp/turn_census unless --out, takes --override KEY VALUE (NEEDS OPENROUTER_API_KEY and the corpus ingested locally)'
     cmds:

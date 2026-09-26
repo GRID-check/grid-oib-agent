@@ -1,0 +1,95 @@
+# Hand-labelled, written for ADR-0064 use 4 (2026-09-25). Not captured payloads:
+# openings in the shape the office uploads, labelled by a person. Re-run with
+# `task be:eval:decisions:offpath`.
+- file_name: EG_Grundriss_M100.pdf
+  text: 'Einreichplan Wohnhausanlage Linzer Straße 12, 1140 Wien. GRUNDRISS ERDGESCHOSS M 1:100. Wohnung
+    Top 1: Vorraum 4,20 m², Küche/Wohnen 28,40 m², Zimmer 12,10 m², Bad 5,30 m². Stiegenhaus, Müllraum,
+    Fahrradabstellraum. Brandabschnittsgrenze REI 90 zwischen Garage und Stiegenhaus. Fluchtweg ins Freie.'
+  types:
+  - Grundriss
+  disciplines:
+  - Brandschutz
+- file_name: Schnitt_A-A.pdf
+  text: 'SCHNITT A-A M 1:100. OK FFB EG ±0,00 = 172,45 müA. Geschoßhöhe 3,05 m. Raumhöhe 2,60 m. Dachaufbau:
+    Kies 5 cm, Abdichtung, Wärmedämmung EPS 24 cm, Dampfsperre, STB-Decke 22 cm. Attika +12,40.'
+  types:
+  - Schnitt
+  disciplines: []
+- file_name: Bescheid_Baubewilligung.pdf
+  text: 'MAGISTRAT DER STADT WIEN, MA 37 – Baupolizei. BESCHEID. Spruch: Gemäß § 70 der Bauordnung für
+    Wien wird die Bewilligung erteilt, auf der Liegenschaft EZ 1234 ein Wohngebäude zu errichten, unter
+    folgenden Auflagen: 1. Die Brandabschnitte sind gemäß OIB-Richtlinie 2 auszuführen. 2. Ein Fertigstellungsanzeige
+    ist zu erstatten. Begründung: ...'
+  types:
+  - Bescheid
+  disciplines:
+  - Brandschutz
+- file_name: Bauphysik_Gutachten.pdf
+  text: 'Bauphysikalisches Gutachten zum Neubau Wohnhaus Graz. Inhalt: 1. Wärmeschutz – U-Werte der Außenbauteile,
+    Außenwand U = 0,18 W/m²K. 2. Schallschutz – Trennwände Rw = 58 dB, Trittschall L''nT,w = 45 dB. 3.
+    Energieausweis HWB 28 kWh/m²a. Verfasser: DI Mayer, Ziviltechniker für Bauphysik.'
+  types:
+  - Gutachten
+  disciplines:
+  - Energieeinsparung/Wärmeschutz
+  - Schallschutz
+- file_name: OIB-Richtlinie_4_2023.pdf
+  text: 'OIB-Richtlinie 4 Nutzungssicherheit und Barrierefreiheit, Ausgabe Mai 2023. 1 Begriffsbestimmungen.
+    2 Erschließung. 2.1 Stiegen: Die Stufenhöhe darf 18 cm nicht überschreiten. 2.2 Geländer und Brüstungen:
+    Absturzsicherungen müssen mindestens 1,00 m hoch sein. 3 Barrierefreie Gestaltung: Türen mindestens
+    90 cm lichte Breite.'
+  types:
+  - Norm/Richtlinie
+  disciplines:
+  - Nutzungssicherheit/Barrierefreiheit
+- file_name: Werkvertrag_Baumeister.pdf
+  text: 'WERKVERTRAG abgeschlossen zwischen der Bauherrin Muster GmbH (Auftraggeberin) und der Bau AG
+    (Auftragnehmerin). § 1 Vertragsgegenstand: Baumeisterarbeiten für das Bauvorhaben Wohnhaus Linz. §
+    2 Werklohn: Pauschalpreis EUR 1.240.000 netto. § 3 Fristen. § 4 Gewährleistung gemäß ÖNORM B 2110.'
+  types:
+  - Vertrag
+  disciplines: []
+- file_name: IMG_2031.jpg
+  text: 'Foto: Blick auf die bestehende Nordfassade des Altbaus, Putzschäden im Sockelbereich, Fenster
+    Kastenfenster aus Holz, Gerüst an der Ecke.'
+  types:
+  - Foto
+  disciplines: []
+- file_name: Protokoll_Baubesprechung_07.pdf
+  text: 'Protokoll Baubesprechung Nr. 7 vom 12.09.2026. Anwesend: Bauherr, Architekt, ÖBA, Statiker. Punkte:
+    1. Terminplan Rohbau verschoben um 2 Wochen. 2. Bewehrungsabnahme Decke über EG am 15.09. 3. Offene
+    Punkte Haustechnik.'
+  types:
+  - Sonstiges
+  disciplines: []
+- file_name: Statik_Vorbemessung.pdf
+  text: 'Statische Vorbemessung. Tragwerk: Stahlbetonskelett, Flachdecken d = 24 cm, Stützen 30/30 cm,
+    Fundierung Einzelfundamente. Lastannahmen nach ÖNORM EN 1991: Nutzlast 2,0 kN/m², Schneelast 1,36
+    kN/m². Nachweis der Tragfähigkeit und Gebrauchstauglichkeit.'
+  types:
+  - Gutachten
+  disciplines:
+  - Standsicherheit
+- file_name: Bebauungsplan_7823.pdf
+  text: Plandokument 7823. Festsetzung des Flächenwidmungsplanes und des Bebauungsplanes. Bauklasse III,
+    geschlossene Bauweise, Gebäudehöhe max. 16 m, Baufluchtlinien entlang der Hauptstraße, gärtnerisch
+    auszugestaltende Fläche G.
+  types:
+  - Bebauungsplan
+  - Flächenwidmungsplan
+  disciplines: []
+- file_name: Detail_Attika.pdf
+  text: DETAIL D5 Attika M 1:5. Blechabdeckung Alu 2 mm, Gefälle 3 %, Holzbohle, Abdichtung hochgezogen
+    15 cm, Wärmedämmung XPS 8 cm, Anschluss an WDVS.
+  types:
+  - Detail
+  disciplines:
+  - Energieeinsparung/Wärmeschutz
+- file_name: Brandschutzkonzept.pdf
+  text: 'Brandschutzkonzept für das Bürogebäude Wien 3. Gebäudeklasse 5. Brandabschnitte max. 1.200 m².
+    Fluchtwege: zwei Stiegenhäuser, Sicherheitsstiegenhaus mit Druckbelüftung. Brandmeldeanlage Vollschutz.
+    Feuerwehrzufahrt.'
+  types:
+  - Gutachten
+  disciplines:
+  - Brandschutz
