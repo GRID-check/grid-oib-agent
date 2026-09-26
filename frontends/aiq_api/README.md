@@ -351,6 +351,9 @@ When the `aiq_debug` package is installed, the plugin registers a debug console 
 | **SSE streaming** | No | Real-time events |
 | **Event replay** | No | Via `last_event_id` |
 
+NAT's `/generate/async` is kept for comparison only: this front end serves none
+of NAT's HTTP turn routes (`AIQAPIConfig` in `plugin.py`).
+
 ## Related Documentation
 
 - [Project ARCHITECTURE](../../docs/architecture/overview.md) – Overall system architecture
