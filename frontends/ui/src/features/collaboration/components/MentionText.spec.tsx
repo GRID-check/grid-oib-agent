@@ -1,7 +1,7 @@
 import type { JSX } from 'react'
 import { describe, expect, test } from 'vitest'
 import userEvent from '@testing-library/user-event'
-import { render, screen } from '@/test-utils'
+import { render, screen, waitFor } from '@/test-utils'
 
 import { MentionPeopleProvider } from '../context/mention-people'
 
@@ -189,6 +189,25 @@ describe('MentionText — the peek behind a pill', () => {
     expect(chip.tagName).toBe('SPAN')
     // The name still reads — it travels with the message, not with the roster.
     expect(chip).toHaveTextContent('@Tobias Kern')
+  })
+
+  test('hover peeks after the delay and yields on leave; keyboard focus stays on the pill', async () => {
+    // The shared hook's timing, pinned for its @-mention users now that the
+    // panel mounts beside the pill on first engagement instead of around it.
+    const user = userEvent.setup()
+    withPeople(<MentionText content="@Anna Weber bitte" mentions={[anna]} />)
+    const chip = screen.getByTestId('mention-chip')
+
+    await user.hover(chip)
+    expect(await screen.findByTestId('person-peek')).toHaveTextContent('Anna Weber')
+    await user.unhover(chip)
+    await waitFor(() => expect(screen.queryByTestId('person-peek')).not.toBeInTheDocument())
+
+    await user.tab()
+    expect(document.activeElement).toBe(chip)
+    expect(await screen.findByTestId('person-peek')).toBeInTheDocument()
+    expect(screen.getByTestId('mention-chip')).toBe(chip)
+    expect(document.activeElement).toBe(chip)
   })
 
   test('a mention of the reader says so on the card too', async () => {

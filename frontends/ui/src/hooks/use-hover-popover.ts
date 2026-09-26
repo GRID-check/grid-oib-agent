@@ -25,11 +25,22 @@
  * Used with `PopoverAnchor` rather than `PopoverTrigger` — the trigger's own
  * click-to-toggle would fight the pinning here (clicking an already-hovered
  * trigger would read as "close"), so this owns the open state outright.
+ *
+ * The panel is mounted LAZILY. An answer carries dozens of these triggers and
+ * almost none is ever looked at, but a Radix `Popover` wrapped around each one
+ * (Popper, Presence, the anchor's measuring effects) made a twenty-message
+ * conversation mount some 1,500 fibers nobody would use. So `engaged` stays
+ * false until the first sign of interest (pointer enter, pointer down, focus,
+ * click), and {@link HoverPeekPanel} renders nothing before it. It renders the
+ * popover BESIDE the trigger, anchored through `anchorRef`, never around it:
+ * wrapping the trigger on engagement would change its position in the tree,
+ * React would remount the button, and the focus or the tap that engaged it
+ * would land on a node that no longer exists.
  */
 
 'use client'
 
-import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefObject } from 'react'
 
 /** Long enough that crossing a marker on the way somewhere else does not fire. */
 const OPEN_DELAY_MS = 130
@@ -37,10 +48,13 @@ const OPEN_DELAY_MS = 130
 const CLOSE_DELAY_MS = 220
 
 interface TriggerProps {
+  /** The element the panel anchors to. A callback, so any trigger element type fits. */
+  ref: (node: HTMLElement | null) => void
   'aria-expanded': boolean
   'aria-haspopup': 'dialog'
   onPointerEnter: (event: PointerEvent) => void
   onPointerLeave: (event: PointerEvent) => void
+  onPointerDown: () => void
   onFocus: () => void
   onBlur: () => void
   onClick: () => void
@@ -62,15 +76,34 @@ export interface HoverPopover {
   contentProps: ContentProps
   /** Close and unpin — for an action inside the panel that supersedes it. */
   dismiss: () => void
+  /**
+   * The trigger has been interacted with at least once, so the panel may
+   * mount. Sticky: once mounted it stays, so its close animation can play.
+   */
+  engaged: boolean
+  /** The trigger element, for the panel's `PopoverAnchor virtualRef`. */
+  anchorRef: RefObject<HTMLElement | null>
 }
 
 export const useHoverPopover = (): HoverPopover => {
   const [open, setOpen] = useState(false)
+  const [engaged, setEngaged] = useState(false)
+  const anchorRef = useRef<HTMLElement | null>(null)
   // A ref, not state: every handler below needs the CURRENT pinning, and a
   // pointer leaving mid-render must not read a stale one and close a panel the
   // reader just pinned.
   const pinned = useRef(false)
   const timer = useRef<number | null>(null)
+
+  const setAnchor = useCallback((node: HTMLElement | null): void => {
+    anchorRef.current = node
+  }, [])
+
+  // Read from this render's closure: a trigger already engaged schedules no
+  // update at all, so hovering an engaged chip costs what it always did.
+  const engage = (): void => {
+    if (!engaged) setEngaged(true)
+  }
 
   const cancel = useCallback((): void => {
     if (timer.current === null) return
@@ -105,10 +138,17 @@ export const useHoverPopover = (): HoverPopover => {
       if (!next) dismiss()
     },
     dismiss,
+    engaged,
+    anchorRef,
     triggerProps: {
+      ref: setAnchor,
       'aria-expanded': open,
       'aria-haspopup': 'dialog',
       onPointerEnter: (event) => {
+        // Every pointer type engages — a finger reports pointerenter just
+        // before pointerdown — so the panel is mounted, closed, before the
+        // click that will open it.
+        engage()
         // Touch and pen report through the same events but have no hover: for
         // them the "hover" is the tap that is about to arrive, and opening here
         // would make the panel appear before the finger lands.
@@ -123,7 +163,11 @@ export const useHoverPopover = (): HoverPopover => {
         }
         schedule(false, CLOSE_DELAY_MS)
       },
+      // A second chance for a pointer that never reported an enter (a pen, a
+      // synthetic event); a no-op once engaged.
+      onPointerDown: engage,
       onFocus: () => {
+        engage()
         cancel()
         setOpen(true)
       },
@@ -133,6 +177,7 @@ export const useHoverPopover = (): HoverPopover => {
         if (!pinned.current) schedule(false, CLOSE_DELAY_MS)
       },
       onClick: () => {
+        engage()
         cancel()
         if (pinned.current) {
           dismiss()
