@@ -1,6 +1,5 @@
 ---
 import { releaseAnchor, releaseTitle, sectionTitle, type ChangelogRelease } from '../../lib/changelog'
-import { releaseStamp } from '../../lib/release-stamp'
 import { ui, type Locale } from '../../i18n/ui'
 
 interface Props {
@@ -12,9 +11,6 @@ interface Props {
 const { release, locale, headingAs: Heading = 'h2' } = Astro.props
 const t = ui[locale].changelog
 const Section = Heading === 'h2' ? 'h3' : 'h4'
-// A small riso print of the building site: the house one step further with
-// every release. Decorative: the heading beside it says which release this is.
-const stamp = releaseStamp(release.id)
 // A week can carry seventy notes. When it has a summary, that summary is the
 // reading; the sections fold to their title and count, one click from the list.
 const total = release.sections.reduce((n, s) => n + s.notes.length, 0)
@@ -44,20 +40,6 @@ const fold = Boolean(release.summary) && total > 8
         )
       }
     </div>
-    {
-      stamp && (
-        <img
-          src={stamp.src}
-          srcset={stamp.srcset}
-          width={stamp.width}
-          height={stamp.height}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          class="shrink-0"
-        />
-      )
-    }
   </header>
 
   <div class="min-w-0">
