@@ -312,7 +312,7 @@ class TestPersistOnDropGating:
         )
         validator.convert_data_to_message_content = AsyncMock(return_value=MagicMock())
         validator.create_system_response_token_message = AsyncMock(return_value=MagicMock())
-        handler._persist_terminal_message = AsyncMock()
+        handler._persist_terminal_message_in_background = MagicMock()
         return handler
 
     @pytest.mark.asyncio
@@ -325,7 +325,7 @@ class TestPersistOnDropGating:
                 status=WebSocketMessageStatus.IN_PROGRESS,
                 persist_on_drop=False,
             )
-        handler._persist_terminal_message.assert_not_awaited()
+        handler._persist_terminal_message_in_background.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_terminal_delivered_to_a_socket_still_persists(self) -> None:
@@ -340,7 +340,7 @@ class TestPersistOnDropGating:
                 message_type=WebSocketMessageType.RESPONSE_MESSAGE,
                 status=WebSocketMessageStatus.COMPLETE,
             )
-        handler._persist_terminal_message.assert_awaited_once()
+        handler._persist_terminal_message_in_background.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_terminal_drop_persists(self) -> None:
@@ -352,7 +352,34 @@ class TestPersistOnDropGating:
                 message_type=WebSocketMessageType.RESPONSE_MESSAGE,
                 status=WebSocketMessageStatus.COMPLETE,
             )
-        handler._persist_terminal_message.assert_awaited_once()
+        handler._persist_terminal_message_in_background.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_a_slow_persist_does_not_hold_up_the_frame(self) -> None:
+        """The write runs behind the frame: create_websocket_message returns while
+        the BFF is still answering, so the COMPLETE frame after it is not delayed."""
+        handler = _make_handler(authenticated_user={"type": "internal"}, socket=MagicMock())
+        handler._conversation_id = "conv-1"
+        handler._message_parent_id = "user-1"
+        release = asyncio.Event()
+        written: list[dict] = []
+
+        async def slow_persist(**kwargs):
+            await release.wait()
+            written.append(kwargs)
+
+        message = MagicMock()
+        message.model_dump.return_value = {"content": {"text": "Antwort"}}
+        with patch("aiq_api.websocket_reconnect.persist_assistant_message", slow_persist):
+            handler._persist_terminal_message_in_background(message, WebSocketMessageType.RESPONSE_MESSAGE)
+            # The next turn moves the handler on before the write lands.
+            handler._message_parent_id = "user-2"
+            await asyncio.sleep(0)
+            assert written == []
+            release.set()
+            for _ in range(3):
+                await asyncio.sleep(0)
+        assert [w["parent_id"] for w in written] == ["user-1"]
 
 
 class TestTransparencyExtrasLift:
@@ -467,7 +494,8 @@ class TestPersistTerminalMessageIfClientGone:
         )
         with patch("aiq_api.websocket_reconnect.persist_assistant_message") as persist:
             persist.return_value = True
-            await handler._persist_terminal_message(message, WebSocketMessageType.RESPONSE_MESSAGE)
+            handler._persist_terminal_message_in_background(message, WebSocketMessageType.RESPONSE_MESSAGE)
+            await asyncio.gather(*websocket_reconnect._PERSIST_TASKS)
         persist.assert_not_called()
 
     @pytest.mark.asyncio
@@ -476,7 +504,8 @@ class TestPersistTerminalMessageIfClientGone:
         message = self._message({"content": {"text": "Here is your answer."}})
         with patch("aiq_api.websocket_reconnect.persist_assistant_message") as persist:
             persist.return_value = True
-            await handler._persist_terminal_message(message, WebSocketMessageType.RESPONSE_MESSAGE)
+            handler._persist_terminal_message_in_background(message, WebSocketMessageType.RESPONSE_MESSAGE)
+            await asyncio.gather(*websocket_reconnect._PERSIST_TASKS)
         persist.assert_awaited_once()
         assert persist.await_args.kwargs["text"] == "Here is your answer."
 
@@ -499,7 +528,8 @@ class TestPersistTerminalMessageIfClientGone:
         )
         with patch("aiq_api.websocket_reconnect.persist_assistant_message") as persist:
             persist.return_value = True
-            await handler._persist_terminal_message(message, WebSocketMessageType.RESPONSE_MESSAGE)
+            handler._persist_terminal_message_in_background(message, WebSocketMessageType.RESPONSE_MESSAGE)
+            await asyncio.gather(*websocket_reconnect._PERSIST_TASKS)
         assert persist.await_args.kwargs["extras"] == {
             "answer_meta": {"v": 1, "kind": "ruling", "summary": "REI 60, weil GK 4."},
             "routing_decision": "shallow",

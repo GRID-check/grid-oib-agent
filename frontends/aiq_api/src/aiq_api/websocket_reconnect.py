@@ -604,8 +604,12 @@ _TRANSPARENCY_EXTRA_FIELDS = (
 # lift so the frontend can mute a house-voice row without dropping it.
 _SKILLS_EXTRA_FIELDS = ("skills_activated", "skills_hidden")
 
-# The extras the server-side persist writes onto the row when the client is
-# gone, beyond the ones ``persist_assistant_message`` names in its signature.
+# Background terminal-answer writes still in flight (the loop holds only weak
+# references to tasks).
+_PERSIST_TASKS: set[asyncio.Task[None]] = set()
+
+# The extras the server-side persist writes onto the row, beyond the ones
+# ``persist_assistant_message`` names in its signature.
 # Each is one the BFF decodes on rehydrate (``agent-answer-metadata.ts``) or
 # stores as provenance: without them a turn that finished after the tab
 # closed reloaded with no verdict, summary, takeaways or callout, a ``meta``
@@ -1421,68 +1425,73 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     # with ON CONFLICT DO NOTHING, so the browser's own write of
                     # the same answer is a no-op. Streamed deltas pass
                     # persist_on_drop=False; only the terminal frame persists.
-                    await self._persist_terminal_message(message, message_type)
+                    # Off the frame's path: the COMPLETE frame that follows
+                    # must not wait on the BFF (up to its 10 s timeout).
+                    self._persist_terminal_message_in_background(message, message_type)
 
-    async def _persist_terminal_message(
-        self,
-        message: BaseModel,
-        message_type: str | None,
-    ) -> None:
-        """Persist a terminal assistant response to the BFF.
+    def _terminal_persist_kwargs(self, message: BaseModel, message_type: str | None) -> dict[str, Any] | None:
+        """What `persist_assistant_message` writes for this frame, or None when it writes nothing.
 
-        Only fires for a RESPONSE_MESSAGE that actually carries the finished
-        answer (non-empty text and/or cards). The empty COMPLETE frame that
+        Only a RESPONSE_MESSAGE that actually carries the finished answer
+        (non-empty text and/or cards) is written. The empty COMPLETE frame that
         merely signals turn completion is skipped so no blank bubble is written.
-        Fail-soft: never raises.
+        Read synchronously, so a background write keeps this turn's conversation
+        and parent even if the handler moves on to the next turn.
+        """
+        if message_type != WebSocketMessageType.RESPONSE_MESSAGE or not self._conversation_id:
+            return None
+        dump = message.model_dump()
+        # A job-admission rejection ("queue full") is a TRANSIENT notice, not
+        # a research answer. It is surfaced live as a warning banner with no
+        # reader for the marker on rehydrate, so persisting it would resurrect
+        # it as a fake answer in history. It is also stale by the time the
+        # client reloads. Never persist it — drop it entirely.
+        if dump.get("job_admission_rejected"):
+            return None
+        content_obj = dump.get("content")
+        text = content_obj.get("text") if isinstance(content_obj, dict) else None
+        cards = dump.get("cards")
+        if not (text and text.strip()) and not cards:
+            return None
+        return {
+            "conversation_id": self._conversation_id,
+            "parent_id": self._message_parent_id,
+            "text": text or "",
+            "organization_id": _org_id_from_scope(getattr(self._socket, "scope", {}) or {}),
+            "cards": cards,
+            "answer_confidence": dump.get("answer_confidence"),
+            "answer_confidence_reason": dump.get("answer_confidence_reason"),
+            "answer_confidence_capped_reason": dump.get("answer_confidence_capped_reason"),
+            "sources": dump.get("sources"),
+            "read_sources": dump.get("read_sources"),
+            "skills_activated": dump.get("skills_activated"),
+            "retrieval_ledger": dump.get("retrieval_ledger"),
+            "extras": {name: dump[name] for name in _PERSISTED_EXTRA_FIELDS if dump.get(name) is not None},
+        }
+
+    def _persist_terminal_message_in_background(self, message: BaseModel, message_type: str | None) -> None:
+        """Persist a terminal assistant response to the BFF, without holding up the frames behind it.
+
+        Fail-soft: never raises. The arguments are read now; only the HTTP write runs later. The task is
+        held in a module set until it finishes, so it is not collected mid-write.
         """
         try:
-            if message_type != WebSocketMessageType.RESPONSE_MESSAGE:
-                return
-            if not self._conversation_id:
-                return
-
-            dump = message.model_dump()
-
-            # A job-admission rejection ("queue full") is a TRANSIENT notice, not
-            # a research answer. It is surfaced live as a warning banner with no
-            # reader for the marker on rehydrate, so persisting it would resurrect
-            # it as a fake answer in history. It is also stale by the time the
-            # client reloads. Never persist it — drop it entirely.
-            if dump.get("job_admission_rejected"):
-                return
-
-            content_obj = dump.get("content")
-            text = content_obj.get("text") if isinstance(content_obj, dict) else None
-            cards = dump.get("cards")
-            answer_confidence = dump.get("answer_confidence")
-            answer_confidence_reason = dump.get("answer_confidence_reason")
-            answer_confidence_capped_reason = dump.get("answer_confidence_capped_reason")
-            sources = dump.get("sources")
-            read_sources = dump.get("read_sources")
-            skills_activated = dump.get("skills_activated")
-            retrieval_ledger = dump.get("retrieval_ledger")
-            extras = {name: dump[name] for name in _PERSISTED_EXTRA_FIELDS if dump.get(name) is not None}
-
-            if not (text and text.strip()) and not cards:
-                return
-
-            await persist_assistant_message(
-                conversation_id=self._conversation_id,
-                parent_id=self._message_parent_id,
-                text=text or "",
-                organization_id=_org_id_from_scope(getattr(self._socket, "scope", {}) or {}),
-                cards=cards,
-                answer_confidence=answer_confidence,
-                answer_confidence_reason=answer_confidence_reason,
-                answer_confidence_capped_reason=answer_confidence_capped_reason,
-                sources=sources,
-                read_sources=read_sources,
-                skills_activated=skills_activated,
-                retrieval_ledger=retrieval_ledger,
-                extras=extras,
-            )
+            kwargs = self._terminal_persist_kwargs(message, message_type)
         except Exception:  # noqa: BLE001 — never let persistence crash the handler
-            logger.warning("Unexpected error while persisting terminal message", exc_info=True)
+            logger.warning("Unexpected error while preparing terminal message persistence", exc_info=True)
+            return
+        if kwargs is None:
+            return
+
+        async def _write() -> None:
+            try:
+                await persist_assistant_message(**kwargs)
+            except Exception:  # noqa: BLE001 — fail-soft, as the awaited path
+                logger.warning("Unexpected error while persisting terminal message", exc_info=True)
+
+        task = asyncio.create_task(_write())
+        _PERSIST_TASKS.add(task)
+        task.add_done_callback(_PERSIST_TASKS.discard)
 
     async def human_interaction_callback(self, prompt: InteractionPrompt) -> HumanResponse:
         """

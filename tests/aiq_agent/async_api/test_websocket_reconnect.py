@@ -830,6 +830,8 @@ async def test_create_websocket_message_persists_terminal_response_when_client_g
         data_model=DummyMessage(),
         message_type=WebSocketMessageType.RESPONSE_MESSAGE,
     )
+    # The write runs behind the frame; let it land.
+    await asyncio.gather(*websocket_reconnect._PERSIST_TASKS)
 
     assert len(_FakeAsyncClient.calls) == 1
     call = _FakeAsyncClient.calls[0]

@@ -266,7 +266,7 @@ banner.
 
 **The server keeps every answer.** The backend persists every finished
 answer, whether or not a socket took the terminal frame
-(`_persist_terminal_message`). It used to persist only when no socket was
+(`_persist_terminal_message_in_background`). It used to persist only when no socket was
 attached, leaving the write to the browser; a socket that took the frame and
 died before the browser saved it lost the answer for good. Now the reader's
 connection decides only how soon the answer appears, never whether it exists.

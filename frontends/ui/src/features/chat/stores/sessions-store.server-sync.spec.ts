@@ -613,4 +613,42 @@ describe('waiting for the server’s answer to a turn this page lost', () => {
     expect(await useChatStore.getState()._awaitServerAnswer(conv.id, 'u1')).toBe('nothing')
     expect(useChatStore.getState().isRecoveryPending).toBe(false)
   })
+
+  it('runs one wait per conversation: a second caller is told it is superseded', async () => {
+    const conv = lostTurn()
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+    mockConversationsClient.newestFrameAge.mockResolvedValue(5 * 60_000)
+    mockConversationsClient.listMessages.mockResolvedValue([serverRow(conv.id, 'u1', 'user', 'q')])
+
+    const first = useChatStore.getState()._awaitServerAnswer(conv.id, 'u1')
+    const second = useChatStore.getState()._awaitServerAnswer(conv.id, 'u1')
+
+    // Only the first may accuse; two `nothing`s would print the banner twice.
+    expect(await second).toBe('superseded')
+    expect(await first).toBe('nothing')
+    // Once it has settled, a later turn may wait again.
+    expect(await useChatStore.getState()._awaitServerAnswer(conv.id, 'u1')).toBe('nothing')
+  })
+
+  it('keeps the checking line up until the last of two waits ends', async () => {
+    vi.useFakeTimers()
+    const conv = lostTurn()
+    const other = makeConversation({ id: 'conv-other', messages: lostTurn().messages })
+    useChatStore.setState({ conversations: [conv, other], currentConversation: conv })
+    mockConversationsClient.listMessages.mockResolvedValue([serverRow(conv.id, 'u1', 'user', 'q')])
+    // The first conversation's turn has gone quiet; the other's still beats.
+    mockConversationsClient.newestFrameAge.mockImplementation(async (id: string) =>
+      id === conv.id ? 5 * 60_000 : 5_000
+    )
+
+    const quiet = useChatStore.getState()._awaitServerAnswer(conv.id, 'u1')
+    const beating = useChatStore.getState()._awaitServerAnswer(other.id, 'u1')
+    expect(await quiet).toBe('nothing')
+    expect(useChatStore.getState().isRecoveryPending).toBe(true)
+
+    mockConversationsClient.newestFrameAge.mockResolvedValue(5 * 60_000)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(await beating).toBe('nothing')
+    expect(useChatStore.getState().isRecoveryPending).toBe(false)
+  })
 })

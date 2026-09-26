@@ -1042,6 +1042,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         // the reader has already resent — accusing there prints
         // "please resend" underneath a live answer.
         if (outcome !== 'nothing') return
+        // The wait can take minutes, and `addErrorCard` writes into whichever
+        // conversation is open by then.
+        if (useChatStore.getState().currentConversation?.id !== conversation.id) return
         addErrorCard(
           'agent.response_interrupted',
           'The assistant stopped responding. Please resend your message.'

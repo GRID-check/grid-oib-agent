@@ -326,8 +326,10 @@ in `use-websocket-chat.ts` + the chat store.
   `conversation_id → socket` and holds pending HITL futures + the running
   workflow task. `set_socket` on send/reconnect, `clear_socket` on disconnect.
 - **The server keeps every answer.** Every terminal `RESPONSE_MESSAGE`, sent or
-  not, goes through `_persist_terminal_message` → `persist_assistant_message`,
+  not, goes through `_persist_terminal_message_in_background` → `persist_assistant_message`,
   which POSTs the finished answer (text + cards/sources/confidence) to the BFF.
+  The write runs as a background task, its arguments read up front, so the
+  `COMPLETE` frame after it never waits on the BFF.
   Until 2026-09 this ran only when no socket was attached ("the client owns the
   write", the `has_socket` guard), so an answer delivered to a socket that died
   before the browser saved it, a phone going to the background mid-frame, was
