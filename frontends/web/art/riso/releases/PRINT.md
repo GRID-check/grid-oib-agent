@@ -21,17 +21,17 @@ Two options were on the table:
   pinned kit clone, its `npm ci`, and a Firefox download, on every merge that
   touches a note, and it would commit two binary files per release forever.
   Rejected: heavy, and it ties the art to the release data's shape.
-- **(b) A fixed set, mapped by a stable hash.** Chosen. Thirty stamps, one per
-  building step, exported once. `src/lib/release-stamp.ts` hashes the release
-  id the way the engine seeds its streams (`rngFor`: FNV-1a into mulberry32,
-  key `release:<id>`) and picks one. It works for any id (a date, a week, a
-  tag), costs nothing per release, and the whole set is about 205 KB.
+- **(b) A fixed set, handed out in publishing order.** Chosen. Thirty stamps,
+  one per building step, exported once. `src/lib/release-stamp.ts` gives the
+  oldest release step one and each later release the next step, so the
+  changelog shows the house going up release by release; after step thirty the
+  next release starts a new plot. It works for any id (a date, a week, a tag),
+  costs nothing per release, and the whole set is about 205 KB. (The first cut
+  picked by a hash of the id, which scattered the steps and lost the story.)
 
 Thirty, not 48: every step had to be a part you can see at 64 px. The list ran
 out of honest parts at 30; padding it with near-duplicates would only have
-made neighbours look alike. With about 30 releases on the page, some stamps
-repeat (21 distinct among the 29 current ids, no two neighbours equal); that
-is the price of (b), and it reads as the same site revisited.
+made neighbours look alike. Every thirtieth release repeats a step, on a new plot.
 
 ## Series principle
 
