@@ -1,4 +1,5 @@
 import { config, fields, collection } from '@keystatic/core'
+import { CATEGORIES, CATEGORY_IDS, DEFAULT_CATEGORY } from './src/lib/categories'
 
 // Uploads land in `src/`, not `public/`, so Astro's image pipeline processes
 // them: `public/` assets are copied verbatim and served at whatever resolution
@@ -18,6 +19,14 @@ const postSchema = {
   description: fields.text({ label: 'Kurzbeschreibung', multiline: true }),
   pubDate: fields.date({ label: 'Veröffentlicht am' }),
   draft: fields.checkbox({ label: 'Entwurf', defaultValue: true }),
+  // Same ids as the content schema's z.enum, from the same list, so the CMS
+  // cannot write a category the site has no listing for.
+  category: fields.select({
+    label: 'Kategorie',
+    description: CATEGORY_IDS.map((id) => `${CATEGORIES.de[id].label}: ${CATEGORIES.de[id].descriptor}`).join(' '),
+    options: CATEGORY_IDS.map((id) => ({ label: CATEGORIES.de[id].label, value: id })),
+    defaultValue: DEFAULT_CATEGORY,
+  }),
   translationSlug: fields.text({ label: 'Übersetzung (Slug)' }),
   cover: fields.image({
     label: 'Titelbild',

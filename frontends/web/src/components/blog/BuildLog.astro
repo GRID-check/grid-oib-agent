@@ -1,0 +1,85 @@
+---
+/**
+ * The build log as a sheet: a title block in the head, then numbered entries
+ * like the pages of a site diary. Used on the blog index, on the category
+ * listing and under a build-log post ("more from this category").
+ */
+import { ui, type Locale } from '../../i18n/ui'
+import { CATEGORIES, blogPath } from '../../lib/categories'
+import type { BlogPost } from '../../lib/posts'
+import LogEntry from './LogEntry.astro'
+
+interface Props {
+  posts: BlogPost[]
+  numbers: Map<string, number>
+  locale: Locale
+  /** `h2` when the sheet heads a section; `div` when the page's h1 already names it. */
+  titleAs?: 'h2' | 'div'
+  /** Entries' heading level, one below whatever names the sheet. */
+  entryLevel?: 2 | 3
+  /** Total entries in the log, for the title block; defaults to `posts.length`. */
+  total?: number
+  /** Show a footer link to the full listing. */
+  viewAll?: boolean
+}
+const {
+  posts,
+  numbers,
+  locale,
+  titleAs = 'h2',
+  entryLevel = 3,
+  total = posts.length,
+  viewAll = false,
+} = Astro.props
+const t = ui[locale].blog
+const cat = CATEGORIES[locale].bautagebuch
+const Title = titleAs
+---
+
+<section class="overflow-hidden rounded-card bg-paper shadow-card ring-1 ring-ink/10">
+  <header class="grid grid-cols-[1fr_auto] border-b border-ink/15 bg-paper-dim">
+    <div class="min-w-0 px-5 py-5 sm:px-7">
+      <Title class="font-voice text-[2rem] leading-none text-ink">{cat.label}</Title>
+      {/* Where the page heading already carries the descriptor, don't repeat it. */}
+      {titleAs === 'h2' && <p class="mt-2 text-base leading-snug text-ink-soft">{cat.descriptor}</p>}
+    </div>
+    <dl
+      class="grid content-start gap-y-2 border-l border-ink/15 px-4 py-5 font-mono text-2xs uppercase tracking-label sm:px-6"
+    >
+      <div>
+        <dt class="text-ink-faint">{t.logProject}</dt>
+        <dd class="text-ink">Piloti</dd>
+      </div>
+      <div>
+        <dt class="text-ink-faint">{t.logEntries}</dt>
+        <dd class="tabular-nums text-ink">{String(total).padStart(2, '0')}</dd>
+      </div>
+    </dl>
+  </header>
+  {
+    posts.length === 0 ? (
+      <p class="px-5 py-8 text-base text-ink-soft sm:px-7">{t.empty}</p>
+    ) : (
+      <ol>
+        {posts.map((post) => (
+          <LogEntry
+            post={post}
+            locale={locale}
+            number={numbers.get(post.id) ?? 0}
+            level={entryLevel}
+          />
+        ))}
+      </ol>
+    )
+  }
+  {
+    viewAll && (
+      <a
+        href={blogPath(locale, 'bautagebuch')}
+        class="flex min-h-12 items-center border-t border-ink/15 px-5 font-mono text-2xs uppercase tracking-label text-accent-600 transition-colors hover:bg-surface/60 sm:px-7"
+      >
+        {cat.viewAll}
+      </a>
+    )
+  }
+</section>
