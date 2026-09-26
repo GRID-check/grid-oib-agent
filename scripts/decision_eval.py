@@ -24,6 +24,13 @@ THE ADOPTION RULE (audit §4.4, ADR-0064)
 - corpus `baurecht` on ≥ 90 % of the regulation rows.
 Anything under that: keep `turn_decisions: false` and say so in the PR.
 
+THESE ARE TUNING SETS
+---------------------
+The criteria were written against these rows, so a pass here says the
+wording still does what it was tuned to do, not that it generalises. That is
+``decision_eval_holdout.py`` (``task be:eval:decisions:holdout``), on sets
+written blind to the wording.
+
 IT NEEDS A KEY, NOT A BACKEND
 -----------------------------
 Unlike `loop_eval.py`, nothing here needs the corpus or a running backend: the
@@ -112,7 +119,7 @@ class Row:
     model_p: float | None = None
     skill: str | None = None
     skill_p: float = 0.0
-    skill_fit: float | None = None
+    skill_veto: float | None = None
     self_contained: float | None = None
     latency_ms: int = 0
     decided: bool = False
@@ -123,14 +130,14 @@ class Row:
 
     @property
     def skill_loaded(self) -> bool:
-        from aiq_agent.agents.piloti.decisions import SKILL_FIT_THRESHOLD
         from aiq_agent.agents.piloti.decisions import SKILL_THRESHOLD
+        from aiq_agent.agents.piloti.decisions import SKILL_VETO_THRESHOLD
 
         return bool(
             self.skill
             and self.skill != "none"
             and self.skill_p >= SKILL_THRESHOLD
-            and (self.skill_fit or 0.0) >= SKILL_FIT_THRESHOLD
+            and (self.skill_veto or 0.0) < SKILL_VETO_THRESHOLD
         )
 
     @property
@@ -179,10 +186,10 @@ async def _evaluate(questions_path: Path, follow_ups_path: Path | None = None) -
 
     families = oib_families(CORPUS_FILES)
     cards = [entry for entry in card_index_entries() if entry[0] not in ENVELOPE_SHAPE_TYPES]
+    from aiq_agent.agents.piloti.decisions import skill_option
+
     skills = [
-        (skill.name, " ".join(skill.description.split()))
-        for skill in discover_builtin_skills()
-        if _skill_applies_to_agent(skill, "researcher")
+        skill_option(skill) for skill in discover_builtin_skills() if _skill_applies_to_agent(skill, "researcher")
     ]
     rows: list[Row] = []
     standalone = [
@@ -217,14 +224,14 @@ async def _evaluate(questions_path: Path, follow_ups_path: Path | None = None) -
                 row.expected_family_p = by_key.get(row.expected_family or "")
             if decided.cards:
                 row.top_card, row.top_card_p = max(decided.cards, key=lambda c: c[1])
-            row.skill, row.skill_p, row.skill_fit = decided.skill, decided.skill_p, decided.skill_fit
+            row.skill, row.skill_p, row.skill_veto = decided.skill, decided.skill_p, decided.skill_veto
             row.self_contained = decided.self_contained
             row.latency_ms = decided.latency_ms
         rows.append(row)
         print(
             f"{row.id:36s} evidence={row.needs_evidence or 0:.2f} corpus={row.corpus}({row.corpus_p:.2f}) "
             f"family={row.top_family}({row.top_family_p:.2f}) expected={row.expected_family} "
-            f"skill={row.skill}({row.skill_p:.2f}/fit {row.skill_fit or 0:.2f}) "
+            f"skill={row.skill}({row.skill_p:.2f}/veto {row.skill_veto or 0:.2f}) "
             f"card={row.top_card}({row.top_card_p:.2f}) self={row.self_contained or 0:.2f} {row.latency_ms}ms"
         )
     return rows
@@ -308,7 +315,7 @@ def write_csv(rows: list[Row], path: Path) -> None:
         "needs_evidence",
         "skill",
         "skill_p",
-        "skill_fit",
+        "skill_veto",
         "self_contained",
         "top_card",
         "top_card_p",

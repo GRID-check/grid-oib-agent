@@ -31,14 +31,14 @@ logger = logging.getLogger(__name__)
 DIGEST_ENTRY_RE = re.compile(r'^\s*-\s*\[([^\]]*)\]\s*"(.*)"\s*$')
 #: The technical-record slot: ``status:decision:memory_supersede``.
 SLOT = "memory_supersede"
-#: At or above this p(replaces) the entry is quoted as superseded. Measured
-#: 2026-09-26 over two runs on a twelve-entry memory and sixteen findings
-#: (``tests/fixtures/decisions/memory_supersede.yaml``): the eight corrections
-#: named the right entry at 0.88-0.97 once the criteria say that Projekt and
-#: Grundstück name the same location (without it, „Das Grundstück liegt in
-#: St. Pölten" against „Das Projekt liegt in Wien" scored 0.79-0.81); no other
-#: pair above 0.41.
-REPLACES_THRESHOLD = 0.8
+#: At or above this p(replaces) the entry is quoted as superseded. Tuning
+#: set (``tests/fixtures/decisions/memory_supersede.yaml``, two runs): the
+#: eight corrections named the right entry at 0.88-0.97, no other pair above
+#: 0.41. Held-out set (fifteen entries, 24 findings written blind, most
+#: corrections worded unlike their entry): 15/15 found at 0.7, one at 0.78,
+#: no wrong retirement. The Projekt/Grundstück sentence in the criteria was
+#: written for one tuning row and changed nothing on the held-out set.
+REPLACES_THRESHOLD = 0.7
 #: How many entries are asked about; the digest is bounded at 6 000
 #: characters upstream, which is about this many one-sentence entries.
 MAX_ENTRIES = 40

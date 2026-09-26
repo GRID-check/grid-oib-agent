@@ -1,0 +1,211 @@
+# Held-out set, written blind to the classifier wording (2026-09-26). Do not tune on it.
+- id: hq01
+  message: "Wir stocken ein Gründerzeithaus um zwei Geschoße auf. Muss dann für das ganze Bestandsgebäude die Erdbebensicherheit nachgewiesen werden oder nur für den neuen Teil?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "1"
+  skill: bestand
+- id: hq02
+  message: "muss man bei einem normalen EFH eigentlich einen Erdbebennachweis führen?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "1"
+  skill: null
+- id: hq03
+  message: "Welche Anforderungen gelten für eine hinterlüftete Lärchenholzfassade bei einem Wohnbau mit fünf oberirdischen Geschoßen?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "2"
+  skill: brandschutz
+- id: hq04
+  message: "Wie groß darf ein Brandabschnitt in einer eingeschoßigen Lagerhalle ohne Sprinkler maximal werden?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "2"
+  skill: brandschutz
+- id: hq05
+  message: "Ab welcher Höhe ist in einem Hochhaus ein Feuerwehraufzug vorgeschrieben?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "2"
+  skill: brandschutz
+- id: hq06
+  message: "Braucht eine Kleingarage mit ca. 200 m² Nutzfläche eine Brandmeldeanlage oder reicht was anderes?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "2"
+  skill: brandschutz
+- id: hq07
+  message: "Ein innenliegendes Bad ohne Fenster – muss das mechanisch entlüftet werden und gibts einen Mindestluftwechsel?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "3"
+  skill: hygiene
+- id: hq08
+  message: "Was ist beim Neubau im Radonschutzgebiet an baulichen Maßnahmen vorzusehen?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "3"
+  skill: hygiene
+- id: hq09
+  message: "Wie hoch darf die Stufe bei einer Hauptstiege max. sein und wie tief muss der Auftritt mindestens sein?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "4"
+  skill: nutzungssicherheit
+- id: hq10
+  message: "Welche freie Bewegungsfläche ist bei einer barrierefreien Tür auf der Seite, zu der sie aufgeht, nötig?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "4"
+  skill: nutzungssicherheit
+- id: hq11
+  message: "Unter einer Wohnung ist ein Gastlokal geplant. Welcher Trittschallpegel ist da einzuhalten?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "5"
+  skill: waermeschutz
+- id: hq12
+  message: "Gibt es verbindliche Vorgaben zur Nachhallzeit in Gruppenräumen eines Kindergartens?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "5"
+  skill: waermeschutz
+- id: hq13
+  message: "Wann muss ich den sommerlichen Überwärmungsschutz nachweisen – auch bei einem Wohnbau mit Dachfenstern?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "6"
+  skill: waermeschutz
+- id: hq14
+  message: "Welcher Anteil der Wärmebereitstellung muss im Neubau aus erneuerbaren Quellen kommen, wenn wir eine Gasbrennwerttherme wollen?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "6"
+  skill: waermeschutz
+- id: hq15
+  message: "Für den Brandschutz: in welche Gebäudeklasse fällt ein Reihenhaus mit drei oberirdischen Geschoßen, 4 Wohnungen und einem Fluchtniveau von 6,5 m?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "2"
+  skill: gebaeudeklasse
+- id: hq16
+  message: "Ein Bürohaus aus den 70ern soll zu Wohnungen umgebaut werden. Was muss der Bestand brandschutztechnisch nachträglich erfüllen?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "2"
+  skill: bestand
+- id: hq17
+  message: "Welcher Abstand zur Nachbargrundgrenze gilt in der Steiermark für ein zweigeschoßiges Wohnhaus?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: null
+  skill: bebauung
+- id: hq18
+  message: "Was heißt Bauklasse III in Wien konkret für die zulässige Gebäudehöhe?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: null
+  skill: bebauung
+- id: hq19
+  message: "Wieviele PKW-Stellplätze sind in Linz für ein Bürogebäude mit rund 1.200 m² Nutzfläche nachzuweisen?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: null
+  skill: bebauung
+- id: hq20
+  message: "Darf man im Bauland-Agrargebiet in Niederösterreich ein Mehrparteienhaus mit 6 Wohnungen errichten?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: null
+  skill: bebauung
+- id: hq21
+  message: "Kannst du prüfen, ob in unserem Ordner Einreichung alles drin ist, was die OÖ Bauordnung für das Bauansuchen verlangt?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: null
+  skill: einreichcheck
+- id: hq22
+  message: "Wie lang ist im Modell der Weg von der Wohnungstür Top 7 bis zur Tür ins Stiegenhaus?"
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: "2"
+  skill: ifc-spatial-reasoning
+- id: hq23
+  message: "Öffne bitte das letzte Besprechungsprotokoll mit dem Statiker und sag mir, was offen geblieben ist."
+  previous_message: null
+  needs_evidence: true
+  self_contained: true
+  family: null
+  skill: null
+- id: hq24
+  message: "und im Hochhaus?"
+  previous_message: "Wie breit muss die Hauptstiege in einem Wohnhaus der Gebäudeklasse 3 mindestens sein?"
+  needs_evidence: true
+  self_contained: false
+  family: "4"
+  skill: nutzungssicherheit
+- id: hq25
+  message: "Gilt das auch für die Wand zum Stiegenhaus?"
+  previous_message: "Welche Luftschalldämmung brauchen Wohnungstrennwände?"
+  needs_evidence: true
+  self_contained: false
+  family: "5"
+  skill: waermeschutz
+- id: hq26
+  message: "Und wenn wir eine Sprinkleranlage einbauen, darf man dann runtergehen?"
+  previous_message: "Welche Feuerwiderstandsklasse brauchen tragende Wände in Gebäudeklasse 4?"
+  needs_evidence: true
+  self_contained: false
+  family: "2"
+  skill: brandschutz
+- id: hq27
+  message: "Bitte nochmal kürzer, nur in Stichpunkten."
+  previous_message: "Was sagt der Bebauungsplan zur Dachform bei unserem Projekt?"
+  needs_evidence: false
+  self_contained: false
+  family: null
+  skill: null
+- id: hq28
+  message: "Andere Frage: welche Mindestraumhöhe gilt in Tirol für Aufenthaltsräume?"
+  previous_message: "Wie hoch muss eine Brüstung bei einem französischen Fenster sein?"
+  needs_evidence: true
+  self_contained: true
+  family: "3"
+  skill: hygiene
+- id: hq29
+  message: "Schreib mir bitte eine freundliche Mail an den Bauherrn, dass sich die Einreichung um zwei Wochen verschiebt."
+  previous_message: null
+  needs_evidence: false
+  self_contained: true
+  family: null
+  skill: null
+- id: hq30
+  message: "Danke dir, schönes Wochenende!"
+  previous_message: null
+  needs_evidence: false
+  self_contained: true
+  family: null
+  skill: null

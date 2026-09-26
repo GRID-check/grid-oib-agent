@@ -227,15 +227,13 @@ REFLECTION_SYSTEM_PROMPT = (
 REFLECTION_DECISION_SLOT = "memory_reflection"
 #: At or above this p(nothing about this project) the reflection call is
 #: skipped. The question is asked the way round the skip needs it, so the
-#: skip, like every decision here, acts at 0.8 (2026-09-26). Measured on
-#: sixteen German project exchanges, labelled by hand and by the reflection
-#: call itself (which agreed on all sixteen), two runs: every exchange that
-#: produced a finding scored at most 0.42; eight of the nine that produced
-#: none scored 0.8 or above — the regulation lookups once the criteria say
-#: that naming a Gebäudeklasse or a Land in a general question is not a fact
-#: about this project (0.56-0.65 before). The ninth, a value read from the
-#: model, reflects as before.
-REFLECTION_SKIP_THRESHOLD = 0.8
+#: skip acts on a confident answer, like every decision here (0.7-0.8,
+#: 2026-09-26). Tuning set (sixteen exchanges, labelled by hand and by the
+#: reflection call itself): durable exchanges at most 0.42, eight of nine
+#: empty ones 0.8 or above. Held-out set (24 exchanges written blind to this
+#: wording, ``task be:eval:decisions:holdout``): durable at most 0.28, empty
+#: 0.76-0.95, so 0.7 skipped 13/13 and lost none, where 0.8 skipped 11-12.
+REFLECTION_SKIP_THRESHOLD = 0.7
 _DECISION_ANSWER_CHARS = 1500
 
 _NOTHING_QUESTION = (

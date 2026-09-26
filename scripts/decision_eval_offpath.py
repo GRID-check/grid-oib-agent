@@ -10,6 +10,13 @@ project turn. Their thresholds (``DISCIPLINE_THRESHOLD``,
 sets, committed as ``tests/fixtures/decisions/*.yaml``. This script is that
 run, so a threshold or a criterion is changed against a number and not a guess.
 
+THESE ARE TUNING SETS
+---------------------
+The criteria were written against these rows, so a pass here says the
+wording still does what it was tuned to do, not that it generalises. That is
+``decision_eval_holdout.py`` (``task be:eval:decisions:holdout``), on sets
+written blind to the wording.
+
 THE FLOORS
 ----------
 - tags: the decided type is a labelled type on every row, and no discipline

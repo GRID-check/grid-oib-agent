@@ -73,6 +73,7 @@ from .decisions import attached_card_types
 from .decisions import decide_turn
 from .decisions import prefetch_calls
 from .decisions import prefetch_query
+from .decisions import skill_option
 from .models import ResearchAgentState
 from .tool_search import ToolSearchSettings
 from .tool_search import tool_basename
@@ -393,7 +394,7 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
         question=question,
         previous_message=previous,
         previous_answer=previous_answer,
-        skills=[(skill.name, " ".join(skill.description.split())) for skill in offered],
+        skills=[skill_option(skill) for skill in offered],
         focus_file_name=state.focus_file_name,
         project_facts={k: str(v) for k, v in facts_from_project_context(state.project_context or "").items()},
         families=get_norm_families(),

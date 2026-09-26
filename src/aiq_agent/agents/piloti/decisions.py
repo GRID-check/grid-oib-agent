@@ -11,17 +11,18 @@ whose answer can only ADD to the turn:
   memory note. What it gates is the PREFETCH below, never a tool.
 - ``corpus``: which body of knowledge the answer most likely lives in. It
   chooses what to prefetch; every tool stays bound whatever it says.
-- one ``noul`` per Richtlinien-Familie the corpus holds: which OIB documents
-  the answer needs. The top ones are prefetched as family overviews, so the
+- ``family``, a choice over the Richtlinien-Familien the corpus holds and
+  "none": which OIB document the answer needs. The pick is prefetched as a
+  family overview, so the
   model's first call sees their Gliederung and scope and opens Punkte instead
   of searching for them (the audit's §5 b).
 - one ``noul`` per content card type whose shape is NOT already in the
   taught envelope: the two most likely get their full shape attached to
   this turn's prompt, so a card the answer earns is written right first time.
 - ``skill``, a choice over every skill the turn resolved with "none", and
-  one "fits" noul per skill (TypeSafe's own skill-suggestion cookbook: rank,
-  then verify the candidate does the specific thing asked; its abstention
-  is what keeps a wrong skill from being pushed). What it may do: read the
+  one ``skill_veto`` noul — does the message ask for something other than an
+  expert answer — so a message that only names a subject („Was steht im
+  Brandschutzkonzept?") gets no method pushed at it. What it may do: read the
   chosen skill's BODY into this turn's prompt — the one method the question
   is the subject of, ~400 tokens, or the IFC method on a model question —
   and attach its preferred card shapes beyond the three shapes the envelope
@@ -70,50 +71,55 @@ SLOT = "turn"
 #: The knowledge tool the prefetch calls. A wire name (``configs/*.yml``).
 KNOWLEDGE_SEARCH = "knowledge_search"
 
+# Every threshold below acts at 0.7 or 0.8 (2026-09-26). Two numbers stand
+# behind each: the loop-eval set the wording was tuned on
+# (``task be:eval:decisions``), and a held-out set written blind to the
+# wording (``tests/fixtures/decisions/holdout/turn_questions.yaml``, 30 rows,
+# ``task be:eval:decisions:holdout``), scored once per structural change and
+# never tuned on. Where the two disagree, the held-out number decided.
+
 #: Below this p(needs_evidence) nothing is prefetched. A false "no" costs the
-#: model its first round, a false "yes" one unread grounding block. Measured
-#: 2026-09-25: ten messages that need nothing (greetings, thanks, a memory
-#: note, rewrite and e-mail requests) at 0.03-0.24, the 35 loop-eval and
-#: follow-up questions at 0.70-0.98 (standalone 0.82-0.98), so 0.6 sits in
-#: the gap with room on both sides.
+#: model its first round, a false "yes" one unread grounding block. Loop-eval:
+#: questions 0.80-0.98, ten messages that need nothing 0.03-0.24; held-out
+#: 30/30 on the right side of 0.8.
 NEEDS_EVIDENCE_THRESHOLD = 0.8
-#: A family is prefetched at or above this; the top ``MAX_FAMILY_PREFETCH``.
-#: Measured, not guessed: on the 27 loop-eval questions (2026-09-22,
-#: ``tests/fixtures/herleitung/decision_eval_2026-09-22.csv``) the expected
-#: family's probability ran 0.54-0.97 and no Bauordnung row's top family
-#: passed 0.49, so 0.5 is recall 1.0 at precision 1.0 where 0.6 lost two
-#: rows. Re-run ``task be:eval:decisions`` before moving it.
-FAMILY_THRESHOLD = 0.8
-MAX_FAMILY_PREFETCH = 2
+#: The family choice's pick is prefetched at or above this. One choice over
+#: the six Richtlinien and "none", not a noul per family: independent nouls
+#: read each family's scope as a keyword list and scored a question whose
+#: words were not on it low (Holzfassade → 2 at 0.27, Nachhallzeit → 5 at
+#: 0.27, held-out). Held-out, the choice found 16-17 of 21 families at 0.7
+#: against 15 for the reworded nouls and 9 for the original ones, with one
+#: false family on a follow-up (which prefetches nothing). Loop-eval 22/22.
+#: A choice picks one family, so one is prefetched.
+FAMILY_THRESHOLD = 0.7
+MAX_FAMILY_PREFETCH = 1
 #: A card type gets its shape attached at or above this; the top ``MAX_CARD_SHAPES``.
-#: 0.7, not 0.6: on the 2026-09-25 run ``norm_chain`` scored 0.60-0.69 on nine
-#: different rulings — a type that fits every ruling a little is noise — while
-#: the picks that named the answer's shape (a guardrail check, a checklist of
-#: Unterlagen, two variants side by side) scored 0.73-0.87. Each attached
-#: shape is tokens on every call of the turn.
+#: ``norm_chain`` scored 0.60-0.69 on nine different rulings — a type that
+#: fits every ruling a little is noise — while the picks that named the
+#: answer's shape (a checklist of Unterlagen, two variants side by side)
+#: scored 0.81-0.88. Each attached shape is tokens on every call of the turn.
 CARD_THRESHOLD = 0.8
 MAX_CARD_SHAPES = 2
 #: The chosen corpus must reach this before its prefetch runs. Every
-#: regulation question chose ``baurecht`` at 0.94-1.00 on the 2026-09-25 run;
-#: the one row below 0.7 was a folder listing („Was liegt im Ordner
-#: Brandschutz?", ``projekt`` 0.34), which ``surface_documents`` answers and a
-#: search of the question does not.
+#: regulation question chose ``baurecht`` at 0.94-1.00.
 CORPUS_THRESHOLD = 0.8
 #: A skill's body and shapes ride the turn when the choice lands on it at
-#: this probability AND its own "fits" noul clears ``SKILL_FIT_THRESHOLD``.
-#: The choice carries the decision; the fit only vetoes a name-match — a
-#: question that names the subject while asking for something else. Asked
-#: as "would an expert apply this method here" (2026-09-25; the earlier "is
-#: this exactly the case the method is written for" rated right picks at
-#: 0.12-0.17 and a folder listing at 0.47): on the loop-eval set every right
-#: pick's fit ran 0.27-0.95, while „Was steht im Brandschutzkonzept?" (0.11)
-#: and „Was liegt im Ordner Brandschutz?" (0.06), both about a project file,
-#: fell below 0.2. Asked alone over six such traps the fit stayed at or
-#: below 0.13.
-SKILL_THRESHOLD = 0.8
-SKILL_FIT_THRESHOLD = 0.2
-#: Below this p(self_contained) the message itself is not searched.
-#: Standalone questions 0.71-0.95, follow-ups 0.02-0.25 (2026-09-25).
+#: this probability and the veto does not reach ``SKILL_VETO_THRESHOLD``.
+#: The decider reads each skill's catalog line AND the heading its body
+#: opens with (``skill_option``): „Treppe, Geländer, Türbreite" alone never
+#: said Barrierefreiheit (0.61 → 0.99 with the heading). The veto is one
+#: question — does the message ask for something other than an expert
+#: answer (a file listed or summarised, a mail) — replacing a per-skill
+#: "fits" noul that rated right picks as low as 0.12. Loop-eval: right picks
+#: 0.87-1.00 with veto 0.03-0.27; „Was steht im Brandschutzkonzept?" veto
+#: 0.80. Held-out 25/30 loaded exactly the expected skill or none (24/30
+#: before); the misses are a skill whose description does not cover the
+#: topic (radon under `hygiene`) and choices under 0.7.
+SKILL_THRESHOLD = 0.7
+SKILL_VETO_THRESHOLD = 0.7
+#: Below this p(self_contained) the message itself is not searched. Loop-eval
+#: standalone 0.79-0.95, follow-ups at most 0.40; held-out 25/27 at 0.8 and
+#: 24/27 at 0.7, where a follow-up crossed — so 0.8.
 SELF_CONTAINED_THRESHOLD = 0.8
 #: How many card shapes the turn may attach in all (skill's plus the nouls').
 MAX_ATTACHED_SHAPES = 5
@@ -179,7 +185,8 @@ class TurnDecisions:
     cards: tuple[tuple[str, float], ...] = ()
     skill: str | None = None
     skill_p: float = 0.0
-    skill_fit: float | None = None
+    #: p(the message asks for something other than an expert answer); a veto on the skill.
+    skill_veto: float | None = None
     self_contained: float | None = None
     latency_ms: int = 0
 
@@ -196,7 +203,7 @@ class TurnDecisions:
         """The skill whose body and card shapes ride this turn, or None (the cookbook's abstention)."""
         if not self.decided or not self.skill or self.skill == "none":
             return None
-        if self.skill_p < SKILL_THRESHOLD or (self.skill_fit or 0.0) < SKILL_FIT_THRESHOLD:
+        if self.skill_p < SKILL_THRESHOLD or (self.skill_veto or 0.0) >= SKILL_VETO_THRESHOLD:
             return None
         return self.skill
 
@@ -251,6 +258,22 @@ class TurnFacts:
         return state
 
 
+def skill_option(skill: Any) -> tuple[str, str]:
+    """A skill as the decider's option: its catalog line, then the heading its body opens with.
+
+    The catalog line is written for the model and is terse („Treppe, Geländer,
+    Türbreite"); the heading says what the method is for („Eine Frage zu
+    Nutzungssicherheit oder Barrierefreiheit beantworten"). The decider reads
+    both; the model's catalog line is unchanged.
+    """
+    description = " ".join(str(getattr(skill, "description", "") or "").split())
+    heading = next(
+        (line[2:].strip() for line in str(getattr(skill, "body", "") or "").splitlines() if line.startswith("# ")),
+        "",
+    )
+    return str(skill.name), f"{description} — {heading}" if heading else description
+
+
 def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
     """Every question of the turn decision, keyed the way the answers are read back."""
     from aiq_agent.common.decisions import choice
@@ -268,16 +291,18 @@ def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
         ),
         "corpus": choice("Where does the answer to this message most likely live?", CORPUS_OPTIONS),
     }
-    for family in facts.families:
-        scope = FAMILY_SCOPE.get(str(family.key), family.label)
-        questions[f"family_{family.key}"] = noul(
-            f"Is this message about the subject {family.label} regulates?",
-            true=(
-                f"The message asks about this Richtlinie itself, or about something it sets requirements for: "
-                f"{scope} A question that names a Gebäudeklasse, a value or a building element in this subject "
-                "counts."
-            ),
-            false="The message is about another subject, another regulation, or needs no regulation.",
+    if facts.families:
+        options = {
+            str(family.key): f"{family.label}: {FAMILY_SCOPE.get(str(family.key), family.label)}"
+            for family in facts.families
+        }
+        options["none"] = (
+            "No OIB-Richtlinie: another regulation (a Bauordnung, an ÖNORM), a project file, or no regulation."
+        )
+        questions["family"] = choice(
+            "Which OIB-Richtlinie's subject is this message about? Compare the subjects; pick the one the "
+            "message is about.",
+            options,
         )
     for card_type, doc in facts.card_types:
         questions[f"card_{card_type}"] = noul(
@@ -304,19 +329,15 @@ def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
             "Which of these working methods, if any, is the one for this message? Read what each does, not its name.",
             options,
         )
-        for name, description in facts.skills:
-            questions[f"fits_{name}"] = noul(
-                "Would an expert apply this working method to answer this message?",
-                true=(
-                    f"The message asks a question in the subject this method covers — {description} — and "
-                    "answering it means applying that subject's rules or values."
-                ),
-                false=(
-                    "The message is about a different subject, or only mentions the subject's word while asking "
-                    "for something else: listing or opening files, summarising a document, writing a mail, thanks "
-                    "or small talk."
-                ),
-            )
+        questions["skill_veto"] = noul(
+            "Does this message ask for something other than an expert answer about building regulations or the "
+            "building?",
+            true=(
+                "It asks to list, open or summarise a file or folder, to write a mail or a note, to rephrase "
+                "text, or it is thanks or small talk — even when it names a subject such as Brandschutz."
+            ),
+            false="It asks what applies, what is required, what a value is, or how to plan or check something.",
+        )
     return questions
 
 
@@ -329,8 +350,11 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
     if decision is None:
         return TurnDecisions.none()
     corpus, distribution = decision.choice("corpus")
+    _, family_distribution = decision.choice("family")
     families = tuple(
-        (str(family.key), p) for family in facts.families if (p := decision.noul(f"family_{family.key}")) is not None
+        (str(family.key), family_distribution[str(family.key)])
+        for family in facts.families
+        if str(family.key) in family_distribution
     )
     cards = tuple(
         (card_type, p) for card_type, _ in facts.card_types if (p := decision.noul(f"card_{card_type}")) is not None
@@ -345,7 +369,7 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
         cards=cards,
         skill=skill,
         skill_p=skill_distribution.get(skill or "", 0.0),
-        skill_fit=decision.noul(f"fits_{skill}") if skill and skill != "none" else None,
+        skill_veto=decision.noul("skill_veto"),
         self_contained=decision.noul("self_contained"),
         latency_ms=decision.latency_ms,
     )

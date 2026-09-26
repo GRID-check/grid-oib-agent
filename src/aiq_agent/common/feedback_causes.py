@@ -49,9 +49,14 @@ CAUSES: dict[str, str] = {
 #: A label counts at this probability; below it the vote is unlabelled. Measured
 #: 2026-09-26 on sixteen down-votes (``tests/fixtures/decisions/feedback_causes.yaml``):
 #: 16/16 right, the lowest 0.89 once `slow` covers a bare 'too_slow' chip
-#: with no comment (0.75-0.79 before).
+#: with no comment (0.75-0.79 before). Held-out (24 down-votes written blind):
+#: 20 right, 1 wrong, 3 left unlabelled, with or without that change.
 CAUSE_THRESHOLD = 0.8
 SLOT = "feedback_causes"
+CAUSE_QUESTION = (
+    "Why did the reader rate this answer as unhelpful? Read the comment first, then the reason they "
+    "picked and the question."
+)
 _MAX_TEXT = 300
 
 
@@ -73,13 +78,7 @@ async def label_causes(samples: Sequence[Any], *, organization_id: str | None = 
 
     decided = await decide_many(
         [_state(sample) for sample in samples],
-        {
-            "cause": choice(
-                "Why did the reader rate this answer as unhelpful? Read the comment first, then the reason they "
-                "picked and the question.",
-                CAUSES,
-            )
-        },
+        {"cause": choice(CAUSE_QUESTION, CAUSES)},
         slot=SLOT,
         organization_id=organization_id,
     )

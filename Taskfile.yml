@@ -469,6 +469,13 @@ tasks:
       # and no durable exchange below the reflection skip threshold.
       - '{{.PY}} scripts/decision_eval_offpath.py {{.CLI_ARGS}}'
 
+  be:eval:decisions:holdout:
+    desc: 'Held-out check for every decision-model use, on sets written blind to the wording — never tune on them (NEEDS OPENROUTER_API_KEY; no backend)'
+    cmds:
+      # ADR-0064, amended 2026-09-26. Exit 0 = every floor holds; the floors
+      # sit just under the last result so a regression fails.
+      - '{{.PY}} scripts/decision_eval_holdout.py {{.CLI_ARGS}}'
+
   be:eval:turn-census:
     desc: 'Turn census — run a chat question through the real agent and count every model call, token and second it cost; writes to /tmp/turn_census unless --out, takes --override KEY VALUE (NEEDS OPENROUTER_API_KEY and the corpus ingested locally)'
     cmds:

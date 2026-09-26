@@ -176,9 +176,14 @@ DOCUMENT_CLASS_CRITERIA: dict[str, str] = {
     ),
 }
 
-#: The pick is offered at or above this. Every row measured chose at 0.97+.
+#: The pick is offered at or above this. Every row measured chose at 0.97+;
+#: held-out (16 openings written blind) 13/13 offered right, none wrong.
 DOC_CLASS_SUGGESTION_THRESHOLD = 0.8
 DOC_CLASS_DECISION_SLOT = "doc_class"
+DOC_CLASS_QUESTION = (
+    "What kind of document is this, in the hierarchy of Austrian building regulations? "
+    "Read the text, then the file name."
+)
 
 
 def suggest_doc_class(text: str, file_name: str, *, organization_id: str | None = None) -> str | None:
@@ -191,13 +196,7 @@ def suggest_doc_class(text: str, file_name: str, *, organization_id: str | None 
 
         decision = decide_blocking(
             {"file_name": file_name, "text": text[:CLASSIFY_MAX_INPUT_CHARS]},
-            {
-                "doc_class": choice(
-                    "What kind of document is this, in the hierarchy of Austrian building regulations? "
-                    "Read the text, then the file name.",
-                    {key: DOCUMENT_CLASS_CRITERIA[key] for key in DOCUMENT_CLASSES},
-                )
-            },
+            {"doc_class": choice(DOC_CLASS_QUESTION, {key: DOCUMENT_CLASS_CRITERIA[key] for key in DOCUMENT_CLASSES})},
             slot=DOC_CLASS_DECISION_SLOT,
             timeout=TAG_DECISION_TIMEOUT_S,
             organization_id=organization_id,
@@ -394,9 +393,10 @@ DISCIPLINE_CRITERIA: dict[str, str] = {
 
 #: Every decision here acts at 0.8 (2026-09-26). The type is kept at this
 #: probability; below it the decision is treated as not made and the
-#: generative prompt tags the document. Measured on twelve openings, two
-#: runs: every type at 0.99-1.00 once `Gutachten` names a Konzept (a
-#: Brandschutzkonzept sat at 0.80, split with `Sonstiges`, before).
+#: generative prompt tags the document. Tuning set (twelve openings): every
+#: type at 0.99-1.00 once `Gutachten` names a Konzept (a Brandschutzkonzept
+#: sat at 0.80 before). Held-out set (24 openings written blind): 24/24 types
+#: at 0.8 with or without that change, 13 of 14 disciplines, no false one.
 #: One type only: a second type was the choice's runner-up, which cannot
 #: reach 0.8 beside a chosen one, and it never rode along in a measurement.
 TYPE_THRESHOLD = 0.8

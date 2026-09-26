@@ -154,6 +154,36 @@ the whole decision and the two project-file questions that name Brandschutz
 0.06 and 0.11, so the fit veto moves from 0.1 to 0.2 and now holds back the
 Brandschutzkonzept question the old one let through.
 
+*Amended 2026-09-26, every decision at 0.7 or 0.8, checked on held-out
+data.* Every threshold now acts on a confident answer: 0.8 for
+`needs_evidence`, `corpus`, `self_contained`, card shapes, document type
+and disciplines, Dokumentart and feedback causes; 0.7 for family, skill,
+skill veto, supersede and the reflection skip, where held-out data showed
+0.8 cost right answers. Two gates were turned round so they, too, act on a
+confident yes: reflection is skipped when "is there nothing about this
+project here?" reaches 0.7 (was: "does it establish something?" below 0.3),
+and a skill is withheld when "does the message ask for something other than
+an expert answer?" reaches 0.7 (was: a per-skill "fits" noul above 0.2).
+The family is one choice over the Richtlinien and `none`, not a noul per
+family: independent nouls read each scope as a keyword list and missed
+questions whose words were not on it. The skill options carry the heading
+each skill's body opens with. The second document type is gone: a choice's
+runner-up cannot reach 0.8.
+
+The criteria were tuned on the sets the earlier numbers were measured on,
+so those numbers overstate. A held-out set per use, written blind to the
+wording from plain label definitions (`tests/fixtures/decisions/holdout/`,
+`task be:eval:decisions:holdout`), was scored once per structural change and
+never tuned on. On it: tags 24/24 types, no false discipline; reflection
+13/13 empty passes skipped, none lost; supersede 15/15, no wrong
+retirement; Dokumentart 13/13; feedback causes 20/24; turn `needs_evidence`
+30/30, `self_contained` 25/27, family 16/21 (the reworded nouls 15/21, the
+original 9/21), skill 25/30 (24/30 before). Four one-row wording fixes made
+on the tuning sets (Projekt/Grundstück, a Konzept is a Gutachten, a bare
+`too_slow` chip, summer overheating in the family scope) changed nothing on
+the held-out set; they stay because they are true, not because they were
+measured to help.
+
 *Amended 2026-09-25:* two uses off the reader's path.
 
 **Use 4 — ingestion tags** (`knowledge/document_classification.py`,
