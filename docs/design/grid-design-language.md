@@ -241,6 +241,7 @@ trapping, Escape and scroll locking are identical; what differs is intent.
 | `Sheet` (side) | The DETAIL of a row the reader just selected. The list stays put behind it and keeps updating. | `task-detail.tsx`, `schedule-detail.tsx`, `skill-detail.tsx` |
 | `PageSheet` | A whole PLACE, independent of wherever the reader is standing. Route-backed, reached from the org nav. | Postfach, Archiv, chat history |
 | `Popover` | A transient choice attached to the control that opened it. Never a panel with its own header and scroll region. | the `/` command picker, filter menus |
+| `HoverPeekPanel` | A glance at what a reference in running text stands for: hover or focus to see, click or tap to pin, Escape or an outside click to close (`useHoverPopover`). Mounted on first engagement and BESIDE its trigger, never around it, so a page of references costs nothing until one is looked at and the trigger never remounts. | citation chips, `[N]` markers, Herleitung source cards, file references, @-mentions |
 | `Collapsible` | More of THIS row, in place. No scrim, nothing dimmed. | the wizard's „Erweitert", the document lifecycle panel |
 | No overlay | A multi-step flow that owns its section, or a second pane you read the first pane AGAINST. | `ScheduleWizard` inline in Tasks, the file peek |
 
