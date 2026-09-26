@@ -68,11 +68,11 @@ const terms = [
          row of chips: it reads as terms, which is what it is. -->
     <div
       data-reveal
-      class="mx-auto mt-9 grid w-full max-w-3xl grid-cols-1 border-t border-ink/15 sm:mt-11 sm:grid-cols-2 lg:mx-0"
+      class="mx-auto mt-9 grid w-full max-w-3xl grid-cols-1 border-t border-ink/15 sm:mt-11 sm:grid-cols-2 lg:mx-0 lg:max-xl:grid-cols-1"
     >
       {
         terms.map((col) => (
-          <div class="border-ink/15 py-5 sm:px-6 sm:py-6 sm:first:border-r sm:first:pl-0 sm:last:pr-0 max-sm:first:border-b">
+          <div class="border-ink/15 py-5 sm:px-6 sm:py-6 sm:first:border-r sm:first:pl-0 sm:last:pr-0 max-sm:first:border-b lg:max-xl:px-0 lg:max-xl:first:border-r-0 lg:max-xl:first:border-b">
             <h3 class="m-0 font-mono text-2xs font-medium uppercase tracking-widest text-accent-600">
               {col.label}
             </h3>
