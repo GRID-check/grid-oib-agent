@@ -1,5 +1,3 @@
-import { gsap } from 'gsap'
-import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { landingScript } from '../i18n/ui'
 import {
   computeRoi,
@@ -9,9 +7,8 @@ import {
   type RoiInputs,
   type RoiResult,
 } from '../lib/roi'
-import { formatEuro, formatRoi, type RoiText } from '../lib/roi-format'
-
-gsap.registerPlugin(ScrollTrigger)
+import { formatRoi, type RoiText } from '../lib/roi-format'
+import { createCounter } from './counter'
 
 /**
  * Makes the ROI section's sliders live.
@@ -76,35 +73,16 @@ export function initRoi() {
     price: read('price'),
   })
 
-  // The headline figure counts to its value instead of snapping to it: the
-  // section's whole argument is that this number moves with your office, and a
-  // number that visibly travels says so before the copy does. Everything else
-  // on the page is set instantly — one animated figure reads as emphasis, five
-  // read as a slot machine.
+  // The headline figure is a mechanical counter (counter.ts): its wheels turn
+  // to the new value instead of the text snapping to it, because the section's
+  // whole argument is that this number moves with your office. Everything else
+  // on the page is set instantly — one moving figure reads as emphasis, five
+  // read as a slot machine. The other copies of the figure (on the working
+  // page) are plain text.
   const headline = document.querySelector<HTMLElement>('#wert [data-roi-out="net"]')
   const working = document.querySelector<HTMLAnchorElement>('[data-roi-href]')
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  let shown = computeRoi(readAll()).netValue
-  let count: gsap.core.Tween | null = null
-
-  const countTo = (value: number, duration: number) => {
-    if (!headline || reduced || value === shown) return false
-    count?.kill()
-    const counter = { v: shown }
-    count = gsap.to(counter, {
-      v: value,
-      duration,
-      ease: 'power4.out',
-      onUpdate: () => {
-        headline.textContent = formatEuro(locale, counter.v)
-      },
-      onComplete: () => {
-        headline.textContent = formatEuro(locale, value)
-      },
-    })
-    shown = value
-    return true
-  }
+  if (headline) headline.removeAttribute('data-roi-out')
+  const counter = headline ? createCounter(headline) : null
 
   const apply = () => {
     // The office and the example price move; the shares the model applies are
@@ -112,9 +90,8 @@ export function initRoi() {
     const inputs = readAll()
     const result: RoiResult = computeRoi(inputs)
     const text = formatRoi(inputs, result, locale, units)
-    // The headline is mid-flight while it counts; writing the final string over
-    // it would cancel the count visually on the very first frame.
-    paint(text, countTo(result.netValue, 0.32) ? 'net' : undefined)
+    paint(text)
+    counter?.set(text.net)
 
     // The working page states the same figures, so the link carries them there.
     working?.setAttribute('href', `${working.dataset.roiHref}${roiQuery(inputs)}`)
@@ -132,19 +109,4 @@ export function initRoi() {
 
   fields.forEach((field) => field.addEventListener('input', apply))
   apply()
-
-  // On first sight the figure counts up from nothing — the server already wrote
-  // the final value, so a visitor without motion, or without JS, simply reads it.
-  if (headline && !reduced) {
-    ScrollTrigger.create({
-      trigger: headline,
-      start: 'top 90%',
-      once: true,
-      onEnter: () => {
-        const target = shown
-        shown = 0
-        countTo(target, 1.1)
-      },
-    })
-  }
 }
