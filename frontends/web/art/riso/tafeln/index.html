@@ -1279,10 +1279,159 @@ const IV = (() => {
   return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
 })();
 
+/* ── a drawing board: a plane tipped toward the viewer, and what lies on it ── */
+
+/** A plane through O with in-plane axes Ua, Va (unit): (u, v, h) → world, h along the normal. */
+function boardPlane(O, Ua, Va) {
+  const N = v3.norm([Ua[1] * Va[2] - Ua[2] * Va[1], Ua[2] * Va[0] - Ua[0] * Va[2], Ua[0] * Va[1] - Ua[1] * Va[0]]);
+  const at = (u, v, h) => v3.add(v3.add(v3.add(O, v3.mul(Ua, u)), v3.mul(Va, v)), v3.mul(N, h || 0));
+  // where a point's shadow lands on the plane, the sun travelling along L
+  const shadowOf = (p, L) => { const t = v3.dot(v3.sub(O, p), N) / v3.dot(L, N); return v3.add(p, v3.mul(L, t)); };
+  return { at, N, shadowOf };
+}
+
+/** A hand-built section sign: two S strokes, offset, as an engraver cuts it. em = height in units. */
+function sectionSign(map, cx, cy, em, w) {
+  const S = (pts) => nib(curve(pts.map(([x, y]) => map(cx + (x - 0.5) * em * 0.55, cy + (0.5 - y) * em)), false, 8), (u) => w * (0.55 + 0.9 * Math.sin(Math.PI * u)), { raw: true });
+  const p = new Path2D();
+  p.addPath(S([[0.72, 0.1], [0.5, 0.0], [0.26, 0.08], [0.26, 0.28], [0.55, 0.42], [0.76, 0.57], [0.7, 0.74], [0.52, 0.8]]));
+  p.addPath(S([[0.28, 0.9], [0.5, 1.0], [0.74, 0.92], [0.74, 0.72], [0.45, 0.58], [0.24, 0.43], [0.3, 0.26], [0.48, 0.2]]));
+  return p;
+}
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   PLATE V — Prüfstand
+   Nothing is a black box. A floor plan lies on a drawing board tipped toward
+   us; a magnifier is held over one wall junction. At plan scale it is only
+   a speck; through the glass it is a section sign with a leader to the clause
+   it rests on, and that clause carries a lime highlighter stroke: the
+   evidence, shown.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const V = (() => {
+  const TILT = 0.95;                                   // board tipped back about x, radians
+  const BW = 17, BD = 12, TH = 0.35;                   // board size and thickness, drawing metres
+  const LC = [11.4, 6.6], LR = 2.7, LH = 1.3, MAG = 3.6; // lens centre on the board, radius, height, power
+  const FIT = { sq: { fill: 0.92, fillH: 0.84, cx: 0.5, cy: 0.5 } };
+
+  function draw(c, fmt) {
+    const B = boardPlane([0, 0, 0], [1, 0, 0], [0, Math.cos(TILT), Math.sin(TILT)]);
+    const pts = [B.at(-0.6, -0.8, 0), B.at(BW + 0.6, -0.8, 0), B.at(0, BD, 0), B.at(BW, BD, 0), B.at(-0.6, -0.8, -TH), B.at(BW + 4.5, 2.0, LH)];
+    const P = fit(VIEW_SERIES, pts, FIT[fmt]);
+    const M = (u, v, h) => P(B.at(u, v, h || 0));
+    const pl = (q, h) => pathOf(q.map(([u, v]) => M(u, v, h)));
+
+    /* — the board: a thick panel, its lip a pencil ledge — */
+    const corners = [[0, 0], [BW, 0], [BW, BD], [0, BD]];
+    const topF = pl(corners, 0);
+    const front = pathOf([M(0, 0, 0), M(BW, 0, 0), M(BW, 0, -TH), M(0, 0, -TH)]);
+    const side = pathOf([M(0, 0, 0), M(0, BD, 0), M(0, BD, -TH), M(0, 0, -TH)]);
+    own(c, side, { moss: 0.35 });
+    own(c, front, { moss: 0.55 });
+    own(c, topF, { mist: 0.35 });
+    // the sheet, taped at its corners
+    const SH = [1.0, 1.0, BW - 1.0, BD - 0.9];
+    const sheet = pl([[SH[0], SH[1]], [SH[2], SH[1]], [SH[2], SH[3]], [SH[0], SH[3]]], 0.02);
+    own(c, sheet, {});
+    for (const [u, v] of [[SH[0], SH[1]], [SH[2], SH[1]], [SH[2], SH[3]], [SH[0], SH[3]]]) {
+      const t = pl([[u - 0.45, v - 0.2], [u + 0.45, v - 0.2], [u + 0.45, v + 0.2], [u - 0.45, v + 0.2]], 0.03);
+      own(c, t, { mist: 0.7, moss: 0.12 });
+    }
+    // the ledge and a pencil lying in it
+    const ledge = boxFaces(P, -0.4, -0.75, -0.25, BW + 0.4, -0.05, 0.25);
+    own(c, ledge.top, { mist: 0.3 }); own(c, ledge.west, { mist: 0.2 }); own(c, ledge.south, { moss: 0.5 });
+    line(c, ledge.sil, 1.2, KEY);
+    const pen = nib([P([3.0, -0.42, 0.34]), P([9.6, -0.42, 0.34])], (u) => (u > 0.92 ? 0.13 * P.s * (1 - u) / 0.08 : 0.13 * P.s), { raw: true });
+    own(c, pen, { mist: 0.55, moss: 0.15 });
+    line(c, pen, 0.9, KEY);
+
+    /* the drawing: a plan, at plan scale */
+    planOn(c, (u, v) => M(u, v, 0.03), 1, SH);
+
+    line(c, sheet, 1.0, KEY);
+    line(c, topF, 1.6, KEY); line(c, front, 1.4, KEY); line(c, side, 1.2, KEY);
+
+    /* — the magnifier: its shadow on the sheet, then rim, glass, what the glass shows — */
+    const ring = [];
+    for (let i = 0; i < 72; i++) { const a = i / 72 * TAU; ring.push([LC[0] + Math.cos(a) * LR, LC[1] + Math.sin(a) * LR]); }
+    const handleEnd = [LC[0] + 5.4, LC[1] - 3.4];
+    const shRing = pathOf(ring.map(([u, v]) => P(B.shadowOf(B.at(u, v, LH), SUN_SERIES))));
+    const hA = B.shadowOf(B.at(LC[0] + LR * 0.85, LC[1] - LR * 0.53, LH), SUN_SERIES), hB = B.shadowOf(B.at(...handleEnd, LH + 0.4), SUN_SERIES);
+    const shHandle = nib([P(hA), P(hB)], () => 0.28 * P.s, { raw: true });
+    c.g.save(); c.g.clip(topF); tint(c, shRing, { mist: 0.4, moss: 0.22 }); tint(c, shHandle, { mist: 0.4, moss: 0.22 }); c.g.restore();
+
+    const lens = pathOf(ring.map(([u, v]) => M(u, v, LH)));
+    const rimOut = pathOf(ring.map(([u, v]) => M(LC[0] + (u - LC[0]) * 1.12, LC[1] + (v - LC[1]) * 1.12, LH)));
+    const hs = M(LC[0] + LR * 0.95, LC[1] - LR * 0.6, LH), he = M(...handleEnd, LH + 0.4);
+    const handle = nib([hs, [lerp(hs[0], he[0], 0.5), lerp(hs[1], he[1], 0.5) - 2], he], (u) => (0.16 + 0.12 * smooth(0.1, 0.35, u)) * P.s, { per: 8 });
+    own(c, handle, { moss: 0.7, hunter: 0.35 });
+    if (c.ink === 'moss') shade(c.g, handle, { x0: 0, y0: he[1] - 0.3 * P.s, x1: 0, y1: he[1] + 0.3 * P.s, stops: [[0, 0.6], [0.45, 0], [1, 0]], cut: true });
+    line(c, handle, 1.2, KEY);
+    own(c, rimOut, { moss: 0.62, hunter: 0.3 });
+    // the glass: the plan again, magnified about the lens centre, and the clause the speck was
+    own(c, lens, { mist: 0.14 });
+    c.g.save(); c.L.save(); c.g.clip(lens); c.L.clip(lens);
+    const mag = (u, v) => M(LC[0] + (u - LC[0]) * MAG, LC[1] + (v - LC[1]) * MAG, LH);
+    planOn(c, mag, MAG, SH);
+    // highlight: sky in the glass, a soft dry sweep across its upper left
+    if (c.ink === 'mist') shade(c.g, lens, { x0: M(LC[0] - LR, LC[1] + LR, LH)[0], y0: M(LC[0] - LR, LC[1] + LR, LH)[1], x1: M(LC[0] + LR, LC[1] - LR, LH)[0], y1: M(LC[0] + LR, LC[1] - LR, LH)[1], stops: [[0, 0.45], [0.35, 0.12], [0.6, 0]] });
+    c.g.restore(); c.L.restore();
+    const glint = nib(curve([[LC[0] - LR * 0.72, LC[1] + LR * 0.2], [LC[0] - LR * 0.55, LC[1] + LR * 0.52], [LC[0] - LR * 0.2, LC[1] + LR * 0.72]].map(([u, v]) => M(u, v, LH)), false, 6), (u) => 0.07 * P.s * Math.sin(Math.PI * u), { raw: true });
+    clearAll(c, glint);
+    line(c, lens, 1.2, KEY);
+    line(c, rimOut, 1.6, KEY);
+  }
+
+  /**
+   * The plan, in board units through a map; k scales line weights with the lens.
+   * The junction under the lens carries a speck: a section sign and a leader to a
+   * clause card, 0.3 units high, readable only through the glass.
+   */
+  function planOn(c, map, k, SH) {
+    const pth = (q, closed) => pathOf(q.map(([u, v]) => map(u, v)), closed);
+    const wall = (q, w) => line(c, pth(q, false), w * k, { hunter: 1, moss: 0.5 });
+    const x0 = 2.4, y0 = 2.3, x1 = 14.6, y1 = 10.2;
+    wall([[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]], 2.2);
+    wall([[7.6, y0], [7.6, 5.4]], 1.5); wall([[7.6, 6.6], [7.6, y1]], 1.5);
+    wall([[7.6, 6.6], [11.4, 6.6]], 1.5); wall([[12.4, 6.6], [x1, 6.6]], 1.5);
+    wall([[x0, 7.0], [5.2, 7.0]], 1.5);
+    // door swings
+    for (const [u, v, r, a0] of [[7.6, 5.4, 1.2, Math.PI / 2], [11.4, 6.6, 1.0, 0]]) {
+      const arc = []; for (let i = 0; i <= 16; i++) { const a = a0 + i / 16 * Math.PI / 2; arc.push([u + Math.cos(a) * r, v + Math.sin(a) * r]); }
+      line(c, pth(arc, false), 0.7 * k, { hunter: 0.8 });
+    }
+    // a stair: treads hatched in a narrow room
+    const st = new Path2D();
+    for (let i = 0; i <= 8; i++) { const a = map(x0 + 0.3, 7.3 + i * 0.33), b = map(5.0, 7.3 + i * 0.33); st.moveTo(a[0], a[1]); st.lineTo(b[0], b[1]); }
+    line(c, st, 0.6 * k, { hunter: 0.8 });
+    // a dimension chain along the bottom
+    const dy = y0 - 0.9;
+    line(c, pth([[x0, dy], [x1, dy]], false), 0.6 * k, { hunter: 0.85 });
+    for (const u of [x0, 7.6, x1]) line(c, pth([[u - 0.18, dy - 0.18], [u + 0.18, dy + 0.18]], false), 1.1 * k, KEY);
+    // room fills: one room tinted, as a planner marks a use
+    tint(c, pth([[7.8, 6.8], [x1 - 0.2, 6.8], [x1 - 0.2, y1 - 0.2], [7.8, y1 - 0.2]], true), { mist: 0.35 });
+    // the speck at the junction under the lens: § and a leader to a clause card
+    // everything within ±0.65 of the lens centre, so the magnified speck fills the glass
+    const [cu, cv] = [LC[0] - 0.5, LC[1] + 0.3];
+    lineFill(c, sectionSign(map, cu, cv, 0.36, 0.013 * P_s(map)), { hunter: 1 });
+    line(c, pth([[cu + 0.14, cv], [cu + 0.36, cv]], false), 0.3 * k, { hunter: 0.9 });
+    line(c, pth([[cu, cv - 0.22], [cu, LC[1]]], false), 0.3 * k, { hunter: 0.9 });   // tied down to the junction
+    const card = [cu + 0.36, cv - 0.24, cu + 1.12, cv + 0.3];
+    own(c, pth([[card[0], card[1]], [card[2], card[1]], [card[2], card[3]], [card[0], card[3]]], true), { mist: 0.2 });
+    tint(c, pth([[card[0] + 0.05, card[1] + 0.27], [card[2] - 0.05, card[1] + 0.27], [card[2] - 0.05, card[1] + 0.42], [card[0] + 0.05, card[1] + 0.42]], true), { kelly: 0.85 });
+    for (let i = 0; i < 4; i++) { const v = card[1] + 0.1 + i * 0.12; line(c, pth([[card[0] + 0.08, v], [card[2] - (i === 3 ? 0.3 : 0.08), v]], false), 0.28 * k, { hunter: 0.9 }); }
+    line(c, pth([[card[0], card[1]], [card[2], card[1]], [card[2], card[3]], [card[0], card[3]]], true), 0.3 * k, KEY);
+  }
+  // units per board unit on the sheet, for glyph stroke widths
+  const P_s = (map) => Math.hypot(map(1, 0)[0] - map(0, 0)[0], map(1, 0)[1] - map(0, 0)[1]);
+
+  return { inks: ['mist', 'kelly', 'moss', 'hunter'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
+})();
+
 /* ═════════════════════════════════════════════════════════════════════════ */
 
-const PLATES = [I, II, III, IV];
-const PLATE_NAMES = ['stuetzen', 'schichten', 'schleife', 'bauplatz'];
+const PLATES = [I, II, III, IV, V];
+const PLATE_NAMES = ['stuetzen', 'schichten', 'schleife', 'bauplatz', 'pruefstand'];
 
 /* Export jobs: integer time → one file at its exact display size. */
 /* pitch is in device px: 3.4 for a 1x file, 6.8 for its 2x twin, so both show the
@@ -1300,6 +1449,8 @@ const JOBS = [
   { plate: 2, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-iii-schleife-1440.webp' },
   { plate: 3, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-iv-bauplatz-720.webp' },
   { plate: 3, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-iv-bauplatz-1440.webp' },
+  { plate: 4, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-v-pruefstand-720.webp' },
+  { plate: 4, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-v-pruefstand-1440.webp' },
 ];
 
 function setJob(j) {

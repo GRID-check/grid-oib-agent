@@ -53,6 +53,7 @@ To look at one job in a browser, open `tafeln/index.html?t=<job>`. Debug views:
 | `piloti-ii-schichten-720.webp` / `-1440.webp` | 720² / 1440² | II Schichten | Cover of "Wie Piloti funktioniert" / "How Piloti works" |
 | `piloti-iii-schleife-720.webp` / `-1440.webp` | 720² / 1440² | III Schleife | Cover of "Ein System, das aus Ihrem Frust lernt" |
 | `piloti-iv-bauplatz-720.webp` / `-1440.webp` | 720² / 1440² | IV Bauplatz | 404 page ("Nicht im Plan") |
+| `piloti-v-pruefstand-720.webp` / `-1440.webp` | 720² / 1440² | V Prüfstand | Section "Daten & Transparenz" |
 
 ## Showing them
 

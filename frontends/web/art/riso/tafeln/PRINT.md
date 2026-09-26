@@ -208,7 +208,31 @@ every shadow runs long, and a Mist ramp leaves the back of the board in morning 
   only along the back and west edges, where nobody has walked.
 - **No figure.** The empty site is the point.
 
+### V. Prüfstand (test bench)
+
+For the section "Daten & Transparenz": nothing is a black box. A floor plan is taped
+to a drawing board that rests on a pencil ledge, tipped 0.95 rad toward the viewer.
+Tipping the board is what lets a flat drawing read at all under the series camera,
+which foreshortens horizontal sheets to 0.31. A magnifier is held 1.3 above one wall
+junction.
+
+- **The speck.** At plan scale the junction carries a speck 0.36 units high: a section
+  sign and a leader to a clause card. Through the glass the plan is re-drawn about the
+  lens centre at 3.6×, with line weights scaled, and the speck becomes a legible § tied
+  to its clause. A lime highlighter stroke across one line of the clause is the
+  evidence, shown.
+- **The §.** Hand-built from two S strokes on `nib` ribbons. No font is involved, so it
+  renders the same everywhere.
+- **Magnifier.** Its shadow is projected onto the board plane along the series sun. The
+  glass holds a Mist sky sweep and a carved glint.
+- **Plan detail.** A dimension chain, door swings, a hatched stair, one tinted room and
+  tape at the sheet's corners.
+
 ## Inspected
+
+Plate V: the full frame at 720 and 1440, and a 1:1 crop of the lens at 1440 (it caught
+the clause card outside the magnified field, a doubly scaled § stroke, and the wall
+running through the sign).
 
 Plate IV: the full frame at 720 and 1440, a 1:1 crop of the column, ribbon and
 batter boards at 1440, and single-plate views (`?only=moss|mist|hunter`) that found the
@@ -261,3 +285,9 @@ every job.
   - The ribbon is small at 720.
   - Strings are drawn over everything, so one string passes in front of a batter board
     it should run behind.
+- **V.**
+  - The § is about 25 px tall at 720 and reads as a mark more than a glyph there.
+  - The board leaves the lower third of the frame empty.
+  - The magnifier rim is a heavy screened ring and competes with the lens content.
+  - The lens shows the magnified plane at the lens height, not the true view down
+    through the glass: a drawing convention, not optics.
