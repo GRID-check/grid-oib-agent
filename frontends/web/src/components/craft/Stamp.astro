@@ -2,9 +2,10 @@
 /**
  * A rubber-stamp impression in olive ink: a double-ruled frame, mono
  * capitals, ink that did not take evenly. With `thud`, it lands once when
- * scrolled into view (scale 1.4 → 1 over `--duration-quick`, on `--ease-press`:
- * the motion system's one sanctioned overshoot, see docs/ux/motion.md); under
- * reduced motion, or without script, it is simply there.
+ * scrolled into view: pressed down onto the sheet from a hair above it
+ * (scale 1.04 → 1, over `--duration-quick` on `--ease-settle`, no overshoot;
+ * docs/ux/motion.md); under reduced motion, or without script, it is simply
+ * there.
  *
  * Decorative (aria-hidden): whatever a stamp says must also be said in the
  * text around it, because a screen reader will not hear the stamp. One per
@@ -81,21 +82,13 @@ const { text, rotate = -8, thud = false, delay = 0, class: className = '' } = As
         opacity: 0;
       }
       .craft-stamp.craft-in {
-        animation: craft-thud var(--duration-quick) var(--ease-press) var(--delay) both;
+        animation: craft-thud var(--duration-quick) var(--ease-settle) var(--delay) both;
       }
     }
     @keyframes craft-thud {
-      0% {
+      from {
         opacity: 0;
-        scale: 1.4;
-      }
-      65% {
-        opacity: 1;
-        scale: 0.96;
-      }
-      100% {
-        opacity: 1;
-        scale: 1;
+        scale: 1.04;
       }
     }
   }

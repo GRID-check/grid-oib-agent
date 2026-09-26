@@ -2,7 +2,12 @@
  * The motion tokens, for scripts. The same values are CSS custom properties in
  * `src/styles/global.css` (`--duration-*`, `--ease-*`, `--stagger-*`,
  * `--travel-*`); `scripts/lint-motion.mjs` (part of `npm run check`) fails when
- * the two disagree. What each token is for: `docs/ux/motion.md`.
+ * the two disagree. What each token is for, and the much longer list of what
+ * the site does not animate: `docs/ux/motion.md`.
+ *
+ * The set is small on purpose. A new duration, easing or distance is a change
+ * to the motion language, not a local tweak: add it here, in global.css and in
+ * the spec, or use one that exists.
  *
  * Plain data and pure helpers only: this module is imported by pages that do
  * not load GSAP (the blog), so the GSAP registration lives in
@@ -13,50 +18,39 @@
 export const DURATION = {
   /** State feedback: hover, press, a toggle. */
   tick: 120,
-  /** Small objects arriving: a chip, a tick mark, a stamp. */
+  /** Small things: a menu opening, a tick drawn, a digit turning, a page crossfade. */
   quick: 200,
-  /** One element changing place or size. */
+  /** One element arriving or changing place. */
   base: 320,
-  /** A line drawn, a sheet laid down, a block arriving. */
-  draw: 560,
-  /** A composed sequence's longest single move; an ink settling into register. */
-  slow: 900,
+  /** The longest single move on the site: a block arriving, an ink settling. */
+  slow: 480,
 } as const
 
 /**
- * Easings as cubic-bézier control points. No overshoot anywhere except
- * `press`, which is reserved for an object striking paper (the stamp).
+ * Two easings for the whole site, as cubic-bézier control points. Nothing
+ * overshoots, bounces or springs.
  */
 export const EASE = {
-  /** A pen across paper: even acceleration and braking. Lines, wipes, camera moves. */
-  draft: [0.65, 0, 0.35, 1],
-  /** Arrival: moves at once and comes to rest slowly. Entrances, registration. */
+  /** Arrival: moves at once, comes to rest slowly. Almost everything. */
   settle: [0.16, 1, 0.3, 1],
-  /** Departure: starts slowly, leaves quickly. Only for things going away. */
-  lift: [0.7, 0, 0.84, 0],
-  /** A sheet slid between two resting places: page changes, panels. */
-  sheet: [0.4, 0, 0.1, 1],
-  /** The one overshoot: a rubber stamp compressing into the sheet. */
-  press: [0.3, 0.7, 0.4, 1.3],
+  /** A pen across paper: even acceleration and braking. Lines being drawn, camera moves. */
+  draft: [0.65, 0, 0.35, 1],
 } as const
 
 /** Stagger between siblings, in milliseconds. */
 export const STAGGER = {
-  /** Items of one row or list. */
+  /** Items of one short list (five at most). */
   row: 60,
-  /** Steps of a sequence the reader is meant to follow in order. */
-  step: 120,
-  /** Ceiling on a whole stagger: past it, group the items instead. */
-  max: 360,
+  /** Ceiling on a whole stagger: past it, the items arrive as a group. */
+  max: 240,
 } as const
 
-/** Distances travelled, in CSS px. */
+/** Distances travelled, in CSS px. Nothing on the site moves further by itself. */
 export const TRAVEL = {
   /** Misregistration of an ink pass. */
   hair: 3,
   sm: 8,
   md: 16,
-  lg: 32,
 } as const
 
 export type Duration = keyof typeof DURATION
@@ -70,7 +64,7 @@ export const cssEase = (e: Ease) => `cubic-bezier(${EASE[e].join(', ')})`
 
 /**
  * One stagger for `n` items that never exceeds `STAGGER.max` in total, so a
- * long list arrives as a group rather than a queue.
+ * longer list arrives as a group rather than a queue.
  */
 export const staggerFor = (n: number, each: number = STAGGER.row) =>
   n <= 1 ? 0 : Math.min(each, STAGGER.max / (n - 1))

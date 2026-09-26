@@ -7,7 +7,6 @@ import SeoHead from '../components/seo/SeoHead.astro'
 import { ui, defaultLang, type Locale } from '../i18n/ui'
 import { getLangFromUrl, getPathWithoutLocale } from '../i18n/utils'
 import type { Article, OgImage } from '../lib/seo'
-import pageTransitions from '../scripts/page-transitions.js?raw'
 
 interface Props {
   title?: string
@@ -82,11 +81,6 @@ const switchPath = switchTo ?? (paths ?? auto)[other]
     <script is:inline>
       document.documentElement.classList.add('js')
     </script>
-    <!-- Page transitions: must be a classic script in <head>, see the file. -->
-    <script is:inline set:html={pageTransitions} />
-    <!-- Hold the first paint of an arriving page until <main> is parsed, so a
-         title flying in from a card has somewhere to land. -->
-    <link rel="expect" href="#main-end" blocking="render" />
   </head>
   <body>
     <a
@@ -98,7 +92,6 @@ const switchPath = switchTo ?? (paths ?? auto)[other]
     <SheetIndex />
     <main id="main">
       <slot />
-      <span id="main-end" hidden></span>
     </main>
     <Footer locale={locale} />
   </body>
