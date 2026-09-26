@@ -477,16 +477,11 @@ const de = {
   // src/lib/categories.ts, next to their ids, because the content schema and
   // the CMS read them too.
   blog: {
-    tag: 'Blog',
     heading: 'Aus dem Büro und von der Baustelle.',
-    intro:
-      'Zwei Stränge: Im Journal schreiben wir für Architektur- und Planungsbüros. Im Bautagebuch halten wir fest, wie Piloti entsteht, Eintrag für Eintrag.',
     filterLabel: 'Beiträge nach Kategorie',
     filterAll: 'Alle',
     categoryLabel: 'Kategorie',
     entry: 'Eintrag',
-    logProject: 'Projekt',
-    logEntries: 'Einträge',
     empty: 'Noch keine Beiträge. Der erste Artikel ist in Arbeit.',
     readMore: 'Weiterlesen →',
     allPosts: '← Alle Beiträge',
@@ -1017,16 +1012,11 @@ const en: typeof de = {
     ],
   },
   blog: {
-    tag: 'Blog',
     heading: 'From the office and from the site.',
-    intro:
-      'Two strands: in the Journal we write for architecture and planning offices. In the build log we record how Piloti comes together, entry by entry.',
     filterLabel: 'Posts by category',
     filterAll: 'All',
     categoryLabel: 'Category',
     entry: 'Entry',
-    logProject: 'Project',
-    logEntries: 'Entries',
     empty: 'No posts yet. The first article is in the works.',
     readMore: 'Read on →',
     allPosts: '← All posts',
