@@ -75,6 +75,26 @@
           "key": "fixes",
           "notes": [
             {
+              "en": "Eine Antwort, deren Quellen beim Abschluss neu nummeriert werden, springt nicht mehr zurück und tippt sich neu ab. Die fertige Antwort erscheint im selben Moment, in dem sich die Herleitung zusammenklappt, und die ersten Worte erscheinen sofort.",
+              "de": "Eine Antwort, deren Quellen beim Abschluss neu nummeriert werden, springt nicht mehr zurück und wird nicht erneut geschrieben. Die fertige Antwort erscheint, sobald sich die Herleitung einklappt; die ersten Worte sind sofort zu sehen."
+            },
+            {
+              "en": "Tabellen füllen sich beim Schreiben Zelle für Zelle, statt Zeile für Zeile zu stocken.",
+              "de": "Tabellen füllen sich beim Schreiben Zelle für Zelle, statt Zeile für Zeile ins Stocken zu geraten."
+            },
+            {
+              "en": "Der Hinweis, woran Piloti gerade arbeitet, flackert nicht mehr und ist auf dem Telefon wieder lesbar; ein heller Streifen läuft über ihn. In der Herleitung fällt ein Punkt in den neuesten Schritt, ohne das Telefon zu belasten.",
+              "de": "Der Hinweis, woran Piloti gerade arbeitet, flackert nicht mehr und ist auf dem Smartphone wieder lesbar; ein heller Streifen läuft darüber. In der Herleitung landet ein Punkt im neuesten Schritt, ohne das Smartphone zu belasten."
+            },
+            {
+              "en": "Die Knöpfe in der Herleitung (Ebenen falten, Quelle ansehen) reagieren wieder auf Klick und Tippen. Bei der ersten Frage eines neuen Chats läuft die Seite nicht mehr der wachsenden Herleitung hinterher.",
+              "de": "Die Schaltflächen in der Herleitung (Ebenen falten, Quelle ansehen) reagieren wieder auf Klicks und Tippen. Bei der ersten Frage in einem neuen Chat scrollt die Seite nicht mehr mit der wachsenden Herleitung mit."
+            },
+            {
+              "en": "Der Chat bleibt auf dem Telefon auch mit langem Verlauf flüssig: Eine entstehende Antwort zeichnet frühere Antworten nicht mehr bei jedem Wort neu, und Tippen, jeder Schritt der Herleitung und das Öffnen der Antwort speichern nicht mehr den ganzen Verlauf im Browser.",
+              "de": "Der Chat bleibt auch auf dem Telefon bei langem Verlauf flüssig: Während eine Antwort generiert wird, werden frühere Antworten nicht mehr mit jedem Wort neu gerendert. Außerdem wird beim Tippen, bei jedem Schritt der Herleitung und beim Öffnen der Antwort nicht mehr der gesamte Verlauf im Browser gespeichert."
+            },
+            {
               "en": "Eine Antwort geht nicht mehr verloren, weil die Verbindung Ihres Geräts abreißt. Piloti speichert jede fertige Antwort selbst, und wer zurückkommt, während Piloti noch arbeitet, sieht „Piloti arbeitet weiter\" statt „Antwort ging verloren\", bis die Antwort da ist.",
               "de": "Antworten gehen nicht mehr verloren, wenn die Verbindung Ihres Geräts abbricht. Piloti speichert jede abgeschlossene Antwort automatisch. Wenn Sie zurückkehren, während Piloti noch arbeitet, sehen Sie „Piloti arbeitet weiter“ statt „Antwort verloren“, bis die Antwort da ist."
             },

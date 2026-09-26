@@ -448,6 +448,10 @@
     "de": "Der Bericht zur Tiefenrecherche stellt Ablauf, Reihenfolge und Abhängigkeiten jetzt ebenfalls als echte Grafik dar – sowohl im Bericht als auch im heruntergeladenen PDF, statt als Textkunst aus Strichen und Pfeilen."
   },
   {
+    "en": "Der Chat bleibt auf dem Telefon auch mit langem Verlauf flüssig: Eine entstehende Antwort zeichnet frühere Antworten nicht mehr bei jedem Wort neu, und Tippen, jeder Schritt der Herleitung und das Öffnen der Antwort speichern nicht mehr den ganzen Verlauf im Browser.",
+    "de": "Der Chat bleibt auch auf dem Telefon bei langem Verlauf flüssig: Während eine Antwort generiert wird, werden frühere Antworten nicht mehr mit jedem Wort neu gerendert. Außerdem wird beim Tippen, bei jedem Schritt der Herleitung und beim Öffnen der Antwort nicht mehr der gesamte Verlauf im Browser gespeichert."
+  },
+  {
     "en": "Der Chat bleibt während und nach einer Tiefenrecherche offen. Bisher war die Eingabe gesperrt, solange ein Durchlauf lief, und nach einem fertigen Bericht dauerhaft. Jetzt fragen Sie neben dem Durchlauf weiter, und „Bericht fortschreiben“ läuft im selben Chat.",
     "de": "Der Chat bleibt während und nach einer Tiefenrecherche offen. Bisher war die Eingabe während eines Durchlaufs und nach Fertigstellung des Berichts dauerhaft gesperrt. Jetzt können Sie während des Durchlaufs weiterfragen und den Bericht im selben Chat mit „Bericht fortschreiben“ fortsetzen."
   },
@@ -466,6 +470,10 @@
   {
     "en": "Der Hinweis über einem abgebrochenen Bericht nennt jetzt den tatsächlichen Grund, nicht ein Zeitlimit, das nie erreicht war. Das Schreiben eines langen Berichts hat mehr Zeit.",
     "de": "Der Hinweis über einem abgebrochenen Bericht nennt jetzt den tatsächlichen Grund statt einer Zeitüberschreitung, die gar nicht aufgetreten ist. Für das Erstellen langer Berichte steht jetzt mehr Zeit zur Verfügung."
+  },
+  {
+    "en": "Der Hinweis, woran Piloti gerade arbeitet, flackert nicht mehr und ist auf dem Telefon wieder lesbar; ein heller Streifen läuft über ihn. In der Herleitung fällt ein Punkt in den neuesten Schritt, ohne das Telefon zu belasten.",
+    "de": "Der Hinweis, woran Piloti gerade arbeitet, flackert nicht mehr und ist auf dem Smartphone wieder lesbar; ein heller Streifen läuft darüber. In der Herleitung landet ein Punkt im neuesten Schritt, ohne das Smartphone zu belasten."
   },
   {
     "en": "Der Modellbereich ist jetzt auch aus dem Büroarchiv erreichbar. Struktur, Mengen und Revisionen stehen dort vollständig zur Verfügung; das Prüfbuch braucht weiterhin ein Projekt, weil es gegen Gebäudeklasse und Hauptnutzung prüft, und sagt das an Ort und Stelle.",
@@ -610,6 +618,10 @@
   {
     "en": "Die Kennzeichnung erscheint nur dort, wo es etwas zu wissen gibt: bei Dateien mit mehr als einer Fassung und bei allem, was Piloti geschrieben hat. Eine hochgeladene Datei ist ab dem Ablegen veröffentlicht und bleibt unbeschriftet.",
     "de": "Die Kennzeichnung erscheint nur dort, wo es etwas zu wissen gibt: bei Dateien mit mehr als einer Fassung und bei allem, was Piloti geschrieben hat. Eine hochgeladene Datei ist ab dem Ablegen veröffentlicht und bleibt unbeschriftet."
+  },
+  {
+    "en": "Die Knöpfe in der Herleitung (Ebenen falten, Quelle ansehen) reagieren wieder auf Klick und Tippen. Bei der ersten Frage eines neuen Chats läuft die Seite nicht mehr der wachsenden Herleitung hinterher.",
+    "de": "Die Schaltflächen in der Herleitung (Ebenen falten, Quelle ansehen) reagieren wieder auf Klicks und Tippen. Bei der ersten Frage in einem neuen Chat scrollt die Seite nicht mehr mit der wachsenden Herleitung mit."
   },
   {
     "en": "Die Kopfzeile der Herleitung zählt keine Schritte mehr. Die Zahl dort („19 Schritte“) zählte interne Statusmeldungen mit und las sich, als hätte Piloti für eine Antwort 19 Anläufe gebraucht. Die Zeile nennt jetzt nur noch die Quellen; was gelaufen ist, steht aufgeklappt in der Herleitung.",
@@ -934,6 +946,10 @@
   {
     "en": "Eine Antwort stützt sich wieder auf mehrere Dokumente, wo die Frage mehrere berührt. Ein einzelnes PDF konnte bisher alle Belegplätze einer Antwort füllen, obwohl Piloti höchstens fünf pro Dokument versprach.",
     "de": "Eine Antwort berücksichtigt wieder mehrere Dokumente, wenn sich die Frage auf mehrere bezieht. Bisher konnte ein einzelnes PDF alle Belegstellen einer Antwort belegen, obwohl Piloti höchstens fünf pro Dokument vorsah."
+  },
+  {
+    "en": "Eine Antwort, deren Quellen beim Abschluss neu nummeriert werden, springt nicht mehr zurück und tippt sich neu ab. Die fertige Antwort erscheint im selben Moment, in dem sich die Herleitung zusammenklappt, und die ersten Worte erscheinen sofort.",
+    "de": "Eine Antwort, deren Quellen beim Abschluss neu nummeriert werden, springt nicht mehr zurück und wird nicht erneut geschrieben. Die fertige Antwort erscheint, sobald sich die Herleitung einklappt; die ersten Worte sind sofort zu sehen."
   },
   {
     "en": "Eine Antwort, die eine Zeichnung oder einen Codeblock enthielt, wurde als roher JSON-Text angezeigt statt als Antwort.",
@@ -1766,6 +1782,10 @@
   {
     "en": "Superseded and unpublished versions of a file now count towards the storage a workspace uses. They were being kept and not counted, so the figure shown was lower than what was actually stored.",
     "de": "Ersetzte und nicht veröffentlichte Versionen einer Datei zählen jetzt zum Speicherplatz eines Workspace. Bisher wurden sie gespeichert, aber nicht mitgezählt, sodass der angezeigte Wert niedriger war als der tatsächlich belegte Speicherplatz."
+  },
+  {
+    "en": "Tabellen füllen sich beim Schreiben Zelle für Zelle, statt Zeile für Zeile zu stocken.",
+    "de": "Tabellen füllen sich beim Schreiben Zelle für Zelle, statt Zeile für Zeile ins Stocken zu geraten."
   },
   {
     "en": "Tabellen in Antworten behalten ihre Spaltenausrichtung (Zahlenspalten stehen rechtsbündig), Checklisten zeigen echte Häkchen statt Aufzählungspunkte, und tief gegliederte Antworten behalten alle Überschriftenebenen.",
