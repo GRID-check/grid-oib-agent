@@ -463,6 +463,13 @@ const de = {
   // fictional example, not quotations.
   stories: {
     region: 'Entscheidungskette, fiktives Beispiel',
+    intro: 'Eine Frage aus dem Büroalltag und wie Piloti sie beantwortet. In vier Schritten.',
+    leads: [
+      'Sie fragen, wie Sie eine Kollegin fragen würden.',
+      'Piloti findet die Stellen, die gelten: im Baurecht und in Ihren Plänen.',
+      'Piloti zeigt die möglichen Wege und begründet sie. Sie wählen.',
+      'Aus Ihrer Wahl werden die nächsten Schritte, bis in die Kostenschätzung.',
+    ],
     frames: ['Frage', 'Quellen', 'Entscheidung', 'Umsetzung'],
     stepOf: 'Schritt {n} von {total}: {name}',
     prev: 'Vorheriger Schritt',
@@ -1046,6 +1053,13 @@ const en: typeof de = {
   },
   stories: {
     region: 'Decision chain, fictional example',
+    intro: 'A question from everyday office work, and how Piloti answers it. In four steps.',
+    leads: [
+      'You ask, the way you would ask a colleague.',
+      'Piloti finds the provisions that apply, in building law and in your drawings.',
+      'Piloti lays out the options and explains them. You choose.',
+      'Your choice becomes the next steps, right into the cost estimate.',
+    ],
     frames: ['Question', 'Sources', 'Decision', 'Implementation'],
     stepOf: 'Step {n} of {total}: {name}',
     prev: 'Previous step',

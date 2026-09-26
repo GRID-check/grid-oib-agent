@@ -52,6 +52,7 @@ const pad = (i: number) => String(i + 1).padStart(2, '0')
   aria-roledescription="carousel"
   aria-label={s.region}
 >
+  <p class="stories-intro m-0 mb-3 px-1">{s.intro}</p>
   <p class="stories-caption m-0 mb-3 flex items-center gap-2.5 px-1" aria-hidden="true">
     <span class="size-1.5 rounded-full bg-ok"></span>
     <span>{t.chat.fictional}</span>
@@ -71,6 +72,7 @@ const pad = (i: number) => String(i + 1).padStart(2, '0')
     <!-- 1 · Frage: the question, alone on a dark sheet. -->
     <div data-frame class="frame frame--dark" role="group" aria-label={labelOf(0)}>
       <p class="meta" aria-hidden="true"><span>{s.frames[0]}</span><span>1/{total}</span></p>
+      <p class="lead m-0">{s.leads[0]}</p>
       <p class="q m-0">{t.chat.question}</p>
       <dl class="context m-0">
         {
@@ -87,6 +89,7 @@ const pad = (i: number) => String(i + 1).padStart(2, '0')
     <!-- 2 · Quellen: three index cards dealt onto the drawing grid. -->
     <div data-frame class="frame frame--paper frame--edge" role="group" aria-label={labelOf(1)}>
       <p class="meta" aria-hidden="true"><span>{s.frames[1]}</span><span>2/{total}</span></p>
+      <p class="lead m-0">{s.leads[1]}</p>
       <ul class="deck m-0 list-none p-0">
         {
           sources.map((src, k) => (
@@ -120,6 +123,7 @@ const pad = (i: number) => String(i + 1).padStart(2, '0')
     <!-- 3 · Entscheidung: three ways, one marked in lime ink. -->
     <div data-frame class="frame frame--dark frame--edge" role="group" aria-label={labelOf(2)}>
       <p class="meta" aria-hidden="true"><span>{s.frames[2]}</span><span>3/{total}</span></p>
+      <p class="lead m-0">{s.leads[2]}</p>
       <p class="intro m-0">{t.chat.decisionIntro}</p>
       <ul class="opts m-0 list-none p-0">
         {
@@ -154,6 +158,7 @@ const pad = (i: number) => String(i + 1).padStart(2, '0')
     <!-- 4 · Umsetzung: the steps tick off, the chain closes, the cost lands. -->
     <div data-frame class="frame frame--sage" role="group" aria-label={labelOf(3)}>
       <p class="meta" aria-hidden="true"><span>{t.chat.impl}</span><span>4/{total}</span></p>
+      <p class="lead m-0">{s.leads[3]}</p>
       <ol class="steps m-0 list-none p-0">
         {
           t.chat.steps.map((step, k) => (
@@ -367,6 +372,24 @@ const pad = (i: number) => String(i + 1).padStart(2, '0')
   }
   .frame--dark .meta {
     color: var(--color-on-dark-tag);
+  }
+  /* Who acts in this step, in one plain sentence: the story is Piloti's work,
+     not the interface's, so every frame says what just happened and by whom. */
+  .lead {
+    font-size: 1rem;
+    line-height: 1.4;
+    font-weight: 500;
+    color: var(--color-ink);
+    text-wrap: pretty;
+  }
+  .frame--dark .lead {
+    color: var(--color-on-dark-strong);
+  }
+  .stories-intro {
+    font-size: 1rem;
+    line-height: 1.45;
+    color: var(--color-ink-soft);
+    text-wrap: pretty;
   }
   .hint {
     margin: auto 0 0;
