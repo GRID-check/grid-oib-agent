@@ -95,13 +95,14 @@ The hero of the series, used in the team section, as the OG image and as the bui
 banner. A white volume, 16 × 9 × 3.4 m, stands on exactly three pilotis 4.0 m tall and
 0.38 m across: two under the west end and one under the east. Three points fix a plane,
 so three legs is the least a table needs to stand, one for each founder. The cantilevers
-are generous on purpose. The lawn runs on under the house, the first of Le Corbusier's
+are generous on purpose. The lawn runs on under the house, the first of the modernist
 five points. The footprint of the lifted volume is dashed on the ground, a drawing
 convention for what hangs overhead, and it reads as the witty line: drawn, not built.
 
 - **Parts.**
   - Ribbon windows on both visible faces (the fenêtre en longueur).
-  - A roof garden: a lime planted bed and a curved solarium screen, after Villa Savoye.
+  - A roof garden: a lime planted bed, and a small rectilinear pavilion (door, glazed
+    slot) under a thin roof plate that overhangs west and south.
   - A chain dimension in the west margin with 45° architect's ticks: clear height, then
     the storey.
   - A figure with a rolled drawing on a gravel walk, casting its own shadow.
@@ -109,9 +110,12 @@ convention for what hangs overhead, and it reads as the witty line: drawn, not b
   corners and one strip per column. They are unioned on a scratch layer so overlaps do
   not add up, clipped to the board, and printed as a single Hunter screen at 0.64. With
   Hunter plus Moss the shadow went busy and camouflage-like at 1:1.
-- **References.** The Villa Savoye (pilotis, ribbon windows, roof-garden screen) from
-  general knowledge, not an inspected photograph. The building is an invented tripod
-  house, not a reconstruction, and its proportions were not measured from a source.
+- **Our own building, on purpose.** The first version carried a curved rooftop screen,
+  which is the signature of Le Corbusier's Villa Savoye. His work is in copyright in
+  the EU until 2035, so the screen was replaced by a plain rectilinear roof pavilion.
+  Nothing here quotes a particular house: a long 16 × 9 bar on three columns (Savoye
+  stands on a regular grid of many), our own window rhythm and roof. The pilotis, the
+  ribbon window and the roof garden are generic modernist vocabulary.
 - **First proof, rejected.** An isometric view (x and y at 30°). The plan depth hid the
   gap under the volume, so the house read as sitting on the ground and the three
   pilotis, the subject, were invisible. The oblique camera replaced it. This was the
@@ -174,8 +178,8 @@ every job.
 ## Remaining weaknesses
 
 - **I.**
-  - The curved solarium screen is a thin surface without wall thickness, so its top edge
-    reads as a line, not a coping.
+  - The roof plate of the pavilion rests on its walls with no visible bearing, and its
+    shadow on the walls is a flat band, not a projected shape.
   - The west column's contact ring is lost in the shadow.
   - The figure is about 15 px tall in the 800 banner and reads only as a mark.
   - The column shading ramp is hard to see at 720.

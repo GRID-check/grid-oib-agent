@@ -568,7 +568,7 @@ function settingOut(c, P, x0, y0, x1, y1, o) {
    PLATE I — Drei Stützen
    A white volume on exactly three pilotis. Three points fix a plane, so three
    legs is the least a table needs to stand: the founders. The lawn runs on
-   under the lifted house (Le Corbusier's first point) and a low sun from the
+   under the lifted house (the first of the modernist five points) and a low sun from the
    front-left lays the column shadows back across it as long bars.
    View: an elevation oblique. The long facade is nearly true, depth recedes up
    to the left at half scale, so the gap under the house is never hidden by
@@ -593,7 +593,7 @@ const I = (() => {
     const [x0, y0, z0, x1, y1, z1] = BOX;
     // the square frames the whole board; the wide card frames the house and lets the lawn run off
     const frame = fmt === 'sq' ? [[sx1, sy0, -SLAB], [sx1, sy1, 0]] : [[x1 + 4, sy0, -SLAB]];
-    const P = fit(VIEW, [[sx0, sy0, -SLAB], [sx0, sy1, 0], [x0, y1, z1 + 2.3], [x1, y1, z1 + 2.3], [DIMX + sx0, 0, 0], ...frame], FIT[fmt]);
+    const P = fit(VIEW, [[sx0, sy0, -SLAB], [sx0, sy1, 0], [x0, y1, z1 + 2.4], [x1, y1, z1 + 2.4], [DIMX + sx0, 0, 0], ...frame], FIT[fmt]);
     const E = (a, b) => poly(P, [a, b], false);
 
     /* — the site: a model board, its two near edges showing thickness — */
@@ -714,18 +714,18 @@ const I = (() => {
     line(c, winS, 1.0, KEY);
     line(c, winW, 1.0, KEY);
 
-    /* — roof garden: a planted bed and the curved solarium screen behind it — */
+    /* — roof: a planted bed (lime) and a small rectilinear pavilion under a thin
+         projecting roof plate. Deliberately plain: no curved screens, nothing that
+         quotes a particular house. — */
     const bed = boxFaces(P, 2.2, 4.6, z1, 7.4, 8.2, z1 + 0.45);
     const bedTop = poly(P, [[2.4, 4.8, z1 + 0.45], [7.2, 4.8, z1 + 0.45], [7.2, 8.0, z1 + 0.45], [2.4, 8.0, z1 + 0.45]]);
-    const spine = curve([[6.2, 8.7], [9.5, 8.7], [12.6, 8.4], [14.6, 7.2], [15.35, 5.4]], false, 10);
-    const SCR = 2.3;
-    // the screen's and bed's shadows on the roof slab
+    const PV = [10.4, 5.2, z1, 14.6, 8.2, z1 + 2.2];               // pavilion box
+    const CAN = [9.6, 4.3, z1 + 2.2, 15.2, 8.6, z1 + 2.36];       // roof plate, overhanging west and south
+    // shadows of bed, pavilion and plate on the roof slab
     const roofSh = new Path2D();
-    for (let i = 0; i < spine.length - 1; i++) {
-      const [ax, ay] = spine[i], [bx, by] = spine[i + 1];
-      roofSh.addPath(poly(P, [[ax, ay, z1], [bx, by, z1], onGround([bx, by, z1 + SCR], SUN, z1), onGround([ax, ay, z1 + SCR], SUN, z1)]));
-    }
     roofSh.addPath(boxShadow(P, boxCorners(2.2, 4.6, z1, 7.4, 8.2, z1 + 0.45), SUN, z1));
+    roofSh.addPath(boxShadow(P, boxCorners(...PV), SUN, z1));
+    roofSh.addPath(boxShadow(P, boxCorners(...CAN), SUN, z1));
     c.g.save(); c.g.clip(f.top); tint(c, roofSh, { moss: 0.3, mist: 0.2 }); c.g.restore();
 
     own(c, bed.west, { mist: 0.18 });
@@ -734,21 +734,30 @@ const I = (() => {
     if (c.ink === 'hunter') { c.g.save(); c.g.clip(bedTop); spray(c.g, null, rngFor('bed'), { n: 2600, r0: 0.6, r1: 1.7, a: 0.6 }); c.g.restore(); }
     line(c, bed.sil, 1.1, KEY);
 
-    // the screen: a thin curved wall, faces drawn far to near, lit by their normals
-    const segs = [];
-    for (let i = 0; i < spine.length - 1; i++) {
-      const [ax, ay] = spine[i], [bx, by] = spine[i + 1];
-      let n = [by - ay, -(bx - ax), 0];
-      if (!facing(P, n)) n = v3.mul(n, -1);
-      segs.push({ p: poly(P, [[ax, ay, z1], [bx, by, z1], [bx, by, z1 + SCR], [ax, ay, z1 + SCR]]), l: lit(n, SUN), d: depth(P, [(ax + bx) / 2, (ay + by) / 2, z1]) });
-    }
-    segs.sort((a, b) => b.d - a.d);
-    for (const s of segs) own(c, s.p, { moss: clamp((0.35 - s.l) * 1.4, 0, 0.42), mist: 0.1 });
-    const at = (i, z) => P([spine[i][0], spine[i][1], z]);
-    const lastI = spine.length - 1;
-    line(c, pathOf(spine.map(([px, py]) => P([px, py, z1 + SCR])), false), 1.3, KEY);
-    line(c, pathOf(spine.map(([px, py]) => P([px, py, z1])), false), 1.0, KEY);
-    for (const i of [0, lastI]) { const p = new Path2D(); const a = at(i, z1), b = at(i, z1 + SCR); p.moveTo(a[0], a[1]); p.lineTo(b[0], b[1]); line(c, p, 1.3, KEY); }
+    const pv = boxFaces(P, ...PV);
+    clearAll(c, pv.sil);
+    own(c, pv.west, {});
+    own(c, pv.south, { mist: 0.14 });
+    // under the plate: its shadow band across the top of both walls
+    const band = 0.55;
+    tint(c, poly(P, [[PV[0], PV[1], PV[5] - band], [PV[3], PV[1], PV[5] - band], [PV[3], PV[1], PV[5]], [PV[0], PV[1], PV[5]]]), { moss: 0.38 });
+    tint(c, poly(P, [[PV[0], PV[1], PV[5] - band], [PV[0], PV[4], PV[5] - band], [PV[0], PV[4], PV[5]], [PV[0], PV[1], PV[5]]]), { moss: 0.3 });
+    // a door in the west wall and a glazed slot along the south
+    const door = poly(P, [[PV[0], 6.2, z1], [PV[0], 7.1, z1], [PV[0], 7.1, z1 + 1.95], [PV[0], 6.2, z1 + 1.95]]);
+    own(c, door, { hunter: 0.8, moss: 0.5 });
+    const slot = poly(P, [[11.0, PV[1], z1 + 0.9], [14.0, PV[1], z1 + 0.9], [14.0, PV[1], z1 + 1.45], [11.0, PV[1], z1 + 1.45]]);
+    own(c, slot, { hunter: 0.86, moss: 0.62 });
+    line(c, door, 0.9, KEY); line(c, slot, 0.9, KEY);
+    line(c, pv.sil, 1.2, KEY);
+    line(c, E([PV[0], PV[1], PV[2]], [PV[0], PV[1], PV[5]]), 1.0, KEY);
+    const can = boxFaces(P, ...CAN);
+    clearAll(c, can.sil);
+    own(c, can.top, { mist: 0.25 });
+    own(c, can.west, { mist: 0.2 });
+    own(c, can.south, { moss: 0.3 });
+    line(c, can.sil, 1.2, KEY);
+    line(c, E([CAN[0], CAN[1], CAN[5]], [CAN[3], CAN[1], CAN[5]]), 0.9, KEY);
+    line(c, E([CAN[0], CAN[1], CAN[5]], [CAN[0], CAN[4], CAN[5]]), 0.9, KEY);
 
     /* box edges last: silhouette heavier than the arrises */
     line(c, f.sil, 1.9, KEY);
@@ -961,10 +970,172 @@ const II = (() => {
   return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
 })();
 
+/* ═════════════════════════════════════════════════════════════════════════════
+   PLATE III — Schleife
+   The learning loop as one strip of drawing paper closed with a half twist: a
+   Möbius band has one side and no end, so a correction that goes round comes
+   back on the same face it started from. Along the flat front, left to right,
+   the stations of the post's loop: a plan with a red revision cloud (the
+   thumbs-down), the note with names redacted, the distilled lesson, the
+   audit stamp, and the lesson pinned in lime. Round the back, through the
+   twist, it returns to the drawing.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const III = (() => {
+  const R = 6.4, HW = 1.05, NQ = 260;                 // centre radius, half width, quads round the band
+  const TILT = 0.42;                                  // band tipped toward the viewer about the x axis, radians
+  const LIFT = 3.2;                                   // centre height above the table
+  const FIT = { sq: { fill: 0.78, fillH: 0.74, cx: 0.5, cy: 0.5 } };
+  // twist concentrated at the back (u ≈ π/2), so the front lies flat and readable
+  const phi = (u) => {
+    const a = ((u % TAU) + TAU) % TAU;
+    return Math.PI * smooth(Math.PI / 2 - 1.35, Math.PI / 2 + 1.35, a < Math.PI * 1.5 - 0.2 ? a : a - TAU);
+  };
+  const ct = Math.cos(TILT), st = Math.sin(TILT);
+  /** band surface point: u round the band, v across it (−1 … 1) */
+  function B(u, v) {
+    const f = phi(u), r = [Math.cos(u), Math.sin(u), 0];
+    const across = [r[0] * Math.cos(f), r[1] * Math.cos(f), Math.sin(f)];
+    const p = [R * r[0] + HW * v * across[0], R * r[1] + HW * v * across[1], HW * v * across[2]];
+    // tip toward the viewer: rotate about x so the front comes up
+    return [p[0], p[1] * ct - p[2] * st, p[1] * st + p[2] * ct + LIFT];
+  }
+  /* stations on the flat front, as u ranges; u runs left → front → right */
+  const U0 = Math.PI + 0.42, U1 = TAU + 0.28, NS = 5;
+  const sU = (k) => [lerp(U0, U1, k / NS) + 0.04, lerp(U0, U1, (k + 1) / NS) - 0.04];
+
+  function marks(Mp) {
+    // all marks as polylines in (u, v), grouped by ink spec; each carries its u-range
+    const out = [];
+    const add = (pts, spec, w, fill) => {
+      let a = Infinity; for (const [u] of pts) a = Math.min(a, u);
+      const k = Math.floor(a / TAU) * TAU; pts = pts.map(([u, v]) => [u - k, v]);
+      let b = -Infinity; a = Infinity; for (const [u] of pts) { a = Math.min(a, u); b = Math.max(b, u); }
+      out.push({ pts, spec, w, fill, a, b });
+    };
+    const rect = (u0, u1, v0, v1) => [[u0, v0], [u1, v0], [u1, v1], [u0, v1], [u0, v0]];
+    const rng = rngFor('schleife:marks');
+    for (let k = 0; k < NS; k++) {
+      const [a, b] = sU(k);
+      add(rect(a, b, -0.78, 0.78), { hunter: 0.9 }, 0.9);     // the card's border on the band
+    }
+    // A: a floor plan, and the red cloud round the room that went wrong
+    { const [a, b] = sU(0), du = b - a, U = (x) => a + du * x;
+      add([[U(0.15), -0.55], [U(0.85), -0.55], [U(0.85), 0.55], [U(0.15), 0.55], [U(0.15), -0.55]], { hunter: 1, moss: 0.5 }, 1.8);
+      add([[U(0.5), -0.55], [U(0.5), 0.05]], { hunter: 1, moss: 0.5 }, 1.6);
+      add([[U(0.5), 0.3], [U(0.5), 0.55]], { hunter: 1, moss: 0.5 }, 1.6);
+      add([[U(0.5), 0.05], [U(0.85), 0.05]], { hunter: 1, moss: 0.5 }, 1.6);
+      const cloud = [], cx = U(0.68), cy = 0.3, rx = du * 0.25, ry = 0.36;
+      for (let i = 0; i <= 96; i++) { const t = i / 96 * TAU, sc = 1 + 0.11 * Math.abs(Math.sin(t * 7)); cloud.push([cx + Math.cos(t) * rx * sc, cy + Math.sin(t) * ry * sc]); }
+      add(cloud, { red: 1 }, 1.7); }
+    // B: the note, names and project blacked out
+    { const [a, b] = sU(1), du = b - a, U = (x) => a + du * x;
+      for (let i = 0; i < 5; i++) { const v = -0.5 + i * 0.25; add([[U(0.15), v], [U(0.15 + 0.7 * (0.75 + 0.25 * rng())), v]], { hunter: 0.85 }, 0.9); }
+      add(rect(U(0.3), U(0.62), -0.31, -0.19), { hunter: 1, moss: 0.8 }, 0, true);
+      add(rect(U(0.55), U(0.8), 0.19, 0.31), { hunter: 1, moss: 0.8 }, 0, true); }
+    // C: the distilled lesson: short, general, deliberately dull
+    { const [a, b] = sU(2), du = b - a, U = (x) => a + du * x;
+      for (let i = 0; i < 3; i++) { const v = -0.3 + i * 0.3; add([[U(0.2), v], [U(i === 2 ? 0.55 : 0.8), v]], { hunter: 0.9 }, 1.0); } }
+    // D: audited: a round stamp
+    { const [a, b] = sU(3), du = b - a, U = (x) => a + du * x;
+      const ring = (r) => { const p = []; for (let i = 0; i <= 64; i++) { const t = i / 64 * TAU; p.push([U(0.62) + Math.cos(t) * du * r, 0.05 + Math.sin(t) * r * 2.3]); } return p; };
+      add(ring(0.2), { hunter: 0.95 }, 1.5); add(ring(0.14), { hunter: 0.9 }, 0.9);
+      for (let i = 0; i < 3; i++) add([[U(0.12), -0.4 + i * 0.3], [U(0.34), -0.4 + i * 0.3]], { hunter: 0.85 }, 0.9); }
+    // E: the lesson, pinned
+    { const [a, b] = sU(4), du = b - a, U = (x) => a + du * x;
+      for (let i = 0; i < 3; i++) { const v = -0.25 + i * 0.3; add([[U(0.22), v], [U(i === 2 ? 0.6 : 0.82), v]], { hunter: 0.9 }, 1.0); } }
+    // direction: chevrons between the stations, and on round the back
+    for (let k = 0; k <= NS; k++) {
+      const u = lerp(U0, U1, k / NS), d = 0.05;
+      add([[u - d, -0.28], [u + d * 0.3, 0], [u - d, 0.28]], { hunter: 0.95 }, 1.4);
+    }
+    for (let k = 1; k < 6; k++) {
+      const u = U1 + (TAU + U0 - U1) * k / 6 - 0.0, d = 0.05;
+      add([[u - d, -0.28], [u + d * 0.3, 0], [u - d, 0.28]], { hunter: 0.85 }, 1.2);
+    }
+    return out;
+  }
+
+  function draw(c, fmt) {
+    const pts = [];
+    for (let i = 0; i < 48; i++) { const u = i / 48 * TAU; pts.push(B(u, -1), B(u, 1)); }
+    for (const p of pts.slice()) pts.push(onGround(p, SUN_SERIES, 0));
+    const P = fit(VIEW_SERIES, pts, FIT[fmt]);
+    const M = (u, v) => P(B(u, v));
+    const MK = marks();
+
+    /* the band's shadow on the table: every quad projected, one union */
+    const shp = new Path2D();
+    const du = TAU / NQ;
+    for (let i = 0; i < NQ; i++) {
+      const u0 = i * du, u1 = u0 + du * 1.02;
+      shp.addPath(pathOf([B(u0, -1), B(u1, -1), B(u1, 1), B(u0, 1)].map((p) => P(onGround(p, SUN_SERIES, 0)))));
+    }
+    const sc = c.scratch;
+    sc.save(); sc.setTransform(K, 0, 0, K, 0, 0); sc.clearRect(0, 0, W, H); sc.fillStyle = '#000'; sc.fill(shp, 'nonzero'); sc.restore();
+    const tt = { mist: 0.62, moss: 0.12 }[c.ink] || 0;
+    if (tt) { c.g.save(); c.g.setTransform(1, 0, 0, 1, 0, 0); c.g.globalAlpha = tt; c.g.drawImage(sc.canvas, 0, 0); c.g.restore(); }
+
+    /* quads far to near; each owns its patch, then gets its marks and its edges */
+    const quads = [];
+    for (let i = 0; i < NQ; i++) {
+      const u0 = i * du, u1 = u0 + du;
+      const q = [B(u0, -1), B(u1, -1), B(u1, 1), B(u0, 1)];
+      const cen = B(u0 + du / 2, 0);
+      let n = (() => { const a = v3.sub(q[1], q[0]), b = v3.sub(q[3], q[0]); return v3.norm([a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]); })();
+      if (!facing(P, n)) n = v3.mul(n, -1);
+      quads.push({ u0, u1, q, d: depth(P, cen), l: lit(n, SUN_SERIES) });
+    }
+    quads.sort((a, b) => b.d - a.d);
+    const pinU = lerp(...sU(4), 0.1 + 0.0), pinV = 0.38;
+    for (const qd of quads) {
+      // overlap a hair so neighbouring quads leave no seam
+      const e = du * 0.06;
+      const patch = pathOf([M(qd.u0 - e, -1), M(qd.u1 + e, -1), M(qd.u1 + e, 1), M(qd.u0 - e, 1)]);
+      own(c, patch, { moss: clamp((0.7 - qd.l) * 0.9, 0, 0.55), mist: clamp((0.8 - qd.l) * 0.6, 0, 0.3) });
+      // this patch's marks, clipped to it so nearer paper hides them
+      c.g.save(); c.L.save(); c.g.clip(patch); c.L.clip(patch);
+      for (const m of MK) {
+        // a mark may straddle u = 2π; test it where it is and one turn back
+        const hit = [0, -TAU].some((sft) => m.b + sft >= qd.u0 - 0.1 && m.a + sft <= qd.u1 + 0.1);
+        if (!hit) continue;
+        const path = pathOf(m.pts.map(([u, v]) => M(u, v)), false);
+        if (m.fill) lineFill(c, path, m.spec); else line(c, path, m.w, m.spec);
+      }
+      c.g.restore(); c.L.restore();
+      line(c, pathOf([M(qd.u0 - e, -1), M(qd.u1 + e, -1)], false), 1.5, KEY);
+      line(c, pathOf([M(qd.u0 - e, 1), M(qd.u1 + e, 1)], false), 1.5, KEY);
+      if (pinU >= qd.u0 && pinU < qd.u1) pin(c, P, B(pinU, pinV));
+    }
+  }
+
+  /** A pushpin standing on the band: lime head, a short steel needle, its own small shadow. */
+  function pin(c, P, at) {
+    const up = [0, -st * 0.0, 1];
+    const head = v3.add(at, [0, 0, 0.55]);
+    const a = P(at), h = P(head), r = 0.26 * P.s;
+    const sh = P(onGround(head, SUN_SERIES, at[2]));
+    const shp = new Path2D(); shp.moveTo(a[0], a[1]); shp.lineTo(sh[0], sh[1]);
+    line(c, shp, 1.6, { mist: 0.9, moss: 0.3 });
+    const nd = new Path2D(); nd.moveTo(a[0], a[1]); nd.lineTo(h[0], h[1] + r * 0.4);
+    line(c, nd, 1.2, KEY);
+    const body = new Path2D(); body.ellipse(h[0], h[1], r, r * 0.8, 0, 0, TAU);
+    own(c, body, { kelly: 1 });
+    if (c.ink === 'kelly') shade(c.g, body, { x: h[0] - r * 0.35, y: h[1] - r * 0.3, r0: 0, r: r * 0.7, stops: [[0, 1], [0.6, 0.3], [1, 0]], cut: true });
+    if (c.ink === 'hunter') shade(c.g, body, { x0: h[0] - r, y0: 0, x1: h[0] + r, y1: 0, stops: [[0, 0], [0.55, 0], [1, 0.55]] });
+    line(c, body, 1.3, KEY);
+    const cap = new Path2D(); cap.ellipse(h[0], h[1] - r * 0.95, r * 0.55, r * 0.3, 0, 0, TAU);
+    own(c, cap, { kelly: 0.85, hunter: 0.2 });
+    line(c, cap, 1.1, KEY);
+  }
+
+  return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
+})();
+
 /* ═════════════════════════════════════════════════════════════════════════ */
 
-const PLATES = [I, II];
-const PLATE_NAMES = ['stuetzen', 'schichten'];
+const PLATES = [I, II, III];
+const PLATE_NAMES = ['stuetzen', 'schichten', 'schleife'];
 
 /* Export jobs: integer time → one file at its exact display size. */
 /* pitch is in device px: 3.4 for a 1x file, 6.8 for its 2x twin, so both show the
@@ -978,6 +1149,8 @@ const JOBS = [
   { plate: 0, fmt: 'wide', w: 1600, h: 600,  pitch: 6.8, file: 'piloti-i-stuetzen-banner-1600x600.webp' },
   { plate: 1, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-ii-schichten-720.webp' },
   { plate: 1, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-ii-schichten-1440.webp' },
+  { plate: 2, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-iii-schleife-720.webp' },
+  { plate: 2, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-iii-schleife-1440.webp' },
 ];
 
 function setJob(j) {
