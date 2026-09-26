@@ -156,7 +156,7 @@ const COPY = {
   },
   en: {
     label: 'AI FOR ARCHITECTURE AND PLANNING FIRMS',
-    lines: ['Plan.', 'Instead of searching.'],
+    lines: ['Plan more.', 'Search less.'],
     foot: 'Building law · OIB guidelines · office knowledge — built in Vienna',
   },
 }

@@ -42,7 +42,7 @@ export const TIME_SAVED = 0.4
 export interface RoiInputs {
   /** People in the office who get a seat. */
   seats: number
-  /** Median gross salary of one of those people, € per year. */
+  /** Average gross salary of one of those people, € per year, 13th and 14th included. */
   salary: number
   /** Example price of one seat, € per month. Not an offer: there is no price list yet. */
   price: number

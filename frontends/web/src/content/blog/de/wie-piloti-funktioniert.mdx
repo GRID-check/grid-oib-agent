@@ -11,7 +11,7 @@ import IsoStackFigure from '../../../components/blog/figures/IsoStackFigure.astr
 import ScopeFigure from '../../../components/blog/figures/ScopeFigure.astro'
 import HybridFigure from '../../../components/blog/figures/HybridFigure.astro'
 
-Eine typische Piloti-Frage sieht harmlos aus. "Welche Fluchtwegbreiten gelten für diesen Kindergarten?" Dahinter stehen eine OIB-Richtlinie, eine von neun Landesbauordnungen, das Raumprogramm des Projekts und womöglich ein Erlass, der sich im Frühjahr geändert hat. Die Antwort ist nur dann etwas wert, wenn sie die Bestimmung nennt, aus der sie stammt, korrekt zitiert und den Stand wiedergibt, der tatsächlich in Kraft ist.
+Eine typische Piloti-Frage sieht harmlos aus. „Welche Fluchtwegbreiten gelten für diesen Kindergarten?“ Dahinter stehen eine OIB-Richtlinie, eine von neun Landesbauordnungen, das Raumprogramm des Projekts und womöglich ein Erlass, der sich im Frühjahr geändert hat. Die Antwort ist nur dann etwas wert, wenn sie die Bestimmung nennt, aus der sie stammt, korrekt zitiert und den Stand wiedergibt, der tatsächlich in Kraft ist.
 
 Das erreicht kein Prompt. Das erreicht eine Pipeline mit sechs Schichten, und dieser Beitrag geht alle sechs durch, samt der Teile, die beim ersten Versuch nicht funktioniert haben.
 
@@ -21,7 +21,7 @@ Das erreicht kein Prompt. Das erreicht eine Pipeline mit sechs Schichten, und di
   alt="Explosionszeichnung mit sechs Schichten: Quellen, Aufbereitung, Index, Suche, Prüfung, Antwort"
   caption="Jede Piloti-Antwort fällt durch diesen Stapel. Jede Schicht verlässt sich nur auf das, was die Schicht darüber schon bereinigt hat."
   layers={[
-    { label: 'QUELLEN', sublabel: 'BAURECHT - BÜRO - PROJEKT - WEB', glyph: 'tiles' },
+    { label: 'QUELLEN', sublabel: 'BAURECHT · BÜRO · PROJEKT · WEB', glyph: 'tiles' },
     { label: 'AUFBEREITUNG', sublabel: 'TEXT, TABELLEN, PLÄNE', glyph: 'funnel' },
     { label: 'INDEX', sublabel: 'VEKTOREN + VOLLTEXT, EIN SPEICHER', glyph: 'disc', accent: true },
     { label: 'SUCHE', sublabel: 'ZWEI KANÄLE, PARALLEL', glyph: 'lines' },
@@ -50,7 +50,7 @@ Die zweite Tatsache ist die wichtigere, und sie ist eine Hierarchie: wo eine Que
   kicker="ABB. 02"
   title="VIER EBENEN, GESCHACHTELT"
   alt="Vier ineinander geschachtelte Rahmen: Plattform mit geteiltem Baurecht, Büro-Archiv, Projektdokumente, Gespräch. Ein Pfeil zeigt, wie eine Frage von innen nach außen sucht."
-  caption="Eine Frage sucht von dort nach außen, wo sie gestellt wird: ihr Gespräch, ihr Projekt, Ihr Büro, das geteilte Baurecht. Nie von außen nach innen, und nie seitwärts in ein anderes Büro."
+  caption="Eine Frage sucht von dort nach außen, wo sie gestellt wird: ihr Gespräch, ihr Projekt, ihr Büro, das geteilte Baurecht. Nie von außen nach innen, und nie seitwärts in ein anderes Büro."
   levels={[
     { label: 'PLATTFORM', holds: 'BAURECHT, GETEILTE LEKTIONEN', visible: 'ALLE' },
     { label: 'BÜRO', holds: 'IHR ARCHIV, IHRE STANDARDS', visible: 'IHR BÜRO' },
@@ -66,7 +66,7 @@ Die Schachtelung macht die Antwort in beide Richtungen vertrauenswürdig. Nach a
 
 ## Vom PDF zu etwas, das eine Maschine durchsuchen kann
 
-Baurecht kommt meist als PDF, und PDFs wehren sich. Das ist die Aufbereitungsschicht, und sie extrahiert Seite für Seite. Text wird von Wasserzeichen befreit, Tabellen werden separat erfasst, damit eine Lastentabelle eine Tabelle bleibt, und Planseiten werden gerendert und von einem Bildmodell beschrieben. So wird aus "dem Lageplan auf Seite 12" Text, den eine Suche wirklich findet. Das Ergebnis wird in Abschnitte von rund tausend Token mit Überlappung zerlegt, klein genug für präzise Treffer, groß genug, um den Zusammenhang zu behalten.
+Baurecht kommt meist als PDF, und PDFs wehren sich. Das ist die Aufbereitungsschicht, und sie extrahiert Seite für Seite. Text wird von Wasserzeichen befreit, Tabellen werden separat erfasst, damit eine Lastentabelle eine Tabelle bleibt, und Planseiten werden gerendert und von einem Bildmodell beschrieben. So wird aus „dem Lageplan auf Seite 12“ Text, den eine Suche wirklich findet. Das Ergebnis wird in Abschnitte von rund tausend Token mit Überlappung zerlegt, klein genug für präzise Treffer, groß genug, um den Zusammenhang zu behalten.
 
 Jeder Abschnitt wird dann doppelt im Index abgelegt. Einmal als Embedding, ein numerischer Fingerabdruck seiner Bedeutung, mit dem das System eine Bestimmung auch dann findet, wenn die Frage ganz andere Wörter benutzt. Und einmal als Klartext in einem Volltextindex, damit ein exakter Begriff exakt gefunden wird. Dass wir beides behalten, ist Absicht, und der nächste Abschnitt erklärt warum.
 
@@ -76,22 +76,22 @@ An dieser Stelle trennen wir uns auch von einem Ranking-Trick, der in Systemen �
 
 ## Warum Vektorsuche allein nicht gereicht hat
 
-Unsere erste Suche war reine Embedding-Suche. Eine Woche lang war sie beeindruckend. Embeddings erkennen Umschreibungen, und das zählt in einem Feld, in dem Fragende und Bestimmung selten dieselben Wörter benutzen. Jemand fragt nach Rollstuhlgerechtigkeit, die Bestimmung sagt "stufenlos erreichbar", und die Vektorähnlichkeit verbindet beides trotzdem.
+Unsere erste Suche war reine Embedding-Suche. Eine Woche lang war sie beeindruckend. Embeddings erkennen Umschreibungen, und das zählt in einem Feld, in dem Fragende und Bestimmung selten dieselben Wörter benutzen. Jemand fragt nach Rollstuhlgerechtigkeit, die Bestimmung sagt „stufenlos erreichbar“, und die Vektorähnlichkeit verbindet beides trotzdem.
 
-Dann kamen die Fehlerfälle. Wenn eine Planerin "OIB-Richtlinie 4, Punkt 2.1.1" eintippt, hat semantische Ähnlichkeit nicht zu entscheiden, was zurückkommt. Diese Frage hat genau ein richtiges Dokument, und der exakte Treffer auf die Fundstelle ist der stärkste Beleg, den es gibt. Die Suchschicht schickt deshalb jede Anfrage durch zwei Kanäle zugleich, einen semantischen für Umschreibungen und einen wörtlichen für Normverweise, Punktnummern und definierte Begriffe, und führt die Kandidaten zusammen.
+Dann kamen die Fehlerfälle. Wenn eine Planerin „OIB-Richtlinie 4, Punkt 2.1.1“ eintippt, hat semantische Ähnlichkeit nicht zu entscheiden, was zurückkommt. Diese Frage hat genau ein richtiges Dokument, und der exakte Treffer auf die Fundstelle ist der stärkste Beleg, den es gibt. Die Suchschicht schickt deshalb jede Anfrage durch zwei Kanäle zugleich, einen semantischen für Umschreibungen und einen wörtlichen für Normverweise, Punktnummern und definierte Begriffe, und führt die Kandidaten zusammen.
 
 <HybridFigure
   kicker="ABB. 03"
   title="ZWEI KANÄLE, EINE KANDIDATENLISTE"
   alt="Eine Frage verzweigt in einen semantischen und einen wörtlichen Kanal, zusammengeführt in eine Kandidatenliste mit Deckel pro Dokument"
-  caption="Jeder Kanal deckt den blinden Fleck des anderen: Embeddings finden Umschreibungen, exakte Suche findet Punktnummern. Der Deckel verhindert, dass eine Richtlinie mit 200 Seiten den zweiseitigen Erlass verdrängt."
+  caption="Jeder Kanal deckt den blinden Fleck des anderen: Embeddings finden Umschreibungen, exakte Suche findet Punktnummern. Der Deckel verhindert, dass eine Richtlinie mit 200 Seiten den zweiseitigen Erlass verdrängt."
   labels={{
     query: 'FRAGE',
-    querySub: '"FLUCHTWEGBREITE, KINDERGARTEN?"',
+    querySub: '„FLUCHTWEGBREITE, KINDERGARTEN?“',
     semantic: 'SEMANTISCHER KANAL',
     semanticSub: 'FINDET UMSCHREIBUNGEN',
     lexical: 'WÖRTLICHER KANAL',
-    lexicalSub: 'FINDET "OIB-4 PUNKT 2.1.1"',
+    lexicalSub: 'FINDET „OIB-4 PUNKT 2.1.1“',
     merge: 'KANDIDATEN VEREINT',
     mergeSub: 'BEIDE KANÄLE ZÄHLEN',
     cap: 'DECKEL PRO DOKUMENT',
@@ -99,13 +99,13 @@ Dann kamen die Fehlerfälle. Wenn eine Planerin "OIB-Richtlinie 4, Punkt 2.1.1" 
   }}
 />
 
-Noch eine Lektion aus dem Betrieb: Lange Dokumente sind Rüpel. Eine Richtlinie mit 200 Seiten kann die gesamte Kandidatenliste allein füllen und den zweiseitigen Erlass verdrängen, der den Fall eigentlich entscheidet. Wir begrenzen, wie viele Abschnitte ein einzelnes Dokument zu einer Antwort beitragen darf.
+Noch eine Lektion aus dem Betrieb: Lange Dokumente sind Rüpel. Eine Richtlinie mit 200 Seiten kann die gesamte Kandidatenliste allein füllen und den zweiseitigen Erlass verdrängen, der den Fall eigentlich entscheidet. Wir begrenzen, wie viele Abschnitte ein einzelnes Dokument zu einer Antwort beitragen darf.
 
 ## Eine Antwort, die Sie überprüfen können
 
 Die Suche findet Kandidaten. Wahr macht sie sie nicht. Die Prüfschicht ist der Ort, an dem sich Belege ihr Erscheinen verdienen: Jede Piloti-Antwort belegt ihre Quellen bis auf Dokument und Seite, und zitierte Passagen werden gegen den Quelltext geprüft, bevor Sie sie sehen. Ein Zitat, das sich nicht verifizieren lässt, wird nicht ausgeliefert.
 
-An diesem Punkt sind wir am wenigsten kompromissbereit. Im Baurecht ist "vertrauen Sie mir" kein Feature. Eine Antwort ohne nachvollziehbare Quelle ist eine Meinung, und Meinungen bekommen unsere Nutzer gratis.
+An diesem Punkt sind wir am wenigsten kompromissbereit. Im Baurecht ist „vertrauen Sie mir“ kein Feature. Eine Antwort ohne nachvollziehbare Quelle ist eine Meinung, und Meinungen bekommen unsere Nutzer gratis.
 
 ## Ein Gedächtnis, das sich seinen Platz verdient
 

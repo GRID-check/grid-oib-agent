@@ -18,6 +18,14 @@ const FORBIDDEN = [
   [/\bEU\b(?!-US Data Privacy)/, 'retracted claim: EU processing or residency', /(außerhalb|outside) (der|the) EU\b/g],
   [/jederzeit exportierbar|exportable at any time/i, 'unsupported claim: bulk export does not exist'],
   [/selben Werktag|same working day/i, 'unsupported claim: response-time promise'],
+  // Retracted in the copy review of September 2026: each overstated what the
+  // product does or what we have measured.
+  [/gesamte Wissen|all the knowledge/i, 'unprovable claim: "all" the knowledge'],
+  [/Stunden Suche|hours of searching/i, 'unmeasured claim: only the ≈30 s answer time is measured'],
+  [/Standort offen|location disclosed/i, 'unsupported claim: provider locations are not listed'],
+  [/\b(Die KI-Plattform|The AI platform)\b|ist die KI-Wissensplattform|is the AI knowledge platform/, 'category claim: say "eine" / "an"'],
+  [/jede Aussage lässt sich bis|every statement can be traced/i, 'unsupported claim: an answer cites its sources, not every statement its origin'],
+  [/Piloti (kennt|versteht)\b|Piloti (knows|understands)\b/, 'anthropomorphic claim: say what Piloti works with'],
 ]
 
 const ROOTS = ['src/i18n', 'src/components', 'src/content', 'src/data', 'src/pages', 'src/lib', 'src/layouts', 'src/consts.ts']
