@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest'
 import { useChatStore } from './store'
+import {
+  clearAwaitingServerMessages,
+  markAwaitingServerMessages,
+  readStoredChat,
+} from './stores/chat-storage'
 import type { CitationSource, Conversation, PendingInteraction, FileCardData } from './types'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
@@ -45,7 +50,7 @@ vi.mock('@/adapters/api/conversations-client', () => ({
 describe('useChatStore', () => {
   beforeEach(() => {
     // Clear localStorage before each test
-    localStorage.removeItem(STORAGE_KEY)
+    useChatStore.persist.clearStorage()
     mockLayoutState.setEnabledDataSources.mockClear()
     mockLayoutState.enabledDataSourceIds = ['web_search']
     mockLayoutState.availableDataSources = [
@@ -76,7 +81,7 @@ describe('useChatStore', () => {
   afterEach(() => {
     vi.useRealTimers()
     // Clean up localStorage after each test
-    localStorage.removeItem(STORAGE_KEY)
+    useChatStore.persist.clearStorage()
   })
 
   describe('initial state', () => {
@@ -460,6 +465,34 @@ describe('useChatStore', () => {
       expect(mockDiscardSessionResources).toHaveBeenCalledWith('u-only')
       expect(useChatStore.getState().conversations.some((c) => c.id === 'u-only')).toBe(false)
       expect(useChatStore.getState().currentConversation?.id).toBe('other')
+    })
+
+    test('selectConversation keeps a conversation whose messages are still on the server', () => {
+      // Storage evicted its messages (or the server list brought it without
+      // them): opened and left before they arrived, it looks upload-only and
+      // used to be deleted, on the server too.
+      markAwaitingServerMessages('evicted')
+      const evicted: Conversation = {
+        id: 'evicted',
+        userId: 'user-1',
+        title: 'Ältere Sitzung',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      const other: Conversation = { ...evicted, id: 'other-3', title: 'Andere' }
+      useChatStore.setState({
+        currentUserId: 'user-1',
+        currentConversation: evicted,
+        conversations: [evicted, other],
+      })
+
+      useChatStore.getState().selectConversation('other-3')
+
+      expect(useChatStore.getState().conversations.some((c) => c.id === 'evicted')).toBe(true)
+      expect(mockConversationsClient.delete).not.toHaveBeenCalledWith('evicted')
+      expect(mockDiscardSessionResources).not.toHaveBeenCalledWith('evicted')
+      clearAwaitingServerMessages('evicted')
     })
 
     test('selectConversation does not remove upload-only session while files are uploading', async () => {
@@ -947,14 +980,13 @@ describe('useChatStore', () => {
 
       // Wait for Zustand persist to sync to localStorage
       await vi.waitFor(() => {
-        const stored = localStorage.getItem(STORAGE_KEY)
-        expect(stored).not.toBeNull()
-        const parsed = JSON.parse(stored!)
+        const parsed = readStoredChat(STORAGE_KEY)!
+        expect(parsed).not.toBeNull()
         expect(parsed.state.conversations).toHaveLength(2)
       })
 
       // Verify initial localStorage state
-      const beforeDelete = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+      const beforeDelete = readStoredChat(STORAGE_KEY)!
       expect(beforeDelete.state.conversations.map((c: Conversation) => c.id)).toContain(
         'conv-persist-1'
       )
@@ -967,13 +999,12 @@ describe('useChatStore', () => {
 
       // Wait for Zustand persist to sync the deletion to localStorage
       await vi.waitFor(() => {
-        const stored = localStorage.getItem(STORAGE_KEY)
-        const parsed = JSON.parse(stored!)
+        const parsed = readStoredChat(STORAGE_KEY)!
         expect(parsed.state.conversations).toHaveLength(1)
       })
 
       // Verify localStorage was updated correctly
-      const afterDelete = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+      const afterDelete = readStoredChat(STORAGE_KEY)!
 
       // The deleted session should NOT be in localStorage
       expect(afterDelete.state.conversations.map((c: Conversation) => c.id)).not.toContain(
@@ -1006,9 +1037,8 @@ describe('useChatStore', () => {
 
       // Wait for initial persist (currentConversation stored as ID string)
       await vi.waitFor(() => {
-        const stored = localStorage.getItem(STORAGE_KEY)
-        expect(stored).not.toBeNull()
-        const parsed = JSON.parse(stored!)
+        const parsed = readStoredChat(STORAGE_KEY)!
+        expect(parsed).not.toBeNull()
         expect(parsed.state.currentConversation).toBe('conv-current')
       })
 
@@ -1017,13 +1047,12 @@ describe('useChatStore', () => {
 
       // Wait for persist to sync
       await vi.waitFor(() => {
-        const stored = localStorage.getItem(STORAGE_KEY)
-        const parsed = JSON.parse(stored!)
+        const parsed = readStoredChat(STORAGE_KEY)!
         expect(parsed.state.conversations).toHaveLength(0)
       })
 
       // Verify currentConversation is cleared in localStorage
-      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+      const stored = readStoredChat(STORAGE_KEY)!
       expect(stored.state.currentConversation).toBeNull()
       expect(stored.state.conversations).toHaveLength(0)
     })
@@ -2371,9 +2400,8 @@ describe('useChatStore', () => {
       useChatStore.getState().setComposerDraft('conv-1', 'survives reload')
 
       await vi.waitFor(() => {
-        const stored = localStorage.getItem(STORAGE_KEY)
-        expect(stored).not.toBeNull()
-        const parsed = JSON.parse(stored!)
+        const parsed = readStoredChat(STORAGE_KEY)!
+        expect(parsed).not.toBeNull()
         expect(parsed.state.composerDrafts).toEqual({ 'conv-1': 'survives reload' })
       })
     })

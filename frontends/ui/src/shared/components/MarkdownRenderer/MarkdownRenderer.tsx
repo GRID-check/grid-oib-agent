@@ -20,6 +20,7 @@ import { markdownHeadings } from './headings'
 import { getLanguageFromClassName, headingAnchorId, isMermaidFence } from './utils'
 import { isStatusTone, statusTone } from './status-marks'
 import { parseTally, rehypeTableShape } from './table-shape'
+import { isDelimiterRow } from '@/lib/text/markdown-table'
 
 /** Module-level so the list keeps one identity: a new array re-parses the document. */
 const REHYPE_PLUGINS: PluggableList = [[rehypeKatex, { throwOnError: false }], rehypeTableShape]
@@ -97,24 +98,6 @@ export function isOpenFence(lines: readonly string[], start: number, end: number
   return !(closer && closer[0] === opener[0] && closer.length >= opener.length)
 }
 
-/**
- * A GFM delimiter row: every cell only dashes, optionally between colons
- * (`| :--- | ---: |`). Cell by cell rather than by a prefix: `| -3 |`, a data
- * row holding a negative number, started like one and let a header-only table
- * through half-parsed.
- *
- * Split on the pipe, then one anchored pattern per cell with no two
- * quantifiers over the same characters: this runs on every token, over lines a
- * model copies out of retrieved documents, and an earlier `\s*` either side of
- * an optional pipe backtracked quadratically on a line of whitespace (32k tabs,
- * 1,034 ms).
- */
-function isDelimiterRow(line: string): boolean {
-  const inner = line.trim().replace(/^\|/, '').replace(/\|$/, '')
-  if (!inner.includes('-')) return false
-  return inner.split('|').every((cell) => /^\s*:?-+:?\s*$/.test(cell))
-}
-
 // Exported for its own spec. It is the one part of this module with a cost that
 // depends on the shape of the input rather than its size, so it is measured
 // directly: timing it through a React render measures the render.
@@ -160,7 +143,28 @@ export function stabilizeStreamingMarkdown(raw: string): string {
     }
   }
 
-  return content
+  return closeOpenBold(content)
+}
+
+/**
+ * Close a bold phrase the last line has opened and not yet closed, so it is
+ * drawn bold from its first word instead of as a raw `**` until its partner
+ * arrives. An answer that opens with its verdict in bold showed nothing for
+ * 0.7 s (the paced reveal waited for the closer) or a raw `**` (stream audit,
+ * 2026-09). Not inside an open fence or a code span, and not in a table row,
+ * which the renderer draws cell by cell.
+ */
+function closeOpenBold(content: string): string {
+  const fences = content.match(/^\s*(```|~~~)/gm)?.length ?? 0
+  if (fences % 2 === 1) return content
+  const line = content.slice(content.lastIndexOf('\n') + 1)
+  if (line.trimStart().startsWith('|')) return content
+  if ((line.match(/`/g)?.length ?? 0) % 2 === 1) return content
+  if ((line.match(/\*\*/g)?.length ?? 0) % 2 === 0) return content
+  const trimmed = content.trimEnd()
+  // Nothing inside the phrase yet: `**` alone would render as a literal `****`.
+  if (trimmed.endsWith('**')) return content
+  return `${trimmed}**`
 }
 
 /**

@@ -251,7 +251,7 @@ class TestRunWorkflowStreaming:
     async def test_deltas_then_terminal_complete(self) -> None:
         handler = _make_streaming_handler()
         chunks = [_chunk("Hello ", None), _chunk("world!", None), _chunk("Hello world!", "stop")]
-        with patch("aiq_api.websocket_reconnect.generate_streaming_response", return_value=_agen(chunks)):
+        with patch("aiq_api.websocket_reconnect.stream_workflow", return_value=_agen(chunks)):
             await handler._run_workflow(payload=MagicMock(), conversation_id="conv-1")
 
         calls = handler.create_websocket_message.await_args_list
@@ -270,7 +270,7 @@ class TestRunWorkflowStreaming:
     async def test_single_terminal_chunk_preserves_legacy_pattern(self) -> None:
         handler = _make_streaming_handler()
         chunks = [_chunk("Full answer.", "stop")]
-        with patch("aiq_api.websocket_reconnect.generate_streaming_response", return_value=_agen(chunks)):
+        with patch("aiq_api.websocket_reconnect.stream_workflow", return_value=_agen(chunks)):
             await handler._run_workflow(payload=MagicMock(), conversation_id="conv-1")
 
         calls = handler.create_websocket_message.await_args_list
@@ -286,7 +286,7 @@ class TestRunWorkflowStreaming:
     @pytest.mark.asyncio
     async def test_empty_stream_still_closes_turn(self) -> None:
         handler = _make_streaming_handler()
-        with patch("aiq_api.websocket_reconnect.generate_streaming_response", return_value=_agen([])):
+        with patch("aiq_api.websocket_reconnect.stream_workflow", return_value=_agen([])):
             await handler._run_workflow(payload=MagicMock(), conversation_id="conv-1")
 
         calls = handler.create_websocket_message.await_args_list

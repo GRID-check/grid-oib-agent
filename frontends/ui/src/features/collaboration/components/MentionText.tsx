@@ -29,7 +29,7 @@
 import type { JSX } from 'react'
 import { Fragment } from 'react'
 
-import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
+import { HoverPeekPanel } from '@/components/ui/hover-peek-panel'
 import { useHoverPopover } from '@/hooks/use-hover-popover'
 import { useTranslations } from '@/i18n'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
@@ -129,39 +129,37 @@ function MentionPill({
   }
 
   return (
-    <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
-      <PopoverAnchor asChild>
-        {/* A press gives way slightly — `springPress` is the kit's vocabulary for
+    <>
+      {/* A press gives way slightly — `springPress` is the kit's vocabulary for
             anything the user physically touches, and it is the only motion a pill
             gets. Nothing on mount: these render inline in prose, and a message
             whose mentions animate in draws the eye away from the sentence. Scale
             only, no vertical move, so a pill cannot nudge the line it sits on. */}
-        <motion.button
-          type="button"
-          data-testid="mention-chip"
-          data-mention-target={targetId}
-          data-mention-me={isMe ? 'true' : 'false'}
-          data-mention-interactive="true"
-          whileTap={{ scale: 0.96 }}
-          transition={springPress}
-          {...peek.triggerProps}
-          className={pillClasses(isMe, resolved.isAgent, true)}
-          aria-label={label}
-        >
-          {text}
-        </motion.button>
-      </PopoverAnchor>
+      <motion.button
+        type="button"
+        data-testid="mention-chip"
+        data-mention-target={targetId}
+        data-mention-me={isMe ? 'true' : 'false'}
+        data-mention-interactive="true"
+        whileTap={{ scale: 0.96 }}
+        transition={springPress}
+        {...peek.triggerProps}
+        className={pillClasses(isMe, resolved.isAgent, true)}
+        aria-label={label}
+      >
+        {text}
+      </motion.button>
       {/* Narrower than the citation peek: a person is four short lines, and a
           panel sized for a source snippet would be mostly empty. */}
-      <PopoverContent align="start" className="w-64 p-3" {...peek.contentProps}>
+      <HoverPeekPanel peek={peek} className="w-64 p-3">
         <PersonPeek
           person={resolved.person}
           isAgent={resolved.isAgent}
           isYou={resolved.isYou}
           isParticipant={resolved.isParticipant}
         />
-      </PopoverContent>
-    </Popover>
+      </HoverPeekPanel>
+    </>
   )
 }
 

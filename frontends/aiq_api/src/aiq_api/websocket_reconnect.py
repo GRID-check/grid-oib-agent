@@ -34,6 +34,7 @@ from aiq_api.auth.middleware import user_context
 from aiq_api.auth.request_trace import request_trace_tag_context
 from aiq_api.conversation_bus import get_bus
 from aiq_api.conversation_bus import is_multi_replica_bus
+from aiq_api.workflow_stream import stream_workflow
 from nat.data_models.api_server import ChatResponseChunk
 from nat.data_models.api_server import Error
 from nat.data_models.api_server import ErrorTypes
@@ -54,7 +55,6 @@ from nat.data_models.interactive import HumanResponseNotification
 from nat.data_models.interactive import InteractionPrompt
 from nat.front_ends.fastapi.auth_flow_handlers.websocket_flow_handler import WebSocketAuthenticationFlowHandler
 from nat.front_ends.fastapi.message_handler import WebSocketMessageHandler
-from nat.front_ends.fastapi.response_helpers import generate_streaming_response
 
 logger = logging.getLogger(__name__)
 
@@ -1585,21 +1585,17 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     # is preserved exactly.
                     saw_content_delta = False
                     saw_terminal = False
-                    # `aclosing`, not a bare `async for`. Leaving this loop early
-                    # -- a client disconnect, or any send below raising -- does
-                    # NOT close the generator: Python leaves it suspended and the
-                    # event loop's async-generator finalizer runs `aclose()` later,
-                    # from a DIFFERENT task and context. NAT's stream sets
-                    # contextvars on entry and resets them in its `finally`, so
-                    # that foreign-context teardown raised
-                    # `ValueError: <Token ...> was created in a different Context`
-                    # (issues #337, #338) and left its producer task holding an
-                    # unretrieved `QueueClosed` (#334) -- three ERROR-severity
-                    # reports per dropped connection, none of them a real fault.
-                    # Closing it here runs the same teardown inside the task that
-                    # opened it, where the tokens belong.
+                    # `aclosing`, not a bare `async for`: leaving this loop early
+                    # (a cancel, or a send below raising) must end the stream
+                    # here, not leave it to the event loop's finalizer. And
+                    # `stream_workflow`, not NAT's `generate_streaming_response`:
+                    # closing NAT's helper only reached its outermost level and
+                    # abandoned the workflow task below it, whose ContextVar
+                    # resets then failed in a foreign Context (#337, #338, #759)
+                    # and whose step tasks died on a closed queue (#334).
+                    # `workflow_stream.py` has the whole story.
                     async with contextlib.aclosing(
-                        generate_streaming_response(
+                        stream_workflow(
                             payload,
                             session=session,
                             streaming=True,

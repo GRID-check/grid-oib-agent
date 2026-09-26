@@ -24,7 +24,6 @@ import { reconcileCardInteractions } from '@/features/grid-cards/card-decision'
 import { errorConcernsTheThread, getErrorMeta } from '../lib/error-registry'
 import { mergeTraceLaneCards, parseTraceLanesBlock } from '../lib/trace-lanes'
 import { useLayoutStore } from '@/features/layout/store'
-import { ensureStorageCapacity, checkStorageHealth } from '../lib/storage-manager'
 import {
   sanitizeFollowUpsStage,
   sanitizeMemoryReflectionStage,
@@ -102,6 +101,13 @@ export type MessagesSlice = {
    * ever hold an id the backend has actually used.
    */
   currentTurnWsParentId: string | null
+  /**
+   * When this browser sent the current turn's question (epoch ms), so the
+   * answer can carry how long it took. This browser's clock at both ends:
+   * the user message's own timestamp is replaced by the server's, and the
+   * difference between two clocks is not a duration.
+   */
+  currentTurnStartedAt: number | null
   thinkingSteps: ThinkingStep[]
   activeThinkingStepId: string | null
   streamingAssistantMessageId: string | null
@@ -125,8 +131,8 @@ export type MessagesSlice = {
    * Per-session composer drafts keyed by conversation id: the user's own
    * in-progress, unsent text. Unlike `composerPrefill` (one-shot, external),
    * a draft is long-lived — it survives session switches and reloads because
-   * it is persisted to the `aiq-chat-store` localStorage namespace alongside
-   * the conversations. It is a plain serialisable map (SSR-safe) and is cleared
+   * it is persisted in the chat store's localStorage index (`aiq-chat-store:index`,
+   * `stores/chat-storage.ts`), the part of storage that is never evicted. It is a plain serialisable map (SSR-safe) and is cleared
    * only on successful send or when its session is deleted. Keyed by
    * conversation id, so it is inherently project/user-scoped (a session id is
    * already scoped to one project + user) and cannot leak across contexts.
@@ -511,6 +517,7 @@ export const initialMessagesState = {
   isLoading: false,
   currentUserMessageId: null as string | null,
   currentTurnWsParentId: null as string | null,
+  currentTurnStartedAt: null as number | null,
   thinkingSteps: [] as ThinkingStep[],
   activeThinkingStepId: null as string | null,
   streamingAssistantMessageId: null as string | null,
@@ -540,6 +547,16 @@ const answerIdFor = (state: ChatStore): string =>
     ? turnAnswerId(state.currentConversation.id, state.currentTurnWsParentId)
     : uuidv4()
 
+/**
+ * How long the current turn took, from the question being sent to now, or
+ * undefined when this browser did not see the question go out.
+ */
+const turnDurationMs = (state: ChatStore): number | undefined => {
+  if (state.currentTurnStartedAt === null) return undefined
+  const elapsed = Date.now() - state.currentTurnStartedAt
+  return elapsed > 0 ? elapsed : undefined
+}
+
 const buildAgentResponseMessage = (
   state: ChatStore,
   id: string,
@@ -562,6 +579,10 @@ const buildAgentResponseMessage = (
     answerConfidence: opts.answerConfidence,
     citations: opts.citations && opts.citations.length > 0 ? opts.citations : undefined,
     ...(opts.isStreaming ? { isStreaming: true } : {}),
+    // A streamed bubble is stamped when it finalizes; a one-shot one is final now.
+    ...(!opts.isStreaming && turnDurationMs(state) !== undefined
+      ? { answerDurationMs: turnDurationMs(state) }
+      : {}),
     // Which WS turn this answer belongs to, so a stage frame that arrives
     // seconds later can find it. Stamped as the bubble is built rather than
     // patched on afterwards: the turn key is known before the first delta, and
@@ -963,7 +984,6 @@ export const createMessagesSlice: StateCreator<
         updatedConversation = {
           ...currentConversation,
           messages: updatedMessages,
-          updatedAt: new Date(),
         }
 
         updatedConversations = updateConversationInList(conversations, updatedConversation)
@@ -1017,7 +1037,6 @@ export const createMessagesSlice: StateCreator<
         updatedConversation = {
           ...currentConversation,
           messages: updatedMessages,
-          updatedAt: new Date(),
         }
 
         updatedConversations = updateConversationInList(conversations, updatedConversation)
@@ -1061,7 +1080,6 @@ export const createMessagesSlice: StateCreator<
         updatedConversation = {
           ...currentConversation,
           messages: updatedMessages,
-          updatedAt: new Date(),
         }
 
         updatedConversations = updateConversationInList(conversations, updatedConversation)
@@ -1114,7 +1132,6 @@ export const createMessagesSlice: StateCreator<
         updatedConversation = {
           ...currentConversation,
           messages: updatedMessages,
-          updatedAt: new Date(),
         }
 
         updatedConversations = updateConversationInList(conversations, updatedConversation)
@@ -1291,6 +1308,7 @@ export const createMessagesSlice: StateCreator<
           conversations: updatedConversations,
           isLoading: true,
           currentUserMessageId: newMessage.id,
+          currentTurnStartedAt: Date.now(),
           // A new turn is a new WS turn id; the old one must not leak onto the
           // next answer, or a late stage frame from the previous turn would find
           // two messages claiming to be its target.
@@ -1343,21 +1361,6 @@ export const createMessagesSlice: StateCreator<
         'addAgentResponse'
       )
 
-      if (!checkStorageHealth().isHealthy) {
-        const { currentUserId } = get()
-        const cleanedUpIds = ensureStorageCapacity(currentConversation.id, currentUserId)
-        if (cleanedUpIds.length > 0) {
-          // Cleanup only edits localStorage; prune in-memory state too or the
-          // next persist write resurrects every deleted session.
-          const deleted = new Set(cleanedUpIds)
-          set(
-            (state) => ({ conversations: state.conversations.filter((c) => !deleted.has(c.id)) }),
-            false,
-            'storageCleanupPrune'
-          )
-        }
-      }
-
       get()._appendMessage(responseMessage)
     },
 
@@ -1403,10 +1406,14 @@ export const createMessagesSlice: StateCreator<
           transparency: answerMeta ? { answerMeta } : undefined,
         })
 
+        // No `updatedAt` bump: the send set it and the settle sets it again.
+        // A bump here made the opening a full write of the persisted history
+        // (1.97 MB and a 330 ms freeze with 40 conversations on a 4× throttled
+        // phone, the moment the first words appeared); the snapshot, the
+        // steps and the deltas leave it alone for the same reason.
         const updatedConversation: Conversation = {
           ...currentConversation,
           messages: [...currentConversation.messages, message],
-          updatedAt: new Date(),
         }
 
         set(
@@ -1488,7 +1495,6 @@ export const createMessagesSlice: StateCreator<
               }
             : msg
         ),
-        updatedAt: new Date(),
       }
       set(
         {
@@ -1513,6 +1519,7 @@ export const createMessagesSlice: StateCreator<
 
       const { currentConversation, conversations, streamingAssistantMessageId } = get()
       if (!currentConversation) return
+      const answerDurationMs = turnDurationMs(get())
 
       // No bubble was ever opened (no delta arrived) — e.g. a complete-only frame
       // that carries the whole answer. Fall back to a one-shot response so there
@@ -1596,6 +1603,7 @@ export const createMessagesSlice: StateCreator<
           ...(transparency?.skillsActivated && transparency.skillsActivated.length > 0
             ? { skillsActivated: transparency.skillsActivated }
             : {}),
+          ...(answerDurationMs !== undefined ? { answerDurationMs } : {}),
           isStreaming: false,
         }
       })
@@ -1618,21 +1626,8 @@ export const createMessagesSlice: StateCreator<
         'finalizeAgentResponse'
       )
 
-      // Mirror addAgentResponse's storage-health guard and server persistence,
-      // but run them ONCE at finalize rather than per delta.
-      if (!checkStorageHealth().isHealthy) {
-        const { currentUserId } = get()
-        const cleanedUpIds = ensureStorageCapacity(currentConversation.id, currentUserId)
-        if (cleanedUpIds.length > 0) {
-          const deleted = new Set(cleanedUpIds)
-          set(
-            (state) => ({ conversations: state.conversations.filter((c) => !deleted.has(c.id)) }),
-            false,
-            'storageCleanupPrune'
-          )
-        }
-      }
-
+      // Mirror addAgentResponse's server persistence, but ONCE at finalize
+      // rather than per delta.
       if (finalizedMessage) {
         get()._appendMessage(finalizedMessage)
         void get()._persistTurnProvenance()
@@ -1689,6 +1684,9 @@ export const createMessagesSlice: StateCreator<
           resumableTurn: null,
           currentUserMessageId: turn.userMessageId,
           currentTurnWsParentId: turn.wsParentId,
+          // The question went out before the reload, from a page that is gone:
+          // no start this browser saw, so no duration rather than a wrong one.
+          currentTurnStartedAt: null,
           streamingAssistantMessageId: null,
           thinkingSteps: thinkingSteps.filter((s) => s.userMessageId !== turn.userMessageId),
           activeThinkingStepId: null,

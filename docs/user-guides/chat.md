@@ -391,11 +391,13 @@ Drag and drop or select files to attach them to the current session. Uploaded fi
 
 ## Session persistence
 
-Conversations persist to `localStorage` via the Zustand `persist` middleware with the key `aiq-chat-store`. The storage layer:
+Conversations persist to `localStorage` via the Zustand `persist` middleware (`features/chat/stores/chat-storage.ts`), one key per conversation's messages (`aiq-chat-store:messages:<id>`) and a small index (`aiq-chat-store:index`) for the conversation list, the open conversation's id, the composer drafts and the open question. The storage layer:
 
-- Prunes message content to stay within quota limits
-- Strips connection error messages on hydration (transient errors should not survive reloads)
-- Reconstructs the current conversation from its ID to avoid double-serialization
-- Falls back to clearing all sessions if `QuotaExceededError` is hit
+- Writes only what changed: a send or a settled answer writes that conversation and the index, a switch or a draft the index alone
+- Prunes message content (thinking-step payloads, long citation text) before writing
+- Strips interrupted streaming answers and connection error messages on hydration (transient state should not survive reloads)
+- Reconstructs the current conversation from its ID
+- Past its budget or on a `QuotaExceededError`, evicts the messages of the least recently updated conversations (the server holds them, and opening the conversation fetches them); the index, and with it the list, the titles and the drafts, is never evicted
+- Moves the old single key `aiq-chat-store` into this shape on the first load after the change
 
 On page load, `loadServerConversations()` fetches conversations from the BFF and merges server metadata (title, dates) with local messages. Deep research job statuses are refreshed via `refreshDeepResearchSessionStatuses()` after rehydration.

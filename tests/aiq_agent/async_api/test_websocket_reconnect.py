@@ -1069,7 +1069,7 @@ async def test_run_workflow_binds_authenticated_user_context(monkeypatch) -> Non
         if False:
             yield None
 
-    monkeypatch.setattr(websocket_reconnect, "generate_streaming_response", fake_stream)
+    monkeypatch.setattr(websocket_reconnect, "stream_workflow", fake_stream)
 
     await handler._run_workflow(payload="hello", conversation_id="conv-1")
 

@@ -35,6 +35,7 @@
  */
 
 import type { FC } from 'react'
+import { ShimmerText } from '@/components/ui/shimmer-text'
 import { ChatThinking } from '@/features/chat/components/ChatThinking'
 import { AgentResponse } from '@/features/chat/components/AgentResponse'
 import { useTranslations } from '@/i18n'
@@ -64,17 +65,12 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
       aria-live="off"
     >
       <div className="flex items-center gap-2">
-        <span
-          className={cn(
-            'text-foreground text-xs font-medium',
-            // The shimmer says "still working". It stops the moment the terminal
-            // frame lands, so the last second before the persisted answer swaps in
-            // does not look like a stall.
-            !turn.done && 'animate-text-shimmer motion-reduce:animate-none'
-          )}
-        >
+        {/* The shimmer says "still working". It stops the moment the terminal
+            frame lands, so the last second before the persisted answer swaps in
+            does not look like a stall. */}
+        <ShimmerText active={!turn.done} className="text-foreground text-xs font-medium">
           {label}
-        </span>
+        </ShimmerText>
       </div>
 
       {/* The reasoning chain, in the same panel the asker gets. Collapsed by

@@ -342,8 +342,6 @@ describe('useWebSocketChat', () => {
 
     expect(result.current.isStreaming).toBe(false)
     expect(result.current.isLoading).toBe(false)
-    expect(result.current.thinkingSteps).toEqual([])
-    expect(result.current.currentStatus).toBeNull()
     expect(result.current.pendingInteraction).toBeNull()
     expect(result.current.isConnected).toBe(false)
   })

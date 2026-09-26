@@ -38,7 +38,7 @@ import { documentFileUrl } from '@/lib/documents/urls'
 import { onDocumentsChanged, useDocumentsGeneration } from '@/lib/documents/document-changes'
 import { startDocumentDownload } from '@/lib/documents/download'
 import { SectionLabel } from '@/components/ui/section-label'
-import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
+import { HoverPeekPanel } from '@/components/ui/hover-peek-panel'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { RisDocumentDialog } from '@/features/knowledge/components/ris-document-dialog'
 import {
@@ -985,28 +985,22 @@ const DocumentPreviewChip: FC<{
     </button>
   )
 
-  // Without a reference there is nothing to preview, so the chip keeps its
-  // plain open-on-click behaviour rather than promising a peek it cannot fill.
-  if (!citation) {
-    return (
-      <>
-        {face}
-        {dialog}
-      </>
-    )
-  }
-
+  // The face is always the first child, and the peek is its sibling rather than
+  // its wrapper — see `HoverPeekPanel` for why the button must never move.
   return (
     <>
+      {face}
       {/* Hovering answers the question; clicking commits to the document. An
           openable source used to offer only the commitment, so checking one of
-          eight chips meant opening and closing eight near-fullscreen dialogs. */}
-      <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
-        <PopoverAnchor asChild>{face}</PopoverAnchor>
-        <PopoverContent align="start" className="w-80 p-3" {...peek.contentProps}>
+          eight chips meant opening and closing eight near-fullscreen dialogs.
+          Without a reference there is nothing to preview, so the chip keeps its
+          plain open-on-click behaviour rather than promising a peek it cannot
+          fill. */}
+      {citation && (
+        <HoverPeekPanel peek={peek} className="w-80 p-3">
           <CitationPeek citation={citation} snippet={target.snippet} onOpen={open} />
-        </PopoverContent>
-      </Popover>
+        </HoverPeekPanel>
+      )}
       {dialog}
     </>
   )
@@ -1083,37 +1077,35 @@ const DownloadPreviewChip: FC<{
   }
 
   return (
-    <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
-      <PopoverAnchor asChild>
-        <button
-          type="button"
-          className={cn(faceClasses(variant), className)}
-          style={faceStyle(variant, signal)}
-          {...peek.triggerProps}
-          aria-label={t('sourcePreview.chipAria', { label })}
-          title={t('sourcePreview.chipAria', { label })}
-        >
-          <CitationFace
-            variant={variant}
-            signal={signal}
-            label={label}
-            authority={authority}
-            index={index}
-            citation={citation}
-            trailing={trailing}
-            detail={detail}
-          />
-        </button>
-      </PopoverAnchor>
-      <PopoverContent align="start" className="w-80 p-3" {...peek.contentProps}>
+    <>
+      <button
+        type="button"
+        className={cn(faceClasses(variant), className)}
+        style={faceStyle(variant, signal)}
+        {...peek.triggerProps}
+        aria-label={t('sourcePreview.chipAria', { label })}
+        title={t('sourcePreview.chipAria', { label })}
+      >
+        <CitationFace
+          variant={variant}
+          signal={signal}
+          label={label}
+          authority={authority}
+          index={index}
+          citation={citation}
+          trailing={trailing}
+          detail={detail}
+        />
+      </button>
+      <HoverPeekPanel peek={peek} className="w-80 p-3">
         <CitationPeek
           citation={citation}
           snippet={target.snippet}
           onDownload={() => void download()}
           downloadPending={isDownloading}
         />
-      </PopoverContent>
-    </Popover>
+      </HoverPeekPanel>
+    </>
   )
 }
 
@@ -1203,28 +1195,19 @@ const RisPreviewChip: FC<{
     </button>
   )
 
-  if (!citation) {
-    return (
-      <>
-        {face}
-        {dialog}
-      </>
-    )
-  }
-
   return (
     <>
-      <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
-        <PopoverAnchor asChild>{face}</PopoverAnchor>
-        <PopoverContent align="start" className="w-80 p-3" {...peek.contentProps}>
+      {face}
+      {citation && (
+        <HoverPeekPanel peek={peek} className="w-80 p-3">
           <CitationPeek
             citation={citation}
             snippet={target.snippet}
             onOpen={open}
             url={target.url}
           />
-        </PopoverContent>
-      </Popover>
+        </HoverPeekPanel>
+      )}
       {dialog}
     </>
   )
@@ -1293,29 +1276,27 @@ const InfoPreviewChip: FC<{
   const t = useTranslations('chat')
   const peek = useHoverPopover()
   return (
-    <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
-      <PopoverAnchor asChild>
-        <button
-          type="button"
-          className={cn(faceClasses(variant), className)}
-          style={faceStyle(variant, signal)}
-          {...peek.triggerProps}
-          aria-label={t('sourcePreview.chipAria', { label })}
-          title={t('sourcePreview.chipAria', { label })}
-        >
-          <CitationFace
-            variant={variant}
-            signal={signal}
-            label={label}
-            authority={authority}
-            index={index}
-            citation={citation}
-            trailing={trailing}
-            detail={detail}
-          />
-        </button>
-      </PopoverAnchor>
-      <PopoverContent align="start" className="w-80 space-y-2 p-3" {...peek.contentProps}>
+    <>
+      <button
+        type="button"
+        className={cn(faceClasses(variant), className)}
+        style={faceStyle(variant, signal)}
+        {...peek.triggerProps}
+        aria-label={t('sourcePreview.chipAria', { label })}
+        title={t('sourcePreview.chipAria', { label })}
+      >
+        <CitationFace
+          variant={variant}
+          signal={signal}
+          label={label}
+          authority={authority}
+          index={index}
+          citation={citation}
+          trailing={trailing}
+          detail={detail}
+        />
+      </button>
+      <HoverPeekPanel peek={peek} className="w-80 space-y-2 p-3">
         <div className="flex flex-wrap items-center gap-1.5">
           <SourceSignalChip signal={signal}>{t(`sourcePreview.kinds.${kind}`)}</SourceSignalChip>
           {tier && <span className="text-muted-foreground text-xs font-medium">{tier}</span>}
@@ -1380,8 +1361,8 @@ const InfoPreviewChip: FC<{
           )}
           {citation && <CopySourceCitationButton citation={citation} />}
         </div>
-      </PopoverContent>
-    </Popover>
+      </HoverPeekPanel>
+    </>
   )
 }
 

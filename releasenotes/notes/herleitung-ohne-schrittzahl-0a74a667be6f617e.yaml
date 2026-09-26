@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Die Kopfzeile der Herleitung zählt keine Schritte mehr. Die Zahl dort
+    („19 Schritte“) zählte interne Statusmeldungen mit und las sich, als hätte
+    Piloti für eine Antwort 19 Anläufe gebraucht. Die Zeile nennt jetzt nur
+    noch die Quellen; was gelaufen ist, steht aufgeklappt in der Herleitung.

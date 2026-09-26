@@ -872,6 +872,8 @@ export const chat = {
   answerDetails: {
     trigger: 'Answer details',
     triggerAria: 'Show details for this answer',
+    // How long the turn took, question sent to answer final.
+    duration: 'Answered in {duration}',
     // Retrieved-but-uncited documents: what the turn read beyond what the
     // answer claims. Document chips only — no passages, no new claims.
     readSources: {
@@ -1111,16 +1113,12 @@ export const chat = {
     },
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
-    // The trace's header line, built from two clauses. The sources clause is
-    // ABSENT when there are none: "0 sources" is a true number that reads as a
-    // failure, and an answer grounded in a measurement of the model rightly has
-    // no citations. The line counts what is there and says nothing about what
-    // is not.
-    herleitungSummary: 'Trace · {count, plural, one {# step} other {# steps}}',
-    herleitungSummaryWithSources: '{summary} · {count, plural, one {# source} other {# sources}}',
-    // The turn has reported no step yet, so the line says what it is instead of
-    // counting to zero.
-    herleitungSummaryNoSteps: 'Trace',
+    // The trace's header line. No step count: it counted raw NAT event names,
+    // not turns or calls (see ChatThinking). The sources clause is ABSENT when
+    // there are none: "0 sources" is a true number that reads as a failure, and
+    // an answer grounded in a measurement of the model rightly has no citations.
+    herleitungSummary: 'Trace',
+    herleitungSummaryWithSources: 'Trace · {count, plural, one {# source} other {# sources}}',
     // aria-label naming the reasoning graph as one region for screen readers.
     reasoningGraphLabel: 'Reasoning trace',
     stepsLabel: 'Thinking steps',

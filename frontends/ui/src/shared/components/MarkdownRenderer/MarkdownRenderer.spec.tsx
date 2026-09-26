@@ -599,6 +599,24 @@ Visit [our site](https://example.com) for more.
     })
   })
 
+  describe('the streaming stabilizer closes a bold phrase the last line has opened', () => {
+    test('closes it at the last word', () => {
+      expect(stabilizeStreamingMarkdown('**Die Außentreppe ist ')).toBe('**Die Außentreppe ist**')
+    })
+
+    test('leaves a closed phrase, a code span, an open fence and a table row alone', () => {
+      expect(stabilizeStreamingMarkdown('**fertig** und ')).toBe('**fertig** und ')
+      expect(stabilizeStreamingMarkdown('Code `**x ')).toBe('Code `**x ')
+      expect(stabilizeStreamingMarkdown('```\n**x ')).toBe('```\n**x ')
+      const row = '| a | b |\n| --- | --- |\n| **x | '
+      expect(stabilizeStreamingMarkdown(row)).toBe(row)
+    })
+
+    test('leaves a phrase with nothing in it yet', () => {
+      expect(stabilizeStreamingMarkdown('Text **')).toBe('Text **')
+    })
+  })
+
   describe('the streaming stabilizer is linear in the length of a line', () => {
     /**
      * The delimiter-row test used to read `/^\s*\|?\s*:?-{1,}/`, putting two

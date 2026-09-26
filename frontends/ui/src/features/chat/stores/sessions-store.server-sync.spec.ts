@@ -40,6 +40,7 @@ vi.mock('@/adapters/api/conversations-client', () => ({
 }))
 
 import { useChatStore } from '../store'
+import { isAwaitingServerMessages } from './chat-storage'
 import type { ChatMessage, Conversation } from '../types'
 
 let uniqueCounter = 0
@@ -223,6 +224,29 @@ describe('loadServerConversations merge', () => {
     expect(merged.title).toBe('Locally generated title')
     expect(merged.createdAt).toBeInstanceOf(Date)
     expect(merged.updatedAt).toBeInstanceOf(Date)
+  })
+
+  it('marks a conversation the server lists without its messages until they are fetched', async () => {
+    const id = uniqueId('s_server_only')
+    mockConversationsClient.list.mockResolvedValue([
+      {
+        id,
+        title: 'Vom anderen Gerät',
+        createdBy: 'user-1',
+        projectId: null,
+        createdAt: '2026-07-01T09:00:00.000Z',
+        updatedAt: '2026-07-02T09:00:00.000Z',
+      },
+    ])
+
+    await useChatStore.getState().loadServerConversations()
+    // Its empty message list means "not here yet": nothing may treat it as a
+    // thread nobody wrote in (the upload-only cleanup deleted it).
+    expect(isAwaitingServerMessages(id)).toBe(true)
+
+    mockConversationsClient.listMessages.mockResolvedValue([serverRow(id, 'm1', 'user', 'Frage')])
+    await useChatStore.getState().hydrateConversationMessages(id)
+    expect(isAwaitingServerMessages(id)).toBe(false)
   })
 
   it('carries jobId through the merge, so job threads stay out of the chat list', async () => {

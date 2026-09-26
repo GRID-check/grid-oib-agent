@@ -5,12 +5,18 @@
  * which chip did I just get sent to, and how do I reach the other pages.
  */
 
-import { render, screen, within } from '@/test-utils'
+import { fireEvent, render, screen, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { AgentResponse } from './AgentResponse'
 import { resetSourcePreviewIndexCache } from './SourcePreview'
 import type { CitationSource } from '../types'
+import { popoverMounts, resetPopoverMounts } from '@/test-utils/popover-mounts'
+
+// Real popover, counted: a read answer must not pay for peeks nobody opened.
+vi.mock('@/components/ui/popover', async (importOriginal) =>
+  (await import('@/test-utils/popover-mounts')).countPopoverMounts(await importOriginal())
+)
 
 vi.mock('@/features/layout/store', () => ({
   useLayoutStore: vi.fn((selector?: (s: Record<string, unknown>) => unknown) => {
@@ -103,6 +109,7 @@ describe('an inline citation marker', () => {
     fetchMock.mockClear()
     fetchMock.mockImplementation(defaultFetch)
     chatStore.projectId = null
+    resetPopoverMounts()
     vi.stubGlobal('fetch', fetchMock)
   })
 
@@ -180,6 +187,50 @@ describe('an inline citation marker', () => {
     await user.unhover(marker)
     // Still there: the click pinned it.
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  test('a read answer mounts no peek popover until a marker or chip is engaged', async () => {
+    const user = userEvent.setup()
+    renderAnswer()
+    const marker = screen.getByRole('button', { name: /Source 1: OIB-Richtlinie 2\.1/i })
+    // Let the source row's index resolve, so every chip has settled.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled())
+
+    expect(popoverMounts.total).toBe(0)
+    expect(marker).toHaveAttribute('aria-haspopup', 'dialog')
+    expect(marker).toHaveAttribute('aria-expanded', 'false')
+
+    await user.hover(marker)
+    await screen.findByRole('dialog')
+    expect(popoverMounts.total).toBe(1)
+  })
+
+  test('focus reaches the peek and stays on the marker it landed on', async () => {
+    const user = userEvent.setup()
+    renderAnswer()
+    const marker = screen.getByRole('button', { name: /Source 1: OIB-Richtlinie 2\.1/i })
+
+    marker.focus()
+    const peek = await screen.findByRole('dialog')
+    expect(within(peek).getByText('p. 5')).toBeInTheDocument()
+    expect(document.activeElement).toBe(marker)
+    expect(marker.isConnected).toBe(true)
+
+    await user.keyboard('{Escape}')
+    await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  test('a first tap on a marker still clicks: it pins the peek and marks the chip', async () => {
+    const { container } = renderAnswer()
+    const marker = screen.getByRole('button', { name: /Source 2: OIB-Richtlinie 2\.1/i })
+
+    fireEvent.pointerDown(marker, { pointerType: 'touch' })
+    expect(marker.isConnected).toBe(true)
+    fireEvent.click(marker)
+
+    const peek = await screen.findByRole('dialog')
+    expect(within(peek).getByText('p. 18')).toBeInTheDocument()
+    expect(container.querySelector('[data-focused]')).not.toBeNull()
   })
 
   test('two sources behind one claim are two markers, not literal text', async () => {

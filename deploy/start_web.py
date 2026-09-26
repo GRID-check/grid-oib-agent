@@ -96,6 +96,16 @@ import os
 import sys
 import warnings
 
+#: uvicorn's WebSocket implementation, named because its default is the wrong
+#: one. ``auto`` picks websockets' legacy protocol, whose ``ping()`` returns
+#: ``asyncio.shield(pong_waiter)``: when a peer closes while a keepalive ping is
+#: unanswered, the keepalive task (and with it the shield) is cancelled first
+#: and the waiter fails afterwards, which Python 3.12+ logs at ERROR as
+#: "ConnectionClosed... exception in shielded future" (#758). The sans-I/O
+#: implementation keeps its pings on a timer and has no such future.
+#: ``tests/test_websocket_implementation.py`` holds both to that.
+WS_IMPLEMENTATION = "websockets-sansio"
+
 # Suppress warnings unless PYTHONWARNINGS is explicitly set
 if not os.environ.get("PYTHONWARNINGS"):
     warnings.filterwarnings("ignore")
@@ -270,6 +280,7 @@ def main():
         port=port,
         factory=True,
         loop="asyncio",
+        ws=WS_IMPLEMENTATION,
     )
 
 

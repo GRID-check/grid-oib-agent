@@ -1,0 +1,14 @@
+---
+fixes:
+  - >
+    Wer viele lange Unterhaltungen führt, verliert seinen Chatverlauf im
+    Browser nicht mehr. Wurde der Speicher des Browsers voll, löschte Piloti
+    bisher alle gespeicherten Unterhaltungen auf einmal. Jetzt macht nur der
+    Inhalt der ältesten Unterhaltungen Platz; die Liste, die Titel und
+    angefangene Entwürfe bleiben, und eine solche Unterhaltung lädt ihren
+    Inhalt beim Öffnen vom Server nach.
+  - >
+    Senden, das Eintreffen einer Antwort und der Wechsel zwischen
+    Unterhaltungen halten das Telefon nicht mehr spürbar an: Piloti speichert
+    dabei nur noch die eine Unterhaltung, die sich geändert hat, statt jedes
+    Mal den ganzen Verlauf.

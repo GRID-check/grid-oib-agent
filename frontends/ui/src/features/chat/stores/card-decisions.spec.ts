@@ -12,6 +12,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useChatStore } from '../store'
+import { readStoredChat } from './chat-storage'
 import type { Conversation } from '../types'
 
 const STORAGE_KEY = 'aiq-chat-store'
@@ -76,7 +77,7 @@ const messageIn = (conversation: Conversation | null, messageId: string) =>
 
 describe('setCardDecision', () => {
   beforeEach(() => {
-    localStorage.removeItem(STORAGE_KEY)
+    useChatStore.persist.clearStorage()
     vi.clearAllMocks()
     const conversation = conversationWithCardMessage('conv-1', 'msg-1')
     useChatStore.setState({
@@ -87,7 +88,7 @@ describe('setCardDecision', () => {
   })
 
   afterEach(() => {
-    localStorage.removeItem(STORAGE_KEY)
+    useChatStore.persist.clearStorage()
   })
 
   it('records the decision on the message in both the current conversation and the list', () => {
@@ -130,11 +131,11 @@ describe('setCardDecision', () => {
   it('survives a persist round trip through localStorage', () => {
     useChatStore.getState().setCardDecision('msg-1', 'memory_proposal-0', 'savedOrg')
 
-    const persisted = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
-    const message = persisted.state.conversations[0].messages[0]
+    const persisted = readStoredChat(STORAGE_KEY)
+    const message = persisted!.state.conversations[0]!.messages[0]!
     // The pruner must not treat this as heavy refetchable state: nothing can
     // re-derive "the user already saved this" from the backend.
-    expect(message.cardInteractions['memory_proposal-0'].decision).toBe('savedOrg')
+    expect(message.cardInteractions?.['memory_proposal-0']?.decision).toBe('savedOrg')
     expect(message.cards).toHaveLength(1)
   })
 

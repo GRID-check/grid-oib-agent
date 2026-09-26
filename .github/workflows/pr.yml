@@ -39,6 +39,26 @@ jobs:
             chore
             revert
 
+  closing-keywords:
+    name: Closing keywords
+    runs-on: ubuntu-latest
+    steps:
+      # GitHub closes an issue on merge only when a closing keyword stands
+      # directly before its number: "Fixes #1, #2" closes #1 and leaves #2
+      # open. #756 listed 40 issues that way and closed one. The body is read
+      # from the event payload through the environment, never interpolated
+      # into the script.
+      - name: One keyword per issue
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          pattern='\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b:?\s+#[0-9]+\s*(,|\band\b|&)\s*#[0-9]+'
+          if printf '%s' "$BODY" | grep -Pqio "$pattern"; then
+            printf '%s' "$BODY" | grep -Pio "$pattern" | sed 's/^/  /'
+            echo "::error::A closing keyword is followed by a list of issues, and GitHub closes only the first. Write the keyword before every number: 'Fixes #1, fixes #2'."
+            exit 1
+          fi
+
   label:
     name: Auto-label by path
     runs-on: ubuntu-latest

@@ -11,6 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useChatStore } from '../store'
+import { readStoredChat } from './chat-storage'
 import type { Conversation } from '../types'
 
 const STORAGE_KEY = 'aiq-chat-store'
@@ -53,15 +54,14 @@ const conversation: Conversation = {
 }
 
 const storedAnswer = (): string | undefined => {
-  const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')
-  const messages = stored.state?.conversations?.[0]?.messages ?? []
-  return messages.find((m: { role: string }) => m.role === 'assistant')?.content
+  const messages = readStoredChat(STORAGE_KEY)?.state.conversations[0]?.messages ?? []
+  return messages.find((m) => m.role === 'assistant')?.content
 }
 
 describe('persisting a streamed answer', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    localStorage.removeItem(STORAGE_KEY)
+    useChatStore.persist.clearStorage()
     useChatStore.setState({
       currentUserId: 'user-1',
       currentConversation: conversation,
@@ -74,19 +74,20 @@ describe('persisting a streamed answer', () => {
 
   afterEach(() => {
     vi.useRealTimers()
-    localStorage.removeItem(STORAGE_KEY)
+    useChatStore.persist.clearStorage()
   })
 
-  it('writes once when the answer opens, nothing while it grows, and the settled answer at once', () => {
+  it('writes nothing while the answer opens and grows, and the settled answer at once', () => {
     const setItem = vi.spyOn(localStorage, 'setItem')
-    const writes = () => setItem.mock.calls.filter(([key]) => key === STORAGE_KEY).length
+    const writes = () => setItem.mock.calls.filter(([key]) => key.startsWith(STORAGE_KEY)).length
 
     for (let i = 0; i < 50; i++) useChatStore.getState().appendAgentResponseDelta(`Wort${i} `)
     vi.advanceTimersByTime(30_000)
-    // Opening the answer moves the session to the top (`updatedAt`); that is
-    // written. Its growth is not.
-    expect(writes()).toBe(1)
-    expect(storedAnswer()).not.toContain('Wort49')
+    // Neither the opening nor the growth: the send already moved the session
+    // to the top, and a full write here was a 330 ms freeze with forty
+    // conversations stored, the moment the first words appeared.
+    expect(writes()).toBe(0)
+    expect(storedAnswer() ?? '').not.toContain('Wort49')
 
     useChatStore.getState().finalizeAgentResponse('Die ganze Antwort.')
     expect(storedAnswer()).toBe('Die ganze Antwort.')

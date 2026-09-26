@@ -124,7 +124,7 @@ async def test_run_workflow_error_frame_survives_real_serialization(monkeypatch)
             yield None
         raise RuntimeError("Error code: 400 - Requests ending with a model turn are not supported.")
 
-    monkeypatch.setattr("aiq_api.websocket_reconnect.generate_streaming_response", _explode)
+    monkeypatch.setattr("aiq_api.websocket_reconnect.stream_workflow", _explode)
 
     class _SessionContext:
         async def __aenter__(self):
@@ -176,7 +176,7 @@ async def test_the_workflow_stream_is_closed_in_the_task_that_opened_it(monkeypa
             closed_in["task"] = asyncio.current_task()
             raise
 
-    monkeypatch.setattr("aiq_api.websocket_reconnect.generate_streaming_response", _stream)
+    monkeypatch.setattr("aiq_api.websocket_reconnect.stream_workflow", _stream)
 
     class _SessionContext:
         async def __aenter__(self):

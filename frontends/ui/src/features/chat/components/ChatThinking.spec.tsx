@@ -22,7 +22,7 @@ const createStep = (overrides: Partial<ThinkingStep> = {}): ThinkingStep => ({
  *  preference before drilling into them. */
 const expandToSteps = async (user: ReturnType<typeof userEvent.setup>) => {
   useLayoutStore.setState({ showTechnicalReasoning: true })
-  await user.click(screen.getByText(/Trace ·/))
+  await user.click(screen.getByText(/^Trace( ·|$)/))
   await user.click(await screen.findByText('Intermediate steps'))
 }
 
@@ -41,7 +41,7 @@ describe('ChatThinking', () => {
     test('hides the technical steps section by default', async () => {
       const user = userEvent.setup()
       render(<ChatThinking steps={[createStep()]} />)
-      await user.click(screen.getByText(/Trace ·/))
+      await user.click(screen.getByText(/^Trace( ·|$)/))
       expect(screen.queryByText('Intermediate steps')).not.toBeInTheDocument()
     })
 
@@ -49,7 +49,7 @@ describe('ChatThinking', () => {
       const user = userEvent.setup()
       useLayoutStore.setState({ showTechnicalReasoning: true })
       render(<ChatThinking steps={[createStep()]} />)
-      await user.click(screen.getByText(/Trace ·/))
+      await user.click(screen.getByText(/^Trace( ·|$)/))
       expect(await screen.findByText('Intermediate steps')).toBeInTheDocument()
     })
   })
@@ -91,7 +91,7 @@ describe('ChatThinking', () => {
 
       expect(screen.queryByText('Working on a response...')).not.toBeInTheDocument()
       expect(screen.queryByText('Done')).not.toBeInTheDocument()
-      expect(screen.queryByText(/Trace ·/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/^Trace/)).not.toBeInTheDocument()
     })
   })
 
@@ -239,24 +239,15 @@ describe('ChatThinking', () => {
   })
 
   describe('collapse/expand toggle', () => {
-    test('a single step is one step, and no source is no clause', () => {
-      // Both halves of the old line were wrong at these values: it counted
-      // "1 steps", and it announced "0 sources" for an answer that rests on a
-      // measurement rather than on a citation — a true number that reads as a
-      // failure to find anything.
-      const steps = [createStep()]
-
-      render(<ChatThinking steps={steps} />)
-
-      expect(screen.getByText('Trace · 1 step')).toBeInTheDocument()
-      expect(screen.queryByText(/source/)).not.toBeInTheDocument()
-      expect(screen.queryByText(/0 sources/)).not.toBeInTheDocument()
-    })
-
-    test('several steps count as several', () => {
+    test('the header counts no steps, and no source is no clause', () => {
+      // The step count was raw NAT event names (status one-liners, skill
+      // bookkeeping, model sub-calls), which read as "the agent took 19
+      // turns". "0 sources" reads as a failure to find anything.
       render(<ChatThinking steps={[createStep(), createStep({ id: 'step-2' })]} />)
 
-      expect(screen.getByText('Trace · 2 steps')).toBeInTheDocument()
+      expect(screen.getByText('Trace')).toBeInTheDocument()
+      expect(screen.queryByText(/step/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/source/)).not.toBeInTheDocument()
     })
 
     test('step list is collapsed by default', () => {
@@ -264,7 +255,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} />)
 
-      expect(screen.getByText('Trace · 1 step')).toBeInTheDocument()
+      expect(screen.getByText('Trace')).toBeInTheDocument()
       expect(screen.queryByText('Intent Classifier')).not.toBeInTheDocument()
     })
 
@@ -307,7 +298,7 @@ describe('ChatThinking', () => {
       ]
 
       const { rerender } = render(<ChatThinking steps={steps} isThinking={true} />)
-      await user.click(screen.getByText(/Trace ·/))
+      await user.click(screen.getByText(/^Trace( ·|$)/))
       expect(screen.queryByText('retrieved, not cited')).not.toBeInTheDocument()
 
       // Once the turn lands and the answer cited nothing from it, the verdict
@@ -342,9 +333,9 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} isThinking={false} />)
 
-      expect(screen.getByText('Trace · 1 step · 1 source')).toBeInTheDocument()
+      expect(screen.getByText('Trace · 1 source')).toBeInTheDocument()
 
-      await user.click(screen.getByText(/Trace ·/))
+      await user.click(screen.getByText(/^Trace( ·|$)/))
 
       // The card shows the DISPLAY name; the raw corpus filename only survives
       // on the tooltip, so a user never reads `oib-rl_2_ausgabe_mai_2023.pdf`.
@@ -425,7 +416,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} />)
 
-      const triggerText = screen.getByText(/Trace ·/)
+      const triggerText = screen.getByText('Trace')
       const outerDiv = triggerText.closest('.rounded-2xl.shadow-xs')
       expect(outerDiv).toBeInTheDocument()
     })
@@ -611,7 +602,7 @@ describe('ChatThinking', () => {
 
   describe('reasoning chain nodes', () => {
     const expandChain = async (user: ReturnType<typeof userEvent.setup>) => {
-      await user.click(screen.getByText(/Trace ·/))
+      await user.click(screen.getByText(/^Trace( ·|$)/))
     }
 
     test('framing node restates the user question', async () => {

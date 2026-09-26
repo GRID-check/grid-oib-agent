@@ -2,9 +2,10 @@
  * A streamed answer's text, shown at a steady pace a little behind what has
  * arrived. The rules are in `../lib/stream-pace.ts`; this is only the clock.
  *
- * The clock runs only while something is held back, and steps every
- * `PACE_TICK_MS`, not every frame: each step re-parses the answer as Markdown,
- * and a phone pays for that per step.
+ * The clock runs only while a streaming answer has something held back, and
+ * steps every `PACE_TICK_MS`, not every frame: each step re-parses the answer
+ * as Markdown, and a phone pays for that per step. A finished answer is shown
+ * whole: the terminal is never paced.
  *
  * Off under vitest (like the store's delta batching), so a spec that renders a
  * streaming answer sees its text at once; the pace has specs of its own.
@@ -15,8 +16,8 @@ import {
   PACE_TICK_MS,
   advancePace,
   initialPace,
+  keepThroughRewrite,
   noteArrival,
-  sharedPrefixLength,
   type PaceState,
 } from '../lib/stream-pace'
 
@@ -29,32 +30,39 @@ export function usePacedText(text: string, streaming: boolean, enabled = PACING_
   const [shown, setShown] = useState(startAt)
   const pace = useRef<PaceState>(initialPace(startAt))
   const lastText = useRef(text)
-  const latest = useRef({ text, streaming })
+  const latest = useRef(text)
 
   useEffect(() => {
-    latest.current = { text, streaming }
+    latest.current = text
   })
 
-  // An arrival, or a replacement: a snapshot that rewrites the text keeps
-  // what it shares with what is shown and paces the rest.
+  // An arrival, or a replacement. A snapshot that rewrites text already shown
+  // keeps the shown length (moved on to a clean cut) and paces only what lies
+  // beyond it; it never takes shown text back to type it out again.
   useEffect(() => {
     const previous = lastText.current
     lastText.current = text
     let next = pace.current
-    const shownText = previous.slice(0, next.shown)
-    if (!text.startsWith(shownText)) next = initialPace(sharedPrefixLength(shownText, text))
+    if (!text.startsWith(previous.slice(0, next.shown))) next = initialPace(keepThroughRewrite(text, next.shown))
     next = noteArrival(next, text.length, performance.now())
     pace.current = next
     setShown(next.shown)
   }, [text])
 
-  const behind = enabled && shown < text.length
+  // The turn has ended: everything is shown, so a later stream starts level.
+  useEffect(() => {
+    if (streaming) return
+    pace.current = initialPace(text.length)
+    setShown(text.length)
+  }, [streaming, text])
+
+  const behind = enabled && streaming && shown < text.length
   useEffect(() => {
     if (!behind) return
     let last = performance.now()
     const id = window.setInterval(() => {
       const now = performance.now()
-      const next = advancePace(pace.current, latest.current.text, now - last, now, latest.current.streaming)
+      const next = advancePace(pace.current, latest.current, now - last, now)
       last = now
       pace.current = next
       setShown(next.shown)
@@ -62,6 +70,6 @@ export function usePacedText(text: string, streaming: boolean, enabled = PACING_
     return () => window.clearInterval(id)
   }, [behind])
 
-  if (!enabled) return text
+  if (!enabled || !streaming) return text
   return text.slice(0, Math.min(shown, text.length))
 }

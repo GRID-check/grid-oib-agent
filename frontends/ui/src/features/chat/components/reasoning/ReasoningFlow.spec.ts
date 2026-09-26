@@ -8,6 +8,7 @@ import {
   planFan,
   type ReasoningFlowProps,
   type SpineFolding,
+  sameNodeData,
 } from './ReasoningFlow'
 import type { CitedDocument } from '../../lib/citations'
 import type { FanCard } from '../../lib/retrieval-rounds'
@@ -1306,5 +1307,27 @@ describe('a ledger round draws its own fan', () => {
     // The answer cited page 4; this round read page 12. The fold says 12.
     expect(round1.foldSummary).toContain('S. 12')
     expect(round1.foldSummary).not.toContain('S. 4')
+  })
+})
+
+describe('sameNodeData: a rebuilt node that draws the same keeps its object', () => {
+  test('equal by value, however freshly built', () => {
+    const build = () => ({
+      cards: [{ id: 'a', hits: 2 }],
+      enterOrder: new Map([['a', 0]]),
+      folded: new Set([1]),
+      label: 'Quellen',
+      onToggle: () => {},
+    })
+    expect(sameNodeData(build(), build())).toBe(true)
+  })
+
+  test('any change a node would draw is a change', () => {
+    const base = { cards: [{ id: 'a', hits: 2 }], enterOrder: new Map([['a', 0]]), label: 'Quellen' }
+    expect(sameNodeData(base, { ...base, cards: [{ id: 'a', hits: 3 }] })).toBe(false)
+    expect(sameNodeData(base, { ...base, enterOrder: new Map([['a', 1]]) })).toBe(false)
+    expect(sameNodeData(base, { ...base, label: 'Treffer' })).toBe(false)
+    expect(sameNodeData(base, { ...base, extra: true })).toBe(false)
+    expect(sameNodeData({ at: new Date(1) }, { at: new Date(2) })).toBe(false)
   })
 })

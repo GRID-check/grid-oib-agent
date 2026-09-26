@@ -236,6 +236,7 @@ function CompletedTurn() {
       <AgentResponse
         content={answer}
         timestamp={new Date('2024-01-15T14:30:12')}
+        answerDurationMs={12_400}
         citations={citations}
         answerConfidence="high"
         answerConfidenceReason="OIB-RL 2 direkt als Quelle belegt"

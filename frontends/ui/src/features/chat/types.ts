@@ -381,6 +381,13 @@ export interface ChatMessage {
   /** Narration shown when the turn escalated shallow→deep this turn. */
   escalationReason?: string
   /**
+   * How long the answer took, from the question being sent to the answer
+   * being final, in milliseconds. Measured by the browser that asked; absent
+   * on turns it did not see start (a reload mid-turn, a colleague's question,
+   * a row the backend wrote).
+   */
+  answerDurationMs?: number
+  /**
    * Citation-verification result: how many citations were removed as
    * unverifiable, with de-duplicated reasons. Renders a muted note under the
    * sources row when present.
@@ -797,6 +804,8 @@ export interface ChatState {
    * only the turn, can find the message it belongs to. Null between turns.
    */
   currentTurnWsParentId: string | null
+  /** When this browser sent the current turn's question (epoch ms); null when it did not. */
+  currentTurnStartedAt: number | null
   /** Thinking steps for the Details Panel - Thinking tab */
   thinkingSteps: ThinkingStep[]
   /** ID of the currently active thinking step (for appending content) */
@@ -837,8 +846,8 @@ export interface ChatState {
   /**
    * Per-session composer drafts: the user's own in-progress, unsent text keyed
    * by conversation id. Distinct from `composerPrefill` (one-shot, external):
-   * a draft is long-lived, survives session switches and reloads (persisted to
-   * the `aiq-chat-store` localStorage namespace), and is cleared only when its
+   * a draft is long-lived, survives session switches and reloads (persisted in
+   * the chat store's localStorage index, `stores/chat-storage.ts`), and is cleared only when its
    * message is sent successfully or its session is removed. Keyed by
    * conversation id so it is inherently project/user-scoped and never leaks
    * across contexts.
