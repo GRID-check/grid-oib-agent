@@ -189,12 +189,11 @@ const de = {
     },
   },
   nutzung: {
-    tag: 'Nutzung',
     title: 'Zu jeder Planungsaufgabe das passende Wissen.',
     body: 'Sie entwerfen, Piloti liefert den Kontext: die Vorschrift, die greift, die Erfahrung aus Ihren früheren Projekten und die Auflagen Ihres Grundstücks. Die Entscheidung treffen Sie.',
     // Measured: the median chat answer takes about 30 seconds.
     big: '≈\u202f30\u00a0s',
-    sub: 'gemessene typische Antwortzeit, mit Verweis auf Paragraf, Richtlinie und Herleitung.',
+    sub: 'gemessene typische Antwortzeit',
   },
   daten: {
     tag: 'Quellen und Daten',
@@ -373,7 +372,7 @@ const de = {
     direct: 'Oder schreiben Sie direkt an',
   },
   chat: {
-    header: 'Piloti · Entscheidungskette',
+    header: 'Piloti',
     fictional: 'Fiktives Beispiel',
     questionLabel: 'Frage',
     sourcesLabel: 'Quellen',
@@ -441,7 +440,6 @@ const de = {
   // fictional example, not quotations.
   stories: {
     region: 'Entscheidungskette, fiktives Beispiel',
-    intro: 'Eine Frage aus dem Büroalltag und wie Piloti sie beantwortet. In vier Schritten.',
     leads: [
       'Sie fragen, wie Sie eine Kollegin fragen würden.',
       'Piloti findet die Stellen, die gelten: im Baurecht und in Ihren Plänen.',
@@ -456,7 +454,6 @@ const de = {
     play: 'Abspielen',
     replay: '↻ Nochmal',
     flipHint: 'Karte antippen: Auszug',
-    nextHint: 'Weiter: wischen oder ›',
     context: [
       ['Projekt', 'Wohnbau, Wien 1030'],
       ['Gebäudeklasse', 'GK\u00a04'],
@@ -775,11 +772,10 @@ const en: typeof de = {
     },
   },
   nutzung: {
-    tag: 'Usage',
     title: 'The right knowledge for every planning task.',
     body: 'You design, Piloti supplies the context: the regulation that applies, the experience from your past projects and the conditions on your plot. The decision stays yours.',
     big: '≈\u202f30\u00a0s',
-    sub: 'measured typical response time, with references to the clause, the guideline and the derivation.',
+    sub: 'measured typical response time',
   },
   daten: {
     tag: 'Sources and data',
@@ -954,7 +950,7 @@ const en: typeof de = {
     direct: 'Or write directly to',
   },
   chat: {
-    header: 'Piloti · Decision chain',
+    header: 'Piloti',
     fictional: 'Fictional example',
     questionLabel: 'Question',
     sourcesLabel: 'Sources',
@@ -1018,7 +1014,6 @@ const en: typeof de = {
   },
   stories: {
     region: 'Decision chain, fictional example',
-    intro: 'A question from everyday office work, and how Piloti answers it. In four steps.',
     leads: [
       'You ask, the way you would ask a colleague.',
       'Piloti finds the provisions that apply, in building law and in your drawings.',
@@ -1033,7 +1028,6 @@ const en: typeof de = {
     play: 'Play',
     replay: '↻ Again',
     flipHint: 'Tap a card: excerpt',
-    nextHint: 'Next: swipe or ›',
     context: [
       ['Project', 'Housing, Vienna 1030'],
       ['Building class', 'GK\u00a04'],

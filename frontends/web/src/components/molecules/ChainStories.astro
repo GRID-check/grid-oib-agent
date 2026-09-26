@@ -52,7 +52,6 @@ const pad = (i: number) => String(i + 1).padStart(2, '0')
   aria-roledescription="carousel"
   aria-label={s.region}
 >
-  <p class="stories-intro m-0 mb-3 px-1">{s.intro}</p>
   <p class="stories-caption m-0 mb-3 flex items-center gap-2.5 px-1" aria-hidden="true">
     <span class="size-1.5 rounded-full bg-ok"></span>
     <span>{t.chat.fictional}</span>
@@ -117,7 +116,7 @@ const pad = (i: number) => String(i + 1).padStart(2, '0')
           ))
         }
       </ul>
-      <p class="hint" aria-hidden="true">{s.flipHint}<br />{s.nextHint}</p>
+      <p class="hint" aria-hidden="true">{s.flipHint}</p>
     </div>
 
     <!-- 3 · Entscheidung: three ways, one marked in lime ink. -->
@@ -152,7 +151,7 @@ const pad = (i: number) => String(i + 1).padStart(2, '0')
           ))
         }
       </ul>
-      <p class="hint" aria-hidden="true">{s.whyHint}<br />{s.nextHint}</p>
+      <p class="hint" aria-hidden="true">{s.whyHint}</p>
     </div>
 
     <!-- 4 · Umsetzung: the steps tick off, the chain closes, the cost lands. -->
@@ -384,12 +383,6 @@ const pad = (i: number) => String(i + 1).padStart(2, '0')
   }
   .frame--dark .lead {
     color: var(--color-on-dark-strong);
-  }
-  .stories-intro {
-    font-size: 1rem;
-    line-height: 1.45;
-    color: var(--color-ink-soft);
-    text-wrap: pretty;
   }
   .hint {
     margin: auto 0 0;
