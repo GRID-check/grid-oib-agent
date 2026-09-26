@@ -809,12 +809,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // The prose streams while the model writes it (ADR-0066), in bursts. It is
   // shown at a steady pace a beat behind what has arrived (`usePacedText`,
   // rules in `../lib/stream-pace.ts`), so it reads as being written rather
-  // than lurching forward a sentence at a time. "Still arriving" lasts until
-  // the shown text has caught up: the caret trails it, the footer stays
-  // reserved at its height, and nothing that acts on a WHOLE answer — the copy
-  // actions, the cards no marker claimed — is offered over half of one.
+  // than lurching forward a sentence at a time. A finished answer is never
+  // paced, so the answer settles in the same frame the turn ends: the caret,
+  // the reserved footer and everything that acts on a WHOLE answer follow
+  // `isStreaming` alone.
   const shownContent = usePacedText(content, isStreaming)
-  const stillArriving = isStreaming || shownContent.length < content.length
   const {
     body,
     entries: sourceEntries,
@@ -864,25 +863,25 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     projectId: storeProjectId,
     // The conversation whose private attachments a named file may live in.
     conversationId: conversationId ?? null,
-    isStreaming: stillArriving,
+    isStreaming,
   })
   const markerPlugins = useMemo(
     (): PluggableList => [
       // While it streams, a marker with no source yet is a pending pill, not
       // a stray "[2]": the settled text names its source within seconds.
-      [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix, pending: stillArriving }],
+      [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix, pending: isStreaming }],
       // While it streams, a card marker holds its card's place until the card,
       // written after the prose, arrives to fill it.
       [
         remarkCardMarkers,
-        { count: cardCount, callout: Boolean(anatomy?.callout), pending: stillArriving },
+        { count: cardCount, callout: Boolean(anatomy?.callout), pending: isStreaming },
       ],
       // AFTER the citation pass, so a filename that happens to sit inside a
       // marker's label is left alone: the pass skips `link` subtrees, and by
       // this point every `[N]` already is one.
       [remarkFileReferences, { fileNames: fileReferences.fileNames }],
     ],
-    [citationNumbers, anchorPrefix, stillArriving, cardCount, anatomy, fileReferences.fileNames]
+    [citationNumbers, anchorPrefix, isStreaming, cardCount, anatomy, fileReferences.fileNames]
   )
   // What a run of Markdown INSIDE a card (a tab's `Text`) parses with: the
   // citations only. Its `[2]` is this answer's source 2; card markers are not
@@ -950,13 +949,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       const card = cards?.[index]
       // Still arriving: the card is written after the prose, so its marker
       // holds the place it will grow from rather than nothing (ADR-0066).
-      if (!card) return stillArriving && index >= (cards?.length ?? 0) ? <PendingCardSlot /> : null
+      if (!card) return isStreaming && index >= (cards?.length ?? 0) ? <PendingCardSlot /> : null
       // `mb-3` is the paragraph rhythm of the markdown body: the card replaced
       // a paragraph, so it has to leave the same gap behind it. `block!` beats
       // the streaming caret's `*:last-child]:inline` rule, which would collapse
       // a card that ends the answer for as long as the answer is still arriving.
       return (
-        <CardArrival live={stillArriving}>
+        <CardArrival live={isStreaming}>
           {/* The whole answer's cards, not just this one: a card placed inline
               by a marker still has to know what ELSE the answer is carrying —
               `summary` and `verdict_header` must not both claim the top of it
@@ -973,7 +972,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         </CardArrival>
       )
     },
-    [cards, cardSet, projectId, cardMessageId, anatomy?.callout, stillArriving, readOnly]
+    [cards, cardSet, projectId, cardMessageId, anatomy?.callout, isStreaming, readOnly]
   )
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
@@ -1022,7 +1021,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // hand over, so both are excluded rather than given a button that copies ''.
   const hasAnswerActions =
     !readOnly &&
-    !stillArriving &&
+    !isStreaming &&
     Boolean(content) &&
     content.trim().length > 0 &&
     content !== 'null'
@@ -1031,7 +1030,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Streaming still has no chips/thumbs, but the row is reserved at chip
   // height so the footer does not jump when they land. An idle answer with
   // nothing to hold still omits the row (no empty band).
-  const reserveMetaRow = hasMetaRow || stillArriving
+  const reserveMetaRow = hasMetaRow || isStreaming
   // What the single footer disclosure would actually hold. The copy actions
   // and the feedback stay visible beside its trigger, so a bare answer shows
   // the action and no empty trigger line. Read sources count only when at
@@ -1073,7 +1072,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // A streaming answer whose masthead arrived before its first word is not
   // empty: the masthead stands while the prose is still being written.
   const hasLiveMasthead =
-    stillArriving && Boolean(anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic))
+    isStreaming && Boolean(anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic))
   if ((!content || !content.trim() || content === 'null') && !hasCards && !hasLiveMasthead) {
     return null
   }
@@ -1116,19 +1115,19 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             the caret trails the final glyph instead of dropping to a new line.
             Cards the answer placed with a marker are spliced into this body. */}
               <MarkdownSlotProvider render={renderCardSlot}>
-                <div className={proseClass(stillArriving, ledeClass)}>
+                <div className={proseClass(isStreaming, ledeClass)}>
                   <MarkdownRenderer
                     content={body}
-                    isStreaming={stillArriving}
+                    isStreaming={isStreaming}
                     remarkPlugins={markerPlugins}
                   />
-                  {stillArriving && <StreamingCaret />}
+                  {isStreaming && <StreamingCaret />}
                 </div>
               </MarkdownSlotProvider>
               {/* An unplaced legal basis — flat, right after the prose it grounds: the
             answer comes first (the prompt's own first rule), then the Fundstelle
             it argued from. Never in the fallback grid. */}
-              {!stillArriving && evidenceCard?.type === 'legal_basis' && (
+              {!isStreaming && evidenceCard?.type === 'legal_basis' && (
                 <div className={LATE_BLOCK_ENTER}>
                   <CardSetProvider cards={cardSet}>
                     <EvidenceBlock card={evidenceCard} />
@@ -1148,7 +1147,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             carries both. */}
               {/* The anatomy below the prose: the callout (unless its marker placed
             it inline), then the takeaways. */}
-              {!stillArriving && anatomyBelow.length > 0 && (
+              {!isStreaming && anatomyBelow.length > 0 && (
                 <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
                   <CardSetProvider cards={cardSet}>
                     {anatomyBelow.map((card) => (
@@ -1157,7 +1156,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   </CardSetProvider>
                 </div>
               )}
-              {!stillArriving && cards && fallbackGridIndices.length > 0 && (
+              {!isStreaming && cards && fallbackGridIndices.length > 0 && (
                 <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
                   <GridCards
                     cards={cards}
@@ -1174,7 +1173,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 documents={documents}
                 anchorPrefix={anchorPrefix}
                 routingDecision={routingDecision}
-                isStreaming={stillArriving}
+                isStreaming={isStreaming}
               />
 
               {/* No copy actions here, deliberately. This variant is the box-less
@@ -1330,19 +1329,19 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 {/* Response Content rendered as markdown (with streaming caret).
               Cards the answer placed with a marker are spliced into this body. */}
                 <MarkdownSlotProvider render={renderCardSlot}>
-                  <div className={proseClass(stillArriving, ledeClass)}>
+                  <div className={proseClass(isStreaming, ledeClass)}>
                     <MarkdownRenderer
                       content={body}
-                      isStreaming={stillArriving}
+                      isStreaming={isStreaming}
                       remarkPlugins={markerPlugins}
                     />
-                    {stillArriving && <StreamingCaret />}
+                    {isStreaming && <StreamingCaret />}
                   </div>
                 </MarkdownSlotProvider>
                 {/* An unplaced legal basis — flat, right after the prose it grounds: the
               answer comes first (the prompt's own first rule), then the Fundstelle
               it argued from. Never in the fallback grid. */}
-                {!stillArriving && evidenceCard?.type === 'legal_basis' && (
+                {!isStreaming && evidenceCard?.type === 'legal_basis' && (
                   <div className={LATE_BLOCK_ENTER}>
                     <CardSetProvider cards={cardSet}>
                       <EvidenceBlock card={evidenceCard} />
@@ -1359,7 +1358,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               /dev/chat-turn?variant=two-cards shows. */}
                 {/* The anatomy below the prose: the callout (unless its marker placed
               it inline), then the takeaways. */}
-                {!stillArriving && anatomyBelow.length > 0 && (
+                {!isStreaming && anatomyBelow.length > 0 && (
                   <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
                     <CardSetProvider cards={cardSet}>
                       {anatomyBelow.map((card) => (
@@ -1368,7 +1367,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                     </CardSetProvider>
                   </div>
                 )}
-                {!stillArriving && cards && fallbackGridIndices.length > 0 && (
+                {!isStreaming && cards && fallbackGridIndices.length > 0 && (
                   <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
                     <GridCards
                       cards={cards}
@@ -1392,7 +1391,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   documents={documents}
                   anchorPrefix={anchorPrefix}
                   routingDecision={routingDecision}
-                  isStreaming={stillArriving}
+                  isStreaming={isStreaming}
                   withDivider={false}
                 />
                 {reserveMetaRow && (

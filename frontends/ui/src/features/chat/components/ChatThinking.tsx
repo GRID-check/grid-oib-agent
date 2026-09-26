@@ -14,6 +14,7 @@
 'use client'
 
 import { type FC, useMemo, useState, useEffect, useRef } from 'react'
+import { ShimmerText } from '@/components/ui/shimmer-text'
 import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { motion, AnimatePresence, motionBase, motionQuick } from '@/components/motion'
@@ -260,17 +261,20 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   </span>
                   {/* The live activity phrase cross-fades as each new step
                       arrives, and shimmers while it holds — a quiet cue that
-                      work is actively moving during a long wait. */}
+                      work is actively moving during a long wait. The shimmer
+                      is an inner element that moves by transform only: the
+                      cross-fade owns this span's opacity, and a second
+                      animation of it made the label flicker at every step. */}
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.span
                       key={activityLabel}
-                      className="animate-text-shimmer truncate text-sm font-semibold motion-reduce:animate-none"
+                      className="min-w-0 text-sm font-semibold"
                       initial={{ opacity: 0, y: 4 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -4 }}
                       transition={motionQuick}
                     >
-                      {activityLabel}
+                      <ShimmerText className="block">{activityLabel}</ShimmerText>
                     </motion.span>
                   </AnimatePresence>
                 </>

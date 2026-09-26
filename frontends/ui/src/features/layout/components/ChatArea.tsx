@@ -21,6 +21,7 @@ import {
   useState,
   useMemo,
 } from 'react'
+import { ShimmerText } from '@/components/ui/shimmer-text'
 import { ArrowDown, FileText, Lock } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
@@ -1474,9 +1475,7 @@ const TurnInFlightBanner: FC<{ label: string }> = ({ label }) => (
     role="status"
     data-testid="turn-in-flight"
   >
-    <span className="animate-text-shimmer text-foreground text-xs font-medium motion-reduce:animate-none">
-      {label}
-    </span>
+    <ShimmerText className="text-xs font-medium">{label}</ShimmerText>
   </div>
 )
 
@@ -1512,8 +1511,8 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
         {/* CSS, not a JS loop: transform and opacity run on the compositor,
             so the dots cost the main thread nothing while a phone waits. */}
         <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full" />
-        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full [animation-delay:120ms]" />
-        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full [animation-delay:240ms]" />
+        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full [animation-delay:160ms]" />
+        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full [animation-delay:320ms]" />
       </span>
       <span
         className="text-muted-foreground/70 hidden text-xs motion-reduce:inline"
@@ -1523,9 +1522,7 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
       </span>
       {/* Always word the wait (shimmering), and surface elapsed seconds once
           past a couple of seconds so a slow first token never feels stalled. */}
-      <span className="animate-text-shimmer text-xs font-medium motion-reduce:animate-none">
-        {label}
-      </span>
+      <ShimmerText className="text-xs font-medium">{label}</ShimmerText>
       {elapsed > 2 && (
         <span className="text-muted-foreground/80 text-xs tabular-nums">
           {formatElapsed(elapsed)}

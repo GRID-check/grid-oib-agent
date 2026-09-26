@@ -1,0 +1,14 @@
+---
+fixes:
+  - >
+    Eine Antwort, deren Quellen beim Abschluss neu nummeriert werden, springt
+    nicht mehr zurück und tippt sich neu ab; sie bleibt stehen und wird nur
+    korrigiert. Die fertige Antwort erscheint im selben Moment, in dem sich die
+    Herleitung zusammenklappt, statt in zwei Rucken, und die ersten Worte
+    erscheinen sofort.
+  - >
+    Der Hinweis, woran Piloti gerade arbeitet, flackert beim Schrittwechsel
+    nicht mehr; ein heller Streifen läuft wieder über ihn, statt dass er
+    pulsiert. In der Herleitung laufen nur die Verbindungen zum neuesten Schritt,
+    die übrigen sind durchgezogen. Die drei Punkte beim Warten wandern ruhig von
+    links nach rechts.

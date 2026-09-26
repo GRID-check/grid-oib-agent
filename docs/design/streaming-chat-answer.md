@@ -305,14 +305,26 @@ in `features/chat/lib/stream-pace.ts`):
   `MAX_LAG_MS` (1.2 s).
 - It steps every `PACE_TICK_MS` (50 ms), not every frame: each step re-parses
   the answer as Markdown, and a phone pays for that per step.
-- It cuts only where the renderer can draw cleanly: at a store flush
-  boundary, which the backend's display-safe deltas make clean, or at a word
-  gap outside an open `**`, link, code span, fence or table row. A table row
-  appears whole.
-- A snapshot that rewrites the text keeps what it shares with what is shown.
-  When the turn ends, the rest drains within `DRAIN_MS` (250 ms).
-- `AgentResponse` treats the answer as still arriving until the reveal has
-  caught up, so the copy actions and the unplaced cards wait for the prose.
+- It cuts only at a word gap outside an open `**`, link, code span, fence or
+  table row; a table row appears whole. A store flush boundary is not a clean
+  cut: a recorded first delta was `**Die Außentreppe ist in GK 4 in A2`, and
+  cutting there flashed a raw `**`. Only the `MAX_LAG_MS` ceiling may show
+  text whose end is not clean.
+- The first clean cut is shown at once. The target lag smooths text that is
+  already moving; it does not hold back the first words.
+- A rewrite of text already shown (the settled snapshot dropping or
+  renumbering a marker) keeps the length that was shown, moved on to the next
+  clean cut, and paces only what lies beyond it (`keepThroughRewrite`). It
+  used to fall back to the first changed character and type the answer out
+  again: 1086 → 391 characters on the phone, and CLS in the answer phase
+  0.16 → 1.19 (stream audit, 2026-09). A spec replays both recorded answers
+  through the hook and fails if the shown text ever shrinks.
+- A finished answer is never paced. The terminal is authoritative and is
+  shown whole the moment it lands, so the answer settles in the same frame
+  as the reasoning collapses; a drain after the terminal made the end of the
+  turn jump twice (CLS after completion on the phone 0.02 → 0.59).
+  `AgentResponse` gates its caret, footer and whole-answer actions on
+  `isStreaming` alone.
 
 Measured on the recorded answer (production build, 390 px, 4× throttle): the
 visible text grows in steps of 15 characters every 50 ms (median) where it
@@ -322,8 +334,8 @@ long tasks during the answer fell from 9–12 to 4–7.
 This is not the typewriter below. That one simulated a latency the system
 did not have, over text that was already finished; this one smooths a
 latency the system does have, and is bounded by `MAX_LAG_MS`. A buffered turn
-still paints at once: its deltas arrive within a frame or two, and its end
-drains the rest in `DRAIN_MS`.
+still paints at once: it sends no deltas, only the terminal, which is never
+paced.
 
 ### The typewriter that was removed
 

@@ -1457,19 +1457,21 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
     if (changed.length > 0) updateNodeInternals(changed)
   }, [handleSigs, updateNodeInternals])
 
-  // While the turn streams, the connectors are dashed; a finished turn draws
-  // them solid. They used to march (React Flow's `animated`), which animates
-  // `stroke-dashoffset`: no compositor can run that, so the graph repainted
-  // every frame for the whole turn, about half of what a live turn cost a 4×
-  // throttled phone at rest (measured on `/dev/chat-turn`). The dash alone
-  // still says "not finished".
-  const renderedEdges = useMemo(
-    () =>
-      live
-        ? edges.map((e) => ({ ...e, style: { ...e.style, strokeDasharray: '5 4' } }))
-        : edges,
-    [edges, live]
-  )
+  // While the turn streams, only the connectors into the newest row march
+  // (React Flow's `animated`): the work is moving there, and the rest is drawn
+  // solid, as a finished turn draws all of them. Marching every connector
+  // animated `stroke-dashoffset` across the whole graph, which no compositor
+  // can run: the graph repainted every frame, about half of what a live turn
+  // cost a 4× throttled phone at rest (measured on `/dev/chat-turn`). #757
+  // then drew every live connector dashed and still, which read as "planned,
+  // not connected" and snapped solid at the end (stream audit 2026-09,
+  // defect 7). The newest row's connectors are a few short paths: their
+  // repaint is a small rectangle, not the graph.
+  const renderedEdges = useMemo(() => {
+    if (!live) return edges
+    const frontier = new Set(rows.at(-1) ?? [])
+    return edges.map((e) => (frontier.has(e.target) ? { ...e, animated: true } : e))
+  }, [edges, live, rows])
 
   const rowsKey = useMemo(() => rows.map((r) => r.join('|')).join('/'), [rows])
 
