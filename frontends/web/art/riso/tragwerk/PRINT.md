@@ -77,18 +77,22 @@ and capital between 45° ticks, the extension lines stopping short of the column
 
 ### II. Drei Säulen (Three columns)
 
-Three columns of the family carry one white slab with a planted roof (Kelly, alive):
+Three columns of the family carry one beam, a plain Ionic architrave (three fasciae,
+each stepping out over the one below, under a thin crown) spanning all three capitals:
 law as a shaft of stacked books (every third with its section sign), the office as a
 bundle of rolled drawings tied with two strings (some on tracing paper, in Mist; each
 roll with its own solid shade band), the project as a brick pier (solid brick, paper
 joints). All three stand on the book plinth and wear the scroll capital. The
-bookmark hangs only from the law column. Three columns, one slab: it is the Team
+bookmark hangs only from the law column. Three columns, one beam: it is the Team
 plate, the three founders carrying one project. No figure: the long shadows give the
 scale (round one had a figure walking between the columns).
 
 - **Rejected.** The first brick shaft had tinted faces with carved joints: at 720 it
   printed as speckle. The first rolls had a screened ramp each and read as one white
-  cylinder.
+  cylinder. Round three: the white slab with a planted roof strip read as "what is
+  this on top?" (the founders); replaced by the architrave, and the plate reframed
+  tighter (columns 7.4 m, 4.7 m apart, the board running off the frame) because the
+  drawing sat in the lower two thirds of the square.
 
 ### III. Säulenordnung (The orders)
 
@@ -161,7 +165,8 @@ the session's scratchpad (`riso-usecases/tragwerk/concept-sketches.png`).
   gaps, fixed by thinning it after the first quarter turn; the canalis carried no sheet
   lines, added) and of the plinth (found: the carved § vanished into the
   screen, fixed by solid cloth). Earlier, 2x-zoom crops of the whole column.
-- **II.** Full frame at 720 and og; a 1:1 crop of all three columns and the slab at 1440
+- **II.** Full frame at 720 and og; a 1:1 crop of all three columns and the slab at 1440; round three, a 1:1 crop of
+  the architrave over the first two capitals
   (found the speckled brick and the single-cylinder rolls, both fixed).
 - **III.** Full frame at 720 and og in three layouts; a 1:1 crop of the three right-hand
   capitals at 1440 (the leaves read; the small fluted shafts had turned to speckle,
@@ -184,8 +189,9 @@ Round two (figures removed): the full frames of I and II in every format again, 
   lower half. The chain dimension is faint at 720 and in the LinkedIn banner.
   In the LinkedIn banner the section signs on the spines are two pixels wide and read as
   stripes.
-- **II.** The slab is plain and a little heavy; its Mist top screens coarsely. The three
-  long shadows plus the slab's merge into one dark band at the back right. The book
+- **II.** The architrave's top and the step shadows under its fasciae screen coarsely at
+  720; the lowest fascia is set back behind the abacus edges, which shows as a small
+  ledge. The three long shadows plus the beam's merge into one dark band at the back. The book
   shaft is much darker than the other two, so the row reads unevenly.
 - **III.** The binder column is the weakest order: its finger holes read as rivets. The
   leaf capital is a green crown at 720; the leaves only read as leaves at 1440 and in the
