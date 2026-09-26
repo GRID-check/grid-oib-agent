@@ -3,10 +3,10 @@ import BaseLayout from '../layouts/BaseLayout.astro'
 import Changelog from '../components/organisms/Changelog.astro'
 import { ui } from '../i18n/ui'
 
-const t = ui.de.changelog
+const t = ui.de.seo.pages.changelog
 ---
 
-<BaseLayout locale="de" title={t.metaTitle} description={t.metaDescription}>
+<BaseLayout locale="de" title={t.title} description={t.description}>
   <Changelog locale="de" />
 </BaseLayout>
 

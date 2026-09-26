@@ -89,6 +89,10 @@ frontend:
   - 'shared/cards/schemas.json'
 web:
   - 'frontends/web/**'
+  # The brand master and the app's copy: web's `npm run check` holds both
+  # apps' copies to the master (scripts/build-brand-assets.mjs --check).
+  - 'shared/brand/**'
+  - 'frontends/ui/src/app/icon.svg'
   - 'Taskfile.yml'
   - '.github/workflows/ci.yml'
   - '.github/filters.yml'

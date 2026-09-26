@@ -3,9 +3,9 @@ import BaseLayout from '../../layouts/BaseLayout.astro'
 import ImpressumBody from '../../components/organisms/ImpressumBody.astro'
 import { ui } from '../../i18n/ui'
 
-const t = ui.en.legal.impressum
+const t = ui.en.seo.pages.impressum
 ---
 
-<BaseLayout locale="en" title={t.metaTitle} description={t.metaDescription}>
+<BaseLayout locale="en" title={t.title} description={t.description}>
   <ImpressumBody locale="en" />
 </BaseLayout>

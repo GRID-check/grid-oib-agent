@@ -3,9 +3,9 @@ import BaseLayout from '../layouts/BaseLayout.astro'
 import DatenschutzBody from '../components/organisms/DatenschutzBody.astro'
 import { ui } from '../i18n/ui'
 
-const t = ui.de.legal.datenschutz
+const t = ui.de.seo.pages.datenschutz
 ---
 
-<BaseLayout locale="de" title={t.metaTitle} description={t.metaDescription}>
+<BaseLayout locale="de" title={t.title} description={t.description}>
   <DatenschutzBody locale="de" />
 </BaseLayout>

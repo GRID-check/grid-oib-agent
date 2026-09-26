@@ -1,0 +1,100 @@
+---
+/**
+ * Everything in <head> that a crawler, a share preview or an answer engine
+ * reads: title, description, canonical, hreflang, Open Graph, Twitter, feeds,
+ * icons and the JSON-LD graph. BaseLayout renders it; pages only pass props to
+ * BaseLayout. See the "Head and SEO" section of frontends/web/AGENTS.md.
+ */
+import { SITE_NAME } from '../../consts'
+import type { Locale } from '../../i18n/ui'
+import {
+  FEEDS,
+  OG_LOCALE,
+  absoluteUrl,
+  defaultOgImage,
+  ldJson,
+  siteGraph,
+  type Article,
+  type OgImage,
+} from '../../lib/seo'
+
+interface Props {
+  title: string
+  description: string
+  locale: Locale
+  /** Site-relative paths of this page in each locale, or null when it has no twin. */
+  paths: { de: string; en: string } | null
+  /** This page's own path when it has no twin. */
+  selfPath: string
+  ogImage?: OgImage
+  article?: Article
+  jsonLd?: object[]
+  noindex?: boolean
+}
+const { title, description, locale, paths, selfPath, article, jsonLd = [], noindex = false } =
+  Astro.props
+const site = Astro.site
+const ogImage = Astro.props.ogImage ?? defaultOgImage(locale)
+const other: Locale = locale === 'de' ? 'en' : 'de'
+
+const canonical = absoluteUrl(paths ? paths[locale] : selfPath, site)
+const graph = ldJson([...siteGraph(locale, site), ...jsonLd])
+---
+
+<title>{title}</title>
+<meta name="description" content={description} />
+{
+  noindex ? (
+    <meta name="robots" content="noindex, follow" />
+  ) : (
+    <>
+      <link rel="canonical" href={canonical} />
+      {paths && (
+        <>
+          <link rel="alternate" hreflang="de" href={absoluteUrl(paths.de, site)} />
+          <link rel="alternate" hreflang="en" href={absoluteUrl(paths.en, site)} />
+          <link rel="alternate" hreflang="x-default" href={absoluteUrl(paths.de, site)} />
+        </>
+      )}
+    </>
+  )
+}
+
+<meta property="og:site_name" content={SITE_NAME} />
+<meta property="og:type" content={article ? 'article' : 'website'} />
+<meta property="og:title" content={title} />
+<meta property="og:description" content={description} />
+{!noindex && <meta property="og:url" content={canonical} />}
+<meta property="og:locale" content={OG_LOCALE[locale]} />
+{paths && <meta property="og:locale:alternate" content={OG_LOCALE[other]} />}
+<meta property="og:image" content={absoluteUrl(ogImage.src, site)} />
+<meta property="og:image:width" content={String(ogImage.width)} />
+<meta property="og:image:height" content={String(ogImage.height)} />
+<meta property="og:image:alt" content={ogImage.alt} />
+{
+  article && (
+    <>
+      <meta property="article:published_time" content={article.published.toISOString()} />
+      <meta property="article:section" content={article.section} />
+    </>
+  )
+}
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={title} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={absoluteUrl(ogImage.src, site)} />
+<meta name="twitter:image:alt" content={ogImage.alt} />
+
+{
+  FEEDS.map((feed) => (
+    <link rel="alternate" type="application/rss+xml" title={feed.title} href={absoluteUrl(feed.path, site)} />
+  ))
+}
+
+<link rel="icon" href="/favicon.ico" sizes="32x32" />
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#f7f7f3" />
+
+<script is:inline type="application/ld+json" set:html={graph} />

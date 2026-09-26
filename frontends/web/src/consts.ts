@@ -1,5 +1,4 @@
 export const SITE_NAME = 'Piloti'
-export const SITE_TAGLINE = 'Die KI-Plattform für Architektur- und Planungsbüros'
 /**
  * Where every enquiry goes. Piloti has no mailbox of its own yet, so mail
  * reaches two founders directly. `CONTACT_EMAIL` is the one address shown in

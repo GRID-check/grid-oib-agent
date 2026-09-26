@@ -3,10 +3,10 @@ import BaseLayout from '../layouts/BaseLayout.astro'
 import Rechenweg from '../components/organisms/Rechenweg.astro'
 import { ui } from '../i18n/ui'
 
-const t = ui.de.rechenweg
+const t = ui.de.seo.pages.rechenweg
 ---
 
-<BaseLayout locale="de" title={t.metaTitle} description={t.metaDescription}>
+<BaseLayout locale="de" title={t.title} description={t.description}>
   <Rechenweg locale="de" />
 </BaseLayout>
 
