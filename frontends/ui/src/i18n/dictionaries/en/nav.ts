@@ -90,5 +90,6 @@ export const nav = {
     organization: 'Organization',
     platform: 'Platform',
     settings: 'Settings',
+    productTour: 'Product tour',
   },
 }

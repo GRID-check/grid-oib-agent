@@ -1,8 +1,8 @@
 /**
  * ChatThinking — collapsible Herleitung panel (click-dummy overhaul).
  *
- * Collapsed: status + "Herleitung · n Schritte", plus "· m Quellen" when the
- * answer actually rests on any.
+ * Collapsed: status + "Herleitung", plus "· m Quellen" when the answer actually
+ * rests on any. No step count: see the header-line comment below.
  * Expanded: the connected reasoning-chain (`ReasoningChain`) — the framing node,
  * a spine of checkpoints when the turn searched more than once (each with the
  * tools it called and the files THAT fetch returned), the findings node, and
@@ -209,20 +209,22 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
     return null
   }
 
-  // The header line, assembled from clauses rather than from one template with
-  // two slots. The step count has to pluralise — one step read „1 Schritte" —
-  // and the source count has to be able to say NOTHING, because an answer
-  // grounded in a measurement of the model rather than in a citation has no
-  // sources, and „0 Quellen" is a true number that reads as a failure. A turn
-  // that has not reported a step yet gets the bare name for the same reason.
-  const stepsLabel =
-    steps.length > 0
-      ? t('thinking.herleitungSummary', { count: steps.length })
-      : t('thinking.herleitungSummaryNoSteps')
+  // The header line names the panel and, when there are any, counts sources.
+  //
+  // It carries NO step count. `steps` is one entry per distinct NAT function
+  // name, so it counted the `status:<slot>` one-liners, skill bookkeeping and
+  // model sub-calls alongside the tools that ran, while merging repeat calls of
+  // one tool into a single entry. The number (19 on an ordinary answer) was
+  // neither turns, nor calls, nor anything the expanded panel shows, and read
+  // as "the agent took 19 turns". What ran is listed inside, as chips.
+  //
+  // The source clause is ABSENT rather than „0 Quellen": an answer grounded in
+  // a measurement of the model rightly has no citations, and zero reads as a
+  // failure to find anything.
   const summaryLabel =
     sourceCount > 0
-      ? t('thinking.herleitungSummaryWithSources', { summary: stepsLabel, count: sourceCount })
-      : stepsLabel
+      ? t('thinking.herleitungSummaryWithSources', { count: sourceCount })
+      : t('thinking.herleitungSummary')
 
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted shadow-xs duration-base ease-entrance motion-reduce:animate-none">

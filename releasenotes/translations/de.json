@@ -264,6 +264,10 @@
     "de": "Auch ein Recherchebericht kann jetzt eine Datei aus dem Projekt oder dem Büroarchiv als Karte zeigen. Bisher konnte die tiefe Recherche eine Unterlage zitieren, aber nicht öffnen; die Karte erschien nur im Chat."
   },
   {
+    "en": "Auch wer eingeladen wird oder einem bestehenden Projekt beitritt, bekommt die Touren: beim ersten Besuch der Projektübersicht und beim ersten Besuch eines Projekts, jeweils einmal. Wer in der Organisation schon gearbeitet hat, sieht sie nicht ungefragt.",
+    "de": "Auch wenn Sie eingeladen werden oder einem bestehenden Projekt beitreten, erhalten Sie die Touren – jeweils einmal beim ersten Aufruf der Projektübersicht und eines Projekts. Wenn Sie bereits in der Organisation gearbeitet haben, werden Ihnen diese nicht ungefragt angezeigt."
+  },
+  {
     "en": "Auf dem Telefon lief die Dokumentart im Kopf der Dateivorschau unter die Schaltflächen daneben. Sie wird jetzt gekürzt, statt sich zu überlagern.",
     "de": "Auf dem Smartphone wird die Dokumentart in der Kopfzeile der Dateivorschau jetzt gekürzt, statt die benachbarten Schaltflächen zu überlagern."
   },
@@ -528,6 +532,10 @@
     "de": "Diagramme in einer Antwort werden erneut gezeichnet, statt als Codeblock angezeigt zu werden. Ein Diagramm, dessen Quelltext keine Sprachkennzeichnung enthält, wird als Shell-Auflistung ausgegeben; eines mit Beschriftungen in Anführungszeichen wird zudem durch den Hinweis auf ein nicht verifiziertes Zitat völlig beschädigt."
   },
   {
+    "en": "Die Antwortdetails zeigen jetzt, wie lange Piloti für die Antwort gebraucht hat, gemessen vom Absenden der Frage bis zur fertigen Antwort. Die Angabe bleibt nach dem Neuladen des Gesprächs erhalten.",
+    "de": "Die Antwortdetails zeigen jetzt, wie lange Piloti für die Antwort benötigt – gemessen vom Absenden der Frage bis zur fertigen Antwort. Die Angabe bleibt auch nach dem Neuladen des Gesprächs erhalten."
+  },
+  {
     "en": "Die Antwortdetails öffnen sich jetzt von selbst, wenn die Antwort etwas trägt, das nicht übersehen werden darf: eine abgebrochene Recherche, entfernte Belege oder eine geringe Sicherheit. Bisher lagen diese Hinweise hinter dem zugeklappten Auslöser, und die Antwort sah wie eine vollständige aus.",
     "de": "Die Antwortdetails öffnen sich jetzt automatisch, wenn die Antwort einen wichtigen Hinweis enthält, der nicht übersehen werden darf: eine abgebrochene Recherche, entfernte Belege oder eine geringe Sicherheit. Bisher waren diese Hinweise hinter dem eingeklappten Auslöser verborgen, sodass die Antwort vollständig wirkte."
   },
@@ -604,8 +612,16 @@
     "de": "Die Kennzeichnung erscheint nur dort, wo es etwas zu wissen gibt: bei Dateien mit mehr als einer Fassung und bei allem, was Piloti geschrieben hat. Eine hochgeladene Datei ist ab dem Ablegen veröffentlicht und bleibt unbeschriftet."
   },
   {
+    "en": "Die Kopfzeile der Herleitung zählt keine Schritte mehr. Die Zahl dort („19 Schritte“) zählte interne Statusmeldungen mit und las sich, als hätte Piloti für eine Antwort 19 Anläufe gebraucht. Die Zeile nennt jetzt nur noch die Quellen; was gelaufen ist, steht aufgeklappt in der Herleitung.",
+    "de": "Die Kopfzeile der Herleitung zählt keine Schritte mehr. Die dort angezeigte Zahl („19 Schritte“) berücksichtigte interne Statusmeldungen und erweckte den Eindruck, Piloti hätte 19 Anläufe für eine Antwort benötigt. Die Zeile nennt jetzt nur noch die Quellen; die ausgeführten Schritte sehen Sie aufgeklappt in der Herleitung."
+  },
+  {
     "en": "Die Liste der Fundstellen steht jetzt immer neben dem Dokument, auch wenn eine Quelle nur an einer Stelle gelesen wurde. Sie sagt beim Lesen weiter oben oder unten im Dokument, welche Passage gerade geprüft wird, und zeigt die aktuelle Fundstelle vollständig — der Kasten über dem Dokument entfällt dafür, das Dokument wird entsprechend größer dargestellt.",
     "de": "Die Fundstellenliste bleibt jetzt immer neben dem Dokument sichtbar – auch wenn eine Quelle nur an einer Stelle gelesen wurde. Beim Scrollen zeigt sie, welche Passage gerade geprüft wird, und die aktuelle Fundstelle vollständig an. Der Kasten oberhalb des Dokuments entfällt, sodass das Dokument größer dargestellt wird."
+  },
+  {
+    "en": "Die Modellauswahl lässt sich wieder speichern. Unter Plattform → Modelle und unter Organisation → Modelle scheiterte jedes Speichern mit einem Fehler, sobald noch eine Einstellung für eine Aufgabe gespeichert war, die es nicht mehr gibt. Solche Einstellungen werden jetzt übergangen und beim nächsten Speichern entfernt.",
+    "de": "Die Modellauswahl lässt sich wieder speichern. Unter Plattform → Modelle und Organisation → Modelle schlug das Speichern fehl, wenn noch eine Einstellung für eine nicht mehr vorhandene Aufgabe gespeichert war. Solche Einstellungen werden jetzt ignoriert und beim nächsten Speichern entfernt."
   },
   {
     "en": "Die Nachrecherche nach einem fehlgeschlagenen Zitat sucht jetzt gezielt in dem Dokument, dem die Antwort das Zitat zugeschrieben hat. Bisher listete die Herleitung danach fast alle Projektdateien als gelesen auf.",
@@ -638,6 +654,10 @@
   {
     "en": "Die Schaltflächen an Codeblöcken („Kopieren\", „Alle anzeigen\") erscheinen jetzt auf Deutsch.",
     "de": "Die Schaltflächen an Codeblöcken („Kopieren“, „Alle anzeigen“) erscheinen jetzt auf Deutsch."
+  },
+  {
+    "en": "Die Seite zum Einrichten der Organisation ist neu gestaltet: ein Feld, ein Knopf und drei Zeilen dazu, wie es weitergeht. Das Abmelden bleibt in jedem Zustand oben rechts erreichbar.",
+    "de": "Die Seite zur Einrichtung der Organisation ist neu gestaltet: ein Feld, eine Schaltfläche und drei Zeilen zum weiteren Vorgehen. Das Abmelden ist weiterhin in jedem Zustand oben rechts möglich."
   },
   {
     "en": "Die Skill-Prüfung ist jetzt ein Schritt: Sie führen sie aus, bevor Sie speichern können. Was sie findet, gewichten Sie selbst — Befunde blockieren das Speichern nicht, und wenn die Prüfung nicht erreichbar ist, können Sie trotzdem speichern.",
@@ -682,6 +702,10 @@
   {
     "en": "Die Zeile „Belegt durch“ zeigt jetzt bei mehr als acht Quellen „+N weitere“ und klappt auf Wunsch alle auf; „Alle Quellen kopieren“ übernimmt stets jede Quelle der Antwort, nicht nur die sichtbaren.",
     "de": "Die Zeile „Belegt durch“ zeigt bei mehr als acht Quellen jetzt „+N weitere“ an und lässt sich auf Wunsch vollständig ausklappen; „Alle Quellen kopieren“ kopiert immer alle Quellen der Antwort, nicht nur die sichtbaren."
+  },
+  {
+    "en": "Die Zeile „OIB compliance check\" ist aus der Modellauswahl verschwunden. Sie gehörte zu einer Prüfung, die Piloti nicht mehr ausführt; eine Normprüfung als Auftrag funktioniert unverändert.",
+    "de": "Die Zeile „OIB compliance check“ ist aus der Modellauswahl verschwunden. Sie gehörte zu einer Prüfung, die Piloti nicht mehr ausführt; eine Normprüfung als Auftrag funktioniert unverändert."
   },
   {
     "en": "Die Zeilennummern beider Fassungen stehen nebeneinander. Wird oben etwas eingefügt, laufen sie ab dieser Stelle sichtbar auseinander — damit ist erkennbar, dass wirklich verglichen und nicht nur Zeile für Zeile übereinandergelegt wird.",
@@ -872,6 +896,10 @@
     "de": "Ein fertiger Recherchebericht wird ab sofort als ENTWURF im Projekt abgelegt und Ihnen zur Freigabe vorgelegt, statt sofort als geprüfte Datei angezeigt zu werden. Inhalt, Deckblatt und Ablageort ändern sich nicht – nur der in der Dateiablage angezeigte Status."
   },
   {
+    "en": "Ein fertiger Recherchebericht wird wieder als PDF im Projekt abgelegt. Seit Mitte September scheiterte das Ablegen bei jedem Bericht, gleich welchen Inhalts; der Bericht selbst blieb im Chat lesbar.",
+    "de": "Fertige Rechercheberichte werden wieder als PDF im Projekt abgelegt. Seit Mitte September schlägt das Ablegen bei jedem Bericht unabhängig vom Inhalt fehl; der Bericht selbst bleibt im Chat lesbar."
+  },
+  {
     "en": "Ein fertiger Task, der kein Dokument abgelegt und keinen Chat eröffnet hat, führte nirgendwohin: Die Zeile sagte „Fertig\" und bot keinen Weg zum Ergebnis. Jetzt öffnet sie den Bericht des Laufs, und ein fehlgeschlagener Task den Gedankengang.",
     "de": "Ein abgeschlossener Task, der weder ein Dokument abgelegt noch einen Chat eröffnet hat, führte ins Leere: Die Zeile zeigte „Fertig“ an, bot aber keinen Weg zum Ergebnis. Jetzt öffnet sie den Laufbericht; bei einem fehlgeschlagenen Task wird der Gedankengang angezeigt."
   },
@@ -886,6 +914,10 @@
   {
     "en": "Ein hochgeladener Ordner wird jetzt abgeglichen, statt flach abgelegt zu werden. Piloti erkennt die Ordner, die es im Projekt schon gibt — auch wenn sie anders geschrieben sind oder vom Mac mit anders kodierten Umlauten kommen —, legt nur die fehlenden an und legt jede Datei dorthin, wo sie im Ordnerbaum stand.",
     "de": "Ein hochgeladener Ordner wird jetzt abgeglichen, statt flach abgelegt zu werden. Piloti erkennt bereits im Projekt vorhandene Ordner – auch wenn sie anders geschrieben sind oder vom Mac anders kodierte Umlaute enthalten –, legt nur fehlende Ordner an und speichert jede Datei an ihrer ursprünglichen Position im Ordnerbaum."
+  },
+  {
+    "en": "Eine Antwort geht nicht mehr verloren, weil die Verbindung Ihres Geräts abreißt. Piloti speichert jede fertige Antwort selbst, und wer zurückkommt, während Piloti noch arbeitet, sieht „Piloti arbeitet weiter\" statt „Antwort ging verloren\", bis die Antwort da ist.",
+    "de": "Antworten gehen nicht mehr verloren, wenn die Verbindung Ihres Geräts abbricht. Piloti speichert jede abgeschlossene Antwort automatisch. Wenn Sie zurückkehren, während Piloti noch arbeitet, sehen Sie „Piloti arbeitet weiter“ statt „Antwort verloren“, bis die Antwort da ist."
   },
   {
     "en": "Eine Antwort geht nicht mehr verloren, wenn die Verbindung kurz abreißt, etwa wenn Sie auf dem iPhone die App wechseln oder das Telefon sperren. Sobald Sie zurück sind, erscheint der Rest der Antwort, auch nach einem Neuladen der Seite. Bisher stand stattdessen „Verbindung kurz unterbrochen — Antwort ging verloren“, obwohl die Antwort fertig war.",
@@ -1124,6 +1156,10 @@
     "de": "Fußnoten in einer Antwort verwenden Überschriften und Rücksprunglinks in der Sprache der lesenden Person. Sprungmarken führen zurück zur Fußnote. Auch die Reiter der Quellenkarten in der Herleitung richten sich nach der eingestellten Sprache."
   },
   {
+    "en": "Fällt die Datenbank kurz aus, meldet die Anwendung das jetzt als vorübergehende Störung und bittet, es gleich noch einmal zu versuchen, statt mit einem allgemeinen Fehler abzubrechen. Ein in dieser Zeit gestarteter Auftrag wird nicht mehr als fehlgeschlagen angezeigt, obwohl er läuft.",
+    "de": "Wenn die Datenbank kurzzeitig nicht verfügbar ist, meldet die Anwendung jetzt eine vorübergehende Störung und bittet Sie, es gleich noch einmal zu versuchen, statt mit einem allgemeinen Fehler abzubrechen. Ein in dieser Zeit gestarteter Auftrag wird nicht mehr als fehlgeschlagen angezeigt, solange er noch läuft."
+  },
+  {
     "en": "Ganze Ordner lassen sich jetzt hochladen — über „Ordner hochladen\" oder indem Sie den Ordner auf die Dateiablage ziehen. Ein gezogener Ordner hat bisher gar nichts bewirkt. Alle Ebenen darunter werden übernommen; was Piloti nicht lesen kann, wird einzeln abgelehnt statt des ganzen Ordners.",
     "de": "Ganze Ordner lassen sich jetzt hochladen – über „Ordner hochladen“ oder indem Sie den Ordner in die Dateiablage ziehen. Bisher hatte das Ziehen eines Ordners keine Wirkung. Alle Unterordner werden übernommen; was Piloti nicht lesen kann, wird einzeln abgelehnt statt des gesamten Ordners."
   },
@@ -1142,6 +1178,10 @@
   {
     "en": "Hat Piloti für eine Antwort mehrmals gesucht, lässt sich jeder Suchschritt der Herleitung jetzt zuklappen: Ein Klick auf den Schritt ersetzt die gefundenen Dateien durch ihre Anzahl, ein zweiter holt sie zurück. Ab drei Suchschritten kommt die Herleitung bereits zusammengeklappt und zeigt nur den jüngsten offen — damit bleibt der Stand am Ende sichtbar, ohne scrollen zu müssen.",
     "de": "Wenn Piloti für eine Antwort mehrere Suchvorgänge durchgeführt hat, können Sie jetzt jeden Suchschritt in der Herleitung einklappen: Ein Klick auf einen Schritt ersetzt die gefundenen Dateien durch deren Anzahl, ein zweiter zeigt sie wieder an. Ab drei Suchschritten ist die Herleitung standardmäßig eingeklappt und zeigt nur den neuesten Schritt geöffnet – so bleibt der letzte Stand sichtbar, ohne dass Sie scrollen müssen."
+  },
+  {
+    "en": "Hochgeladene Dateien bekommen ihre Schlagwörter (Dokumenttyp und Fachbereich) schneller und treffsicherer. Ein Fachbereich wie Brandschutz wird nur noch vergeben, wenn das Dokument tatsächlich davon handelt, und nicht schon, weil ein Plan eine Brandabschnittsgrenze einzeichnet.",
+    "de": "Hochgeladene Dateien bekommen ihre Schlagwörter (Dokumenttyp und Fachbereich) schneller und treffsicherer. Ein Fachbereich wie Brandschutz wird nur noch vergeben, wenn das Dokument tatsächlich davon handelt, und nicht schon, weil ein Plan eine Brandabschnittsgrenze einzeichnet."
   },
   {
     "en": "Hält ein Beleg oder ein Zitat der Prüfung nicht stand, sucht Piloti einmal gezielt nach der fraglichen Stelle nach und formuliert die Antwort neu, bevor sie erscheint. Bisher wurde die Stelle nur markiert. Bleibt die Prüfung auch danach ohne Erfolg, bleibt die Markierung.",
@@ -1302,6 +1342,10 @@
   {
     "en": "Nach der Antwort auf eine Rückfrage war oft nicht erkennbar, dass Piloti weiterarbeitet: Der Chat wirkte für einen Moment fertig, obwohl im Hintergrund noch etwas lief. Jetzt erscheint unten im Chat ein Hinweis, solange auf die nächste Antwort gewartet wird.",
     "de": "Nach der Antwort auf eine Rückfrage war oft nicht erkennbar, dass Piloti weiterarbeitet: Der Chat wirkte für einen Moment fertig, obwohl im Hintergrund noch etwas lief. Jetzt erscheint unten im Chat ein Hinweis, solange auf die nächste Antwort gewartet wird."
+  },
+  {
+    "en": "Nach der Einrichtung des ersten Projekts folgt eine zweite Tour im Projekt selbst: Frag Piloti, Dateien, das Archiv und worin sich die beiden unterscheiden, wie Antworten ihre Quellen zeigen, und wo Mitglieder eingeladen werden. Beide Touren lassen sich jederzeit überspringen und über das Kontomenü unter „Produkttour“ erneut starten.",
+    "de": "Nach der Einrichtung des ersten Projekts folgt im Projekt selbst eine zweite Tour: Sie behandelt Frag Piloti, Dateien und das Archiv sowie die Unterschiede zwischen den beiden, zeigt, wie Antworten ihre Quellen angeben, und erklärt, wo Sie Mitglieder einladen. Beide Touren können Sie jederzeit überspringen und über das Kontomenü unter „Produkttour“ erneut starten."
   },
   {
     "en": "Nennt eine Antwort eine Datei beim Namen — „Beginnen Sie mit pd8280-2.pdf\" —, ist dieser Name jetzt anklickbar und öffnet das Dokument neben der Antwort. Bisher war er reiner Text: Der Weg dorthin führte über die Dateien, das Suchfeld und den abgetippten Namen.",
@@ -1510,6 +1554,10 @@
   {
     "en": "Platform Support also works while viewing a tenant organization, which it previously could not.",
     "de": "Platform Support funktioniert jetzt auch beim Anzeigen einer Mandantenorganisation; bisher war das nicht möglich."
+  },
+  {
+    "en": "Plattform-Betreiber können unter Plattform → Abruf einstellen, ob Antworten live Wort für Wort erscheinen oder vollständig, sobald sie fertig sind. Die Herleitung läuft in beiden Fällen live mit. Die Einstellung gilt für alle Organisationen ab der nächsten Frage.",
+    "de": "Plattform-Betreiber können unter Plattform → Abruf einstellen, ob Antworten live Wort für Wort erscheinen oder vollständig, sobald sie fertig sind. Die Herleitung läuft in beiden Fällen live mit. Die Einstellung gilt für alle Organisationen ab der nächsten Frage."
   },
   {
     "en": "Pläne werden genauer ausgewertet: Blätter mit mehreren Teilzeichnungen (Grundriss, Schnitt, Detail) werden je Teilzeichnung mit eigenem Maßstab erfasst — samt Räumen, Erschließung, Tragwerk, Gebäudetechnik, Materialien und Bauteilaufbauten. Kennzahlen behalten ihre Bedeutung, und unsichere Bildinterpretationen sind als solche markiert.",
@@ -2008,6 +2056,10 @@
     "de": "Vorgeschlagene Anschlussfragen, verwendete Methoden und der Antwortkopf bleiben jetzt auch nach einem Neuladen, einem Gerätewechsel oder dem Blick einer Kollegin erhalten – selbst wenn der Tab bereits geschlossen war, als die Antwort fertig wurde, oder die lesende Person schon tippte, als die Vorschläge eintrafen."
   },
   {
+    "en": "Vorschaubilder in der Dateiablage laden auch in einem Tab, der seit Tagen offen ist, statt nach einiger Zeit als „nicht verfügbar\" zu erscheinen.",
+    "de": "Vorschaubilder in der Dateiablage werden auch in einem Tab geladen, der seit Tagen geöffnet ist, statt nach einiger Zeit als „nicht verfügbar“ zu erscheinen."
+  },
+  {
     "en": "Wartet eine Fassung auf Sie, klappt der Abschnitt von selbst auf. Sie müssen also nichts aufklappen, um zu merken, dass Sie an der Reihe sind.",
     "de": "Wenn eine Fassung auf Sie wartet, öffnet sich der Abschnitt automatisch. Sie müssen ihn also nicht selbst öffnen, um zu sehen, dass Sie an der Reihe sind."
   },
@@ -2058,6 +2110,10 @@
   {
     "en": "Wer eine Stelle selbst markiert, bekommt sie auf Wunsch als fertiges Zitat — mit Dokument und Seitenzahl, in derselben Form wie die Zitate aus der Antwort. Damit sieht eine Stelle aus dem Dokument und eine aus dem Chat in der Stellungnahme gleich aus.",
     "de": "Wer eine Stelle selbst markiert, erhält sie auf Wunsch als fertiges Zitat – mit Dokument und Seitenzahl und im selben Format wie die Zitate aus der Antwort. So sehen Stellen aus dem Dokument und aus dem Chat in der Stellungnahme gleich aus."
+  },
+  {
+    "en": "Wer eine neue Organisation anlegt, sieht danach eine kurze Produkttour durch die Projektübersicht: wo Projekte entstehen, Archiv und Postfach, wo Kolleginnen und Kollegen eingeladen werden, und die wichtigsten Tastenkürzel.",
+    "de": "Wenn Sie eine neue Organisation anlegen, führt Sie anschließend eine kurze Produkttour durch die Projektübersicht: Sie zeigt, wo Projekte erstellt werden, wo Sie Archiv und Postfach finden, wie Sie Kolleginnen und Kollegen einladen und welche Tastenkürzel besonders wichtig sind."
   },
   {
     "en": "Wer mit einer chinesischen, japanischen oder koreanischen Eingabemethode schreibt, kann Zeichen mit der Eingabetaste bestätigen, ohne dass die Nachricht vorzeitig abgeschickt wird.",

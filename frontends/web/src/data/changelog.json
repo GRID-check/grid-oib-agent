@@ -39,8 +39,45 @@
       "summary": null,
       "sections": [
         {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Plattform-Betreiber können unter Plattform → Abruf einstellen, ob Antworten live Wort für Wort erscheinen oder vollständig, sobald sie fertig sind. Die Herleitung läuft in beiden Fällen live mit. Die Einstellung gilt für alle Organisationen ab der nächsten Frage.",
+              "de": "Plattform-Betreiber können unter Plattform → Abruf einstellen, ob Antworten live Wort für Wort erscheinen oder vollständig, sobald sie fertig sind. Die Herleitung läuft in beiden Fällen live mit. Die Einstellung gilt für alle Organisationen ab der nächsten Frage."
+            },
+            {
+              "en": "Die Antwortdetails zeigen jetzt, wie lange Piloti für die Antwort gebraucht hat, gemessen vom Absenden der Frage bis zur fertigen Antwort. Die Angabe bleibt nach dem Neuladen des Gesprächs erhalten.",
+              "de": "Die Antwortdetails zeigen jetzt, wie lange Piloti für die Antwort benötigt – gemessen vom Absenden der Frage bis zur fertigen Antwort. Die Angabe bleibt auch nach dem Neuladen des Gesprächs erhalten."
+            },
+            {
+              "en": "Wer eine neue Organisation anlegt, sieht danach eine kurze Produkttour durch die Projektübersicht: wo Projekte entstehen, Archiv und Postfach, wo Kolleginnen und Kollegen eingeladen werden, und die wichtigsten Tastenkürzel.",
+              "de": "Wenn Sie eine neue Organisation anlegen, führt Sie anschließend eine kurze Produkttour durch die Projektübersicht: Sie zeigt, wo Projekte erstellt werden, wo Sie Archiv und Postfach finden, wie Sie Kolleginnen und Kollegen einladen und welche Tastenkürzel besonders wichtig sind."
+            },
+            {
+              "en": "Nach der Einrichtung des ersten Projekts folgt eine zweite Tour im Projekt selbst: Frag Piloti, Dateien, das Archiv und worin sich die beiden unterscheiden, wie Antworten ihre Quellen zeigen, und wo Mitglieder eingeladen werden. Beide Touren lassen sich jederzeit überspringen und über das Kontomenü unter „Produkttour“ erneut starten.",
+              "de": "Nach der Einrichtung des ersten Projekts folgt im Projekt selbst eine zweite Tour: Sie behandelt Frag Piloti, Dateien und das Archiv sowie die Unterschiede zwischen den beiden, zeigt, wie Antworten ihre Quellen angeben, und erklärt, wo Sie Mitglieder einladen. Beide Touren können Sie jederzeit überspringen und über das Kontomenü unter „Produkttour“ erneut starten."
+            },
+            {
+              "en": "Auch wer eingeladen wird oder einem bestehenden Projekt beitritt, bekommt die Touren: beim ersten Besuch der Projektübersicht und beim ersten Besuch eines Projekts, jeweils einmal. Wer in der Organisation schon gearbeitet hat, sieht sie nicht ungefragt.",
+              "de": "Auch wenn Sie eingeladen werden oder einem bestehenden Projekt beitreten, erhalten Sie die Touren – jeweils einmal beim ersten Aufruf der Projektübersicht und eines Projekts. Wenn Sie bereits in der Organisation gearbeitet haben, werden Ihnen diese nicht ungefragt angezeigt."
+            },
+            {
+              "en": "Die Seite zum Einrichten der Organisation ist neu gestaltet: ein Feld, ein Knopf und drei Zeilen dazu, wie es weitergeht. Das Abmelden bleibt in jedem Zustand oben rechts erreichbar.",
+              "de": "Die Seite zur Einrichtung der Organisation ist neu gestaltet: ein Feld, eine Schaltfläche und drei Zeilen zum weiteren Vorgehen. Das Abmelden ist weiterhin in jedem Zustand oben rechts möglich."
+            },
+            {
+              "en": "Hochgeladene Dateien bekommen ihre Schlagwörter (Dokumenttyp und Fachbereich) schneller und treffsicherer. Ein Fachbereich wie Brandschutz wird nur noch vergeben, wenn das Dokument tatsächlich davon handelt, und nicht schon, weil ein Plan eine Brandabschnittsgrenze einzeichnet.",
+              "de": "Hochgeladene Dateien bekommen ihre Schlagwörter (Dokumenttyp und Fachbereich) schneller und treffsicherer. Ein Fachbereich wie Brandschutz wird nur noch vergeben, wenn das Dokument tatsächlich davon handelt, und nicht schon, weil ein Plan eine Brandabschnittsgrenze einzeichnet."
+            }
+          ]
+        },
+        {
           "key": "fixes",
           "notes": [
+            {
+              "en": "Eine Antwort geht nicht mehr verloren, weil die Verbindung Ihres Geräts abreißt. Piloti speichert jede fertige Antwort selbst, und wer zurückkommt, während Piloti noch arbeitet, sieht „Piloti arbeitet weiter\" statt „Antwort ging verloren\", bis die Antwort da ist.",
+              "de": "Antworten gehen nicht mehr verloren, wenn die Verbindung Ihres Geräts abbricht. Piloti speichert jede abgeschlossene Antwort automatisch. Wenn Sie zurückkehren, während Piloti noch arbeitet, sehen Sie „Piloti arbeitet weiter“ statt „Antwort verloren“, bis die Antwort da ist."
+            },
             {
               "en": "Antworten erscheinen gleichmäßig, Wort für Wort, statt in Sprüngen von einem Satz zum nächsten, und die Seite bleibt dabei auch auf dem Telefon flüssig. Bisher stockte sie während einer Antwort alle paar Sekunden, umso mehr, je länger der Chatverlauf war.",
               "de": "Antworten erscheinen gleichmäßig Wort für Wort statt in Sprüngen von Satz zu Satz, und die Seite bleibt auch auf dem Smartphone flüssig. Bisher stockte sie während einer Antwort alle paar Sekunden – je länger der Chatverlauf, desto stärker."
@@ -48,6 +85,30 @@
             {
               "en": "Solange Piloti arbeitet, belasten die Hinweise „denkt nach\" und die Verbindungslinien der Herleitung das Telefon nicht mehr. Die Linien sind gestrichelt statt bewegt, der Hinweis pulsiert statt zu schimmern.",
               "de": "Während Piloti arbeitet, beanspruchen der Hinweis „Denkt nach“ und die Verbindungslinien der Herleitung Ihr Smartphone nicht mehr. Die Linien sind jetzt gestrichelt statt animiert, und der Hinweis pulsiert statt zu schimmern."
+            },
+            {
+              "en": "Ein fertiger Recherchebericht wird wieder als PDF im Projekt abgelegt. Seit Mitte September scheiterte das Ablegen bei jedem Bericht, gleich welchen Inhalts; der Bericht selbst blieb im Chat lesbar.",
+              "de": "Fertige Rechercheberichte werden wieder als PDF im Projekt abgelegt. Seit Mitte September schlägt das Ablegen bei jedem Bericht unabhängig vom Inhalt fehl; der Bericht selbst bleibt im Chat lesbar."
+            },
+            {
+              "en": "Fällt die Datenbank kurz aus, meldet die Anwendung das jetzt als vorübergehende Störung und bittet, es gleich noch einmal zu versuchen, statt mit einem allgemeinen Fehler abzubrechen. Ein in dieser Zeit gestarteter Auftrag wird nicht mehr als fehlgeschlagen angezeigt, obwohl er läuft.",
+              "de": "Wenn die Datenbank kurzzeitig nicht verfügbar ist, meldet die Anwendung jetzt eine vorübergehende Störung und bittet Sie, es gleich noch einmal zu versuchen, statt mit einem allgemeinen Fehler abzubrechen. Ein in dieser Zeit gestarteter Auftrag wird nicht mehr als fehlgeschlagen angezeigt, solange er noch läuft."
+            },
+            {
+              "en": "Vorschaubilder in der Dateiablage laden auch in einem Tab, der seit Tagen offen ist, statt nach einiger Zeit als „nicht verfügbar\" zu erscheinen.",
+              "de": "Vorschaubilder in der Dateiablage werden auch in einem Tab geladen, der seit Tagen geöffnet ist, statt nach einiger Zeit als „nicht verfügbar“ zu erscheinen."
+            },
+            {
+              "en": "Die Kopfzeile der Herleitung zählt keine Schritte mehr. Die Zahl dort („19 Schritte“) zählte interne Statusmeldungen mit und las sich, als hätte Piloti für eine Antwort 19 Anläufe gebraucht. Die Zeile nennt jetzt nur noch die Quellen; was gelaufen ist, steht aufgeklappt in der Herleitung.",
+              "de": "Die Kopfzeile der Herleitung zählt keine Schritte mehr. Die dort angezeigte Zahl („19 Schritte“) berücksichtigte interne Statusmeldungen und erweckte den Eindruck, Piloti hätte 19 Anläufe für eine Antwort benötigt. Die Zeile nennt jetzt nur noch die Quellen; die ausgeführten Schritte sehen Sie aufgeklappt in der Herleitung."
+            },
+            {
+              "en": "Die Modellauswahl lässt sich wieder speichern. Unter Plattform → Modelle und unter Organisation → Modelle scheiterte jedes Speichern mit einem Fehler, sobald noch eine Einstellung für eine Aufgabe gespeichert war, die es nicht mehr gibt. Solche Einstellungen werden jetzt übergangen und beim nächsten Speichern entfernt.",
+              "de": "Die Modellauswahl lässt sich wieder speichern. Unter Plattform → Modelle und Organisation → Modelle schlug das Speichern fehl, wenn noch eine Einstellung für eine nicht mehr vorhandene Aufgabe gespeichert war. Solche Einstellungen werden jetzt ignoriert und beim nächsten Speichern entfernt."
+            },
+            {
+              "en": "Die Zeile „OIB compliance check\" ist aus der Modellauswahl verschwunden. Sie gehörte zu einer Prüfung, die Piloti nicht mehr ausführt; eine Normprüfung als Auftrag funktioniert unverändert.",
+              "de": "Die Zeile „OIB compliance check“ ist aus der Modellauswahl verschwunden. Sie gehörte zu einer Prüfung, die Piloti nicht mehr ausführt; eine Normprüfung als Auftrag funktioniert unverändert."
             }
           ]
         }

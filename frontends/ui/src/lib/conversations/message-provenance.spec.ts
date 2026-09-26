@@ -364,3 +364,15 @@ describe('the retrieval ledger survives storage', () => {
     expect(sanitizeProvenance({ retrievalLedger: [{ key: 'no-index' }] })).toBeNull()
   })
 })
+
+describe('the answer duration survives storage', () => {
+  it('keeps a plausible duration, rounded to whole milliseconds', () => {
+    expect(sanitizeProvenance({ answerDurationMs: 12_400.6 })).toEqual({ answerDurationMs: 12_401 })
+  })
+
+  it('drops a duration that is not one', () => {
+    for (const answerDurationMs of [0, -5, Number.NaN, '12000', 30 * 24 * 60 * 60 * 1000]) {
+      expect(sanitizeProvenance({ answerDurationMs })).toBeNull()
+    }
+  })
+})

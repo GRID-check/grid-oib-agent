@@ -5,6 +5,7 @@
  * freshness, and numeric validation. The deterministic rule under test is the
  * fossil-fuel-on-a-new-build conflict (E1=gas + A5 includes Neubau).
  */
+import { projectTourUrl } from '@/features/onboarding/lib/product-tour'
 import { fireEvent, render, screen, waitFor, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -130,7 +131,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(projectTourUrl(PROJECT_ID)))
     expect(consistencyCalls(stub)).toHaveLength(0)
     expect(putProfileCalls(stub)).toHaveLength(1)
   })
@@ -161,7 +162,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
 
     await user.click(screen.getByRole('button', { name: /save anyway/i }))
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(projectTourUrl(PROJECT_ID)))
     expect(putProfileCalls(stub)).toHaveLength(1)
   })
 
@@ -192,7 +193,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
 
     await user.click(await screen.findByRole('button', { name: /save & see/i }))
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(projectTourUrl(PROJECT_ID)))
     expect(consistencyCalls(stub)).toHaveLength(0)
     expect(putProfileCalls(stub)).toHaveLength(1)
   })
@@ -238,7 +239,7 @@ describe('ProjectIntakeWizard — FB-13 conflict check', () => {
 
     await user.click(await screen.findByRole('button', { name: /save & see/i }))
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(projectTourUrl(PROJECT_ID)))
     expect(consistencyCalls(stub)).toHaveLength(1)
     expect(putProfileCalls(stub)).toHaveLength(1)
   })
@@ -261,7 +262,7 @@ describe('ProjectIntakeWizard — summary generation is fully off the save path'
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(projectTourUrl(PROJECT_ID)))
     expect(refreshMock).toHaveBeenCalled()
     expect(putProfileCalls(stub)).toHaveLength(1)
     expect(stub.calls.some((c) => c.url.endsWith('/generate-summary'))).toBe(false)
@@ -286,7 +287,7 @@ describe('ProjectIntakeWizard — Fix 3 save-success feedback', () => {
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(projectTourUrl(PROJECT_ID)))
     expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/5 details captured/i))
   })
 
@@ -576,7 +577,7 @@ describe('ProjectIntakeWizard — stale conditional answers pruned on load', () 
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(`/app/projects/${PROJECT_ID}`))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(projectTourUrl(PROJECT_ID)))
     const body = putProfileCalls(stub)[0].body as { facts: Record<string, unknown> }
     // The pruned Baujahr never reaches the persisted profile.
     expect(body.facts.baujahr_bestand).toBeUndefined()
