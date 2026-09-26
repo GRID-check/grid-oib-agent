@@ -39,6 +39,22 @@ describe('AuthKit v4 proxy', () => {
     )
   })
 
+  test('leaves icons, manifest and robots.txt outside the auth redirect', async () => {
+    const { config } = await import('./proxy')
+    const matcher = new RegExp(`^${config.matcher[0]}$`)
+    const publicFiles = [
+      '/favicon.ico',
+      '/icon.svg',
+      '/apple-icon.png',
+      '/manifest.webmanifest',
+      '/robots.txt',
+      '/icons/icon-192.png',
+    ]
+
+    for (const path of publicFiles) expect(matcher.test(path), path).toBe(false)
+    expect(matcher.test('/app/projects')).toBe(true)
+  })
+
   test('delegates requests to the authkitMiddleware', async () => {
     const { default: proxy } = await import('./proxy')
     const request = { url: 'http://localhost:3000/api/v1/collections' } as never
