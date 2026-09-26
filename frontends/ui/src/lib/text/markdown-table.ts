@@ -15,4 +15,3 @@ export function isDelimiterRow(line: string): boolean {
   if (!inner.includes('-')) return false
   return inner.split('|').every((cell) => /^\s*:?-+:?\s*$/.test(cell))
 }
-
