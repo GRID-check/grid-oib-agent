@@ -1,7 +1,7 @@
 ---
 import Pill from '../atoms/Pill.astro'
 import SectionTag from '../atoms/SectionTag.astro'
-import { mailtoHref } from '../../consts'
+import { CONTACT_EMAILS, mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 
 interface Props {
@@ -9,46 +9,107 @@ interface Props {
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
+const [sheetNo] = t.sheets.kontakt.split(' ')
+
+// A pilot office is an exchange, so the close states both sides of it.
+const terms = [
+  { label: t.cta.getsLabel, items: t.cta.gets, mark: '+' },
+  { label: t.cta.givesLabel, items: t.cta.gives, mark: '→' },
+]
 ---
 
 <section
   id="kontakt"
   data-screen-label={t.sheets.kontakt}
-  class="relative isolate mx-auto box-border flex min-h-[72vh] max-w-[80rem] flex-col justify-center px-6 pb-16 pt-24 text-center sm:px-12"
+  class="relative isolate mx-auto box-border max-w-[80rem] px-4 pb-16 pt-12 sm:px-12 sm:pb-20 sm:pt-20 lg:flex lg:min-h-[72vh] lg:flex-col lg:justify-center"
 >
   <!-- The page ends on open ground rather than another panel, so the close gets
        one soft light and a closing mark instead of a frame. -->
   <div
-    class="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[34rem] w-[58rem] max-w-[120%] -translate-x-1/2 -translate-y-[58%] rounded-full opacity-70 blur-3xl"
+    class="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[34rem] w-[58rem] max-w-full -translate-x-1/2 -translate-y-[58%] rounded-full opacity-70 blur-3xl"
     style="background: radial-gradient(ellipse at center, rgb(164 208 106 / 0.20), rgb(164 208 106 / 0.06) 45%, transparent 72%)"
     aria-hidden="true"
   >
   </div>
   <span
-    class="mx-auto mb-9 block h-10 w-px bg-gradient-to-b from-transparent to-ink/25"
+    class="mx-auto mb-7 block h-10 w-px bg-gradient-to-b from-transparent to-ink/25 max-sm:hidden"
     aria-hidden="true"></span>
-  <SectionTag no="07" class="mb-7 justify-center">{t.footer.contactHeading}</SectionTag>
-  <h2
+
+  <div data-reveal class="text-center">
+    <SectionTag no={sheetNo} class="mb-6 justify-center">{t.cta.tag}</SectionTag>
+    <h2 class="m-0 mx-auto mb-5 max-w-4xl font-voice text-v1 text-ink" style="text-wrap: balance">
+      {t.cta.title}
+    </h2>
+    <p
+      class="m-0 mx-auto max-w-xl text-base leading-relaxed text-ink-soft sm:text-lg"
+      style="text-wrap: pretty"
+    >
+      {t.cta.body}
+    </p>
+  </div>
+
+  <!-- What each side brings, as two short columns on a hairline rather than a
+       row of chips: it reads as terms, which is what it is. -->
+  <div
     data-reveal
-    class="mx-auto mb-8 max-w-5xl font-voice text-v1"
-    style="text-wrap: balance"
-    set:html={t.cta.titleHtml}
-  />
-  <div data-reveal class="mb-11 flex flex-wrap justify-center gap-2.5">
+    class="mx-auto mt-9 grid w-full max-w-3xl grid-cols-1 border-t border-ink/15 sm:mt-11 sm:grid-cols-2"
+  >
     {
-      t.cta.chips.map((c) => (
-        <span class="rounded-full border border-accent-600/30 px-4 py-2 font-mono text-2xs uppercase tracking-label text-accent-600">
-          {c}
-        </span>
+      terms.map((col) => (
+        <div class="border-ink/15 py-5 sm:px-6 sm:py-6 sm:first:border-r sm:first:pl-0 sm:last:pr-0 max-sm:first:border-b">
+          <h3 class="m-0 font-mono text-2xs font-medium uppercase tracking-widest text-accent-600">
+            {col.label}
+          </h3>
+          <ul class="m-0 mt-3 list-none space-y-2 p-0">
+            {col.items.map((item) => (
+              <li class="grid grid-cols-[1rem_1fr] items-baseline gap-x-2 text-base leading-snug text-ink-mid">
+                <span class="font-mono text-sm text-accent-600" aria-hidden="true">
+                  {col.mark}
+                </span>
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
       ))
     }
   </div>
-  <div data-reveal class="flex justify-center gap-3.5 max-sm:flex-col max-sm:items-center">
-    <Pill href={mailtoHref(t.cta.subjectDemo)} variant="solid" size="lg">
-      {t.cta.demo}
+
+  <div
+    data-reveal
+    class="mx-auto mt-8 flex w-full max-w-3xl flex-col gap-3 sm:mt-10 sm:flex-row sm:justify-center sm:gap-3.5"
+  >
+    <Pill href={mailtoHref(t.cta.subjectPilot)} variant="solid" size="lg" class="max-sm:w-full">
+      {t.cta.primary}
     </Pill>
-    <Pill href={mailtoHref(t.cta.subjectWaitlist)} variant="outline-dark" size="lg">
-      {t.cta.waitlist}
+    <Pill href={mailtoHref(t.cta.subjectCall)} variant="outline-dark" size="lg" class="max-sm:w-full">
+      {t.cta.secondary}
     </Pill>
+  </div>
+
+  <!-- The addresses as text too, for whoever copies rather than clicks. One
+       per line on a phone, where a separator would dangle at a line end. -->
+  <div
+    data-reveal
+    class="mt-7 flex flex-col items-center text-sm leading-relaxed text-ink-mute sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-2"
+  >
+    <span>{t.cta.direct}</span>
+    {
+      CONTACT_EMAILS.map((email, i) => (
+        <>
+          {i > 0 && (
+            <span class="text-ink-ghost max-sm:hidden" aria-hidden="true">
+              ·
+            </span>
+          )}
+          <a
+            href={mailtoHref()}
+            class="inline-flex min-h-11 items-center font-mono text-ink-mid underline decoration-ink/25 underline-offset-4 hover:text-accent-600 sm:min-h-0"
+          >
+            {email}
+          </a>
+        </>
+      ))
+    }
   </div>
 </section>

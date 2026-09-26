@@ -17,7 +17,6 @@ const home = useTranslatedPath(locale)('/')
 // calculator's working shown, not a second account of it.
 const text = formatRoi(ROI_DEFAULTS, computeRoi(ROI_DEFAULTS), locale, t.roi.units)
 
-
 // The week bar, as three shares of one row. `back` is the claim; it is drawn
 // inside the research block because that is where it comes from.
 const backShare = RESEARCH_SHARE * TIME_SAVED
@@ -37,9 +36,12 @@ const marks = [25, 50, 75, 100].map((at) => ({
 }))
 
 type Origin = 'ours' | 'yours' | 'price' | 'sum'
+// `note` is fixed copy; `noteKey` is a note that is itself a figure (the
+// example price over a year) and follows the calculator like the values do.
 const rows: {
   label: string
   note?: string
+  noteKey?: keyof RoiText
   key: keyof RoiText
   origin: Origin
   rule?: 'sub' | 'total'
@@ -50,7 +52,7 @@ const rows: {
   { label: r.ledger.year, key: 'yearHours', origin: 'ours' },
   { label: r.ledger.hourly, note: r.ledger.hourlyNote, key: 'hourly', origin: 'yours' },
   { label: r.ledger.perSeat, key: 'perSeat', origin: 'sum', rule: 'sub' },
-  { label: r.ledger.licence, key: 'licencePerSeat', origin: 'price' },
+  { label: r.ledger.licence, noteKey: 'licenceWorking', key: 'licencePerSeat', origin: 'price' },
   { label: r.ledger.netPerSeat, key: 'netPerSeat', origin: 'sum', rule: 'sub' },
   { label: r.ledger.seats, key: 'seatsTimes', origin: 'yours' },
   { label: r.ledger.total, key: 'net', origin: 'sum', rule: 'total' },
@@ -79,9 +81,9 @@ const origin: Record<Origin, string> = {
 const legend: Origin[] = ['ours', 'yours', 'price']
 ---
 
-<section class="mx-auto box-border max-w-[85rem] px-4 pb-28 pt-32 sm:px-10">
-  <div class="box-border rounded-panel bg-paper px-6 py-16 shadow-card ring-1 ring-ink/8 sheet-light sm:px-16 sm:py-20">
-    <div data-reveal class="mb-12 max-w-2xl">
+<section class="mx-auto box-border max-w-[85rem] px-2 pb-16 pt-24 sm:px-10 sm:pb-28 sm:pt-32">
+  <div class="box-border rounded-panel bg-paper px-5 py-12 shadow-card ring-1 ring-ink/8 sheet-light sm:px-16 sm:py-20">
+    <div data-reveal class="mb-10 max-w-2xl sm:mb-12">
       <SectionTag no="A" class="mb-5">{r.tag}</SectionTag>
       <h1 class="m-0 mb-5 font-voice text-v3 text-panel" style="text-wrap: balance">
         {r.title}
@@ -89,9 +91,14 @@ const legend: Origin[] = ['ours', 'yours', 'price']
       <p class="m-0 text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">
         {r.intro}
       </p>
-      <p class="m-0 mt-6 border-t border-ink/15 pt-5 text-sm text-ink-mute">
+      <!-- The script rewrites the link with the office it painted, so "change
+           the numbers" returns the visitor to their own sliders. -->
+      <p class="m-0 mt-6 border-t border-ink/15 pt-5 text-base text-ink-mute sm:text-sm">
         <span data-roi-out="office">{text.office}</span>{' '}
-        <a href={`${home}#wert`} class="text-accent-600 underline underline-offset-2 hover:text-accent-700"
+        <a
+          href={`${home}#wert`}
+          data-roi-back={home}
+          class="text-accent-600 underline underline-offset-2 hover:text-accent-700"
           >{r.back}</a
         >
       </p>
@@ -205,13 +212,28 @@ const legend: Origin[] = ['ours', 'yours', 'price']
             >
               <dt
                 class:list={[
-                  'm-0 text-sm leading-snug',
+                  'm-0 text-base leading-snug sm:text-sm',
                   row.rule ? 'font-semibold text-panel' : 'text-ink-soft',
                 ]}
               >
                 {row.label}
                 {row.note && (
-                  <span class="block text-2xs leading-relaxed text-ink-faint">{row.note}</span>
+                  <span class="block text-xs leading-relaxed text-ink-faint sm:text-2xs">{row.note}</span>
+                )}
+                {row.noteKey && (
+                  <span
+                    data-roi-out={row.noteKey}
+                    class="block font-mono text-xs tabular-nums leading-relaxed text-ink-faint sm:text-2xs"
+                  >
+                    {text[row.noteKey]}
+                  </span>
+                )}
+                {row.origin !== 'sum' && (
+                  <span
+                    class={`mt-1 block w-fit rounded-full border px-2 py-0.5 font-mono text-2xs uppercase tracking-widest sm:hidden ${origin[row.origin]}`}
+                  >
+                    {r.origins[row.origin]}
+                  </span>
                 )}
               </dt>
               <dd
@@ -250,7 +272,7 @@ const legend: Origin[] = ['ours', 'yours', 'price']
                   {`0${i + 1}`}
                 </span>
                 <div>
-                  <p class="m-0 text-sm leading-relaxed text-ink-soft" style="text-wrap: pretty">
+                  <p class="m-0 text-base leading-relaxed text-ink-soft sm:text-sm" style="text-wrap: pretty">
                     {e.text}
                   </p>
                   <p class="m-0 mt-1.5 font-mono text-2xs uppercase tracking-widest text-accent-600">
@@ -262,7 +284,7 @@ const legend: Origin[] = ['ours', 'yours', 'price']
           }
         </ol>
         <p
-          class="m-0 mt-7 border-t border-panel/30 pt-6 text-sm leading-relaxed text-ink-mid"
+          class="m-0 mt-7 border-t border-panel/30 pt-6 text-base leading-relaxed text-ink-mid sm:text-sm"
           style="text-wrap: pretty"
         >
           {r.honesty}
