@@ -5,7 +5,11 @@ This directory is where the OIB Richtlinien PDFs live at runtime. It ships
 platform, and 71 MB of binaries in git made every clone pay for documents that
 change once a year and that an operator can supply in a minute.
 
-There are two ways to fill it, and they are equivalent from the agent's side:
+For a test or eval run, restore the already-ingested corpus instead of ingesting
+it: `task be:corpus:pull` fills this directory, the vectors and the summaries
+from the private snapshot ([the corpus snapshot](../../docs/contributing/testing-and-verification.md#the-corpus-snapshot)).
+
+There are two ways to fill it for a deployment, and they are equivalent from the agent's side:
 
 - **Upload through the platform-admin UI.** Files land in `OIB_UPLOADS_DIR`
   (`data/oib_uploads`, on the persistent data volume) and are ingested by the

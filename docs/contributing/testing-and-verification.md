@@ -297,10 +297,29 @@ runs, taken before merge. Run against `develop` as it stood before it existed,
 it fails on an unawaited coroutine per trace event.
 
 `.github/workflows/smoke-live.yml` runs it on pull requests that touch the
-agent, on pushes to `develop`, and on demand. It needs the repository secret
-`OPENROUTER_API_KEY`; with `OIB_CORPUS_URL` (a `.tar.gz` of the Richtlinien
-PDFs) the corpus is ingested first and the answer is checked too. Its offline
-half, the reading of the log, is `tests/test_smoke.py`.
+agent, on pushes to `develop`, and on demand, with the repository secret
+`OPENROUTER_API_KEY`. Its offline half, the reading of the log, is
+`tests/test_smoke.py`.
+
+### The corpus snapshot
+
+The corpus is ingested once, not per run. `scripts/corpus_snapshot.py` keeps
+what an ingest writes (the PDFs, the vectors in `AIQ_CHROMA_DIR`,
+`summaries.db`, `data/oib_registry.json`) as a private OCI artifact,
+`ghcr.io/grid-check/grid-oib-corpus`, tagged `format-<CHUNK_FORMAT_VERSION>`.
+`task be:corpus:pull` restores it; `oib_sync.sync()` afterwards is a no-op
+unless a PDF or the chunk format changed, which the registry already decides.
+Measured on a two-page fixture: 34 s to ingest, 3 s to restore and sync, and
+the real corpus's ingest is minutes and model calls.
+
+The smoke workflow restores it on every run, and on `develop` publishes a
+snapshot its sync changed; a pull request never publishes, so a branch that
+bumps the chunk format re-ingests for itself. The first snapshot needs the PDFs
+once: `task be:corpus:push` from a machine that has them ingested, or the
+repository secret `OIB_CORPUS_URL` (a `.tar.gz` of the PDFs) on a `develop`
+run. Locally, both tasks need the `oras` CLI and `oras login ghcr.io` with a
+token that can read (or, to push, write) packages. The same snapshot makes the
+answer suite, the turn census and the loop eval runnable without ingesting.
 
 It is one question, not a suite: its job is to catch what breaks every turn.
 Whether answers are right and how long they take is the answer suite's job.
@@ -349,8 +368,9 @@ task be:eval:answer-suite -- --out /tmp/suite/after --baseline /tmp/suite/before
 ```
 
 It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus in
-`data/oib` ingested into `AIQ_CHROMA_DIR` (`-- --ingest` runs the sync
-first). Every run costs model calls: the core set at two runs is twelve
+`data/oib` ingested into `AIQ_CHROMA_DIR`: `task be:corpus:pull` restores it
+without ingesting ([the corpus snapshot](#the-corpus-snapshot)), and `-- --ingest`
+runs the sync first. Every run costs model calls: the core set at two runs is twelve
 turns, about four minutes three at a time. It cannot run in CI for the same
 reason as the loop eval; its bookkeeping is covered offline by
 [`tests/test_answer_suite.py`](../../tests/test_answer_suite.py). The
