@@ -122,7 +122,43 @@ convention for what hangs overhead, and it reads as the witty line: drawn, not b
   - `wide` stretches that lawn and stakes out the next house on it (dashed footprint,
     four stakes, a string line). This ties the build-log header to plate IV.
 
+### II. Schichten (layers)
+
+The cover for the post "Wie Piloti funktioniert". It shows the six layers of that post's
+own diagram, read top to bottom: sources, preparation, index, search, check, answer.
+Each layer is a 12 × 8.2 sheet in exploded axonometry, 2.35 apart, with the same camera
+and sun as plate I. The dashed guides at the corners run between the sheets, and every
+sheet shades the one below it.
+
+- **Sources.** A building-code booklet (a thick block with page lines on its edge), a
+  floor plan with walls as poché, a site plan with contours, and a web page card.
+- **Preparation.** The same kinds of document cut into fifteen tiles: text bars, table
+  grids, wall fragments.
+- **Index.** The accent sheet, tinted Kelly. Seventy solid lime points gather in four
+  clusters, as embeddings of related tiles do, over a faint text grid. The points are
+  on the line layer, so they print crisp and unscreened.
+- **Search.** Two parallel lanes (the two channels), with three tiles caught in each.
+- **Check.** Four tiles. Three carry a tick, and one is struck through in Bright Red,
+  the plate's single red mark: a quotation that is not in its source.
+- **Answer.** One clean page of text bars, with two citation tiles pinned beside the
+  lines they carry.
+
+Details:
+
+- **Sheet shadows.** The shadow of the sheet above prints after a sheet's own drawing,
+  so it lies over the content, as a shadow does. It is a Mist wash, 0.55. In the first
+  proof it was Moss, which went dirty and flattened the sheets, and it was drawn before
+  the content, whose `own()` cleared it.
+- **Table.** Only the bottom sheet casts onto a table 1.2 below. The first proof cast
+  all six sheets onto a far table, which gave a stepped shadow bigger than the stack.
+- **Ticks.** Drawn on the sheet with their depth exaggerated. Foreshortening at 0.31
+  otherwise flattens a tick into a V.
+- **Labels.** No words: text is bars. The post's diagram carries the labels.
+
 ## Inspected
+
+Plate II: the full frame at 720 and 1440, and a 1:1 crop of the index, search and check
+sheets at 1440.
 
 Plate I, all five files:
 
@@ -145,3 +181,10 @@ every job.
   - The column shading ramp is hard to see at 720.
   - Shadows fall only on the ground: nothing is cast onto the columns or the figure.
   - The mown stripes are faint at 720.
+- **II.**
+  - The content is small at 720: the booklet and the site plan read as objects, but
+    their detail only shows at 1440.
+  - The index sheet stacks three screens (Kelly, Mist, the shadow) and is busier than
+    the others.
+  - The ticks have a long right arm.
+  - The 1440 WebP is 535 KB, because the screened fields cover most of the frame.

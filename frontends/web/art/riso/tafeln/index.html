@@ -536,6 +536,11 @@ function figure(foot, hpx, o) {
   return { body, roll, rollEnd, top: [hc[0], hc[1] - hr] };
 }
 
+/* One camera and one sun for the whole series: x nearly level, y receding up-left
+   at half scale, z true; a low sun from the front-left. */
+const VIEW_SERIES = { ax: 0.05, ay: 0.64, fx: 1, fy: 0.52, fz: 1 };
+const SUN_SERIES = v3.norm([0.74, 0.52, -0.62]);
+
 /** A surveyor's stake: a thin square post, lit on its west face. Returns its top on the sheet. */
 function stake(c, P, x, y, h, o) {
   o = o || {};
@@ -574,8 +579,8 @@ const I = (() => {
   const BOX = [0, 0, 4.0, 16, 9, 7.4];                 // x0 y0 z0 x1 y1 z1, metres
   const COLS = [[2.6, 1.7], [2.6, 7.3], [13.0, 4.5]];  // a tripod: two at the west end, one east
   const R = 0.19;
-  const SUN = v3.norm([0.74, 0.52, -0.62]);           // low, from the front-left
-  const VIEW = { ax: 0.05, ay: 0.64, fx: 1, fy: 0.52, fz: 1 };
+  const SUN = SUN_SERIES;
+  const VIEW = VIEW_SERIES;
   const SITE = { sq: [-3.2, -5.2, 21.5, 12.2], og: [-3.2, -4.6, 44, 12.2], wide: [-3.2, -4.0, 60, 12.2] };
   const FIT = { sq: { fill: 0.84, cx: 0.5, cy: 0.5 }, og: { fill: 0.9, fillH: 0.8, cx: 0.43, cy: 0.5 },
                 wide: { fill: 0.9, fillH: 0.84, cx: 0.33, cy: 0.49 } };
@@ -759,10 +764,207 @@ const I = (() => {
            numeral: { sq: [540, 1058], og: [540, 545], wide: [1030, 390] } };
 })();
 
+/* ── shared sheet helpers (II, III, V, VI) ─────────────────────────────────── */
+
+/** A flat sheet lying at height z: its plane mapper, top face and visible edges. */
+function sheetAt(P, x0, y0, w, d, z, th) {
+  th = th === undefined ? 0.05 : th;
+  const S = (u, v, dz) => [x0 + u, y0 + v, z + (dz || 0)];
+  const pl = (pts, closed = true) => poly(P, pts.map(([u, v]) => S(u, v)), closed);
+  const f = boxFaces(P, x0, y0, z - th, x0 + w, y0 + d, z);
+  return { S, pl, top: f.top, west: f.west, south: f.south, sil: f.sil, x0, y0, w, d, z };
+}
+/** Print a sheet: its edge in shade, the top as stock (or a spec), a key outline. */
+function drawSheet(c, sh, spec, o) {
+  o = o || {};
+  clearAll(c, sh.sil);
+  own(c, sh.west, o.west || { mist: 0.45 });
+  own(c, sh.south, o.south || { moss: 0.4 });
+  own(c, sh.top, spec || {});
+}
+/** Shadow of a horizontal rectangle at height zc falling onto the plane z, clipped to a path. */
+function sheetShadow(c, P, rect, zc, z, clip, spec) {
+  const [x0, y0, x1, y1] = rect;
+  const pts = [[x0, y0, zc], [x1, y0, zc], [x1, y1, zc], [x0, y1, zc]].map((p) => onGround(p, SUN_SERIES, z));
+  c.g.save(); if (clip) c.g.clip(clip); tint(c, poly(P, pts), spec); c.g.restore();
+}
+/** Lines of 'text' as short bars: the site is bilingual, so words are never drawn. */
+function textBars(sh, u0, v0, w, rows, gap, rng) {
+  const p = new Path2D();
+  for (let i = 0; i < rows; i++) {
+    const len = i === rows - 1 ? w * (0.35 + rng() * 0.3) : w * (0.82 + rng() * 0.18);
+    const a = P_(sh, u0, v0 + i * gap), b = P_(sh, u0 + len, v0 + i * gap);
+    p.moveTo(a[0], a[1]); p.lineTo(b[0], b[1]);
+  }
+  return p;
+}
+let P_ = null;                                        // set per sheet draw: (sh, u, v) → sheet point
+
+/* ═════════════════════════════════════════════════════════════════════════════
+   PLATE II — Schichten
+   The six layers of the knowledge base as an exploded drawing, read top to
+   bottom as the post reads them: sources, preparation, index, search, check,
+   answer. Each is a sheet with its own drawing, the connectors are the
+   exploded view's corner guides, and each sheet shades the one below it.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+const II = (() => {
+  const SW = 12, SD = 8.2, GAP = 2.35, N = 6;          // sheet size and spacing, drawing metres
+  const FIT = { sq: { fill: 0.74, fillH: 0.76, cx: 0.5, cy: 0.49 } };
+
+  function draw(c, fmt) {
+    const zs = [...Array(N)].map((_, i) => (N - 1 - i) * GAP);   // 0 = top sheet (sources)
+    const P = fit(VIEW_SERIES, [[0, 0, -0.1], [SW, 0, -0.1], [0, SD, zs[0]], [SW, SD, zs[0] + 0.5], [SW + 1.4, SD + 1, -1.2]], FIT[fmt]);
+    P_ = (sh, u, v) => P(sh.S(u, v, 0.001));
+    const rng = rngFor('schichten:content');         // content is shared by every plate: same draws per ink
+    const sheets = zs.map((z) => sheetAt(P, 0, 0, SW, SD, z));
+
+    /* a table far below takes the stack's shadow: one pale field, so the stack floats over something */
+    // only the bottom sheet reaches it: the rest fall on the sheets below them
+    const tabSh = poly(P, [[0, 0, 0], [SW, 0, 0], [SW, SD, 0], [0, SD, 0]].map((p) => onGround(p, SUN_SERIES, -1.2)));
+    tint(c, tabSh, { mist: 0.6, moss: 0.1 });
+
+    /* bottom to top: each sheet, then the guides rising from it to the next */
+    for (let i = N - 1; i >= 0; i--) {
+      const sh = sheets[i];
+      drawSheet(c, sh, i === 2 ? { kelly: 0.16, mist: 0.2 } : {});
+      CONTENT[i](c, P, sh, rng);
+      // the sheet above shades this one: printed over its drawing, as a shadow is
+      if (i > 0) sheetShadow(c, P, [0, 0, SW, SD], zs[i - 1], sh.z, sh.top, i === 2 ? { mist: 0.3, moss: 0.1 } : { mist: 0.55, moss: 0.05 });
+      line(c, sh.sil, 1.5, KEY);
+      line(c, poly(P, [sh.S(0, 0), sh.S(SW, 0)], false), 1.1, KEY);
+      line(c, poly(P, [sh.S(0, 0), sh.S(0, SD)], false), 1.0, KEY);
+      if (i > 0) {
+        const up = zs[i - 1] - 0.05;
+        for (const [u, v] of [[0, 0], [SW, 0], [0, SD], [SW, SD]]) {
+          // the back-right guide hides behind the next sheet anyway; the others run in the open
+          dashed(c, poly(P, [[u, v, sh.z], [u, v, up]], false), 0.9, { hunter: 0.85 }, [4, 4]);
+        }
+      }
+    }
+  }
+
+  /* one drawing per layer, in sheet coordinates (u across, v back) */
+  const CONTENT = [
+    // 1 sources: a building-code booklet, a floor plan, a site plan and a web page, lying as found
+    (c, P, sh, rng) => {
+      const b = boxFaces(P, 0.9, 3.4, sh.z, 4.1, 7.4, sh.z + 0.42);
+      own(c, b.west, { mist: 0.4 }); own(c, b.south, { mist: 0.25 }); own(c, b.top, { mist: 0.5 });
+      if (c.ink === 'moss') { const p = new Path2D(); for (let k = 1; k < 6; k++) { const zz = sh.z + 0.42 * k / 6; const a = P([0.9, 3.4, zz]), e = P([4.1, 3.4, zz]); p.moveTo(a[0], a[1]); p.lineTo(e[0], e[1]); } c.g.save(); c.g.lineWidth = 0.7; tone(c.g, 0.8); c.g.stroke(p); c.g.restore(); }
+      line(c, b.sil, 1.1, KEY);
+      const cover = poly(P, [[1.4, 5.1, sh.z + 0.43], [3.6, 5.1, sh.z + 0.43], [3.6, 6.9, sh.z + 0.43], [1.4, 6.9, sh.z + 0.43]]);
+      line(c, cover, 0.8, { hunter: 0.9 });
+      // floor plan, walls as poché
+      const fp = [4.7, 1.0, 9.6, 5.4];
+      own(c, sh.pl([[fp[0], fp[1]], [fp[2], fp[1]], [fp[2], fp[3]], [fp[0], fp[3]]]), {});
+      line(c, sh.pl([[fp[0], fp[1]], [fp[2], fp[1]], [fp[2], fp[3]], [fp[0], fp[3]]]), 0.9, KEY);
+      const walls = [[[5.2, 1.5], [9.1, 1.5], [9.1, 4.9], [5.2, 4.9], [5.2, 1.5]], [[7.0, 1.5], [7.0, 3.3]], [[7.0, 3.9], [7.0, 4.9]], [[7.0, 3.3], [9.1, 3.3]], [[5.2, 3.0], [6.2, 3.0]]];
+      for (const w of walls) line(c, sh.pl(w, false), 1.6, { hunter: 1, moss: 0.5 });
+      // site plan: contours around a plot
+      const sp = [8.2, 5.6, 11.6, 7.9];
+      own(c, sh.pl([[sp[0], sp[1]], [sp[2], sp[1]], [sp[2], sp[3]], [sp[0], sp[3]]]), { mist: 0.25 });
+      for (let k = 0; k < 4; k++) {
+        const pts = []; for (let u = 0; u <= 1.001; u += 0.1) pts.push([sp[0] + 0.1 + u * 3.2, sp[1] + 0.35 + k * 0.52 + 0.25 * Math.sin(u * 5 + k)]);
+        line(c, sh.pl(pts, false), 0.7, { hunter: 0.8 });
+      }
+      line(c, sh.pl([[9.3, 6.2], [10.8, 6.1], [10.9, 7.3], [9.2, 7.4]]), 1.0, { hunter: 1 });
+      line(c, sh.pl([[sp[0], sp[1]], [sp[2], sp[1]], [sp[2], sp[3]], [sp[0], sp[3]]]), 0.9, KEY);
+      // a web page: a card with a bar along its head
+      const wp = [0.8, 0.6, 3.6, 2.6];
+      own(c, sh.pl([[wp[0], wp[1]], [wp[2], wp[1]], [wp[2], wp[3]], [wp[0], wp[3]]]), {});
+      tint(c, sh.pl([[wp[0], wp[3] - 0.45], [wp[2], wp[3] - 0.45], [wp[2], wp[3]], [wp[0], wp[3]]]), { mist: 0.7 });
+      line(c, sh.pl([[wp[0], wp[1]], [wp[2], wp[1]], [wp[2], wp[3]], [wp[0], wp[3]]]), 0.9, KEY);
+      line(c, textBars(sh, wp[0] + 0.3, wp[1] + 0.35, 2.2, 3, 0.42, rng), 0.9, { hunter: 0.85 });
+    },
+    // 2 preparation: the same kinds of document, cut into tiles
+    (c, P, sh, rng) => {
+      for (let j = 0; j < 3; j++) for (let i = 0; i < 5; i++) {
+        const u0 = 0.7 + i * 2.18, v0 = 0.6 + j * 2.45, u1 = u0 + 1.85, v1 = v0 + 2.0;
+        const t = sh.pl([[u0, v0], [u1, v0], [u1, v1], [u0, v1]]);
+        own(c, t, (i + j) % 3 === 0 ? { mist: 0.3 } : {});
+        line(c, t, 0.8, KEY);
+        const kind = (i * 7 + j * 3) % 3;
+        if (kind === 0) line(c, textBars(sh, u0 + 0.25, v0 + 0.35, 1.35, 4, 0.38, rng), 0.8, { hunter: 0.85 });
+        else if (kind === 1) {
+          const g = new Path2D();
+          for (let k = 1; k < 3; k++) { const a = P_(sh, u0 + 0.2, v0 + k * 0.62), b = P_(sh, u1 - 0.2, v0 + k * 0.62); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); }
+          for (let k = 1; k < 3; k++) { const a = P_(sh, u0 + k * 0.6, v0 + 0.2), b = P_(sh, u0 + k * 0.6, v1 - 0.2); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); }
+          line(c, g, 0.7, { hunter: 0.8 });
+        } else line(c, sh.pl([[u0 + 0.3, v0 + 0.3], [u1 - 0.3, v0 + 0.3], [u1 - 0.3, v1 - 0.8], [u0 + 1.0, v1 - 0.8]], false), 1.4, { hunter: 1, moss: 0.4 });
+      }
+    },
+    // 3 index (the accent): every tile stored twice, as a point in a field and as searchable text
+    (c, P, sh, rng) => {
+      const grid = new Path2D();
+      for (let k = 1; k < 8; k++) { const a = P_(sh, 0.4, k * SD / 8), b = P_(sh, SW - 0.4, k * SD / 8); grid.moveTo(a[0], a[1]); grid.lineTo(b[0], b[1]); }
+      line(c, grid, 0.6, { hunter: 0.45 });
+      const r2 = rngFor('schichten:index');
+      const dots = new Path2D();
+      for (let i = 0; i < 70; i++) {
+        // points gather in clusters, as embeddings of related tiles do
+        const cl = [[3, 3], [7.5, 5.5], [9.5, 2.2], [4.5, 6.4]][i % 4];
+        const u = clamp(cl[0] + (r2() + r2() - 1) * 2.2, 0.5, SW - 0.5), v = clamp(cl[1] + (r2() + r2() - 1) * 1.4, 0.4, SD - 0.4);
+        const q = P_(sh, u, v), rr = 0.09 * P.s * (0.85 + r2() * 0.3);
+        dots.moveTo(q[0] + rr, q[1]); dots.ellipse(q[0], q[1], rr, rr * 0.55, 0, 0, TAU);
+      }
+      lineFill(c, dots, { kelly: 1 });            // solid dots, unscreened, like the line work
+    },
+    // 4 search: two channels in parallel, a few tiles caught in each
+    (c, P, sh, rng) => {
+      for (const [v0, v1] of [[1.4, 2.9], [4.9, 6.4]]) {
+        const lane = sh.pl([[0.6, v0], [SW - 0.6, v0], [SW - 0.6, v1], [0.6, v1]]);
+        tint(c, lane, { mist: 0.55 });
+        line(c, sh.pl([[0.6, v0], [SW - 0.6, v0]], false), 0.8, { hunter: 0.8 });
+        line(c, sh.pl([[0.6, v1], [SW - 0.6, v1]], false), 0.8, { hunter: 0.8 });
+        for (let i = 0; i < 9; i++) {
+          const u0 = 1.0 + i * 1.18, t = sh.pl([[u0, v0 + 0.3], [u0 + 0.8, v0 + 0.3], [u0 + 0.8, v1 - 0.3], [u0, v1 - 0.3]]);
+          const hit = (v0 < 3 ? [2, 5, 6] : [1, 5, 8]).includes(i);
+          own(c, t, hit ? { hunter: 0.75, moss: 0.3 } : { mist: 0.2 });
+          line(c, t, 0.7, KEY);
+        }
+      }
+    },
+    // 5 check: the caught tiles laid out and ticked against their source; one does not survive
+    (c, P, sh, rng) => {
+      const tiles = [[1.2, 2.4], [3.9, 2.4], [6.6, 2.4], [9.3, 2.4]];
+      tiles.forEach(([u0, v0], i) => {
+        const t = sh.pl([[u0, v0], [u0 + 2.1, v0], [u0 + 2.1, v0 + 3.3], [u0, v0 + 3.3]]);
+        own(c, t, {});
+        line(c, t, 0.9, KEY);
+        line(c, textBars(sh, u0 + 0.9, v0 + 0.5, 0.95, 6, 0.45, rng), 0.8, { hunter: 0.8 });
+        if (i === 2) {                                 // rejected: the quote is not in the source
+          line(c, sh.pl([[u0 - 0.2, v0 + 0.4], [u0 + 2.3, v0 + 2.9]], false), 2.2, { red: 1 });
+        } else {
+          // a tick drawn on the sheet, with depth exaggerated so foreshortening leaves it a tick
+          line(c, sh.pl([[u0 + 0.25, v0 + 1.0], [u0 + 0.6, v0 + 0.3], [u0 + 1.55, v0 + 2.9]], false), 1.8, { hunter: 1 });
+        }
+      });
+    },
+    // 6 answer: one clean page, its citations pinned beside the lines they carry
+    (c, P, sh, rng) => {
+      const pg = [2.6, 0.7, 8.2, 7.6];
+      const page = sh.pl([[pg[0], pg[1]], [pg[2], pg[1]], [pg[2], pg[3]], [pg[0], pg[3]]]);
+      own(c, page, {});
+      line(c, page, 1.1, KEY);
+      line(c, textBars(sh, pg[0] + 0.5, pg[1] + 0.9, 4.4, 9, 0.62, rng), 0.9, { hunter: 0.9 });
+      for (const [v, n] of [[2.1, 0], [4.6, 1]]) {
+        const u0 = pg[2] + 0.6, t = sh.pl([[u0, v - 0.45], [u0 + 1.7, v - 0.45], [u0 + 1.7, v + 0.75], [u0, v + 0.75]]);
+        own(c, t, { mist: 0.6 });
+        line(c, t, 0.8, KEY);
+        line(c, sh.pl([[pg[2] - 0.3, v], [u0, v]], false), 0.8, { hunter: 0.9 });
+        const q = P_(sh, pg[2] - 0.3, v), d = new Path2D(); d.ellipse(q[0], q[1], 2.4, 1.6, 0, 0, TAU);
+        lineFill(c, d, KEY);
+      }
+    },
+  ];
+
+  return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
+})();
+
 /* ═════════════════════════════════════════════════════════════════════════ */
 
-const PLATES = [I];
-const PLATE_NAMES = ['stuetzen'];
+const PLATES = [I, II];
+const PLATE_NAMES = ['stuetzen', 'schichten'];
 
 /* Export jobs: integer time → one file at its exact display size. */
 /* pitch is in device px: 3.4 for a 1x file, 6.8 for its 2x twin, so both show the
@@ -774,6 +976,8 @@ const JOBS = [
   { plate: 0, fmt: 'og',   w: 1200, h: 630,  pitch: 5.0, file: 'piloti-i-stuetzen-og-1200x630.png' },
   { plate: 0, fmt: 'wide', w: 800,  h: 300,  pitch: 3.4, file: 'piloti-i-stuetzen-banner-800x300.webp' },
   { plate: 0, fmt: 'wide', w: 1600, h: 600,  pitch: 6.8, file: 'piloti-i-stuetzen-banner-1600x600.webp' },
+  { plate: 1, fmt: 'sq',   w: 720,  h: 720,  pitch: 3.4, file: 'piloti-ii-schichten-720.webp' },
+  { plate: 1, fmt: 'sq',   w: 1440, h: 1440, pitch: 6.8, file: 'piloti-ii-schichten-1440.webp' },
 ];
 
 function setJob(j) {

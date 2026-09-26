@@ -50,6 +50,7 @@ To look at one job in a browser, open `tafeln/index.html?t=<job>`. Debug views:
 | `piloti-i-stuetzen-720.webp` / `-1440.webp` | 720² / 1440² | I Drei Stützen | Team section |
 | `piloti-i-stuetzen-og-1200x630.png` | 1200×630 | I Drei Stützen | Social share (`og:image`) |
 | `piloti-i-stuetzen-banner-800x300.webp` / `-1600x600.webp` | 800×300 / 1600×600 | I Drei Stützen | Bautagebuch / blog header |
+| `piloti-ii-schichten-720.webp` / `-1440.webp` | 720² / 1440² | II Schichten | Cover of "Wie Piloti funktioniert" / "How Piloti works" |
 
 ## Showing them
 
