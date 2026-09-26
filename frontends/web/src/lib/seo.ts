@@ -34,11 +34,12 @@ export type OgArtId = Extract<ArtId, `${string}/og`>
  * founders' complaint was every preview showing the same house.
  */
 export const SHARE_ART = {
-  /** Plate I, Drei Stützen: the house Piloti is named after. The landing page only. */
-  landing: 'tafeln/stuetzen/og',
-  /** Plate VI, Zeichentisch: the blog and its Journal, the office's working day. */
+  /** Tragwerk I, Säule: the Piloti column, the brand's staple. The landing page only. */
+  landing: 'tragwerk/saeule/og',
+  /** Plate VI, Zeichentisch: the blog index, the office's working day. */
   blog: 'tafeln/zeichentisch/og',
-  journal: 'tafeln/zeichentisch/og',
+  /** Tragwerk III, Säulenordnung: the Journal, a textbook plate of the orders. */
+  journal: 'tragwerk/ordnung/og',
   /** Plate II, Schichten: the build log takes the system apart, layer by layer. */
   bautagebuch: 'tafeln/schichten/og',
   /** Plate IV, Bauplatz: a site set out, one column up. What shipped, and what comes next. */
@@ -56,7 +57,7 @@ export function ogImageFor(id: OgArtId, locale: Locale): OgImage {
   return { src: artFile(og).src, alt: og.alt[locale], width: og.width, height: og.height }
 }
 
-/** The card a page shares when it names none: plate I, which is the landing page's. */
+/** The card a page shares when it names none: the landing page's column. */
 export function defaultOgImage(locale: Locale): OgImage {
   return ogImageFor(SHARE_ART.landing, locale)
 }

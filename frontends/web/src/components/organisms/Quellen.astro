@@ -9,7 +9,7 @@
  */
 import SectionTag from '../atoms/SectionTag.astro'
 import PagePrint from '../craft/PagePrint.astro'
-import { PLATES } from '../craft/plates'
+import { TRAGWERK } from '../craft/plates'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
 
@@ -37,10 +37,11 @@ const [sheetNo] = t.sheets.daten.split(' ')
          page: what comes with every answer on the left, what holds for the
          office's data on the right. -->
     <div class="grid grid-cols-1 items-start gap-y-8 lg:grid-cols-[7fr_5fr] lg:gap-x-16 lg:gap-y-14">
-      <!-- Plate II: sources as layers. Still, because the sheet's ticks are
-           this section's one moment. -->
+      <!-- Tragwerk II: three columns carry one slab, as the sources carry an
+           answer. Still, because the sheet's ticks are this section's one
+           moment. -->
       <PagePrint
-        name={PLATES.II}
+        name={TRAGWERK.II}
         locale={locale}
         size="half"
         phone="third"

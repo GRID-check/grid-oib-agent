@@ -129,16 +129,12 @@ const de = {
     faq: '07 Häufige Fragen',
     kontakt: '08 Kontakt',
   },
-  // Captions under the riso plates, by plate numeral (see craft/plates.ts).
-  // Here rather than from the art manifest, whose captions are set with an
-  // em dash; German wants the spaced en dash.
+  // Captions under a taped riso print (see craft/plates.ts). Plates printed
+  // on the page carry none, so only the Team's taped column has one. Here
+  // rather than from the art manifest, whose captions are set with an em
+  // dash; German wants the spaced en dash.
   plates: {
-    I: 'Tafel I – Drei Stützen',
-    II: 'Tafel II – Schichten',
-    IV: 'Tafel IV – Bauplatz',
-    VI: 'Tafel VI – Zeichentisch',
-    VII: 'Tafel VII – Waage',
-    VIII: 'Tafel VIII – Offene Tür',
+    saeule: 'Tragwerk I – Säule',
   },
   nav: {
     ariaLabel: 'Hauptnavigation',
@@ -724,12 +720,7 @@ const en: typeof de = {
     kontakt: '08 Contact',
   },
   plates: {
-    I: 'Plate I – Three columns',
-    II: 'Plate II – Layers',
-    IV: 'Plate IV – Building plot',
-    VI: 'Plate VI – Drafting table',
-    VII: 'Plate VII – Balance',
-    VIII: 'Plate VIII – Open door',
+    saeule: 'Structure I – Column',
   },
   nav: {
     ariaLabel: 'Main navigation',

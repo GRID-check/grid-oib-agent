@@ -2,7 +2,7 @@
 import BaseLayout from '../layouts/BaseLayout.astro'
 import Pill from '../components/atoms/Pill.astro'
 import PagePrint from '../components/craft/PagePrint.astro'
-import { PLATES } from '../components/craft/plates'
+import { TRAGWERK } from '../components/craft/plates'
 import { ui, type Locale } from '../i18n/ui'
 import { useTranslatedPath } from '../i18n/utils'
 import { SHARE_ART } from '../lib/seo'
@@ -29,9 +29,9 @@ Astro.response.status = 404
   noindex
 >
   <section class="flex min-h-[70vh] flex-col items-center justify-center px-6 pb-24 pt-32 text-center">
-    <!-- Plate IV: the plot is staked out, nothing is built yet. -->
+    <!-- Tragwerk IV: a brick pier, the load not yet on it. -->
     <PagePrint
-      name={PLATES.IV}
+      name={TRAGWERK.IV}
       locale={locale}
       size="half"
       phone="third"
