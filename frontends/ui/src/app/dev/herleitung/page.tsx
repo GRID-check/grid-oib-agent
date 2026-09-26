@@ -21,8 +21,8 @@
  *     a long question + many branch options exercise the measured, content-driven
  *     layout (tall nodes must not overlap).
  *   - live     → a turn mid-stream: completed steps + an in-progress web search,
- *     so the live activity phrase, animated edges, executed-step chips (with the
- *     running pulse) and the elapsed pill all render.
+ *     so the live activity phrase, the frontier's flowing dot, executed-step
+ *     chips (with the running pulse) and the elapsed pill all render.
  *   - spine    → TWO retrieval rounds: the fan becomes a spine of checkpoints,
  *     each owning the files that fetch returned. Both layers open, because
  *     folding half of a comparison hides the comparison.
@@ -342,7 +342,7 @@ const branchesCommon = {
 
 // Live scenario: a turn mid-stream — the agent's own step still open, the KB
 // hit, and an in-progress web search. Exercises the live activity phrase (shown only
-// while the step actually runs), the animated edges, the executed-step chips
+// while the step actually runs), the frontier's flowing dot, the executed-step chips
 // with the running pulse, and the elapsed-time pill.
 const liveCommon = {
   steps: [
