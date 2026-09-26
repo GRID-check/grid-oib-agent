@@ -872,6 +872,8 @@ export const chat = {
   answerDetails: {
     trigger: 'Answer details',
     triggerAria: 'Show details for this answer',
+    // How long the turn took, question sent to answer final.
+    duration: 'Answered in {duration}',
     // Retrieved-but-uncited documents: what the turn read beyond what the
     // answer claims. Document chips only — no passages, no new claims.
     readSources: {
