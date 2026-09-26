@@ -292,7 +292,8 @@ let P_ = null;                                        // set per sheet draw: (sh
 
 const II = (() => {
   const SW = 12, SD = 8.2, GAP = 2.35, N = 6;          // sheet size and spacing, drawing metres
-  const FIT = { sq: { fill: 0.74, fillH: 0.76, cx: 0.5, cy: 0.49 } };
+  const FIT = { sq: { fill: 0.74, fillH: 0.76, cx: 0.5, cy: 0.49 },
+                corner: { fill: 0.15, fillH: 0.22, cx: 0.9, cy: 0.8 } };   // a deck slide's corner detail
 
   function draw(c, fmt) {
     const zs = [...Array(N)].map((_, i) => (N - 1 - i) * GAP);   // 0 = top sheet (sources)
@@ -440,7 +441,7 @@ const II = (() => {
     },
   ];
 
-  return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
+  return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], draw, key: 'hunter', numeral: { sq: [540, 1058], corner: [972, 585] } };
 })();
 
 /* ═════════════════════════════════════════════════════════════════════════════
@@ -458,7 +459,7 @@ const III = (() => {
   const R = 6.4, HW = 1.05, NQ = 260;                 // centre radius, half width, quads round the band
   const TILT = 0.42;                                  // band tipped toward the viewer about the x axis, radians
   const LIFT = 3.2;                                   // centre height above the table
-  const FIT = { sq: { fill: 0.78, fillH: 0.74, cx: 0.5, cy: 0.5 } };
+  const FIT = { sq: { fill: 0.78, fillH: 0.74, cx: 0.5, cy: 0.5 }, linkedin: { fill: 0.9, fillH: 0.8, cx: 0.6, cy: 0.47 } };
   // twist concentrated at the back (u ≈ π/2), so the front lies flat and readable
   // phi jumps from π back to 0 where the parameter wraps; the band itself is continuous
   // there (flat, v reversed), so the wrap sits on a station boundary, never inside a card
@@ -607,7 +608,7 @@ const III = (() => {
     line(c, cap, 1.1, KEY);
   }
 
-  return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
+  return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], draw, key: 'hunter', numeral: { sq: [540, 1058], linkedin: [1040, 250] } };
 })();
 
 /* ═════════════════════════════════════════════════════════════════════════════
@@ -626,7 +627,7 @@ const IV = (() => {
   const SITE = [-3.0, -4.6, 18.4, 11.2], SLAB = 0.55;
   const COL = [5.0, 3.4], CR = 0.19, CH = 4.0;
   const STAKE = [9.2, -2.7];
-  const FIT = { sq: { fill: 0.94, cx: 0.5, cy: 0.54 } };
+  const FIT = { sq: { fill: 0.94, cx: 0.5, cy: 0.54 }, cover: { fill: 0.56, fillH: 0.8, cx: 0.66, cy: 0.53 } };
   const OFF = 1.6, ARM = 1.3, BH = 0.8;                 // batter boards: offset, arm length, board height
 
   function batter(cx, cy, ox, oy) {
@@ -785,7 +786,7 @@ const V = (() => {
   const TILT = 0.95;                                   // board tipped back about x, radians
   const BW = 17, BD = 12, TH = 0.35;                   // board size and thickness, drawing metres
   const LC = [11.4, 6.6], LR = 2.7, LH = 1.3, MAG = 3.6; // lens centre on the board, radius, height, power
-  const FIT = { sq: { fill: 0.92, fillH: 0.84, cx: 0.5, cy: 0.5 } };
+  const FIT = { sq: { fill: 0.92, fillH: 0.84, cx: 0.5, cy: 0.5 }, sqlow: { fill: 0.74, fillH: 0.52, cx: 0.5, cy: 0.7 } };
 
   function draw(c, fmt) {
     const B = boardPlane([0, 0, 0], [1, 0, 0], [0, Math.cos(TILT), Math.sin(TILT)]);
@@ -920,7 +921,8 @@ function planeCyl(P, B, u, v, r, h0, h1) {
 
 const VI = (() => {
   const TILT = 1.12, TW = 19, TD = 13, TT = 0.5;
-  const FIT = { sq: { fill: 0.9, fillH: 0.86, cx: 0.5, cy: 0.5 } };
+  const FIT = { sq: { fill: 0.9, fillH: 0.86, cx: 0.5, cy: 0.5 }, linkedin: { fill: 0.9, fillH: 0.78, cx: 0.6, cy: 0.51 },
+                sqlow: { fill: 0.7, fillH: 0.5, cx: 0.5, cy: 0.7 }, a6: { fill: 0.84, fillH: 0.72, cx: 0.5, cy: 0.52 } };
   const STACK = [15.2, 8.6];
   const FLY = [[17.6, 12.2, 3.4, 0.5], [16.9, 11.0, 2.2, 0.32], [16.2, 9.9, 1.15, 0.18]];   // u, v, height, turn
 
@@ -1074,7 +1076,7 @@ const VI = (() => {
   }
   const wLeafFn = (w) => (u) => w * Math.pow(Math.sin(Math.PI * Math.pow(u, 0.55)), 1.15);
 
-  return { inks: ['mist', 'kelly', 'moss', 'hunter'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
+  return { inks: ['mist', 'kelly', 'moss', 'hunter'], draw, key: 'hunter', numeral: { sq: [540, 1058], linkedin: [1040, 250], a6: [540, 1440] } };
 })();
 
 /* ═════════════════════════════════════════════════════════════════════════════
@@ -1089,7 +1091,7 @@ const VII = (() => {
   const TOP = [-5.5, -3.2, 5.5, 4.4], SLAB = 0.45;       // tabletop extent
   const POST = 5.6, ARM = 3.4, TH = 0.11;                 // beam pivot height, half span, beam tilt
   const HANG = 3.9, PANR = 1.25, PW = 0.68, PD = 0.5, PH = 1.9;   // hangers; the pile's half footprint and height
-  const FIT = { sq: { fill: 0.84, fillH: 0.84, cx: 0.5, cy: 0.52 } };
+  const FIT = { sq: { fill: 0.84, fillH: 0.84, cx: 0.5, cy: 0.52 }, linkedin: { fill: 0.9, fillH: 0.78, cx: 0.6, cy: 0.53 } };
 
   function draw(c, fmt) {
     const [tx0, ty0, tx1, ty1] = TOP;
@@ -1194,7 +1196,7 @@ const VII = (() => {
     for (const h of front) line(c, poly(P, [end, h], false), 0.8, KEY);
   }
 
-  return { inks: ['mist', 'moss', 'hunter'], draw, key: 'hunter', numeral: { sq: [540, 1058] } };
+  return { inks: ['mist', 'moss', 'hunter'], draw, key: 'hunter', numeral: { sq: [540, 1058], linkedin: [1040, 250] } };
 })();
 
 /* ═════════════════════════════════════════════════════════════════════════════
@@ -1215,7 +1217,7 @@ const VIII = (() => {
   const NSTEP = 20, RISE = 4.0 / NSTEP, GO = 0.3, SY0 = -1.6;   // steps start at y = SY0
   const LAND = [SY0 + NSTEP * GO, SY0 + NSTEP * GO + 1.4];      // landing y range
   const DOOR = [LAND[0] + 0.25, LAND[1] - 0.15];                // door y range in the west wall
-  const FIT = { sq: { fill: 0.84, fillH: 0.76, cx: 0.53, cy: 0.5 } };
+  const FIT = { sq: { fill: 0.84, fillH: 0.76, cx: 0.53, cy: 0.5 }, cover: { fill: 0.6, fillH: 0.8, cx: 0.66, cy: 0.5 } };
 
   function draw(c, fmt) {
     const [sx0, sy0, sx1, sy1] = SITE;
@@ -1333,13 +1335,13 @@ Riso.run({
   work: 'tafeln',
   plates: [
     { name: 'stuetzen',     base: 'piloti-i-stuetzen',      art: I,    composes: ['sq', 'og', 'wide'] },
-    { name: 'schichten',    base: 'piloti-ii-schichten',    art: II,   composes: ['sq'] },
-    { name: 'schleife',     base: 'piloti-iii-schleife',    art: III,  composes: ['sq'] },
-    { name: 'bauplatz',     base: 'piloti-iv-bauplatz',     art: IV,   composes: ['sq'] },
-    { name: 'pruefstand',   base: 'piloti-v-pruefstand',    art: V,    composes: ['sq'] },
-    { name: 'zeichentisch', base: 'piloti-vi-zeichentisch', art: VI,   composes: ['sq'] },
-    { name: 'waage',        base: 'piloti-vii-waage',       art: VII,  composes: ['sq'] },
-    { name: 'tuer',         base: 'piloti-viii-tuer',       art: VIII, composes: ['sq'] },
+    { name: 'schichten',    base: 'piloti-ii-schichten',    art: II,   composes: ['sq', 'corner'] },
+    { name: 'schleife',     base: 'piloti-iii-schleife',    art: III,  composes: ['sq', 'linkedin'] },
+    { name: 'bauplatz',     base: 'piloti-iv-bauplatz',     art: IV,   composes: ['sq', 'cover'] },
+    { name: 'pruefstand',   base: 'piloti-v-pruefstand',    art: V,    composes: ['sq', 'sqlow'] },
+    { name: 'zeichentisch', base: 'piloti-vi-zeichentisch', art: VI,   composes: ['sq', 'linkedin', 'sqlow', 'a6'] },
+    { name: 'waage',        base: 'piloti-vii-waage',       art: VII,  composes: ['sq', 'linkedin'] },
+    { name: 'tuer',         base: 'piloti-viii-tuer',       art: VIII, composes: ['sq', 'cover'] },
   ],
   jobs: [
     { plate: 'stuetzen', format: 'plate',
@@ -1380,6 +1382,17 @@ Riso.run({
       alt: { de: 'Risografie im Morgenlicht: eine Außentreppe führt an einem aufgeständerten Haus zu einer offenen Tür, aus der grünes Licht fällt; Trittsteine queren die Wiese.',
              en: 'Risograph at dawn: an outside stair climbs a raised house to an open door that spills green light; stepping stones cross the lawn.' },
       caption: { de: 'Tafel VIII — Offene Tür', en: 'Plate VIII — Open door' } },
+    /* Off-site collateral (art/riso/out/tafeln/): LinkedIn banners, social templates,
+       deck slides, a postcard. The founders' kit is described in ../collateral/PRINT.md. */
+    { plate: 'zeichentisch', format: 'linkedin' },
+    { plate: 'schleife',     format: 'linkedin' },
+    { plate: 'waage',        format: 'linkedin' },
+    { plate: 'zeichentisch', format: 'social', compose: 'sqlow', id: 'tafeln/zeichentisch/social-titel' },
+    { plate: 'pruefstand',   format: 'social', compose: 'sqlow', id: 'tafeln/pruefstand/social-titel' },
+    { plate: 'bauplatz',     format: 'deck' },
+    { plate: 'schichten',    format: 'deck', compose: 'corner', id: 'tafeln/schichten/deck-ecke' },
+    { plate: 'tuer',         format: 'deck' },
+    { plate: 'zeichentisch', format: 'postcard' },
   ],
 });
 </script>

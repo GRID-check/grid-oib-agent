@@ -25,11 +25,13 @@
    signature strip, LinkedIn banners, social squares, pitch-deck backgrounds
    and an A6 thank-you postcard (front and back, with press separations).
 
-   Every picture is one scene of the series world: plate I's house on three
-   pilotis, on its model board, under the series camera. A plate here is a
-   SPEC (what stands on the board, how it is framed); sceneDraw() draws any
-   spec. The house, stair and lone column are ported from tafeln/index.html
-   (plates I, IV, VIII) so they are the same objects, not look-alikes.
+   Only the pieces that need plate I's house in a new arrangement live here:
+   the strip, the company banner, the build-log square (the house not built
+   yet), the title slide and the postcard. Everything else reuses the Tafeln
+   plates in new compositions (JOBS in ../tafeln/index.html), so the kit is
+   not the same house eight times. A plate here is a SPEC (what stands on the
+   board, how it is framed); sceneDraw() draws any spec. The house and stair
+   are ported from tafeln/index.html (plates I, VIII): the same objects.
 
    Canvas 2D only: no libraries, fonts, images, text or network. Top-level code
    defines constants only; lib/ names (W, H, K, INK, line, own, fit ...) are
@@ -59,11 +61,10 @@ const DIM_OFF = -2.2;
  *   dawn  plate IV/VIII's low sun and morning haze
  *   lw    line-weight scale (small or printed formats go heavier)
  *   solid column shade as a solid band (small formats) instead of a dot ramp
- *   house, door (stair + open door, plate VIII), lit (lamps on in the
- *   ribbon windows), dim (chain dimension), figure [x y], walk, stones
- *   (x where the path starts), stake [x0 y0 x1 y1] (a plot set out for the
- *   next house), lone [x y] (plate IV's column with its rebar), rohbau (the
- *   columns stand, the volume is still dashed lines), sprayK (gravel density)
+ *   house, door (stair + open door, plate VIII), dim (chain dimension),
+ *   figure [x y], walk, stones (x where the path starts), stake [x0 y0 x1 y1]
+ *   (a plot set out for the next house), rohbau (the columns stand, the
+ *   volume is still dashed lines), sprayK (gravel density)
  */
 function sceneDraw(c, S) {
   const [sx0, sy0, sx1, sy1] = S.site;
@@ -87,7 +88,7 @@ function sceneDraw(c, S) {
   if (c.ink === 'kelly') { c.g.save(); c.g.clip(top); hatch(c.g, null, c.rng, { gap: 4.6, w: 1.0, ang: -0.05, a: 0.3, cut: true }); c.g.restore(); }
   if (S.dawn && c.ink === 'mist') shade(c.g, top, { x0: 0, y0: P([0, sy1, 0])[1], x1: 0, y1: P([0, sy0, 0])[1], stops: [[0, 0.5], [0.5, 0.12], [1, 0]] });
 
-  /* ground marks: the gravel walk, stepping stones, the structural grid, a plot set out */
+  /* ground marks: the gravel walk, stepping stones, a plot set out */
   if (S.walk) {
     const walk = poly(P, [[6.2, sy0, 0], [8.4, sy0, 0], [8.4, 2.2, 0], [6.2, 2.2, 0]]);
     own(c, walk, { mist: 0.12 });
@@ -118,7 +119,6 @@ function sceneDraw(c, S) {
     for (let i = 0; i < N; i++) shapes.push(boxShadow(P, boxCorners(SX0, SY0 + i * GO, 0, SX1, SY0 + (i + 1) * GO, (i + 1) * RISE), SUN));
     shapes.push(boxShadow(P, boxCorners(SX0, LAND[0], z0 - 0.25, SX1 + 0.6, LAND[1], z0), SUN));
   }
-  if (S.lone) shapes.push(cylShadow(P, S.lone[0], S.lone[1], COL_R, z0, SUN));
   groundShadow(c, top, shapes, { hunter: S.dawn ? 0.6 : 0.64 });
   line(c, top, lw(1.5), KEY);
   line(c, edgeS, lw(1.5), KEY);
@@ -126,8 +126,7 @@ function sceneDraw(c, S) {
 
   /* — what stands on the ground, far to near — */
   const items = [];
-  if (S.house) for (const [cx, cy] of HOUSE_COLS) items.push({ d: depth(P, [cx, cy, 0]), f: () => column(c, P, S, lw, cx, cy, z0, false) });
-  if (S.lone) items.push({ d: depth(P, [S.lone[0], S.lone[1], 0]), f: () => column(c, P, S, lw, S.lone[0], S.lone[1], z0, true) });
+  if (S.house) for (const [cx, cy] of HOUSE_COLS) items.push({ d: depth(P, [cx, cy, 0]), f: () => column(c, P, S, lw, cx, cy, z0) });
   if (S.figure) items.push({ d: depth(P, [S.figure[0], S.figure[1], 0]), f: () => {
     const f = figure(P([S.figure[0], S.figure[1], 0]), 1.75 * P.s * VIEW_SERIES.fz, { back: 0.035 });
     own(c, f.body, { hunter: 1, moss: 0.62 });
@@ -146,11 +145,11 @@ function sceneDraw(c, S) {
 /** A line between two world points. */
 const E = (P, a, b) => poly(P, [a, b], false);
 
-/** A piloti. `rebar`: the lone column of plate IV, capped by rebar ends. */
-function column(c, P, S, lw, cx, cy, h, rebar) {
+/** A piloti. */
+function column(c, P, S, lw, cx, cy, h) {
   const cyl = cylinder(P, cx, cy, COL_R, 0, h);
   own(c, cyl.sil, {});
-  if (S.solid || rebar) {
+  if (S.solid) {
     // a column a few screen cells wide cannot carry a dot ramp: a solid band
     c.L.save(); c.L.clip(cyl.sil);
     lineFill(c, pathOf([[lerp(cyl.xl, cyl.xr, 0.64), 0], [cyl.xr + 2, 0], [cyl.xr + 2, H], [lerp(cyl.xl, cyl.xr, 0.64), H]]), { moss: 0.5 });
@@ -159,19 +158,10 @@ function column(c, P, S, lw, cx, cy, h, rebar) {
     shade(c.g, cyl.sil, { x0: cyl.xl, y0: 0, x1: cyl.xr, y1: 0, stops: [[0, 0], [0.5, 0], [0.7, 0.4], [1, 0.52]] });
     shade(c.g, cyl.sil, { x0: 0, y0: cyl.head[1], x1: 0, y1: cyl.head[1] + 0.9 * P.s, stops: [[0, 0.45], [1, 0]] });
   }
-  if (rebar) own(c, cyl.top, { mist: 0.4 });
   line(c, cyl.sil, lw(1.4), KEY);
-  if (rebar) line(c, cyl.top, lw(1.0), KEY);
   const f = cyl.foot, w = cyl.xr - cyl.xl;
   const ring = new Path2D(); ring.ellipse(f[0], f[1] + 0.3, w * 0.7, w * 0.22, 0, 0, TAU);
   tint(c, ring, { hunter: 0.8 });
-  if (!rebar) return;
-  const rb = new Path2D();
-  [[0.09, 0.0, 0.62], [-0.08, 0.05, 0.5], [0.02, -0.09, 0.7], [-0.02, 0.1, 0.44]].forEach(([dx, dy, hh], i) => {
-    const a = P([cx + dx, cy + dy, h]), b = P([cx + dx + (i % 2 ? -0.06 : 0.05), cy + dy, h + hh]);
-    rb.moveTo(a[0], a[1]); rb.lineTo(b[0], b[1]);
-  });
-  line(c, rb, lw(1.3), KEY_DARK);
 }
 
 /** Plate I's chain dimension in the board's west margin: clear height, then the storey. */
@@ -214,16 +204,10 @@ function houseVolume(c, P, S, lw) {
   const winS = poly(P, [[x0 + inset, y0, wz0], [x1 - inset, y0, wz0], [x1 - inset, y0, wz1], [x0 + inset, y0, wz1]]);
   const wy1 = S.door ? STAIR.DOOR[0] - 0.7 : y1 - inset;
   const winW = poly(P, [[x0, y0 + inset, wz0], [x0, wy1, wz0], [x0, wy1, wz1], [x0, y0 + inset, wz1]]);
-  if (S.lit) {                                         // lamps on inside at dawn: the office at work
-    own(c, winS, { kelly: 0.82, mist: 0.35 });
-    own(c, winW, { kelly: 0.7, mist: 0.3 });
-    if (c.ink === 'kelly') shade(c.g, winS, { x0: P([x0, y0, 0])[0], y0: 0, x1: P([x1, y0, 0])[0], y1: 0, stops: [[0, 0.25], [0.5, 0], [1, 0.3]], cut: true });
-  } else {
-    own(c, winS, { hunter: 0.86, moss: 0.62 });
-    own(c, winW, { hunter: 0.8, moss: 0.5 });
-  }
+  own(c, winS, { hunter: 0.86, moss: 0.62 });
+  own(c, winW, { hunter: 0.8, moss: 0.5 });
   tint(c, poly(P, [[x0 + inset, y0, wz1 - 0.28], [x1 - inset, y0, wz1 - 0.28], [x1 - inset, y0, wz1], [x0 + inset, y0, wz1]]), { moss: 0.35, hunter: 0.14 });
-  if (c.ink === 'hunter' && !S.solid && !S.lit) {
+  if (c.ink === 'hunter' && !S.solid) {
     shade(c.g, winS, { x0: P([x0, y0, 0])[0], y0: 0, x1: P([x1, y0, 0])[0], y1: 0,
       stops: [[0, 0.05], [0.3, 0.32], [0.45, 0.06], [0.7, 0.24], [1, 0.02]], cut: true });
   }
@@ -270,9 +254,9 @@ function houseVolume(c, P, S, lw) {
   tint(c, poly(P, [[PV[0], PV[1], PV[5] - band], [PV[3], PV[1], PV[5] - band], [PV[3], PV[1], PV[5]], [PV[0], PV[1], PV[5]]]), { moss: 0.38 });
   tint(c, poly(P, [[PV[0], PV[1], PV[5] - band], [PV[0], PV[4], PV[5] - band], [PV[0], PV[4], PV[5]], [PV[0], PV[1], PV[5]]]), { moss: 0.3 });
   const door = poly(P, [[PV[0], 6.2, z1], [PV[0], 7.1, z1], [PV[0], 7.1, z1 + 1.95], [PV[0], 6.2, z1 + 1.95]]);
-  own(c, door, S.lit ? { kelly: 0.7, mist: 0.3 } : { hunter: 0.8, moss: 0.5 });
+  own(c, door, { hunter: 0.8, moss: 0.5 });
   const slot = poly(P, [[11.0, PV[1], z1 + 0.9], [14.0, PV[1], z1 + 0.9], [14.0, PV[1], z1 + 1.45], [11.0, PV[1], z1 + 1.45]]);
-  own(c, slot, S.lit ? { kelly: 0.82, mist: 0.35 } : { hunter: 0.86, moss: 0.62 });
+  own(c, slot, { hunter: 0.86, moss: 0.62 });
   line(c, door, lw(0.9), KEY); line(c, slot, lw(0.9), KEY);
   line(c, pv.sil, lw(1.2), KEY);
   line(c, E(P, [PV[0], PV[1], PV[2]], [PV[0], PV[1], PV[5]]), lw(1.0), KEY);
@@ -345,8 +329,9 @@ const SIGNATUR = scenePlate('signatur', {
    2. LinkedIn banners, 1584 × 396. LinkedIn lays the profile photo (or the
    company logo) over the bottom left, so that quarter stays paper; the subject
    keeps to the middle band, which survives LinkedIn's crop on phones.
-   One house, four readings: the company (the next plot staked out), and one
-   per founder, each told by what stands on the lawn.
+   The company banner is here: the house, and the next one staked out beside
+   it. The founders' banners are Tafeln plates VI, III and VII (see JOBS in
+   ../tafeln/index.html).
    ═════════════════════════════════════════════════════════════════════════ */
 const LI_FIT = { fill: 0.9, fillH: 0.76, cx: 0.58, cy: 0.5 };
 /* the whole board in frame, west margin included: a model on the table, not a runway */
@@ -354,43 +339,25 @@ const liFrame = (site) => houseFrame(site, [[DIM_OFF + site[0], 0, 0], [site[2],
 /* the company: the house, and on the lawn beside it the next one set out */
 const LI_PILOTI_SITE = [-3.2, -3.4, 40, 10.6];
 const LI_PILOTI = scenePlate('li-piloti', { site: LI_PILOTI_SITE, frame: liFrame(LI_PILOTI_SITE), fit: LI_FIT, house: true, walk: true, stake: [25, 0.5, 36, 8.0], lw: 1.1 });
-const LI_SITE = [-3.2, -3.4, 28, 10.6];
-/* Jonathan Uhlemann, architecture and product: the chain dimension and the figure with the roll */
-const LI_UHLEMANN = scenePlate('li-uhlemann', { site: LI_SITE, frame: liFrame(LI_SITE), fit: LI_FIT, house: true, walk: true, dim: true, figure: [7.4, -1.9], lw: 1.1 });
-/* Matthias Bigl, software and AI: dawn, and the lamps are already on inside */
-const LI_BIGL = scenePlate('li-bigl', { site: LI_SITE, frame: liFrame(LI_SITE), fit: LI_FIT, house: true, lit: true, dawn: true, lw: 1.1 });
-/* Ferdinand Rubenbauer, business and sales: stepping stones to an open door */
-const LI_RUB_SITE = [-8.5, -5.6, 26, 10.6];
-const LI_RUBENBAUER = scenePlate('li-rubenbauer', { site: LI_RUB_SITE, frame: liFrame(LI_RUB_SITE), fit: LI_FIT, house: true, door: true, stones: -6.6, dawn: true, lw: 1.1 });
 
 /* ═════════════════════════════════════════════════════════════════════════
    3. Social squares, 1080 × 1080, blog-post announcement templates. The
    picture holds the lower part; the upper half is paper for the title the
-   founders set in their own tool. No text in the image.
+   founders set in their own tool. No text in the image. The build-log
+   square is here; the other two are plates VI and V (../tafeln/index.html).
    ═════════════════════════════════════════════════════════════════════════ */
 const SQ_SITE = [-3.2, -4.4, 40, 12.2];
-/* Journal: the house, the lawn running off to the right */
-const SO_HAUS = scenePlate('so-haus', { site: SQ_SITE, frame: houseFrame(SQ_SITE, [[DIM_OFF + SQ_SITE[0], 0, 0]]), fit: { fill: 0.8, fillH: 0.4, cx: 0.52, cy: 0.74 }, house: true, walk: true, figure: [7.4, -1.9] });
 /* Build log: the three columns stand, the house is still a drawing in the air */
 const SO_ROHBAU = scenePlate('so-rohbau', { site: SQ_SITE, frame: houseFrame(SQ_SITE), fit: { fill: 0.8, fillH: 0.4, cx: 0.5, cy: 0.74 }, house: true, rohbau: true, figure: [7.4, -1.9] });
-/* An invitation: plate VIII's door and stair, close on the west end */
-const SO_TUER = scenePlate('so-tuer', { site: [-7.5, -6.5, 30, 12.2], frame: doorFrame(10), fit: { fill: 0.8, fillH: 0.46, cx: 0.54, cy: 0.71 }, house: true, door: true, stones: -5.8, dawn: true });
 
 /* ═════════════════════════════════════════════════════════════════════════
-   4. Deck backgrounds, 1920 × 1080. Title (plate I, house at the right, the
-   left for the title), section divider (a plot set out on the lawn, one
-   column already standing, low in the frame),
-   content (paper, one small house in the bottom-right corner), closing
-   (plate VIII's open door).
+   4. Deck title slide, 1920 × 1080: plate I, the house at the right with its
+   chain dimension and figure, the left two fifths paper for the title. The
+   divider (IV), content (II in the corner) and closing (VIII) slides are
+   Tafeln jobs.
    ═════════════════════════════════════════════════════════════════════════ */
 const DK_SITE = [-3.2, -5.2, 40, 12.2];
 const DK_TITEL = scenePlate('dk-titel', { site: DK_SITE, frame: houseFrame(DK_SITE, [[DIM_OFF + DK_SITE[0], 0, 0]]), fit: { fill: 0.56, fillH: 0.62, cx: 0.66, cy: 0.54 }, house: true, walk: true, dim: true, figure: [7.4, -2.6] });
-const DK_KAPITEL = scenePlate('dk-kapitel', {
-  site: [-3.0, -4.6, 24, 11.2], frame: [[-3.0, -4.6, -BOARD_SLAB], [-3.0, 11.2, 0], [5.0, 3.4, 4.6], [24, -4.6, -BOARD_SLAB], [24, 11.2, 0]],
-  fit: { fill: 0.5, fillH: 0.36, cx: 0.7, cy: 0.76 }, dawn: true, stake: [0, 0, 14, 9], lone: [5.0, 3.4],
-});
-const DK_INHALT = scenePlate('dk-inhalt', { site: [-2.4, -3.0, 19.5, 11.0], frame: [[-2.4, -3.0, -BOARD_SLAB], [-2.4, 11.0, 0], [16, 9, 9.8], [19.5, -3.0, -BOARD_SLAB]], fit: { fill: 0.16, fillH: 0.16, cx: 0.9, cy: 0.87 }, house: true, solid: true, lw: 1.2, sprayK: 0.3 });
-const DK_SCHLUSS = scenePlate('dk-schluss', { site: [-7.5, -6.5, 40, 12.2], frame: doorFrame(12), fit: { fill: 0.5, fillH: 0.74, cx: 0.66, cy: 0.52 }, house: true, door: true, stones: -5.8, dawn: true });
 
 /* ═════════════════════════════════════════════════════════════════════════
    5. A6 postcard, 1240 × 1748 at 300 dpi, for the pilot offices: a thank-you.
@@ -442,16 +409,8 @@ Riso.run({
   plates: [
     { name: 'signatur',      base: 'piloti-signatur',           art: SIGNATUR,      composes: ['strip'], number: 0 },
     { name: 'li-piloti',     base: 'piloti-linkedin-piloti',     art: LI_PILOTI,     composes: ['linkedin'], number: 0 },
-    { name: 'li-uhlemann',   base: 'piloti-linkedin-uhlemann',   art: LI_UHLEMANN,   composes: ['linkedin'], number: 0 },
-    { name: 'li-bigl',       base: 'piloti-linkedin-bigl',       art: LI_BIGL,       composes: ['linkedin'], number: 0 },
-    { name: 'li-rubenbauer', base: 'piloti-linkedin-rubenbauer', art: LI_RUBENBAUER, composes: ['linkedin'], number: 0 },
-    { name: 'so-haus',       base: 'piloti-social-haus',         art: SO_HAUS,       composes: ['sq'], number: 0 },
     { name: 'so-rohbau',     base: 'piloti-social-rohbau',       art: SO_ROHBAU,     composes: ['sq'], number: 0 },
-    { name: 'so-tuer',       base: 'piloti-social-tuer',         art: SO_TUER,       composes: ['sq'], number: 0 },
     { name: 'dk-titel',      base: 'piloti-deck-1-titel',        art: DK_TITEL,      composes: ['cover'], number: 0 },
-    { name: 'dk-kapitel',    base: 'piloti-deck-2-kapitel',      art: DK_KAPITEL,    composes: ['cover'], number: 0 },
-    { name: 'dk-inhalt',     base: 'piloti-deck-3-inhalt',       art: DK_INHALT,     composes: ['cover'], number: 0 },
-    { name: 'dk-schluss',    base: 'piloti-deck-4-schluss',      art: DK_SCHLUSS,    composes: ['cover'], number: 0 },
     { name: 'karte',         base: 'piloti-karte-vorderseite',   art: KARTE,         composes: ['a6'], number: 0 },
     { name: 'rueckseite',    base: 'piloti-karte-rueckseite',    art: RUECKSEITE,    composes: ['a6'], number: 0 },
   ],
@@ -459,16 +418,8 @@ Riso.run({
     { plate: 'signatur', format: 'email',
       alt: { de: 'Piloti – ein Haus auf drei Stützen', en: 'Piloti – a house on three columns' } },
     { plate: 'li-piloti', format: 'linkedin' },
-    { plate: 'li-uhlemann', format: 'linkedin' },
-    { plate: 'li-bigl', format: 'linkedin' },
-    { plate: 'li-rubenbauer', format: 'linkedin' },
-    { plate: 'so-haus', format: 'social' },
     { plate: 'so-rohbau', format: 'social' },
-    { plate: 'so-tuer', format: 'social' },
     { plate: 'dk-titel', format: 'deck' },
-    { plate: 'dk-kapitel', format: 'deck' },
-    { plate: 'dk-inhalt', format: 'deck' },
-    { plate: 'dk-schluss', format: 'deck' },
     { plate: 'karte', format: 'postcard' },
     { plate: 'rueckseite', format: 'postcard' },
   ],
