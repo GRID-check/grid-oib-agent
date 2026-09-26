@@ -1,11 +1,10 @@
 ---
 features:
   - >
-    The assistant now knows how you filed your project documents. It can tell
-    you what is in Brandschutz, name the folder when it points you at a file,
-    and search inside one folder — including everything nested under it, so
-    Brandschutz also covers Brandschutz/Fluchtwege. Renaming or moving a folder
-    updates what it sees, with nothing to re-upload.
+    Piloti now knows how you filed your project documents: it can say what is in
+    Brandschutz, name the folder when it points at a file, and search one folder
+    including its subfolders. Renaming or moving a folder updates what it sees
+    without re-uploading anything.
 fixes:
   - >
     Re-uploading or re-processing a document no longer discards its name, its

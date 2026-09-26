@@ -1,0 +1,35 @@
+---
+/**
+ * The category as a small mono chip. A link to the category's listing when
+ * `href` is given; a plain label inside a card, which is itself one link.
+ */
+import type { Locale } from '../../i18n/ui'
+import { CATEGORIES, type Category } from '../../lib/categories'
+
+interface Props {
+  category: Category
+  locale: Locale
+  href?: string
+}
+const { category, locale, href } = Astro.props
+const Tag = href ? 'a' : 'span'
+// Journal reads as print on paper; the build log as the dark site-office
+// board it borrows its name from. The two stay apart at chip size too.
+const tones: Record<Category, string> = {
+  journal: 'bg-surface text-accent-700 ring-1 ring-accent-600/20',
+  bautagebuch: 'bg-panel text-on-dark-strong',
+}
+---
+
+<Tag
+  href={href}
+  class:list={[
+    'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-2xs font-medium uppercase tracking-label',
+    tones[category],
+    href &&
+      "relative transition-opacity after:absolute after:-inset-x-1 after:-inset-y-2.5 after:content-[''] hover:opacity-80",
+  ]}
+>
+  {category === 'bautagebuch' && <span class="size-1.5 rounded-full bg-accent-400" aria-hidden="true" />}
+  {CATEGORIES[locale][category].label}
+</Tag>

@@ -1,0 +1,179 @@
+---
+/**
+ * A print taped to the drawing: a picture on a white paper margin, one strip
+ * of tape across the top, a little off square, an optional caption in mono.
+ *
+ * Two uses:
+ *
+ *   A riso print, by art id (see src/lib/art.ts and plates.ts):
+ *     <TapedPrint name={TRAGWERK.II} size="half" phone="third" />
+ *
+ *   Anything else, passed as the slot (a photo, a blog cover):
+ *     <TapedPrint size="photo"><Image src={…} alt="…" /></TapedPrint>
+ *
+ * Prints are screened bitmaps, so they are a plain <img> at an integer
+ * fraction of their pixel size, never astro:assets: resampling a halftone
+ * screen by an odd factor produces moiré. `full` shows the 1x file at its own
+ * CSS size with the 2x file for 2x screens; `half` and `third` show the 1x
+ * file at exactly 1/2 and 1/3. The only other scaling is `max-width: 100%`
+ * on a phone narrower than the print.
+ *
+ * With `locale`, alt text and caption default to the ones the work declared
+ * (src/data/art.json); `alt` and `caption` passed here win. Without it the
+ * print is decorative (empty alt), for when the text beside it says it all.
+ */
+import { art, artFile, type ArtId } from '../../lib/art'
+import type { Locale } from '../../i18n/ui'
+import Tape from './Tape.astro'
+import InkPass from '../motion/InkPass.astro'
+
+interface Props {
+  /** An art id, e.g. `tafeln/stuetzen/plate`. Omit when passing a slot. */
+  name?: ArtId
+  /** Picks the declared alt text and caption for a print. */
+  locale?: Locale
+  /** Empty (the default without `locale`) when the print sits beside text that says it all. */
+  alt?: string
+  caption?: string
+  /** CSS width: the print's own (720 px for a plate), half or a third of it. `photo` fits the slot. */
+  size?: 'full' | 'half' | 'third' | 'photo'
+  /**
+   * Below `sm`, show a plate at a third of its size instead (240 px, the same
+   * integer fraction of the 1x file). A half plate is wider than a phone's
+   * column and would otherwise be squeezed by `max-width` to an odd factor.
+   */
+  phone?: 'third'
+  /** Degrees, clamped to ±2: anything more and a caption starts to lean. */
+  rotate?: number
+  align?: 'start' | 'center' | 'end'
+  loading?: 'lazy' | 'eager'
+  /** A plate arrives by ink pass (components/motion/InkPass); `still` opts out. */
+  still?: boolean
+  class?: string
+}
+const {
+  name,
+  locale,
+  size = 'half',
+  phone,
+  rotate = -1,
+  align = 'start',
+  loading = 'lazy',
+  still = false,
+  class: className = '',
+} = Astro.props
+
+const TAPE = { full: '8rem', half: '6rem', third: '4.5rem', photo: '3.25rem' }[size]
+// A plate is a screened bitmap shown at an integer scale: rotating it by even
+// one degree resamples the dots into moiré. Plates hang straight and the tape
+// carries the tilt; only photos (the slot) lean.
+const ALIGN = { start: '', center: 'mx-auto', end: 'ml-auto' }
+
+const hasSlot = Astro.slots.has('default')
+const lean = Math.max(-2, Math.min(2, rotate))
+const tilt = hasSlot ? lean : 0
+const print = !hasSlot && name ? art(name) : undefined
+const DIVISOR = { full: 1, half: 2, third: 3, photo: 1 }[size]
+let plate: { src: string; srcset?: string; width: number; height: number } | undefined
+if (print) {
+  const lo = artFile(print, 1)
+  const hi = size === 'full' ? print.files.find((f) => f.density === 2) : undefined
+  plate = {
+    src: lo.src,
+    srcset: hi ? `${lo.src} 1x, ${hi.src} 2x` : undefined,
+    width: print.width / DIVISOR,
+    height: print.height / DIVISOR,
+  }
+}
+const alt = Astro.props.alt ?? (print && locale ? print.alt[locale] : '')
+// A caption only where a page asks for one: the site prints no plate titles.
+const caption = Astro.props.caption
+const show = hasSlot || plate !== undefined
+---
+
+{
+  show && (
+    <figure
+      class:list={['craft-print', `craft-print--${size}`, phone && plate && `craft-print--phone-${phone}`, 'm-0', ALIGN[align], className]}
+      style={`--rot: ${tilt}deg`}
+    >
+      <Tape class="-top-2.5 left-1/2 -translate-x-1/2" length={TAPE} rotate={-lean * 1.5} seed={name?.length ?? 1} />
+      <div class="craft-print__sheet">
+        {plate ? (
+          <InkPass off={still}>
+            <img
+              src={plate.src}
+              srcset={plate.srcset}
+              width={plate.width}
+              height={plate.height}
+              alt={alt}
+              loading={loading}
+              decoding="async"
+            />
+          </InkPass>
+        ) : (
+          <slot />
+        )}
+        {caption && <figcaption>{caption}</figcaption>}
+      </div>
+    </figure>
+  )
+}
+
+<style>
+  /* In Tailwind's components layer, below utilities: a caller's `class`
+     (a width, a margin) then wins over these defaults, as it would not over
+     unlayered scoped CSS. */
+  @layer components {
+    .craft-print {
+      position: relative;
+      width: fit-content;
+      max-width: 100%;
+      rotate: var(--rot);
+    }
+    /* The paper: white, square-cornered, lying flat on the grid with a short
+       contact shadow and a longer soft one. No texture; the print is the
+       texture. */
+    .craft-print__sheet {
+      background: #fdfdfb;
+      padding: 0.75rem;
+      border-radius: 2px;
+      box-shadow:
+        0 0 0 1px rgb(30 34 22 / 0.05),
+        0 1px 2px rgb(30 34 22 / 0.1),
+        0 14px 28px -16px rgb(30 34 22 / 0.3);
+    }
+    .craft-print--third .craft-print__sheet,
+    .craft-print--photo .craft-print__sheet {
+      padding: 0.375rem;
+    }
+    @media (max-width: 39.99rem) {
+      .craft-print--phone-third .craft-print__sheet {
+        padding: 0.375rem;
+      }
+      .craft-print--phone-third img {
+        width: 240px;
+      }
+      /* The tape sets its length inline; the phone size shortens it to the
+         third plate's strip. */
+      .craft-print--phone-third :global(.craft-tape) {
+        --len: 4.5rem !important;
+      }
+    }
+    img,
+    .craft-print__sheet > :global(img) {
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
+    figcaption {
+      margin-top: 0.625rem;
+      font-family: var(--font-mono, 'IBM Plex Mono', monospace);
+      font-size: 0.6875rem;
+      line-height: 1.3;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #625f57;
+    }
+  }
+</style>

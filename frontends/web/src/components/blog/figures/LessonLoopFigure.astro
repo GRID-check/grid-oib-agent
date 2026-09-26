@@ -132,4 +132,27 @@ const boxes = [
     <text class="fp-label" x="346" y="492">{labels.holdout}</text>
     <text class="fp-label--muted" x="346" y="512">{labels.holdoutSub}</text>
   </svg>
+
+  {/* Below xl: the loop unrolled into a numbered column that returns to the top. */}
+  <div slot="mobile" class="fpm-flow">
+    {
+      labels.steps.map((step, i) => (
+        <>
+          {i > 0 && <div class="fpm-arrow" />}
+          <div class:list={['fpm-box', i === labels.steps.length - 1 ? 'fpm-box--tint' : 'fpm-box--soft']}>
+            <span class="fpm-label">
+              <span class="fpm-no">{String(i + 1).padStart(2, '0')}</span>
+              {step.label}
+            </span>
+            <span class="fpm-sub">{step.sub}</span>
+          </div>
+        </>
+      ))
+    }
+    <p class="fpm-accent fpm-note">↺ {labels.loop} → 01</p>
+    <div class="fpm-box fpm-box--dash" style="margin-top: 22px">
+      <span class="fpm-label">{labels.holdout}</span>
+      <span class="fpm-sub">{labels.holdoutSub}</span>
+    </div>
+  </div>
 </FigureFrame>

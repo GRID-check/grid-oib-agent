@@ -1,20 +1,14 @@
 ---
 features:
   - >
-    Piloti nimmt jetzt Arbeit an, die länger dauert als eine Antwort: „Mach den
-    Einreichcheck bis Freitag" legt einen Auftrag an, der danach selbständig
-    läuft und sich meldet, wenn er fertig ist. Der Auftrag steht mit Ihrem Namen
-    und Ihren Rechten da — Sie sehen als Karte im Gespräch, was angenommen wurde
-    und bis wann.
+    Piloti now takes on work that lasts longer than an answer: „Mach den
+    Einreichcheck bis Freitag“ creates a task that runs on its own, under your
+    name and permissions, and reports back when done.
   - >
-    Geben Sie einen Entwurf mit „Änderungen anfordern" zurück, liest Piloti Ihre
-    Begründung im nächsten Zug derselben Unterhaltung wörtlich mit und
-    überarbeitet den Entwurf daraufhin — es entsteht die nächste Fassung
-    desselben Dokuments, kein zweites. Bei Entwürfen ohne laufendes Gespräch,
-    etwa einem nächtlichen Bericht, legt Piloti dafür selbst einen Auftrag an.
+    Send a draft back with Änderungen anfordern and Piloti revises it from your
+    reason, producing the next version of the same document rather than a second
+    one.
 upgrade:
   - >
-    Ein fertiger Recherchebericht wird ab sofort als ENTWURF im Projekt
-    abgelegt und Ihnen zur Freigabe vorgelegt, statt sofort wie eine geprüfte
-    Datei dazustehen. Inhalt, Deckblatt und Ablageort ändern sich nicht — nur
-    der Zustand, den die Dateiablage anzeigt.
+    A finished research report is now filed as a draft and put to you for
+    approval, instead of standing in the project like a checked file.

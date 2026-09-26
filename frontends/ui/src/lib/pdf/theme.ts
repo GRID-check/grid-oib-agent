@@ -97,16 +97,3 @@ export const PDF_PAGE = {
   headerTop: 34,
   footerBottom: 30,
 } as const
-
-/** The Piloti mark's own geometry, shared by every place that draws it. */
-export const BRAND_MARK = {
-  /** The viewBox the app's inline SVG logo uses (`components/brand/logo.tsx`). */
-  viewBox: '0 0 24 24',
-  /**
-   * The four-square glyph, character for character the same path the app draws.
-   * Copied rather than imported because the app's logo is a DOM `<svg>` in a
-   * client component: importing it here would pull `cn`, Tailwind classes and
-   * `currentColor` into a renderer that has none of them.
-   */
-  path: 'M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z',
-} as const

@@ -1,8 +1,6 @@
 ---
-fixes:
+operators:
   - >
-    Die Denkstufe unter Plattform → Modelle gilt jetzt für alle Agenten. Bisher
-    kam sie nur bei wenigen Nebenrollen an; Piloti, die Tiefenrecherche und die
-    Compliance-Prüfung dachten weiter mit dem Wert aus der Konfiguration, egal
-    was eingestellt war. Das Modell greift wie gehabt ab der nächsten neuen
-    Unterhaltung, die Denkstufe innerhalb einer Minute.
+    The reasoning effort set under Platform → Models now applies to every agent,
+    not only a few side roles. A model change takes effect from the next new
+    conversation, the reasoning effort within a minute.

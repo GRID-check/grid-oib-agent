@@ -1,13 +1,8 @@
 ---
 upgrade:
   - >
-    Ein Auftrag hängt keinen Skill mehr an. Stattdessen nennen Sie ihn im
-    Auftragstext selbst — das Eingabefeld im Assistenten ist jetzt das
-    Chat-Eingabefeld, mit demselben „/"-Menü. Piloti liest den Namen und
-    entscheidet, wie im Gespräch auch. Bestehende Zeitpläne laufen
-    unverändert weiter.
+    A task no longer attaches a skill; you name it in the request itself with
+    the same / menu as in the chat. Existing schedules keep running unchanged.
   - >
-    Die Skill-Prüfung ist jetzt ein Schritt: Sie führen sie aus, bevor Sie
-    speichern können. Was sie findet, gewichten Sie selbst — Befunde
-    blockieren das Speichern nicht, und wenn die Prüfung nicht erreichbar
-    ist, können Sie trotzdem speichern.
+    The skill check is now a step you run before saving. Its findings are yours
+    to weigh and never block saving.

@@ -42,9 +42,9 @@ const { labels, kicker, title, caption, alt } = Astro.props
       </marker>
     </defs>
 
-    <rect class="fp-stroke fp-fill--soft" x="50" y="152" width="230" height="72"></rect>
-    <text class="fp-label" x="66" y="182">{labels.query}</text>
-    <text class="fp-label--muted" x="66" y="202">{labels.querySub}</text>
+    <rect class="fp-stroke fp-fill--soft" x="30" y="152" width="250" height="72"></rect>
+    <text class="fp-label" x="46" y="182">{labels.query}</text>
+    <text class="fp-label--muted" x="46" y="202">{labels.querySub}</text>
 
     {/* Branch to both channels. */}
     <path class="fp-stroke" marker-end="url(#hyb-arrow)" d="M280 188 h40 v-84 h34" fill="none"
@@ -81,4 +81,39 @@ const { labels, kicker, title, caption, alt } = Astro.props
     <text class="fp-label" x="656" y="370">{labels.cap}</text>
     <text class="fp-label--muted" x="656" y="390">{labels.capSub}</text>
   </svg>
+
+  {/* Below xl: fork and merge as a vertical flow. */}
+  <div slot="mobile" class="fpm-flow">
+    <div class="fpm-box fpm-box--soft">
+      <span class="fpm-label">{labels.query}</span>
+      <span class="fpm-sub">{labels.querySub}</span>
+    </div>
+    <div class="fpm-row">
+      <div class="fpm-arrow" />
+      <div class="fpm-arrow" />
+    </div>
+    <div class="fpm-row">
+      <div class="fpm-box">
+        <span class="fpm-label">{labels.semantic}</span>
+        <span class="fpm-sub">{labels.semanticSub}</span>
+      </div>
+      <div class="fpm-box">
+        <span class="fpm-label">{labels.lexical}</span>
+        <span class="fpm-sub">{labels.lexicalSub}</span>
+      </div>
+    </div>
+    <div class="fpm-row">
+      <div class="fpm-arrow" />
+      <div class="fpm-arrow" />
+    </div>
+    <div class="fpm-box fpm-box--tint">
+      <span class="fpm-label">{labels.merge}</span>
+      <span class="fpm-sub">{labels.mergeSub}</span>
+    </div>
+    <div class="fpm-arrow fpm-arrow--dash" />
+    <div class="fpm-box fpm-box--dash">
+      <span class="fpm-label">{labels.cap}</span>
+      <span class="fpm-sub">{labels.capSub}</span>
+    </div>
+  </div>
 </FigureFrame>

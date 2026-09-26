@@ -12,10 +12,12 @@ export interface StatusScreenProps {
   title: string
   description: string
   actions?: React.ReactNode
+  /** A riso print (`RisoPrint`) between the logo and the text; decorative. */
+  art?: React.ReactNode
   className?: string
 }
 
-export function StatusScreen({ code, title, description, actions, className }: StatusScreenProps) {
+export function StatusScreen({ code, title, description, actions, art, className }: StatusScreenProps) {
   return (
     <div
       className={cn(
@@ -24,6 +26,7 @@ export function StatusScreen({ code, title, description, actions, className }: S
       )}
     >
       <Logo size="medium" className="mb-8" />
+      {art && <div className="mb-6">{art}</div>}
       {code && (
         <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{code}</p>
       )}

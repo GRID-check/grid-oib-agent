@@ -1,7 +1,5 @@
 ---
 fixes:
   - >
-    Eine Deep Research in einem Projekt, dessen Beschreibung deutsche
-    Anführungszeichen oder Gedankenstriche enthält, brach sofort nach dem Start
-    ab — der Bericht schlug fehl und die Seitenleiste blieb leer. Solche
-    Projekte lassen sich jetzt ohne Abbruch recherchieren.
+    Deep research works in projects whose description contains German quotation
+    marks or dashes. It used to fail right after starting.

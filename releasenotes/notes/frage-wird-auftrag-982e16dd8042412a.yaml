@@ -1,11 +1,9 @@
 ---
 features:
   - >
-    Recherchiert Piloti gründlich zu einer Frage, sehen Sie das jetzt als
-    Auftrag im Verlauf: derselbe Block mit Phasen, Runden, Dokumenten und
-    Laufzeit. Er steht auch in der Aufträge-Liste, lässt sich abbrechen, und der
-    Bericht wird abgelegt. Vorher stand dort nur ein Satz.
+    When Piloti researches a question in depth, it now shows as a task in the
+    conversation, with phases, rounds, documents and running time; it can be
+    cancelled and its report is filed.
   - >
-    Was im Gespräch schon geklärt wurde — etwa Ihre Antworten auf Pilotis
-    Rückfragen — geht in die Recherche mit ein, statt noch einmal gefragt zu
-    werden.
+    What the conversation has already settled, such as your answers to Piloti's
+    questions, goes into the research instead of being asked again.

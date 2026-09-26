@@ -63,6 +63,9 @@ app.piloti.at / app.dev.piloti.at  (existing Next.js app)
 
 - Astro content collection `blog` (`src/content/blog/*.md`), frontmatter:
   `title`, `description`, `pubDate`, `cover` (optional), `draft` (bool, default false).
+  *Since superseded:* posts are MDX and also carry a required `category`
+  (`journal` | `bautagebuch`) and an optional `translationSlug`; categories list at
+  `/blog/<category>/`. Current contract: `frontends/web/AGENTS.md` → "The blog".
 - `/blog` lists published posts newest-first; `/blog/[slug]` renders a post with
   the site chrome; draft posts are excluded from the build output.
 - Keystatic (`@keystatic/core` + `@keystatic/astro`), GitHub mode with Keystatic

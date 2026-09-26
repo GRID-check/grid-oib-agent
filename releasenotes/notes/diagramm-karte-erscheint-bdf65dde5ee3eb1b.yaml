@@ -1,7 +1,5 @@
 ---
 fixes:
   - >
-    Diagramme erscheinen jetzt zuverlässig als Zeichnung in der Antwort. Bisher
-    konnte ein angefordertes Diagramm kommentarlos fehlen, obwohl die Antwort
-    es ankündigte — die Diagrammkarte wurde intern in zwei häufigen Fällen
-    verworfen, statt gezeichnet zu werden.
+    Diagrams now reliably appear as drawings in the answer. A requested diagram
+    could be missing even though the answer announced it.

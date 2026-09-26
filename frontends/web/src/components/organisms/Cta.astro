@@ -1,7 +1,8 @@
 ---
 import Pill from '../atoms/Pill.astro'
-import SectionTag from '../atoms/SectionTag.astro'
-import { CONTACT_EMAIL } from '../../consts'
+import PagePrint from '../craft/PagePrint.astro'
+import { PLATES } from '../craft/plates'
+import { mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 
 interface Props {
@@ -14,41 +15,55 @@ const t = ui[locale]
 <section
   id="kontakt"
   data-screen-label={t.sheets.kontakt}
-  class="relative isolate mx-auto box-border flex min-h-[72vh] max-w-[80rem] flex-col justify-center px-6 pb-16 pt-24 text-center sm:px-12"
+  class="relative isolate mx-auto box-border max-w-[85rem] overflow-x-clip px-4 pb-16 pt-12 sm:px-10 sm:pb-20 sm:pt-20 lg:px-26 lg:grid lg:min-h-[72vh] lg:grid-cols-[1fr_auto] lg:items-center lg:gap-x-16"
 >
   <!-- The page ends on open ground rather than another panel, so the close gets
        one soft light and a closing mark instead of a frame. -->
   <div
-    class="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[34rem] w-[58rem] max-w-[120%] -translate-x-1/2 -translate-y-[58%] rounded-full opacity-70 blur-3xl"
+    class="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[34rem] w-[58rem] max-w-full -translate-x-1/2 -translate-y-[58%] rounded-full opacity-70 blur-3xl"
     style="background: radial-gradient(ellipse at center, rgb(164 208 106 / 0.20), rgb(164 208 106 / 0.06) 45%, transparent 72%)"
     aria-hidden="true"
   >
   </div>
   <span
-    class="mx-auto mb-9 block h-10 w-px bg-gradient-to-b from-transparent to-ink/25"
+    class="mx-auto mb-7 block h-10 w-px bg-gradient-to-b from-transparent to-ink/25 max-sm:hidden lg:hidden"
     aria-hidden="true"></span>
-  <SectionTag no="07" class="mb-7 justify-center">{t.footer.contactHeading}</SectionTag>
-  <h2
-    data-reveal
-    class="mx-auto mb-8 max-w-5xl font-voice text-v1"
-    style="text-wrap: balance"
-    set:html={t.cta.titleHtml}
+
+  <!-- Plate VIII, the open door, is the close's one object: on a phone a small
+       print above the invitation, from lg the picture beside it. Its ink pass
+       is the section's moment, so nothing else here moves. -->
+  <PagePrint
+    name={PLATES.VIII}
+    locale={locale}
+    size="half"
+    phone="third"
+    align="center"
+    class="mb-9 sm:mb-11 lg:col-start-2 lg:row-start-1 lg:mb-0"
   />
-  <div data-reveal class="mb-11 flex flex-wrap justify-center gap-2.5">
-    {
-      t.cta.chips.map((c) => (
-        <span class="rounded-full border border-accent-600/30 px-4 py-2 font-mono text-2xs uppercase tracking-label text-accent-600">
-          {c}
-        </span>
-      ))
-    }
-  </div>
-  <div data-reveal class="flex justify-center gap-3.5 max-sm:flex-col max-sm:items-center">
-    <Pill href={`mailto:${CONTACT_EMAIL}?subject=${t.cta.subjectDemo}`} variant="solid" size="lg">
-      {t.cta.demo}
-    </Pill>
-    <Pill href={`mailto:${CONTACT_EMAIL}?subject=${t.cta.subjectWaitlist}`} variant="outline-dark" size="lg">
-      {t.cta.waitlist}
-    </Pill>
+
+  <div class="min-w-0 lg:col-start-1 lg:row-start-1">
+    <div data-reveal class="text-center lg:text-left">
+      <h2 class="m-0 mb-5 font-voice text-v1 text-ink" style="text-wrap: balance">
+        {t.cta.title}
+      </h2>
+      <p
+        class="m-0 mx-auto max-w-xl text-base leading-relaxed text-ink-soft sm:text-lg lg:mx-0"
+        style="text-wrap: pretty"
+      >
+        {t.cta.body}
+      </p>
+    </div>
+
+    <div
+      data-reveal
+      class="mx-auto mt-9 flex w-full max-w-3xl flex-col gap-3 sm:mt-11 sm:flex-row sm:justify-center sm:gap-3.5 lg:mx-0 lg:justify-start"
+    >
+      <Pill href={mailtoHref(t.cta.subjectPilot)} variant="solid" size="lg" class="max-sm:w-full">
+        {t.cta.primary}
+      </Pill>
+      <Pill href={mailtoHref(t.cta.subjectCall)} variant="outline-dark" size="lg" class="max-sm:w-full">
+        {t.cta.secondary}
+      </Pill>
+    </div>
   </div>
 </section>
