@@ -2401,15 +2401,15 @@ export function loadConfig(): GridConfig {
       enabled: langfuseEnabled,
       domain: langfuseDomain,
       // Digest-pinned on the same terms as the ADR-0029 images, and scanned by
-      // the same trivy gate: langfuse 3.225.1 (web + worker, which MUST be the
+      // the same trivy gate: langfuse 3.225.11 (web + worker, which MUST be the
       // same version) and ClickHouse 25.8 LTS. `3` and `25.8` are moving tags
       // upstream; these are the digests they resolved to when pinned.
       webImage:
         cfg.get("langfuseWebImage") ??
-        "ghcr.io/langfuse/langfuse@sha256:c782c55ab8fef96fac5ce85c57d8eacfd74b5e2549d01504ed3281e183d853ba",
+        "ghcr.io/langfuse/langfuse@sha256:a343f64e035eb01aeea358703a0428945d909d01e19452509a5a830862dda878",
       workerImage:
         cfg.get("langfuseWorkerImage") ??
-        "ghcr.io/langfuse/langfuse-worker@sha256:77da511ae0a29dee83e728049b5015ac73efac2315155910a282f20f1309c5a9",
+        "ghcr.io/langfuse/langfuse-worker@sha256:8a28c946bb5401eef488153fa294db5a79bd99dd5c90db8e4d39559374c9ebd3",
       clickhouseImage:
         cfg.get("clickhouseImage") ??
         "clickhouse/clickhouse-server@sha256:aec6fb9892becb6a20eb8d57708b8cf9c777b2ad1f4eb70bbece7a70eaed9fd0",
