@@ -1,15 +1,11 @@
 ---
 features:
   - >
-    Die Website ist neu gestaltet und funktioniert jetzt auch auf dem Handy
-    richtig: kein seitliches Verrutschen mehr, ein aufklappbares Menü und
-    Grafiken, die auf kleinen Bildschirmen lesbar bleiben. Neu sind ein
-    Abschnitt über das Gründerteam und die Einladung, Pilotbüro zu werden.
-  - >
-    Der Blog hat zwei Rubriken: das Journal für Büros und das Bautagebuch mit
-    Notizen aus der Entwicklung.
+    The Piloti website is redesigned and works properly on a phone, with a
+    section about the founding team and an invitation to become a pilot office.
+    The blog has two strands, the Journal for offices and the Bautagebuch with
+    notes from development.
 fixes:
   - >
-    Impressum und Datenschutzerklärung enthalten keine Platzhalter mehr, und
-    die Website verspricht nichts mehr, was die Plattform nicht einlöst: Die
-    Aussage, Daten und KI liefen ausschließlich in der EU, ist gestrichen.
+    The imprint and privacy policy no longer contain placeholders, and the
+    website no longer claims that data and AI run only in the EU.

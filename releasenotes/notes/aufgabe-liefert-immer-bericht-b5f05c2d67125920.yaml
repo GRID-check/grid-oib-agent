@@ -1,8 +1,6 @@
 ---
 features:
   - >
-    Neue Aufgaben liefern immer einen recherchierten Bericht, abgelegt im
-    Projekt. Die Frage „Chat oder Bericht?“ ist verschwunden — „Chat“ hieß „es
-    bleibt nichts liegen“, und dafür legt niemand eine Aufgabe an. Drei Schritte
-    statt vier, und die Datenquellen stehen beim Auftrag. Bereits angelegte
-    Aufgaben behalten ihre Ergebnisart.
+    New tasks always deliver a researched report filed in the project, and
+    setting one up takes three steps instead of four. Existing tasks keep their
+    kind of result.

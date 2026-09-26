@@ -1,0 +1,42 @@
+# The short summary above each week (or, once releases are tagged, each version)
+# on https://piloti.at/changelog. Keyed by the group id the changelog uses:
+# an ISO week like 2026-W39, or a version like 1.2.0.
+#
+# Written by a person, after the week, from that week's notes: what an architect
+# would tell a colleague about it. English, at most three sentences and 500
+# characters; the German is translated like any note. `task release:lint`
+# checks this file too. A week without an entry shows its notes only.
+
+2026-W39: >
+  Answers now appear while Piloti writes them, with each reference checked in
+  place, and come structured as tables, numbered steps and tabs for the
+  variants you compare. An answer survives a dropped connection, and questions
+  on garages and parking decks find OIB-Richtlinie 2.2.
+
+2026-W38: >
+  Questions about Austrian law are answered with citable paragraphs from the
+  RIS, and an office can give Piloti standing instructions that apply to every
+  question. From 18 September deep research and the Automation section are
+  switched on per office, on request.
+
+2026-W37: >
+  Files now have versions and an approval path: submit, approve, publish.
+  Piloti can write an Aktenvermerk, a Protokoll or a checklist as a draft and
+  file it in the project when you ask. Usage is shown in points instead of
+  euros, so check your budget limits once.
+
+2026-W36: >
+  Piloti can look at your plans as images, and references now name the point
+  of the Richtlinie, not just the page. Legal sources from the RIS open inside
+  Piloti with the cited passage highlighted, and whole folders can be uploaded
+  and matched against the project.
+
+2026-W35: >
+  Piloti works properly on a phone. Answers can be downloaded as Word
+  documents, diagrams are real drawings, and Excel, PowerPoint and CSV files
+  can be uploaded and cited sheet by sheet.
+
+2026-W34: >
+  Research reports are filed in your project under Berichte and say that
+  Piloti wrote them. Project folders can be renamed, moved and deleted, and
+  Piloti knows which folder a document is in. This changelog started this week.

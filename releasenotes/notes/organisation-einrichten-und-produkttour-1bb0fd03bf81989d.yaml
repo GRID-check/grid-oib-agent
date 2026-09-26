@@ -1,22 +1,13 @@
 ---
 features:
   - >
-    Wer eine neue Organisation anlegt, sieht danach eine kurze Produkttour
-    durch die Projektübersicht: wo Projekte entstehen, Archiv und Postfach,
-    wo Kolleginnen und Kollegen eingeladen werden, und die wichtigsten
-    Tastenkürzel.
+    After creating an organization, a short tour walks through the project
+    overview, and after the first project a second tour shows Frag Piloti,
+    Dateien, the Archiv and how answers show their sources. Both can be skipped
+    and restarted from the account menu.
   - >
-    Nach der Einrichtung des ersten Projekts folgt eine zweite Tour im
-    Projekt selbst: Frag Piloti, Dateien, das Archiv und worin sich die
-    beiden unterscheiden, wie Antworten ihre Quellen zeigen, und wo
-    Mitglieder eingeladen werden. Beide Touren lassen sich jederzeit
-    überspringen und über das Kontomenü unter „Produkttour“ erneut starten.
+    People who are invited or join an existing project also get the tours, once
+    each, on their first visit.
   - >
-    Auch wer eingeladen wird oder einem bestehenden Projekt beitritt, bekommt
-    die Touren: beim ersten Besuch der Projektübersicht und beim ersten Besuch
-    eines Projekts, jeweils einmal. Wer in der Organisation schon gearbeitet
-    hat, sieht sie nicht ungefragt.
-  - >
-    Die Seite zum Einrichten der Organisation ist neu gestaltet: ein Feld,
-    ein Knopf und drei Zeilen dazu, wie es weitergeht. Das Abmelden bleibt
-    in jedem Zustand oben rechts erreichbar.
+    The page for setting up an organization is simpler: one field, one button
+    and three lines on what happens next, with sign-out always at the top right.

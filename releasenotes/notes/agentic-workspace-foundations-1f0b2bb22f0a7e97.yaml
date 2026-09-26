@@ -1,95 +1,58 @@
 ---
 features:
   - >
-    Wenn ein geplanter Auftrag fertig ist oder fehlschlägt, erfahren Sie es
-    jetzt im Posteingang. Bisher lief ein Auftrag um drei Uhr früh, legte
-    seinen Bericht ab, und niemand wurde benachrichtigt; der Eintrag führt
-    direkt zur Automatisierungsseite des Projekts, wo die Laufhistorie steht.
+    When a scheduled task finishes or fails, you now hear about it in your
+    inbox, with a link to the project's run history.
   - >
-    Eine Fundstelle nennt jetzt den Punkt der Richtlinie, nicht nur die Seite:
-    „Pkt. 3.5.2 · S. 7" statt „S. 7". Das ist die Zählung, in der das
-    Baurecht selbst zitiert, und sie bleibt nach einem Neuladen und in einer
-    geteilten Unterhaltung erhalten.
+    A scheduled research task now files its report under Berichte in the
+    project, with the permissions of whoever set it up. The report of a nightly
+    run used to expire after a day if nobody opened it.
   - >
-    Ein geplanter Rechercheauftrag legt seinen Bericht jetzt selbst unter
-    „Berichte" im Projekt ab, und zwar unter der Berechtigung der Person, die
-    den Auftrag eingerichtet hat. Bisher verfiel der Bericht eines
-    nächtlichen Laufs nach einem Tag, wenn ihn niemand aus dem Verlauf
-    öffnete. Der Eintrag im Posteingang nennt das abgelegte Dokument.
+    A finished task can be accepted or rejected with a reason, and the reason
+    reaches the next run of the same task, so a correction such as „Atrium ist
+    OIB 2.3“ is made once.
   - >
-    Ein fertiger Auftrag kann angenommen oder mit Begründung abgelehnt
-    werden. Die Begründung erreicht den nächsten Lauf desselben Auftrags,
-    sodass eine Korrektur wie „Atrium ist OIB 2.3" nicht jede Woche neu
-    ausgesprochen werden muss.
+    A reference now names the point of the Richtlinie, not just the page: „Pkt.
+    3.5.2 · S. 7“ instead of „S. 7“. That is how building law is cited, and it
+    survives a reload and a shared conversation.
 improvements:
   - >
-    Ein Hintergrundauftrag arbeitet jetzt mit demselben Wissen wie ein
-    Chat-Zug: Er kennt das Projektgedächtnis, kann selbst Notizen ins Projekt
-    schreiben und vergleicht seinen Bericht am Ende mit dem, was das Projekt
-    schon weiß. Bisher lief er allein mit dem Steckbrief aus dem Wizard.
+    What Piloti searched for in an answer now survives a reload and is visible
+    to colleagues in a shared conversation.
   - >
-    Piloti weiß jetzt, was Sie über seine Vorschläge entschieden haben. Ein
-    abgelehnter Vorschlag zum Projektkontext oder eine verworfene Notiz kommt
-    im nächsten Zug nicht wieder; ein angenommener gilt als erledigt.
+    Piloti remembers your decisions on its suggestions: a rejected suggestion or
+    discarded note does not come back in the next answer.
   - >
-    Was Piloti in einem Zug tatsächlich gesucht hat, bleibt nach dem Neuladen
-    der Unterhaltung erhalten und ist auch für Kolleginnen in einer geteilten
-    Unterhaltung nachvollziehbar. Bisher ging diese Angabe beim Speichern
-    verloren.
+    A background task now works with the same knowledge as the chat: it reads
+    the project memory, writes its own notes and checks its report against what
+    the project already knows.
   - >
-    Das Projektgedächtnis findet jetzt auch ältere Notizen wieder, wenn sie
-    zur Frage passen, und eine Korrektur trifft die Notiz, die sie meint, auch
-    wenn sie lange zurückliegt. Bisher endete beides bei den zweihundert
-    zuletzt geänderten Einträgen.
+    Project memory now finds older notes when they fit the question, and a
+    correction reaches the note it means, however long ago it was written.
 fixes:
   - >
-    Ein Zitat, das ein ganzes Wort auslässt oder einfügt, gilt nicht mehr als
-    wörtlich belegt. Ein Zitat, aus dem ein „nicht" verschwunden war, konnte
-    bisher als geprüfte Wiedergabe der Quelle durchgehen; Lesefehler innerhalb
-    eines Wortes werden weiterhin toleriert.
+    An answer that touches several documents cites several again. A single PDF
+    could fill every evidence slot of an answer.
   - >
-    Eine Antwort stützt sich wieder auf mehrere Dokumente, wo die Frage
-    mehrere berührt. Ein einzelnes PDF konnte bisher alle Belegplätze einer
-    Antwort füllen, obwohl Piloti höchstens fünf pro Dokument versprach.
+    A quote that leaves out or adds a whole word no longer counts as verbatim,
+    so a quote that lost a „nicht“ cannot pass as checked.
   - >
-    Ein Datum in einer Projektnotiz, etwa eine Einreichfrist, wird nicht mehr
-    als Telefonnummer verwechselt und verworfen. Kontaktdaten und Zugangsdaten
-    werden weiterhin von beiden Wegen ins Gedächtnis ferngehalten.
+    When a reference or quote fails the check, Piloti now searches once more for
+    the passage and rewrites the answer before it appears. If it still fails,
+    the mark stays.
   - >
-    Eine Datei, die ein zweites Mal unter demselben Namen in eine Unterhaltung
-    gezogen wird, ersetzt jetzt die erste, wie im Projekt und im Büroarchiv.
-    Bisher blieb der erste Eintrag sichtbar und herunterladbar, war für Piloti
-    aber nicht mehr auffindbar und zählte doppelt zum Speicherplatz.
-    Vorschaubild und Gebäudemodell der alten Version werden mit entfernt.
+    A research run that hits your organization's budget now says so and tells
+    you where an admin can raise the limit, instead of reporting an internal
+    error.
   - >
-    Die Quellenliste eines Rechercheberichts trägt jetzt dieselben Nummern,
-    mit denen der Bericht zitiert: Wo im Text „[3]" steht, ist in der Liste
-    ersichtlich, welche Fundstelle die dritte ist. Bisher kannte die Liste
-    eines live verfolgten oder aus dem Verlauf geöffneten Laufs die Nummern
-    nicht.
+    A single source that does not answer in time no longer ends a deep research;
+    the run carries on without it.
   - >
-    Wenn ein Recherchelauf seinen Bericht fertigstellt, die daraus
-    abgeleiteten Vorschläge aber nicht erzeugen konnte, sagt Piloti das jetzt
-    unter der Antwort. Bisher sah ein solcher Lauf genauso aus wie einer, zu
-    dem es schlicht nichts vorzuschlagen gab.
+    The source list of a research report now carries the same numbers the report
+    cites with, so [3] in the text points to the third entry.
   - >
-    Ein OIB-Dokument einer anderen Ausgabe als Mai 2023 erhält jetzt den
-    richtigen Ausgabevermerk im Titel, statt als „Ausgabe Mai 2023"
-    beschriftet oder gar nicht erkannt zu werden.
+    A date in a project note, such as a submission deadline, is no longer
+    mistaken for a phone number and dropped.
   - >
-    Eine einzelne Quelle, die nicht rechtzeitig antwortet, beendet die
-    Tiefenrecherche nicht mehr. Der Lauf erhält das als Werkzeugergebnis und
-    sucht weiter, statt ohne Bericht abzubrechen.
-  - >
-    Der Hinweis über einem abgebrochenen Bericht nennt jetzt den
-    tatsächlichen Grund, nicht ein Zeitlimit, das nie erreicht war. Das
-    Schreiben eines langen Berichts hat mehr Zeit.
-  - >
-    Wenn ein Recherchelauf am Budget der Organisation scheitert, sagt die
-    Fehlermeldung das jetzt, samt dem Hinweis, wo ein Admin die Grenzen
-    anheben kann. Bisher stand dort „interner Fehler".
-  - >
-    Hält ein Beleg oder ein Zitat der Prüfung nicht stand, sucht Piloti
-    einmal gezielt nach der fraglichen Stelle nach und formuliert die Antwort
-    neu, bevor sie erscheint. Bisher wurde die Stelle nur markiert. Bleibt die
-    Prüfung auch danach ohne Erfolg, bleibt die Markierung.
+    An OIB document from an edition other than May 2023 now carries its correct
+    edition in the title.

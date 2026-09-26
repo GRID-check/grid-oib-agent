@@ -1,9 +1,8 @@
 ---
-other:
+operators:
   - >
-    Neue Installationen antworten standardmäßig mit GPT-6 Luna: gründlicher,
-    etwas langsamer, pro Antwort günstiger. Bestehende Installationen behalten
-    für Antworten ihr Modell (umstellen unter Plattform → Modelle).
-    Dokumentzusammenfassungen, Relevanz- und Konsistenzprüfung sowie
-    Bildbeschreibungen wechseln überall auf GPT-6 Luna, außer eine
-    Umgebungsvariable legt ihr Modell fest.
+    New installations answer with GPT-6 Luna by default: more thorough, a little
+    slower, cheaper per answer. Existing installations keep their answer model
+    (change it under Platform → Models). Document summaries, relevance and
+    consistency checks and image descriptions move to GPT-6 Luna everywhere
+    unless an environment variable pins their model.

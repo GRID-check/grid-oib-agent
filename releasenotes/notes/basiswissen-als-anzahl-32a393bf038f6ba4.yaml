@@ -1,8 +1,5 @@
 ---
-other:
+improvements:
   - >
-    Piloti trägt den OIB-Grundkorpus nicht mehr Datei für Datei in jeder
-    Anfrage mit — der Korpus ist immer derselbe, und Piloti findet darin über
-    die Suche. Ihre eigenen Unterlagen nennt Piloti weiterhin einzeln beim
-    Namen, und auf die Frage, welche OIB-Richtlinien vorliegen, zählt es sie
-    vollständig auf.
+    Asked which OIB-Richtlinien it has, Piloti now lists every one of them, and
+    it still names each of your own documents individually.

@@ -1,11 +1,8 @@
 ---
 fixes:
   - >
-    Bei einer Frage zu mehreren Paragraphen (etwa „§§ 3 bis 8“) werden bis zu
-    sechs Paragraphen in einem Schritt gelesen. Bisher kam bei einer Liste nur
-    der erste zurück.
+    A question about several paragraphs, such as „§§ 3 bis 8“, now reads up to
+    six of them in one step instead of only the first.
   - >
-    Eine Fehlermeldung mit Link erscheint nicht mehr als Quelle.
-  - >
-    Die gestellte Frage bleibt oben stehen, und eine kurze Antwort springt am
-    Ende nicht mehr nach unten.
+    Your question stays at the top while the answer arrives, and a short answer
+    no longer jumps down at the end.

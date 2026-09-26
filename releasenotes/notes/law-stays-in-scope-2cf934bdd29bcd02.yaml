@@ -1,14 +1,11 @@
 ---
-fixes:
-  - >
-    Bezog sich eine Frage auf eine bestimmte Datei — ein Plan im Chat, ein
-    Projektdokument in der Vorschau —, wurde das OIB-Wissen aus der Suche
-    genommen. „Erfüllt dieser Grundriss die Fluchtweganforderungen?" durchsuchte
-    dann den Plan und keine Richtlinie. Das Baurecht bleibt jetzt immer dabei;
-    nur der Chip „Baurecht" sucht weiterhin ausschließlich dort.
 improvements:
   - >
-    Wenn zwei Quellen einander widersprechen, zeigt Piloti den Unterschied jetzt
-    ausdrücklich an, nennt beide mit Fundstelle und sagt, welche Regel den
-    Vorrang entscheidet — oder dass sich der Widerspruch aus den Quellen nicht
-    auflösen lässt. Bisher wurde stillschweigend eine Variante gewählt.
+    When two sources contradict each other, Piloti now shows the difference,
+    names both with their reference and says which rule decides, or that the
+    sources cannot settle it.
+fixes:
+  - >
+    Building law now stays in the search when a question is about a specific
+    file. „Erfüllt dieser Grundriss die Fluchtweganforderungen?“ used to search
+    the plan and no Richtlinie.

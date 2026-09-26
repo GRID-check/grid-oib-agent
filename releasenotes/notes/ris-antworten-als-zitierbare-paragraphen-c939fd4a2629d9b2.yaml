@@ -1,14 +1,12 @@
 ---
 features:
   - >
-    Fragen zum österreichischen Recht beantwortet Piloti jetzt mit zitierbaren
-    Paragraphen aus dem RIS. Ein Treffer ist ein einzelner Absatz einer
-    Bauordnung, eines Gesetzes oder einer Verordnung, mit der Fundstelle, wie
-    ein Bescheid sie nennt, etwa „Bauordnung für Wien, § 63 Abs 1". Sie steht
-    als Quelle unter der Antwort und lässt sich in den Fachtext übernehmen.
+    Questions about Austrian law are now answered with citable paragraphs from
+    the RIS, each with the reference a Bescheid would use, such as „Bauordnung
+    für Wien, § 63 Abs 1“. The paragraph is listed as a source and can go
+    straight into your text.
 improvements:
   - >
-    Bisher holte Piloti für eine Rechtsfrage erst eine Trefferliste, dann das
-    ganze Gesetz und las dann darin; die Antwort zitierte am Ende Text ohne
-    Fundstelle. Jetzt ist die Rechtsrecherche ein einziger Schritt in der
-    Herleitung, und was er liefert, ist der Absatz, um den es geht.
+    Legal research is now one step in the Herleitung and returns the paragraph
+    in question, instead of a hit list, the whole law and text without a
+    reference.
