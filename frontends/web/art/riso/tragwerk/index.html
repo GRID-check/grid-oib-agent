@@ -1,0 +1,764 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<title>Piloti — Tragwerk</title>
+<style>
+  /* The export tools read the canvas backing store, never this CSS box. */
+  html, body { margin: 0; background: #22271a; color: #d3ddc0;
+               font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  canvas { display: block; width: 720px; height: auto; }
+  #cap { width: 720px; padding: 10px 0 24px; }
+</style>
+<canvas id="c"></canvas>
+<div id="cap"></div>
+<!-- The shared print kit. Load order matters: formats, engine, series look. -->
+<script src="../lib/formats.js"></script>
+<script src="../lib/engine.js"></script>
+<script src="../lib/piloti.js"></script>
+<script>
+'use strict';
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Piloti — Tragwerk (art/riso/tragwerk). See PRINT.md beside this file.
+
+   What carries planning: the Piloti column. One column family, drawn once
+   (column() below) and reused by every plate: a plinth of law books with the
+   section sign on their spines, a fluted shaft, an Ionic capital that is a
+   sheaf of drawings rolled up at both ends, and an abacus that is a closed
+   book with a red bookmark.
+   ───────────────────────────────────────────────────────────────────────── */
+
+const seg = (P, a, b) => poly(P, [a, b], false);
+
+/** A hand-built section sign (two S strokes). map(u, v) → sheet; em = height in map units; w in sheet units. */
+function paragraf(map, cx, cy, em, w) {
+  const S = (pts) => nib(curve(pts.map(([x, y]) => map(cx + (x - 0.5) * em * 0.55, cy + (0.5 - y) * em)), false, 8), (u) => w * (0.55 + 0.9 * Math.sin(Math.PI * u)), { raw: true });
+  const p = new Path2D();
+  p.addPath(S([[0.72, 0.1], [0.5, 0.0], [0.26, 0.08], [0.26, 0.28], [0.55, 0.42], [0.76, 0.57], [0.7, 0.74], [0.52, 0.8]]));
+  p.addPath(S([[0.28, 0.9], [0.5, 1.0], [0.74, 0.92], [0.74, 0.72], [0.45, 0.58], [0.24, 0.43], [0.3, 0.26], [0.48, 0.2]]));
+  return p;
+}
+
+/**
+ * A book lying flat. b = [x0, y0, z0, x1, y1, z1]. o.spine === 'south' turns
+ * its spine to the viewer (solid cloth, raised bands, a section sign carved
+ * out of the cloth); otherwise the page block shows there.
+ */
+function book(c, P, b, o) {
+  o = o || {};
+  const [x0, y0, z0, x1, y1, z1] = b;
+  const f = boxFaces(P, ...b);
+  const ct = Math.min(0.06, (z1 - z0) * 0.18);
+  const cloth = o.cloth || { moss: 0.9 };
+  clearAll(c, f.sil);
+  own(c, f.top, o.top || { mist: 0.22 });
+  const wband = (za, zb) => poly(P, [[x0, y0, za], [x0, y1, za], [x0, y1, zb], [x0, y0, zb]]);
+  const sband = (za, zb) => poly(P, [[x0, y0, za], [x1, y0, za], [x1, y0, zb], [x0, y0, zb]]);
+  const pageLines = (face) => {
+    const p = new Path2D(), n = Math.max(2, Math.round((z1 - z0 - 2 * ct) / (o.gap || 0.05)));
+    for (let i = 1; i < n; i++) {
+      const z = z0 + ct + (z1 - z0 - 2 * ct) * i / n;
+      const a = face === 'w' ? P([x0, y0 + 0.03, z]) : P([x0 + 0.03, y0, z]);
+      const e = face === 'w' ? P([x0, y1 - 0.03, z]) : P([x1 - 0.03, y0, z]);
+      p.moveTo(a[0], a[1]); p.lineTo(e[0], e[1]);
+    }
+    return p;
+  };
+  // the head of the pages on the west face, in full sun, between the boards
+  own(c, f.west, {});
+  lineFill(c, wband(z1 - ct, z1), cloth); lineFill(c, wband(z0, z0 + ct), cloth);
+  line(c, pageLines('w'), 0.45, { hunter: 0.6 });
+  if (o.spine === 'south') {
+    own(c, f.south, {});
+    lineFill(c, f.south, cloth);
+    const ribs = new Path2D();
+    for (const u of [0.1, 0.16, 0.84, 0.9]) {
+      const a = P([lerp(x0, x1, u), y0, z0 + ct * 0.5]), e = P([lerp(x0, x1, u), y0, z1 - ct * 0.5]);
+      ribs.moveTo(a[0], a[1]); ribs.lineTo(e[0], e[1]);
+    }
+    line(c, ribs, 0.9, { hunter: 0.9 });
+    if (o.para) {
+      const em = (z1 - z0) * 0.74;
+      const g = paragraf((u, v) => P([u, y0, v]), (x0 + x1) / 2, (z0 + z1) / 2, em, o.paraW || 1.1);
+      carve(c.L, g); carve(c.g, g);
+    }
+  } else {
+    own(c, f.south, {});
+    lineFill(c, sband(z1 - ct, z1), cloth); lineFill(c, sband(z0, z0 + ct), cloth);
+    line(c, pageLines('s'), 0.45, { hunter: 0.6 });
+    tint(c, sband(z0 + ct, z1 - ct), { mist: 0.3 });   // the fore-edge turned from the sun
+  }
+  line(c, f.sil, o.w || 1.3, KEY);
+  line(c, seg(P, [x0, y0, z0], [x0, y0, z1]), 1.0, KEY);
+  line(c, seg(P, [x0, y0, z1], [x1, y0, z1]), 1.0, KEY);
+  line(c, seg(P, [x0, y0, z1], [x0, y1, z1]), 1.0, KEY);
+}
+
+/**
+ * The Piloti column. o = { x, y, r (lower shaft radius), h (shaft height),
+ * shaft: 'flute' | 'books' | 'rolls' | 'brick', L (sun) }. Drawn back to front;
+ * returns the world heights it used. Ground shadows: columnShadow().
+ */
+const COL = {
+  base: [[1.02, 0.3], [0.86, 0.25], [0.7, 0.2]],   // books of the plinth: half width, thickness
+  echinus: 0.16, T: 0.12, A: 1.02, D: 0.6, R: 0.31, abacus: 0.2,
+};
+function colDims(o) {
+  const r = o.r || 0.42, h = o.h || 5.6, s = r / 0.42;
+  const base = COL.base.map(([hw, t]) => [hw * s, t * s]);
+  const zb = base.reduce((z, [, t]) => z + t, 0);
+  const zc = zb + h + COL.echinus * s + COL.T * s;        // top of the rolled sheaf (underside of the abacus)
+  return { r, h, s, base, zb, zc, top: zc + COL.abacus * s, A: COL.A * s, D: COL.D * s, R: COL.R * s, T: COL.T * s };
+}
+
+function columnShadow(P, o, L, z0) {
+  const d = colDims(o), { x, y } = o;
+  const p = new Path2D();
+  let z = 0;
+  for (const [hw, t] of d.base) { p.addPath(boxShadow(P, boxCorners(x - hw, y - hw, z, x + hw, y + hw, z + t), L, z0)); z += t; }
+  const pts = [];
+  for (let i = 0; i < 32; i++) { const a = i / 32 * TAU; for (const [zz, rr] of [[d.zb, d.r], [d.zb + d.h, d.r * 0.84]]) pts.push(onGround([x + Math.cos(a) * rr, y + Math.sin(a) * rr, zz], L, z0)); }
+  p.addPath(pathOf(hull(pts.map(P))));
+  p.addPath(capShadow(P, x, y, d, L, z0));
+  return p;
+}
+/** Shadow of the capital alone (the two rolls and the abacus) on the plane z0. */
+function capShadow(P, x, y, d, L, z0) {
+  const p = new Path2D(), q = [];
+  for (const sx of [-1, 1]) {
+    const cx = x + sx * (d.A - d.R), cz = d.zc - d.R;
+    for (let i = 0; i < 24; i++) { const a = i / 24 * TAU; for (const yy of [y - d.D, y + d.D]) q.push(onGround([cx + Math.cos(a) * d.R, yy, cz + Math.sin(a) * d.R], L, z0)); }
+  }
+  p.addPath(pathOf(hull(q.map(P))));
+  p.addPath(boxShadow(P, boxCorners(x - d.A - 0.07 * d.s, y - d.D - 0.09 * d.s, d.zc, x + d.A + 0.07 * d.s, y + d.D + 0.09 * d.s, d.top), L, z0));
+  return p;
+}
+
+function column(c, P, o) {
+  const d = colDims(o), { x, y } = o, L = o.L || SUN_SERIES;
+  /* — plinth: law books, spines to the viewer, the section sign on each — */
+  let z = 0;
+  d.base.forEach(([hw, t], i) => {
+    book(c, P, [x - hw, y - hw, z, x + hw, y + hw, z + t], { spine: 'south', para: true,
+      cloth: i % 2 ? { moss: 0.95, hunter: 0.35 } : { moss: 0.9 } });
+    z += t;
+    // the next book up (or the shaft) casts onto this cover
+    const nx = d.base[i + 1];
+    const top = poly(P, [[x - hw, y - hw, z], [x + hw, y - hw, z], [x + hw, y + hw, z], [x - hw, y + hw, z]]);
+    const sh = new Path2D();
+    if (nx) sh.addPath(boxShadow(P, boxCorners(x - nx[0], y - nx[0], z, x + nx[0], y + nx[0], z + nx[1]), L, z));
+    else {
+      const pts = []; for (let k = 0; k < 32; k++) { const a = k / 32 * TAU; pts.push(onGround([x + Math.cos(a) * d.r, y + Math.sin(a) * d.r, z + 3], L, z), [x + Math.cos(a) * d.r, y + Math.sin(a) * d.r, z]); }
+      sh.addPath(pathOf(hull(pts.map(P))));
+    }
+    c.g.save(); c.g.clip(top); tint(c, sh, { hunter: 0.45 }); c.g.restore();
+  });
+
+  /* — shaft — */
+  const kind = o.shaft || 'flute';
+  if (kind === 'flute') flutedShaft(c, P, x, y, d.zb, d.h, d.r, d.r * 0.84, L);
+  if (kind === 'books') bookShaft(c, P, x, y, d.zb, d.h, d.r, L);
+  if (kind === 'rolls') rollShaft(c, P, x, y, d.zb, d.h, d.r, L);
+  if (kind === 'brick') brickShaft(c, P, x, y, d.zb, d.h, d.r, L);
+  if (kind === 'binders') binderShaft(c, P, x, y, d.zb, d.h, d.r, L);
+
+  /* — capital — */
+  if ((o.cap || 'scroll') === 'scroll') capital(c, P, x, y, d, L, o);
+  else if (o.cap === 'slab') book(c, P, [x - d.r * 1.35, y - d.r * 1.35, d.zb + d.h, x + d.r * 1.35, y + d.r * 1.35, d.zb + d.h + 0.3 * d.s], { spine: 'south', cloth: { moss: 0.9 } });
+  else if (o.cap === 'leaves') leafCapital(c, P, x, y, d, L);
+}
+
+/* A stack of books, alternately turned, spines out: the law as a shaft. */
+function bookShaft(c, P, x, y, z0, h, r, L) {
+  const n = Math.round(h / (0.3 * r / 0.42)), t = h / n, rng = rngFor('bookshaft:' + x);
+  for (let i = 0; i < n; i++) {
+    const hw = r * (1.02 + (rng() - 0.5) * 0.12), hd = r * (0.92 + (rng() - 0.5) * 0.1);
+    const dx = (rng() - 0.5) * 0.08 * r, dy = (rng() - 0.5) * 0.06 * r;
+    const z = z0 + i * t;
+    book(c, P, [x - hw + dx, y - hd + dy, z, x + hw + dx, y + hd + dy, z + t], { spine: 'south', para: i % 3 === 1, gap: 0.05,
+      cloth: [{ moss: 0.9 }, { moss: 0.95, hunter: 0.35 }, { moss: 0.7 }][i % 3], w: 1.1 });
+  }
+}
+/* Rolled drawings stood on end and tied: office knowledge as a shaft. */
+function rollShaft(c, P, x, y, z0, h, r, L) {
+  const rr = r * 0.36, ring = [];
+  for (let k = 0; k < 7; k++) { const a = k / 7 * TAU + 0.3; ring.push([x + Math.cos(a) * (r - rr), y + Math.sin(a) * (r - rr), k]); }
+  ring.push([x, y, 7]);
+  ring.sort((a, b) => depth(P, [b[0], b[1], 0]) - depth(P, [a[0], a[1], 0]));
+  for (const [cx, cy, k] of ring) {
+    const cyl = cylinder(P, cx, cy, rr, z0, z0 + h);
+    // some drawings are on tracing paper: Mist
+    own(c, cyl.sil, k % 3 === 1 ? { mist: 0.55 } : {});
+    // each roll turns its own right side from the sun: a solid band, too narrow to screen
+    c.L.save(); c.L.clip(cyl.sil);
+    lineFill(c, pathOf([[lerp(cyl.xl, cyl.xr, 0.64), 0], [cyl.xr + 2, 0], [cyl.xr + 2, H], [lerp(cyl.xl, cyl.xr, 0.64), H]]), { moss: 0.5 });
+    c.L.restore();
+    const sx = lerp(cyl.xl, cyl.xr, 0.3);            // the seam where the outer sheet ends
+    line(c, pathOf([[sx, cyl.head[1]], [sx, cyl.foot[1]]], false), 0.5, { hunter: 0.7 });
+    line(c, cyl.sil, 1.0, KEY);
+  }
+  // two strings round the bundle
+  for (const f of [0.2, 0.8]) {
+    const q = []; for (let i = 0; i <= 24; i++) { const a = Math.PI * 1.02 + i / 24 * Math.PI * 0.96; q.push(P([x + Math.cos(a) * r * 1.01, y + Math.sin(a) * r * 1.01, z0 + h * f])); }
+    line(c, pathOf(q, false), 1.6, { hunter: 1, moss: 0.6 });
+  }
+}
+/* A square brick pier in stretcher bond, mortar joints lighter than the brick: the project as a shaft. */
+function brickShaft(c, P, x, y, z0, h, r, L) {
+  const hw = r * 0.95;
+  const f = boxFaces(P, x - hw, y - hw, z0, x + hw, y + hw, z0 + h);
+  clearAll(c, f.sil);
+  own(c, f.west, {}); own(c, f.south, {});
+  // brick is solid colour, the joints are paper: too fine for a screen either way
+  lineFill(c, f.west, { moss: 0.42 }); lineFill(c, f.south, { moss: 0.78, hunter: 0.12 });
+  const course = 0.17 * r / 0.42, n = Math.round(h / course), cl = h / n, bl = hw * 0.66;
+  const jw = new Path2D(), js = new Path2D();
+  const mv = (pth, a, b) => { const p = P(a), q = P(b); pth.moveTo(p[0], p[1]); pth.lineTo(q[0], q[1]); };
+  for (let i = 1; i < n; i++) { const z = z0 + i * cl; mv(jw, [x - hw, y - hw, z], [x - hw, y + hw, z]); mv(js, [x - hw, y - hw, z], [x + hw, y - hw, z]); }
+  for (let i = 0; i < n; i++) {
+    const za = z0 + i * cl, zb = za + cl, off = (i % 2) * bl / 2;
+    for (let u = off; u < 2 * hw - 0.01; u += bl) {
+      if (u < 0.02) continue;
+      mv(js, [x - hw + u, y - hw, za], [x - hw + u, y - hw, zb]);
+      mv(jw, [x - hw, y - hw + u, za], [x - hw, y - hw + u, zb]);
+    }
+  }
+  for (const [pth, face] of [[jw, f.west], [js, f.south]]) {
+    c.L.save(); c.L.clip(face); c.L.globalCompositeOperation = 'destination-out'; c.L.lineWidth = 1.5; c.L.stroke(pth); c.L.restore();
+  }
+  line(c, f.sil, 1.4, KEY);
+  line(c, seg(P, [x - hw, y - hw, z0], [x - hw, y - hw, z0 + h]), 1.1, KEY);
+}
+/* Lever-arch binders stood round in tiers, spines out: the spines are the flutes. */
+function binderShaft(c, P, x, y, z0, h, r, L) {
+  const tiers = 4, th = h / tiers, N = 14;
+  for (let t = 0; t < tiers; t++) {
+    const za = z0 + t * th + 0.01, zb = za + th - 0.02;
+    const items = [];
+    for (let k = 0; k < N; k++) {
+      const a0 = k / N * TAU + t * 0.11, a1 = (k + 0.92) / N * TAU + t * 0.11, am = (a0 + a1) / 2;
+      if (v3.dot([Math.cos(am), Math.sin(am), 0], P.view) > 0.1) continue;
+      items.push({ a0, a1, am, d: depth(P, [x + Math.cos(am) * r, y + Math.sin(am) * r, 0]) });
+    }
+    items.sort((a, b) => b.d - a.d);
+    for (const it of items) {
+      const q = (a, z) => P([x + Math.cos(a) * r, y + Math.sin(a) * r, z]);
+      const sp = pathOf([q(it.a0, za), q(it.a1, za), q(it.a1, zb), q(it.a0, zb)]);
+      const l = lit([Math.cos(it.am), Math.sin(it.am), 0], L);
+      own(c, sp, { mist: 0.35, moss: clamp(0.5 - l * 0.6, 0, 0.5) });
+      // finger hole and label field
+      const hc = q(it.am, lerp(za, zb, 0.2)), hr = Math.abs(q(it.a1, za)[0] - q(it.a0, za)[0]) * 0.22;
+      const hole = new Path2D(); hole.ellipse(hc[0], hc[1], hr, hr * 1.25, 0, 0, TAU);
+      lineFill(c, hole, { hunter: 0.9, moss: 0.5 });
+      const lab = pathOf([q(lerp(it.a0, it.a1, 0.25), lerp(za, zb, 0.42)), q(lerp(it.a0, it.a1, 0.75), lerp(za, zb, 0.42)), q(lerp(it.a0, it.a1, 0.75), lerp(za, zb, 0.8)), q(lerp(it.a0, it.a1, 0.25), lerp(za, zb, 0.8))]);
+      own(c, lab, {});
+      line(c, lab, 0.5, { hunter: 0.7 });
+      line(c, sp, 0.9, KEY);
+    }
+  }
+}
+/* A capital of leaves: the planted order. */
+function leafCapital(c, P, x, y, d, L) {
+  const z0 = d.zb + d.h, rng = rngFor('leaves:' + x), s = d.s;
+  const bell = cylinder(P, x, y, d.r * 0.86, z0, z0 + 0.9 * s);
+  own(c, bell.sil, { mist: 0.25 }); line(c, bell.sil, 1.0, KEY);
+  const leaves = [];
+  for (let row = 0; row < 2; row++) for (let k = 0; k < 8; k++) {
+    const a = k / 8 * TAU + row * TAU / 16 + 0.2, n = [Math.cos(a), Math.sin(a), 0];
+    if (v3.dot(n, P.view) > 0.3) continue;
+    const r0 = d.r * 0.86, zA = z0 + row * 0.28 * s, lh = (0.5 + row * 0.1) * s;
+    const at = (rf, dz) => [x + Math.cos(a) * r0 * rf, y + Math.sin(a) * r0 * rf, zA + dz];
+    // a leaf rises against the bell, then its tip curls out and over
+    const pts = [at(1, 0), at(1.03, lh * 0.5), at(1.16, lh * 0.88), at(1.42, lh * (1.04 + rng() * 0.05)), at(1.68, lh * 0.9), at(1.74, lh * 0.72)];
+    leaves.push({ d: depth(P, at(1.2, 0)) + (1 - row) * 0.5, pts });
+  }
+  leaves.sort((a, b) => b.d - a.d || 0);
+  for (const lf of leaves) {
+    const pp = lf.pts.map(P);
+    const leaf = nib(pp, (u) => 0.15 * s * P.s * Math.pow(Math.sin(Math.PI * clamp(0.12 + u * 0.95, 0, 1)), 0.8) + 0.4, { per: 8 });
+    clearAll(c, leaf);
+    lineFill(c, leaf, { kelly: 0.92 });
+    line(c, leaf, 0.7, KEY);
+    line(c, pathOf(curve(pp.slice(0, 4), false, 6), false), 0.45, { hunter: 0.9 });
+  }
+  const ab = [x - d.r * 1.6, y - d.r * 1.6, z0 + 0.9 * s, x + d.r * 1.6, y + d.r * 1.6, z0 + 1.1 * s];
+  book(c, P, ab, { cloth: { moss: 0.9 }, gap: 0.045 });
+}
+
+function flutedShaft(c, P, x, y, z0, h, r0, r1, L) {
+  // a small column keeps its flutes as lines only: tinted half-flutes turn to speckle below ~45 units
+  const small = r0 * P.s < 45, N = small ? 16 : 20, NZ = 14;
+  const R = (t) => lerp(r0, r1, Math.pow(t, 1.5));
+  const pt = (a, t) => { const r = R(t); return [x + Math.cos(a) * r, y + Math.sin(a) * r, z0 + t * h]; };
+  const sil = [];
+  for (let i = 0; i < 48; i++) for (const t of [0, 0.5, 1]) sil.push(P(pt(i / 48 * TAU, t)));
+  const S = pathOf(hull(sil));
+  own(c, S, {});
+  const sunA = Math.atan2(-L[1], -L[0]);               // where the light comes from, in plan
+  const strip = (a0, a1) => { const q = []; for (let k = 0; k <= NZ; k++) q.push(P(pt(a0, k / NZ))); for (let k = NZ; k >= 0; k--) q.push(P(pt(a1, k / NZ))); return pathOf(q); };
+  const fillets = new Path2D();
+  for (let k = 0; k < N; k++) {
+    const a0 = k / N * TAU + 0.07, a1 = (k + 1) / N * TAU + 0.07, am = (a0 + a1) / 2;
+    const n = [Math.cos(am), Math.sin(am), 0];
+    if (v3.dot(n, P.view) > 0.02) continue;
+    const l = lit(n, L);
+    // turned from the sun: Moss, deepening; in the sun: the flute's own shadowed wall in Mist
+    if (l < 0.35) tint(c, strip(a0, a1), { moss: clamp(0.62 - l * 1.4, 0.18, 0.62) });
+    const d0 = Math.abs(Math.atan2(Math.sin(a0 - sunA), Math.cos(a0 - sunA))), d1 = Math.abs(Math.atan2(Math.sin(a1 - sunA), Math.cos(a1 - sunA)));
+    const half = d0 < d1 ? strip(a0, lerp(a0, a1, 0.45)) : strip(lerp(a0, a1, 0.55), a1);
+    if (!small) tint(c, half, l < 0.35 ? { moss: 0.2 } : { mist: 0.55, moss: 0.06 + 0.2 * (1 - l) });
+    else if (l < 0.35) tint(c, half, { moss: 0.15 });
+    const a = P(pt(a0, 0.004));
+    fillets.moveTo(a[0], a[1]);
+    for (let s = 1; s <= NZ; s++) { const q = P(pt(a0, s / NZ)); fillets.lineTo(q[0], q[1]); }
+  }
+  line(c, fillets, 0.6, { hunter: 0.7 });
+  // the shaft's head sits in the capital's shadow
+  if (c.ink === 'moss') { const q = P(pt(0, 1)); shade(c.g, S, { x0: 0, y0: q[1], x1: 0, y1: q[1] + 0.9 * P.s, stops: [[0, 0.4], [1, 0]] }); }
+  line(c, S, 1.4, KEY);
+}
+
+function capital(c, P, x, y, d, L, o) {
+  const { A, D, R, T, zc, s } = d;
+  const r1 = d.r * 0.84;
+  /* echinus: a cushion ring under the sheaf */
+  const ze0 = zc - T - COL.echinus * s, ze1 = zc - T;
+  if (o.echinus !== false) {
+  const ech = [];
+  for (let i = 0; i < 48; i++) { const a = i / 48 * TAU; ech.push(P([x + Math.cos(a) * r1, y + Math.sin(a) * r1, ze0]), P([x + Math.cos(a) * r1 * 1.22, y + Math.sin(a) * r1 * 1.22, ze1 - 0.03 * s])); }
+  const E = pathOf(hull(ech));
+  own(c, E, { mist: 0.25 });
+  if (c.ink === 'moss') { const q = P([x, y, ze1]); shade(c.g, E, { x0: q[0] - r1 * P.s, y0: 0, x1: q[0] + r1 * 1.2 * P.s, y1: 0, stops: [[0, 0], [0.55, 0.1], [1, 0.55]] }); }
+  line(c, E, 1.2, KEY);
+  }
+
+  /* the two rolls: bolsters running back along y, their ends seen as spirals */
+  const rolls = [-1, 1].map((sx) => ({ sx, cx: x + sx * (A - R), cz: zc - R }));
+  const disk = (r, cx, cz, yy) => { const q = []; for (let i = 0; i < 48; i++) { const a = i / 48 * TAU; q.push(P([cx + Math.cos(a) * r, yy, cz + Math.sin(a) * r])); } return q; };
+  const turns = 2.3, M = 160, sheets = [0.34, 0.67];
+  for (const rl of rolls) {
+    const B = pathOf(hull(disk(R, rl.cx, rl.cz, y - D).concat(disk(R, rl.cx, rl.cz, y + D))));
+    own(c, B, { mist: 0.14 });
+    if (c.ink === 'moss') { const q = P([rl.cx, y, rl.cz]); shade(c.g, B, { x0: 0, y0: q[1] - R * P.s * 0.2, x1: 0, y1: q[1] + R * P.s * 1.0, stops: [[0, 0], [1, 0.34]] }); }
+    line(c, B, 1.2, KEY);
+  }
+  /* the canalis: the sheaf's front edge running between the rolls */
+  const can = poly(P, [[x - A + R, y - D, zc - T], [x + A - R, y - D, zc - T], [x + A - R, y - D, zc], [x - A + R, y - D, zc]]);
+  own(c, can, {});
+  const canL = new Path2D();
+  for (const f of sheets) { const a = P([x - A + R, y - D, zc - T * f]), e = P([x + A - R, y - D, zc - T * f]); canL.moveTo(a[0], a[1]); canL.lineTo(e[0], e[1]); }
+  line(c, canL, 0.45, { hunter: 0.6 });
+  line(c, seg(P, [x - A + R, y - D, zc - T], [x + A - R, y - D, zc - T]), 0.9, KEY);
+  /* roll ends: the sheaf spiralling in, the dark inside of the roll between its turns */
+  for (const rl of rolls) {
+    const outer = [], inner = [];
+    for (let i = 0; i <= M; i++) {
+      const u = i / M, ph = Math.PI / 2 - rl.sx * u * turns * TAU;
+      const rho = R * (1 - 0.84 * u), th = T * lerp(1, 0.52, smooth(0, 0.28, u));
+      outer.push(P([rl.cx + Math.cos(ph) * rho, y - D, rl.cz + Math.sin(ph) * rho]));
+      inner.push(P([rl.cx + Math.cos(ph) * (rho - th), y - D, rl.cz + Math.sin(ph) * (rho - th)]));
+    }
+    const face = pathOf(outer.slice(0, Math.round(M / turns) + 1));
+    own(c, face, {});
+    lineFill(c, face, { moss: 0.85, hunter: 0.3 });
+    const band = pathOf(outer.concat(inner.slice().reverse()));
+    clearAll(c, band);
+    for (const f of sheets) line(c, pathOf(outer.map((q, i) => [lerp(q[0], inner[i][0], f), lerp(q[1], inner[i][1], f)]), false), 0.45, { hunter: 0.6 });
+    line(c, pathOf(outer, false), 1.1, KEY);
+    line(c, pathOf(inner, false), 0.8, KEY);
+  }
+  /* abacus: a closed book, page block to the viewer, a red bookmark hanging out */
+  const ab = [x - A - 0.07 * s, y - D - 0.09 * s, zc, x + A + 0.07 * s, y + D + 0.09 * s, d.top];
+  book(c, P, ab, { cloth: { moss: 0.58, hunter: 0.16 }, gap: 0.045, w: 1.5 });
+  if (o.ribbon !== false) {
+    const rx = x + 0.28 * s, ry = ab[1] - 0.01;
+    const rl = o.ribbonLen || 0.92;
+    const pts = [[rx, ry, ab[5] - 0.07 * s], [rx + 0.03 * s, ry - 0.02, zc - 0.27 * rl * s], [rx - 0.02 * s, ry - 0.03, zc - 0.65 * rl * s], [rx + 0.01 * s, ry - 0.04, zc - rl * s]].map(P);
+    const rib = nib(pts, () => 0.045 * s * P.s, { per: 8 });
+    const end = P([rx + 0.01 * s, ry - 0.04, zc - rl * s]);
+    const w = 0.045 * s * P.s;
+    const notch = pathOf([[end[0] - w, end[1] - 1], [end[0] + w, end[1] - 1], [end[0] + w, end[1] + w * 1.6], [end[0], end[1] + w * 0.4], [end[0] - w, end[1] + w * 1.6]]);
+    const r = new Path2D(); r.addPath(rib); r.addPath(notch);
+    clearAll(c, r);
+    lineFill(c, r, { red: 1 });
+    line(c, r, 0.5, { hunter: 0.35 });
+  }
+}
+
+/* A model board with a lawn, as plate I's. */
+function board(c, P, S, slab, o) {
+  o = o || {};
+  const [sx0, sy0, sx1, sy1] = S;
+  const top = poly(P, [[sx0, sy0, 0], [sx1, sy0, 0], [sx1, sy1, 0], [sx0, sy1, 0]]);
+  const edgeS = poly(P, [[sx0, sy0, 0], [sx1, sy0, 0], [sx1, sy0, -slab], [sx0, sy0, -slab]]);
+  const edgeW = poly(P, [[sx0, sy0, 0], [sx0, sy1, 0], [sx0, sy1, -slab], [sx0, sy0, -slab]]);
+  own(c, edgeS, { moss: 0.58 });
+  own(c, edgeW, { moss: 0.3 });
+  own(c, top, {});
+  const st = o.stripe || 1.6;
+  for (let yy = sy0, i = 0; yy < sy1 - 1e-6; yy += st, i++) {
+    const p = poly(P, [[sx0, yy, 0], [sx1, yy, 0], [sx1, Math.min(sy1, yy + st), 0], [sx0, Math.min(sy1, yy + st), 0]]);
+    tint(c, p, o.lawn === false ? (i % 2 ? { mist: 0.4 } : { mist: 0.3 }) : (i % 2 ? { kelly: 0.22, mist: 0.45 } : { kelly: 0.34, mist: 0.28 }));
+  }
+  if (c.ink === 'kelly' && o.lawn !== false) { c.g.save(); c.g.clip(top); hatch(c.g, null, c.rng, { gap: 4.6, w: 1.0, ang: -0.05, a: 0.3, cut: true }); c.g.restore(); }
+  return { top, edgeS, edgeW, outline() { line(c, top, 1.5, KEY); line(c, edgeS, 1.5, KEY); line(c, edgeW, 1.3, KEY); } };
+}
+
+function unionShadow(c, clip, shapes, spec) {
+  const u = new Path2D(); for (const s of shapes) u.addPath(s);
+  const a = spec[c.ink]; if (!a) return;
+  const sh = c.scratch;
+  sh.save(); sh.setTransform(K, 0, 0, K, 0, 0); sh.clearRect(0, 0, W, H);
+  sh.fillStyle = '#000'; if (clip) sh.clip(clip); sh.fill(u, 'nonzero'); sh.restore();
+  c.g.save(); c.g.setTransform(1, 0, 0, 1, 0, 0); c.g.globalAlpha = a; c.g.drawImage(sh.canvas, 0, 0); c.g.restore();
+}
+
+/* ═════════════════════════════════════════════════════════════════════════
+   I — Säule: the column alone on its board, its shadow long across the lawn.
+   ═════════════════════════════════════════════════════════════════════════ */
+const SAEULE = (() => {
+  /* The board per composition: it runs out of the frame to the right (and to
+     the left in the square), so the lawn reads as ground, not as an object. */
+  const SITE = { sq: [-9, -3.2, 30, 14], og: [-5.6, -3.0, 40, 14], linkedin: [-3.4, -2.8, 60, 14], deck: [-4.4, -3.0, 40, 14] };
+  const FIT = { sq: { fill: 0.84, fillH: 0.78, cx: 0.52, cy: 0.47 }, og: { fill: 0.9, fillH: 0.82, cx: 0.47, cy: 0.49 },
+                linkedin: { fill: 0.9, fillH: 0.84, cx: 0.66, cy: 0.5 }, deck: { fill: 0.9, fillH: 0.78, cx: 0.7, cy: 0.5 } };
+  const COLO = { x: 0, y: 0.6, r: 0.58, h: 7.6 };
+  const FIG = [2.5, -1.9];
+  function draw(c, fmt) {
+    if (fmt === 'spot') return spotColumn(c);
+    const S = SITE[fmt], slab = 0.5;
+    const d = colDims(COLO);
+    const P = fit(VIEW_SERIES, [[-2.2, S[1], -slab], [COLO.x - d.A, COLO.y, d.top + 0.2], onGround([COLO.x + d.A + 0.8, COLO.y + d.D, d.top], SUN_SERIES)], FIT[fmt]);
+    const b = board(c, P, S, slab);
+    unionShadow(c, b.top, [columnShadow(P, COLO, SUN_SERIES), cylShadow(P, FIG[0], FIG[1], 0.2, 1.72, SUN_SERIES)], { hunter: 0.64 });
+    b.outline();
+    column(c, P, Object.assign({ L: SUN_SERIES }, COLO));
+    const f = figure(P([FIG[0], FIG[1], 0]), 1.75 * P.s, { back: 0.05 });
+    own(c, f.body, { hunter: 1, moss: 0.62 });
+    own(c, f.roll, {}); line(c, f.roll, 0.9, KEY);
+  }
+  return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], key: 'hunter', draw,
+           numeral: { sq: [540, 1058], og: [540, 548], linkedin: [1046, 256], deck: [1044, 586] } };
+})();
+
+/**
+ * The column as an emblem, for 96/192 px: a near-elevation, every line at
+ * least 1.25 device px (weight()), shade as a solid band, no screened tone
+ * but one Mist field, so the screen does not swallow a picture this small.
+ */
+function spotColumn(c) {
+  const k = { x: 0, y: 0, r: 0.5, h: 3.9 };
+  const d = colDims(k);
+  const V = { ax: 0, ay: 0.64, fx: 1, fy: 0.3, fz: 1 };
+  const P = fit(V, [[-d.A - 0.12 * d.s, -d.D, 0], [d.A + 0.12 * d.s, d.D, d.top], [-d.base[0][0], -d.base[0][0], 0], [d.base[0][0], d.base[0][0], 0]], { fill: 0.86, fillH: 0.88, cx: 0.5, cy: 0.5 });
+  const wS = weight(2.2), wA = weight(1.4);
+  // plinth: three books, solid spines
+  let z = 0;
+  d.base.forEach(([hw, t], i) => {
+    const f = boxFaces(P, -hw, -hw, z, hw, hw, z + t);
+    clearAll(c, f.sil);
+    own(c, f.top, {});
+    lineFill(c, f.south, i === 1 ? { hunter: 1, moss: 0.6 } : { moss: 1, hunter: 0.35 });
+    line(c, f.sil, wA, KEY);
+    z += t;
+  });
+  // shaft: paper, a solid shade band on the right, three flute lines
+  const r0 = d.r, r1 = d.r * 0.84, z0 = d.zb, z1 = d.zb + d.h;
+  const L0 = P([-r0, 0, z0]), R0 = P([r0, 0, z0]), L1 = P([-r1, 0, z1]), R1 = P([r1, 0, z1]);
+  const shaft = pathOf([L0, R0, R1, L1]);
+  clearAll(c, shaft);
+  lineFill(c, pathOf([[lerp(L0[0], R0[0], 0.7), L0[1]], R0, R1, [lerp(L1[0], R1[0], 0.7), L1[1]]]), { moss: 1 });
+  for (const u of [0.25, 0.47]) line(c, pathOf([[lerp(L0[0], R0[0], u), L0[1]], [lerp(L1[0], R1[0], u), L1[1]]], false), wA, { hunter: 0.9 });
+  line(c, shaft, wS, KEY);
+  // capital: two rolls and the abacus-book, the bookmark in red
+  const { A, D, R, zc, top } = d;
+  for (const sx of [-1, 1]) {
+    const cx = sx * (A - R), cz = zc - R, pts = [];
+    for (let i = 0; i <= 80; i++) { const u = i / 80, ph = Math.PI / 2 - sx * u * 1.75 * TAU, rho = R * (1 - 0.8 * u); pts.push(P([cx + Math.cos(ph) * rho, -D, cz + Math.sin(ph) * rho])); }
+    const disk = new Path2D(); const q = P([cx, -D, cz]); disk.arc(q[0], q[1], R * P.s, 0, TAU);
+    clearAll(c, disk);
+    lineFill(c, disk, { mist: 1 });
+    line(c, pathOf(pts, false), wS, KEY);
+  }
+  const can = poly(P, [[-A + R, -D, zc - d.T], [A - R, -D, zc - d.T], [A - R, -D, zc], [-A + R, -D, zc]]);
+  clearAll(c, can); line(c, seg(P, [-A + R, -D, zc - d.T], [A - R, -D, zc - d.T]), wA, KEY);
+  const ab = boxFaces(P, -A - 0.1 * d.s, -D - 0.1 * d.s, zc, A + 0.1 * d.s, D + 0.1 * d.s, top);
+  clearAll(c, ab.sil);
+  lineFill(c, ab.south, { moss: 1, hunter: 0.35 });
+  line(c, ab.sil, wA, KEY);
+  const rx = 0.3 * d.s, rb = nib([P([rx, -D - 0.1 * d.s, top - 0.05]), P([rx + 0.02, -D - 0.12 * d.s, zc - 0.7 * d.s])], () => weight(2.4), { raw: true });
+  clearAll(c, rb); lineFill(c, rb, { red: 1 });
+}
+
+
+/* ═════════════════════════════════════════════════════════════════════════
+   II — Tragwerk: three columns of the family carry one slab. Law (a shaft of
+   books), the office (rolled drawings, tied), the project (brick).
+   ═════════════════════════════════════════════════════════════════════════ */
+const DREI = (() => {
+  const R0 = 0.5, HS = 6.2;
+  const COLS = [{ x: 0, y: 0, shaft: 'books' }, { x: 5.4, y: 0, shaft: 'rolls' }, { x: 10.8, y: 0, shaft: 'brick' }].map((k) => Object.assign({ r: R0, h: HS }, k));
+  const SITE = { sq: [-6.5, -4.6, 22, 7.5], og: [-7, -4.2, 30, 7.5] };
+  const FIT = { sq: { fill: 0.9, fillH: 0.84, cx: 0.5, cy: 0.56 }, og: { fill: 0.9, fillH: 0.84, cx: 0.5, cy: 0.5 } };
+  const FIG = [7.9, -2.3];
+  function draw(c, fmt) {
+    const d = colDims(COLS[0]);
+    const SL = [-1.9, -1.35, d.top, 12.7, 1.35, d.top + 1.25];          // the slab: x0 y0 z0 x1 y1 z1
+    const S = SITE[fmt], slab = 0.5;
+    const P = fit(VIEW_SERIES, [[S[0] + 2, S[1], -slab], [SL[0], SL[4], SL[5] + 0.6], [SL[3], SL[1], -slab], onGround([SL[3], SL[4], SL[5]], SUN_SERIES)], FIT[fmt]);
+    const b = board(c, P, S, slab);
+    const shadows = COLS.map((k) => columnShadow(P, k, SUN_SERIES));
+    shadows.push(boxShadow(P, boxCorners(...SL), SUN_SERIES), cylShadow(P, FIG[0], FIG[1], 0.2, 1.72, SUN_SERIES));
+    unionShadow(c, b.top, shadows, { hunter: 0.64 });
+    b.outline();
+    const f = figure(P([FIG[0], FIG[1], 0]), 1.75 * P.s, { back: 0.06 });
+    const items = COLS.map((k) => ({ d: depth(P, [k.x, k.y, 0]), k })).concat([{ d: depth(P, [FIG[0], FIG[1], 0]), fig: true }]);
+    items.sort((a, b2) => b2.d - a.d);
+    for (const it of items) {
+      if (it.fig) { own(c, f.body, { hunter: 1, moss: 0.62 }); own(c, f.roll, {}); line(c, f.roll, 0.9, KEY); continue; }
+      column(c, P, Object.assign({ L: SUN_SERIES, ribbon: it.k.shaft === 'books' }, it.k));
+    }
+    /* the slab they carry: white, a soffit lip in shade, a planted roof */
+    const [x0, y0, z0, x1, y1, z1] = SL;
+    const sf = boxFaces(P, x0, y0, z0, x1, y1, z1);
+    clearAll(c, sf.sil);
+    own(c, sf.top, { mist: 0.3 });
+    own(c, sf.west, {});
+    own(c, sf.south, { mist: 0.12 });
+    tint(c, poly(P, [[x0, y0, z0], [x1, y0, z0], [x1, y0, z0 + 0.16], [x0, y0, z0 + 0.16]]), { moss: 0.35 });
+    const bed = poly(P, [[x0 + 0.8, y0 + 0.5, z1], [x1 - 5.2, y0 + 0.5, z1], [x1 - 5.2, y1 - 0.4, z1], [x0 + 0.8, y1 - 0.4, z1]]);
+    own(c, bed, { kelly: 0.78, mist: 0.3 });
+    if (c.ink === 'hunter') { c.g.save(); c.g.clip(bed); spray(c.g, null, rngFor('drei:bed'), { n: 2600, r0: 0.6, r1: 1.6, a: 0.55 }); c.g.restore(); }
+    line(c, bed, 1.0, KEY);
+    line(c, sf.sil, 1.9, KEY);
+    line(c, seg(P, [x0, y0, z1], [x1, y0, z1]), 1.1, KEY);
+    line(c, seg(P, [x0, y0, z0], [x0, y0, z1]), 1.3, KEY);
+    line(c, seg(P, [x0, y0, z1], [x0, y1, z1]), 1.1, KEY);
+  }
+  return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], key: 'hunter', draw, numeral: { sq: [540, 1058], og: [540, 548] } };
+})();
+
+/* ═════════════════════════════════════════════════════════════════════════
+   III — Säulenordnung: the orders as a textbook plate draws them, left to
+   right, each a little taller and richer. Brick with a plain book for a
+   capital; binders; the Piloti column; the planted order; rolled drawings
+   under the scroll capital. A chain dimension in front, the heights at left.
+   ═════════════════════════════════════════════════════════════════════════ */
+const ORDNUNG = (() => {
+  const XS = [0, 3.5, 7.0, 10.5, 14.0];
+  const SPEC = [
+    { shaft: 'brick', cap: 'slab', h: 4.6 },
+    { shaft: 'binders', cap: 'slab', h: 5.0 },
+    { h: 5.4 },
+    { cap: 'leaves', h: 5.8 },
+    { shaft: 'rolls', h: 5.8 },
+  ];
+  /* The wide card lines the orders up as a textbook does; the square sets
+     them on a diagonal that recedes, so the row fills the sheet. */
+  const PLACE = { sq: (i) => [i * 3.3, i * 1.5], og: (i) => [XS[i], 0] };
+  const colsFor = (fmt) => SPEC.map((k, i) => { const [x, y] = PLACE[fmt](i); return Object.assign({ x, y, r: 0.42 }, k); });
+  const S = { sq: [-3.8, -3.6, 30, 14], og: [-3.6, -3.0, 16.6, 2.4] };
+  const FIT = { sq: { fill: 0.9, fillH: 0.84, cx: 0.5, cy: 0.5 }, og: { fill: 0.9, fillH: 0.84, cx: 0.5, cy: 0.48 } };
+  const topOf = (k) => { const d = colDims(k); return k.cap === 'slab' ? d.zb + d.h + 0.3 * d.s : k.cap === 'leaves' ? d.zb + d.h + 1.1 * d.s : d.top; };
+  function draw(c, fmt) {
+    const COLS = colsFor(fmt), last = COLS[4];
+    const B = S[fmt], slab = 0.4;
+    const frame = fmt === 'og' ? [[B[0], B[1], -slab], [B[2], B[1], -slab], [B[2], B[3], 0], [B[0], B[3], 0]]
+      : [[COLS[0].x - 3.5, COLS[0].y - 3.2, -slab], [last.x + 2.4, last.y - 1.6, 0]];   // the square lets the board run off
+    const P = fit(VIEW_SERIES, frame.concat([[last.x, last.y, topOf(last) + 0.4], [0, 0, topOf(last) + 0.4]]), FIT[fmt]);
+    // a plain board: a textbook's ground line, not a site
+    const top = poly(P, [[B[0], B[1], 0], [B[2], B[1], 0], [B[2], B[3], 0], [B[0], B[3], 0]]);
+    own(c, poly(P, [[B[0], B[1], 0], [B[2], B[1], 0], [B[2], B[1], -slab], [B[0], B[1], -slab]]), { moss: 0.58 });
+    own(c, poly(P, [[B[0], B[1], 0], [B[0], B[3], 0], [B[0], B[3], -slab], [B[0], B[1], -slab]]), { moss: 0.3 });
+    own(c, top, { mist: 0.42 });
+    if (c.ink === 'mist') { c.g.save(); c.g.clip(top); hatch(c.g, null, rngFor('ordnung:grain'), { gap: 5.2, w: 0.9, ang: -0.03, a: 0.25, cut: true }); c.g.restore(); }
+    unionShadow(c, top, COLS.map((k) => columnShadow(P, k, SUN_SERIES)).concat([cylShadow(P, COLS[0].x - 2.2, COLS[0].y - 0.6, 0.09, 5, SUN_SERIES)]), { hunter: 0.6 });
+    line(c, top, 1.5, KEY);
+    line(c, poly(P, [[B[0], B[1], 0], [B[2], B[1], 0], [B[2], B[1], -slab], [B[0], B[1], -slab]]), 1.5, KEY);
+    line(c, poly(P, [[B[0], B[1], 0], [B[0], B[3], 0], [B[0], B[3], -slab], [B[0], B[1], -slab]]), 1.3, KEY);
+    /* chain dimension in front of the row: the column axes, with 45° ticks */
+    const tick = (q) => { const t = new Path2D(); t.moveTo(q[0] - 4.2, q[1] + 4.2); t.lineTo(q[0] + 4.2, q[1] - 4.2); line(c, t, 1.8, KEY); };
+    const u = v3.norm([last.x - COLS[0].x, last.y - COLS[0].y, 0]), nrm = [u[1], -u[0], 0], off = 2.0;
+    const at = (k, o) => [k.x + nrm[0] * o, k.y + nrm[1] * o, 0];
+    line(c, seg(P, v3.add(at(COLS[0], off), v3.mul(u, -0.6)), v3.add(at(last, off), v3.mul(u, 0.6))), 0.9, { hunter: 0.9 });
+    for (const k of COLS) { line(c, seg(P, at(k, 1.25), at(k, off + 0.35)), 0.7, { hunter: 0.8 }); tick(P(at(k, off))); }
+    const items = COLS.slice().sort((a, b) => depth(P, [b.x, b.y, 0]) - depth(P, [a.x, a.y, 0]));
+    for (const k of items) column(c, P, Object.assign({ L: SUN_SERIES, ribbon: !k.shaft }, k));
+    /* a levelling staff at the left end: metres in alternating fields, the drawing's scale bar */
+    const sx = COLS[0].x - 2.2, sy = COLS[0].y - 0.6, sw = 0.09;
+    const staff = boxFaces(P, sx - sw, sy - sw, 0, sx + sw, sy + sw, 5);
+    clearAll(c, staff.sil); own(c, staff.west, {}); own(c, staff.south, {});
+    for (let m = 0; m < 5; m++) if (m % 2 === 0) lineFill(c, poly(P, [[sx - sw, sy - sw, m], [sx + sw, sy - sw, m], [sx + sw, sy - sw, m + 1], [sx - sw, sy - sw, m + 1]]), { hunter: 1, moss: 0.5 });
+    for (let m = 1; m < 5; m += 2) lineFill(c, poly(P, [[sx - sw, sy - sw, m], [sx - sw, sy + sw, m], [sx - sw, sy + sw, m + 1], [sx - sw, sy - sw, m + 1]]), { hunter: 1, moss: 0.5 });
+    line(c, staff.sil, 1.0, KEY);
+  }
+  return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], key: 'hunter', draw, numeral: { sq: [540, 1058], og: [540, 548] } };
+})();
+
+/* ═════════════════════════════════════════════════════════════════════════
+   IV — Ziegelpfeiler: a brick pier, finished to its last course, a bed of
+   mortar spread on top, and the capital coming down onto it on the hook.
+   One brick near the top is a folded plan.
+   ═════════════════════════════════════════════════════════════════════════ */
+const ZIEGEL = (() => {
+  const BL = 0.24, BW = 0.115, BH = 0.063, J = 0.01, CO = BH + J, SIDE = 3 * BL + 2 * J;   // Austrian format brick, 10 mm joints
+  const N = 30;                                    // courses: 2.2 m
+  const CAPK = { r: 0.31 }, HANG = 0.42;           // the capital, and how far it still hangs above the bed
+  const SITE = { sq: [-2.4, -2.2, 7, 5], og: [-4.5, -2.2, 9, 5] };
+  const FIT = { sq: { fill: 0.86, fillH: 0.86, cx: 0.5, cy: 0.5 }, og: { fill: 0.9, fillH: 0.84, cx: 0.5, cy: 0.465 } };
+  const PLAN = [N - 5, 1];                         // (course, brick) that is a folded plan
+
+  /** The bricks of course i: running bond, the ring turning a quarter each course. */
+  function course(i) {
+    const z = i * CO, out = [];
+    const run = (n, f) => { for (let k = 0; k < n; k++) out.push(f(k)); };
+    if (i % 2 === 0) {
+      run(3, (k) => [k * (BL + J), 0, z, k * (BL + J) + BL, BW, z + BH]);
+      run(3, (k) => [k * (BL + J), SIDE - BW, z, k * (BL + J) + BL, SIDE, z + BH]);
+      run(2, (k) => [0, BW + J + k * (BL + J), z, BW, BW + J + k * (BL + J) + BL, z + BH]);
+      run(2, (k) => [SIDE - BW, BW + J + k * (BL + J), z, SIDE, BW + J + k * (BL + J) + BL, z + BH]);
+    } else {
+      run(3, (k) => [0, k * (BL + J), z, BW, k * (BL + J) + BL, z + BH]);
+      run(3, (k) => [SIDE - BW, k * (BL + J), z, SIDE, k * (BL + J) + BL, z + BH]);
+      run(2, (k) => [BW + J + k * (BL + J), 0, z, BW + J + k * (BL + J) + BL, BW, z + BH]);
+      run(2, (k) => [BW + J + k * (BL + J), SIDE - BW, z, BW + J + k * (BL + J) + BL, SIDE, z + BH]);
+    }
+    return out;
+  }
+
+  function draw(c, fmt) {
+    const S = SITE[fmt], slab = 0.12, capD = colDims(CAPK);
+    const Htop = N * CO, bed = Htop + 0.02;
+    const cx = SIDE / 2, cy = SIDE / 2;
+    // the capital hangs level above the bed: its echinus is what will sit on the mortar
+    const zc = bed + HANG + capD.T + COL.echinus * capD.s + capD.T;
+    const d = Object.assign({}, capD, { zc, top: zc + COL.abacus * capD.s });
+    const hook = [cx, cy, d.top + 1.35];
+    const P = fit(VIEW_SERIES, [[-1.1, S[1], -slab], [SIDE + 1.4, S[1], -slab], [cx - d.A, cy, d.top + 2.3], onGround([SIDE, SIDE, Htop], SUN_SERIES)], FIT[fmt]);
+
+    /* the ground: sand, a little grass at the back */
+    const top = poly(P, [[S[0], S[1], 0], [S[2], S[1], 0], [S[2], S[3], 0], [S[0], S[3], 0]]);
+    const eS = poly(P, [[S[0], S[1], 0], [S[2], S[1], 0], [S[2], S[1], -slab], [S[0], S[1], -slab]]);
+    const eW = poly(P, [[S[0], S[1], 0], [S[0], S[3], 0], [S[0], S[3], -slab], [S[0], S[1], -slab]]);
+    own(c, eS, { moss: 0.58 }); own(c, eW, { moss: 0.3 });
+    own(c, top, { mist: 0.5 });
+    if (c.ink === 'moss') { c.g.save(); c.g.clip(top); spray(c.g, null, rngFor('ziegel:sand'), { n: 7000, r0: 0.4, r1: 1.1, a: 0.4 }); c.g.restore(); }
+    if (c.ink === 'kelly') {
+      const r = rngFor('ziegel:grass'); c.g.save(); c.g.clip(top); c.g.lineWidth = 1.1;
+      for (let i = 0; i < 70; i++) {                // tufts only along the back edge, where nobody walks
+        const gx = lerp(S[0], S[2], r()), gy = S[3] - Math.pow(r(), 3) * 1.2, q = P([gx, gy, 0]);
+        for (let k = 0; k < 3; k++) { c.g.globalAlpha = 0.9; c.g.beginPath(); c.g.moveTo(q[0] + k * 1.6, q[1]); c.g.lineTo(q[0] + k * 1.6 + (r() - 0.5) * 3, q[1] - 4 - r() * 5); c.g.stroke(); }
+      }
+      c.g.restore();
+    }
+    /* shadows: the pier, the hanging capital, the loose bricks: one union */
+    const stack = [SIDE + 0.55, -0.9, SIDE + 0.55 + 2 * BL + J, -0.9 + 3 * BW + 2 * J, 4 * CO];
+    const sh = [boxShadow(P, boxCorners(0, 0, 0, SIDE, SIDE, Htop), SUN_SERIES), capShadow(P, cx, cy, d, SUN_SERIES, 0),
+      boxShadow(P, boxCorners(stack[0], stack[1], 0, stack[2], stack[3], stack[4]), SUN_SERIES)];
+    unionShadow(c, top, sh, { hunter: 0.6 });
+    line(c, top, 1.5, KEY); line(c, eS, 1.5, KEY); line(c, eW, 1.3, KEY);
+
+    /* the pier */
+    const bricks = [];
+    for (let i = 0; i < N; i++) course(i).forEach((b, k) => bricks.push({ b, i, k }));
+    bricks.sort((a, b) => a.i - b.i || depth(P, [b.b[0], b.b[1], 0]) - depth(P, [a.b[0], a.b[1], 0]));
+    for (const { b, i, k } of bricks) brick(c, P, b, i === PLAN[0] && k === PLAN[1]);
+    /* the mortar bed, and the capital's shadow on it */
+    const bedP = poly(P, [[0.02, 0.02, bed], [SIDE - 0.02, 0.02, bed], [SIDE - 0.02, SIDE - 0.02, bed], [0.02, SIDE - 0.02, bed]]);
+    const bedS = poly(P, [[0.02, 0.02, Htop], [SIDE - 0.02, 0.02, Htop], [SIDE - 0.02, 0.02, bed], [0.02, 0.02, bed]]);
+    own(c, bedS, { mist: 0.6 }); own(c, bedP, { mist: 0.45 });
+    c.g.save(); c.g.clip(bedP); tint(c, capShadow(P, cx, cy, d, SUN_SERIES, bed), { hunter: 0.45 }); c.g.restore();
+    line(c, bedP, 0.8, KEY);
+    /* loose bricks stacked beside it */
+    for (let i = 0; i < 4; i++) for (let k = 0; k < 2; k++) for (let m = 2; m >= 0; m--) {
+      if (i === 3 && k === 1 && m < 2) continue;
+      brick(c, P, [stack[0] + k * (BL + J), stack[1] + m * (BW + J), i * CO, stack[0] + k * (BL + J) + BL, stack[1] + m * (BW + J) + BW, i * CO + BH]);
+    }
+    /* the hook and the slings, from out of frame */
+    const hk = P(hook), sky = P([hook[0], hook[1], hook[2] + 8]), u = 0.05 * P.s;   // u: hook size, from metres
+    const ab = [cx - d.A - 0.07 * d.s, cy - d.D - 0.09 * d.s, cx + d.A + 0.07 * d.s, cy + d.D + 0.09 * d.s];
+    const corners = [[ab[0], ab[3]], [ab[2], ab[3]], [ab[0], ab[1]], [ab[2], ab[1]]];
+    for (const [x, y] of corners.slice(0, 2)) line(c, seg(P, [x + 0.02, y, d.top], hook), 1.0, KEY);
+    capital(c, P, cx, cy, Object.assign({}, d, { r: CAPK.r }), SUN_SERIES, { ribbonLen: 0.55 });
+    for (const [x, y] of corners.slice(2)) line(c, seg(P, [x + 0.02, y, d.top], hook), 1.0, KEY);
+    // the crane's cable from out of frame, its hook, and the ring the slings hang from
+    line(c, pathOf([sky, [hk[0], hk[1] - 5.2 * u]], false), 1.4, KEY);
+    const hkp = pathOf(curve([[hk[0], hk[1] - 5.2 * u], [hk[0], hk[1] - 2.2 * u], [hk[0] - 0.4 * u, hk[1] + 0.9 * u], [hk[0] + 1.3 * u, hk[1] + 1.2 * u], [hk[0] + 1.9 * u, hk[1] - 0.6 * u]], false, 6), false);
+    line(c, hkp, 2.2, KEY);
+    const ring = new Path2D(); ring.ellipse(hk[0] + 0.45 * u, hk[1] + 0.6 * u, 0.9 * u, 1.2 * u, 0, 0, TAU); line(c, ring, 1.5, KEY);
+  }
+
+  function brick(c, P, b, plan) {
+    const f = boxFaces(P, ...b);
+    clearAll(c, f.sil);
+    if (plan) {                                     // a sheet folded down to brick size: paper, its folds on the face
+      own(c, f.top, {}); own(c, f.west, { mist: 0.3 }); own(c, f.south, { mist: 0.25 });
+      const folds = new Path2D();
+      for (let k = 1; k < 4; k++) {
+        const z = lerp(b[2], b[5], k / 4);
+        for (const [a, e] of [[P([b[0], b[1], z]), P([b[3], b[1], z])], [P([b[0], b[1], z]), P([b[0], b[4], z])]]) { folds.moveTo(a[0], a[1]); folds.lineTo(e[0], e[1]); }
+      }
+      line(c, folds, 0.45, { hunter: 0.75 });
+      line(c, f.sil, 0.8, KEY);
+      return;
+    }
+    own(c, f.top, {}); own(c, f.west, {}); own(c, f.south, {});
+    lineFill(c, f.top, { moss: 0.34, mist: 0.6 });
+    lineFill(c, f.west, { moss: 0.5 });
+    lineFill(c, f.south, { moss: 0.82, hunter: 0.16 });
+    line(c, f.sil, 0.55, { hunter: 0.85 });
+  }
+  return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], key: 'hunter', draw, numeral: { sq: [540, 1058], og: [540, 548] } };
+})();
+
+/* ═════════════════════════════════════════════════════════════════════════
+   JOBS. Appended only: a new job goes at the end, so earlier jobs keep their
+   times. Concept sketches that did not make it are in PRINT.md, not here.
+   ═════════════════════════════════════════════════════════════════════════ */
+Riso.run({
+  work: 'tragwerk',
+  plates: [
+    { name: 'saeule',  base: 'tragwerk-i-saeule',   art: SAEULE,  number: 1, composes: ['sq', 'og', 'linkedin', 'deck', 'spot'] },
+    { name: 'drei',    base: 'tragwerk-ii-drei',     art: DREI,    number: 2, composes: ['sq', 'og'] },
+    { name: 'ordnung', base: 'tragwerk-iii-ordnung', art: ORDNUNG, number: 3, composes: ['sq', 'og'] },
+    { name: 'ziegel',  base: 'tragwerk-iv-ziegel',   art: ZIEGEL,  number: 4, composes: ['sq', 'og'] },
+  ],
+  jobs: [
+    { plate: 'saeule', format: 'plate',
+      alt: { de: 'Risografie in Grüntönen: eine ionische Säule auf einer Wiese. Ihr Sockel ist ein Stapel Gesetzbücher mit Paragrafenzeichen auf den Rücken, die Voluten des Kapitells sind eingerollte Pläne, die Deckplatte ist ein geschlossenes Buch mit rotem Lesebändchen. Der lange Schatten fällt über den Rasen, daneben steht eine kleine Figur mit einer Planrolle.',
+             en: 'Green risograph: an Ionic column on a lawn. Its base is a stack of law books with section signs on their spines, the volutes of its capital are rolled-up drawings, and its abacus is a closed book with a red bookmark. Its long shadow falls across the grass; a small figure with a rolled drawing stands beside it.' },
+      caption: { de: 'Tragwerk I — Säule', en: 'Structure I — Column' } },
+    { plate: 'saeule', format: 'og',
+      alt: { de: 'Risografie in Grüntönen: eine ionische Säule auf Gesetzbüchern, das Kapitell aus eingerollten Plänen, darüber ein Buch mit rotem Lesebändchen; ihr langer Schatten fällt über eine Wiese.',
+             en: 'Green risograph: an Ionic column standing on law books, its capital made of rolled-up drawings under a book with a red bookmark; its long shadow falls across a lawn.' } },
+    { plate: 'saeule', format: 'spot',
+      alt: { de: 'Kleine ionische Säule auf drei Büchern, mit rotem Lesebändchen am Kapitell.',
+             en: 'A small Ionic column on three books, with a red bookmark at its capital.' } },
+    { plate: 'saeule', format: 'linkedin' },
+    { plate: 'saeule', format: 'deck', compose: 'deck' },
+    { plate: 'saeule', format: 'social' },
+    { plate: 'drei', format: 'plate',
+      alt: { de: 'Risografie: drei Säulen tragen gemeinsam eine weiße Platte mit bepflanztem Dach. Die erste ist aus gestapelten Gesetzbüchern, die zweite aus gebündelten Planrollen, die dritte aus Ziegeln; alle stehen auf Büchern und tragen Kapitelle aus eingerollten Plänen. Eine kleine Figur steht zwischen ihnen.',
+             en: 'Risograph: three columns together carry a white slab with a planted roof. The first is made of stacked law books, the second of bundled rolled drawings, the third of brick; all stand on books and wear capitals of rolled-up drawings. A small figure stands between them.' },
+      caption: { de: 'Tragwerk II — Drei Säulen', en: 'Structure II — Three columns' } },
+    { plate: 'drei', format: 'og',
+      alt: { de: 'Risografie: drei Säulen aus Gesetzbüchern, Planrollen und Ziegeln tragen gemeinsam eine weiße Platte mit bepflanztem Dach.',
+             en: 'Risograph: three columns of law books, rolled drawings and brick together carry a white slab with a planted roof.' } },
+    { plate: 'ordnung', format: 'plate',
+      alt: { de: 'Risografie wie eine Tafel aus einem Architekturlehrbuch: fünf Säulenordnungen in einer Reihe, jede etwas höher – ein Ziegelpfeiler, eine Säule aus Ordnern, die ionische Säule mit eingerollten Plänen als Voluten, eine mit grünen Blättern als Kapitell und eine aus gebündelten Planrollen. Vorn eine Maßkette, links eine Messlatte.',
+             en: 'Risograph in the manner of an architecture textbook plate: five orders of columns in a row, each a little taller – a brick pier, a column of binders, the Ionic column with rolled drawings for volutes, one with green leaves for a capital, and one of bundled rolled drawings. A chain dimension runs in front, a levelling staff stands at the left.' },
+      caption: { de: 'Tragwerk III — Säulenordnung', en: 'Structure III — The orders' } },
+    { plate: 'ordnung', format: 'og',
+      alt: { de: 'Risografie wie eine Lehrbuchtafel: fünf Säulenordnungen nebeneinander, aus Ziegeln, Ordnern, eingerollten Plänen, grünen Blättern und Planrollen, davor eine Maßkette.',
+             en: 'Risograph in the manner of a textbook plate: five orders of columns side by side, made of brick, binders, rolled drawings, green leaves and bundled plans, with a chain dimension in front.' } },
+    { plate: 'ziegel', format: 'plate',
+      alt: { de: 'Risografie: ein gemauerter Ziegelpfeiler, oben ein Mörtelbett; darüber schwebt am Kranhaken ein Säulenkapitell aus eingerollten Plänen und einem Buch mit rotem Lesebändchen. Ein Ziegel im Pfeiler ist ein gefalteter Plan, daneben liegt ein kleiner Stapel Ziegel.',
+             en: 'Risograph: a brick pier with a bed of mortar on top; above it a column capital of rolled-up drawings and a book with a red bookmark hangs from a crane hook. One brick in the pier is a folded drawing; a small stack of bricks lies beside it.' },
+      caption: { de: 'Tragwerk IV — Ziegelpfeiler', en: 'Structure IV — Brick pier' } },
+    { plate: 'ziegel', format: 'og',
+      alt: { de: 'Risografie: über einem gemauerten Ziegelpfeiler schwebt am Kranhaken ein Säulenkapitell aus eingerollten Plänen, gleich wird es aufgesetzt.',
+             en: 'Risograph: a column capital of rolled-up drawings hangs from a crane hook above a brick pier, about to be set down on it.' } },
+  ],
+});
+</script>
+</html>

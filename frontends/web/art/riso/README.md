@@ -12,6 +12,7 @@ the machinery works.
 | Path | Holds |
 |---|---|
 | `tafeln/` | Plates I–VIII of the first series. Its `PRINT.md` states the series principle every work follows |
+| `collateral/` | The founders' kit off the site: email strip and signatures (`signatures/*.html`), a build-log square, deck slides and the thank-you postcard (still lifes on plate VI's tipped table). Its `PRINT.md` maps every piece, including the Tafeln plates reused for LinkedIn and social |
 | `lib/engine.js` | The print engine: screens, paper, starvation, the bake, the `window.__riso` contract, `Riso.run` |
 | `lib/piloti.js` | The series look: inks, paper, screen angles, registration, camera, sun, projection, props |
 | `lib/formats.js` | Every export slot by name, with pixel sizes, pitch, encoding and destination |
@@ -91,7 +92,7 @@ export is one integer time of the page.
 | `spot` | 96², 192² | 3.4 / 6.8 | `spot` | site |
 | `empty` | 320², 640² | 3.4 / 6.8 | `empty` | app (frontends/ui) |
 | `release` | 64², 128², + on page | 2.4 / 4.8 | `stamp` | site |
-| `email` | 600×120, 1200×240 PNG | 3.4 / 6.8 | `strip` | out |
+| `email` | 600×120, 1200×240 PNG | 3.4 / 6.8 | `strip` | site (mail clients load it from piloti.at) |
 | `social` | 1080² PNG | 5.0 | `sq` | out |
 | `linkedin` | 1584×396 PNG | 5.0 | `linkedin` | out |
 | `deck` | 1920×1080 PNG | 5.0 | `cover` | out |
@@ -228,19 +229,19 @@ moiré. It is mild on 3x phones, which get the 1440 file at about 1170 px. No
 
 | Art id | Plate | Used on |
 |---|---|---|
-| `tafeln/stuetzen/plate` | I Drei Stützen | Team section |
-| `tafeln/stuetzen/og` | I Drei Stützen | Landing page share card, and the default (`defaultOgImage`) |
+| `tafeln/stuetzen/plate` | I Drei Stützen | Not placed (Team wears `tragwerk/saeule/plate`) |
+| `tafeln/stuetzen/og` | I Drei Stützen | Not placed (the landing card is `tragwerk/saeule/og`) |
 | `tafeln/stuetzen/banner` | I Drei Stützen | Bautagebuch / blog header |
-| `tafeln/schichten/plate` | II Schichten | Section "Quellen und Daten" |
+| `tafeln/schichten/plate` | II Schichten | Not placed (the section wears `tragwerk/drei/plate`) |
 | `tafeln/schichten/og`, `…/cover` | II Schichten | "Wie Piloti funktioniert": share card and cover; the Bautagebuch share card |
 | `tafeln/schleife/plate` | III Schleife | Not on a page yet (its cover and share card are) |
 | `tafeln/schleife/og`, `…/cover` | III Schleife | "Ein System, das aus Ihrem Frust lernt": share card and cover |
-| `tafeln/bauplatz/plate` | IV Bauplatz | 404 page |
+| `tafeln/bauplatz/plate` | IV Bauplatz | Not placed (the 404 wears `tragwerk/ziegel/plate`) |
 | `tafeln/bauplatz/og` | IV Bauplatz | Changelog share card |
 | `tafeln/pruefstand/plate` | V Prüfstand | Not on a page: the sources section wears II (one plate per section) |
 | `tafeln/pruefstand/og` | V Prüfstand | Share card of the legal pages |
 | `tafeln/zeichentisch/plate` | VI Zeichentisch | Section "Nutzung" |
-| `tafeln/zeichentisch/og` | VI Zeichentisch | Share card of the blog and the Journal |
+| `tafeln/zeichentisch/og` | VI Zeichentisch | Share card of the blog index (the Journal's is `tragwerk/ordnung/og`) |
 | `tafeln/waage/plate` | VII Waage | Value calculator |
 | `tafeln/waage/og` | VII Waage | Rechenweg share card |
 | `tafeln/tuer/plate` | VIII Offene Tür | Contact / become a pilot office |
