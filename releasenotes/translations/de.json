@@ -1986,5 +1986,9 @@
   {
     "en": "„Zitierbar\" no longer appears on every file. A status shows only when it changes what you can do next — a document still being read, one that failed, or a report Piloti wrote and deliberately never indexed.",
     "de": "„Zitierbar“ erscheint nicht mehr bei jeder Datei. Ein Status wird nur angezeigt, wenn er beeinflusst, was Sie als Nächstes tun können – etwa bei einem Dokument, das noch gelesen wird, einem fehlgeschlagenen Dokument oder einem Bericht, den Piloti verfasst und bewusst nie indexiert hat."
+  },
+  {
+    "en": "Three places in the app that have nothing to show yet now show a small print from the Piloti picture series instead of an icon: the project overview before the first project, a project's documents before the first upload, and the page for an address that does not exist.",
+    "de": "Drei Stellen der App, an denen es noch nichts zu sehen gibt, zeigen jetzt einen kleinen Druck aus der Piloti-Bildserie statt eines Symbols: die Projektübersicht vor dem ersten Projekt, die Dokumente eines Projekts vor dem ersten Upload und die Seite für eine Adresse, die es nicht gibt."
   }
 ]

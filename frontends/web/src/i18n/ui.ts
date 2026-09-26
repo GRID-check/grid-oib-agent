@@ -561,8 +561,8 @@ const de = {
     unreleased: 'In Kürze',
     versionLabel: 'Version',
     olderHeading: 'Frühere Neuerungen',
-    monthCount: '{count} Auslieferungen',
-    monthCountOne: '1 Auslieferung',
+    monthCount: '{count} Wochen',
+    monthCountOne: '1 Woche',
   },
   notFound: {
     heading: 'Diese Seite liegt nicht im Plan.',
@@ -1147,8 +1147,8 @@ const en: typeof de = {
     unreleased: 'Coming up',
     versionLabel: 'Version',
     olderHeading: 'Earlier changes',
-    monthCount: '{count} releases',
-    monthCountOne: '1 release',
+    monthCount: '{count} weeks',
+    monthCountOne: '1 week',
   },
   notFound: {
     heading: 'This page is not in the plan.',
