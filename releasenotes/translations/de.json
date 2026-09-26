@@ -872,6 +872,10 @@
     "de": "Ein fertiger Recherchebericht wird ab sofort als ENTWURF im Projekt abgelegt und Ihnen zur Freigabe vorgelegt, statt sofort als geprüfte Datei angezeigt zu werden. Inhalt, Deckblatt und Ablageort ändern sich nicht – nur der in der Dateiablage angezeigte Status."
   },
   {
+    "en": "Ein fertiger Recherchebericht wird wieder als PDF im Projekt abgelegt. Seit Mitte September scheiterte das Ablegen bei jedem Bericht, gleich welchen Inhalts; der Bericht selbst blieb im Chat lesbar.",
+    "de": "Fertige Rechercheberichte werden wieder als PDF im Projekt abgelegt. Seit Mitte September schlägt das Ablegen bei jedem Bericht unabhängig vom Inhalt fehl; der Bericht selbst bleibt im Chat lesbar."
+  },
+  {
     "en": "Ein fertiger Task, der kein Dokument abgelegt und keinen Chat eröffnet hat, führte nirgendwohin: Die Zeile sagte „Fertig\" und bot keinen Weg zum Ergebnis. Jetzt öffnet sie den Bericht des Laufs, und ein fehlgeschlagener Task den Gedankengang.",
     "de": "Ein abgeschlossener Task, der weder ein Dokument abgelegt noch einen Chat eröffnet hat, führte ins Leere: Die Zeile zeigte „Fertig“ an, bot aber keinen Weg zum Ergebnis. Jetzt öffnet sie den Laufbericht; bei einem fehlgeschlagenen Task wird der Gedankengang angezeigt."
   },
@@ -886,6 +890,10 @@
   {
     "en": "Ein hochgeladener Ordner wird jetzt abgeglichen, statt flach abgelegt zu werden. Piloti erkennt die Ordner, die es im Projekt schon gibt — auch wenn sie anders geschrieben sind oder vom Mac mit anders kodierten Umlauten kommen —, legt nur die fehlenden an und legt jede Datei dorthin, wo sie im Ordnerbaum stand.",
     "de": "Ein hochgeladener Ordner wird jetzt abgeglichen, statt flach abgelegt zu werden. Piloti erkennt bereits im Projekt vorhandene Ordner – auch wenn sie anders geschrieben sind oder vom Mac anders kodierte Umlaute enthalten –, legt nur fehlende Ordner an und speichert jede Datei an ihrer ursprünglichen Position im Ordnerbaum."
+  },
+  {
+    "en": "Eine Antwort geht nicht mehr verloren, weil die Verbindung Ihres Geräts abreißt. Piloti speichert jede fertige Antwort selbst, und wer zurückkommt, während Piloti noch arbeitet, sieht „Piloti arbeitet weiter\" statt „Antwort ging verloren\", bis die Antwort da ist.",
+    "de": "Antworten gehen nicht mehr verloren, wenn die Verbindung Ihres Geräts abbricht. Piloti speichert jede abgeschlossene Antwort automatisch. Wenn Sie zurückkehren, während Piloti noch arbeitet, sehen Sie „Piloti arbeitet weiter“ statt „Antwort verloren“, bis die Antwort da ist."
   },
   {
     "en": "Eine Antwort geht nicht mehr verloren, wenn die Verbindung kurz abreißt, etwa wenn Sie auf dem iPhone die App wechseln oder das Telefon sperren. Sobald Sie zurück sind, erscheint der Rest der Antwort, auch nach einem Neuladen der Seite. Bisher stand stattdessen „Verbindung kurz unterbrochen — Antwort ging verloren“, obwohl die Antwort fertig war.",
@@ -1124,6 +1132,10 @@
     "de": "Fußnoten in einer Antwort verwenden Überschriften und Rücksprunglinks in der Sprache der lesenden Person. Sprungmarken führen zurück zur Fußnote. Auch die Reiter der Quellenkarten in der Herleitung richten sich nach der eingestellten Sprache."
   },
   {
+    "en": "Fällt die Datenbank kurz aus, meldet die Anwendung das jetzt als vorübergehende Störung und bittet, es gleich noch einmal zu versuchen, statt mit einem allgemeinen Fehler abzubrechen. Ein in dieser Zeit gestarteter Auftrag wird nicht mehr als fehlgeschlagen angezeigt, obwohl er läuft.",
+    "de": "Wenn die Datenbank kurzzeitig nicht verfügbar ist, meldet die Anwendung jetzt eine vorübergehende Störung und bittet Sie, es gleich noch einmal zu versuchen, statt mit einem allgemeinen Fehler abzubrechen. Ein in dieser Zeit gestarteter Auftrag wird nicht mehr als fehlgeschlagen angezeigt, solange er noch läuft."
+  },
+  {
     "en": "Ganze Ordner lassen sich jetzt hochladen — über „Ordner hochladen\" oder indem Sie den Ordner auf die Dateiablage ziehen. Ein gezogener Ordner hat bisher gar nichts bewirkt. Alle Ebenen darunter werden übernommen; was Piloti nicht lesen kann, wird einzeln abgelehnt statt des ganzen Ordners.",
     "de": "Ganze Ordner lassen sich jetzt hochladen – über „Ordner hochladen“ oder indem Sie den Ordner in die Dateiablage ziehen. Bisher hatte das Ziehen eines Ordners keine Wirkung. Alle Unterordner werden übernommen; was Piloti nicht lesen kann, wird einzeln abgelehnt statt des gesamten Ordners."
   },
@@ -1142,6 +1154,10 @@
   {
     "en": "Hat Piloti für eine Antwort mehrmals gesucht, lässt sich jeder Suchschritt der Herleitung jetzt zuklappen: Ein Klick auf den Schritt ersetzt die gefundenen Dateien durch ihre Anzahl, ein zweiter holt sie zurück. Ab drei Suchschritten kommt die Herleitung bereits zusammengeklappt und zeigt nur den jüngsten offen — damit bleibt der Stand am Ende sichtbar, ohne scrollen zu müssen.",
     "de": "Wenn Piloti für eine Antwort mehrere Suchvorgänge durchgeführt hat, können Sie jetzt jeden Suchschritt in der Herleitung einklappen: Ein Klick auf einen Schritt ersetzt die gefundenen Dateien durch deren Anzahl, ein zweiter zeigt sie wieder an. Ab drei Suchschritten ist die Herleitung standardmäßig eingeklappt und zeigt nur den neuesten Schritt geöffnet – so bleibt der letzte Stand sichtbar, ohne dass Sie scrollen müssen."
+  },
+  {
+    "en": "Hochgeladene Dateien bekommen ihre Schlagwörter (Dokumenttyp und Fachbereich) schneller und treffsicherer. Ein Fachbereich wie Brandschutz wird nur noch vergeben, wenn das Dokument tatsächlich davon handelt, und nicht schon, weil ein Plan eine Brandabschnittsgrenze einzeichnet.",
+    "de": "Hochgeladene Dateien bekommen ihre Schlagwörter (Dokumenttyp und Fachbereich) schneller und treffsicherer. Ein Fachbereich wie Brandschutz wird nur noch vergeben, wenn das Dokument tatsächlich davon handelt, und nicht schon, weil ein Plan eine Brandabschnittsgrenze einzeichnet."
   },
   {
     "en": "Hält ein Beleg oder ein Zitat der Prüfung nicht stand, sucht Piloti einmal gezielt nach der fraglichen Stelle nach und formuliert die Antwort neu, bevor sie erscheint. Bisher wurde die Stelle nur markiert. Bleibt die Prüfung auch danach ohne Erfolg, bleibt die Markierung.",
@@ -1510,6 +1526,10 @@
   {
     "en": "Platform Support also works while viewing a tenant organization, which it previously could not.",
     "de": "Platform Support funktioniert jetzt auch beim Anzeigen einer Mandantenorganisation; bisher war das nicht möglich."
+  },
+  {
+    "en": "Plattform-Betreiber können unter Plattform → Abruf einstellen, ob Antworten live Wort für Wort erscheinen oder vollständig, sobald sie fertig sind. Die Herleitung läuft in beiden Fällen live mit. Die Einstellung gilt für alle Organisationen ab der nächsten Frage.",
+    "de": "Plattform-Betreiber können unter Plattform → Abruf einstellen, ob Antworten live Wort für Wort erscheinen oder vollständig, sobald sie fertig sind. Die Herleitung läuft in beiden Fällen live mit. Die Einstellung gilt für alle Organisationen ab der nächsten Frage."
   },
   {
     "en": "Pläne werden genauer ausgewertet: Blätter mit mehreren Teilzeichnungen (Grundriss, Schnitt, Detail) werden je Teilzeichnung mit eigenem Maßstab erfasst — samt Räumen, Erschließung, Tragwerk, Gebäudetechnik, Materialien und Bauteilaufbauten. Kennzahlen behalten ihre Bedeutung, und unsichere Bildinterpretationen sind als solche markiert.",
@@ -2006,6 +2026,10 @@
   {
     "en": "Vorgeschlagene Anschlussfragen, die verwendeten Methoden und der Antwortkopf überstehen jetzt ein Neuladen, einen Gerätewechsel und den Blick einer Kollegin – auch wenn der Tab schon geschlossen war, als die Antwort fertig wurde, oder die Leserin beim Eintreffen der Vorschläge bereits tippte.",
     "de": "Vorgeschlagene Anschlussfragen, verwendete Methoden und der Antwortkopf bleiben jetzt auch nach einem Neuladen, einem Gerätewechsel oder dem Blick einer Kollegin erhalten – selbst wenn der Tab bereits geschlossen war, als die Antwort fertig wurde, oder die lesende Person schon tippte, als die Vorschläge eintrafen."
+  },
+  {
+    "en": "Vorschaubilder in der Dateiablage laden auch in einem Tab, der seit Tagen offen ist, statt nach einiger Zeit als „nicht verfügbar\" zu erscheinen.",
+    "de": "Vorschaubilder in der Dateiablage werden auch in einem Tab geladen, der seit Tagen geöffnet ist, statt nach einiger Zeit als „nicht verfügbar“ zu erscheinen."
   },
   {
     "en": "Wartet eine Fassung auf Sie, klappt der Abschnitt von selbst auf. Sie müssen also nichts aufklappen, um zu merken, dass Sie an der Reihe sind.",

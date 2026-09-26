@@ -39,8 +39,25 @@
       "summary": null,
       "sections": [
         {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Plattform-Betreiber können unter Plattform → Abruf einstellen, ob Antworten live Wort für Wort erscheinen oder vollständig, sobald sie fertig sind. Die Herleitung läuft in beiden Fällen live mit. Die Einstellung gilt für alle Organisationen ab der nächsten Frage.",
+              "de": "Plattform-Betreiber können unter Plattform → Abruf einstellen, ob Antworten live Wort für Wort erscheinen oder vollständig, sobald sie fertig sind. Die Herleitung läuft in beiden Fällen live mit. Die Einstellung gilt für alle Organisationen ab der nächsten Frage."
+            },
+            {
+              "en": "Hochgeladene Dateien bekommen ihre Schlagwörter (Dokumenttyp und Fachbereich) schneller und treffsicherer. Ein Fachbereich wie Brandschutz wird nur noch vergeben, wenn das Dokument tatsächlich davon handelt, und nicht schon, weil ein Plan eine Brandabschnittsgrenze einzeichnet.",
+              "de": "Hochgeladene Dateien bekommen ihre Schlagwörter (Dokumenttyp und Fachbereich) schneller und treffsicherer. Ein Fachbereich wie Brandschutz wird nur noch vergeben, wenn das Dokument tatsächlich davon handelt, und nicht schon, weil ein Plan eine Brandabschnittsgrenze einzeichnet."
+            }
+          ]
+        },
+        {
           "key": "fixes",
           "notes": [
+            {
+              "en": "Eine Antwort geht nicht mehr verloren, weil die Verbindung Ihres Geräts abreißt. Piloti speichert jede fertige Antwort selbst, und wer zurückkommt, während Piloti noch arbeitet, sieht „Piloti arbeitet weiter\" statt „Antwort ging verloren\", bis die Antwort da ist.",
+              "de": "Antworten gehen nicht mehr verloren, wenn die Verbindung Ihres Geräts abbricht. Piloti speichert jede abgeschlossene Antwort automatisch. Wenn Sie zurückkehren, während Piloti noch arbeitet, sehen Sie „Piloti arbeitet weiter“ statt „Antwort verloren“, bis die Antwort da ist."
+            },
             {
               "en": "Antworten erscheinen gleichmäßig, Wort für Wort, statt in Sprüngen von einem Satz zum nächsten, und die Seite bleibt dabei auch auf dem Telefon flüssig. Bisher stockte sie während einer Antwort alle paar Sekunden, umso mehr, je länger der Chatverlauf war.",
               "de": "Antworten erscheinen gleichmäßig Wort für Wort statt in Sprüngen von Satz zu Satz, und die Seite bleibt auch auf dem Smartphone flüssig. Bisher stockte sie während einer Antwort alle paar Sekunden – je länger der Chatverlauf, desto stärker."
@@ -48,6 +65,18 @@
             {
               "en": "Solange Piloti arbeitet, belasten die Hinweise „denkt nach\" und die Verbindungslinien der Herleitung das Telefon nicht mehr. Die Linien sind gestrichelt statt bewegt, der Hinweis pulsiert statt zu schimmern.",
               "de": "Während Piloti arbeitet, beanspruchen der Hinweis „Denkt nach“ und die Verbindungslinien der Herleitung Ihr Smartphone nicht mehr. Die Linien sind jetzt gestrichelt statt animiert, und der Hinweis pulsiert statt zu schimmern."
+            },
+            {
+              "en": "Ein fertiger Recherchebericht wird wieder als PDF im Projekt abgelegt. Seit Mitte September scheiterte das Ablegen bei jedem Bericht, gleich welchen Inhalts; der Bericht selbst blieb im Chat lesbar.",
+              "de": "Fertige Rechercheberichte werden wieder als PDF im Projekt abgelegt. Seit Mitte September schlägt das Ablegen bei jedem Bericht unabhängig vom Inhalt fehl; der Bericht selbst bleibt im Chat lesbar."
+            },
+            {
+              "en": "Fällt die Datenbank kurz aus, meldet die Anwendung das jetzt als vorübergehende Störung und bittet, es gleich noch einmal zu versuchen, statt mit einem allgemeinen Fehler abzubrechen. Ein in dieser Zeit gestarteter Auftrag wird nicht mehr als fehlgeschlagen angezeigt, obwohl er läuft.",
+              "de": "Wenn die Datenbank kurzzeitig nicht verfügbar ist, meldet die Anwendung jetzt eine vorübergehende Störung und bittet Sie, es gleich noch einmal zu versuchen, statt mit einem allgemeinen Fehler abzubrechen. Ein in dieser Zeit gestarteter Auftrag wird nicht mehr als fehlgeschlagen angezeigt, solange er noch läuft."
+            },
+            {
+              "en": "Vorschaubilder in der Dateiablage laden auch in einem Tab, der seit Tagen offen ist, statt nach einiger Zeit als „nicht verfügbar\" zu erscheinen.",
+              "de": "Vorschaubilder in der Dateiablage werden auch in einem Tab geladen, der seit Tagen geöffnet ist, statt nach einiger Zeit als „nicht verfügbar“ zu erscheinen."
             }
           ]
         }
