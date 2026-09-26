@@ -687,7 +687,7 @@ async def test_handler_run_survives_disconnect_without_cancelling_workflow(monke
     assert not workflow_task.cancelled()
     assert not workflow_task.done()
     # The socket is released so a stale reference can't be reused.
-    assert not await websocket_reconnect._registry.has_socket("conv-1")
+    assert "conv-1" not in websocket_reconnect._registry._sockets
 
     # Cleanup the still-running task.
     workflow_task.cancel()
@@ -889,7 +889,11 @@ async def test_persist_assistant_message_posts_expected_payload(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
-async def test_persist_assistant_message_skips_when_live_socket(monkeypatch) -> None:
+async def test_persist_assistant_message_persists_with_a_live_socket_too(monkeypatch) -> None:
+    """The server keeps every finished answer. It used to skip when a socket was
+    attached ("the client owns the write"), and a socket that died before the
+    browser saved the answer lost it. The browser's write of the same
+    deterministic id is the one that no-ops now."""
     registry = WebSocketSessionRegistry()
     await registry.set_socket("conv-1", DummySocket())
     monkeypatch.setattr(websocket_reconnect, "_registry", registry)
@@ -903,8 +907,8 @@ async def test_persist_assistant_message_skips_when_live_socket(monkeypatch) -> 
         text="answer",
         organization_id="org-1",
     )
-    assert ok is False
-    assert _FakeAsyncClient.calls == []  # dual-write guard: client owns the write
+    assert ok is True
+    assert len(_FakeAsyncClient.calls) == 1
 
 
 @pytest.mark.asyncio
