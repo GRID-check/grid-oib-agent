@@ -1,7 +1,7 @@
 ---
 import Pill from '../atoms/Pill.astro'
 import SectionTag from '../atoms/SectionTag.astro'
-import TapedPrint from '../craft/TapedPrint.astro'
+import PagePrint from '../craft/PagePrint.astro'
 import { PLATES } from '../craft/plates'
 import { CONTACT_EMAILS, mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
@@ -40,10 +40,9 @@ const terms = [
   <!-- Plate VIII, the open door, is the close's one object: on a phone a small
        print above the invitation, from lg the picture beside it. Its ink pass
        is the section's moment, so nothing else here moves. -->
-  <TapedPrint
+  <PagePrint
     name={PLATES.VIII}
     locale={locale}
-    caption={t.plates.VIII}
     size="half"
     phone="third"
     align="center"

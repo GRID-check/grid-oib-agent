@@ -8,7 +8,7 @@
  * links to the old sections still land here.
  */
 import SectionTag from '../atoms/SectionTag.astro'
-import TapedPrint from '../craft/TapedPrint.astro'
+import PagePrint from '../craft/PagePrint.astro'
 import { PLATES } from '../craft/plates'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
@@ -39,10 +39,9 @@ const [sheetNo] = t.sheets.daten.split(' ')
     <div class="grid grid-cols-1 items-start gap-y-8 lg:grid-cols-[7fr_5fr] lg:gap-x-16 lg:gap-y-14">
       <!-- Plate II: sources as layers. Still, because the sheet's ticks are
            this section's one moment. -->
-      <TapedPrint
+      <PagePrint
         name={PLATES.II}
         locale={locale}
-        caption={t.plates.II}
         size="half"
         phone="third"
         still

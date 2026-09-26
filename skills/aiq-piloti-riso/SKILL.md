@@ -118,6 +118,15 @@ Pages reach art only by id (`<work>/<plate>/<format>`) through
 fails on a `/art/` path in `src/`. URLs carry `?v=<hash>` from the manifest,
 because `/art/` is cached for a week under stable names.
 
+- **Two modes, and only two.** *On page* is the default: every print shown
+  bare (a section plate, the changelog stamps, a blog cover on a card or on a
+  phone) uses the on-page file, `art(id, { onPage: true })` or
+  `<PagePrint>`, drawn with `mix-blend-mode: multiply` so the inks print into
+  the page and its grid. On a dark panel, `<PagePrint tone="dark">` reverses
+  it instead (multiply would sink it). *Taped print* (`<TapedPrint>`) keeps
+  its paper, because it is an object on the page: at most one per page (Team,
+  a post's header from md up). A paper file shown bare is the beige box the
+  founders objected to; never show one.
 - **Native size only.** Show a file in a slot of its CSS size (`art.width`),
   or exactly 1/2 or 1/3 of it: a plate is 720 CSS px (`size="full"`), 360
   (`half`) or 240 (`third`). Any other width resamples the halftone screen
@@ -147,5 +156,7 @@ the rest of the craft rules.
    Below ~400 px wide, draw with `weight()` so lines stay above 1.25 device px,
    and prefer solid shapes to screened tone: the screen is fixed in CSS px, so
    in a small file it dominates.
-3. Add the jobs, export, look at the new files, check.
-4. Add a row to the formats table in `art/riso/README.md`.
+3. If a page will show it bare, give it `onPage: true`: the export then
+   writes its on-page twin and `check.mjs` holds the two together.
+4. Add the jobs, export, look at the new files, check.
+5. Add a row to the formats table in `art/riso/README.md`.

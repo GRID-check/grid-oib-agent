@@ -1,7 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro'
 import Pill from '../components/atoms/Pill.astro'
-import TapedPrint from '../components/craft/TapedPrint.astro'
+import PagePrint from '../components/craft/PagePrint.astro'
 import { PLATES } from '../components/craft/plates'
 import { ui, type Locale } from '../i18n/ui'
 import { useTranslatedPath } from '../i18n/utils'
@@ -15,7 +15,6 @@ export const prerender = false
 
 const locale: Locale = /^\/en(\/|$)/.test(Astro.url.pathname) ? 'en' : 'de'
 const t = ui[locale].notFound
-const plates = ui[locale].plates
 const head = ui[locale].seo.pages.notFound
 const path = useTranslatedPath(locale)
 Astro.response.status = 404
@@ -31,10 +30,9 @@ Astro.response.status = 404
 >
   <section class="flex min-h-[70vh] flex-col items-center justify-center px-6 pb-24 pt-32 text-center">
     <!-- Plate IV: the plot is staked out, nothing is built yet. -->
-    <TapedPrint
+    <PagePrint
       name={PLATES.IV}
       locale={locale}
-      caption={plates.IV}
       size="half"
       phone="third"
       align="center"

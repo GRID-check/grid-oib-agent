@@ -6,7 +6,8 @@ plain `<img>`: no dependencies, no fonts.
 
 | Piece | What it is | Used on |
 |---|---|---|
-| `TapedPrint.astro` | A print on a white paper margin, one strip of tape, optional mono caption. Takes a riso print by art id (with `locale`, its declared alt text), or any slot (a photo, a blog cover). A plate hangs straight; only a slot leans (clamped to ±2°). `phone="third"` shows a plate at a third below `sm`. | Every landing section's plate (below), founder photos, the 404, blog covers (`COVER_PLATES`) |
+| `PagePrint.astro` | A riso plate printed straight onto the page: the on-page file (inks as alpha, no paper), `mix-blend-mode: multiply`, no sheet, tape, caption or frame. `tone="dark"` reverses it onto a dark panel. `phone="third"` as TapedPrint's. The default for a plate. | Every landing section's plate but Team's (below), the 404 |
+| `TapedPrint.astro` | A print on a white paper margin, one strip of tape, optional mono caption. Takes a riso print by art id (with `locale`, its declared alt text), or any slot (a photo, a blog cover). A plate hangs straight; only a slot leans (clamped to ±2°). `phone="third"` shows a plate at a third below `sm`. The print keeps its paper: it is an object on the page, so at most one per page. | Team's plate I, founder photos, an uploaded blog cover |
 | `plates.ts` | The Tafeln plates by number → their art id, and which blog posts wear one. File names live only in `src/data/art.json`. | wherever a plate is shown |
 | `Tape.astro` | The strip of masking tape: translucent crepe with a torn zigzag at both ends. | inside TapedPrint only |
 | `craft-in.ts` | Marks a `[data-craft-in]` element `craft-in` when it scrolls into view; a mark drawn on the sheet animates off that class. | The Prüfblatt's ticks (Quellen) |
@@ -17,19 +18,34 @@ repository's history if a section without a plate ever needs one.
 
 ## Plates
 
-One plate per section, and no plate twice on a page. The landing page:
+One plate per section, and no plate twice on a page. Two modes, and only two
+(`art/riso/README.md`, "Showing a print"): **on page** (`PagePrint`), the
+default, where the inks print into the page and its grid; and **taped**
+(`TapedPrint`), where the print keeps its paper as an object on the page, at
+most once per page. Five taped sheets in a row read as stuck on and
+repetitive, and each bare paper file was a beige box on the grid: that is why
+the sections moved to on page. The landing page:
 
-| Section | Plate | Desktop | Phone |
-|---|---|---|---|
-| 03 Nutzung | VI Zeichentisch | third, above the tag, still | hidden: the stories are the picture |
-| 04 Quellen und Daten | II Schichten | half, beside the claim, still | third, above the tag |
-| 05 Wert | VII Waage | third, above the tag | hidden: the calculator comes first |
-| 06 Team | I Drei Stützen | half, beside the intro | third, above the tag |
-| 08 Kontakt | VIII Offene Tür | half, beside the invitation | third, above the tag |
+| Section | Plate | Mode | Desktop | Phone |
+|---|---|---|---|---|
+| 03 Nutzung | VI Zeichentisch | on page | third, above the tag, still | hidden: the stories are the picture |
+| 04 Quellen und Daten | II Schichten | on page, on the sage panel | half, beside the claim, still | third, above the tag |
+| 05 Wert | VII Waage | on page, `tone="dark"` | third, above the tag | hidden: the calculator comes first |
+| 06 Team | I Drei Stützen | taped, beside the taped founder photos | half, beside the intro | third, above the tag |
+| 08 Kontakt | VIII Offene Tür | on page | half, beside the invitation | third, above the tag |
+
+The Wert plate sits on the dark olive panel. Multiplied there, the inks
+vanish into the dark; moved off the panel onto the light page above it, it
+floated apart from the section it illustrates. It is reversed instead: a
+negative in its own hues (`invert(1) hue-rotate(180deg)`), screened onto the
+panel, so the key ink's lines are the brightest, as a light ink on dark
+stock. The sage Quellen panel keeps plain multiply: the inks darken the sage
+as they darken the page, and every layer still reads.
 
 `still` where the section already has its moment (the chain, the ticks).
 Plate IV Bauplatz is the 404's; V Prüfstand and III Schleife are for the blog.
-Captions are `ui.plates`, not the manifest's, which are set with an em dash.
+On-page plates carry no caption; the taped Team plate keeps `ui.plates.I`
+(not the manifest's caption, which is set with an em dash).
 
 Prints come from the riso works in `art/riso/` and reach a page only by art id
 through `src/data/art.json` (`src/lib/art.ts`); the file names and their
@@ -37,7 +53,7 @@ through `src/data/art.json` (`src/lib/art.ts`); the file names and their
 resampled by an odd factor (that is what makes moiré):
 
 - `size="full"`: the print's own CSS size (720 px for a plate), the 2x file on
-  2x screens.
+  2x screens (both components).
 - `size="half"` / `"third"`: 1/2 or 1/3 of it, the 1x file.
 - On a phone narrower than the print, `max-width: 100%`, and nothing else.
 

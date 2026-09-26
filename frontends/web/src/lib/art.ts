@@ -10,6 +10,18 @@
  * a slot of its CSS size (`width` x `height`), or at an integer fraction of
  * it, with the densities as `srcset`; never with `object-fit` or a width of
  * your own: resampling a halftone screen makes moiré.
+ *
+ * Two variants of one print, one rule for which (art/riso/README.md,
+ * "Showing a print"):
+ *
+ * - **on page**, `art(id, { onPage: true })`: the same inks with no paper,
+ *   as alpha. Every print shown bare on the page (a section plate, the
+ *   changelog stamps, a blog cover on a card) is this one, drawn with
+ *   `mix-blend-mode: multiply` so the inks sit in the page and its grid.
+ *   Only formats with `onPage` in formats.js have it; `OnPageArtId` holds
+ *   exactly those ids.
+ * - **on paper**, `art(id)`: the print as printed, on its mottled sheet. Only
+ *   for a print that is an object on the page: TapedPrint.
  */
 import manifest from '../data/art.json'
 import type { Locale } from '../i18n/ui'
@@ -34,15 +46,32 @@ export interface Art {
   height: number
   alt: Record<Locale, string>
   caption?: Record<Locale, string>
+  /** The files to show: on paper, or with `art(id, { onPage: true })` the on-page ones. */
   files: ArtFile[]
+  /** True when `files` are the on-page variant (no paper, alpha): show them with mix-blend-mode: multiply. */
+  onPage: boolean
 }
 
-const ART: Record<ArtId, Art> = manifest.art
+interface Entry extends Omit<Art, 'onPage'> {
+  /** The on-page twins of `files`, for formats exported with `onPage`. */
+  page?: ArtFile[]
+}
 
-export function art(id: ArtId): Art {
+type Manifest = typeof manifest.art
+/** The ids exported with an on-page variant (formats with `onPage`: plate, cover, release). */
+export type OnPageArtId = { [K in ArtId]: Manifest[K] extends { page: unknown[] } ? K : never }[ArtId]
+
+const ART: Record<ArtId, Entry> = manifest.art
+
+export function art(id: ArtId): Art
+export function art(id: OnPageArtId, options: { onPage: true }): Art
+export function art(id: ArtId, options?: { onPage: true }): Art {
   const entry = ART[id]
   if (!entry) throw new Error(`art id "${id}" is not in src/data/art.json; run node art/riso/export.mjs`)
-  return entry
+  const { page, ...paper } = entry
+  if (!options?.onPage) return { ...paper, onPage: false }
+  if (!page) throw new Error(`art id "${id}" has no on-page variant; its format needs onPage in art/riso/lib/formats.js`)
+  return { ...paper, files: page, onPage: true }
 }
 
 /** The file for one density, falling back to the 1x file. */

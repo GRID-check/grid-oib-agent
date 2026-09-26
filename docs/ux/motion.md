@@ -77,8 +77,8 @@ Each entry is the one thing the section does, and what it explains.
 
 ### The ink pass
 
-`src/components/motion/InkPass.astro` (+ `ink-pass.ts`). TapedPrint wraps every
-plate in it; `still` opts a plate out. The layers exist only while the pass
+`src/components/motion/InkPass.astro` (+ `ink-pass.ts`). TapedPrint and
+PagePrint wrap every plate in it; `still` opts a plate out. The layers exist only while the pass
 plays: when it ends they are removed and the untouched `<img>` is shown, so at
 rest the page holds the file on disk at its native size.
 
@@ -90,6 +90,14 @@ Two sources for the inks:
   pale ground ink (Mist) and a middle ink (Moss), then the whole print as the
   key. Every ink on these plates is a green, so there is no hue to separate
   them by; the approximation keeps the true order (light first, key last).
+
+An **on-page** plate (PagePrint: the inks as alpha, no paper, blended into
+the page) has no paper to print onto, so its pass has none either: the stage
+stays transparent and every layer takes the print's own filter and blend
+(multiply on a light page, the reversal and screen on a dark panel). Its bands
+are cut from the print laid on white, which is what the paper print shows.
+The key is not opaque there, so the bands fade out while it lands, and the
+last frame of the pass is the print at rest.
 
 **The separation export.** Per plate job that the site serves (the 720 and
 1440 squares, and the 800/1600 banner if a banner is ever passed through

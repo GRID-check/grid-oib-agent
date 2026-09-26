@@ -1,0 +1,124 @@
+---
+/**
+ * A riso plate printed straight onto the page: the on-page file (the inks
+ * with no paper, as alpha, `art(id, { onPage: true })`) multiplied into what
+ * lies below it, so the inks sit in the page and its drawing grid. No sheet,
+ * no tape, no caption, no frame.
+ *
+ *   <PagePrint name={PLATES.VI} locale={locale} size="third" />
+ *
+ * This is the default way to show a plate. TapedPrint is the other one, for a
+ * print that is an object on the page (it keeps its paper), and a page has at
+ * most one of those. The rule: art/riso/README.md, "Showing a print".
+ *
+ * Sizes as TapedPrint's: `full` shows the 1x file at its own CSS size with
+ * the 2x file on 2x screens; `half` and `third` show the 1x file at exactly
+ * 1/2 and 1/3; `phone="third"` drops to a third below `sm`. Nothing else
+ * scales it, and it is never rotated: resampling a halftone screen is moiré.
+ *
+ * `tone="dark"` is for a dark panel, where multiplying would sink the inks
+ * into the dark: the print is reversed instead, a negative in its own hues
+ * screened onto the panel.
+ *
+ * With `locale`, the alt text is the one the work declared; `alt` wins.
+ * Without either the plate is decorative (empty alt).
+ */
+import { art, artFile, type OnPageArtId } from '../../lib/art'
+import type { Locale } from '../../i18n/ui'
+import InkPass from '../motion/InkPass.astro'
+
+interface Props {
+  /** A plate's art id, e.g. `tafeln/stuetzen/plate`: an id exported with its on-page variant. */
+  name: OnPageArtId
+  locale?: Locale
+  alt?: string
+  size?: 'full' | 'half' | 'third'
+  /** Below `sm`, a third of the plate (240 px), as TapedPrint's `phone`. */
+  phone?: 'third'
+  /** `dark` on a dark panel: the print reversed, light inks on the dark. */
+  tone?: 'light' | 'dark'
+  align?: 'start' | 'center' | 'end'
+  loading?: 'lazy' | 'eager'
+  /** The plate arrives by ink pass (components/motion/InkPass); `still` opts out. */
+  still?: boolean
+  class?: string
+}
+const {
+  name,
+  locale,
+  size = 'half',
+  phone,
+  tone = 'light',
+  align = 'start',
+  loading = 'lazy',
+  still = false,
+  class: className = '',
+} = Astro.props
+
+const a = art(name, { onPage: true })
+const DIVISOR = { full: 1, half: 2, third: 3 }[size]
+const lo = artFile(a, 1)
+const hi = size === 'full' ? a.files.find((f) => f.density === 2) : undefined
+const alt = Astro.props.alt ?? (locale ? a.alt[locale] : '')
+const ALIGN = { start: '', center: 'mx-auto', end: 'ml-auto' }
+---
+
+<figure
+  class:list={[
+    'page-print',
+    `page-print--${size}`,
+    phone && `page-print--phone-${phone}`,
+    `page-print--${tone}`,
+    'm-0',
+    ALIGN[align],
+    className,
+  ]}
+>
+  <InkPass off={still} page>
+    <img
+      src={lo.src}
+      srcset={hi ? `${lo.src} 1x, ${hi.src} 2x` : undefined}
+      width={a.width / DIVISOR}
+      height={a.height / DIVISOR}
+      alt={alt}
+      loading={loading}
+      decoding="async"
+    />
+  </InkPass>
+</figure>
+
+<style>
+  /* In the components layer, so a caller's utilities (a width, a margin) win. */
+  @layer components {
+    .page-print {
+      width: fit-content;
+      max-width: 100%;
+    }
+    .page-print img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
+    /* The inks multiply into the page: where there is no ink the file is
+       transparent, where there is, it darkens what lies below exactly as the
+       ink darkens the paper. :global, so the ink pass's layers (added by
+       script, so unscoped) take the same treatment. */
+    .page-print--light :global(img) {
+      mix-blend-mode: multiply;
+    }
+    /* On a dark panel multiplying sinks the inks into the dark. The print is
+       reversed instead, a negative in its own hues (invert, then turn the hue
+       back): the heaviest ink becomes the brightest line, the pale ground ink
+       all but vanishes, and screen lays that light onto the panel as multiply
+       lays ink onto a light page. */
+    .page-print--dark :global(img) {
+      filter: invert(1) hue-rotate(180deg);
+      mix-blend-mode: screen;
+    }
+    @media (max-width: 39.99rem) {
+      .page-print--phone-third img {
+        width: 240px;
+      }
+    }
+  }
+</style>
