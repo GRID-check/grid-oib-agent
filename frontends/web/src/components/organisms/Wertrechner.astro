@@ -74,9 +74,8 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText }[] = [
     <div class="grid grid-cols-1 gap-y-10 lg:grid-cols-[5fr_7fr] lg:gap-x-16">
       <div data-reveal class="px-2 sm:px-0">
         <!-- Plate VII, the balance tipping towards the paper: the case the
-             calculator weighs. From lg only; a phone has the calculator to get
-             through first. -->
-        <PagePrint name={PLATES.VII} locale={locale} size="half" tone="dark" class="mb-10 max-lg:hidden" />
+             calculator weighs. A third on a phone, above the heading. -->
+        <PagePrint name={PLATES.VII} locale={locale} size="half" phone="third" tone="dark" class="mb-8 lg:mb-10" />
         <h2 class="m-0 mb-5 font-voice text-v2 text-surface sm:mb-6" style="text-wrap: balance">
           {t.roi.title}
         </h2>

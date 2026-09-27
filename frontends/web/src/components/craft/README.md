@@ -30,9 +30,9 @@ the sections moved to on page. The landing page:
 |---|---|---|---|---|
 | 03 Nutzung | VI Zeichentisch | on page | half, closing the text column beside the chain, still | hidden: the stories are the picture |
 | 04 Quellen und Daten | II Schichten | on page, on the sage panel | half, beside the claim, still | third, above the tag |
-| 05 Wert | VII Waage | on page, `tone="dark"` | half, above the heading | hidden: the calculator comes first |
+| 05 Wert | VII Waage | on page, `tone="dark"` | half, above the heading | third, above the heading |
 | 06 Team | Tragwerk II Drei Säulen (three columns, three founders, one slab) | taped, beside the taped founder photos | half, beside the intro | third, above the tag |
-| 07 FAQ | Tragwerk III Säulenordnung | on page | half, under the heading, sticky beside the questions | hidden: the list is the page |
+| 07 FAQ | Tragwerk III Säulenordnung | on page | half, under the heading, sticky beside the questions | third, under the heading |
 | 08 Kontakt | VIII Offene Tür | on page | half, beside the invitation | third, above the tag |
 
 The Wert plate sits on the dark olive panel. Multiplied there, the inks

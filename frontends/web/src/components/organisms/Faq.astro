@@ -32,9 +32,8 @@ const items = faqItems(locale)
         {t.title}
       </h2>
       <!-- Tragwerk III, the orders: the column family the answers stand on,
-           held beside the questions while they open. From lg only; on a phone
-           the list is the page. -->
-      <PagePrint name={TRAGWERK.III} locale={locale} size="half" class="mt-12 max-lg:hidden" />
+           held beside the questions while they open; a third on a phone. -->
+      <PagePrint name={TRAGWERK.III} locale={locale} size="half" phone="third" class="mt-8 lg:mt-12" />
     </div>
     <div class="border-b border-ink/12">
       {
