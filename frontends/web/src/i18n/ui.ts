@@ -210,14 +210,16 @@ const de = {
         { label: 'Quellenverweis', value: 'Paragraf, Punkt, Seite' },
       ],
       dataHeading: 'Zu Ihren Daten',
-      // No residency promise of any kind: model calls may leave the EU. What
-      // is stated here is what Piloti itself controls.
+      // No residency promise of any kind: model calls may leave the EU. The
+      // first three lines are what Piloti itself controls; the last says where
+      // the data goes, in the privacy policy's words and no further.
       data: [
         'Wir trainieren keine Modelle mit Ihren Daten.',
         'Pläne und Projekte bleiben Eigentum Ihres Büros.',
         'Dokumente und Antworten laden Sie einzeln herunter.',
+        'Anmeldung über WorkOS (USA). KI-Anfragen laufen über OpenRouter (USA) an Modellanbieter, die auch außerhalb der EU sitzen können.',
       ],
-      link: 'Welche KI-Anbieter beteiligt sind, steht in der Datenschutzerklärung',
+      link: 'Details in der Datenschutzerklärung',
     },
   },
   roi: {
@@ -792,8 +794,9 @@ const en: typeof de = {
         'We do not train models on your data.',
         'Plans and projects remain the property of your office.',
         'You download documents and answers one by one.',
+        'Sign-in through WorkOS (USA). AI requests go through OpenRouter (USA) to model providers that may be based outside the EU.',
       ],
-      link: 'Which AI providers are involved is set out in the privacy policy',
+      link: 'Details in the privacy policy',
     },
   },
   roi: {
