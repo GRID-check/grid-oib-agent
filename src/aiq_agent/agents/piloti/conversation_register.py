@@ -35,8 +35,10 @@ from aiq_agent.common.agent_tools import load_agent_tools
 from aiq_agent.common.profiler import flush_after_answer
 from aiq_agent.common.profiler import track_agent_profile
 from aiq_agent.common.turn_status import documents_loading_step
+from aiq_agent.common.wire_v2 import AnswerRetractedBody
 from aiq_agent.common.wire_v2 import EventBody
 from aiq_agent.common.wire_v2 import RunFinishedBody
+from aiq_agent.common.wire_v2 import StateSnapshotBody
 from aiq_agent.common.wire_v2 import StatusStep
 from aiq_agent.common.wire_v2 import StepFinishedBody
 from aiq_agent.conversation_context import register_context_appender
@@ -76,7 +78,6 @@ from aiq_agent.turn.response import answer_message_id
 from aiq_agent.turn.response import build_result
 from aiq_agent.turn.response import finished
 from aiq_agent.turn.response import post_answer_turn_facts
-from aiq_agent.turn.streaming import TurnTextFold
 from aiq_agent.turn.streaming import fold_turn
 from aiq_agent.turn.streaming import note_settled_replaced
 from aiq_agent.turn.subject_document import load_subject_document
@@ -463,7 +464,8 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
         # inside would post first and strand it. The cost tracker is held here,
         # filled the moment it exists, because a turn that RAISES has no outcome.
         ledgers = TurnLedgers()
-        fold = TurnTextFold()
+        # The snapshot the reader was left reading, for `note_settled_replaced`.
+        settled: str | None = None
         terminal: RunFinishedBody | None = None
         try:
             # The profiler root opens BEFORE the setup I/O so every setup step has a
@@ -497,11 +499,14 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
                         if isinstance(body, RunFinishedBody):
                             terminal = body
                             continue
-                        fold.add(body)
+                        if isinstance(body, StateSnapshotBody):
+                            settled = body.snapshot.text
+                        elif isinstance(body, AnswerRetractedBody):
+                            settled = None
                         yield body
             # The terminal goes out after the profiled block has closed.
             assert terminal is not None
-            note_settled_replaced(fold.settled, terminal.result.text)
+            note_settled_replaced(settled, terminal.result.text)
             yield terminal
         finally:
             # Two BFF round-trips, posted AFTER the reader has the answer; in the

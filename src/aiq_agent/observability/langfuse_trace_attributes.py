@@ -24,9 +24,10 @@ installed NAT, not assumed:
   (``aiq_api.chat_socket``), the same WorkOS user id the envelope carries, so
   this module no longer writes ``langfuse.user.id``
   (``test_nat_puts_the_session_user_on_every_span`` pins NAT's half). NAT sets
-  it on every span whatever ``GRID_TRACE_IDENTITY_ATTRIBUTES`` says; an
-  operator who must not store it lists ``user.id`` in ``redaction_attributes``,
-  which runs after span creation.
+  it, and ``<prefix>.user.id``, on every span whatever
+  ``GRID_TRACE_IDENTITY_ATTRIBUTES`` says, so with the flag off
+  :class:`UserIdentityStripProcessor` removes both before export: the default
+  stays "no span names a person".
 * ``input.value`` / ``output.value`` — NAT emits the OpenInference attribute
   names, which Langfuse reads as the observation input/output.
 
@@ -733,6 +734,21 @@ try:
                 item.set_attribute(key, value)
             return item
 
+    class UserIdentityStripProcessor(Processor[Span, Span]):
+        """Remove the user identity NAT 1.9 stamps on every span, while identity attributes are off.
+
+        NAT sets ``user.id`` and ``<prefix>.user.id`` from the session's user
+        (#2152), and the chat socket opens each session with the verified
+        subject. Attributing spans to a person is the step
+        ``GRID_TRACE_IDENTITY_ATTRIBUTES`` gates, so without the flag this
+        processor takes both back out.
+        """
+
+        async def process(self, item: Span) -> Span:
+            for key in [key for key in item.attributes if key == "user.id" or key.endswith(".user.id")]:
+                del item.attributes[key]
+            return item
+
     class UsageAttributeProcessor(Processor[Span, Span]):
         """Mirror provider usage onto generation spans in the namespaces Langfuse reads.
 
@@ -821,3 +837,4 @@ except Exception:  # pragma: no cover - exercised only without the NAT extras
     LangfuseTraceAttributeProcessor = None  # type: ignore[assignment,misc]
     UsageAttributeProcessor = None  # type: ignore[assignment,misc]
     PromptLinkProcessor = None  # type: ignore[assignment,misc]
+    UserIdentityStripProcessor = None  # type: ignore[assignment,misc]

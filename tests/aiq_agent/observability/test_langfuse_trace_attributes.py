@@ -110,7 +110,17 @@ class TestUserAttributionIsNats:
         finally:
             state.user_id.reset(token)
 
-        assert exporter._span_stack["u1"].attributes["user.id"] == "user_01VERIFIED"
+        span = exporter._span_stack["u1"]
+        assert span.attributes["user.id"] == "user_01VERIFIED"
+        assert any(key.endswith(".user.id") for key in span.attributes)
+
+        # With identity attributes off (the default), neither reaches the trace store.
+        import asyncio
+
+        from aiq_agent.observability.langfuse_trace_attributes import UserIdentityStripProcessor
+
+        stripped = asyncio.run(UserIdentityStripProcessor().process(span))
+        assert not [key for key in stripped.attributes if key == "user.id" or key.endswith(".user.id")]
 
 
 class TestAvailabilityGate:

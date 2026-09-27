@@ -7,6 +7,7 @@ from pydantic import Field
 from aiq_agent.observability.langfuse_trace_attributes import LangfuseTraceAttributeProcessor
 from aiq_agent.observability.langfuse_trace_attributes import PromptLinkProcessor
 from aiq_agent.observability.langfuse_trace_attributes import UsageAttributeProcessor
+from aiq_agent.observability.langfuse_trace_attributes import UserIdentityStripProcessor
 from aiq_agent.observability.langfuse_trace_attributes import identity_attributes_enabled
 from nat.observability.exporter.base_exporter import BaseExporter
 from nat.plugin_api import Builder
@@ -190,6 +191,10 @@ async def otelcollector_redaction_telemetry_exporter(
     # processor's docstring; attributes added after redaction could never be
     # redacted, which would quietly make `redaction_attributes` a lie for
     # exactly the fields that identify a person.
+    # NAT 1.9 names the session's user on every span; with identity attributes
+    # off, that must not reach the trace store either.
+    if not identity_attributes_enabled() and UserIdentityStripProcessor is not None:
+        exporter.add_processor(UserIdentityStripProcessor(), name="grid_strip_user_identity", position=0)
     if identity_attributes_enabled() and LangfuseTraceAttributeProcessor is not None:
         try:
             exporter.add_processor(

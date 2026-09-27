@@ -40,13 +40,13 @@ from aiq_agent.common.wire_v2 import TextMessageContentBody
 from aiq_agent.common.wire_v2 import TextMessageStartBody
 from aiq_agent.common.wire_v2 import TurnResult
 from aiq_agent.common.wire_v2 import WireSource
+from aiq_agent.turn.response import answer_message_id
 from aiq_api import chat_socket
 from aiq_api.auth.errors import AuthError
 from aiq_api.chat_socket import ChatRegistry
 from aiq_api.chat_socket import ChatSocket
 from aiq_api.chat_socket import authenticate_websocket_connection
 from aiq_api.chat_socket import configure_websocket_auth
-from aiq_api.chat_socket import deterministic_assistant_message_id
 from aiq_api.chat_socket import handshake_conversation_binding
 from aiq_api.chat_socket import persist_turn_result
 from aiq_api.chat_socket import turn_row_metadata
@@ -138,7 +138,7 @@ class FakeSessions:
 
 
 def _finished(request, text: str = "Antwort [1].", outcome: str = "answered", **result: Any) -> RunFinishedBody:
-    message_id = deterministic_assistant_message_id(request.conversation_id, request.message_id)
+    message_id = answer_message_id(request.conversation_id, request.message_id)
     return RunFinishedBody(outcome=outcome, result=TurnResult(message_id=message_id, text=text, **result))
 
 
@@ -426,11 +426,11 @@ async def test_a_turn_is_run_started_then_what_the_workflow_yields_in_seq_order(
         "TEXT_MESSAGE_CONTENT",
         "RUN_FINISHED",
     ]
-    assert events[0]["message_id"] == deterministic_assistant_message_id(CONV, "t1")
+    assert events[0]["message_id"] == answer_message_id(CONV, "t1")
     opened = h.sessions.opened[0]
     assert opened["user_id"] == "user_asker"  # NAT's Context.user_id and span user.id: the verified subject
     assert (opened["conversation_id"], opened["user_message_id"]) == (CONV, "t1")
-    assert persisted[0]["message_id"] == deterministic_assistant_message_id(CONV, "t1")
+    assert persisted[0]["message_id"] == answer_message_id(CONV, "t1")
     assert persisted[0]["metadata"] == {"sources": [{"content": "c", "number": 1}]}
 
 
@@ -748,7 +748,7 @@ async def test_a_dropped_socket_does_not_stop_the_turn_and_the_answer_is_kept(ha
 
     assert not any(event["type"] == "RUN_FINISHED" for event in sock.events())
     assert persisted[0]["text"] == "done"
-    assert persisted[0]["message_id"] == deterministic_assistant_message_id(CONV, "t1")
+    assert persisted[0]["message_id"] == answer_message_id(CONV, "t1")
 
 
 async def test_every_stamped_frame_reaches_spectators_and_a_rejection_does_not(harness):
@@ -873,5 +873,5 @@ def test_a_snapshot_replaces_the_partial_and_keeps_its_citations():
 
 
 def test_the_answer_id_is_stable_per_turn():
-    assert deterministic_assistant_message_id(CONV, "t1") == deterministic_assistant_message_id(CONV, "t1")
-    assert deterministic_assistant_message_id(CONV, "t1") != deterministic_assistant_message_id(CONV, "t2")
+    assert answer_message_id(CONV, "t1") == answer_message_id(CONV, "t1")
+    assert answer_message_id(CONV, "t1") != answer_message_id(CONV, "t2")

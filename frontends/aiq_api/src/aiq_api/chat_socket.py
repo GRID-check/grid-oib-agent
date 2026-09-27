@@ -39,7 +39,6 @@ import logging
 import os
 import re
 import time
-import uuid
 from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Mapping
@@ -87,6 +86,7 @@ from aiq_agent.conversation_context import format_context_turn
 from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_HEADER
 from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_SIG_HEADER
 from aiq_agent.project_context import GridRequestContext
+from aiq_agent.turn.response import answer_message_id
 from aiq_api.auth.errors import AuthError
 from aiq_api.auth.middleware import build_request_trace_tags
 from aiq_api.auth.middleware import detect_internal_caller
@@ -260,15 +260,6 @@ _NOT_METADATA = {"message_id", "text", "cards", "job_admission_rejected", "retry
 _PERSIST_TASKS: set[asyncio.Task[bool]] = set()
 
 
-def deterministic_assistant_message_id(conversation_id: str, turn_id: str) -> str:
-    """The answer's id, keyed on (conversation, turn).
-
-    A repeated write, the browser's included, collides on the messages route's
-    primary key (``onConflictDoNothing``) and no-ops.
-    """
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"grid:assistant:{conversation_id}:{turn_id}"))
-
-
 def turn_row_metadata(finished: RunFinishedBody) -> dict[str, Any] | None:
     """The message row's metadata for a finished turn, or None when nothing is written.
 
@@ -394,7 +385,7 @@ class RunningTurn:
 
     @property
     def message_id(self) -> str:
-        return deterministic_assistant_message_id(self.wire.conversation_id, self.wire.turn_id)
+        return answer_message_id(self.wire.conversation_id, self.wire.turn_id)
 
     async def publish(self, body: EventBody) -> None:
         """Send one body the workflow yielded; the terminal is also persisted."""

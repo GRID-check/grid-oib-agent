@@ -280,7 +280,7 @@ class TurnResult(_Model):
     model and nothing else (``aiq_api`` ``persist_turn_result``).
     """
 
-    message_id: str = Field(min_length=1, description="deterministic_assistant_message_id(conversation, turn).")
+    message_id: str = Field(min_length=1, description="turn.response.answer_message_id(conversation, turn).")
     text: str
     cards: list[KeyedCard] = Field(default_factory=list)
     sources: list[WireSource] = Field(default_factory=list)

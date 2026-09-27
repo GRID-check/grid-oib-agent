@@ -3,56 +3,20 @@
 Two readers need the text rather than the events. ``nat run``, ``nat eval``
 and single-shot HTTP take one value per call: :func:`fold_turn` is the
 workflow's ``Streaming(convert=...)``, and returns ``RUN_FINISHED``'s text.
-The chat socket needs the text so far when the asker presses Stop:
-:class:`TurnTextFold` holds it, folded as the client folds the same events.
-The workflow folds its own bodies too, to log when ``RUN_FINISHED`` replaced
-the settled text (:func:`note_settled_replaced`, counted by the answer suite).
+The workflow also logs when ``RUN_FINISHED`` replaced the settled text
+(:func:`note_settled_replaced`, counted by the answer suite). The text so far
+for a stopped turn is the socket's (``chat_socket.PartialAnswer``).
 """
 
 # No `from __future__ import annotations` here: NAT resolves the converter's
 # return annotation (``fold_turn`` -> str) to build the workflow's single
 # output type, so it must already be an object, not a string.
 import logging
-import re
 
-from aiq_agent.common.wire_v2 import AnswerRetractedBody
 from aiq_agent.common.wire_v2 import EventBody
 from aiq_agent.common.wire_v2 import RunFinishedBody
-from aiq_agent.common.wire_v2 import StateSnapshotBody
-from aiq_agent.common.wire_v2 import TextMessageContentBody
 
 logger = logging.getLogger(__name__)
-
-#: A citation marker the settle has not resolved yet: the streamed ``[N]``.
-_PENDING_MARKER = re.compile(r"\s*\[\d+\]")
-
-
-class TurnTextFold:
-    """The answer's text so far: deltas append, a snapshot replaces, a retraction clears.
-
-    ``settled`` is the last snapshot's text, the one the reader was left
-    reading, or ``None`` once a retraction took it back.
-    """
-
-    def __init__(self) -> None:
-        self.text = ""
-        self.settled: str | None = None
-
-    def add(self, body: EventBody) -> None:
-        if isinstance(body, TextMessageContentBody):
-            self.text += body.delta
-        elif isinstance(body, StateSnapshotBody):
-            self.text = self.settled = body.snapshot.text
-        elif isinstance(body, AnswerRetractedBody):
-            self.text, self.settled = "", None
-        elif isinstance(body, RunFinishedBody):
-            self.text = body.result.text
-
-    def partial(self) -> str:
-        """What a stopped turn keeps: the settled text, or the streamed prose with its pending ``[N]`` removed."""
-        if self.settled is not None and self.text == self.settled:
-            return self.text
-        return _PENDING_MARKER.sub("", self.text)
 
 
 def note_settled_replaced(settled: str | None, terminal: str) -> bool:
