@@ -7,7 +7,7 @@
  * (close code 1011), a pod rolled. Node reports those as `write EPIPE` or
  * `read ECONNRESET`, and at ERROR each one filed a GitHub issue (#588, #775,
  * #784) for an outcome the chat client already recovers from by reconnecting
- * and replaying `/frames?after=`.
+ * and sending `attach{turn_id, after_seq}` for every open turn.
  *
  * So after the upgrade those codes log at WARN with the side and the age of
  * the connection, and the first close logs at INFO naming the side that closed,

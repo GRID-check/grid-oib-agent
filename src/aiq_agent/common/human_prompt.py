@@ -1,30 +1,40 @@
-"""Shared helpers for NAT human-in-the-loop (HITL) prompts.
+"""NAT human-in-the-loop (HITL) prompts, and how they travel on the chat wire.
 
-Two places stop a run to ask the user something — the clarification step
-(`agents/piloti/clarify.py`) and Piloti's
-`ask_user` tool — and both need the same two halves of NAT's HITL protocol:
+Two places stop a run to ask the user something, the clarification step
+(`agents/piloti/clarify.py`) and Piloti's `ask_user` tool, and both go through
+NAT's ``prompt_user_input``. Four halves have to agree, so all four live here:
 
-1. build the prompt, choosing the prompt type that can actually carry answer
-   options (`HumanPromptText` has no options field at all; only the
-   multiple-choice prompts do), and
-2. read the answer back out of whichever ``HumanResponse`` variant the
-   transport produced for that prompt type.
+1. build the prompt (:func:`build_human_prompt`): a ``HumanPromptText``, or a
+   ``HumanPromptRadio`` when there are options, since only the multiple-choice
+   prompts have an options field;
+2. put it on the wire (:func:`interaction_request`): the prompt's own NAT id is
+   the ``interaction_id``, and only these two prompt shapes have a wire shape;
+3. read the client's answer back (:func:`human_response`): ``{text}`` becomes a
+   ``HumanResponseText``, ``{option_id}`` the ``HumanResponseRadio`` for that
+   option;
+4. read the text out of it (:func:`extract_user_response`).
 
-Those two halves must agree: NAT picks the response variant from the prompt
-variant (``message_validator.convert_text_content_to_human_response``), so a
-caller that upgrades its prompt to a radio and keeps reading ``response.text``
-silently gets ``str(<pydantic model>)`` as the user's answer instead of what
-they picked. Keeping both halves in one module is what stops that drift.
+A caller that upgraded its prompt to a radio and kept reading ``response.text``
+would get ``str(<pydantic model>)`` as the user's answer instead of what they
+picked. Keeping all four halves in one module is what stops that drift.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
 
+from aiq_agent.common.wire_v2 import InteractionOption
+from aiq_agent.common.wire_v2 import InteractionRequestValue
+from aiq_agent.common.wire_v2 import OptionAnswer
+from aiq_agent.common.wire_v2 import TextAnswer
 from nat.plugin_api import HumanPrompt
 from nat.plugin_api import HumanPromptRadio
 from nat.plugin_api import HumanPromptText
+from nat.plugin_api import HumanResponse
+from nat.plugin_api import HumanResponseRadio
+from nat.plugin_api import HumanResponseText
+from nat.plugin_api import InteractionPrompt
+from nat.plugin_api import InteractionResponse
 from nat.plugin_api import MultipleChoiceOption
 
 DEFAULT_TEXT_PLACEHOLDER = "Please provide more details..."
@@ -40,15 +50,10 @@ def build_human_prompt(
     """
     Build the NAT prompt for a question, with a picker when options exist.
 
-    With no options this returns exactly the ``HumanPromptText`` the callers
-    used before options existed — the free-text path is the fallback for every
-    question we cannot enumerate, so it must stay byte-identical.
-
-    With options it returns a ``HumanPromptRadio``, whose ``options`` field is
-    the only structured channel NAT offers for answer choices. The question
-    text is carried unchanged either way: the radio adds the picker, it does
-    not replace the framing sentence or the "or type 'skip'" line, and a
-    picker with no question above it is not an improvement.
+    With options it returns a ``HumanPromptRadio``. The question text is carried
+    unchanged either way: the radio adds the picker, it does not replace the
+    framing sentence or the "or type 'skip'" line, and a picker with no question
+    above it is not an improvement.
 
     Args:
         text: The human-readable question, already in the user's language.
@@ -77,41 +82,61 @@ def build_human_prompt(
     )
 
 
-def extract_user_response(response: Any) -> str:
+def interaction_request(prompt: InteractionPrompt, *, expires_at: int) -> InteractionRequestValue:
+    """The ``interaction_request`` for a NAT prompt; its id is NAT's own prompt id.
+
+    A choice keeps the free-text box: the question tells the user they may
+    type instead of picking, and "skip" is only ever typed.
+
+    Raises:
+        TypeError: for a prompt shape :func:`build_human_prompt` never builds.
+            The wire has no shape for it, so it is a producer bug.
     """
-    Extract the user's answer text from a NAT ``HumanResponse``.
+    content = prompt.content
+    if isinstance(content, HumanPromptRadio):
+        return InteractionRequestValue(
+            interaction_id=prompt.id,
+            input="choice",
+            text=content.text,
+            options=[InteractionOption(id=option.id, label=option.label) for option in content.options],
+            placeholder=DEFAULT_TEXT_PLACEHOLDER,
+            expires_at=expires_at,
+        )
+    if isinstance(content, HumanPromptText):
+        return InteractionRequestValue(
+            interaction_id=prompt.id,
+            input="text",
+            text=content.text,
+            placeholder=content.placeholder,
+            expires_at=expires_at,
+        )
+    raise TypeError(f"No wire shape for a {type(content).__name__}; build prompts with build_human_prompt")
 
-    Handles both answer shapes a picker prompt can produce: a typed free-text
-    answer (``HumanResponseText.text``) and a chosen option
-    (``HumanResponse{Radio,Checkbox,Dropdown,Binary}.selected_option.value``).
-    Both must keep working — the prompt tells the user they may type instead of
-    picking, and "skip" is only ever typed.
 
-    Args:
-        response: ``InteractionResponse`` (``.content`` holds the response), a
-            bare ``HumanResponse``, or a plain string.
+def human_response(prompt: HumanPrompt, answer: TextAnswer | OptionAnswer) -> HumanResponse:
+    """NAT's response for the client's answer to ``prompt``.
 
-    Returns:
-        The user's answer as text; ``str(response)`` if nothing recognisable is
-        found, which keeps this total rather than raising inside a live turn.
+    Raises:
+        ValueError: for an ``option_id`` the prompt did not offer.
     """
-    if isinstance(response, str):
-        return response
+    if isinstance(answer, TextAnswer):
+        return HumanResponseText(text=answer.text)
+    options = prompt.options if isinstance(prompt, HumanPromptRadio) else []
+    chosen = next((option for option in options if option.id == answer.option_id), None)
+    if chosen is None:
+        raise ValueError(f"option {answer.option_id!r} was not offered")
+    return HumanResponseRadio(selected_option=chosen)
 
-    # InteractionResponse wraps the actual HumanResponse in `.content`.
-    content = getattr(response, "content", None)
-    for candidate in (content, response):
-        if candidate is None:
-            continue
-        text = getattr(candidate, "text", None)
-        if text is not None:
-            return str(text)
-        selected = getattr(candidate, "selected_option", None)
-        if selected is not None:
-            # `value` is what we put in the option; `label` is the fallback for
-            # options built elsewhere (NAT defaults value to "default").
-            value = getattr(selected, "value", None) or getattr(selected, "label", None)
-            if value is not None:
-                return str(value)
 
-    return str(response)
+def extract_user_response(response: InteractionResponse) -> str:
+    """The user's answer as text: what they typed, or the value of what they picked.
+
+    Raises:
+        TypeError: for a response :func:`human_response` never builds.
+    """
+    content = response.content
+    if isinstance(content, HumanResponseRadio):
+        return content.selected_option.value
+    if isinstance(content, HumanResponseText):
+        return content.text
+    raise TypeError(f"No answer text in a {type(content).__name__}")

@@ -1,15 +1,26 @@
-"""Tests for the shared NAT human-prompt helpers."""
+"""The NAT human prompt, its wire shape, and the answer back (`common/human_prompt.py`)."""
 
 import pytest
 
 from aiq_agent.common import build_human_prompt
 from aiq_agent.common import extract_user_response
+from aiq_agent.common.human_prompt import DEFAULT_TEXT_PLACEHOLDER
+from aiq_agent.common.human_prompt import human_response
+from aiq_agent.common.human_prompt import interaction_request
+from aiq_agent.common.wire_v2 import InteractionRequestValue
+from aiq_agent.common.wire_v2 import OptionAnswer
+from aiq_agent.common.wire_v2 import TextAnswer
+from nat.plugin_api import Context
+from nat.plugin_api import ContextState
+from nat.plugin_api import HumanPromptCheckbox
 from nat.plugin_api import HumanPromptRadio
 from nat.plugin_api import HumanPromptText
 from nat.plugin_api import HumanResponseRadio
 from nat.plugin_api import HumanResponseText
+from nat.plugin_api import InteractionPrompt
 from nat.plugin_api import InteractionResponse
 from nat.plugin_api import MultipleChoiceOption
+from nat.utils import providers
 
 
 class TestBuildHumanPrompt:
@@ -53,106 +64,95 @@ class TestBuildHumanPrompt:
 
 
 class TestExtractUserResponse:
-    """Tests for extract_user_response across the NAT response shapes."""
+    """The two answers `human_response` builds, read back as text."""
 
-    def test_string_passthrough(self):
-        assert extract_user_response("typed answer") == "typed answer"
-
-    def test_interaction_response_with_text(self):
-        """A typed answer arrives as HumanResponseText."""
-        response = InteractionResponse(
-            id="1",
-            timestamp="2026-08-18T10:00:00Z",
-            content=HumanResponseText(text="skip"),
-        )
+    def test_a_typed_answer(self):
+        response = InteractionResponse(id="1", timestamp="2026-08-18T10:00:00Z", content=HumanResponseText(text="skip"))
 
         assert extract_user_response(response) == "skip"
 
-    def test_interaction_response_with_radio_selection(self):
+    def test_a_picked_option_reads_as_its_value(self):
         """A picked option arrives as HumanResponseRadio, with no `.text` at all."""
+        option = MultipleChoiceOption(value="Castle.ifc", label="Castle.ifc")
         response = InteractionResponse(
-            id="1",
-            timestamp="2026-08-18T10:00:00Z",
-            content=HumanResponseRadio(selected_option=MultipleChoiceOption(value="Castle.ifc", label="Castle.ifc")),
+            id="1", timestamp="2026-08-18T10:00:00Z", content=HumanResponseRadio(selected_option=option)
         )
 
         assert extract_user_response(response) == "Castle.ifc"
 
-    def test_bare_radio_response(self):
-        """Some callers hand over the HumanResponse without the interaction wrapper."""
-        response = HumanResponseRadio(selected_option=MultipleChoiceOption(value="B", label="B"))
 
-        assert extract_user_response(response) == "B"
-
-    def test_selected_option_falls_back_to_label(self):
-        """NAT defaults `value` to "default"; a label-only option must still read."""
-
-        class _Option:
-            value = None
-            label = "Only a label"
-
-        class _Response:
-            selected_option = _Option()
-
-        assert extract_user_response(_Response()) == "Only a label"
-
-    def test_unknown_shape_falls_back_to_str(self):
-        """Never raise inside a live turn over an unrecognised response."""
-        assert extract_user_response(42) == "42"
+def _nat_prompt(content, prompt_id: str = "ask_01") -> InteractionPrompt:
+    return InteractionPrompt(id=prompt_id, timestamp="2026-08-18T10:00:00Z", content=content)
 
 
-class TestSharedConversationAnswerPath:
-    """The picker must not bypass the multi-user answer path (ADR-0032/0037)."""
+class TestOnTheWire:
+    """The prompt as `interaction_request`, the client's answer back as NAT's response."""
 
-    @pytest.mark.asyncio
-    async def test_picked_option_normalises_through_the_real_nat_validator(self):
-        """End to end: an option label typed or clicked comes back as that label.
+    def test_a_question_without_options_is_a_text_request(self):
+        value = interaction_request(_nat_prompt(build_human_prompt("Which period?")), expires_at=1)
 
-        The transport resolves the pending future with a plain string and NAT
-        re-wraps it using the *prompt* type, so a radio prompt turns the answer
-        into `HumanResponseRadio`. If the two halves disagreed the clarifier
-        would reason over `str(<pydantic model>)`.
-        """
-        from nat.data_models.api_server import TextContent
-        from nat.front_ends.fastapi.message_validator import MessageValidator
-
-        prompt = build_human_prompt("Which model?", ["Castle.ifc", "Institute.ifc"])
-        response = await MessageValidator().convert_text_content_to_human_response(
-            TextContent(text="Castle.ifc"), prompt
+        assert value == InteractionRequestValue(
+            interaction_id="ask_01",
+            input="text",
+            text="Which period?",
+            placeholder=DEFAULT_TEXT_PLACEHOLDER,
+            expires_at=1,
         )
 
-        assert extract_user_response(response) == "Castle.ifc"
-
-    @pytest.mark.asyncio
-    async def test_free_text_answer_to_a_picker_survives(self):
-        """The question still says the user may type instead of picking."""
-        from nat.data_models.api_server import TextContent
-        from nat.front_ends.fastapi.message_validator import MessageValidator
-
+    def test_a_picker_is_a_choice_that_keeps_the_free_text_box(self):
         prompt = build_human_prompt("Which model?", ["Castle.ifc", "Institute.ifc"])
-        response = await MessageValidator().convert_text_content_to_human_response(TextContent(text="skip"), prompt)
 
-        assert extract_user_response(response) == "skip"
+        value = interaction_request(_nat_prompt(prompt), expires_at=1)
 
-    @pytest.mark.asyncio
-    async def test_a_colleague_still_cannot_answer_a_picker(self):
-        """A picker is answered through the same guarded registry as prose.
+        assert value.input == "choice"
+        assert [(option.id, option.label) for option in value.options] == [("1", "Castle.ifc"), ("2", "Institute.ifc")]
+        # The question says the user may type instead of picking; "skip" is only ever typed.
+        assert value.placeholder == DEFAULT_TEXT_PLACEHOLDER
 
-        Spectators in a shared conversation are not the addressee; nothing about
-        offering options may turn their answer into an accepted one.
-        """
-        import asyncio
+    def test_a_prompt_shape_nobody_builds_has_no_wire_shape(self):
+        with pytest.raises(TypeError):
+            interaction_request(_nat_prompt(HumanPromptCheckbox(text="?", options=[])), expires_at=1)
 
-        from aiq_api.websocket_reconnect import WebSocketSessionRegistry
-        from nat.data_models.api_server import TextContent
+    async def test_the_interaction_id_is_nat_s_own_prompt_id(self):
+        """NAT 1.9 mints the prompt id; the socket mints none. Pinned through NAT's provider hook."""
+        seen: list[InteractionPrompt] = []
 
-        registry = WebSocketSessionRegistry()
-        future: asyncio.Future[TextContent] = asyncio.get_running_loop().create_future()
-        await registry.register_pending_interaction("conv-1", future, "user_matthias")
+        async def callback(prompt: InteractionPrompt):
+            seen.append(prompt)
+            return HumanResponseText(text="ok")
 
-        answer = TextContent(text="Castle.ifc")
-        assert await registry.resolve_pending_interaction("conv-1", answer, "user_anna") is False
-        assert not future.done()
+        state = ContextState.get()
+        token = state.user_input_callback.set(callback)
+        previous = providers.set_id_provider(lambda: "00000000-0000-4000-8000-000000000001")
+        try:
+            await Context.get().user_interaction_manager.prompt_user_input(build_human_prompt("?"))
+        finally:
+            providers.set_id_provider(previous)
+            state.user_input_callback.reset(token)
 
-        assert await registry.resolve_pending_interaction("conv-1", answer, "user_matthias") is True
-        assert future.result().text == "Castle.ifc"
+        assert interaction_request(seen[0], expires_at=1).interaction_id == "00000000-0000-4000-8000-000000000001"
+
+    def test_a_typed_answer_to_a_picker_stays_what_was_typed(self):
+        prompt = build_human_prompt("Which model?", ["Castle.ifc", "Institute.ifc"])
+
+        response = human_response(prompt, TextAnswer(text="skip"))
+
+        assert response == HumanResponseText(text="skip")
+
+    def test_a_chosen_option_comes_back_as_its_label(self):
+        """The clarifier replays the value to the model as the user's turn, so it is the label, not the id."""
+        prompt = build_human_prompt("Which model?", ["Castle.ifc", "Institute.ifc"])
+
+        response = human_response(prompt, OptionAnswer(option_id="1"))
+
+        assert isinstance(response, HumanResponseRadio)
+        wrapped = InteractionResponse(id="1", timestamp="2026-08-18T10:00:00Z", content=response)
+        assert extract_user_response(wrapped) == "Castle.ifc"
+
+    def test_an_option_that_was_not_offered_is_refused(self):
+        prompt = build_human_prompt("Which model?", ["Castle.ifc"])
+
+        with pytest.raises(ValueError):
+            human_response(prompt, OptionAnswer(option_id="7"))
+        with pytest.raises(ValueError):
+            human_response(build_human_prompt("Free text?"), OptionAnswer(option_id="1"))

@@ -146,7 +146,7 @@ class TestCreateChatResponse:
 
     def test_create_chat_response_carries_explicit_usage(self):
         """Provider totals passed in land on the generation object (usageDetails)."""
-        from nat.data_models.api_server import Usage
+        from nat.data_models.api_server import Usage  # noqa: TID251 — the HTTP ChatResponse, not the chat wire
 
         response = _create_chat_response(
             "Test", usage=Usage(prompt_tokens=1204, completion_tokens=331, total_tokens=1535)

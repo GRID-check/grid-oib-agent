@@ -47,7 +47,7 @@ from aiq_agent.skills import SkillResolver
 from aiq_agent.skills import SkillRuntime
 from aiq_agent.skills.events import emit_skills_offered
 from aiq_agent.tools.documents.tools import draft_tools_for_turn
-from nat.data_models.api_server import ChatResponse
+from nat.data_models.api_server import ChatResponse  # noqa: TID251 — the HTTP/job ChatResponse, not the chat wire
 from nat.plugin_api import Builder
 from nat.plugin_api import FunctionBaseConfig
 from nat.plugin_api import FunctionGroupRef

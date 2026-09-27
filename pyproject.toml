@@ -209,6 +209,9 @@ extend-ignore = [
 "nat.data_models.evaluator".msg = "Import from nat.plugin_api"
 "nat.data_models.function".msg = "Import from nat.plugin_api"
 "nat.data_models.interactive".msg = "Import from nat.plugin_api"
+# NAT's socket and HTTP frame models. The chat wire is `aiq_agent.common.wire_v2`
+# (ADR-0068); nothing here reads or writes a NAT frame.
+"nat.data_models.api_server".msg = "The chat wire is aiq_agent.common.wire_v2 (ADR-0068), not NAT's frame models"
 
 # Notebooks: allow long lines (shell/code) and imports after other statements
 [tool.ruff.lint.per-file-ignores]

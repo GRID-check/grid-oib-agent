@@ -16,7 +16,8 @@ never becomes a model's guess. A message that is *not* addressed to the agent ar
 as **context only**: it is appended to the conversation state and nothing is
 generated, streamed, or charged.
 
-This module is the agent-tier half of that: the wire-payload parse, the bounded
+This module is the agent-tier half of that (the socket reads the flat
+``context_only`` and ``author_name`` fields of a v2 ``user_message``): the bounded
 attribution formatting, and the indirection the WebSocket front end uses to reach the
 compiled chat graph without importing it (``aiq_api`` owns the socket, ``aiq_agent``
 owns the graph).
@@ -24,7 +25,6 @@ owns the graph).
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Awaitable
 from collections.abc import Callable
@@ -38,15 +38,6 @@ MAX_CONTEXT_MESSAGE_CHARS = 4000
 
 #: Char cap on the author's display name. Attribution, not a payload.
 MAX_CONTEXT_AUTHOR_CHARS = 120
-
-#: The wire flag (inside the ``user_message`` JSON text payload) that marks a frame
-#: as ingest-only. Narrow and explicit on purpose: its ABSENCE must mean "behave
-#: exactly as before this existed".
-CONTEXT_ONLY_FIELD = "context_only"
-
-#: Optional display name of the human who wrote it. Advisory only — the backend
-#: prefers the authenticated principal's own name when it has one.
-AUTHOR_NAME_FIELD = "author_name"
 
 #: ``(thread_id, text) -> None``. Registered by the chat agent at build time.
 ContextAppender = Callable[[str, str], Awaitable[None]]
@@ -74,39 +65,6 @@ def _cap(value: str, max_chars: int) -> str:
     trimmed = value[:max_chars]
     head = trimmed.rsplit("\n", 1)[0]
     return head or trimmed
-
-
-def parse_context_only_payload(raw_text: str | None) -> ContextOnlyMessage | None:
-    """Read an ingest-only directive out of a ``user_message`` text payload.
-
-    The payload is the JSON string the client puts in ``content.messages[].content[]
-    .text`` — today ``{"query": ..., "data_sources": [...]}``. Returns ``None`` for
-    every ordinary message (no flag, not JSON, empty body), so the caller's default
-    path is untouched: a NEW backend receiving no field behaves exactly as today.
-    """
-    if not raw_text:
-        return None
-    trimmed = raw_text.strip()
-    if not (trimmed.startswith("{") and trimmed.endswith("}")):
-        return None
-    try:
-        payload = json.loads(trimmed)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(payload, dict) or payload.get(CONTEXT_ONLY_FIELD) is not True:
-        return None
-
-    body = payload.get("query") or payload.get("text")
-    if not isinstance(body, str) or not body.strip():
-        # Flagged but empty: still not something to answer. Swallow it.
-        logger.debug("Ignoring context-only message with an empty body")
-        return None
-
-    author = payload.get(AUTHOR_NAME_FIELD)
-    return ContextOnlyMessage(
-        text=body,
-        author=author.strip() if isinstance(author, str) and author.strip() else None,
-    )
 
 
 def format_context_turn(message: ContextOnlyMessage, *, author: str | None = None) -> str:

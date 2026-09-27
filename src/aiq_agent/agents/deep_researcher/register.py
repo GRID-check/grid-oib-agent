@@ -30,7 +30,7 @@ from aiq_agent.common import validate_tool_availability
 from aiq_agent.common.agent_tools import load_agent_tools
 from aiq_agent.common.request_llm_context import RequestLLMContext
 from aiq_agent.common.request_llm_context import read_request_llm_context
-from nat.data_models.api_server import ChatResponse
+from nat.data_models.api_server import ChatResponse  # noqa: TID251 — the HTTP/job ChatResponse, not the chat wire
 from nat.plugin_api import Builder
 from nat.plugin_api import Context
 from nat.plugin_api import FunctionBaseConfig
