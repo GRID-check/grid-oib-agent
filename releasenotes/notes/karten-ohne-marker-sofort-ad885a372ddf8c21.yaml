@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    Karten, die unter einer Antwort stehen, erscheinen jetzt, sobald Piloti
+    sie geschrieben hat. Bisher warteten sie, bis die ganze Antwort geprüft
+    war, bei langen Antworten bis zu zwanzig Sekunden.
