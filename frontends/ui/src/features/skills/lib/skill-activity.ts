@@ -20,7 +20,7 @@
  * (`toStoredStep`), so a titleless id never reaches the header.
  */
 
-import type { StoredThinkingStep } from '@/features/chat/lib/turn-events'
+import type { StoredThinkingStep } from '@/features/chat/lib/turn-fold'
 
 export type SkillActivityPhase = 'offered' | 'activated' | 'loaded'
 
@@ -36,15 +36,18 @@ const PHASES: readonly string[] = ['offered', 'activated', 'loaded']
 
 /** The skill fact of a `skill` step, or `null` for any other step. */
 export const skillActivityOf = (
-  step: Pick<StoredThinkingStep, 'kind' | 'skill' | 'detail'>
+  step: Pick<StoredThinkingStep, 'kind' | 'skill' | 'detail' | 'turnEvent'>
 ): SkillActivity | null => {
   if (step.kind !== 'skill') return null
-  const { phase, title, hidden } = step.detail ?? {}
+  const { phase, hidden } = step.detail ?? {}
   if (typeof phase !== 'string' || !PHASES.includes(phase)) return null
+  // The fold keeps the authored title in the `skill.activated` event, the one
+  // place it lands: a live, visible activation.
+  const title = step.turnEvent?.values?.skill
   return {
     phase: phase as SkillActivityPhase,
     ...(step.skill ? { name: step.skill } : {}),
-    ...(typeof title === 'string' && title ? { title } : {}),
+    ...(title ? { title } : {}),
     hidden: hidden === true,
   }
 }

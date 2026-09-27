@@ -15,7 +15,7 @@ import {
 import type { CitedDocument } from '../../lib/citations'
 import type { FanCard } from '../../lib/retrieval-rounds'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
-import type { StoredThinkingStep } from '../../lib/turn-events'
+import type { StoredThinkingStep } from '../../lib/turn-fold'
 import { storedStep } from '@/test-utils/wire-v2-steps'
 import { de, en } from '@/i18n/dictionaries'
 import { createTranslator, getByPath } from '@/i18n/translate'

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { fixtureSteps, storedStep } from '@/test-utils/wire-v2-steps'
-import { deriveTraceLanes, laneCardsOf } from './trace-lanes'
+import { deriveTraceLanes } from './trace-lanes'
 
 const sources = (id: string, lanes: Record<string, unknown>[], round?: number) =>
   storedStep({
@@ -17,37 +17,6 @@ const oib = (hits: Record<string, unknown>[]) => ({
   kind: 'baurecht',
   hit_count: hits.length,
   sources: hits,
-})
-
-describe('laneCardsOf', () => {
-  it('stores the wire lane with its signal, and drops what the wire left empty', () => {
-    const [card] = laneCardsOf([
-      {
-        key: 'projekt',
-        label: 'Projektwissen',
-        kind: 'projekt',
-        hit_count: 2,
-        sources: [
-          {
-            name: 'Grundriss.pdf',
-            title: null,
-            detail: 'p.2',
-            shelf: 'project',
-            round: 1,
-            provenance: null,
-          },
-        ],
-      },
-    ])
-    expect(card).toEqual({
-      key: 'projekt',
-      label: 'Projektwissen',
-      hitCount: 2,
-      kind: 'projekt',
-      signal: 'project',
-      sources: [{ name: 'Grundriss.pdf', detail: 'p.2', shelf: 'project', round: 1 }],
-    })
-  })
 })
 
 describe('deriveTraceLanes', () => {

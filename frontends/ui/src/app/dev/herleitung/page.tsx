@@ -36,7 +36,7 @@ import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
 import { ChatThinking } from '@/features/chat/components/ChatThinking'
 import type { CitationSource } from '@/features/chat/types'
-import type { StoredThinkingStep } from '@/features/chat/lib/turn-events'
+import type { StoredThinkingStep } from '@/features/chat/lib/turn-fold'
 
 const step: StoredThinkingStep = {
   id: 'kb',

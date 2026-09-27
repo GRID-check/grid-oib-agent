@@ -4,7 +4,7 @@ import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ChatThinking } from './ChatThinking'
 import { useLayoutStore } from '@/features/layout/store'
 import { storedStep } from '@/test-utils/wire-v2-steps'
-import type { StoredThinkingStep } from '../lib/turn-events'
+import type { StoredThinkingStep } from '../lib/turn-fold'
 
 /** A running tool this build has no name for: it speaks on no line and earns no chip. */
 const createStep = (overrides: Partial<StoredThinkingStep> = {}): StoredThinkingStep => ({
@@ -498,7 +498,7 @@ describe('ChatThinking', () => {
           defaultOpen
           steps={[
             skillStep('oib-brandschutz', {
-              phase: 'loaded',
+              phase: 'activated',
               title: 'Brandschutznachweis',
             }),
             skillStep('schallschutz', { phase: 'activated' }),

@@ -16,7 +16,7 @@
  */
 
 import { skillActivityOf, skillLabel } from '@/features/skills/lib/skill-activity'
-import type { StoredThinkingStep } from './turn-events'
+import type { StoredThinkingStep } from './turn-fold'
 
 export interface ExecutedStep {
   /** Dedup key: the label for a tool chip, `skill:<id>` for a skill chip. */
@@ -82,7 +82,7 @@ export const stepNameLabel = (tool: string, t: (key: string) => string): string 
 
 /** The skill chip for a `skill` step, or `null` to drop it. */
 const skillChip = (
-  step: Pick<StoredThinkingStep, 'kind' | 'skill' | 'detail'>,
+  step: Pick<StoredThinkingStep, 'kind' | 'skill' | 'detail' | 'turnEvent'>,
   t: (key: string) => string
 ): Pick<ExecutedStep, 'key' | 'label' | 'prefix' | 'mono'> | null => {
   const activity = skillActivityOf(step)
@@ -112,7 +112,7 @@ const toolChip = (
 export const deriveExecutedSteps = (
   steps: readonly Pick<
     StoredThinkingStep,
-    'kind' | 'tool' | 'skill' | 'detail' | 'isComplete' | 'scope'
+    'kind' | 'tool' | 'skill' | 'detail' | 'turnEvent' | 'isComplete' | 'scope'
   >[],
   t: (key: string) => string
 ): ExecutedStep[] => {

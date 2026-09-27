@@ -3,8 +3,7 @@
  */
 
 /**
- * Turn events: the projection from a wire `Step` to the stored row, the live
- * line, and WHOSE WORDS. The backend ships a stable KEY plus interpolation
+ * Turn events: the live line, the technical records, and WHOSE WORDS. The backend ships a stable KEY plus interpolation
  * VALUES; every word is written on this side, in the reader's locale — so these
  * tests assert both locales.
  */
@@ -32,74 +31,6 @@ const tool = () =>
 
 const technical = (slot: string, detail: Record<string, unknown>) =>
   status(slot, { channel: 'technical', detail })
-
-describe('toStoredStep', () => {
-  test('a recorded turn folds to one row per step id, typed by kind', () => {
-    const steps = fixtureSteps('turn-answered.jsonl')
-    expect(steps.map((step) => step.kind)).toEqual([
-      'status',
-      'retrieval',
-      'status',
-      'tool',
-      'sources',
-      'skill',
-      'status',
-    ])
-    const tool = steps.find((step) => step.kind === 'tool')
-    expect(tool).toMatchObject({ tool: 'knowledge_search', isComplete: true })
-  })
-
-  test('a running tool is not complete', () => {
-    expect(storedStep({ id: 'tool:1', kind: 'tool', tool: 'ris_search_tool' }).isComplete).toBe(
-      false
-    )
-  })
-
-  test('a retrieval round keeps its key, values, reason and tools as the turn event', () => {
-    const step = retrieval(
-      1,
-      'status.retrieval.plain',
-      { corpus: 'ris' },
-      {
-        tools: ['ris_search_tool'],
-        reason: 'Die Bauordnung regelt das.',
-      }
-    )
-    expect(step).toMatchObject({
-      kind: 'retrieval',
-      round: 1,
-      turnEvent: {
-        key: 'status.retrieval.plain',
-        values: { corpus: 'ris' },
-        tools: ['ris_search_tool'],
-        reason: 'Die Bauordnung regelt das.',
-      },
-    })
-  })
-
-  test('a technical status keeps its detail and has no turn event', () => {
-    const step = technical('budget', { truncated: true })
-    expect(step.turnEvent).toBeUndefined()
-    expect(step.detail).toEqual({ truncated: true })
-  })
-
-  test('a live skill activation with a title speaks; a hidden or titleless one does not', () => {
-    const skill = (fields: Record<string, unknown>) =>
-      storedStep({ id: 'skill:a', kind: 'skill', phase: 'activated', skill: 'a', ...fields })
-    expect(skill({ title: 'Brandschutz' }).turnEvent).toEqual({
-      key: 'skill.activated',
-      values: { skill: 'Brandschutz' },
-    })
-    expect(skill({}).turnEvent).toBeUndefined()
-    expect(skill({ title: 'Brandschutz', hidden: true }).turnEvent).toBeUndefined()
-    expect(skill({ title: 'Brandschutz', channel: 'technical' }).turnEvent).toBeUndefined()
-  })
-
-  test('deep research is scoped; chat is the default and is not stored', () => {
-    expect(status('synthesis', { scope: 'deep' }).scope).toBe('deep')
-    expect(status('synthesis').scope).toBeUndefined()
-  })
-})
 
 describe('liveLine', () => {
   test('a live status is phrased HERE, from key and values', () => {
