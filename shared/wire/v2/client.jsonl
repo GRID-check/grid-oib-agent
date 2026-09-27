@@ -1,0 +1,7 @@
+{"v":2,"type":"user_message","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","message_id":"msg_1759000000000_3","text":"Wie lang darf der Fluchtweg bei GK 4 sein?","data_sources":["knowledge_layer","ris"],"focus_file_name":"Brandschutzkonzept_V3.pdf","focus_shelf":"project","focus_document_id":"d-42","focus_version_id":"v-7","focus_version_state":"draft"}
+{"v":2,"type":"user_message","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","message_id":"msg_1759000050000_4","text":"Ja, das Atrium ist ein eigener Brandabschnitt.","context_only":true,"author_name":"Anna Weber"}
+{"v":2,"type":"user_message","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","message_id":"msg_1759000060000_5","text":"Welche Geländerhöhe gilt?","source_preset":"law"}
+{"v":2,"type":"interaction_response","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000200000_7","interaction_id":"ask_01J9Z6","answer":{"option_id":"2"}}
+{"v":2,"type":"interaction_response","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000200000_7","interaction_id":"ask_01J9Z6","answer":{"text":"skip"}}
+{"v":2,"type":"cancel_turn","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000300000_9"}
+{"v":2,"type":"attach","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","after_seq":14}

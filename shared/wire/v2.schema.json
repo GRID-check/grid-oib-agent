@@ -1,0 +1,2763 @@
+{
+  "$defs": {
+    "AnswerRetracted": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "name": {
+          "const": "answer_retracted",
+          "default": "answer_retracted",
+          "title": "Name",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "CUSTOM",
+          "default": "CUSTOM",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "value": {
+          "$ref": "#/$defs/EmptyValue"
+        }
+      },
+      "required": [
+        "value",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "name",
+        "v"
+      ],
+      "title": "AnswerRetracted",
+      "type": "object"
+    },
+    "AnswerSnapshot": {
+      "additionalProperties": false,
+      "description": "The streamed prose settled (ADR-0066): it REPLACES text, citations and masthead; cards are untouched.",
+      "properties": {
+        "answer_meta": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Absent: the re-gate dropped the masthead.",
+          "title": "Answer Meta"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/WireSource"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "AnswerSnapshot",
+      "type": "object"
+    },
+    "Attach": {
+      "additionalProperties": false,
+      "description": "After a reconnect or a reload: replay this turn from ``after_seq`` + 1, then continue live.",
+      "properties": {
+        "after_seq": {
+          "minimum": 0,
+          "title": "After Seq",
+          "type": "integer"
+        },
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "attach",
+          "default": "attach",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "conversation_id",
+        "turn_id",
+        "after_seq",
+        "v",
+        "type"
+      ],
+      "title": "Attach",
+      "type": "object"
+    },
+    "CancelTurn": {
+      "additionalProperties": false,
+      "description": "Stop. Authorised: only the asker (or an internal caller) may cancel a turn.",
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "cancel_turn",
+          "default": "cancel_turn",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "conversation_id",
+        "turn_id",
+        "v",
+        "type"
+      ],
+      "title": "CancelTurn",
+      "type": "object"
+    },
+    "Card": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "name": {
+          "const": "card",
+          "default": "card",
+          "title": "Name",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "CUSTOM",
+          "default": "CUSTOM",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "value": {
+          "$ref": "#/$defs/CardValue"
+        }
+      },
+      "required": [
+        "value",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "name",
+        "v"
+      ],
+      "title": "Card",
+      "type": "object"
+    },
+    "CardRefused": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "name": {
+          "const": "card_refused",
+          "default": "card_refused",
+          "title": "Name",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "CUSTOM",
+          "default": "CUSTOM",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "value": {
+          "$ref": "#/$defs/CardRefusedValue"
+        }
+      },
+      "required": [
+        "value",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "name",
+        "v"
+      ],
+      "title": "CardRefused",
+      "type": "object"
+    },
+    "CardRefusedValue": {
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index"
+      ],
+      "title": "CardRefusedValue",
+      "type": "object"
+    },
+    "CardValue": {
+      "additionalProperties": false,
+      "properties": {
+        "card": {
+          "additionalProperties": true,
+          "title": "Card",
+          "type": "object"
+        },
+        "index": {
+          "description": "Position in the terminal's order: `[[card:N]]` is index N-1.",
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "key": {
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "key",
+        "card"
+      ],
+      "title": "CardValue",
+      "type": "object"
+    },
+    "CitationsRemoved": {
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "count",
+        "reasons"
+      ],
+      "title": "CitationsRemoved",
+      "type": "object"
+    },
+    "ClarificationStep": {
+      "additionalProperties": false,
+      "description": "The clarify step started: the one row it contributes before its first question.",
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "clarification",
+          "default": "clarification",
+          "title": "Kind",
+          "type": "string"
+        },
+        "max_turns": {
+          "minimum": 1,
+          "title": "Max Turns",
+          "type": "integer"
+        },
+        "scope": {
+          "default": "chat",
+          "enum": [
+            "chat",
+            "deep"
+          ],
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "max_turns",
+        "kind"
+      ],
+      "title": "ClarificationStep",
+      "type": "object"
+    },
+    "ClientMessage": {
+      "discriminator": {
+        "mapping": {
+          "attach": "#/$defs/Attach",
+          "cancel_turn": "#/$defs/CancelTurn",
+          "interaction_response": "#/$defs/InteractionResponse",
+          "user_message": "#/$defs/UserMessage"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/UserMessage"
+        },
+        {
+          "$ref": "#/$defs/InteractionResponse"
+        },
+        {
+          "$ref": "#/$defs/CancelTurn"
+        },
+        {
+          "$ref": "#/$defs/Attach"
+        }
+      ]
+    },
+    "EmptyValue": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "title": "EmptyValue",
+      "type": "object"
+    },
+    "Heartbeat": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "name": {
+          "const": "heartbeat",
+          "default": "heartbeat",
+          "title": "Name",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "CUSTOM",
+          "default": "CUSTOM",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "value": {
+          "$ref": "#/$defs/HeartbeatValue"
+        }
+      },
+      "required": [
+        "value",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "name",
+        "v"
+      ],
+      "title": "Heartbeat",
+      "type": "object"
+    },
+    "HeartbeatValue": {
+      "additionalProperties": false,
+      "properties": {
+        "every_ms": {
+          "exclusiveMinimum": 0,
+          "title": "Every Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "every_ms"
+      ],
+      "title": "HeartbeatValue",
+      "type": "object"
+    },
+    "InteractionOption": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "InteractionOption",
+      "type": "object"
+    },
+    "InteractionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "name": {
+          "const": "interaction_request",
+          "default": "interaction_request",
+          "title": "Name",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "CUSTOM",
+          "default": "CUSTOM",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "value": {
+          "$ref": "#/$defs/InteractionRequestValue"
+        }
+      },
+      "required": [
+        "value",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "name",
+        "v"
+      ],
+      "title": "InteractionRequest",
+      "type": "object"
+    },
+    "InteractionRequestValue": {
+      "additionalProperties": false,
+      "description": "The turn is waiting for its asker (``prompt_user_input``): a question, maybe with choices.",
+      "properties": {
+        "expires_at": {
+          "description": "Epoch ms; after it the turn ends with RUN_ERROR interaction_expired.",
+          "minimum": 0,
+          "title": "Expires At",
+          "type": "integer"
+        },
+        "input": {
+          "enum": [
+            "text",
+            "choice"
+          ],
+          "title": "Input",
+          "type": "string"
+        },
+        "interaction_id": {
+          "minLength": 1,
+          "title": "Interaction Id",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/InteractionOption"
+          },
+          "title": "Options",
+          "type": "array"
+        },
+        "placeholder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Placeholder"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "interaction_id",
+        "input",
+        "text",
+        "expires_at"
+      ],
+      "title": "InteractionRequestValue",
+      "type": "object"
+    },
+    "InteractionResolved": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "name": {
+          "const": "interaction_resolved",
+          "default": "interaction_resolved",
+          "title": "Name",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "CUSTOM",
+          "default": "CUSTOM",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "value": {
+          "$ref": "#/$defs/InteractionResolvedValue"
+        }
+      },
+      "required": [
+        "value",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "name",
+        "v"
+      ],
+      "title": "InteractionResolved",
+      "type": "object"
+    },
+    "InteractionResolvedValue": {
+      "additionalProperties": false,
+      "properties": {
+        "interaction_id": {
+          "minLength": 1,
+          "title": "Interaction Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "answered",
+            "expired",
+            "cancelled"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "interaction_id",
+        "outcome"
+      ],
+      "title": "InteractionResolvedValue",
+      "type": "object"
+    },
+    "InteractionResponse": {
+      "additionalProperties": false,
+      "description": "The asker's answer to an ``interaction_request``: typed text or a chosen option, never both.",
+      "properties": {
+        "answer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TextAnswer"
+            },
+            {
+              "$ref": "#/$defs/OptionAnswer"
+            }
+          ],
+          "title": "Answer"
+        },
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "interaction_id": {
+          "minLength": 1,
+          "title": "Interaction Id",
+          "type": "string"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "interaction_response",
+          "default": "interaction_response",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "conversation_id",
+        "turn_id",
+        "interaction_id",
+        "answer",
+        "v",
+        "type"
+      ],
+      "title": "InteractionResponse",
+      "type": "object"
+    },
+    "KeyedCard": {
+      "additionalProperties": false,
+      "description": "A card and its identity key, so a card equal to one already drawn keeps its node.",
+      "properties": {
+        "card": {
+          "additionalProperties": true,
+          "description": "A GridCard (cards/models.py); validated by gridCardSchema on render.",
+          "title": "Card",
+          "type": "object"
+        },
+        "key": {
+          "description": "card_key(card): stable across the live event and the terminal.",
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "card"
+      ],
+      "title": "KeyedCard",
+      "type": "object"
+    },
+    "Masthead": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "name": {
+          "const": "masthead",
+          "default": "masthead",
+          "title": "Name",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "CUSTOM",
+          "default": "CUSTOM",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "value": {
+          "$ref": "#/$defs/MastheadValue"
+        }
+      },
+      "required": [
+        "value",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "name",
+        "v"
+      ],
+      "title": "Masthead",
+      "type": "object"
+    },
+    "MastheadValue": {
+      "additionalProperties": false,
+      "properties": {
+        "answer_meta": {
+          "additionalProperties": true,
+          "title": "Answer Meta",
+          "type": "object"
+        }
+      },
+      "required": [
+        "answer_meta"
+      ],
+      "title": "MastheadValue",
+      "type": "object"
+    },
+    "OptionAnswer": {
+      "additionalProperties": false,
+      "description": "A chosen option, by the id the ``interaction_request`` gave it.",
+      "properties": {
+        "option_id": {
+          "minLength": 1,
+          "title": "Option Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "option_id"
+      ],
+      "title": "OptionAnswer",
+      "type": "object"
+    },
+    "Rejected": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "name": {
+          "const": "rejected",
+          "default": "rejected",
+          "title": "Name",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "CUSTOM",
+          "default": "CUSTOM",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "value": {
+          "$ref": "#/$defs/RejectedValue"
+        }
+      },
+      "required": [
+        "value",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "name",
+        "v"
+      ],
+      "title": "Rejected",
+      "type": "object"
+    },
+    "RejectedValue": {
+      "additionalProperties": false,
+      "description": "A client message was refused. Out of band: ``seq == 0``, never replayed, never ends a turn.",
+      "properties": {
+        "code": {
+          "enum": [
+            "auth_expired",
+            "conversation_mismatch",
+            "duplicate_turn",
+            "not_asker",
+            "no_pending_interaction",
+            "turn_not_found",
+            "invalid_message"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message"
+        },
+        "of": {
+          "enum": [
+            "user_message",
+            "interaction_response",
+            "cancel_turn",
+            "attach"
+          ],
+          "title": "Of",
+          "type": "string"
+        }
+      },
+      "required": [
+        "of",
+        "code"
+      ],
+      "title": "RejectedValue",
+      "type": "object"
+    },
+    "RetrievalStep": {
+      "additionalProperties": false,
+      "description": "One announced retrieval round: where it looks, for what, and the model's own conclusion.",
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "kind": {
+          "const": "retrieval",
+          "default": "retrieval",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 160,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The model's conclusion, verbatim.",
+          "title": "Reason"
+        },
+        "round": {
+          "minimum": 0,
+          "title": "Round",
+          "type": "integer"
+        },
+        "scope": {
+          "default": "chat",
+          "enum": [
+            "chat",
+            "deep"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "tools": {
+          "description": "Tool basenames this round called.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Tools",
+          "type": "array"
+        },
+        "values": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "round",
+        "key",
+        "kind"
+      ],
+      "title": "RetrievalStep",
+      "type": "object"
+    },
+    "RunError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "workflow_error",
+            "auth_error",
+            "interaction_expired"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "details": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Details"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "RUN_ERROR",
+          "default": "RUN_ERROR",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "v"
+      ],
+      "title": "RunError",
+      "type": "object"
+    },
+    "RunFinished": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "answered",
+            "refused",
+            "handed_off",
+            "cancelled"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/TurnResult"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "RUN_FINISHED",
+          "default": "RUN_FINISHED",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "outcome",
+        "result",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "v"
+      ],
+      "title": "RunFinished",
+      "type": "object"
+    },
+    "RunHandoff": {
+      "additionalProperties": false,
+      "description": "The run a turn commissioned (ADR-0062) and the message it narrates itself in: both or neither.",
+      "properties": {
+        "run_id": {
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "run_message_id": {
+          "minLength": 1,
+          "title": "Run Message Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "run_message_id"
+      ],
+      "title": "RunHandoff",
+      "type": "object"
+    },
+    "RunStarted": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "message_id": {
+          "description": "The answer's id; the bubble is keyed by it from now on.",
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "RUN_STARTED",
+          "default": "RUN_STARTED",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "message_id",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "v"
+      ],
+      "title": "RunStarted",
+      "type": "object"
+    },
+    "SkillStep": {
+      "additionalProperties": false,
+      "description": "A skill was offered (count only), activated or loaded (``skills/events.py``).",
+      "properties": {
+        "channel": {
+          "default": "live",
+          "enum": [
+            "live",
+            "technical"
+          ],
+          "title": "Channel",
+          "type": "string"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`offered`: how many skills the catalog held.",
+          "title": "Count"
+        },
+        "hidden": {
+          "default": false,
+          "title": "Hidden",
+          "type": "boolean"
+        },
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "skill",
+          "default": "skill",
+          "title": "Kind",
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "offered",
+            "activated",
+            "loaded"
+          ],
+          "title": "Phase",
+          "type": "string"
+        },
+        "scope": {
+          "default": "chat",
+          "enum": [
+            "chat",
+            "deep"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "skill": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Absent on the per-turn `offered` record.",
+          "title": "Skill"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": [
+        "id",
+        "phase",
+        "kind"
+      ],
+      "title": "SkillStep",
+      "type": "object"
+    },
+    "SourcesStep": {
+      "additionalProperties": false,
+      "description": "What one evidence tool returned, as lanes. Built from the grounding records, never from text.",
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "sources",
+          "default": "sources",
+          "title": "Kind",
+          "type": "string"
+        },
+        "lanes": {
+          "items": {
+            "$ref": "#/$defs/TraceLane"
+          },
+          "title": "Lanes",
+          "type": "array"
+        },
+        "round": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Round"
+        },
+        "scope": {
+          "default": "chat",
+          "enum": [
+            "chat",
+            "deep"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "tool": {
+          "minLength": 1,
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "tool",
+        "lanes",
+        "kind"
+      ],
+      "title": "SourcesStep",
+      "type": "object"
+    },
+    "Stage": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "name": {
+          "const": "stage",
+          "default": "stage",
+          "title": "Name",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "CUSTOM",
+          "default": "CUSTOM",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "value": {
+          "$ref": "#/$defs/StageValue"
+        }
+      },
+      "required": [
+        "value",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "name",
+        "v"
+      ],
+      "title": "Stage",
+      "type": "object"
+    },
+    "StageValue": {
+      "additionalProperties": false,
+      "description": "A post-answer stage's outcome (``docs/architecture/post-answer-stages.md`` §4).",
+      "properties": {
+        "payload": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only on `ready`.",
+          "title": "Payload"
+        },
+        "stage": {
+          "enum": [
+            "follow_ups",
+            "memory_reflection"
+          ],
+          "title": "Stage",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ready",
+            "empty",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "status"
+      ],
+      "title": "StageValue",
+      "type": "object"
+    },
+    "StateSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/AnswerSnapshot"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "STATE_SNAPSHOT",
+          "default": "STATE_SNAPSHOT",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "snapshot",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "v"
+      ],
+      "title": "StateSnapshot",
+      "type": "object"
+    },
+    "StatusStep": {
+      "additionalProperties": false,
+      "description": "A status line or a technical record (``turn_status.emit_status`` and its siblings).",
+      "properties": {
+        "channel": {
+          "default": "live",
+          "enum": [
+            "live",
+            "technical"
+          ],
+          "title": "Channel",
+          "type": "string"
+        },
+        "detail": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ]
+          },
+          "description": "Structured detail that is not part of the sentence (counts, reasons).",
+          "title": "Detail",
+          "type": "object"
+        },
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "i18n id (ALL_STATUS_KEYS); absent on technical records.",
+          "title": "Key"
+        },
+        "kind": {
+          "const": "status",
+          "default": "status",
+          "title": "Kind",
+          "type": "string"
+        },
+        "scope": {
+          "default": "chat",
+          "enum": [
+            "chat",
+            "deep"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "slot": {
+          "description": "e.g. 'synthesis', 'budget', 'decision:rerank'.",
+          "minLength": 1,
+          "title": "Slot",
+          "type": "string"
+        },
+        "values": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Interpolation values ONLY.",
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "slot",
+        "kind"
+      ],
+      "title": "StatusStep",
+      "type": "object"
+    },
+    "StepFinished": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "step": {
+          "discriminator": {
+            "mapping": {
+              "clarification": "#/$defs/ClarificationStep",
+              "retrieval": "#/$defs/RetrievalStep",
+              "skill": "#/$defs/SkillStep",
+              "sources": "#/$defs/SourcesStep",
+              "status": "#/$defs/StatusStep",
+              "tool": "#/$defs/ToolStep"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/StatusStep"
+            },
+            {
+              "$ref": "#/$defs/RetrievalStep"
+            },
+            {
+              "$ref": "#/$defs/SourcesStep"
+            },
+            {
+              "$ref": "#/$defs/ToolStep"
+            },
+            {
+              "$ref": "#/$defs/SkillStep"
+            },
+            {
+              "$ref": "#/$defs/ClarificationStep"
+            }
+          ],
+          "title": "Step"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "STEP_FINISHED",
+          "default": "STEP_FINISHED",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "step",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "v"
+      ],
+      "title": "StepFinished",
+      "type": "object"
+    },
+    "StepStarted": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "step": {
+          "discriminator": {
+            "mapping": {
+              "clarification": "#/$defs/ClarificationStep",
+              "retrieval": "#/$defs/RetrievalStep",
+              "skill": "#/$defs/SkillStep",
+              "sources": "#/$defs/SourcesStep",
+              "status": "#/$defs/StatusStep",
+              "tool": "#/$defs/ToolStep"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/StatusStep"
+            },
+            {
+              "$ref": "#/$defs/RetrievalStep"
+            },
+            {
+              "$ref": "#/$defs/SourcesStep"
+            },
+            {
+              "$ref": "#/$defs/ToolStep"
+            },
+            {
+              "$ref": "#/$defs/SkillStep"
+            },
+            {
+              "$ref": "#/$defs/ClarificationStep"
+            }
+          ],
+          "title": "Step"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "STEP_STARTED",
+          "default": "STEP_STARTED",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "step",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "v"
+      ],
+      "title": "StepStarted",
+      "type": "object"
+    },
+    "TextAnswer": {
+      "additionalProperties": false,
+      "description": "A typed answer. \"skip\" is only ever typed.",
+      "properties": {
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "TextAnswer",
+      "type": "object"
+    },
+    "TextMessageContent": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "delta": {
+          "minLength": 1,
+          "title": "Delta",
+          "type": "string"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "TEXT_MESSAGE_CONTENT",
+          "default": "TEXT_MESSAGE_CONTENT",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "message_id",
+        "delta",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "v"
+      ],
+      "title": "TextMessageContent",
+      "type": "object"
+    },
+    "TextMessageEnd": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "TEXT_MESSAGE_END",
+          "default": "TEXT_MESSAGE_END",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "message_id",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "v"
+      ],
+      "title": "TextMessageEnd",
+      "type": "object"
+    },
+    "TextMessageStart": {
+      "additionalProperties": false,
+      "properties": {
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "message_id": {
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "seq": {
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "turn_id": {
+          "minLength": 1,
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "TEXT_MESSAGE_START",
+          "default": "TEXT_MESSAGE_START",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "message_id",
+        "conversation_id",
+        "turn_id",
+        "seq",
+        "ts",
+        "type",
+        "v"
+      ],
+      "title": "TextMessageStart",
+      "type": "object"
+    },
+    "ToolStep": {
+      "additionalProperties": false,
+      "description": "A tool call ran: its basename and outcome. Never its arguments or its result.",
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "tool",
+          "default": "tool",
+          "title": "Kind",
+          "type": "string"
+        },
+        "scope": {
+          "default": "chat",
+          "enum": [
+            "chat",
+            "deep"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "status": {
+          "default": "running",
+          "enum": [
+            "running",
+            "ok",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tool": {
+          "minLength": 1,
+          "title": "Tool",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "tool",
+        "kind"
+      ],
+      "title": "ToolStep",
+      "type": "object"
+    },
+    "TraceLane": {
+      "additionalProperties": false,
+      "description": "One lane of a search's fan-out: the fine lane and the coarse kind it renders as.",
+      "properties": {
+        "hit_count": {
+          "minimum": 0,
+          "title": "Hit Count",
+          "type": "integer"
+        },
+        "key": {
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "baurecht",
+            "buero",
+            "projekt",
+            "web"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/TraceLaneSource"
+          },
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "kind",
+        "hit_count",
+        "sources"
+      ],
+      "title": "TraceLane",
+      "type": "object"
+    },
+    "TraceLaneSource": {
+      "additionalProperties": false,
+      "description": "One document in a lane: identity, the locus that round reached, its shelf.",
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Locus, e.g. 'Pkt. 3.5.2 p.12'.",
+          "title": "Detail"
+        },
+        "name": {
+          "description": "Raw file name: the document identity.",
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "provenance": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Agent authorship keys (ADR-0061).",
+          "title": "Provenance"
+        },
+        "round": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The retrieval round that fetched it.",
+          "title": "Round"
+        },
+        "shelf": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shelf"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Display title, omitted when it would repeat `name`.",
+          "title": "Title"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "TraceLaneSource",
+      "type": "object"
+    },
+    "TurnResult": {
+      "additionalProperties": false,
+      "description": "Everything the finished turn delivers; authoritative, and what the server persists.\n\nIt replaces the text once more and takes back what it omits (a card\nsuppressed, a masthead gated out). The persisted row is built from this\nmodel and nothing else (``aiq_api`` ``persist_turn_result``).",
+      "properties": {
+        "answer_confidence": {
+          "anyOf": [
+            {
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answer Confidence"
+        },
+        "answer_confidence_capped_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "ungrounded",
+                "quote_unverified",
+                "normative_claim_uncited",
+                "measurement_only",
+                "citation_fallback"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answer Confidence Capped Reason"
+        },
+        "answer_confidence_reason": {
+          "anyOf": [
+            {
+              "maxLength": 300,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answer Confidence Reason"
+        },
+        "answer_meta": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answer Meta"
+        },
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/KeyedCard"
+          },
+          "title": "Cards",
+          "type": "array"
+        },
+        "citations_removed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CitationsRemoved"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "escalation_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Escalation Reason"
+        },
+        "job_admission_rejected": {
+          "default": false,
+          "title": "Job Admission Rejected",
+          "type": "boolean"
+        },
+        "message_id": {
+          "description": "deterministic_assistant_message_id(conversation, turn).",
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "read_sources": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Read Sources",
+          "type": "array"
+        },
+        "research_truncated": {
+          "default": false,
+          "title": "Research Truncated",
+          "type": "boolean"
+        },
+        "retrieval_ledger": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Retrieval Ledger",
+          "type": "array"
+        },
+        "retry_after_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retry After Seconds"
+        },
+        "routing_decision": {
+          "anyOf": [
+            {
+              "enum": [
+                "meta",
+                "shallow",
+                "deep",
+                "error"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Routing Decision"
+        },
+        "run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunHandoff"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "skills_activated": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Skills Activated",
+          "type": "array"
+        },
+        "skills_hidden": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Skills Hidden",
+          "type": "array"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/WireSource"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message_id",
+        "text"
+      ],
+      "title": "TurnResult",
+      "type": "object"
+    },
+    "UserMessage": {
+      "additionalProperties": false,
+      "description": "A question (or, with ``context_only``, a colleague's line the agent must see but not answer).\n\n``type`` stays ``user_message``: the gateway's per-socket turn limiter\n(``frontends/ui/src/lib/limits/ws-frames.js``) counts turns by it.",
+      "properties": {
+        "author_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Author Name"
+        },
+        "context_only": {
+          "anyOf": [
+            {
+              "const": true,
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context Only"
+        },
+        "conversation_id": {
+          "minLength": 1,
+          "title": "Conversation Id",
+          "type": "string"
+        },
+        "data_sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Data Sources",
+          "type": "array"
+        },
+        "focus_document_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Focus Document Id"
+        },
+        "focus_file_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Focus File Name"
+        },
+        "focus_shelf": {
+          "anyOf": [
+            {
+              "enum": [
+                "session",
+                "project",
+                "archiv"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Focus Shelf"
+        },
+        "focus_version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Focus Version Id"
+        },
+        "focus_version_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "draft",
+                "in_review",
+                "changes_requested"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Focus Version State"
+        },
+        "message_id": {
+          "description": "Becomes the turn_id.",
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Message Id",
+          "type": "string"
+        },
+        "source_preset": {
+          "anyOf": [
+            {
+              "enum": [
+                "law",
+                "project",
+                "office"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Preset"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "user_message",
+          "default": "user_message",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "conversation_id",
+        "message_id",
+        "text",
+        "v",
+        "type"
+      ],
+      "title": "UserMessage",
+      "type": "object"
+    },
+    "WireEvent": {
+      "discriminator": {
+        "mapping": {
+          "CUSTOM": {
+            "discriminator": {
+              "mapping": {
+                "answer_retracted": "#/$defs/AnswerRetracted",
+                "card": "#/$defs/Card",
+                "card_refused": "#/$defs/CardRefused",
+                "heartbeat": "#/$defs/Heartbeat",
+                "interaction_request": "#/$defs/InteractionRequest",
+                "interaction_resolved": "#/$defs/InteractionResolved",
+                "masthead": "#/$defs/Masthead",
+                "rejected": "#/$defs/Rejected",
+                "stage": "#/$defs/Stage"
+              },
+              "propertyName": "name"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/Masthead"
+              },
+              {
+                "$ref": "#/$defs/Card"
+              },
+              {
+                "$ref": "#/$defs/CardRefused"
+              },
+              {
+                "$ref": "#/$defs/AnswerRetracted"
+              },
+              {
+                "$ref": "#/$defs/Heartbeat"
+              },
+              {
+                "$ref": "#/$defs/Stage"
+              },
+              {
+                "$ref": "#/$defs/InteractionRequest"
+              },
+              {
+                "$ref": "#/$defs/InteractionResolved"
+              },
+              {
+                "$ref": "#/$defs/Rejected"
+              }
+            ]
+          },
+          "RUN_ERROR": "#/$defs/RunError",
+          "RUN_FINISHED": "#/$defs/RunFinished",
+          "RUN_STARTED": "#/$defs/RunStarted",
+          "STATE_SNAPSHOT": "#/$defs/StateSnapshot",
+          "STEP_FINISHED": "#/$defs/StepFinished",
+          "STEP_STARTED": "#/$defs/StepStarted",
+          "TEXT_MESSAGE_CONTENT": "#/$defs/TextMessageContent",
+          "TEXT_MESSAGE_END": "#/$defs/TextMessageEnd",
+          "TEXT_MESSAGE_START": "#/$defs/TextMessageStart"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/RunStarted"
+        },
+        {
+          "$ref": "#/$defs/TextMessageStart"
+        },
+        {
+          "$ref": "#/$defs/TextMessageContent"
+        },
+        {
+          "$ref": "#/$defs/TextMessageEnd"
+        },
+        {
+          "$ref": "#/$defs/StateSnapshot"
+        },
+        {
+          "$ref": "#/$defs/StepStarted"
+        },
+        {
+          "$ref": "#/$defs/StepFinished"
+        },
+        {
+          "$ref": "#/$defs/RunFinished"
+        },
+        {
+          "$ref": "#/$defs/RunError"
+        },
+        {
+          "discriminator": {
+            "mapping": {
+              "answer_retracted": "#/$defs/AnswerRetracted",
+              "card": "#/$defs/Card",
+              "card_refused": "#/$defs/CardRefused",
+              "heartbeat": "#/$defs/Heartbeat",
+              "interaction_request": "#/$defs/InteractionRequest",
+              "interaction_resolved": "#/$defs/InteractionResolved",
+              "masthead": "#/$defs/Masthead",
+              "rejected": "#/$defs/Rejected",
+              "stage": "#/$defs/Stage"
+            },
+            "propertyName": "name"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Masthead"
+            },
+            {
+              "$ref": "#/$defs/Card"
+            },
+            {
+              "$ref": "#/$defs/CardRefused"
+            },
+            {
+              "$ref": "#/$defs/AnswerRetracted"
+            },
+            {
+              "$ref": "#/$defs/Heartbeat"
+            },
+            {
+              "$ref": "#/$defs/Stage"
+            },
+            {
+              "$ref": "#/$defs/InteractionRequest"
+            },
+            {
+              "$ref": "#/$defs/InteractionResolved"
+            },
+            {
+              "$ref": "#/$defs/Rejected"
+            }
+          ]
+        }
+      ]
+    },
+    "WireSource": {
+      "additionalProperties": true,
+      "description": "A cited source (``source_entry_to_wire``). ``number`` is its ``[N]`` in the prose.",
+      "properties": {
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "file_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File Name"
+        },
+        "number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Number"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Page"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "title": "WireSource",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Generated from src/aiq_agent/common/wire_v2.py by scripts/generate_wire_schema.py. Do not edit by hand; tests/aiq_agent/common/test_wire_v2.py fails when it is stale.",
+  "title": "Piloti chat wire v2"
+}

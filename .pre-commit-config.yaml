@@ -135,6 +135,21 @@ repos:
         pass_filenames: false
         files: ^(src/aiq_agent/cards/models\.py|shared/cards/schemas\.json|scripts/generate_card_schema\.py|frontends/ui/scripts/generate-card-schemas\.mjs|frontends/ui/src/shared/cards/generated\.ts)$
 
+      - id: wire-schemas
+        name: the chat wire v2 schemas are generated from common/wire_v2.py
+        # The same two-stage pipeline as card-schemas above, for the chat wire
+        # (docs/design/chat-wire-v2.md), with the same reasons for the venv
+        # python and for skipping the Zod stage where node_modules is absent
+        # (scripts/generate-wire-schemas.spec.mjs covers it in the UI suite).
+        entry: >-
+          bash -c 'PYTHONPATH=src .venv/bin/python scripts/generate_wire_schema.py
+          && if [ -d frontends/ui/node_modules ];
+          then node frontends/ui/scripts/generate-wire-schemas.mjs;
+          else echo "skipping the Zod stage, frontends/ui/node_modules is absent"; fi'
+        language: system
+        pass_filenames: false
+        files: ^(src/aiq_agent/common/wire_v2\.py|shared/wire/v2\.schema\.json|scripts/generate_wire_schema\.py|frontends/ui/scripts/generate-(wire|card)-schemas\.mjs|frontends/ui/src/adapters/api/wire-v2\.generated\.ts)$
+
       - id: agent-docs
         name: every AGENTS.md is reachable by the agents that need it
         # Claude Code reads CLAUDE.md, never AGENTS.md, and bridges them with an
