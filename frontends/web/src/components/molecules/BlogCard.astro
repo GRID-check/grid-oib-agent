@@ -1,14 +1,16 @@
 ---
 /**
- * A Journal post as an editorial card: its riso plate or cover if it has one, the category
- * chip and date as a kicker, the title set in the serif voice. Build-log posts
- * use LogEntry instead; the two strands are meant to look different.
+ * A Journal post as an entry in an editorial index: its riso plate printed on
+ * the page (or its uploaded cover), the date, the title in the serif voice,
+ * one line, under a hairline. No card, no shadow and no category chip: a card
+ * only ever appears inside its own category's listing, where the chip would
+ * repeat the heading above it. Build-log posts use LogEntry instead; the two
+ * strands are meant to look different.
  */
 import { Image } from 'astro:assets'
-import { ui, type Locale } from '../../i18n/ui'
+import type { Locale } from '../../i18n/ui'
 import { formatDate, postSlug, type BlogPost } from '../../lib/posts'
 import { blogPath } from '../../lib/categories'
-import CategoryChip from '../blog/CategoryChip.astro'
 import RisoCover from '../blog/RisoCover.astro'
 
 interface Props {
@@ -18,13 +20,13 @@ interface Props {
   level?: 2 | 3
 }
 const { post, locale, level = 3 } = Astro.props
-const { title, description, pubDate, cover, plate, category } = post.data
+const { title, description, pubDate, cover, plate } = post.data
 const Heading = level === 2 ? 'h2' : 'h3'
 ---
 
 <a
   href={`${blogPath(locale)}${postSlug(post.id)}/`}
-  class="group flex flex-col overflow-hidden rounded-card bg-white shadow-card ring-1 ring-ink/8 transition-[box-shadow,transform] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-0.5 hover:shadow-lift"
+  class="group flex flex-col border-t border-ink/15 pt-6 hover:text-inherit"
   data-reveal
 >
   {
@@ -36,27 +38,21 @@ const Heading = level === 2 ? 'h2' : 'h3'
         alt=""
         widths={[480, 800, 1200]}
         sizes="(min-width: 1024px) 560px, (min-width: 768px) 45vw, 100vw"
-        class="aspect-[16/9] w-full object-cover"
+        class="aspect-[16/9] w-full rounded-sm object-cover"
         loading="lazy"
       />
     )
   }
-  <div class="flex flex-1 flex-col p-6 sm:p-8">
-    <p class="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <CategoryChip category={category} locale={locale} />
-      <time
-        datetime={pubDate.toISOString()}
-        class="font-mono text-2xs uppercase tracking-label text-ink-mute"
-      >
-        {formatDate(pubDate, locale)}
-      </time>
-    </p>
-    <Heading
-      class="mt-5 font-voice text-[2rem] leading-[1.08] text-ink transition-colors group-hover:text-accent-600 sm:text-[2.375rem]"
-    >
-      {title}
-    </Heading>
-    <p class="mt-3 text-base leading-relaxed text-ink-soft">{description}</p>
-    <p class="mt-auto pt-6 text-sm font-medium text-accent-600">{ui[locale].blog.readMore}</p>
-  </div>
+  <time
+    datetime={pubDate.toISOString()}
+    class="mt-6 font-mono text-2xs uppercase tracking-label text-ink-mute"
+  >
+    {formatDate(pubDate, locale)}
+  </time>
+  <Heading
+    class="mt-3 font-voice text-[2rem] leading-[1.08] text-ink transition-colors group-hover:text-accent-600 sm:text-[2.375rem]"
+  >
+    {title}
+  </Heading>
+  <p class="mt-3 max-w-measure text-base leading-relaxed text-ink-soft">{description}</p>
 </a>
