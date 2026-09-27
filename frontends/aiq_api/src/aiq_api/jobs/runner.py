@@ -794,6 +794,26 @@ def _purge_deep_checkpoint(job_id: str) -> None:
         logger.debug("Deep checkpoint purge skipped for job %s", job_id, exc_info=True)
 
 
+async def _purge_deep_checkpoint_unless_reclaimed(db_url: str, job_id: str, claim_owner: str | None) -> bool:
+    """Purge the run's deep checkpoint at its end, unless the job was reclaimed.
+
+    The rows (``AIQ_DEEP_CHECKPOINT_DB``, ``thread_id == job_id``) are keyed by
+    job, not by worker, so after a reclaim they are the NEW owner's resume
+    point. A stalled loser reaching its ``finally`` deleted them from under it,
+    and the winner resumed from nothing. ``worker.py`` already skipped its own
+    purge on claim loss; the runner's did not. Same positive-loss rule as every
+    other gate here (:func:`_lost_claim`): an indeterminate claim still purges,
+    and the Dask path (no claim) always does. Both purges are idempotent.
+
+    Returns True when it purged.
+    """
+    if await _lost_claim(db_url, job_id, claim_owner):
+        logger.warning("Job %s lost its queue claim; leaving the deep checkpoint to the owning worker", job_id)
+        return False
+    _purge_deep_checkpoint(job_id)
+    return True
+
+
 def _load_agent_class(agent_class_path: str) -> type:
     """
     Dynamically load an agent class from its module path.
@@ -1809,11 +1829,9 @@ async def run_agent_job(
         # Drop the job's URL dedup caches: they are class-level dicts keyed by
         # job_id and otherwise accumulate for the life of the worker process.
         AgentEventCallback.cleanup_job_urls(job_id)
-        # Drop the run's durable deep-checkpoint rows (AIQ_DEEP_CHECKPOINT_DB,
-        # thread_id == job_id) once the run is terminal, so they don't grow
-        # forever.  Both the Dask (this file) and DB-queue (worker.py) paths
-        # run this; the worker-path call is idempotent with this one.
-        _purge_deep_checkpoint(job_id)
+        # Drop the run's durable deep-checkpoint rows once the run is terminal,
+        # unless another worker now owns the job (see the helper).
+        await _purge_deep_checkpoint_unless_reclaimed(db_url, job_id, claim_owner)
 
 
 def _create_agent_instance(

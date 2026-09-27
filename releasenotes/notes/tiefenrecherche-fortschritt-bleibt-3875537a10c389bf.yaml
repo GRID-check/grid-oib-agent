@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Eine Tiefenrecherche, die nach einer Störung auf einem anderen Rechner
+    weiterläuft, behält jetzt ihren bisherigen Fortschritt. Bisher konnte der
+    ursprüngliche Rechner beim Aufgeben den gespeicherten Zwischenstand
+    löschen, und die Recherche begann von vorn.

@@ -1672,7 +1672,11 @@ the point the re-injection would otherwise be skipped.
 LangGraph checkpointing for the deep-research graph, configured via
 `deep_research_agent.checkpoint_db` (env `AIQ_DEEP_CHECKPOINT_DB`; unset by
 default) — see §9's "Async deep-research jobs are not restart-safe" bullet
-for the full mechanism and its manual-resubmit resume contract.
+for the full mechanism and its manual-resubmit resume contract. A run's rows
+(`thread_id == job_id`) are purged when it ends, by the runner's `finally`
+(`_purge_deep_checkpoint_unless_reclaimed`) and again by the DB worker. Both skip
+the purge when another worker now holds the job's claim: the rows are keyed by
+job, so after a reclaim they are the new owner's resume point.
 
 **Agent Skills and Jobs (ADR-0046)**: project-level **jobs** — a prompt on a
 timer, with a skill optionally attached — can fire this same async pipeline on
