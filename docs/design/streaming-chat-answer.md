@@ -254,15 +254,13 @@ now takes the same path as a reload before the first word, and a turn still
 running is folded again from its first event (`attach{after_seq: 0}`,
 [A dropped socket resumes](#a-dropped-socket-resumes)).
 
-`/dev/stream-chat?history=40` measures this: the real store and the real shell
-(`&shell=1`), fed a recorded answer at its recorded pace, with commits, storage
-writes and long tasks in `window.__streamChat`. `&extras=1` gives every seeded
-answer the sources, cards and masthead the recorded one settled with: bare,
-forty conversations are 1.4 M characters; with them 4.6 M, the weight real
-answers carry. Until 2026-09 it seeded a user
-id the chat resets on mount, so the open thread and the sidebar were empty
-whatever `history` said; the persisted size was real, the rendering was not
-(`docs/contributing/gotchas.md`).
+`/dev/stream-socket` measures what a whole turn costs the page, through the
+real socket client, hook, store and components
+([the socket-level streaming harness](../contributing/testing-and-verification.md#the-socket-level-streaming-harness)).
+The storage figures below were taken on `/dev/stream-chat`, which drove the
+pre-v2 store actions and was deleted with them in the chat wire v2 cut; it
+seeded `history=N` conversations of the recorded answer (`&extras=1` with its
+sources, cards and masthead), which `/dev/stream-socket` does not.
 
 ### Storage, measured
 
@@ -296,8 +294,8 @@ The settle is the most expensive frame the chat draws: the whole answer
 re-renders with its footer, its citations and its cards. A production trace
 (2026-09) showed a 1018 ms task there, most of it the browser copy of the
 history (a prune, a `JSON.stringify` and a `localStorage.setItem`) written
-inside the settle, ahead of the render. `finalizeAgentResponse` now holds that
-write for one task (`deferChatStorageWrites`), the way a composer draft is
+inside the settle, ahead of the render. The store's settle (`applyTurnEvents`,
+on the terminal) now holds that write for one task (`deferChatStorageWrites`), the way a composer draft is
 held, so it is still written at once when the page hides or a later update
 writes anyway.
 
@@ -316,8 +314,8 @@ renderer keys blocks by position) shows it at once, as do a reload, a finished
 answer and reduced motion. Whether the answer is live reaches the slot through
 context, so the settle does not hand every slot a new renderer; a card re-sent
 unchanged on a later frame keeps its object (TanStack Query's
-`replaceEqualDeep`), so nothing under it re-renders. `/dev/stream-chat`
-replays the recorded cards on their live frame and the terminal.
+`replaceEqualDeep`), so nothing under it re-renders. `/dev/stream-socket`
+plays the recorded cards as their own `card` events and in the terminal.
 
 ### Single-consumer fold (`--input` CLI, single-shot HTTP)
 
@@ -348,18 +346,17 @@ live stream (`seq > lastSeq + 1`) sends the same `attach`. There is no HTTP
 replay: the BFF's `/frames` route answers only the liveness peek below.
 
 **A reload.** A page that reloads has lost its fold with its memory. The
-question is stamped with the id it went out under (`wsParentId`, persisted with
-the store); `restoreSessionState` first asks for the finished answer, and when
-there is none sends `attach{turn_id, after_seq: 0}` once the socket is up, so
-the whole turn is folded again from its first event. `rejected{turn_not_found}`
+question's own id is the turn id (the `user_message`'s `message_id`), so
+`restoreSessionState` leaves the open question as the turn to resume, and the
+socket sends `attach{turn_id, after_seq: 0}` once it is up: the whole turn is
+folded again from its first event. `rejected{turn_not_found}`
 (the stream no longer holds the turn) ends it by asking for the persisted
 answer, and shows the banner only if there is none.
 
-**A switch.** Opening another conversation mid-turn takes the socket with it, so
-the open bubble can never finish. Leaving drops it as a reload does
-(`leaveOpenTurn` in `sessions-store.ts`, `discardStreamingAssistantMessage`,
-and the socket effect's cleanup for any other way out), and clears
-`streamingAssistantMessageId`. Coming back runs the reload's recovery. An event
+**A switch.** Opening another conversation mid-turn takes the socket with it,
+but not the turn: its view stays in the store (`turns`), and the partial answer
+stays in its thread. Coming back opens a socket that re-`attach`es the turn
+from the last `seq` its view folded, so it carries on where it was left. An event
 or error that lands after the switch belongs to the conversation it was fetched
 for: a commissioned run's message goes into that conversation
 (`adoptRunMessage(conversationId, …)`), and a connection error whose health
@@ -493,7 +490,7 @@ This section is about a buffered turn.
 
 The delta sequence is a SHAPE, not a pace. `response_to_chunks` cuts a finished
 answer into ~24-character pieces (`iter_answer_deltas`) and yields them as fast
-as the socket takes them, so they reach `appendAgentResponseDelta` one or two
+as the socket takes them, so they reach the store one or two
 animation frames apart: the answer paints essentially at once, and `isStreaming`
 is a state the turn passes through in a frame or two.
 

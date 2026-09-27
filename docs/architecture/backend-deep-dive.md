@@ -55,13 +55,11 @@ Browser WebSocket
     the model's own clause). A commissioned report escalates immediately,
     without a retrieval first.
 
-    Note: Piloti doubles as the conversational assistant, so the UI
-    presents it neutrally as "Assistant" (getDisplayName in
-    intermediate-step-parser.ts), not "Research Agent" — a greeting is
-    not a research run.
   → the turn's wire bodies, stamped and sent by the chat socket (wire v2, ADR-0068)
       frontends/aiq_api/src/aiq_api/chat_socket.py
-  → the UI's turn socket and fold (docs/api/websocket-protocol.md, "The client")
+  → frontends/ui/src/adapters/api/turn-socket.ts  (parseWireEvent)
+  → frontends/ui/src/features/chat/hooks/use-websocket-chat.ts  (the driver)
+  → store applyTurnEvents → features/chat/lib/turn-fold.ts (foldTurnEvent)
   → frontends/ui/src/features/layout/components/ChatArea.tsx → AgentResponse.tsx
 ```
 
@@ -417,12 +415,10 @@ fires child effects before parent effects, on first navigation into a project
 (the wizard's landing) the socket connected with `projectId: undefined` → the
 header was never sent → the agent had no project knowledge for that session.
 
-**Fix** (`use-websocket-chat.ts`, `websocket-client.ts`):
-- Subscribe to `projectId` reactively and add it to the connect-effect deps, so
-  the socket is (re)established once the project store resolves.
-- Added `NATWebSocketClient.updateProjectId()` which rotates the socket (same
-  atomic swap used for auth rotation) only when the value actually changes, so
-  the handshake re-sends the project scope.
+**Fix** (`use-websocket-chat.ts`): subscribe to `projectId` reactively and key
+the socket on it as well as on the conversation, so a socket is opened again,
+with the project scope in its handshake, once the project store resolves. A
+running turn survives the reopen: the new socket re-attaches it.
 
 Note: the profile is intentionally **not** embedded into the `proj_*` RAG
 collection — project knowledge reaches the agent only via header text-injection:

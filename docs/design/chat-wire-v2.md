@@ -656,7 +656,7 @@ and a reader-order change, nothing more.
 | Generation | Pydantic → `shared/wire/v2.schema.json` → `wire-v2.generated.ts`. A `wire-schemas` pre-commit hook fails the commit when either artifact would change, the same arrangement as `card-schemas` | `.pre-commit-config.yaml` (committed) |
 | Producers | One test per producer that goes **through the compiled graph** under `astream` and asserts the body it wrote. The most important: the writer reaches the Piloti inner graph through the real NAT function boundary, which `test_stream_writer_reach.py` stands in for with a plain async function. Also: setup steps are yielded, `ToolStepCallback` emits basename only, a `sources` step equals the records' lanes, and prose deltas are coalesced | `tests/aiq_agent/turn/`, `…/agents/piloti/`, `…/common/test_turn_status.py`, `…/skills/` |
 | Handler | Auth, binding, rejection codes, cancel authorisation (asker yes, colleague `not_asker`, bus path), HITL round trip and expiry, attach replay and splice with no duplicate or missing seq, stage stamping after the terminal, persistence built from `TurnResult`. A test that builds the app and asserts NAT's `websocket_endpoint` and `WebSocketMessageHandler` are NAT's own objects. A ruff `banned-api` for `nat.data_models.api_server` everywhere, and for the internal modules `nat.plugin_api` covers | `frontends/aiq_api/tests/test_chat_socket.py` |
-| Golden replay | One real turn recorded through the whole backend (a fake LLM with a recorded token stream and the real graph) and compared frame for frame, `ts` excepted, with a committed golden JSONL. Every frame is under 4 KB except `RUN_FINISHED` (under 64 KB) | `tests/aiq_agent/turn/test_golden_turn.py` |
+| Golden replay | One real turn recorded through the whole backend (a fake LLM with a recorded token stream and the real graph) and compared frame for frame, `ts` excepted, with a committed golden JSONL. Every frame is under 4 KB except `STATE_SNAPSHOT` and `RUN_FINISHED` (under 64 KB), the two that carry the sources | `tests/aiq_agent/turn/test_golden_turn.py` |
 | Fold | Every fixture turn folds to the expected `TurnView`. Duplicate seq keeps identity, and a gap is flagged. Snapshot, retraction and terminal replacement. Card before marker. Spectator mid-turn start. The persisted projection round-trips through `sanitizeProvenance` | `features/chat/lib/turn-fold.spec.ts` |
 | Migration | Old stored steps (real rows captured from staging, anonymised) convert to the v2 shape, and the dropped kinds are gone | `drizzle` migration spec and `message-provenance.spec.ts` |
 | Browser | `/dev/stream-socket` (being built now by another engineer) is ported to v2: it replays the fixtures and a recorded long turn through the real socket client, fold and store, and reports frame bytes and main-thread time in `window.__streamSocket` | `app/dev/stream-socket` |
@@ -831,8 +831,10 @@ outside the slices.
    `wire-schemas` hooks.
 3. The wire contract tests are green on both sides, and the golden replay
    matches.
-4. `/dev/stream-socket` shows, on the recorded long turn: every frame under
-   4 KB except the terminal, frame count independent of prompt length, and
+4. `/dev/stream-socket` shows, on the recorded long turn: every frame except
+   `STATE_SNAPSHOT` and `RUN_FINISHED` under 4 KB (the snapshot carries the
+   verified sources once per turn, 10–13 KB on the recorded answers), frame
+   count independent of prompt length, and
    main-thread time per second within the paced-reveal budget measured in
    `streaming-chat-answer.md` (the 47 s pinned main thread is gone).
 5. A spec asserts NAT's `websocket_endpoint` and `WebSocketMessageHandler` are

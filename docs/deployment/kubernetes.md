@@ -1212,11 +1212,13 @@ when it finally exits, every socket it terminated goes with it. Nothing in
 Kubernetes or Envoy can migrate an established TCP connection to another pod. So
 a chat socket is re-established once per deploy, by design. The question is only
 whether the user notices, and that is a client-side budget: the reconnect curve
-in `frontends/ui/src/adapters/api/websocket-client.ts` used to allow 3 attempts,
-i.e. it surrendered ~4–7 seconds after the drop and put "Unable to connect to
-the server" in front of every open chat on every deploy. It is now sized to
-outlast a roll of both tiers (12 attempts ≈ 2–4 min, jittered). Anything longer
-than that is a genuinely wedged rollout and should still surface as an error.
+of the chat socket used to allow 3 attempts, i.e. it surrendered ~4–7 seconds
+after the drop and put "Unable to connect to the server" in front of every open
+chat on every deploy. It is now sized to outlast a roll of both tiers
+(`frontends/ui/src/adapters/api/turn-socket.ts`: 12 attempts ≈ 2–4 min,
+jittered), and the reopened socket re-attaches a running turn from its last
+`seq`. Anything longer than that is a genuinely wedged rollout and should still
+surface as an error.
 
 **And the agent tier is not interchangeable.** `aiq-agent` keeps per-conversation
 WS delivery, human-in-the-loop futures and the running LangGraph task *in

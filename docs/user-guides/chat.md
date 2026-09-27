@@ -137,16 +137,18 @@ Switching chats is blocked during shallow thinking (WebSocket stream) or a HITL 
 
 ### WebSocket
 
-A persistent WebSocket connection to `ws://<host>/websocket` enables real-time bidirectional communication. The `NATWebSocketClient` connects automatically when the user sends a message. Messages follow the NAT protocol:
+A persistent WebSocket connection to `ws://<host>/websocket?v=2` carries the
+chat, opened when the user sends a message (or focuses the composer in a shared
+thread). It speaks chat wire v2 ([`websocket-protocol.md`](../api/websocket-protocol.md)):
+the question goes out as one `user_message`, and the answer comes back as typed
+events, the reasoning steps, the prose, its cards and sources, and a final
+result that is what gets saved. **Stop** cancels the turn on the server and
+keeps the answer so far, marked as stopped.
 
-| NAT type | Purpose |
-|---|---|
-| `system_response` | Final or streaming response content |
-| `system_intermediate` | Thinking steps and tool calls |
-| `system_interaction` | Human prompt requiring user response |
-| `error` | Error with auth or processing |
-
-The WebSocket supports auto-reconnection with exponential backoff (3 attempts, 1s delay) and an `onBeforeReconnect` callback to refresh auth cookies before the upgrade handshake.
+A dropped connection reopens on its own (jittered backoff, the sign-in cookie
+refreshed first) and picks the running answer up where it left off; a reload
+does the same from the answer's start. After a Piloti update the page asks to
+be reloaded.
 
 ## Deep research vs simple chat
 
