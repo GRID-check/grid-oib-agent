@@ -245,6 +245,8 @@ export type MessagesSlice = {
    * turn resolves in a surface OTHER than an answer bubble (e.g. a job-admission
    * rejection rendered as a banner), so any orphaned bubble opened by earlier
    * deltas leaves no lingering caret. No-op when no streaming bubble is open.
+   * Also used when the reader leaves a conversation mid-turn: the bubble is
+   * dropped from the conversation that holds it, open or not.
    */
   discardStreamingAssistantMessage: () => void
   addAgentResponseWithMeta: (
@@ -1801,23 +1803,25 @@ export const createMessagesSlice: StateCreator<
 
       const { currentConversation, conversations, streamingAssistantMessageId } = get()
       if (!streamingAssistantMessageId) return
-      if (!currentConversation) {
+      // The bubble's own conversation, which after a switch is not the open one.
+      const holds = (c: Conversation) => c.messages.some((msg) => msg.id === streamingAssistantMessageId)
+      const owner =
+        (currentConversation && holds(currentConversation) ? currentConversation : undefined) ??
+        conversations.find(holds)
+      if (!owner) {
         set({ streamingAssistantMessageId: null }, false, 'discardStreamingAssistantMessage')
         return
       }
 
-      const updatedMessages = currentConversation.messages.filter(
-        (msg) => msg.id !== streamingAssistantMessageId
-      )
       const updatedConversation: Conversation = {
-        ...currentConversation,
-        messages: updatedMessages,
+        ...owner,
+        messages: owner.messages.filter((msg) => msg.id !== streamingAssistantMessageId),
         updatedAt: new Date(),
       }
 
       set(
         {
-          currentConversation: updatedConversation,
+          ...(currentConversation?.id === owner.id && { currentConversation: updatedConversation }),
           conversations: updateConversationInList(conversations, updatedConversation),
           streamingAssistantMessageId: null,
         },

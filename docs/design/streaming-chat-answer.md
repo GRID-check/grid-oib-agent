@@ -354,6 +354,17 @@ turn's frames never come back to life. A prompt of a later turn is dropped as
 stale like any other frame of another turn. The stream no longer holding the turn ends it with the
 banner.
 
+**A switch.** Opening another conversation mid-turn takes the socket with it, so
+the open bubble can never finish. Leaving drops it as a reload does
+(`leaveOpenTurn` in `sessions-store.ts`, `discardStreamingAssistantMessage`,
+and the socket effect's cleanup for any other way out), and clears
+`streamingAssistantMessageId`. Kept and settled, it blinked forever and, being
+the last message, hid the open question from `restoreSessionState`; dropped,
+coming back runs the reload's recovery. A frame or error that lands after the
+switch belongs to the conversation it was fetched for: a commissioned run's
+message goes into that conversation (`adoptRunMessage(conversationId, …)`), and
+a connection error whose health check outlived the switch writes no card.
+
 **The server keeps every answer.** The backend persists every finished
 answer, whether or not a socket took the terminal frame
 (`_persist_terminal_message_in_background`). It used to persist only when no socket was

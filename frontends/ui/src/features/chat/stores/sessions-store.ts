@@ -293,6 +293,19 @@ const cancelLiveRuns = (
   }
 }
 
+/**
+ * Leave the open conversation's turn as a reload leaves it. The socket goes with
+ * the conversation, so the streaming bubble can never finish: settled, it kept
+ * its caret and `streamingAssistantMessageId`, and on return it was the last
+ * message, which hid the open question from the recovery in
+ * `restoreSessionState`. Dropped (storage never held it: a live turn's growth is
+ * not written), the question is open again and coming back fetches the finished
+ * answer or replays the turn, exactly as after a reload.
+ */
+const leaveOpenTurn = (get: () => ChatStore): void => {
+  if (get().streamingAssistantMessageId) get().discardStreamingAssistantMessage()
+}
+
 const maybeDiscardAbandonedUploadOnlySession = (
   get: () => ChatStore,
   sessionId: string | null | undefined
@@ -576,6 +589,7 @@ export const createSessionsSlice: StateCreator<
       throw new Error('Cannot start session draft without authenticated user')
     }
 
+    leaveOpenTurn(get)
     maybeDiscardAbandonedUploadOnlySession(get, currentConversation?.id)
 
     const layoutState = useLayoutStore.getState()
@@ -638,21 +652,24 @@ export const createSessionsSlice: StateCreator<
         ? beforeLeave.currentConversation.id
         : undefined
 
-    if (leavingId) {
-      maybeDiscardAbandonedUploadOnlySession(get, leavingId)
-    }
-
-    const { conversations, currentUserId, projectId } = get()
-    const conversation = conversations.find((c) => c.id === conversationId)
-
     // Ownership AND project-context guard: a stale URL or persisted state
     // must never activate another project's session under this project's
     // WebSocket projectId (cross-project retrieval bleed, UX-8).
-    if (
-      conversation &&
-      conversation.userId === currentUserId &&
-      conversationMatchesProject(conversation, projectId)
-    ) {
+    const canOpen = (candidate: Conversation | undefined): candidate is Conversation =>
+      candidate !== undefined &&
+      candidate.userId === get().currentUserId &&
+      conversationMatchesProject(candidate, get().projectId)
+
+    if (leavingId) {
+      // Only a switch that happens leaves the turn: a refused one stays on it.
+      if (canOpen(beforeLeave.conversations.find((c) => c.id === conversationId))) {
+        leaveOpenTurn(get)
+      }
+      maybeDiscardAbandonedUploadOnlySession(get, leavingId)
+    }
+
+    const conversation = get().conversations.find((c) => c.id === conversationId)
+    if (canOpen(conversation)) {
       set(
         {
           currentConversation: conversation,

@@ -2072,7 +2072,14 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         isStreaming: wasStreaming,
         isLoading: wasLoading,
         currentStatus: status,
+        currentConversation: nowOpen,
+        streamingAssistantMessageId,
       } = useChatStore.getState()
+      // Left mid-turn by a path other than `selectConversation` (which drops it
+      // itself): this socket was the only thing that could finish the bubble.
+      if (streamingAssistantMessageId && nowOpen?.id !== currentConversationId) {
+        discardStreamingAssistantMessage()
+      }
       if (wasStreaming || wasLoading || status !== null) {
         setStreaming(false)
         setLoading(false)
@@ -2099,6 +2106,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     buildWsClient,
     clearUnacknowledgedOutgoing,
     clearStreamingWatchdog,
+    discardStreamingAssistantMessage,
     setStreaming,
     setLoading,
     setCurrentStatus,
