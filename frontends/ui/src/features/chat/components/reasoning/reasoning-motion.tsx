@@ -145,6 +145,8 @@ function ambientMs(el: Element): number {
 /** Sample spacing along a connector, in px: fine enough that a 12px corner stays round. */
 const SAMPLE_PX = 6
 const MAX_SAMPLES = 64
+/** How many frames the flowing dot waits for its label portal to mount. */
+const MAX_MOUNT_FRAMES = 10
 
 /**
  * The frontier's one loop: a dot that travels `pathRef`'s connector into the
@@ -171,9 +173,17 @@ export function useFlowAlongPath(
     // a second forced layout on the task a phone already feels. A shape that
     // changes again before then (the place pass follows the first measure)
     // cancels this one, so only the settled shape is sampled.
-    const frame = requestAnimationFrame(() => {
+    // The dot lives in React Flow's edge-label portal, which can mount a frame
+    // after the edge: wait for it a few frames rather than lose the loop.
+    let frame = 0
+    let waited = 0
+    const start = () => {
       const path = pathRef.current
       const dot = dotRef.current
+      if ((!path || !dot) && waited++ < MAX_MOUNT_FRAMES) {
+        frame = requestAnimationFrame(start)
+        return
+      }
       if (!path || !dot || typeof dot.animate !== 'function' || typeof path.getTotalLength !== 'function') return
       const length = path.getTotalLength()
       const duration = ambientMs(dot)
@@ -197,7 +207,8 @@ export function useFlowAlongPath(
         // vocabulary): constant speed along the line reads as flow.
         easing: 'linear',
       })
-    })
+    }
+    frame = requestAnimationFrame(start)
     return () => {
       cancelAnimationFrame(frame)
       animation?.cancel()

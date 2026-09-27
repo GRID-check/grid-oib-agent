@@ -449,7 +449,8 @@ export default function HerleitungPreviewPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     setVariant(params.get('variant'))
-    setStream({ every: Number(params.get('every') ?? 1400), settle: params.get('settle') === '1' })
+    const every = Number(params.get('every') ?? 1400)
+    setStream({ every: Number.isFinite(every) ? every : 1400, settle: params.get('settle') === '1' })
   }, [])
 
   if (variant === 'stream') {
