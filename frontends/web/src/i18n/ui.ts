@@ -330,6 +330,12 @@ const de = {
     body: 'Wir entwickeln Piloti mit wenigen Büros. Sie bekommen früh Zugang, einen direkten Draht zu uns Gründern und Einfluss darauf, was wir als Nächstes bauen. Wir bekommen Ihre Planungsfragen aus dem Büroalltag und ehrliches Feedback.',
     primary: 'Pilotbüro werden',
     secondary: 'Gespräch anfragen',
+    stepsLabel: 'So geht es weiter',
+    steps: [
+      { title: 'Sie schreiben uns', body: 'Ein paar Zeilen zu Ihrem Büro genügen.' },
+      { title: 'Wir sprechen', body: 'Sie zeigen uns, wo Sie heute suchen. Wir zeigen Ihnen Piloti.' },
+      { title: 'Sie planen mit Piloti', body: 'Mit echten Fragen aus Ihrem Alltag, und Sie sagen uns, was fehlt.' },
+    ],
     subjectPilot: 'Pilotbüro',
     subjectCall: 'Gespräch',
     bodyPilot:
@@ -900,6 +906,12 @@ const en: typeof de = {
     body: 'We are building Piloti with a small number of offices. You get early access, a direct line to us founders and a say in what we build next. We get the planning questions from your working day, and honest feedback.',
     primary: 'Become a pilot office',
     secondary: 'Request a call',
+    stepsLabel: 'What happens next',
+    steps: [
+      { title: 'You write to us', body: 'A few lines about your office are enough.' },
+      { title: 'We talk', body: 'You show us where you search today. We show you Piloti.' },
+      { title: 'You plan with Piloti', body: 'On real questions from your working day, and you tell us what is missing.' },
+    ],
     subjectPilot: 'Pilot office',
     subjectCall: 'Call',
     bodyPilot:

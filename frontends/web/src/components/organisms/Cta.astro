@@ -54,6 +54,25 @@ const t = ui[locale]
       </p>
     </div>
 
+    <!-- What happens after the click, said where the click is: the question
+         that otherwise waits in the FAQ above. -->
+    <ol
+      aria-label={t.cta.stepsLabel}
+      class="m-0 mx-auto mt-9 grid max-w-xl list-none gap-5 p-0 text-left sm:mt-10 sm:grid-cols-3 sm:gap-6 lg:mx-0"
+    >
+      {
+        t.cta.steps.map((s, i) => (
+          <li class="border-t border-ink/15 pt-3">
+            <span class="font-mono text-2xs text-accent-600">{`0${i + 1}`}</span>
+            <p class="m-0 mt-1.5 text-sm font-semibold text-ink">{s.title}</p>
+            <p class="m-0 mt-1 text-sm leading-relaxed text-ink-mute" style="text-wrap: pretty">
+              {s.body}
+            </p>
+          </li>
+        ))
+      }
+    </ol>
+
     <div
       data-reveal
       class="mx-auto mt-9 flex w-full max-w-3xl flex-col gap-3 sm:mt-11 sm:flex-row sm:justify-center sm:gap-3.5 lg:mx-0 lg:justify-start"
