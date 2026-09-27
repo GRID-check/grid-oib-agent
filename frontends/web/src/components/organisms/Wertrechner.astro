@@ -179,7 +179,7 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText }[] = [
           </p>
           <p
             data-roi-out="headline"
-            class="m-0 mt-2 font-display text-h1 tabular-nums text-surface"
+            class="m-0 mt-2 font-voice text-v2 whitespace-nowrap tabular-nums text-surface"
             style="text-wrap: wrap"
           >
             {text.headline}
@@ -200,7 +200,7 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText }[] = [
                   </dt>
                   <dd
                     data-roi-out={m.key}
-                    class="m-0 text-right font-display text-lg font-semibold tabular-nums text-surface sm:mt-2 sm:text-left sm:text-xl"
+                    class="m-0 text-right text-lg font-semibold tabular-nums text-surface sm:mt-2 sm:text-left sm:text-xl"
                   >
                     {text[m.key]}
                   </dd>
