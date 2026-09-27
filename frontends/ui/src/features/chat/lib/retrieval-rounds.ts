@@ -20,7 +20,7 @@
 
 import type { RetrievalLedger, RetrievalLedgerEntry } from '@/lib/conversations/message-retrieval-ledger'
 import { isStatusStepName, turnEventOf, type TurnEventStep } from './turn-events'
-import { extractTraceLanesFromPayload } from './trace-lanes'
+import { payloadLanesOf } from './trace-lanes'
 import { normalizeFileName, type CitedDocument } from './citations/model'
 
 /** A thinking step as the round walker needs it — payload or already-hoisted lanes. */
@@ -60,7 +60,7 @@ const sourceHitsOf = (step: RoundStep): SourceHit[] => {
   const lanes =
     step.traceLanes && step.traceLanes.length > 0
       ? step.traceLanes
-      : extractTraceLanesFromPayload([step.content, step.rawPayload].filter(Boolean).join('\n'))
+      : payloadLanesOf(step)
   for (const lane of lanes) {
     for (const source of lane.sources) {
       const name = source.name?.trim()

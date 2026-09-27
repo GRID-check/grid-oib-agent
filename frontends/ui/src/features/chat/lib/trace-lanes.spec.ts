@@ -9,6 +9,7 @@ import {
   laneKeyToSignal,
   mergeTraceLaneCards,
   parseTraceLanesBlock,
+  payloadLanesOf,
   totalTraceSourceCount,
 } from './trace-lanes'
 
@@ -372,5 +373,42 @@ describe('deriveTraceLanes', () => {
       },
     ])
     expect(cards.map((c) => c.key)).toContain('baurecht_oib')
+  })
+})
+
+describe('a step is parsed once, not once per render', () => {
+  // A live turn re-renders the Herleitung on every socket frame. Re-running the
+  // regexes over every step's tens-of-kilobytes tool output each time pinned the
+  // main thread for 27 s of a 47 s turn in a production trace.
+  test('the same step yields the same lanes without a second parse', () => {
+    const step = { content: kbPayload }
+    const first = payloadLanesOf(step)
+    expect(first.length).toBeGreaterThan(0)
+    expect(payloadLanesOf(step)).toBe(first)
+  })
+
+  test('a payload that changed is parsed again', () => {
+    const step: { content: string } = { content: 'nothing here' }
+    const before = payloadLanesOf(step)
+    step.content = kbPayload
+    const after = payloadLanesOf(step)
+    expect(after).not.toBe(before)
+    expect(after.length).toBeGreaterThan(0)
+  })
+
+  test('deriving over many frames scans each step once', () => {
+    const huge = `${'filler line with no marker\n'.repeat(40_000)}${kbPayload}`
+    const steps = Array.from({ length: 12 }, (_, i) => ({
+      content: huge,
+      functionName: `knowledge_search_${i}`,
+      category: 'tools' as const,
+    }))
+    const once = deriveTraceLanes(steps)
+    const started = performance.now()
+    for (let frame = 0; frame < 200; frame++) deriveTraceLanes(steps)
+    const perFrame = (performance.now() - started) / 200
+    expect(deriveTraceLanes(steps)).toEqual(once)
+    // 12 steps x 1 MB re-scanned would be tens of ms a frame; cached it is a merge.
+    expect(perFrame).toBeLessThan(2)
   })
 })

@@ -318,7 +318,7 @@ const mergeCards = (into: Map<string, TraceLaneCard>, cards: TraceLaneCard[]) =>
  * stay two hits after the store merges them onto one step.
  */
 const traceSourceIdentity = (source: TraceSourceHit): string =>
-  `${source.name.trim().toLowerCase()} ${(source.detail || '').trim().toLowerCase()} ${source.round ?? ''}`
+  `${source.name.trim().toLowerCase()}\u0000${(source.detail || '').trim().toLowerCase()}\u0000${source.round ?? ''}`
 
 /**
  * Union two sets of lane cards, keeping every hit either side knows about.
@@ -380,6 +380,77 @@ export const mergeTraceLaneCards = (
   }))
 }
 
+/** The fields of a thinking step the lane parsers read. */
+export type LaneStep = Pick<
+  ThinkingStep,
+  'content' | 'rawPayload' | 'traceLanes' | 'functionName' | 'category'
+>
+
+/** What a payload parse reads: the step's last output and its raw payload. */
+type PayloadStep = { content?: string; rawPayload?: string }
+
+interface ParsedPayload {
+  content: string | undefined
+  rawPayload: string | undefined
+  lanes: TraceLaneCard[]
+}
+
+/**
+ * One parse per step, not one per render.
+ *
+ * A live turn re-renders the Herleitung on every socket frame, and each render
+ * walked every step's full tool output with the Trace-Lanes and Result regexes:
+ * a knowledge search returns tens of kilobytes, so a turn with a dozen steps
+ * re-scanned megabytes per frame. In a production trace that was 27 s of a
+ * 47 s turn with the main thread pinned at 100 %, the socket's frames queuing
+ * behind it. The store replaces a step object whenever its payload changes, so
+ * the step object is the cache key; the payload strings are compared as well,
+ * so a caller that mutates a step in place still gets a fresh parse.
+ */
+const payloadCache = new WeakMap<object, ParsedPayload>()
+const toolPayloadCache = new WeakMap<object, ParsedPayload>()
+
+const cached = (
+  cache: WeakMap<object, ParsedPayload>,
+  step: PayloadStep,
+  parse: () => TraceLaneCard[]
+): TraceLaneCard[] => {
+  const hit = cache.get(step)
+  if (hit && hit.content === step.content && hit.rawPayload === step.rawPayload) return hit.lanes
+  const lanes = parse()
+  cache.set(step, { content: step.content, rawPayload: step.rawPayload, lanes })
+  return lanes
+}
+
+const payloadOf = (step: PayloadStep): string =>
+  [step.content, step.rawPayload].filter(Boolean).join('\n')
+
+/** The lanes one step's own payload names, URL scan included. Memoised per step. */
+export const payloadLanesOf = (step: PayloadStep): TraceLaneCard[] =>
+  cached(payloadCache, step, () => extractTraceLanesFromPayload(payloadOf(step)))
+
+/**
+ * The lanes a step contributes as tool evidence. Only tool-ish steps count:
+ * agent LLM chatter is skipped unless it carries a Trace-Lanes block
+ * (re-emitted tool text). Memoised per step.
+ */
+const toolPayloadLanesOf = (step: LaneStep): TraceLaneCard[] =>
+  cached(toolPayloadCache, step, () => {
+    const payload = payloadOf(step)
+    if (!payload.trim()) return []
+    const looksLikeTool =
+      step.category === 'tools' ||
+      /tool|search|knowledge|retriev|ris/i.test(step.functionName || '') ||
+      KB_OUTPUT_MARKER_RE.test(payload)
+    if (!looksLikeTool) return []
+    // Research/orchestrator steps match the tool heuristic only because
+    // "reSEARCH" contains "search". Never scan their prose for source URLs
+    // (that invents web cards from echoed example links); still honor an
+    // explicit structured block inside extractTraceLanesFromPayload.
+    const allowUrlScan = !RESEARCH_AGENT_STEP_RE.test((step.functionName || '').trim())
+    return extractTraceLanesFromPayload(payload, allowUrlScan)
+  })
+
 /**
  * Aggregate lane cards across thinking steps.
  *
@@ -392,33 +463,14 @@ export const mergeTraceLaneCards = (
  * steps that never carried a structured block — web/RIS output, whose lanes come
  * from the URL scan.
  */
-export const deriveTraceLanes = (
-  steps: Array<
-    Pick<ThinkingStep, 'content' | 'rawPayload' | 'traceLanes' | 'functionName' | 'category'>
-  >
-): TraceLaneCard[] => {
+export const deriveTraceLanes = (steps: readonly LaneStep[]): TraceLaneCard[] => {
   const buckets = new Map<string, TraceLaneCard>()
   for (const step of steps) {
     if (step.traceLanes && step.traceLanes.length > 0) {
       mergeCards(buckets, step.traceLanes)
       continue
     }
-    const payload = [step.content, step.rawPayload].filter(Boolean).join('\n')
-    if (!payload.trim()) continue
-    // Only tool-ish steps contribute sources; agent LLM chatter is skipped
-    // unless it already has a Trace-Lanes block (re-emitted tooloidal text).
-    const looksLikeTool =
-      step.category === 'tools' ||
-      /tool|search|knowledge|retriev|ris/i.test(step.functionName || '') ||
-      /##\s*Trace-Lanes/i.test(payload) ||
-      /---\s*Result\s+\d+\s*---/i.test(payload)
-    if (!looksLikeTool) continue
-    // Research/orchestrator steps match the tool heuristic only because
-    // "reSEARCH" contains "search". Never scan their prose for source URLs
-    // (that invents web cards from echoed example links); still honor an
-    // explicit structured block inside extractTraceLanesFromPayload.
-    const allowUrlScan = !RESEARCH_AGENT_STEP_RE.test((step.functionName || '').trim())
-    mergeCards(buckets, extractTraceLanesFromPayload(payload, allowUrlScan))
+    mergeCards(buckets, toolPayloadLanesOf(step))
   }
   // Stable-ish order: law first, then project, office, auto; within signal by label.
   const signalOrder: Record<SourceSignal, number> = {
