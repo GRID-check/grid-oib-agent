@@ -318,3 +318,33 @@ checkv "SELECT to_regclass('public.idx_document_versions_document') IS NOT NULL"
 checkv "SELECT count(*) FROM document_versions" "8" "down left every version row in place"
 
 echo "==> 0092 renumbering and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0097: stored Herleitung steps rewritten into the chat wire v2
+# shape, and its DOWN migration.
+#
+# A database migrated only as far as 0096, because the pre-v2 rows cannot be
+# written once the v2 build's sanitizer guards the column. The spec seeds a
+# captured turn in the old shape, runs 0097 (twice), asserts the rows and that
+# `sanitizeProvenance` accepts them unchanged, then runs the down and 0097
+# again. It connects as the owner, which is what runs a migration.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0097 Herleitung step rewrite and its down migration on grid_steps"
+$PSQL -q -v ON_ERROR_STOP=1 -c "CREATE DATABASE grid_steps OWNER grid_app_owner;"
+MIGRATE_S="$PGBIN/psql -h $WORKDIR -p $PORT -U grid_app_owner -d grid_steps"
+
+node -e '
+  const j = require("./drizzle/meta/_journal.json");
+  console.log(j.entries.map((e) => e.tag).join("\n"));
+' | while read -r tag; do
+  [ "$tag" = "0097_herleitung_steps_v2" ] && break
+  $MIGRATE_S -v ON_ERROR_STOP=1 -q -f "drizzle/$tag.sql" >/dev/null || {
+    echo "0097 SETUP FAILED at $tag — re-run without -q to see the error" >&2
+    exit 1
+  }
+done
+
+GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid_steps" \
+  npx vitest run src/lib/conversations/herleitung-steps-v2.migration.spec.ts
+
+echo "==> 0097 step rewrite and down migration verified"

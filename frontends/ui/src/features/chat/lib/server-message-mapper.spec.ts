@@ -243,12 +243,11 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
       {
         id: 's1',
         userMessageId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-        functionName: 'oib_lookup',
-        displayName: 'OIB-Richtlinie durchsucht',
-        category: 'tools',
         timestamp: '2026-07-01T10:00:05.000Z',
         isComplete: true,
-        isTopLevel: true,
+        kind: 'sources',
+        tool: 'knowledge_search',
+        round: 0,
         traceLanes: [{ kind: 'oib', label: 'OIB 2.3' }],
       },
     ],
@@ -260,18 +259,37 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     showViewReport: true,
   }
 
-  it('restores the Herleitung, with its timestamps as Dates', () => {
+  it('restores the Herleitung in the stored v2 shape', () => {
     const mapped = mapServerMessageToChatMessage(serverMessage({ metadata: { provenance } }))
 
     expect(mapped!.thinkingSteps).toHaveLength(1)
     const step = mapped!.thinkingSteps![0]
-    expect(step.displayName).toBe('OIB-Richtlinie durchsucht')
-    // A Date, because that is what the step shape declares and what the renderer
-    // sorts on — an ISO string here silently breaks ordering.
-    expect(step.timestamp).toBeInstanceOf(Date)
-    expect(step.timestamp.toISOString()).toBe('2026-07-01T10:00:05.000Z')
-    // The sources fan-out is the part of a step a reader actually reads.
-    expect(step.traceLanes).toEqual([{ kind: 'oib', label: 'OIB 2.3' }])
+    // The stored v2 shape, exactly what the turn fold writes: a restored step
+    // and a live one are one shape, and the timestamp stays the ISO string.
+    expect(step).toEqual(provenance.thinkingSteps[0])
+  })
+
+  it('drops a step in the pre-v2 shape rather than interpreting it', () => {
+    // Migration 0097 rewrote every stored row; there is no second reader.
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        metadata: {
+          provenance: {
+            thinkingSteps: [
+              { id: 's1', userMessageId: 'm1', functionName: 'status:synthesis', displayName: '', category: 'tasks', timestamp: '2026-07-01T10:00:05.000Z', isComplete: true },
+            ],
+          },
+        },
+      }),
+    )
+    expect(mapped!.thinkingSteps).toBeUndefined()
+  })
+
+  it('restores a stopped answer as stopped', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance: { stopped: true } } }),
+    )
+    expect(mapped!.stopped).toBe(true)
   })
 
   it('restores the confidence self-assessment and the routing decision', () => {
