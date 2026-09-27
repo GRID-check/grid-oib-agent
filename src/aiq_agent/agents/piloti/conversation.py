@@ -17,7 +17,9 @@ turn carries out is a field of Piloti's own finished state, lifted by
 :data:`ANSWER_LIFTS` rather than recomputed here.
 """
 
+import contextlib
 import logging
+from collections.abc import AsyncIterator
 from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Sequence
@@ -43,7 +45,9 @@ from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.common.profiler import profiled_node
 from aiq_agent.common.tool_validation import format_user_facing_tool_error
+from aiq_agent.common.turn_status import ToolStepCallback
 from aiq_agent.common.turn_status import emit_escalation
+from aiq_agent.common.wire_v2 import EventBody
 from aiq_agent.knowledge.inventory import set_listing_shelf
 from aiq_agent.knowledge.inventory import shelf_hint_from_query
 from aiq_agent.turn.api_seam import AuthError
@@ -608,7 +612,7 @@ class ConversationGraph:
         # Transparency must never take a turn down, and the stakes went UP when this
         # moved into a conditional edge: a raise inside a routing function does not
         # degrade the turn, it ends it with no answer at all. Nothing in
-        # ``emit_escalation`` can raise today (``push_custom_step`` swallows, and
+        # ``emit_escalation`` can raise today (``turn_status.emit`` swallows, and
         # ``clip``/``str.split`` are total on ``str | None``), which is exactly why the
         # guard has to be here rather than trusted to stay true one refactor from now.
         try:
@@ -664,8 +668,16 @@ class ConversationGraph:
             return None
         return list(dict.fromkeys([*checkpoint, *caller]))
 
-    async def run(self, state: ConversationState, thread_id: str | None = None) -> ConversationState:
-        """Execute one turn on ``thread_id``'s conversation and return the final state.
+    async def stream(
+        self, state: ConversationState, thread_id: str | None = None
+    ) -> AsyncIterator[EventBody | ConversationState]:
+        """Run one turn on ``thread_id``'s conversation: the wire bodies as it runs, then the final state.
+
+        The graph runs under ``astream`` (chat wire v2 §b): every producer
+        inside it, Piloti's inner graph behind its NAT function included,
+        writes its bodies through ``get_stream_writer()``, and they come out
+        here in order. Only the ROOT graph's values are the turn's state; a
+        subgraph's are its own.
 
         The graph input is every turn-scoped field of the fresh ``state`` plus
         its new messages: a field listed is overwritten with this turn's value
@@ -684,9 +696,19 @@ class ConversationGraph:
             input_state["already_read_digest"] = merged_digest
         if state.messages:
             logger.info("Query: %s...", str(state.messages[-1].content)[:100])
-        result = await self._graph.ainvoke(input_state, config=graph_config)
+        # One tool-step callback per run: every tool call of the turn, inner
+        # graphs included, becomes a `tool` step on the same stream.
+        run_config: RunnableConfig = {**graph_config, "callbacks": [ToolStepCallback()]}
+        final: dict[str, Any] | None = None
+        run = self._graph.astream(input_state, config=run_config, stream_mode=["custom", "values"], subgraphs=True)
+        async with contextlib.aclosing(run) as chunks:
+            async for namespace, mode, chunk in chunks:
+                if mode == "custom":
+                    yield chunk
+                elif not namespace:
+                    final = chunk
         logger.info("Conversation: Turn complete")
-        return ConversationState.model_validate(result)
+        yield ConversationState.model_validate(final)
 
     async def append_context_message(self, thread_id: str, text: str) -> None:
         """Append a human turn to *thread_id*'s history WITHOUT running the graph.

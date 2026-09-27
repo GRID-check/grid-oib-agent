@@ -82,9 +82,10 @@ It is authoritative, and it is what the socket persists
 (`chat_socket.persist_turn_result`). No field is lifted by name any more.
 
 **Transparency extras (WP-A).** A family of optional, additive "why did the turn
-behave this way?" signals are fields of the same `TurnResult`. All are **absent
-unless applicable** (a frame omits every field at its default) and reset at the
-turn boundary in `ConversationGraph.run()`:
+behave this way?" signals are fields of the same `TurnResult`, which
+`turn.response.build_result` lifts off the finished state. A frame omits every
+field at its default, and each is reset at the turn boundary in
+`ConversationGraph.stream()`:
 
 - `routing_decision` (`meta`/`shallow`/`deep`/`error`) — which path the turn
   took, OBSERVED after the answer

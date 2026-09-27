@@ -28,6 +28,7 @@ from aiq_agent.agents.piloti.markers import answer_confidence_capped_reason
 from aiq_agent.agents.piloti.markers import surface_answer_confidence
 from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.agents.piloti.models import ResearchAgentState
+from tests.aiq_agent.agents.piloti.conversation import turn
 
 # The two answers the whole design turns on: the same measured sentence, once
 # on its own and once with a legal conclusion bolted onto it.
@@ -212,7 +213,7 @@ class TestFinalizeAnswerCarriesTheSignals:
 
 
 class TestMeasurementConfidenceEndToEnd:
-    """Propagation from a Piloti result through ``ConversationGraph.run()``."""
+    """Propagation from a Piloti result through ``ConversationGraph.stream()``."""
 
     @pytest.fixture
     def deep_fn(self):
@@ -247,7 +248,7 @@ class TestMeasurementConfidenceEndToEnd:
         research = self._research_state(KELLER_MEASURED, measured=True, normative=False)
         agent = self._agent(research, deep_fn)
         state = ConversationState(messages=[HumanMessage(content="Wie hoch ist der Keller?")])
-        result = await agent.run(state, thread_id="m1")
+        result = await turn(agent, state, thread_id="m1")
         assert result.answer_confidence == "medium"
         assert result.answer_confidence_capped_reason == "measurement_only"
 
@@ -257,7 +258,7 @@ class TestMeasurementConfidenceEndToEnd:
         research = self._research_state(KELLER_MEASURED_PLUS_VERDICT, measured=True, normative=True)
         agent = self._agent(research, deep_fn)
         state = ConversationState(messages=[HumanMessage(content="Reicht die Kellerhöhe?")])
-        result = await agent.run(state, thread_id="m2")
+        result = await turn(agent, state, thread_id="m2")
         assert result.answer_confidence == "low"
         assert result.answer_confidence_capped_reason == "normative_claim_uncited"
 
@@ -353,6 +354,6 @@ class TestTheSingleSourceFallbackDoesNotLaunder:
             clarifier_fn=None,
         )
         state = ConversationState(messages=[HumanMessage(content="Reicht die Kellerhöhe?")])
-        result = await agent.run(state, thread_id="f1")
+        result = await turn(agent, state, thread_id="f1")
         assert result.answer_confidence == "low"
         assert result.answer_confidence_capped_reason == "normative_claim_uncited"

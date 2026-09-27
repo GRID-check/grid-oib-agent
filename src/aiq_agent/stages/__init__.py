@@ -19,6 +19,7 @@ from aiq_agent.stages.registry import get_stage
 from aiq_agent.stages.registry import iter_stages
 from aiq_agent.stages.registry import register_stage
 from aiq_agent.stages.runner import schedule_post_answer_stages
+from aiq_agent.stages.runner import stage_value
 from aiq_agent.stages.spec import GateDecision
 from aiq_agent.stages.spec import StageContext
 from aiq_agent.stages.spec import StageEmpty
@@ -53,4 +54,5 @@ __all__ = [
     "register_stage",
     "register_stage_frame_sink",
     "schedule_post_answer_stages",
+    "stage_value",
 ]

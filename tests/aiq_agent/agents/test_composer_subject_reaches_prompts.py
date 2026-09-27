@@ -25,6 +25,7 @@ from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common.data_source_registry import populate_from_config
+from tests.aiq_agent.agents.piloti.conversation import turn
 
 SUBJECT = "220724_Aufsicht_1_100.pdf"
 
@@ -215,12 +216,13 @@ class TestSubjectSurvivesTheGraphHandoff:
             clarifier_fn=unused,
         )
 
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(
                 messages=[HumanMessage(content="fass zusammen")],
                 focus_file_name=SUBJECT,
                 focus_shelf="project",
-            )
+            ),
         )
 
         assert captured == {"focus_file_name": SUBJECT, "focus_shelf": "project"}
