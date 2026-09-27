@@ -423,6 +423,9 @@ export function purgerEnv(w: AppWiring): EnvVar[] {
   return [
     sref("GRID_APP_DATABASE_URL"),
     { name: "BACKEND_URL", value: `http://aiq-agent:${PORT.backend}` },
+    // A chat erasure the delete request could not finish is retried through the
+    // BFF, which owns its steps (`purger/purge-conversation.js`).
+    { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
     { name: "SEAWEED_ENDPOINT", value: w.seaweedInternalEndpoint },
     { name: "SEAWEED_ACCESS_KEY", value: cfg.seaweedfs.accessKey },

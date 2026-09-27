@@ -2186,5 +2186,9 @@
   {
     "en": "„Zitierbar\" no longer appears on every file. A status shows only when it changes what you can do next — a document still being read, one that failed, or a report Piloti wrote and deliberately never indexed.",
     "de": "„Zitierbar“ erscheint nicht mehr bei jeder Datei. Ein Status wird nur angezeigt, wenn er beeinflusst, was Sie als Nächstes tun können – etwa bei einem Dokument, das noch gelesen wird, einem fehlgeschlagenen Dokument oder einem Bericht, den Piloti verfasst und bewusst nie indexiert hat."
+  },
+  {
+    "en": "A chat whose deletion failed because a service was briefly unavailable is now deleted automatically once the service is back, instead of staying hidden until someone deleted it again.",
+    "de": "Ein Chat, dessen Löschen fehlgeschlagen ist, weil ein Dienst kurz nicht erreichbar war, wird jetzt automatisch gelöscht, sobald der Dienst wieder verfügbar ist. Bisher blieb er ausgeblendet, bis jemand ihn erneut löschte."
   }
 ]

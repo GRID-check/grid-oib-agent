@@ -523,6 +523,9 @@ services:
       # — see frontends/ui/workers/platform-scope.js.
       - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
       - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
+      # A chat erasure the delete request could not finish is retried through
+      # the BFF, which owns its steps.
+      - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       - SEAWEED_ENDPOINT=http://seaweedfs:8333
       - SEAWEED_PUBLIC_ENDPOINT=${SEAWEED_PUBLIC_ENDPOINT:-http://localhost:8333}

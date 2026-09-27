@@ -80,6 +80,7 @@ import {
   listVisibleConversations,
   markConversationDeleting,
   mergeMessageMetadata,
+  recordConversationErased,
   updateConversationMetaInOrg,
   updateConversationTitleInOrg,
   upsertConversationRead,
@@ -508,6 +509,11 @@ export async function assertConversationAcceptsUploads(
  * chunks and objects, then the chat's whole `s_` collection) → delete the rows. A
  * failure in the middle stops before the rows, and the marked conversation plus
  * its retained document rows are what a retry runs on.
+ *
+ * **Nobody has to press delete again for that retry.** The mark queues the
+ * erasure in `deletion_queue` in the same transaction, and the purger picks up
+ * whatever this request did not finish ({@link retryConversationErasure}); a
+ * request that finishes closes the queue row itself.
  */
 export async function deleteConversation(
   session: AuthorizedSession,
@@ -531,22 +537,71 @@ export async function deleteConversation(
   // `resolveResourceAccess`, so this one write both hides the thread and gives
   // `assertConversationAcceptsUploads` something to refuse on, for the whole
   // duration of the purge rather than only at its end.
-  const marked = await markConversationDeleting(conversationId, session.organizationId)
+  const marked = await markConversationDeleting(conversationId, session.organizationId, session.userId)
   if (!marked) throw new NotFoundError()
 
+  await eraseMarkedConversation(session.organizationId, conversationId)
+}
+
+/**
+ * The purger's retry of a conversation erasure that its request did not finish
+ * (`POST /api/internal/conversations/[id]/erase`, called with the queue row's
+ * organization; the route opens that tenant's scope).
+ *
+ * The same erasure as {@link deleteConversation}, from the step after the mark,
+ * because the mark is what the retry is resuming: there is one path, and this
+ * only decides whether it may run.
+ *
+ * - **A legal hold defers it.** Placed after the chat was marked, a hold does not
+ *   bring the chat back (the requester already saw it go, and its attachments
+ *   may be half-erased); it stops the erasure. The 409 tells the purger to put
+ *   the row back to `pending` without spending an attempt, and the purger's claim
+ *   skips it (`grid_legal_hold_blocks`) until the hold is released — the same
+ *   semantics a held project purge has.
+ * - **A conversation that is not marked is refused.** Only a deleting chat is
+ *   erased from here; a queue row naming a live one is a bug to surface, not an
+ *   instruction to follow.
+ * - **A conversation that is already gone is finished, not missing.** A project
+ *   purge takes its chats' rows, and a request can die after the row delete;
+ *   every step is keyed by the id and safe on an absent row, so the tail
+ *   (collaboration rows, drafts, the queue row) is still completed.
+ */
+export async function retryConversationErasure(
+  organizationId: string,
+  conversationId: string
+): Promise<{ outcome: 'erased' | 'already-gone' }> {
+  await assertNoActiveHold(organizationId, 'conversation', conversationId)
+  const tenancy = await findConversationTenancy(conversationId)
+  // Row-level security already hides another organization's row inside this
+  // scope; the comparison is what still holds if the scope ever widens.
+  if (tenancy && tenancy.organizationId !== organizationId) throw new NotFoundError()
+  if (tenancy && !tenancy.deletedAt) {
+    throw new ConflictError('This chat is not being deleted.', { reason: 'not_deleting' })
+  }
+  await eraseMarkedConversation(organizationId, conversationId)
+  return { outcome: tenancy ? 'erased' : 'already-gone' }
+}
+
+/**
+ * Erase a conversation that is already marked deleting: its attachments, its
+ * `s_` collection, its row, what hangs off the row without a foreign key, and
+ * finally its queue row. Throws `UpstreamError` and keeps the conversation when
+ * the external stores could not be erased; every step is safe to repeat.
+ */
+async function eraseMarkedConversation(organizationId: string, conversationId: string): Promise<void> {
   // The files the user dropped into this chat (ADR-0047 Phase 2). Their rows
   // would cascade off the conversation's foreign key on their own, but a
   // cascade reaches neither SeaweedFS nor the retrieval collection — so this
   // runs FIRST, while the rows that name those objects still exist. Skipping it
   // would leave bytes nothing lists, nothing can delete, and that still count
   // against the organization's storage quota.
-  const purge = await purgeSessionDocuments(conversationId, session.organizationId)
+  const purge = await purgeSessionDocuments(conversationId, organizationId)
   if (!purge.ok) {
     // STOP. Deleting the conversation now would cascade away exactly the rows
     // that still name the objects and chunks the purge could not erase, and
     // there is no other handle on them: no listing, no ledger entry, no id.
     // Both the conversation and its retained document rows stay, marked
-    // deleting, and a repeated DELETE resumes from here.
+    // deleting, and the queued retry (or a repeated DELETE) resumes from here.
     console.error(
       `[conversations] session document cleanup incomplete for ${conversationId} — ` +
         `${purge.retained} row(s) retained for retry:`,
@@ -574,7 +629,7 @@ export async function deleteConversation(
     )
   }
 
-  await deleteConversationInOrg(conversationId, session.organizationId)
+  await deleteConversationInOrg(conversationId, organizationId)
 
   // `messages` and `conversation_reads` cascade through their foreign keys;
   // grants, mention requests and inbox items CANNOT, because they address their
@@ -582,6 +637,10 @@ export async function deleteConversation(
   // them explicitly or they orphan (spec SH-13, IB-15) — harmless for access, but
   // they leave permanently redacted rows in people's inboxes.
   await purgeConversationCollaboration(conversationId)
+
+  // Everything the retry exists for is erased: close the queue row, so the
+  // purger does not run it again and the record says when the chat went.
+  await recordConversationErased(conversationId, organizationId)
 
   // The drafts the turns of this chat wrote into the agent service's own store
   // (ADR-0003 puts it on the other side of a boundary no cascade reaches).

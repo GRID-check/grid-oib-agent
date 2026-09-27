@@ -234,6 +234,7 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 |----------|----------|---------|-------------|
 | `BACKEND_URL` | Yes | `http://aiq-agent:8000` (Docker), `http://localhost:8000` (local) | Backend API URL used by the Node.js gateway. |
 | `NEXT_PUBLIC_BACKEND_URL` | No | `http://localhost:8000` | Public-facing backend URL. Fallback if `BACKEND_URL` is not set. |
+| `FRONTEND_INTERNAL_URL` | No | `http://frontend:3000` | In-cluster base URL of the BFF, for the services that call its token-guarded `/api/internal/*` routes: the aiq-agent tier, the skill-scheduler (fires definitions) and the **purger**, which retries a chat erasure its delete request could not finish through `POST /api/internal/conversations/[id]/erase` (`docs/architecture/deletion-pipeline.md`). Set in both compose files and by Pulumi; not read by the frontend itself. |
 | `PORT` | No | `3000` | Node.js gateway listen port. |
 | `FRONTEND_PORT` | No | `3000` | Docker host port mapping for the frontend container. |
 | `GRID_PROJECT_KNOWLEDGE_PAGE_ENABLED` | No | `false` | Fallback that shows the project-level Knowledge page (nav section plus the `/knowledge` route) when `GRID_ENFORCE_FEATURE_FLAGS` is off. With enforcement on, the per-org `project-knowledge-page` WorkOS flag decides instead. The platform owner's base-knowledge manager is independent of this. Frontend service. |

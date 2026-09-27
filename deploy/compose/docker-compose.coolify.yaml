@@ -584,6 +584,9 @@ services:
       # it steps up to grid_app_platform per transaction.
       - GRID_APP_DATABASE_URL=postgresql://grid_app_rw:${SERVICE_PASSWORD_GRIDRUNTIME}@postgres:5432/grid_app
       - BACKEND_URL=http://aiq-agent:8000
+      # A chat erasure the delete request could not finish is retried through
+      # the BFF, which owns its steps.
+      - FRONTEND_INTERNAL_URL=http://frontend:3000
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
       - SEAWEED_ENDPOINT=http://seaweedfs:8333
       - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
