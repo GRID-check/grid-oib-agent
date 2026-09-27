@@ -1,44 +1,72 @@
 import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin'
+import { TextPlugin } from 'gsap/TextPlugin'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { landingScript } from '../i18n/ui'
-import { MQ, sec, STAGGER, staggerFor, TRAVEL } from '../lib/motion'
+import { MQ, sec } from '../lib/motion'
 import { gsap } from './motion-gsap'
 
-gsap.registerPlugin(DrawSVGPlugin, ScrollTrigger)
+gsap.registerPlugin(DrawSVGPlugin, TextPlugin, ScrollTrigger)
 
 const L = document.documentElement.lang.startsWith('en') ? landingScript.en : landingScript.de
 
 /**
  * The decision chain.
  *
- * The desktop board (ChatMock) is the chain as linked nodes, laid out by CSS to
- * fit its card: the question, three sources, the decision (a check table of
- * every way against every source) and the steps. Its markup is the finished
- * chain. This file adds what CSS cannot: the wires, and one play of the chain
- * as it comes into view.
+ * Everything here that can be derived is derived. The previous version authored
+ * every connector as literal SVG coordinates and drove them with a hand-rolled
+ * player — a Catmull-Rom interpolator for the camera, a step-gating system in
+ * CSS, a typing routine that sliced the string itself, and stroke-dasharray set
+ * to a number larger than any line so the dash trick would work. Four separate
+ * defects came out of that in one week, all of them the same defect: a
+ * coordinate written down next to an element that later moved. A German
+ * question is 21px taller than the English one, and no authored number is right
+ * for both.
  *
- * The wires are derived, never authored. An earlier board wrote its connectors
- * as literal coordinates, and every defect it had was the same one: a number
- * written down next to an element that later moved (a German question is a
- * line taller than the English one). So the nodes state where they are, and
- * each wire runs between ports measured on them: the question's foot, a
- * source's head and foot, the top of its column in the table, the chosen
- * way's row, the steps' header.
- *
- * The play, once, pausable, replayable:
- *   1. the question arrives and fans out to the sources;
- *   2. each source is wired into its column of the decision;
- *   3. the check, source by source: the source, its wire and its column light
- *      together and that column's marks are drawn;
- *   4. the verdict: the ways not chosen recede with their reasons, the chosen
- *      one is tinted with its own, and its wire carries on to the steps.
- *
- * It replaced a camera panning over a 1160px diagram inside the card, which
- * cropped the cards mid-move and showed the choice only as two options fading.
+ * So the diagram states where its *nodes* are, and this file works out
+ * everything between them: wires are generated from the measured boxes, and
+ * they start and end on ports — real elements inside the cards — so a wire
+ * lands on the thing it means rather than on a number that used to be near it.
+ * GSAP owns the rest: DrawSVGPlugin draws the wires, TextPlugin types the
+ * question, ScrollTrigger decides when it runs, and a single timeline holds the
+ * order that used to live in two parallel arrays of timestamps.
  */
 
-/** The board only exists from lg up; below it the chain is told as stories. */
+/** The left margin the spine runs down, in the diagram's own coordinates. */
+const SPINE_X = 14
+/** Air between the question and the top of the chain. */
+const STEM_GAP = 12
+
+type Box = { x: number; y: number; w: number; h: number; cx: number; cy: number; right: number; bottom: number }
+
+const box = (el: HTMLElement): Box => {
+  // offsetLeft/offsetTop, not getBoundingClientRect: the camera scales this
+  // subtree, and offsets are the one measurement a transform does not distort.
+  const x = el.offsetLeft
+  const y = el.offsetTop
+  const w = el.offsetWidth
+  const h = el.offsetHeight
+  return { x, y, w, h, cx: x + w / 2, cy: y + h / 2, right: x + w, bottom: y + h }
+}
+
+/** A port's box, in the coordinate space of the camera rather than its card. */
+const portBox = (card: HTMLElement, cam: HTMLElement, selector: string): Box => {
+  const port = card.querySelector<HTMLElement>(selector)
+  if (!port) return box(card)
+  let x = 0
+  let y = 0
+  for (let el: HTMLElement | null = port; el && el !== cam; el = el.offsetParent as HTMLElement | null) {
+    x += el.offsetLeft
+    y += el.offsetTop
+  }
+  const w = port.offsetWidth
+  const h = port.offsetHeight
+  return { x, y, w, h, cx: x + w / 2, cy: y + h / 2, right: x + w, bottom: y + h }
+}
+
+/** The board only exists from lg up; below it the chain is the column list. */
 const BOARD = MQ.staged
+/** The smallest the camera may draw the board: below it the cards are unreadable. */
+const MIN_SCALE = 0.85
 
 export function initChain() {
   initChainBoard()
@@ -72,317 +100,303 @@ function initChainList() {
   })
 }
 
-// ── geometry ──────────────────────────────────────────────────────────────
-
-type Box = { x: number; y: number; w: number; h: number; cx: number; cy: number; right: number; bottom: number }
-
-/**
- * An element's box in `root`'s coordinates, summed from offsets: a transform
- * (a node arriving 8px low, the section's reveal) does not distort them, so a
- * wire measured mid-arrival still lands where the node comes to rest.
- */
-const boxIn = (el: HTMLElement, root: HTMLElement): Box => {
-  let x = 0
-  let y = 0
-  for (let e: HTMLElement | null = el; e && e !== root; e = e.offsetParent as HTMLElement | null) {
-    x += e.offsetLeft
-    y += e.offsetTop
-  }
-  const w = el.offsetWidth
-  const h = el.offsetHeight
-  return { x, y, w, h, cx: x + w / 2, cy: y + h / 2, right: x + w, bottom: y + h }
-}
-
-/**
- * Down from one port to a lane, along it, and down into the next port: a
- * drawing's orthogonal leader, with its corners eased. Wires that share a gap
- * each take their own lane, so none crosses another.
- */
-const route = (x0: number, y0: number, lane: number, x1: number, y1: number) => {
-  const dx = x1 - x0
-  if (Math.abs(dx) < 1) return `M${x0},${y0} V${y1}`
-  const s = Math.sign(dx)
-  const r = Math.max(0, Math.min(6, Math.abs(dx) / 2, lane - y0, y1 - lane))
-  return `M${x0},${y0} V${lane - r} Q${x0},${lane} ${x0 + s * r},${lane} H${x1 - s * r} Q${x1},${lane} ${x1},${lane + r} V${y1}`
-}
-
-/** Out of a card's left edge, down the gutter, into the next card's left edge. */
-const elbow = (x0: number, y0: number, gx: number, x1: number, y1: number) => {
-  const r = Math.min(8, (y1 - y0) / 2, (x0 - gx) / 2)
-  return `M${x0},${y0} H${gx + r} Q${gx},${y0} ${gx},${y0 + r} V${y1 - r} Q${gx},${y1} ${gx + r},${y1} H${x1}`
-}
-
-const SVG_NS = 'http://www.w3.org/2000/svg'
-const INK = 'rgb(27 28 25 / 0.42)'
-const LIT = '#5c6b42' // --color-accent-600: a source in use
-const OK = '#0f7a3d' // --color-ok: the way chosen, carried on
-
 function initChainBoard() {
-  const board = document.querySelector<HTMLElement>('[data-chat-anchor]')
-  const net = board?.querySelector<HTMLElement>('[data-net]')
-  const svg = board?.querySelector<SVGSVGElement>('[data-wires]')
-  const status = board?.querySelector<HTMLElement>('[data-status]')
-  const q = board?.querySelector<HTMLElement>('[data-node="q"]')
-  const dec = board?.querySelector<HTMLElement>('[data-node="dec"]')
-  const impl = board?.querySelector<HTMLElement>('[data-node="impl"]')
-  const matrix = board?.querySelector<HTMLElement>('[data-matrix]')
-  const colLit = board?.querySelector<HTMLElement>('[data-col-lit]')
-  if (!board || !net || !svg || !status || !q || !dec || !impl || !matrix || !colLit) return
-  const pause = board.querySelector<HTMLButtonElement>('[data-chain-pause]')
-  const replay = board.querySelector<HTMLButtonElement>('[data-replay]')
+  const anchor = document.querySelector<HTMLElement>('[data-chat-anchor]')
+  const stage = anchor?.querySelector<HTMLElement>('[data-stage]')
+  const cam = anchor?.querySelector<HTMLElement>('[data-cam]')
+  const wires = anchor?.querySelector<SVGSVGElement>('[data-wires]')
+  const qText = anchor?.querySelector<HTMLElement>('[data-q-text]')
+  const caret = anchor?.querySelector<HTMLElement>('[data-q-caret]')
+  const status = anchor?.querySelector<HTMLElement>('[data-status]')
+  const replay = anchor?.querySelector<HTMLButtonElement>('[data-replay]')
+  const pause = anchor?.querySelector<HTMLButtonElement>('[data-chain-pause]')
+  const live = anchor?.querySelector<HTMLElement>('[data-chain-live]')
+  if (!anchor || !stage || !cam || !wires || !qText || !status) return
 
-  const all = <T extends Element = HTMLElement>(sel: string, root: ParentNode = board) =>
-    Array.from(root.querySelectorAll<T>(sel))
-  const srcs = all('[data-node="src"]')
-  const srcLit = srcs.map((s) => s.querySelector<HTMLElement>('[data-lit]')).filter((s): s is HTMLElement => !!s)
-  const heads = all('[data-col]')
-  const opts = all('[data-opt]')
-  // The verdict is read from the markup, which holds the finished chain: the
-  // script never decides which way was chosen, it only withholds it.
-  const verdicts = opts.map((o) => (o.classList.contains('is-chosen') ? 'is-chosen' : 'is-receded'))
-  const chosen = opts.filter((_, r) => verdicts[r] === 'is-chosen')
-  const receded = opts.filter((_, r) => verdicts[r] === 'is-receded')
-  const pickRow = chosen[0]?.querySelector<HTMLElement>('tr')
-  const whyOf = (os: HTMLElement[]) => os.flatMap((o) => all('[data-why]', o))
-  const picks = all('[data-pick]')
-  const marks = opts.map((o) => all<SVGSVGElement>('[data-mark]', o))
-  const markEls = marks.flat()
-  const column = (c: number) => marks.map((row) => row[c]).filter(Boolean)
-  const strokes = (els: SVGSVGElement[]) =>
-    els.flatMap((el) => Array.from(el.querySelectorAll<SVGGeometryElement>('path, circle')))
-  const implRows = all('[data-impl]', impl)
-  const implHead = impl.firstElementChild as HTMLElement | null
+  const node = (name: string) => Array.from(cam.querySelectorAll<HTMLElement>(`[data-node="${name}"]`))
+  const part = (name: string, which: string) =>
+    cam.querySelector<HTMLElement>(`[data-node="${name}"][data-part="${which}"]`)
+  const sources = ['s1', 's2', 's3']
+  const scan = cam.querySelector<HTMLElement>('[data-scan]')
+  const options = ['a', 'b', 'c'].map((k) => cam.querySelector<HTMLElement>(`[data-opt="${k}"]`))
+  // Optional nodes are addressed as (possibly empty) lists, so a missing one is
+  // simply nothing to animate rather than a tween against null.
+  const caretT = caret ? [caret] : []
+  const optT = (i: number) => (options[i] ? [options[i]!] : [])
 
-  // ── wires ───────────────────────────────────────────────────────────────
+  // ── geometry ──────────────────────────────────────────────────────────────
+
+  const SVG_NS = 'http://www.w3.org/2000/svg'
 
   /*
-   * A wire is a lasting element whose geometry is re-derived, not a fresh
-   * element per measurement: the timeline holds these elements, so replacing
-   * them on a resize would leave it animating detached paths.
+   * A wire is a lasting element whose geometry is re-derived — not a fresh
+   * element per measurement.
+   *
+   * `draw()` runs again on every ScrollTrigger refresh and once more when the
+   * fonts land. Replacing the paths there would break the animation twice over:
+   * the timeline was built against the old elements and would go on animating
+   * them after they were detached (`invalidate()` re-reads values, it does not
+   * re-target), and the replacements, never having been set to `drawSVG: 0`,
+   * would stand fully drawn from the moment they appeared. Keeping the elements
+   * and moving them keeps every target valid, and `invalidate()` then does the
+   * one job it is good at: re-reading the new lengths.
    */
-  const make = <T extends SVGElement>(tag: string, attrs: Record<string, string>) => {
-    const el = document.createElementNS(SVG_NS, tag) as T
-    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v)
-    svg.appendChild(el)
-    return el
+  const kept = new Map<string, SVGElement>()
+  const keep = <T extends SVGElement>(key: string, make: () => T): T => {
+    const found = kept.get(key)
+    if (found) return found as T
+    const made = make()
+    kept.set(key, made)
+    wires.appendChild(made)
+    return made
   }
-  const path = (stroke: string, width: number) =>
-    make<SVGPathElement>('path', {
-      fill: 'none',
-      stroke,
-      'stroke-width': String(width),
-      'stroke-linecap': 'round',
-      'stroke-linejoin': 'round',
+
+  const wire = (key: string, d: string, kind: string) => {
+    const path = keep(key, () => {
+      const p = document.createElementNS(SVG_NS, 'path')
+      p.setAttribute('fill', 'none')
+      p.setAttribute('stroke', '#26272a')
+      p.setAttribute('stroke-width', '1.6')
+      p.setAttribute('stroke-linecap', 'round')
+      p.dataset.wire = kind
+      return p
     })
-  const dot = (fill: string) => make<SVGCircleElement>('circle', { r: '2.75', fill })
-  const at = (c: SVGCircleElement, x: number, y: number) => {
+    path.setAttribute('d', d)
+    return path
+  }
+  const dot = (key: string, x: number, y: number) => {
+    const c = keep(key, () => {
+      const el = document.createElementNS(SVG_NS, 'circle')
+      el.setAttribute('r', '3')
+      el.setAttribute('fill', '#26272a')
+      el.dataset.wire = 'dot'
+      return el
+    })
     c.setAttribute('cx', String(x))
     c.setAttribute('cy', String(y))
+    return c
   }
 
-  // Question → each source; each source → its column (and a lit copy of that
-  // wire for the check); the chosen way → the steps.
-  const ask = srcs.map(() => path(INK, 1.25))
-  const feed = srcs.map(() => path(INK, 1.25))
-  const lit = srcs.map(() => path(LIT, 2))
-  const carry = path(OK, 1.5)
-  const qDot = dot(INK)
-  const inDots = srcs.map(() => dot(INK))
-  const outDots = srcs.map(() => dot(INK))
-  const colDots = srcs.map(() => dot(INK))
-  const carryDots = [dot(OK), dot(OK)]
-  // At rest the lit copies are hidden: the finished chain shows no check in
-  // progress.
-  gsap.set(lit, { autoAlpha: 0 })
+  type Wires = { stem: SVGPathElement; stops: number[]; rows: { stub: SVGPathElement[]; dots: SVGCircleElement[] }[]; merges: SVGPathElement[]; toImpl: SVGPathElement | null }
 
-  const place = () => {
-    const qb = boxIn(q, net)
-    const d = boxIn(dec, net)
-    at(qDot, qb.cx, qb.bottom)
-    const n = srcs.length
-    srcs.forEach((s, i) => {
-      const b = boxIn(s, net)
-      // The question's wires share one trunk and one bus, halfway down.
-      ask[i].setAttribute('d', route(qb.cx, qb.bottom, (qb.bottom + b.y) / 2, b.cx, b.y))
-      at(inDots[i], b.cx, b.y)
-      at(outDots[i], b.cx, b.bottom)
-      const head = heads[i] ? boxIn(heads[i], net) : null
-      if (!head) return
-      // Each source runs right to its column in a lane of its own: the first
-      // source, which travels furthest, lowest, so it passes under the others'
-      // drops instead of through them.
-      const gap = d.y - b.bottom
-      const lane = b.bottom + gap * (0.3 + (0.4 * (n - 1 - i)) / Math.max(1, n - 1))
-      const wire = route(b.cx, b.bottom, lane, head.cx, d.y)
-      feed[i].setAttribute('d', wire)
-      lit[i].setAttribute('d', wire)
-      at(colDots[i], head.cx, d.y)
+  const draw = (): Wires => {
+    // The question is typed in, so it is measured holding all of its text —
+    // otherwise a rebuild that lands mid-typing pins the chain to a card that is
+    // about to grow.
+    const shown = qText.textContent
+    qText.textContent = L.question
+    const q = box(node('q')[0])
+    qText.textContent = shown
+
+    const rows = sources.map((name) => ({ chip: part(name, 'chip')!, card: part(name, 'card')! }))
+    const headY = q.bottom + STEM_GAP
+    const lastY = box(rows[rows.length - 1].chip).cy
+    const stem = wire('stem', `M${SPINE_X},${headY} L${SPINE_X},${lastY}`, 'stem')
+
+    // How far down the spine each row sits, as a fraction of its length. The
+    // spine reaches a row when that row arrives and no further, so it is not
+    // running past sources the chain has not consulted yet.
+    const span = lastY - headY || 1
+    const stops = rows.map(({ chip }) => Math.min(100, ((box(chip).cy - headY) / span) * 100))
+
+    const rowWires = rows.map(({ chip, card }, i) => {
+      const c = box(chip)
+      const k = box(card)
+      return {
+        stub: [
+          wire(`stub-${i}-in`, `M${SPINE_X},${c.cy} L${c.x},${c.cy}`, 'stub'),
+          wire(`stub-${i}-out`, `M${c.right},${c.cy} L${k.x},${c.cy}`, 'stub'),
+        ],
+        dots: [dot(`dot-${i}-in`, SPINE_X, c.cy), dot(`dot-${i}-out`, c.right, c.cy)],
+      }
     })
-    const i = boxIn(impl, net)
-    const iy = implHead ? i.y + implHead.offsetHeight / 2 : i.y + 18
-    const by = pickRow ? boxIn(pickRow, net).y + 18 : d.cy
-    // The gutter the carry wire runs down: halfway between the net's edge and
-    // the cards'.
-    const gx = d.x / 2
-    carry.setAttribute('d', elbow(d.x, by, gx, i.x, iy))
-    at(carryDots[0], d.x, by)
-    at(carryDots[1], i.x, iy)
 
-    // The column highlight: one header cell wide, from the table's head to
-    // its foot, moved from column to column by `xPercent` (the columns are
-    // equal and adjacent). Placed here, never animated in size.
-    const table = matrix.querySelector('table')
-    if (heads[0] && table) {
-      const h = boxIn(heads[0], matrix)
-      Object.assign(colLit.style, {
-        left: `${h.x}px`,
-        top: `${h.y}px`,
-        width: `${h.w}px`,
-        height: `${table.offsetHeight - h.y}px`,
-      })
+    // The merge curves land on the decision card's own header, and the wire on
+    // to the implementation leaves from the option that was chosen — both are
+    // elements, so neither can drift away from what it points at.
+    const dec = node('dec')[0]
+    const inPort = dec ? portBox(dec, cam, '[data-port="in"]') : null
+    const merges = inPort
+      ? rows.map(({ card }, i) => {
+          const k = box(card)
+          const midX = (k.right + inPort.x) / 2
+          return wire(
+            `merge-${i}`,
+            `M${k.right},${k.cy} C${midX},${k.cy} ${midX},${inPort.cy} ${inPort.x},${inPort.cy}`,
+            'merge'
+          )
+        })
+      : []
+
+    const impl = node('impl')[0]
+    const outPort = dec ? portBox(dec, cam, '[data-port="out"]') : null
+    let toImpl: SVGPathElement | null = null
+    if (impl && outPort) {
+      const i = box(impl)
+      const midY = (outPort.bottom + i.y) / 2
+      toImpl = wire(
+        'to-impl',
+        `M${outPort.cx},${outPort.bottom} C${outPort.cx},${midY} ${i.cx},${midY} ${i.cx},${i.y}`,
+        'impl'
+      )
     }
-    onPlace?.()
-  }
-  let onPlace: (() => void) | undefined
 
-  const say = (text: string) => {
-    if (status.textContent !== text) status.textContent = text
+    if (scan) scan.style.top = `${q.bottom + STEM_GAP}px`
+    return { stem, stops, rows: rowWires, merges, toImpl }
   }
-  const beat = (i: number) => () => say(L.beats[i])
-  const finish = () => {
-    opts.forEach((o, r) => {
-      o.classList.remove('is-chosen', 'is-receded')
-      o.classList.add(verdicts[r])
-    })
-    say(L.beats[L.beats.length - 1])
+
+  // ── camera ────────────────────────────────────────────────────────────────
+
+  const INSET = { top: 22, right: 24, bottom: 48, left: 24 }
+  const TIGHT = { top: 14, right: 12, bottom: 40, left: 12 }
+
+  /** Fit the named nodes in the frame, and never magnify past the true size. */
+  const frame = (names: string[]) => {
+    const r = stage.getBoundingClientRect()
+    const vw = r.width || 700
+    const vh = r.height || 430
+    const narrow = vw < 560
+    const inset = narrow ? TIGHT : INSET
+    const margin = narrow ? 8 : 14
+
+    let els = names.flatMap((n) => (n === 'all' ? Array.from(cam.querySelectorAll<HTMLElement>('[data-node]')) : node(n)))
+    if (narrow && els.length > 1) {
+      els = [els.reduce((a, b) => (a.offsetWidth * a.offsetHeight >= b.offsetWidth * b.offsetHeight ? a : b))]
+    }
+    if (!els.length) return { x: 0, y: 0, scale: 1 }
+
+    const b = els.map(box)
+    const x0 = Math.min(...b.map((v) => v.x)) - margin
+    const y0 = Math.min(...b.map((v) => v.y)) - margin
+    const x1 = Math.max(...b.map((v) => v.right)) + margin
+    const y1 = Math.max(...b.map((v) => v.bottom)) + margin
+
+    // Never below 0.85: a pan that shrinks the board to fit everything set the
+    // cards' text at about 6px mid-move. A frame that does not fit at 0.85
+    // is cropped by the stage's soft edge instead.
+    const scale = Math.max(
+      names.includes('all') ? 0 : MIN_SCALE,
+      Math.min(1, (vw - inset.left - inset.right) / (x1 - x0), (vh - inset.top - inset.bottom) / (y1 - y0))
+    )
+    const cx = (x0 + x1) / 2 - (inset.left - inset.right) / 2 / scale
+    const cy = (y0 + y1) / 2 - (inset.top - inset.bottom) / 2 / scale
+    return { x: vw / 2 - cx * scale, y: vh / 2 - cy * scale, scale }
   }
+
+  // ── the timeline ──────────────────────────────────────────────────────────
+
+  const say = (i: number) => () => {
+    if (status.textContent !== L.beats[i]) status.textContent = L.beats[i]
+  }
+  /** A tween that moves the camera onto the named nodes. */
+  const camTo = (names: string[], duration = sec('slow')) =>
+    gsap.to(cam, { ...frame(names), duration, ease: 'draft' })
 
   const mm = gsap.matchMedia()
 
-  // The wires, with or without motion: they are part of the finished chain.
-  mm.add(BOARD, () => {
-    place()
-    const ro = new ResizeObserver(() => place())
-    ro.observe(net)
-    document.fonts?.ready.then(place)
-    return () => ro.disconnect()
-  })
+  mm.add(`${BOARD} and (prefers-reduced-motion: no-preference)`, () => {
+    const w = draw()
+    const cards = sources.flatMap((n) => node(n)).concat(node('dec'), node('impl'))
+    // Strokes and dots are set up differently: a dot is a filled circle with no
+    // stroke, so `drawSVG` has nothing to shorten and would leave all six
+    // junctions standing there from the first frame, ahead of the rows they
+    // belong to. They are hidden outright and brought in with their row instead.
+    const strokes = () => Array.from(wires.querySelectorAll<SVGPathElement>('path'))
+    const dots = () => Array.from(wires.querySelectorAll<SVGCircleElement>('[data-wire="dot"]'))
 
-  mm.add(`${BOARD} and ${MQ.motion}`, () => {
-    const wires = [...ask, ...feed, ...lit, carry]
-    const dots = [qDot, ...inDots, ...outDots, ...colDots, ...carryDots]
-
-    const reset = () => {
-      gsap.set([q, ...srcs, dec, impl, ...implRows], { autoAlpha: 0, y: TRAVEL.sm })
-      gsap.set(wires, { autoAlpha: 1, drawSVG: 0 })
-      gsap.set([...dots, ...srcLit, colLit], { autoAlpha: 0 })
-      gsap.set(colLit, { xPercent: 0 })
-      // A round cap on a stroke of length 0 still paints a dot, so a mark is
-      // hidden outright as well as undrawn, and shown as its stroke starts.
-      gsap.set(markEls, { autoAlpha: 0 })
-      gsap.set(strokes(markEls), { drawSVG: 0 })
-      gsap.set([...whyOf(opts), ...picks], { autoAlpha: 0 })
-      opts.forEach((o) => o.classList.remove('is-chosen', 'is-receded'))
-      say('')
-    }
-
+    // Once, ending on the finished chain. It used to loop forever, which is
+    // motion a reader cannot stop (WCAG 2.2.2) and a decision that never
+    // stays decided; the replay button starts it again.
     const tl = gsap.timeline({
       paused: true,
-      defaults: { ease: 'settle', duration: sec('slow') },
-      onComplete: () => sync(),
+      defaults: { ease: 'settle' },
+      onComplete: () => setRunning(false),
     })
-    const row = STAGGER.row / 1000
-    const draw = { drawSVG: '100%', duration: sec('slow'), ease: 'draft' }
 
-    // 1. The question, fanning out to the sources.
-    tl.to(q, { autoAlpha: 1, y: 0 })
-      .call(beat(0), [], '<')
-      .set(qDot, { autoAlpha: 1 }, '+=0.1')
-      .to(ask, { ...draw, stagger: row }, '<')
-      .set(inDots, { autoAlpha: 1 }, `-=${sec('quick')}`)
-      .to(srcs, { autoAlpha: 1, y: 0, stagger: row }, '<')
-      .call(beat(1), [], '<')
+    // The opening state is applied now, not when the timeline first plays.
+    // A paused timeline renders nothing, so what stood on the page until the
+    // chain scrolled into view was the finished diagram — every card, every
+    // wire, the question already typed — which then snapped back to the start
+    // to derive an answer the reader had been looking at the whole time.
+    const reset = () => {
+      gsap.set(cards, { autoAlpha: 0, y: 8 })
+      gsap.set(scan, { autoAlpha: 0 })
+      gsap.set(strokes(), { autoAlpha: 1, drawSVG: 0 })
+      gsap.set(dots(), { autoAlpha: 0 })
+      gsap.set(qText, { text: '' })
+      gsap.set(caretT, { display: 'inline-block' })
+      gsap.set(cam, frame(['q', 's1']))
+      status.textContent = L.typing
+      options.forEach((o) => o?.classList.remove('opt--receded'))
+    }
+    reset()
+    tl.call(reset)
 
-    // 2. Each source wired into its column of the decision.
-    tl.set(outDots, { autoAlpha: 1 }, '+=0.3')
-      .to(feed, { ...draw, stagger: row }, '<')
-      .set(colDots, { autoAlpha: 1 }, `-=${sec('quick')}`)
-      .to(dec, { autoAlpha: 1, y: 0 }, '<')
-      .call(beat(2), [], '<')
+    tl.to(qText, { duration: 0.7, ease: 'none', text: { value: L.question, delimiter: '' } })
+      .set(caretT, { display: 'none' })
+      .call(say(0))
+      .to(scan, { autoAlpha: 1, duration: 0.3 }, '-=0.1')
+      .call(say(1))
 
-    // 3. The check, source by source: the source, its wire and its column
-    //    light together, so each mark is seen to rest on what it cites.
-    heads.forEach((_, c) => {
-      const lead = c === 0 ? '+=0.4' : '+=0.55'
-      tl.to(srcLit[c] ?? [], { autoAlpha: 1, duration: sec('base') }, lead)
-        .to(lit[c], { ...draw, duration: sec('base') }, '<')
-        .to([srcLit[c - 1] ?? [], lit[c - 1] ?? []].flat(), { autoAlpha: 0, duration: sec('base') }, '<')
-      if (c === 0) tl.to(colLit, { autoAlpha: 1, duration: sec('base') }, `<${sec('quick')}`)
-      else tl.to(colLit, { xPercent: c * 100, duration: sec('base'), ease: 'draft' }, `<${sec('quick')}`)
-      tl.call(beat(3 + c), [], '<')
-      column(c).forEach((m, r) => {
-        tl.set(m, { autoAlpha: 1 }, r === 0 ? `<${sec('quick')}` : `<${row}`).to(
-          strokes([m]),
-          { drawSVG: '100%', duration: sec('base'), ease: 'draft' },
-          '<'
-        )
-      })
+    sources.forEach((name, i) => {
+      const at = i === 0 ? '+=0.35' : '+=0.2'
+      tl.to(scan, { autoAlpha: 0, duration: 0.2 }, at)
+        .to(w.stem, { drawSVG: `0% ${w.stops[i]}%`, duration: 0.7 }, '<')
+        .to(w.rows[i].stub, { drawSVG: '100%', duration: 0.35, stagger: 0.12 }, '<0.15')
+        .to(w.rows[i].dots, { autoAlpha: 1, duration: 0.2 }, '<')
+        .to([part(name, 'chip'), part(name, 'card')], { autoAlpha: 1, y: 0, duration: 0.4, stagger: 0.08 }, '<0.1')
+        .call(say(i + 2))
+        .add(camTo(i === 0 ? ['q', 's1'] : sources.slice(0, i + 1)), '<')
     })
-    tl.to([colLit, ...srcLit, ...lit], { autoAlpha: 0, duration: sec('base') }, '+=0.6')
 
-    // 4. The verdict, and the chosen way carried on to the steps.
-    tl.call(() => receded.forEach((o) => o.classList.add('is-receded')), [], '<')
-      .to(whyOf(receded), { autoAlpha: 1, stagger: staggerFor(receded.length, STAGGER.max) / 1000 }, '<')
-      .call(() => chosen.forEach((o) => o.classList.add('is-chosen')), [], '+=0.35')
-      .to([...picks, ...whyOf(chosen)], { autoAlpha: 1, duration: sec('base') }, '<')
-      .call(beat(6), [], '<')
-      .set(carryDots[0], { autoAlpha: 1 }, '+=0.35')
-      .to(carry, draw, '<')
-      .set(carryDots[1], { autoAlpha: 1 }, `-=${sec('quick')}`)
-      .to(impl, { autoAlpha: 1, y: 0 }, '<')
-      .to(implRows, { autoAlpha: 1, y: 0, stagger: row }, `<${sec('quick')}`)
-      .call(beat(7), [], '<')
-      .call(finish, [], '+=0.7')
+    tl.call(say(5), [], '+=0.3')
+      .add(camTo(sources), '<')
+      .to(w.merges, { drawSVG: '100%', duration: 0.5, ease: 'draft', stagger: 0.14 }, '+=0.1')
+      .call(say(6), [], '<')
+      .add(camTo([...sources, 'dec']), '<')
+      .to(node('dec'), { autoAlpha: 1, y: 0, duration: 0.5 }, '-=0.3')
+      .call(say(7))
+      .add(camTo(['dec']), '<')
+
+    // The option is chosen: the others recede to the muted ink, not to a
+    // transparency that would take their text below 4.5:1.
+    const ok = getComputedStyle(document.documentElement).getPropertyValue('--color-ok').trim() || '#0f7a3d'
+    tl.call(() => [...optT(0), ...optT(2)].forEach((o) => o.classList.add('opt--receded')), [], '+=0.5')
+      .to(optT(1), { backgroundColor: '#eef6ee', borderLeftColor: ok, duration: sec('base') }, '<')
+      .call(say(8), [], '<')
+
+    if (w.toImpl) {
+      tl.to(w.toImpl, { drawSVG: '100%', duration: 0.7 }, '+=0.35')
+        .add(camTo(['dec', 'impl']), '<')
+        .to(node('impl'), { autoAlpha: 1, y: 0, duration: 0.5 }, '-=0.2')
+        .call(say(9))
+        .add(camTo(['impl']), '<')
+    }
+
+    tl.call(say(10), [], '+=0.6').add(camTo(['all'], sec('slow')), '<')
 
     // Held by the reader, it stays held: scrolling away and back does not
     // resume what they stopped.
     let held = false
     let inView = false
-    const sync = () => {
-      const done = tl.progress() >= 1
-      if (inView && !held && !done) tl.play()
-      else tl.pause()
-      const hadFocus = document.activeElement === pause
+    const setRunning = (on: boolean) => {
+      if (live) live.style.animationPlayState = on ? 'running' : 'paused'
       if (pause) {
-        pause.hidden = done
+        pause.hidden = tl.progress() >= 1
         pause.setAttribute('aria-pressed', String(held))
         pause.textContent = (held ? pause.dataset.labelResume : pause.dataset.labelPause) ?? ''
       }
-      if (replay) replay.hidden = !done
-      if (done && hadFocus) replay?.focus()
     }
-
-    // A resize moves the ports. A drawn wire's dash was measured on its old
-    // length, so: before the play, undraw it again at the new length; after,
-    // drop the dash; during, let the timeline re-measure.
-    onPlace = () => {
-      if (tl.isActive()) tl.invalidate()
-      else if (tl.progress() === 0) gsap.set(wires, { drawSVG: 0 })
-      else gsap.set(wires, { clearProps: 'strokeDasharray,strokeDashoffset' })
+    const sync = () => {
+      const run = inView && !held && tl.progress() < 1
+      if (run) tl.play()
+      else tl.pause()
+      setRunning(run)
     }
-
-    // Anything already on screen at load is not hidden and replayed: the
-    // chain stands finished, with its replay.
-    if (board.getBoundingClientRect().top < window.innerHeight * 0.6) tl.progress(1)
-    else reset()
-
-    // It starts once the board's top has crossed 60% of the screen, not as it
-    // peeks in: the board is most of a screen tall, and the check (the part
-    // worth seeing) comes three seconds in, in its lower half.
     ScrollTrigger.create({
-      trigger: board,
-      start: 'top 40%',
-      end: 'bottom 20%',
+      trigger: anchor,
+      start: 'top 85%',
+      end: 'bottom 15%',
       onToggle: (self) => {
         inView = self.isActive
         sync()
@@ -391,12 +405,8 @@ function initChainBoard() {
 
     const onReplay = () => {
       held = false
-      reset()
-      // Re-record every start value from the reset state: a chain that stood
-      // finished at load recorded its tweens' starts as their ends.
-      tl.invalidate().restart()
+      tl.restart()
       sync()
-      pause?.focus()
     }
     const onPause = () => {
       held = !held
@@ -404,16 +414,25 @@ function initChainBoard() {
     }
     replay?.addEventListener('click', onReplay)
     pause?.addEventListener('click', onPause)
-    sync()
+
+    // The mock's size decides both the wires and the framing, so a resize
+    // re-derives them; ScrollTrigger already debounces that for us.
+    const rebuild = () => {
+      draw()
+      // The paths are the same elements, so this is all `invalidate` has to do:
+      // forget the lengths it recorded and measure the moved lines again.
+      tl.invalidate()
+    }
+    ScrollTrigger.addEventListener('refresh', rebuild)
+    document.fonts?.ready.then(rebuild)
 
     return () => {
-      onPlace = undefined
       replay?.removeEventListener('click', onReplay)
       pause?.removeEventListener('click', onPause)
+      ScrollTrigger.removeEventListener('refresh', rebuild)
       tl.kill()
-      finish()
-      if (pause) pause.hidden = true
-      if (replay) replay.hidden = true
     }
   })
+  // Without motion there is no board at all: ChatMock shows the column list
+  // in its place (`motion-reduce:`), which is the finished chain at full size.
 }
