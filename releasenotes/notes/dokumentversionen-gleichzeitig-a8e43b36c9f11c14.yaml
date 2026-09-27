@@ -1,26 +1,19 @@
 ---
 fixes:
   - >
-    Wird dieselbe Datei zweimal kurz hintereinander hochgeladen, entstehen
-    jetzt zwei getrennte Versionen mit fortlaufender Nummer. Bisher konnten
-    beide als dieselbe Version gespeichert werden, und die zweite Datei
-    überschrieb die erste unbemerkt.
+    Uploading the same file twice in quick succession now gives two separate,
+    numbered versions instead of the second silently overwriting the first.
   - >
-    Bearbeiten zwei Personen oder Piloti und eine Person denselben Entwurf
-    gleichzeitig, gewinnt eine Änderung, und die andere erhält den Hinweis,
-    dass sich der Entwurf inzwischen geändert hat. Bisher konnte die zweite
-    Änderung die erste still überschreiben, und die gespeicherte Datei passte
-    dann nicht mehr zu den Angaben der Version.
+    When two people, or Piloti and a person, save the same draft at once, one
+    change wins and the other is told the draft has changed. Before, the second
+    could silently overwrite the first.
   - >
-    Drücken zwei Personen gleichzeitig „Veröffentlichen", erhält die zweite
-    jetzt den Hinweis, dass die Version bereits veröffentlicht wurde, statt
-    einer Fehlermeldung.
+    When two people press Veröffentlichen at the same time, the second is told
+    the version is already published instead of seeing an error.
   - >
-    Der Speicherplatz wird bei jeder neuen Version vollständig angerechnet,
-    denn frühere Versionen bleiben erhalten. Bisher wurde eine erneut
-    hochgeladene Datei oder ein überarbeiteter Entwurf zu niedrig angerechnet,
-    und wiederholte Überarbeitungen konnten das Speicherkontingent unbemerkt
-    überschreiten.
+    Every new version now counts fully towards your storage, because earlier
+    versions are kept. Before, repeated revisions could exceed the storage limit
+    unnoticed.
   - >
-    Beim Löschen eines Dokuments mit mehr als 500 Versionen werden jetzt die
-    Dateien aller Versionen entfernt, nicht nur die der ersten 500.
+    Deleting a document with more than 500 versions now removes the files of
+    every version, not only the first 500.

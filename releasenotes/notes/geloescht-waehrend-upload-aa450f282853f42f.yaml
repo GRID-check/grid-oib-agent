@@ -1,11 +1,8 @@
 ---
 fixes:
   - >
-    Wird eine Datei gelöscht, unmittelbar nachdem jemand sie in ein Projekt
-    oder ins Archiv hochgeladen hat, meldet der Upload jetzt, dass die Datei
-    inzwischen gelöscht wurde. Bisher meldete er Erfolg und schickte die
-    gelöschte Datei trotzdem noch zur Indexierung.
+    If a file is deleted right after someone uploaded it to a project or the
+    Archiv, the upload now says so instead of reporting success.
   - >
-    Beim Löschen eines Dokuments aus dem Archiv oder eines Chat-Anhangs
-    verschwindet jetzt auch sein Versionsverlauf. Bisher blieben dessen
-    Einträge im Hintergrund bestehen.
+    Deleting an Archiv document or a chat attachment now also removes its
+    version history.

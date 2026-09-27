@@ -1,8 +1,6 @@
 ---
 fixes:
   - >
-    Ein abgebrochener Lauf steht nicht mehr endlos auf „läuft". Das galt auch
-    für Läufe, die nach einem Absturz aufgegeben wurden oder nie gestartet
-    waren: Sie blieben in der Aufgabenliste aktiv, und niemand erfuhr, dass
-    sie beendet waren. Jetzt schließen sie mit ihrem tatsächlichen Ergebnis,
-    und wer den Lauf angestoßen hat, erhält die Nachricht dazu.
+    A cancelled, crashed or never-started run no longer shows as running forever
+    in the task list. It now closes with its real outcome, and whoever started
+    it is told.

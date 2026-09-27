@@ -1,7 +1,7 @@
 ---
 fixes:
   - >
-    Bricht die Verarbeitung einer neuen Fassung mittendrin ab, findet die
-    Suche nur die vorige Fassung, ohne Bruchstücke der neuen daneben. Laden
-    zwei Personen gleichzeitig eine Datei unter demselben Namen hoch, bleibt
-    die zuletzt verarbeitete Fassung übrig statt beider.
+    If processing a new version stops halfway, search finds only the previous
+    version, with no fragments of the new one beside it. When two people upload
+    a file under the same name at once, the version processed last is the one
+    kept.

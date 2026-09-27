@@ -1,9 +1,6 @@
 ---
 security:
   - >
-    Welche Modelle Piloti verwendet, wie viel Budget übrig ist und welche
-    Quellen das Büro abgeschaltet hat, legt jetzt ausschließlich die
-    Anwendung selbst fest. Bisher konnte ein Programm, das sich an der
-    Oberfläche vorbei direkt mit der Chat-Verbindung verband, diese Angaben
-    mitschicken und damit etwa ein anderes Modell wählen oder das Budget
-    umgehen.
+    Which models Piloti uses, how much budget is left and which sources your
+    office switched off are now decided by Piloti alone. A program connecting to
+    the chat directly can no longer send its own values for them.

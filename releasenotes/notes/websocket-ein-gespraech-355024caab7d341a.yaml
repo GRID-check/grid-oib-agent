@@ -1,8 +1,5 @@
 ---
 security:
   - >
-    Eine Chat-Verbindung gilt jetzt nur noch für das Gespräch, für das sie
-    geöffnet und freigegeben wurde. Bisher konnte eine Nachricht über dieselbe
-    Verbindung ein anderes Gespräch nennen und dort eine Antwort starten, eine
-    Rückfrage beantworten oder eine laufende Antwort abbrechen. Solche
-    Nachrichten werden jetzt abgewiesen.
+    A chat connection now only works for the conversation it was opened for.
+    Messages naming another conversation are refused.

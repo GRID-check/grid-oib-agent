@@ -24,8 +24,20 @@
     "de": "Eine kurze Störung erscheint jetzt als vorübergehendes Problem mit der Bitte, es gleich noch einmal zu versuchen, und ein in dieser Zeit gestarteter Auftrag wird nicht mehr als fehlgeschlagen angezeigt, obwohl er läuft."
   },
   {
+    "en": "A cancelled, crashed or never-started run no longer shows as running forever in the task list. It now closes with its real outcome, and whoever started it is told.",
+    "de": "Ein abgebrochener, abgestürzter oder nie gestarteter Lauf steht in der Aufgabenliste nicht mehr endlos auf „läuft“. Er schließt jetzt mit seinem tatsächlichen Ergebnis, und wer ihn angestoßen hat, erfährt davon."
+  },
+  {
     "en": "A caveat now sits next to the paragraph it concerns instead of at the end of the answer.",
     "de": "Ein Hinweis steht jetzt beim Absatz, den er betrifft, statt am Ende der Antwort."
+  },
+  {
+    "en": "A chat connection now only works for the conversation it was opened for. Messages naming another conversation are refused.",
+    "de": "Eine Chat-Verbindung gilt jetzt nur noch für die Unterhaltung, für die sie geöffnet wurde. Nachrichten, die eine andere Unterhaltung nennen, werden abgewiesen."
+  },
+  {
+    "en": "A conversation from another device is no longer deleted when you open it after a reload and leave before its history has loaded.",
+    "de": "Eine Unterhaltung von einem anderen Gerät wird nicht mehr gelöscht, wenn Sie sie nach einem Neuladen öffnen und verlassen, bevor ihr Verlauf geladen ist."
   },
   {
     "en": "A date in a project note, such as a submission deadline, is no longer mistaken for a phone number and dropped.",
@@ -50,6 +62,10 @@
   {
     "en": "A deep research started from the chat now runs in the background: it appears under Recherchen, shows its progress and files its finished report in the project.",
     "de": "Eine Tiefenrecherche aus dem Chat läuft jetzt im Hintergrund: Sie erscheint unter „Recherchen“, zeigt ihren Fortschritt und legt den fertigen Bericht im Projekt ab."
+  },
+  {
+    "en": "A deep research that carries on after an interruption now keeps its progress instead of starting over.",
+    "de": "Eine Tiefenrecherche, die nach einer Störung weiterläuft, behält jetzt ihren Fortschritt, statt von vorn zu beginnen."
   },
   {
     "en": "A deleted document now also disappears from what Piloti knows about the project.",
@@ -166,6 +182,10 @@
   {
     "en": "A full browser storage no longer wipes your chat history: only the content of the oldest conversations makes room, while the list, titles and drafts stay. Such a conversation reloads its content from the server when you open it.",
     "de": "Ist der Speicher des Browsers voll, geht der Chatverlauf nicht mehr verloren: Nur der Inhalt der ältesten Unterhaltungen macht Platz, Liste, Titel und Entwürfe bleiben. Eine solche Unterhaltung lädt ihren Inhalt beim Öffnen vom Server nach."
+  },
+  {
+    "en": "A legal hold now prevents every deletion: a held document, Archiv document, chat or chat attachment can no longer be deleted. The hold applies when it is on the item, its project or chat, the person who created it, or your organisation.",
+    "de": "Eine rechtliche Sperre verhindert jetzt jedes Löschen: Ein gesperrtes Dokument, Archiv-Dokument, ein Chat oder Chat-Anhang lässt sich nicht mehr löschen. Die Sperre greift, wenn sie auf dem Eintrag, seinem Projekt oder Chat, der Person, die ihn angelegt hat, oder Ihrer Organisation liegt."
   },
   {
     "en": "A long research that reports nothing for a while is no longer cut off as if it had died.",
@@ -308,6 +328,10 @@
     "de": "Ein in Kleinbuchstaben eingegebener Norm- oder Produktcode findet jetzt auch Dokumente, in denen er in Großbuchstaben geschrieben ist. Fragen zu einem bestimmten Code liefern daher unabhängig von der Schreibweise dieselben Quellen."
   },
   {
+    "en": "A task Piloti starts in a conversation, and a connection message, now appear in that conversation even if you have opened another one in the meantime.",
+    "de": "Ein Auftrag, den Piloti in einer Unterhaltung startet, und eine Verbindungsmeldung erscheinen jetzt in dieser Unterhaltung, auch wenn Sie inzwischen eine andere geöffnet haben."
+  },
+  {
     "en": "A task can now run once on a date you choose, recur, or run only when you start it. A one-off task such as checking the Einreichplanung the day before the Abgabe no longer needs a weekly schedule you have to delete afterwards.",
     "de": "Eine Aufgabe läuft jetzt einmal zu einem gewählten Termin, wiederkehrend oder nur auf Knopfdruck. Eine einmalige Aufgabe, etwa die Einreichplanung am Tag vor der Abgabe zu prüfen, braucht keinen Wochenplan mehr, den man danach löschen muss."
   },
@@ -370,6 +394,10 @@
   {
     "en": "An OIB document from an edition other than May 2023 now carries its correct edition in the title.",
     "de": "Ein OIB-Dokument einer anderen Ausgabe als Mai 2023 trägt jetzt den richtigen Ausgabevermerk im Titel."
+  },
+  {
+    "en": "An answer being written no longer stalls while someone in the office loads the document list, deletes files or starts a research with a follow-up question.",
+    "de": "Eine entstehende Antwort stockt nicht mehr, während im Büro jemand die Dokumentliste lädt, Dateien löscht oder eine Recherche mit Rückfrage beginnt."
   },
   {
     "en": "An answer can once again carry more than one card. Building a card counted against the same budget as looking things up, so on any question that took real research the second card was dropped before it was drawn, however well it fitted the answer.",
@@ -588,6 +616,10 @@
     "de": "Kartenüberschriften mit Schaltflächen ragen nicht mehr über den Rand schmaler Bildschirme hinaus. Wenn Titel und Schaltflächen nicht in eine Zeile passen, werden die Schaltflächen darunter angezeigt."
   },
   {
+    "en": "Cards below an answer now appear as soon as Piloti has written them. Before, they waited until the whole answer was checked, up to twenty seconds on long answers.",
+    "de": "Karten unter einer Antwort erscheinen jetzt, sobald Piloti sie geschrieben hat. Bisher warteten sie, bis die ganze Antwort geprüft war, bei langen Antworten bis zu zwanzig Sekunden."
+  },
+  {
     "en": "Cards no longer show stray formatting characters, such as a link printed as raw brackets next to the card's own working link. The only links a card offers are the ones it builds from the source it names.",
     "de": "Karten zeigen keine überzähligen Formatierungszeichen mehr, etwa einen Link als rohe Klammern neben dem funktionierenden Link der Karte. Eine Karte bietet nur noch die Links an, die sie aus der genannten Quelle selbst bildet."
   },
@@ -648,6 +680,10 @@
     "de": "Das Kopieren Ihrer eigenen Nachricht und das Entfernen einer angehängten Quelle sind auf Touch-Geräten nicht möglich. Beide Steuerelemente werden nur angezeigt, wenn Sie mit der Maus darüberfahren, was auf einem Smartphone nicht möglich ist – daher sind sie auf allen Tablets und Smartphones unsichtbar."
   },
   {
+    "en": "Creating a folder with a name that is already taken in that place now says the name is taken instead of showing a server error.",
+    "de": "Wer einen Ordner unter einem Namen anlegt, den es dort schon gibt, erfährt jetzt, dass der Name vergeben ist, statt einen Serverfehler zu sehen."
+  },
+  {
     "en": "Dateien has a filter menu by responsibility, origin, status and file type, with sorting, and a number on the button shows how many filters are active.",
     "de": "Die Dateien haben ein Filtermenü nach Zuständigkeit, Herkunft, Status und Dateityp samt Sortierung, und eine Zahl am Knopf zeigt, wie viele Filter aktiv sind."
   },
@@ -688,8 +724,24 @@
     "de": "Deep-Research-Läufe, die nicht abgeschlossen werden, können jetzt im Chatverlauf gestoppt werden: Für jeden weiterhin als laufend markierten Lauf gibt es eine Stopp-Aktion, und eine einzige Schaltfläche beendet alle festhängenden Läufe auf einmal. Gestoppte Läufe verhindern nicht mehr, dass Sie den zugehörigen Chat umbenennen oder löschen."
   },
   {
+    "en": "Deleting a chat now also removes every file attached to it from search. Before, the content of older attachments could stay findable after the chat was gone.",
+    "de": "Wer einen Chat löscht, entfernt jetzt auch alle darin angehängten Dateien aus der Suche. Bisher konnten Inhalte älterer Anhänge nach dem Löschen auffindbar bleiben."
+  },
+  {
+    "en": "Deleting a document from a project or the Archiv now also deletes the images Piloti cut out of it. If the files cannot be deleted, the document stays in the list and Piloti reports the error instead of leaving the files behind.",
+    "de": "Wer ein Dokument aus einem Projekt oder dem Archiv löscht, löscht jetzt auch die Bilder, die Piloti daraus ausgeschnitten hat. Lassen sich die Dateien nicht löschen, bleibt das Dokument in der Liste und Piloti meldet den Fehler, statt die Dateien zurückzulassen."
+  },
+  {
+    "en": "Deleting a document with more than 500 versions now removes the files of every version, not only the first 500.",
+    "de": "Beim Löschen eines Dokuments mit mehr als 500 Versionen werden jetzt die Dateien aller Versionen entfernt, nicht nur die der ersten 500."
+  },
+  {
     "en": "Deleting a folder never deletes what was filed in it. The confirmation names where things go — \"Its 4 documents and 1 subfolder are not deleted — they move to Brandschutz\" — and the documents and any subfolders are re-filed into the folder above before the folder itself is removed, with a toast afterwards repeating the count.",
     "de": "Das Löschen eines Ordners löscht niemals, was darin abgelegt ist. In der Bestätigung steht, wohin die Inhalte verschoben werden: „Die 4 Dokumente und der 1 Unterordner werden nicht gelöscht – sie werden in den Ordner Brandschutz verschoben.“ Bevor der Ordner selbst entfernt wird, werden die Dokumente und etwaige Unterordner in den übergeordneten Ordner verschoben. Eine anschließende Toast-Meldung wiederholt die Anzahl."
+  },
+  {
+    "en": "Deleting an Archiv document or a chat attachment now also removes its version history.",
+    "de": "Beim Löschen eines Archiv-Dokuments oder eines Chat-Anhangs verschwindet jetzt auch sein Versionsverlauf."
   },
   {
     "en": "Diagrams are redesigned: processes as cards with labelled arrows, a body of rules as a tree, hand-overs as columns per party and dates as bars on a timeline.",
@@ -796,6 +848,10 @@
     "de": "Jede fertige Antwort lässt sich jetzt kopieren. Bei Antworten ohne Quellenangabe – etwa einer Rückfrage oder einer kurzen Gesprächsantwort – steht bisher nur der Word-Download zur Verfügung, sodass Sie keinen Satz daraus in eine E-Mail übernehmen können."
   },
   {
+    "en": "Every new version now counts fully towards your storage, because earlier versions are kept. Before, repeated revisions could exceed the storage limit unnoticed.",
+    "de": "Jede neue Version zählt jetzt vollständig zum Speicherplatz, denn frühere Versionen bleiben erhalten. Bisher konnten wiederholte Überarbeitungen das Speicherkontingent unbemerkt überschreiten."
+  },
+  {
     "en": "Every question now reaches Piloti with all its tools, so „zeig mir die Grundrisse“ or „was weißt du über das Projekt“ can show and read files instead of answering from the project profile alone.",
     "de": "Jede Frage erreicht Piloti jetzt mit allen Werkzeugen, sodass „zeig mir die Grundrisse“ oder „was weißt du über das Projekt“ Dateien anzeigen und lesen können, statt nur aus dem Projektprofil zu antworten."
   },
@@ -818,6 +874,10 @@
   {
     "en": "Files Piloti writes no longer misspell their own names. A report on „Fluchtweglängen Gebäudeklasse 4\" is now saved as fluchtweglaengen-gebaeudeklasse-4, the way you would write it yourself and the way you would search for it a year later, and a client name with a Polish or Czech letter in it survives intact.",
     "de": "Die von Piloti erstellten Dateien haben keine falsch geschriebenen Namen mehr. Ein Bericht zu „Fluchtweglängen Gebäudeklasse 4“ wird jetzt als fluchtweglaengen-gebaeudeklasse-4 gespeichert – so, wie Sie ihn selbst schreiben und ein Jahr später danach suchen würden. Auch ein Kundenname mit einem polnischen oder tschechischen Buchstaben bleibt erhalten."
+  },
+  {
+    "en": "Files attached to a chat now go through the same checks as project files: file types that are not allowed are refused, and the file counts towards your office's storage. Each file shows its own upload progress and, if refused, the reason.",
+    "de": "An einen Chat angehängte Dateien durchlaufen jetzt dieselben Prüfungen wie Projektdateien: Nicht zugelassene Dateitypen werden abgelehnt, und die Datei zählt zum Speicherkontingent Ihres Büros. Jede Datei zeigt ihren eigenen Fortschritt und, falls abgelehnt, den Grund."
   },
   {
     "en": "Files can now be dragged into a folder, or onto Alle Dateien in the path bar to take them out again. The target folder lights up while you hover over it.",
@@ -924,12 +984,32 @@
     "de": "Beim Überfahren zeigt ein Dateiname Herkunft, Format, Größe und Seitenzahl, die Kurzbeschreibung und ob Piloti das Dokument gelesen hat. Verlinkt werden nur Namen von Dokumenten, die Sie tatsächlich haben."
   },
   {
+    "en": "If a file is deleted right after someone uploaded it to a project or the Archiv, the upload now says so instead of reporting success.",
+    "de": "Wird eine Datei gelöscht, unmittelbar nachdem jemand sie in ein Projekt oder ins Archiv hochgeladen hat, meldet der Upload das jetzt, statt Erfolg zu melden."
+  },
+  {
+    "en": "If a file is deleted while someone is uploading a new version of it, the upload now arrives as a new file in the project or the Archiv. Before, it reported success but the file appeared nowhere.",
+    "de": "Wird eine Datei gelöscht, während jemand gerade eine neue Fassung hochlädt, landet der Upload jetzt als neue Datei im Projekt oder im Archiv. Bisher meldete er Erfolg, die Datei tauchte aber nirgends auf."
+  },
+  {
+    "en": "If a new version of a document cannot be processed, the preview now says that search and Piloti still use the previous version while the download already gives you the new file.",
+    "de": "Lässt sich eine neue Fassung eines Dokuments nicht verarbeiten, sagt die Vorschau jetzt, dass Suche und Piloti weiterhin die vorige Fassung verwenden, während der Download bereits die neue Datei liefert."
+  },
+  {
+    "en": "If a newly uploaded version of a file cannot be processed, for example a password-protected PDF, Piloti keeps finding the previous version. Before, the document was empty for search afterwards.",
+    "de": "Lässt sich eine neu hochgeladene Fassung einer Datei nicht verarbeiten, etwa ein passwortgeschütztes PDF, findet Piloti weiterhin die vorige Fassung. Bisher war das Dokument danach für die Suche leer."
+  },
+  {
     "en": "If an answer really breaks off, Piloti now says so after about a minute instead of up to forty, and a running research is no longer reported as interrupted.",
     "de": "Bricht eine Antwort wirklich ab, sagt Piloti das jetzt nach etwa einer Minute statt nach bis zu vierzig, und eine laufende Recherche wird nicht mehr als unterbrochen gemeldet."
   },
   {
     "en": "If part of a batch cannot be applied — a file somebody already moved, a colleague who has left the project — the card says which entries did not go through instead of reporting the whole thing as done.",
     "de": "Wenn sich ein Teil eines Batches nicht anwenden lässt – etwa eine Datei, die bereits verschoben wurde, oder ein Kollege, der das Projekt verlassen hat –, zeigt die Karte an, welche Einträge nicht übernommen wurden, statt den gesamten Vorgang als erledigt zu melden."
+  },
+  {
+    "en": "If processing a new version stops halfway, search finds only the previous version, with no fragments of the new one beside it. When two people upload a file under the same name at once, the version processed last is the one kept.",
+    "de": "Bricht die Verarbeitung einer neuen Fassung mittendrin ab, findet die Suche nur die vorige Fassung, ohne Bruchstücke der neuen. Laden zwei Personen gleichzeitig eine Datei unter demselben Namen hoch, bleibt die zuletzt verarbeitete Fassung übrig."
   },
   {
     "en": "If the document viewer cannot find a quoted passage on the stated page or its neighbours, it now looks one page further in both directions, since a title page and contents often shift the numbering by two.",
@@ -942,6 +1022,14 @@
   {
     "en": "If two people decide at the same moment, the second is told the state has changed and sees what happened.",
     "de": "Entscheiden zwei Personen gleichzeitig, erfährt die zweite, dass sich der Stand geändert hat, und sieht, was passiert ist."
+  },
+  {
+    "en": "If you switch to another conversation during an answer and come back, the finished answer appears instead of a half sentence with a blinking cursor.",
+    "de": "Wechseln Sie während einer Antwort in eine andere Unterhaltung und zurück, erscheint die fertige Antwort statt eines halben Satzes mit blinkendem Cursor."
+  },
+  {
+    "en": "If you write in a conversation before its history has arrived, the earlier messages still appear.",
+    "de": "Schreiben Sie in einer Unterhaltung, bevor ihr Verlauf da ist, erscheinen die früheren Nachrichten trotzdem."
   },
   {
     "en": "Images inside PDFs are now read as thoroughly as whole plan pages, so a scanned plan embedded in a PDF is captured drawing by drawing with its own scale.",
@@ -1130,6 +1218,10 @@
   {
     "en": "People who are invited or join an existing project also get the tours, once each, on their first visit.",
     "de": "Auch wer eingeladen wird oder einem bestehenden Projekt beitritt, bekommt die Touren, jeweils einmal beim ersten Besuch."
+  },
+  {
+    "en": "Permanently deleting a project now waits if even one document or chat in it is on hold.",
+    "de": "Das endgültige Löschen eines Projekts wartet jetzt auch, wenn nur ein Dokument oder ein Chat darin gesperrt ist."
   },
   {
     "en": "Piloti asks a short multiple-choice question more often instead of silently picking one of several plausible directions, for example when a comparison names no criteria.",
@@ -1600,6 +1692,10 @@
     "de": "Die wenigen festen Hinweise, die Piloti ohne Recherche sendet, etwa ein Bearbeitungsfehler oder eine Suche ohne verwertbare Quellen, erscheinen jetzt auf Deutsch und in derselben Ansprache wie die Antworten."
   },
   {
+    "en": "The file dialog in a chat no longer offers to delete project files, because that button removed nothing. Delete project files in the project's files; a chat's own attachments can still be deleted there.",
+    "de": "Der Dateidialog eines Chats bietet nicht mehr an, Projektdateien zu löschen, denn dieser Knopf hat nichts entfernt. Projektdateien löschen Sie in den Projektdateien; die eigenen Anhänge eines Chats lassen sich dort weiterhin löschen."
+  },
+  {
     "en": "The file list in a project and in the Archiv no longer has to be dragged sideways to read a document's name. Long filenames now shorten to fit the screen instead of stretching the list past the edge of it.",
     "de": "Die Dateiliste in einem Projekt und im Archiv muss nicht mehr horizontal verschoben werden, um den Namen eines Dokuments zu lesen. Lange Dateinamen werden jetzt gekürzt, damit sie auf den Bildschirm passen, statt die Liste über den Bildschirmrand hinaus zu verlängern."
   },
@@ -1848,6 +1944,14 @@
     "de": "Ein erneut hochgeladener Ordner meldet nicht mehr jede Datei mit Umlaut im Namen als neu; Mac und Windows kodieren Umlaute unterschiedlich, und der ganze Bestand wurde bisher ein zweites Mal übertragen."
   },
   {
+    "en": "Uploading a new version of a file under the same name now keeps the document type, display title and folder set for the earlier version. Before, they were lost and Piloti guessed the document type from the file name again.",
+    "de": "Wer eine neue Fassung einer Datei unter demselben Namen hochlädt, behält jetzt Dokumentart, Anzeigetitel und Ordner der früheren Fassung. Bisher gingen sie verloren, und Piloti riet die Dokumentart aus dem Dateinamen neu."
+  },
+  {
+    "en": "Uploading the same file twice in quick succession now gives two separate, numbered versions instead of the second silently overwriting the first.",
+    "de": "Wird dieselbe Datei zweimal kurz hintereinander hochgeladen, entstehen jetzt zwei getrennte, nummerierte Versionen, statt dass die zweite die erste unbemerkt überschreibt."
+  },
+  {
     "en": "Uploading the same file twice no longer processes it again when nothing has changed.",
     "de": "Dieselbe Datei ein zweites Mal hochzuladen verarbeitet sie nicht erneut, wenn sich nichts geändert hat."
   },
@@ -1882,6 +1986,10 @@
   {
     "en": "What the conversation has already settled, such as your answers to Piloti's questions, goes into the research instead of being asked again.",
     "de": "Was im Gespräch schon geklärt wurde, etwa Ihre Antworten auf Pilotis Rückfragen, geht in die Recherche ein, statt noch einmal gefragt zu werden."
+  },
+  {
+    "en": "When Piloti files a draft, creates a task, gathers documents or suggests something to remember, its cards now appear while the answer is still being checked, instead of all at the very end.",
+    "de": "Legt Piloti einen Entwurf ab, erstellt eine Aufgabe, stellt Dokumente zusammen oder schlägt etwas zum Merken vor, erscheinen die Karten jetzt, während die Antwort noch geprüft wird, statt alle erst ganz am Schluss."
   },
   {
     "en": "When Piloti hands a question to deep research, it now says why in its own words, shown in the Herleitung.",
@@ -1960,12 +2068,32 @@
     "de": "Wenn sich die Bildschirmtastatur öffnet, macht die App jetzt Platz für sie, statt das Eingabefeld zu verdecken – so sehen Sie, was Sie eingeben."
   },
   {
+    "en": "When two people open a draft of the same document at once, exactly one draft is created and the second person is told it already exists.",
+    "de": "Öffnen zwei Personen gleichzeitig einen Entwurf desselben Dokuments, entsteht genau ein Entwurf, und die zweite Person erfährt, dass er bereits existiert."
+  },
+  {
+    "en": "When two people press Veröffentlichen at the same time, the second is told the version is already published instead of seeing an error.",
+    "de": "Drücken zwei Personen gleichzeitig „Veröffentlichen“, erfährt die zweite, dass die Version bereits veröffentlicht ist, statt eine Fehlermeldung zu sehen."
+  },
+  {
+    "en": "When two people upload a file with the same name at the same time, both uploads succeed and the second becomes a new version of the first, instead of failing with a server error.",
+    "de": "Laden zwei Personen gleichzeitig eine Datei mit demselben Namen hoch, klappen beide Uploads, und die zweite wird zur neuen Version der ersten, statt mit einem Serverfehler abzubrechen."
+  },
+  {
+    "en": "When two people, or Piloti and a person, save the same draft at once, one change wins and the other is told the draft has changed. Before, the second could silently overwrite the first.",
+    "de": "Speichern zwei Personen, oder Piloti und eine Person, denselben Entwurf gleichzeitig, gewinnt eine Änderung, und die andere erfährt, dass sich der Entwurf geändert hat. Bisher konnte die zweite die erste still überschreiben."
+  },
+  {
     "en": "When two sources contradict each other, Piloti now shows the difference, names both with their reference and says which rule decides, or that the sources cannot settle it.",
     "de": "Widersprechen sich zwei Quellen, zeigt Piloti den Unterschied jetzt an, nennt beide mit Fundstelle und sagt, welche Regel den Vorrang entscheidet, oder dass sich der Widerspruch aus den Quellen nicht auflösen lässt."
   },
   {
     "en": "Whether Piloti may file the documents it writes into a project is now a permission of its own, File agent-authored documents. Members without it can still upload, rename and delete their own files.",
     "de": "Ob Piloti seine Dokumente in einem Projekt ablegen darf, ist jetzt eine eigene Berechtigung, „File agent-authored documents“. Wer sie nicht hat, kann eigene Dateien weiterhin hochladen, umbenennen und löschen."
+  },
+  {
+    "en": "Which models Piloti uses, how much budget is left and which sources your office switched off are now decided by Piloti alone. A program connecting to the chat directly can no longer send its own values for them.",
+    "de": "Welche Modelle Piloti verwendet, wie viel Budget übrig ist und welche Quellen Ihr Büro abgeschaltet hat, legt jetzt allein Piloti fest. Ein Programm, das sich direkt mit dem Chat verbindet, kann dafür keine eigenen Werte mehr mitschicken."
   },
   {
     "en": "While Piloti works, its thinking indicator and the lines of the Herleitung no longer strain a phone.",

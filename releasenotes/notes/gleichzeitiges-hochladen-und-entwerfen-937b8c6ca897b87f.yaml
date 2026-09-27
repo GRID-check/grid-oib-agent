@@ -1,16 +1,12 @@
 ---
 fixes:
   - >
-    Laden zwei Personen gleichzeitig eine Datei mit demselben Namen in ein
-    Projekt oder ins Archiv hoch, klappen jetzt beide Uploads: die zweite
-    Datei wird zur neuen Version der ersten, genau wie beim Hochladen
-    nacheinander. Bisher brach der zweite Upload mit einem Serverfehler ab.
+    When two people upload a file with the same name at the same time, both
+    uploads succeed and the second becomes a new version of the first, instead
+    of failing with a server error.
   - >
-    Öffnen zwei Personen gleichzeitig einen Entwurf desselben Dokuments,
-    entsteht genau ein Entwurf, und die zweite erfährt, dass er bereits
-    existiert, statt einen Serverfehler zu sehen.
+    When two people open a draft of the same document at once, exactly one draft
+    is created and the second person is told it already exists.
   - >
-    Wer einen Ordner unter einem Namen anlegt, den es an dieser Stelle schon
-    gibt, erfährt jetzt, dass der Name vergeben ist, statt einen Serverfehler
-    zu sehen. Ebenso endet es sauber, wenn derselbe Bericht aus zwei Tabs
-    gleichzeitig abgelegt wird: beide zeigen denselben Bericht.
+    Creating a folder with a name that is already taken in that place now says
+    the name is taken instead of showing a server error.

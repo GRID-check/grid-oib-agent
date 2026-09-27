@@ -1,8 +1,6 @@
 ---
 fixes:
   - >
-    Wer ein Dokument aus einem Projekt oder dem Archiv löscht, löscht jetzt
-    auch die Bilder, die Piloti daraus ausgeschnitten hat. Bisher blieben
-    diese Bildauszüge eines PDFs im Speicher liegen. Scheitert das Löschen im
-    Speicher, bleibt das Dokument jetzt sichtbar und Piloti meldet den Fehler,
-    statt das Dokument aus der Liste zu nehmen und die Datei zurückzulassen.
+    Deleting a document from a project or the Archiv now also deletes the images
+    Piloti cut out of it. If the files cannot be deleted, the document stays in
+    the list and Piloti reports the error instead of leaving the files behind.
