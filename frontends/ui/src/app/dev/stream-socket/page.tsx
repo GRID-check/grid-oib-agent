@@ -67,7 +67,7 @@ interface StreamSocketProbe {
   settledAt: number
   framesScripted: number
   stepBytes: number
-  /** The largest frame but the terminal, and every frame together. */
+  /** The largest frame but the settled snapshot and the terminal, and every frame together. */
   maxFrameBytes: number
   totalBytes: number
   framesHandled: number

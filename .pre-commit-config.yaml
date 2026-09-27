@@ -64,7 +64,14 @@ repos:
         # frontends/web/art/riso/kit.json pins the riso kit to a public git
         # commit sha: hex by construction, secret by none, and JSON cannot
         # carry the inline pragma.
-        exclude: (^frontends/web/art/riso/kit\.json$|^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$|^deploy/pulumi/aspire-dashboard\.pin$)
+        #
+        # The chat wire v2 fixtures (shared/wire/v2/*.jsonl, and the golden turn
+        # tests/fixtures/wire_v2/) carry each card's `key`, a hash of its
+        # canonical JSON: hex by construction, secret by none. They are
+        # recorded, and the golden turn is rewritten by GRID_REGEN_GOLDEN=1, so
+        # a baseline entry would pin a hash to a line number that does not
+        # survive the next recording; JSONL cannot carry the inline pragma.
+        exclude: (^tests/fixtures/wire_v2/.*\.jsonl$|^shared/wire/v2/.*\.jsonl$|^frontends/web/art/riso/kit\.json$|^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$|^deploy/pulumi/aspire-dashboard\.pin$)
         # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
         # failing again a few commits later:
         #

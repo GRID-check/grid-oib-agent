@@ -9,7 +9,7 @@
  * the phone case) and at 1280x800 (unthrottled), waits for the turn to settle
  * and prints one JSON line per run:
  *
- *   maxFrameKB / totalKB  the largest frame but the terminal, and the whole turn
+ *   maxFrameKB / totalKB  the largest frame but the settled snapshot and the terminal, and the whole turn
  *   longTaskMs / maxLongTaskMs / longTasksOver50  main-thread tasks during the turn
  *   rafBusyMs      summed rAF gaps beyond one 60 Hz frame (sees shorter work too)
  *   backlogMs      last frame sent → last frame handled by the client

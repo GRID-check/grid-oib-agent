@@ -19,7 +19,7 @@ import { v2Turn } from '../_fixtures/v2-turn'
 export const TURN_PLACEHOLDER = '__STREAM_SOCKET_TURN__'
 export const CONVERSATION_PLACEHOLDER = '__STREAM_SOCKET_CONVERSATION__'
 
-export type FrameKind = 'step' | 'delta' | 'response' | 'terminal' | 'heartbeat'
+export type FrameKind = 'step' | 'delta' | 'response' | 'snapshot' | 'terminal' | 'heartbeat'
 
 export interface ScriptFrame {
   /** Milliseconds after the user message reached the server. */
@@ -33,7 +33,7 @@ export interface TurnScript {
   frames: ScriptFrame[]
   /** Bytes of step frames, for the probe: what the client had to parse before the answer. */
   stepBytes: number
-  /** The largest frame other than the terminal (the design's bound is 4 KB). */
+  /** The largest frame other than the settled snapshot and the terminal (the design's bound is 4 KB). */
   maxFrameBytes: number
   totalBytes: number
 }
@@ -42,6 +42,8 @@ const kindOf = (frame: Record<string, unknown>): FrameKind => {
   if (frame.type === 'STEP_STARTED' || frame.type === 'STEP_FINISHED') return 'step'
   if (frame.type === 'TEXT_MESSAGE_CONTENT') return 'delta'
   if (frame.type === 'RUN_FINISHED') return 'terminal'
+  // The settled answer carries its verified sources, once per turn (design DoD 4).
+  if (frame.type === 'STATE_SNAPSHOT') return 'snapshot'
   if (frame.name === 'heartbeat') return 'heartbeat'
   return 'response'
 }
@@ -61,6 +63,6 @@ export const buildTurnScript = (speed: number): TurnScript => {
     frames,
     stepBytes: bytes(['step']).reduce((sum, n) => sum + n, 0),
     maxFrameBytes: Math.max(0, ...bytes(['step', 'delta', 'response', 'heartbeat'])),
-    totalBytes: bytes(['step', 'delta', 'response', 'heartbeat', 'terminal']).reduce((sum, n) => sum + n, 0),
+    totalBytes: bytes(['step', 'delta', 'response', 'snapshot', 'heartbeat', 'terminal']).reduce((sum, n) => sum + n, 0),
   }
 }
