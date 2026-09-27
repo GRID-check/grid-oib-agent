@@ -435,12 +435,11 @@ itself teaches nobody what it cost to find them.
     `0094` adds `document_versions_document_id_fkey`, `document_id →
     documents (id) ON DELETE CASCADE`, after deleting the orphan rows that
     already exist; the insert maps a 23503 on either key to the same
-    `DocumentDeletedError`. The session shelf calls the lenient
-    `recordUploadedVersion` directly, which still answers `null` — now also
-    when the foreign key refuses the insert, rather than a 500 — and still
-    carries on after it. Moving it to `recordUploadedVersionOrDiscard`, the
-    strict form the project and Archiv shelves use, is a change in a module
-    this correction did not touch, and it is owed.
+    `DocumentDeletedError`. The session shelf records through the same
+    `recordUploadedVersionOrDiscard` as the project and Archiv shelves, so a
+    chat attachment (or its chat) deleted before its version is recorded is
+    discarded and answered 409 too, with its ingest dispatch moved after the
+    version for the same reason.
 
     One window stays open and is stated rather than hidden: a delete landing
     after the version is recorded and before the ingest dispatch. The delete
