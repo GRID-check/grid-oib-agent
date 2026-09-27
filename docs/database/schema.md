@@ -326,7 +326,7 @@ both wrote the same object key. Now:
   Neither insert accepts a number from its caller; the type does not have the
   field;
 - the object key is unique per WRITE, not per number: `…/doc/<id>/v<n>/<write
-  id>/<file>` (`versionedStorageKey`, `versionWriteKey`). The `v<n>` in a key is
+  id>/<file>` (`versionWriteKey`, for every write but a first upload on every shelf). The `v<n>` in a key is
   the number the writer expected (`nextVersionNumber` is a hint) and can differ
   from the row's; nothing reads it back. Version 1 of a fresh upload keeps the
   flat `doc/<id>/<file>` key, which is unique because the id is new. A

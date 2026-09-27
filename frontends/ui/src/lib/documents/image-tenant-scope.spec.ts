@@ -98,7 +98,6 @@ vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
 vi.mock('./lifecycle', () => ({
   nextVersionNumber: vi.fn().mockResolvedValue(2),
   recordUploadedVersion: vi.fn().mockResolvedValue(null),
-  versionedStorageKey: (key: string) => key,
 }))
 vi.mock('./version-repository', () => ({
   listDocumentVersionObjects: vi.fn().mockResolvedValue([]),

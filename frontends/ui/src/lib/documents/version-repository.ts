@@ -392,7 +392,7 @@ export async function listDocumentVersionSummaries(
  * key where a person browsing the bucket can read it. It is not an allocation:
  * two overlapping uploads read the same value. The row's real number is
  * allocated at insert ({@link allocateVersionNumber}), and the key stays unique
- * because it also carries a per-write id (`versionedStorageKey`). Never write
+ * because it also carries a per-write id (`versionWriteKey`). Never write
  * this value into a row.
  *
  * `max(...) + 1` read through a raw fragment, so the value is COERCED on the

@@ -436,7 +436,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
     }
 
     // Cycle-broken on purpose: `documents/service.ts` imports this module for
-    // `recordUploadedVersion` and `versionedStorageKey`, so a static import
+    // `recordUploadedVersion`, so a static import
     // back would be a load-order cycle. Same device, same reason, as
     // `sharing/service.ts` reaching the mentions service.
     const { dispatchDocument, AgentAuthoredDocumentNotIndexableError } = await import('./service')

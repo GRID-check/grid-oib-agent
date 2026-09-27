@@ -109,6 +109,8 @@ import {
   findSessionDocument,
 } from './repository'
 import { deleteSessionDocument, uploadSessionDocument } from './service'
+import { LiveFilenameTakenError, ReplacedDocumentGoneError } from '@/lib/documents/unique-conflicts'
+import { nextVersionNumber } from '@/lib/documents/version-repository'
 
 const session = { userId: USER_ID, organizationId: ORG_ID, email: 'me@grid.test' } as unknown as AuthorizedSession
 
@@ -201,6 +203,83 @@ describe('uploadSessionDocument, a genuinely new file', () => {
       expect.objectContaining({ id: 'doc-fresh', scope: 'session', conversationId: CONVERSATION_ID }),
     )
     expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The races the project and Archiv shelves already answer, on the chat shelf.
+ * Session documents version like the others (ADR-0054), so the loser of two
+ * simultaneous first uploads of one name becomes the winner's next version
+ * rather than a 409, and a re-upload whose attachment was deleted underneath it
+ * becomes a first upload. The losing attempt's object is discarded by the
+ * admission, which these mocks stand in for.
+ */
+describe('uploadSessionDocument, when the shelf changes under the probe', () => {
+  it('retries a lost first-upload race as a new version of the winner', async () => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(null).mockResolvedValueOnce(existing)
+    vi.mocked(admitOrDiscard).mockRejectedValueOnce(new LiveFilenameTakenError('brandschutz.pdf'))
+
+    const result = await uploadSessionDocument(
+      session,
+      { conversationId: CONVERSATION_ID, file: file() },
+      new Request('http://x'),
+    )
+
+    expect(result.documentId).toBe('doc-existing')
+    expect(admitOrDiscard).toHaveBeenCalledTimes(1)
+    expect(admitReplacementOrDiscard).toHaveBeenCalledTimes(1)
+    const puts = s3Send.mock.calls.map((call) => call[0]).filter((c) => c instanceof PutObjectCommand)
+    expect(puts).toHaveLength(2)
+    // The retry never aims at the winner's flat key.
+    expect((puts[1] as PutObjectCommand).input.Key).not.toBe(existing.storageKey)
+    expect((puts[1] as PutObjectCommand).input.Key).toMatch(/\/doc\/doc-existing\/v\d+\/[0-9a-f]{12}\/brandschutz\.pdf$/)
+  })
+
+  it('retries a re-upload of a just-deleted attachment as a first upload', async () => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(existing).mockResolvedValueOnce(null)
+    vi.mocked(admitReplacementOrDiscard).mockRejectedValueOnce(new ReplacedDocumentGoneError('doc-existing'))
+
+    const result = await uploadSessionDocument(
+      session,
+      { conversationId: CONVERSATION_ID, file: file() },
+      new Request('http://x'),
+    )
+
+    expect(result.documentId).toBe('doc-fresh')
+    expect(admitOrDiscard).toHaveBeenCalledWith(
+      'grid-org-org1-abc',
+      expect.stringContaining('/doc/doc-fresh/brandschutz.pdf'),
+      expect.objectContaining({ id: 'doc-fresh', scope: 'session' }),
+    )
+  })
+
+  it('answers 409 when the shelf changes twice in one request', async () => {
+    vi.mocked(admitOrDiscard)
+      .mockRejectedValueOnce(new LiveFilenameTakenError('brandschutz.pdf'))
+      .mockRejectedValueOnce(new LiveFilenameTakenError('brandschutz.pdf'))
+
+    const error = await uploadSessionDocument(
+      session,
+      { conversationId: CONVERSATION_ID, file: file() },
+      new Request('http://x'),
+    ).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect(dispatchDocument).not.toHaveBeenCalled()
+  })
+
+  it('writes a re-upload under a write key even when the version number reads 1', async () => {
+    // The hint reads 1 while a concurrent first upload has its row but not
+    // yet its version. The old version-1 shortcut put this PUT on that
+    // upload's own key.
+    vi.mocked(nextVersionNumber).mockResolvedValueOnce(1)
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(existing)
+
+    await uploadSessionDocument(session, { conversationId: CONVERSATION_ID, file: file() }, new Request('http://x'))
+
+    const put = s3Send.mock.calls.find((call) => call[0] instanceof PutObjectCommand)?.[0] as PutObjectCommand
+    expect(put.input.Key).not.toBe(existing.storageKey)
+    expect(put.input.Key).toMatch(/\/doc\/doc-existing\/v1\/[0-9a-f]{12}\/brandschutz\.pdf$/)
   })
 })
 

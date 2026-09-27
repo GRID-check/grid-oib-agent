@@ -48,7 +48,8 @@ import {
   nextVersionNumber,
   recordUploadedVersion,
 } from '@/lib/documents/lifecycle'
-import { newVersionWriteId, versionedStorageKey } from '@/lib/documents/version-content'
+import { newVersionWriteId, versionWriteKey } from '@/lib/documents/version-content'
+import { retryRacedUpload } from '@/lib/documents/unique-conflicts'
 import { listDocumentVersionObjects } from '@/lib/documents/version-repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { purgeCollectionChunks } from './cleanup'
@@ -156,22 +157,6 @@ export async function uploadSessionDocument(
   // decomposed name off a Mac would put a second row here too. See
   // `@/lib/documents/name-match`.
   const filename = documentNameKey(file.name)
-  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
-  const documentId = superseded?.id ?? crypto.randomUUID()
-  // A re-upload writes new bytes under a new `v<n>/` key, so the version it
-  // replaces keeps an object a reader can open (ADR-0054). Version 1 keeps
-  // today's key exactly. The number is a hint for the key; the write id keeps
-  // two overlapping re-uploads' objects apart, and the row's number is
-  // allocated under a lock when the version is recorded.
-  const versionHint = superseded
-    ? await nextVersionNumber(documentId, session.organizationId)
-    : 1
-  const storageKey = versionedStorageKey(
-    buildSessionStorageKey(session.organizationId, conversationId, documentId, filename),
-    versionHint,
-    newVersionWriteId(),
-  )
-
   // Same provisioning step as the other shelves (ADR-0043): a session
   // attachment shares the tenant's bucket, because it shares the tenant's bytes.
   const storageBucket = await ensureTenantBucketChecked(bucketAdminS3Client, session.organizationId)
@@ -181,70 +166,98 @@ export async function uploadSessionDocument(
   // `@/lib/documents/content-digest` for why it is not written out here.
   const contentHash = contentDigest(bytes)
 
-  // The LAST thing before a single byte is written, and the reason it is here
-  // rather than folded into the authorization above.
-  //
-  // Discarding a chat erases its attachments' objects and chunks first and
-  // deletes the conversation row second (`conversations/service`), and the
-  // document rows cascade off that row. An upload that got past
-  // `createConversation` while the discard was still purging would land its
-  // object and its chunks AFTER the sweep had walked past them, and then have
-  // its row taken by the cascade — bytes and chunks in the tenant's stores with
-  // nothing naming them, which is precisely the state no retry can reach.
-  //
-  // The discard marks the conversation as deleting BEFORE it starts purging, so
-  // re-reading that mark at the last possible moment narrows the race to the
-  // gap between this check and the write. `admitOrDiscard` below is the second
-  // guard: its insert names the conversation through a foreign key, so a row
-  // whose conversation went in that gap cannot be created at all.
-  await assertConversationAcceptsUploads(conversationId, session.organizationId)
+  // Probe, store, admit — and once more when the shelf changed under the probe
+  // (`retryRacedUpload`), exactly as the project and Archiv paths do. Session
+  // documents version like the other shelves (ADR-0054), so two people
+  // dropping the same filename into one chat at once end as one document with
+  // two versions, as the same two drops one after the other would; and a
+  // re-upload whose attachment was deleted underneath it becomes a first
+  // upload. The losing attempt leaves nothing: its insert or update rolled back
+  // and the admission discarded its object.
+  const { documentId, storageKey, replaced } = await retryRacedUpload(async () => {
+    const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
+    const documentId = superseded?.id ?? crypto.randomUUID()
+    // A re-upload ALWAYS writes under a fresh `v<n>/<write id>/` key
+    // (`versionWriteKey`), never the version-1 plain key. The number is a hint
+    // and reads 1 while the winner of a concurrent first upload has its row but
+    // not yet its version, which would aim this PUT at the winner's own key and
+    // overwrite its bytes. The row's number is allocated under a lock when the
+    // version is recorded.
+    const baseKey = buildSessionStorageKey(session.organizationId, conversationId, documentId, filename)
+    const storageKey = superseded
+      ? versionWriteKey(baseKey, await nextVersionNumber(documentId, session.organizationId), newVersionWriteId())
+      : baseKey
 
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: storageBucket,
-      Key: storageKey,
-      Body: bytes,
-      ContentType: file.type || 'application/octet-stream',
-    }),
-  )
+    // The LAST thing before a single byte is written, and the reason it is here
+    // rather than folded into the authorization above.
+    //
+    // Discarding a chat erases its attachments' objects and chunks first and
+    // deletes the conversation row second (`conversations/service`), and the
+    // document rows cascade off that row. An upload that got past
+    // `createConversation` while the discard was still purging would land its
+    // object and its chunks AFTER the sweep had walked past them, and then have
+    // its row taken by the cascade — bytes and chunks in the tenant's stores with
+    // nothing naming them, which is precisely the state no retry can reach.
+    //
+    // The discard marks the conversation as deleting BEFORE it starts purging, so
+    // re-reading that mark at the last possible moment narrows the race to the
+    // gap between this check and the write. `admitOrDiscard` below is the second
+    // guard: its insert names the conversation through a foreign key, so a row
+    // whose conversation went in that gap cannot be created at all.
+    await assertConversationAcceptsUploads(conversationId, session.organizationId)
 
-  // Same hard ceiling and the same compensating delete on refusal as the
-  // project and Archiv paths (ADR-0042).
-  if (superseded) {
-    // The full size is charged: the previous bytes stay as the superseded version.
-    await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
-      storageKey,
-      storageBucket,
-      fileSize: file.size,
-      contentType: file.type || null,
-      contentHash,
-      folderId: null,
-      createdBy: session.userId,
-    })
-    // Nothing is discarded: the previous bytes are the previous VERSION's now
-    // (ADR-0054) and its row still names them. They go with the attachment.
-  } else {
-    await admitOrDiscard(storageBucket, storageKey, {
-      id: documentId,
-      organizationId: session.organizationId,
-      // NULL, following the Archiv precedent: the shelf IS the conversation, and
-      // a project id here would put the row inside a project's estate while it
-      // is readable only by the people in one chat.
-      projectId: null,
-      scope: 'session',
-      conversationId,
-      folderId: null,
-      createdBy: session.userId,
-      filename,
-      storageKey,
-      storageBucket,
-      collectionName,
-      fileSize: file.size,
-      contentType: file.type || null,
-      contentHash,
-      status: 'uploaded',
-    })
-  }
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: storageBucket,
+        Key: storageKey,
+        Body: bytes,
+        ContentType: file.type || 'application/octet-stream',
+      }),
+    )
+
+    // Same hard ceiling and the same compensating delete on refusal as the
+    // project and Archiv paths (ADR-0042).
+    if (superseded) {
+      // The full size is charged: the previous bytes stay as the superseded
+      // version. A `ReplacedDocumentGoneError` here is the attachment deleted
+      // under this re-upload; the object is already discarded.
+      await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
+        storageKey,
+        storageBucket,
+        fileSize: file.size,
+        contentType: file.type || null,
+        contentHash,
+        folderId: null,
+        createdBy: session.userId,
+      })
+      // Nothing is discarded: the previous bytes are the previous VERSION's now
+      // (ADR-0054) and its row still names them. They go with the attachment.
+    } else {
+      // A `LiveFilenameTakenError` out of here is the lost first-upload race:
+      // the object is already discarded and nothing was charged.
+      await admitOrDiscard(storageBucket, storageKey, {
+        id: documentId,
+        organizationId: session.organizationId,
+        // NULL, following the Archiv precedent: the shelf IS the conversation, and
+        // a project id here would put the row inside a project's estate while it
+        // is readable only by the people in one chat.
+        projectId: null,
+        scope: 'session',
+        conversationId,
+        folderId: null,
+        createdBy: session.userId,
+        filename,
+        storageKey,
+        storageBucket,
+        collectionName,
+        fileSize: file.size,
+        contentType: file.type || null,
+        contentHash,
+        status: 'uploaded',
+      })
+    }
+    return { documentId, storageKey, replaced: Boolean(superseded) }
+  })
 
   // The whole point of Phase 2: a session upload now reaches the SAME dispatcher
   // the other shelves use, so an IFC dropped into a chat is parsed into a
@@ -281,7 +294,7 @@ export async function uploadSessionDocument(
       conversationId,
       filename: filename.slice(0, 200),
       fileSize: file.size,
-      ...(superseded ? { replaced: true } : {}),
+      ...(replaced ? { replaced: true } : {}),
     },
     request,
   })

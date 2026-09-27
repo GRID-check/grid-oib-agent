@@ -113,7 +113,7 @@ function resolveBucket(doc: StoredObjectRef): { bucket: string } | { failure: Ex
  * in place.
  *
  * Written for the replace path, which no longer needs it: since ADR-0054 a
- * re-upload lands under its own `v<n>/` key (`versionedStorageKey`), and every
+ * re-upload lands under its own `v<n>/` key (`versionWriteKey`), and every
  * derivative is keyed off the file's directory, so the new version's thumbnail,
  * rasters and building are written fresh beside it and the old version's stay
  * with the old version — history, erased when the document is. It remains the

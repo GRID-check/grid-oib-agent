@@ -83,41 +83,18 @@ export function newVersionWriteId(): string {
 }
 
 /**
- * The key an UPLOAD's bytes live under.
- *
- * Version 1 keeps today's key exactly — `doc/<id>/<filename>` — so nothing that
- * predates versioning moves, and every stored object, thumbnail and `_bim/`
- * derivative stays where its row says it is; the id is fresh, so the key is
- * unique. Later versions get a `v<n>/<write id>/` segment of their own, which is
- * what makes "a superseded version keeps its bytes" possible at all: without it
- * the re-upload would write over the object the previous version's row names.
- *
- * The upload paths build their key before the version row exists. Pure, so all
- * three shelves — project, Archiv and session — get the same answer.
- *
- * `versionNumber` is a HINT here (`nextVersionNumber`): two overlapping
- * re-uploads read the same one, and before the write id they wrote the same
- * key, so the second PUT silently replaced the first upload's bytes while both
- * rows described their own. The write id makes each upload's object its own;
- * the row's number is allocated at insert, under a lock, and may differ from
- * the one in the key.
- */
-export function versionedStorageKey(
-  baseStorageKey: string,
-  versionNumber: number,
-  writeId: string,
-): string {
-  if (versionNumber <= 1) return baseStorageKey
-  return versionWriteKey(baseStorageKey, versionNumber, writeId)
-}
-
-/**
  * `…/doc/<id>/v<n>/<write id>/<filename>` — one object per write, always.
  *
- * Unlike {@link versionedStorageKey} there is no version-1 shortcut: this is
- * for REWRITING a version's bytes, and a rewrite that reused the key it read
- * would aim at the object another writer, or the published version, may be
- * reading.
+ * There is no version-1 shortcut, and that is the point. Every write that is
+ * not a document's first upload goes here: a re-upload on any shelf (project,
+ * Archiv, session) and a rewrite of a version's bytes. A first upload keeps the
+ * plain `doc/<id>/<filename>` key, because its id is fresh. The version number
+ * is a HINT (`nextVersionNumber`): it reads 1 while a concurrent first upload
+ * has its row but not yet its version, so a helper that returned the plain key
+ * for "version 1" aimed a re-upload at the winner's own object and overwrote
+ * its bytes. That helper (`versionedStorageKey`) is gone for that reason. The
+ * write id keeps two overlapping writes of one number apart; the row's number
+ * is allocated under a lock when the version is recorded.
  *
  * Derived from the item's OWN key rather than rebuilt from its parts, so the
  * folder path, the shelf prefix (`project/`, `archiv/`, `session/`) and the

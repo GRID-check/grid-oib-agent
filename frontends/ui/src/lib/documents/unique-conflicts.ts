@@ -13,9 +13,9 @@
  * error here, and nothing else: a 23505 from any other constraint on either
  * table is a different fault and keeps its 500. Both errors ARE a
  * `ConflictError`, so a caller that does not recover still answers 409 rather
- * than 500 — the session shelf's upload, for one, which has no retry.
- * {@link retryRacedUpload} is the project and Archiv shelves' answer to the
- * first one; `forkDraftVersion` re-reads the winner for the second. The third
+ * than 500 — and so does a retry that loses twice.
+ * {@link retryRacedUpload} is every upload shelf's answer (project, Archiv and
+ * a chat's attachments) to the first one; `forkDraftVersion` re-reads the winner for the second. The third
  * error here, {@link ReplacedDocumentGoneError}, is no index at all: a
  * re-upload whose document was deleted underneath it, answered by the same
  * retry. {@link DocumentDeletedError} is the last window: a delete that lands
@@ -100,8 +100,8 @@ export function mapVersionInsertError(error: unknown, documentId: string): unkno
  *
  * `replaceDocumentWithinQuota` matched no row. Its transaction rolled back, so
  * nothing was charged, and `admitReplacementOrDiscard` deleted the object the
- * upload stored for it. A `ConflictError`, so a shelf that does not retry (the
- * session shelf) still answers 409 rather than a 200 over an orphaned object.
+ * upload stored for it. A `ConflictError`, so a caller that does not retry, or
+ * loses twice, answers 409 rather than a 200 over an orphaned object.
  */
 export class ReplacedDocumentGoneError extends ConflictError {
   constructor(readonly documentId: string) {

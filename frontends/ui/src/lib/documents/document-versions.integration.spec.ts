@@ -122,6 +122,7 @@ describe.skipIf(!url)('document versions under concurrency', () => {
     const { withPlatformAccess } = await import('@/lib/db/tenant-context')
     await withPlatformAccess('test teardown', async () => {
       await db.execute(sql`DELETE FROM documents WHERE organization_id = ${ORG}`)
+      await db.execute(sql`DELETE FROM conversations WHERE organization_id = ${ORG}`)
       await db.execute(sql`DELETE FROM projects WHERE organization_id = ${ORG}`)
     })
     const { closeDb } = await import('@/lib/db')
@@ -535,5 +536,145 @@ describe.skipIf(!url)('document versions under concurrency', () => {
     await expect(recorded).rejects.toBeInstanceOf(conflicts.DocumentDeletedError)
     await expect(recorded).rejects.toMatchObject({ status: 409, documentId: doc.id })
     expect(await versionsOf(doc.id)).toEqual([])
+  })
+
+  /**
+   * The chat shelf (ADR-0047 Phase 2) meets the same two races, and answers them
+   * the same way, because a session attachment is the same table under the
+   * same live-name index. `uploadSessionDocument` wraps these statements in
+   * `retryRacedUpload`; the unit suite drives the retry, this one proves the
+   * database hands it the typed errors it retries on.
+   */
+  describe('session attachments', () => {
+    let conversationId: string
+
+    beforeAll(async () => {
+      conversationId = `s_${randomUUID().replace(/-/g, '_')}`
+      await inTenant(() =>
+        db.execute(sql`
+          INSERT INTO conversations (id, organization_id, created_by)
+          VALUES (${conversationId}, ${ORG}, ${USER})
+        `),
+      )
+    })
+
+    const sessionUpload = (filename: string, fileSize: number) => {
+      const id = randomUUID()
+      return {
+        id,
+        organizationId: ORG,
+        projectId: null,
+        scope: 'session' as const,
+        conversationId,
+        createdBy: USER,
+        filename,
+        storageKey: `org/${ORG}/session/${conversationId}/doc/${id}/${filename}`,
+        storageBucket: null,
+        collectionName: conversationId,
+        fileSize,
+        contentType: 'application/pdf',
+        contentHash: `sha256:${id}`,
+        status: 'uploaded',
+      }
+    }
+
+    it('refuses the loser of two simultaneous first attachments of one name as a typed 409', async () => {
+      seq += 1
+      const filename = `chat-race-${seq}.pdf`
+      const used = await inTenant(() => db.transaction((tx) => storage.readStorageUsage(tx, ORG)))
+
+      const outcomes = await Promise.allSettled([
+        inTenant(() => storage.insertDocumentWithinQuota(sessionUpload(filename, 300), null)),
+        inTenant(() => storage.insertDocumentWithinQuota(sessionUpload(filename, 300), null)),
+      ])
+
+      expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
+      const lost = outcomes.find((outcome) => outcome.status === 'rejected')
+      expect(lost?.status === 'rejected' ? lost.reason : null).toBeInstanceOf(conflicts.LiveFilenameTakenError)
+      const rows = await inTenant(async () =>
+        Array.from(
+          await db.execute<{ id: string }>(sql`
+            SELECT id FROM documents
+            WHERE organization_id = ${ORG} AND conversation_id = ${conversationId} AND filename = ${filename}
+          `),
+        ),
+      )
+      expect(rows).toHaveLength(1)
+      // Nothing charged for the loser.
+      const after = await inTenant(() => db.transaction((tx) => storage.readStorageUsage(tx, ORG)))
+      expect(after).toBe(used + 300)
+    })
+
+    it('records the retried loser as the next version of the winner, under its own write key', async () => {
+      seq += 1
+      const filename = `chat-race-${seq}.pdf`
+      const winner = sessionUpload(filename, 300)
+      const loser = sessionUpload(filename, 200)
+      await inTenant(() => storage.insertDocumentWithinQuota(winner, null))
+      await expect(
+        inTenant(() => storage.insertDocumentWithinQuota(loser, null)),
+      ).rejects.toBeInstanceOf(conflicts.LiveFilenameTakenError)
+
+      // The retry reads the winner's next number as 1 (it has no version yet),
+      // and the write key still differs from the winner's own.
+      const { versionWriteKey } = await import('./version-content')
+      const retryKey = versionWriteKey(winner.storageKey, 1, 'abcdef012345')
+      expect(retryKey).not.toBe(winner.storageKey)
+      await inTenant(() =>
+        storage.replaceDocumentWithinQuota(
+          ORG,
+          winner.id,
+          {
+            storageKey: retryKey,
+            storageBucket: null,
+            fileSize: 200,
+            contentType: 'application/pdf',
+            contentHash: loser.contentHash,
+            folderId: null,
+            createdBy: USER,
+          },
+          null,
+        ),
+      )
+      const sessionVersion = (storageKey: string, fileSize: number, contentHash: string) => ({
+        ...published(winner.id, storageKey, fileSize),
+        projectId: null,
+        contentHash,
+      })
+      await Promise.all([
+        inTenant(() => repo.insertPublishedVersion(sessionVersion(winner.storageKey, 300, winner.contentHash))),
+        inTenant(() => repo.insertPublishedVersion(sessionVersion(retryKey, 200, loser.contentHash))),
+      ])
+
+      const rows = await versionsOf(winner.id)
+      expect(rows.map((row) => Number(row.version_number))).toEqual([1, 2])
+      expect(new Set(rows.map((row) => row.storage_key))).toEqual(new Set([winner.storageKey, retryKey]))
+    })
+
+    it('reports a re-attachment whose attachment was deleted after the probe', async () => {
+      seq += 1
+      const doc = sessionUpload(`chat-gone-${seq}.pdf`, 100)
+      await inTenant(() => storage.insertDocumentWithinQuota(doc, null))
+      await inTenant(() => db.execute(sql`DELETE FROM documents WHERE id = ${doc.id}::uuid`))
+
+      await expect(
+        inTenant(() =>
+          storage.replaceDocumentWithinQuota(
+            ORG,
+            doc.id,
+            {
+              storageKey: `${doc.storageKey}.v2`,
+              storageBucket: null,
+              fileSize: 100,
+              contentType: 'application/pdf',
+              contentHash: 'sha256:v2',
+              folderId: null,
+              createdBy: USER,
+            },
+            null,
+          ),
+        ),
+      ).rejects.toBeInstanceOf(conflicts.ReplacedDocumentGoneError)
+    })
   })
 })
