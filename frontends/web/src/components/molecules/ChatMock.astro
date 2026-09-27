@@ -16,6 +16,19 @@ const sources = [
   { chip: 'BO Wien', law: true, title: t.chat.boTitle, sub: t.chat.boSub },
   { chip: t.chat.projTag, law: false, title: 'Einreichplan_EG.pdf', sub: t.chat.projSub },
 ]
+
+// The board's decision says why, in the phone stories' words, so both tell
+// the same example. `stories.why` reads "Nicht gewählt: …" / "Gewählt: …";
+// the board shows the verdict as a mark on B and the reason under each way.
+const verdict = (why: string) => {
+  const at = why.indexOf(': ')
+  const reason = at < 0 ? why : why.slice(at + 2)
+  return { label: at < 0 ? '' : why.slice(0, at), reason: reason.charAt(0).toUpperCase() + reason.slice(1) }
+}
+// On the narrow board (the 440px card at 1024) the status line needs the
+// room, so the replay button shows its arrow and keeps its words for readers.
+const replayLabel = t.chat.replay.replace(/^↻\s*/, '')
+const boardOptions = options.map((o, i) => ({ ...o, ...verdict(ui[locale].stories.why[i]) }))
 ---
 
 <!-- ── Phone and tablet: the chain as a column ───────────────────────────────
@@ -143,14 +156,16 @@ const sources = [
     </div>
     <span class="font-mono text-2xs uppercase tracking-widest text-ink-ghost">{t.chat.fictional}</span>
   </div>
-  <div data-stage class="relative h-[360px] overflow-hidden bg-paper sm:h-[460px]">
+  <div data-stage class="@container relative h-[360px] overflow-hidden bg-paper sm:h-[460px]">
     <!-- The mask belongs to the frame, not to the camera inside it (which is
          transformed) and not to the status line below it (which must stay
          legible), so it lives on a layer of its own. -->
     <div class="stage-mask absolute inset-0">
-    <!-- Everything inside [data-cam] lives in a fixed 1160x620 coordinate space
-         that the camera keyframes in scripts/landing.ts pan and zoom across, so
-         the left/top/width values below are diagram geometry, not spacing. -->
+    <!-- Everything inside [data-cam] lives in a fixed coordinate space, 1160px
+         wide and about 780px tall, that the camera in scripts/chain.ts pans and
+         zooms across, so the left/top/width values below are diagram geometry,
+         not spacing. The steps sit far enough below the decision that the
+         camera can frame either card without catching the other's edge. -->
     <div data-cam class="absolute inset-0 origin-top-left will-change-transform" aria-hidden="true">
       <div
         data-node="q"
@@ -192,64 +207,73 @@ const sources = [
 
       <div data-node="s1" data-part="chip" class="absolute left-[34px] top-[166px] flex h-7 w-[90px] items-center justify-center rounded-lg bg-chip-law text-2xs font-semibold text-chip-law-ink">OIB-RL 2</div>
       <div data-node="s1" data-part="card" class="absolute left-[150px] top-[154px] w-[280px] rounded-xl border border-hairline bg-white px-3.5 py-2.5 shadow-card">
-        <div class="text-xs font-semibold text-ink">{t.chat.oibTitle}</div>
+        <div class="text-xs font-semibold leading-snug text-ink">{t.chat.oibTitle}</div>
         <div class="mt-0.5 text-2xs leading-snug text-ink-faint">{t.chat.oibSub}</div>
       </div>
 
       <div data-node="s2" data-part="chip" class="absolute left-[34px] top-[258px] flex h-7 w-[90px] items-center justify-center rounded-lg bg-chip-law text-2xs font-semibold text-chip-law-ink">BO Wien</div>
       <div data-node="s2" data-part="card" class="absolute left-[150px] top-[246px] w-[280px] rounded-xl border border-hairline bg-white px-3.5 py-2.5 shadow-card">
-        <div class="text-xs font-semibold text-ink">{t.chat.boTitle}</div>
+        <div class="text-xs font-semibold leading-snug text-ink">{t.chat.boTitle}</div>
         <div class="mt-0.5 text-2xs leading-snug text-ink-faint">{t.chat.boSub}</div>
       </div>
 
       <div data-node="s3" data-part="chip" class="absolute left-[34px] top-[354px] flex h-7 w-[90px] items-center justify-center rounded-lg bg-chip-project text-2xs font-semibold text-chip-project-ink">{t.chat.projTag}</div>
       <div data-node="s3" data-part="card" class="absolute left-[150px] top-[342px] w-[280px] rounded-xl border border-hairline bg-white px-3.5 py-2.5 shadow-card">
-        <div class="text-xs font-semibold text-ink">Einreichplan_EG.pdf</div>
+        <div class="text-xs font-semibold leading-snug text-ink">Einreichplan_EG.pdf</div>
         <div class="mt-0.5 text-2xs leading-snug text-ink-faint">{t.chat.projSub}</div>
       </div>
 
       <div
         data-node="dec"
-        class="absolute left-[780px] top-[172px] w-[300px] overflow-hidden rounded-2xl border border-hairline bg-white shadow-lift"
+        class="absolute left-[772px] top-[172px] w-[332px] overflow-hidden rounded-2xl border border-hairline bg-white shadow-lift"
       >
-        <div class="bg-ink px-4 py-3">
+        <div class="flex h-10 items-center bg-ink px-4">
           <span class="font-display text-2xs font-bold uppercase tracking-wider text-on-dark-strong">{t.chat.decision}</span>
         </div>
-        <div data-port="in" class="px-4 pb-0.5 pt-3 text-xs leading-normal text-ink-soft">{t.chat.decisionIntro}</div>
-        <div class="flex flex-col gap-2 px-3.5 pb-3.5 pt-3">
-          <div data-opt="a" class="opt flex items-start gap-3 rounded-lg border-l-2 border-hairline bg-white px-3.5 py-2.5">
-            <span class="text-xs font-bold text-ok">A</span>
-            <div>
-              <div class="text-sm font-semibold text-ink">{t.chat.optATitle}</div>
-              <div class="mt-0.5 text-2xs leading-snug text-ink-faint">{t.chat.optASub}</div>
-            </div>
-          </div>
-          <div data-opt="b" data-port="out" class="opt flex items-start gap-3 rounded-lg border-l-2 border-hairline bg-white px-3.5 py-2.5">
-            <span class="text-xs font-bold text-ok">B</span>
-            <div>
-              <div class="text-sm font-semibold text-ink">{t.chat.optBTitle}</div>
-              <div class="mt-0.5 text-2xs leading-snug text-ink-faint">{t.chat.optBSub}</div>
-            </div>
-          </div>
-          <div data-opt="c" class="opt flex items-start gap-3 rounded-lg border-l-2 border-hairline bg-white px-3.5 py-2.5">
-            <span class="text-xs font-bold text-ok">C</span>
-            <div>
-              <div class="text-sm font-semibold text-ink">{t.chat.optCTitle}</div>
-              <div class="mt-0.5 text-2xs leading-snug text-ink-faint">{t.chat.optCSub}</div>
-            </div>
-          </div>
+        <div data-port="in" class="px-4 pt-3 text-xs leading-snug text-ink-soft">{t.chat.decisionIntro}</div>
+        <div class="flex flex-col gap-2 px-3 pb-3 pt-2.5">
+          {
+            boardOptions.map((o) => (
+              <div
+                data-opt={o.key.toLowerCase()}
+                data-port={o.chosen ? 'out' : undefined}
+                class="opt relative flex items-baseline gap-3 rounded-lg border-l-2 border-hairline bg-white px-3 py-2.5"
+              >
+                <span class="opt-key text-xs font-bold leading-snug text-ink-mute">{o.key}</span>
+                <div class="min-w-0 flex-1">
+                  <div class="text-sm font-semibold leading-snug text-ink">{o.title}</div>
+                  {/* The description gives way to the reason once the choice
+                      is made; both sit in one cell, so nothing reflows. */}
+                  <div class="mt-0.5 grid text-2xs leading-snug text-ink-faint">
+                    <span data-opt-sub class="[grid-area:1/1]">{o.sub}</span>
+                    <span data-opt-why class="invisible whitespace-nowrap opacity-0 [grid-area:1/1]">{o.reason}</span>
+                  </div>
+                </div>
+                {
+                  o.chosen && (
+                    <span data-opt-mark class="invisible absolute right-3 top-2.5 inline-flex items-center gap-1 text-2xs font-semibold leading-snug text-ok opacity-0">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path data-opt-tick d="M5 12.5l4.5 4.5L19 7.5" />
+                      </svg>
+                      {o.label}
+                    </span>
+                  )
+                }
+              </div>
+            ))
+          }
         </div>
       </div>
 
       <div
         data-node="impl"
-        class="absolute left-[840px] top-[520px] w-[320px] overflow-hidden rounded-2xl border border-hairline bg-white shadow-lift"
+        class="absolute left-[840px] top-[580px] w-[320px] overflow-hidden rounded-2xl border border-hairline bg-white shadow-lift"
       >
-        <div class="flex items-center justify-between bg-accent-900 px-4 py-3">
+        <div class="flex h-10 items-center justify-between bg-accent-900 px-4">
           <span class="font-display text-2xs font-bold uppercase tracking-wider text-surface">{t.chat.impl}</span>
-          <span class="rounded-lg bg-tint px-2.5 py-0.5 text-2xs font-semibold text-accent-900">{t.chat.stepsBadge}</span>
+          <span class="rounded-md bg-tint px-2 py-0.5 text-2xs font-semibold text-accent-900">{t.chat.stepsBadge}</span>
         </div>
-        <div class="flex flex-col gap-2 px-4 pb-4 pt-3">
+        <div class="flex flex-col gap-2 px-4 pb-3.5 pt-3">
           <div class="flex items-baseline gap-2.5"><span class="font-display text-2xs text-accent-600">01</span><span class="text-xs leading-snug text-ink">{t.chat.steps[0]}</span></div>
           <div class="flex items-baseline gap-2.5"><span class="font-display text-2xs text-accent-600">02</span><span class="text-xs leading-snug text-ink">{t.chat.steps[1]}</span></div>
           <div class="flex items-baseline gap-2.5"><span class="font-display text-2xs text-accent-600">03</span><span class="text-xs leading-snug text-ink">{t.chat.steps[2]}</span></div>
@@ -259,17 +283,17 @@ const sources = [
     </div>
 
     <div
-      class="absolute inset-x-0 bottom-0 flex items-center gap-2.5 px-5 py-3"
+      class="absolute inset-x-0 bottom-0 flex items-center gap-2.5 whitespace-nowrap px-5 py-3 @max-lg:gap-2 @max-lg:px-4"
       style="background: linear-gradient(180deg, rgb(251 251 249 / 0) 0%, rgb(251 251 249 / 0.9) 40%, #fbfbf9 100%)"
     >
       <span
-        class="h-1.5 w-1.5 rounded-full bg-accent-500"
+        class="size-1.5 shrink-0 rounded-full bg-accent-500"
         data-chain-live
         style="animation: chain-pulse 1.4s ease-in-out infinite"
         aria-hidden="true"></span>
       <span
         data-status
-        class="font-display text-2xs uppercase tracking-widest text-ink-faint transition-opacity duration-400"
+        class="min-w-0 truncate font-display text-2xs uppercase tracking-widest text-ink-faint"
         aria-live="polite">{t.chain.typing}</span
       >
       <!-- The chain plays once and stops on the finished diagram; while it
@@ -287,7 +311,7 @@ const sources = [
         data-replay
         type="button"
         class="inline-flex min-h-6 cursor-pointer items-center border-none bg-none px-1 font-display text-2xs uppercase tracking-widest text-ink-mute hover:text-accent-700"
-        >{t.chat.replay}</button
+        ><span aria-hidden="true">↻</span><span class="@max-lg:sr-only">&nbsp;{replayLabel}</span></button
       >
     </div>
   </div>
@@ -313,5 +337,8 @@ const sources = [
   }
   .opt:global(.opt--receded) :is(div, span) {
     color: var(--color-ink-mute);
+  }
+  .opt:global(.opt--chosen) .opt-key {
+    color: var(--color-ok);
   }
 </style>

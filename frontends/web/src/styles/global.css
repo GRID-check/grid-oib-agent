@@ -408,43 +408,10 @@ html:not(.js) [data-solution-card] {
   transform: translate(-50%, -50%) scale(1);
 }
 
-/* ── The seam under the hero ─────────────────────────────────────────────────
-   The hero's photograph ended on a hard horizontal cut, with a 16px strip of
-   grid paper between it and the story panel. Its foot now settles into the
-   page: the page itself (canvas and grid, the grid positioned to line up
-   with the body's) fades in over the last few rem, short enough to stay clear
-   of the buttons above it (pb-14 on a phone, pb-28 from lg). The story then
-   starts one section's rhythm below, like every other section. */
-[data-hero-wrap]::after {
-  --seam: 3rem;
-  --hero-h: 100svh;
-  content: '';
-  position: absolute;
-  inset-inline: 0;
-  bottom: 0;
-  height: var(--seam);
-  pointer-events: none;
-  background-color: var(--color-canvas);
-  background-image:
-    linear-gradient(to right, rgb(42 48 31 / 0.075) 0 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(42 48 31 / 0.075) 0 1px, transparent 1px),
-    linear-gradient(to right, rgb(42 48 31 / 0.032) 0 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(42 48 31 / 0.032) 0 1px, transparent 1px);
-  background-size:
-    168px 168px,
-    168px 168px,
-    28px 28px,
-    28px 28px;
-  background-position: center calc(var(--seam) - var(--hero-h));
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000);
-  mask-image: linear-gradient(to bottom, transparent, #000);
-}
-@media (width >= 64rem) {
-  [data-hero-wrap]::after {
-    --seam: 5rem;
-    --hero-h: 100vh;
-  }
-}
+/* ── Between the hero and the story ──────────────────────────────────────────
+   The hero ends on the photograph's own foot, as it did before the visual pass
+   (f8bf1506c); a faded seam over its last rem changed the hero and was taken
+   back out. The story starts one section's rhythm below. */
 /* The story's sticky frame keeps 1rem around its panel (the pinned panel is
    a screen less 2rem), so its margins make up the rest of the rhythm. Margin,
    not padding: the pin script sets this wrapper's height to its runway. */
