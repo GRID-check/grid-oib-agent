@@ -126,7 +126,7 @@ const lanesOf = (step: StepOf<'sources'>): TraceLaneCard[] =>
   }))
 
 /** The fields one step kind contributes to its stored row. */
-const storedFields = (step: StepOf<string>): Partial<StoredThinkingStep> => {
+const storedFields = (step: StepOf<string>, previous?: StoredThinkingStep): Partial<StoredThinkingStep> => {
   switch (step.kind) {
     case 'status':
       return {
@@ -150,7 +150,14 @@ const storedFields = (step: StepOf<string>): Partial<StoredThinkingStep> => {
       return {
         ...some('skill', step.skill),
         ...(live ? { turnEvent: { key: 'skill.activated', values: { skill: live } } } : {}),
-        detail: { phase: step.phase, hidden: step.hidden, ...some('count', step.count) },
+        // A later phase of the same skill replaces the row; its authored title
+        // must survive that, so it is carried from the row it replaces.
+        detail: {
+          phase: step.phase,
+          hidden: step.hidden,
+          ...some('count', step.count),
+          ...some('title', step.title ?? previous?.detail?.title),
+        },
       }
     }
     case 'clarification':
@@ -170,7 +177,7 @@ const foldStep = (view: TurnView, event: Extract<WireEvent, { type: 'STEP_STARTE
     isComplete: event.type === 'STEP_FINISHED',
     kind: step.kind,
     ...(step.scope === 'deep' ? { scope: 'deep' } : {}),
-    ...storedFields(step),
+    ...storedFields(step, previous),
   }
   return {
     ...view,

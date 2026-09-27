@@ -36,18 +36,15 @@ const PHASES: readonly string[] = ['offered', 'activated', 'loaded']
 
 /** The skill fact of a `skill` step, or `null` for any other step. */
 export const skillActivityOf = (
-  step: Pick<StoredThinkingStep, 'kind' | 'skill' | 'detail' | 'turnEvent'>
+  step: Pick<StoredThinkingStep, 'kind' | 'skill' | 'detail'>
 ): SkillActivity | null => {
   if (step.kind !== 'skill') return null
-  const { phase, hidden } = step.detail ?? {}
+  const { phase, hidden, title } = step.detail ?? {}
   if (typeof phase !== 'string' || !PHASES.includes(phase)) return null
-  // The fold keeps the authored title in the `skill.activated` event, the one
-  // place it lands: a live, visible activation.
-  const title = step.turnEvent?.values?.skill
   return {
     phase: phase as SkillActivityPhase,
     ...(step.skill ? { name: step.skill } : {}),
-    ...(title ? { title } : {}),
+    ...(typeof title === 'string' && title ? { title } : {}),
     hidden: hidden === true,
   }
 }

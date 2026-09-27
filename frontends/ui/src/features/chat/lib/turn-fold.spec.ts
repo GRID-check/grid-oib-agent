@@ -267,3 +267,15 @@ describe('cards and snapshots', () => {
     expect(foldTurnEvent(view, other).interaction?.interaction_id).toBe('a')
   })
 })
+
+describe('a skill row replaced by a later phase', () => {
+  it('keeps the authored title the activation carried', () => {
+    const step = { id: 'skill:oib-brandschutznachweis', kind: 'skill', skill: 'oib-brandschutznachweis' }
+    const view = foldTurnEvents(undefined, [
+      eventOf(frameOf(1, { type: 'RUN_STARTED', message_id: 'answer-1' })),
+      eventOf(frameOf(2, { type: 'STEP_FINISHED', step: { ...step, phase: 'activated', title: 'Brandschutznachweis' } })),
+      eventOf(frameOf(3, { type: 'STEP_FINISHED', step: { ...step, phase: 'loaded' } })),
+    ])
+    expect(view?.steps[step.id]?.detail).toMatchObject({ phase: 'loaded', title: 'Brandschutznachweis' })
+  })
+})
