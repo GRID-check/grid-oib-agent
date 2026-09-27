@@ -424,6 +424,7 @@ async def _finalize_cancelled_run(
     parent_conversation_id: str | None,
     usage_context: dict | None,
     event_store: Any | None,
+    expect_run: bool = False,
 ) -> Any:
     """Finalize a run aborted via ``asyncio.CancelledError`` (hardening item 7).
 
@@ -489,6 +490,7 @@ async def _finalize_cancelled_run(
             job_id=job_id,
             usage_context=usage_context,
             notice=INTERRUPTED_NOTICE,
+            expect_run=expect_run,
         )
     # Standing INTERRUPTED counts: the cancel route wrote it before this abort
     # arrived, and the BFF's run row closes only on this report.
@@ -498,7 +500,9 @@ async def _finalize_cancelled_run(
         verdict=JobStatus.INTERRUPTED.value,
         finalized=finalized,
     ):
-        await notify_job_outcome(job_id=job_id, usage_context=usage_context, status="interrupted")
+        await notify_job_outcome(
+            job_id=job_id, usage_context=usage_context, status="interrupted", expect_run=expect_run
+        )
 
     # The event agrees with the standing verdict too (item 7): after the
     # winner's SUCCESS or the reaper's FAILURE a late abort must not rewrite
@@ -1704,6 +1708,7 @@ async def run_agent_job(
                             # live panel stayed open, which is not what "persisted"
                             # is supposed to mean.
                             transparency=transparency,
+                            expect_run=run_id is not None,
                         )
                         # What the run left behind, for its ledger: the message
                         # the report was just written into, as the writer names
@@ -1727,6 +1732,9 @@ async def run_agent_job(
                             status="success",
                             report=report,
                             cards=cards,
+                            # A job with a run id was submitted for a task_runs
+                            # row, so a 404 is "not recorded yet" and is retried.
+                            expect_run=run_id is not None,
                         )
                         logger.info(
                             "Job %s completed (report: %d chars, cards: %d)",
@@ -1748,6 +1756,7 @@ async def run_agent_job(
             parent_conversation_id=parent_conversation_id,
             usage_context=usage_context,
             event_store=event_store,
+            expect_run=run_id is not None,
         )
 
     except Exception as e:
@@ -1783,6 +1792,7 @@ async def run_agent_job(
                 job_id=job_id,
                 usage_context=usage_context,
                 notice=FAILURE_NOTICE,
+                expect_run=run_id is not None,
             )
         # A standing FAILURE (the reaper's) is reported by the reaper too; a
         # repeat here is harmless. A reclaimed loser reports nothing.
@@ -1792,7 +1802,13 @@ async def run_agent_job(
             verdict=JobStatus.FAILURE.value,
             finalized=finalized,
         ):
-            await notify_job_outcome(job_id=job_id, usage_context=usage_context, status="failure", error=safe_error)
+            await notify_job_outcome(
+                job_id=job_id,
+                usage_context=usage_context,
+                status="failure",
+                error=safe_error,
+                expect_run=run_id is not None,
+            )
 
         if event_store is None:
             event_store = BatchingEventStore(EventStore(db_url, job_id))

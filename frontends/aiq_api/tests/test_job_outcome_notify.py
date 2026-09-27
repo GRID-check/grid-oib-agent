@@ -152,3 +152,85 @@ async def test_no_tenant_on_record_reports_nothing(access_db_url) -> None:
         assert await notify_job_outcome_from_access(job_id="nope", db_url=access_db_url, status="failure") is False
 
     assert _Client.calls == []
+
+
+class _Sequence(_Client):
+    """Answers each POST with the next status in ``statuses``; an exception instance is raised."""
+
+    statuses: list = []
+
+    async def post(self, url, *, json, headers):
+        type(self).calls.append({"url": url, "json": json, "headers": headers})
+        answer = type(self).statuses.pop(0)
+        if isinstance(answer, BaseException):
+            raise answer
+        return _Response(answer)
+
+
+class TestTheReportIsRetriedBriefly:
+    """A BFF restart at the moment a run ends used to leave its row running for good.
+
+    Three attempts, and the policy for each answer is the point: a transport
+    failure or a 5xx is asked again, a 404 only when the job was submitted for a
+    ``task_runs`` row (the row may not be recorded yet), and any other 4xx never.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_restarting_bff_is_asked_again_until_it_answers(self) -> None:
+        _Sequence.statuses = [ConnectionError("frontend restarting"), 503, 200]
+        with mock.patch("aiq_api.jobs.outcome_notify.httpx.AsyncClient", _Sequence):
+            accepted = await notify_job_outcome(job_id="job-1", usage_context=USAGE, status="success")
+
+        assert accepted is True
+        assert len(_Sequence.calls) == 3
+        # Every attempt carries the same outcome: the BFF absorbs a repeat.
+        assert all(call["json"] == _Sequence.calls[0]["json"] for call in _Sequence.calls)
+
+    @pytest.mark.asyncio
+    async def test_the_attempts_are_bounded(self) -> None:
+        _Sequence.statuses = [500, 502, 503]
+        with mock.patch("aiq_api.jobs.outcome_notify.httpx.AsyncClient", _Sequence):
+            assert await notify_job_outcome(job_id="job-1", usage_context=USAGE, status="failure") is False
+        assert len(_Sequence.calls) == 3
+
+    @pytest.mark.asyncio
+    async def test_a_run_not_recorded_yet_is_retried_when_the_job_has_a_run(self) -> None:
+        """The BFF writes the backend job id after the submit returns; a quick run finishes first."""
+        _Sequence.statuses = [404, 404, 200]
+        with mock.patch("aiq_api.jobs.outcome_notify.httpx.AsyncClient", _Sequence):
+            accepted = await notify_job_outcome(job_id="job-1", usage_context=USAGE, status="success", expect_run=True)
+        assert accepted is True
+        assert len(_Sequence.calls) == 3
+
+    @pytest.mark.asyncio
+    async def test_a_job_without_a_run_takes_the_first_404_as_the_answer(self) -> None:
+        _Sequence.statuses = [404]
+        with mock.patch("aiq_api.jobs.outcome_notify.httpx.AsyncClient", _Sequence):
+            assert await notify_job_outcome(job_id="job-2", usage_context=USAGE, status="success") is False
+        assert len(_Sequence.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_refusal_is_not_asked_twice(self) -> None:
+        _Sequence.statuses = [400]
+        with mock.patch("aiq_api.jobs.outcome_notify.httpx.AsyncClient", _Sequence):
+            accepted = await notify_job_outcome(job_id="job-1", usage_context=USAGE, status="success", expect_run=True)
+        assert accepted is False
+        assert len(_Sequence.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_the_pauses_back_off_within_half_a_minute(self, monkeypatch) -> None:
+        from aiq_api import internal_retry
+
+        slept: list[float] = []
+
+        async def _record(seconds: float) -> None:
+            slept.append(seconds)
+
+        monkeypatch.setattr(internal_retry, "_sleep", _record)
+        _Sequence.statuses = [503, 503, 503]
+        with mock.patch("aiq_api.jobs.outcome_notify.httpx.AsyncClient", _Sequence):
+            await notify_job_outcome(job_id="job-1", usage_context=USAGE, status="success")
+
+        assert slept == list(internal_retry.RETRY_DELAYS_SECONDS)
+        assert slept == sorted(slept)
+        assert sum(slept) <= 30

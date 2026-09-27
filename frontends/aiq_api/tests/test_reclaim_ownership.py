@@ -277,7 +277,7 @@ class TestUserCancelPreserved:
         # Lost the status-write race, but the standing verdict IS this one, so
         # it is reported: the BFF closes the run row only on this call, and a
         # cancel that notified nobody left it `running` forever.
-        notify_spy.assert_awaited_once_with(job_id="job-1", usage_context=USAGE, status="interrupted")
+        notify_spy.assert_awaited_once_with(job_id="job-1", usage_context=USAGE, status="interrupted", expect_run=False)
 
     @pytest.mark.asyncio
     async def test_runner_winning_the_race_reports_fully(self, db_url, posts, notify_spy):
@@ -301,7 +301,27 @@ class TestUserCancelPreserved:
         assert job.error == "cancelled by user"
         assert _event_types(db_url, "job-1") == ["job.cancelled"]
         posts.assert_awaited_once()
-        notify_spy.assert_awaited_once_with(job_id="job-1", usage_context=USAGE, status="interrupted")
+        notify_spy.assert_awaited_once_with(job_id="job-1", usage_context=USAGE, status="interrupted", expect_run=False)
+
+    @pytest.mark.asyncio
+    async def test_a_cancelled_run_with_a_task_row_retries_a_404(self, db_url, posts, notify_spy):
+        """A job submitted for a task_runs row may finish before the BFF recorded
+        the row's backend job id; the cancel's report must then retry the 404."""
+        _seed_job(db_url, "job-1", "running")
+        store = _make_store(db_url)
+
+        await _finalize_cancelled_run(
+            job_store=store,
+            db_url=db_url,
+            job_id="job-1",
+            claim_owner="worker-A",
+            parent_conversation_id=CONVERSATION_ID,
+            usage_context=USAGE,
+            event_store=None,
+            expect_run=True,
+        )
+
+        notify_spy.assert_awaited_once_with(job_id="job-1", usage_context=USAGE, status="interrupted", expect_run=True)
 
     @pytest.mark.asyncio
     async def test_dask_path_has_no_claim_to_lose(self, db_url, posts, notify_spy):

@@ -46,6 +46,22 @@ def stub_private_dns(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_retry_pauses(monkeypatch):
+    """The internal-write retry pauses 5 s and 20 s between attempts; tests do not.
+
+    Every backend→BFF write goes through ``internal_retry.send_with_retry``, so
+    a test that doubles a failing BFF would otherwise wait 25 s per call. The
+    attempts still happen; only the pauses are skipped.
+    """
+    from aiq_api import internal_retry
+
+    async def _instant(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(internal_retry, "_sleep", _instant)
+
+
+@pytest.fixture(autouse=True)
 def _no_live_decisions(monkeypatch):
     """The decision model (ADR-0064) is off unless a test turns it on.
 

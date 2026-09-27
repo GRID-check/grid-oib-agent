@@ -12,6 +12,10 @@ Best-effort by contract, like ``conversation_output``: the run is already
 final in the job store when this is called, and a missed notification must
 never unmake a good run. Idempotent on the BFF side (one inbox row per run),
 so reporting twice is harmless.
+
+Retried briefly (``internal_retry``): a BFF restart or a blip at the moment a
+run ends used to leave its ``task_runs`` row ``running`` for good. What the
+retry does not heal, the BFF's run reconciler does, from the job store.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from typing import Literal
 
 import httpx
 
+from ..internal_retry import send_with_retry
 from ..websocket_reconnect import _internal_base_url
 from ..websocket_reconnect import _internal_persist_headers
 
@@ -45,14 +50,20 @@ async def notify_job_outcome(
     error: str | None = None,
     report: str | None = None,
     cards: list[dict] | None = None,
+    expect_run: bool = False,
 ) -> bool:
     """POST the run's outcome to ``/api/internal/jobs/{job_id}/outcome``.
 
     Returns ``True`` only when the BFF accepted it. Skips (``False``) rather
     than raising when the internal base URL, the service token, or the tenant
     is unknown — an interactive deep-research job submitted from a chat turn
-    has no ``job_runs`` row to report on, and the BFF answers 404 for it,
+    has no ``task_runs`` row to report on, and the BFF answers 404 for it,
     which is the ordinary case and logged at debug.
+
+    ``expect_run`` is the caller saying the job WAS submitted for a
+    ``task_runs`` row (it holds the run id). Then a 404 means "not recorded
+    yet" — the BFF writes the backend job id onto the row after the submit
+    returns, and a quick run can finish first — and is retried like a 503.
     """
     base_url = _internal_base_url()
     headers = _internal_persist_headers()
@@ -75,11 +86,14 @@ async def notify_job_outcome(
         if cards:
             payload["cards"] = cards
     url = f"{base_url.rstrip('/')}/api/internal/jobs/{job_id}/outcome"
-    try:
+
+    async def _send() -> httpx.Response:
         async with httpx.AsyncClient(timeout=_NOTIFY_TIMEOUT_SECONDS) as client:
-            response = await client.post(url, json=payload, headers=headers)
-    except Exception:  # noqa: BLE001 — best-effort by contract
-        logger.warning("Job %s: outcome report failed", job_id, exc_info=True)
+            return await client.post(url, json=payload, headers=headers)
+
+    response = await send_with_retry(_send, label=f"Job {job_id}: outcome report", retry_not_found=expect_run)
+    if response is None:
+        # Every attempt raised; send_with_retry logged the last one in full.
         return False
     if response.status_code == 404:
         # Not a scheduled run: nothing to notify, nobody to tell.
