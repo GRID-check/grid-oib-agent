@@ -224,6 +224,10 @@
               "de": "Ein abgebrochener, abgestürzter oder nie gestarteter Lauf steht in der Aufgabenliste nicht mehr endlos auf „läuft“. Er schließt jetzt mit seinem tatsächlichen Ergebnis, und wer ihn angestoßen hat, erfährt davon."
             },
             {
+              "en": "When Piloti's reply breaks after its answer text, the chat now shows the answer instead of a block of raw data.",
+              "de": "Bricht die Antwort von Piloti nach dem Antworttext ab, zeigt der Chat jetzt die Antwort statt eines Blocks roher Daten."
+            },
+            {
               "en": "An answer is no longer lost when the connection drops briefly, for instance when you switch apps or lock your iPhone. When you return, the rest of the answer appears, even after reloading the page.",
               "de": "Eine Antwort geht nicht mehr verloren, wenn die Verbindung kurz abreißt, etwa wenn Sie auf dem iPhone die App wechseln oder das Telefon sperren. Sobald Sie zurück sind, erscheint der Rest der Antwort, auch nach einem Neuladen."
             },
@@ -296,6 +300,10 @@
               "de": "Wenn Sie piloti.at jetzt aufrufen, öffnet sich die Piloti-Website statt der Testumgebung. Adressen mit www führen zur selben Seite."
             },
             {
+              "en": "A research run or task that finished during a brief outage now shows its result, instead of staying \"running\" with an empty message forever. Piloti checks unfinished runs regularly and fills in what was missed.",
+              "de": "Ein Recherchelauf oder Auftrag, der während eines kurzen Ausfalls fertig wurde, zeigt jetzt sein Ergebnis, statt für immer „läuft“ mit einer leeren Nachricht anzuzeigen. Piloti prüft unfertige Läufe regelmäßig und ergänzt, was gefehlt hat."
+            },
+            {
               "en": "A German report now ends with Quellen instead of Sources, and the note on a cut-short report follows the report's language.",
               "de": "Ein deutscher Bericht endet jetzt mit „Quellen“ statt „Sources“, und der Hinweis über einem abgebrochenen Bericht folgt der Sprache des Berichts."
             },
@@ -318,6 +326,10 @@
             {
               "en": "The file dialog in a chat no longer offers to delete project files, because that button removed nothing. Delete project files in the project's files; a chat's own attachments can still be deleted there.",
               "de": "Der Dateidialog eines Chats bietet nicht mehr an, Projektdateien zu löschen, denn dieser Knopf hat nichts entfernt. Projektdateien löschen Sie in den Projektdateien; die eigenen Anhänge eines Chats lassen sich dort weiterhin löschen."
+            },
+            {
+              "en": "A chat whose deletion failed because a service was briefly unavailable is now deleted automatically once the service is back, instead of staying hidden until someone deleted it again.",
+              "de": "Ein Chat, dessen Löschen fehlgeschlagen ist, weil ein Dienst kurz nicht erreichbar war, wird jetzt automatisch gelöscht, sobald der Dienst wieder verfügbar ist. Bisher blieb er ausgeblendet, bis jemand ihn erneut löschte."
             },
             {
               "en": "Deleting a chat now also removes every file attached to it from search. Before, the content of older attachments could stay findable after the chat was gone.",
@@ -346,6 +358,10 @@
             {
               "en": "Sending, receiving an answer and switching conversations no longer stall a phone, because Piloti now saves only the conversation that changed.",
               "de": "Senden, das Eintreffen einer Antwort und der Wechsel zwischen Unterhaltungen halten das Telefon nicht mehr an, weil Piloti nur noch die Unterhaltung speichert, die sich geändert hat."
+            },
+            {
+              "en": "A document deleted while it was still being read in no longer turns up in answers afterwards. Piloti now checks, once reading is done, that the document still exists, and drops what it read if it does not.",
+              "de": "Ein Dokument, das gelöscht wird, während es noch eingelesen wird, taucht danach nicht mehr in Antworten auf. Piloti prüft jetzt nach dem Einlesen, ob das Dokument noch existiert, und verwirft das Eingelesene, wenn nicht."
             },
             {
               "en": "Deleting a document from a project or the Archiv now also deletes the images Piloti cut out of it. If the files cannot be deleted, the document stays in the list and Piloti reports the error instead of leaving the files behind.",
@@ -458,6 +474,10 @@
             {
               "en": "Questions on fire safety for garages, covered parking and parking decks are now answered from OIB-Richtlinie 2.2 and its explanatory notes. The search used to miss this Richtlinie and return excerpts from its list of changes.",
               "de": "Fragen zum Brandschutz bei Garagen, überdachten Stellplätzen und Parkdecks werden jetzt aus der OIB-Richtlinie 2.2 und ihren Erläuterungen beantwortet. Bisher fand die Suche diese Richtlinie nicht und lieferte Auszüge aus ihrem Änderungsverzeichnis."
+            },
+            {
+              "en": "When a new version of a file cannot be read, the file preview beside the chat now says that Piloti is still citing the previous version, instead of saying the file cannot be cited at all.",
+              "de": "Lässt sich eine neue Fassung einer Datei nicht lesen, sagt die Dateivorschau neben dem Chat jetzt, dass Piloti weiterhin die vorige Fassung zitiert, statt zu melden, die Datei sei gar nicht zitierbar."
             },
             {
               "en": "The Belegt durch line shows „+N weitere“ beyond eight sources and expands on request, and Alle Quellen kopieren always copies every source.",
