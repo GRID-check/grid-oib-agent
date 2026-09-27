@@ -18,16 +18,25 @@ installed NAT, not assumed:
   because that is the attribute Langfuse checks *first* and pinning it makes
   the mapping explicit rather than dependent on an upstream detail — but it
   only ever sets it when there is a value, so it can never blank out NAT's.
+* ``user.id`` — NAT 1.9 sets it from ``Context.user_id`` at span creation
+  (#2152), and Langfuse maps ``user.id`` to the trace's user. The chat socket
+  opens every turn's session with ``user_id`` = the VERIFIED subject
+  (``aiq_api.chat_socket``), the same WorkOS user id the envelope carries, so
+  this module no longer writes ``langfuse.user.id``
+  (``test_nat_puts_the_session_user_on_every_span`` pins NAT's half). NAT sets
+  it on every span whatever ``GRID_TRACE_IDENTITY_ATTRIBUTES`` says; an
+  operator who must not store it lists ``user.id`` in ``redaction_attributes``,
+  which runs after span creation.
 * ``input.value`` / ``output.value`` — NAT emits the OpenInference attribute
   names, which Langfuse reads as the observation input/output.
 
-WHAT IS MISSING WITHOUT THIS MODULE: the user and the tenant. NAT has no
-concept of either; they arrive on the Grid ``X-Grid-*`` request headers
-(``project_context.py``), which nothing was projecting onto spans.
+WHAT IS MISSING WITHOUT THIS MODULE: the tenant. NAT has no concept of it; it
+arrives on the Grid ``X-Grid-*`` request headers (``project_context.py``),
+which nothing was projecting onto spans.
 
 ## Why a Processor and not a resource attribute
 
-Resource attributes are per-PROCESS. User and organization are per-REQUEST, and
+Resource attributes are per-PROCESS. Organization and project are per-REQUEST, and
 one agent process serves every tenant, so the only correct place is a
 per-span hook. NAT's processing pipeline is exactly that hook, and NAT's own
 ``SpanHeaderRedactionProcessor`` reads request headers the same way.
@@ -43,11 +52,11 @@ task, never on the turn the user is waiting for.
 
 ## Why this is off by default
 
-Attaching a user id to telemetry changes what the trace store *is*: ADR-0029
+Attaching identity to telemetry changes what the trace store *is*: ADR-0029
 accepted that traces carry user CONTENT, on the reasoning that the store is
-gated to platform operators. Making every span attributable to a named
-individual is a further step, and it should arrive with the product decision
-that needs it rather than by default. So availability follows the house rule —
+gated to platform operators. Tagging every span with its tenant and what a tool
+did is a further step, and it should arrive with the product decision that
+needs it rather than by default. So availability follows the house rule —
 ``GRID_TRACE_IDENTITY_ATTRIBUTES`` is injected by the deployment only when the
 Langfuse tier is deployed. An Aspire-only stack is byte-identical to before.
 """
@@ -62,10 +71,9 @@ logger = logging.getLogger(__name__)
 #: Env flag the deployment sets when the Langfuse tier is on (ADR-0044).
 IDENTITY_ATTRIBUTES_ENV = "GRID_TRACE_IDENTITY_ATTRIBUTES"
 
-#: Langfuse's trace-level attribute names. It also accepts `user.id`/`session.id`,
-#: but the `langfuse.`-prefixed spellings take precedence in its OTel mapping,
-#: so they are the ones to write when we mean to be authoritative.
-USER_ID_ATTRIBUTE = "langfuse.user.id"
+#: Langfuse's trace-level attribute names. It also accepts `session.id`, but the
+#: `langfuse.`-prefixed spelling takes precedence in its OTel mapping, so it is
+#: the one to write when we mean to be authoritative.
 SESSION_ID_ATTRIBUTE = "langfuse.session.id"
 TAGS_ATTRIBUTE = "langfuse.trace.tags"
 METADATA_PREFIX = "langfuse.trace.metadata."
@@ -620,7 +628,6 @@ def is_generation_span(attributes: dict[str, Any]) -> bool:
 
 def langfuse_attributes_for(
     *,
-    user_id: str | None,
     organization_id: str | None,
     project_id: str | None,
     conversation_id: str | None,
@@ -630,14 +637,11 @@ def langfuse_attributes_for(
 
     Pure, so the mapping can be tested without a NAT context, a span, or an
     event loop. Absent values are OMITTED rather than written as ``None`` or
-    ``"unknown"``: Langfuse renders whatever it is given, and a trace attributed
-    to the user ``"unknown"`` reads as a real user with a strange name — it
-    would also group every anonymous request into one bogus session.
+    ``"unknown"``: Langfuse renders whatever it is given, and an empty session
+    would group every anonymous request into one bogus conversation.
     """
     attributes: dict[str, Any] = {}
 
-    if user_id:
-        attributes[USER_ID_ATTRIBUTE] = user_id
     if conversation_id:
         attributes[SESSION_ID_ATTRIBUTE] = conversation_id
     if organization_id:
@@ -671,7 +675,7 @@ def current_langfuse_attributes() -> dict[str, Any]:
 
     Best-effort by construction: telemetry enrichment must never be able to
     fail a turn, so every failure path returns ``{}`` and logs at DEBUG. A span
-    missing its user id is a degraded trace; an exception escaping here would
+    missing its tenant is a degraded trace; an exception escaping here would
     be a broken export pipeline.
 
     Reads contributions via :func:`snapshot_contributions` so the attribute map
@@ -685,7 +689,6 @@ def current_langfuse_attributes() -> dict[str, Any]:
 
         context = GridRequestContext.from_context()
         return langfuse_attributes_for(
-            user_id=context.user_id,
             organization_id=context.organization_id,
             project_id=context.project_id,
             conversation_id=get_conversation_id_from_context(),
@@ -701,13 +704,13 @@ try:
     from nat.observability.processor.processor import Processor
 
     class LangfuseTraceAttributeProcessor(Processor[Span, Span]):
-        """Attach session/user/tenant attributes to every span.
+        """Attach session and tenant attributes to every span.
 
         Inserted at the FRONT of the pipeline, ahead of NAT's redaction
         processor. That ordering is deliberate and is the only one that keeps
         redaction meaningful: attributes added after the redaction pass can
-        never be redacted, so an operator who adds ``langfuse.user.id`` to
-        ``redaction_attributes`` would be configuring something with no effect.
+        never be redacted, so an operator who adds a ``langfuse.trace.metadata.*``
+        key to ``redaction_attributes`` would be configuring something with no effect.
         Running first means these attributes are subject to exactly the same
         redaction policy as ``input.value`` and ``output.value``.
         """
