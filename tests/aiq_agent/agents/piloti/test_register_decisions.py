@@ -209,18 +209,15 @@ class TestTheTurn:
             await gen.aclose()
         decide.assert_not_awaited()
 
-    async def test_a_decision_skipped_as_too_short_is_logged_and_recorded(self, caplog):
+    async def test_a_decision_skipped_as_too_short_is_logged_and_recorded(self, caplog, emitted):
         from aiq_agent.agents.piloti.decisions import TurnFacts
 
         facts = TurnFacts(question="Hallo Piloti", previous_message=None)
-        with (
-            caplog.at_level("INFO", logger="aiq_agent.common.decisions"),
-            patch("aiq_agent.common.turn_status.push_custom_step") as push,
-        ):
+        with caplog.at_level("INFO", logger="aiq_agent.common.decisions"):
             assert await register_module._decide_turn(facts) == TurnDecisions.none()
         assert "Decision turn did not run: too_short" in caplog.text
-        name, payload = push.call_args.args
-        assert name == "status:decision:turn" and payload["values"] == {"skipped": "too_short"}
+        (record,) = emitted.steps
+        assert (record.id, record.detail) == ("status:decision:turn", {"skipped": "too_short"})
 
     async def test_the_prefetch_reaches_the_turn_config(self):
         decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="baurecht", corpus_p=0.8)

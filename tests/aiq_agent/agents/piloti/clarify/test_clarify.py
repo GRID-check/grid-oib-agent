@@ -4,19 +4,18 @@ import asyncio
 import json
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
-from unittest.mock import patch
 
 import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
+from langgraph.config import get_stream_writer
 
 from aiq_agent.agents.piloti.clarify import CLARIFICATION_PROMPT
 from aiq_agent.agents.piloti.clarify import MAX_TOOL_ROUNDS
 from aiq_agent.agents.piloti.clarify import PLAN_GENERATION_PROMPT
 from aiq_agent.agents.piloti.clarify import SKIP_COMMANDS
-from aiq_agent.agents.piloti.clarify import TRACE_STEP_NAME
 from aiq_agent.agents.piloti.clarify import ClarifierSettings
 from aiq_agent.agents.piloti.clarify import ClarifyDeps
 from aiq_agent.agents.piloti.clarify import build_deps
@@ -30,6 +29,9 @@ from aiq_agent.agents.piloti.models import ClarifyRequest
 from aiq_agent.agents.piloti.models import PlanResponse
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
+from aiq_agent.common.wire_v2 import ClarificationStep
+from aiq_agent.common.wire_v2 import StepFinishedBody
+from tests.conftest import stream_custom
 
 
 @tool
@@ -491,32 +493,22 @@ class TestTheTraceRow:
     """The one thing the reader sees of this step."""
 
     @pytest.mark.asyncio
-    async def test_the_step_announces_itself_under_the_name_the_ui_maps(self):
-        """`clarifier_agent` is a UI dictionary key (intermediate-step-parser.ts)
-        and it is stamped on turns persisted before the NAT function went away,
-        so the live trace has to keep emitting exactly it."""
-        with patch("aiq_agent.agents.piloti.clarify.push_custom_step") as push:
-            await clarify(request_for(), deps_for(make_llm(clarification()), ask=AsyncMock()))
-
-        assert push.call_args.args[0] == TRACE_STEP_NAME == "clarifier_agent"
-
-    @pytest.mark.asyncio
-    async def test_it_is_emitted_before_the_first_question_blocks(self):
-        """A row that arrives after the dialog would appear once the reader has
-        already been waiting on a question with no explanation."""
-        order: list[str] = []
+    async def test_the_step_is_one_clarification_row_written_before_the_first_question(self):
+        """A row that arrived after the dialog would appear once the reader had
+        already been waiting on a question with no explanation. Run through a
+        compiled graph, so what is asserted is what the stream carries."""
 
         async def ask(question: str, options) -> str:
-            order.append("asked")
+            get_stream_writer()("asked")
             return "skip"
 
-        with patch(
-            "aiq_agent.agents.piloti.clarify.push_custom_step",
-            side_effect=lambda *a: order.append("traced"),
-        ):
-            await clarify(request_for(), deps_for(make_llm(clarification("Which angle?")), ask=ask))
+        deps = deps_for(make_llm(clarification("Which angle?")), ask=ask)
+        written = await stream_custom(lambda: clarify(request_for(), deps))
 
-        assert order == ["traced", "asked"]
+        assert written == [
+            StepFinishedBody(step=ClarificationStep(id="clarification", max_turns=deps.max_turns)),
+            "asked",
+        ]
 
 
 class TestPlanApproval:

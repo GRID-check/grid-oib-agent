@@ -17,8 +17,6 @@ a tool, which is what :class:`TestTheRoundStampReachesTheTool` does.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -35,9 +33,6 @@ from aiq_agent.common import turn_status
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.turn_status import current_retrieval_round
-
-REPO_ROOT = Path(__file__).resolve().parents[4]
-FIXTURE = REPO_ROOT / "tests" / "fixtures" / "herleitung" / "two_search_rounds_steps.json"
 
 #: What each tool call saw in the round stamp, in execution order. Module level
 #: because a LangChain ``@tool`` is a module-level object; cleared per test.
@@ -194,31 +189,8 @@ class TestSynthesisAnnouncement:
     that never complete.
     """
 
-    @pytest.fixture
-    def synthesis_steps(self):
-        """Status payloads pushed during the test, oldest first."""
-        """Every status payload pushed during the test, oldest first."""
-        from nat.plugin_api import ContextState
-        from nat.utils.reactive.subject import Subject
-
-        state = ContextState.get()
-        state.active_span_id_stack.set(["root"])
-        state._event_stream.set(Subject())
-        seen: list[dict] = []
-
-        def _on_next(step) -> None:
-            payload = step.payload
-            body = getattr(payload.data, "input", None)
-            if isinstance(body, str) and str(payload.event_type).endswith("START"):
-                seen.append(json.loads(body))
-
-        state.event_stream.get().subscribe(_on_next)
-        yield seen
-        state.active_span_id_stack.set(["root"])
-        state._event_stream.set(Subject())
-
     @pytest.mark.asyncio
-    async def test_a_researched_turn_announces_synthesis_once(self, scripted_agent, synthesis_steps):
+    async def test_a_researched_turn_announces_synthesis_once(self, scripted_agent, emitted):
         """One synthesis event per researched turn, keyed for the live line."""
         agent = scripted_agent(
             _search("k1", "Fluchtweglänge GK4"),
@@ -227,18 +199,17 @@ class TestSynthesisAnnouncement:
 
         await agent.run(ResearchAgentState(messages=[HumanMessage(content="Wie lang?")]))
 
-        syntheses = [step for step in synthesis_steps if step.get("slot") == "synthesis"]
-        assert len(syntheses) == 1
-        assert syntheses[0]["key"] == "status.synthesis"
+        syntheses = [step for step in emitted.steps if step.id == "status:synthesis"]
+        assert [step.key for step in syntheses] == ["status.synthesis"]
 
     @pytest.mark.asyncio
-    async def test_a_direct_reply_announces_no_synthesis(self, scripted_agent, synthesis_steps):
+    async def test_a_direct_reply_announces_no_synthesis(self, scripted_agent, emitted):
         """A reply with no tool work announces no synthesis phase."""
         agent = scripted_agent(AIMessage(content="Hallo!"))
 
         await agent.run(ResearchAgentState(messages=[HumanMessage(content="Hallo?")]))
 
-        assert [step for step in synthesis_steps if step.get("slot") == "synthesis"] == []
+        assert [step for step in emitted.steps if step.id == "status:synthesis"] == []
 
 
 class TestTheLaneCaptureReachesTheLedger:
@@ -292,30 +263,8 @@ class TestTheLaneCaptureReachesTheLedger:
 class TestCheckpointRate:
     """The spine's layer is drawn per round; its BODY only when the model wrote one."""
 
-    @pytest.fixture
-    def steps(self):
-        """Every custom step pushed during the test, as parsed payloads."""
-        from nat.plugin_api import ContextState
-        from nat.utils.reactive.subject import Subject
-
-        state = ContextState.get()
-        state.active_span_id_stack.set(["root"])
-        state._event_stream.set(Subject())
-        seen: list[dict] = []
-
-        def _on_next(step) -> None:
-            payload = step.payload
-            body = getattr(payload.data, "input", None)
-            if isinstance(body, str) and str(payload.event_type).endswith("START"):
-                seen.append({"step": payload.name, **json.loads(body)})
-
-        state.event_stream.get().subscribe(_on_next)
-        yield seen
-        state.active_span_id_stack.set(["root"])
-        state._event_stream.set(Subject())
-
     @pytest.mark.asyncio
-    async def test_a_turn_reports_a_checkpoint_per_round_and_whether_it_had_a_body(self, scripted_agent, steps):
+    async def test_a_turn_reports_a_checkpoint_per_round_and_whether_it_had_a_body(self, scripted_agent, emitted):
         agent = scripted_agent(
             _search("k1", "Fluchtweglänge GK4", "Ich brauche zuerst die Grundregel."),
             _search("k2", "Treppenraum", ""),
@@ -324,17 +273,17 @@ class TestCheckpointRate:
 
         await agent.run(ResearchAgentState(messages=[HumanMessage(content="Wie lang?")]))
 
-        checkpoints = [step for step in steps if str(step.get("slot", "")).startswith("checkpoint")]
-        assert [(c["round"], c["hasConclusion"]) for c in checkpoints] == [(0, True), (1, False)], (
+        checkpoints = [step for step in emitted.steps if step.id.startswith("status:checkpoint")]
+        assert [(c.detail["round"], c.detail["hasConclusion"]) for c in checkpoints] == [(0, True), (1, False)], (
             "a two-round turn must leave two countable checkpoint records, one per layer of the "
-            f"spine; steps were {[s.get('step') for s in steps]}"
+            f"spine; steps were {[step.id for step in emitted.steps]}"
         )
-        # Two records, not one merged step: the frontend dedupes on the step
-        # name, and a spine of N rounds reporting one checkpoint is not a rate.
-        assert [c["step"] for c in checkpoints] == ["status:checkpoint:0", "status:checkpoint:1"]
+        # Two records, not one merged row: the same id replaces the row, and a
+        # spine of N rounds reporting one checkpoint is not a rate.
+        assert [c.id for c in checkpoints] == ["status:checkpoint:0", "status:checkpoint:1"]
 
     @pytest.mark.asyncio
-    async def test_the_slot_wins_over_the_prose_through_the_whole_graph(self, scripted_agent, steps):
+    async def test_the_slot_wins_over_the_prose_through_the_whole_graph(self, scripted_agent, emitted):
         """The checkpoint the reader sees is the one the prompt asked for.
 
         Round 0 leaves the argument empty, which is what the prompt asks for on
@@ -364,177 +313,10 @@ class TestCheckpointRate:
 
         await agent.run(ResearchAgentState(messages=[HumanMessage(content="Wie lang?")]))
 
-        checkpoints = [step for step in steps if str(step.get("slot", "")).startswith("checkpoint")]
-        assert [(c["round"], c["hasConclusion"], c["source"]) for c in checkpoints] == [
+        checkpoints = [step for step in emitted.steps if step.id.startswith("status:checkpoint")]
+        assert [(c.detail["round"], c.detail["hasConclusion"], c.detail["source"]) for c in checkpoints] == [
             (0, False, "none"),
             (1, True, "argument"),
         ]
-        rendered = [step["reason"] for step in steps if str(step.get("slot", "")).startswith("retrieval:1")]
+        rendered = [step.reason for step in emitted.steps if step.id == "status:retrieval:1"]
         assert rendered == ["Die Grundregel steht; offen ist der GK."]
-
-
-# --- The cross-language fixture ---------------------------------------------
-
-
-def _lanes_for_round(round_index: int, chunks) -> list[dict]:
-    """The Trace-Lanes lanes one fetch produces, stamped as the tools node stamps them."""
-    from sources.knowledge_layer.src.register import _trace_lanes_json
-
-    with turn_status.retrieval_round_scope(round_index):
-        # Empty resolution maps rather than the process-global document store:
-        # this fixture must not depend on whichever database another test
-        # configured first.
-        return json.loads(_trace_lanes_json(chunks, resolved={}, resolved_titles={}))["lanes"]
-
-
-def _merge_lanes(*lane_groups: list[dict]) -> list[dict]:
-    """Both fetches as ONE step, the way the frontend store merges them.
-
-    The store keys thinking steps by function name, so the second
-    ``knowledge_search`` completion lands on the step the first one created and
-    the lane buckets are merged by key. That merge is precisely why stream order
-    cannot separate two fetches — and why every hit carries its own ``round``.
-    """
-    merged: dict[str, dict] = {}
-    for lanes in lane_groups:
-        for lane in lanes:
-            bucket = merged.setdefault(lane["key"], {**lane, "hitCount": 0, "sources": []})
-            bucket["hitCount"] += lane["hitCount"]
-            bucket["sources"].extend(lane["sources"])
-    return list(merged.values())
-
-
-def _chunk(*, file_name: str, page: int, collection: str, shelf: str | None = None):
-    from types import SimpleNamespace
-
-    metadata: dict[str, str] = {"collection": collection}
-    if shelf:
-        metadata["shelf"] = shelf
-    return SimpleNamespace(
-        file_name=file_name,
-        page_number=page,
-        content="snippet",
-        content_type=SimpleNamespace(value="text"),
-        score=0.9,
-        metadata=metadata,
-    )
-
-
-def build_two_search_round_steps() -> list[dict]:
-    """The thinking steps two search rounds produce, from the REAL producers.
-
-    Status payloads come from :mod:`aiq_agent.common.turn_status`; the
-    Trace-Lanes hits from the knowledge layer's own ``_trace_lanes_json``, each
-    under the round stamp its fetch ran with. Nothing here is hand-written, so
-    the fixture cannot quietly describe a wire nobody emits.
-    """
-    from nat.plugin_api import ContextState
-    from nat.utils.reactive.subject import Subject
-
-    state = ContextState.get()
-    previous_stack = state.active_span_id_stack.get()
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
-    emitted: list[tuple[str, dict]] = []
-
-    def _on_next(step) -> None:
-        payload = step.payload
-        body = getattr(payload.data, "input", None)
-        if isinstance(body, str) and str(payload.event_type).endswith("START"):
-            emitted.append((payload.name, json.loads(body)))
-
-    state.event_stream.get().subscribe(_on_next)
-    try:
-        turn_status.emit_retrieval(
-            [{"name": "knowledge_search", "args": {"query": "Fluchtweglänge GK4"}}],
-            round_index=0,
-            conclusion="Ich brauche zuerst die Grundregel für Fluchtweglängen.",
-        )
-        first = _lanes_for_round(0, [_chunk(file_name="OIB-RL_2.pdf", page=12, collection="oib_knowledge")])
-        # Round 1 carries its checkpoint in the tool-call ARGUMENT, which is
-        # what the prompt now asks for and what a tool-calling model actually
-        # fills. Round 0 above carries prose, the fallback channel. One of each,
-        # so the fixture pins both on the wire — and both reach the frontend as
-        # the same `reason` field, which is why the walker needed no change.
-        turn_status.emit_retrieval(
-            [
-                {
-                    "name": "knowledge_search",
-                    "args": {
-                        "query": "Treppenraum Entrauchung",
-                        "conclusion": "Die Grundregel steht; offen ist der Treppenraum.",
-                    },
-                }
-            ],
-            round_index=1,
-        )
-        second = _lanes_for_round(
-            1,
-            [_chunk(file_name="Brandschutzkonzept.pdf", page=4, collection="proj_abc", shelf="project")],
-        )
-    finally:
-        state.active_span_id_stack.set(previous_stack or ["root"])
-        state._event_stream.set(Subject())
-        turn_status._retrieval_round.set(None)
-
-    def status_step(name: str) -> dict:
-        payload = next(body for step_name, body in emitted if step_name == name)
-        return {
-            "id": name,
-            "category": "agents",
-            "functionName": name,
-            "displayName": name,
-            "content": json.dumps(payload, ensure_ascii=False),
-            "isComplete": True,
-        }
-
-    # Order is the wire's: the merged tool step keeps the position of the FIRST
-    # completion, ahead of the second round's status line. Stream order would
-    # therefore give round 1 no files at all — the `round` stamps are the only
-    # thing that can split them.
-    return [
-        status_step("status:retrieval:0"),
-        status_step("status:checkpoint:0"),
-        {
-            "id": "knowledge_search",
-            "category": "tools",
-            "functionName": "knowledge_search",
-            "displayName": "knowledge_search",
-            "content": "",
-            "isComplete": True,
-            "traceLanes": _merge_lanes(first, second),
-        },
-        status_step("status:retrieval:1"),
-        status_step("status:checkpoint:1"),
-    ]
-
-
-class TestTheSharedFixtureIsCurrent:
-    """Pin the spine's wire for the frontend, which cannot run in this process.
-
-    ``tests/fixtures/herleitung/two_search_rounds_steps.json`` is a sample of
-    what a two-round turn puts on the wire, produced by the real emitters here.
-    Its consumer is the frontend round walker,
-    ``frontends/ui/src/features/chat/lib/retrieval-rounds.ts``, exercised by
-    ``retrieval-rounds.spec.ts`` (which today builds its steps by hand): a spec
-    loading this file gets rounds 0 and 1 with one document each, and gets them
-    from the backend's own bytes instead of a copy written to match the parser.
-
-    Change the wire and exactly one side fails — which is the point. When the
-    change is intended, rewrite the fixture from
-    :func:`build_two_search_round_steps` and then run the frontend spec.
-    """
-
-    def test_the_fixture_is_what_the_emitters_produce(self):
-        assert json.loads(FIXTURE.read_text(encoding="utf-8")) == build_two_search_round_steps()
-
-    def test_the_fixture_splits_the_two_fetches_by_round_and_not_by_order(self):
-        """The property the frontend depends on, asserted on the file itself."""
-        steps = json.loads(FIXTURE.read_text(encoding="utf-8"))
-        (tool_step,) = [step for step in steps if step["functionName"] == "knowledge_search"]
-        hits = [(source["name"], source.get("round")) for lane in tool_step["traceLanes"] for source in lane["sources"]]
-        assert sorted(hits) == [("Brandschutzkonzept.pdf", 1), ("OIB-RL_2.pdf", 0)]
-        # …and it sits AHEAD of round 1's status line, so stream order alone
-        # would hand round 1 nothing.
-        names = [step["functionName"] for step in steps]
-        assert names.index("knowledge_search") < names.index("status:retrieval:1")

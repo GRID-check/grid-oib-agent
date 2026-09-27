@@ -985,6 +985,13 @@ shelf, Dokumentart and title from, so the header and the fan-out cannot
 disagree), and `ris_adapter.lookup.render.format_passages` turns `Passage`
 objects into the same records. Neither writes grammar text any more.
 
+The fan-out is typed too: `GroundingBlock.lanes` holds `TraceLane` models
+(`common/wire_v2.py`) and `GroundingBlock.tool` names the tool. The renderer
+emits them as the tool's one `sources` step on the chat wire, so the
+Herleitung never reads them back out of the text. It still writes them as the
+`## Trace-Lanes` line, because deep research's model reads that line
+(chat-wire-v2.md, F2).
+
 The renderer files each block under the SHA-256 of the exact bytes it returns,
 in a per-turn `ContextVar` that `PilotiAgent.run` opens beside
 `begin_lane_capture`. `citation_verification.extract_sources_from_tool_result`

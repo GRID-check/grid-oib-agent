@@ -362,11 +362,7 @@ class SkillRuntime:
                 )
             runtime._record_activation(skill_name)
             cards_block = _preferred_cards_block(skill)
-            body = f"{skill.body}\n\n{cards_block}" if cards_block else skill.body
-            from .events import emit_skill_loaded
-
-            emit_skill_loaded(skill, body_chars=len(body))
-            return body
+            return f"{skill.body}\n\n{cards_block}" if cards_block else skill.body
 
         use_skill.description = _TOOL_DESCRIPTION
         return [use_skill]

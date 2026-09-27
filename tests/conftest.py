@@ -176,3 +176,56 @@ def _no_live_decisions(monkeypatch):
     deletes the variable and stubs the endpoint (``test_decisions.py``).
     """
     monkeypatch.setenv("GRID_DECISIONS_ENABLED", "false")
+
+
+class Emitted(list):
+    """Every wire body a producer wrote, in order, and the steps among them."""
+
+    @property
+    def steps(self) -> list[Any]:
+        return [body.step for body in self if getattr(body, "type", "").startswith("STEP_")]
+
+    def step(self, step_id: str) -> Any:
+        """The newest step with this id: what the reader's row shows."""
+        matches = [step for step in self.steps if step.id == step_id]
+        assert matches, f"no step {step_id!r} in {[step.id for step in self.steps]}"
+        return matches[-1]
+
+
+@pytest.fixture
+def emitted(monkeypatch) -> Emitted:
+    """What producers write through ``turn_status.emit``, captured at LangGraph's writer seam.
+
+    For a unit test of one producer. A test that the writer REACHES a producer
+    runs it in a compiled graph instead (:func:`stream_custom`).
+    """
+    bodies = Emitted()
+    monkeypatch.setattr("aiq_agent.common.turn_status.get_stream_writer", lambda: bodies.append)
+    return bodies
+
+
+async def stream_custom(work: Any) -> Emitted:
+    """Await ``work()`` as the one node of a compiled graph under ``astream(stream_mode=["custom"])``.
+
+    Returns every body the node wrote, exactly as the chat socket's stream would
+    carry them.
+    """
+    from typing import TypedDict
+
+    from langgraph.graph import END
+    from langgraph.graph import START
+    from langgraph.graph import StateGraph
+
+    class _State(TypedDict, total=False):
+        done: bool
+
+    async def node(_state: _State) -> _State:
+        await work()
+        return {"done": True}
+
+    builder = StateGraph(_State)
+    builder.add_node("producer", node)
+    builder.add_edge(START, "producer")
+    builder.add_edge("producer", END)
+    graph = builder.compile()
+    return Emitted([chunk async for _mode, chunk in graph.astream({}, stream_mode=["custom"])])

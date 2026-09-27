@@ -77,7 +77,8 @@ from aiq_agent.common.turn_status import SUBJECT_EMPTY
 from aiq_agent.common.turn_status import SUBJECT_NOT_STORED
 from aiq_agent.common.turn_status import SUBJECT_REFUSED
 from aiq_agent.common.turn_status import SUBJECT_UNREACHABLE
-from aiq_agent.common.turn_status import emit_subject_document
+from aiq_agent.common.turn_status import subject_document_step
+from aiq_agent.common.wire_v2 import StatusStep
 from aiq_agent.tools.documents.draft_store import DRAFT_ROOT
 from aiq_agent.tools.documents.draft_store import FILED_DOCUMENT_KEY
 from aiq_agent.tools.documents.draft_store import DraftBackend
@@ -129,8 +130,8 @@ def draft_path(display_name: str) -> str:
     return f"{DRAFT_ROOT}{(name or 'dokument')[:MAX_NAME_CHARS]}.md"
 
 
-async def _fetch(version_id: str, organization_id: str, conversation_id: str) -> dict | None:
-    """The version's body, or ``None`` with the miss already recorded.
+async def _fetch(version_id: str, organization_id: str, conversation_id: str) -> dict | StatusStep:
+    """The version's body, or the miss as its step.
 
     Both scopes travel. The route refuses unless the version is THIS
     conversation's subject, and a ``404`` is therefore not a fault: the composer
@@ -143,12 +144,10 @@ async def _fetch(version_id: str, organization_id: str, conversation_id: str) ->
     except FilingError as refused:
         if refused.status == 404:
             logger.info("Subject version %s is not this conversation's subject; the turn continues", version_id)
-            emit_subject_document(loaded=False, version_id=version_id, reason=SUBJECT_ABSENT)
-            return None
+            return subject_document_step(loaded=False, version_id=version_id, reason=SUBJECT_ABSENT)
         reason = SUBJECT_REFUSED if refused.status is not None else SUBJECT_UNREACHABLE
         logger.warning("Subject version %s could not be read: %s", version_id, refused)
-        emit_subject_document(loaded=False, version_id=version_id, reason=reason)
-        return None
+        return subject_document_step(loaded=False, version_id=version_id, reason=reason)
 
 
 def already_loaded(usage: DraftUsage, filing: dict[str, str]) -> bool | None:
@@ -216,12 +215,14 @@ async def load_subject_document(
     *,
     conversation_id: str | None,
     organization_id: str | None,
-) -> str | None:
+) -> StatusStep | None:
     """Put the turn's unpublished subject into the working directory.
 
-    Returns the path it was written to, or ``None`` — which is every other case,
-    including every failure. One member of the turn's setup gather; see the
-    module docstring for why nothing here may raise.
+    Returns the technical step that records the outcome, for ``_run`` to yield:
+    the read runs in the setup phase, outside any graph, so nothing here can
+    emit. ``None`` when nothing was expected (no open subject) or the copy was
+    already there. One member of the turn's setup gather; see the module
+    docstring for why nothing here may raise.
 
     Args:
         subject: What the composer said this turn is about.
@@ -245,7 +246,7 @@ async def _load_subject_document(
     *,
     conversation_id: str | None,
     organization_id: str | None,
-) -> str | None:
+) -> StatusStep | None:
     # A published subject, a plain question, or a run with nowhere to put a file.
     # None of the three is a miss worth recording: nothing was expected.
     if not subject.is_open or not conversation_id or not organization_id:
@@ -253,14 +254,13 @@ async def _load_subject_document(
 
     assert subject.version_id is not None  # noqa: S101 - `is_open` is the check; this is for the type
     body = await _fetch(subject.version_id, organization_id, conversation_id)
-    if body is None:
-        return None
+    if isinstance(body, StatusStep):
+        return body
 
     text = body.get("content")
     if not isinstance(text, str) or not text.strip():
         logger.info("Subject version %s has no text to read", subject.version_id)
-        emit_subject_document(loaded=False, version_id=subject.version_id, reason=SUBJECT_EMPTY)
-        return None
+        return subject_document_step(loaded=False, version_id=subject.version_id, reason=SUBJECT_EMPTY)
 
     path = draft_path(str(body.get("displayName") or body.get("filename") or ""))
     filing = filing_record(body)
@@ -268,16 +268,15 @@ async def _load_subject_document(
     standing = already_loaded(await backend.aread(path), filing)
     if standing is None:
         logger.warning("Working-directory path %s belongs to another document; subject not read", path)
-        emit_subject_document(loaded=False, version_id=subject.version_id, reason=SUBJECT_NOT_STORED)
-        return None
+        return subject_document_step(loaded=False, version_id=subject.version_id, reason=SUBJECT_NOT_STORED)
     if standing:
         logger.debug("Subject document %s already in the working directory at %s", subject.document_id, path)
-        return path
-    if not await _write(backend, path, text, filing):
-        emit_subject_document(loaded=False, version_id=subject.version_id, reason=SUBJECT_NOT_STORED)
         return None
+    if not await _write(backend, path, text, filing):
+        return subject_document_step(loaded=False, version_id=subject.version_id, reason=SUBJECT_NOT_STORED)
 
-    emit_subject_document(
+    logger.info("Subject document %s (%s) read into %s", subject.document_id, subject.state, path)
+    return subject_document_step(
         loaded=True,
         document_id=subject.document_id,
         version_id=subject.version_id,
@@ -285,5 +284,3 @@ async def _load_subject_document(
         path=path,
         chars=len(text),
     )
-    logger.info("Subject document %s (%s) read into %s", subject.document_id, subject.state, path)
-    return path

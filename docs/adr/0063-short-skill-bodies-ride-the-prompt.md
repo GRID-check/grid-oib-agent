@@ -117,8 +117,9 @@ model (`cards/envelope.py`).
 
 - `tests/aiq_agent/skills/test_inline_bodies.py`: the two caps, catalog
   order, the delimited block, names-not-shapes, activation only by the
-  envelope and only for an inlined body, the `offered` event's
-  `inlined_count`, and the platform methods fitting the default budget.
+  envelope and only for an inlined body, and the platform methods fitting the
+  default budget. (The `offered` event's `inlined_count` went with chat wire
+  v2, whose `skill` step carries the catalog count only.)
 - `tests/aiq_agent/agents/piloti/test_skills_applied.py` and
   `test_register_skills.py`: the field is lifted from the envelope, carried on
   the state, handed to the runtime after the run, and `skills_activated` is

@@ -52,10 +52,9 @@
 > side too (ledger row 19): the sources hang off the checkpoint that fetched
 > them, each checkpoint FOLDS to the count of what that fetch returned, and a
 > spine of three or more rounds arrives with everything but the newest layer
-> folded. The frontend round walker is pinned to the backend's own bytes —
-> `tests/fixtures/herleitung/two_search_rounds_steps.json` is written by the
-> emitters and read by `retrieval-rounds.spec.ts`, so a change to the wire
-> fails exactly one side.
+> folded. Since chat wire v2 the round walker reads typed `retrieval` and
+> `sources` steps, pinned by the contract fixtures under `shared/wire/v2/` on
+> both sides.
 > **Method.** Read the live system prompt, the answer envelope, the shallow ReAct loop, the Herleitung graph, and the production config. Cross-checked against the 2026-09-01 workspace architecture review, ADRs 0051–0052, and current industry writing on agentic RAG, coding agents, legal AI, and AEC clouds.
 
 **What “Harvey for architects” means here.** Harvey is a workspace for lawyers, not a statute chatbot. Piloti is a workspace for architects, not an OIB chatbot. Questions are about the work — files, drawings, the model, how to organise, what to tell a colleague. Answers are *grounded* in whichever of these actually bears: the project’s files, the office archive, and the Austrian building-regulation corpus. Not every question is a legal question. A ruling is only when there is a copyable legal value. Treating “workspace for architects” as “every answer is about law” is the same colocation this report is trying to kill.

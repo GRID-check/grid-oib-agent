@@ -1307,7 +1307,7 @@ def lane_for_knowledge_hit(
 
     This exists so the two consumers of the rule cannot drift: the citation
     chips (``citation_verification.source_lane``) and the Herleitung fan-out
-    (``knowledge_layer.register._trace_lanes_json``) used to apply it
+    (``knowledge_layer.register._trace_lanes_for_hits``) used to apply it
     separately, and only the former actually did — so the same document showed
     as "Projektwissen" on a chip and "Web" in the fan-out of the same answer.
     """

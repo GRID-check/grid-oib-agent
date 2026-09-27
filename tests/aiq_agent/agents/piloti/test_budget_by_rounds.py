@@ -26,7 +26,6 @@ than whatever the template happens to say today.
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -113,26 +112,9 @@ def _bypass_citation_pipeline():
 
 
 @pytest.fixture
-def steps():
-    """Every custom step pushed during the test, as parsed payloads."""
-    from nat.plugin_api import ContextState
-    from nat.utils.reactive.subject import Subject
-
-    state = ContextState.get()
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
-    seen: list[dict] = []
-
-    def _on_next(step) -> None:
-        payload = step.payload
-        body = getattr(payload.data, "input", None)
-        if isinstance(body, str) and str(payload.event_type).endswith("START"):
-            seen.append({"step": payload.name, **json.loads(body)})
-
-    state.event_stream.get().subscribe(_on_next)
-    yield seen
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
+def steps(emitted):
+    """Every body the producers wrote during the test (``tests/conftest.py``)."""
+    return emitted
 
 
 def _call(name: str, call_id: str, **args) -> dict:
@@ -235,9 +217,9 @@ class TestTheCeilingIsRounds:
         assert result.research_truncated is True
         # Three rounds of two calls: the calls are not what ran out.
         assert len(RAN) == 6
-        (record,) = [step for step in steps if step.get("slot") == "budget"]
-        assert (record["ceiling"], record["spent"], record["rounds"]) == (3, 3, 3)
-        assert record["channel"] == turn_status.CHANNEL_TECHNICAL
+        (record,) = [step for step in steps.steps if step.id == "status:budget"]
+        assert (record.detail["ceiling"], record.detail["spent"], record.detail["rounds"]) == (3, 3, 3)
+        assert record.channel == turn_status.CHANNEL_TECHNICAL
 
     def test_the_recursion_guard_derives_from_the_round_ceiling_alone(self):
         """Two graph steps per round, the synthesis, and slack — nothing added."""
@@ -283,12 +265,12 @@ class TestTheInputTokenStop:
         assert RAN == [], "the turn was stopped before it could spend another round"
         assert result.tool_iterations == 0
         assert result.research_truncated is True
-        (record,) = [step for step in steps if step.get("slot") == "budget:input"]
-        assert (record["limit"], record["spent"], record["rounds"]) == (1000, 1500, 0)
-        assert record["truncated"] is True
+        (record,) = [step for step in steps.steps if step.id == "status:budget:input"]
+        assert (record.detail["limit"], record.detail["spent"], record.detail["rounds"]) == (1000, 1500, 0)
+        assert record.detail["truncated"] is True
         # Technical, like the round record: whether the READER is told is a
         # product decision, and a live key would make it silently.
-        assert record["channel"] == turn_status.CHANNEL_TECHNICAL
+        assert record.channel == turn_status.CHANNEL_TECHNICAL
         assert "key" not in record
 
     async def test_it_is_a_separate_record_from_the_round_ceiling(self, spent_tracker, steps):
@@ -298,7 +280,7 @@ class TestTheInputTokenStop:
 
         await _run(agent)
 
-        assert [step["slot"] for step in steps if str(step["slot"]).startswith("budget")] == ["budget:input"]
+        assert [step.id for step in steps.steps if step.id.startswith("status:budget")] == ["status:budget:input"]
 
     async def test_a_turn_under_the_ceiling_researches_normally(self, spent_tracker):
         agent = _agent(
@@ -419,10 +401,10 @@ class TestTheRoundWidthCap:
 
         await _run(agent)
 
-        (record,) = [step for step in steps if str(step["slot"]).startswith("width")]
-        assert record["step"] == "status:width:0"
-        assert (record["round"], record["kept"], record["withheld"]) == (0, 2, 3)
-        assert record["channel"] == turn_status.CHANNEL_TECHNICAL
+        (record,) = [step for step in steps.steps if step.id.startswith("status:width")]
+        assert record.id == "status:width:0"
+        assert (record.detail["round"], record.detail["kept"], record.detail["withheld"]) == (0, 2, 3)
+        assert record.channel == turn_status.CHANNEL_TECHNICAL
         assert "key" not in record
 
     async def test_the_deferred_call_runs_when_it_is_issued_again(self):
@@ -455,7 +437,7 @@ class TestTheRoundWidthCap:
 
         assert len(RAN) == 5
         assert result.tool_iterations == 1
-        assert [step for step in steps if str(step["slot"]).startswith("width")] == []
+        assert [step for step in steps.steps if step.id.startswith("status:width")] == []
 
     async def test_zero_disables_the_cap(self):
         agent = _agent(
