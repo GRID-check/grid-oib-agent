@@ -1,13 +1,11 @@
 ---
 improvements:
   - >
-    Die Herleitung baut sich während der Arbeit sichtbar auf: Neue Schritte und
-    Quellen blenden weich ein, jede neue Verbindungslinie zeichnet sich einmal
-    vom Schritt zur Quelle, und die Grafik wächst gleitend statt zu springen.
-    Ein Punkt läuft entlang der Linien in den gerade offenen Schritt. Das gilt
-    am Telefon wie am Desktop und kostet im Ruhezustand weniger Rechenzeit als
-    bisher.
+    The Herleitung now builds up visibly while Piloti works: new steps and
+    sources fade in, each new connector draws itself once, and the graph grows
+    smoothly instead of jumping. A dot runs along the lines into the step in
+    progress, on phone and desktop alike, and the graph costs less processing
+    time at rest than before.
   - >
-    Eine abgeschlossene Herleitung erscheint beim Öffnen sofort ohne Animation,
-    und wer in den Systemeinstellungen reduzierte Bewegung gewählt hat, sieht
-    überhaupt keine.
+    A finished Herleitung opens at once without animation, and anyone who has
+    chosen reduced motion in their system settings sees none at all.

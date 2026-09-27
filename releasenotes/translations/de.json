@@ -136,6 +136,10 @@
     "de": "Ein Filter neben „Alle · Meine · Unvergeben“ zeigt nur, was Piloti verfasst hat, sodass die generierten Berichte eines Projekts unabhängig davon, wie sie abgelegt wurden, mit einem Klick erreichbar sind."
   },
   {
+    "en": "A finished Herleitung opens at once without animation, and anyone who has chosen reduced motion in their system settings sees none at all.",
+    "de": "Eine abgeschlossene Herleitung erscheint beim Öffnen sofort ohne Animation, und wer in den Systemeinstellungen reduzierte Bewegung gewählt hat, sieht überhaupt keine."
+  },
+  {
     "en": "A finished Recherchebericht now lands in your project instead of only in the chat. You will find it under „Berichte\", where you can open it, preview it, download it and delete it like any other file — and share it with the people on the project without copying anything out.",
     "de": "Ein fertiger Recherchebericht landet jetzt in Ihrem Projekt statt nur im Chat. Sie finden ihn unter „Berichte“, wo Sie ihn wie jede andere Datei öffnen, in der Vorschau ansehen, herunterladen oder löschen und mit den Personen im Projekt teilen können, ohne etwas herauskopieren zu müssen."
   },
@@ -1490,6 +1494,10 @@
   {
     "en": "The Herleitung no longer repeats the same source name, as in „RIS, RIS, RIS“. Each kind of work now appears once.",
     "de": "Die Herleitung wiederholt nicht mehr denselben Quellennamen, wie in „RIS, RIS, RIS“. Jede Art von Arbeit erscheint jetzt einmal."
+  },
+  {
+    "en": "The Herleitung now builds up visibly while Piloti works: new steps and sources fade in, each new connector draws itself once, and the graph grows smoothly instead of jumping. A dot runs along the lines into the step in progress, on phone and desktop alike, and the graph costs less processing time at rest than before.",
+    "de": "Die Herleitung baut sich während der Arbeit sichtbar auf: Neue Schritte und Quellen blenden weich ein, jede neue Verbindungslinie zeichnet sich einmal, und die Grafik wächst gleitend statt zu springen. Ein Punkt läuft entlang der Linien in den gerade offenen Schritt, am Telefon wie am Desktop, und die Grafik kostet im Ruhezustand weniger Rechenzeit als bisher."
   },
   {
     "en": "The Herleitung shows for every research step what was opened in each document, by page or point.",
