@@ -202,6 +202,12 @@ imports a NAT step-name parser, since there is none left to import.
 
 Decided 2026-09-27 as one cut rather than the four phased steps first
 drafted: steps 1-3 below land together, and there is no `v: 1` period.
+Later the same day the product owner moved step 4 into the cut as well. The
+upgrade lands **first**, as its own slice with its own exit (the backend suite
+green on 1.9.0), and the wire slices build on it. So all four steps ship in one
+PR, and the upgrade's slice keeps a regression bisectable on the integration
+branch. The design of record, with the slices and what 1.9 does and does not
+replace: [`docs/design/chat-wire-v2.md`](../design/chat-wire-v2.md).
 
 1. **Own the WS route.** `websocket_path: null`, route added in
    `AIQAPIWorker.add_routes`, monkeypatch deleted.
@@ -213,8 +219,11 @@ drafted: steps 1-3 below land together, and there is no `v: 1` period.
 3. **Own the HITL frames.** Our interaction frames over NAT's
    `prompt_user_input`. Exit: no `nat.data_models.interactive` import outside
    the handler.
-4. **Upgrade to 1.9** afterwards, on its own (about a week): move imports onto
-   the public plugin API. Kept apart so a regression points at one change.
+4. **Upgrade to 1.9**, the cut's first slice: pin `nvidia-nat*==1.9.0`, move
+   imports onto the public plugin API (`nat.plugin_api`), and fix what breaks.
+   Exit: the backend suite green on 1.9.0 before the wire slices build on it.
+   (First drafted as a separate step afterwards; moved into the cut
+   2026-09-27.)
 
 `interrupt()`-based HITL and leaving NAT (B) are separate decisions, each
 reached from here without rework.

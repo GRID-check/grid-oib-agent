@@ -1,5 +1,9 @@
 # NAT WebSocket Protocol
 
+> **Being replaced.** The chat wire is being rebuilt as typed `v: 2` events in one cut
+> (ADR-0068). The design and the contract are in [`design/chat-wire-v2.md`](../design/chat-wire-v2.md).
+> This page describes the wire that runs until that cut lands.
+
 The UI communicates with the AI-Q Python backend via the **NAT WebSocket protocol** (NeMo Agent Toolkit compatible). This provides full human-in-the-loop (HITL) support including streaming responses, intermediate steps, clarification prompts, and approval flows.
 
 ---
