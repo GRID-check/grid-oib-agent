@@ -187,6 +187,10 @@ const de = {
     // Measured: the median chat answer takes about 30 seconds.
     big: '≈\u202f30\u00a0s',
     sub: 'gemessene typische Antwortzeit',
+    // The chat beside this is a fictional example; the post is the real thing.
+    howLead: 'Wie eine Antwort entsteht:',
+    howLabel: 'Wie Piloti funktioniert',
+    howHref: '/blog/wie-piloti-funktioniert/',
   },
   daten: {
     title: 'Quellen, die Sie prüfen können.',
@@ -210,14 +214,16 @@ const de = {
         { label: 'Quellenverweis', value: 'Paragraf, Punkt, Seite' },
       ],
       dataHeading: 'Zu Ihren Daten',
-      // No residency promise of any kind: model calls may leave the EU. What
-      // is stated here is what Piloti itself controls.
+      // No residency promise of any kind: model calls may leave the EU. The
+      // first three lines are what Piloti itself controls; the last says where
+      // the data goes, in the privacy policy's words and no further.
       data: [
         'Wir trainieren keine Modelle mit Ihren Daten.',
         'Pläne und Projekte bleiben Eigentum Ihres Büros.',
         'Dokumente und Antworten laden Sie einzeln herunter.',
+        'Anmeldung über WorkOS (USA). KI-Anfragen laufen über OpenRouter (USA) an Modellanbieter, die auch außerhalb der EU sitzen können.',
       ],
-      link: 'Welche KI-Anbieter beteiligt sind, steht in der Datenschutzerklärung',
+      link: 'Details in der Datenschutzerklärung',
     },
   },
   roi: {
@@ -330,8 +336,24 @@ const de = {
     body: 'Wir entwickeln Piloti mit wenigen Büros. Sie bekommen früh Zugang, einen direkten Draht zu uns Gründern und Einfluss darauf, was wir als Nächstes bauen. Wir bekommen Ihre Planungsfragen aus dem Büroalltag und ehrliches Feedback.',
     primary: 'Pilotbüro werden',
     secondary: 'Gespräch anfragen',
+    stepsLabel: 'So geht es weiter',
+    steps: [
+      { title: 'Sie schreiben uns', body: 'Ein paar Zeilen zu Ihrem Büro genügen.' },
+      { title: 'Wir sprechen', body: 'Sie zeigen uns, wo Sie heute suchen. Wir zeigen Ihnen Piloti.' },
+      { title: 'Sie planen mit Piloti', body: 'Mit echten Fragen aus Ihrem Alltag, und Sie sagen uns, was fehlt.' },
+    ],
     subjectPilot: 'Pilotbüro',
     subjectCall: 'Gespräch',
+    bodyPilot:
+      'Guten Tag,\n\nwir interessieren uns für die Pilotphase.\n\nBüro:\nOrt:\nPlaner:innen im Team:\nWofür wir Piloti zuerst einsetzen würden:\n\n',
+    bodyCall: 'Guten Tag,\n\nwir würden gern mit Ihnen sprechen.\n\nBüro:\nTermine, die uns passen:\n\n',
+  },
+  // The one line that closes a subpage (EndInvite), before the footer. Each
+  // says only what the landing page already stands behind.
+  invite: {
+    blog: 'Wir entwickeln Piloti mit wenigen Pilotbüros. Soll Ihres dabei sein, schreiben Sie uns.',
+    changelog: 'Was hier als Nächstes steht, bestimmen die Pilotbüros mit.',
+    rechenweg: 'Gemessen hat das noch niemand. Messen wir es in Ihrem Büro.',
   },
   chat: {
     header: 'Piloti',
@@ -473,7 +495,6 @@ const de = {
     categoryLabel: 'Kategorie',
     entry: 'Eintrag',
     empty: 'Noch keine Beiträge. Der erste Artikel ist in Arbeit.',
-    readMore: 'Weiterlesen →',
     allPosts: '← Alle Beiträge',
   },
   // The changelog page. Its ENTRIES are not here: they come from
@@ -758,6 +779,9 @@ const en: typeof de = {
     body: 'You design, Piloti supplies the context: the regulation that applies, the experience from your past projects and the conditions on your plot. The decision stays yours.',
     big: '≈\u202f30\u00a0s',
     sub: 'measured typical response time',
+    howLead: 'How an answer comes about:',
+    howLabel: 'How Piloti works',
+    howHref: '/en/blog/how-piloti-works/',
   },
   daten: {
     title: 'Sources you can check.',
@@ -783,8 +807,9 @@ const en: typeof de = {
         'We do not train models on your data.',
         'Plans and projects remain the property of your office.',
         'You download documents and answers one by one.',
+        'Sign-in through WorkOS (USA). AI requests go through OpenRouter (USA) to model providers that may be based outside the EU.',
       ],
-      link: 'Which AI providers are involved is set out in the privacy policy',
+      link: 'Details in the privacy policy',
     },
   },
   roi: {
@@ -897,8 +922,22 @@ const en: typeof de = {
     body: 'We are building Piloti with a small number of offices. You get early access, a direct line to us founders and a say in what we build next. We get the planning questions from your working day, and honest feedback.',
     primary: 'Become a pilot office',
     secondary: 'Request a call',
+    stepsLabel: 'What happens next',
+    steps: [
+      { title: 'You write to us', body: 'A few lines about your office are enough.' },
+      { title: 'We talk', body: 'You show us where you search today. We show you Piloti.' },
+      { title: 'You plan with Piloti', body: 'On real questions from your working day, and you tell us what is missing.' },
+    ],
     subjectPilot: 'Pilot office',
     subjectCall: 'Call',
+    bodyPilot:
+      'Hello,\n\nwe are interested in the pilot phase.\n\nOffice:\nLocation:\nPlanners on the team:\nWhat we would use Piloti for first:\n\n',
+    bodyCall: 'Hello,\n\nwe would like to talk to you.\n\nOffice:\nTimes that suit us:\n\n',
+  },
+  invite: {
+    blog: 'We are building Piloti with a few pilot offices. If yours should be one of them, write to us.',
+    changelog: 'The pilot offices help decide what comes next on this list.',
+    rechenweg: 'Nobody has measured this yet. Let us measure it in your office.',
   },
   chat: {
     header: 'Piloti',
@@ -1031,7 +1070,6 @@ const en: typeof de = {
     categoryLabel: 'Category',
     entry: 'Entry',
     empty: 'No posts yet. The first article is in the works.',
-    readMore: 'Read on →',
     allPosts: '← All posts',
   },
   changelog: {

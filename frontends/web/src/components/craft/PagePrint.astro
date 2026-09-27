@@ -39,6 +39,8 @@ interface Props {
   tone?: 'light' | 'dark'
   align?: 'start' | 'center' | 'end'
   loading?: 'lazy' | 'eager'
+  /** The page's LCP image: loaded eagerly and fetched first. */
+  priority?: boolean
   /** The plate arrives by ink pass (components/motion/InkPass); `still` opts out. */
   still?: boolean
   class?: string
@@ -50,7 +52,8 @@ const {
   phone,
   tone = 'light',
   align = 'start',
-  loading = 'lazy',
+  priority = false,
+  loading = priority ? 'eager' : 'lazy',
   still = false,
   class: className = '',
 } = Astro.props
@@ -82,6 +85,7 @@ const ALIGN = { start: '', center: 'mx-auto', end: 'ml-auto' }
       height={a.height / DIVISOR}
       alt={alt}
       loading={loading}
+      fetchpriority={priority ? 'high' : undefined}
       decoding="async"
     />
   </InkPass>

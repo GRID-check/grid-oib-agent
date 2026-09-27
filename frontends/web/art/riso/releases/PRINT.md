@@ -66,7 +66,7 @@ What differs, and why:
 Plate I's house, on the same kind of model board: a bar 16 × 9 × 3.4 m on three
 pilotis 4 m tall (two under the west end, one under the east), ribbon windows,
 a roof garden bed and a roof pavilion under a projecting plate. A tower crane
-stands at the back right, a site hut at the front right.
+stands east of the house, a site hut at the front right.
 
 Steps, in building order: a stake with a red ribbon; the staked-out footprint;
 the site hut; the crane; three footings; three pilotis; four floor bays; four
@@ -74,9 +74,29 @@ wall bays; the ribbon window in three pieces (south, south, west); the roof
 bed; its planting; the pavilion; its roof; the crane leaves; the lawn (the hut
 leaves with it); the path; a tree where the crane stood; the first visitor.
 
-- **The crane.** Its jib swings toward the part being set and its hook hangs
-  over it, so a mid-build stamp says where the work is without any red at all.
-  Steps with no part to lift turn the jib by `rngFor('releases:jib:<n>')`.
+- **The crane.** A hammerhead tower crane, drawn so each of its tells survives
+  at 64 px: a concrete footing on the board; a lattice mast (a 1.6 m square
+  tower with one zig-zag on its sunlit south face, which at 64 px prints as a
+  chain of diamonds, the tell); the slewing unit (solid Moss) with the cab
+  beside it; the cat head, an A-frame over the mast; a horizontal jib of two
+  chords with a zig-zag between them (a dotted band at 64 px, a lattice at
+  128); a short counter-jib the other way carrying a solid counterweight; ties
+  from the cat head to the jib and to the counter-jib's end; a trolley on the
+  jib, the hoist rope and a solid hook block. The jib slews toward the part
+  being set, in plan: the trolley runs out to the part's radius and the hook
+  block hangs just above it, so a mid-build stamp says where the work is
+  without any red at all. Steps with no part to lift turn the jib by
+  `rngFor('releases:jib:<n>')`. On its own step (4) the whole crane prints red,
+  its solid parts as red fields on knocked-out ground.
+- **Where the crane stands.** A horizontal jib slewing in plan foreshortens and,
+  in the series camera, slopes down-left when it turns toward the viewer (−y).
+  At the back right (y = 10, the first crane's spot) the jibs aimed at the east
+  parts sloped 25–35° and read as a luffing jib or a ladder. The crane now
+  stands at (19.2, 7.2), level with the middle of the house: most jibs lie
+  within 15° of the horizontal, and the footing still shows above the site
+  hut's roof. The framing point is the first crane's apex (`FRAME`), so the
+  view of all thirty stamps did not move. The tree of step 29 grows on the
+  crane's footing, as the step says.
 - **The bar.** Bays go in west to east, so what stands is a walled run and a
   bare deck run: two boxes with fine joint lines, never four boxes (the first
   proof drew each bay with a silhouette and the bar read as a caterpillar).
@@ -86,6 +106,11 @@ leaves with it); the path; a tree where the crane stood; the first visitor.
   pilotis read as a comb, the crane dominated and the house was a sliver.
   Plate I's tripod replaced it, which also makes the finished stamp the house
   of plate I.
+- **Rejected crane (2026-09-27).** The first crane was a 0.8 m mast, one line
+  for the jib, one for a tie and a dark box: it read as "a stick with a
+  diagonal line and a dark blob" (the founders), with no counter-jib or cat
+  head, and at y = 10 the jib aimed at the east parts pointed steeply
+  down-left. A redraw at y = 9 still sloped 25–30° for steps 7, 14 and 20.
 
 ## Formats
 
@@ -105,6 +130,14 @@ leaves with it); the path; a tree where the crane stood; the first visitor.
   red speck, as a 1:100 figure is at this size).
 - 2x, steps 11–16: floor and wall bays with the knockout red outline.
 - The changelog page at 390 and 1440 px, German and English.
+- Crane redraw (2026-09-27): contact sheets of all thirty at 128 px (native
+  and 2x zoom) and of the on-page files at 64 px multiplied onto the page
+  colour (native and 3x), before and after. 1:1 crops of the crane at 5x
+  (128 px) and 8x (64 px), nearest-neighbour, for steps 4 (red, idle jib),
+  14 (a jib aimed south-east), 20 (the steepest jib) and 22 (a level jib over
+  the roof). Found and fixed: a Mist west face on the mast showed as a green
+  strip inside the red crane of step 4 (now bare stock, as west faces are).
+  Steps 1–3 and 26–28 re-exported byte-identical.
 
 ## Remaining weaknesses
 
@@ -112,8 +145,16 @@ leaves with it); the path; a tree where the crane stood; the first visitor.
   fixed to leave room for the crane apex, so the finished house sits low.
 - The first visitor (step 30) is a speck at 64 px; she reads only as "something
   red on the path".
-- The tree stands half behind the house's east end and reads as a green half
-  disc.
+- The tree stands partly behind the house's east end and reads as a green
+  disc cut on its left.
+- **Crane.** Step 20 (the second south window half, hooked at y = 0) still
+  aims its jib at about 30° down-left: the jib's lattice crowds the cat head
+  there, and it reads as a crane turned toward the viewer rather than a clean
+  hammerhead. Steps 14 and 21 slope about 15°. At 64 px the cab, trolley and
+  hook block are one or two pixels each: they add weight in the right places
+  but are not individually legible; the silhouette (mast, cat head, jib,
+  counterweight) carries the read. The footing shows only as a sliver above
+  the site hut's roof.
 - Steps 5–10 (footings, pilotis) are sparse: a board, a crane and a few red
   marks. They are the weakest stamps of the set.
 - Hash mapping repeats stamps (21 distinct among the 29 current releases), and

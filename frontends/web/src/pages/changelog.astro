@@ -1,6 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro'
 import Changelog from '../components/organisms/Changelog.astro'
+import EndInvite from '../components/molecules/EndInvite.astro'
 import { ui } from '../i18n/ui'
 import { SHARE_ART } from '../lib/seo'
 
@@ -9,6 +10,7 @@ const t = ui.de.seo.pages.changelog
 
 <BaseLayout locale="de" title={t.title} description={t.description} ogArt={SHARE_ART.changelog}>
   <Changelog locale="de" />
+  <EndInvite locale="de" page="changelog" />
 </BaseLayout>
 
 <script>

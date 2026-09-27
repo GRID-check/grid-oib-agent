@@ -113,7 +113,7 @@ function inert() {
  */
 export function evaluateWork(work) {
   const html = fs.readFileSync(work.html, 'utf8');
-  const scripts = [...html.matchAll(/<script(?:\s+src="([^"]+)")?\s*>([\s\S]*?)<\/script>/g)]
+  const scripts = [...html.matchAll(/<script\b(?:\s+src="([^"]+)")?[^>]*>([\s\S]*?)<\/script\b[^>]*>/gi)]
     .map((m) => (m[1] ? { file: path.resolve(work.dir, m[1]) } : { file: work.html, code: m[2] }));
   const errors = [];
   const ctx = {

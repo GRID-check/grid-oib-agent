@@ -202,7 +202,7 @@ reverse, must all give identical pixels. Run it after changing a drawing,
 **Two modes, and only two.**
 
 - **On page**, the default, for every print shown bare: a section plate, the
-  changelog's stamps, a blog cover on a Journal card or on a phone. The
+  changelog's stamps, a blog cover on a Journal card or a post. The
   on-page file, `art(id, { onPage: true })`, with `mix-blend-mode: multiply`,
   so the inks print into the page and its drawing grid and no sheet stands on
   it. `PagePrint` (`src/components/craft/`) does this for a plate. On a dark
@@ -210,7 +210,8 @@ reverse, must all give identical pixels. Run it after changing a drawing,
   reversed, a negative in its own hues, with `screen`.
 - **Taped print**, `TapedPrint`: the print keeps its paper, because it is an
   object lying on the page, with tape and a white margin. At most one per
-  page: the Team section's plate I, and a post's cover from md up.
+  page: the Team section's Tragwerk II, and an uploaded photographic post
+  cover. A riso post cover is on page, at every width.
 
 A paper file shown bare is a beige box a shade darker than the canvas (the
 paper is `#F4F2E8` and mottled to about 225–250; the canvas is `#f7f7f3`):
@@ -248,9 +249,9 @@ moiré. It is mild on 3x phones, which get the 1440 file at about 1170 px. No
 | `tafeln/schichten/og`, `…/cover` | II Schichten | "Wie Piloti funktioniert": share card and cover; the Bautagebuch share card |
 | `tafeln/schleife/plate` | III Schleife | Not on a page yet (its cover and share card are) |
 | `tafeln/schleife/og`, `…/cover` | III Schleife | "Ein System, das aus Ihrem Frust lernt": share card and cover |
-| `tafeln/bauplatz/plate` | IV Bauplatz | Not placed (the 404 wears `tragwerk/ziegel/plate`) |
+| `tafeln/bauplatz/plate` | IV Bauplatz | Changelog, beside the heading (the 404 wears `tragwerk/ziegel/plate`) |
 | `tafeln/bauplatz/og` | IV Bauplatz | Changelog share card |
-| `tafeln/pruefstand/plate` | V Prüfstand | Not on a page: the sources section wears II (one plate per section) |
+| `tafeln/pruefstand/plate` | V Prüfstand | Rechenweg, beside the heading |
 | `tafeln/pruefstand/og` | V Prüfstand | Share card of the legal pages |
 | `tafeln/zeichentisch/plate` | VI Zeichentisch | Section "Nutzung" |
 | `tafeln/zeichentisch/og` | VI Zeichentisch | Share card of the blog index (the Journal's is `tragwerk/ordnung/og`) |

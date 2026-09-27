@@ -341,20 +341,33 @@ const pad = (i: number) => String(i + 1).padStart(2, '0')
   [data-ready] .frame.is-current {
     z-index: 1;
   }
-  /* Without script: a sideways strip that still reads in order. */
-  [data-stories]:not([data-ready]) .stories-stage {
+  /* Without script: a sideways strip that still reads in order. Scoped to
+     `:root:not(.js)` (BaseLayout sets `.js` before first paint), so a page that
+     will run the script paints the stacked layout from the start. Keyed on
+     `data-ready` instead, the stage was a strip until the script ran and then
+     jumped to the stack: a 0.78 layout shift on a phone. */
+  :root:not(.js) [data-stories] .stories-stage {
     display: flex;
     overflow-x: auto;
     scroll-snap-type: x mandatory;
     touch-action: auto;
   }
-  [data-stories]:not([data-ready]) .frame {
+  :root:not(.js) [data-stories] .frame {
     flex: 0 0 100%;
     scroll-snap-align: start;
   }
-  [data-stories]:not([data-ready]) .stories-progress,
-  [data-stories]:not([data-ready]) .stories-controls {
+  :root:not(.js) [data-stories] .stories-progress,
+  :root:not(.js) [data-stories] .stories-controls {
     display: none;
+  }
+  /* With script, until it is ready: the first frame on top and the controls'
+     row held, so nothing moves when the script takes over. */
+  :root.js [data-stories]:not([data-ready]) .frame ~ .frame {
+    visibility: hidden;
+  }
+  :root.js [data-stories]:not([data-ready]) .stories-progress,
+  :root.js [data-stories]:not([data-ready]) .stories-controls {
+    visibility: hidden;
   }
 
   .meta {
