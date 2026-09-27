@@ -142,9 +142,8 @@ describe('FileSourcesTab', () => {
     expect(screen.getByText('Upload Zone')).toBeInTheDocument()
   })
 
-  // An attachment is authorized on its conversation, and the proxy refuses an
-  // upload into one the server has never heard of — which a chat is until its
-  // first message. So the row is made real first.
+  // An attachment is authorized on its conversation, which a chat does not have
+  // on the server until its first message. So the row is made real first.
   test('makes the conversation real on the server before uploading into it', async () => {
     callOrder.length = 0
     mockUploadFiles.mockImplementation(async () => {

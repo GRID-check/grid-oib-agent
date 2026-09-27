@@ -438,19 +438,6 @@ export async function generateConversationTitle(
  * thing it skips is the `deleted_at` rejection, and only for a row that carries
  * the mark.
  */
-/**
- * Whether the caller may delete this conversation: `owner`, or the creator of
- * one whose deletion already began (so a failed erasure can be retried).
- * Throws `NotFoundError` otherwise. Exported for the v1 proxy, which lets the
- * same authority discard a chat's whole attachment collection.
- */
-export async function requireConversationDeleteAccess(
-  session: AuthorizedSession,
-  conversationId: string
-): Promise<void> {
-  await authorizeConversationDelete(session, conversationId)
-}
-
 async function authorizeConversationDelete(
   session: AuthorizedSession,
   conversationId: string

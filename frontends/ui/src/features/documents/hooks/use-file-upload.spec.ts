@@ -44,7 +44,6 @@ const { mockClient, mockDocumentsStoreState, mockOrchestratorFns } = vi.hoisted(
     mockClient: {
       getCollection: vi.fn(),
       createCollection: vi.fn(),
-      uploadFiles: vi.fn(),
       deleteFiles: vi.fn(),
       listFiles: vi.fn(),
     },
@@ -55,6 +54,7 @@ const { mockClient, mockDocumentsStoreState, mockOrchestratorFns } = vi.hoisted(
       handleSessionChange: vi.fn(),
       loadFilesForSession: vi.fn(),
       enqueueJobs: vi.fn(),
+      pollSessionDocuments: vi.fn(),
       stopPolling: vi.fn(),
     },
   }
@@ -183,7 +183,7 @@ describe('useFileUpload', () => {
     test('calls handleSessionChange on initial mount with collectionName', () => {
       renderHook(() => useFileUpload({ collectionName: 'session-1' }))
 
-      expect(mockOrchestratorFns.handleSessionChange).toHaveBeenCalledWith('session-1')
+      expect(mockOrchestratorFns.handleSessionChange).toHaveBeenCalledWith('session-1', 'session')
     })
 
     test('calls handleSessionChange when collectionName changes', () => {
@@ -195,7 +195,13 @@ describe('useFileUpload', () => {
 
       rerender({ collectionName: 'session-2' })
 
-      expect(mockOrchestratorFns.handleSessionChange).toHaveBeenCalledWith('session-2')
+      expect(mockOrchestratorFns.handleSessionChange).toHaveBeenCalledWith('session-2', 'session')
+    })
+
+    test('tells the orchestrator a project collection is read as a corpus', () => {
+      renderHook(() => useFileUpload({ collectionName: 'proj-1', projectId: 'p1' }))
+
+      expect(mockOrchestratorFns.handleSessionChange).toHaveBeenCalledWith('proj-1', 'corpus')
     })
   })
 
@@ -265,7 +271,7 @@ describe('useFileUpload', () => {
         await result.current.uploadFiles([])
       })
 
-      expect(mockClient.uploadFiles).not.toHaveBeenCalled()
+      expect(mockDocumentsStoreState.addTrackedFile).not.toHaveBeenCalled()
     })
 
     test('sets error when no session ID', async () => {
@@ -313,126 +319,6 @@ describe('useFileUpload', () => {
 
       expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(en.files.errors.imageVlmUnavailable)
     })
-
-    test('uploads files successfully', async () => {
-      mockClient.getCollection.mockResolvedValue({ name: 'session-1' })
-      mockClient.uploadFiles.mockResolvedValue({
-        job_id: 'job-1',
-        file_ids: ['file-id-1'],
-      })
-
-      const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }))
-
-      await act(async () => {
-        await result.current.uploadFiles([
-          new File(['test'], 'test.pdf', { type: 'application/pdf' }),
-        ])
-      })
-
-      expect(mockDocumentsStoreState.setUploading).toHaveBeenCalledWith(true)
-      expect(mockClient.uploadFiles).toHaveBeenCalled()
-      expect(mockDocumentsStoreState.removeRecentlyDeletedIds).toHaveBeenCalledWith(['file-id-1'])
-      expect(mockOrchestratorFns.enqueueJobs).toHaveBeenCalledWith([
-        expect.objectContaining({
-          jobId: 'job-1',
-          collectionName: 'session-1',
-          files: [expect.objectContaining({ jobId: 'job-1', fileName: 'test.pdf' })],
-        }),
-      ])
-    })
-
-    test('creates collection if not exists', async () => {
-      mockClient.getCollection.mockResolvedValue(null)
-      mockClient.createCollection.mockResolvedValue({ name: 'session-1' })
-      mockClient.uploadFiles.mockResolvedValue({
-        job_id: 'job-1',
-        file_ids: ['file-id-1'],
-      })
-
-      const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }))
-
-      await act(async () => {
-        await result.current.uploadFiles([
-          new File(['test'], 'test.pdf', { type: 'application/pdf' }),
-        ])
-      })
-
-      expect(mockClient.createCollection).toHaveBeenCalledWith(
-        'session-1',
-        'Documents for session session-1'
-      )
-    })
-
-    test('marks session as having collection after ensureCollectionExists', async () => {
-      mockClient.getCollection.mockResolvedValue({ name: 'session-1' })
-      mockClient.uploadFiles.mockResolvedValue({
-        job_id: 'job-1',
-        file_ids: ['file-id-1'],
-      })
-
-      const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }))
-
-      await act(async () => {
-        await result.current.uploadFiles([
-          new File(['test'], 'test.pdf', { type: 'application/pdf' }),
-        ])
-      })
-
-      expect(mockMarkSessionHasCollection).toHaveBeenCalledWith('session-1')
-    })
-
-    test('uploads to the configured collectionName', async () => {
-      mockClient.getCollection.mockResolvedValue({ name: 'target-collection' })
-      mockClient.uploadFiles.mockResolvedValue({
-        job_id: 'job-1',
-        file_ids: ['file-id-1'],
-      })
-
-      const { result } = renderHook(() => useFileUpload({ collectionName: 'target-collection' }))
-
-      await act(async () => {
-        await result.current.uploadFiles([
-          new File(['test'], 'test.pdf', { type: 'application/pdf' }),
-        ])
-      })
-
-      expect(mockClient.getCollection).toHaveBeenCalledWith('target-collection')
-    })
-
-    test('handles upload errors', async () => {
-      mockClient.getCollection.mockResolvedValue({ name: 'session-1' })
-      mockClient.uploadFiles.mockRejectedValue(new Error('Upload failed'))
-
-      const onError = vi.fn()
-      const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1', onError }))
-
-      await act(async () => {
-        await result.current.uploadFiles([
-          new File(['test'], 'test.pdf', { type: 'application/pdf' }),
-        ])
-      })
-
-      expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith('Upload failed')
-      expect(onError).toHaveBeenCalled()
-    })
-
-    test('ignores abort errors', async () => {
-      const abortError = new Error('Aborted')
-      abortError.name = 'AbortError'
-      mockClient.getCollection.mockResolvedValue({ name: 'session-1' })
-      mockClient.uploadFiles.mockRejectedValue(abortError)
-
-      const onError = vi.fn()
-      const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1', onError }))
-
-      await act(async () => {
-        await result.current.uploadFiles([
-          new File(['test'], 'test.pdf', { type: 'application/pdf' }),
-        ])
-      })
-
-      expect(onError).not.toHaveBeenCalled()
-    })
   })
 
   describe('cancelUpload', () => {
@@ -462,37 +348,6 @@ describe('useFileUpload', () => {
 
       expect(mockDocumentsStoreState.removeTrackedFile).toHaveBeenCalledWith('file-1')
       expect(mockClient.deleteFiles).not.toHaveBeenCalled()
-    })
-
-    test('deletes file from server and removes tracked file', async () => {
-      mockDocumentsStoreState.trackedFiles = [
-        { id: 'file-1', fileName: 'test.pdf', collectionName: 'session-1', fileSize: 1000 },
-      ] as unknown[]
-      mockClient.deleteFiles.mockResolvedValue(undefined)
-
-      const { result } = renderHook(() => useFileUpload())
-
-      await act(async () => {
-        await result.current.deleteFile('file-1')
-      })
-
-      expect(mockClient.deleteFiles).toHaveBeenCalledWith('session-1', ['test.pdf'])
-      expect(mockDocumentsStoreState.removeTrackedFile).toHaveBeenCalledWith('file-1')
-    })
-
-    test('handles delete errors', async () => {
-      mockDocumentsStoreState.trackedFiles = [
-        { id: 'file-1', fileName: 'test.pdf', collectionName: 'session-1', fileSize: 1000 },
-      ] as unknown[]
-      mockClient.deleteFiles.mockRejectedValue(new Error('Delete failed'))
-
-      const { result } = renderHook(() => useFileUpload())
-
-      await act(async () => {
-        await result.current.deleteFile('file-1')
-      })
-
-      expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith('Delete failed')
     })
   })
 
@@ -539,19 +394,22 @@ describe('useFileUpload', () => {
         },
       ] as unknown[]
 
-      mockClient.getCollection.mockResolvedValue({ name: 'session-1' })
-      mockClient.uploadFiles.mockResolvedValue({
-        job_id: 'job-1',
-        file_ids: ['file-id-1'],
-      })
-
+      const xhr = installFakeXhr()
       const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }))
 
+      let pending!: Promise<void>
       await act(async () => {
-        await result.current.retryFile('file-1')
+        pending = result.current.retryFile('file-1')
+        await Promise.resolve()
       })
+      await act(async () => {
+        xhr.last().respond(200, JSON.stringify({ documentId: 'doc-1', jobId: null, status: 'pending' }))
+        await pending
+      })
+      xhr.restore()
 
       expect(mockDocumentsStoreState.removeTrackedFile).toHaveBeenCalledWith('file-1')
+      expect(xhr.last().url).toBe('/api/session/documents/upload')
     })
   })
 
@@ -755,6 +613,29 @@ describe('useFileUpload — durable document uploads', () => {
     expect(xhr.requests.every((request) => request.aborted)).toBe(true)
   })
 
+  test('creates the project collection when it does not exist yet', async () => {
+    mockClient.getCollection.mockResolvedValue(null)
+    mockClient.createCollection.mockResolvedValue({ name: 'proj-collection' })
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(1))
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(200, uploadOk('doc-0'))
+      await pending
+    })
+
+    expect(mockClient.getCollection).toHaveBeenCalledWith('proj-collection')
+    expect(mockClient.createCollection).toHaveBeenCalledWith(
+      'proj-collection',
+      'Documents for session proj-collection'
+    )
+  })
+
   test('the Archiv posts to its own endpoint and never names a project', async () => {
     const { result } = renderHook(() =>
       useFileUpload({ collectionName: 'archiv_org-1', archiv: true })
@@ -772,5 +653,178 @@ describe('useFileUpload — durable document uploads', () => {
 
     expect(xhr.last().url).toBe('/api/archiv/documents/upload')
     expect((xhr.last().body as FormData).get('projectId')).toBeNull()
+  })
+})
+
+/**
+ * Chat attachments (ADR-0047 Phase 2). They used to go straight at the ingestor
+ * through the `/api/v1` proxy, in one multipart request, and so skipped the
+ * file-type gate, the storage quota and the document row. They now take the
+ * same per-file path as the other shelves, to `/api/session/documents/upload`,
+ * and are listed, polled and deleted through `/api/session/documents`.
+ */
+describe('useFileUpload — chat attachments', () => {
+  const CHAT = 's_11111111_2222_4333_8444_555555555555'
+  let xhr: FakeXhrHandle
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  const makeFile = () => new File(['x'.repeat(1000)], 'plan.pdf', { type: 'application/pdf' })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    uuidState.count = 0
+    mockDocumentsStoreState.trackedFiles = []
+    xhr = installFakeXhr()
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  afterEach(() => {
+    xhr.restore()
+    vi.unstubAllGlobals()
+  })
+
+  const renderChat = () =>
+    renderHook(() => useFileUpload({ collectionName: CHAT, conversationProjectId: 'proj-7' }))
+
+  async function upload(result: ReturnType<typeof renderChat>['result'], respond: () => void) {
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([makeFile()])
+      await Promise.resolve()
+    })
+    await act(async () => {
+      respond()
+      await pending
+    })
+  }
+
+  test('posts each file to the session upload route, naming the chat and its project', async () => {
+    const { result } = renderChat()
+
+    await upload(result, () =>
+      xhr.last().respond(200, JSON.stringify({ documentId: 'doc-1', jobId: 'job-1', status: 'pending' }))
+    )
+
+    expect(xhr.requests).toHaveLength(1)
+    expect(xhr.last().url).toBe('/api/session/documents/upload')
+    const body = xhr.last().body as FormData
+    expect(body.get('conversationId')).toBe(CHAT)
+    expect(body.get('projectId')).toBe('proj-7')
+    expect(body.get('file')).toBeInstanceOf(File)
+  })
+
+  test('never touches the proxy: no collection lookup, no collection create', async () => {
+    const { result } = renderChat()
+
+    await upload(result, () =>
+      xhr.last().respond(200, JSON.stringify({ documentId: 'doc-1', jobId: 'job-1', status: 'pending' }))
+    )
+
+    expect(mockClient.getCollection).not.toHaveBeenCalled()
+    expect(mockClient.createCollection).not.toHaveBeenCalled()
+    expect(xhr.requests.some((request) => request.url.includes('/api/v1/'))).toBe(false)
+    expect(fetchMock).not.toHaveBeenCalled()
+    // The marker that tells a later visit to list this chat's attachments.
+    expect(mockMarkSessionHasCollection).toHaveBeenCalledWith(CHAT)
+  })
+
+  test('files the row under its document id and polls the chat by re-listing it', async () => {
+    const { result } = renderChat()
+
+    await upload(result, () =>
+      xhr.last().respond(200, JSON.stringify({ documentId: 'doc-1', jobId: 'job-1', status: 'pending' }))
+    )
+
+    expect(mockDocumentsStoreState.updateTrackedFile).toHaveBeenCalledWith(
+      'mock-uuid',
+      expect.objectContaining({ status: 'ingesting', serverFileId: 'doc-1' })
+    )
+    expect(mockOrchestratorFns.pollSessionDocuments).toHaveBeenCalledWith(CHAT)
+    // Not the proxy's job-status poll.
+    expect(mockOrchestratorFns.enqueueJobs).not.toHaveBeenCalled()
+  })
+
+  test('shows the server’s refusal (type gate, quota) on the row that was refused', async () => {
+    const onError = vi.fn()
+    const { result } = renderHook(() => useFileUpload({ collectionName: CHAT, onError }))
+
+    await upload(result, () =>
+      xhr.last().respond(413, JSON.stringify({ error: 'Storage quota exceeded' }))
+    )
+
+    expect(mockDocumentsStoreState.updateTrackedFile).toHaveBeenCalledWith(
+      'mock-uuid',
+      expect.objectContaining({ status: 'failed', errorMessage: 'Storage quota exceeded' })
+    )
+    expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith('Storage quota exceeded')
+    expect(onError).toHaveBeenCalled()
+    expect(mockOrchestratorFns.pollSessionDocuments).not.toHaveBeenCalled()
+  })
+
+  test('a cancel is not a failure', async () => {
+    const onError = vi.fn()
+    const { result } = renderHook(() => useFileUpload({ collectionName: CHAT, onError }))
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([makeFile()])
+      await Promise.resolve()
+    })
+    await act(async () => {
+      result.current.cancelFile('mock-uuid')
+      await pending
+    })
+
+    expect(onError).not.toHaveBeenCalled()
+    expect(mockDocumentsStoreState.updateTrackedFile).toHaveBeenCalledWith('mock-uuid', { status: 'canceled' })
+  })
+
+  test('deletes an attachment through the session document route, by document id', async () => {
+    mockDocumentsStoreState.trackedFiles = [
+      { id: 'row-1', fileName: 'plan.pdf', collectionName: CHAT, fileSize: 1000, serverFileId: 'doc-1' },
+    ] as unknown[]
+    fetchMock.mockResolvedValue({ ok: true, status: 204 })
+    const { result } = renderChat()
+
+    await act(async () => {
+      await result.current.deleteFile('row-1')
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/session/documents/doc-1', { method: 'DELETE' })
+    expect(mockClient.deleteFiles).not.toHaveBeenCalled()
+    expect(mockDocumentsStoreState.removeTrackedFile).toHaveBeenCalledWith('row-1')
+  })
+
+  test('restores the attachment and says why when the delete is refused', async () => {
+    const file = { id: 'row-1', fileName: 'plan.pdf', collectionName: CHAT, fileSize: 1000, serverFileId: 'doc-1' }
+    mockDocumentsStoreState.trackedFiles = [file] as unknown[]
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: { message: 'Legal hold' } }),
+    })
+    const { result } = renderChat()
+
+    await act(async () => {
+      await result.current.deleteFile('row-1')
+    })
+
+    expect(mockDocumentsStoreState.addTrackedFile).toHaveBeenCalledWith(file)
+    expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith('Legal hold')
+  })
+
+  test('a file that never reached the server is only dropped from the list', async () => {
+    mockDocumentsStoreState.trackedFiles = [
+      { id: 'row-1', fileName: 'plan.pdf', collectionName: CHAT, fileSize: 1000, status: 'failed' },
+    ] as unknown[]
+    const { result } = renderChat()
+
+    await act(async () => {
+      await result.current.deleteFile('row-1')
+    })
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(mockDocumentsStoreState.removeTrackedFile).toHaveBeenCalledWith('row-1')
   })
 })

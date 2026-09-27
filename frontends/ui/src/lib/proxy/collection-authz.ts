@@ -8,15 +8,14 @@
  * - the base corpus is never writable through the proxy;
  * - `proj_*` collections must belong to a project in the caller's org AND the
  *   caller needs `project:edit` on that project;
- * - `s_*` (session) collections must match the active conversation id, and a
- *   WRITE (anything but GET) needs the conversation to exist and `collaborator`
- *   on it — a viewer of a shared chat may read its attachments, not delete
- *   them, and a conversation id nobody created is not a place to upload to;
- * - a whole collection is never deleted through the proxy, except a chat's own
- *   (`s_*`), and that one only by whoever may delete the chat itself;
- * - a proxied upload into a project or the Archiv is refused: those shelves
- *   have first-party routes that write the document row and run the file-type
- *   and storage-quota admission, and the raw ingest path runs neither;
+ * - `s_*` (session) collections may be READ when they match the active
+ *   conversation id, and are never written: a chat's attachments are uploaded
+ *   and deleted through `/api/session/documents`, and its whole collection is
+ *   erased by the conversation delete (ADR-0047 Phase 2);
+ * - a whole collection is never deleted through the proxy;
+ * - a proxied upload into any shelf is refused: each shelf has a first-party
+ *   route that writes the document row and runs the file-type and
+ *   storage-quota admission, and the raw ingest path runs neither;
  * - `GET /v1/collections` (every collection of every tenant) is refused;
  * - anything else is rejected.
  *
@@ -26,8 +25,6 @@
 
 import { findProjectIdByCollectionName } from '@/lib/projects/repository'
 import { requireProjectAccess, type ProjectPermission } from '@/lib/authz/projects'
-import { requireResourceAccess } from '@/lib/sharing/access'
-import { requireConversationDeleteAccess } from '@/lib/conversations/service'
 
 /** Writes into a project's corpus, accepting the pre-split umbrella too. */
 const PROJECT_UPLOAD: readonly ProjectPermission[] = ['project:documents:write', 'project:edit']
@@ -109,13 +106,6 @@ export interface CollectionAuthzDeps {
     projectId: string,
     permission: readonly ProjectPermission[]
   ): Promise<unknown>
-  /**
-   * Throws (NotFoundError) unless the conversation exists and the caller holds
-   * `collaborator` on it — the access attaching a file needs.
-   */
-  requireConversationCollaborator(session: AuthorizedSession, conversationId: string): Promise<unknown>
-  /** Throws (NotFoundError) unless the caller may delete the conversation. */
-  requireConversationDelete(session: AuthorizedSession, conversationId: string): Promise<unknown>
 }
 
 const defaultDeps: CollectionAuthzDeps = {
@@ -124,10 +114,6 @@ const defaultDeps: CollectionAuthzDeps = {
   },
   requireProjectAccess: (session, projectId, permission) =>
     requireProjectAccess(session, projectId, permission),
-  requireConversationCollaborator: (session, conversationId) =>
-    requireResourceAccess(session, 'conversation', conversationId, 'collaborator'),
-  requireConversationDelete: (session, conversationId) =>
-    requireConversationDeleteAccess(session, conversationId),
 }
 
 export interface ValidateCollectionOptions {
@@ -137,16 +123,17 @@ export interface ValidateCollectionOptions {
 }
 
 /** Where a shelf's uploads go instead of the raw ingest path. */
-const FIRST_PARTY_UPLOAD: Record<'proj_' | 'archiv_', string> = {
+const FIRST_PARTY_UPLOAD: Record<'proj_' | 'archiv_' | 's_', string> = {
   proj_: '/api/documents/upload',
   archiv_: '/api/archiv/documents/upload',
+  s_: '/api/session/documents/upload',
 }
 
 function refuseWholeCollectionDelete(): Response {
   return errorEnvelope(403, 'FORBIDDEN', 'Deleting a whole collection is not allowed')
 }
 
-function refuseRawUpload(prefix: 'proj_' | 'archiv_'): Response {
+function refuseRawUpload(prefix: 'proj_' | 'archiv_' | 's_'): Response {
   return errorEnvelope(403, 'FORBIDDEN', `Upload through ${FIRST_PARTY_UPLOAD[prefix]}`)
 }
 
@@ -173,24 +160,12 @@ export async function validateCollectionName(
     // tenant's project and chat ids among them.
     if (method !== 'POST') return errorEnvelope(404, 'NOT_FOUND', 'Not found')
     // Creating one is a write INTO the named collection, authorized as such.
-    // It names itself, so a chat collection is its own conversation.
     const created = context.collectionName
     if (!created) return errorEnvelope(400, 'INVALID_COLLECTION', 'Collection name is required')
-    return authorizeCollection(created, [], method, session, {
-      ...context,
-      conversationId: context.conversationId ?? created,
-    }, deps)
+    return authorizeCollection(created, [], method, session, context, deps)
   }
 
-  const wholeCollection = path.length === 2
-  // Deleting a whole collection names only itself, so a chat collection is,
-  // again, its own conversation (the discard of an abandoned chat sends no
-  // conversation id).
-  const effectiveContext =
-    wholeCollection && method === 'DELETE' && !context.conversationId
-      ? { ...context, conversationId: path[1] }
-      : context
-  return authorizeCollection(path[1], path.slice(2), method, session, effectiveContext, deps)
+  return authorizeCollection(path[1], path.slice(2), method, session, context, deps)
 }
 
 async function authorizeCollection(
@@ -255,6 +230,18 @@ async function authorizeCollection(
   }
 
   if (collectionName.startsWith('s_')) {
+    // A chat's attachments are rows (ADR-0047 Phase 2): uploaded through
+    // `/api/session/documents/upload`, deleted through
+    // `/api/session/documents/[id]`, and the collection itself erased by the
+    // conversation delete. A write here would skip the file-type gate and the
+    // quota, or remove chunks while the row that names them stays.
+    if (method !== 'GET') {
+      if (upload) return refuseRawUpload('s_')
+      if (wholeCollectionDelete) return refuseWholeCollectionDelete()
+      return errorEnvelope(403, 'FORBIDDEN', 'Change chat attachments through /api/session/documents')
+    }
+    // Reads are authorized by the scope builder (`viewer` on an existing
+    // conversation), on the collection's own conversation.
     if (
       !context.conversationId ||
       sessionCollectionName(context.conversationId) !== collectionName
@@ -264,26 +251,6 @@ async function authorizeCollection(
         'INVALID_COLLECTION',
         'Collection does not match active conversation'
       )
-    }
-    // Reads are authorized by the scope builder (`viewer` on an existing
-    // conversation). A write is authorized HERE, on the conversation the
-    // collection belongs to — which is the collection's own name, since a
-    // conversation id is minted as `s_<uuid>` (`sessionCollectionName`).
-    // Anonymous mode has no tenancy to check (and no session to check it with).
-    if (method === 'GET' || !session) return null
-    try {
-      if (wholeCollectionDelete) {
-        // The whole of a chat's attachments: the same authority as deleting
-        // the chat (`owner`), which is what the discard of an abandoned chat is.
-        await deps.requireConversationDelete(session as AuthorizedSession, collectionName)
-      } else {
-        // Upload, file delete, collection create: `collaborator`, and the row
-        // must exist. `requireResourceAccess` answers 404 for a missing, a
-        // deleted and a not-yours conversation alike.
-        await deps.requireConversationCollaborator(session as AuthorizedSession, collectionName)
-      }
-    } catch (error) {
-      return handleAuthzError(error)
     }
     return null
   }

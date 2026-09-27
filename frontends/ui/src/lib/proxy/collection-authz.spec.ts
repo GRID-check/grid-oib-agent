@@ -14,10 +14,6 @@ vi.mock('@/lib/db', () => ({
 vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn(),
 }))
-// The conversation gates are injected (`deps`); the real modules would pull the
-// whole conversation service in.
-vi.mock('@/lib/sharing/access', () => ({ requireResourceAccess: vi.fn() }))
-vi.mock('@/lib/conversations/service', () => ({ requireConversationDeleteAccess: vi.fn() }))
 
 import { NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
@@ -35,8 +31,6 @@ const session = { organizationId: 'org-1', userId: 'user-1' } as unknown as Grid
 const deps = (overrides: Partial<CollectionAuthzDeps> = {}): CollectionAuthzDeps => ({
   findProjectIdByCollection: vi.fn().mockResolvedValue('proj-id-1'),
   requireProjectAccess: vi.fn().mockResolvedValue({ role: 'project-editor' }),
-  requireConversationCollaborator: vi.fn().mockResolvedValue(undefined),
-  requireConversationDelete: vi.fn().mockResolvedValue(undefined),
   ...overrides,
 })
 
@@ -225,84 +219,80 @@ describe('request context extraction', () => {
 })
 
 /**
- * A chat's attachment collection through the proxy. A viewer of a shared chat
- * could delete its files, and a conversation id nobody created passed, which
- * let anyone upload raw bytes with no document row, no file-type gate and no
- * quota.
+ * A chat's attachment collection through the proxy. Its files are document rows
+ * now (ADR-0047 Phase 2): uploaded and deleted through `/api/session/documents`,
+ * and the collection erased by the conversation delete. A raw upload here skipped
+ * the file-type gate and the storage quota, and a raw file delete removed chunks
+ * while the row naming them stayed, so the proxy writes nothing into an `s_`
+ * collection, whoever asks.
  */
-describe('validateCollectionName — writes to a chat collection', () => {
+describe('validateCollectionName — a chat collection is read-only', () => {
   const CHAT = 's_11111111_2222_4333_8444_555555555555'
   const chatContext = { conversationId: CHAT }
 
-  it.each(['POST', 'DELETE'])(
-    '%s on its files needs collaborator on the conversation the collection belongs to',
-    async (method) => {
-      const d = deps()
-      const response = await validateCollectionName(
-        ['collections', CHAT, 'documents'],
-        session,
-        chatContext,
-        { method, deps: d }
-      )
-      expect(response).toBeNull()
-      expect(d.requireConversationCollaborator).toHaveBeenCalledWith(session, CHAT)
-    }
-  )
-
-  it.each(['POST', 'DELETE'])('%s is refused (404) for a viewer or a conversation that does not exist', async (method) => {
-    const d = deps({
-      requireConversationCollaborator: vi.fn().mockRejectedValue(new NotFoundError()),
-    })
+  it('refuses a raw upload (403) and names the first-party route', async () => {
     const response = await validateCollectionName(
       ['collections', CHAT, 'documents'],
       session,
       chatContext,
-      { method, deps: d }
+      { method: 'POST', deps: deps() }
     )
-    expect(response?.status).toBe(404)
+    expect(response?.status).toBe(403)
+    expect(((await response?.json()) as { error: { message: string } }).error.message).toContain(
+      '/api/session/documents/upload'
+    )
   })
 
-  it('leaves a read to the scope builder (viewer), asking nothing here', async () => {
-    const d = deps()
+  it('refuses a raw upload in anonymous mode too', async () => {
+    const response = await validateCollectionName(
+      ['collections', CHAT, 'documents'],
+      null,
+      chatContext,
+      { method: 'POST', deps: deps() }
+    )
+    expect(response?.status).toBe(403)
+  })
+
+  it('refuses a chunk-only file delete (403): the row would outlive its chunks', async () => {
     const response = await validateCollectionName(
       ['collections', CHAT, 'documents'],
       session,
       chatContext,
-      { method: 'GET', deps: d }
+      { method: 'DELETE', deps: deps() }
     )
-    expect(response).toBeNull()
-    expect(d.requireConversationCollaborator).not.toHaveBeenCalled()
+    expect(response?.status).toBe(403)
   })
 
-  it('authorizes creating a chat collection as a write into it', async () => {
-    const d = deps({
-      requireConversationCollaborator: vi.fn().mockRejectedValue(new NotFoundError()),
-    })
-    const response = await validateCollectionName(
+  it('refuses creating a chat collection and deleting a whole one (403)', async () => {
+    const created = await validateCollectionName(
       ['collections'],
       session,
       { collectionName: CHAT },
-      { method: 'POST', deps: d }
+      { method: 'POST', deps: deps() }
     )
-    expect(response?.status).toBe(404)
-    expect(d.requireConversationCollaborator).toHaveBeenCalledWith(session, CHAT)
+    expect(created?.status).toBe(403)
+
+    const deleted = await validateCollectionName(['collections', CHAT], session, {}, { method: 'DELETE', deps: deps() })
+    expect(deleted?.status).toBe(403)
   })
 
-  it('lets whoever may delete the chat discard its whole collection, and nobody else', async () => {
-    const allowed = deps()
+  it('still lets the active conversation read its collection', async () => {
     expect(
-      await validateCollectionName(['collections', CHAT], session, {}, { method: 'DELETE', deps: allowed })
+      await validateCollectionName(['collections', CHAT, 'documents'], session, chatContext, {
+        method: 'GET',
+        deps: deps(),
+      })
     ).toBeNull()
-    expect(allowed.requireConversationDelete).toHaveBeenCalledWith(session, CHAT)
+  })
 
-    const refused = deps({ requireConversationDelete: vi.fn().mockRejectedValue(new NotFoundError()) })
+  it('refuses a read of another conversation’s collection (400)', async () => {
     const response = await validateCollectionName(
-      ['collections', CHAT],
+      ['collections', CHAT, 'documents'],
       session,
-      {},
-      { method: 'DELETE', deps: refused }
+      { conversationId: 's_99999999_2222_4333_8444_555555555555' },
+      { method: 'GET', deps: deps() }
     )
-    expect(response?.status).toBe(404)
+    expect(response?.status).toBe(400)
   })
 })
 

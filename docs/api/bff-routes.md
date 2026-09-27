@@ -7,8 +7,7 @@ All BFF (Backend-for-Frontend) routes are under `frontends/ui/src/app/api/`. The
 > file or in [`collaboration-routes.md`](collaboration-routes.md)** — chiefly the
 > project surfaces (`folders`, `memory`, `overview`, `profile`,
 > `profile/patches`, `intake-definition`, `generate-summary`, `reindex`,
-> `restore`), `documents/{id}/{thumbnail,image}`, the session-attached document
-> shelf (`/api/session/documents/*`), legal holds and `/api/deletions`, the org
+> `restore`), `documents/{id}/{thumbnail,image}`, legal holds and `/api/deletions`, the org
 > BYOK/memory/storage routes, several platform-tier routes (norms, storage,
 > profiler, reasoning efforts, vector reconcile), `citations/format`,
 > `skills/review`, `healthz`, and nine `/api/internal/*` service endpoints. The
@@ -73,7 +72,7 @@ Source: `frontends/ui/src/app/api/chat/route.ts`
 | `POST` | `/api/conversations` | Required | Create a new conversation. | `{ id, title?, projectId? }` | `{ id, title, ... }` (201) |
 | `GET` | `/api/conversations/{id}` | Required | Get a single conversation. Verifies org ownership (404 if wrong org). | — | `{ id, title, ... }` |
 | `PATCH` | `/api/conversations/{id}` | Required | Rename a conversation. | `{ title }` | `{ id, title, ... }` |
-| `DELETE` | `/api/conversations/{id}` | Required | Delete a conversation (owner), its attachments and its collaboration rows. `204` whether or not it existed or was the caller's (spec SH-6). **`409 CONFLICT` with `details.reason = 'legal_hold'`** when an active legal hold covers it ([what a hold covers](../architecture/deletion-pipeline.md#legal-holds-grid_app-postgres)); nothing is erased. | — | `204 No Content` |
+| `DELETE` | `/api/conversations/{id}` | Required | Delete a conversation (owner), its attachments, its `s_` retrieval collection and its collaboration rows. Order: hold check, mark deleting, erase each attachment row's chunks and objects, erase the whole `s_` collection (a missing one is success), then the row ([the sequence](../architecture/deletion-pipeline.md#purge-step-lists)). **502** and the conversation kept (hidden, marked deleting) when an erase fails; a repeated delete resumes. `204` whether or not it existed or was the caller's (spec SH-6). **`409 CONFLICT` with `details.reason = 'legal_hold'`** when an active legal hold covers it ([what a hold covers](../architecture/deletion-pipeline.md#legal-holds-grid_app-postgres)); nothing is erased. | — | `204 No Content` |
 | `GET` | `/api/conversations/{id}/messages` | Required | List messages for a conversation, ordered by `createdAt` asc. Verifies org ownership. | — | `[{ id, role, content, metadata, createdAt }]` |
 | `POST` | `/api/conversations/{id}/messages` | Required | Create one or more messages. Accepts a single message or an array. | `{ id, role, content }` or `[{ id, role, content }, ...]` | `[{ id, role, content, ... }]` (201) |
 | `PATCH` | `/api/conversations/{id}/messages/{messageId}` | Required | Record the user's answers to that answer's interactive cards, merged **per card key** into `metadata.cardInteractions` (ADR-0030), so a settled `project_profile_patch` / `memory_proposal` cannot be re-offered after a server rehydrate. `decision` is validated against a closed union, `decidedAt` must be a UTC ISO-8601 instant (`…Z`; offset forms are rejected), keys are ≤64 chars and ≤64 entries; a non-uuid `messageId` is a 400. | `{ cardInteractions: { "<type>-<index>": { decision, decidedAt } } }` | `{ id, role, content, metadata, ... }` |
@@ -194,6 +193,24 @@ copy and no backend retrieval change are needed. Audited as
 
 Source: `frontends/ui/src/app/api/archiv/documents/route.ts`, `.../upload/route.ts`, `.../search/route.ts`, `.../[id]/route.ts`; `frontends/ui/src/lib/archiv/*`.
 
+## Chat attachments (session documents, ADR-0047 Phase 2)
+
+A file attached to a chat is a `documents` row with `scope = 'session'`,
+`project_id = NULL`, `conversation_id` set and `collection_name = s_<conversationId>`.
+Access follows the conversation (`requireResourceAccess(…, 'conversation', …)`),
+not a project. The composer (`InputArea`) and the chat's file dialog
+(`FileSourcesTab`) use only these routes; the v1 proxy writes nothing into an
+`s_` collection. Preview, download, status, re-ingest and tags use the
+scope-aware `/api/documents/{id}/*` routes above.
+
+| Method | Path | Auth | Notes | Request | Response |
+|--------|------|------|-------|---------|----------|
+| `POST` | `/api/session/documents/upload` | `collaborator` on the conversation | Store one file on a chat. Creates the conversation row if it does not exist yet (`createConversation`: `project:view` when `projectId` is given, `collaborator` on an existing one), so a chat's first attachment works before its first message. Runs the same admission as the other shelves: the org's file-type allow-list, the size cap and the storage quota. Writes SeaweedFS and a `session` row, then dispatches (ingest, or the model pipeline for IFC). A re-upload of the same name replaces the document as a new version. **409** when the chat is being deleted. `conversationId` must be `s_` + a UUID with underscores. | `multipart/form-data`: `conversationId`, `file`, optional `projectId` | `{ documentId, jobId, status, filename, collectionName }` |
+| `GET` | `/api/session/documents?conversationId=` | `viewer` on the conversation | List a chat's attachments, bounded, with in-flight statuses reconciled against the backend on every read. The composer polls by re-listing until nothing is in flight. **404** for a conversation that is missing or not the caller's. | — | `{ documents: [...], collectionName }` |
+| `DELETE` | `/api/session/documents/{id}` | `collaborator` on the conversation | Delete one attachment: legal-hold check, chunks, every version's objects, the row, audit (`session.document.deleted`). **502** and the row kept when an erase fails. | — | `204 No Content` |
+
+Source: `frontends/ui/src/app/api/session/documents/**`; `frontends/ui/src/lib/session-documents/*`; client `frontends/ui/src/adapters/api/session-documents-client.ts`.
+
 ## Answer feedback (per-answer thumbs, feature-gated)
 
 Per-answer thumbs feedback (WS-7 of the click-dummy overhaul spec): one vote
@@ -253,17 +270,15 @@ Source: `frontends/ui/src/app/api/health/route.ts`
 | Method | Path | Auth | Description | Request Body | Response |
 |--------|------|------|-------------|-------------|----------|
 | `GET` | `/api/v1/{path}` | Varies | Proxy for the agent service's `/v1/*` routes a product client uses — an **allowlist** (`lib/proxy/v1-allowlist.ts`): `data_sources`, `documents/{jobId}/status`, `jobs/async/jobs`, `collections/{name}`, `collections/{name}/documents`. Anything else answers `404` before any upstream request. | — | JSON from backend |
-| `POST` | `/api/v1/{path}` | Varies | Same allowlist: `collections` (create) and `collections/{name}/documents` (upload; streams `multipart/form-data` without buffering). NAT's agent-turn routes (`chat`, `chat/completions`, `workflow`, …) are not forwarded: they ran outside the signed context envelope. | JSON or `multipart/form-data` | JSON from backend |
-| `DELETE` | `/api/v1/{path}` | Varies | Same allowlist: `collections/{name}` (a chat's own collection only, see below) and `collections/{name}/documents`. | Optional JSON body | JSON or `204 No Content` |
+| `POST` | `/api/v1/{path}` | Varies | Same allowlist: `collections` (create). No upload is forwarded: every shelf has a first-party upload route. NAT's agent-turn routes (`chat`, `chat/completions`, `workflow`, …) are not forwarded: they ran outside the signed context envelope. | JSON | JSON from backend |
+| `DELETE` | `/api/v1/{path}` | Varies | Same allowlist: `collections/{name}/documents`. A whole collection is never deleted through the proxy. | JSON body | JSON or `204 No Content` |
 
 Collection validation rules in `validateCollectionName()` (per method):
 - Base collection (e.g., `oib_knowledge`): rejected with `400 INVALID_COLLECTION`.
 - `GET /api/v1/collections` (every tenant's collections): `404`.
 - Project collections (`proj_*`): requires authenticated session + `project:documents:write` (or `project:edit`). A raw upload is refused with `403` — `/api/documents/upload` writes the document row and runs the file-type and quota admission, which the ingest path does not. Deleting the whole collection is refused with `403` (the project purge erases it).
 - Archiv collections (`archiv_*`): this org's Archiv + `org:archiv:manage`. Raw upload (`/api/archiv/documents/upload` instead) and whole-collection delete: `403`.
-- Session collections (`s_*`): must match the `conversationId` query/body param (a create or whole-collection delete names itself). A read is authorized by the scope builder (`viewer` on an existing chat). A **write** needs the conversation to exist and `collaborator` on it — `404` otherwise, so a viewer of a shared chat cannot delete its files and an id nobody created is not an upload target. Deleting the whole collection (the discard of an abandoned chat) needs the chat's delete authority (`owner`).
-
-**Open gap:** a chat attachment is still uploaded by the browser through this proxy straight to the ingest path, so it has no document row, no file-type gate and no quota charge. `/api/session/documents/upload` does all three and is built, but the chat composer does not call it yet (ADR-0047 Phase 2: rerouting upload, listing, delete and polling together).
+- Session collections (`s_*`): read-only. A read must match the `conversationId` query param and is authorized by the scope builder (`viewer` on an existing chat). Every write is refused with `403`, anonymous mode included: uploads and file deletes go through [`/api/session/documents`](#chat-attachments-session-documents-adr-0047-phase-2), and the conversation delete erases the collection. A raw upload skipped the file-type gate and the quota and wrote no row; a raw file delete removed chunks while the row naming them stayed.
 
 Source: `frontends/ui/src/app/api/v1/[...path]/route.ts`
 

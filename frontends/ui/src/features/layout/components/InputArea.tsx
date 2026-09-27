@@ -433,7 +433,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // keystroke lazily creates a session, so that id transition doesn't wipe text.
   const loadedDraftSessionRef = useRef<string | undefined>(undefined)
 
-  // File upload hook - provides session files and handles validation internally
+  // File upload hook - provides session files and handles validation internally.
+  // Attachments go through `/api/session/documents` (type gate, quota, a row).
+  const chatProjectId = useChatStore((state) => state.projectId)
   const {
     uploadFiles,
     sessionFiles,
@@ -444,6 +446,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     clearError,
   } = useFileUpload({
     collectionName: currentConversationId,
+    conversationProjectId: chatProjectId,
   })
 
   // Count of files still uploading/ingesting for the current session. Drives
@@ -1297,10 +1300,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
       // Attached files now surface as inline chips above the composer, so there
       // is no panel to auto-open — the chips give instant feedback in place.
-      // The server row BEFORE the bytes. An attachment is authorized on its
-      // conversation (`collaborator`), and the upload is refused for one the
-      // server has never heard of — which a chat is until its first message.
-      // Idempotent and shared per id with the send path (`ensureServerConversation`).
+      // The server row BEFORE the bytes, with the chat's title, project and
+      // subject, which the send path would write (`ensureServerConversation`,
+      // idempotent per id). An attachment is authorized on its conversation
+      // (`collaborator`). `/api/session/documents/upload` would create a
+      // missing row too, but only with the project, so it is the fallback.
       await ensureConversationExists()
       // Pass the (possibly just-created) session explicitly: the hook's
       // memoized collectionName still reflects the previous render, so the

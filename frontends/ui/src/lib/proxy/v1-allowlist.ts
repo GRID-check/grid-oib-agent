@@ -16,9 +16,13 @@
  * the clients rather than the backend's route table:
  *
  *   - `adapters/api/data-sources-client.ts` — GET `data_sources`;
- *   - `adapters/api/documents-client.ts` — the chat attachment shelf: create a
- *     collection, read it, list / upload / delete its files, poll an ingest
- *     job (`documents/<jobId>/status`), discard an abandoned chat's collection;
+ *   - `adapters/api/documents-client.ts` — create a project or Archiv
+ *     collection, read one, list / delete its files, poll an ingest job
+ *     (`documents/<jobId>/status`). A chat's attachments are no longer among
+ *     them: they go through `/api/session/documents` (ADR-0047 Phase 2), and
+ *     the conversation delete erases a chat's collection. No product client
+ *     uploads through here or deletes a whole collection, so neither request
+ *     is forwarded;
  *   - `adapters/api/research-runs-client.ts` — GET `jobs/async/jobs`.
  *
  * Everything else answers 404 before any upstream request, including paths
@@ -42,9 +46,7 @@ const PROXY_ROUTES: readonly ProxyRoute[] = [
   { method: 'GET', shape: ['jobs', 'async', 'jobs'] },
   { method: 'POST', shape: ['collections'] },
   { method: 'GET', shape: ['collections', ANY] },
-  { method: 'DELETE', shape: ['collections', ANY] },
   { method: 'GET', shape: ['collections', ANY, 'documents'] },
-  { method: 'POST', shape: ['collections', ANY, 'documents'] },
   { method: 'DELETE', shape: ['collections', ANY, 'documents'] },
 ]
 

@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    Dateien, die Sie an einen Chat anhängen, durchlaufen jetzt dieselben
+    Prüfungen wie Projektdateien: Nicht zugelassene Dateitypen werden
+    abgelehnt, und die Datei zählt zum Speicherkontingent Ihres Büros. Jede
+    Datei zeigt ihren eigenen Upload-Fortschritt, lässt sich einzeln abbrechen,
+    und eine abgelehnte Datei nennt den Grund.

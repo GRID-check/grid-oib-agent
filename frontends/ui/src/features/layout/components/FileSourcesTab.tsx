@@ -128,6 +128,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   } = useFileUpload({
     collectionName: targetCollectionName,
     projectId: targetProjectId,
+    conversationProjectId: projectId,
   })
 
   // The documents store's currentCollectionName tells us WHICH session is actively being processed.
@@ -188,10 +189,11 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
           console.error('Failed to create session for upload')
           return
         }
-        // The server row BEFORE the bytes. An attachment is authorized on its
-        // conversation (`collaborator`), and the upload is refused for one the
-        // server has never heard of — which a chat is until its first message.
-        // Idempotent and shared per id with the send path (`ensureServerConversation`).
+        // The server row BEFORE the bytes, with the chat's title, project and
+        // subject, which the send path would write (`ensureServerConversation`,
+        // idempotent per id). An attachment is authorized on its conversation
+        // (`collaborator`). `/api/session/documents/upload` would create a
+        // missing row too, but only with the project, so it is the fallback.
         await ensureConversationExists()
       }
       // Pass the (possibly just-created) session explicitly: the hook's

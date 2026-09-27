@@ -11,9 +11,7 @@ describe('isForwardableV1Request', () => {
     ['GET', ['jobs', 'async', 'jobs']],
     ['POST', ['collections']],
     ['GET', ['collections', 's_abc']],
-    ['DELETE', ['collections', 's_abc']],
     ['GET', ['collections', 's_abc', 'documents']],
-    ['POST', ['collections', 's_abc', 'documents']],
     ['DELETE', ['collections', 's_abc', 'documents']],
     ['get', ['data_sources']],
   ])('forwards %s %j, which a product client makes', (method, path) => {
@@ -30,6 +28,11 @@ describe('isForwardableV1Request', () => {
     ['GET', ['admin', 'oib', 'sync']],
     ['POST', ['maintenance', 'purge-project-resources']],
     ['GET', ['collections']],
+    // A chat's attachments go through `/api/session/documents`, and no shelf
+    // takes a raw upload or loses its whole collection from a browser.
+    ['POST', ['collections', 's_abc', 'documents']],
+    ['POST', ['collections', 'proj_abc', 'documents']],
+    ['DELETE', ['collections', 's_abc']],
     ['POST', ['collections', 's_abc', 'search']],
     ['GET', ['documents', 'job-1']],
     ['GET', ['documents', '', 'status']],

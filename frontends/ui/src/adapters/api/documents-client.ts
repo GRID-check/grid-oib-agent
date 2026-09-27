@@ -1,17 +1,17 @@
 /**
  * Documents API Client
  *
- * Handles file upload, collection management, and ingestion status polling.
- * Works with both real backend and MSW mocks transparently.
+ * Collection reads, file listing / deletion and ingest-job polling for the
+ * project and Archiv collections, through the `/api/v1` proxy. Uploads do not
+ * go through here: every shelf posts to its first-party upload route, and a
+ * chat's attachments are read and deleted through `session-documents-client`.
  */
 
 import { apiConfig } from './config'
-import { xhrUpload, XhrUploadError } from '@/lib/http/xhr-upload'
 import {
   CollectionInfoSchema,
   FileInfoSchema,
   FileListResponseSchema,
-  UploadResponseSchema,
   IngestionJobStatusSchema,
   type CollectionInfo,
   type FileInfo,
@@ -28,19 +28,6 @@ const getDocumentsBaseUrl = (): string => {
   return isBrowser ? '/api/v1' : apiConfig.documentsBaseUrl
 }
 
-const buildCollectionRequestUrl = (path: string, collectionName: string): string => {
-  const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
-  const url = new URL(path, baseUrl)
-
-  if (collectionName.startsWith('s_')) {
-    url.searchParams.set('conversationId', collectionName)
-  }
-
-  return path.startsWith('http://') || path.startsWith('https://')
-    ? url.toString()
-    : `${url.pathname}${url.search}`
-}
-
 // ============================================================================
 // Types
 // ============================================================================
@@ -50,42 +37,9 @@ export interface DocumentsClientOptions {
   authToken?: string
 }
 
-export interface UploadFilesOptions {
-  /** Progress callback for XHR upload */
-  onProgress?: (loaded: number, total: number) => void
-  /** AbortSignal for cancellation */
-  signal?: AbortSignal
-}
-
 // ============================================================================
 // Helpers
 // ============================================================================
-
-/**
- * Lift the API's own reason out of an error body, if it stated one.
- *
- * Two envelope shapes are in play — the BFF's `{ error: { message } }` and the
- * Python backend's flatter `{ error }` / `{ detail }` — and an upload refusal
- * ("file too large", "unsupported type") is exactly the message a user needs to
- * see, so it is worth reading all three rather than falling back to a status
- * code.
- */
-function parseErrorMessage(body: string): string | null {
-  try {
-    const parsed: unknown = JSON.parse(body)
-    if (!parsed || typeof parsed !== 'object') return null
-    const record = parsed as { error?: unknown; detail?: unknown }
-    if (record.error && typeof record.error === 'object') {
-      const message = (record.error as { message?: unknown }).message
-      if (typeof message === 'string' && message) return message
-    }
-    if (typeof record.error === 'string' && record.error) return record.error
-    if (typeof record.detail === 'string' && record.detail) return record.detail
-    return null
-  } catch {
-    return null
-  }
-}
 
 /**
  * Parse API error response and throw a consistent error
@@ -111,10 +65,7 @@ async function handleApiError(response: Response, context: string): Promise<neve
  * const client = createDocumentsClient({ authToken: idToken })
  *
  * // Create collection
- * const collection = await client.createCollection('my-session-id')
- *
- * // Upload files
- * const { job_id, file_ids } = await client.uploadFiles('my-session-id', files)
+ * const collection = await client.createCollection('proj_123')
  *
  * // Poll for status
  * const status = await client.getJobStatus(job_id)
@@ -162,7 +113,7 @@ export const createDocumentsClient = (options: DocumentsClientOptions = {}) => {
      * Get a specific collection by name
      */
     async getCollection(name: string, signal?: AbortSignal): Promise<CollectionInfo | null> {
-      const response = await fetch(buildCollectionRequestUrl(`${getCollectionsUrl()}/${name}`, name), {
+      const response = await fetch(`${getCollectionsUrl()}/${name}`, {
         method: 'GET',
         headers: getHeaders(),
         signal,
@@ -181,82 +132,10 @@ export const createDocumentsClient = (options: DocumentsClientOptions = {}) => {
     },
 
     /**
-     * Delete a collection and all its files
-     */
-    async deleteCollection(name: string): Promise<void> {
-      const response = await fetch(`${getCollectionsUrl()}/${name}`, {
-        method: 'DELETE',
-        headers: getHeaders(),
-      })
-
-      if (!response.ok && response.status !== 404) {
-        await handleApiError(response, 'Failed to delete collection')
-      }
-    },
-
-    // --------------------------------------------------------------------------
-    // File Operations
-    // --------------------------------------------------------------------------
-
-    /**
-     * Upload files to a collection
-     *
-     * @param collectionName - Target collection name
-     * @param files - Files to upload
-     * @param options - Upload options (progress callback)
-     * @returns Job ID and file IDs for status polling
-     */
-    async uploadFiles(
-      collectionName: string,
-      files: File[],
-      options?: UploadFilesOptions
-    ): Promise<{ job_id: string; file_ids: string[] }> {
-      const formData = new FormData()
-      files.forEach((file) => {
-        formData.append('files', file)
-      })
-
-      const headers: Record<string, string> = {}
-      if (authToken) {
-        headers['Authorization'] = `Bearer ${authToken}`
-      }
-      // Content-Type is deliberately unset: the browser authors it for FormData
-      // so it can append the multipart boundary.
-
-      // One transport for every caller, progress callback or not. This used to
-      // fork — XHR when a caller wanted progress, `fetch` otherwise — and the
-      // two branches had drifted into different error messages and different
-      // abort behaviour, on the path where an upload most needs to say clearly
-      // what went wrong. `fetch` cannot report upload progress at all, so the
-      // shared helper is XHR (see `lib/http/xhr-upload`).
-      let responseText: string
-      try {
-        responseText = await xhrUpload({
-          url: buildCollectionRequestUrl(`${getCollectionsUrl()}/${collectionName}/documents`, collectionName),
-          body: formData,
-          headers,
-          onProgress: options?.onProgress,
-          signal: options?.signal,
-        })
-      } catch (error) {
-        if (error instanceof XhrUploadError) {
-          throw new Error(parseErrorMessage(error.responseText) || `Failed to upload files: ${error.status}`)
-        }
-        throw error
-      }
-
-      const validated = UploadResponseSchema.parse(JSON.parse(responseText))
-      return {
-        job_id: validated.job_id,
-        file_ids: validated.file_ids,
-      }
-    },
-
-    /**
      * List files in a collection
      */
     async listFiles(collectionName: string, signal?: AbortSignal): Promise<FileInfo[]> {
-      const response = await fetch(buildCollectionRequestUrl(`${getCollectionsUrl()}/${collectionName}/documents`, collectionName), {
+      const response = await fetch(`${getCollectionsUrl()}/${collectionName}/documents`, {
         method: 'GET',
         headers: getHeaders(),
         signal,
@@ -283,7 +162,7 @@ export const createDocumentsClient = (options: DocumentsClientOptions = {}) => {
      * Delete files from a collection
      */
     async deleteFiles(collectionName: string, fileIds: string[]): Promise<void> {
-      const response = await fetch(buildCollectionRequestUrl(`${getCollectionsUrl()}/${collectionName}/documents`, collectionName), {
+      const response = await fetch(`${getCollectionsUrl()}/${collectionName}/documents`, {
         method: 'DELETE',
         headers: getHeaders(),
         body: JSON.stringify({ file_ids: fileIds }),
