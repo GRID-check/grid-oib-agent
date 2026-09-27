@@ -1299,6 +1299,64 @@ describe('deleteDocument', () => {
       expect.objectContaining({ action: 'document.deleted' })
     )
   })
+
+  // An ingest asks whether its document still exists once it has indexed. One
+  // that asked before the row went saw it, and kept the chunks it inserted
+  // after the first purge; the purge after the row takes those, and every
+  // later ask reads „gone“ (ADR-0054, correction 18).
+  it('purges the chunks again once the row is gone', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    const order: string[] = []
+    mockFetch.mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).endsWith('/documents') && init?.method === 'DELETE') order.push('purge')
+      return { ok: true }
+    })
+    vi.mocked(eraseDocumentObjectsOrKeepRow).mockImplementationOnce(async () => {
+      order.push('objects')
+    })
+    vi.mocked(deleteProjectDocument).mockImplementationOnce(async () => {
+      order.push('row')
+    })
+
+    await deleteDocument(session, 'doc-1', new Request('http://x'))
+
+    expect(order).toEqual(['purge', 'objects', 'row', 'purge'])
+  })
+
+  it('audits and answers normally when only the purge after the row fails', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    mockFetch.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(new Error('backend down'))
+
+    await deleteDocument(session, 'doc-1', new Request('http://x'))
+
+    // The row is gone either way; the orphaned-vector sweep is the net, and
+    // the audit still says the first purge was confirmed.
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'document.deleted',
+        metadata: expect.objectContaining({ chunksPurged: true }),
+      })
+    )
+  })
+
+  it('does not purge after a row it kept', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    mockFetch.mockClear()
+    mockFetch.mockResolvedValue({ ok: true })
+    vi.mocked(eraseDocumentObjectsOrKeepRow).mockRejectedValueOnce(new UpstreamError('nope'))
+
+    await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(
+      UpstreamError
+    )
+    const purges = mockFetch.mock.calls.filter(
+      ([url, init]) =>
+        String(url).endsWith('/documents') && (init as RequestInit)?.method === 'DELETE'
+    )
+    expect(purges).toHaveLength(1)
+  })
 })
 
 describe('renameDocument', () => {

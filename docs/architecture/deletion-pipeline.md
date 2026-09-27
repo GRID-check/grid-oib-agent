@@ -133,8 +133,10 @@ the file is indexed, and on `exists: false` takes back out exactly what it
 inserted, retires nothing and writes no `document_metadata` row. It discards on
 that definite answer only; an unreachable BFF leaves the chunks in. Because the
 row is deleted last, an ingest that asks between step 2 and step 4 still finds
-it and keeps what it inserted after step 2, which the orphaned-vector sweep
-removes
+it and keeps what it inserted after step 2, so the immediate project and Archiv
+deletes purge the chunks once more after the row (logged, never surfaced; the
+orphaned-vector sweep is the net). The chat-attachment delete does not purge
+twice yet
 ([a document deleted while it indexed](../technical-reference/document-ingestion.md#a-document-deleted-while-it-indexed-takes-its-chunks-back-out)).
 
 **Conversation**:

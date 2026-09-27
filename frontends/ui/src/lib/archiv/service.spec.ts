@@ -374,6 +374,48 @@ describe('deleteArchivDocument', () => {
     )
   })
 
+  // An ingest that asked whether its document exists before the row went saw
+  // it, and kept chunks inserted after the first purge; the purge after the
+  // row takes those (ADR-0054, correction 18).
+  it('purges the chunks again once the row is gone, and a failure there is not surfaced', async () => {
+    const doc = makeDocument({
+      id: 'd1',
+      scope: 'archiv',
+      projectId: null,
+      collectionName: 'archiv_org-1',
+      storageKey: 'org/org-1/archiv/doc/d1/plan.pdf',
+    })
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+    vi.mocked(findArchivDocument).mockResolvedValue(doc)
+    const order: string[] = []
+    let purges = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        order.push('purge')
+        purges += 1
+        if (purges === 2) throw new Error('backend down')
+        return { ok: true }
+      }),
+    )
+    vi.mocked(eraseDocumentObjectsOrKeepRow).mockImplementationOnce(async () => {
+      order.push('objects')
+    })
+    vi.mocked(deleteArchivDocumentRow).mockImplementationOnce(async () => {
+      order.push('row')
+    })
+
+    await deleteArchivDocument(session, 'd1', request)
+
+    expect(order).toEqual(['purge', 'objects', 'row', 'purge'])
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'archiv.document.deleted',
+        metadata: expect.objectContaining({ chunksPurged: true }),
+      }),
+    )
+  })
+
   it('refuses a held document with a 409 before erasing anything', async () => {
     vi.mocked(canManageArchiv).mockReturnValue(true)
     vi.mocked(findArchivDocument).mockResolvedValue(

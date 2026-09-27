@@ -240,14 +240,20 @@ cost a live document its chunks. A job without a `document_id` (the OIB sync,
 whole of a file, extraction and embedding included, so a delete behind it would
 wait minutes and outlast the BFF's request timeout.
 
-Two windows remain, both narrow and both named:
+The BFF's delete purges the chunks first and deletes the row last, after the
+objects, so an ingest whose check lands between the two still sees the row and
+keeps the chunks it inserted after that purge. The project and Archiv deletes
+(`deleteDocument` in `lib/documents/service.ts`, `deleteArchivDocument` in
+`lib/archiv/service.ts`) therefore purge once more after the row is gone: an
+ingest that asked before the row went has indexed by then, and one that asks
+afterwards reads "gone". That second purge is logged, never surfaced; the row
+is already gone, and the weekly orphaned-vector sweep
+(`lib/platform/vector-reconcile.ts`) is the net when it fails. The chat
+attachment delete (`lib/session-documents/cleanup.ts`) does not purge twice
+yet, so the window stays open there.
 
-- The BFF's document delete purges the chunks first and deletes the row last,
-  after the objects (`deleteDocument`, `lib/documents/service.ts`). An ingest
-  whose check lands between the two sees the row, and keeps chunks inserted
-  after the purge. The window is the object erase, not the ingest. The weekly
-  orphaned-vector sweep (`lib/platform/vector-reconcile.ts`) removes what it
-  leaves; purging the chunks again after the row is gone would close it.
+One window remains, narrow and named:
+
 - A delete that runs completely between the check and the metadata writes
   leaves a summary row with no chunks. The `reconcile-summaries` maintenance
   pass forgets such rows ([deletion pipeline](../architecture/deletion-pipeline.md)).

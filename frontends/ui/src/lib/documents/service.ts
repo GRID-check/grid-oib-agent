@@ -1710,6 +1710,13 @@ export async function deleteDocument(
 
   await deleteProjectDocument(documentId, session.organizationId, doc.projectId)
 
+  // Once more, now that the row is gone: an ingest of this document that
+  // asked `GET /api/internal/document-exists` before the row went saw it,
+  // and kept chunks it inserted after the first purge (ADR-0054, correction
+  // 18). Any check from here on reads „gone“ and discards its own. Logged
+  // inside, never thrown: the row is gone, and the orphan sweep is the net.
+  if (purgeRef) await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
+
   // Data-provenance event: who removed which file from which project.
   await recordAuditEvent({
     organizationId: session.organizationId,
