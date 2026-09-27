@@ -686,7 +686,7 @@ export class NATWebSocketClient {
       this.errorBeforeClose = true
     }
 
-    socket.onclose = () => {
+    socket.onclose = (event: CloseEvent) => {
       if (this.ws !== socket) return
       const hadError = this.errorBeforeClose
       this.errorBeforeClose = false
@@ -695,6 +695,15 @@ export class NATWebSocketClient {
         // Intentional close (session switch, cleanup) -- already handled by disconnect()
         return
       }
+
+      // Who closed it: 1011 is uvicorn's keepalive giving up on a late pong,
+      // 1006 a reset with no close frame (proxy, network, tab suspended).
+      // docs/contributing/gotchas.md has the rest.
+      console.warn('[WS] Socket closed', {
+        code: event.code,
+        reason: event.reason,
+        wasClean: event.wasClean,
+      })
 
       // During active reconnection, suppress status callbacks to avoid
       // intermediate error/disconnected flickers. Only fire on:

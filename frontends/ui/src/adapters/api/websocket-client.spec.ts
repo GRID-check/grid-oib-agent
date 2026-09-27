@@ -666,6 +666,23 @@ describe('NATWebSocketClient reconnect scheduling', () => {
     return scheduled?.[1] as number
   }
 
+  test('an unintended close logs its code, reason and wasClean so the drop is attributable', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const client = new NATWebSocketClient({ conversationId: 'conv-close', callbacks: {} })
+    await client.connect()
+
+    MockWebSocket.instances
+      .at(-1)!
+      .onclose?.(new CloseEvent('close', { code: 1011, reason: 'keepalive ping timeout', wasClean: true }))
+
+    expect(warn).toHaveBeenCalledWith('[WS] Socket closed', {
+      code: 1011,
+      reason: 'keepalive ping timeout',
+      wasClean: true,
+    })
+    client.disconnect()
+  })
+
   test('the top of the jitter window is the configured base delay', async () => {
     expect(await scheduleFirstReconnect(1)).toBe(1000)
   })
