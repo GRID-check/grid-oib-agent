@@ -250,11 +250,14 @@ before the envelope existed.
 never buffers the response body, so SSE routes are unaffected) fail-closed
 rejects (403 / WS policy-violation close) a workflow-invoking request when
 ALL of: `REQUIRE_AUTH=true`; the caller is a WorkOS-authenticated JWT user;
-the path is on the conservative enforced allowlist (`/websocket`,
-`/v1/jobs/async/submit`, `/v1/internal/workflows/submit`, `/generate`); and no
-valid envelope is present. Exempt regardless of path: anonymous mode,
-internal-token-authenticated service calls, and every non-enumerated path —
-the enforced-path list is an allowlist, not a denylist. Dev fail-open note:
+the path is not on `ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES`; and no valid envelope
+is present. It is deny-by-default: the exempt list is the paths that run no
+workflow and that a BFF proxy forwards with the member's bearer alone
+(`/health`, `/v1/collections`, `/v1/documents`, `/v1/data_sources`, the async
+job reads and controls under `/v1/jobs/async/{jobs,job,agents}`, `/v1/drafts`);
+every other path, NAT's `/chat`, `/v1/chat/completions` and `/v1/workflow`
+routes and the WebSocket included, needs the envelope. Always exempt:
+anonymous mode and internal-token-authenticated service calls. Dev fail-open note:
 when `GRID_INTERNAL_API_TOKEN` is unset, signature verification is skipped
 but envelope *presence* is still required for authenticated requests.
 

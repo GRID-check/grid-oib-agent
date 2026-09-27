@@ -252,9 +252,9 @@ Source: `frontends/ui/src/app/api/health/route.ts`
 
 | Method | Path | Auth | Description | Request Body | Response |
 |--------|------|------|-------------|-------------|----------|
-| `GET` | `/api/v1/{path}` | Varies | Generic proxy for Python `/v1/*` endpoints. Validates collection names for collection-scoped routes. | — | JSON from backend |
-| `POST` | `/api/v1/{path}` | Varies | Same as GET, for POST requests. Supports `multipart/form-data` (streams raw body without buffering). | JSON or `multipart/form-data` | JSON from backend |
-| `DELETE` | `/api/v1/{path}` | Varies | Same as GET, for DELETE requests. | Optional JSON body | JSON or `204 No Content` |
+| `GET` | `/api/v1/{path}` | Varies | Proxy for the agent service's `/v1/*` routes a product client uses — an **allowlist** (`lib/proxy/v1-allowlist.ts`): `data_sources`, `documents/{jobId}/status`, `jobs/async/jobs`, `collections/{name}`, `collections/{name}/documents`. Anything else answers `404` before any upstream request. | — | JSON from backend |
+| `POST` | `/api/v1/{path}` | Varies | Same allowlist: `collections` (create) and `collections/{name}/documents` (upload; streams `multipart/form-data` without buffering). NAT's agent-turn routes (`chat`, `chat/completions`, `workflow`, …) are not forwarded: they ran outside the signed context envelope. | JSON or `multipart/form-data` | JSON from backend |
+| `DELETE` | `/api/v1/{path}` | Varies | Same allowlist: `collections/{name}` (a chat's own collection only, see below) and `collections/{name}/documents`. | Optional JSON body | JSON or `204 No Content` |
 
 Collection validation rules in `validateCollectionName()` (per method):
 - Base collection (e.g., `oib_knowledge`): rejected with `400 INVALID_COLLECTION`.

@@ -93,11 +93,11 @@ def _authorize_collection(http_request: Request, collection_name: str) -> None:
       is no tenant boundary to enforce (parity with the pre-envelope behavior and
       the envelope-enforcement middleware, which also no-ops when auth is off).
 
-    RESIDUAL TRUST BOUNDARY: this route is deliberately NOT on the
-    ``GridContextEnvelopeMiddleware`` enforced-path allowlist (its BFF caller is a
-    server-side service fetch carrying no WorkOS bearer token, so the middleware
-    would classify it as non-jwt and never enforce). The check here is that
-    allowlist's equivalent for this specific read route.
+    RESIDUAL TRUST BOUNDARY: ``GridContextEnvelopeMiddleware`` exempts
+    ``/v1/collections`` from its deny-by-default envelope rule, and this route's
+    BFF caller is a server-side service fetch carrying no WorkOS bearer token
+    anyway, so the middleware would classify it as non-jwt and never enforce.
+    The check here is the envelope's equivalent for this specific read route.
     """
     scope = _verified_collection_scope(http_request)
     if scope is not None:

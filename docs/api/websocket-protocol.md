@@ -83,11 +83,18 @@ exactly as before the envelope existed.
 **Enforcement matrix** (`aiq_api.context_envelope.GridContextEnvelopeMiddleware`,
 403 / WS policy-violation close): applies only when ALL of — `REQUIRE_AUTH=true`;
 the caller is a WorkOS-authenticated JWT user (not internal-token, not
-anonymous); the path is on the conservative enforced allowlist (`/websocket`,
-`/v1/jobs/async/submit`, `/v1/internal/skills/submit`, `/generate`); and no
-valid envelope is present. Exempt regardless of path: anonymous mode
-(`REQUIRE_AUTH=false`), internal-token-authenticated service calls, and every
-non-enumerated path — the enforced-path list is an allowlist, not a denylist.
+anonymous); the path is NOT on the short exempt list; and no valid envelope is
+present. **Deny by default**: every path needs the envelope, `/websocket` and
+all of NAT's workflow routes (`/chat`, `/v1/chat`, `/v1/chat/completions`,
+`/v1/workflow`, `/generate`, … and their `/stream` forms) included, except
+`ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES` — `/health`, `/v1/collections`,
+`/v1/documents`, `/v1/data_sources`, `/v1/jobs/async/jobs`,
+`/v1/jobs/async/job`, `/v1/jobs/async/agents`, `/v1/drafts` — which run no
+workflow and which a BFF proxy forwards with the member's bearer alone. The
+list used to be the other way round (an allowlist of enforced paths), and the
+unlisted NAT routes ran full agent turns with no organization, budget or
+source policy. Always exempt: anonymous mode (`REQUIRE_AUTH=false`) and
+internal-token-authenticated service calls.
 See `docs/architecture/backend-deep-dive.md` and
 `frontends/aiq_api/src/aiq_api/context_envelope.py`'s module docstring for the
 full design.
