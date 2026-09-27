@@ -179,6 +179,10 @@
           "key": "improvements",
           "notes": [
             {
+              "en": "An answer now appears word by word at a steady pace, each new word emerging softly from a short fade behind the cursor. When the answer is finished, its last words follow quickly and only then do the reasoning panel fold away and the actions below the answer appear, in one step instead of several jumps.",
+              "de": "Eine Antwort erscheint jetzt Wort für Wort in gleichmäßigem Tempo, und jedes neue Wort taucht weich aus einem kurzen Verlauf hinter dem Cursor auf. Ist die Antwort fertig, folgen die letzten Wörter zügig, und erst dann klappt die Herleitung zu und erscheinen die Aktionen unter der Antwort, in einem Schritt statt in mehreren Sprüngen."
+            },
+            {
               "en": "While an answer is being written, Piloti now re-renders only the section that is still growing instead of the whole answer on every step. Long answers stay smooth to the end, even on a phone, at the same pace and with the same look as before.",
               "de": "Während eine Antwort geschrieben wird, bereitet Piloti nur noch den wachsenden letzten Abschnitt neu auf statt jedes Mal die ganze Antwort. Lange Antworten laufen dadurch auch auf dem Telefon bis zum Ende flüssig, im selben Tempo und mit demselben Aussehen wie bisher."
             },
