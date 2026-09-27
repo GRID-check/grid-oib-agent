@@ -187,6 +187,10 @@ const de = {
     // Measured: the median chat answer takes about 30 seconds.
     big: '≈\u202f30\u00a0s',
     sub: 'gemessene typische Antwortzeit',
+    // The chat beside this is a fictional example; the post is the real thing.
+    howLead: 'Wie eine Antwort entsteht:',
+    howLabel: 'Wie Piloti funktioniert',
+    howHref: '/blog/wie-piloti-funktioniert/',
   },
   daten: {
     title: 'Quellen, die Sie prüfen können.',
@@ -769,6 +773,9 @@ const en: typeof de = {
     body: 'You design, Piloti supplies the context: the regulation that applies, the experience from your past projects and the conditions on your plot. The decision stays yours.',
     big: '≈\u202f30\u00a0s',
     sub: 'measured typical response time',
+    howLead: 'How an answer comes about:',
+    howLabel: 'How Piloti works',
+    howHref: '/en/blog/how-piloti-works/',
   },
   daten: {
     title: 'Sources you can check.',

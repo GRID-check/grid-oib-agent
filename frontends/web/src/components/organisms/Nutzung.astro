@@ -27,7 +27,10 @@ const t = ui[locale]
           {t.nutzung.title}
         </h2>
         <p class="m-0 mb-8 text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">
-          {t.nutzung.body}
+          {`${t.nutzung.body} ${t.nutzung.howLead} `}<a
+            href={t.nutzung.howHref} class="text-accent-600 underline underline-offset-2 hover:text-accent-700"
+            >{t.nutzung.howLabel}&nbsp;→</a
+          >
         </p>
         <!-- The one hard claim on the page, given the weight of one — and
              measured: the median answer takes about thirty seconds. -->
