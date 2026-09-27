@@ -68,15 +68,6 @@ class UploadOrchestratorImpl {
     return createDocumentsClient({ authToken: this.authToken })
   }
 
-  /**
-   * Documents client carrying the orchestrator's auth token, for module-level
-   * helpers outside this class (e.g. discardSessionDocumentsResources) — a
-   * token-less client 401s in auth-required deployments.
-   */
-  getAuthenticatedClient() {
-    return this.getClient()
-  }
-
   private getStore() {
     return useDocumentsStore.getState()
   }

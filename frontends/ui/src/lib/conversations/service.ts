@@ -41,7 +41,8 @@ import type {
 } from '@/lib/db/schema'
 import { purgeConversationCollaboration } from '@/lib/collaboration/cleanup'
 import { discardConversationDrafts } from './working-directory'
-import { purgeSessionDocuments } from '@/lib/session-documents/cleanup'
+import { deleteSessionCollection, purgeSessionDocuments } from '@/lib/session-documents/cleanup'
+import { sessionCollectionName } from '@/lib/collection-scope'
 import { assertNoActiveHold } from '@/lib/compliance/holds'
 import { publishToUsers } from '@/lib/events/bus'
 import { inboxGroupKey } from '@/lib/inbox/registry'
@@ -516,7 +517,8 @@ export async function assertConversationAcceptsUploads(
  * stays honest for every internal caller and every test.
  *
  * **It is also two-phase**, because the attachments live in stores no foreign
- * key reaches: mark deleting → erase the external state → delete the rows. A
+ * key reaches: mark deleting → erase the external state (every attachment row's
+ * chunks and objects, then the chat's whole `s_` collection) → delete the rows. A
  * failure in the middle stops before the rows, and the marked conversation plus
  * its retained document rows are what a retry runs on.
  */
@@ -562,6 +564,23 @@ export async function deleteConversation(
       `[conversations] session document cleanup incomplete for ${conversationId} — ` +
         `${purge.retained} row(s) retained for retry:`,
       purge.failures.join('; ')
+    )
+    throw new UpstreamError(
+      'Deleting the chat’s attachments failed; the chat was kept so it can be retried.'
+    )
+  }
+
+  // The chat's retrieval collection itself, which no row names: chunks from
+  // attachments that predate session rows, and the collection's summaries. The
+  // conversation owns this erasure so no client has to race it against the row
+  // delete (the discard used to fire both at once, and a collection delete that
+  // lost the race was refused and orphaned). Idempotent: a chat that never had a
+  // collection, or a retry after one was erased, is success.
+  const collection = await deleteSessionCollection(sessionCollectionName(conversationId))
+  if (!collection.ok) {
+    console.error(
+      `[conversations] session collection erase incomplete for ${conversationId}:`,
+      collection.reason
     )
     throw new UpstreamError(
       'Deleting the chat’s attachments failed; the chat was kept so it can be retried.'

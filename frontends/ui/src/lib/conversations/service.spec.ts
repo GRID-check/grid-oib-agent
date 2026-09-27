@@ -60,7 +60,10 @@ vi.mock('@/lib/sharing/service', () => ({ resolveParticipants: vi.fn() }))
 // touches a row (ADR-0047 Phase 2). Mocked at the boundary so this suite can
 // state what the service does with each outcome; the erasure itself is tested
 // in `session-documents/cleanup.spec.ts`.
-vi.mock('@/lib/session-documents/cleanup', () => ({ purgeSessionDocuments: vi.fn() }))
+vi.mock('@/lib/session-documents/cleanup', () => ({
+  purgeSessionDocuments: vi.fn(),
+  deleteSessionCollection: vi.fn(),
+}))
 vi.mock('@/lib/compliance/repository', () => ({
   isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
 }))
@@ -98,7 +101,7 @@ import { emitInboxItems, markResourceItemsReadFor } from '@/lib/inbox/service'
 import { applyMessageMentions, resolveRequestsOnReply } from '@/lib/mentions/service'
 import { countGrantsForResource, findGrantForSubject } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
-import { purgeSessionDocuments } from '@/lib/session-documents/cleanup'
+import { deleteSessionCollection, purgeSessionDocuments } from '@/lib/session-documents/cleanup'
 import { discardConversationDrafts } from './working-directory'
 import { resolveEngagement, resolveEngagementFor, setEngagement } from './engagement'
 import {
@@ -408,6 +411,7 @@ describe('discarding a chat that holds attachments', () => {
       retained: 0,
       failures: [],
     })
+    vi.mocked(deleteSessionCollection).mockResolvedValue({ ok: true })
   })
 
   it('marks the conversation as deleting BEFORE it erases anything', async () => {
@@ -420,6 +424,10 @@ describe('discarding a chat that holds attachments', () => {
       order.push('purge')
       return { ok: true, purged: 0, retained: 0, failures: [] }
     })
+    vi.mocked(deleteSessionCollection).mockImplementation(async () => {
+      order.push('collection')
+      return { ok: true }
+    })
     vi.mocked(deleteConversationInOrg).mockImplementation(async () => {
       order.push('delete')
     })
@@ -429,7 +437,27 @@ describe('discarding a chat that holds attachments', () => {
     // Marked first, so an upload arriving at any point during the purge has
     // something to refuse on — without it, one landing between the purge and
     // the row delete lost its row to the cascade and left its bytes behind.
-    expect(order).toEqual(['mark', 'purge', 'delete'])
+    // The collection goes after the rows' own erasure and before the row: once
+    // the conversation row is gone, nothing could authorize erasing it.
+    expect(order).toEqual(['mark', 'purge', 'collection', 'delete'])
+  })
+
+  it('erases the chat’s own s_ collection, which no attachment row names', async () => {
+    await deleteConversation(session, CONVERSATION_ID)
+
+    // A chat with no rows still had its collection left behind: attachments
+    // from before session rows existed, and the collection's summaries.
+    expect(deleteSessionCollection).toHaveBeenCalledWith(`s_${CONVERSATION_ID}`)
+    expect(deleteConversationInOrg).toHaveBeenCalled()
+  })
+
+  it('KEEPS the conversation when its collection could not be erased', async () => {
+    vi.mocked(deleteSessionCollection).mockResolvedValue({ ok: false, reason: 'answered 500' })
+
+    await expect(deleteConversation(session, CONVERSATION_ID)).rejects.toThrow(/attachments failed/)
+
+    // The row is what authorizes the retry; deleting it would orphan the collection.
+    expect(deleteConversationInOrg).not.toHaveBeenCalled()
   })
 
   it('refuses a held chat with a 409 before it is even marked deleting', async () => {
@@ -446,6 +474,7 @@ describe('discarding a chat that holds attachments', () => {
     // The chat stays visible and whole: not marked, not purged, not deleted.
     expect(markConversationDeleting).not.toHaveBeenCalled()
     expect(purgeSessionDocuments).not.toHaveBeenCalled()
+    expect(deleteSessionCollection).not.toHaveBeenCalled()
     expect(deleteConversationInOrg).not.toHaveBeenCalled()
     expect(discardConversationDrafts).not.toHaveBeenCalled()
   })

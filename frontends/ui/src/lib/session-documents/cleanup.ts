@@ -1,6 +1,9 @@
 /**
  * Erasing a conversation's private attachments.
  *
+ * The row-by-row purge and the whole-collection erase both live here; the
+ * conversation delete calls them in that order.
+ *
  * Its own module, deliberately small, because two callers need it and one of
  * them must not pull in the other. `conversations/service` calls this when a
  * chat is discarded; `session-documents/service` is what creates those rows and
@@ -76,6 +79,39 @@ export async function purgeCollectionChunks(
     return { ok: true }
   } catch (error) {
     return { ok: false, reason: `chunk purge of ${collectionName}: ${describeError(error)}` }
+  }
+}
+
+/**
+ * Erase a chat's whole retrieval collection (`s_<id>`), idempotently.
+ *
+ * The per-row purge above removes the chunks of every file that has a row. It
+ * cannot reach what no row names: attachments uploaded before session files
+ * were rows (straight at the ingestor through the v1 proxy), a row lost to an
+ * earlier partial failure, and the collection itself with its summaries. So the
+ * conversation delete ends its external erasure here, after the rows are gone.
+ *
+ * **A collection that does not exist is success.** Most chats never had an
+ * attachment, and a retry after a completed erase finds nothing. The backend's
+ * `DELETE /v1/collections/<name>` answers 500 for a missing collection rather
+ * than 404, so the existence is asked first: 404 means already gone, and 503
+ * means no knowledge layer is configured, so no collection can exist either.
+ * Any other failure is a failure: the caller keeps the conversation so a
+ * repeated delete can try again.
+ */
+export async function deleteSessionCollection(collectionName: string): Promise<ExternalCleanupResult> {
+  const url = `${getBackendUrl()}/v1/collections/${encodeURIComponent(collectionName)}`
+  try {
+    const probe = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS) })
+    if (probe.status === 404 || probe.status === 503) return { ok: true }
+    if (!probe.ok) {
+      return { ok: false, reason: `collection probe of ${collectionName} answered ${probe.status}` }
+    }
+    const response = await fetch(url, { method: 'DELETE', signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS) })
+    if (response.ok || response.status === 404) return { ok: true }
+    return { ok: false, reason: `collection delete of ${collectionName} answered ${response.status}` }
+  } catch (error) {
+    return { ok: false, reason: `collection delete of ${collectionName}: ${describeError(error)}` }
   }
 }
 

@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Wer einen Chat löscht, löscht jetzt auch alle Dateien, die darin
+    angehängt waren, vollständig aus der Suche. Bisher konnten Inhalte älterer
+    Anhänge nach dem Löschen im Suchindex bleiben. Das galt auch für einen
+    neuen Chat mit Anhang, den man ohne Nachricht wieder verlassen hatte.

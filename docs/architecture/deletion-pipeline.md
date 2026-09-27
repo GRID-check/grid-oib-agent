@@ -129,6 +129,21 @@ re-uploads of one name at once are serialised, so the later one is what stays
 1. Delete LangGraph checkpoints (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes` in `aiq_checkpoints`) for `thread_id = conversation id`
 2. Delete `conversations` row (`messages` cascade)
 
+What `DELETE /api/conversations/[id]` does today is immediate, not queued
+(`deleteConversation`, `lib/conversations/service.ts`), and every step after the
+hold check is safe to repeat:
+
+1. `owner` on the conversation (or the creator of one already marked deleting, so a failed erase can be retried).
+2. `assertNoActiveHold`, before anything is marked or erased.
+3. Mark the conversation `deleted_at`, which hides it and makes the session upload refuse new bytes.
+4. `purgeSessionDocuments` (`lib/session-documents/cleanup.ts`): for each attachment row, its chunks, its objects, then the row. A row whose erase failed is kept, and so is the conversation.
+5. `deleteSessionCollection`: the chat's whole `s_` collection through the backend's `DELETE /v1/collections/{name}`. This covers chunks no row names, such as attachments uploaded before session files were rows. A collection that does not exist (404), or a deployment with no knowledge layer (503), counts as erased. Any other failure keeps the conversation.
+6. Delete the `conversations` row (`messages` and the remaining document rows cascade), then the collaboration rows and the agent's drafts.
+
+The browser's discard of an abandoned upload-only chat sends only this delete.
+It used to send a collection delete through the v1 proxy alongside it, and when
+the row went first that request was refused and the collection was left behind.
+
 **Project**:
 1. Gather pointers: `collectionName`, SeaweedFS prefix `org/{orgId}/project/{projectId}/`, all conversation ids for the project
 2. Delete Chroma collection (existing `DELETE /v1/collections/{name}`; also clears its `document_metadata` rows)
