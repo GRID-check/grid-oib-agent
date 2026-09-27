@@ -67,6 +67,13 @@ const portBox = (card: HTMLElement, cam: HTMLElement, selector: string): Box => 
 const BOARD = MQ.staged
 /** The smallest the camera may draw the board: below it the cards are unreadable. */
 const MIN_SCALE = 0.85
+/**
+ * The sources whose findings carry the chosen way (B): the façade clause and
+ * the project's own section. Their wires light up with the choice.
+ */
+const SUPPORTS_CHOICE = [0, 2]
+/** How far the wire to the steps runs out beside the decision card before it turns down. */
+const ELBOW = 20
 
 export function initChain() {
   initChainBoard()
@@ -123,6 +130,10 @@ function initChainBoard() {
   // simply nothing to animate rather than a tween against null.
   const caretT = caret ? [caret] : []
   const optT = (i: number) => (options[i] ? [options[i]!] : [])
+  const subs = Array.from(cam.querySelectorAll<HTMLElement>('[data-opt-sub]'))
+  const whys = Array.from(cam.querySelectorAll<HTMLElement>('[data-opt-why]'))
+  const mark = Array.from(cam.querySelectorAll<HTMLElement>('[data-opt-mark]'))
+  const tick = Array.from(cam.querySelectorAll<SVGPathElement>('[data-opt-tick]'))
 
   // ── geometry ──────────────────────────────────────────────────────────────
 
@@ -151,11 +162,14 @@ function initChainBoard() {
     return made
   }
 
-  const wire = (key: string, d: string, kind: string) => {
+  // The chosen way is drawn in the same green as B's mark, from the sources
+  // that carry it, through B, on to the steps.
+  const ok = getComputedStyle(document.documentElement).getPropertyValue('--color-ok').trim() || '#0f7a3d'
+  const wire = (key: string, d: string, kind: string, stroke = '#26272a') => {
     const path = keep(key, () => {
       const p = document.createElementNS(SVG_NS, 'path')
       p.setAttribute('fill', 'none')
-      p.setAttribute('stroke', '#26272a')
+      p.setAttribute('stroke', stroke)
       p.setAttribute('stroke-width', '1.6')
       p.setAttribute('stroke-linecap', 'round')
       p.dataset.wire = kind
@@ -177,7 +191,14 @@ function initChainBoard() {
     return c
   }
 
-  type Wires = { stem: SVGPathElement; stops: number[]; rows: { stub: SVGPathElement[]; dots: SVGCircleElement[] }[]; merges: SVGPathElement[]; toImpl: SVGPathElement | null }
+  type Wires = {
+    stem: SVGPathElement
+    stops: number[]
+    rows: { stub: SVGPathElement[]; dots: SVGCircleElement[] }[]
+    merges: SVGPathElement[]
+    chosen: SVGPathElement[]
+    toImpl: SVGPathElement | null
+  }
 
   const draw = (): Wires => {
     // The question is typed in, so it is measured holding all of its text —
@@ -216,70 +237,83 @@ function initChainBoard() {
     // elements, so neither can drift away from what it points at.
     const dec = node('dec')[0]
     const inPort = dec ? portBox(dec, cam, '[data-port="in"]') : null
-    const merges = inPort
-      ? rows.map(({ card }, i) => {
-          const k = box(card)
-          const midX = (k.right + inPort.x) / 2
-          return wire(
-            `merge-${i}`,
-            `M${k.right},${k.cy} C${midX},${k.cy} ${midX},${inPort.cy} ${inPort.x},${inPort.cy}`,
-            'merge'
-          )
-        })
+    const mergePath = (card: HTMLElement, to: Box) => {
+      const k = box(card)
+      const midX = (k.right + to.x) / 2
+      return `M${k.right},${k.cy} C${midX},${k.cy} ${midX},${to.cy} ${to.x},${to.cy}`
+    }
+    const merges = inPort ? rows.map(({ card }, i) => wire(`merge-${i}`, mergePath(card, inPort), 'merge')) : []
+    // The same curves again, in green, laid over the ones that carry the choice.
+    const chosen = inPort
+      ? SUPPORTS_CHOICE.map((i) => wire(`chosen-${i}`, mergePath(rows[i].card, inPort), 'chosen', ok))
       : []
 
+    // The wire on to the steps leaves the decision card's edge level with B,
+    // runs out beside it and turns down onto the steps: from any frame it
+    // starts at the option it continues, not somewhere under option C.
     const impl = node('impl')[0]
     const outPort = dec ? portBox(dec, cam, '[data-port="out"]') : null
     let toImpl: SVGPathElement | null = null
-    if (impl && outPort) {
+    if (dec && impl && outPort) {
+      const d = box(dec)
       const i = box(impl)
-      const midY = (outPort.bottom + i.y) / 2
-      toImpl = wire(
-        'to-impl',
-        `M${outPort.cx},${outPort.bottom} C${outPort.cx},${midY} ${i.cx},${midY} ${i.cx},${i.y}`,
-        'impl'
-      )
+      const x = Math.min(d.right + ELBOW, i.right - 24)
+      const r = Math.max(0, Math.min(10, x - d.right))
+      const y = outPort.cy
+      toImpl = wire('to-impl', `M${d.right},${y} L${x - r},${y} Q${x},${y} ${x},${y + r} L${x},${i.y}`, 'impl', ok)
     }
 
     if (scan) scan.style.top = `${q.bottom + STEM_GAP}px`
-    return { stem, stops, rows: rowWires, merges, toImpl }
+    return { stem, stops, rows: rowWires, merges, chosen, toImpl }
   }
 
   // ── camera ────────────────────────────────────────────────────────────────
 
-  const INSET = { top: 22, right: 24, bottom: 48, left: 24 }
-  const TIGHT = { top: 14, right: 12, bottom: 40, left: 12 }
+  /*
+   * Where a framed node may sit in the stage. The stage's edges dissolve over
+   * 30px (`.stage-mask`) and the status line covers the bottom, so the inset
+   * clears both: a node the camera stops on is never faded or cut at its edge.
+   * It used to be 12–24px, inside the fade, and stops sliced their cards.
+   */
+  const INSET = { top: 32, right: 32, bottom: 56, left: 32 }
+  const MARGIN = 12
 
-  /** Fit the named nodes in the frame, and never magnify past the true size. */
+  const fit = (els: HTMLElement[], vw: number, vh: number) => {
+    const b = els.map(box)
+    const x0 = Math.min(...b.map((v) => v.x)) - MARGIN
+    const y0 = Math.min(...b.map((v) => v.y)) - MARGIN
+    const x1 = Math.max(...b.map((v) => v.right)) + MARGIN
+    const y1 = Math.max(...b.map((v) => v.bottom)) + MARGIN
+    const scale = Math.min(1, (vw - INSET.left - INSET.right) / (x1 - x0), (vh - INSET.top - INSET.bottom) / (y1 - y0))
+    return { x0, y0, x1, y1, scale }
+  }
+
+  /**
+   * Fit the named nodes whole in the frame, and never magnify past the true
+   * size. Below 0.85 the cards' text is unreadable, so a set of nodes that
+   * does not fit at that size is neither squeezed nor cropped: the camera
+   * frames the last of them, the one the chain has just reached, on its own.
+   * Only the closing overview ('all') goes smaller: it is a picture of the
+   * whole chain, not something to read.
+   */
   const frame = (names: string[]) => {
     const r = stage.getBoundingClientRect()
     const vw = r.width || 700
     const vh = r.height || 430
-    const narrow = vw < 560
-    const inset = narrow ? TIGHT : INSET
-    const margin = narrow ? 8 : 14
+    const all = names.includes('all')
+    const group = (list: string[]) =>
+      list.flatMap((n) => (n === 'all' ? Array.from(cam.querySelectorAll<HTMLElement>('[data-node]')) : node(n)))
 
-    let els = names.flatMap((n) => (n === 'all' ? Array.from(cam.querySelectorAll<HTMLElement>('[data-node]')) : node(n)))
-    if (narrow && els.length > 1) {
-      els = [els.reduce((a, b) => (a.offsetWidth * a.offsetHeight >= b.offsetWidth * b.offsetHeight ? a : b))]
-    }
+    let els = group(names)
     if (!els.length) return { x: 0, y: 0, scale: 1 }
-
-    const b = els.map(box)
-    const x0 = Math.min(...b.map((v) => v.x)) - margin
-    const y0 = Math.min(...b.map((v) => v.y)) - margin
-    const x1 = Math.max(...b.map((v) => v.right)) + margin
-    const y1 = Math.max(...b.map((v) => v.bottom)) + margin
-
-    // Never below 0.85: a pan that shrinks the board to fit everything set the
-    // cards' text at about 6px mid-move. A frame that does not fit at 0.85
-    // is cropped by the stage's soft edge instead.
-    const scale = Math.max(
-      names.includes('all') ? 0 : MIN_SCALE,
-      Math.min(1, (vw - inset.left - inset.right) / (x1 - x0), (vh - inset.top - inset.bottom) / (y1 - y0))
-    )
-    const cx = (x0 + x1) / 2 - (inset.left - inset.right) / 2 / scale
-    const cy = (y0 + y1) / 2 - (inset.top - inset.bottom) / 2 / scale
+    let f = fit(els, vw, vh)
+    if (!all && f.scale < MIN_SCALE && names.length > 1) {
+      els = group(names.slice(-1))
+      f = fit(els, vw, vh)
+    }
+    const scale = all ? f.scale : Math.max(MIN_SCALE, f.scale)
+    const cx = (f.x0 + f.x1) / 2 - (INSET.left - INSET.right) / 2 / scale
+    const cy = (f.y0 + f.y1) / 2 - (INSET.top - INSET.bottom) / 2 / scale
     return { x: vw / 2 - cx * scale, y: vh / 2 - cy * scale, scale }
   }
 
@@ -326,8 +360,11 @@ function initChainBoard() {
       gsap.set(qText, { text: '' })
       gsap.set(caretT, { display: 'inline-block' })
       gsap.set(cam, frame(['q', 's1']))
+      gsap.set(subs, { autoAlpha: 1 })
+      gsap.set([...whys, ...mark], { autoAlpha: 0 })
+      gsap.set(tick, { drawSVG: 0 })
       status.textContent = L.typing
-      options.forEach((o) => o?.classList.remove('opt--receded'))
+      options.forEach((o) => o?.classList.remove('opt--receded', 'opt--chosen'))
     }
     reset()
     tl.call(reset)
@@ -346,34 +383,50 @@ function initChainBoard() {
         .to(w.rows[i].dots, { autoAlpha: 1, duration: 0.2 }, '<')
         .to([part(name, 'chip'), part(name, 'card')], { autoAlpha: 1, y: 0, duration: 0.4, stagger: 0.08 }, '<0.1')
         .call(say(i + 2))
-        .add(camTo(i === 0 ? ['q', 's1'] : sources.slice(0, i + 1)), '<')
+        // The question stays in the shot while the sources gather under it.
+        .add(camTo(['q', ...sources.slice(0, i + 1)]), '<')
     })
 
+    // The merge wires set off towards the decision and the camera goes with
+    // them, straight to the card. It used to stop half-way, on the sources and
+    // the decision together, which no stage fits at a readable size: both
+    // ends of that shot were cut.
     tl.call(say(5), [], '+=0.3')
-      .add(camTo(sources), '<')
-      .to(w.merges, { drawSVG: '100%', duration: 0.5, ease: 'draft', stagger: 0.14 }, '+=0.1')
+      .to(w.merges, { drawSVG: '100%', duration: 0.5, ease: 'draft', stagger: 0.14 }, '+=0.3')
       .call(say(6), [], '<')
-      .add(camTo([...sources, 'dec']), '<')
+      .add(camTo(['dec']), '<')
       .to(node('dec'), { autoAlpha: 1, y: 0, duration: 0.5 }, '-=0.3')
       .call(say(7))
-      .add(camTo(['dec']), '<')
 
-    // The option is chosen: the others recede to the muted ink, not to a
-    // transparency that would take their text below 4.5:1.
-    const ok = getComputedStyle(document.documentElement).getPropertyValue('--color-ok').trim() || '#0f7a3d'
-    tl.call(() => [...optT(0), ...optT(2)].forEach((o) => o.classList.add('opt--receded')), [], '+=0.5')
+    // The way is chosen: B takes its mark and the green of the wires that
+    // carry it; the others recede to the muted ink (not to a transparency,
+    // which took their text below 4.5:1). Each way's second line then gives
+    // its reason, the same reasons the phone stories give.
+    tl.call(say(8), [], '+=0.9')
+      .call(
+        () => {
+          ;[...optT(0), ...optT(2)].forEach((o) => o.classList.add('opt--receded'))
+          optT(1).forEach((o) => o.classList.add('opt--chosen'))
+        },
+        [],
+        '<'
+      )
       .to(optT(1), { backgroundColor: '#eef6ee', borderLeftColor: ok, duration: sec('base') }, '<')
-      .call(say(8), [], '<')
+      .to(w.chosen, { drawSVG: '100%', duration: 0.5, ease: 'draft', stagger: 0.1 }, '<')
+      .to(mark, { autoAlpha: 1, duration: sec('base') }, '<')
+      .to(tick, { drawSVG: '100%', duration: sec('base'), ease: 'draft' }, '<0.1')
+      .to(subs, { autoAlpha: 0, duration: sec('quick') }, '<')
+      .to(whys, { autoAlpha: 1, duration: sec('base') }, '>')
 
+    // B's wire runs on out of the card, and the camera follows it down.
     if (w.toImpl) {
-      tl.to(w.toImpl, { drawSVG: '100%', duration: 0.7 }, '+=0.35')
-        .add(camTo(['dec', 'impl']), '<')
+      tl.to(w.toImpl, { drawSVG: '100%', duration: 0.7, ease: 'draft' }, '+=1')
+        .add(camTo(['impl']), '<0.2')
         .to(node('impl'), { autoAlpha: 1, y: 0, duration: 0.5 }, '-=0.2')
         .call(say(9))
-        .add(camTo(['impl']), '<')
     }
 
-    tl.call(say(10), [], '+=0.6').add(camTo(['all'], sec('slow')), '<')
+    tl.call(say(10), [], '+=1').add(camTo(['all'], sec('slow')), '<')
 
     // Held by the reader, it stays held: scrolling away and back does not
     // resume what they stopped.
