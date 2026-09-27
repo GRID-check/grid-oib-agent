@@ -1,8 +1,7 @@
 ---
-import { Image, getImage } from 'astro:assets'
+import { Image } from 'astro:assets'
 import Pill from '../atoms/Pill.astro'
 import hero from '../../assets/hero.png'
-import heroPortrait from '../../assets/hero-mobil-ext.jpg'
 import { ui, type Locale } from '../../i18n/ui'
 
 interface Props {
@@ -10,15 +9,6 @@ interface Props {
 }
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
-
-// A phone held upright gets its own photograph, not a crop of the landscape
-// one: the same scene shot from higher, with the figure and her table in the
-// upper half and open floor below for the headline to stand on. Cropping the
-// landscape frame to a portrait slot cut the plan in half and put the type
-// over her arm. The aura script reads the same query off the canvas, so the
-// instrumentation is drawn around whichever photograph is showing.
-const portraitMedia = '(max-width: 1023px) and (orientation: portrait)'
-const portrait = await getImage({ src: heroPortrait, widths: [480, 828, 1170], format: 'webp' })
 ---
 
 <div data-hero-wrap class="relative h-svh lg:h-screen">
@@ -28,21 +18,17 @@ const portrait = await getImage({ src: heroPortrait, widths: [480, 828, 1170], f
     data-hero
     class="sticky top-0 box-border flex h-svh flex-col items-center justify-end overflow-hidden bg-hero-bg px-4 pb-14 pt-24 sm:px-12 sm:pb-24 lg:h-screen lg:pb-28"
   >
-    <picture>
-      <source media={portraitMedia} srcset={portrait.srcSet.attribute} sizes="100vw" type="image/webp" />
-      <Image
-        src={hero}
-        alt=""
-        aria-hidden="true"
-        loading="eager"
-        fetchpriority="high"
-        sizes="100vw"
-        class="hero-photo pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
-      />
-    </picture>
+    <Image
+      src={hero}
+      alt=""
+      aria-hidden="true"
+      loading="eager"
+      fetchpriority="high"
+      sizes="100vw"
+      class="hero-photo pointer-events-none absolute inset-0 h-full w-full object-cover object-center"
+    />
     <canvas
       data-aura
-      data-portrait-media={portraitMedia}
       class="pointer-events-none absolute inset-0 h-full w-full"
       aria-hidden="true"></canvas>
     <!-- The photograph does not stop, it settles: one blur, masked to come in
@@ -77,18 +63,6 @@ const portrait = await getImage({ src: heroPortrait, widths: [480, 828, 1170], f
          the headline printed straight through the sentence. Stacking them makes
          the gap a property of the layout instead of an arithmetic coincidence. -->
     <div class="relative flex w-full flex-col items-center gap-5 sm:gap-7">
-      <!-- Where the product stands, said once and quietly: a pilot, not a
-           launch. Above the headline on the open floor of the portrait photo;
-           under the buttons on the landscape one, where above would be on the
-           table. -->
-      <p
-        data-hero-stage
-        class="m-0 inline-flex max-w-full items-center gap-2 text-center text-xs leading-snug text-ink-mute lg:order-last"
-        style="text-wrap: balance"
-      >
-        <span class="size-1.5 shrink-0 rounded-full bg-accent-500" aria-hidden="true"></span>
-        {t.hero.stage}
-      </p>
       <h1
         data-hero-title
         class="m-0 max-w-5xl text-center font-voice text-v-display text-ink"

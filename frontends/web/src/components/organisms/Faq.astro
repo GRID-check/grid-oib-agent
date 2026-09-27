@@ -8,6 +8,8 @@
  */
 import { ui, type Locale } from '../../i18n/ui'
 import { faqItems, faqPageLd, ldJson } from '../../lib/seo'
+import PagePrint from '../craft/PagePrint.astro'
+import { TRAGWERK } from '../craft/plates'
 
 interface Props {
   locale?: Locale
@@ -25,10 +27,14 @@ const items = faqItems(locale)
   class="mx-auto box-border max-w-[85rem] px-4 py-16 sm:px-10 sm:py-24 lg:px-26"
 >
   <div class="grid grid-cols-1 items-start gap-y-8 lg:grid-cols-[5fr_7fr] lg:gap-x-16">
-    <div data-reveal>
+    <div data-reveal class="lg:sticky lg:top-28">
       <h2 id="faq-title" class="m-0 font-voice text-v2 text-panel" style="text-wrap: balance">
         {t.title}
       </h2>
+      <!-- Tragwerk III, the orders: the column family the answers stand on,
+           held beside the questions while they open. From lg only; on a phone
+           the list is the page. -->
+      <PagePrint name={TRAGWERK.III} locale={locale} size="half" class="mt-12 max-lg:hidden" />
     </div>
     <div class="border-b border-ink/12">
       {

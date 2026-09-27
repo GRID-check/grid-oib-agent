@@ -23,10 +23,6 @@ const t = ui[locale]
   >
     <div class="grid grid-cols-1 items-center gap-x-14 gap-y-10 lg:grid-cols-[minmax(20rem,5fr)_7fr]">
       <div data-reveal class="px-2 sm:px-0">
-        <!-- Plate VI, the drafting table the answers arrive on. From lg only:
-             on a phone the stories are the picture, and a print would push
-             them a screen down. Still, because the chain is the moment. -->
-        <PagePrint name={PLATES.VI} locale={locale} size="third" still class="mb-10 max-lg:hidden" />
         <h2 id="nutzung-title" class="m-0 mb-5 font-voice text-v4 sm:mb-6" style="text-wrap: balance">
           {t.nutzung.title}
         </h2>
@@ -41,6 +37,12 @@ const t = ui[locale]
             {t.nutzung.sub}
           </p>
         </div>
+        <!-- Plate VI, the drafting table the answers arrive on, closing the
+             column beside the chain rather than sitting on its heading as a
+             badge. From lg only: on a phone the stories are the picture, and a
+             print would push them a screen down. Still, because the chain is
+             the moment. -->
+        <PagePrint name={PLATES.VI} locale={locale} size="half" still class="mt-12 max-lg:hidden" />
       </div>
       <!-- Below lg the chain is told as stories; ChatMock serves lg and up. -->
       <div class="max-lg:hidden"><ChatMock locale={locale} /></div>

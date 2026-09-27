@@ -414,10 +414,14 @@ html:not(.js) [data-solution-card] {
 [data-nav-bar][data-tone='dark'].rounded-full a:hover {
   color: var(--color-accent-400);
 }
-/* The CTA inverts, as Pill's `light` variant does on a dark panel. */
-[data-nav-bar][data-tone='dark'].rounded-full a.bg-accent-800 {
-  background-color: var(--color-surface);
-  color: var(--color-accent-900);
+/* The outline CTA inverts: a light hairline and label on the dark rail. */
+[data-nav-bar][data-tone='dark'].rounded-full a.nav-cta {
+  border-color: rgb(238 242 228 / 0.35);
+  color: var(--color-on-dark-strong);
+}
+[data-nav-bar][data-tone='dark'].rounded-full a.nav-cta:hover {
+  border-color: var(--color-on-dark-strong);
+  background-color: rgb(238 242 228 / 0.08);
 }
 
 /* ── Page transitions ────────────────────────────────────────────────────────

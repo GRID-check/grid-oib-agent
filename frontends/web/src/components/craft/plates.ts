@@ -29,14 +29,15 @@ export const PLATES = {
 /**
  * The Tragwerk series (art/riso/tragwerk): the Piloti column, a brand staple,
  * by number. II is the Team's taped print (three columns, three founders, one
- * slab), IV the 404's; I wears the landing share card, III the Journal's.
+ * slab), IV the 404's; I wears the landing share card, III the Journal's
+ * share card and the FAQ, on the page.
  */
 export const TRAGWERK = {
   /** Säule / Column: the landing page's share card (its og). */
   I: 'tragwerk/saeule/plate',
   /** Drei Säulen / Three columns: the Team section, taped beside the founder photos. */
   II: 'tragwerk/drei/plate',
-  /** Säulenordnung / The orders. */
+  /** Säulenordnung / The orders: the FAQ, on the page. */
   III: 'tragwerk/ordnung/plate',
   /** Ziegelpfeiler / Brick pier: the 404 page. */
   IV: 'tragwerk/ziegel/plate',
