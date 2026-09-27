@@ -8,10 +8,17 @@ export const SITE_NAME = 'Piloti'
 export const CONTACT_EMAILS = ['mail@jonathanuhlemann.de', 'mail@bigls.net'] as const
 export const CONTACT_EMAIL = CONTACT_EMAILS[0]
 
-/** A `mailto:` to every contact address, with an optional subject line. */
-export function mailtoHref(subject?: string) {
+/**
+ * A `mailto:` to every contact address, with an optional subject line and a
+ * prefilled body: the few lines an office needs to write, so nobody faces an
+ * empty mail to two strangers.
+ */
+export function mailtoHref(subject?: string, body?: string) {
   const to = CONTACT_EMAILS.join(',')
-  return subject ? `mailto:${to}?subject=${encodeURIComponent(subject)}` : `mailto:${to}`
+  const query = [subject && `subject=${encodeURIComponent(subject)}`, body && `body=${encodeURIComponent(body)}`]
+    .filter(Boolean)
+    .join('&')
+  return query ? `mailto:${to}?${query}` : `mailto:${to}`
 }
 
 /**

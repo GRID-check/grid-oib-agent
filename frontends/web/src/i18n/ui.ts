@@ -332,6 +332,9 @@ const de = {
     secondary: 'Gespräch anfragen',
     subjectPilot: 'Pilotbüro',
     subjectCall: 'Gespräch',
+    bodyPilot:
+      'Guten Tag,\n\nwir interessieren uns für die Pilotphase.\n\nBüro:\nOrt:\nPlaner:innen im Team:\nWofür wir Piloti zuerst einsetzen würden:\n\n',
+    bodyCall: 'Guten Tag,\n\nwir würden gern mit Ihnen sprechen.\n\nBüro:\nTermine, die uns passen:\n\n',
   },
   chat: {
     header: 'Piloti',
@@ -899,6 +902,9 @@ const en: typeof de = {
     secondary: 'Request a call',
     subjectPilot: 'Pilot office',
     subjectCall: 'Call',
+    bodyPilot:
+      'Hello,\n\nwe are interested in the pilot phase.\n\nOffice:\nLocation:\nPlanners on the team:\nWhat we would use Piloti for first:\n\n',
+    bodyCall: 'Hello,\n\nwe would like to talk to you.\n\nOffice:\nTimes that suit us:\n\n',
   },
   chat: {
     header: 'Piloti',

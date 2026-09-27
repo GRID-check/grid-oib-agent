@@ -58,10 +58,10 @@ const t = ui[locale]
       data-reveal
       class="mx-auto mt-9 flex w-full max-w-3xl flex-col gap-3 sm:mt-11 sm:flex-row sm:justify-center sm:gap-3.5 lg:mx-0 lg:justify-start"
     >
-      <Pill href={mailtoHref(t.cta.subjectPilot)} variant="solid" size="lg" class="max-sm:w-full">
+      <Pill href={mailtoHref(t.cta.subjectPilot, t.cta.bodyPilot)} variant="solid" size="lg" class="max-sm:w-full">
         {t.cta.primary}
       </Pill>
-      <Pill href={mailtoHref(t.cta.subjectCall)} variant="outline-dark" size="lg" class="max-sm:w-full">
+      <Pill href={mailtoHref(t.cta.subjectCall, t.cta.bodyCall)} variant="outline-dark" size="lg" class="max-sm:w-full">
         {t.cta.secondary}
       </Pill>
     </div>
