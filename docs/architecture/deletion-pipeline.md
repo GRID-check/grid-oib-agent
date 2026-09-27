@@ -176,8 +176,11 @@ its own:
   pending in `GET /api/deletions`, and the erasure resumes on the tick after the
   release.
 - **A chat that is not marked deleting is refused** (409 `not_deleting`), and the
-  purger counts that as a failed attempt. A queue row that names a live chat is
-  a bug to surface, not an instruction to follow.
+  purger fails the row for good on the first such answer (`markFailedPermanent`,
+  `last_error` saying the row names a live chat and nothing was erased) rather
+  than retrying ten times for the same refusal. It is `failed`, not `purged`,
+  because nothing was erased. A queue row that names a live chat is a bug to
+  surface, not an instruction to follow.
 - **A chat whose row is already gone is finished**, not a failure. A project purge
   takes its chats' rows, and a request can die after the row delete. The steps
   are keyed by the id and are no-ops on an absent row, so the collaboration rows,

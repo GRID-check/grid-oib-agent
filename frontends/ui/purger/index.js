@@ -29,7 +29,7 @@ const {
 } = require('./db')
 const { createS3Client, deleteStoragePrefix } = require('./storage')
 const { LEGAL_HOLD_CODE, purgeProject } = require('./purge-project')
-const { purgeConversation } = require('./purge-conversation')
+const { PERMANENT_FAILURE_CODE, purgeConversation } = require('./purge-conversation')
 const { initOtelLogs } = require('../observability/otel-logs')
 // The deletion queue spans every organization, so the purger's transactions
 // step up to the BYPASSRLS role (ADR-0041).
@@ -108,6 +108,15 @@ async function processOne() {
       )
       await releaseHeld(sql, claimed.id).catch((e) =>
         console.error('[purger] failed to release held row:', e),
+      )
+      return true
+    }
+    if (failure?.code === PERMANENT_FAILURE_CODE) {
+      // A refusal no retry can change (a chat erasure queued for a live chat):
+      // fail it now instead of spending MAX_ATTEMPTS on the same answer.
+      console.error(`[purger] ${failure.message} (queue row ${claimed.id}) — marking failed, no retry`)
+      await markFailedPermanent(sql, claimed.id, failure.message).catch((e) =>
+        console.error('[purger] failed to record error:', e),
       )
       return true
     }

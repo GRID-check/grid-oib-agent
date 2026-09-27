@@ -3,7 +3,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { LEGAL_HOLD_CODE } from './purge-project.js'
-import { purgeConversation } from './purge-conversation.js'
+import { PERMANENT_FAILURE_CODE, purgeConversation } from './purge-conversation.js'
 
 const entry = {
   id: 'q-1',
@@ -96,9 +96,22 @@ describe('purgeConversation (the retry of a chat erasure)', () => {
     expect(error.message).toMatch(/502.*attachments failed/)
   })
 
-  it('treats a 409 that is not a hold as a failure (a queue row naming a live chat)', async () => {
+  it('fails a queue row that names a live chat for good, instead of retrying it', async () => {
     const { tx } = makeTx()
-    const { deps } = makeDeps(answer(409, { details: { reason: 'not_deleting' } }))
+    const { deps, fetchImpl } = makeDeps(answer(409, { details: { reason: 'not_deleting' } }))
+
+    const error = await purgeConversation(tx, entry, deps).catch((e) => e)
+
+    // The BFF gives the same answer on every attempt, so the caller marks the
+    // row failed at once (markFailedPermanent), with a reason an admin can read.
+    expect(error.code).toBe(PERMANENT_FAILURE_CODE)
+    expect(error.message).toMatch(/not marked deleting.*nothing was erased/)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps any other 409 retryable', async () => {
+    const { tx } = makeTx()
+    const { deps } = makeDeps(answer(409, { error: 'conflict' }))
 
     const error = await purgeConversation(tx, entry, deps).catch((e) => e)
 

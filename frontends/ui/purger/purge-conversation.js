@@ -35,6 +35,9 @@ const INTERNAL_TOKEN_HEADER = 'x-grid-internal-token'
 // of backend calls, each with its own timeout in the BFF.
 const ERASE_TIMEOUT_MS = 5 * 60_000
 
+/** error.code for a refusal no retry can change: the caller fails the row for good. */
+const PERMANENT_FAILURE_CODE = 'PURGE_PERMANENT_FAILURE'
+
 /**
  * @param {Tx} tx
  * @param {QueueEntry} entry
@@ -73,8 +76,21 @@ async function purgeConversation(tx, entry, deps) {
     error.code = LEGAL_HOLD_CODE
     throw error
   }
+  if (res.status === 409 && body?.details?.reason === 'not_deleting') {
+    // The row names a chat that is live (not marked deleting). The BFF will
+    // refuse it on every attempt, so retrying only spends ten attempts over
+    // hours to reach the same answer. The caller fails it for good at once,
+    // and it stays in the admin deletions list with this reason. Not 'purged':
+    // nothing was erased, and the record must not say otherwise.
+    /** @type {import('./types').LegalHoldError} */
+    const error = new Error(
+      `conversation ${entry.entity_id} is not marked deleting — the queue row names a live chat, nothing was erased`,
+    )
+    error.code = PERMANENT_FAILURE_CODE
+    throw error
+  }
   const detail = typeof body?.error === 'string' ? `: ${body.error}` : ''
   throw new Error(`conversation erase answered ${res.status}${detail}`)
 }
 
-module.exports = { purgeConversation }
+module.exports = { PERMANENT_FAILURE_CODE, purgeConversation }
