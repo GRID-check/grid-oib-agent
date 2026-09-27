@@ -1200,6 +1200,10 @@
     "de": "Am Telefon steht das Suchfeld oder die Schaltfläche neben der Überschrift eines Projektbereichs jetzt darunter, und der Erklärtext bekommt die volle Breite. Bisher brach er auf ein Wort pro Zeile um."
   },
   {
+    "en": "On the Piloti website the knowledge sources gather around Piloti again without lines breaking at the headline, and the example decision now shows why one way is chosen and the others are not.",
+    "de": "Auf der Piloti-Website gruppieren sich die Wissensquellen wieder um Piloti, die Überschrift bleibt einzeilig, und die Beispielentscheidung zeigt jetzt, warum eine Option gewählt wird und die anderen nicht."
+  },
+  {
     "en": "One chat loading its organization's settings no longer briefly holds up everyone else's conversations.",
     "de": "Ein Chat, der die Einstellungen seiner Organisation nachlädt, hält die Gespräche aller anderen nicht mehr kurz an."
   },

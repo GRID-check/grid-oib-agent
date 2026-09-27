@@ -518,6 +518,10 @@
             {
               "en": "The imprint and privacy policy no longer contain placeholders, and the website no longer claims that data and AI run only in the EU.",
               "de": "Impressum und Datenschutzerklärung enthalten keine Platzhalter mehr, und die Website behauptet nicht mehr, Daten und KI liefen ausschließlich in der EU."
+            },
+            {
+              "en": "On the Piloti website the knowledge sources gather around Piloti again without lines breaking at the headline, and the example decision now shows why one way is chosen and the others are not.",
+              "de": "Auf der Piloti-Website gruppieren sich die Wissensquellen wieder um Piloti, die Überschrift bleibt einzeilig, und die Beispielentscheidung zeigt jetzt, warum eine Option gewählt wird und die anderen nicht."
             }
           ]
         },
