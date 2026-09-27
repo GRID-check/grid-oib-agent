@@ -194,6 +194,8 @@ The `AuthMiddleware` (`frontends/aiq_api/src/aiq_api/auth/middleware.py`) wraps 
 
 WebSocket auth mirrors the HTTP middleware: `authenticate_websocket_connection()` validates the handshake token using the same validator chain. Per-message token expiry checks reject work under expired handshake JWTs with `auth_expired` error messages.
 
+A socket is bound to one conversation at the handshake: the `conversationId` signed into `X-Grid-Request-Context`, which the BFF authorized. A `user_message` or `user_interaction` frame naming any other conversation is refused with an `error_message` (`conversation_mismatch`) and runs nothing. Without an envelope (internal caller, anonymous mode) the first conversation a frame names binds the socket. Details: `docs/architecture/backend-deep-dive.md` §2c.
+
 ## Configuration introspection
 
 | Method | Path | Description | Request | Response | Handler |

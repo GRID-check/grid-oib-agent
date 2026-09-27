@@ -31,7 +31,14 @@ ws://BACKEND_URL/websocket
 |-----------|----------|-------------|
 | `projectId` | No | UUID scoping the backend Milvus collection |
 | `conversationId` | No | Session ID for conversation continuity (Grid collection scoping) |
-| `conversation_id` | No | Same session ID, snake_case duplicate of `conversationId`. Read by NAT's base `_restore_execution_state` to swap a reconnected socket into a still-running handler (live reattach). The client sends both keys; the backend override tolerates either. See backend-deep-dive §2c. |
+| `conversation_id` | No | Same session ID, snake_case duplicate of `conversationId`. Read by NAT's base `_restore_execution_state` to swap a reconnected socket into a still-running handler (live reattach). The client sends both keys; the backend override tolerates either, and behind the BFF reattaches only to the signed id. See backend-deep-dive §2c. |
+
+**A socket serves one conversation.** The conversation the scope route
+authorized is signed into the envelope, and every frame's `conversation_id` must
+equal it. A frame naming another conversation (or none, on a socket opened for
+one) is refused with an `error_message` whose `content.message` is
+`conversation_mismatch`; nothing runs for it and the socket stays open. To talk
+in another conversation, open a socket for it.
 
 ---
 
@@ -655,7 +662,7 @@ A `ConnectionChangeContext` with `{ intentional?: boolean }` distinguishes user-
 | `sendMessage` | `(content: string, enabledDataSources?: string[]) => string \| null` | Sends a user message, returns message ID |
 | `sendInteractionResponse` | `(promptId: string, parentId: string, responseText: string) => string \| null` | Sends response to a human prompt |
 | `isConnected` | `() => boolean` | Checks `WebSocket.OPEN` |
-| `updateConversationId` | `(id: string) => void` | Switches conversation scope |
+| `updateConversationId` | `(id: string) => void` | Changes the id later frames carry. The backend refuses frames for a conversation the socket was not opened for, so a switch needs a new socket; `use-websocket-chat.ts` disconnects and builds a new client on every conversation change |
 
 ### Auto-Reconnect
 

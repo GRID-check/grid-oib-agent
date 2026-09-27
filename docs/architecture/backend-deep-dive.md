@@ -322,6 +322,19 @@ in `use-websocket-chat.ts` + the chat store.
   base to (a) tolerate either key and (b) re-register the reconnected socket in
   the registry (NAT's base only swaps the handler's `_socket` attribute). Without
   the re-register, the running turn's frames would not reach the new socket.
+  Behind the BFF neither query key decides the reattach: the override reattaches
+  only to the conversation id signed into the envelope, because the snake_case
+  param never reaches the scope route that authorizes the camelCase one.
+- **One socket, one conversation.** Every `user_message` and `user_interaction`
+  frame carries its own `conversation_id`, and NAT copies it into the handler;
+  the registry, the task a new turn cancels, the pending HITL future and the
+  checkpoint (`thread_id_for_turn`) all key on it. So the handler binds the socket
+  at the handshake to the envelope's `conversationId` (the id the scope route ran
+  `authorizeConversationScope` on) and `_admit_conversation` refuses any frame
+  naming another, in the workflow, HITL and ingest-only branches alike, with an
+  `error_message` frame whose message is `conversation_mismatch`. A signed socket
+  without a conversation accepts only frames naming none. Off the BFF (internal
+  caller, anonymous mode, no envelope) the first id a frame names binds it.
 - **Registry.** `WebSocketSessionRegistry` (module-global `_registry`) maps
   `conversation_id → socket` and holds pending HITL futures + the running
   workflow task. `set_socket` on send/reconnect, `clear_socket` on disconnect.

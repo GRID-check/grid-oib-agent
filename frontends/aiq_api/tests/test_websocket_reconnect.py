@@ -47,6 +47,10 @@ def _make_handler(
     handler._authenticated_user = authenticated_user
     handler._socket = socket or MagicMock()
     handler._message_validator = message_validator or MagicMock()
+    scope = getattr(handler._socket, "scope", None)
+    handler._envelope_present, handler._bound_conversation_id = websocket_reconnect.handshake_conversation_binding(
+        scope if isinstance(scope, dict) else {}
+    )
     return handler
 
 

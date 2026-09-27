@@ -5,12 +5,16 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import pytest
 from pydantic import BaseModel
+from starlette.datastructures import QueryParams
 from starlette.websockets import WebSocketDisconnect
 
 from aiq_agent.conversation_context import MAX_CONTEXT_MESSAGE_CHARS
@@ -1352,3 +1356,317 @@ async def test_an_unanswered_hitl_prompt_expires_instead_of_hanging(
         await websocket_reconnect._registry.resolve_pending_interaction("conv-expiry", TextContent(text="late"), None)
         is False
     )
+
+
+# ---------------------------------------------------------------------------
+# One socket, one conversation.
+#
+# Every frame names its own `conversation_id`, and NAT copies it into the
+# handler's `_conversation_id`; the registry, the running task a new turn
+# cancels, the pending HITL future and the LangGraph checkpoint all key on it.
+# The BFF authorizes only the conversation in the upgrade and signs it into the
+# envelope, so that signed id is the one every frame must name.
+# ---------------------------------------------------------------------------
+
+_ENVELOPE_SECRET = "test-envelope-secret"
+
+
+def _envelope_headers(payload: dict, *, secret: str = _ENVELOPE_SECRET) -> list[tuple[bytes, bytes]]:
+    raw = json.dumps(payload)
+    header = base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii").rstrip("=")
+    signature = hmac.new(secret.encode("utf-8"), raw.encode("utf-8"), hashlib.sha256).hexdigest()
+    return [
+        (b"x-grid-request-context", header.encode("ascii")),
+        (b"x-grid-request-context-sig", signature.encode("ascii")),
+    ]
+
+
+def _user_message(conversation_id: str | None, *, message_id: str = "msg-1") -> WebSocketUserMessage:
+    return WebSocketUserMessage(
+        type=WebSocketMessageType.USER_MESSAGE,
+        schema_type=WorkflowSchemaType.CHAT_STREAM,
+        id=message_id,
+        conversation_id=conversation_id,
+        content=UserMessageContent(
+            messages=[UserMessages(role=UserMessageContentRoleType.USER, content=[TextContent(text="hallo")])]
+        ),
+    )
+
+
+def _hitl_answer(conversation_id: str) -> WebSocketUserInteractionResponseMessage:
+    return WebSocketUserInteractionResponseMessage(
+        type=WebSocketMessageType.USER_INTERACTION_MESSAGE,
+        id="answer-1",
+        thread_id="thread-1",
+        parent_id="parent-1",
+        conversation_id=conversation_id,
+        content=UserMessageContent(
+            messages=[UserMessages(role=UserMessageContentRoleType.USER, content=[TextContent(text="ja")])]
+        ),
+    )
+
+
+class _Recorder:
+    def __init__(self) -> None:
+        self.processed: list[str | None] = []
+        self.sockets: list[str | None] = []
+        self.hitl: list[str | None] = []
+
+
+def _bound_handler(
+    frames: list[BaseModel],
+    monkeypatch,
+    *,
+    headers: list[tuple[bytes, bytes]] | None = None,
+) -> tuple[ReconnectableWebSocketMessageHandler, DummySocket, _Recorder]:
+    """A handler reading *frames* in order, over a socket opened with *headers*."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", _ENVELOPE_SECRET)
+    socket = DummySocket(messages=[{"n": i} for i in range(len(frames))], headers=headers)
+    handler = ReconnectableWebSocketMessageHandler(
+        socket=socket,
+        session_manager=DummySessionManager(),
+        step_adaptor=DummyStepAdaptor(),
+        worker=DummyWorker(),
+    )
+    recorder = _Recorder()
+    queue = list(frames)
+
+    async def fake_validate_message(_message):
+        return queue.pop(0)
+
+    async def fake_process_workflow(message):
+        recorder.processed.append(message.conversation_id)
+
+    async def fake_set_socket(conversation_id, _socket):
+        recorder.sockets.append(conversation_id)
+
+    async def fake_submit_hitl_answer(conversation_id, _content, _subject=None):
+        recorder.hitl.append(conversation_id)
+        return True
+
+    monkeypatch.setattr(handler._message_validator, "validate_message", fake_validate_message)
+    monkeypatch.setattr(handler, "process_workflow_request", fake_process_workflow)
+    monkeypatch.setattr(websocket_reconnect._registry, "set_socket", fake_set_socket)
+    monkeypatch.setattr(websocket_reconnect._registry, "submit_hitl_answer", fake_submit_hitl_answer)
+    return handler, socket, recorder
+
+
+def _mismatch_errors(socket: DummySocket) -> list[dict]:
+    return [
+        frame
+        for frame in socket.sent
+        if frame.get("type") == WebSocketMessageType.ERROR_MESSAGE.value
+        and frame.get("content", {}).get("message") == websocket_reconnect.CONVERSATION_MISMATCH
+    ]
+
+
+async def test_a_frame_for_another_conversation_runs_nothing(monkeypatch) -> None:
+    """THE HOLE: an authorized socket for conv-a naming conv-b in a frame."""
+    headers = _envelope_headers({"conversationId": "conv-a", "userId": "u-1"})
+    handler, socket, recorder = _bound_handler([_user_message("conv-b")], monkeypatch, headers=headers)
+
+    await handler.run()
+
+    assert recorder.processed == []
+    assert recorder.sockets == []
+    assert len(_mismatch_errors(socket)) == 1
+
+
+async def test_a_frame_for_the_signed_conversation_runs(monkeypatch) -> None:
+    headers = _envelope_headers({"conversationId": "conv-a"})
+    handler, socket, recorder = _bound_handler([_user_message("conv-a")], monkeypatch, headers=headers)
+
+    await handler.run()
+
+    assert recorder.processed == ["conv-a"]
+    assert recorder.sockets == ["conv-a"]
+    assert _mismatch_errors(socket) == []
+
+
+async def test_a_refused_frame_leaves_the_socket_open_for_the_right_one(monkeypatch) -> None:
+    headers = _envelope_headers({"conversationId": "conv-a"})
+    frames = [_user_message("conv-b"), _user_message("conv-a", message_id="msg-2")]
+    handler, socket, recorder = _bound_handler(frames, monkeypatch, headers=headers)
+
+    await handler.run()
+
+    assert recorder.processed == ["conv-a"]
+    assert len(_mismatch_errors(socket)) == 1
+
+
+async def test_a_frame_naming_no_conversation_is_refused_on_a_bound_socket(monkeypatch) -> None:
+    """None differs from the bound id, and would run a turn off the conversation."""
+    headers = _envelope_headers({"conversationId": "conv-a"})
+    handler, socket, recorder = _bound_handler([_user_message(None)], monkeypatch, headers=headers)
+
+    await handler.run()
+
+    assert recorder.processed == []
+    assert len(_mismatch_errors(socket)) == 1
+
+
+async def test_a_hitl_answer_for_another_conversation_resolves_nothing(monkeypatch) -> None:
+    headers = _envelope_headers({"conversationId": "conv-a"})
+    handler, socket, recorder = _bound_handler([_hitl_answer("conv-b")], monkeypatch, headers=headers)
+    local_future: asyncio.Future[TextContent] = asyncio.get_running_loop().create_future()
+    handler._user_interaction_response = local_future
+
+    await handler.run()
+
+    assert not local_future.done()
+    assert recorder.hitl == []
+    assert recorder.sockets == []
+    assert len(_mismatch_errors(socket)) == 1
+
+
+async def test_a_hitl_answer_for_the_signed_conversation_is_delivered(monkeypatch) -> None:
+    headers = _envelope_headers({"conversationId": "conv-a"})
+    handler, _socket, recorder = _bound_handler([_hitl_answer("conv-a")], monkeypatch, headers=headers)
+
+    await handler.run()
+
+    assert recorder.hitl == ["conv-a"]
+
+
+async def test_an_ingest_only_frame_for_another_conversation_writes_no_checkpoint(
+    monkeypatch, captured_context
+) -> None:
+    headers = _envelope_headers({"conversationId": "conv-a"})
+    frame = _context_only_user_message("Bemerkung", conversation_id="conv-b")
+    handler, socket, recorder = _bound_handler([frame], monkeypatch, headers=headers)
+
+    await handler.run()
+
+    assert captured_context == []
+    assert recorder.processed == []
+    assert len(_mismatch_errors(socket)) == 1
+
+
+async def test_a_signed_socket_without_a_conversation_accepts_none_and_refuses_any(monkeypatch) -> None:
+    """Nothing authorized a conversation, so the first frame's pick is not one."""
+    headers = _envelope_headers({"userId": "u-1"})
+    frames = [_user_message("conv-x"), _user_message(None, message_id="msg-2")]
+    handler, socket, recorder = _bound_handler(frames, monkeypatch, headers=headers)
+
+    await handler.run()
+
+    assert recorder.processed == [None]
+    assert len(_mismatch_errors(socket)) == 1
+
+
+async def test_off_the_bff_the_first_named_conversation_binds_the_socket(monkeypatch) -> None:
+    """Internal / anonymous callers: first id binds, every later change is refused."""
+    frames = [
+        _user_message("conv-1"),
+        _user_message("conv-2", message_id="msg-2"),
+        _user_message("conv-1", message_id="msg-3"),
+    ]
+    handler, socket, recorder = _bound_handler(frames, monkeypatch, headers=[])
+
+    await handler.run()
+
+    assert recorder.processed == ["conv-1", "conv-1"]
+    assert len(_mismatch_errors(socket)) == 1
+
+
+def test_a_forged_envelope_binds_nothing(monkeypatch) -> None:
+    """A signature under the wrong key is an absent envelope, not a bound one."""
+    headers = _envelope_headers({"conversationId": "conv-b"}, secret="not-the-secret")
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", _ENVELOPE_SECRET)
+
+    assert websocket_reconnect.handshake_conversation_binding({"headers": headers}) == (False, None)
+
+
+class _RestoreSocket(DummySocket):
+    """A socket with query params, cached the way starlette caches them."""
+
+    def __init__(self, query_string: str, headers: list[tuple[bytes, bytes]]) -> None:
+        super().__init__(headers=headers)
+        self._query_params = QueryParams(query_string)
+
+    @property
+    def query_params(self) -> QueryParams:
+        return self._query_params
+
+
+class _RestoreWorker(DummyWorker):
+    def __init__(self, handlers: dict[str, object]) -> None:
+        self.handlers = handlers
+        self.lookups: list[str] = []
+
+    def get_conversation_handler(self, conversation_id: str) -> object | None:
+        self.lookups.append(conversation_id)
+        return self.handlers.get(conversation_id)
+
+
+class _Disconnected:
+    """The handler a dropped socket left behind, still running its turn."""
+
+    def __init__(self, conversation_id: str) -> None:
+        self._conversation_id = conversation_id
+        self._user_interaction = None
+        self._message_parent_id = "parent"
+        self._workflow_schema_type = WorkflowSchemaType.CHAT_STREAM
+        self._running_workflow_task = None
+        self._socket = None
+
+
+def _restore_handler(socket: _RestoreSocket, worker: _RestoreWorker, monkeypatch) -> tuple[object, list[str]]:
+    handler = ReconnectableWebSocketMessageHandler(
+        socket=socket,
+        session_manager=DummySessionManager(),
+        step_adaptor=DummyStepAdaptor(),
+        worker=worker,
+    )
+    registered: list[str] = []
+
+    async def fake_set_socket(conversation_id, _socket):
+        registered.append(conversation_id)
+
+    monkeypatch.setattr(websocket_reconnect._registry, "set_socket", fake_set_socket)
+    return handler, registered
+
+
+async def test_reattach_follows_the_signed_id_not_the_snake_case_param(monkeypatch) -> None:
+    """`conversationId=mine&conversation_id=yours` must not swap this socket into yours."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", _ENVELOPE_SECRET)
+    victim = _Disconnected("conv-b")
+    worker = _RestoreWorker({"conv-b": victim})
+    socket = _RestoreSocket(
+        "conversationId=conv-a&conversation_id=conv-b",
+        _envelope_headers({"conversationId": "conv-a"}),
+    )
+    handler, registered = _restore_handler(socket, worker, monkeypatch)
+
+    await handler._restore_execution_state()
+
+    assert "conv-b" not in worker.lookups
+    assert victim._socket is None
+    assert registered == []
+
+
+async def test_reattach_to_the_signed_conversation_still_works(monkeypatch) -> None:
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", _ENVELOPE_SECRET)
+    running = _Disconnected("conv-a")
+    worker = _RestoreWorker({"conv-a": running})
+    socket = _RestoreSocket("conversationId=conv-a", _envelope_headers({"conversationId": "conv-a"}))
+    handler, registered = _restore_handler(socket, worker, monkeypatch)
+
+    await handler._restore_execution_state()
+
+    assert running._socket is socket
+    assert registered == ["conv-a"]
+
+
+async def test_off_the_bff_a_reattach_binds_the_socket(monkeypatch) -> None:
+    monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
+    running = _Disconnected("conv-1")
+    worker = _RestoreWorker({"conv-1": running})
+    socket = _RestoreSocket("conversationId=conv-1", [])
+    handler, _registered = _restore_handler(socket, worker, monkeypatch)
+
+    await handler._restore_execution_state()
+
+    assert running._socket is socket
+    assert handler._bound_conversation_id == "conv-1"
+    assert await handler._admit_conversation("conv-2") is False

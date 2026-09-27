@@ -26,6 +26,9 @@ from aiq_agent.conversation_context import ContextOnlyMessage
 from aiq_agent.conversation_context import append_conversation_context
 from aiq_agent.conversation_context import format_context_turn
 from aiq_agent.conversation_context import parse_context_only_payload
+from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_HEADER
+from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_SIG_HEADER
+from aiq_agent.project_context import GridRequestContext
 from aiq_api.auth.errors import AuthError
 from aiq_api.auth.middleware import build_request_trace_tags
 from aiq_api.auth.middleware import detect_internal_caller
@@ -932,6 +935,44 @@ async def persist_assistant_message(
     return persisted
 
 
+#: The error-frame ``message`` for a frame that names a conversation this socket
+#: was not opened for. A stable string the client can match, like ``auth_expired``.
+CONVERSATION_MISMATCH = "conversation_mismatch"
+
+
+def handshake_conversation_binding(scope: Mapping[str, Any]) -> tuple[bool, str | None]:
+    """The conversation the BFF authorized for this socket, read at the handshake.
+
+    Returns ``(envelope_present, conversation_id)``. The id comes ONLY from the
+    signed ``X-Grid-Request-Context`` envelope: `server.js` signs the id that
+    ``/api/auth/websocket-scope`` ran ``authorizeConversationScope`` on, and
+    nothing else on the upgrade is authorized. The query params are not (NAT's
+    snake_case ``conversation_id`` never reaches the scope route), and neither is
+    the ``conversation_id`` a ``user_message`` frame carries: NAT copies that into
+    ``_conversation_id`` and every registry, checkpoint and HITL key follows it,
+    so a frame is the one place a caller could name somebody else's conversation.
+
+    ``envelope_present`` is False only off the BFF: an internal service caller or
+    an anonymous-mode deployment. ``GridContextEnvelopeMiddleware`` closes an
+    authenticated user's socket that arrives without a valid envelope, so this
+    function never has to decide for one.
+    """
+    headers: dict[str, str] = {}
+    for raw_name, raw_value in scope.get("headers", []) or []:
+        try:
+            headers[raw_name.decode("latin-1").lower()] = raw_value.decode("latin-1")
+        except (AttributeError, UnicodeDecodeError):
+            continue
+    envelope = GridRequestContext.from_envelope(
+        headers.get(REQUEST_CONTEXT_ENVELOPE_HEADER),
+        headers.get(REQUEST_CONTEXT_ENVELOPE_SIG_HEADER),
+        os.environ.get("GRID_INTERNAL_API_TOKEN"),
+    )
+    if envelope is None:
+        return False, None
+    return True, envelope.conversation_id
+
+
 class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
     """WebSocket handler that supports HITL reconnects per conversation."""
 
@@ -939,6 +980,11 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         super().__init__(*args, **kwargs)
         self._user_interaction_response: asyncio.Future[TextContent] | None = None
         self._authenticated_user: dict[str, Any] | None = None
+        # One socket, one conversation. See `handshake_conversation_binding` for
+        # where the id comes from and `_admit_conversation` for how it is held.
+        self._envelope_present, self._bound_conversation_id = handshake_conversation_binding(
+            getattr(self._socket, "scope", None) or {}
+        )
 
     async def _restore_execution_state(self) -> None:
         """Reattach a reconnected socket to a still-running handler.
@@ -959,13 +1005,23 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
           connection.
         """
         params = self._socket.query_params
-        conversation_id = params.get("conversation_id") or params.get("conversationId")
+        if self._envelope_present:
+            # Behind the BFF the ONLY id this socket may reattach to is the signed
+            # one. The query params are the caller's: `conversationId=mine&
+            # conversation_id=yours` passed the scope check on the first and let
+            # NAT swap this socket into the second conversation's running handler.
+            conversation_id = self._bound_conversation_id
+        else:
+            conversation_id = params.get("conversation_id") or params.get("conversationId")
 
-        # NAT's base restore reads only `conversation_id`. When the client sent
-        # only the camelCase key, make the resolved id visible to it without
-        # mutating the wire scope (starlette caches parsed params on `_query_params`).
-        if conversation_id and not params.get("conversation_id"):
-            self._socket._query_params = QueryParams({**dict(params), "conversation_id": conversation_id})
+        # NAT's base restore reads only `conversation_id`. Hand it the resolved id,
+        # or none at all, without mutating the wire scope (starlette caches parsed
+        # params on `_query_params`).
+        if params.get("conversation_id") != conversation_id:
+            rewritten = {key: value for key, value in params.items() if key != "conversation_id"}
+            if conversation_id:
+                rewritten["conversation_id"] = conversation_id
+            self._socket._query_params = QueryParams(rewritten)
 
         await super()._restore_execution_state()
 
@@ -973,7 +1029,61 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         # socket into the registry so live send and HITL routing target this
         # reconnected connection.
         if conversation_id and self._worker.get_conversation_handler(conversation_id):
+            if self._bound_conversation_id is None:
+                self._bound_conversation_id = conversation_id
             await _registry.set_socket(conversation_id, self._socket)
+
+    async def _admit_conversation(self, conversation_id: str | None) -> bool:
+        """Whether a frame naming ``conversation_id`` may be processed on this socket.
+
+        Every frame carries its own ``conversation_id``, and all per-conversation
+        state is keyed by it: the relay socket, the running task a new turn
+        cancels, the pending HITL future, the LangGraph checkpoint. So the id a
+        frame names must be the one this socket was opened for.
+
+        * Behind the BFF with a signed conversation: exactly that id.
+        * Behind the BFF without one: a frame naming no conversation is allowed and
+          a frame naming any conversation is refused, because nothing authorized
+          it. Binding to the first frame's id would authorize whatever the caller
+          chose first, which is the hole this closes.
+        * Off the BFF (internal caller, anonymous mode): bound to the first id a
+          frame names, and every later change refused.
+
+        A refused frame gets an error frame on this socket and nothing else: no
+        registry write, no workflow, no checkpoint write.
+        """
+        bound = self._bound_conversation_id
+        if bound is None and not conversation_id:
+            return True
+        if bound is None and not self._envelope_present:
+            self._bound_conversation_id = conversation_id
+            return True
+        if conversation_id == bound:
+            return True
+        logger.warning(
+            "Refusing websocket frame for conversation %s on a socket bound to %s",
+            conversation_id,
+            bound,
+        )
+        await self._send_conversation_mismatch_error(conversation_id)
+        return False
+
+    async def _send_conversation_mismatch_error(self, conversation_id: str | None) -> None:
+        """Tell the client its frame named a conversation this socket is not for."""
+        error = Error(
+            code=ErrorTypes.INVALID_MESSAGE,
+            message=CONVERSATION_MISMATCH,
+            details="This connection was opened for a different conversation; reconnect for that one.",
+        )
+        try:
+            error_message = await self._message_validator.create_system_response_token_message(
+                message_type=WebSocketMessageType.ERROR_MESSAGE,
+                conversation_id=conversation_id,
+                content=error,
+            )
+            await self._socket.send_json(error_message.model_dump())
+        except Exception as exc:  # pragma: no cover - socket may already be closed
+            logger.warning("Failed to send conversation_mismatch: %s", exc)
 
     def _is_handshake_token_expired(self) -> bool:
         """Return True if the JWT used at handshake has since passed its ``exp``.
@@ -1119,6 +1229,11 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                         await self._send_auth_expired_error(validated_message.conversation_id)
                         continue
 
+                    # Before anything reads the frame's conversation id: the
+                    # workflow, the registry and the ingest path all key on it.
+                    if not await self._admit_conversation(validated_message.conversation_id):
+                        continue
+
                     # Ingest-only (ADR-0034 addendum): a human turn the agent must
                     # SEE but must not answer. Checked AFTER the re-auth gate — an
                     # expired token buys no write into the checkpoint either — and
@@ -1149,6 +1264,11 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                             validated_message.conversation_id,
                         )
                         await self._send_auth_expired_error(validated_message.conversation_id)
+                        continue
+
+                    # An answer naming another conversation would resolve THAT
+                    # conversation's pending prompt through the registry.
+                    if not await self._admit_conversation(validated_message.conversation_id):
                         continue
 
                     user_content = await self._process_websocket_user_interaction_response_message(validated_message)
