@@ -37,9 +37,7 @@ import asyncio
 import contextlib
 import logging
 import os
-import re
 import time
-import uuid
 from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Mapping
@@ -75,7 +73,6 @@ from aiq_agent.common.wire_v2 import RunStartedBody
 from aiq_agent.common.wire_v2 import StageBody
 from aiq_agent.common.wire_v2 import StageValue
 from aiq_agent.common.wire_v2 import StateSnapshotBody
-from aiq_agent.common.wire_v2 import TextMessageContentBody
 from aiq_agent.common.wire_v2 import TurnResult
 from aiq_agent.common.wire_v2 import UserMessage
 from aiq_agent.common.wire_v2 import WireSource
@@ -87,6 +84,8 @@ from aiq_agent.conversation_context import format_context_turn
 from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_HEADER
 from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_SIG_HEADER
 from aiq_agent.project_context import GridRequestContext
+from aiq_agent.turn.response import answer_message_id
+from aiq_agent.turn.streaming import TurnTextFold
 from aiq_api.auth.errors import AuthError
 from aiq_api.auth.middleware import build_request_trace_tags
 from aiq_api.auth.middleware import detect_internal_caller
@@ -124,10 +123,6 @@ HITL_RESPONSE_TIMEOUT_SECONDS = float(os.getenv("GRID_HITL_RESPONSE_TIMEOUT_SECO
 #: How long a finished turn keeps its sequencer for the stage events that follow
 #: its terminal (``docs/architecture/post-answer-stages.md`` §4).
 STAGE_WIRE_TTL_S = 600.0
-
-#: A citation marker the cancelled partial may still hold, and a card marker.
-_CITATION_RE = re.compile(r"\[(\d+)\]")
-_CARD_MARKER_RE = re.compile(r"\[\[card:\d+\]\]")
 
 _ORG_ID_HEADER = "x-grid-organization-id"
 _NOT_ASKER_STOP = "Only the person who asked can stop this turn."
@@ -260,15 +255,6 @@ _NOT_METADATA = {"message_id", "text", "cards", "job_admission_rejected", "retry
 _PERSIST_TASKS: set[asyncio.Task[bool]] = set()
 
 
-def deterministic_assistant_message_id(conversation_id: str, turn_id: str) -> str:
-    """The answer's id, keyed on (conversation, turn).
-
-    A repeated write, the browser's included, collides on the messages route's
-    primary key (``onConflictDoNothing``) and no-ops.
-    """
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"grid:assistant:{conversation_id}:{turn_id}"))
-
-
 def turn_row_metadata(finished: RunFinishedBody) -> dict[str, Any] | None:
     """The message row's metadata for a finished turn, or None when nothing is written.
 
@@ -327,7 +313,9 @@ class TurnWire:
 
     The lock makes stamp-and-publish one step, so the stream and every socket
     see ``seq`` in order even with the heartbeat and the workflow sending at
-    once. After the terminal only stage events go out.
+    once. Stage events are the only events after the terminal, and never
+    before it: a stage that finishes while the answer is still streaming is
+    held and goes out right behind the terminal.
     """
 
     def __init__(self, conversation_id: str, turn_id: str, publish: Callable[[str, dict], Awaitable[bool]]) -> None:
@@ -337,17 +325,33 @@ class TurnWire:
         self.finished = False
         self._publish = publish
         self._lock = asyncio.Lock()
+        self._held_stages: list[StageBody] = []
 
     async def send(self, body: EventBody) -> bool:
-        """Stamp ``body`` with the next ``seq`` and publish it. Whether a local socket took it."""
+        """Stamp ``body`` with the next ``seq`` and publish it. Whether a local socket took it.
+
+        A stage held for the terminal counts as taken: it is sent the moment
+        the turn ends, which is when a reader could first see it anyway.
+        """
         async with self._lock:
+            if isinstance(body, StageBody) and not self.finished:
+                self._held_stages.append(body)
+                return True
             if self.finished and not isinstance(body, StageBody):
                 logger.debug("Dropping %s after the terminal of turn %s", type(body).__name__, self.turn_id)
                 return False
-            self.seq += 1
-            event = stamp(body, conversation_id=self.conversation_id, turn_id=self.turn_id, seq=self.seq, ts=_now_ms())
-            self.finished = self.finished or isinstance(body, RunFinishedBody | RunErrorBody)
-            return await self._publish(self.conversation_id, to_frame(event))
+            delivered = await self._stamp_and_publish(body)
+            if isinstance(body, RunFinishedBody | RunErrorBody):
+                self.finished = True
+                for stage in self._held_stages:
+                    await self._stamp_and_publish(stage)
+                self._held_stages.clear()
+            return delivered
+
+    async def _stamp_and_publish(self, body: EventBody) -> bool:
+        self.seq += 1
+        event = stamp(body, conversation_id=self.conversation_id, turn_id=self.turn_id, seq=self.seq, ts=_now_ms())
+        return await self._publish(self.conversation_id, to_frame(event))
 
 
 class InteractionExpired(TimeoutError):
@@ -361,44 +365,26 @@ class PendingInteraction:
 
 
 @dataclass
-class PartialAnswer:
-    """The prose so far, for a cancelled turn's result: deltas appended, a snapshot replaces, a retraction clears."""
-
-    text: str = ""
-    sources: list[WireSource] = field(default_factory=list)
-
-    def apply(self, body: EventBody) -> None:
-        if isinstance(body, TextMessageContentBody):
-            self.text += body.delta
-        elif isinstance(body, StateSnapshotBody):
-            self.text, self.sources = body.snapshot.text, list(body.snapshot.sources)
-        elif isinstance(body, AnswerRetractedBody):
-            self.text, self.sources = "", []
-
-    def result(self, message_id: str) -> TurnResult:
-        """What the reader saw when they pressed Stop, with every citation that has no source removed."""
-        settled = {source.number for source in self.sources}
-        text = _CARD_MARKER_RE.sub("", self.text)
-        text = _CITATION_RE.sub(lambda marker: marker[0] if int(marker[1]) in settled else "", text)
-        return TurnResult(message_id=message_id, text=text.strip(), sources=self.sources)
-
-
-@dataclass
 class RunningTurn:
     wire: TurnWire
     asker_subject: str | None
     organization_id: str | None = None
     task: asyncio.Task[None] | None = None
-    partial: PartialAnswer = field(default_factory=PartialAnswer)
+    #: The prose so far, for a stopped turn's result, and the sources of the
+    #: last settle, which are the ones a settled text's ``[N]`` resolve to.
+    fold: TurnTextFold = field(default_factory=TurnTextFold)
+    settled_sources: list[WireSource] = field(default_factory=list)
     pending: PendingInteraction | None = None
 
     @property
     def message_id(self) -> str:
-        return deterministic_assistant_message_id(self.wire.conversation_id, self.wire.turn_id)
+        return answer_message_id(self.wire.conversation_id, self.wire.turn_id)
 
     async def publish(self, body: EventBody) -> None:
         """Send one body the workflow yielded; the terminal is also persisted."""
-        self.partial.apply(body)
+        self.fold.add(body)
+        if isinstance(body, StateSnapshotBody | AnswerRetractedBody):
+            self.settled_sources = list(body.snapshot.sources) if isinstance(body, StateSnapshotBody) else []
         if isinstance(body, RunFinishedBody):
             await self.finish(body)
             return
@@ -457,8 +443,11 @@ class RunningTurn:
         return None
 
     async def finish_cancelled(self) -> None:
-        """The terminal of a stopped turn: the prose so far, persisted and marked stopped."""
-        await self.finish(RunFinishedBody(outcome="cancelled", result=self.partial.result(self.message_id)))
+        """The terminal of a stopped turn: what the reader saw when they pressed Stop, persisted and marked stopped."""
+        text = self.fold.partial().strip()
+        sources = self.settled_sources if text == (self.fold.settled or "").strip() else []
+        result = TurnResult(message_id=self.message_id, text=text, sources=sources)
+        await self.finish(RunFinishedBody(outcome="cancelled", result=result))
 
 
 # ---------------------------------------------------------------------------

@@ -332,7 +332,7 @@ backend pieces live in `chat_socket.py` and `conversation_bus.py`; the design is
   `POST /api/internal/conversations/{id}/messages` with `X-Grid-Internal-Token`
   (org scoped via the `x-grid-organization-id` the upgrade forwarded), not the
   browser session cookie, which expires on long turns. The id is deterministic
-  per turn (`deterministic_assistant_message_id`), so the browser's own write of
+  per turn (`turn.response.answer_message_id`), so the browser's own write of
   the same answer no-ops on the primary key (`onConflictDoNothing`). A
   job-admission "queue full" notice and a run hand-off (no text, no cards) write
   no row.

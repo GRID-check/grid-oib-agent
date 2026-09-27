@@ -40,6 +40,7 @@ from aiq_agent.common.wire_v2 import RunFinishedBody
 from aiq_agent.common.wire_v2 import RunStartedBody
 from aiq_agent.common.wire_v2 import StatusStep
 from aiq_agent.common.wire_v2 import TextMessageStartBody
+from aiq_agent.common.wire_v2 import UserMessage
 from aiq_agent.common.wire_v2 import stamp
 from aiq_agent.common.wire_v2 import to_frame
 from aiq_agent.turn import answer_stream
@@ -149,7 +150,9 @@ async def _golden_turn(workflow_harness, monkeypatch) -> list[dict]:
     loading = StatusStep(id="status:documents", slot="documents", key="status.documents.project")
     monkeypatch.setattr(register_mod, "documents_loading_step", lambda _shelves: loading)
     workflow_harness["shallow"] = _piloti_behind_its_nat_function
-    bodies = await workflow_harness["turn"]('{"query": "Wie lang darf der Fluchtweg in GK 4 sein?"}')
+    bodies = await workflow_harness["turn"](
+        UserMessage(conversation_id="conv-1", message_id="msg-1", text="Wie lang darf der Fluchtweg in GK 4 sein?")
+    )
     message_id = next(body.message_id for body in bodies if isinstance(body, TextMessageStartBody))
     return _frames(bodies, message_id)
 

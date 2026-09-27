@@ -40,13 +40,13 @@ from aiq_agent.common.wire_v2 import TextMessageContentBody
 from aiq_agent.common.wire_v2 import TextMessageStartBody
 from aiq_agent.common.wire_v2 import TurnResult
 from aiq_agent.common.wire_v2 import WireSource
+from aiq_agent.turn.response import answer_message_id
 from aiq_api import chat_socket
 from aiq_api.auth.errors import AuthError
 from aiq_api.chat_socket import ChatRegistry
 from aiq_api.chat_socket import ChatSocket
 from aiq_api.chat_socket import authenticate_websocket_connection
 from aiq_api.chat_socket import configure_websocket_auth
-from aiq_api.chat_socket import deterministic_assistant_message_id
 from aiq_api.chat_socket import handshake_conversation_binding
 from aiq_api.chat_socket import persist_turn_result
 from aiq_api.chat_socket import turn_row_metadata
@@ -138,7 +138,7 @@ class FakeSessions:
 
 
 def _finished(request, text: str = "Antwort [1].", outcome: str = "answered", **result: Any) -> RunFinishedBody:
-    message_id = deterministic_assistant_message_id(request.conversation_id, request.message_id)
+    message_id = answer_message_id(request.conversation_id, request.message_id)
     return RunFinishedBody(outcome=outcome, result=TurnResult(message_id=message_id, text=text, **result))
 
 
@@ -426,11 +426,11 @@ async def test_a_turn_is_run_started_then_what_the_workflow_yields_in_seq_order(
         "TEXT_MESSAGE_CONTENT",
         "RUN_FINISHED",
     ]
-    assert events[0]["message_id"] == deterministic_assistant_message_id(CONV, "t1")
+    assert events[0]["message_id"] == answer_message_id(CONV, "t1")
     opened = h.sessions.opened[0]
     assert opened["user_id"] == "user_asker"  # NAT's Context.user_id and span user.id: the verified subject
     assert (opened["conversation_id"], opened["user_message_id"]) == (CONV, "t1")
-    assert persisted[0]["message_id"] == deterministic_assistant_message_id(CONV, "t1")
+    assert persisted[0]["message_id"] == answer_message_id(CONV, "t1")
     assert persisted[0]["metadata"] == {"sources": [{"content": "c", "number": 1}]}
 
 
@@ -748,7 +748,7 @@ async def test_a_dropped_socket_does_not_stop_the_turn_and_the_answer_is_kept(ha
 
     assert not any(event["type"] == "RUN_FINISHED" for event in sock.events())
     assert persisted[0]["text"] == "done"
-    assert persisted[0]["message_id"] == deterministic_assistant_message_id(CONV, "t1")
+    assert persisted[0]["message_id"] == answer_message_id(CONV, "t1")
 
 
 async def test_every_stamped_frame_reaches_spectators_and_a_rejection_does_not(harness):
@@ -794,11 +794,89 @@ async def test_stages_follow_the_terminal_on_the_turn_s_seq(harness, monkeypatch
     assert not await h.registry.send_stage(CONV, "t1", StageValue(stage="follow_ups", status="failed"))
 
 
-async def test_the_stage_sink_is_the_one_the_front_end_publishes():
-    import aiq_api.plugin  # noqa: F401 — registers the sink at import
-    from aiq_agent.stages.delivery import get_stage_frame_sink
+@pytest.fixture
+def one_frame_stage():
+    """Only the stage a test declares runs; the built-in ones stay out of the way."""
+    from aiq_agent.stages import registry as stages
+    from aiq_agent.stages import runner
 
-    assert get_stage_frame_sink() is chat_socket.send_stage
+    saved = dict(stages._STAGES)
+    stages._STAGES.clear()
+    runner._claimed_keys.clear()
+    yield stages
+    stages._STAGES.clear()
+    stages._STAGES.update(saved)
+    runner._claimed_keys.clear()
+
+
+async def _boom(ctx):
+    raise RuntimeError("the model refused")
+
+
+@pytest.mark.parametrize("handler", [None, _boom, lambda ctx: asyncio.sleep(10)])
+async def test_a_failing_stage_never_changes_the_answer_frames(harness, one_frame_stage, handler, monkeypatch):
+    """ "A stage can never delay, alter, block or fail an answer" (post-answer-stages.md §2.1).
+
+    The real scheduler, the real sink and the real socket: a turn whose stage
+    raises or times out puts the same answer events on the socket as a turn
+    with no stage, and its stage event, if any, comes after the terminal.
+    """
+    from aiq_agent.common.model_overrides import AgentGroup
+    from aiq_agent.stages import delivery
+    from aiq_agent.stages import runner
+    from aiq_agent.stages.spec import GateDecision
+    from aiq_agent.stages.spec import StageSpec
+    from aiq_agent.stages.spec import TurnFacts
+
+    monkeypatch.delenv("GRID_INTERNAL_API_TOKEN")  # no BFF to ask for the stage model's settings
+    if handler is not None:
+        one_frame_stage.register_stage(
+            StageSpec(
+                id="follow_ups",
+                agent_group=AgentGroup.MEMORY_REFLECTION,
+                flag_slug="probe-stage",
+                env_default="GRID_STAGE_PROBE_ENABLED",
+                timeout_s=0.05,
+                gate=lambda facts: GateDecision.proceed(),
+                handler=handler,
+                payload_model=None,
+                delivery="frame",
+                max_output_tokens=None,
+            )
+        )
+    facts = TurnFacts(conversation_id=CONV, ws_parent_id="t1", enabled_stages=frozenset({"follow_ups"}))
+    stage_tasks: list[asyncio.Task] = []
+
+    async def turn_with_stages(request, ask):
+        # The call site's order: schedule, then deliver the answer, with the stage in flight.
+        stage_tasks.extend(runner.schedule_post_answer_stages(facts, llms={AgentGroup.MEMORY_REFLECTION: object()}))
+        async for body in answering(request, ask):
+            yield body
+
+    h = harness(turn_with_stages)
+    delivery.register_stage_frame_sink(h.registry.send_stage)
+    try:
+        sock = h.connect()
+        sock.client(type="user_message", message_id="t1", text="?")
+        await until(lambda: "RUN_FINISHED" in _types(sock.events()))
+        await asyncio.gather(*stage_tasks)
+    finally:
+        delivery.register_stage_frame_sink(None)
+
+    answer = [{k: v for k, v in e.items() if k != "ts"} for e in sock.events() if e.get("name") != "stage"]
+    assert _types(answer) == [
+        "RUN_STARTED",
+        "STEP_FINISHED",
+        "TEXT_MESSAGE_START",
+        "TEXT_MESSAGE_CONTENT",
+        "RUN_FINISHED",
+    ]
+    assert answer[-1]["result"]["text"] == "Antwort [1]."
+    stages = [e for e in sock.events() if e.get("name") == "stage"]
+    assert [stage["value"] for stage in stages] == (
+        [] if handler is None else [{"stage": "follow_ups", "status": "failed"}]
+    )
+    assert all(stage["seq"] > answer[-1]["seq"] for stage in stages)
 
 
 # ---------------------------------------------------------------------------
@@ -859,19 +937,30 @@ async def test_the_row_goes_to_the_internal_route_under_the_answer_s_id(persiste
     ]
 
 
-def test_a_snapshot_replaces_the_partial_and_keeps_its_citations():
-    partial = chat_socket.PartialAnswer()
-    partial.apply(TextMessageContentBody(message_id="m", delta="alt [1]"))
-    snapshot = AnswerSnapshot(text="Neu [1] und [3]", sources=[WireSource(content="c", number=1)])
-    partial.apply(StateSnapshotBody(snapshot=snapshot))
-    partial.apply(TextMessageContentBody(message_id="m", delta=" [[card:1]] weiter [2]"))
+@pytest.mark.parametrize(
+    ("after_settle", "text", "numbers"),
+    [("", "Neu [1].", [1]), (" weiter [2]", "Neu. weiter", [])],
+)
+async def test_a_stopped_turn_keeps_the_settled_text_with_its_sources(
+    persisted, monkeypatch, after_settle, text, numbers
+):
+    """Stopped on the settled text: its citations resolve. Stopped past it: no [N] is left without a source."""
+    registry = ChatRegistry()
+    turn = chat_socket.RunningTurn(wire=chat_socket.TurnWire(CONV, "t1", registry.publish), asker_subject=None)
+    await turn.publish(TextMessageContentBody(message_id="m", delta="alt [1]"))
+    snapshot = AnswerSnapshot(text="Neu [1].", sources=[WireSource(content="c", number=1)])
+    await turn.publish(StateSnapshotBody(snapshot=snapshot))
+    if after_settle:
+        await turn.publish(TextMessageContentBody(message_id="m", delta=after_settle))
 
-    result = partial.result("m-1")
+    await turn.finish_cancelled()
+    await asyncio.gather(*chat_socket._PERSIST_TASKS)
 
-    assert result.text == "Neu [1] und   weiter"
-    assert [source.number for source in result.sources] == [1]
+    assert persisted[0]["text"] == text
+    assert [source["number"] for source in persisted[0]["metadata"].get("sources", [])] == numbers
+    assert persisted[0]["metadata"]["stopped"] is True
 
 
 def test_the_answer_id_is_stable_per_turn():
-    assert deterministic_assistant_message_id(CONV, "t1") == deterministic_assistant_message_id(CONV, "t1")
-    assert deterministic_assistant_message_id(CONV, "t1") != deterministic_assistant_message_id(CONV, "t2")
+    assert answer_message_id(CONV, "t1") == answer_message_id(CONV, "t1")
+    assert answer_message_id(CONV, "t1") != answer_message_id(CONV, "t2")
