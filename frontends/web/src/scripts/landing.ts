@@ -335,10 +335,14 @@ function initAura() {
   })
 }
 
-/** Where a node rests: in the column left or right of the hub, or under it. */
-interface Slot {
-  side: 'L' | 'R' | 'B'
-  row: number
+/**
+ * Where a node rests around the hub, in -1..1 of the room on either side of
+ * it: `u` across (1 is the panel's edge), `v` down (-1 is just under the
+ * headline, 1 the foot of the ring).
+ */
+interface At {
+  u: number
+  v: number
 }
 
 interface Frag {
@@ -346,7 +350,7 @@ interface Frag {
   /** Entrance offset, in the direction the fragment drifts in from. */
   dx: number
   dy: number
-  slot: Slot
+  at: At
   /** Measured size and resting (CSS) centre inside the panel. */
   w: number
   h: number
@@ -356,7 +360,7 @@ interface Frag {
   sx: number
   sy: number
   rot: number
-  /** Solved slot: translation from the resting centre, and whether it fits. */
+  /** Solved place: translation from the resting centre, and whether it fits. */
   tx: number
   ty: number
   fits: boolean
@@ -375,9 +379,19 @@ interface Rect {
   h: number
 }
 
+const overlaps = (a: Rect, b: Rect, gap = 0) =>
+  Math.abs(a.x - b.x) * 2 < a.w + b.w + gap * 2 &&
+  Math.abs(a.y - b.y) * 2 < a.h + b.h + gap * 2
+
+/** Where a ray from a rect's centre, along (dx, dy), leaves the rect. */
+const rim = (r: Rect, dx: number, dy: number) => {
+  const t = Math.min(dx ? r.w / 2 / Math.abs(dx) : Infinity, dy ? r.h / 2 / Math.abs(dy) : Infinity)
+  return { x: r.x + dx * t, y: r.y + dy * t }
+}
+
 /** A centred rect: `x`/`y` is the centre, as everywhere in the story solver. */
 interface StoryLayout {
-  mode: 'columns' | 'net'
+  mode: 'ring' | 'net'
   hub: Rect
   /** Top edge of the solution headline, in panel pixels. */
   headTop: number
@@ -388,112 +402,70 @@ interface StoryLayout {
 }
 
 /**
- * An orthogonal wire with rounded elbows: out of the hub horizontally, along a
- * trunk at `tx`, into the node horizontally. A node level with the hub gets a
- * straight line.
- */
-function elbow(x0: number, y0: number, tx: number, x1: number, y1: number) {
-  const dy = y1 - y0
-  if (Math.abs(dy) < 1) return `M${x0},${y0}H${x1}`
-  const sx = Math.sign(x1 - x0)
-  const sy = Math.sign(dy)
-  const r = Math.min(10, Math.abs(dy) / 2, Math.abs(tx - x0), Math.abs(x1 - tx))
-  return (
-    `M${x0},${y0}H${tx - sx * r}Q${tx},${y0} ${tx},${y0 + sy * r}` +
-    `V${y1 - sy * r}Q${tx},${y1} ${tx + sx * r},${y1}H${x1}`
-  )
-}
-
-/**
  * The finished hub on a landscape panel: the headline on top, and under it
- * the hub card with a column of nodes on either side and one node below.
+ * the hub card with the nodes exploded around it, each on a straight wire.
  *
- * Every wire leaves an edge of the hub card and lands on the facing edge of
- * its node, and the whole diagram sits below the headline, so no wire passes
- * under the words or stops short of anything. The columns align on their
- * inner edges, where the wires land; the rows share one gap, and both the gap
- * and the distance from the hub are whatever the panel affords within bounds.
- * Returns null when the panel is too narrow or too short for that.
+ * The ring lives entirely below the headline, so no wire passes under the
+ * words or stops short of anything. Each wire runs along the line between the
+ * two centres, from where it leaves the hub card's edge to where it meets the
+ * node's, so the wires converge on the card without entering it. The ring's
+ * height follows the panel's up to a ceiling, and the whole composition is
+ * centred in the panel. Returns null when the nodes would touch each other or
+ * the card (a panel too small for the ring).
  */
-function solveColumns(frags: Frag[], W: number, H: number, card: { w: number; h: number }, headH: number) {
+function solveRing(frags: Frag[], W: number, H: number, card: { w: number; h: number }, headH: number) {
   const PAD_X = 24
   const PAD_Y = 40
-  const HEAD_GAP = 56
-  const DROP = 32
-  // The row gap grows with the room, so a tall panel breathes rather than
-  // leaving the diagram small in the middle of it.
-  const ROW_GAP = { min: 12, max: 36, share: 0.045 }
-  const BAY = { min: 40, max: 144 }
+  const HEAD_GAP = 48
+  const RX_MAX = 500
+  const SPAN_MAX = 560
+  const UP_SHARE = 0.4
+  const GAP = 12
 
-  const column = (side: Slot['side']) =>
-    frags.filter((f) => f.slot.side === side).sort((a, b) => a.slot.row - b.slot.row)
-  const left = column('L')
-  const right = column('R')
-  const below = column('B')[0]
-  const colW = Math.max(0, ...left.map((f) => f.w), ...right.map((f) => f.w))
-  const bay = Math.min(BAY.max, (W - PAD_X * 2 - card.w - colW * 2) / 2)
-  if (bay < BAY.min) return null
+  const nodeH = Math.max(0, ...frags.map((f) => f.h))
+  const span = Math.min(SPAN_MAX, H - PAD_Y * 2 - headH - HEAD_GAP - nodeH)
+  if (span <= card.h) return null
+  const up = span * UP_SHARE
+  const down = span - up
+  const headTop = (H - (headH + HEAD_GAP + nodeH + span)) / 2
+  const hub = { x: W / 2, y: headTop + headH + HEAD_GAP + nodeH / 2 + up, w: card.w, h: card.h }
 
-  const stackH = (c: Frag[], gap: number) => c.reduce((a, f) => a + f.h, 0) + Math.max(0, c.length - 1) * gap
-  const extent = (gap: number) => {
-    const half = Math.max(stackH(left, gap), stackH(right, gap)) / 2
-    const up = Math.max(half, card.h / 2)
-    const down = Math.max(half, card.h / 2 + (below ? DROP + below.h : 0))
-    return { up, down }
-  }
-  const room = H - PAD_Y * 2 - headH - HEAD_GAP
-  let gap = Math.round(Math.min(ROW_GAP.max, Math.max(20, room * ROW_GAP.share)))
-  while (gap > ROW_GAP.min && extent(gap).up + extent(gap).down > room) gap -= 1
-  const { up, down } = extent(gap)
-  if (up + down > room) return null
+  const rects = frags.map((f) => {
+    const reach = Math.min(RX_MAX, W / 2 - PAD_X - f.w / 2)
+    return { x: hub.x + f.at.u * reach, y: hub.y + f.at.v * (f.at.v < 0 ? up : down), w: f.w, h: f.h }
+  })
+  const clash = rects.some(
+    (r, i) => overlaps(r, hub, GAP * 2) || rects.some((s, j) => j > i && overlaps(r, s, GAP))
+  )
+  if (clash) return null
 
-  const headTop = (H - (headH + HEAD_GAP + up + down)) / 2
-  const hub = { x: W / 2, y: headTop + headH + HEAD_GAP + up, w: card.w, h: card.h }
-  const inner = { L: hub.x - hub.w / 2 - bay, R: hub.x + hub.w / 2 + bay }
-
-  const place = (f: Frag, x: number, y: number) => {
-    f.tx = x - f.hx
-    f.ty = y - f.hy
+  const ends: { x: number; y: number }[] = []
+  const wires = rects.map((r, i) => {
+    const f = frags[i]
+    f.tx = r.x - f.hx
+    f.ty = r.y - f.hy
     f.sx = 0
     f.sy = 0
-    f.fits = true
-  }
-  for (const [c, side] of [[left, 'L'], [right, 'R']] as const) {
-    const dir = side === 'L' ? -1 : 1
-    let y = hub.y - stackH(c, gap) / 2
-    for (const f of c) {
-      place(f, inner[side] + (dir * f.w) / 2, y + f.h / 2)
-      y += f.h + gap
-    }
-  }
-  if (below) place(below, hub.x, hub.y + hub.h / 2 + DROP + below.h / 2)
-  frags.forEach((f, i) => {
     f.rot = (noise(i + 1) - 0.5) * 7
+    f.fits = true
+    const len = Math.hypot(r.x - hub.x, r.y - hub.y) || 1
+    const dx = (r.x - hub.x) / len
+    const dy = (r.y - hub.y) / len
+    const a = rim(hub, dx, dy)
+    const b = rim(r, -dx, -dy)
+    ends.push(b)
+    return `M${a.x},${a.y}L${b.x},${b.y}`
   })
-
-  const ends = frags.map((f) => {
-    const cx = f.hx + f.tx
-    const cy = f.hy + f.ty
-    if (f.slot.side === 'B') return { x: cx, y: cy - f.h / 2 }
-    return { x: cx + (f.slot.side === 'L' ? f.w / 2 : -f.w / 2), y: cy }
-  })
-  const wires = frags.map((f, i) => {
-    const end = ends[i]
-    if (f.slot.side === 'B') return `M${hub.x},${hub.y + hub.h / 2}V${end.y}`
-    const dir = f.slot.side === 'L' ? -1 : 1
-    const edge = hub.x + (dir * hub.w) / 2
-    return elbow(edge, hub.y, edge + (dir * bay) / 2, end.x, end.y)
-  })
-  return { mode: 'columns' as const, hub, headTop, wires, ends }
+  return { mode: 'ring' as const, hub, headTop, wires, ends }
 }
 
 /**
  * Places the knowledge fragments around the hub card.
  *
  * The arrangement is solved from measurements rather than chosen by a
- * breakpoint. A landscape panel holds the columns (solveColumns). A narrow or
- * portrait one cannot — the columns are wider than the space beside the hub —
- * so it falls back to a `net`: the same fragments spread as a jittered
+ * breakpoint. A landscape panel holds the ring (solveRing). One that cannot —
+ * the nodes would touch each other or the card —
+ * falls back to a `net`: the same fragments spread as a jittered
  * constellation below the hub. Both are wired to the hub, because that is the
  * point being made; only the shape of the net changes with the space.
  */
@@ -503,8 +475,8 @@ function solveStoryLayout(
   card: { w: number; h: number },
   headH: number
 ): StoryLayout {
-  const columns = solveColumns(frags, panel.w, panel.h, card, headH)
-  if (columns) return columns
+  const ring = solveRing(frags, panel.w, panel.h, card, headH)
+  if (ring) return ring
 
   const PAD = 20
   const GAP = 18
@@ -619,28 +591,27 @@ function initPins() {
   const fragEls: Frag[] = Array.from(wrap.querySelectorAll<HTMLElement>('[data-frag]')).map(
     (el) => {
       const [dx, dy] = (el.getAttribute('data-frag') ?? '0,0').split(',').map(Number)
-      const s = el.getAttribute('data-slot') ?? ''
-      const side = s[0] === 'L' || s[0] === 'R' ? s[0] : 'B'
+      const [u, v] = (el.getAttribute('data-at') ?? '0,1').split(',').map(Number)
       el.style.willChange = 'transform, opacity'
       el.style.opacity = '0'
       return {
-        el, dx, dy, slot: { side, row: Number(s.slice(1)) || 0 },
+        el, dx, dy, at: { u, v },
         w: 0, h: 0, hx: 0, hy: 0,
         sx: 0, sy: 0, rot: 0,
         tx: 0, ty: 0, fits: true,
       }
     }
   )
-  // The wires draw outwards in pairs, row by row down both columns, and the
-  // node under the hub last: the structure grows symmetrically from the hub.
+  // The wires draw in mirrored pairs from the top of the ring to its foot:
+  // the structure grows symmetrically out of the hub.
   const drawOrder = fragEls
-    .map((f, i) => ({ i, rank: f.slot.side === 'B' ? 99 : f.slot.row * 2 + (f.slot.side === 'R' ? 1 : 0) }))
+    .map((f, i) => ({ i, rank: f.at.v * 10 + (f.at.u > 0 ? 1 : 0) }))
     .sort((a, b) => a.rank - b.rank)
     .map(({ i }) => i)
 
   let wireEls: SVGPathElement[] | null = null
   let portEls: SVGCircleElement[] | null = null
-  let mode: StoryLayout['mode'] = 'columns'
+  let mode: StoryLayout['mode'] = 'ring'
 
   const measureStory = () => {
     const W = panel.clientWidth
@@ -743,12 +714,12 @@ function initPins() {
       sticky.style.overflow = 'hidden'
     }
     measureStory()
-    // The scroll runway is the beat list's length: the columns add the
-    // pull-in and the wiring, the net does not, so it needs less scrolling.
+    // The scroll runway is the beat list's length: the ring adds the pull-in
+    // and the wiring, the net does not, so it needs less scrolling.
     // It was 440vh and 300vh, with a static screen at either end; the beats
     // below now fill the range, so the story takes about one screen of
     // scrolling per idea.
-    wrap.style.height = runway ? (mode === 'columns' ? '240vh' : '200vh') : ''
+    wrap.style.height = runway ? (mode === 'ring' ? '240vh' : '200vh') : ''
   }
   /** Back to a plain block: what the section is below lg. */
   const unpin = () => {

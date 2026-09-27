@@ -66,7 +66,7 @@ Each entry is the one thing the section does, and what it explains.
 | Any page change | 200ms crossfade; the navigation bar stays still | One document turning to the next; the bar is the same object on every page | quick, draft |
 | Any block marked `data-reveal` | Opacity 0 → 1 and 16px up, once, as it enters; a row arrives as a row | The page is being laid out as you arrive, and nothing below the fold flashes | slow, settle, row |
 | Hero (lg) | Closing line, buttons and stage note fade over the first 25% of a screen; the headline over 20–50%. Opacity only | Nothing prints through the logo under the transparent bar | scrubbed |
-| Story (lg) | Pinned, scrubbed: fragments drift in, the problem gives way to the answer, the net pulls them in and wires them, then holds. 240vh (columns beside the hub) or 200vh (the portrait net) | Scattered knowledge becoming one structure: the section's argument | scrubbed |
+| Story (lg) | Pinned, scrubbed: fragments drift in, the problem gives way to the answer, the net pulls them in and wires them, then holds. 240vh (the ring around the hub) or 200vh (the portrait net) | Scattered knowledge becoming one structure: the section's argument | scrubbed |
 | Story (phone) | The hub grid's nodes and hub fade in, then the wires draw, once | The nodes are wired to one hub | slow, settle, draft |
 | Nutzung, desktop chain | Plays once when in view; pause/resume while it runs, replay after | How an answer is derived: question, sources, decision, steps | slow, draft |
 | Quellen und Daten (Prüfblatt) | The four ticks draw in order, 60ms apart, once | Each claim is checked, one by one | base, draft, row |

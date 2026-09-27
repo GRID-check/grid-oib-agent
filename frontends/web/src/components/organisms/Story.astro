@@ -9,32 +9,33 @@ interface Props {
 const { locale = 'de' } = Astro.props
 const t = ui[locale]
 
-// One list of nodes, drawn twice: in two columns wired to the hub card on a
-// desktop panel, and as a grid around the hub on a phone. `slot` is where a
-// node rests beside the hub (column L/R and row 0–4, or B0 under it), `pos`
-// its authored scatter position, `dx/dy` the direction it drifts in from — all
-// read by scripts/landing.ts, none by the phone grid.
+// One list of nodes, drawn twice: exploded around the hub card on a desktop
+// panel, and as a grid around the hub on a phone. `at` is where a node rests
+// around the hub, as `u,v` in -1..1 of the room the panel affords on either
+// side of it (v -1 is just under the headline, 1 the foot of the ring); `pos`
+// is its authored scatter position, `dx/dy` the direction it drifts in from.
+// All three are read by scripts/landing.ts, none by the phone grid.
 //
-// The left column is building law, the right the project and the office; the
-// floor plan hangs under the hub. Light cards are resolved sources, the dark
-// tags raw fragments, alternating so each column reads as one rhythm.
+// The ring is mirrored: a light card opposite a light card, a tag opposite a
+// tag, the floor plan at the foot. Light cards are resolved sources, the dark
+// tags raw fragments.
 //
 // Every node is something Piloti can actually hold: a clause, a guideline, a
 // document, a web source. The U-value is OIB-RL 6, which is building code.
 const frags = [
-  { tag: t.story.tags.norm, lines: ['OIB-RL 2', 'Pkt. 3.5'], dx: -30, dy: -24, slot: 'L0', pos: { left: 0.015, top: 0.07 } },
-  { tag: t.story.tags.site, lines: ['WIEN 1030'], dx: 44, dy: 12, slot: 'R2', pos: { right: 0.22, bottom: 0.29 } },
-  { tag: t.story.tags.document, lines: ['Bauantrag.pdf'], dx: 30, dy: -34, slot: 'R0', pos: { right: 0.015, top: 0.06 } },
-  { tag: t.story.tags.detail, lines: ['Sockelanschluss'], dx: 40, dy: 30, slot: 'R4', pos: { right: 0.29, bottom: 0.05 } },
-  { tag: t.story.tags.category, lines: ['GK 4'], dx: -40, dy: 10, slot: 'L2', pos: { left: 0.23, bottom: 0.27 } },
-  { tag: t.story.tags.web, lines: ['Flächenwidmung ↗'], dx: -46, dy: 26, slot: 'L4', pos: { left: 0.3, bottom: 0.06 } },
+  { tag: t.story.tags.norm, lines: ['OIB-RL 2', 'Pkt. 3.5'], dx: -30, dy: -24, at: '-0.5,-1', pos: { left: 0.015, top: 0.2 } },
+  { tag: t.story.tags.site, lines: ['WIEN 1030'], dx: 44, dy: 12, at: '1,0.04', pos: { right: 0.22, bottom: 0.29 } },
+  { tag: t.story.tags.document, lines: ['Bauantrag.pdf'], dx: 30, dy: -34, at: '0.5,-1', pos: { right: 0.015, top: 0.19 } },
+  { tag: t.story.tags.detail, lines: ['Sockelanschluss'], dx: 40, dy: 30, at: '0.66,1', pos: { right: 0.29, bottom: 0.05 } },
+  { tag: t.story.tags.category, lines: ['GK 4'], dx: -40, dy: 10, at: '-1,0.04', pos: { left: 0.23, bottom: 0.27 } },
+  { tag: t.story.tags.web, lines: ['Flächenwidmung ↗'], dx: -46, dy: 26, at: '-0.66,1', pos: { left: 0.3, bottom: 0.06 } },
 ]
-const plan = { tag: t.story.tags.plan, line: 'EG · 1:100', dx: 8, dy: 40, slot: 'B0', pos: { left: 0.44, bottom: 0.19 } }
+const plan = { tag: t.story.tags.plan, line: 'EG · 1:100', dx: 8, dy: 40, at: '0,1', pos: { left: 0.44, bottom: 0.19 } }
 const infos = [
-  { glyph: '§', tile: '#cfe0a8', title: '§ 106 BO Wien', sub: t.story.infoSubs.fire, value: 'GK 4', dx: -34, dy: -12, slot: 'L1', pos: { left: 0.03, bottom: 0.33 } },
-  { glyph: '◷', tile: '#f3e6b8', title: 'OIB-RL 6', sub: t.story.infoSubs.energy, value: 'U 0,20', dx: -28, dy: 30, slot: 'L3', pos: { left: 0.04, bottom: 0.13 } },
-  { glyph: '▦', tile: '#e9c4a8', title: 'Volksschule Aspern', sub: t.story.infoSubs.connection, value: '2019', dx: 34, dy: -16, slot: 'R1', pos: { right: 0.025, bottom: 0.34 } },
-  { glyph: '▤', tile: '#cdd6e6', title: 'Statik_Nachweis', sub: t.story.infoSubs.construction, value: 'PDF', dx: 28, dy: 34, slot: 'R3', pos: { right: 0.05, bottom: 0.14 } },
+  { glyph: '§', tile: '#cfe0a8', title: '§ 106 BO Wien', sub: t.story.infoSubs.fire, value: 'GK 4', dx: -34, dy: -12, at: '-0.92,-0.5', pos: { left: 0.03, bottom: 0.33 } },
+  { glyph: '◷', tile: '#f3e6b8', title: 'OIB-RL 6', sub: t.story.infoSubs.energy, value: 'U 0,20', dx: -28, dy: 30, at: '-0.9,0.56', pos: { left: 0.04, bottom: 0.13 } },
+  { glyph: '▦', tile: '#e9c4a8', title: 'Volksschule Aspern', sub: t.story.infoSubs.connection, value: '2019', dx: 34, dy: -16, at: '0.92,-0.5', pos: { right: 0.025, bottom: 0.34 } },
+  { glyph: '▤', tile: '#cdd6e6', title: 'Statik_Nachweis', sub: t.story.infoSubs.construction, value: 'PDF', dx: 28, dy: 34, at: '0.9,0.56', pos: { right: 0.05, bottom: 0.14 } },
 ]
 
 // The floor plan as a thumbnail in the same line as the wires: walls in the
@@ -54,10 +55,10 @@ const planSvg = `<svg width="40" height="28" viewBox="0 0 40 28" fill="none" cla
       class="relative box-border flex w-full flex-col items-center justify-center overflow-hidden rounded-panel bg-panel px-5 py-14 sheet-dark sm:px-10 sm:py-20 lg:min-h-[calc(100vh-2rem)] lg:px-12 lg:py-24 lg:[background-image:none]"
     >
       <!-- ── Desktop: the pinned, scrubbed story ─────────────────────────────
-           The nodes' resting slots are solved at runtime from the measured
-           panel (see solveStoryLayout in scripts/landing.ts): two columns
-           beside the hub card and one node under it, wired to the card's
-           edges. The left/top values here are the scattered beat. -->
+           The nodes' resting places are solved at runtime from the measured
+           panel (see solveStoryLayout in scripts/landing.ts): exploded around
+           the hub card, below the headline, each wired to the card's edge.
+           The left/top values here are the scattered beat. -->
       <div data-story-stage class="absolute inset-0 max-lg:hidden" aria-hidden="true">
         <svg
           data-links
@@ -66,13 +67,13 @@ const planSvg = `<svg width="40" height="28" viewBox="0 0 40 28" fill="none" cla
 
         {
           frags.map((f) => (
-            <FragCard tag={f.tag} dx={f.dx} dy={f.dy} slot={f.slot} pos={f.pos}>
+            <FragCard tag={f.tag} dx={f.dx} dy={f.dy} at={f.at} pos={f.pos}>
               {f.lines.join(' · ')}
             </FragCard>
           ))
         }
         {infos.map((c) => <InfoCard {...c} />)}
-        <FragCard tag={plan.tag} dx={plan.dx} dy={plan.dy} slot={plan.slot} pos={plan.pos}>
+        <FragCard tag={plan.tag} dx={plan.dx} dy={plan.dy} at={plan.at} pos={plan.pos}>
           {plan.line}
           <Fragment slot="figure" set:html={planSvg} />
         </FragCard>

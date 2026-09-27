@@ -5,7 +5,7 @@
  * beside it, with the same height, padding, radius and edge.
  *
  * `stage` and `tile` as in FragCard: the desktop piece is positioned and
- * flown by scripts/landing.ts (`data-frag`, `data-slot`); the tile sits in the
+ * flown by scripts/landing.ts (`data-frag`, `data-at`); the tile sits in the
  * phone diagram's grid, with the value moved under the title so a half-width
  * cell holds it.
  */
@@ -18,10 +18,10 @@ interface Props {
   variant?: 'stage' | 'tile'
   dx?: number
   dy?: number
-  slot?: string
+  at?: string
   pos?: Partial<Record<'left' | 'right' | 'top' | 'bottom', number>>
 }
-const { glyph, tile, title, sub, value, variant = 'stage', dx = 0, dy = 0, slot = '', pos = {} } = Astro.props
+const { glyph, tile, title, sub, value, variant = 'stage', dx = 0, dy = 0, at = '', pos = {} } = Astro.props
 
 const posStyle = Object.entries(pos)
   .map(([k, v]) => `${k}:${(v * 100).toFixed(1)}%`)
@@ -34,7 +34,7 @@ const posStyle = Object.entries(pos)
       class="absolute box-border flex h-14 w-64 items-center gap-3 rounded-xl border border-surface bg-surface px-4"
       style={posStyle}
       data-frag={`${dx},${dy}`}
-      data-slot={slot}
+      data-at={at}
     >
       <span
         class="inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-xs text-panel"
