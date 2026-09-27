@@ -1,0 +1,16 @@
+---
+/**
+ * /blog/<category>/. Shares its URL level with [slug].astro; the content
+ * lint refuses a post slug equal to a category id, so the two never collide.
+ */
+import BlogIndex from '../../components/blog/BlogIndex.astro'
+import { CATEGORY_IDS, type Category } from '../../lib/categories'
+
+export function getStaticPaths() {
+  return CATEGORY_IDS.map((category) => ({ params: { category } }))
+}
+
+const category = Astro.params.category as Category
+---
+
+<BlogIndex locale="de" category={category} />

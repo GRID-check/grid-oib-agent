@@ -1,13 +1,11 @@
 ---
 improvements:
   - >
-    Piloti stellt jetzt öfter eine kurze Auswahlfrage, statt bei mehreren
-    plausiblen Richtungen stillschweigend eine davon zu wählen — etwa wenn
-    ein Thema in mehrere eigenständige Aspekte zerfällt oder ein Vergleich
-    ohne genannte Kriterien gefragt wird.
+    Piloti asks a short multiple-choice question more often instead of silently
+    picking one of several plausible directions, for example when a comparison
+    names no criteria.
 fixes:
   - >
-    Nach der Antwort auf eine Rückfrage war oft nicht erkennbar, dass Piloti
-    weiterarbeitet: Der Chat wirkte für einen Moment fertig, obwohl im
-    Hintergrund noch etwas lief. Jetzt erscheint unten im Chat ein Hinweis,
-    solange auf die nächste Antwort gewartet wird.
+    After you answer a clarifying question, a note at the bottom of the chat now
+    shows that Piloti is still working. The chat used to look finished while the
+    answer was still coming.

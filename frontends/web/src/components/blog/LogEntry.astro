@@ -1,0 +1,51 @@
+---
+/**
+ * One build-log post as a line in a site diary: entry number and date in mono
+ * on the left, title and summary on the right. Sits inside BuildLog, whose
+ * rules are the sheet. The number stands alone: an "Entry" label over every
+ * one of them said what the number already does.
+ */
+import type { Locale } from '../../i18n/ui'
+import { blogPath } from '../../lib/categories'
+import { formatDate, postSlug, type BlogPost } from '../../lib/posts'
+
+interface Props {
+  post: BlogPost
+  locale: Locale
+  /** Running number within the build log, oldest = 1. */
+  number: number
+  level?: 2 | 3
+}
+const { post, locale, number, level = 3 } = Astro.props
+const { title, description, pubDate } = post.data
+const Heading = level === 2 ? 'h2' : 'h3'
+---
+
+<li class="border-t border-ink/15" data-reveal>
+  <a
+    href={`${blogPath(locale)}${postSlug(post.id)}/`}
+    class="group grid gap-y-3 py-6 hover:text-inherit sm:grid-cols-[5rem_1fr] sm:gap-x-6"
+  >
+    {/* On a phone the margin column would squeeze the text to a strip, so the
+        number and date run as one line above the title instead. */}
+    <p
+      class="flex items-baseline gap-x-3 border-b border-dashed border-ink/15 pb-2 font-mono uppercase tabular-nums sm:block sm:border-0 sm:pb-0"
+    >
+      <span class="text-2xl leading-tight text-accent-600 sm:block">{String(number).padStart(2, '0')}</span>
+      <time
+        datetime={pubDate.toISOString()}
+        class="ml-auto text-2xs tracking-wide text-ink-mute sm:mt-1 sm:ml-0 sm:block"
+      >
+        {formatDate(pubDate, locale, 'log')}
+      </time>
+    </p>
+    <div class="min-w-0">
+      <Heading
+        class="text-lg font-semibold leading-snug text-ink transition-colors group-hover:text-accent-600 sm:text-xl"
+      >
+        {title}
+      </Heading>
+      <p class="mt-2 text-base leading-relaxed text-ink-soft">{description}</p>
+    </div>
+  </a>
+</li>

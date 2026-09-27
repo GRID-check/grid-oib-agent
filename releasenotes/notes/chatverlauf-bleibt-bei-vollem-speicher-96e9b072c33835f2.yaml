@@ -1,14 +1,10 @@
 ---
 fixes:
   - >
-    Wer viele lange Unterhaltungen führt, verliert seinen Chatverlauf im
-    Browser nicht mehr. Wurde der Speicher des Browsers voll, löschte Piloti
-    bisher alle gespeicherten Unterhaltungen auf einmal. Jetzt macht nur der
-    Inhalt der ältesten Unterhaltungen Platz; die Liste, die Titel und
-    angefangene Entwürfe bleiben, und eine solche Unterhaltung lädt ihren
-    Inhalt beim Öffnen vom Server nach.
+    A full browser storage no longer wipes your chat history: only the content
+    of the oldest conversations makes room, while the list, titles and drafts
+    stay. Such a conversation reloads its content from the server when you
+    open it.
   - >
-    Senden, das Eintreffen einer Antwort und der Wechsel zwischen
-    Unterhaltungen halten das Telefon nicht mehr spürbar an: Piloti speichert
-    dabei nur noch die eine Unterhaltung, die sich geändert hat, statt jedes
-    Mal den ganzen Verlauf.
+    Sending, receiving an answer and switching conversations no longer stall a
+    phone, because Piloti now saves only the conversation that changed.

@@ -1,17 +1,14 @@
 ---
 features:
   - >
-    Ganze Ordner lassen sich jetzt hochladen — über „Ordner hochladen" oder
-    indem Sie den Ordner auf die Dateiablage ziehen. Ein gezogener Ordner hat
-    bisher gar nichts bewirkt. Alle Ebenen darunter werden übernommen; was
-    Piloti nicht lesen kann, wird einzeln abgelehnt statt des ganzen Ordners.
+    Whole folders can now be uploaded, with Ordner hochladen or by dragging the
+    folder onto the file list, with every level beneath it. Files Piloti cannot
+    read are rejected one by one, not the whole folder.
   - >
-    Wo eine Datei vorher lag, steht jetzt als „Herkunft" in der Detailansicht
-    und lässt sich mit einem Klick kopieren. So können Sie am Original auf dem
-    Büroserver weiterarbeiten, statt eine Kopie herunterzuladen.
+    The detail view shows where a file came from on your office server, and one
+    click copies the path so you can keep working on the original.
 fixes:
   - >
-    Projekt- und Archiv-Uploads waren zusätzlich auf 100 MB pro Vorgang
-    begrenzt — eine echte Einreichung wurde damit komplett abgewiesen, obwohl
-    reichlich Speicher frei war. Dort gilt jetzt nur noch das Speicherkontingent
-    der Organisation.
+    Project and archive uploads are no longer capped at 100 MB per upload, so a
+    full Einreichung goes through; only your organization's storage quota
+    applies.

@@ -1,0 +1,133 @@
+---
+/**
+ * The blog listing, shared by /blog/, /blog/<category>/ and their /en twins.
+ *
+ * "All" sets the two strands side by side, each in its own dress: the Journal
+ * as editorial cards, the build log as a diary sheet. A category page shows one
+ * strand at full width. The filter row is plain links to prerendered pages, so
+ * every view has a URL, a canonical and hreflang alternates without any script.
+ */
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import BlogCard from '../molecules/BlogCard.astro'
+import BuildLog from './BuildLog.astro'
+import PageHead from '../molecules/PageHead.astro'
+import { TRAGWERK } from '../craft/plates'
+import { ui, type Locale } from '../../i18n/ui'
+import { CATEGORIES, CATEGORY_IDS, blogPath, type Category } from '../../lib/categories'
+import { entryNumbers, getBlogPosts } from '../../lib/posts'
+import { SHARE_ART } from '../../lib/seo'
+
+interface Props {
+  locale: Locale
+  category?: Category
+}
+const { locale, category } = Astro.props
+const t = ui[locale].blog
+const cats = CATEGORIES[locale]
+
+const all = await getBlogPosts(locale)
+const numbers = entryNumbers(all)
+const byCategory = (c: Category) => all.filter((p) => p.data.category === c)
+const journal = byCategory('journal')
+const log = byCategory('bautagebuch')
+
+const filters = [
+  { href: blogPath(locale), label: t.filterAll, count: all.length, active: !category },
+  ...CATEGORY_IDS.map((id) => ({
+    href: blogPath(locale, id),
+    label: cats[id].label,
+    count: byCategory(id).length,
+    active: category === id,
+  })),
+]
+
+const { title, description } = ui[locale].seo.pages[category ?? 'blog']
+---
+
+<BaseLayout locale={locale} title={title} description={description} ogArt={SHARE_ART[category ?? 'blog']}>
+  <section class="frame pb-20 pt-28 md:pb-28 md:pt-36">
+    <div>
+      <!-- Tragwerk I, the column: the Piloti staple over the blog's two strands. -->
+      <PageHead title={category ? cats[category].label : t.heading} plate={TRAGWERK.I} locale={locale}>
+        {
+          /* A strand's page says who it is for, once; the index lets the
+             filters below name the strands. */
+          category && <p class="m-0">{cats[category].descriptor}</p>
+        }
+      </PageHead>
+
+      <!-- The strands as plain tabs: the label and its count, the current one
+           in ink and underlined. They were pills, a third chip style. -->
+      <nav aria-label={t.filterLabel} class="mt-4">
+        <ul class="flex flex-wrap gap-x-7">
+          {
+            filters.map((f) => (
+              <li>
+                <a
+                  href={f.href}
+                  aria-current={f.active ? 'page' : undefined}
+                  class:list={[
+                    'inline-flex min-h-11 items-center gap-2 border-b text-sm font-medium transition-colors',
+                    f.active ? 'border-ink text-ink' : 'border-transparent text-ink-mute hover:text-ink',
+                  ]}
+                >
+                  {f.label}
+                  <span
+                    class="font-mono text-2xs tabular-nums text-ink-faint"
+                  >
+                    {f.count}
+                  </span>
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </nav>
+
+      {
+        all.length === 0 ? (
+          <p class="mt-12 text-base text-ink-soft">{t.empty}</p>
+        ) : category === 'journal' ? (
+          journal.length === 0 ? (
+            <p class="mt-12 text-base text-ink-soft">{t.empty}</p>
+          ) : (
+            <div class="mt-10 grid gap-x-10 gap-y-14 md:grid-cols-2">
+              {journal.map((post, i) => (
+                <BlogCard post={post} locale={locale} level={2} priority={i === 0} />
+              ))}
+            </div>
+          )
+        ) : category === 'bautagebuch' ? (
+          <div class="mt-10 max-w-4xl">
+            <BuildLog posts={log} numbers={numbers} locale={locale} titleAs="none" entryLevel={2} />
+          </div>
+        ) : (
+          <div class="mt-12 grid gap-16 lg:grid-cols-12 lg:gap-x-16">
+            <section class="lg:col-span-7" aria-labelledby="blog-journal">
+              <h2 id="blog-journal" class="font-voice text-[2rem] leading-none text-ink">
+                {cats.journal.label}
+              </h2>
+              {journal.length === 0 ? (
+                <p class="mt-6 text-base text-ink-soft">{t.empty}</p>
+              ) : (
+                <div class="mt-6 grid gap-14">
+                  {journal.map((post, i) => (
+                    <BlogCard post={post} locale={locale} priority={i === 0} />
+                  ))}
+                </div>
+              )}
+            </section>
+            <div class="lg:col-span-5">
+              <BuildLog posts={log} numbers={numbers} locale={locale} />
+            </div>
+          </div>
+        )
+      }
+    </div>
+  </section>
+</BaseLayout>
+
+<script>
+  import { initReveals } from '../../scripts/reveal'
+  initReveals()
+</script>

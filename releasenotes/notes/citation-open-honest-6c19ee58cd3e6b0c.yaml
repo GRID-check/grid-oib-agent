@@ -1,8 +1,6 @@
 ---
 fixes:
   - >
-    „An dieser Stelle öffnen" wurde bisher bei jeder Quelle angeboten, auch bei
-    solchen, die Piloti gar nicht anzeigen kann — etwa einem Plan oder einer
-    Word-Datei. Der Klick schloss dann nur das Fenster, sonst geschah nichts.
-    Der Link erscheint jetzt nur noch, wenn sich die Quelle wirklich öffnen
-    lässt; andernfalls steht dort, dass sie sich hier nicht öffnen lässt.
+    An dieser Stelle öffnen now appears only for sources Piloti can actually
+    show. For a plan or a Word file the link used to close the window and do
+    nothing else.

@@ -1,8 +1,6 @@
 ---
 features:
   - >
-    Hochgeladene Dateien bekommen ihre Schlagwörter (Dokumenttyp und
-    Fachbereich) schneller und treffsicherer. Ein Fachbereich wie
-    Brandschutz wird nur noch vergeben, wenn das Dokument tatsächlich davon
-    handelt, und nicht schon, weil ein Plan eine Brandabschnittsgrenze
-    einzeichnet.
+    Uploaded files get their tags for document type and discipline faster and
+    more accurately. A discipline such as Brandschutz is only assigned when the
+    document is actually about it.

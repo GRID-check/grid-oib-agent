@@ -1,0 +1,68 @@
+---
+/**
+ * The build log as a ruled list: numbered entries like the pages of a site
+ * diary, headed by the log's name only where nothing above already names it.
+ * No card around it: the rules are the sheet. Used on the blog index, on the category
+ * listing and under a build-log post ("more from this category").
+ */
+import { ui, type Locale } from '../../i18n/ui'
+import { CATEGORIES, blogPath } from '../../lib/categories'
+import type { BlogPost } from '../../lib/posts'
+import LogEntry from './LogEntry.astro'
+
+interface Props {
+  posts: BlogPost[]
+  numbers: Map<string, number>
+  locale: Locale
+  /** `h2` when the sheet heads a section; `none` when a heading above already names it. */
+  titleAs?: 'h2' | 'none'
+  /** Entries' heading level, one below whatever names the sheet. */
+  entryLevel?: 2 | 3
+  /** Show a footer link to the full listing. */
+  viewAll?: boolean
+}
+const {
+  posts,
+  numbers,
+  locale,
+  titleAs = 'h2',
+  entryLevel = 3,
+  viewAll = false,
+} = Astro.props
+const t = ui[locale].blog
+const cat = CATEGORIES[locale].bautagebuch
+---
+
+<section>
+  {
+    titleAs === 'h2' && (
+      <h2 class="mb-6 font-voice text-[2rem] leading-none text-ink">{cat.label}</h2>
+    )
+  }
+  {
+    posts.length === 0 ? (
+      <p class="border-t border-ink/15 py-8 text-base text-ink-soft">{t.empty}</p>
+    ) : (
+      <ol class="border-b border-ink/15">
+        {posts.map((post) => (
+          <LogEntry
+            post={post}
+            locale={locale}
+            number={numbers.get(post.id) ?? 0}
+            level={entryLevel}
+          />
+        ))}
+      </ol>
+    )
+  }
+  {
+    viewAll && (
+      <a
+        href={blogPath(locale, 'bautagebuch')}
+        class="flex min-h-12 items-center font-mono text-2xs uppercase tracking-label text-accent-600 transition-colors hover:text-accent-700"
+      >
+        {cat.viewAll}
+      </a>
+    )
+  }
+</section>

@@ -1,7 +1,8 @@
 ---
 import Pill from '../atoms/Pill.astro'
-import SectionTag from '../atoms/SectionTag.astro'
-import { CONTACT_EMAIL } from '../../consts'
+import PagePrint from '../craft/PagePrint.astro'
+import { PLATES } from '../craft/plates'
+import { mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 
 interface Props {
@@ -14,41 +15,65 @@ const t = ui[locale]
 <section
   id="kontakt"
   data-screen-label={t.sheets.kontakt}
-  class="relative isolate mx-auto box-border flex min-h-[72vh] max-w-[80rem] flex-col justify-center px-6 pb-16 pt-24 text-center sm:px-12"
+  class="frame section-y lg:grid lg:grid-cols-[1fr_auto] lg:items-center lg:gap-x-16"
 >
-  <!-- The page ends on open ground rather than another panel, so the close gets
-       one soft light and a closing mark instead of a frame. -->
-  <div
-    class="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[34rem] w-[58rem] max-w-[120%] -translate-x-1/2 -translate-y-[58%] rounded-full opacity-70 blur-3xl"
-    style="background: radial-gradient(ellipse at center, rgb(164 208 106 / 0.20), rgb(164 208 106 / 0.06) 45%, transparent 72%)"
-    aria-hidden="true"
-  >
+  <div class="min-w-0 lg:col-start-1 lg:row-start-1">
+    <div data-reveal>
+      <h2 class="m-0 mb-5 font-voice text-v1 text-ink" style="text-wrap: balance">
+        {t.cta.title}
+      </h2>
+      <p
+        class="m-0 max-w-xl text-base leading-relaxed text-ink-soft sm:text-lg"
+        style="text-wrap: pretty"
+      >
+        {t.cta.body}
+      </p>
+    </div>
+
+    <!-- What happens after the click, said where the click is: the question
+         that otherwise waits in the FAQ above. -->
+    <ol
+      aria-label={t.cta.stepsLabel}
+      class="m-0 mt-9 grid max-w-xl list-none gap-5 p-0 sm:mt-10 sm:grid-cols-3 sm:gap-6"
+    >
+      {
+        t.cta.steps.map((s, i) => (
+          <li class="border-t border-ink/15 pt-3">
+            <span class="font-mono text-2xs text-accent-600">{`0${i + 1}`}</span>
+            <p class="m-0 mt-1.5 text-sm font-semibold text-ink">{s.title}</p>
+            <p class="m-0 mt-1 text-sm leading-relaxed text-ink-mute" style="text-wrap: pretty">
+              {s.body}
+            </p>
+          </li>
+        ))
+      }
+    </ol>
+
+    <div
+      data-reveal
+      class="mt-9 flex w-full max-w-3xl flex-col gap-3 sm:mt-11 sm:flex-row sm:gap-3.5"
+    >
+      <Pill href={mailtoHref(t.cta.subjectPilot, t.cta.bodyPilot)} variant="solid" size="lg" class="max-sm:w-full">
+        {t.cta.primary}
+      </Pill>
+      <Pill href={mailtoHref(t.cta.subjectCall, t.cta.bodyCall)} variant="outline-dark" size="lg" class="max-sm:w-full">
+        {t.cta.secondary}
+      </Pill>
+    </div>
   </div>
-  <span
-    class="mx-auto mb-9 block h-10 w-px bg-gradient-to-b from-transparent to-ink/25"
-    aria-hidden="true"></span>
-  <SectionTag no="07" class="mb-7 justify-center">{t.footer.contactHeading}</SectionTag>
-  <h2
-    data-reveal
-    class="mx-auto mb-8 max-w-5xl font-voice text-v1"
-    style="text-wrap: balance"
-    set:html={t.cta.titleHtml}
+
+  <!-- Plate VIII, the open door, is the close's one object: after the
+       invitation on a phone, the picture beside it from lg. The print bleeds
+       off its right edge by design, so that edge meets the edge of the screen
+       (the content edge plus the gutter, and half of what the frame leaves),
+       rather than stopping at an invisible line mid-page. Its ink pass is the
+       section's moment, so nothing else here moves. -->
+  <PagePrint
+    name={PLATES.VIII}
+    locale={locale}
+    size="half"
+    phone="third"
+    align="end"
+    class="-mr-4 mt-12 sm:-mr-10 sm:mt-14 lg:relative lg:col-start-2 lg:row-start-1 lg:mr-0 lg:mt-0 lg:left-[calc((100vw-min(100vw,85rem))/2+6.5rem)]"
   />
-  <div data-reveal class="mb-11 flex flex-wrap justify-center gap-2.5">
-    {
-      t.cta.chips.map((c) => (
-        <span class="rounded-full border border-accent-600/30 px-4 py-2 font-mono text-2xs uppercase tracking-label text-accent-600">
-          {c}
-        </span>
-      ))
-    }
-  </div>
-  <div data-reveal class="flex justify-center gap-3.5 max-sm:flex-col max-sm:items-center">
-    <Pill href={`mailto:${CONTACT_EMAIL}?subject=${t.cta.subjectDemo}`} variant="solid" size="lg">
-      {t.cta.demo}
-    </Pill>
-    <Pill href={`mailto:${CONTACT_EMAIL}?subject=${t.cta.subjectWaitlist}`} variant="outline-dark" size="lg">
-      {t.cta.waitlist}
-    </Pill>
-  </div>
 </section>

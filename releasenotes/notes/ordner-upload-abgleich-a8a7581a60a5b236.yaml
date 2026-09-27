@@ -1,43 +1,22 @@
 ---
 features:
   - >
-    Ein hochgeladener Ordner wird jetzt abgeglichen, statt flach abgelegt zu
-    werden. Piloti erkennt die Ordner, die es im Projekt schon gibt — auch wenn
-    sie anders geschrieben sind oder vom Mac mit anders kodierten Umlauten
-    kommen —, legt nur die fehlenden an und legt jede Datei dorthin, wo sie im
-    Ordnerbaum stand.
+    An uploaded folder is now matched against the project: Piloti recognises
+    existing folders, even when spelled differently or coming from a Mac,
+    creates only the missing ones and files every document where it stood in the
+    folder tree.
   - >
-    Vor dem Hochladen fragt Piloti nach: Wie viele Dokumente sind neu, wie viele
-    gibt es schon und haben sich geändert, wie viele sind unverändert. Ob die
-    vorhandenen aktualisiert werden, entscheiden Sie mit einem Häkchen — vorher
-    wurden sie ohne Rückfrage ersetzt.
-  - >
-    Unveränderte Dateien werden übersprungen. Wer denselben Ordner zwei Wochen
-    später erneut hochlädt, überträgt nur noch das, was tatsächlich anders ist,
-    statt fünfhundert Dateien ein zweites Mal.
+    Before uploading, Piloti tells you how many documents are new, changed or
+    unchanged, and you decide with a tick whether changed ones are updated.
+    Unchanged files are skipped.
 fixes:
   - >
-    Zwei Dateien mit gleichem Namen aus verschiedenen Unterordnern haben sich
-    beim Ordner-Upload gegenseitig überschrieben, ohne dass es irgendwo stand —
-    am Ende fehlten Dateien, und niemand konnte sagen, welche. Beide werden
-    jetzt zurückgehalten und im Dialog namentlich genannt.
+    Two files with the same name from different subfolders no longer silently
+    overwrite each other during a folder upload; both are held back and named in
+    the dialog.
   - >
-    Die Dateiliste eines Projekts wird jetzt mit der Seite ausgeliefert. Bisher
-    lud die Seite erst ihr Programm und fragte danach nacheinander Ordner und
-    Dokumente ab — sichtbar als graue Platzhalter, obwohl die Liste längst
-    bereitstand.
+    The project file list now arrives with the page instead of loading folder by
+    folder behind grey placeholders.
   - >
-    Die Platzhalter beim Laden zeigen jetzt dieselbe Anordnung wie die Liste,
-    die danach erscheint: Pfadzeile, Ordner, Dateien, in derselben Breite.
-    Bisher sprang die Ansicht beim Fertigladen um.
-  - >
-    Ordner sind in der Listenansicht nicht mehr gelb hinterlegt. Die getönten
-    Zeilen lasen sich wie ein Warnhinweis über einer Liste, in der nichts
-    verkehrt ist — und derselbe Gelbton steht in derselben Tabelle für die
-    Herkunft „Büro" auf den Dateityp-Kürzeln. Ein Ordner ist jetzt an seinem
-    Symbol zu erkennen, nicht an seiner Farbe.
-  - >
-    Das Öffnen eines Ordners läuft in einer Bewegung statt in zweien: Bisher
-    lief die verlassene Ebene erst vollständig hinaus, bevor die neue begann,
-    mit einem leeren Bild dazwischen. Die Richtung der Bewegung stimmt
-    außerdem wieder — hinein und hinaus sahen zuletzt gleich aus.
+    Folders in the list view are no longer tinted yellow, which read like a
+    warning; a folder is recognised by its icon.

@@ -1,0 +1,166 @@
+---
+/**
+ * Sources and data: what Piloti draws on, and the sheet you can hold every
+ * answer to. One section where there used to be two ("Datengrundlage" and
+ * "Daten & Transparenz") that listed the sources and their traceability twice.
+ *
+ * `#daten` is the section; `#ki` and `#datenschutz` are kept as anchors so
+ * links to the old sections still land here.
+ */
+import PagePrint from '../craft/PagePrint.astro'
+import { PLATES } from '../craft/plates'
+import { ui, type Locale } from '../../i18n/ui'
+import { useTranslatedPath } from '../../i18n/utils'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+const d = t.daten
+const p = d.proof
+const privacy = useTranslatedPath(locale)('/datenschutz/')
+---
+
+<section
+  id="daten"
+  data-screen-label={t.sheets.daten}
+  aria-labelledby="daten-title"
+  class="frame-panel section-y overflow-x-clip"
+>
+  <span id="ki" class="block" aria-hidden="true"></span>
+  <div class="rounded-panel bg-tint sheet-light panel-pad">
+    <!-- Phone: claim, sources, plate, sheet (the heading comes first). From lg
+         the plate hangs to the right of the claim, and the sheet runs across
+         the foot as a landscape page: what comes with every answer on the
+         left, what holds for the office's data on the right. -->
+    <div class="grid grid-cols-1 items-start gap-y-8 lg:grid-cols-[7fr_5fr] lg:gap-x-16 lg:gap-y-14">
+      <div data-reveal class="min-w-0 lg:col-start-1 lg:row-start-1">
+        <h2 id="daten-title" class="m-0 mb-5 font-voice text-v2 text-panel sm:mb-6" style="text-wrap: balance">
+          {d.title}
+        </h2>
+        <p class="m-0 max-w-[34rem] text-base leading-relaxed text-ink-soft sm:text-lg" style="text-wrap: pretty">
+          {d.body}
+        </p>
+
+        <ul aria-label={d.sourcesLabel} class="m-0 mt-9 grid list-none grid-cols-2 gap-x-5 p-0 sm:mt-11 sm:gap-x-8">
+          {
+            d.cards.map((c) => (
+              <li class="min-w-0 border-t border-panel/15 pb-4 pt-3 sm:pb-5">
+                <h3 class="m-0 text-base font-semibold text-panel sm:text-lg">
+                  {c.title}
+                </h3>
+                <p class="m-0 mt-1 hyphens-auto text-[0.9375rem] leading-snug text-accent-900/85" style="text-wrap: pretty">
+                  {c.body}
+                </p>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+
+      <!-- Tafeln II, Schichten: the sources layered down to an answer with
+           its citations. Still, because the sheet's ticks are this section's
+           one moment. -->
+      <PagePrint
+        name={PLATES.II}
+        locale={locale}
+        size="half"
+        phone="third"
+        still
+        class="lg:col-start-2 lg:row-start-1 lg:justify-self-end"
+      />
+
+      <div
+        id="datenschutz"
+        data-reveal
+        class="grid min-w-0 grid-cols-1 gap-y-8 border-t border-panel/20 pt-6 sm:pt-8 lg:col-span-2 lg:row-start-2 lg:grid-cols-2 lg:gap-x-16"
+      >
+        <!-- Straight on the tint, under one rule, like the source rows above:
+             what is always attached to an answer, ticked; and what is true of
+             the office's data, stated. It was a white card inside the panel. -->
+        <div>
+          <h3 class="m-0 text-base font-semibold text-panel sm:text-lg">
+            {p.answerHeading}
+          </h3>
+          <ul class="pruef-ticks m-0 mt-3 list-none p-0" data-craft-in>
+            {
+              p.answer.map((row, i) => (
+                <li style={`--i: ${i}`} class="grid grid-cols-[auto_1fr] items-baseline gap-x-3 border-t border-ink/10 py-2.5 first:border-t-0 first:pt-0">
+                  <svg
+                    viewBox="0 0 24 24"
+                    class="size-3 translate-y-px text-accent-600"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="m4 12 6 6L20 6" pathLength="1" />
+                  </svg>
+                  <p class="m-0 text-[0.9375rem] leading-snug text-panel sm:text-sm">
+                    {row.label}
+                    <span class="text-ink-mute"> – {row.value}</span>
+                  </p>
+                </li>
+              ))
+            }
+          </ul>
+        </div>
+
+        <div>
+          <h3 class="m-0 text-base font-semibold text-panel sm:text-lg">
+            {p.dataHeading}
+          </h3>
+          <ul class="m-0 mt-3 list-none p-0">
+            {
+              p.data.map((line) => (
+                <li class="border-t border-ink/10 py-2.5 text-[0.9375rem] leading-snug text-panel first:border-t-0 first:pt-0 sm:text-sm">
+                  {line}
+                </li>
+              ))
+            }
+            <!-- The list names where the data goes; the privacy policy has
+                 the rest, so the last row is the way there. -->
+            <li class="border-t border-ink/10">
+              <a
+                href={privacy}
+                class="inline-flex min-h-11 items-center gap-1.5 py-1.5 text-[0.9375rem] leading-snug text-accent-600 transition-colors hover:text-accent-700 sm:text-sm"
+              >
+                <span>{p.link} <span aria-hidden="true">→</span></span>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  import '../craft/craft-in'
+</script>
+
+<style>
+  /* The sheet is checked, not decorated: once it is on screen the ticks are
+     drawn one row after another, as someone going down the list with a pen.
+     Without script or motion they are simply there. */
+  @media (prefers-reduced-motion: no-preference) {
+    .pruef-ticks path {
+      stroke-dasharray: 1;
+    }
+    /* Hidden as well as undrawn: a round cap on a zero-length dash still
+       prints a dot, which read as a tick waiting to happen. */
+    .pruef-ticks:global(.craft-armed:not(.craft-in)) path {
+      stroke-dashoffset: 1;
+      opacity: 0;
+    }
+    .pruef-ticks:global(.craft-in) path {
+      --at: calc(var(--duration-quick) + var(--i) * var(--stagger-row));
+      transition:
+        stroke-dashoffset var(--duration-base) var(--ease-draft) var(--at),
+        opacity 0s linear var(--at);
+    }
+  }
+</style>

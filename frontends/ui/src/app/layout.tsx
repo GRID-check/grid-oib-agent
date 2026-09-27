@@ -79,9 +79,10 @@ export const metadata: Metadata = {
   },
   description:
     'Workspace for planning offices. Chat with Piloti about the project; answers are grounded in its files, the office archive, and Austrian building regulations.',
-  icons: {
-    icon: '/favicon.ico',
-  },
+  // Icons come from the file conventions beside this layout (favicon.ico,
+  // icon.svg, apple-icon.png) and manifest.ts; all are rendered from
+  // shared/brand/piloti-mark.svg. The app is behind sign-in: see robots.ts.
+  robots: { index: false, follow: false },
 }
 
 /**
