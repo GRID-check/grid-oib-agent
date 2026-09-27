@@ -36,6 +36,10 @@
     "de": "Eine Chat-Verbindung gilt jetzt nur noch für die Unterhaltung, für die sie geöffnet wurde. Nachrichten, die eine andere Unterhaltung nennen, werden abgewiesen."
   },
   {
+    "en": "A chat whose deletion failed because a service was briefly unavailable is now deleted automatically once the service is back, instead of staying hidden until someone deleted it again.",
+    "de": "Ein Chat, dessen Löschen fehlgeschlagen ist, weil ein Dienst kurz nicht erreichbar war, wird jetzt automatisch gelöscht, sobald der Dienst wieder verfügbar ist. Bisher blieb er ausgeblendet, bis jemand ihn erneut löschte."
+  },
+  {
     "en": "A conversation from another device is no longer deleted when you open it after a reload and leave before its history has loaded.",
     "de": "Eine Unterhaltung von einem anderen Gerät wird nicht mehr gelöscht, wenn Sie sie nach einem Neuladen öffnen und verlassen, bevor ihr Verlauf geladen ist."
   },
@@ -2036,6 +2040,10 @@
     "de": "Sucht Piloti zweimal, zeigt jeder Schritt der Herleitung jetzt die Dateien seiner eigenen Suche, statt beide beim ersten aufzulisten. Eine Zusammenfassung erscheint nicht mehr versehentlich als Urteil."
   },
   {
+    "en": "When Piloti's reply breaks after its answer text, the chat now shows the answer instead of a block of raw data.",
+    "de": "Bricht die Antwort von Piloti nach dem Antworttext ab, zeigt der Chat jetzt die Antwort statt eines Blocks roher Daten."
+  },
+  {
     "en": "When a deep-research run promised to file its report in the project and the filing then failed, the banner said nothing at all — so the report looked filed and „Berichte\" was empty. It now takes the promise back in one quiet line, and the report itself is still there in the research panel either way.",
     "de": "Wenn ein Deep-Research-Lauf zugesagt hat, seinen Bericht im Projekt abzulegen, und das dann fehlschlug, blieb der Banner völlig stumm – so sah es aus, als wäre der Bericht abgelegt, obwohl „Berichte“ leer war. Jetzt nimmt der Banner die Zusage mit einer einzigen unaufdringlichen Zeile zurück; der Bericht selbst bleibt in jedem Fall im Research-Panel."
   },
@@ -2190,9 +2198,5 @@
   {
     "en": "„Zitierbar\" no longer appears on every file. A status shows only when it changes what you can do next — a document still being read, one that failed, or a report Piloti wrote and deliberately never indexed.",
     "de": "„Zitierbar“ erscheint nicht mehr bei jeder Datei. Ein Status wird nur angezeigt, wenn er beeinflusst, was Sie als Nächstes tun können – etwa bei einem Dokument, das noch gelesen wird, einem fehlgeschlagenen Dokument oder einem Bericht, den Piloti verfasst und bewusst nie indexiert hat."
-  },
-  {
-    "en": "A chat whose deletion failed because a service was briefly unavailable is now deleted automatically once the service is back, instead of staying hidden until someone deleted it again.",
-    "de": "Ein Chat, dessen Löschen fehlgeschlagen ist, weil ein Dienst kurz nicht erreichbar war, wird jetzt automatisch gelöscht, sobald der Dienst wieder verfügbar ist. Bisher blieb er ausgeblendet, bis jemand ihn erneut löschte."
   }
 ]

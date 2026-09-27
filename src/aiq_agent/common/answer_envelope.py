@@ -793,6 +793,28 @@ def _validated_meta(payload: dict) -> AnswerMeta | None:
     return None if meta.empty else meta
 
 
+_ANSWER_KEY_RE = re.compile(r'"answer"\s*:\s*(?=")')
+
+
+def _recover_answer_string(raw: str) -> str | None:
+    """The ``answer`` string out of an envelope that does not parse as a whole.
+
+    Only a value that decodes as one complete JSON string counts: a model that
+    broke the object AFTER its prose (a stray brace in a card, a cut trailer)
+    loses the anatomy and keeps the answer. A broken string itself (a bad
+    escape, no closing quote) recovers nothing, so no JSON fragment is ever
+    shipped as prose; the caller then leaves the reply untouched as before.
+    """
+    match = _ANSWER_KEY_RE.search(raw)
+    if match is None:
+        return None
+    try:
+        value, _end = json.JSONDecoder(strict=False).raw_decode(raw, match.end())
+    except json.JSONDecodeError:
+        return None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 #: Loose text beside a complete envelope past which it is a second copy of the
 #: answer rather than a stray line.
 _PROSE_OUTSIDE_WARN_CHARS = 200
@@ -826,6 +848,17 @@ def extract_answer_envelope(content: object) -> tuple[object, AnswerMeta | None]
     if blocks:
         payload = _parse_object(blocks[-1][2])
         if payload is None:
+            answer = _recover_answer_string(blocks[-1][2])
+            if answer:
+                # The prose closed whole and the break came after it, in the
+                # cards or the trailer: the reader already has this prose
+                # settled on screen, and replacing it with the raw fence put
+                # 4 774 characters of JSON where 1 120 of answer had been
+                # (answer suite, 2026-09-27). The anatomy goes, the answer stays.
+                logger.warning(
+                    "answer_json envelope is not parseable JSON; recovered its answer string, dropped the rest"
+                )
+                return answer, None
             logger.warning("answer_json envelope is not parseable JSON; leaving the reply untouched")
             return content, None
         answer = payload.get("answer")
