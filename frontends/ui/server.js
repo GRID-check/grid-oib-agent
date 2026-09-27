@@ -253,6 +253,8 @@ const isTransientUpstreamFailure = (err) => TRANSIENT_UPSTREAM_CODES.has(err?.co
 const { WS_UPGRADE_LIMIT, CHAT_TURN_LIMIT, WS_CONTROL_LIMIT } = require('./src/lib/limits/rules.js')
 const { createLimiter, consumeLimiter } = require('./src/lib/limits/factory.js')
 const { createFrameObserver, classifyFrame } = require('./src/lib/limits/ws-frames.js')
+// Inbound x-grid-* / authorization are the proxy's to set, never the client's.
+const { stripClientContextHeaders } = require('./src/lib/proxy/ws-upgrade-headers.js')
 
 // `GRID_WS_UPGRADE_RATE_LIMIT` predates the catalog and stays honoured: an
 // operator who tuned it should not have it silently reverted by this refactor.
@@ -664,6 +666,10 @@ const startServer = async () => {
       const projectId = normalizeQueryParam(parsedUrl.query.projectId)
       const conversationId = normalizeQueryParam(parsedUrl.query.conversationId)
       req.url = '/websocket' + (parsedUrl.search || '')
+      // Before anything below writes the context headers: each is set only
+      // when the scope has a value, so a client's own header survived every
+      // field the scope left empty (model overrides, budget, disabled sources).
+      stripClientContextHeaders(req.headers)
 
       try {
         const result = await resolveCollectionScope(req, projectId, conversationId)

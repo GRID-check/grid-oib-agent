@@ -48,7 +48,7 @@ in another conversation, open a socket for it.
 
 The `server.js` gateway handles WebSocket upgrade requests:
 
-1. **Upgrade interception:** The `server.on('upgrade', ...)` handler checks if `req.url` starts with `/websocket`.
+1. **Upgrade interception:** The `server.on('upgrade', ...)` handler checks if `req.url` starts with `/websocket`, then removes every inbound `x-grid-*`, `authorization` and `x-internal-token` header (`src/lib/proxy/ws-upgrade-headers.js`). Only the proxy sets those; before 2026-09 a client's own header survived whenever the scope below had no value to overwrite it with.
 2. **Scope resolution:** Calls `/api/auth/websocket-scope?projectId=xxx&conversationId=yyy` (internal HTTP request to the same server) to resolve:
    - `x-grid-collection-scope` header — passes collection scope to backend.
    - `x-grid-organization-id` / `x-grid-user-id` — forwards user context.
