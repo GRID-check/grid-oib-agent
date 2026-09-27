@@ -26,6 +26,7 @@ import {
   isJobConversation,
 } from '../lib/project-scope'
 import { mapServerMessagesToChatMessages } from '../lib/server-message-mapper'
+import { mergeRemoteMessages } from './messages-store'
 import { encodeCitations } from '../lib/citations'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import type { MessageStages } from '@/lib/conversations/message-stages'
@@ -409,7 +410,11 @@ export const createSessionsSlice: StateCreator<
       // If the restored current session lost its messages locally (storage
       // cleanup, new device), repopulate them from the server right away.
       const { currentConversation } = get()
-      if (currentConversation && currentConversation.messages.length === 0) {
+      if (
+        currentConversation &&
+        (currentConversation.messages.length === 0 ||
+          isAwaitingServerMessages(currentConversation.id))
+      ) {
         void get().hydrateConversationMessages(currentConversation.id)
       }
     } catch (err) {
@@ -423,7 +428,10 @@ export const createSessionsSlice: StateCreator<
 
   hydrateConversationMessages: async (conversationId: string) => {
     const conversation = get().conversations.find((c) => c.id === conversationId)
-    if (!conversation || conversation.messages.length > 0) return
+    if (!conversation) return
+    // Messages here are the whole thread unless the server's were never loaded:
+    // a follow-up sent before the history arrived is only the tail of it.
+    if (conversation.messages.length > 0 && !isAwaitingServerMessages(conversationId)) return
     if (hydratingConversationIds.has(conversationId)) return
     hydratingConversationIds.add(conversationId)
 
@@ -441,14 +449,14 @@ export const createSessionsSlice: StateCreator<
         return
       }
 
-      clearAwaitingServerMessages(conversationId)
-      // The session may have received live messages while the fetch was in
-      // flight — never overwrite newer local state.
-      if (target.messages.length > 0) return
-
-      const hydrated: Conversation = { ...target, messages }
+      // Messages that arrived while the fetch was in flight stay, and the
+      // server's history goes under them. Replacing either with the other
+      // hid the history for good: the awaiting flag was cleared regardless.
+      const { messages: merged } = mergeRemoteMessages(target.messages, messages, false)
+      const hydrated: Conversation = { ...target, messages: merged }
       const isCurrent = currentConversation?.id === conversationId
 
+      clearAwaitingServerMessages(conversationId)
       set(
         {
           conversations: updateConversationInList(conversations, hydrated),
@@ -671,7 +679,7 @@ export const createSessionsSlice: StateCreator<
 
       // Past chats whose messages were pruned from localStorage (or that came
       // from another device) repopulate from the server-persisted history.
-      if (conversation.messages.length === 0) {
+      if (conversation.messages.length === 0 || isAwaitingServerMessages(conversation.id)) {
         void get().hydrateConversationMessages(conversation.id)
       }
     }

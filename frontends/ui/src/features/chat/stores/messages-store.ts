@@ -415,7 +415,7 @@ const withServerFacts = (local: ChatMessage, remote: ChatMessage): ChatMessage =
  * from "an existing message was corrected" (resolved author names, the server's
  * timestamp) — only the former is activity that may reorder the session list.
  */
-const mergeRemoteMessages = (
+export const mergeRemoteMessages = (
   local: ChatMessage[],
   remote: ChatMessage[],
   replace: boolean
