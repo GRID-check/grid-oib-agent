@@ -32,6 +32,8 @@ from langgraph.graph import START
 from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
 
+from nat.builder.context import Context
+
 
 class _State(TypedDict, total=False):
     x: int
@@ -75,9 +77,21 @@ def _graph(node: Any) -> Any:
 _INNER = _graph(_inner_node)
 
 
+class _OwnCallbacks(AsyncCallbackHandler):
+    """Piloti's inner graph passes callbacks of its own (``agent._graph_config``)."""
+
+
 async def _through_a_function_boundary(state: _State) -> _State:
-    """Stands in for NAT's ``Function.ainvoke`` between the conversation graph and Piloti's."""
-    return await _INNER.ainvoke(state, config={"recursion_limit": 50})
+    """What NAT's ``Function.ainvoke`` does between the conversation graph and Piloti's.
+
+    It pushes the active function on NAT's context and awaits the function in
+    the same task (``nat/builder/function.py``), and the inner graph is invoked
+    with a config of its own: its own ``configurable`` and ``callbacks``
+    (``agent._graph_config``). Neither may cut the custom stream.
+    """
+    with Context.get().push_active_function("shallow_research_agent", input_data=state):
+        config = {"recursion_limit": 50, "configurable": {"binding": object()}, "callbacks": [_OwnCallbacks()]}
+        return await _INNER.ainvoke(state, config=config)
 
 
 async def _outer_node(state: _State) -> _State:

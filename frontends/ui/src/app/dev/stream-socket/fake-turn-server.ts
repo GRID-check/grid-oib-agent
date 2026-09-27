@@ -1,5 +1,5 @@
 /**
- * A scripted NAT server behind a stubbed `window.WebSocket`, for
+ * A scripted v2 chat server behind a stubbed `window.WebSocket`, for
  * `/dev/stream-socket`.
  *
  * The frames are paced by a Web Worker, not by timers on the page. A real
@@ -14,7 +14,7 @@
  * dev server's HMR) is the real one.
  */
 
-import { CONVERSATION_PLACEHOLDER, PARENT_PLACEHOLDER, type FrameKind, type NatScript } from './nat-script'
+import { CONVERSATION_PLACEHOLDER, TURN_PLACEHOLDER, type FrameKind, type TurnScript } from './turn-script'
 
 export interface SocketProbeSink {
   onOpen: () => void
@@ -22,9 +22,6 @@ export interface SocketProbeSink {
   onFrameHandled: (kind: FrameKind, sentAt: number, handledAt: number) => void
   onHeartbeat: () => void
 }
-
-/** Seconds between `grid_turn_heartbeat` frames, as `websocket_reconnect.GridTurnHeartbeat` sends them. */
-const HEARTBEAT_MS = 20_000
 
 /**
  * The worker: holds the frames, and once told the ids, posts each at its
@@ -37,15 +34,11 @@ self.onmessage = (event) => {
   const message = event.data
   if (message.type === 'load') { frames = message.frames; return }
   if (message.type !== 'start') return
-  const fill = (data) => data.split(${JSON.stringify(PARENT_PLACEHOLDER)}).join(message.parentId)
+  const fill = (data) => data.split(${JSON.stringify(TURN_PLACEHOLDER)}).join(message.turnId)
     .split(${JSON.stringify(CONVERSATION_PLACEHOLDER)}).join(message.conversationId)
+    .replace('"ts":0', '"ts":' + Math.round(now()))
   const started = now()
   let index = 0
-  const beat = setInterval(() => {
-    self.postMessage({ kind: 'heartbeat', sentAt: now(), data: JSON.stringify({
-      type: 'grid_turn_heartbeat', v: 1, conversation_id: message.conversationId,
-      parent_id: message.parentId, every_ms: ${HEARTBEAT_MS}, timestamp: new Date().toISOString() }) })
-  }, ${HEARTBEAT_MS})
   const tick = () => {
     const elapsed = now() - started
     while (index < frames.length && frames[index].at <= elapsed) {
@@ -53,14 +46,14 @@ self.onmessage = (event) => {
       self.postMessage({ kind: frame.kind, sentAt: now(), data: fill(frame.data) })
     }
     if (index < frames.length) setTimeout(tick, Math.max(0, frames[index].at - (now() - started)))
-    else { clearInterval(beat); self.postMessage({ kind: 'end', sentAt: now() }) }
+    else self.postMessage({ kind: 'end', sentAt: now() })
   }
   tick()
 }
 `
 
 interface WorkerFrame {
-  kind: FrameKind | 'heartbeat' | 'end'
+  kind: FrameKind | 'end'
   sentAt: number
   data?: string
 }
@@ -75,8 +68,8 @@ const CLOSED = 3
  * Install the fake server as `window.WebSocket`. Returns the uninstaller.
  * `onScriptEnd` fires once the worker has sent its last frame.
  */
-export const installFakeNatServer = (
-  script: NatScript,
+export const installFakeTurnServer = (
+  script: TurnScript,
   sink: SocketProbeSink,
   onScriptEnd: (lastSentAt: number) => void
 ): (() => void) => {
@@ -88,10 +81,10 @@ export const installFakeNatServer = (
   worker.postMessage({ type: 'load', frames: script.frames })
   let started = false
   // The chat's socket: the latest one the client opened.
-  const chat: { socket: FakeNatSocket | null } = { socket: null }
+  const chat: { socket: FakeTurnSocket | null } = { socket: null }
   worker.onmessage = (event: MessageEvent<WorkerFrame>) => chat.socket?.receive(event.data)
 
-  class FakeNatSocket {
+  class FakeTurnSocket {
     static readonly CONNECTING = 0
     static readonly OPEN = OPEN
     static readonly CLOSING = 2
@@ -113,7 +106,7 @@ export const installFakeNatServer = (
       this.url = href
       // Not the chat socket: hand back a real one (the constructor's return value wins).
       if (!new URL(href, window.location.href).pathname.endsWith('/websocket')) {
-        return new RealWebSocket(url, protocols) as unknown as FakeNatSocket
+        return new RealWebSocket(url, protocols) as unknown as FakeTurnSocket
       }
       chat.socket = this
       window.setTimeout(() => {
@@ -124,12 +117,12 @@ export const installFakeNatServer = (
     }
 
     send(raw: string): void {
-      const message = JSON.parse(raw) as { type?: string; id?: string; conversation_id?: string }
-      // One scripted turn per page load.
-      if (message.type !== 'user_message' || !message.id || started) return
+      const message = JSON.parse(raw) as { type?: string; message_id?: string; conversation_id?: string }
+      // One scripted turn per page load; `attach` and `cancel_turn` are not scripted.
+      if (message.type !== 'user_message' || !message.message_id || started) return
       started = true
       sink.onUserMessage(performance.now())
-      worker.postMessage({ type: 'start', parentId: message.id, conversationId: message.conversation_id ?? '' })
+      worker.postMessage({ type: 'start', turnId: message.message_id, conversationId: message.conversation_id ?? '' })
     }
 
     receive(frame: WorkerFrame): void {
@@ -159,7 +152,7 @@ export const installFakeNatServer = (
     }
   }
 
-  window.WebSocket = FakeNatSocket as unknown as typeof WebSocket
+  window.WebSocket = FakeTurnSocket as unknown as typeof WebSocket
   return () => {
     window.WebSocket = RealWebSocket
     worker.terminate()

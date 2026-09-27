@@ -78,8 +78,8 @@ model keeps writing card objects; only composition is A2UI-shaped.
 - Composition becomes possible: variants as tabs, related drawings side by
   side on a wide column (stacked on a narrow one).
 - **Cost.** ~38 KB gzip on the client. `@a2ui/react` has no server snapshot,
-  so a card renders through A2UI after hydration, behind a placeholder of its
-  type until A2UI has drawn it. *Amended 2026-09-27:* it used to render
+  so a card renders through A2UI after hydration, behind a card-shaped
+  placeholder until A2UI has drawn it. *Amended 2026-09-27:* it used to render
   directly first, with A2UI's copy mounted invisibly behind it and swapped in
   once drawn. That was two copies of every card and three commits for each,
   and a streamed card's arrival measured its height off the copy that was

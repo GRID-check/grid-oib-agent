@@ -18,11 +18,10 @@
  *      in any browser that was not the one that asked. This one predates sharing.
  *
  * The fix is the same one the citations fix already made, extended: keep the
- * COMPACT form on the message row. `stripThinkingStepsForStorage` already defines
- * what "compact" means for the Herleitung — display fields plus the trace lanes,
- * with payloads dropped, which is precisely what `ChatThinking` renders — so the
- * server keeps exactly what localStorage keeps, and the two cannot disagree about
- * what a restored thread looks like.
+ * COMPACT form on the message row. For the Herleitung that is {@link StoredThinkingStep}:
+ * the typed step the turn fold writes (chat wire v2), which carries no tool
+ * input or output, so the server keeps exactly what localStorage keeps, and the
+ * two cannot disagree about what a restored thread looks like.
  *
  * **The client is not trusted with the bound.** `sanitizeProvenance` is what runs
  * before anything reaches the jsonb column: unknown keys are dropped, unions are
@@ -33,18 +32,36 @@
 import type { RetrievalLedger } from './message-retrieval-ledger'
 import { sanitizeRetrievalLedger } from './message-retrieval-ledger'
 
-/** The compact stored form of one Herleitung step. */
+/** The kinds of Herleitung step, one per wire v2 `Step` (`wire_v2.py`). */
+export const STEP_KINDS = [
+  'status',
+  'retrieval',
+  'sources',
+  'tool',
+  'skill',
+  'clarification',
+] as const
+export type StepKind = (typeof STEP_KINDS)[number]
+
+/**
+ * The compact stored form of one Herleitung step: exactly what the turn fold
+ * writes (docs/design/chat-wire-v2.md §e.4), and the ONLY shape this column
+ * holds. Rows written before the wire v2 cut were rewritten by migration 0097;
+ * nothing here reads the older `functionName` shape.
+ *
+ * Which fields a step carries follows its `kind`: `retrieval` has `round` and
+ * the `turnEvent`, `status` its `slot` (and the `turnEvent` when it speaks),
+ * `sources` its `tool` and `traceLanes`, `tool` its `tool`, `skill` its
+ * `skill`. No step carries a tool's input or output.
+ */
 export interface StoredThinkingStep {
   id: string
   userMessageId: string
-  functionName: string
-  displayName: string
-  category: string
   timestamp: string
   isComplete: boolean
-  isTopLevel?: boolean
-  /** The sources fan-out, which is the part of a step a reader actually reads. */
-  traceLanes?: unknown[]
+  kind: StepKind
+  /** Set only for in-process deep research; a chat step stores no key. */
+  scope?: 'deep'
   /**
    * The turn event's key, values (what was searched, in which corpus),
    * optional `reason` (the model's checkpoint sentence), and optional `tools`
@@ -53,7 +70,20 @@ export interface StoredThinkingStep {
    * other reasons.
    */
   turnEvent?: { key: string; values?: Record<string, string>; reason?: string; tools?: string[] }
+  /** The sources fan-out (`TraceLaneCard[]`), which is the part of a step a reader actually reads. */
+  traceLanes?: unknown[]
+  round?: number
+  /** A tool's basename (`tool`, `sources`). */
+  tool?: string
+  /** The skill's name (`skill`). */
+  skill?: string
+  /** The status slot (`status`), e.g. `synthesis`, `checkpoint:0`. */
+  slot?: string
+  /** Structured detail of a technical status record: scalars and short string lists. */
+  detail?: Record<string, StepDetailValue>
 }
+
+export type StepDetailValue = string | number | boolean | string[]
 
 /**
  * Why the deterministic overconfidence guard downgraded the model's own
@@ -135,6 +165,13 @@ export interface MessageProvenance {
    */
   researchTruncated?: true
   /**
+   * The asker pressed Stop: the answer is the prose the turn had produced by
+   * then (`RUN_FINISHED{outcome: 'cancelled'}`, persisted by the agent tier).
+   * Stored so a reload shows what the reader saw, marked as stopped, rather
+   * than a fragment that reads as a finished answer.
+   */
+  stopped?: true
+  /**
    * Why it was cut off. Stored beside the flag rather than folded into it: the
    * flag is what the reader is told, the reason is what turns "it stopped" into
    * "it ran out of time", and a reopened thread that kept only the first half
@@ -181,6 +218,11 @@ const MAX_TURN_EVENT_KEY_CHARS = 64
 const MAX_TURN_EVENT_VALUES = 8
 const MAX_TURN_EVENT_VALUE_KEY_CHARS = 32
 const MAX_TURN_EVENT_VALUE_CHARS = 64
+/** A tool basename; the wire bounds a step id at 200. */
+const MAX_NAME_CHARS = 200
+/** A technical record's detail is a handful of counts and reasons. */
+const MAX_DETAIL_ENTRIES = 16
+const MAX_DETAIL_VALUE_CHARS = 200
 
 const CONFIDENCES = ['low', 'medium', 'high'] as const
 export const CAPPED_REASONS = [
@@ -227,31 +269,84 @@ const oneOf = <T extends string>(value: unknown, allowed: readonly T[]): T | und
     ? (value as T)
     : undefined
 
+const isStepKind = (value: unknown): value is StepKind =>
+  typeof value === 'string' && (STEP_KINDS as readonly string[]).includes(value)
+
+const nonNegativeInt = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
+
+/** A technical record's detail: bounded keys, scalars and short string lists only. */
+function sanitizeDetail(input: unknown): Record<string, StepDetailValue> | undefined {
+  if (!isRecord(input)) return undefined
+  const detail: Record<string, StepDetailValue> = {}
+  for (const [name, value] of Object.entries(input).slice(0, MAX_DETAIL_ENTRIES)) {
+    const safeName = cap(name, MAX_TURN_EVENT_VALUE_KEY_CHARS)
+    if (!safeName) continue
+    if (typeof value === 'boolean') detail[safeName] = value
+    else if (typeof value === 'number' && Number.isFinite(value)) detail[safeName] = value
+    else if (typeof value === 'string') detail[safeName] = value.slice(0, MAX_DETAIL_VALUE_CHARS)
+    else {
+      const list = stringList(value, MAX_TURN_EVENT_VALUES, MAX_TURN_EVENT_VALUE_CHARS)
+      if (list) detail[safeName] = list
+    }
+  }
+  return Object.keys(detail).length > 0 ? detail : undefined
+}
+
+/**
+ * One step, or null. A step without a known `kind` is not a step: this is the
+ * v2 shape only, and an older shape reaching this function is a writer bug,
+ * not something to interpret.
+ */
 function sanitizeStep(input: unknown): StoredThinkingStep | null {
-  if (!isRecord(input)) return null
+  if (!isRecord(input) || !isStepKind(input.kind)) return null
   const id = cap(input.id, 128)
   const userMessageId = cap(input.userMessageId, 128)
   if (!id || !userMessageId) return null
 
-  return {
+  const step: StoredThinkingStep = {
     id,
     userMessageId,
-    functionName: cap(input.functionName, 200) ?? '',
-    displayName: cap(input.displayName, 200) ?? '',
-    category: cap(input.category, 40) ?? '',
     // Accepts the ISO string the client sends AND a Date that survived a
-    // structured clone, because the store holds Dates and JSON turns them into
-    // strings at exactly one boundary that is easy to get wrong.
+    // structured clone, because JSON turns Dates into strings at exactly one
+    // boundary that is easy to get wrong.
     timestamp:
       cap(input.timestamp, 40) ??
       (input.timestamp instanceof Date ? input.timestamp.toISOString() : ''),
     isComplete: input.isComplete === true,
-    ...(input.isTopLevel === true ? { isTopLevel: true } : {}),
-    ...(Array.isArray(input.traceLanes) && input.traceLanes.length > 0
-      ? { traceLanes: input.traceLanes.slice(0, MAX_TRACE_LANES) }
-      : {}),
-    ...sanitizeTurnEvent(input.turnEvent),
+    kind: input.kind,
   }
+  if (input.scope === 'deep') step.scope = 'deep'
+  const { turnEvent } = sanitizeTurnEvent(input.turnEvent)
+  if (turnEvent) step.turnEvent = turnEvent
+  if (Array.isArray(input.traceLanes) && input.traceLanes.length > 0) {
+    step.traceLanes = input.traceLanes.slice(0, MAX_TRACE_LANES)
+  }
+  const round = nonNegativeInt(input.round)
+  if (round !== undefined) step.round = round
+  const tool = cap(input.tool, MAX_NAME_CHARS)
+  if (tool) step.tool = tool
+  const skill = cap(input.skill, MAX_SKILL_CHARS)
+  if (skill) step.skill = skill
+  const slot = cap(input.slot, MAX_TURN_EVENT_KEY_CHARS)
+  if (slot) step.slot = slot
+  const detail = sanitizeDetail(input.detail)
+  if (detail) step.detail = detail
+  return step
+}
+
+/**
+ * Bound an untrusted step list: the v2 shape only, at most
+ * {@link MAX_THINKING_STEPS}, every field capped. Exported for the history
+ * mapper, which reads the same column back and must agree with the write.
+ */
+export function sanitizeThinkingSteps(input: unknown): StoredThinkingStep[] | undefined {
+  if (!Array.isArray(input)) return undefined
+  const steps = input
+    .slice(0, MAX_THINKING_STEPS)
+    .map(sanitizeStep)
+    .filter((step): step is StoredThinkingStep => step !== null)
+  return steps.length > 0 ? steps : undefined
 }
 
 /** The hoisted turn event, whitelisted and capped like everything else here. */
@@ -291,13 +386,8 @@ export function sanitizeProvenance(input: unknown): MessageProvenance | null {
   if (!isRecord(input)) return null
   const out: MessageProvenance = {}
 
-  if (Array.isArray(input.thinkingSteps)) {
-    const steps = input.thinkingSteps
-      .slice(0, MAX_THINKING_STEPS)
-      .map(sanitizeStep)
-      .filter((step): step is StoredThinkingStep => step !== null)
-    if (steps.length > 0) out.thinkingSteps = steps
-  }
+  const steps = sanitizeThinkingSteps(input.thinkingSteps)
+  if (steps) out.thinkingSteps = steps
 
   const confidence = oneOf(input.answerConfidence, CONFIDENCES)
   if (confidence) out.answerConfidence = confidence
@@ -345,6 +435,7 @@ export function sanitizeProvenance(input: unknown): MessageProvenance | null {
   // `=== true`, not truthiness: this comes off untrusted stored JSON, and the
   // field is a fact the reader is shown. A stray "yes" must not become one.
   if (input.researchTruncated === true) out.researchTruncated = true
+  if (input.stopped === true) out.stopped = true
 
   // The reason survives on its own, without the flag: a row that recorded WHY
   // the run stopped but lost the boolean still knows something true, and the

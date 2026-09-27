@@ -1,15 +1,18 @@
 /**
- * Turn-event keys: the closed set of sentences this UI can phrase, and the one
- * renderer for them (docs/design/chat-wire-v2.md §e.5, moved out of the retired
- * `adapters/api/step-event-schemas.ts`).
+ * Turn-event keys: the closed set of sentences the live line can say, and the
+ * one renderer (`docs/design/chat-wire-v2.md` §e.3, §e.5).
  *
- * The wire carries KEYS, not sentences: a `status`/`retrieval` step ships `key`
- * plus `values` (interpolation data only), and this side owns every word in
- * every locale. A key outside `TURN_EVENT_KEYS` renders NOTHING, because the
- * alternative is printing an identifier.
+ * **The wire carries KEYS, not sentences.** A step ships `key` (a stable dotted
+ * id) plus `values` (interpolation data only), and THIS side owns every word in
+ * every locale. `TURN_EVENT_KEYS` is the closed set of ids we can phrase; an id
+ * outside it renders NOTHING, because the alternative is printing an
+ * identifier, and this product has already shipped "Use Skill …" once.
+ *
+ * The fold (`turn-fold.ts`) stores a `turnEvent` only for a live-channel step
+ * that carries a key, so a technical record has nothing here to render.
  */
 
-import type { StoredTurnEvent } from '../types'
+import type { StoredThinkingStep } from './turn-fold'
 
 /**
  * Every turn-event key this UI can phrase, and where it looks it up.
@@ -85,7 +88,10 @@ const CORPUS_KEYS = new Set(['status.retrieval.withQuery', 'status.retrieval.pla
 const CORPUS_IDS = new Set(['knowledge', 'ris', 'web', 'documents', 'ifc'])
 
 /** A `chat`-namespace translator. Structural, so no i18n import is needed here. */
-export type StepEventTranslator = (key: string, vars?: Record<string, string | number>) => string
+export type StepEventTranslator = (
+  key: string,
+  vars?: Record<string, string | number>
+) => string
 
 /**
  * The `{corpus}` slot: corpus IDS named and joined in the reader's language.
@@ -133,12 +139,8 @@ export const renderTurnEventKey = (
 }
 
 /**
- * The sentence a stored turn event may be shown as on the live line, or `null`.
- *
- * The fold keeps `turnEvent` only for live-channel steps that carry a key, so a
- * technical record has nothing here to render.
+ * The sentence a stored step may show on the live line, or `null` for silence.
+ * Skills and status slots alike: the fold hoisted the key, the dictionary words it.
  */
-export const stepEventLiveText = (
-  event: StoredTurnEvent | undefined,
-  t: StepEventTranslator
-): string | null => (event ? renderTurnEventKey(event.key, event.values, t) : null)
+export const stepEventLiveText = (step: Pick<StoredThinkingStep, 'turnEvent'>, t: StepEventTranslator): string | null =>
+  step.turnEvent ? renderTurnEventKey(step.turnEvent.key, step.turnEvent.values, t) : null

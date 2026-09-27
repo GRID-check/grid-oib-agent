@@ -9,7 +9,6 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { InvokedSkillChip } from './InvokedSkillChip'
 import { SkillsUsedDisclosure } from './SkillsUsedDisclosure'
-import { NATSystemResponseMessageSchema } from '@/adapters/api/schemas'
 
 vi.mock('@/i18n', () => ({
   useTranslations: () => (key: string, vars?: Record<string, string | number>) =>
@@ -140,34 +139,5 @@ describe('SkillsUsedDisclosure', () => {
 
     await user.click(screen.getByTestId('skills-used-trigger'))
     expect(await screen.findByTestId('skills-used-panel')).toHaveTextContent('gone-since')
-  })
-})
-
-describe('the skills_activated wire field', () => {
-  const frame = (extra: Record<string, unknown>) => ({
-    type: 'system_response_message',
-    id: 'm1',
-    status: 'complete',
-    content: { text: 'answer' },
-    ...extra,
-  })
-
-  it('is lifted off the terminal frame', () => {
-    const parsed = NATSystemResponseMessageSchema.parse(
-      frame({ skills_activated: ['oib-brandschutz', 'projekt-zusammenfassung'] }),
-    )
-    expect(parsed.skills_activated).toEqual(['oib-brandschutz', 'projekt-zusammenfassung'])
-  })
-
-  it('is simply absent on a turn that activated none', () => {
-    expect(NATSystemResponseMessageSchema.parse(frame({})).skills_activated).toBeUndefined()
-  })
-
-  it('degrades to absent rather than killing the frame when malformed', () => {
-    // Per-field `.catch(undefined)`, like every other transparency extra: the
-    // answer text must survive a bad extra.
-    const parsed = NATSystemResponseMessageSchema.parse(frame({ skills_activated: 'not-an-array' }))
-    expect(parsed.skills_activated).toBeUndefined()
-    expect(parsed.content).toEqual({ text: 'answer' })
   })
 })

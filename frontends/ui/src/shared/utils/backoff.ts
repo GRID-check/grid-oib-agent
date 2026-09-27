@@ -71,10 +71,7 @@ export function backoffWithJitter(
  * failures spread over an hour of healthy connection, a timer that outlived the
  * effect that made it.
  *
- * `websocket-client.ts` deliberately keeps its own: its `reconnectCount` is also
- * read as "are we mid-reconnect?" to suppress the intermediate status callbacks
- * that would otherwise flicker the connection indicator, so collapsing it into
- * an opaque ladder would cost a signal the ladder has no business owning.
+ * The chat socket (`adapters/api/turn-socket.ts`) reconnects on one too.
  * `use-connection-recovery.ts` is a poller with a running delay, not a ladder.
  *
  * The reset rule is the whole point, and it is one sentence: **evidence that it

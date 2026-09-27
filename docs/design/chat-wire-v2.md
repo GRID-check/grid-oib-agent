@@ -846,13 +846,13 @@ outside the slices.
 
 ## Risks, and what they are waiting on
 
-- **The writer across the NAT function boundary.** The committed reach test covers a plain
-  async function between graphs, not NAT's `Function.ainvoke`, which pushes its
-  own context. If NAT copies the context into a new task, the custom stream
-  still propagates, since tasks inherit `ContextVar`s. If NAT drops the
-  LangChain config, it does not. S2's first test decides this. The fallback is
-  to call the inner graph's compiled runnable directly from the node, which is
-  allowed (ADR-0068 keeps NAT for registry and config, not for the call).
+- **The writer across the NAT function boundary: retired.** NAT's
+  `Function.ainvoke` pushes its active function and awaits the call in the same
+  task, and Piloti's inner graph runs with its own `configurable` and
+  `callbacks` (`agent._graph_config`). The reach test now goes through exactly
+  that (`Context.push_active_function` plus the inner graph's own config), and
+  the writer reaches the inner node, the token callback and a thread worker.
+  No fallback is needed.
 - **Coalescing at the producer.** The token callback flushes on the next token
   once 50 ms have passed, so the last few tokens before a pause in the model wait
   for the next token, or for the end of the call. The reveal runs 1.2 s behind

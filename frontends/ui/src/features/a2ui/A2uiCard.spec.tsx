@@ -14,8 +14,7 @@ import type { GridCard } from '@/shared/cards/schemas'
 import { A2uiCard } from './A2uiCard'
 import { INTERACTIVE_CARD_TYPES } from '@/features/grid-cards/card-decision'
 import { GridCardItem } from '@/features/grid-cards/components/GridCards'
-import { CardDrawnProvider } from '@/features/grid-cards/card-drawn'
-import { SURFACE_EXCLUDED_LEAVES, preflight, structuralRefusal } from './catalog'
+import { DrawnProvider, SURFACE_EXCLUDED_LEAVES, preflight, structuralRefusal } from './catalog'
 import { surfaceLeaves } from './surface-messages'
 
 const BASIS = {
@@ -305,9 +304,9 @@ describe('a card through A2UI', () => {
   it('tells whatever holds its place that it is on screen, once', async () => {
     const onScreen = vi.fn()
     render(
-      <CardDrawnProvider value={onScreen}>
+      <DrawnProvider value={onScreen}>
         <A2uiCard card={BASIS} surfaceKey="m1:10" render={renderCard} />
-      </CardDrawnProvider>
+      </DrawnProvider>
     )
     await waitFor(() => expect(onScreen).toHaveBeenCalledTimes(1))
     expect(document.querySelector('[data-a2ui-surface="m1:10"]:not([aria-hidden])')).not.toBeNull()
@@ -324,9 +323,9 @@ describe('a card through A2UI', () => {
       ],
     } as unknown as GridCard
     render(
-      <CardDrawnProvider value={onScreen}>
+      <DrawnProvider value={onScreen}>
         <A2uiCard card={refused} surfaceKey="m1:11" render={renderCard} />
-      </CardDrawnProvider>
+      </DrawnProvider>
     )
     await waitFor(() => expect(onScreen).toHaveBeenCalled())
     expect(screen.getByTestId('card-a')).toBeInTheDocument()

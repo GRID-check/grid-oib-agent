@@ -1,28 +1,25 @@
 'use client'
 
 /**
- * `/dev/stream-socket?mode=heavy&speed=1` — one chat turn through the REAL
- * socket client, hook, store and components, with a scripted NAT server
- * behind a stubbed `window.WebSocket`.
+ * `/dev/stream-socket?speed=1` — one chat turn through the REAL socket client,
+ * hook, store and components, with a scripted v2 server behind a stubbed
+ * `window.WebSocket`.
  *
- * Why it exists: `/dev/stream-chat` and `/dev/stream-replay` call the store's
- * actions directly and give every step an empty payload, so they never see
- * what the socket carries before the answer. A production turn pinned the main
- * thread for 47 s on exactly that: hundreds of 17 to 31 KB step frames (NAT's
- * stock step adaptor sends one per LLM token chunk, each with the whole prompt
- * and the knowledge-search output in it). Here those frames go through
- * `NATWebSocketClient` → `useWebSocketChat` → the chat store → `ChatArea`,
- * the path the product takes.
+ * Why it exists: a production turn on the old wire pinned the main thread for
+ * 47 s on hundreds of 17 to 31 KB step frames (`docs/design/chat-wire-v2.md`).
+ * Here the v2 turn (`turn-script.ts`) goes through the socket client → the
+ * chat hook → the store → `ChatArea`, the path the product takes, and the
+ * probe reports frame bytes next to main-thread time: every frame but the
+ * terminal under 4 KB, and a frame count that does not grow with the prompt.
  *
- * `mode=heavy` is that trace's wire; `mode=light` is the same turn as a
- * compacted step adaptor would send it (`nat-script.ts`). The answer is the
- * recorded `oib2` turn, `speed` times its recorded pace. The question is sent
- * by the composer itself once the socket is open (`autosend=0` leaves that to
- * you). Everything measured lands in `window.__streamSocket`;
- * `scripts/measure-stream-socket.mjs` drives it and prints the summary.
+ * The answer is the recorded `oib2` turn, `speed` times its recorded pace.
+ * The question is sent by the composer itself once the socket is open
+ * (`autosend=0` leaves that to you). Everything measured lands in
+ * `window.__streamSocket`; `scripts/measure-stream-socket.mjs` drives it and
+ * prints the summary.
  *
- * Development only. The numbers are `next dev` numbers: compare heavy with
- * light, and before with after, in the same mode, never with production.
+ * Development only. The numbers are `next dev` numbers: compare before with
+ * after on the same server, never with production.
  */
 
 import { useEffect, useState } from 'react'
@@ -35,8 +32,8 @@ import { InputArea } from '@/features/layout/components/InputArea'
 import { useChatStore } from '@/features/chat'
 import { useAnswerRevealStore } from '@/features/chat/stores/answer-reveal-store'
 import type { Conversation } from '@/features/chat/types'
-import { buildNatScript, type FrameKind, type ScriptMode } from './nat-script'
-import { installFakeNatServer } from './fake-nat-server'
+import { buildTurnScript, type FrameKind } from './turn-script'
+import { installFakeTurnServer } from './fake-turn-server'
 
 const config: AppConfig = {
   authRequired: false,
@@ -57,7 +54,6 @@ const CONVERSATION_ID = 'stream-socket'
 const CARD_SELECTOR = 'section[aria-label="Rechtsgrundlage"], [data-a2ui-root], [data-a2ui-surface]'
 
 interface StreamSocketProbe {
-  mode: ScriptMode
   done: boolean
   connected: boolean
   /** `performance.now()` when the user message reached the fake server. */
@@ -71,6 +67,9 @@ interface StreamSocketProbe {
   settledAt: number
   framesScripted: number
   stepBytes: number
+  /** The largest frame but the terminal, and every frame together. */
+  maxFrameBytes: number
+  totalBytes: number
   framesHandled: number
   heartbeats: number
   /** When the worker sent the last frame, and when the client finished handling it. */
@@ -182,15 +181,13 @@ const sendFromComposer = (question: string): boolean => {
 export default function StreamSocketPage() {
   if (process.env.NODE_ENV !== 'development') notFound()
   const params = useSearchParams()
-  const mode: ScriptMode = params.get('mode') === 'light' ? 'light' : 'heavy'
   const speed = Number(params.get('speed') ?? '1') || 1
   const autosend = params.get('autosend') !== '0'
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    const script = buildNatScript(mode, speed)
+    const script = buildTurnScript(speed)
     const probe: StreamSocketProbe = {
-      mode,
       done: false,
       connected: false,
       sentAt: 0,
@@ -201,6 +198,8 @@ export default function StreamSocketPage() {
       settledAt: 0,
       framesScripted: script.frames.length,
       stepBytes: script.stepBytes,
+      maxFrameBytes: script.maxFrameBytes,
+      totalBytes: script.totalBytes,
       framesHandled: 0,
       heartbeats: 0,
       lastSentAt: 0,
@@ -221,7 +220,7 @@ export default function StreamSocketPage() {
       timers.push(window.setTimeout(finishWhenSettled, 100))
     }
     // Before anything mounts: the socket the chat opens must be the fake one.
-    const uninstallServer = installFakeNatServer(
+    const uninstallServer = installFakeTurnServer(
       script,
       {
         onOpen: () => (probe.connected = true),
@@ -266,7 +265,7 @@ export default function StreamSocketPage() {
       useChatStore.persist.clearStorage()
       useChatStore.persist.setOptions({ name: persistedAs })
     }
-  }, [mode, speed, autosend])
+  }, [speed, autosend])
 
   return (
     <I18nProvider initialLocale="de" fixedLocale>

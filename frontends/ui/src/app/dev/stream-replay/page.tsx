@@ -2,7 +2,8 @@
 
 /**
  * `/dev/stream-replay?fixture=varianten&speed=1` — a recorded live answer,
- * replayed frame by frame at its recorded pace into the real `AgentResponse`.
+ * replayed as v2 events at its recorded pace, through `foldTurnEvent`, into the
+ * real `AgentResponse`.
  *
  * What it is for: seeing (and measuring) what a streamed answer does to the
  * page. Every layout shift is recorded with the phase it happened in and the
@@ -13,12 +14,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { AgentResponse } from '@/features/chat/components/AgentResponse'
-import {
-  EMPTY_SPECTATED_TURN,
-  reduceSpectatedFrame,
-  type SpectatedTurnState,
-} from '@/features/collaboration/lib/spectator-frames'
-import { STREAM_FRAMES, type RecordedFrame } from '../_fixtures/stream-frames'
+import { parseWireEvent, type WireEvent } from '@/adapters/api/wire-v2'
+import { foldTurnEvent, initialTurnView, type TurnView } from '@/features/chat/lib/turn-fold'
+import { citationsFromWireList } from '@/features/chat/lib/wire-citation'
+import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
+import { validateGridCards } from '@/shared/cards/schemas'
+import { STREAM_FRAMES } from '../_fixtures/stream-frames'
+import { answerBodies, stampFrame } from '../_fixtures/v2-turn'
 
 interface Shift {
   t: number
@@ -41,42 +43,28 @@ declare global {
 }
 
 interface View {
-  /** The answer so far, folded by the observer's fold (see `applyFrame`). */
-  turn: SpectatedTurnState
-  confidence?: 'low' | 'medium' | 'high'
+  /** The answer so far, folded by the one fold every reader uses. */
+  turn: TurnView
   phase: 'waiting' | 'prose' | 'settled' | 'cards' | 'final'
 }
 
-const EMPTY: View = { turn: EMPTY_SPECTATED_TURN, phase: 'waiting' }
+const IDS = { conversationId: 'replay', turnId: 'replay', messageId: 'replay' }
+const EMPTY: View = { turn: initialTurnView(IDS.turnId, IDS.conversationId), phase: 'waiting' }
 
-/**
- * One frame folded into the view by a real fold, not a copy of one: the
- * observer's `reduceSpectatedFrame`, which applies the asker's store's
- * live-frame rules (its rule 3, held to the store by a spec case in each) and
- * needs no store to run. What it adds on top: an observer is never handed a
- * card that acts, so an interactive card would be a hole here. Both recorded
- * fixtures carry only `legal_basis` cards, so nothing is withheld. The
- * confidence chip and the phase label are read off the frame, as the fold
- * does not keep them.
- */
-const applyFrame = (view: View, frame: RecordedFrame): View => {
-  const turn = reduceSpectatedFrame(view.turn, {
-    ...frame,
-    type: 'system_response_message',
-    parent_id: 'replay',
-    content: { text: frame.content },
+/** The recorded answer as v2 events (`_fixtures/v2-turn.ts`), each at its recorded time. */
+const replayEvents = (name: 'varianten' | 'oib2', speed: number): { at: number; event: WireEvent }[] =>
+  answerBodies(STREAM_FRAMES[name], IDS.messageId, 0, speed).flatMap(({ at, body }, index) => {
+    const event = parseWireEvent(stampFrame(index + 1, body, IDS))
+    return event ? [{ at, event }] : []
   })
-  if (frame.status === 'complete') {
-    return { turn, confidence: frame.answer_confidence ?? view.confidence, phase: 'final' }
-  }
-  const phase = frame.stream_replace
-    ? 'settled'
-    : frame.cards && frame.cards.length > 0
-      ? 'cards'
-      : view.phase === 'waiting'
-        ? 'prose'
-        : view.phase
-  return { ...view, turn, phase }
+
+/** One event folded by `foldTurnEvent`; the phase label is read off the event. */
+const applyEvent = (view: View, event: WireEvent): View => {
+  const turn = foldTurnEvent(view.turn, event)
+  if (event.type === 'RUN_FINISHED') return { turn, phase: 'final' }
+  if (event.type === 'STATE_SNAPSHOT') return { turn, phase: 'settled' }
+  if (event.type === 'CUSTOM' && event.name === 'card') return { turn, phase: 'cards' }
+  return { turn, phase: view.phase === 'waiting' ? 'prose' : view.phase }
 }
 
 const describe = (node: Node | null | undefined): string => {
@@ -90,7 +78,7 @@ export default function StreamReplayPage() {
   const params = useSearchParams()
   const name = (params.get('fixture') === 'oib2' ? 'oib2' : 'varianten') as 'varianten' | 'oib2'
   const speed = Number(params.get('speed') ?? '1') || 1
-  const turn = STREAM_FRAMES[name]
+  const events = useMemo(() => replayEvents(name, speed), [name, speed])
   const [view, setView] = useState<View>(EMPTY)
 
   const probe = useMemo<ReplayProbe>(
@@ -123,25 +111,21 @@ export default function StreamReplayPage() {
     })
     observer.observe({ type: 'layout-shift', buffered: false })
 
-    const t0 = turn.frames[0]?.t ?? 0
     // Every timer this effect starts, the settle timer the last frame starts
     // included, so an unmount mid-replay leaves none of them running.
     const timers: number[] = []
     const later = (run: () => void, ms: number) => timers.push(window.setTimeout(run, ms))
-    turn.frames.forEach((frame, index) =>
-      later(
-        () => {
-          setView((current) => applyFrame(current, frame))
-          if (index === turn.frames.length - 1) later(() => (probe.done = true), 1500)
-        },
-        ((frame.t - t0) * 1000) / speed + 500
-      )
+    events.forEach(({ at, event }, index) =>
+      later(() => {
+        setView((current) => applyEvent(current, event))
+        if (index === events.length - 1) later(() => (probe.done = true), 1500)
+      }, at + 500)
     )
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer))
       observer.disconnect()
     }
-  }, [probe, speed, turn])
+  }, [probe, events])
 
   // The reader's anchor: where the first paragraph of the prose sits.
   useEffect(() => {
@@ -159,18 +143,18 @@ export default function StreamReplayPage() {
   return (
     <main className="bg-background min-h-screen p-6">
       <div className="text-muted-foreground mb-4 font-mono text-xs">
-        /dev/stream-replay?fixture={name} · phase: {view.phase} · {turn.frames.length} frames
+        /dev/stream-replay?fixture={name} · phase: {view.phase} · {events.length} events
       </div>
       <div data-replay-answer className="mx-auto w-full max-w-[760px]">
         {view.phase !== 'waiting' && (
           <AgentResponse
-            content={view.turn.answer}
+            content={view.turn.text}
             timestamp={new Date('2026-09-24T14:30:12')}
-            isStreaming={!view.turn.done}
-            cards={view.turn.cards}
-            citations={view.turn.citations}
-            answerConfidence={view.confidence}
-            answerMeta={view.turn.answerMeta}
+            isStreaming={view.turn.phase === 'running'}
+            cards={Array.from(view.turn.cards, (card) => (card ? validateGridCards([card.card])[0] : undefined))}
+            citations={citationsFromWireList(view.turn.sources)}
+            answerConfidence={view.turn.result?.answer_confidence ?? undefined}
+            answerMeta={sanitizeAnswerMeta(view.turn.answerMeta) ?? undefined}
             routingDecision="shallow"
             messageId={`replay-${name}`}
           />

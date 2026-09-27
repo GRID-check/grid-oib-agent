@@ -1029,7 +1029,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       // holds the place it will arrive into rather than nothing (ADR-0066).
       if (!card) return index >= (cards?.length ?? 0) ? <CardSlot arrivalKey={arrivalKey} /> : null
       return (
-        <CardSlot arrivalKey={arrivalKey} type={card.type}>
+        <CardSlot arrivalKey={arrivalKey}>
           {/* The whole answer's cards, not just this one: a card placed inline
               by a marker still has to know what ELSE the answer is carrying —
               `summary` and `verdict_header` must not both claim the top of it

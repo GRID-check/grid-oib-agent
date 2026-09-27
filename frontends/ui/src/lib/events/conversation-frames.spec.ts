@@ -12,11 +12,19 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  conversationFramesAvailable,
-  decodeConversationFrame,
-  framesFromStreamEntries,
-} from './conversation-frames'
+import { conversationFramesAvailable, decodeConversationFrame } from './conversation-frames'
+
+/** A v2 event, as the agent tier stamps it (shared/wire/v2/turn-answered.jsonl). */
+const EVENT = {
+  v: 2,
+  type: 'TEXT_MESSAGE_CONTENT',
+  conversation_id: 'conv_1',
+  turn_id: 'msg_1',
+  seq: 7,
+  ts: 1759000000100,
+  message_id: 'a1',
+  delta: 'Hi',
+}
 
 /** An envelope in the shape `ConversationBus.publish_frame` writes. */
 function envelope(overrides: Record<string, unknown> = {}): string {
@@ -26,24 +34,33 @@ function envelope(overrides: Record<string, unknown> = {}): string {
     seq: 7,
     origin: 'aiq-agent-0:abc123',
     type: 'frame',
-    payload: { type: 'system_response_message', status: 'in_progress', content: { text: 'Hi' } },
+    payload: EVENT,
     ...overrides,
   })
 }
 
 describe('decodeConversationFrame', () => {
-  it('unwraps a frame envelope, keeping seq and payload', () => {
-    const frame = decodeConversationFrame(envelope())
-    expect(frame).toEqual({
-      seq: 7,
-      payload: { type: 'system_response_message', status: 'in_progress', content: { text: 'Hi' } },
-    })
+  it('unwraps a frame envelope into the v2 event, verbatim', () => {
+    // The event names its turn and carries its own seq; the envelope's
+    // per-conversation counter is not passed on.
+    expect(decodeConversationFrame(envelope())).toEqual({ payload: EVENT })
   })
 
   it('relays a terminal envelope too', () => {
-    // `turn_end` carries the last frame in the same slot. Dropping it would cost
+    // `turn_end` carries the last event in the same slot. Dropping it would cost
     // the observer the authoritative full answer.
-    expect(decodeConversationFrame(envelope({ type: 'turn_end' }))?.seq).toBe(7)
+    expect(decodeConversationFrame(envelope({ type: 'turn_end' }))?.payload).toEqual(EVENT)
+  })
+
+  it('drops anything that is not a v2 event: there is no second reader', () => {
+    for (const payload of [
+      { type: 'system_response_message', status: 'in_progress', content: { text: 'Hi' } },
+      { ...EVENT, v: 1 },
+      ['not', 'an', 'object'],
+      'a string',
+    ]) {
+      expect(decodeConversationFrame(envelope({ payload }))).toBeNull()
+    }
   })
 
   it('drops control envelopes that are not frames', () => {
@@ -60,12 +77,6 @@ describe('decodeConversationFrame', () => {
 
   it('drops an envelope with no payload', () => {
     expect(decodeConversationFrame(envelope({ payload: null }))).toBeNull()
-  })
-
-  it('tolerates a missing sequence number', () => {
-    // seq 0 means "unnumbered"; the frame is still worth relaying, because the
-    // client's dedupe is an optimisation and a lost token is not.
-    expect(decodeConversationFrame(envelope({ seq: undefined }))?.seq).toBe(0)
   })
 })
 
@@ -85,41 +96,5 @@ describe('conversationFramesAvailable', () => {
   it('is true when one is configured', () => {
     process.env.REDIS_URL = 'redis://dragonfly:6379'
     expect(conversationFramesAvailable()).toBe(true)
-  })
-})
-
-describe('framesFromStreamEntries', () => {
-  // `XRANGE` output: entry id, then the fields flat. The backend writes one, `d`.
-  const entry = (id: string, overrides: Record<string, unknown> = {}): [string, string[]] => [
-    id,
-    ['d', envelope(overrides)],
-  ]
-
-  it('returns the raw frames tagged with their entry id, in stream order', () => {
-    const frames = framesFromStreamEntries([entry('1727-0'), entry('1727-1')], null)
-    expect(frames.map((f) => f.id)).toEqual(['1727-0', '1727-1'])
-    expect(frames[0]?.payload).toMatchObject({
-      type: 'system_response_message',
-      grid_frame_id: '1727-0',
-    })
-  })
-
-  it('drops the cursor entry itself: the range read is inclusive', () => {
-    const frames = framesFromStreamEntries([entry('1727-0'), entry('1727-1')], '1727-0')
-    expect(frames.map((f) => f.id)).toEqual(['1727-1'])
-  })
-
-  it('compares ids as numbers, not text', () => {
-    // As strings "999-0" > "1000-0"; as stream ids it is older.
-    const frames = framesFromStreamEntries([entry('999-0'), entry('1000-0')], '999-0')
-    expect(frames.map((f) => f.id)).toEqual(['1000-0'])
-  })
-
-  it('skips an entry it cannot decode rather than failing the read', () => {
-    const frames = framesFromStreamEntries(
-      [['1-0', ['d', '{not json']], ['2-0', ['x', 'y']], entry('3-0', { type: 'observer_gone' }), entry('4-0')],
-      null
-    )
-    expect(frames.map((f) => f.id)).toEqual(['4-0'])
   })
 })
