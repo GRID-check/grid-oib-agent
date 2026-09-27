@@ -38,6 +38,7 @@ import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { sanitizeFindings } from '@/lib/conversations/message-findings'
 import { sanitizeRetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { sanitizeStages } from '@/lib/conversations/message-stages'
+import { sanitizePromptOptions } from '@/lib/conversations/message-prompt'
 import { sanitizeRunLedger, sanitizeRunTitle } from '@/lib/runs/run-ledger'
 
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
@@ -215,17 +216,13 @@ const restorePrompt = (prompt: unknown, promptState: unknown): Partial<ChatMessa
 
   if (typeof prompt === 'object' && prompt !== null && !Array.isArray(prompt)) {
     const detail = prompt as Record<string, unknown>
-    if (isPromptType(detail.promptType)) out.promptType = detail.promptType
     if (typeof detail.promptId === 'string') out.promptId = detail.promptId
     if (typeof detail.promptParentId === 'string') out.promptParentId = detail.promptParentId
-    if (typeof detail.promptInputType === 'string') {
-      out.promptInputType = detail.promptInputType as ChatMessage['promptInputType']
+    if (detail.promptInputType === 'text' || detail.promptInputType === 'choice') {
+      out.promptInputType = detail.promptInputType
     }
-    if (Array.isArray(detail.promptOptions)) {
-      out.promptOptions = detail.promptOptions.filter(
-        (option): option is string => typeof option === 'string'
-      )
-    }
+    const options = sanitizePromptOptions(detail.promptOptions)
+    if (options) out.promptOptions = options
     if (typeof detail.promptPlaceholder === 'string') {
       out.promptPlaceholder = detail.promptPlaceholder
     }
@@ -245,10 +242,6 @@ const restorePrompt = (prompt: unknown, promptState: unknown): Partial<ChatMessa
 
   return out
 }
-
-const PROMPT_TYPES = ['clarification', 'approval', 'choice', 'text-input', 'plan_approval'] as const
-const isPromptType = (value: unknown): value is ChatMessage['promptType'] =>
-  typeof value === 'string' && (PROMPT_TYPES as readonly string[]).includes(value)
 
 /**
  * Unpack the stored provenance onto the message shape the renderers already read.

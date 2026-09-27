@@ -74,6 +74,13 @@ export const ERROR_REGISTRY: Record<ErrorCode, ErrorMeta> = {
   // ============================================================
   // Auth Errors
   // ============================================================
+  'connection.client_outdated': {
+    status: 'warning',
+    title: 'Piloti was updated',
+    titleKey: 'errorRegistry.clientOutdated.title',
+    defaultMessage: 'Piloti was updated. Reload the page to continue.',
+    messageKey: 'errorRegistry.clientOutdated.message',
+  },
   'auth.session_expired': {
     status: 'error',
     title: 'Session Expired',

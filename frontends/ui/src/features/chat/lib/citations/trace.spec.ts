@@ -14,7 +14,7 @@
 
 import { describe, expect, test } from 'vitest'
 import { de } from '@/i18n/dictionaries'
-import type { TraceLaneCard } from '../trace-lanes'
+import type { TraceLaneCard } from '@/lib/conversations/message-provenance'
 import { deriveTraceLanes } from '../trace-lanes'
 import { storedStep } from '@/test-utils/wire-v2-steps'
 import { buildCitationModel } from './build'

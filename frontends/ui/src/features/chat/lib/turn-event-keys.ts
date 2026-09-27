@@ -12,7 +12,7 @@
  * that carries a key, so a technical record has nothing here to render.
  */
 
-import type { StoredThinkingStep } from './turn-fold'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 
 /**
  * Every turn-event key this UI can phrase, and where it looks it up.

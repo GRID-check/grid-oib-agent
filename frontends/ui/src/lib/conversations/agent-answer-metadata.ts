@@ -274,7 +274,7 @@ function normalizeSource(input: unknown): StoredCitationSource | null {
  * One stored READ-BUT-UNCITED source, in the wire spelling the reader decodes.
  *
  * Identity + placement only — the same eleven fields the live wire schema
- * keeps (`wireReadSourceSchema` in `adapters/api/schemas.ts`). A document the
+ * kept (the read-source schema of the pre-v2 socket client). A document the
  * answer never cited must never carry prose into storage: `content`,
  * `snippet`, `punkt` and `score` would let an uncited document ground the
  * passage surfaces (the viewer highlight, the "Zitierte Stelle" box) that read

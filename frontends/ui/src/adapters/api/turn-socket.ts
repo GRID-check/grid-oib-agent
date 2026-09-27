@@ -10,7 +10,8 @@
  *   The caller owns those cursors (`openTurns`), so there is one `lastSeq`.
  * - **Liveness.** While a turn runs, the server beats every `every_ms`. Three
  *   beats of silence and the socket is dropped and reopened. Before
- *   `RUN_STARTED` there is no turn to watch, so no silence counts.
+ *   `RUN_STARTED` there is no turn to watch, so no silence counts, nor after
+ *   the terminal: a turn waiting for its stages (`settled`) gets no beats.
  * - **Backoff.** `createRetryLadder`, with the auth refresh before each attempt:
  *   the handshake is the only point where the gateway reads the cookie.
  *   `partysocket` was weighed for this (MIT, 210 KB, one polyfill) and not
@@ -28,6 +29,8 @@ export type TurnSocketStatus = 'connecting' | 'open' | 'reconnecting' | 'failed'
 export interface OpenTurn {
   turnId: string
   lastSeq: number
+  /** Finished, waiting only for its post-answer stages: attached on reopen, never watched. */
+  settled?: true
 }
 
 export interface TurnSocketOptions {
@@ -92,7 +95,7 @@ export function createTurnSocket(options: TurnSocketOptions): TurnSocket {
     disarm()
     watchdog = setTimeout(() => {
       watchdog = null
-      if (options.openTurns().length === 0) return
+      if (options.openTurns().every((turn) => turn.settled)) return
       drop()
       retry()
     }, DEAD_AFTER_BEATS * everyMs)

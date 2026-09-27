@@ -30,8 +30,8 @@
  * That claim is load-bearing, so it is not left to this component to honour.
  * The conditions under which it is TRUE — nothing below the answer in the
  * thread, the answer no longer streaming, the reader not already typing — are
- * checked at arrival, in `applyStageFrame`, where a frame that would break them
- * is refused outright. A rail that were admitted and then hidden here would pop
+ * checked at arrival, where the turn's view is drawn into the thread
+ * (`lib/turn-projection.ts`), and a stage that would break them is not drawn. A rail that were admitted and then hidden here would pop
  * in later, which is the defect itself.
  *
  * `FadeIn distance={4}` is the standard 4px rise the transcript uses

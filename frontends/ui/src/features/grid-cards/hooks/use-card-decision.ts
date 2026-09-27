@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react'
 import { useChatStore } from '@/features/chat/store'
-import type { ChatState } from '@/features/chat/types'
+import type { ChatStore } from '@/features/chat/types'
 import type { CardDecision } from '../card-decision'
 
 export interface UseCardDecisionResult {
@@ -42,7 +42,7 @@ export interface UseCardDecisionOptions {
  * decision lives.
  */
 const selectCardDecision = (
-  state: Pick<ChatState, 'currentConversation' | 'conversations'>,
+  state: Pick<ChatStore, 'currentConversation' | 'conversations'>,
   messageId: string | undefined,
   cardKey: string
 ): CardDecision | null => {

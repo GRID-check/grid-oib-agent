@@ -15,14 +15,9 @@ export const research = {
   chatArea: {
     ariaMessages: 'Chat messages',
     loading: 'Loading conversation',
-    typing: 'Piloti is responding …',
     scrollToLatest: 'Scroll to latest',
     status: {
       thinking: 'Thinking …',
-      searching: 'Searching …',
-      planning: 'Planning …',
-      researching: 'Researching …',
-      writing: 'Writing …',
     },
     loggedOutTitle: 'Piloti opens after your organization is verified.',
     loggedOutBody:

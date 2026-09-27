@@ -221,11 +221,9 @@ describe('createResilientStorage', () => {
                 thinkingSteps: Array.from({ length: count }, (_, i) => ({
                   id: `s${i}`,
                   userMessageId: 'u1',
-                  category: 'tools' as const,
-                  functionName: 'knowledge_search',
-                  displayName: 'Suche',
-                  content: '',
-                  timestamp: new Date(2026, 8, 25),
+                  kind: 'tool' as const,
+                  tool: 'knowledge_search',
+                  timestamp: '2026-09-25T00:00:00.000Z',
                   isComplete: false,
                 })),
               },
@@ -235,7 +233,6 @@ describe('createResilientStorage', () => {
         currentUserId: 'u1',
         conversations: [conversation],
         currentConversation: conversation,
-        pendingInteraction: null,
         composerDrafts: NO_DRAFTS,
       }
       return { state, version: 0 } as StorageValue<typeof state>

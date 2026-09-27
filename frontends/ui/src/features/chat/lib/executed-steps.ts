@@ -16,7 +16,7 @@
  */
 
 import { skillActivityOf, skillLabel } from '@/features/skills/lib/skill-activity'
-import type { StoredThinkingStep } from './turn-fold'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 
 export interface ExecutedStep {
   /** Dedup key: the label for a tool chip, `skill:<id>` for a skill chip. */

@@ -469,159 +469,65 @@ describe('_appendMessage conversation ensure', () => {
   })
 })
 
-describe('hydration-aware interrupted state', () => {
-  // A turn that LOOKS interrupted: the last meaningful local message is the
-  // user turn carrying thinking steps, with no assistant reply and no pending
-  // prompt. This is the exact shape that used to unconditionally show the
-  // "response interrupted" banner.
-  const interruptedConversation = () => {
-    const interruptedUser = {
-      id: 'u1',
-      role: 'user',
-      content: 'What is the height limit?',
-      timestamp: new Date('2026-07-01T10:00:00.000Z'),
-      messageType: 'user',
-      thinkingSteps: [{ id: 'ts1' }],
-    } as unknown as ChatMessage
-    return makeConversation({ messages: [interruptedUser] })
-  }
+describe('a turn a reload cut off', () => {
+  const question = (overrides: Partial<ChatMessage> = {}): ChatMessage => ({
+    id: 'u1',
+    role: 'user',
+    content: 'What is the height limit?',
+    timestamp: new Date('2026-07-01T10:00:00.000Z'),
+    messageType: 'user',
+    ...overrides,
+  })
 
-  it('renders the server-persisted assistant reply and skips the banner', async () => {
-    const conv = interruptedConversation()
-    useChatStore.setState({ conversations: [conv], currentConversation: conv })
-    // Server has the finished response the disconnected client never received.
-    mockConversationsClient.listMessages.mockResolvedValue([
-      serverRow(conv.id, 'u1', 'user', 'What is the height limit?'),
-      serverRow(conv.id, 'assistant-recovered', 'assistant', 'The limit is 12 m.'),
-    ])
+  it('is left for the socket to attach from its first event, the question being the turn', () => {
+    const conv = makeConversation({ messages: [question()] })
+    useChatStore.setState({ conversations: [conv], currentConversation: conv, resumableTurn: null, turns: {} })
 
     useChatStore.getState().restoreSessionState(conv)
 
-    await vi.waitFor(() => {
-      const messages = useChatStore.getState().currentConversation!.messages
-      expect(messages.some((m) => m.id === 'assistant-recovered')).toBe(true)
-    })
-
-    const messages = useChatStore.getState().currentConversation!.messages
-    // The recovered assistant reply is rendered, and NO interrupted error card.
-    expect(messages.find((m) => m.id === 'assistant-recovered')).toMatchObject({
-      role: 'assistant',
-      content: 'The limit is 12 m.',
-    })
-    expect(messages.some((m) => m.messageType === 'error')).toBe(false)
-  })
-
-  it('shows the interrupted banner when the server has no assistant reply', async () => {
-    const conv = interruptedConversation()
-    useChatStore.setState({ conversations: [conv], currentConversation: conv })
-    // Server only has the user turn — the response was genuinely lost.
-    mockConversationsClient.listMessages.mockResolvedValue([
-      serverRow(conv.id, 'u1', 'user', 'What is the height limit?'),
-    ])
-
-    useChatStore.getState().restoreSessionState(conv)
-
-    await vi.waitFor(() => {
-      const messages = useChatStore.getState().currentConversation!.messages
-      expect(messages.some((m) => m.messageType === 'error')).toBe(true)
-    })
-
-    const errorCard = useChatStore
-      .getState()
-      .currentConversation!.messages.find((m) => m.messageType === 'error')
-    expect(errorCard?.errorData?.errorCode).toBe('agent.response_interrupted')
-  })
-
-  it('shows the interrupted banner when the server refetch fails', async () => {
-    const conv = interruptedConversation()
-    useChatStore.setState({ conversations: [conv], currentConversation: conv })
-    mockConversationsClient.listMessages.mockRejectedValue(new Error('network down'))
-
-    useChatStore.getState().restoreSessionState(conv)
-
-    await vi.waitFor(() => {
-      const messages = useChatStore.getState().currentConversation!.messages
-      expect(messages.some((m) => m.messageType === 'error')).toBe(true)
-    })
-  })
-})
-
-describe('a turn a reload cut off, resumable from the replay stream', () => {
-  // The question this browser sent carries the turn id it went out under.
-  const cutOffConversation = () =>
-    makeConversation({
-      messages: [
-        {
-          id: 'u1',
-          role: 'user',
-          content: 'What is the height limit?',
-          timestamp: new Date('2026-07-01T10:00:00.000Z'),
-          messageType: 'user',
-          wsParentId: 'msg_1',
-          thinkingSteps: [{ id: 'ts1', userMessageId: 'u1' }],
-        } as unknown as ChatMessage,
-      ],
-    })
-
-  it('is left for the socket to resume, with no banner, when the server has no answer yet', async () => {
-    const conv = cutOffConversation()
-    useChatStore.setState({ conversations: [conv], currentConversation: conv })
-    mockConversationsClient.listMessages.mockResolvedValue([
-      serverRow(conv.id, 'u1', 'user', 'What is the height limit?'),
-    ])
-
-    useChatStore.getState().restoreSessionState(conv)
-
-    await vi.waitFor(() => {
-      expect(useChatStore.getState().resumableTurn).toEqual({
-        conversationId: conv.id,
-        userMessageId: 'u1',
-        wsParentId: 'msg_1',
-      })
-    })
-    const messages = useChatStore.getState().currentConversation!.messages
-    expect(messages.some((m) => m.messageType === 'error')).toBe(false)
-  })
-
-  it('resumeTurn reopens it as the current, streaming turn and drops the kept steps', () => {
-    const conv = cutOffConversation()
-    useChatStore.setState({
-      conversations: [conv],
-      currentConversation: conv,
-      thinkingSteps: conv.messages[0]!.thinkingSteps!,
-      resumableTurn: { conversationId: conv.id, userMessageId: 'u1', wsParentId: 'msg_1' },
-    })
-
-    const turn = useChatStore.getState().resumeTurn(conv.id)
-
-    const state = useChatStore.getState()
-    expect(turn?.wsParentId).toBe('msg_1')
-    expect(state.resumableTurn).toBeNull()
-    expect(state.isStreaming).toBe(true)
-    expect(state.currentUserMessageId).toBe('u1')
-    expect(state.currentTurnWsParentId).toBe('msg_1')
-    expect(state.thinkingSteps).toEqual([])
-    expect(state.currentConversation!.messages[0]!.thinkingSteps).toBeUndefined()
-  })
-
-  it('resumeTurn refuses once a newer question owns the conversation', () => {
-    const conv = cutOffConversation()
-    const newer = {
-      ...conv,
-      messages: [
-        ...conv.messages,
-        { id: 'u2', role: 'user', content: 'Und?', timestamp: new Date(), messageType: 'user' },
-      ],
-    } as typeof conv
-    useChatStore.setState({
-      conversations: [newer],
-      currentConversation: newer,
-      resumableTurn: { conversationId: conv.id, userMessageId: 'u1', wsParentId: 'msg_1' },
-    })
-
-    expect(useChatStore.getState().resumeTurn(conv.id)).toBeNull()
-    expect(useChatStore.getState().resumableTurn).toBeNull()
+    expect(useChatStore.getState().resumableTurn).toEqual({ conversationId: conv.id, turnId: 'u1' })
+    // The stream is asked first; the server's copy only when it no longer holds the turn.
+    expect(mockConversationsClient.listMessages).not.toHaveBeenCalled()
     expect(useChatStore.getState().isStreaming).toBe(false)
+  })
+
+  it('resumes the turn of an open prompt by the turn the prompt belongs to', () => {
+    const prompt: ChatMessage = {
+      id: 'p1',
+      role: 'assistant',
+      content: 'Welcher Kern?',
+      timestamp: new Date('2026-07-01T10:01:00.000Z'),
+      messageType: 'prompt',
+      promptId: 'i1',
+      promptParentId: 'u1',
+    }
+    const conv = makeConversation({ messages: [question(), prompt] })
+    useChatStore.setState({ conversations: [conv], currentConversation: conv, resumableTurn: null, turns: {} })
+
+    useChatStore.getState().restoreSessionState(conv)
+
+    expect(useChatStore.getState().resumableTurn).toEqual({ conversationId: conv.id, turnId: 'u1' })
+  })
+
+  it("leaves a colleague's open question to its asker", () => {
+    const conv = makeConversation({ messages: [question({ authorUserId: 'user-2' })] })
+    useChatStore.setState({ conversations: [conv], currentConversation: conv, resumableTurn: null, turns: {} })
+
+    useChatStore.getState().restoreSessionState(conv)
+
+    expect(useChatStore.getState().resumableTurn).toBeNull()
+  })
+
+  it('carries on a turn still running here instead of resuming it', () => {
+    const conv = makeConversation({ messages: [question()] })
+    useChatStore.setState({ conversations: [conv], currentConversation: conv, resumableTurn: null, turns: {} })
+    useChatStore.getState().beginTurn(conv.id, 'u1')
+    useChatStore.setState({ isStreaming: false })
+
+    useChatStore.getState().restoreSessionState(conv)
+
+    expect(useChatStore.getState().isStreaming).toBe(true)
+    expect(useChatStore.getState().resumableTurn).toBeNull()
   })
 })
 

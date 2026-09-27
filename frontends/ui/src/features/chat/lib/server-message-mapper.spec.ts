@@ -248,7 +248,9 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
         kind: 'sources',
         tool: 'knowledge_search',
         round: 0,
-        traceLanes: [{ kind: 'oib', label: 'OIB 2.3' }],
+        traceLanes: [
+          { key: 'oib', label: 'OIB 2.3', kind: 'baurecht', signal: 'law', hitCount: 1, sources: [{ name: 'oib-rl-2.pdf' }] },
+        ],
       },
     ],
     answerConfidence: 'high',
@@ -608,11 +610,13 @@ describe('mapServerMessageToChatMessage — a post-answer stage', () => {
 
 describe('mapServerMessageToChatMessage — a human-in-the-loop prompt', () => {
   const prompt = {
-    promptType: 'choice',
     promptId: 'p-1',
     promptParentId: 'parent-1',
-    promptInputType: 'radio',
-    promptOptions: ['Nur Kern B', 'Beide Kerne'],
+    promptInputType: 'choice',
+    promptOptions: [
+      { id: 'b', label: 'Nur Kern B' },
+      { id: 'both', label: 'Beide Kerne' },
+    ],
     promptPlaceholder: 'Welcher Kern?',
     promptFor: 'user_matthias',
   }
@@ -623,8 +627,11 @@ describe('mapServerMessageToChatMessage — a human-in-the-loop prompt', () => {
     )
 
     expect(mapped!.messageType).toBe('prompt')
-    expect(mapped!.promptType).toBe('choice')
-    expect(mapped!.promptOptions).toEqual(['Nur Kern B', 'Beide Kerne'])
+    expect(mapped!.promptInputType).toBe('choice')
+    expect(mapped!.promptOptions).toEqual([
+      { id: 'b', label: 'Nur Kern B' },
+      { id: 'both', label: 'Beide Kerne' },
+    ])
     expect(mapped!.promptPlaceholder).toBe('Welcher Kern?')
     // The addressee is what lets every other reader be shown it read-only.
     expect(mapped!.promptFor).toBe('user_matthias')
@@ -640,23 +647,27 @@ describe('mapServerMessageToChatMessage — a human-in-the-loop prompt', () => {
         metadata: {
           messageType: 'prompt',
           prompt,
-          promptState: { response: 'Beide Kerne', respondedAt: '2026-07-01T10:05:00.000Z' },
+          promptState: { response: 'both', respondedAt: '2026-07-01T10:05:00.000Z' },
         },
       }),
     )
 
-    expect(mapped!.promptResponse).toBe('Beide Kerne')
+    expect(mapped!.promptResponse).toBe('both')
     expect(mapped!.isPromptResponded).toBe(true)
   })
 
-  it('ignores a promptType it does not know, rather than rendering an unknown card', () => {
+  it('keeps only the two input shapes and options that are `{id, label}`', () => {
     const mapped = mapServerMessageToChatMessage(
       serverMessage({
         role: 'assistant',
-        metadata: { messageType: 'prompt', prompt: { ...prompt, promptType: 'telepathy' } },
+        metadata: {
+          messageType: 'prompt',
+          prompt: { ...prompt, promptInputType: 'radio', promptOptions: ['Nur Kern B', { id: 'x' }] },
+        },
       }),
     )
-    expect(mapped!.promptType).toBeUndefined()
+    expect(mapped!.promptInputType).toBeUndefined()
+    expect(mapped!.promptOptions).toBeUndefined()
   })
 
   it('ignores an empty answer — that is still a question, not a decision', () => {

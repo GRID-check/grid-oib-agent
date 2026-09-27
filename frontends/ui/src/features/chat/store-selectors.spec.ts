@@ -92,12 +92,7 @@ describe('ChatStore - Session Busy Selectors', () => {
     it('returns true when pendingInteraction is set (HITL prompt awaiting response)', () => {
       useChatStore.setState({
         conversations: [conversation('a')],
-        pendingInteraction: {
-          id: 'interaction-1',
-          parentId: 'msg-1',
-          inputType: 'binary_choice',
-          text: 'Approve?',
-        },
+        pendingInteraction: { turnId: 'msg-1', interactionId: 'interaction-1', input: 'text' },
       })
       expect(useChatStore.getState().hasAnyBusySession()).toBe(true)
     })

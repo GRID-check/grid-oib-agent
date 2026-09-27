@@ -3,11 +3,8 @@
  * wire events folded by `foldTurnEvents`, so a reader spec reads exactly what
  * the fold writes. Node-only (the recorded turns are read with `node:fs`).
  */
-import {
-  foldTurnEvents,
-  type StoredThinkingStep,
-  type TurnView,
-} from '@/features/chat/lib/turn-fold'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
+import { foldTurnEvents, type TurnView } from '@/features/chat/lib/turn-fold'
 import { eventOf, frameOf, wireEvents } from './wire-v2-fixtures'
 
 const rowsOf = (view: TurnView | undefined): StoredThinkingStep[] =>

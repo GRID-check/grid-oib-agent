@@ -248,7 +248,7 @@ function createFrameObserver(onFrame) {
  * allows; charging expensive on "unread" closes both doors with one rule.
  *
  * This app's client sends one small `ws.send` per message with `type` first
- * (`websocket-client.ts`), so no honest frame reaches either un-read case. The
+ * (`adapters/api/turn-socket.ts`), so no honest frame reaches either un-read case. The
  * cost of being wrong is bounded and one-sided: an unusual-but-honest large
  * message is charged the stricter budget, never refused outright by
  * misclassification of something small.

@@ -1243,6 +1243,10 @@ export const chat: typeof en.chat = {
       title: 'Verbindung fehlgeschlagen',
       message: 'Verbindung zum Server nicht möglich. Bitte überprüfen Sie Ihre Netzwerkverbindung.',
     },
+    clientOutdated: {
+      title: 'Piloti wurde aktualisiert',
+      message: 'Laden Sie die Seite neu, um weiterzuarbeiten.',
+    },
     connectionTimeout: {
       title: 'Zeitüberschreitung der Anfrage',
       message: 'Die Anfrage hat zu lange gedauert.',

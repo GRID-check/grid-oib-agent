@@ -13,7 +13,7 @@
  */
 
 import type { RetrievalLedger, RetrievalLedgerEntry } from '@/lib/conversations/message-retrieval-ledger'
-import type { StoredThinkingStep } from './turn-fold'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 import { normalizeFileName, type CitedDocument } from './citations/model'
 
 /** The fields of a stored step the round walker reads. */

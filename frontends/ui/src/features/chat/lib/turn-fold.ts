@@ -21,9 +21,8 @@
  */
 
 import type { TurnResult, WireEvent } from '@/adapters/api/wire-v2'
-import type { StoredTurnEvent } from '../types'
+import type { StoredThinkingStep, TraceLaneCard } from '@/lib/conversations/message-provenance'
 import { KIND_TO_SIGNAL, asShelf } from './source-kinds'
-import type { TraceLaneCard } from './trace-lanes'
 
 type Named<N extends string> = Extract<WireEvent, { type: 'CUSTOM'; name: N }>
 type StepOf<K extends string> = Extract<Extract<WireEvent, { type: 'STEP_FINISHED' }>['step'], { kind: K }>
@@ -34,29 +33,6 @@ export type InteractionRequestValue = Named<'interaction_request'>['value']
 export type StageValue = Named<'stage'>['value']
 export type StageId = StageValue['stage']
 export type TurnOutcome = Extract<WireEvent, { type: 'RUN_FINISHED' }>['outcome']
-export type StepDetail = Record<string, string | number | boolean | string[]>
-
-/** One Herleitung row, exactly as it is persisted (`MessageProvenance.thinkingSteps`). */
-export interface StoredThinkingStep {
-  id: string
-  userMessageId: string
-  /** ISO time the row first appeared. */
-  timestamp: string
-  isComplete: boolean
-  kind: 'status' | 'retrieval' | 'sources' | 'tool' | 'skill' | 'clarification'
-  scope?: 'deep'
-  /** What the live line may say: only a live-channel key ever lands here. */
-  turnEvent?: StoredTurnEvent
-  traceLanes?: TraceLaneCard[]
-  round?: number
-  /** `tool`, `sources`: the tool basename. */
-  tool?: string
-  /** `skill`: the skill's name (its id, never a label). */
-  skill?: string
-  /** `status`: its slot (`synthesis`, `budget`, `decision:rerank`). */
-  slot?: string
-  detail?: StepDetail
-}
 
 export interface TurnView {
   turnId: string
