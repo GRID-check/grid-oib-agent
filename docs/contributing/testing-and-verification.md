@@ -357,6 +357,55 @@ several questions in one process so all but the first are warm. What both
 measured on 2026-09-24, and the effort A/B:
 [turn-latency-measured-2026-09.md](../architecture/turn-latency-measured-2026-09.md).
 
+## The socket-level streaming harness
+
+`/dev/stream-chat` and `/dev/stream-replay` drive the chat store directly and
+give every step an empty payload, so they cannot see what a turn's step frames
+cost. `/dev/stream-socket` can: it stubs `window.WebSocket` before the chat
+mounts, and a scripted NAT server (`src/app/dev/stream-socket/nat-script.ts`)
+answers the composer's real `user_message` through the real
+`NATWebSocketClient`, `useWebSocketChat`, store and components.
+
+- `mode=heavy` is the wire of a production trace: 316 step frames at 25 a
+  second over 13 s, NAT's stock step adaptor sending one frame per LLM token
+  chunk with the whole prompt `repr` (16 to 33 KB, 7 MB in all), and each of
+  three knowledge searches twice more in full with its `## Trace-Lanes` block.
+  `mode=light` is the same turn as a compacted adaptor would send it: 26 step
+  frames, 24 KB.
+- Then the recorded `oib2` answer (masthead, deltas, `stream_replace`, cards,
+  terminal) at `speed` times its pace, and `grid_turn_heartbeat` every 20 s.
+- A Web Worker paces the frames, so a busy main thread makes them queue as a
+  real socket's would instead of slowing the server down.
+
+Run it against a dev server with the WorkOS placeholders
+([gotchas](gotchas.md)):
+
+```bash
+cd frontends/ui
+node scripts/measure-stream-socket.mjs --url http://localhost:3001 --runs 2
+```
+
+It opens the page at 390x844 with the CPU throttled 4x and at 1280x800, and
+prints one JSON line per run from `window.__streamSocket`: long-task total, max
+and count (`longTaskMs`, `maxLongTaskMs`, `longTasksOver50`), `rafBusyMs`,
+`backlogMs` (last frame sent → handled), `maxFrameLagMs` (the worst of any
+frame, the number that shows a queue), `firstCardMs` from the send,
+`settleMs` from the terminal frame, and `cls`.
+
+The page is development only, so these are `next dev` numbers: React's dev
+build, whose prop-diff logging alone was a tenth of the profile. Compare runs
+in the same mode on the same server, never with production. Measured
+2026-09-27 on a shared 4-core container (two runs each, mean):
+
+| | phone heavy | phone light | desktop heavy | desktop light |
+|---|---|---|---|---|
+| before `perf(chat): parse a step's trace lanes once` | 110 s long tasks, 95 s max frame lag, first card at 113 s | 15.1 s, 2.1 s, 22.6 s | 19.8 s, 10.0 s, 25.8 s | 2.0 s, 0.2 s, 21.9 s |
+| after it | 48 s, 35 s, 51 s | 13.6 s, 1.6 s, 22.5 s | 7.9 s, 2.5 s, 22.0 s | 2.0 s, 0.2 s, 21.9 s |
+
+The script's first card is due at about 21 s. With the parse cached, a heavy
+turn on a phone still spends 48 s in long tasks against 13.6 s light: the
+payloads, not only their parse, are the cost.
+
 ## Which tool answers which question
 
 | Question | Tool | Needs | Cost |
@@ -367,6 +416,7 @@ measured on 2026-09-24, and the effort A/B:
 | What shape did the turn take (rounds, locator, checkpoint)? | `task be:eval:loop` | a running backend at `GRID_LOOP_EVAL_URL` with the corpus | real model calls per question; `--compare` needs no backend |
 | Does the layout shift while an answer streams? | `/dev/stream-replay?fixture=varianten` (or `oib2`), `&speed=N` | the UI dev server | free: the fixtures are recorded frames in `frontends/ui/src/app/dev/_fixtures/stream-frames.ts`. `window.__replay` holds `shifts`, `anchorTops` and `done` for a headless capture |
 | What does a streaming answer cost the page (re-renders, localStorage writes, long tasks)? | `/dev/stream-chat?history=40`, `&shell=1` for the whole `MainLayout` | the UI dev server with the WorkOS placeholders (see [gotchas](gotchas.md)) | free: the recorded `varianten` frames driven through the real chat store. `window.__streamChat` holds `commits`, `storageWrites`, `longTasks` and `done`; profile it with a CDP CPU profile for the per-component split |
+| What does a whole turn cost the page as it arrives over the socket (step frames included)? | `/dev/stream-socket?mode=heavy` (or `light`), `node scripts/measure-stream-socket.mjs` | the UI dev server with the WorkOS placeholders | free: a scripted NAT server behind a stubbed `WebSocket`. [The socket-level streaming harness](#the-socket-level-streaming-harness) |
 
 ## Before opening a PR
 
