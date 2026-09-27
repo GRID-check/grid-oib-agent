@@ -2305,7 +2305,7 @@
           "type": "boolean"
         },
         "message_id": {
-          "description": "deterministic_assistant_message_id(conversation, turn).",
+          "description": "turn.response.answer_message_id(conversation, turn).",
           "minLength": 1,
           "title": "Message Id",
           "type": "string"
