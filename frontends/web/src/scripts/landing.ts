@@ -307,13 +307,18 @@ function initAura() {
   })
 }
 
+/** Where a node rests: in the column left or right of the hub, or under it. */
+interface Slot {
+  side: 'L' | 'R' | 'B'
+  row: number
+}
+
 interface Frag {
   el: HTMLElement
   /** Entrance offset, in the direction the fragment drifts in from. */
   dx: number
   dy: number
-  /** Authored direction away from the hub, as an angle in radians. */
-  ang: number
+  slot: Slot
   /** Measured size and resting (CSS) centre inside the panel. */
   w: number
   h: number
@@ -342,86 +347,140 @@ interface Rect {
   h: number
 }
 
-const overlaps = (a: Rect, b: Rect, gap = 0) =>
-  Math.abs(a.x - b.x) * 2 < a.w + b.w + gap * 2 &&
-  Math.abs(a.y - b.y) * 2 < a.h + b.h + gap * 2
+/** A centred rect: `x`/`y` is the centre, as everywhere in the story solver. */
+interface StoryLayout {
+  mode: 'columns' | 'net'
+  hub: Rect
+  /** Top edge of the solution headline, in panel pixels. */
+  headTop: number
+  /** One SVG path per fragment, hub edge to node edge; '' for one left out. */
+  wires: string[]
+  /** Where each wire lands on its node: the port drawn there. */
+  ends: ({ x: number; y: number } | null)[]
+}
+
+/**
+ * An orthogonal wire with rounded elbows: out of the hub horizontally, along a
+ * trunk at `tx`, into the node horizontally. A node level with the hub gets a
+ * straight line.
+ */
+function elbow(x0: number, y0: number, tx: number, x1: number, y1: number) {
+  const dy = y1 - y0
+  if (Math.abs(dy) < 1) return `M${x0},${y0}H${x1}`
+  const sx = Math.sign(x1 - x0)
+  const sy = Math.sign(dy)
+  const r = Math.min(10, Math.abs(dy) / 2, Math.abs(tx - x0), Math.abs(x1 - tx))
+  return (
+    `M${x0},${y0}H${tx - sx * r}Q${tx},${y0} ${tx},${y0 + sy * r}` +
+    `V${y1 - sy * r}Q${tx},${y1} ${tx + sx * r},${y1}H${x1}`
+  )
+}
+
+/**
+ * The finished hub on a landscape panel: the headline on top, and under it
+ * the hub card with a column of nodes on either side and one node below.
+ *
+ * Every wire leaves an edge of the hub card and lands on the facing edge of
+ * its node, and the whole diagram sits below the headline, so no wire passes
+ * under the words or stops short of anything. The columns align on their
+ * inner edges, where the wires land; the rows share one gap, and both the gap
+ * and the distance from the hub are whatever the panel affords within bounds.
+ * Returns null when the panel is too narrow or too short for that.
+ */
+function solveColumns(frags: Frag[], W: number, H: number, card: { w: number; h: number }, headH: number) {
+  const PAD_X = 24
+  const PAD_Y = 40
+  const HEAD_GAP = 56
+  const DROP = 32
+  // The row gap grows with the room, so a tall panel breathes rather than
+  // leaving the diagram small in the middle of it.
+  const ROW_GAP = { min: 12, max: 36, share: 0.045 }
+  const BAY = { min: 40, max: 144 }
+
+  const column = (side: Slot['side']) =>
+    frags.filter((f) => f.slot.side === side).sort((a, b) => a.slot.row - b.slot.row)
+  const left = column('L')
+  const right = column('R')
+  const below = column('B')[0]
+  const colW = Math.max(0, ...left.map((f) => f.w), ...right.map((f) => f.w))
+  const bay = Math.min(BAY.max, (W - PAD_X * 2 - card.w - colW * 2) / 2)
+  if (bay < BAY.min) return null
+
+  const stackH = (c: Frag[], gap: number) => c.reduce((a, f) => a + f.h, 0) + Math.max(0, c.length - 1) * gap
+  const extent = (gap: number) => {
+    const half = Math.max(stackH(left, gap), stackH(right, gap)) / 2
+    const up = Math.max(half, card.h / 2)
+    const down = Math.max(half, card.h / 2 + (below ? DROP + below.h : 0))
+    return { up, down }
+  }
+  const room = H - PAD_Y * 2 - headH - HEAD_GAP
+  let gap = Math.round(Math.min(ROW_GAP.max, Math.max(20, room * ROW_GAP.share)))
+  while (gap > ROW_GAP.min && extent(gap).up + extent(gap).down > room) gap -= 1
+  const { up, down } = extent(gap)
+  if (up + down > room) return null
+
+  const headTop = (H - (headH + HEAD_GAP + up + down)) / 2
+  const hub = { x: W / 2, y: headTop + headH + HEAD_GAP + up, w: card.w, h: card.h }
+  const inner = { L: hub.x - hub.w / 2 - bay, R: hub.x + hub.w / 2 + bay }
+
+  const place = (f: Frag, x: number, y: number) => {
+    f.tx = x - f.hx
+    f.ty = y - f.hy
+    f.sx = 0
+    f.sy = 0
+    f.fits = true
+  }
+  for (const [c, side] of [[left, 'L'], [right, 'R']] as const) {
+    const dir = side === 'L' ? -1 : 1
+    let y = hub.y - stackH(c, gap) / 2
+    for (const f of c) {
+      place(f, inner[side] + (dir * f.w) / 2, y + f.h / 2)
+      y += f.h + gap
+    }
+  }
+  if (below) place(below, hub.x, hub.y + hub.h / 2 + DROP + below.h / 2)
+  frags.forEach((f, i) => {
+    f.rot = (noise(i + 1) - 0.5) * 7
+  })
+
+  const ends = frags.map((f) => {
+    const cx = f.hx + f.tx
+    const cy = f.hy + f.ty
+    if (f.slot.side === 'B') return { x: cx, y: cy - f.h / 2 }
+    return { x: cx + (f.slot.side === 'L' ? f.w / 2 : -f.w / 2), y: cy }
+  })
+  const wires = frags.map((f, i) => {
+    const end = ends[i]
+    if (f.slot.side === 'B') return `M${hub.x},${hub.y + hub.h / 2}V${end.y}`
+    const dir = f.slot.side === 'L' ? -1 : 1
+    const edge = hub.x + (dir * hub.w) / 2
+    return elbow(edge, hub.y, edge + (dir * bay) / 2, end.x, end.y)
+  })
+  return { mode: 'columns' as const, hub, headTop, wires, ends }
+}
 
 /**
  * Places the knowledge fragments around the hub card.
  *
  * The arrangement is solved from measurements rather than chosen by a
- * breakpoint: each fragment keeps its authored *direction* from the hub, and
- * the radius along that direction is whatever the panel actually affords once
- * the hub card, the headline and the panel edges are accounted for.
- *
- * A narrow or portrait panel cannot hold a ring — the fragments are wider than
- * the space beside the hub — so it falls back to a `net`: the same fragments
- * spread as a jittered constellation below the hub. Both arrangements are wired
- * to the hub by the same connecting lines, because that is the point being
- * made; only the shape of the net changes with the space available.
+ * breakpoint. A landscape panel holds the columns (solveColumns). A narrow or
+ * portrait one cannot — the columns are wider than the space beside the hub —
+ * so it falls back to a `net`: the same fragments spread as a jittered
+ * constellation below the hub. Both are wired to the hub, because that is the
+ * point being made; only the shape of the net changes with the space.
  */
 function solveStoryLayout(
   frags: Frag[],
   panel: Rect,
-  hub: Rect,
-  headline: Rect,
-  gridHub: Rect
-) {
+  card: { w: number; h: number },
+  headH: number
+): StoryLayout {
+  const columns = solveColumns(frags, panel.w, panel.h, card, headH)
+  if (columns) return columns
+
   const PAD = 20
   const GAP = 18
-
-  const ring = frags.map((f) => {
-    const ux = Math.cos(f.ang)
-    const uy = Math.sin(f.ang)
-    // Furthest the fragment can travel along its direction and stay inside.
-    const limit = (u: number, half: number, from: number, extent: number) =>
-      u === 0
-        ? Infinity
-        : u > 0
-          ? (extent - PAD - half - from) / u
-          : (PAD + half - from) / u
-    const rMax = Math.min(
-      limit(ux, f.w / 2, hub.x, panel.w),
-      limit(uy, f.h / 2, hub.y, panel.h)
-    )
-    // Nearest it may sit without touching the hub card.
-    const clear = (u: number, span: number) => (u === 0 ? Infinity : span / Math.abs(u))
-    const rMin = Math.min(
-      clear(ux, (hub.w + f.w) / 2 + GAP),
-      clear(uy, (hub.h + f.h) / 2 + GAP)
-    )
-    return { f, ux, uy, rMin, rMax }
-  })
-
-  const slots = ring.map(({ f, ux, uy, rMin, rMax }) => {
-    // Walk inward from the outermost radius until the fragment clears the
-    // headline too; the headline sits above the hub, so the fragments that
-    // travel upwards are the ones that have to give way.
-    for (let s = 0; s <= 6; s++) {
-      const r = rMax - ((rMax - rMin) * s) / 6
-      if (r < rMin - 0.5) break
-      const rect = { x: hub.x + ux * r, y: hub.y + uy * r, w: f.w, h: f.h }
-      if (!overlaps(rect, headline, 12)) return { f, rect, ok: rMax >= rMin }
-    }
-    return { f, rect: { x: hub.x + ux * rMax, y: hub.y + uy * rMax, w: f.w, h: f.h }, ok: false }
-  })
-
-  const fits =
-    slots.every((s) => s.ok) &&
-    slots.every((a, i) => slots.every((b, j) => i >= j || !overlaps(a.rect, b.rect, 10)))
-
-  if (fits) {
-    slots.forEach(({ f, rect }, i) => {
-      f.tx = rect.x - f.hx
-      f.ty = rect.y - f.hy
-      // The authored CSS positions are already the scattered beat here.
-      f.sx = 0
-      f.sy = 0
-      f.rot = (noise(i + 1) - 0.5) * 7
-      f.fits = true
-    })
-    return 'ring' as const
-  }
+  const gridHub = { x: panel.w / 2, y: panel.h * 0.4, w: card.w, h: card.h }
 
   // Portrait net. Columns give the constellation its underlying order (nothing
   // overlaps, nothing is cropped) and a deterministic jitter within each cell
@@ -509,7 +568,12 @@ function solveStoryLayout(
     })
     if (ri < shown) top += rowH[ri] + COL
   })
-  return 'net' as const
+
+  // Straight wires from the hub's foot to the top edge of each node.
+  const foot = gridHub.y + gridHub.h / 2
+  const ends = frags.map((f) => (f.fits ? { x: f.hx + f.tx, y: f.hy + f.ty - f.h / 2 } : null))
+  const wires = ends.map((e) => (e ? `M${gridHub.x},${foot}L${e.x},${e.y}` : ''))
+  return { mode: 'net', hub: gridHub, headTop: panel.h * 0.11, wires, ends }
 }
 
 function initPins() {
@@ -524,47 +588,41 @@ function initPins() {
   const solutionCard = wrap.querySelector<HTMLElement>('[data-solution-card]')
   const linksSvg = wrap.querySelector<SVGSVGElement>('[data-links]')
 
-  // Authored fractions describe the composition on a landscape panel; only the
-  // direction they imply is kept, and the solver decides the distance.
-  const DESIGN_W = 16
-  const DESIGN_H = 9
-
   const fragEls: Frag[] = Array.from(wrap.querySelectorAll<HTMLElement>('[data-frag]')).map(
     (el) => {
       const [dx, dy] = (el.getAttribute('data-frag') ?? '0,0').split(',').map(Number)
-      const [fx, fy] = (el.getAttribute('data-target') ?? '0.5,0.5').split(',').map(Number)
+      const s = el.getAttribute('data-slot') ?? ''
+      const side = s[0] === 'L' || s[0] === 'R' ? s[0] : 'B'
       el.style.willChange = 'transform, opacity'
       el.style.opacity = '0'
-      const ang = Math.atan2((fy - 0.57) * DESIGN_H, (fx - 0.5) * DESIGN_W)
       return {
-        el, dx, dy, ang,
+        el, dx, dy, slot: { side, row: Number(s.slice(1)) || 0 },
         w: 0, h: 0, hx: 0, hy: 0,
         sx: 0, sy: 0, rot: 0,
         tx: 0, ty: 0, fits: true,
       }
     }
   )
+  // The wires draw outwards in pairs, row by row down both columns, and the
+  // node under the hub last: the structure grows symmetrically from the hub.
+  const drawOrder = fragEls
+    .map((f, i) => ({ i, rank: f.slot.side === 'B' ? 99 : f.slot.row * 2 + (f.slot.side === 'R' ? 1 : 0) }))
+    .sort((a, b) => a.rank - b.rank)
+    .map(({ i }) => i)
 
-  let lineEls: SVGLineElement[] | null = null
-  let mode: 'ring' | 'net' = 'ring'
+  let wireEls: SVGPathElement[] | null = null
+  let portEls: SVGCircleElement[] | null = null
+  let mode: StoryLayout['mode'] = 'columns'
 
   const measureStory = () => {
     const W = panel.clientWidth
     const H = panel.clientHeight
     if (!W || !H) return
 
-    const cardW = solutionCard?.offsetWidth ?? 0
-    const cardH = solutionCard?.offsetHeight ?? 0
-    const hlW = hSolution?.offsetWidth ?? 0
-    const hlH = hSolution?.offsetHeight ?? 0
-    // A ring keeps the hub optically centred inside the fan; a portrait net
-    // stacks headline → hub → fragments, so both move up to make room.
-    const HUB_Y = { ring: 0.57, net: 0.4 }
-    const HEAD_Y = { ring: 0.21, net: 0.11 }
-    const hubAt = (f: number) => ({ x: 0.5 * W, y: f * H, w: cardW, h: cardH })
-    const headAt = (f: number) => ({ x: 0.5 * W, y: f * H + hlH / 2, w: hlW, h: hlH })
+    const card = { w: solutionCard?.offsetWidth ?? 0, h: solutionCard?.offsetHeight ?? 0 }
+    const headH = hSolution?.offsetHeight ?? 0
 
-    // Back to intrinsic size before measuring — grid mode stretches the
+    // Back to intrinsic size before measuring — net mode stretches the
     // fragments to a shared column width, which would otherwise be measured as
     // if it were their natural width on the next pass.
     fragEls.forEach((f) => {
@@ -578,40 +636,41 @@ function initPins() {
       f.hy = f.el.offsetTop + f.h / 2
     })
 
-    mode = solveStoryLayout(
-      fragEls,
-      { x: 0, y: 0, w: W, h: H },
-      hubAt(HUB_Y.ring),
-      headAt(HEAD_Y.ring),
-      hubAt(HUB_Y.net)
-    )
-    const hub = hubAt(HUB_Y[mode])
-    if (solutionCard) solutionCard.style.top = `${HUB_Y[mode] * 100}%`
-    if (hSolution) hSolution.style.top = `${HEAD_Y[mode] * 100}%`
+    const layout = solveStoryLayout(fragEls, { x: 0, y: 0, w: W, h: H }, card, headH)
+    mode = layout.mode
+    if (solutionCard) solutionCard.style.top = `${layout.hub.y}px`
+    if (hSolution) hSolution.style.top = `${layout.headTop}px`
     fragEls.forEach((f) => {
       if (!f.fits) f.el.style.display = 'none'
     })
 
-    if (linksSvg && !lineEls) {
+    if (linksSvg && !wireEls) {
       const NS = 'http://www.w3.org/2000/svg'
-      lineEls = fragEls.map(() => {
-        const l = document.createElementNS(NS, 'line')
-        l.setAttribute('stroke', '#a4b47a')
-        l.setAttribute('stroke-width', '1.5')
-        linksSvg.appendChild(l)
-        return l
+      wireEls = fragEls.map(() => {
+        const p = document.createElementNS(NS, 'path')
+        p.setAttribute('fill', 'none')
+        p.setAttribute('stroke', '#6e7d52')
+        p.setAttribute('stroke-width', '1.25')
+        p.setAttribute('stroke-linejoin', 'round')
+        linksSvg.appendChild(p)
+        return p
+      })
+      portEls = fragEls.map(() => {
+        const c = document.createElementNS(NS, 'circle')
+        c.setAttribute('r', '2.5')
+        c.setAttribute('fill', '#a4b47a')
+        linksSvg.appendChild(c)
+        return c
       })
     }
     if (linksSvg) linksSvg.setAttribute('viewBox', `0 0 ${W} ${H}`)
-    lineEls?.forEach((l, i) => {
-      const f = fragEls[i]
-      // Fragments that were left out get a zero-length line, which draws nothing.
-      const x = f.fits ? f.hx + f.tx : hub.x
-      const y = f.fits ? f.hy + f.ty : hub.y
-      l.setAttribute('x1', String(hub.x))
-      l.setAttribute('y1', String(hub.y))
-      l.setAttribute('x2', String(x))
-      l.setAttribute('y2', String(y))
+    // A fragment left out gets an empty path and no port, which draw nothing.
+    wireEls?.forEach((p, i) => p.setAttribute('d', layout.wires[i]))
+    portEls?.forEach((c, i) => {
+      const e = layout.ends[i]
+      c.setAttribute('cx', String(e?.x ?? -10))
+      c.setAttribute('cy', String(e?.y ?? -10))
+      c.setAttribute('r', e ? '2.5' : '0')
     })
   }
 
@@ -656,12 +715,12 @@ function initPins() {
       sticky.style.overflow = 'hidden'
     }
     measureStory()
-    // The scroll runway is the beat list's length: the ring adds the fan-out
-    // and the connecting lines, the grid does not, so it needs less scrolling.
+    // The scroll runway is the beat list's length: the columns add the
+    // pull-in and the wiring, the net does not, so it needs less scrolling.
     // It was 440vh and 300vh, with a static screen at either end; the beats
     // below now fill the range, so the story takes about one screen of
     // scrolling per idea.
-    wrap.style.height = runway ? (mode === 'ring' ? '240vh' : '200vh') : ''
+    wrap.style.height = runway ? (mode === 'columns' ? '240vh' : '200vh') : ''
   }
   /** Back to a plain block: what the section is below lg. */
   const unpin = () => {
@@ -675,8 +734,9 @@ function initPins() {
 
   mm.add(`${STAGED} and ${REDUCED}`, () => {
     sizePins(false)
-    fragEls.forEach((f) => gsap.set(f.el, { opacity: 1, x: f.tx, y: f.ty, rotation: 0, scale: 0.84 }))
-    if (lineEls) gsap.set(lineEls, { opacity: 0.45, drawSVG: '100%' })
+    fragEls.forEach((f) => gsap.set(f.el, { opacity: 1, x: f.tx, y: f.ty, rotation: 0, scale: 1 }))
+    if (wireEls) gsap.set(wireEls, { drawSVG: '100%' })
+    if (portEls) gsap.set(portEls, { opacity: 1 })
     gsap.set([hProblem].filter(Boolean), { opacity: 0 })
     gsap.set([hSolution].filter(Boolean), { opacity: 1, xPercent: -50, y: 0 })
     gsap.set([solutionCard].filter(Boolean), { opacity: 1, xPercent: -50, yPercent: -50, scale: 1 })
@@ -704,8 +764,8 @@ function initPins() {
 
         // The score, in fractions of the runway. Every stretch of scrolling
         // moves something: the fragments drift in (0–0.35), the problem gives
-        // way (0.30–0.40) to the answer (0.38–0.50), the net pulls the
-        // fragments in (0.40–0.70) and wires them (0.60–0.85), and the
+        // way (0.30–0.40) to the answer (0.38–0.50), the hub pulls the
+        // fragments into place (0.40–0.70) and wires them (0.60–0.85), and the
         // finished hub holds for the last 0.15 so it can be read.
         fragEls.forEach((f, i) => {
           if (!f.fits) return
@@ -716,7 +776,7 @@ function initPins() {
             (i / n) * 0.2
           ).to(
             f.el,
-            { x: f.tx, y: f.ty, rotation: 0, scale: 0.84, duration: 0.18, ease: 'draft' },
+            { x: f.tx, y: f.ty, rotation: 0, duration: 0.18, ease: 'draft' },
             0.4 + (i / n) * 0.12
           )
         })
@@ -738,20 +798,15 @@ function initPins() {
             0.4
           )
         }
-        if (lineEls?.length) {
-          const drawn = lineEls.length
-          tl.fromTo(
-            lineEls,
-            { drawSVG: 0, opacity: 0 },
-            {
-              drawSVG: '100%',
-              opacity: 0.45,
-              duration: 0.12,
-              ease: 'draft',
-              stagger: drawn > 1 ? 0.13 / (drawn - 1) : 0,
-            },
-            0.6
-          )
+        const allWires = wireEls
+        const allPorts = portEls
+        if (allWires?.length && allPorts) {
+          // Each wire draws out of the hub and its port lands as it arrives.
+          const wires = drawOrder.map((i) => allWires[i])
+          const ports = drawOrder.map((i) => allPorts[i])
+          const stagger = wires.length > 1 ? 0.13 / (wires.length - 1) : 0
+          tl.fromTo(wires, { drawSVG: 0 }, { drawSVG: '100%', duration: 0.12, ease: 'draft', stagger }, 0.6)
+          tl.fromTo(ports, { opacity: 0 }, { opacity: 1, duration: 0.02, stagger }, 0.7)
         }
         // The hold: nothing moves, the runway just ends.
         tl.to({}, { duration: 0.15 }, 0.85)
