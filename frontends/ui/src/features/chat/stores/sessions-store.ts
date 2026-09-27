@@ -306,7 +306,8 @@ const maybeDiscardAbandonedUploadOnlySession = (
   // No messages HERE is not no messages: the server holds a conversation whose
   // messages storage evicted or this page never fetched, and discarding it
   // deleted it on the server.
-  if (isAwaitingServerMessages(conv.id)) return
+  // A fetch in flight is not an answer yet either.
+  if (isAwaitingServerMessages(conv.id) || hydratingConversationIds.has(conv.id)) return
   if (!hasNoUserChatMessages(conv.messages)) return
   if (hasLiveRun(conv.messages)) return
 
@@ -430,14 +431,20 @@ export const createSessionsSlice: StateCreator<
       const conversationsClient = await getConversationsClient()
       const serverMessages = await conversationsClient.listMessages(conversationId)
       const messages = mapServerMessagesToChatMessages(serverMessages)
-      if (messages.length === 0) return
 
-      clearAwaitingServerMessages(conversationId)
       const { conversations, currentConversation, isStreaming, isLoading } = get()
       const target = conversations.find((c) => c.id === conversationId)
-      // The session may have been deleted or received live messages while the
-      // fetch was in flight — never overwrite newer local state.
-      if (!target || target.messages.length > 0) return
+      if (!target) return
+      if (messages.length === 0) {
+        // The server confirms the thread is empty: now it is known, not missing.
+        if (target.messages.length === 0) clearAwaitingServerMessages(conversationId)
+        return
+      }
+
+      clearAwaitingServerMessages(conversationId)
+      // The session may have received live messages while the fetch was in
+      // flight — never overwrite newer local state.
+      if (target.messages.length > 0) return
 
       const hydrated: Conversation = { ...target, messages }
       const isCurrent = currentConversation?.id === conversationId
