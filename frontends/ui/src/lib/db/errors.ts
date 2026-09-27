@@ -39,3 +39,39 @@ export function databaseUnavailableCode(error: unknown): string | undefined {
 function isUnavailableCode(code: string): boolean {
   return UNAVAILABLE_SQLSTATE.test(code) || UNAVAILABLE_ERRNO.has(code) || UNAVAILABLE_DRIVER_CODE.has(code)
 }
+
+/**
+ * Postgres' `unique_violation`. The ONE spelling: a bare `'23505'` anywhere else
+ * is refused by lint, because every copy of it was compared against the wrong
+ * object (see {@link isUniqueViolation}).
+ */
+// eslint-disable-next-line no-restricted-syntax -- the one place the SQLSTATE is spelled
+export const UNIQUE_VIOLATION = '23505'
+
+/**
+ * Is this failure a unique violation — optionally, of ONE named constraint?
+ *
+ * ## Why `error.code` is the wrong question
+ *
+ * Every drizzle query failure is a `DrizzleQueryError` ("Failed query: …")
+ * whose own `code` is undefined; the driver's `PostgresError`, the one carrying
+ * `code` and `constraint_name`, is its `cause`. The catch sites that compared
+ * `error.code === '23505'` on the wrapper (a folder name, a filed report, a
+ * memory fact, a lesson) were race backstops that never ran in production, so
+ * the loser got a 500. Walked the way {@link databaseUnavailableCode} walks it.
+ *
+ * Name the constraint whenever the recovery is right for ONE index only: a
+ * 23505 from another index on the same table is a different fault, and a
+ * recovery written for the first one would hide it.
+ */
+export function isUniqueViolation(error: unknown, constraint?: string): boolean {
+  let current: unknown = error
+  for (let depth = 0; depth < MAX_DEPTH && current; depth += 1) {
+    if (typeof current === 'object' && current !== null && 'code' in current) {
+      const { code, constraint_name: name } = current as { code: unknown; constraint_name?: unknown }
+      if (code === UNIQUE_VIOLATION) return constraint === undefined || name === constraint
+    }
+    current = current instanceof Error ? current.cause : undefined
+  }
+  return false
+}

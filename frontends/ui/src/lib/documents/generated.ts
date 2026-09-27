@@ -43,6 +43,7 @@
 
 import 'server-only'
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+import { isUniqueViolation } from '@/lib/db/errors'
 import { bucketAdminS3Client, buildStorageKey, s3Client } from '@/lib/s3'
 import { agentDocumentFilename } from './agent-namespace'
 import { ensureTenantBucketChecked } from '@/lib/storage/bucket'
@@ -212,14 +213,13 @@ export class UnmarkedRenderingError extends Error {
 }
 
 /**
- * Postgres' `unique_violation`.
+ * The index whose refusal means "this reference is already filed".
  *
- * Named rather than spelled at the catch site for the reason
- * `folder-service.ts` names it too: `'23505'` in a conditional reads as a magic
- * number, and the branch it guards is the difference between recovering from a
- * race and swallowing an unrelated database failure.
+ * Named, and checked BY NAME: the recovery below hands back the winner's row,
+ * which is right for this index and wrong for every other 23505 the insert can
+ * raise (`uniq_documents_live_name_per_collection`, for one).
  */
-const UNIQUE_VIOLATION = '23505'
+const AUTHORED_REF_INDEX = 'uniq_documents_authored_ref_producer_per_project'
 
 /**
  * What the service already knows and a renderer would otherwise re-query.
@@ -630,7 +630,7 @@ export async function fileGeneratedDocument(
     // makes the second insert fail instead of succeed. This is the folder path's shape
     // one level up: the index is what makes it correct, the catch is what makes
     // it graceful — the loser must not 500 on somebody's finished report.
-    if ((error as { code?: string } | null)?.code !== UNIQUE_VIOLATION) throw error
+    if (!isUniqueViolation(error, AUTHORED_REF_INDEX)) throw error
 
     // The winner's row, which is now the only document this run has. Re-probed
     // rather than assumed, because the answer the caller needs (the id, the

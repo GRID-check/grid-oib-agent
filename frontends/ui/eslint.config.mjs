@@ -125,6 +125,15 @@ export default [
           message:
             "drizzle's tx.rollback() throws TransactionRollbackError, so nothing after it runs. Throw a sentinel inside the transaction and catch it outside (see LostCompareAndSwap).",
         },
+        {
+          // Every `error.code === '23505'` in this tree compared against
+          // drizzle's `Failed query` wrapper, whose code is undefined — the
+          // driver's error is its `cause` — so each race backstop behind one was
+          // dead in production and its loser got a 500.
+          selector: "Literal[value='23505']",
+          message:
+            "drizzle wraps the driver error: `error.code` is undefined and the SQLSTATE is on `cause`. Use isUniqueViolation(error, '<constraint>') from @/lib/db/errors.",
+        },
       ],
     },
   },
