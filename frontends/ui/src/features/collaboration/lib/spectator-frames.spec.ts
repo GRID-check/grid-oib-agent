@@ -334,6 +334,20 @@ describe('reduceSpectatedFrame', () => {
     expect(state.cards?.map((card) => card?.type)).toEqual([undefined, undefined, 'summary'])
   })
 
+  it("holes a tool's card on a LIVE cards frame too, so the envelope card behind it keeps its marker", () => {
+    // The live list is the terminal's order (ADR-0066): the tools' cards
+    // first. The model's [[card:1]] arrives already moved to [[card:2]].
+    const live = {
+      ...(response('', 'in_progress') as object),
+      cards: [
+        { type: 'document_draft', path: 'a.md', title: 'Entwurf' },
+        { type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' },
+      ],
+    }
+    const state = fold([response('Fertig.\n\n[[card:2]]', 'in_progress'), live])
+    expect(state.cards?.map((card) => card?.type)).toEqual([undefined, 'summary'])
+  })
+
   it('keeps the streamed answer when the terminal frame is empty', () => {
     // The single most damaging failure mode available here: a backend that
     // finishes with an empty `complete` would otherwise blank a finished answer
