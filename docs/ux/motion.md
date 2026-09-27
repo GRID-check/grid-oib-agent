@@ -68,7 +68,7 @@ Each entry is the one thing the section does, and what it explains.
 | Hero (lg) | Closing line, buttons and stage note fade over the first 25% of a screen; the headline over 20–50%. Opacity only | Nothing prints through the logo under the transparent bar | scrubbed |
 | Story (lg) | Pinned, scrubbed: fragments drift in, the problem gives way to the answer, the net pulls them in and wires them, then holds. 240vh (ring) or 200vh (grid) | Scattered knowledge becoming one structure: the section's argument | scrubbed |
 | Story (phone) | The hub grid's nodes and hub fade in, then the wires draw, once | The nodes are wired to one hub | slow, settle, draft |
-| Nutzung, desktop chain | Plays once when in view; pause/resume while it runs, replay after | How an answer is derived: question, sources, decision, steps | slow, draft |
+| Nutzung, desktop chain | Plays once when in view (about ten seconds); pause/resume while it runs, replay after. The wires draw from node to node; during the check each source, its wire and its table column light together and that column's marks draw; the ways not chosen recede with their reasons, and the chosen way's wire carries on to the steps. Nothing pans: the chain fits its card | How an answer is derived, and why B: each way checked against each source | slow, base, quick, draft, settle, row, sm |
 | Quellen und Daten (Prüfblatt) | The four ticks draw in order, 60ms apart, once | Each claim is checked, one by one | base, draft, row |
 | Wertrechner | When a slider moves, only the digits that changed turn on their wheels | Which part of the figure your office moved | quick, settle |
 | A riso plate (TapedPrint) | Ink pass: each ink 2–3px out of register settles into it, ~600ms in all, once | The print is a print: inks laid one after another | slow, settle, hair, row |
@@ -148,7 +148,7 @@ one:
 - no page transitions (the `@view-transition` rule sits inside a
   `no-preference` query);
 - no pin and no runway: the story is its resolved hub on one screen;
-- the chain board is replaced by the finished column list;
+- the chain board stands finished: every node, wire, mark and reason in place;
 - reveals, ticks and the ink pass are armed only under
   `no-preference`, so their elements are in their final state from the start;
 - the calculator sets its figure instead of turning it;
@@ -191,4 +191,6 @@ Built and cut, so nobody builds them again without reading why: a plotter
 drawing of every section tag, the Datengrundlage cards dealt out of a stack,
 a parallax hero photograph, the story panel rising over the hero, the counter
 spinning a full turn on first sight, the ink pass's top-to-bottom drum wipe,
-the sheet-slide page change, the card-to-title morph.
+the sheet-slide page change, the card-to-title morph, the chain board's camera
+panning over a 1160px diagram (it cropped the cards mid-move, and the choice
+showed only as two options fading), and the question typed in letter by letter.

@@ -360,9 +360,9 @@ const de = {
     fictional: 'Fiktives Beispiel',
     questionLabel: 'Frage',
     sourcesLabel: 'Quellen',
+    chainTitle: 'Entscheidungskette',
     question:
       'Ich will das Stiegenhaus ins Freie führen und über eine gedämmte Loggia-Fassade erschließen. Was heißt das brandschutztechnisch?',
-    scanning: 'Quellen werden gesichtet …',
     oibTitle: 'Pkt.\u00a03.5 – Fassaden',
     oibSub: 'Brandausbreitung über die Außenwand, GK\u00a04',
     boTitle: '§\u00a0106 – Fluchtwege',
@@ -377,6 +377,21 @@ const de = {
     optBSub: 'Brandschutzschott je Geschoß',
     optCTitle: 'Mit der Behörde klären',
     optCSub: 'Loggia als „offener Durchgang“',
+    // The desktop board checks each way against each source (ChatMock). The
+    // marks and reasons follow the story's gists: 3.5 asks for a Schott above
+    // 10 cm EPS, § 106 keeps the stairwell smoke-free, the plan has 14 cm EPS.
+    checkIntro: 'Drei Wege für Ihr WDVS (GK 4), jeder geprüft gegen die Quellen:',
+    optionCol: 'Weg',
+    checkCols: ['Pkt. 3.5', '§ 106', 'Plan'],
+    checkColsFull: ['OIB-RL 2, Pkt. 3.5', 'BO Wien, § 106', 'Einreichplan_EG.pdf'],
+    marks: { ok: 'erfüllt', no: 'widerspricht', open: 'offen' },
+    chosen: 'Gewählt',
+    notChosen: 'Nicht gewählt',
+    reasons: [
+      'Weicht vom Einreichplan ab: 10 statt 14 cm EPS, die Fassade wird zweigeteilt.',
+      'Erfüllt Pkt. 3.5 mit einem Schott je Geschoß, die 14 cm EPS bleiben.',
+      'Pkt. 3.5 und § 106 bleiben offen, bis die Behörde entscheidet.',
+    ],
     impl: 'Umsetzung – B',
     stepsBadge: '3\u00a0Schritte',
     steps: [
@@ -389,17 +404,16 @@ const de = {
     resume: 'Fortsetzen',
   },
   chain: {
-    typing: 'Frage wird eingegeben',
+    // The desktop board's status line, one per beat (scripts/chain.ts); the
+    // last one is also the finished board's and the column list's.
     beats: [
       'Frage aufgenommen',
-      'Quellen werden gesichtet',
-      'Quellen werden gezogen',
-      'Baurecht wird geprüft',
-      'Projektakt wird geprüft',
-      'Alle Quellen geprüft',
-      'Ergebnisse werden zusammengeführt',
-      'Entscheidung: drei Wege',
-      'Option B gewählt',
+      'Drei Quellen gefunden',
+      'Drei Wege, geprüft gegen die Quellen',
+      'Prüfung: OIB-RL 2, Pkt. 3.5',
+      'Prüfung: BO Wien, § 106',
+      'Prüfung: Einreichplan_EG.pdf',
+      'Nur B erfüllt alle drei',
       'Umsetzung abgeleitet',
       'Vollständige Kette',
     ],
@@ -944,9 +958,9 @@ const en: typeof de = {
     fictional: 'Fictional example',
     questionLabel: 'Question',
     sourcesLabel: 'Sources',
+    chainTitle: 'Decision chain',
     question:
       'I want to open the stair core to the outside and reach the units through an insulated loggia façade. What does that mean for fire safety?',
-    scanning: 'Reviewing sources …',
     oibTitle: 'Sec.\u00a03.5 – Façades',
     oibSub: 'Fire spread across the exterior wall, GK\u00a04',
     boTitle: '§\u00a0106 – Escape routes',
@@ -961,6 +975,18 @@ const en: typeof de = {
     optBSub: 'fire stop on each storey',
     optCTitle: 'Clarify with the authority',
     optCSub: 'loggia as an “open passage”',
+    checkIntro: 'Three options for your ETICS (GK 4), each checked against the sources:',
+    optionCol: 'Option',
+    checkCols: ['Sec. 3.5', '§ 106', 'Plan'],
+    checkColsFull: ['OIB-RL 2, Sec. 3.5', 'BO Wien, § 106', 'Einreichplan_EG.pdf'],
+    marks: { ok: 'meets', no: 'conflicts', open: 'open' },
+    chosen: 'Chosen',
+    notChosen: 'Not chosen',
+    reasons: [
+      'Departs from the submission plan: 10 instead of 14 cm EPS, the façade is split in two.',
+      'Meets Sec. 3.5 with a fire stop on each storey; the 14 cm EPS stays.',
+      'Sec. 3.5 and § 106 stay open until the authority decides.',
+    ],
     impl: 'Implementation – B',
     stepsBadge: '3\u00a0steps',
     steps: [
@@ -973,17 +999,14 @@ const en: typeof de = {
     resume: 'Resume',
   },
   chain: {
-    typing: 'Entering question',
     beats: [
       'Question received',
-      'Reviewing sources',
-      'Fetching sources',
-      'Checking building law',
-      'Checking project file',
-      'All sources checked',
-      'Merging results',
-      'Decision: three options',
-      'Option B selected',
+      'Three sources found',
+      'Three options, checked against the sources',
+      'Checking: OIB-RL 2, Sec. 3.5',
+      'Checking: BO Wien, § 106',
+      'Checking: Einreichplan_EG.pdf',
+      'Only B meets all three',
       'Implementation derived',
       'Complete chain',
     ],
@@ -1182,15 +1205,11 @@ export const ui = { de, en }
 
 export const landingScript = {
   de: {
-    question: de.chat.question,
-    typing: de.chain.typing,
     beats: de.chain.beats,
     aura: de.chain.aura,
     roi: de.roi.units,
   },
   en: {
-    question: en.chat.question,
-    typing: en.chain.typing,
     beats: en.chain.beats,
     aura: en.chain.aura,
     roi: en.roi.units,
