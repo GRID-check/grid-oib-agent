@@ -2226,6 +2226,36 @@ describe('useWebSocketChat', () => {
     })
   })
 
+  test('a CONNECTION_FAILED card is not written into a conversation opened during the health check', async () => {
+    let answerHealth: (up: boolean) => void = () => {}
+    mockCheckBackendHealthCached.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        answerHealth = resolve
+      })
+    )
+    mockStoreState = { ...mockStoreState, currentConversation: { id: 's_A', messages: [] } as never }
+    renderWebSocketHook()
+
+    let settled: Promise<unknown> = Promise.resolve()
+    act(() => {
+      // The hook's handler is async; the captured type says void.
+      settled = Promise.resolve(
+        capturedCallbacks.onError?.({
+          code: 'CONNECTION_FAILED',
+          message: 'Unable to connect to the server.',
+        }) as unknown
+      )
+    })
+    // The reader opens another thread while the health check is out.
+    mockStoreState = { ...mockStoreState, currentConversation: { id: 's_B', messages: [] } as never }
+    await act(async () => {
+      answerHealth(false)
+      await settled
+    })
+
+    expect(mockAddErrorCard).not.toHaveBeenCalled()
+  })
+
   // --- Budget-exhaustion reason discovery on CONNECTION_FAILED ---
   // The gateway collapses a budget-exhausted WS upgrade into a bare failed
   // handshake the browser can't read, so it reaches the hook as a generic
@@ -2576,7 +2606,7 @@ describe('useWebSocketChat', () => {
     })
 
     expect(fetchRunMessage).toHaveBeenCalledWith('s_conv', 'msg-run')
-    expect(mockAdoptRunMessage).toHaveBeenCalledWith(runMessage)
+    expect(mockAdoptRunMessage).toHaveBeenCalledWith('s_conv', runMessage)
     // No tracking message, no SSE stream: the block narrates the run and
     // subscribes to it by itself.
     expect(mockAddAgentResponseWithMeta).not.toHaveBeenCalled()

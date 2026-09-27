@@ -1,0 +1,20 @@
+---
+fixes:
+  - >
+    Eine Unterhaltung von einem anderen Gerät wird nicht mehr gelöscht, wenn
+    Sie sie nach einem Neuladen öffnen und wieder verlassen, bevor ihr Verlauf
+    geladen ist. Bisher hielt der Browser sie danach für leer und entfernte sie
+    auch auf dem Server.
+  - >
+    Wer in einer Unterhaltung schreibt, bevor ihr Verlauf vom Server da ist,
+    sieht den Verlauf trotzdem. Bisher blieb in diesem Fall nur die neue
+    Nachricht stehen, und die früheren waren nicht mehr zu sehen.
+  - >
+    Wechseln Sie während einer Antwort in eine andere Unterhaltung und wieder
+    zurück, erscheint die fertige Antwort. Bisher blieb ein halber Satz mit
+    blinkendem Cursor stehen, und die Antwort kam nicht nach.
+  - >
+    Ein Auftrag, den Piloti in einer Unterhaltung startet, erscheint in dieser
+    Unterhaltung, auch wenn Sie inzwischen eine andere geöffnet haben. Ebenso
+    landet eine Verbindungsmeldung nicht mehr in der Unterhaltung, die Sie
+    danach geöffnet haben.

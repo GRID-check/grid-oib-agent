@@ -263,8 +263,11 @@ export type MessagesSlice = {
    * rather than creating one, and a second copy with a local id would be a
    * second block for one run. Idempotent by that id: a reload that raced this
    * changes nothing.
+   *
+   * Into `conversationId`, the thread that commissioned the run: the fetch is
+   * async, and the reader may have opened another thread by the time it lands.
    */
-  adoptRunMessage: (message: ChatMessage) => void
+  adoptRunMessage: (conversationId: string, message: ChatMessage) => void
   patchConversationMessage: (
     conversationId: string,
     messageId: string,
@@ -1869,20 +1872,25 @@ export const createMessagesSlice: StateCreator<
       return messageId
     },
 
-    adoptRunMessage: (message: ChatMessage) => {
+    adoptRunMessage: (conversationId: string, message: ChatMessage) => {
       const { currentConversation, conversations } = get()
-      if (!currentConversation) return
-      if (currentConversation.messages.some((existing) => existing.id === message.id)) return
+      const target =
+        conversations.find((c) => c.id === conversationId) ??
+        (currentConversation?.id === conversationId ? currentConversation : undefined)
+      if (!target) return
+      if (target.messages.some((existing) => existing.id === message.id)) return
 
       const updatedConversation: Conversation = {
-        ...currentConversation,
-        messages: [...currentConversation.messages, message],
+        ...target,
+        messages: [...target.messages, message],
         updatedAt: new Date(),
       }
 
       set(
         {
-          currentConversation: updatedConversation,
+          ...(currentConversation?.id === conversationId && {
+            currentConversation: updatedConversation,
+          }),
           conversations: updateConversationInList(conversations, updatedConversation),
         },
         false,
