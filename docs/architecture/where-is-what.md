@@ -107,7 +107,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | Inbox wire shapes and presentation | `frontends/ui/src/lib/inbox/types.ts` | [`docs/api/collaboration-routes.md`](../api/collaboration-routes.md) | ADR-0035 |
 | Mentions and handoff | `frontends/ui/src/lib/mentions`, `frontends/ui/src/lib/db/schema/mention-requests.ts` | [`docs/api/collaboration-routes.md`](../api/collaboration-routes.md) | ADR-0034 |
 | Live presence in a shared turn | `frontends/ui/src/lib/conversations/presence.ts` | [`collaboration-lifecycle.md`](collaboration-lifecycle.md) | ADR-0039 (live shared turns) |
-| What an observer sees mid-turn | `frontends/ui/src/features/collaboration/lib/spectator-frames.ts` — `reduceSpectatedFrame` (the fold); `frontends/ui/src/features/collaboration/components/SpectatedTurn.tsx` (the render); the bus is `frontends/ui/src/lib/events/conversation-frames.ts` | [`docs/api/collaboration-routes.md`](../api/collaboration-routes.md) | ADR-0039 (live shared turns), ADR-0066 |
+| What an observer sees mid-turn | `frontends/ui/src/features/chat/lib/turn-fold.ts` — `foldTurnEvent`, the asker's fold too; `frontends/ui/src/features/collaboration/lib/spectator-frames.ts` — what an observer adds (new turn, skipped gap, withheld cards); `frontends/ui/src/features/collaboration/components/SpectatedTurn.tsx` (the render); the bus is `frontends/ui/src/lib/events/conversation-frames.ts` | [`docs/api/collaboration-routes.md`](../api/collaboration-routes.md) | ADR-0039 (live shared turns), ADR-0066 |
 
 ## Authorization, audit, the internal seam
 

@@ -235,8 +235,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     wire is `onFrame` on the hook itself, below.
   */
   useEffect(() => {
-    if (isForeignTurn && spectatedTurn?.failed) clearTurnInFlight()
-  }, [isForeignTurn, spectatedTurn?.failed, clearTurnInFlight])
+    if (isForeignTurn && spectatedTurn?.phase === 'failed') clearTurnInFlight()
+  }, [isForeignTurn, spectatedTurn?.phase, clearTurnInFlight])
 
   // One label, two renderings (the static banner and the live stream), so the
   // observer's headline cannot change wording just because frames started

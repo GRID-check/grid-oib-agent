@@ -6,7 +6,7 @@ import type { ChatStoreWithHydration } from '@/features/chat/store'
 import type { ChatMessage, ThinkingStep } from '@/features/chat/types'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { UseSpectatedTurnOptions } from '@/features/collaboration/hooks/use-spectated-turn'
-import type { SpectatedTurnState } from '@/features/collaboration/lib/spectator-frames'
+import { initialTurnView, type TurnView } from '@/features/chat/lib/turn-fold'
 import { useAnswerRevealStore } from '@/features/chat/stores/answer-reveal-store'
 
 /**
@@ -199,7 +199,7 @@ vi.mock('@/features/collaboration/hooks/use-shared-thread', () => ({
 // features/collaboration/hooks/use-spectated-turn.spec.ts; what nothing covered
 // until now is how ChatArea wires the RESULT back to the turn banner, which is
 // the last describe in this file.
-let mockSpectated: { turn: SpectatedTurnState | null; live: boolean } = { turn: null, live: false }
+let mockSpectated: { turn: TurnView | null; live: boolean } = { turn: null, live: false }
 /** The most recent options. `onFrame` is a wire, so it is asserted by calling it. */
 let mockSpectatedOptions: UseSpectatedTurnOptions | null = null
 
@@ -210,14 +210,9 @@ vi.mock('@/features/collaboration/hooks/use-spectated-turn', () => ({
   },
 }))
 
-/** A turn as the reducer would have folded it; only the terminal flags matter here. */
-const spectatedTurn = (overrides: Partial<SpectatedTurnState> = {}): SpectatedTurnState => ({
-  parentId: 'turn-1',
-  answer: '',
-  steps: [],
-  waitingOn: null,
-  done: false,
-  failed: false,
+/** A turn as the fold would have left it; only the phase and the text matter here. */
+const spectatedTurn = (overrides: Partial<TurnView> = {}): TurnView => ({
+  ...initialTurnView('turn-1', 'conv-1'),
   ...overrides,
 })
 
@@ -1965,7 +1960,7 @@ describe('ChatArea — the spectated stream feeds the turn banner', () => {
   })
 
   test('a failed turn clears the banner — nothing else ever will', () => {
-    mockSpectated = { turn: spectatedTurn({ failed: true, done: true }), live: true }
+    mockSpectated = { turn: spectatedTurn({ phase: 'failed' }), live: true }
 
     render(<ChatArea isAuthenticated canCollaborate />)
 
@@ -1978,7 +1973,7 @@ describe('ChatArea — the spectated stream feeds the turn banner', () => {
 
   test('a DONE turn keeps it, so the finished answer survives until the message lands', () => {
     mockSpectated = {
-      turn: spectatedTurn({ answer: 'Ja, ab drei Geschossen.', done: true }),
+      turn: spectatedTurn({ text: 'Ja, ab drei Geschossen.', phase: 'finished' }),
       live: true,
     }
 
