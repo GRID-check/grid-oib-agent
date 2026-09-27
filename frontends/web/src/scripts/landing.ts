@@ -28,7 +28,7 @@ const REDUCED = MQ.reduced
 
 /**
  * The hero's lockup yields as the page moves on: the closing line, its
- * buttons over the first quarter screen, the headline a
+ * buttons and the stage note over the first quarter screen, the headline a
  * little later. Opacity only, scrubbed to the hero's own scroll-out. Without
  * it they print through the logo on the way up, while the bar over the hero
  * is still transparent (nav.ts condenses it at 60% of the hero).
@@ -42,6 +42,7 @@ function initHeroCta() {
   const cta = document.querySelector<HTMLElement>('[data-hero-cta]')
   const hero = document.querySelector<HTMLElement>('[data-hero]')
   if (!cta || !hero) return
+  const stage = hero.querySelector<HTMLElement>('[data-hero-stage]')
   const title = hero.querySelector<HTMLElement>('[data-hero-title]')
   gsap.matchMedia().add(`${STAGED} and ${MOTION}`, () => {
     const vh = () => window.innerHeight
@@ -57,7 +58,7 @@ function initHeroCta() {
           onUpdate: onUpdate && ((self) => onUpdate(self.progress)),
         },
       })
-    fade([cta], 0, 0.25, (p) => {
+    fade([cta, stage], 0, 0.25, (p) => {
       cta.style.pointerEvents = p > 0.6 ? 'none' : ''
     })
     fade([title], 0.2, 0.5)
@@ -76,23 +77,42 @@ function initAura() {
   let h = 0
   const dpr = Math.min(window.devicePixelRatio || 1, 2)
   /**
-   * The photograph in its own pixel coordinates: where her head is, where the
-   * beams land on the plan, and how far out the orbit runs (`R`, a multiplier
-   * on the authored radii).
+   * The two photographs the hero can show, in their own pixel coordinates:
+   * where her head is, where the beams land on the plan, and how far out the
+   * orbit runs (`R`, a multiplier on the authored radii). The portrait frame
+   * is shot from higher, so the same figure is smaller in it and the orbit
+   * reaches further out to fill the floor around her.
    */
-  const photo = {
-    IW: 1376,
-    IH: 768,
-    HEAD: [700, 196] as [number, number],
-    R: 1,
-    BEAMS: [
-      [600, 330],
-      [792, 318],
-      [648, 424],
-      [742, 400],
-      [700, 372],
-    ] as [number, number][],
+  const PHOTOS = {
+    landscape: {
+      IW: 1376,
+      IH: 768,
+      HEAD: [700, 196] as [number, number],
+      R: 1,
+      BEAMS: [
+        [600, 330],
+        [792, 318],
+        [648, 424],
+        [742, 400],
+        [700, 372],
+      ] as [number, number][],
+    },
+    portrait: {
+      IW: 3840,
+      IH: 6480,
+      HEAD: [1941, 2613] as [number, number],
+      R: 6.5,
+      BEAMS: [
+        [1650, 3050],
+        [2250, 3000],
+        [1800, 3350],
+        [2150, 3300],
+        [1950, 3200],
+      ] as [number, number][],
+    },
   }
+  const portraitQuery = cv.dataset.portraitMedia ? window.matchMedia(cv.dataset.portraitMedia) : null
+  let photo = PHOTOS.landscape
   /** How far out of the halo a line has to start before it is drawn at all. */
   const BEAM_START = 0.2
   let sc = 1
@@ -103,6 +123,7 @@ function initAura() {
     w = r.width || cv.offsetWidth
     h = r.height || cv.offsetHeight
     if (!w || !h) return false
+    photo = portraitQuery?.matches ? PHOTOS.portrait : PHOTOS.landscape
     cv.width = Math.round(w * dpr)
     cv.height = Math.round(h * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -113,6 +134,7 @@ function initAura() {
   }
   resize()
   window.addEventListener('resize', resize)
+  portraitQuery?.addEventListener('change', resize)
   const P = (ix: number, iy: number): [number, number] => [ox + ix * sc, oy + iy * sc]
 
   const NODES = [
@@ -224,7 +246,13 @@ function initAura() {
       // the canvas and were read as a column of broken words down the edge.
       const EDGE = 12
       if (n.label && nx > EDGE && nx < w - EDGE) {
-        const lines = Array.isArray(n.label) ? n.label : [n.label]
+        // A phone has no room for the three-line archive cards; the project
+        // name alone says the same thing.
+        const lines = Array.isArray(n.label)
+          ? photo === PHOTOS.portrait
+            ? [n.label[1]]
+            : n.label
+          : [n.label]
         const lh = 13 * Math.max(1, sc * 0.75)
         const textW = Math.max(...lines.map((ln) => ctx.measureText(ln).width))
         const right = nx + 7 * Math.max(1, sc)
