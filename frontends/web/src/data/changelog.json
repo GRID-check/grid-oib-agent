@@ -179,6 +179,10 @@
           "key": "improvements",
           "notes": [
             {
+              "en": "While an answer is being written, Piloti now re-renders only the section that is still growing instead of the whole answer on every step. Long answers stay smooth to the end, even on a phone, at the same pace and with the same look as before.",
+              "de": "Während eine Antwort geschrieben wird, bereitet Piloti nur noch den wachsenden letzten Abschnitt neu auf statt jedes Mal die ganze Antwort. Lange Antworten laufen dadurch auch auf dem Telefon bis zum Ende flüssig, im selben Tempo und mit demselben Aussehen wie bisher."
+            },
+            {
               "en": "Answers repeat themselves less: a lead that only restates the first paragraph is dropped, as is a mind map that only redraws the table beside it.",
               "de": "Antworten wiederholen sich weniger: Ein Vorspann, der nur den ersten Absatz wiederholt, entfällt, ebenso eine Mindmap, die nur die Tabelle daneben nachzeichnet."
             },
