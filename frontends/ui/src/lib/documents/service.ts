@@ -86,7 +86,7 @@ import {
 import { documentDisplayName, validateDocumentName } from './display-name'
 import { runBimExtraction } from '@/lib/bim/service'
 import { getAccessibleDocument } from './access'
-import { nextVersionNumber, recordUploadedVersion } from './lifecycle'
+import { nextVersionNumber, recordUploadedVersionOrDiscard } from './lifecycle'
 import { newVersionWriteId, versionWriteKey } from './version-content'
 import { findOpenVersion } from './version-repository'
 import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
@@ -962,7 +962,7 @@ export async function uploadDocument(
   // invented for a gesture that never asked for one. Handed the columns THIS
   // request stored, not re-read off a row an overlapping upload may have
   // rewritten in the meantime.
-  await recordUploadedVersion(session, documentId, request, {
+  await recordUploadedVersionOrDiscard(session, documentId, request, {
     storageKey,
     storageBucket,
     contentType: file.type || null,

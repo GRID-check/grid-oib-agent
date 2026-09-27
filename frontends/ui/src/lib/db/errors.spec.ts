@@ -2,7 +2,13 @@
  * @vitest-environment node
  */
 import { describe, expect, it } from 'vitest'
-import { databaseUnavailableCode, isUniqueViolation, UNIQUE_VIOLATION } from './errors'
+import {
+  databaseUnavailableCode,
+  FOREIGN_KEY_VIOLATION,
+  isForeignKeyViolation,
+  isUniqueViolation,
+  UNIQUE_VIOLATION,
+} from './errors'
 
 /** What drizzle throws: a `Failed query` wrapper with no code, the driver's error on `cause`. */
 function drizzleFailure(code: string, constraintName?: string): Error {
@@ -47,5 +53,19 @@ describe('isUniqueViolation', () => {
 
   it('does not treat a unique violation as the database being unavailable', () => {
     expect(databaseUnavailableCode(drizzleFailure(UNIQUE_VIOLATION, 'x'))).toBeUndefined()
+  })
+})
+
+describe('isForeignKeyViolation', () => {
+  it('finds a 23503 on the cause, by constraint when named', () => {
+    const error = drizzleFailure(FOREIGN_KEY_VIOLATION, 'document_versions_document_id_fkey')
+    expect(isForeignKeyViolation(error)).toBe(true)
+    expect(isForeignKeyViolation(error, 'document_versions_document_id_fkey')).toBe(true)
+    expect(isForeignKeyViolation(error, 'some_other_fkey')).toBe(false)
+  })
+
+  it('does not mistake one violation for the other', () => {
+    expect(isForeignKeyViolation(drizzleFailure(UNIQUE_VIOLATION, 'x'))).toBe(false)
+    expect(isUniqueViolation(drizzleFailure(FOREIGN_KEY_VIOLATION, 'x'))).toBe(false)
   })
 })

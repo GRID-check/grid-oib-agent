@@ -1988,6 +1988,51 @@ describe('re-uploading a filename this collection already holds', () => {
   })
 })
 
+describe('a delete that lands after the upload wrote its row', () => {
+  /**
+   * The row is written and points at this upload's bytes; a delete commits
+   * before the version is recorded. `recordUploadedVersion` used to return
+   * null, which nobody read: the upload dispatched the deleted document for
+   * ingest and answered 200. It is a 409 now, and nothing downstream runs.
+   */
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(findProjectInOrg).mockResolvedValue(
+      makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
+    )
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(null)
+    vi.mocked(findDocumentInOrg).mockResolvedValue(null)
+  })
+
+  it('answers 409, dispatches nothing and takes its object back', async () => {
+    await expect(
+      uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x')),
+    ).rejects.toMatchObject({ status: 409, details: { reason: 'deleted_during_upload' } })
+
+    expect(insertPublishedVersion).not.toHaveBeenCalled()
+    expect(mockFetch.mock.calls.some(([url]) => String(url).includes('/v1/ingest'))).toBe(false)
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+    // The object this upload PUT is deleted again (the delete usually took it
+    // already; deleting a missing key is a no-op).
+    const commands = vi.mocked(s3Client.send).mock.calls.map(([command]) => command as unknown as {
+      constructor: { name: string }
+      input: { Key?: string }
+    })
+    const put = commands.find((command) => command.constructor.name === 'PutObjectCommand')
+    const removed = commands.filter((command) => command.constructor.name === 'DeleteObjectCommand')
+    expect(removed.map((command) => command.input.Key)).toContain(put?.input.Key)
+  })
+
+  it('does not retry it as a first upload', async () => {
+    // Upload, then delete, in commit order: the file being gone is the
+    // delete's outcome, so nothing is filed a second time.
+    await expect(
+      uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x')),
+    ).rejects.toMatchObject({ status: 409 })
+    expect(admitOrDiscard).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('a re-upload whose document is deleted underneath it', () => {
   /**
    * The probe found the document, and a delete committed before the

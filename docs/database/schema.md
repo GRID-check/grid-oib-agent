@@ -293,7 +293,11 @@ thumbnail, ingest, the quota ledger — work unchanged.
 **Columns:** `id`, `organization_id`, `document_id` + `project_id` (composite FK
 to `documents (id, project_id)`, the `documents_folder_id_project_id_fkey`
 shape; `project_id` is NULL for the Archiv and session shelves, where MATCH
-SIMPLE skips the check), `version_number`, `state`, `storage_key`,
+SIMPLE skips the check — and cascades nothing — which is why migration `0094`
+adds the plain `document_versions_document_id_fkey`, `document_id → documents
+(id) ON DELETE CASCADE`, holding on every shelf; a 23503 on either key is an
+upload recording its version for a document deleted first,
+`DocumentDeletedError`, a 409), `version_number`, `state`, `storage_key`,
 `storage_bucket`, `content_type`, `file_size`, `content_hash`,
 `submitted_by`/`_at`, `reviewed_by`/`_at`, `approved_by`/`_at`,
 `published_by`/`_at`, `review_comment`, `created_by`,

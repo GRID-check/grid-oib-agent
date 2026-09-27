@@ -402,6 +402,53 @@ itself teaches nobody what it cost to find them.
     every version with it. The session shelf does not retry; the error is a
     `ConflictError`, so it answers 409 with the object discarded.
 
+17. **A delete after the upload's own write still let the upload finish.** The
+    last window: the row is written and points at the upload's bytes, and a
+    delete commits before `recordUploadedVersion` runs. The lookup missed and
+    the function returned `null`, which no caller read, so the upload
+    dispatched the deleted document for ingest, wrote „document.uploaded" to
+    the trail and answered 200. The project and Archiv uploads now record
+    through `recordUploadedVersionOrDiscard`, which turns that `null` into
+    `DocumentDeletedError` (a 409, `reason: 'deleted_during_upload'`) after
+    discarding the object it was handed, and the upload stops: no version, no
+    ingest, no audit line. The
+    same error covers a delete landing between that lookup and the insert,
+    where the version's foreign key refuses the insert.
+
+    Not retried as a first upload, unlike correction 16, and for the same
+    reason read in the other direction: order by commit. In 16 the delete
+    committed before the upload wrote anything, so the sequence is „delete,
+    then upload" and the upload is a first one. Here the upload's write
+    committed first, so the sequence is „upload, then delete" — the file being
+    gone is the delete's outcome, and re-filing it would undo a decision
+    somebody else made a moment later. The 409 tells the uploader exactly
+    that.
+
+    Closing it found the foreign key missing on two shelves. The only key from
+    a version to its document was 0082's composite `(document_id,
+    project_id)`, which is MATCH SIMPLE: with `project_id` NULL — every Archiv
+    and chat-attachment version — it checks nothing and cascades nothing. So
+    deleting an Archiv document left its version rows behind (correction 16's
+    „the delete took every version with it" was true of the objects, not the
+    rows), and an Archiv upload racing a delete recorded a published version,
+    naming its own object, for a document that was already gone. Migration
+    `0094` adds `document_versions_document_id_fkey`, `document_id →
+    documents (id) ON DELETE CASCADE`, after deleting the orphan rows that
+    already exist; the insert maps a 23503 on either key to the same
+    `DocumentDeletedError`. The session shelf calls the lenient
+    `recordUploadedVersion` directly, which still answers `null` — now also
+    when the foreign key refuses the insert, rather than a 500 — and still
+    carries on after it. Moving it to `recordUploadedVersionOrDiscard`, the
+    strict form the project and Archiv shelves use, is a change in a module
+    this correction did not touch, and it is owed.
+
+    One window stays open and is stated rather than hidden: a delete landing
+    after the version is recorded and before the ingest dispatch. The delete
+    then sees every row and object, so nothing is orphaned in Postgres or the
+    bucket, but a dispatch already in flight can index a document that no
+    longer exists. Closing it needs the dispatch to be conditional on the row,
+    which is the ingest pipeline's contract, not this upload's.
+
 ### What this amends in ADR-0047
 
 ADR-0047's 2026-08-20 addendum says `Zuweisen` is the promotion gesture and that

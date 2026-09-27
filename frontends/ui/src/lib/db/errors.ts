@@ -65,11 +65,27 @@ export const UNIQUE_VIOLATION = '23505'
  * recovery written for the first one would hide it.
  */
 export function isUniqueViolation(error: unknown, constraint?: string): boolean {
+  return violates(error, UNIQUE_VIOLATION, constraint)
+}
+
+/** Postgres' `foreign_key_violation`, spelled once for the same reason. */
+export const FOREIGN_KEY_VIOLATION = '23503'
+
+/**
+ * Is this failure a foreign-key violation — optionally, of ONE named constraint?
+ * The twin of {@link isUniqueViolation}, reading the same cause chain.
+ */
+export function isForeignKeyViolation(error: unknown, constraint?: string): boolean {
+  return violates(error, FOREIGN_KEY_VIOLATION, constraint)
+}
+
+/** Does the error or one of its causes carry `sqlstate` — on `constraint`, if named? */
+function violates(error: unknown, sqlstate: string, constraint: string | undefined): boolean {
   let current: unknown = error
   for (let depth = 0; depth < MAX_DEPTH && current; depth += 1) {
     if (typeof current === 'object' && current !== null && 'code' in current) {
       const { code, constraint_name: name } = current as { code: unknown; constraint_name?: unknown }
-      if (code === UNIQUE_VIOLATION) return constraint === undefined || name === constraint
+      if (code === sqlstate) return constraint === undefined || name === constraint
     }
     current = current instanceof Error ? current.cause : undefined
   }

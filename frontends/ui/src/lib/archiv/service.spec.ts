@@ -13,6 +13,11 @@ vi.mock('@/lib/documents/version-repository', () => ({
     versionNumber: 1,
     ...values,
   })),
+  // The born-published insert every upload records its version with.
+  insertPublishedVersion: vi.fn(async (values: Record<string, unknown>) => ({
+    version: { id: 'version_1', state: 'published', versionNumber: 1, ...values },
+    superseded: [],
+  })),
   listDocumentVersions: vi.fn().mockResolvedValue([]),
   findDocumentVersion: vi.fn().mockResolvedValue(null),
   findPublishedVersion: vi.fn().mockResolvedValue(null),
@@ -81,11 +86,13 @@ vi.mock('@/lib/documents/reconcile-status', () => ({
 // path is the insert path it has always been.
 vi.mock('@/lib/documents/repository', () => ({
   findLiveDocumentByFilename: vi.fn().mockResolvedValue(null),
-  // Read back by `recordUploadedVersion` (ADR-0054) to mirror the row's storage
-  // columns onto version 1. Null is the honest default here: this suite is
-  // about the Archiv upload, and a version for a row it did not stub is not a
-  // fact it should invent.
-  findDocumentInOrg: vi.fn().mockResolvedValue(null),
+  // Read back by `recordUploadedVersion` (ADR-0054) before it records version
+  // 1. The row the upload just wrote: a miss means the document was deleted
+  // mid-upload, which is a 409 of its own (ADR-0054 correction 17), so the
+  // default is the row existing.
+  findDocumentInOrg: vi.fn(async (id: string) =>
+    (await import('@/test-utils/db-fixtures')).makeDocument({ id, projectId: null, scope: 'archiv' }),
+  ),
 }))
 
 vi.mock('@/lib/storage/admission', () => ({
@@ -121,7 +128,7 @@ import { isCoveredByActiveHold } from '@/lib/compliance/repository'
 import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
 import { s3Client } from '@/lib/s3'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
-import { findLiveDocumentByFilename } from '@/lib/documents/repository'
+import { findDocumentInOrg, findLiveDocumentByFilename } from '@/lib/documents/repository'
 import { LiveFilenameTakenError, ReplacedDocumentGoneError } from '@/lib/documents/unique-conflicts'
 import {
   listArchivDocuments,
@@ -469,6 +476,18 @@ describe('deleteArchivDocument', () => {
     expect(inserted?.[2]).toMatchObject({ scope: 'archiv', filename: 'norm.pdf' })
     expect(result.documentId).not.toBe('archiv-deleted')
     expect(result.documentId).toBe(inserted?.[2].id)
+  })
+
+  it('answers 409 and dispatches nothing when the document is deleted before its version is recorded', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValueOnce(null)
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+
+    await expect(uploadArchivDocument(session, makeFile('norm.pdf'), request)).rejects.toMatchObject({
+      status: 409,
+      details: { reason: 'deleted_during_upload' },
+    })
+    expect(dispatchDocument).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
   })
 
   it('makes the loser of two concurrent first uploads a new version of the winner', async () => {

@@ -482,4 +482,58 @@ describe.skipIf(!url)('document versions under concurrency', () => {
     expect(after).toBe(used)
     expect(await versionsOf(doc.id)).toEqual([])
   })
+
+  /** An Archiv row: `project_id` NULL, the shelf the composite key checks nothing on. */
+  async function seedArchivDocument(): Promise<{ id: string; storageKey: string }> {
+    seq += 1
+    const storageKey = `org/${ORG}/archiv/doc/a${seq}/norm-${seq}.pdf`
+    const rows = await inTenant(() =>
+      db.execute<{ id: string }>(sql`
+        INSERT INTO documents
+          (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id)
+        VALUES
+          (${ORG}, ${USER}, ${`norm-${seq}.pdf`}, ${storageKey}, ${`archiv_${ORG}`}, 'uploaded', 'archiv', NULL)
+        RETURNING id
+      `),
+    )
+    return { id: String(Array.from(rows)[0].id), storageKey }
+  }
+
+  it('takes an Archiv document’s versions with it when it is deleted (migration 0094)', async () => {
+    const doc = await seedArchivDocument()
+    await inTenant(() =>
+      repo.insertPublishedVersion({ ...published(doc.id, doc.storageKey), projectId: null }),
+    )
+    expect(await versionsOf(doc.id)).toHaveLength(1)
+
+    await inTenant(() => db.execute(sql`DELETE FROM documents WHERE id = ${doc.id}::uuid`))
+
+    // Before 0094 the row stayed: the composite key is MATCH SIMPLE, and with
+    // project_id NULL it neither checked nor cascaded anything.
+    expect(await versionsOf(doc.id)).toEqual([])
+  })
+
+  it.each([
+    ['a project document', false],
+    ['an Archiv document', true],
+  ])('refuses a version for %s deleted first, as DocumentDeletedError', async (_label, archiv) => {
+    const doc = archiv ? await seedArchivDocument() : await seedDocument()
+    // The upload wrote the row and pointed it at its bytes; a delete commits
+    // before the upload records its version.
+    await inTenant(() => db.execute(sql`DELETE FROM documents WHERE id = ${doc.id}::uuid`))
+
+    const recorded = inTenant(() =>
+      repo.insertPublishedVersion({
+        ...published(doc.id, `${doc.storageKey}.upload`),
+        projectId: archiv ? null : projectId,
+      }),
+    )
+
+    // On the Archiv this used to SUCCEED: a published version, naming the
+    // upload's object, for a document nothing lists — bytes and a row nothing
+    // would ever reach again.
+    await expect(recorded).rejects.toBeInstanceOf(conflicts.DocumentDeletedError)
+    await expect(recorded).rejects.toMatchObject({ status: 409, documentId: doc.id })
+    expect(await versionsOf(doc.id)).toEqual([])
+  })
 })

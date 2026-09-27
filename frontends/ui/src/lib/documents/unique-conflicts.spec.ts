@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ConflictError } from '@/lib/api/errors'
 import {
+  DocumentDeletedError,
   LIVE_NAME_INDEX,
   LiveFilenameTakenError,
   mapDocumentInsertError,
@@ -56,6 +57,22 @@ describe('mapVersionInsertError', () => {
     expect(mapVersionInsertError(other, 'doc_1')).toBe(other)
   })
 
+  it.each(['document_versions_document_id_fkey', 'document_versions_document_id_project_id_fkey'])(
+    'maps a refusal by %s — the document was deleted first — to a 409',
+    (constraint) => {
+      const original = new Error('Failed query: …', {
+        cause: Object.assign(new Error('violates foreign key constraint'), {
+          code: '23503',
+          constraint_name: constraint,
+        }),
+      })
+      const mapped = mapVersionInsertError(original, 'doc_1')
+      expect(mapped).toBeInstanceOf(DocumentDeletedError)
+      expect(mapped).toMatchObject({ status: 409, documentId: 'doc_1', details: { reason: 'deleted_during_upload' } })
+      expect((mapped as Error).cause).toBe(original)
+    },
+  )
+
   it('leaves the published-version index alone', () => {
     const other = violation('uniq_document_versions_published_per_document')
     expect(mapVersionInsertError(other, 'doc_1')).toBe(other)
@@ -88,6 +105,15 @@ describe('retryRacedUpload', () => {
 
     await expect(retryRacedUpload(attempt)).resolves.toBe('as a first upload')
     expect(attempt).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not retry a document deleted after the upload wrote it', async () => {
+    // In commit order that is "upload, then delete": the file being gone is the
+    // delete's outcome, and a retry would re-create what somebody just removed.
+    const attempt = vi.fn<() => Promise<string>>().mockRejectedValue(new DocumentDeletedError('doc_1'))
+
+    await expect(retryRacedUpload(attempt)).rejects.toBeInstanceOf(DocumentDeletedError)
+    expect(attempt).toHaveBeenCalledTimes(1)
   })
 
   it('does not retry any other failure', async () => {

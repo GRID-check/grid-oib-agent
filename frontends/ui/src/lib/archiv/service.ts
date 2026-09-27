@@ -48,7 +48,7 @@ import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
 import { assertNoActiveHold } from '@/lib/compliance/holds'
 import {
   nextVersionNumber,
-  recordUploadedVersion,
+  recordUploadedVersionOrDiscard,
 } from '@/lib/documents/lifecycle'
 import { newVersionWriteId, versionWriteKey } from '@/lib/documents/version-content'
 import type { DocumentListRow } from '@/lib/documents/repository'
@@ -226,7 +226,7 @@ export async function uploadArchivDocument(
   // The version, through the same transition table every other shelf uses
   // (ADR-0054): born `published` and born approved, because the person who
   // uploaded it is the assertion. With the columns THIS request stored.
-  await recordUploadedVersion(session, documentId, request, {
+  await recordUploadedVersionOrDiscard(session, documentId, request, {
     storageKey,
     storageBucket,
     contentType: file.type || null,

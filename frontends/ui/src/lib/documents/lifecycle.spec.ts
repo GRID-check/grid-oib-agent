@@ -103,6 +103,7 @@ vi.mock('./version-content', () => ({
   renderVersionBytes: vi.fn(),
   writeVersionContent: vi.fn(),
 }))
+vi.mock('@/lib/storage/discard', () => ({ discardObject: vi.fn() }))
 vi.mock('@/lib/s3', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/s3')>()),
   s3Client: { send: vi.fn() },
@@ -110,6 +111,8 @@ vi.mock('@/lib/s3', async (importOriginal) => ({
 }))
 
 import { getAccessibleDocument } from './access'
+import { findDocumentInOrg } from './repository'
+import { discardObject } from '@/lib/storage/discard'
 import { purgeIngestedChunks } from './collection-file-ref'
 import { dispatchDocument } from './service'
 import { resolvePeople } from '@/lib/sharing/directory'
@@ -132,10 +135,12 @@ import {
   promoteVersionToPublished,
 } from './version-repository'
 import { renderVersionBytes, writeVersionContent } from './version-content'
-import { OpenVersionExistsError } from './unique-conflicts'
+import { DocumentDeletedError, OpenVersionExistsError } from './unique-conflicts'
 import {
   createDocumentVersion,
   forkDraftVersion,
+  recordUploadedVersion,
+  recordUploadedVersionOrDiscard,
   replaceVersionContent,
   transitionDocumentVersion,
 } from './lifecycle'
@@ -1068,6 +1073,60 @@ describe('forkDraftVersion', () => {
         storageKey: 'org/org_1/project/proj_1/doc/doc_1/v2/plan.md',
       }),
     )
+  })
+})
+
+describe('recordUploadedVersionOrDiscard', () => {
+  const stored = {
+    storageKey: 'org/org_1/project/proj_1/doc/doc_1/v2/abcdef012345/plan.pdf',
+    storageBucket: null,
+    contentType: 'application/pdf',
+    fileSize: 1234,
+    contentHash: 'sha256:new',
+  }
+
+  it('refuses with a 409 and takes the stored object back when the document is already gone', async () => {
+    // The upload wrote the row; a delete committed before this looked.
+    vi.mocked(findDocumentInOrg).mockResolvedValueOnce(null)
+
+    await expect(recordUploadedVersionOrDiscard(session, 'doc_1', undefined, stored)).rejects.toBeInstanceOf(
+      DocumentDeletedError,
+    )
+    expect(discardObject).toHaveBeenCalledWith(expect.any(String), stored.storageKey)
+    expect(insertPublishedVersion).not.toHaveBeenCalled()
+    // Nothing downstream of a version happens for a document that is gone.
+    expect(dispatchDocument).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('does the same when the delete lands between the lookup and the insert', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValueOnce(document)
+    vi.mocked(insertPublishedVersion).mockRejectedValueOnce(new DocumentDeletedError('doc_1'))
+
+    await expect(recordUploadedVersionOrDiscard(session, 'doc_1', undefined, stored)).rejects.toMatchObject({
+      status: 409,
+      details: { reason: 'deleted_during_upload' },
+    })
+    expect(discardObject).toHaveBeenCalledWith(expect.any(String), stored.storageKey)
+  })
+
+  it('lets any other failure through without discarding a byte', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValueOnce(document)
+    const boom = new Error('boom')
+    vi.mocked(insertPublishedVersion).mockRejectedValueOnce(boom)
+
+    await expect(recordUploadedVersionOrDiscard(session, 'doc_1', undefined, stored)).rejects.toBe(boom)
+    expect(discardObject).not.toHaveBeenCalled()
+  })
+
+  it('leaves the lenient form returning null for the shelf that reads no answer', async () => {
+    // The session shelf still calls `recordUploadedVersion` directly; the new
+    // foreign key must not turn its race into a 500.
+    vi.mocked(findDocumentInOrg).mockResolvedValueOnce(document)
+    vi.mocked(insertPublishedVersion).mockRejectedValueOnce(new DocumentDeletedError('doc_1'))
+
+    await expect(recordUploadedVersion(session, 'doc_1', undefined, stored)).resolves.toBeNull()
+    expect(discardObject).not.toHaveBeenCalled()
   })
 })
 

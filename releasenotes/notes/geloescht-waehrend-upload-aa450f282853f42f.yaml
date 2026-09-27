@@ -1,0 +1,11 @@
+---
+fixes:
+  - >
+    Wird eine Datei gelöscht, unmittelbar nachdem jemand sie in ein Projekt
+    oder ins Archiv hochgeladen hat, meldet der Upload jetzt, dass die Datei
+    inzwischen gelöscht wurde. Bisher meldete er Erfolg und schickte die
+    gelöschte Datei trotzdem noch zur Indexierung.
+  - >
+    Beim Löschen eines Dokuments aus dem Archiv oder eines Chat-Anhangs
+    verschwindet jetzt auch sein Versionsverlauf. Bisher blieben dessen
+    Einträge im Hintergrund bestehen.

@@ -58,7 +58,9 @@ import { collectionFileRef, purgeIngestedChunks } from './collection-file-ref'
 import { documentDisplayName } from './display-name'
 import { findDocumentInOrg, findFolderPathInProject } from './repository'
 import { listReviewCandidates, resolveReviewers } from './reviewers'
-import { OpenVersionExistsError } from './unique-conflicts'
+import { DocumentDeletedError, OpenVersionExistsError } from './unique-conflicts'
+import { discardObject } from '@/lib/storage/discard'
+import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import {
   BACKEND_PURGE_TIMEOUT_MS,
   readVersionContent,
@@ -1124,31 +1126,74 @@ export async function replaceVersionContent(
  * KEEPS ITS OBJECT — which is why the callers no longer call
  * `discardSupersededObjects`. That was correct while a document had one set of
  * bytes; with a history it deletes the object a row still names.
+ *
+ * ## A delete that lands after the upload's write
+ *
+ * The row was written a moment ago, and somebody can delete it before this
+ * runs: the lookup below misses, or — between the lookup and the insert — the
+ * version's foreign key refuses the insert (`DocumentDeletedError` from the
+ * repository). Either way this returns `null` and records nothing. A caller
+ * that has bytes in flight must not carry on as if a version existed: use
+ * {@link recordUploadedVersionOrDiscard}, which turns the `null` into a 409.
  */
 export async function recordUploadedVersion(
   session: AuthorizedSession,
   documentId: string,
   request?: Request,
-  stored?: Pick<
-    DocumentVersion,
-    'storageKey' | 'storageBucket' | 'contentType' | 'fileSize' | 'contentHash'
-  >,
+  stored?: UploadedBytes,
 ): Promise<DocumentVersion | null> {
   const document = await findDocumentInOrg(documentId, session.organizationId)
-  // The upload wrote the row a moment ago; a miss means somebody deleted it in
-  // between, and inventing a version for a document that is gone helps nobody.
   if (!document) return null
   const bytes = stored ?? document
-  return createDocumentVersion(session, {
-    document,
-    op: 'upload',
-    storageKey: bytes.storageKey,
-    storageBucket: bytes.storageBucket,
-    contentType: bytes.contentType,
-    fileSize: bytes.fileSize,
-    contentHash: bytes.contentHash,
-    request,
-  })
+  try {
+    return await createDocumentVersion(session, {
+      document,
+      op: 'upload',
+      storageKey: bytes.storageKey,
+      storageBucket: bytes.storageBucket,
+      contentType: bytes.contentType,
+      fileSize: bytes.fileSize,
+      contentHash: bytes.contentHash,
+      request,
+    })
+  } catch (error) {
+    if (error instanceof DocumentDeletedError) return null
+    throw error
+  }
+}
+
+/** The columns an upload stored, which its version must describe. */
+type UploadedBytes = Pick<
+  DocumentVersion,
+  'storageKey' | 'storageBucket' | 'contentType' | 'fileSize' | 'contentHash'
+>
+
+/**
+ * {@link recordUploadedVersion}, for an upload that must stop when its document
+ * is gone — the project and Archiv shelves.
+ *
+ * A `null` there used to be read by nobody: the upload dispatched the deleted
+ * document for ingest, wrote „document.uploaded" and answered 200. Here it
+ * discards `stored`'s object and throws `DocumentDeletedError` (a 409,
+ * `deleted_during_upload`), so nothing downstream runs (ADR-0054 correction
+ * 17). The delete usually took the object already — it ran after this upload
+ * pointed the row at it — but not when it read the row before the upload's
+ * write committed, and then nothing else will ever name these bytes. Deleting a
+ * missing key is a no-op.
+ *
+ * Not a retry: the upload's write committed before the delete, so in commit
+ * order the file being gone is the delete's outcome.
+ */
+export async function recordUploadedVersionOrDiscard(
+  session: AuthorizedSession,
+  documentId: string,
+  request: Request | undefined,
+  stored: UploadedBytes,
+): Promise<DocumentVersion> {
+  const version = await recordUploadedVersion(session, documentId, request, stored)
+  if (version) return version
+  await discardObject(resolveDocumentBucket(stored.storageBucket), stored.storageKey)
+  throw new DocumentDeletedError(documentId)
 }
 
 /** The version number the next upload of this document will be. */

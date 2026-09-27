@@ -85,9 +85,11 @@ export const documentVersions = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     organizationId: text('organization_id').notNull(),
     /**
-     * The item. NOT an inline `.references()`: the real constraint is composite
-     * on `(document_id, project_id)`, the `documents_folder_id_project_id_fkey`
-     * shape, so a version cannot be filed against another tenant's document.
+     * The item, under TWO foreign keys (declared in the table's extras below).
+     * The composite `(document_id, project_id)` one, the
+     * `documents_folder_id_project_id_fkey` shape, binds the project so a version
+     * cannot be filed against another project's document. The plain one
+     * (migration 0094) binds existence, on every shelf — see `projectId`.
      */
     documentId: uuid('document_id').notNull(),
     /**
@@ -95,8 +97,11 @@ export const documentVersions = pgTable(
      * row-level-security predicate can both use it. NULL for the two shelves
      * that have no project — the org-wide Archiv and a conversation's private
      * attachments — exactly as `documents.project_id` is NULL for them. The
-     * composite key is MATCH SIMPLE, so it skips the check when this is NULL,
-     * which is precisely the case with no project to validate.
+     * composite key is MATCH SIMPLE, so with this NULL it checks NOTHING — not
+     * that the document exists, and on delete it cascades nothing either. That
+     * once let an Archiv version outlive its document and be inserted for one
+     * already deleted; `document_versions_document_id_fkey` (0094) is why it
+     * cannot any more.
      */
     projectId: uuid('project_id'),
     /** 1, 2, 3 … within one document. Human-facing; not an id. */
@@ -193,6 +198,12 @@ export const documentVersions = pgTable(
       name: 'document_versions_document_id_project_id_fkey',
       columns: [table.documentId, table.projectId],
       foreignColumns: [documents.id, documents.projectId],
+    }).onDelete('cascade'),
+    /** Existence, on every shelf: the composite key above checks nothing when `project_id` is NULL (migration 0094). */
+    documentFk: foreignKey({
+      name: 'document_versions_document_id_fkey',
+      columns: [table.documentId],
+      foreignColumns: [documents.id],
     }).onDelete('cascade'),
     stateKnown: check('document_versions_state_known', sql`${table.state} IN (${STATE_LIST})`),
     /** Two hands, and no third: see the column (migration 0085). */

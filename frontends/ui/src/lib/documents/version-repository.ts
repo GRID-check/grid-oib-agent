@@ -101,7 +101,8 @@ export async function allocateVersionNumber(
  * its one draft first. The per-document lock serializes the two inserts, so the
  * loser meets the winner's COMMITTED row and is refused at once. No other 23505
  * is mapped — one on the version-number key means a path skipped the lock, and
- * that must stay a 500.
+ * that must stay a 500. A version for a document deleted first is refused by
+ * its foreign key and thrown as `DocumentDeletedError`.
  */
 export async function insertDocumentVersion(
   values: NewDocumentVersionValues,
@@ -183,6 +184,10 @@ export async function insertPublishedVersion(
       )
 
     return { version, superseded }
+  }).catch((error: unknown) => {
+    // A document deleted before this insert is refused by the version's
+    // foreign key and reads as `DocumentDeletedError`; nothing else is mapped.
+    throw mapVersionInsertError(error, values.documentId)
   })
 }
 

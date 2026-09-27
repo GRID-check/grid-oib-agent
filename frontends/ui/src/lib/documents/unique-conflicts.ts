@@ -18,14 +18,16 @@
  * first one; `forkDraftVersion` re-reads the winner for the second. The third
  * error here, {@link ReplacedDocumentGoneError}, is no index at all: a
  * re-upload whose document was deleted underneath it, answered by the same
- * retry.
+ * retry. {@link DocumentDeletedError} is the last window: a delete that lands
+ * after the upload's own write, before its version is recorded — a 409, not
+ * retried.
  *
  * No `server-only` and no drizzle: the two repositories import this, and the
  * unit specs construct the errors directly.
  */
 
 import { ConflictError } from '@/lib/api/errors'
-import { isUniqueViolation } from '@/lib/db/errors'
+import { isForeignKeyViolation, isUniqueViolation } from '@/lib/db/errors'
 
 export const LIVE_NAME_INDEX = 'uniq_documents_live_name_per_collection'
 export const OPEN_VERSION_INDEX = 'uniq_document_versions_open_per_document'
@@ -53,11 +55,44 @@ export function mapDocumentInsertError(error: unknown, filename: string): unknow
     : error
 }
 
+/**
+ * The two foreign keys a version holds on its document. The composite one binds
+ * the project and is MATCH SIMPLE, so it checks nothing when `project_id` is
+ * NULL (the Archiv and session shelves); the plain one (migration 0094) holds
+ * for every shelf. Either names a document that is gone.
+ */
+export const VERSION_DOCUMENT_FKS = [
+  'document_versions_document_id_fkey',
+  'document_versions_document_id_project_id_fkey',
+] as const
+
+/**
+ * The document a version was being recorded for was deleted first.
+ *
+ * Thrown by the version inserts on a foreign-key refusal, and by
+ * `recordUploadedVersion` when the document is already gone when it looks.
+ * Not retried: the delete committed AFTER the upload's own write, so in commit
+ * order this is "upload, then delete", and the file being gone is the delete's
+ * outcome — re-creating it would undo a decision somebody else just made.
+ */
+export class DocumentDeletedError extends ConflictError {
+  constructor(readonly documentId: string, options?: { cause?: unknown }) {
+    super('The file was deleted while this upload was being recorded', {
+      reason: 'deleted_during_upload',
+    })
+    if (options?.cause !== undefined) this.cause = options.cause
+  }
+}
+
 /** The mapped error for an insert into `document_versions`, or the original. */
 export function mapVersionInsertError(error: unknown, documentId: string): unknown {
-  return isUniqueViolation(error, OPEN_VERSION_INDEX)
-    ? new OpenVersionExistsError(documentId, { cause: error })
-    : error
+  if (isUniqueViolation(error, OPEN_VERSION_INDEX)) {
+    return new OpenVersionExistsError(documentId, { cause: error })
+  }
+  if (VERSION_DOCUMENT_FKS.some((name) => isForeignKeyViolation(error, name))) {
+    return new DocumentDeletedError(documentId, { cause: error })
+  }
+  return error
 }
 
 /**
