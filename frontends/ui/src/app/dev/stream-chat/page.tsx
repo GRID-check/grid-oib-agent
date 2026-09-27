@@ -28,9 +28,12 @@
  * the chat and the composer alone. `fixture` picks the recorded answer
  * (`varianten`, the default, or `oib2`), and `repeat=N` streams its prose N
  * times over, as one answer N times as long: what a reveal step costs must
- * not grow with the length of the answer. Each commit carries React's `start`
- * and commit (`at`) time, and `completeAt` is when the terminal frame landed.
- * Development only.
+ * not grow with the length of the answer. `steps=N` gives the turn N
+ * Herleitung steps when the question is sent, so the Herleitung is open while
+ * the answer streams and its collapse can be watched. Each commit carries
+ * React's `start` and commit (`at`) time, `completeAt` is when the terminal
+ * frame landed, and `settledAt` when the answer had finished revealing it and
+ * settled (`answer-reveal-store.ts`). Development only.
  */
 
 import { Profiler, useEffect, useState, type ProfilerOnRenderCallback } from 'react'
@@ -42,6 +45,7 @@ import { ChatArea } from '@/features/layout/components'
 import { InputArea } from '@/features/layout/components/InputArea'
 import { MainLayout } from '@/features/layout'
 import { useChatStore } from '@/features/chat'
+import { useAnswerRevealStore } from '@/features/chat/stores/answer-reveal-store'
 import type { ChatMessage, Conversation } from '@/features/chat/types'
 import { citationsFromWireList } from '@/features/chat/lib/wire-citation'
 import { validateGridCards } from '@/shared/cards/schemas'
@@ -59,6 +63,7 @@ interface StreamChatProbe {
   sentAt: number
   firstFrameAt: number
   completeAt: number
+  settledAt: number
   commits: { id: string; ms: number; start: number; at: number }[]
   storageWrites: number
   storageMs: number
@@ -217,6 +222,10 @@ const replay = (
         if (index === 0) onFirstFrame()
         const citations = citationsFromWireList(frame.sources)
         if (frame.status === 'complete') {
+          // Recorded first: an answer that settles at once (a rewrite, a
+          // hidden page) clears its reveal inside these updates, and the
+          // settle probe only counts a clear that follows `completeAt`.
+          onComplete()
           store().finalizeAgentResponse(
             frame.content,
             undefined,
@@ -225,7 +234,6 @@ const replay = (
           )
           store().setStreaming(false)
           store().setLoading(false)
-          onComplete()
         } else if (frame.stream_replace) {
           store().replaceStreamingAgentResponse(frame.content, citations)
         } else if (frame.content) {
@@ -254,6 +262,7 @@ export default function StreamChatPage() {
   const shell = params.get('shell') === '1'
   const fixture = params.get('fixture') === 'oib2' ? 'oib2' : 'varianten'
   const repeat = Math.max(1, Math.floor(Number(params.get('repeat') ?? '1')) || 1)
+  const steps = Math.max(0, Math.floor(Number(params.get('steps') ?? '0')) || 0)
   const [turn] = useState(() => lengthened(STREAM_FRAMES[fixture], repeat))
   const extras = params.get('extras') === '1'
   const [probe] = useState<StreamChatProbe>(() => ({
@@ -261,6 +270,7 @@ export default function StreamChatPage() {
     sentAt: 0,
     firstFrameAt: 0,
     completeAt: 0,
+    settledAt: 0,
     commits: [],
     storageWrites: 0,
     storageMs: 0,
@@ -300,6 +310,11 @@ export default function StreamChatPage() {
       for (const entry of list.getEntries()) probe.longTasks.push(Math.round(entry.duration))
     })
     observer.observe({ type: 'longtask', buffered: false })
+    const unsubscribeReveal = useAnswerRevealStore.subscribe((state, prev) => {
+      if (probe.completeAt > 0 && prev.revealingId !== null && state.revealingId === null) {
+        probe.settledAt = performance.now()
+      }
+    })
     const timers: number[] = []
     const later = (run: () => void, ms: number) => timers.push(window.setTimeout(run, ms))
     later(() => {
@@ -307,6 +322,16 @@ export default function StreamChatPage() {
       store.addUserMessage(turn.question)
       store.setLoading(true)
       store.setStreaming(true)
+      for (let i = 0; i < steps; i++) {
+        store.addThinkingStep({
+          category: 'tools',
+          functionName: 'knowledge_retrieval',
+          displayName: `Recherche ${i + 1}`,
+          content: '',
+          isComplete: true,
+          isTopLevel: true,
+        })
+      }
       probe.commits = []
       probe.storageWrites = 0
       probe.storageMs = 0
@@ -324,9 +349,10 @@ export default function StreamChatPage() {
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer))
       observer.disconnect()
+      unsubscribeReveal()
       restoreStorage()
     }
-  }, [ready, probe, speed, sendDelay, turn])
+  }, [ready, probe, speed, sendDelay, turn, steps])
 
   return (
     <I18nProvider initialLocale="de" fixedLocale>

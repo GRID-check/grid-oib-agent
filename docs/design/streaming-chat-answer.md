@@ -398,11 +398,32 @@ arrived, the answer lurched forward a sentence at a time. Since 2026-09 it is
 shown at a steady pace a beat behind what has arrived (`usePacedText`, rules
 in `features/chat/lib/stream-pace.ts`):
 
-- The reveal aims to sit `TARGET_LAG_MS` (450 ms) behind the arrivals, never
+- The reveal aims to sit `TARGET_LAG_MS` (1.2 s) behind the arrivals, never
   slower than `MIN_CHARS_PER_SECOND`, and never holds text back longer than
-  `MAX_LAG_MS` (1.2 s).
-- It steps every `PACE_TICK_MS` (50 ms), not every frame: each step re-parses
-  the Markdown block that grew, and a phone pays for that per step.
+  `MAX_LAG_MS` (2.5 s). Long enough that a burst is paid out at one rate
+  rather than the reveal speeding up and stalling. Simulated over both
+  recorded answers, targets from 1.0 to 1.5 s and ceilings from 2 to 3 s
+  differ little: the stalls that remain (0.6 s at most) are the model's own
+  pauses. 1.2 s had the steadiest rate. 1.5 s left twice the text for the
+  finish (below).
+- It is clocked by animation frames but commits only when the cut moves to
+  the next word gap, so a word appears whole and the Markdown block that grew
+  is re-parsed once per word, about 24 times a second on the recorded answer,
+  as often as the 50 ms tick it replaced. The rate's carried-over credit
+  always reaches the next word: capped at 200 ms of a slow rate, it could not
+  reach „erforderlich, " and the reveal stalled until the ceiling dumped it.
+- The newest words come out of a short gradient that trails the caret, drawn
+  in the card's colour (`StreamingCaret`'s `veil`): each word starts faint and
+  darkens as the next ones push it out. It moves with the caret and animates
+  nothing. A fade per word (a span per word, each playing an opacity and 2 px
+  lift entrance once, keyed so a shown word kept its DOM node) was built and
+  measured first: on the prose-heavy recorded answer at 390 px with a 4×
+  throttle it took fps from 57 to 45–49, long tasks from 4 to 7–10 and main
+  thread from 580 to 780 ms/s, because each word is a compositor layer
+  painted twice. With `display` animated in the keyframes the compositor
+  could not run it at all (165 paints/s against 105); as an inline opacity
+  fade it painted every frame (330/s). The veil keeps fps at 57–58, long
+  tasks at 2–4 and main thread at 550 ms/s (2026-09).
 - It cuts only at a word gap outside an open `**`, link, code span, fence or
   table row; a table row appears whole. A store flush boundary is not a clean
   cut: a recorded first delta was `**Die Außentreppe ist in GK 4 in A2`, and
@@ -417,17 +438,47 @@ in `features/chat/lib/stream-pace.ts`):
   again: 1086 → 391 characters on the phone, and CLS in the answer phase
   0.16 → 1.19 (stream audit, 2026-09). A spec replays both recorded answers
   through the hook and fails if the shown text ever shrinks.
-- A finished answer is never paced. The terminal is authoritative and is
-  shown whole the moment it lands, so the answer settles in the same frame
-  as the reasoning collapses; a drain after the terminal made the end of the
-  turn jump twice (CLS after completion on the phone 0.02 → 0.59).
-  `AgentResponse` gates its caret, footer and whole-answer actions on
-  `isStreaming` alone.
+- Only the prose is paced. A written `## Quellen` section is lifted into the
+  source rows and never drawn as text (`proseLength`), so it joins the text
+  once the prose is all shown. Pacing it held the end of the turn back by
+  half a second after the last visible word.
 
-Measured on the recorded answer (production build, 390 px, 4× throttle): the
-visible text grows in steps of 15 characters every 50 ms (median) where it
-used to grow in 25-character steps every 83 ms with gaps up to 400 ms, and
-long tasks during the answer fell from 9–12 to 4–7.
+**The end of the turn is one step.** With more than a second held back,
+showing the terminal whole would be a visible jump, and draining it at the
+streaming rate after the reasoning had collapsed made the end jump twice
+(CLS after completion on the phone 0.02 → 0.59, removed in #772). So:
+
+1. When the terminal lands, the text still held back is finished in 300–500
+   ms (`finishCut`, `finishDuration`: longer for more text, fast at first and
+   easing into the end, at clean word gaps). The caret fades out meanwhile.
+   A terminal that does not continue what is shown (a rewrite, a shorter
+   text) is shown whole at once, never typed again.
+2. Only when all of it is on screen is the answer `settled`, and everything
+   that belongs to a finished answer follows that, not `isStreaming`: the
+   caret goes, the footer and the unplaced cards come, the citation chips
+   turn real, and the Herleitung collapses. The Herleitung lives in
+   `ChatArea`, outside the answer, so the answer publishes that it is still
+   revealing (`stores/answer-reveal-store.ts`) and `ChatArea` keeps the turn
+   live until it stops.
+3. A hidden page gets no animation frames, so a turn that ends while the page
+   is hidden, or is hidden during the finish, settles at once; a timer
+   settles it if the frames stop for any other reason (`SETTLE_GRACE_MS`).
+
+Specs: `use-paced-text.spec.ts` (settles only with the last word, settles
+once, the hidden-page and timer fallbacks, and the recorded answers never
+shrink and land whole at the end of the finish), `AgentResponse.settle.spec.tsx`
+(the copy action and the reveal signal change in the frame the text is
+complete, and the signal fires once), `ChatArea.spec.tsx` (the Herleitung
+stays live until the answer has settled), and
+`streaming-markdown-equivalence.spec.tsx` (what is already shown keeps its DOM
+nodes through a reveal step).
+
+Measured on both recorded answers (production build, 390×844, 4× throttle,
+against the block-parsing renderer before this change): the answer settles
+70–100 ms after the terminal; CLS after completion is unchanged (0.18–0.20 on
+`varianten`, 0.59–0.69 on `oib2`, where it comes from the card placeholder
+leaving and the Herleitung's height animation, both at the settle); fps,
+long tasks and main-thread time are within run-to-run noise of before.
 
 This is not the typewriter below. That one simulated a latency the system
 did not have, over text that was already finished; this one smooths a

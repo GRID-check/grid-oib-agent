@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  FINISH_MAX_MS,
+  FINISH_MIN_MS,
   MAX_LAG_MS,
-  PACE_TICK_MS,
   advancePace,
+  finishCut,
+  finishDuration,
   furthestCleanCut,
   initialPace,
   isCleanCut,
@@ -12,13 +15,16 @@ import {
   type PaceState,
 } from './stream-pace'
 
-/** Tick the pace for `ms` in `PACE_TICK_MS` steps; returns the shown lengths after each. */
+/** One animation frame at 60 Hz, the step the reveal's clock takes. */
+const FRAME_MS = 16
+
+/** Step the pace for `ms` in `FRAME_MS` steps; returns the shown lengths after each. */
 const run = (state: PaceState, text: string, ms: number, start = 0) => {
   const shown: number[] = []
   let now = start
-  for (let t = 0; t < ms; t += PACE_TICK_MS) {
-    now += PACE_TICK_MS
-    state = advancePace(state, text, PACE_TICK_MS, now)
+  for (let t = 0; t < ms; t += FRAME_MS) {
+    now += FRAME_MS
+    state = advancePace(state, text, FRAME_MS, now)
     shown.push(state.shown)
   }
   return { state, shown }
@@ -99,14 +105,14 @@ describe('advancePace', () => {
 
   it('never holds text back longer than the ceiling', () => {
     const start = noteArrival(initialPace(0), PROSE.length, 0)
-    const { state } = run(start, PROSE, MAX_LAG_MS + PACE_TICK_MS)
+    const { state } = run(start, PROSE, MAX_LAG_MS + FRAME_MS)
     expect(state.shown).toBe(PROSE.length)
   })
 
   it('shows the first clean cut at once rather than a target lag later', () => {
     const text = 'Die Außentreppe ist in GK 4 zulässig. '
     const start = noteArrival(initialPace(0), text.length, 0)
-    const { shown } = run(start, text, PACE_TICK_MS)
+    const { shown } = run(start, text, FRAME_MS)
     expect(shown[0]).toBe(nextCleanCut(text, 0))
   })
 
@@ -114,7 +120,7 @@ describe('advancePace', () => {
     // The recorded first delta of a real answer.
     const text = '**Die Außentreppe ist in GK 4 in A2'
     const start = noteArrival(initialPace(0), text.length, 0)
-    const { shown } = run(start, text, PACE_TICK_MS)
+    const { shown } = run(start, text, FRAME_MS)
     expect(shown[0]).toBe('**Die '.length)
   })
 
@@ -134,5 +140,55 @@ describe('advancePace', () => {
     const start = noteArrival(initialPace(0), text.length, 0)
     const { shown } = run(start, text, 1000)
     for (const n of shown) expect(isCleanCut(text.slice(0, n)) || n === text.length).toBe(true)
+  })
+})
+
+describe('the reveal, frame by frame', () => {
+  it('moves a word at a time: every shown length is a word gap or the end', () => {
+    const start = noteArrival(initialPace(0), PROSE.length, 0)
+    const { shown } = run(start, PROSE, MAX_LAG_MS)
+    const steps = shown.filter((n, i) => n !== (shown[i - 1] ?? 0))
+    expect(steps.length).toBeGreaterThan(10)
+    for (const n of steps) expect(n === PROSE.length || /\s/.test(PROSE[n - 1]!)).toBe(true)
+  })
+
+  it('reaches a word longer than a moment of its rate instead of stalling until the ceiling', () => {
+    // At the slowest rate 200 ms of credit is 9 characters; each word is longer.
+    const text = 'Die Brandschutzanforderungen, Fluchtwegslängen und Gebäudeklassenbestimmungen gelten. '
+    const start = noteArrival(initialPace(0), text.length, 0)
+    const { shown } = run(start, text, MAX_LAG_MS / 2)
+    expect(new Set(shown.filter((n) => n > 'Die '.length)).size).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('finishCut', () => {
+  const from = 'Ein zweiter Fluchtweg '.length
+
+  it('takes longer for more text, within its bounds', () => {
+    expect(finishDuration(0)).toBe(FINISH_MIN_MS)
+    expect(finishDuration(100)).toBeGreaterThan(FINISH_MIN_MS)
+    expect(finishDuration(100_000)).toBe(FINISH_MAX_MS)
+  })
+
+  it('reveals the rest at clean word gaps, never back, and all of it at the end', () => {
+    const duration = finishDuration(PROSE.length - from)
+    let shown = from
+    const seen: number[] = []
+    for (let t = 0; t < duration; t += FRAME_MS) {
+      const next = finishCut(PROSE, from, shown, t, duration)
+      expect(next).toBeGreaterThanOrEqual(shown)
+      shown = next
+      seen.push(shown)
+    }
+    expect(finishCut(PROSE, from, shown, duration, duration)).toBe(PROSE.length)
+    const partial = seen.filter((n) => n > from && n < PROSE.length)
+    expect(partial.length).toBeGreaterThan(3)
+    for (const n of partial) expect(isCleanCut(PROSE.slice(0, n)) && /\s/.test(PROSE[n - 1]!)).toBe(true)
+  })
+
+  it('is fast at first and eases into the end', () => {
+    const duration = finishDuration(PROSE.length - from)
+    const half = finishCut(PROSE, from, from, duration / 2, duration)
+    expect(half - from).toBeGreaterThan((PROSE.length - from) / 2)
   })
 })

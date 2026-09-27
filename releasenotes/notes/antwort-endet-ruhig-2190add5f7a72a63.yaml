@@ -1,0 +1,8 @@
+---
+improvements:
+  - >
+    An answer now appears word by word at a steady pace, each new word emerging
+    softly from a short fade behind the cursor. When the answer is finished,
+    its last words follow quickly and only then do the reasoning panel fold
+    away and the actions below the answer appear, in one step instead of
+    several jumps.

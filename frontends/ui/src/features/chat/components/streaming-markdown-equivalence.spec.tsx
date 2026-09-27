@@ -237,4 +237,27 @@ describe('a reveal step', () => {
     rerender(<MarkdownRenderer content={`${blocks.join('\n\n')} Absatz wächst`} isStreaming remarkPlugins={counting} />)
     expect(parses).toBe(1)
   })
+
+  // What is already on screen keeps its DOM nodes through the next step, the
+  // growing paragraph's included: nothing shown is remounted, so nothing shown
+  // replays an entrance, loses a selection or flickers.
+  it.each(RECORDED)('keeps the DOM nodes of the recorded %s answer that are already shown', (name) => {
+    const { body } = splitAnswerBody(STREAM_FRAMES[name].frames.at(-1)!.content)
+    // A point in the second half of the answer followed by three plain words
+    // on the same line: the steps a reveal takes through running prose.
+    const words = /(?<= )[\p{L}\p{N},.;:-]+ [\p{L}\p{N},.;:-]+ [\p{L}\p{N},.;:-]+ /gu
+    const match = [...body.matchAll(words)].find((m) => m.index! > body.length / 2)!
+    const start = match.index!
+    const steps = [...match[0].matchAll(/ /g)].map((space) => start + space.index! + 1)
+    const view = (length: number) => <MarkdownRenderer content={body.slice(0, length)} isStreaming compact />
+    const { container, rerender } = render(view(start))
+    const walker = document.createTreeWalker(container.querySelector('.markdown-content')!)
+    const shown: Node[] = []
+    while (walker.nextNode()) shown.push(walker.currentNode)
+    expect(shown.length).toBeGreaterThan(3)
+    for (const step of steps) {
+      rerender(view(step))
+      for (const node of shown) expect(node.isConnected).toBe(true)
+    }
+  })
 })

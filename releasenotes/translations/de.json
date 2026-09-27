@@ -396,6 +396,10 @@
     "de": "Eine Antwort geht nicht mehr verloren, wenn die Verbindung kurz abreißt, etwa wenn Sie auf dem iPhone die App wechseln oder das Telefon sperren. Sobald Sie zurück sind, erscheint der Rest der Antwort, auch nach einem Neuladen."
   },
   {
+    "en": "An answer now appears word by word at a steady pace, each new word emerging softly from a short fade behind the cursor. When the answer is finished, its last words follow quickly and only then do the reasoning panel fold away and the actions below the answer appear, in one step instead of several jumps.",
+    "de": "Eine Antwort erscheint jetzt Wort für Wort in gleichmäßigem Tempo, und jedes neue Wort taucht weich aus einem kurzen Verlauf hinter dem Cursor auf. Ist die Antwort fertig, folgen die letzten Wörter zügig, und erst dann klappt die Herleitung zu und erscheinen die Aktionen unter der Antwort, in einem Schritt statt in mehreren Sprüngen."
+  },
+  {
     "en": "An answer that touches several documents cites several again. A single PDF could fill every evidence slot of an answer.",
     "de": "Eine Antwort, die mehrere Dokumente berührt, stützt sich wieder auf mehrere. Bisher konnte ein einzelnes PDF alle Belegplätze einer Antwort füllen."
   },
