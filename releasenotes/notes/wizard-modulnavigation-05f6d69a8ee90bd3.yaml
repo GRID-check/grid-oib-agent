@@ -1,20 +1,14 @@
 ---
 features:
   - >
-    Der Projekt-Assistent hat eine durchgehende Modulübersicht: alle Module
-    stehen mit vollem Namen daneben, jedes zeigt, wie viele Angaben schon
-    gemacht sind, und Sie springen jederzeit dorthin, wo Sie gerade
-    weiterarbeiten wollen.
+    The project wizard lists all its modules by full name beside the questions,
+    each with how many answers it already has, and you can jump to any of them.
   - >
-    Neu ist der Schnellstart: er zeigt nur die Kernfragen. Alles Übrige wird
-    als „offen“ übernommen und in der Zusammenfassung als offener Punkt
-    gelistet, sodass Sie es später gezielt ergänzen können. Pro Modul können
-    Sie den Rest auch einzeln überspringen.
+    The new quick start asks only the core questions and records everything else
+    as open, listed in the summary so you can fill it in later.
 upgrade:
   - >
-    Der Fragebogen ist auf den aktuellen Stand gebracht. Die Fragen zum
-    Bestand — Baujahr, Denkmalschutz, Eingriff ins Tragwerk, Umfang der
-    Sanierung — gehören jetzt zum jeweiligen Bauwerk statt zum ganzen Projekt
-    und stehen dort neben dem Zielzustand. Bestehende Projekte mit genau einem
-    Bauwerk übernehmen ihre bisherigen Angaben automatisch; bei mehreren
-    Bauwerken ordnen Sie sie einmalig zu.
+    Questions about the existing building, such as year of construction,
+    heritage protection and structural work, now belong to each building rather
+    than to the whole project. Projects with one building keep their answers;
+    with several, you assign them once.

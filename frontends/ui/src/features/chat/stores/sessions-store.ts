@@ -1,10 +1,8 @@
 import { v4 as uuidv4 } from 'uuid'
 import { getActiveLocale } from '@/i18n'
-import { createJSONStorage, type StorageValue, type PersistStorage } from 'zustand/middleware'
 import type { StateCreator } from 'zustand'
 import type {
   ChatStore,
-  ChatState,
   Conversation,
   ChatMessage,
   PendingInteraction,
@@ -14,17 +12,12 @@ import type {
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
 import { discardSessionDocumentsResources } from '@/features/documents/discard-session-resources'
+import { stripThinkingStepsForStorage } from '../lib/prune-message-for-storage'
 import {
-  pruneMessageForStorage,
-  stripThinkingStepsForStorage,
-} from '../lib/prune-message-for-storage'
-import {
-  logStorageWrite,
-  logQuotaExceededPruning,
-  logCriticalSessionsClear,
-  logStorageAvailability,
-} from '../lib/storage-logger'
-import { ensureStorageCapacity } from '../lib/storage-manager'
+  clearAwaitingServerMessages,
+  isAwaitingServerMessages,
+  markAwaitingServerMessages,
+} from './chat-storage'
 import { hasLiveRun, hasNoUserChatMessages, liveRunMessages } from '../lib/session-activity'
 import { cancelRun } from '@/lib/runs/run-view-client'
 import {
@@ -120,331 +113,6 @@ export type SessionsSlice = {
    * is the last thing that will ever happen to it.
    */
   _persistStageOutput: (messageId: string, stages: MessageStages) => Promise<void>
-}
-
-// Persistence helpers
-
-const isQuotaExceededError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  if (error.name === 'QuotaExceededError') return true
-  return /quota|exceeded|storage/i.test(error.message)
-}
-
-type PersistedChatState = {
-  currentUserId: ChatState['currentUserId']
-  conversations: ChatState['conversations']
-  currentConversation: ChatState['currentConversation']
-  pendingInteraction: ChatState['pendingInteraction']
-  composerDrafts: ChatState['composerDrafts']
-}
-
-type PersistedChatStorageValue = StorageValue<PersistedChatState>
-
-const prunePersistedChatState = (value: PersistedChatStorageValue): PersistedChatStorageValue => {
-  const state = value.state
-
-  const conversations: Conversation[] = (state.conversations ?? []).map((conv) => ({
-    ...conv,
-    messages: (conv.messages ?? []).map(pruneMessageForStorage),
-  }))
-
-  const currentConversationId = state.currentConversation?.id ?? null
-
-  return {
-    ...value,
-    state: {
-      currentUserId: state.currentUserId ?? null,
-      conversations,
-      currentConversation: currentConversationId as unknown as Conversation | null,
-      pendingInteraction: state.pendingInteraction ?? null,
-      composerDrafts: state.composerDrafts ?? {},
-    },
-  }
-}
-
-/** How long after the last keystroke a composer draft is written. */
-const DRAFT_WRITE_DELAY_MS = 400
-
-/** Are `a` and `b` the same in every field but `except`, field by field? */
-function sameExcept(a: Conversation, b: Conversation, except: 'messages'): boolean
-function sameExcept(a: ChatMessage, b: ChatMessage, except: 'thinkingSteps'): boolean
-function sameExcept(
-  a: Conversation | ChatMessage,
-  b: Conversation | ChatMessage,
-  except: 'messages' | 'thinkingSteps'
-): boolean {
-  const aFields: Record<string, unknown> = { ...a }
-  const bFields: Record<string, unknown> = { ...b }
-  for (const key of new Set([...Object.keys(aFields), ...Object.keys(bFields)])) {
-    if (key !== except && aFields[key] !== bFields[key]) return false
-  }
-  return true
-}
-
-/** Where the newest question is: the last message from a person. */
-const lastUserMessageIndex = (messages: readonly ChatMessage[]): number => {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i]!
-    if (message.messageType === 'user' || message.role === 'user') return i
-  }
-  return -1
-}
-
-/**
- * The persisted chat store's localStorage adapter: prunes what it writes,
- * recovers from a full quota, never writes a streaming answer's growth, and
- * restores what a reload can use. `undefined` where there is no localStorage.
- */
-export const createResilientStorage = (): PersistStorage<PersistedChatState> | undefined => {
-  const base = createJSONStorage<PersistedChatState>(() => localStorage)
-  if (!base) {
-    logStorageAvailability(false)
-    return undefined
-  }
-
-  /** Storage is full: clear the sessions rather than lose the write entirely. */
-  const recoverFromQuota = (
-    name: string,
-    value: PersistedChatStorageValue,
-    prunedValue: PersistedChatStorageValue,
-    error: unknown
-  ): void => {
-    const beforeConversations = prunedValue.state.conversations ?? []
-    const beforeCount = beforeConversations.length
-    const beforeSizeKB = Math.round((JSON.stringify(beforeConversations).length * 2) / 1024)
-
-    logQuotaExceededPruning(beforeCount, beforeCount, beforeSizeKB, beforeSizeKB)
-
-    try {
-      const lostSessionIds = beforeConversations.map((c) => c.id)
-
-      base.removeItem(name)
-      base.setItem(name, {
-        ...value,
-        state: {
-          currentUserId: value.state.currentUserId ?? null,
-          conversations: [],
-          currentConversation: null,
-          pendingInteraction: null,
-          // Sessions were just wiped to recover from quota — drop their
-          // drafts too so no orphaned draft outlives its conversation.
-          composerDrafts: {},
-        },
-      })
-
-      logCriticalSessionsClear(value.state.currentUserId ?? null, lostSessionIds, error)
-    } catch (finalError) {
-      console.error('[SessionsStore] ❌ CATASTROPHIC: Failed to clear sessions', {
-        error: finalError instanceof Error ? finalError.message : String(finalError),
-      })
-    }
-  }
-
-  /** Prune, serialize and store, unless the stored string is already this one. */
-  const writeNow = (name: string, value: PersistedChatStorageValue): void => {
-    const prunedValue = prunePersistedChatState(value)
-    const serializedValue = JSON.stringify(prunedValue)
-
-    try {
-      if (localStorage.getItem(name) === serializedValue) return
-
-      localStorage.setItem(name, serializedValue)
-      logStorageWrite(prunedValue.state.conversations ?? [], prunedValue.state.currentUserId ?? null)
-    } catch (error) {
-      if (!isQuotaExceededError(error)) {
-        throw error
-      }
-      recoverFromQuota(name, value, prunedValue, error)
-    }
-  }
-
-  // What storage holds, as of the last write that succeeded.
-  let lastWritten: PersistedChatState | null = null
-
-  /**
-   * Is nothing but the open conversation's live turn, and the composer
-   * drafts, new since the last write? The live turn's growth is skipped and a
-   * draft is written a moment later (`holdDraft`). A deletion, a rename or a
-   * new session is written at once, so a browser that dies mid-answer cannot
-   * bring a deleted conversation back.
-   */
-  const onlyTheOpenTurnOrDraftsChanged = (next: PersistedChatState): boolean => {
-    const written: Record<string, unknown> | null = lastWritten
-    if (written === null) return false
-    const nextFields: Record<string, unknown> = next
-    const keys = new Set([...Object.keys(written), ...Object.keys(nextFields)])
-    for (const key of keys) {
-      if (key === 'conversations' || key === 'currentConversation' || key === 'composerDrafts') continue
-      if (nextFields[key] !== written[key]) return false
-    }
-    const before = lastWritten?.conversations ?? []
-    const after = next.conversations ?? []
-    const beforeOpen = lastWritten?.currentConversation ?? null
-    const afterOpen = next.currentConversation ?? null
-    if (after === before && afterOpen === beforeOpen) return true
-    const openId = afterOpen?.id
-    if (!openId || beforeOpen?.id !== openId) return false
-    return (
-      before.length === after.length &&
-      after.every(
-        (c, i) => c === before[i] || (c.id === openId && onlyTheLiveTurnGrew(before[i], c))
-      ) &&
-      onlyTheLiveTurnGrew(beforeOpen, afterOpen)
-    )
-  }
-
-  // A draft is written this long after the last keystroke, and when the page
-  // is hidden. Written with every key it serialised the whole history inside
-  // the input event: 264 ms a keystroke on a 4× throttled phone with 20
-  // conversations stored, React's share 6 ms (React performance audit, 2026-09).
-  let heldDraft: { name: string; value: PersistedChatStorageValue } | null = null
-  let heldDraftTimer: ReturnType<typeof setTimeout> | undefined
-  const writeHeldDraft = (): void => {
-    clearTimeout(heldDraftTimer)
-    const held = heldDraft
-    heldDraft = null
-    if (held) write(held.name, held.value)
-  }
-  const holdDraft = (name: string, value: PersistedChatStorageValue): void => {
-    heldDraft = { name, value }
-    clearTimeout(heldDraftTimer)
-    heldDraftTimer = setTimeout(writeHeldDraft, DRAFT_WRITE_DELAY_MS)
-  }
-  if (typeof window !== 'undefined') {
-    window.addEventListener('pagehide', writeHeldDraft)
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') writeHeldDraft()
-    })
-  }
-
-  /**
-   * Is the live turn's growth the only difference between the two copies of
-   * one conversation: the streaming answer at its end, and the reasoning steps
-   * of the question it answers? Its title, its other fields and every other
-   * message must be the very same objects: a rename or a card decision while
-   * a turn works is written at once. The store keeps an untouched message as
-   * the same object on every flush.
-   *
-   * The steps count as growth because each one wrote the whole history: 5–6
-   * writes of 250–1000 ms per turn on a 4× throttled phone with 40
-   * conversations stored (React performance audit, 2026-09). The turn's user
-   * message was written when it was sent, and the settled turn is written
-   * with its steps; a page that dies between gets the turn back from the
-   * replay stream or the server.
-   */
-  const onlyTheLiveTurnGrew = (
-    before: Conversation | null | undefined,
-    after: Conversation | null | undefined
-  ): boolean => {
-    if (!before || !after || before.id !== after.id) return false
-    if (!sameExcept(before, after, 'messages')) return false
-    const was = before.messages
-    const now = after.messages
-    // The answer opened since the last write (one more message), or grew (same count).
-    if (now.length !== was.length && now.length !== was.length + 1) return false
-    const last = now[now.length - 1]
-    if (now.length === was.length + 1 && !last?.isStreaming) return false
-    const question = lastUserMessageIndex(now)
-    for (let i = 0; i < now.length; i++) {
-      const message = now[i]!
-      const previous = was[i]
-      if (message === previous) continue
-      if (i === now.length - 1 && message.isStreaming) continue
-      if (i === question && previous && sameExcept(previous, message, 'thinkingSteps')) continue
-      return false
-    }
-    return true
-  }
-
-  const write = (name: string, value: PersistedChatStorageValue): void => {
-    writeNow(name, value)
-    lastWritten = value.state
-  }
-
-  // What the last call was handed. `persist` calls setItem on EVERY store
-  // update — a loading flag, a status line, a thinking step — and each call
-  // pruned and serialized the whole history only to find nothing had changed.
-  // The store updates immutably, so a persisted field that is the same
-  // reference is the same content: a call whose fields all are is skipped
-  // before any of that work. The last call was written or is held, either way.
-  let lastState: PersistedChatState | null = null
-  let lastVersion: number | undefined
-  // Every key either state carries, so a field `partialize` gains later is
-  // compared too rather than silently never written.
-  const unchangedSinceLastCall = (value: PersistedChatStorageValue): boolean => {
-    const previous: Record<string, unknown> | null = lastState
-    if (previous === null || value.version !== lastVersion) return false
-    const next: Record<string, unknown> = value.state
-    const keys = new Set([...Object.keys(previous), ...Object.keys(next)])
-    for (const key of keys) if (next[key] !== previous[key]) return false
-    return true
-  }
-
-  return {
-    getItem: async (name: string): Promise<PersistedChatStorageValue | null> => {
-      const raw = await base.getItem(name)
-      if (!raw) return null
-
-      // Nothing streams in a page that is only now loading, so an answer
-      // stored mid-stream was interrupted by the reload. Its text is a
-      // fragment this page cannot finish: the reattached turn opens a bubble
-      // of its own, and the fragment used to stay beside it with a caret
-      // forever. It also hid the turn from the recovery that fetches a
-      // finished answer (`restoreSessionState` looks for an unanswered
-      // question), so the reload is handed to that path, the one a reload
-      // before the first word already takes.
-      const stripUnrestorable = (conversations: Conversation[]) =>
-        conversations.map((c) => ({
-          ...c,
-          messages: c.messages.filter(
-            (m) =>
-              m.isStreaming !== true &&
-              !(m.messageType === 'error' && m.errorData?.errorCode?.startsWith('connection.'))
-          ),
-        }))
-
-      if (raw.state.conversations) {
-        raw.state.conversations = stripUnrestorable(raw.state.conversations)
-      }
-
-      const storedId = raw.state.currentConversation as unknown as string | null
-      if (storedId) {
-        const conversations = raw.state.conversations ?? []
-        raw.state.currentConversation = conversations.find((c) => c.id === storedId) ?? null
-      }
-
-      return raw
-    },
-    removeItem: (name: string) => {
-      heldDraft = null
-      clearTimeout(heldDraftTimer)
-      lastState = null
-      lastWritten = null
-      return base.removeItem(name)
-    },
-    setItem: (name: string, value: PersistedChatStorageValue) => {
-      if (unchangedSinceLastCall(value)) return
-      lastState = value.state
-      lastVersion = value.version
-      // A streaming answer's growth is never written. `getItem` drops an
-      // answer still marked streaming, so the stored state would read back
-      // exactly as the last write does: the turn is rebuilt from the replay
-      // stream or fetched finished. Writing it cost a prune, a serialize and a
-      // write of the WHOLE history every couple of seconds while the answer
-      // streamed: 100 ms of script and a 55 ms native write per round on a
-      // 4× throttled CPU with 40 conversations, the regular hitch a phone
-      // showed mid-answer. The answer is written once, when it settles. The
-      // turn's reasoning steps likewise (`onlyTheLiveTurnGrew`).
-      if (onlyTheOpenTurnOrDraftsChanged(value.state)) {
-        if (value.state.composerDrafts !== lastWritten?.composerDrafts) holdDraft(name, value)
-        return
-      }
-      // Anything else is written at once, and carries the drafts with it.
-      heldDraft = null
-      clearTimeout(heldDraftTimer)
-      write(name, value)
-    },
-  }
 }
 
 // Helper functions
@@ -635,6 +303,10 @@ const maybeDiscardAbandonedUploadOnlySession = (
 
   const conv = conversations.find((c) => c.id === sessionId && c.userId === currentUserId)
   if (!conv) return
+  // No messages HERE is not no messages: the server holds a conversation whose
+  // messages storage evicted or this page never fetched, and discarding it
+  // deleted it on the server.
+  if (isAwaitingServerMessages(conv.id)) return
   if (!hasNoUserChatMessages(conv.messages)) return
   if (hasLiveRun(conv.messages)) return
 
@@ -726,6 +398,7 @@ export const createSessionsSlice: StateCreator<
         if (idx >= 0) {
           merged[idx] = local
         } else {
+          markAwaitingServerMessages(local.id)
           merged.push(local)
         }
       }
@@ -759,6 +432,7 @@ export const createSessionsSlice: StateCreator<
       const messages = mapServerMessagesToChatMessages(serverMessages)
       if (messages.length === 0) return
 
+      clearAwaitingServerMessages(conversationId)
       const { conversations, currentConversation, isStreaming, isLoading } = get()
       const target = conversations.find((c) => c.id === conversationId)
       // The session may have been deleted or received live messages while the
@@ -920,18 +594,6 @@ export const createSessionsSlice: StateCreator<
       return undefined
     }
 
-    const cleanedUpIds = ensureStorageCapacity(currentConversation?.id ?? null, currentUserId)
-    if (cleanedUpIds.length > 0) {
-      // Cleanup only edits localStorage; prune in-memory state too or the
-      // next persist write resurrects every deleted session.
-      const deleted = new Set(cleanedUpIds)
-      set(
-        (state) => ({ conversations: state.conversations.filter((c) => !deleted.has(c.id)) }),
-        false,
-        'storageCleanupPrune'
-      )
-    }
-
     const layoutState = useLayoutStore.getState()
     const defaultEnabledDataSourceIds = getDefaultEnabledDataSourceIds()
     layoutState.setEnabledDataSources(defaultEnabledDataSourceIds)
@@ -965,21 +627,7 @@ export const createSessionsSlice: StateCreator<
       maybeDiscardAbandonedUploadOnlySession(get, leavingId)
     }
 
-    const { conversations, currentUserId, currentConversation, projectId } = get()
-
-    if (currentConversation?.id !== conversationId) {
-      const cleanedUpIds = ensureStorageCapacity(conversationId, currentUserId)
-      if (cleanedUpIds.length > 0) {
-        // Keep in-memory state in sync or persist resurrects the sessions.
-        const deleted = new Set(cleanedUpIds)
-        set(
-          (state) => ({ conversations: state.conversations.filter((c) => !deleted.has(c.id)) }),
-          false,
-          'storageCleanupPrune'
-        )
-      }
-    }
-
+    const { conversations, currentUserId, projectId } = get()
     const conversation = conversations.find((c) => c.id === conversationId)
 
     // Ownership AND project-context guard: a stale URL or persisted state

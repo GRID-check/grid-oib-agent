@@ -84,12 +84,14 @@ const assistantMessages = () =>
 
 describe('reloading in the middle of an answer', () => {
   beforeEach(async () => {
+    // The old single-key shape: the read moves it to one key per
+    // conversation and drops the fragment on the way (`chat-storage.ts`).
     localStorage.setItem(STORAGE_KEY, JSON.stringify(persistedMidAnswer()))
     await useChatStore.persist.rehydrate()
   })
 
   afterEach(() => {
-    localStorage.removeItem(STORAGE_KEY)
+    useChatStore.persist.clearStorage()
   })
 
   it('shows the answer once when the reattached turn finishes it', () => {

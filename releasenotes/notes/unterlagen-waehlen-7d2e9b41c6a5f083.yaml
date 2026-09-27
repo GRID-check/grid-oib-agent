@@ -1,18 +1,13 @@
 ---
 features:
   - >
-    Im Rechercheplan wählen Sie unter „Unterlagen“ aus Projekt und Büroarchiv,
-    was die Tiefenrecherche vollständig liest („Lesen“) und was sie nie
-    verwendet („Ausschließen“); die Chips unter „Rahmen“ zeigen die
-    durchsuchten Quellen. Ausgeschlossene Dokumente werden auch dann nicht
-    zitiert, wenn eine Suche sie findet.
+    In the research plan you choose under Unterlagen which documents from the
+    project and office archive the research reads in full and which it never
+    uses. Excluded documents are never cited, even when a search finds them.
   - >
-    Während ein Auftrag läuft, fügt „Dokument hinzufügen“ am Laufblock eine
-    weitere Unterlage hinzu. Der Block zeigt für jede benannte Unterlage, ob
-    und wo sie gelesen wurde; ein Bericht, der eine nicht erreicht hat, nennt
-    sie unter „Nicht gelesene Unterlagen“. „Bericht fortschreiben“ übernimmt die
-    zitierten Unterlagen als Grundlage.
+    While a run is going, Dokument hinzufügen adds another document, and the
+    block shows whether each named document was read. A report names any it did
+    not reach.
   - >
-    Eine Ergebnistabelle in einem Vergleich oder Aktenvermerk trägt kein
-    Urteil mehr, das der Bericht nicht gefällt hat: sie heißt „Ergebnisse“
-    statt „Befunde“ und zeigt Wert, Fundstelle und Anmerkung.
+    A results table in a comparison or file note is headed Ergebnisse, not
+    Befunde, and passes no verdict the report did not reach.

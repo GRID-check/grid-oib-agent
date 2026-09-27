@@ -1,0 +1,70 @@
+---
+/**
+ * The build log as a sheet: numbered entries like the pages of a site diary,
+ * headed by the log's name only where nothing above already names it. Used on the blog index, on the category
+ * listing and under a build-log post ("more from this category").
+ */
+import { ui, type Locale } from '../../i18n/ui'
+import { CATEGORIES, blogPath } from '../../lib/categories'
+import type { BlogPost } from '../../lib/posts'
+import LogEntry from './LogEntry.astro'
+
+interface Props {
+  posts: BlogPost[]
+  numbers: Map<string, number>
+  locale: Locale
+  /** `h2` when the sheet heads a section; `none` when a heading above already names it. */
+  titleAs?: 'h2' | 'none'
+  /** Entries' heading level, one below whatever names the sheet. */
+  entryLevel?: 2 | 3
+  /** Show a footer link to the full listing. */
+  viewAll?: boolean
+}
+const {
+  posts,
+  numbers,
+  locale,
+  titleAs = 'h2',
+  entryLevel = 3,
+  viewAll = false,
+} = Astro.props
+const t = ui[locale].blog
+const cat = CATEGORIES[locale].bautagebuch
+---
+
+<section class="overflow-hidden rounded-card bg-paper shadow-card ring-1 ring-ink/10">
+  {
+    titleAs === 'h2' && (
+      <header class="border-b border-ink/15 bg-paper-dim px-5 py-5 sm:px-7">
+        <h2 class="font-voice text-[2rem] leading-none text-ink">{cat.label}</h2>
+        <p class="mt-2 text-base leading-snug text-ink-soft">{cat.descriptor}</p>
+      </header>
+    )
+  }
+  {
+    posts.length === 0 ? (
+      <p class="px-5 py-8 text-base text-ink-soft sm:px-7">{t.empty}</p>
+    ) : (
+      <ol>
+        {posts.map((post) => (
+          <LogEntry
+            post={post}
+            locale={locale}
+            number={numbers.get(post.id) ?? 0}
+            level={entryLevel}
+          />
+        ))}
+      </ol>
+    )
+  }
+  {
+    viewAll && (
+      <a
+        href={blogPath(locale, 'bautagebuch')}
+        class="flex min-h-12 items-center border-t border-ink/15 px-5 font-mono text-2xs uppercase tracking-label text-accent-600 transition-colors hover:bg-surface/60 sm:px-7"
+      >
+        {cat.viewAll}
+      </a>
+    )
+  }
+</section>

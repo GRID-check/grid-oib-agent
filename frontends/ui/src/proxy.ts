@@ -66,7 +66,12 @@ export const config = {
      * Match all request paths except for the ones starting with:
      * - _next/static (static files)
      * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
+     * - favicon.ico, icon.svg, apple-icon.png, manifest.webmanifest, robots.txt
+     *   and icons/ (app/ file conventions and public/icons): a signed-out
+     *   browser, a crawler or the sign-in page's own tab must get them rather
+     *   than a redirect to WorkOS
+     * - art/ (public/art, the riso prints): the not-found page shows one, and
+     *   a signed-out visitor sees that page too
      * - public folder
      *
      * API auth routes are allow-listed via middlewareAuth.unauthenticatedPaths
@@ -78,6 +83,6 @@ export const config = {
      * unset/misconfigured — turning a config gap into a container that never
      * goes healthy).
      */
-    '/((?!_next/static|_next/image|favicon.ico|public|api/healthz).*)',
+    '/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|manifest.webmanifest|robots.txt|icons/|art/|public|api/healthz).*)',
   ],
 }

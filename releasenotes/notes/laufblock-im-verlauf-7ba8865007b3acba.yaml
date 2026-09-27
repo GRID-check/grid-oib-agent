@@ -1,11 +1,9 @@
 ---
 features:
   - >
-    Ein Auftrag, den Sie Piloti übergeben, erscheint jetzt als ein Block direkt
-    im Verlauf, in dem Sie ihn erteilt haben: Titel, Stand (Läuft, Wartet auf
-    Sie, Fertig, …), die Phasen Planen · Recherchieren · Prüfen · Schreiben ·
-    Abgelegt und die Laufzeit. Der Block aktualisiert sich, solange der Auftrag
-    läuft; der fertige Bericht steht darunter, mit Quellen und Herleitung.
+    A task you hand to Piloti now appears as a block in the conversation where
+    you gave it: title, state, phases and running time, updating live, with the
+    finished report beneath it.
   - >
-    In der Aufträge-Liste zeigt eine laufende Karte in einer Zeile, was der
-    Auftrag gerade tut, etwa „Recherchieren · 3 Runden · 9 Dokumente“.
+    In the task list a running card shows in one line what the task is doing,
+    such as „Recherchieren · 3 Runden · 9 Dokumente“.

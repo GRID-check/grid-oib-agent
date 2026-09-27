@@ -1,0 +1,10 @@
+---
+fixes:
+  - >
+    A full browser storage no longer wipes your chat history: only the content
+    of the oldest conversations makes room, while the list, titles and drafts
+    stay. Such a conversation reloads its content from the server when you
+    open it.
+  - >
+    Sending, receiving an answer and switching conversations no longer stall a
+    phone, because Piloti now saves only the conversation that changed.

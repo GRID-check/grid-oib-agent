@@ -29,11 +29,13 @@ import {
   createSessionsSlice,
   createInteractionSlice,
 } from './stores'
-import { createResilientStorage } from './stores/sessions-store'
+import { chatIndexKey, createResilientStorage } from './stores/chat-storage'
 import {
   logStoreHydration,
   logExternalStorageEvent,
 } from './lib/storage-logger'
+
+const CHAT_STORE_NAME = 'aiq-chat-store'
 
 export const useChatStore = create<ChatStoreWithHydration>()(
   devtools(
@@ -46,7 +48,8 @@ export const useChatStore = create<ChatStoreWithHydration>()(
         hasHydrated: false,
       }),
       {
-        name: 'aiq-chat-store',
+        // The prefix of every key the chat store writes (`stores/chat-storage.ts`).
+        name: CHAT_STORE_NAME,
         storage: typeof window === 'undefined' ? undefined : createResilientStorage(),
         partialize: (state) => ({
           currentUserId: state.currentUserId,
@@ -93,7 +96,7 @@ if (typeof window !== 'undefined') {
   logStoreHydration(true, initialState.conversations?.length ?? 0, initialState.currentUserId)
 
   window.addEventListener('storage', (event) => {
-    if (event.key === 'aiq-chat-store') {
+    if (event.key === chatIndexKey(CHAT_STORE_NAME)) {
       logExternalStorageEvent(event.key, event.oldValue, event.newValue)
 
       if (event.oldValue !== null && event.newValue === null) {
