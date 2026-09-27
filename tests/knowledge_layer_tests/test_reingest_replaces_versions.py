@@ -55,7 +55,16 @@ def registries(monkeypatch):
 
     monkeypatch.setattr(chunk_text_store, "get_chunk_text_store", lambda: store)
     monkeypatch.setattr(adapter_module, "bump_collection_version", lambda name: bumped.append(name))
-    return {"unregistered": unregistered, "mirror": mirror_deleted, "bumped": bumped}
+    # What people set on the rows about to be deleted: empty unless a test says.
+    human_set: dict[str, dict[str, str]] = {"doc_class": {}, "display_title": {}, "folder_path": {}}
+
+    def reader(field):
+        return lambda coll, names: {name: human_set[field][name] for name in names if name in human_set[field]}
+
+    monkeypatch.setattr(knowledge, "get_document_doc_classes", reader("doc_class"))
+    monkeypatch.setattr(knowledge, "get_document_display_titles", reader("display_title"))
+    monkeypatch.setattr(knowledge, "get_document_folder_paths", reader("folder_path"))
+    return {"unregistered": unregistered, "mirror": mirror_deleted, "bumped": bumped, "human_set": human_set}
 
 
 def test_same_name_reupload_deletes_predecessor_chunks(ingestor, registries):
@@ -113,3 +122,32 @@ def test_empty_and_blank_names_are_ignored(ingestor, registries):
     ingestor._replace_previous_versions(collection, "proj_1", ["", None])
     collection.get.assert_not_called()
     collection.delete.assert_not_called()
+
+
+def test_what_people_set_on_the_replaced_version_is_handed_back(ingestor, registries):
+    # The row goes with the chunks, so a Dokumentart, a display title and a
+    # folder a person set would be lost to the re-upload of the same name.
+    registries["human_set"]["doc_class"]["tmpa1b2c3d4_statik.pdf"] = "tragwerk"
+    registries["human_set"]["display_title"]["tmpa1b2c3d4_statik.pdf"] = "Statik Bauteil B"
+    registries["human_set"]["folder_path"]["tmpa1b2c3d4_statik.pdf"] = "/Einreichung"
+    collection = _collection({"c1": "tmpa1b2c3d4_statik.pdf", "c2": "bleibt.pdf"})
+
+    preserved = ingestor._replace_previous_versions(collection, "proj_1", ["statik.pdf"])
+
+    assert preserved == {
+        "statik.pdf": {"doc_class": "tragwerk", "display_title": "Statik Bauteil B", "folder_path": "/Einreichung"}
+    }
+    assert ("proj_1", "tmpa1b2c3d4_statik.pdf") in registries["unregistered"]
+
+
+def test_a_failed_metadata_read_still_replaces_the_chunks(ingestor, registries, monkeypatch):
+    from aiq_agent import knowledge
+
+    def broken(coll, names):
+        raise RuntimeError("metadata store down")
+
+    monkeypatch.setattr(knowledge, "get_document_doc_classes", broken)
+    collection = _collection({"c1": "statik.pdf"})
+
+    assert ingestor._replace_previous_versions(collection, "proj_1", ["statik.pdf"]) == {}
+    assert collection.delete.call_args.kwargs["ids"] == ["c1"]

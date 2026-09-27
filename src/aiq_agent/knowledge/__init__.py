@@ -34,6 +34,7 @@ from .factory import get_available_documents_async
 from .factory import get_document_display_title
 from .factory import get_document_display_titles
 from .factory import get_document_doc_class
+from .factory import get_document_doc_classes
 from .factory import get_document_folder_paths
 from .factory import get_document_provenance
 from .factory import get_ingestor
@@ -99,6 +100,7 @@ __all__ = [
     "set_document_doc_class",
     "set_document_doc_class_suggestion",
     "get_document_doc_class",
+    "get_document_doc_classes",
     "set_document_display_title",
     "get_document_display_title",
     "get_document_display_titles",

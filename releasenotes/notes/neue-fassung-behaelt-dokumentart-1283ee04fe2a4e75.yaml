@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Wer eine neue Fassung einer Datei unter demselben Namen hochlädt, behält
+    jetzt die Dokumentart, den Anzeigetitel und den Ordner, die für die
+    frühere Fassung festgelegt waren. Bisher gingen sie verloren, und Piloti
+    riet die Dokumentart aus dem Dateinamen neu.

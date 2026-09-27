@@ -1995,6 +1995,16 @@ def _generate_document_summary(text_content: str, file_name: str, llm=None) -> s
 # =============================================================================
 
 
+_TMP_UPLOAD_PREFIX = re.compile(r"^tmp.{8}_")
+
+
+def _normalized_file_name(name: str | None) -> str:
+    """A stored file name as its plain re-upload spells it: no ``tmp[8]_`` prefix, percent-decoded."""
+    from urllib.parse import unquote
+
+    return unquote(_TMP_UPLOAD_PREFIX.sub("", name or ""))
+
+
 @register_ingestor("llamaindex")
 class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     """
@@ -3249,7 +3259,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         except Exception:
             logger.warning("Failed to upload thumbnail", exc_info=True)
 
-    def _replace_previous_versions(self, chroma_collection, collection_name: str, incoming_names: list[str]) -> None:
+    def _replace_previous_versions(
+        self, chroma_collection, collection_name: str, incoming_names: list[str]
+    ) -> dict[str, dict[str, str]]:
         """Delete the chunks of any EARLIER upload of these file names, so a
         re-upload REPLACES its predecessor instead of coexisting with it.
 
@@ -3271,22 +3283,27 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         its content supersedes an old one. Detecting renamed versions
         semantically would guess, and a wrong guess silently deletes a document
         someone still cites — the human-classification-wins rule applies.
-        """
-        try:
-            from urllib.parse import unquote
 
+        Returns what people set on each replaced document's metadata row
+        (``doc_class``, ``display_title``, ``folder_path``), keyed by the
+        normalized name, so the new version keeps them. The row goes with the
+        chunks, which is what makes a superseded version's summary and
+        provenance go too; read after it, the Dokumentart a person chose was
+        gone, and the filename guess replaced it.
+        """
+        preserved: dict[str, dict[str, str]] = {}
+        try:
+            from aiq_agent.knowledge import get_document_display_titles
+            from aiq_agent.knowledge import get_document_doc_classes
+            from aiq_agent.knowledge import get_document_folder_paths
             from aiq_agent.knowledge import unregister_summary
             from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
 
-            tmp_prefix = re.compile(r"^tmp.{8}_")
-
-            def normalize(name: str) -> str:
-                return unquote(tmp_prefix.sub("", name or ""))
-
+            normalize = _normalized_file_name
             targets = {normalize(name) for name in incoming_names if name}
             targets.discard("")
             if not targets:
-                return
+                return preserved
             existing = chroma_collection.get(include=["metadatas"])
             ids_by_stored: dict[str, list[str]] = {}
             for chunk_id, meta in zip(existing.get("ids", []), existing.get("metadatas", []) or [], strict=False):
@@ -3294,7 +3311,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 if normalize(stored) in targets:
                     ids_by_stored.setdefault(stored, []).append(chunk_id)
             if not ids_by_stored:
-                return
+                return preserved
+            stored_names = list(ids_by_stored)
+            try:
+                for field, values in (
+                    ("doc_class", get_document_doc_classes(collection_name, stored_names)),
+                    ("display_title", get_document_display_titles(collection_name, stored_names)),
+                    ("folder_path", get_document_folder_paths(collection_name, stored_names)),
+                ):
+                    for stored, value in values.items():
+                        preserved.setdefault(normalize(stored), {}).setdefault(field, value)
+            except Exception:  # noqa: BLE001 — losing them must not keep the old chunks
+                logger.warning("Could not read the replaced versions' metadata; re-deriving it", exc_info=True)
             all_ids = [cid for ids in ids_by_stored.values() for cid in ids]
             chroma_collection.delete(ids=all_ids)
             bump_collection_version(collection_name)
@@ -3315,6 +3343,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 "Could not remove previous versions before ingest; duplicate chunks may remain",
                 exc_info=True,
             )
+        return preserved
 
     def _run_ingestion(
         self,
@@ -3405,7 +3434,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             incoming_names = [
                 provided_names[i] if i < len(provided_names) else Path(fp).name for i, fp in enumerate(file_paths)
             ]
-            self._replace_previous_versions(chroma_collection, collection_name, incoming_names)
+            preserved_by_name = self._replace_previous_versions(chroma_collection, collection_name, incoming_names)
 
             # Track extraction stats
             total_chunks = 0
@@ -3434,7 +3463,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
                     from aiq_agent.knowledge import get_document_doc_class
 
-                    stored_doc_class = get_document_doc_class(collection_name, file_name)
+                    # What a person set on the version this upload replaced:
+                    # its row went with its chunks, so it is read from there.
+                    preserved = preserved_by_name.get(_normalized_file_name(file_name), {})
+                    stored_doc_class = get_document_doc_class(collection_name, file_name) or preserved.get("doc_class")
                     base_corpus = legacy_shelf_for_collection_name(collection_name) is None
                     doc_class = stored_doc_class or (guess_doc_class(file_name) if base_corpus else None)
                     is_pdf = (
@@ -3954,8 +3986,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # which is what lets a later rename re-file the document
                         # with no re-ingest. Absent config means "project root".
                         folder_path = (config.get("folder_path") or "").strip() or None
+                        folder_path = folder_path or preserved.get("folder_path")
                         if folder_path:
                             set_document_folder_path(collection_name, file_name, folder_path)
+                        if preserved.get("display_title"):
+                            from aiq_agent.knowledge import set_document_display_title
+
+                            set_document_display_title(collection_name, file_name, preserved["display_title"])
 
                         # The same four keys on the document metadata row, so a
                         # surface that reads the row rather than a chunk — the
