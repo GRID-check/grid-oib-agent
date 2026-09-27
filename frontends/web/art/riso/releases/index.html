@@ -28,7 +28,7 @@
    adds one part. The site keeps its place in every stamp, so the set reads as
    one family.
 
-   The site picks a plate for a release by a stable hash of the release id
+   The site hands the plates out in publishing order, oldest release first
    (src/lib/release-stamp.ts), so a new release needs no new export.
 
    Small format: lines through weight() stay >= 1.25 device px, fields are few
@@ -48,7 +48,14 @@ const BAU = (() => {
   const PV = [10.4, 5.2, 7.4, 14.6, 8.2, 9.6];              // roof pavilion
   const CAN = [9.6, 4.3, 9.6, 15.2, 8.6, 9.76];             // its roof plate
   const BOARD = [-2.6, -4.4, 20.6, 11.6], SLAB = 0.55;
-  const CRANE = [18.6, 10.0], MAST = 0.4, JIBZ = 11.8, APEX = 13.8, JIB = 19.5, CJIB = 4.6;
+  /* The tower crane stands on its own footing behind the east end: a lattice
+     mast, the slewing unit and cab on top, a horizontal jib west with a
+     trolley, a short counter-jib east carrying the counterweight, and the cat
+     head above with ties to both. It slews in plan, so the jib foreshortens,
+     never tilts. FRAME is the fixed framing point (the first crane's apex):
+     every stamp keeps the same view. */
+  const CRANE = [19.2, 7.2], MAST = 0.8, PAD = 1.3, JIBZ = 11.8, JIBD = 1.1, HEAD = 14.4, JIB = 21, CJIB = 5.6;
+  const FRAME = [18.6, 10.0, 13.8];
   const HUT = [14.4, -3.6, 0, 19.8, -1.3, 2.6];
   const WALK = [6.6, 8.2];
   const FIG = [7.4, -2.4];
@@ -94,7 +101,7 @@ const BAU = (() => {
       const [bx0, by0, bx1, by1] = BOARD;
       const [x0, y0, z0, x1, y1, z1] = BOX;
       const P = fit(VIEW_SERIES, [[bx0, by0, -SLAB], [bx1, by0, -SLAB], [bx1, by1, 0], [bx0, by1, 0],
-        [CRANE[0], CRANE[1], APEX]], FIT[fmt]);
+        FRAME], FIT[fmt]);
 
       /* ── board and ground ─────────────────────────────────────────────── */
       const top = poly(P, [[bx0, by0, 0], [bx1, by0, 0], [bx1, by1, 0], [bx0, by1, 0]]);
@@ -136,7 +143,7 @@ const BAU = (() => {
       }
 
       /* ── behind the house: crane mast, or the tree that replaced it ──── */
-      if (craneUp) mast(c, P, ks('crane'), ARR);
+      if (craneUp) mast(c, P, ks('crane'), ARR, FINE);
       if (has('tree')) tree(c, P, CRANE[0], CRANE[1], 2.2, ks('tree'), ARR);
 
       /* ── footings, pilotis, far to near ───────────────────────────────── */
@@ -245,7 +252,7 @@ const BAU = (() => {
       }
 
       /* ── the crane's jib, above everything; its hook over this step's part ── */
-      if (craneUp) jib(c, P, STEPS[n].hook, n, ks('crane'), SIL, FINE);
+      if (craneUp) jib(c, P, STEPS[n].hook, n, ks('crane'), ARR, FINE);
     }
 
     return { inks: ['mist', 'kelly', 'moss', 'hunter', 'red'], key: 'hunter', draw };
@@ -280,26 +287,73 @@ const BAU = (() => {
     own(c, crown, { kelly: 1 });
     stroke(c, crown, w, spec);
   }
-  function mast(c, P, spec, w) {
-    const [x, y] = CRANE;
-    const f = boxFaces(P, x - MAST, y - MAST, 0, x + MAST, y + MAST, JIBZ);
+  /** A solid dark part of the crane (counterweight, trolley, hook block); red on the crane's own step. */
+  const DARK = { hunter: 1, moss: 1 };
+  function solid(c, path, spec) {
+    if (spec === RED) { own(c, path, {}); lineFill(c, path, RED); return; }
+    own(c, path, DARK);
+  }
+  /** Zig-zag lattice between two parallel world lines a(t), b(t), t in [0, 1], in n panels. */
+  function lattice(a, b, n) {
+    const pts = [];
+    for (let i = 0; i <= n; i++) pts.push((i % 2 ? b : a)(i / n));
+    return pts;
+  }
+  /* The crane's footing and lattice mast, up to the slewing unit. */
+  function mast(c, P, spec, w, wf) {
+    const [x, y] = CRANE, z0 = 0.45, z1 = JIBZ - 1.2;
+    const pad = boxFaces(P, x - PAD, y - PAD, 0, x + PAD, y + PAD, z0);
+    own(c, pad.top, { mist: 1 });
+    own(c, pad.west, {});
+    own(c, pad.south, { moss: 1 });
+    stroke(c, pad.sil, wf, spec);
+    const f = boxFaces(P, x - MAST, y - MAST, z0, x + MAST, y + MAST, z1);
     own(c, f.west, {});
     own(c, f.south, {});
-    line(c, f.sil, w, spec);
-    line(c, poly(P, [[x, y, JIBZ], [x, y, APEX]], false), w, spec);
+    // the lattice on the sunlit south face: the zig-zag is what says "crane"
+    const n = Math.round((z1 - z0) / (2 * MAST * 1.2));
+    const zig = lattice((t) => [x - MAST, y - MAST, lerp(z0, z1, t)], (t) => [x + MAST, y - MAST, lerp(z0, z1, t)], n);
+    stroke(c, poly(P, zig, false), wf, spec);
+    stroke(c, f.sil, w, spec);
   }
+  /* Everything that slews: slewing unit and cab, cat head, jib with trolley
+     and hook, counter-jib with counterweight, the ties. */
   function jib(c, P, hook, n, spec, wj, wf) {
     const [x, y] = CRANE;
     const th = hook ? Math.atan2(hook[1] - y, hook[0] - x) : Math.PI * 1.08 + (rngFor(`releases:jib:${n}`)() - 0.5) * 0.5;
     const d = [Math.cos(th), Math.sin(th)];
-    const tip = [x + d[0] * JIB, y + d[1] * JIB, JIBZ], tail = [x - d[0] * CJIB, y - d[1] * CJIB, JIBZ];
-    line(c, poly(P, [tail, tip], false), wj, spec);
-    line(c, poly(P, [tip, [x, y, APEX], tail], false), wf, spec);
-    const cw = boxFaces(P, tail[0] - 0.8, tail[1] - 0.8, JIBZ - 1.6, tail[0] + 0.8, tail[1] + 0.8, JIBZ);
-    own(c, cw.sil, { hunter: 1, moss: 1 });
-    stroke(c, cw.sil, wf, spec);
-    if (!hook) return;
-    line(c, poly(P, [[hook[0], hook[1], JIBZ], [hook[0], hook[1], hook[2] + 1.0]], false), wf, KEY);
+    const at = (r, z) => [x + d[0] * r, y + d[1] * r, z];
+    const zt = JIBZ + JIBD;
+    /* counter-jib and its counterweight, behind the mast from this side */
+    stroke(c, poly(P, [at(0, JIBZ), at(-CJIB, JIBZ)], false), wj, spec);
+    const cwc = at(-CJIB + 0.8, 0);
+    solid(c, boxFaces(P, cwc[0] - 0.75, cwc[1] - 0.75, JIBZ - 2.0, cwc[0] + 0.75, cwc[1] + 0.75, JIBZ).sil, spec);
+    /* slewing unit on the mast head, the cab beside it on the jib side */
+    const su = boxFaces(P, x - 1.0, y - 1.0, JIBZ - 1.2, x + 1.0, y + 1.0, JIBZ);
+    own(c, su.top, {}); own(c, su.west, {}); own(c, su.south, spec === RED ? {} : { moss: 1 });
+    stroke(c, su.sil, wf, spec);
+    const cc = at(1.7, 0);
+    const cab = boxFaces(P, cc[0] - 0.7, cc[1] - 0.7, JIBZ - 1.5, cc[0] + 0.7, cc[1] + 0.7, JIBZ - 0.1);
+    own(c, cab.top, {}); own(c, cab.west, {}); own(c, cab.south, {});
+    solid(c, poly(P, [[cc[0] - 0.5, cc[1] - 0.7, JIBZ - 0.8], [cc[0] + 0.7, cc[1] - 0.7, JIBZ - 0.8], [cc[0] + 0.7, cc[1] - 0.7, JIBZ - 0.2], [cc[0] - 0.5, cc[1] - 0.7, JIBZ - 0.2]]), spec);
+    stroke(c, cab.sil, wf, spec);
+    /* the cat head: an A-frame over the slewing unit */
+    const apex = [x, y, HEAD];
+    stroke(c, poly(P, [at(-1.0, JIBZ), apex, at(1.0, zt)], false), wj, spec);
+    /* the jib: two chords and a zig-zag between them, closed at the tip */
+    const r0 = 1.0;
+    stroke(c, poly(P, lattice((t) => at(lerp(r0, JIB, t), JIBZ), (t) => at(lerp(r0, JIB, t), zt), Math.round((JIB - r0) / 1.8)), false), wf, spec);
+    stroke(c, poly(P, [at(r0, zt), at(JIB, zt), at(JIB, JIBZ)], false), wf, spec);
+    stroke(c, poly(P, [at(-1.0, JIBZ), at(JIB, JIBZ)], false), wj, spec);
+    /* the ties from the cat head to the jib and to the counter-jib's end */
+    stroke(c, poly(P, [at(JIB * 0.62, zt), apex, at(-CJIB, JIBZ)], false), wf, spec);
+    /* trolley at the hook's radius, hoist rope, hook block over the part being set */
+    const r = hook ? Math.hypot(hook[0] - x, hook[1] - y) : JIB * 0.55;
+    const hz = hook ? hook[2] + 1.0 : JIBZ - 4.2;
+    solid(c, poly(P, [at(r - 0.6, JIBZ), at(r + 0.6, JIBZ), at(r + 0.6, JIBZ - 0.55), at(r - 0.6, JIBZ - 0.55)]), spec);
+    stroke(c, poly(P, [at(r, JIBZ - 0.5), at(r, hz + 0.6)], false), wf, spec);
+    const hb = at(r, hz);
+    solid(c, poly(P, [[hb[0] - 0.35, hb[1], hz], [hb[0] + 0.35, hb[1], hz], [hb[0] + 0.35, hb[1], hz + 0.7], [hb[0] - 0.35, hb[1], hz + 0.7]]), spec);
   }
 
   return { STEPS, stage };

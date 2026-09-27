@@ -14,13 +14,13 @@ export const PLATES = {
   II: 'tafeln/schichten/plate',
   /** Schleife / Loop: the post on learning from corrections. */
   III: 'tafeln/schleife/plate',
-  /** Bauplatz / Building plot: the changelog's share card (the 404 wears Tragwerk IV). */
+  /** Bauplatz / Building plot: the changelog, beside its heading and as its share card (the 404 wears Tragwerk IV). */
   IV: 'tafeln/bauplatz/plate',
-  /** Prüfstand / Test bench: for the blog. */
+  /** Prüfstand / Test bench: the Rechenweg, beside its heading. */
   V: 'tafeln/pruefstand/plate',
   /** Zeichentisch / Drafting table: how Piloti is used. */
   VI: 'tafeln/zeichentisch/plate',
-  /** Waage / Balance: the value calculator. */
+  /** Waage / Balance: the value calculator (a third on a phone). */
   VII: 'tafeln/waage/plate',
   /** Offene Tür / Open door: contact, become a pilot office. */
   VIII: 'tafeln/tuer/plate',
@@ -29,14 +29,15 @@ export const PLATES = {
 /**
  * The Tragwerk series (art/riso/tragwerk): the Piloti column, a brand staple,
  * by number. II is the Team's taped print (three columns, three founders, one
- * slab), IV the 404's; I wears the landing share card, III the Journal's.
+ * slab), IV the 404's; I wears the landing share card, III the Journal's
+ * share card and the FAQ, on the page.
  */
 export const TRAGWERK = {
-  /** Säule / Column: the landing page's share card (its og). */
+  /** Säule / Column: the blog index, beside its heading; the landing page's share card (its og). */
   I: 'tragwerk/saeule/plate',
   /** Drei Säulen / Three columns: the Team section, taped beside the founder photos. */
   II: 'tragwerk/drei/plate',
-  /** Säulenordnung / The orders. */
+  /** Säulenordnung / The orders: the FAQ, on the page. */
   III: 'tragwerk/ordnung/plate',
   /** Ziegelpfeiler / Brick pier: the 404 page. */
   IV: 'tragwerk/ziegel/plate',

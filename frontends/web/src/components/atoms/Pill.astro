@@ -17,7 +17,9 @@ const base =
 const sizes = {
   sm: 'px-4 py-1.5 text-sm',
   md: 'min-h-11 px-5 py-2.5 text-sm',
-  nav: 'min-h-11 px-3.5 text-[0.8125rem] sm:px-4 sm:text-sm lg:min-h-0 lg:py-1.5',
+  // From lg the pill is drawn compact, but its hit area stays 44px tall: an
+  // invisible band above and below catches a finger on a wide touchscreen.
+  nav: "min-h-11 px-3.5 text-[0.8125rem] sm:px-4 lg:relative lg:min-h-0 lg:py-1 lg:after:absolute lg:after:inset-x-0 lg:after:-inset-y-2 lg:after:content-['']",
   lg: 'px-7 py-3.5 text-base sm:px-8 sm:py-4',
 }
 // Every variant states its own text colour on rest *and* hover: the base

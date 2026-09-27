@@ -16,22 +16,21 @@ const t = ui[locale]
   id="nutzung"
   aria-labelledby="nutzung-title"
   data-screen-label={t.sheets.nutzung}
-  class="mx-auto box-border max-w-[85rem] px-2 py-9 sm:px-4 sm:py-12 lg:flex lg:min-h-screen lg:flex-col lg:justify-center lg:px-10 lg:py-24"
+  class="frame section-y lg:frame-panel"
 >
-  <div
-    class="box-border rounded-panel bg-surface-dim px-3 pb-3 pt-12 sheet-light sm:px-10 sm:pb-10 sm:pt-16 lg:px-16 lg:py-20"
-  >
+  <!-- The sheet from lg only. Below it the stories are the section's picture,
+       and a panel around them left a thin beige frame about the phone. -->
+  <div class="lg:rounded-panel lg:bg-surface-dim lg:sheet-light lg:panel-pad">
     <div class="grid grid-cols-1 items-center gap-x-14 gap-y-10 lg:grid-cols-[minmax(20rem,5fr)_7fr]">
-      <div data-reveal class="px-2 sm:px-0">
-        <!-- Plate VI, the drafting table the answers arrive on. From lg only:
-             on a phone the stories are the picture, and a print would push
-             them a screen down. Still, because the chain is the moment. -->
-        <PagePrint name={PLATES.VI} locale={locale} size="third" still class="mb-10 max-lg:hidden" />
+      <div data-reveal>
         <h2 id="nutzung-title" class="m-0 mb-5 font-voice text-v4 sm:mb-6" style="text-wrap: balance">
           {t.nutzung.title}
         </h2>
         <p class="m-0 mb-8 text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">
-          {t.nutzung.body}
+          {`${t.nutzung.body} ${t.nutzung.howLead} `}<a
+            href={t.nutzung.howHref} class="text-accent-600 underline underline-offset-2 hover:text-accent-700"
+            >{t.nutzung.howLabel}&nbsp;→</a
+          >
         </p>
         <!-- The one hard claim on the page, given the weight of one — and
              measured: the median answer takes about thirty seconds. -->
@@ -41,6 +40,12 @@ const t = ui[locale]
             {t.nutzung.sub}
           </p>
         </div>
+        <!-- Plate VI, the drafting table the answers arrive on, closing the
+             column beside the chain rather than sitting on its heading as a
+             badge. From lg only: on a phone the stories are the picture, and a
+             print would push them a screen down. Still, because the chain is
+             the moment. -->
+        <PagePrint name={PLATES.VI} locale={locale} size="half" still class="mt-12 max-lg:hidden" />
       </div>
       <!-- Below lg the chain is told as stories; ChatMock serves lg and up. -->
       <div class="max-lg:hidden"><ChatMock locale={locale} /></div>

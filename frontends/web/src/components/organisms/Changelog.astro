@@ -3,6 +3,8 @@ import ChangelogRelease from '../molecules/ChangelogRelease.astro'
 import { getReleases, olderByMonth, OPEN_RELEASES, releaseAnchor, type ChangelogRelease as Release } from '../../lib/changelog'
 import { releaseStamp } from '../../lib/release-stamp'
 import { ui, type Locale } from '../../i18n/ui'
+import PageHead from '../molecules/PageHead.astro'
+import { PLATES } from '../craft/plates'
 
 interface Props {
   locale: Locale
@@ -31,13 +33,14 @@ const log = releases
 const count = (n: number) => (n === 1 ? t.monthCountOne : t.monthCount.replace('{count}', String(n)))
 ---
 
-<section class="px-6 pb-28 pt-36 md:px-10">
-  <div class="mx-auto max-w-4xl">
-    <h1 class="max-w-2xl font-voice text-v3 text-ink">{t.heading}</h1>
+<section class="frame pb-28 pt-28 md:pt-36">
+  <!-- Tafeln IV, the building plot: the site the log below builds on. -->
+  <PageHead title={t.heading} plate={PLATES.IV} locale={locale} />
+  <div class="max-w-4xl">
 
     {
       log.length > 1 && (
-        <figure aria-label={t.buildHeading} class="build-log mt-10 border-t border-ink/15 pt-6">
+        <figure aria-label={t.buildHeading} class="build-log mt-8">
           <ol class="build-log__track m-0 flex list-none gap-2 overflow-x-auto p-0 pb-2" data-build-log>
             {log.map(({ r, stamp }, i) => (
               <li class="shrink-0">
@@ -85,7 +88,7 @@ const count = (n: number) => (n === 1 ? t.monthCountOne : t.monthCount.replace('
                 {months.map((month) => (
                   <details id={`m-${month.key}`} class="changelog-month scroll-mt-28 border-t border-ink/15">
                     <summary class="flex min-h-14 cursor-pointer list-none items-baseline justify-between gap-4 py-4">
-                      <span class="font-display text-lg font-semibold text-ink">{month.label}</span>
+                      <span class="text-lg font-semibold text-ink">{month.label}</span>
                       <span class="flex items-baseline gap-3 font-mono text-2xs uppercase tracking-widest text-ink-faint">
                         {count(month.releases.length)}
                         <span class="changelog-chevron text-ink-soft" aria-hidden="true">+</span>

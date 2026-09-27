@@ -83,11 +83,14 @@ const sources = [
           {
             options.map((o) => (
               <li
-                class={`flex items-start gap-3 rounded-lg border-l-2 px-3 py-2.5 ${o.chosen ? 'border-ok bg-[#eef6ee]' : 'border-hairline opacity-55'}`}
+                class={`flex items-start gap-3 rounded-lg border-l-2 px-3 py-2.5 ${o.chosen ? 'border-ok bg-[#eef6ee]' : 'border-hairline'}`}
               >
-                <span class="text-xs font-bold leading-5 text-ok">{o.key}</span>
+                {/* The options not chosen recede to the muted ink, as they do on
+                    the board (.opt--receded below): faded with opacity they fell
+                    to 2.4–3.9:1. */}
+                <span class={`text-xs font-bold leading-5 ${o.chosen ? 'text-ok' : 'text-ink-mute'}`}>{o.key}</span>
                 <span class="min-w-0">
-                  <span class="block text-sm font-semibold leading-5 text-ink">{o.title}</span>
+                  <span class={`block text-sm font-semibold leading-5 ${o.chosen ? 'text-ink' : 'text-ink-mute'}`}>{o.title}</span>
                   <span class="mt-0.5 block text-xs leading-snug text-ink-mute">{o.sub}</span>
                 </span>
               </li>

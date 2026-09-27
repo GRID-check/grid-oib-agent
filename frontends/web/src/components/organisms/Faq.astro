@@ -8,6 +8,8 @@
  */
 import { ui, type Locale } from '../../i18n/ui'
 import { faqItems, faqPageLd, ldJson } from '../../lib/seo'
+import PagePrint from '../craft/PagePrint.astro'
+import { TRAGWERK } from '../craft/plates'
 
 interface Props {
   locale?: Locale
@@ -22,19 +24,22 @@ const items = faqItems(locale)
   id="faq"
   data-screen-label={sheet}
   aria-labelledby="faq-title"
-  class="mx-auto box-border max-w-[85rem] px-4 py-16 sm:px-10 sm:py-24 lg:px-26"
+  class="frame section-y"
 >
   <div class="grid grid-cols-1 items-start gap-y-8 lg:grid-cols-[5fr_7fr] lg:gap-x-16">
-    <div data-reveal>
+    <div data-reveal class="lg:sticky lg:top-28">
       <h2 id="faq-title" class="m-0 font-voice text-v2 text-panel" style="text-wrap: balance">
         {t.title}
       </h2>
+      <!-- Tragwerk III, the orders: the column family the answers stand on,
+           held beside the questions while they open; a third on a phone. -->
+      <PagePrint name={TRAGWERK.III} locale={locale} size="half" phone="third" class="mt-8 lg:mt-12" />
     </div>
     <div class="border-b border-ink/12">
       {
         items.map(({ q, a }) => (
           <details class="group border-t border-ink/12">
-            <summary class="flex min-h-11 cursor-pointer list-none items-start justify-between gap-4 py-4 text-left font-display text-lg font-semibold leading-snug tracking-tight text-panel [&::-webkit-details-marker]:hidden">
+            <summary class="flex min-h-11 cursor-pointer list-none items-start justify-between gap-4 py-4 text-left text-lg leading-snug text-panel [&::-webkit-details-marker]:hidden">
               <span>{q}</span>
               <span
                 class="mt-0.5 shrink-0 font-mono text-base leading-none text-accent-600 transition-transform group-open:rotate-45 motion-reduce:transition-none"
