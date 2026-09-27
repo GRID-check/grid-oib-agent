@@ -254,32 +254,32 @@ class TestDepsForRequest:
     def clarifier_for(provider, tools=(), planner=None) -> Clarifier:
         return Clarifier.build(provider, list(tools), planner, ClarifierSettings(llm="l"), AsyncMock())
 
-    def test_nothing_varies(self):
+    async def test_nothing_varies(self):
         """The common request: the boot deps serve it, nothing is rebuilt."""
         clarifier = self.clarifier_for(provider_varying(False), [alpha_tool])
 
-        assert clarifier.deps_for(request_with()) is clarifier.boot
+        assert await clarifier.deps_for(request_with()) is clarifier.boot
 
-    def test_an_org_override_produces_its_own_deps(self):
+    async def test_an_org_override_produces_its_own_deps(self):
         """A model override, a BYOK credential or ZDR routing all arrive this way."""
         provider = provider_varying(True)
         clarifier = self.clarifier_for(provider, [alpha_tool])
 
-        deps = clarifier.deps_for(request_with())
+        deps = await clarifier.deps_for(request_with())
 
         assert deps is not clarifier.boot
 
-    def test_narrowed_data_sources_produce_their_own_deps(self):
+    async def test_narrowed_data_sources_produce_their_own_deps(self):
         """Org-disabled sources narrow the tool set even without a model override."""
         clarifier = self.clarifier_for(provider_varying(False), [alpha_tool, beta_tool])
 
         with patch("aiq_agent.agents.piloti.clarify.filter_tools_by_sources", return_value=[alpha_tool]):
-            deps = clarifier.deps_for(request_with(["alpha"]))
+            deps = await clarifier.deps_for(request_with(["alpha"]))
 
         assert deps is not clarifier.boot
         assert set(deps.tools) == {"alpha_tool"}
 
-    def test_the_planner_is_carried_through_the_override(self):
+    async def test_the_planner_is_carried_through_the_override(self):
         """The planner belongs to the same agent group as the clarifier LLM."""
         planner = MagicMock()
         clarifier = self.clarifier_for(provider_varying(True), [], planner)
@@ -288,16 +288,16 @@ class TestDepsForRequest:
             patch("aiq_agent.agents.piloti.clarify.apply_model_override", return_value=planner) as override,
             patch("aiq_agent.agents.piloti.clarify.apply_org_credential", return_value=planner),
         ):
-            clarifier.deps_for(request_with())
+            await clarifier.deps_for(request_with())
 
         assert override.call_args.args[1] is AgentGroup.CLARIFIER
 
-    def test_no_configured_planner_stays_none(self):
+    async def test_no_configured_planner_stays_none(self):
         """None means "fall back to the (already overridden) clarifier LLM"."""
         provider = provider_varying(True)
         clarifier = self.clarifier_for(provider, [])
 
-        deps = clarifier.deps_for(request_with())
+        deps = await clarifier.deps_for(request_with())
 
         # The chained provider's own model answered both roles.
         assert deps.planner_llm is not None

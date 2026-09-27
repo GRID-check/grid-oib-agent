@@ -29,10 +29,6 @@ from aiq_agent.common import _create_chat_response
 from aiq_agent.common import format_user_facing_tool_error
 from aiq_agent.common import get_all_tool_refs
 from aiq_agent.common import get_langchain_llm
-from aiq_agent.common import get_model_overrides_from_context
-from aiq_agent.common import get_org_llm_credential_from_context
-from aiq_agent.common import get_reasoning_efforts
-from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common import unavailable_source_ids
 from aiq_agent.common import validate_tool_availability
@@ -44,6 +40,7 @@ from aiq_agent.common.decisions import SKIPPED_TOO_SHORT
 from aiq_agent.common.decisions import record_skipped
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import verify_deferred_tool_loading
+from aiq_agent.common.request_llm_context import read_request_llm_context
 from aiq_agent.project_context import get_organization_id_from_context
 from aiq_agent.project_context import get_project_id_from_context
 from aiq_agent.skills import SkillResolver
@@ -295,71 +292,17 @@ async def _resolve_skill_runtime(
     return runtime
 
 
-async def _read_model_overrides() -> dict:
-    try:
-        return await asyncio.to_thread(get_model_overrides_from_context)
-    except Exception:  # noqa: BLE001 - a lost override costs the model choice, never the turn
-        logger.debug("Model-overrides lookup failed; continuing without", exc_info=True)
-        return {}
-
-
-async def _read_org_credential():
-    try:
-        return await asyncio.to_thread(get_org_llm_credential_from_context)
-    except Exception:  # noqa: BLE001 - see above; the env chain still has a credential
-        logger.debug("Org-credential lookup failed; continuing without", exc_info=True)
-        return None
-
-
-async def _read_reasoning_efforts() -> dict[str, str]:
-    try:
-        return await asyncio.to_thread(get_reasoning_efforts)
-    except Exception:  # noqa: BLE001 - a lost effort costs the thinking level, never the turn
-        logger.debug("Reasoning-efforts lookup failed; continuing with the configured levels", exc_info=True)
-        return {}
-
-
-async def _read_zdr_only() -> bool:
-    try:
-        return await asyncio.to_thread(get_zdr_only_from_context)
-    except Exception:  # noqa: BLE001 - fails CLOSED, unlike its two siblings
-        # A missing override costs the org its model choice; a missing ZDR bit
-        # sends the org's prompts to endpoints that may retain them, which is
-        # the ADR-0014 control itself. This is NOT the "BFF is down" path --
-        # `resolve_org_zdr_only` already answers False for that, deliberately.
-        # Reaching here means the lookup itself broke unexpectedly, so it logs
-        # at error rather than debug: a privacy control that switches itself
-        # off must never do it quietly.
-        logger.error("ZDR lookup failed; pinning ZDR routing for this turn", exc_info=True)
-        return True
-
-
 async def _active_provider(provider: LLMProvider) -> LLMProvider:
     """Per-org model overrides + platform thinking level + BYOK credential + ZDR (ADR-0022).
 
     Each returns the boot provider unchanged when inactive, so the agent's
     identity check keeps the boot binding on a turn that overrides nothing.
-
-    The lookups are header-first (the platform efforts are cache-first) but
-    each falls back to a blocking BFF call (5s timeout, 60s in-process TTL),
-    so a cold miss used to freeze the event loop for every turn on the
-    replica. Each runs on its own thread hop and fails open (the ZDR bit
-    closed) on its own, so they overlap and one bad reader costs its own
-    value -- never the turn, and never the others. ContextVars travel with
-    each hop.
+    The four lookups each fall back to a blocking BFF call, so they are read
+    off the loop, concurrently and failing on their own:
+    ``common/request_llm_context.py``, which the clarifier and deep research
+    read through too.
     """
-    model_overrides, efforts, org_credential, zdr_only = await asyncio.gather(
-        _read_model_overrides(),
-        _read_reasoning_efforts(),
-        _read_org_credential(),
-        _read_zdr_only(),
-    )
-    return (
-        provider.with_model_overrides(model_overrides)
-        .with_reasoning_efforts(efforts)
-        .with_credential(org_credential)
-        .with_zdr(zdr_only)
-    )
+    return (await read_request_llm_context()).apply(provider)
 
 
 def _skills_block(runtime: SkillRuntime) -> str:

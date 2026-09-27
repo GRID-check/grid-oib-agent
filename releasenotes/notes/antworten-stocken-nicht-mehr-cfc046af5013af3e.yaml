@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Eine laufende Antwort stockt nicht mehr, während im Büro gleichzeitig
+    jemand die Dokumentliste lädt, Dateien löscht oder eine Recherche mit
+    Rückfrage beginnt. Diese Vorgänge hielten bisher kurz alle anderen
+    Anfragen auf demselben Server an.

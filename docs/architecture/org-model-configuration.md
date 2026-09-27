@@ -128,9 +128,15 @@ DeepSeek's `max`, which OpenRouter rejects) into a request. Parity is pinned by
 Applied at the same two seams as the model. Every user-facing agent (chat,
 the clarifier agent, deep research) resolves its LLMs
 through `LLMProvider`, so the effort has its own provider method,
-`with_reasoning_efforts(get_reasoning_efforts())`, chained right after
-`with_model_overrides` in each `_active_provider`/`_agent_for_request`, and in
-the detached worker (`aiq_api/jobs/runner.py`) after the captured overrides.
+`with_reasoning_efforts(...)`, chained right after `with_model_overrides` in
+`RequestLLMContext.apply` (`common/request_llm_context.py`, which chat's
+`_active_provider`, `Clarifier.deps_for` and deep research's
+`_agent_for_request` all go through), and in the detached worker
+(`aiq_api/jobs/runner.py`) after the captured overrides. The four per-request
+lookups (overrides, efforts, BYOK credential, ZDR) are read there by
+`read_request_llm_context`, each on its own `asyncio.to_thread` hop: every one
+can fall back to a blocking BFF call, and on the loop a cold miss stalled every
+turn on the replica.
 Directly held LLMs (the clarifier planner, the reflection stage, the RIS
 router) get it inside `apply_model_override`. A dial that reaches only the
 second seam is the bug this paragraph used to describe as impossible: it was
