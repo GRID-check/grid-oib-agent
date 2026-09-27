@@ -484,6 +484,11 @@ html:not(.js) [data-solution-card] {
   transition-duration: var(--duration-base);
   transition-timing-function: var(--ease-draft);
 }
+/* The bar's links are bare text: at the base 2px offset the focus ring touched
+   the letters. */
+[data-nav] a:focus-visible {
+  outline-offset: 4px;
+}
 [data-nav-bar][data-tone='dark'].rounded-full {
   background-color: rgb(34 39 26 / 0.88);
   --tw-ring-color: rgb(238 242 228 / 0.12);
