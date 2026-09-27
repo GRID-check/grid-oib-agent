@@ -51,8 +51,8 @@ export const CardRendererProvider = CardRendererContext.Provider
 /**
  * Called once A2UI has drawn a real component. A layout effect, so it runs in
  * the commit that mounted the component, before the browser paints: the host
- * swaps its direct copy for A2UI's without a frame of either the placeholder
- * or both copies.
+ * takes its placeholder down and shows A2UI's drawing without a frame of
+ * A2UI's own "[Loading root...]".
  */
 const DrawnContext = createContext<(() => void) | null>(null)
 export const DrawnProvider = DrawnContext.Provider

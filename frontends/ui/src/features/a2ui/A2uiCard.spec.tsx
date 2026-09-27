@@ -14,6 +14,7 @@ import type { GridCard } from '@/shared/cards/schemas'
 import { A2uiCard } from './A2uiCard'
 import { INTERACTIVE_CARD_TYPES } from '@/features/grid-cards/card-decision'
 import { GridCardItem } from '@/features/grid-cards/components/GridCards'
+import { CardDrawnProvider } from '@/features/grid-cards/card-drawn'
 import { SURFACE_EXCLUDED_LEAVES, preflight, structuralRefusal } from './catalog'
 import { surfaceLeaves } from './surface-messages'
 
@@ -281,7 +282,9 @@ describe('a card through A2UI', () => {
     warn.mockRestore()
   })
 
-  it('mounts a card twice, the direct copy and A2UI’s, and no more', async () => {
+  it('mounts a card once, A2UI’s drawing only, with no hidden copy beside it', async () => {
+    // It used to draw the card directly first and mount A2UI's copy invisibly
+    // behind it: two copies of every card, and a swap when A2UI had drawn.
     let mounts = 0
     function Counted() {
       useEffect(() => {
@@ -289,10 +292,45 @@ describe('a card through A2UI', () => {
       }, [])
       return <div data-testid="counted" />
     }
-    render(<A2uiCard card={BASIS} surfaceKey="m1:8" render={() => <Counted />} />)
-    await waitFor(() => expect(document.querySelector('[data-a2ui-surface="m1:8"]')).not.toBeNull())
-    await waitFor(() => expect(screen.getAllByTestId('counted')).toHaveLength(1))
-    expect(mounts).toBe(2)
+    const { container } = render(<A2uiCard card={BASIS} surfaceKey="m1:8" render={() => <Counted />} />)
+    await waitFor(() => expect(document.querySelector('[data-a2ui-surface="m1:8"]:not([aria-hidden])')).not.toBeNull())
+    expect(screen.getAllByTestId('counted')).toHaveLength(1)
+    expect(mounts).toBe(1)
+    expect(container.querySelectorAll('[data-a2ui-surface]')).toHaveLength(1)
+    expect(container.querySelector('.invisible')).toBeNull()
+    expect(container.querySelector('[data-slot="card-placeholder"]')).toBeNull()
+    expect(container.textContent).not.toMatch(/Loading/)
+  })
+
+  it('tells whatever holds its place that it is on screen, once', async () => {
+    const onScreen = vi.fn()
+    render(
+      <CardDrawnProvider value={onScreen}>
+        <A2uiCard card={BASIS} surfaceKey="m1:10" render={renderCard} />
+      </CardDrawnProvider>
+    )
+    await waitFor(() => expect(onScreen).toHaveBeenCalledTimes(1))
+    expect(document.querySelector('[data-a2ui-surface="m1:10"]:not([aria-hidden])')).not.toBeNull()
+  })
+
+  it('tells it too when the card falls back to its direct drawing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const onScreen = vi.fn()
+    const refused = {
+      type: 'surface',
+      components: [
+        { id: 'root', component: 'Carousel', children: ['a'] },
+        { id: 'a', ...LEAF },
+      ],
+    } as unknown as GridCard
+    render(
+      <CardDrawnProvider value={onScreen}>
+        <A2uiCard card={refused} surfaceKey="m1:11" render={renderCard} />
+      </CardDrawnProvider>
+    )
+    await waitFor(() => expect(onScreen).toHaveBeenCalled())
+    expect(screen.getByTestId('card-a')).toBeInTheDocument()
+    warn.mockRestore()
   })
 
   it('retries A2UI when a surface that failed changes', async () => {
