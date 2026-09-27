@@ -2390,7 +2390,7 @@ def _build_job_output(
     that field keeps on the chat path, so a client can key off existence.
 
     ``sources`` is spelled the way the backend spells it everywhere else on the
-    wire (``websocket_reconnect``'s terminal frame, the message metadata), so
+    wire (the socket's ``TurnResult``, the message metadata), so
     the live Report panel and a rehydrated thread read one contract rather than
     two dialects of the same list.
     """

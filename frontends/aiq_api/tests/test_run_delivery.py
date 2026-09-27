@@ -19,13 +19,13 @@ from unittest import mock
 import pytest
 from fastapi import HTTPException
 
+from aiq_api.internal_api import post_internal_conversation_message
+from aiq_api.internal_api import post_internal_run_report
 from aiq_api.jobs.conversation_output import FAILURE_NOTICE
 from aiq_api.jobs.conversation_output import INTERRUPTED_NOTICE
 from aiq_api.jobs.conversation_output import run_message_for_outcome
 from aiq_api.jobs.conversation_output import write_job_notice
 from aiq_api.jobs.conversation_output import write_job_turn
-from aiq_api.websocket_reconnect import post_internal_conversation_message
-from aiq_api.websocket_reconnect import post_internal_run_report
 
 USAGE = {"identity": {"organization_id": "org_1", "user_id": "u1"}}
 
@@ -66,7 +66,7 @@ class TestTheRunReportIsRetried:
     @pytest.mark.asyncio
     async def test_a_run_not_recorded_yet_lands_on_a_later_attempt(self) -> None:
         _Sequence.answers = [404, (200, {"messageId": "msg-1"})]
-        with mock.patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _Sequence):
+        with mock.patch("aiq_api.internal_api.httpx.AsyncClient", _Sequence):
             landed = await post_internal_run_report(job_id="job-1", text="# Bericht", expect_run=True)
         assert landed == "msg-1"
         assert len(_Sequence.calls) == 2
@@ -75,14 +75,14 @@ class TestTheRunReportIsRetried:
     async def test_without_a_run_the_404_is_the_answer_at_once(self) -> None:
         """An interactive job has no run message; the caller falls back without waiting."""
         _Sequence.answers = [404]
-        with mock.patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _Sequence):
+        with mock.patch("aiq_api.internal_api.httpx.AsyncClient", _Sequence):
             assert await post_internal_run_report(job_id="job-1", text="# Bericht") is None
         assert len(_Sequence.calls) == 1
 
     @pytest.mark.asyncio
     async def test_a_bff_that_never_answers_costs_three_attempts_and_no_exception(self) -> None:
         _Sequence.answers = [ConnectionError("down")] * 3
-        with mock.patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _Sequence):
+        with mock.patch("aiq_api.internal_api.httpx.AsyncClient", _Sequence):
             assert await post_internal_run_report(job_id="job-1", text="x", expect_run=True) is None
         assert len(_Sequence.calls) == 3
 
@@ -91,7 +91,7 @@ class TestTheThreadTurnIsRetried:
     @pytest.mark.asyncio
     async def test_a_5xx_is_asked_again(self) -> None:
         _Sequence.answers = [503, 201]
-        with mock.patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _Sequence):
+        with mock.patch("aiq_api.internal_api.httpx.AsyncClient", _Sequence):
             ok = await post_internal_conversation_message(
                 conversation_id="s_1",
                 organization_id="org_1",
@@ -106,7 +106,7 @@ class TestTheThreadTurnIsRetried:
     @pytest.mark.asyncio
     async def test_a_missing_conversation_is_final(self) -> None:
         _Sequence.answers = [404]
-        with mock.patch("aiq_api.websocket_reconnect.httpx.AsyncClient", _Sequence):
+        with mock.patch("aiq_api.internal_api.httpx.AsyncClient", _Sequence):
             ok = await post_internal_conversation_message(
                 conversation_id="s_gone",
                 organization_id="org_1",
@@ -117,6 +117,27 @@ class TestTheThreadTurnIsRetried:
             )
         assert ok is False
         assert len(_Sequence.calls) == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("missing", "organization_id"),
+        [("FRONTEND_INTERNAL_URL", "org_1"), ("GRID_INTERNAL_API_TOKEN", "org_1"), (None, None)],
+    )
+    async def test_an_unconfigured_write_is_not_attempted(self, monkeypatch, missing, organization_id) -> None:
+        """No base URL, no service token, or no organization to scope by: no doomed POST, and no raise."""
+        if missing:
+            monkeypatch.delenv(missing)
+        with mock.patch("aiq_api.internal_api.httpx.AsyncClient", _Sequence):
+            ok = await post_internal_conversation_message(
+                conversation_id="s_1",
+                organization_id=organization_id,
+                message_id="m1",
+                role="assistant",
+                text="a",
+                message_type="agent_response",
+            )
+        assert ok is False
+        assert _Sequence.calls == []
 
 
 class TestTheWritersPassOnWhetherARunIsExpected:

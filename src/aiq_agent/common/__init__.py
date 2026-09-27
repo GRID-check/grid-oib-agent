@@ -15,11 +15,12 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
-from nat.data_models.api_server import ChatResponse
-from nat.data_models.api_server import ChatResponseChoice
-from nat.data_models.api_server import ChoiceMessage
-from nat.data_models.api_server import Usage
-from nat.data_models.api_server import UserMessageContentRoleType
+# NAT's HTTP/job ChatResponse, which `nat run` and the job runner read; not the chat wire.
+from nat.data_models.api_server import ChatResponse  # noqa: TID251
+from nat.data_models.api_server import ChatResponseChoice  # noqa: TID251
+from nat.data_models.api_server import ChoiceMessage  # noqa: TID251
+from nat.data_models.api_server import Usage  # noqa: TID251
+from nat.data_models.api_server import UserMessageContentRoleType  # noqa: TID251
 
 from .budget_guard import BudgetGuardCallback
 from .budget_guard import RunBudgetExceededError

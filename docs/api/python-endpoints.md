@@ -191,7 +191,7 @@ The `AuthMiddleware` (`frontends/aiq_api/src/aiq_api/auth/middleware.py`) wraps 
 
 | Protocol | Path | Description |
 |----------|------|-------------|
-| `ws`/`wss` | `/websocket` | Real-time bidirectional chat with HITL support. Uses NAT's `WebSocketMessageHandler` protocol. The `ReconnectableWebSocketMessageHandler` in `aiq_api.websocket_reconnect` monkey-patches NAT to support HITL reconnection after network interruption. |
+| `ws`/`wss` | `/websocket?v=2` | The chat socket: chat wire v2, with HITL, Stop and `attach` resume (`aiq_api.chat_socket`, mounted by `AIQAPIWorker.add_routes`; NAT's own socket route is off). Protocol: [`websocket-protocol.md`](websocket-protocol.md). |
 
 WebSocket auth mirrors the HTTP middleware: `authenticate_websocket_connection()` validates the handshake token using the same validator chain. Per-message token expiry checks reject work under expired handshake JWTs with `auth_expired` error messages.
 

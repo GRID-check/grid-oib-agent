@@ -34,11 +34,10 @@ import time
 import weakref
 from collections import OrderedDict
 from collections.abc import Mapping
-from datetime import UTC
-from datetime import datetime
 from typing import Any
 
 from aiq_agent.common.model_overrides import AgentGroup
+from aiq_agent.common.wire_v2 import StageValue
 from aiq_agent.stages.delivery import deliver_stage_frame
 from aiq_agent.stages.registry import iter_stages
 from aiq_agent.stages.spec import StageContext
@@ -74,10 +73,6 @@ _semaphores: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaph
 _MAX_REMEMBERED_KEYS = 1024
 _claimed_keys: OrderedDict[tuple[str, str, str], None] = OrderedDict()
 
-#: Contract version of the stage frame envelope; bump on a breaking change.
-STAGE_FRAME_VERSION = 1
-STAGE_FRAME_TYPE = "grid_stage_message"
-
 
 def _loop_semaphore(loop: asyncio.AbstractEventLoop) -> asyncio.Semaphore:
     semaphore = _semaphores.get(loop)
@@ -106,29 +101,17 @@ def _claim(spec: StageSpec, facts: TurnFacts) -> bool:
     return True
 
 
-def build_stage_frame(spec: StageSpec, facts: TurnFacts, outcome: StageOutcome) -> dict[str, Any]:
-    """The wire frame for one stage outcome (contract §4.1).
+def stage_value(spec: StageSpec, outcome: StageOutcome) -> StageValue:
+    """The wire value of one stage outcome: a ``stage`` event on the turn's own ``seq`` (chat wire v2).
 
-    ``parent_id`` is the correlation key and the only one: it is the id both
-    halves genuinely share. A frame whose ``parent_id`` matches no message is
-    dropped client-side. ``status`` rides even when there is nothing to show —
-    ``empty`` is not the same fact as "no frame arrived", and only the former
-    lets a client stop reserving space. A ``failed`` frame carries no reason:
-    failure reasons are machine keys for the ledger, not user-facing text.
+    ``status`` rides even when there is nothing to show: ``empty`` is not the
+    same fact as "no event arrived", and only the former lets a client stop
+    reserving space. A ``failed`` event carries no reason: failure reasons are
+    machine keys for the ledger, not user-facing text.
     """
     status = "failed" if outcome.status == "timeout" else outcome.status
-    frame: dict[str, Any] = {
-        "type": STAGE_FRAME_TYPE,
-        "v": STAGE_FRAME_VERSION,
-        "conversation_id": facts.conversation_id,
-        "parent_id": facts.ws_parent_id,
-        "stage": spec.id,
-        "status": status,
-        "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-    }
-    if outcome.status == "ready" and outcome.payload is not None:
-        frame["payload"] = outcome.payload
-    return frame
+    payload = outcome.payload if outcome.status == "ready" else None
+    return StageValue(stage=spec.id, status=status, payload=payload)
 
 
 def _resolve_llm(spec: StageSpec, llms: Mapping[AgentGroup, Any] | None) -> Any:
@@ -336,8 +319,8 @@ async def _run_stage(spec: StageSpec, ctx: StageContext) -> StageOutcome:
         payload=payload if status == "ready" else None,
         duration_ms=max(0, round((time.monotonic() - started) * 1000)),
     )
-    if spec.delivery == "frame" and status in {"ready", "empty", "failed", "timeout"}:
-        await deliver_stage_frame(facts.conversation_id, build_stage_frame(spec, facts, outcome))
+    if spec.delivery == "frame" and status in {"ready", "empty", "failed", "timeout"} and facts.ws_parent_id:
+        await deliver_stage_frame(facts.conversation_id, facts.ws_parent_id, stage_value(spec, outcome))
     return outcome
 
 
@@ -380,13 +363,11 @@ def _validate(spec: StageSpec, result: Any) -> tuple[str, str | None, dict[str, 
         except Exception:
             logger.warning("Stage %s returned a payload its own model rejects", spec.id, exc_info=True)
             return "failed", "invalid_payload", None
-        # ``exclude_none`` because on this envelope an absent key and a null are
-        # the same fact, and only one of them is the contract: `shared/stages/
-        # frames.json` shows an optional field simply missing, so a model that
-        # serialised its own ``None`` default would make the fixture file and its
-        # own producer disagree — which is the drift the fixtures exist to catch.
-        # It is the same rule the envelope already applies one level up, where a
-        # non-``ready`` frame carries no ``payload`` KEY rather than a null one.
+        # ``exclude_none`` because on the wire an absent key and a null are the
+        # same fact, and only one of them is the contract: a v2 frame is never
+        # ``null`` where a value is absent (``wire_v2.to_frame``), and the
+        # payload is passed through as it is, so its own ``None`` defaults
+        # must not be serialised either.
         return "ready", None, validated.model_dump(mode="json", exclude_none=True)
     if not isinstance(result, dict):
         return "failed", "invalid_payload", None

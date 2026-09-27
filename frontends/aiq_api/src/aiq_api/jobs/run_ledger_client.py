@@ -43,8 +43,8 @@ from aiq_agent.common.run_ledger import to_wire
 # the service token that authenticates the call. Imported rather than re-derived
 # so the base URL and the header spelling cannot drift from the message-write
 # path that has been using them since long before this one existed.
-from ..websocket_reconnect import _internal_base_url
-from ..websocket_reconnect import _internal_persist_headers
+from ..internal_api import internal_base_url
+from ..internal_api import internal_headers
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ class RunLedgerClient:
         if not run_id:
             return False
         url = self._url(run_id)
-        headers = _internal_persist_headers()
+        headers = internal_headers()
         if url is None or headers is None:
             # Not configured is not an error to retry: this deployment has no
             # BFF to write to. Said once per flush at debug, because a run that
@@ -102,7 +102,7 @@ class RunLedgerClient:
 
     @staticmethod
     def _url(run_id: str) -> str | None:
-        base_url = _internal_base_url()
+        base_url = internal_base_url()
         if not base_url:
             return None
         # Quoted although a run id is a uuid: this value reaches here from a job

@@ -45,6 +45,9 @@ general:
   front_end:
     _type: aiq_api
     runner_class: aiq_api.plugin.AIQAPIWorker
+    # /websocket is the chat socket (wire v2, aiq_api.chat_socket). AIQAPIConfig
+    # turns NAT's own socket route and step adaptor off, and refuses a
+    # `websocket_path` set here.
     db_url: ${NAT_JOB_STORE_DB_URL:-sqlite+aiosqlite:///./jobs.db}
     expiry_seconds: 86400
     cors:

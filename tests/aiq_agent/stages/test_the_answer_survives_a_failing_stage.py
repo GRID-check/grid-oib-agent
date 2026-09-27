@@ -11,9 +11,9 @@ delivery channel is new code on the answer path's process … a bug there could
 write to a socket mid-turn."* This file is that risk turned into an assertion.
 
 The run is the real one end to end: the real `schedule_post_answer_stages`, the
-real `aiq_api` sink, the real `WebSocketSessionRegistry`, the real message
-handler, and a socket that records exactly what a browser would receive. What is
-compared is the bytes: a turn with a stage that raises, times out or is
+real `aiq_api` sink, the real `ChatRegistry` and the turn's own sequencer
+(`TurnWire`), and a socket that records exactly what a browser would receive.
+What is compared is the bytes: a turn with a stage that raises, times out or is
 rate-limited must put the SAME answer frames on the socket, in the same order, as
 a turn with no stage at all.
 """
@@ -21,24 +21,24 @@ a turn with no stage at all.
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
 
 import pytest
 
-from aiq_agent.common import _create_chat_response
 from aiq_agent.common.model_overrides import AgentGroup
+from aiq_agent.common.wire_v2 import RunFinishedBody
+from aiq_agent.common.wire_v2 import RunStartedBody
+from aiq_agent.common.wire_v2 import TextMessageContentBody
+from aiq_agent.common.wire_v2 import TextMessageStartBody
+from aiq_agent.common.wire_v2 import TurnResult
 from aiq_agent.stages import registry
 from aiq_agent.stages import runner
 from aiq_agent.stages.spec import GateDecision
 from aiq_agent.stages.spec import StageSpec
 from aiq_agent.stages.spec import TurnFacts
-from aiq_agent.turn.streaming import response_to_chunks
-from aiq_api import websocket_reconnect
-from aiq_api.websocket_reconnect import ReconnectableWebSocketMessageHandler
-from aiq_api.websocket_reconnect import WebSocketSessionRegistry
-from aiq_api.websocket_reconnect import send_stage_frame
-from nat.data_models.api_server import WebSocketMessageStatus
-from nat.data_models.api_server import WebSocketMessageType
+from aiq_api import chat_socket
+from aiq_api.chat_socket import ChatRegistry
+from aiq_api.chat_socket import RunningTurn
+from aiq_api.chat_socket import TurnWire
 
 CONVERSATION_ID = "conv-fault-isolation"
 PARENT_ID = "msg_1755600000000_3"
@@ -59,37 +59,9 @@ class _Socket:
 
     def __init__(self) -> None:
         self.sent: list[dict] = []
-        self.scope: dict = {"headers": [], "type": "websocket"}
 
     async def send_json(self, payload: dict) -> None:
         self.sent.append(payload)
-
-
-class _SessionManager:
-    def get_workflow_single_output_schema(self):
-        return None
-
-    def get_workflow_streaming_output_schema(self):
-        return None
-
-    @asynccontextmanager
-    async def session(self, **_kwargs):
-        yield object()
-
-
-class _StepAdaptor:
-    pass
-
-
-class _Worker:
-    def set_conversation_handler(self, _conversation_id: str, _handler: object) -> None:
-        return None
-
-    def get_conversation_handler(self, _conversation_id: str) -> object | None:
-        return None
-
-    def remove_conversation_handler(self, _conversation_id: str) -> None:
-        return None
 
 
 @pytest.fixture(autouse=True)
@@ -112,12 +84,12 @@ def _isolated_registry():
 
 @pytest.fixture(autouse=True)
 def _live_sink(monkeypatch):
-    """The real sink over a socket private to one test."""
+    """The real sink over a registry and a socket private to one test; nothing is persisted."""
     from aiq_agent.stages import delivery
 
-    session_registry = WebSocketSessionRegistry()
-    monkeypatch.setattr(websocket_reconnect, "_registry", session_registry)
-    delivery.register_stage_frame_sink(send_stage_frame)
+    session_registry = ChatRegistry()
+    monkeypatch.setattr(chat_socket, "_persist_in_background", lambda *args: None)
+    delivery.register_stage_frame_sink(session_registry.send_stage)
     try:
         yield session_registry
     finally:
@@ -132,13 +104,13 @@ def _facts() -> TurnFacts:
         project_id="proj_1",
         query="Wie hoch muss die Brüstung sein?",
         answer=ANSWER,
-        enabled_stages=frozenset({"probe"}),
+        enabled_stages=frozenset({"follow_ups"}),
     )
 
 
 def _spec(handler, **overrides) -> StageSpec:
     kwargs = {
-        "id": "probe",
+        "id": "follow_ups",
         "agent_group": AgentGroup.MEMORY_REFLECTION,
         "flag_slug": "probe-stage",
         "env_default": "GRID_STAGE_PROBE_ENABLED",
@@ -153,46 +125,32 @@ def _spec(handler, **overrides) -> StageSpec:
     return registry.register_stage(StageSpec(**kwargs))
 
 
-async def _emit_answer(session_registry: WebSocketSessionRegistry, socket: _Socket) -> None:
-    """Stream one finished answer to the socket exactly as the handler's own loop
-    does: deltas IN_PROGRESS, the terminal chunk COMPLETE."""
-    await session_registry.set_socket(CONVERSATION_ID, socket)
-    handler = ReconnectableWebSocketMessageHandler(
-        socket=socket,
-        session_manager=_SessionManager(),
-        step_adaptor=_StepAdaptor(),
-        worker=_Worker(),
-    )
-    handler._conversation_id = CONVERSATION_ID
-    handler._message_parent_id = PARENT_ID
-
-    response = _create_chat_response(ANSWER, response_id="r1", model="chat_researcher")
-    chunks = response_to_chunks(response, stream=True)
-    for chunk in chunks[:-1]:
-        await handler.create_websocket_message(
-            data_model=chunk,
-            status=WebSocketMessageStatus.IN_PROGRESS,
-            persist_on_drop=False,
-        )
-    await handler.create_websocket_message(
-        data_model=chunks[-1],
-        message_type=WebSocketMessageType.RESPONSE_MESSAGE,
-        status=WebSocketMessageStatus.COMPLETE,
-    )
+async def _emit_answer(session_registry: ChatRegistry, socket: _Socket) -> None:
+    """Stream one finished answer to the socket exactly as the handler does: the
+    turn's sequencer stamps every body, the terminal closes the turn, and the
+    registry keeps the sequencer for the stages."""
+    session_registry.set_socket(CONVERSATION_ID, socket)
+    turn = RunningTurn(wire=TurnWire(CONVERSATION_ID, PARENT_ID, session_registry.publish), asker_subject=None)
+    session_registry.start_turn(turn)
+    await turn.wire.send(RunStartedBody(message_id=turn.message_id))
+    await turn.publish(TextMessageStartBody(message_id=turn.message_id))
+    for start in range(0, len(ANSWER), 24):
+        await turn.publish(TextMessageContentBody(message_id=turn.message_id, delta=ANSWER[start : start + 24]))
+    await turn.publish(RunFinishedBody(outcome="answered", result=TurnResult(message_id=turn.message_id, text=ANSWER)))
+    session_registry.finish_turn(turn)
 
 
 def _answer_frames(socket: _Socket) -> list[dict]:
-    # Less the wall clock: NAT 1.9 stamps each frame when it is built, where 1.7
-    # stamped every frame with the time its model class was imported.
+    # Less the wall clock, which differs between any two runs.
     return [
-        {key: value for key, value in frame.items() if key != "timestamp"}
+        {key: value for key, value in frame.items() if key != "ts"}
         for frame in socket.sent
-        if frame.get("type") != "grid_stage_message"
+        if frame.get("name") != "stage"
     ]
 
 
 def _stage_frames(socket: _Socket) -> list[dict]:
-    return [frame for frame in socket.sent if frame.get("type") == "grid_stage_message"]
+    return [frame for frame in socket.sent if frame.get("name") == "stage"]
 
 
 async def _turn(session_registry, handler=None, **spec_overrides) -> tuple[_Socket, dict]:
@@ -289,8 +247,8 @@ class TestTheAnswerIsByteIdentical:
         runner._claimed_keys.clear()
         observed, outcomes = await _turn(_live_sink, handler=handler, **overrides)
 
-        assert outcomes["probe"].status == expected_status, why
-        assert outcomes["probe"].reason == expected_reason, why
+        assert outcomes["follow_ups"].status == expected_status, why
+        assert outcomes["follow_ups"].reason == expected_reason, why
         assert _answer_frames(observed) == _answer_frames(control), (
             f"{why} changed the answer the reader receives. The answer is written before any stage "
             f"runs and no stage holds a reference to it, so any difference here means the stage path "
@@ -325,7 +283,7 @@ class TestTheStagePathCannotBlockTheAnswerPath:
         socket = _Socket()
         await _emit_answer(_live_sink, socket)
 
-        assert any(frame.get("status") == "complete" for frame in _answer_frames(socket)), (
+        assert any(frame["type"] == "RUN_FINISHED" for frame in _answer_frames(socket)), (
             "the turn was never closed while a stage was still in flight"
         )
         assert _stage_frames(socket) == []
@@ -340,13 +298,13 @@ class TestTheStagePathCannotBlockTheAnswerPath:
         """
         from aiq_agent.stages import delivery
 
-        async def _exploding_sink(conversation_id, frame):
+        async def _exploding_sink(conversation_id, turn_id, value):
             raise RuntimeError("the socket blew up")
 
         delivery.register_stage_frame_sink(_exploding_sink)
         socket, outcomes = await _turn(_live_sink, handler=lambda ctx: _returns({"items": []}))
 
-        assert outcomes["probe"].status == "ready"
+        assert outcomes["follow_ups"].status == "ready"
         assert _stage_frames(socket) == []
         assert _answer_frames(socket), "the answer never reached the socket at all"
 
@@ -360,10 +318,11 @@ class TestTheFrameArrivesAfterTheAnswer:
 
         frames = _stage_frames(socket)
         assert len(frames) == 1
-        assert frames[0]["status"] == "failed"
-        assert "payload" not in frames[0]
-        assert "reason" not in frames[0], "failure reasons are machine keys for the ledger, not user-facing text (§4.1)"
-        assert frames[0]["parent_id"] == PARENT_ID
+        assert frames[0]["value"] == {"stage": "follow_ups", "status": "failed"}, (
+            "no payload, and no reason: failure reasons are machine keys for the ledger, not user-facing text (§4.1)"
+        )
+        assert frames[0]["turn_id"] == PARENT_ID
+        assert frames[0]["seq"] == socket.sent[-2]["seq"] + 1, "the stage is on the turn's own seq, after its terminal"
         assert socket.sent[-1] is frames[0], (
             "the stage frame did not arrive after the closed turn: the turn's own frames "
             "were still being written when the stage delivered"
@@ -373,11 +332,10 @@ class TestTheFrameArrivesAfterTheAnswer:
         payload = {"items": [{"question": "Wie wird die Standfläche bestimmt?"}]}
         socket, outcomes = await _turn_with_a_late_stage(_live_sink, lambda ctx: _returns(payload))
 
-        assert outcomes["probe"].status == "ready"
+        assert outcomes["follow_ups"].status == "ready"
         frames = _stage_frames(socket)
         assert len(frames) == 1
-        assert frames[0]["status"] == "ready"
-        assert frames[0]["payload"] == payload
+        assert frames[0]["value"] == {"stage": "follow_ups", "status": "ready", "payload": payload}
         assert socket.sent[-1] is frames[0]
 
 

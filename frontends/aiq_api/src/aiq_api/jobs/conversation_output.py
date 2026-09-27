@@ -33,8 +33,8 @@ from datetime import datetime
 from datetime import timedelta
 from typing import Any
 
-from ..websocket_reconnect import post_internal_conversation_message
-from ..websocket_reconnect import post_internal_run_report
+from ..internal_api import post_internal_conversation_message
+from ..internal_api import post_internal_run_report
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +57,8 @@ INTERRUPTED_NOTICE = (
 
 
 #: The marks a run may have left on its own answer, in the spelling they travel
-#: in everywhere else on the wire (the agent state, the terminal websocket frame,
-#: the job's persisted output, ``websocket_reconnect``'s metadata).
+#: in everywhere else on the wire (the agent state, the socket's `TurnResult`,
+#: the job's persisted output, ``chat_socket.persist_turn_result``).
 #:
 #: Spelling is the whole point. The BFF normalises a backend-written message with
 #: ``normalizeAgentAnswerMetadata``, which recognises the snake_case originals and
@@ -232,7 +232,7 @@ async def write_job_turn(
     not be created) means there is nothing to do and no HTTP call is made.
 
     ``skills_activated`` is the same transparency field the socket path already
-    persists (``websocket_reconnect.persist_assistant_message``). Without it a
+    persists (``chat_socket.persist_turn_result``). Without it a
     job that ran under a skill produced a thread message indistinguishable from
     one that ran without: the reader of the thread could not tell that their
     office's own working method had shaped the answer, while the reader of an
