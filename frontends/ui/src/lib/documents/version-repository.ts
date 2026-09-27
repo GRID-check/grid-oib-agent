@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { and, asc, desc, eq, inArray, isNotNull, lt, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   documentVersions,
@@ -537,33 +537,157 @@ export async function promoteVersionToPublished(
   }
 }
 
+/** A version's storage columns — what a content swap replaces. */
+export type VersionStorageColumns = Pick<
+  DocumentVersion,
+  'storageKey' | 'storageBucket' | 'contentType' | 'fileSize' | 'contentHash'
+>
+
+/** What a content swap has to find still true of the row, or it loses. */
+export interface ExpectedVersionContent {
+  state: DocumentVersionState
+  storageKey: string
+  contentHash: string | null
+}
+
+export interface SwapVersionContentInput {
+  versionId: string
+  documentId: string
+  organizationId: string
+  expected: ExpectedVersionContent
+  /** The transition's stamp plus the new storage columns. */
+  patch: Partial<Omit<NewDocumentVersion, 'id' | 'organizationId' | 'documentId'>> &
+    VersionStorageColumns
+  /**
+   * Whether this version's bytes are the ITEM's (`versionMirrorsItem`). The
+   * item's columns are what the download path serves and what the hot half of
+   * the quota ledger sums, so a version that IS the item's bytes writes them
+   * back in the same transaction — never a forked draft, whose bytes nobody has
+   * published.
+   */
+  mirrorsItem: boolean
+}
+
+export type SwapVersionContentOutcome =
+  | {
+      ok: true
+      version: DocumentVersion
+      /** No row names the key the version had before — its object may go. */
+      previousKeyOrphaned: boolean
+    }
+  | { ok: false; reason: 'conflict' }
+
 /**
- * Copy one version's storage columns onto the item that owns it.
+ * Point a version at new bytes, but only if it is still what the caller read.
  *
- * The item's columns MIRROR the bytes a reader gets when they open the
- * document, and two things read them that a version row cannot answer for: the
- * download path, and the storage ledger — `sum(documents.file_size)` is the
- * hot half of the quota. So a version whose bytes were replaced in place has to
- * write them back here, or the organization is charged the size the file had
- * when it was created, forever.
+ * ## Why state alone was not enough
  *
- * Only the version the item actually mirrors may call this
- * ({@link versionMirrorsItem} in `./version-content`): copying a forked draft's
- * bytes onto the item would make the download serve something nobody published.
+ * {@link compareAndSwapVersionState} filters on `state = $expected`, which is
+ * the whole question for a transition that MOVES the state. `update` does not:
+ * it goes draft → draft, so two writers holding the same `If-Match` both
+ * matched, both won, and the second silently replaced the first. The predicate
+ * here also carries the `content_hash` and the `storage_key` the caller read,
+ * which is what `If-Match` means: the loser of two writers who read the same
+ * version matches no row and is told so.
+ *
+ * `content_hash IS NULL` is matched as such, not as `= NULL` (which matches
+ * nothing): a row backfilled from a document that predates `content_hash`
+ * carries NULL, and `assertGuards` already lets such a version be replaced.
+ *
+ * ## One transaction
+ *
+ * The swap, the item mirror and the orphan check are one step: a mirror that
+ * committed separately could copy a loser's columns onto the item, and an
+ * orphan check outside it could see a row that is about to change. The object
+ * for `patch.storageKey` must already be stored in full when this runs — the
+ * caller writes it first, under a key no other writer shares.
  */
-export async function mirrorVersionOntoDocument(
+export async function swapVersionContent(
+  input: SwapVersionContentInput,
+): Promise<SwapVersionContentOutcome> {
+  const db = getDb()
+  const { versionId, documentId, organizationId, expected, patch } = input
+  try {
+    return await db.transaction(async (tx) => {
+      const [version] = await tx
+        .update(documentVersions)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(
+          and(
+            eq(documentVersions.id, versionId),
+            eq(documentVersions.documentId, documentId),
+            eq(documentVersions.organizationId, organizationId),
+            eq(documentVersions.state, expected.state),
+            eq(documentVersions.storageKey, expected.storageKey),
+            expected.contentHash === null
+              ? isNull(documentVersions.contentHash)
+              : eq(documentVersions.contentHash, expected.contentHash),
+          ),
+        )
+        .returning()
+      if (!version) throw new LostCompareAndSwap()
+
+      if (input.mirrorsItem) {
+        await tx
+          .update(documents)
+          .set({
+            storageKey: version.storageKey,
+            storageBucket: version.storageBucket,
+            contentType: version.contentType,
+            fileSize: version.fileSize,
+            contentHash: version.contentHash,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId)))
+      }
+
+      const previousKeyOrphaned = await keyIsUnnamed(
+        tx,
+        documentId,
+        organizationId,
+        expected.storageKey,
+      )
+      return { ok: true as const, version, previousKeyOrphaned }
+    })
+  } catch (error) {
+    if (error instanceof LostCompareAndSwap) return { ok: false, reason: 'conflict' }
+    throw error
+  }
+}
+
+/**
+ * Whether neither the item nor any of its versions still names `storageKey`.
+ *
+ * A forked draft shares the published version's key, and a superseded version
+ * can share a key with a draft forked from it before a re-upload; deleting the
+ * object on the strength of "this version moved off it" would destroy history
+ * another row still opens.
+ */
+async function keyIsUnnamed(
+  tx: Transaction,
   documentId: string,
   organizationId: string,
-  next: Pick<
-    DocumentVersion,
-    'storageKey' | 'storageBucket' | 'contentType' | 'fileSize' | 'contentHash'
-  >,
-): Promise<void> {
-  const db = getDb()
-  await db
-    .update(documents)
-    .set({ ...next, updatedAt: new Date() })
-    .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId)))
+  storageKey: string,
+): Promise<boolean> {
+  const rows = await tx.execute<{ named: boolean | string }>(sql`
+    SELECT (
+      EXISTS (
+        SELECT 1 FROM document_versions v
+        WHERE v.document_id = ${documentId}
+          AND v.organization_id = ${organizationId}
+          AND v.storage_key = ${storageKey}
+      )
+      OR EXISTS (
+        SELECT 1 FROM documents d
+        WHERE d.id = ${documentId}
+          AND d.organization_id = ${organizationId}
+          AND d.storage_key = ${storageKey}
+      )
+    ) AS named
+  `)
+  // Coerced at the boundary: a raw boolean can come back as 't'/'f'.
+  const named = Array.from(rows)[0]?.named
+  return !(named === true || named === 't')
 }
 
 /** Move an item into or out of the working set. */

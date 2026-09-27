@@ -303,6 +303,16 @@ nobody what it cost to find them.
     throws, so the null — the 409 — was unreachable. A sentinel is thrown and
     caught outside the transaction; a lint rule refuses the call.
 
+12. **`If-Match` did not stop a lost update.** The digest was compared with a
+    row read at the start, and the compare-and-swap filtered on `state` alone —
+    and `update` goes draft → draft, so two writers holding the same digest
+    both won and both wrote the version's one key. The swap now also asserts
+    the storage key and `content_hash` it read, and each write stores its
+    bytes under a fresh key BEFORE the swap, so a row only ever names an object
+    that is already stored in full and the loser's object is deleted. "Steps 3
+    and 4 in that order" in the old `replaceVersionContent` header had traded
+    this for a different failure; writing to a unique key removes the trade.
+
 ### What this amends in ADR-0047
 
 ADR-0047's 2026-08-20 addendum says `Zuweisen` is the promotion gesture and that

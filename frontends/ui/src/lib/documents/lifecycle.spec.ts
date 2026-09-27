@@ -99,15 +99,9 @@ vi.mock('@/lib/tasks/delegation', () => ({ delegateTask: vi.fn() }))
  */
 vi.mock('./version-content', () => ({
   BACKEND_PURGE_TIMEOUT_MS: 10_000,
-  admitVersionBytes: vi.fn(),
   readVersionContent: vi.fn().mockResolvedValue('# Aktenvermerk'),
   renderVersionBytes: vi.fn(),
-  resolveVersionBucket: vi.fn().mockResolvedValue('grid-org-1'),
-  storeVersionBytes: vi.fn(),
-  versionStorageKey: (document: { storageKey: string }, versionNumber: number) =>
-    versionNumber <= 1
-      ? document.storageKey
-      : document.storageKey.replace(/\/([^/]+)$/, `/v${versionNumber}/$1`),
+  writeVersionContent: vi.fn(),
 }))
 vi.mock('@/lib/s3', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/s3')>()),
@@ -121,6 +115,7 @@ import { dispatchDocument } from './service'
 import { resolvePeople } from '@/lib/sharing/directory'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { ConflictError } from '@/lib/api/errors'
 import { publishToUsers } from '@/lib/events/bus'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import { listReviewCandidates, resolveReviewers } from './reviewers'
@@ -136,11 +131,7 @@ import {
   listDocumentVersions,
   promoteVersionToPublished,
 } from './version-repository'
-import {
-  admitVersionBytes,
-  renderVersionBytes,
-  storeVersionBytes,
-} from './version-content'
+import { renderVersionBytes, writeVersionContent } from './version-content'
 import {
   createDocumentVersion,
   forkDraftVersion,
@@ -242,8 +233,12 @@ beforeEach(() => {
   vi.mocked(findOpenVersion).mockResolvedValue(null)
   // `clearMocks` clears CALLS, not implementations, so a rejection set in one
   // test would leak into every later one.
-  vi.mocked(admitVersionBytes).mockReset()
-  vi.mocked(storeVersionBytes).mockReset()
+  // The byte half answers with the row it swapped: the stamp on the version read.
+  vi.mocked(writeVersionContent).mockReset()
+  vi.mocked(writeVersionContent).mockImplementation(async ({ version: read, stamp }) => ({
+    ...read,
+    ...stamp,
+  }) as DocumentVersion)
   vi.mocked(renderVersionBytes).mockResolvedValue({
     bytes: Buffer.from('# Aktenvermerk', 'utf8'),
     contentType: 'text/markdown',
@@ -420,7 +415,6 @@ describe('transitionDocumentVersion — guards', () => {
       vi.mocked(findDocumentVersion).mockResolvedValue(
         version({ state: 'draft', contentHash: null }),
       )
-      vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'draft' }))
 
       await expect(
         replaceVersionContent(session, 'doc_1', 'ver_1', 'neu', ifMatch),
@@ -1056,31 +1050,15 @@ describe('replaceVersionContent', () => {
     await expect(
       replaceVersionContent(session, 'doc_1', 'ver_1', 'neu', 'sha256:stale'),
     ).rejects.toMatchObject({ status: 409 })
-    const s3 = await import('@/lib/s3')
-    expect(vi.mocked(s3.s3Client.send)).not.toHaveBeenCalled()
+    expect(writeVersionContent).not.toHaveBeenCalled()
   })
 
-  it('writes the draft’s own key and records the new digest', async () => {
-    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
-    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'draft' }))
-
-    await replaceVersionContent(session, 'doc_1', 'ver_1', '# Aktenvermerk', 'sha256:abc')
-
-    expect(compareAndSwapVersionState).toHaveBeenCalledWith(
-      'ver_1',
-      'org_1',
-      'draft',
-      expect.objectContaining({
-        state: 'draft',
-        contentHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
-      }),
-    )
-  })
-
-  it('renders through the producer, admits the bytes, swaps, and only THEN writes', async () => {
-    // Four steps and the order is the whole of it: writing before the swap
-    // meant a caller that LOST the race had already overwritten the winner's
-    // object, because both were aiming at the same key.
+  it('renders through the producer, then hands the byte half the row AS READ', async () => {
+    // The row as read is the expectation the swap asserts (state, key and
+    // hash): that is what lets the second of two writers holding one If-Match
+    // lose. `version-content.spec.ts` owns what happens with it.
+    const read = version({ state: 'draft', contentHash: 'sha256:abc' })
+    vi.mocked(findDocumentVersion).mockResolvedValue(read)
     const order: string[] = []
     vi.mocked(renderVersionBytes).mockImplementation(async () => {
       order.push('render')
@@ -1090,44 +1068,49 @@ describe('replaceVersionContent', () => {
         contentHash: 'sha256:neu',
       }
     })
-    vi.mocked(admitVersionBytes).mockImplementation(async () => {
-      order.push('admit')
+    vi.mocked(writeVersionContent).mockImplementation(async ({ version: v, stamp }) => {
+      order.push('write')
+      return { ...v, ...stamp } as DocumentVersion
     })
-    vi.mocked(compareAndSwapVersionState).mockImplementation(async () => {
-      order.push('swap')
-      return version({ state: 'draft' })
-    })
-    vi.mocked(storeVersionBytes).mockImplementation(async () => {
-      order.push('store')
-    })
-    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
 
     await replaceVersionContent(session, 'doc_1', 'ver_1', '# Aktenvermerk', 'sha256:abc')
 
-    expect(order).toEqual(['render', 'admit', 'swap', 'store'])
-    // The RENDERED bytes are what the row records, never the caller's body.
-    expect(compareAndSwapVersionState).toHaveBeenCalledWith(
-      'ver_1',
-      'org_1',
-      'draft',
-      expect.objectContaining({ contentHash: 'sha256:neu', fileSize: 11 }),
+    expect(order).toEqual(['render', 'write'])
+    expect(writeVersionContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org_1',
+        version: read,
+        // The RENDERED bytes are what the row records, never the caller's body.
+        rendered: expect.objectContaining({ contentHash: 'sha256:neu' }),
+        stamp: expect.objectContaining({ state: 'draft' }),
+      }),
     )
   })
 
-  it('writes nothing and swaps nothing when the quota refuses the delta', async () => {
+  it('lets the loser of a write race through as a 409, and runs no effect for it', async () => {
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
-    vi.mocked(admitVersionBytes).mockRejectedValue(new Error('no room'))
+    vi.mocked(writeVersionContent).mockRejectedValue(
+      new ConflictError('The version changed while you were writing'),
+    )
+
+    await expect(
+      replaceVersionContent(session, 'doc_1', 'ver_1', 'neu', 'sha256:abc'),
+    ).rejects.toMatchObject({ status: 409 })
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('writes nothing when the quota refuses', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
+    vi.mocked(writeVersionContent).mockRejectedValue(new Error('no room'))
 
     await expect(
       replaceVersionContent(session, 'doc_1', 'ver_1', 'sehr lang', 'sha256:abc'),
     ).rejects.toThrow(/no room/)
-    expect(compareAndSwapVersionState).not.toHaveBeenCalled()
-    expect(storeVersionBytes).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
   })
 
   it('carries the machine flag into the guards, so the door is one field', async () => {
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
-    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'draft' }))
 
     await replaceVersionContent(session, 'doc_1', 'ver_1', 'neu', 'sha256:abc', {
       actingHuman: false,
@@ -1136,22 +1119,21 @@ describe('replaceVersionContent', () => {
     // `update` is an `either` row, so nothing is refused today — which is
     // exactly why the flag has to arrive: the door is the `actor` field, and a
     // caller that lies about who it is bypasses it the moment a row changes.
-    expect(compareAndSwapVersionState).toHaveBeenCalled()
+    expect(writeVersionContent).toHaveBeenCalled()
   })
 
   it('clears the reviewer’s words, because they were about the bytes just replaced', async () => {
-    vi.mocked(findDocumentVersion).mockResolvedValue(
-      version({ state: 'changes_requested', reviewComment: 'GK stimmt nicht' }),
-    )
-    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'draft' }))
+    const read = version({ state: 'changes_requested', reviewComment: 'GK stimmt nicht' })
+    vi.mocked(findDocumentVersion).mockResolvedValue(read)
 
     await replaceVersionContent(session, 'doc_1', 'ver_1', 'korrigiert', 'sha256:abc')
 
-    expect(compareAndSwapVersionState).toHaveBeenCalledWith(
-      'ver_1',
-      'org_1',
-      'changes_requested',
-      expect.objectContaining({ state: 'draft', reviewComment: null }),
+    expect(writeVersionContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // Expected state is the one READ, so a decision taken meanwhile wins.
+        version: expect.objectContaining({ state: 'changes_requested' }),
+        stamp: expect.objectContaining({ state: 'draft', reviewComment: null }),
+      }),
     )
   })
 })

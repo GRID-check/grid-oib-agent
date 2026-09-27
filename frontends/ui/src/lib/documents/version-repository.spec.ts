@@ -38,9 +38,11 @@ const proxyDb = drizzle(async (sql, params) => {
 let currentDb: unknown = proxyDb
 vi.mock('@/lib/db', () => ({ getDb: () => currentDb }))
 
-import { TransactionRollbackError } from 'drizzle-orm'
+import { TransactionRollbackError, type SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import {
   findPreviousVersion,
+  swapVersionContent,
   insertDocumentVersion,
   insertPublishedVersion,
   promoteVersionToPublished,
@@ -219,5 +221,114 @@ describe('findPreviousVersion — the diff base', () => {
     expect(params).toContain('doc_1')
     expect(params).toContain('org_1')
     expect(params).toContain(201)
+  })
+})
+
+/**
+ * The content swap's predicate (the two-writers-one-If-Match defect).
+ *
+ * `update` goes draft → draft, so `WHERE state = 'draft'` alone let two writers
+ * holding the same digest both win. The WHERE clause has to carry the hash and
+ * the key that were read. Rendered through drizzle's own dialect, so this is
+ * the SQL Postgres would receive; `document-versions.integration.spec.ts` runs
+ * the race itself against a real database under `task db:test:rls`.
+ */
+describe('swapVersionContent — the swap asserts what was read', () => {
+  const dialect = new PgDialect()
+
+  function fakeSwapDb(opts: { swapped: unknown[]; named: boolean }) {
+    const wheres: Array<{ sql: string; params: unknown[] }> = []
+    const statements: string[] = []
+    const tx = {
+      update: () => ({
+        set: () => ({
+          where: (condition: SQL) => {
+            const rendered = dialect.sqlToQuery(condition)
+            wheres.push({ sql: rendered.sql, params: rendered.params })
+            statements.push('UPDATE')
+            const result = statements.length === 1 ? opts.swapped : []
+            return Object.assign(Promise.resolve(result), { returning: async () => result })
+          },
+        }),
+      }),
+      execute: async () => {
+        statements.push('ORPHAN CHECK')
+        return [{ named: opts.named }]
+      },
+    }
+    return {
+      wheres,
+      statements,
+      db: { transaction: async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx) },
+    }
+  }
+
+  const input = {
+    versionId: 'ver_1',
+    documentId: 'doc_1',
+    organizationId: 'org_1',
+    expected: { state: 'draft' as const, storageKey: 'k/old', contentHash: 'sha256:alt' },
+    patch: {
+      state: 'draft' as const,
+      storageKey: 'k/new',
+      storageBucket: 'b',
+      contentType: 'text/markdown',
+      fileSize: 5,
+      contentHash: 'sha256:neu',
+    },
+    mirrorsItem: false,
+  }
+
+  it('matches on state, storage key AND content hash', async () => {
+    const fake = fakeSwapDb({ swapped: [{ id: 'ver_1' }], named: false })
+    currentDb = fake.db
+
+    await swapVersionContent(input)
+
+    const [where] = fake.wheres
+    expect(where.sql).toMatch(/"state" = \$\d/)
+    expect(where.sql).toMatch(/"storage_key" = \$\d/)
+    expect(where.sql).toMatch(/"content_hash" = \$\d/)
+    expect(where.params).toEqual(
+      expect.arrayContaining(['ver_1', 'doc_1', 'org_1', 'draft', 'k/old', 'sha256:alt']),
+    )
+  })
+
+  it('matches a row with no stored digest as IS NULL, never as = NULL', async () => {
+    const fake = fakeSwapDb({ swapped: [{ id: 'ver_1' }], named: false })
+    currentDb = fake.db
+
+    await swapVersionContent({ ...input, expected: { ...input.expected, contentHash: null } })
+
+    expect(fake.wheres[0].sql).toMatch(/"content_hash" is null/i)
+  })
+
+  it('reports the loser as a conflict and writes nothing else', async () => {
+    const fake = fakeSwapDb({ swapped: [], named: false })
+    currentDb = fake.db
+
+    await expect(swapVersionContent({ ...input, mirrorsItem: true })).resolves.toEqual({
+      ok: false,
+      reason: 'conflict',
+    })
+    // No item mirror, no orphan check: the transaction was abandoned at the swap.
+    expect(fake.statements).toEqual(['UPDATE'])
+  })
+
+  it('mirrors the item in the same transaction when the version is the item’s bytes', async () => {
+    const fake = fakeSwapDb({ swapped: [{ id: 'ver_1', storageKey: 'k/new' }], named: false })
+    currentDb = fake.db
+
+    await swapVersionContent({ ...input, mirrorsItem: true })
+
+    expect(fake.statements).toEqual(['UPDATE', 'UPDATE', 'ORPHAN CHECK'])
+  })
+
+  it('says whether the previous key is still named by anything', async () => {
+    currentDb = fakeSwapDb({ swapped: [{ id: 'ver_1' }], named: true }).db
+    await expect(swapVersionContent(input)).resolves.toMatchObject({ previousKeyOrphaned: false })
+
+    currentDb = fakeSwapDb({ swapped: [{ id: 'ver_1' }], named: false }).db
+    await expect(swapVersionContent(input)).resolves.toMatchObject({ previousKeyOrphaned: true })
   })
 })

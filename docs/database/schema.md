@@ -366,6 +366,17 @@ The consequence is stated rather than hidden: superseded versions stay charged
 against the organization's storage quota, because they exist. A per-organization
 retention policy is a later row on a later table.
 
+**Replacing a draft's bytes (`PUT …/content`):** the swap is `UPDATE … WHERE
+state = $read AND storage_key = $read AND content_hash = $read` (`IS NULL` for a
+row with no digest), not `state` alone. `update` goes draft → draft, so a state
+guard let two writers holding the same `If-Match` both win. The new bytes are
+written FIRST, under a fresh `v<n>/<write id>/` key nobody else is aiming at;
+the loser's object is deleted, and the draft's previous object is deleted once
+neither the item nor any version names it (a fresh fork's key is the published
+version's, and stays). The swap, the item mirror (when the version IS the
+item's bytes) and that orphan check are one transaction
+(`swapVersionContent`).
+
 **And the ledger says so.** That sentence was a claim the code did not honour
 for a while: usage summed `documents.file_size` alone, which is the LIVE bytes,
 so every superseded version and every written-to draft was invisible to the

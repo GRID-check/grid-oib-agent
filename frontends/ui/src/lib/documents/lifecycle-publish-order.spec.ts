@@ -143,12 +143,9 @@ vi.mock('./reviewers', () => ({
 }))
 vi.mock('./version-content', () => ({
   BACKEND_PURGE_TIMEOUT_MS: 10_000,
-  admitVersionBytes: vi.fn(),
   readVersionContent: vi.fn().mockResolvedValue(''),
   renderVersionBytes: vi.fn(),
-  resolveVersionBucket: vi.fn().mockResolvedValue('grid-org-1'),
-  storeVersionBytes: vi.fn(),
-  versionStorageKey: (doc: { storageKey: string }) => doc.storageKey,
+  writeVersionContent: vi.fn(),
 }))
 vi.mock('./service', () => ({
   dispatchDocument: vi.fn(),

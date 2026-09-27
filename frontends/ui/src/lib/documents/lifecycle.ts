@@ -59,13 +59,10 @@ import { documentDisplayName } from './display-name'
 import { findDocumentInOrg, findFolderPathInProject } from './repository'
 import { listReviewCandidates, resolveReviewers } from './reviewers'
 import {
-  admitVersionBytes,
   BACKEND_PURGE_TIMEOUT_MS,
   readVersionContent,
   renderVersionBytes,
-  resolveVersionBucket,
-  storeVersionBytes,
-  versionStorageKey,
+  writeVersionContent,
 } from './version-content'
 import type { AgentDocumentProvenance } from './service'
 import {
@@ -1009,28 +1006,42 @@ export async function forkDraftVersion(
  * would re-derive the uniqueness check, the newline hints and six error strings
  * on the wrong side of the boundary.
  *
- * The new bytes go to the version's OWN key. A draft forked from a published
- * version starts out sharing that version's key (see {@link forkDraftVersion}),
- * so the first replace moves it to `v<n>/…` and the published bytes are never
- * written over. A second replace overwrites the draft's own object in place —
- * a draft is not history and its intermediate bytes belong to no version.
+ * ## Two writers holding the same `If-Match`
  *
- * ## The order, which is four steps and not two
+ * `If-Match` is checked against the row read at the start ({@link assertGuards}),
+ * and that read is stale by the time anything is written. The swap used to
+ * filter on `state = 'draft'` alone, and `update` goes draft → draft, so two
+ * writers holding the same digest BOTH won, both wrote the same object key, and
+ * an interleaving could leave the row's hash and size describing one writer's
+ * bytes while the object held the other's.
+ *
+ * Two changes close it, and they only work together:
+ *
+ *   - **the swap asserts what was read**: `state`, `content_hash` and
+ *     `storage_key` all have to still be what this request read, so the second
+ *     of two writers matches no row and gets the 409 `If-Match` promised;
+ *   - **every write gets its own object** (`v<n>/<write id>/…`,
+ *     `writeVersionContent`), written BEFORE the swap. A loser's bytes land
+ *     under a key no row will ever name and are deleted; the winner's row can
+ *     only ever name bytes that are already stored in full. Writing to a shared
+ *     key after the swap — the previous order — left a window in which the row
+ *     named a hash the object did not yet hold, and a failed PUT left it that
+ *     way.
+ *
+ * The draft's previous object is deleted once nothing names it: a draft is not
+ * history. A draft forked from the published version shares that version's key
+ * until its first replace, and that object is left alone — the published row
+ * still names it.
+ *
+ * ## The order
  *
  *   1. **render**, through the producer's own renderer, and re-check that the
  *      AI marking is in the bytes. The caller sends the model's raw Markdown;
  *      the branding and the marking belong to the file, not to the request.
- *   2. **admit** the byte delta against the organization's quota, before
- *      anything is written or swapped.
- *   3. **compare and swap** the row, with the new storage columns on it.
- *   4. **write the object**, and mirror it onto the item when this version is
- *      the item's own bytes.
- *
- * Steps 3 and 4 are in that order deliberately. Writing first meant a caller
- * that LOST the race had already overwritten the winner's object, because both
- * were aiming at the same key — a lost update dressed as a 409. The cost is the
- * opposite failure, a row naming bytes the object store refused, and that one
- * is fixed by writing again.
+ *   2. **write and swap** (`writeVersionContent`): the quota courtesy check,
+ *      the object under a fresh key, then one transaction that swaps the row
+ *      and mirrors the item.
+ *   3. **effects**, for the winner only.
  */
 export async function replaceVersionContent(
   session: AuthorizedSession,
@@ -1058,26 +1069,13 @@ export async function replaceVersionContent(
   await requireTransitionPermission(session, document, transition)
 
   const rendered = await renderVersionBytes(document, version, content)
-  await admitVersionBytes(session.organizationId, version, rendered.bytes.byteLength)
-
-  const storageBucket = await resolveVersionBucket(session.organizationId)
-  const storageKey = versionStorageKey(document, version.versionNumber)
-  const swapped = await compareAndSwapVersionState(
-    versionId,
-    session.organizationId,
-    version.state,
-    {
-      ...stampFor(transition.to, session, {}, new Date()),
-      storageKey,
-      storageBucket,
-      contentType: rendered.contentType,
-      fileSize: rendered.bytes.byteLength,
-      contentHash: rendered.contentHash,
-    },
-  )
-  if (!swapped) throw new ConflictError('The version changed while you were writing')
-
-  await storeVersionBytes(session.organizationId, document, swapped, rendered)
+  const swapped = await writeVersionContent({
+    organizationId: session.organizationId,
+    document,
+    version,
+    rendered,
+    stamp: stampFor(transition.to, session, {}, new Date()),
+  })
 
   await runEffects({
     session,

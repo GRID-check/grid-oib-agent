@@ -201,7 +201,12 @@ permission from the row:
 
 Content updates are whole-body with `If-Match` on the existing
 `content_hash`; the API never exposes string replacement. Editing happens in
-the working directory; filing is a whole document.
+the working directory; filing is a whole document. `If-Match` is enforced by the
+database, not by the read before it: the swap's `WHERE` carries the state, the
+storage key and the hash that were read, and every write stores its bytes first
+under a key of its own (`v<n>/<write id>/`), so the second of two writers
+holding one digest matches no row, gets `409`, and its object is deleted
+(`writeVersionContent`, `swapVersionContent`).
 
 **Typed client.** `lib/documents/lifecycle-client.ts` with the zod schemas in
 `lib/documents/lifecycle-types.ts` (no `server-only`, no drizzle), imported by
