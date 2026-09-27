@@ -30,6 +30,10 @@ vi.mock('@/lib/auth/require-auth', () => ({
 }))
 
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+// No legal hold in play here; the gate is `compliance/holds`, the predicate SQL.
+vi.mock('@/lib/compliance/repository', () => ({
+  isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
+}))
 vi.mock('@/lib/sharing/repository', () => ({
   findGrantForSubject: vi.fn(),
   countGrantsForResource: vi.fn(),

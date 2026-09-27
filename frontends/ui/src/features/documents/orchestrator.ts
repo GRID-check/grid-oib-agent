@@ -9,9 +9,17 @@
  *
  * This service lives outside React's lifecycle to avoid complex ref coordination
  * and effect races that were previously managed in the useFileUpload hook.
+ *
+ * Two shelves, two transports. A project or Archiv collection is listed through
+ * the v1 proxy and its ingest jobs are polled by job id. A chat's attachments
+ * (`shelf: 'session'`) are document rows (ADR-0047 Phase 2): they are listed
+ * through `GET /api/session/documents`, which reconciles in-flight statuses on
+ * every read, so polling them is re-listing until nothing is in flight. That
+ * also makes a reload resume on its own, with no job persisted in the browser.
  */
 
 import { createDocumentsClient } from '@/adapters/api'
+import { listSessionDocuments } from '@/adapters/api/session-documents-client'
 import { useDocumentsStore } from './store'
 import { useLayoutStore } from '@/features/layout/store'
 import type { TrackedFile } from './types'
@@ -24,6 +32,7 @@ import {
   sessionHasKnownCollection,
   markSessionHasCollection,
   unmarkSessionCollection,
+  removePersistedJobForCollection,
 } from './persistence'
 
 const POLL_INTERVAL_MS = 5000
@@ -32,6 +41,16 @@ const MAX_POLL_ATTEMPTS = 420
 interface PollingState {
   jobId: string
   collectionName: string
+  timeoutId: NodeJS.Timeout | null
+  pollCount: number
+  abortController: AbortController
+}
+
+/** Which listing a collection is read through. See the module comment. */
+export type OrchestratorShelf = 'session' | 'corpus'
+
+interface SessionPollState {
+  conversationId: string
   timeoutId: NodeJS.Timeout | null
   pollCount: number
   abortController: AbortController
@@ -50,6 +69,8 @@ interface OrchestratorCallbacks {
 
 class UploadOrchestratorImpl {
   private pollingState: PollingState | null = null
+  private sessionPoll: SessionPollState | null = null
+  private currentShelf: OrchestratorShelf = 'corpus'
   private jobQueue: PendingJob[] = []
   private currentSessionId: string | null = null
   private lastLoadedSessionId: string | null = null
@@ -66,15 +87,6 @@ class UploadOrchestratorImpl {
 
   private getClient() {
     return createDocumentsClient({ authToken: this.authToken })
-  }
-
-  /**
-   * Documents client carrying the orchestrator's auth token, for module-level
-   * helpers outside this class (e.g. discardSessionDocumentsResources) — a
-   * token-less client 401s in auth-required deployments.
-   */
-  getAuthenticatedClient() {
-    return this.getClient()
   }
 
   private getStore() {
@@ -105,18 +117,23 @@ class UploadOrchestratorImpl {
   /**
    * Handle session change - cleans up previous session and sets up new one
    */
-  async handleSessionChange(newSessionId: string | undefined): Promise<void> {
+  async handleSessionChange(
+    newSessionId: string | undefined,
+    shelf: OrchestratorShelf = 'corpus'
+  ): Promise<void> {
     const previousSessionId = this.currentSessionId
 
     if (newSessionId === previousSessionId) {
       return
     }
+    this.currentShelf = shelf
 
     // Stop polling from previous session. Also drop queued jobs: stopPolling
     // only aborts the ACTIVE poll, and a leftover queue entry from the old
     // session would otherwise be dequeued first and hijack polling (under the
     // old collection) as soon as the new session enqueues an upload.
     this.stopPolling()
+    this.stopSessionPolling()
     this.jobQueue = []
 
     // Clear any upload error from previous session
@@ -137,8 +154,14 @@ class UploadOrchestratorImpl {
       this.getStore().setLoadingFiles(true)
     }
 
+    // A chat's attachments resume from their listing, not from a persisted job.
+    // One left over from before they were rows names a proxy job; drop it.
+    if (newSessionId && shelf === 'session') {
+      removePersistedJobForCollection(newSessionId)
+    }
+
     // Check for persisted job to resume
-    if (newSessionId) {
+    if (newSessionId && shelf !== 'session') {
       const persistedJob = getPersistedJobForCollection(newSessionId)
       if (persistedJob) {
         // Verify session hasn't changed during sync operations
@@ -199,6 +222,11 @@ class UploadOrchestratorImpl {
       return
     }
 
+    if (this.currentShelf === 'session') {
+      await this.loadSessionDocuments(sessionId)
+      return
+    }
+
     const client = this.getClient()
 
     store.setLoadingFiles(true)
@@ -238,6 +266,98 @@ class UploadOrchestratorImpl {
     } finally {
       store.setLoadingFiles(false)
     }
+  }
+
+  /** {@link loadFilesForSession} for a chat: its document rows, first-party. */
+  private async loadSessionDocuments(conversationId: string): Promise<void> {
+    const store = this.getStore()
+    store.setLoadingFiles(true)
+    try {
+      const files = await listSessionDocuments(conversationId)
+      if (conversationId !== this.currentSessionId) return
+
+      if (files === null) {
+        // No such conversation on the server (deleted, or never created).
+        unmarkSessionCollection(conversationId)
+      } else {
+        store.setFilesFromServer(conversationId, files)
+        store.setCurrentCollection(conversationId)
+        markSessionHasCollection(conversationId)
+        if (files.some((file) => file.status === 'ingesting')) this.pollSessionDocuments(conversationId)
+      }
+      this.lastLoadedSessionId = conversationId
+    } catch {
+      // Same as the corpus path: a transient failure marks the session loaded
+      // so it is not retried in a loop, and keeps the marker.
+      this.lastLoadedSessionId = conversationId
+    } finally {
+      store.setLoadingFiles(false)
+    }
+  }
+
+  /**
+   * Poll a chat's attachments until none is in flight, by re-listing them.
+   * The listing reconciles every pending row with the backend, so one request
+   * covers the whole batch. Idempotent per conversation.
+   */
+  pollSessionDocuments(conversationId: string): void {
+    if (this.sessionPoll?.conversationId === conversationId) return
+    this.stopSessionPolling()
+    this.sessionPoll = {
+      conversationId,
+      timeoutId: null,
+      pollCount: 0,
+      abortController: new AbortController(),
+    }
+    this.getStore().setPolling(true)
+    this.scheduleSessionPoll()
+  }
+
+  private stopSessionPolling(): void {
+    if (!this.sessionPoll) return
+    if (this.sessionPoll.timeoutId) clearTimeout(this.sessionPoll.timeoutId)
+    this.sessionPoll.abortController.abort()
+    this.sessionPoll = null
+    this.getStore().setPolling(this.pollingState !== null)
+  }
+
+  private scheduleSessionPoll(): void {
+    const poll = this.sessionPoll
+    if (!poll) return
+    poll.timeoutId = setTimeout(() => {
+      void this.runSessionPoll(poll)
+    }, POLL_INTERVAL_MS)
+  }
+
+  private async runSessionPoll(poll: SessionPollState): Promise<void> {
+    if (this.sessionPoll !== poll) return
+    const store = this.getStore()
+
+    if (poll.pollCount >= MAX_POLL_ATTEMPTS) {
+      this.stopSessionPolling()
+      store.setError('Upload timed out. Please try again.')
+      return
+    }
+    poll.pollCount++
+
+    try {
+      const files = await listSessionDocuments(poll.conversationId, poll.abortController.signal)
+      if (this.sessionPoll !== poll) return
+      if (files === null) {
+        this.stopSessionPolling()
+        return
+      }
+      store.setFilesFromServer(poll.conversationId, files)
+      if (!files.some((file) => file.status === 'ingesting')) {
+        this.stopSessionPolling()
+        this.callbacks.onComplete?.()
+        return
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return
+      console.error('[UploadOrchestrator] Session poll error:', err)
+    }
+    this.scheduleSessionPoll()
   }
 
   /**
@@ -334,7 +454,7 @@ class UploadOrchestratorImpl {
     }
 
     const store = this.getStore()
-    store.setPolling(false)
+    store.setPolling(this.sessionPoll !== null)
     store.setActiveJobId(null)
   }
 
@@ -345,6 +465,9 @@ class UploadOrchestratorImpl {
   stopPollingIfCollection(collectionName: string): void {
     if (this.pollingState?.collectionName === collectionName) {
       this.stopPolling()
+    }
+    if (this.sessionPoll?.conversationId === collectionName) {
+      this.stopSessionPolling()
     }
   }
 
@@ -473,6 +596,7 @@ class UploadOrchestratorImpl {
    */
   cleanup(): void {
     this.stopPolling()
+    this.stopSessionPolling()
     this.jobQueue = []
     this.currentSessionId = null
     this.lastLoadedSessionId = null

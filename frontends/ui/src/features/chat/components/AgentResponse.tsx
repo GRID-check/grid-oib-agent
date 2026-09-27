@@ -849,8 +849,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // than lurching forward a sentence at a time. When the turn ends, the text
   // it held back is finished in a few hundred ms, and only then does the
   // answer settle. Everything that belongs to a WHOLE answer (the caret going,
-  // the footer, the unplaced cards, citations turning real) follows `live`,
-  // not `isStreaming`, so it all lands in the one frame the text is complete.
+  // the footer, citations turning real) follows `live`, not `isStreaming`, so
+  // it all lands in the one frame the text is complete. The unplaced cards
+  // may land earlier (`unplacedIsFinal`): a live frame carries cards only once
+  // the prose is complete, so they wait only for the reveal to catch up.
   // Only the prose is paced: a written „## Quellen" section is lifted into the
   // source rows, never drawn as text, and pacing it held the settle back by
   // half a second after the last visible word. It joins the text once the
@@ -961,7 +963,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // flat above the prose as the answer's RECHTSGRUNDLAGE block
   // (`EvidenceBlock`), and leaves the fallback indices so it can never render
   // twice. The first unplaced one only — a second keeps its framed fallback.
-  // Gated on the finished stream like the fallback block itself: "unplaced" is
+  // Gated like the fallback block itself (`unplacedIsFinal`): "unplaced" is
   // read off the body SO FAR, and a marker that has not arrived yet must still
   // be able to claim the card.
   const evidenceIndex = useMemo(
@@ -976,6 +978,14 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     [fallbackCardIndices, evidenceIndex]
   )
   const evidenceCard = evidenceIndex !== undefined ? cards?.[evidenceIndex] : undefined
+  // Whether "unplaced" is final, so the cards no marker claimed may be drawn.
+  // A live frame carries cards only once the envelope's `answer` string has
+  // closed (the backend reads them after it, ADR-0066), so a streaming answer
+  // that holds cards has all of its prose; once the pace has shown all of it,
+  // no marker is still to come. Waiting for the terminal instead held every
+  // unplaced card back until verification and the pipeline were done: 22 s
+  // after the card was written on the recorded `oib2` turn.
+  const unplacedIsFinal = !live || ((cards?.length ?? 0) > 0 && shownContent === content)
   // The after-prose anatomy: the callout leaves this block the moment the
   // prose claims it with a marker — same pre-render reading as the card
   // fallback above, and for the same reason.
@@ -1217,7 +1227,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               {/* An unplaced legal basis — flat, right after the prose it grounds: the
             answer comes first (the prompt's own first rule), then the Fundstelle
             it argued from. Never in the fallback grid. */}
-              {!live && evidenceCard?.type === 'legal_basis' && (
+              {unplacedIsFinal && evidenceCard?.type === 'legal_basis' && (
                 <div className={LATE_BLOCK_ENTER}>
                   <CardSetProvider cards={cardSet}>
                     <EvidenceBlock card={evidenceCard} />
@@ -1227,10 +1237,9 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
 
               {/* Cards no marker claimed. AFTER the body, never before it: an answer
             that opens with three diagrams has pushed itself below the fold.
-            Withheld until the reveal finishes, because "unplaced" is read off
-            the body SO FAR: a card whose `[[card:N]]` has not been typed out yet
-            looks unplaced, would render here, and would then jump up the answer
-            the moment its marker arrives.
+            Withheld until "unplaced" is final (`unplacedIsFinal`): it is read
+            off the body SO FAR, and a card whose `[[card:N]]` has not been
+            shown yet would render here and then jump up the answer.
             `mt-1` because this column's `gap-2` is 8px and the markdown body's
             paragraph rhythm is 12px, so without it an UNPLACED card hugged the
             prose 4px tighter than a placed one — visible the moment an answer
@@ -1246,7 +1255,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   </CardSetProvider>
                 </div>
               )}
-              {!live && cards && fallbackGridIndices.length > 0 && (
+              {unplacedIsFinal && cards && fallbackGridIndices.length > 0 && (
                 <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
                   <GridCards
                     cards={cards}
@@ -1418,7 +1427,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 {/* An unplaced legal basis — flat, right after the prose it grounds: the
               answer comes first (the prompt's own first rule), then the Fundstelle
               it argued from. Never in the fallback grid. */}
-                {!live && evidenceCard?.type === 'legal_basis' && (
+                {unplacedIsFinal && evidenceCard?.type === 'legal_basis' && (
                   <div className={LATE_BLOCK_ENTER}>
                     <CardSetProvider cards={cardSet}>
                       <EvidenceBlock card={evidenceCard} />
@@ -1444,7 +1453,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                     </CardSetProvider>
                   </div>
                 )}
-                {!live && cards && fallbackGridIndices.length > 0 && (
+                {unplacedIsFinal && cards && fallbackGridIndices.length > 0 && (
                   <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
                     <GridCards
                       cards={cards}

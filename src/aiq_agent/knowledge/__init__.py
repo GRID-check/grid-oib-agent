@@ -27,6 +27,7 @@ from .factory import clear_active_retriever
 from .factory import clear_all_summaries
 from .factory import clear_collection_summaries
 from .factory import configure_summary_db
+from .factory import find_tmp_upload_names
 from .factory import get_active_ingestor
 from .factory import get_active_retriever
 from .factory import get_available_documents
@@ -34,6 +35,7 @@ from .factory import get_available_documents_async
 from .factory import get_document_display_title
 from .factory import get_document_display_titles
 from .factory import get_document_doc_class
+from .factory import get_document_doc_classes
 from .factory import get_document_folder_paths
 from .factory import get_document_provenance
 from .factory import get_ingestor
@@ -99,6 +101,7 @@ __all__ = [
     "set_document_doc_class",
     "set_document_doc_class_suggestion",
     "get_document_doc_class",
+    "get_document_doc_classes",
     "set_document_display_title",
     "get_document_display_title",
     "get_document_display_titles",
@@ -117,5 +120,6 @@ __all__ = [
     "render_inventory_block",
     "shelf_hint_from_query",
     "clear_collection_summaries",
+    "find_tmp_upload_names",
     "clear_all_summaries",
 ]

@@ -110,3 +110,45 @@ async def test_no_report_means_no_report_key() -> None:
 
     assert "report" not in _Client.calls[0]["json"]
     assert "cards" not in _Client.calls[0]["json"]
+
+
+@pytest.fixture
+def access_db_url(tmp_path):
+    from aiq_api.jobs import access as job_access
+
+    job_access._job_access_schema_initialized.clear()
+    yield f"sqlite+aiosqlite:///{tmp_path / 'access.db'}"
+    job_access._job_access_schema_initialized.clear()
+
+
+@pytest.mark.asyncio
+async def test_a_writer_without_the_run_context_reports_under_the_submit_tenant(access_db_url) -> None:
+    """The cancel route, the reaper and retry exhaustion hold no usage context;
+    the tenant the BFF cross-checks is on the job's access row."""
+    from aiq_agent.auth import Principal
+    from aiq_api.jobs.access import create_job_access
+    from aiq_api.jobs.outcome_notify import notify_job_outcome_from_access
+
+    create_job_access("job-1", Principal(type="jwt", sub="user-1"), access_db_url, None, None, "org-1")
+
+    with mock.patch("aiq_api.jobs.outcome_notify.httpx.AsyncClient", _Client):
+        accepted = await notify_job_outcome_from_access(job_id="job-1", db_url=access_db_url, status="interrupted")
+
+    assert accepted is True
+    assert _Client.calls[0]["url"] == "http://frontend:3000/api/internal/jobs/job-1/outcome"
+    assert _Client.calls[0]["json"] == {"organizationId": "org-1", "status": "interrupted", "error": None}
+
+
+@pytest.mark.asyncio
+async def test_no_tenant_on_record_reports_nothing(access_db_url) -> None:
+    from aiq_agent.auth import Principal
+    from aiq_api.jobs.access import create_job_access
+    from aiq_api.jobs.outcome_notify import notify_job_outcome_from_access
+
+    create_job_access("job-1", Principal(type="jwt", sub="user-1"), access_db_url)
+
+    with mock.patch("aiq_api.jobs.outcome_notify.httpx.AsyncClient", _Client):
+        assert await notify_job_outcome_from_access(job_id="job-1", db_url=access_db_url, status="failure") is False
+        assert await notify_job_outcome_from_access(job_id="nope", db_url=access_db_url, status="failure") is False
+
+    assert _Client.calls == []

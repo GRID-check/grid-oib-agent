@@ -271,8 +271,15 @@ progress model is exercised without a clock, a DOM or a React tree.
 - The backend ingest pipeline and its job-status API are untouched. The
   `progress_percent` it reports is still stored on the tracked file; it is simply
   no longer drawn as a bar, because it is not a position.
-- Session (chat) uploads still send the whole batch as one multipart request —
-  that is the collection API's contract. The single progress stream is split back
-  out per file in wire order (`distributeBatchBytes`), which is not an
-  approximation: multipart sends its parts in order.
+- Session (chat) uploads now take the same per-file path as the other shelves,
+  to `/api/session/documents/upload` (ADR-0047 Phase 2), so they get per-file
+  bytes, cancel and failure too. They used to send the whole batch as one
+  multipart request straight at the ingestor.
+- The chat's file dialog (`FileSourcesTab`) deletes only the chat's own
+  attachments. With the project chosen as the destination it lists the project
+  files but offers no delete, and says to delete them in the project's files:
+  a project document is shared, and its delete (legal-hold check, every
+  version's objects) belongs to the Files workspace, where the document's
+  context is. The dialog's old delete did nothing anyway: it sent a document id
+  to the proxy's chunk-only file delete, which expects a filename.
 - Validation, quotas, tenancy and authorization are unchanged.

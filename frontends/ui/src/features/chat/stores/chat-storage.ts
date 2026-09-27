@@ -4,7 +4,8 @@
  *
  * ```
  * <name>:index           {version, state: {currentUserId, currentConversation (an id),
- *                          pendingInteraction, composerDrafts, conversations: [every field but messages]}}
+ *                          pendingInteraction, composerDrafts, conversations: [every field but messages],
+ *                          awaitingServerMessages: [ids whose messages were never loaded]}}
  * <name>:messages:<id>   that conversation's messages, pruned (`pruneMessageForStorage`)
  * ```
  *
@@ -72,6 +73,8 @@ type StoredIndex = {
     pendingInteraction: PersistedChatState['pendingInteraction']
     composerDrafts: PersistedChatState['composerDrafts']
     conversations: ConversationEntry[]
+    /** Conversations whose messages this browser never loaded (see below). */
+    awaitingServerMessages?: string[]
   }
 }
 
@@ -106,6 +109,12 @@ export const CHAT_STORAGE_BUDGET_CHARS = 3_000_000
  * "not here", not "none", and nothing may act on it as if it were the thread:
  * the upload-only cleanup used to delete such a conversation on the server
  * when it was opened and left before its messages arrived.
+ *
+ * The set outlives a reload: the index names its members, an awaiting
+ * conversation's empty list is never written as `[]`, and a read takes a
+ * missing, unreadable or empty message key as awaiting too. Held only in
+ * memory, a reload after any write turned "not loaded" into a stored `[]`, and
+ * the cleanup deleted the conversation on the server again (2026-09).
  */
 const awaitingServerMessages = new Set<string>()
 
@@ -393,6 +402,9 @@ class ChatStorageArea {
         pendingInteraction: state.pendingInteraction ?? null,
         composerDrafts: state.composerDrafts ?? {},
         conversations: (state.conversations ?? []).map(entryOf),
+        awaitingServerMessages: (state.conversations ?? [])
+          .filter((c) => isAwaitingServerMessages(c.id))
+          .map((c) => c.id),
       },
     }
     const raw = JSON.stringify(index)
@@ -418,6 +430,9 @@ class ChatStorageArea {
     }
     // The live turn's growth is not written, whatever else changed with it.
     if (known && onlyTheLiveTurnGrewIn(known.messages, conversation.messages)) return
+    // Not loaded is not empty: a stored `[]` would read back as a thread with
+    // no messages, which the upload-only cleanup deletes on the server.
+    if (conversation.messages.length === 0 && isAwaitingServerMessages(conversation.id)) return
 
     const key = chatMessagesKey(this.name, conversation.id)
     const previousChars = known?.chars ?? 0
@@ -639,14 +654,18 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
     const index = asStoredIndex(parseJson(indexRaw))
     if (!index || indexRaw === null) return null
     const rawChars = new Map<string, number>()
+    const awaiting = new Set(index.state.awaitingServerMessages ?? [])
     const conversations = index.state.conversations.map((entry): Conversation => {
       const key = chatMessagesKey(name, entry.id)
       const raw = localStorage.getItem(key)
       const parsed = parseJson(raw)
-      if (raw === null || !Array.isArray(parsed)) {
+      // An empty list is read as "not here" as well: a conversation that
+      // really has none is confirmed empty by the server when it is opened
+      // (`hydrateConversationMessages`), and only then may anything act on it.
+      if (awaiting.has(entry.id) || !Array.isArray(parsed) || parsed.length === 0) {
         markAwaitingServerMessages(entry.id)
-        return { ...entry, messages: [] }
       }
+      if (raw === null || !Array.isArray(parsed)) return { ...entry, messages: [] }
       rawChars.set(entry.id, key.length + raw.length)
       return { ...entry, messages: restorableMessages(parsed as ChatMessage[]) }
     })

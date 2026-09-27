@@ -43,8 +43,11 @@ WS handler's persistence gating, and the frontend accumulation logic.
 > `summary`) BEFORE `answer`, so a live frame carries it, gated, above the
 > first word; a `[[card:N]]` marker streams whole and holds its card's place
 > (`PendingCardSlot`) until the card, gated, arrives on a live `cards` frame
-> and grows into it (`CardArrival`). Live cards go out only while no tool
-> pushed a card this turn, so their numbers are the terminal's. The moment the
+> and grows into it (`CardArrival`). A live `cards` frame lists the cards in
+> the terminal's order: the ones tools registered this turn first (a draft, a
+> document grid), sent with the settled prose, then the envelope's as each
+> closes; each streamed `[[card:N]]` is moved behind the tools' cards as the
+> terminal moves it (`LiveAnswer.place`), so its numbers are the terminal's. The moment the
 > string closes, a `stream_replace` snapshot carries the verified, renumbered
 > text and its sources; the terminal frame, which the client already REPLACES
 > the bubble with, carries the finished answer. What remains true below: the
@@ -114,7 +117,7 @@ persist-eligible. Besides the plain delta, which appends, there are three:
 |---|---|---|
 | Snapshot | `content`, `sources`, `stream_replace: true`, and the re-gated `answer_meta` | REPLACES the bubble's text with the settled, renumbered prose; the pending `[N]` become citations against `sources`. It replaces the citations too (an empty `sources` clears them), and a snapshot without `answer_meta` removes the masthead: the re-gate dropped it |
 | Masthead | empty `content`, `answer_meta` | sets the masthead above the prose; the text is unchanged |
-| Cards | empty `content`, `cards` | fills the `[[card:N]]` placeholders; the text is unchanged |
+| Cards | empty `content`, `cards` | fills the `[[card:N]]` placeholders; the text is unchanged. The whole list so far, in the terminal's order: the tools' cards, then the envelope's, `null` holding a refused one's place |
 
 At most one snapshot is sent per answering call, when the envelope's `answer`
 string closes, and none when there is nothing to settle:
@@ -363,6 +366,17 @@ applies them from the question's first frame on (`replayTurn`), so an older
 turn's frames never come back to life. A prompt of a later turn is dropped as
 stale like any other frame of another turn. The stream no longer holding the turn ends it with the
 banner.
+
+**A switch.** Opening another conversation mid-turn takes the socket with it, so
+the open bubble can never finish. Leaving drops it as a reload does
+(`leaveOpenTurn` in `sessions-store.ts`, `discardStreamingAssistantMessage`,
+and the socket effect's cleanup for any other way out), and clears
+`streamingAssistantMessageId`. Kept and settled, it blinked forever and, being
+the last message, hid the open question from `restoreSessionState`; dropped,
+coming back runs the reload's recovery. A frame or error that lands after the
+switch belongs to the conversation it was fetched for: a commissioned run's
+message goes into that conversation (`adoptRunMessage(conversationId, …)`), and
+a connection error whose health check outlived the switch writes no card.
 
 **The server keeps every answer.** The backend persists every finished
 answer, whether or not a socket took the terminal frame

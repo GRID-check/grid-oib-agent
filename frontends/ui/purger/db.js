@@ -28,7 +28,13 @@ const STALE_CLAIM_MINUTES = 15
 
 /**
  * Claim one due queue entry. Guards:
- * - legal holds (entity-level, or org-level covering everything in the org)
+ * - legal holds, through `grid_legal_hold_blocks` (migration 0093) — the one
+ *   predicate the BFF's immediate deletes and the delete triggers share. For a
+ *   project that is a hold on the project, on anything in it (a document, a
+ *   chat, a chat's attachment), on the user who created any of those, or on
+ *   the organization. The predicate used to be written out here and saw only
+ *   the project and the organization, so a held document inside a deleted
+ *   project was purged with it.
  * - stale 'purging' rows from a crashed purger are re-claimable after 15 min
  * - retry backoff: a previously-failed row (attempts > 0, claimed_at set by the
  *   failed claim) is only re-eligible after an exponential delay measured from
@@ -55,15 +61,7 @@ async function claimNext(tx) {
         OR (q.status = 'purging' AND q.claimed_at < now() - make_interval(mins => ${STALE_CLAIM_MINUTES}))
       )
       AND q.attempts < ${MAX_ATTEMPTS}
-      AND NOT EXISTS (
-        SELECT 1 FROM legal_holds h
-        WHERE h.released_at IS NULL
-          AND h.organization_id = q.organization_id
-          AND (
-            (h.entity_type = q.entity_type AND h.entity_id = q.entity_id)
-            OR (h.entity_type = 'organization' AND h.entity_id = q.organization_id)
-          )
-      )
+      AND NOT grid_legal_hold_blocks(q.entity_type, q.entity_id, q.organization_id)
     ORDER BY q.requested_at
     FOR UPDATE SKIP LOCKED
     LIMIT 1
@@ -82,7 +80,7 @@ async function claimNext(tx) {
  * Re-check legal holds for an already-claimed entry. claimNext also checks,
  * but a hold can be created between claim and purge (TOCTOU); every purger
  * MUST call this inside the purge transaction before its first destructive
- * step. Same predicate as claimNext's NOT EXISTS guard.
+ * step. Same predicate as claimNext's guard: the database function.
  */
 /**
  * @param {Tx} tx
@@ -91,16 +89,9 @@ async function claimNext(tx) {
  */
 async function hasActiveHold(tx, entry) {
   const rows = await tx`
-    SELECT 1 FROM legal_holds h
-    WHERE h.released_at IS NULL
-      AND h.organization_id = ${entry.organization_id}
-      AND (
-        (h.entity_type = ${entry.entity_type} AND h.entity_id = ${entry.entity_id})
-        OR (h.entity_type = 'organization' AND h.entity_id = ${entry.organization_id})
-      )
-    LIMIT 1
+    SELECT grid_legal_hold_blocks(${entry.entity_type}, ${entry.entity_id}, ${entry.organization_id}) AS held
   `
-  return rows.length > 0
+  return rows[0]?.held === true
 }
 
 /**

@@ -8,7 +8,19 @@
  * - the base corpus is never writable through the proxy;
  * - `proj_*` collections must belong to a project in the caller's org AND the
  *   caller needs `project:edit` on that project;
- * - `s_*` (session) collections must match the active conversation id;
+ * - `s_*` (session) collections may be READ when they match the active
+ *   conversation id, and are never written: a chat's attachments are uploaded
+ *   and deleted through `/api/session/documents`, and its whole collection is
+ *   erased by the conversation delete (ADR-0047 Phase 2);
+ * - a whole collection is never deleted through the proxy, and neither are a
+ *   collection's files: the proxy's file delete removes chunks by filename and
+ *   nothing else, so the row, the object and the audit entry stayed. Each shelf
+ *   deletes through its own route (`/api/documents/[id]`,
+ *   `/api/archiv/documents/[id]`, `/api/session/documents/[id]`);
+ * - a proxied upload into any shelf is refused: each shelf has a first-party
+ *   route that writes the document row and runs the file-type and
+ *   storage-quota admission, and the raw ingest path runs neither;
+ * - `GET /v1/collections` (every collection of every tenant) is refused;
  * - anything else is rejected.
  *
  * Session/DB/WorkOS lookups are injectable (`CollectionAuthzDeps`) so the
@@ -30,6 +42,8 @@ import { errorEnvelope, handleAuthzError } from '@/lib/backend-proxy'
 export interface ProxyRequestContext {
   projectId?: string
   conversationId?: string
+  /** `POST /v1/collections` names the collection it creates in its body. */
+  collectionName?: string
 }
 
 /** Extract the request context from query parameters. */
@@ -55,6 +69,7 @@ export function parseBodyContext(
         : typeof parsedBody?.session_id === 'string'
           ? parsedBody.session_id
           : undefined,
+    collectionName: typeof parsedBody?.name === 'string' ? parsedBody.name : undefined,
   }
 }
 
@@ -73,6 +88,7 @@ export function resolveRequestContext(
   return {
     projectId: bodyContext.projectId ?? queryContext.projectId,
     conversationId: bodyContext.conversationId ?? queryContext.conversationId,
+    ...(bodyContext.collectionName ? { collectionName: bodyContext.collectionName } : {}),
   }
 }
 
@@ -104,23 +120,73 @@ const defaultDeps: CollectionAuthzDeps = {
     requireProjectAccess(session, projectId, permission),
 }
 
+export interface ValidateCollectionOptions {
+  /** The HTTP method; reads and writes are authorized differently. Default GET. */
+  method?: string
+  deps?: CollectionAuthzDeps
+}
+
+/** Where a shelf's uploads go instead of the raw ingest path. */
+const FIRST_PARTY_UPLOAD: Record<'proj_' | 'archiv_' | 's_', string> = {
+  proj_: '/api/documents/upload',
+  archiv_: '/api/archiv/documents/upload',
+  s_: '/api/session/documents/upload',
+}
+
+function refuseWholeCollectionDelete(): Response {
+  return errorEnvelope(403, 'FORBIDDEN', 'Deleting a whole collection is not allowed')
+}
+
+function refuseChunkOnlyDelete(route: string): Response {
+  return errorEnvelope(403, 'FORBIDDEN', `Delete through ${route}`)
+}
+
+function refuseRawUpload(prefix: 'proj_' | 'archiv_' | 's_'): Response {
+  return errorEnvelope(403, 'FORBIDDEN', `Upload through ${FIRST_PARTY_UPLOAD[prefix]}`)
+}
+
 /**
  * Authorize the collection named in a `/v1/collections/<name>/...` proxy path.
  * Returns an error `Response` (proxy error envelope) to short-circuit with,
  * or null when the request may proceed. Paths that are not collection-scoped
- * always pass.
+ * always pass (`./v1-allowlist` decides whether they are forwarded at all).
  */
 export async function validateCollectionName(
   path: string[],
   session: GridSession | null,
   context: ProxyRequestContext,
-  deps: CollectionAuthzDeps = defaultDeps
+  options: ValidateCollectionOptions = {}
 ): Promise<Response | null> {
-  if (path.length < 2 || path[0] !== 'collections') {
+  if (path.length < 1 || path[0] !== 'collections') {
     return null
   }
+  const method = (options.method ?? 'GET').toUpperCase()
+  const deps = options.deps ?? defaultDeps
 
-  const collectionName = path[1]
+  if (path.length === 1) {
+    // `GET /v1/collections` lists every collection in the vector store, every
+    // tenant's project and chat ids among them.
+    if (method !== 'POST') return errorEnvelope(404, 'NOT_FOUND', 'Not found')
+    // Creating one is a write INTO the named collection, authorized as such.
+    const created = context.collectionName
+    if (!created) return errorEnvelope(400, 'INVALID_COLLECTION', 'Collection name is required')
+    return authorizeCollection(created, [], method, session, context, deps)
+  }
+
+  return authorizeCollection(path[1], path.slice(2), method, session, context, deps)
+}
+
+async function authorizeCollection(
+  collectionName: string,
+  subPath: string[],
+  method: string,
+  session: GridSession | null,
+  context: ProxyRequestContext,
+  deps: CollectionAuthzDeps
+): Promise<Response | null> {
+  const wholeCollectionDelete = method === 'DELETE' && subPath.length === 0
+  const upload = method === 'POST' && subPath[0] === 'documents'
+  const fileDelete = method === 'DELETE' && subPath[0] === 'documents'
   const baseName = process.env.BASE_COLLECTION_NAME || 'oib_knowledge'
 
   if (collectionName === baseName) {
@@ -128,6 +194,12 @@ export async function validateCollectionName(
   }
 
   if (collectionName.startsWith('proj_')) {
+    // A project collection is erased by the project purge, never from a browser.
+    if (wholeCollectionDelete) return refuseWholeCollectionDelete()
+    // No document row, no file-type gate, no quota: `/api/documents/upload` is
+    // the one way bytes enter a project (and nothing in the product posts here).
+    if (upload) return refuseRawUpload('proj_')
+    if (fileDelete) return refuseChunkOnlyDelete('/api/documents/[id]')
     if (!session?.organizationId) {
       return handleAuthzError(new Error('Forbidden'))
     }
@@ -153,6 +225,9 @@ export async function validateCollectionName(
     // and — because proxy collection routes cover writes (upload/delete) — the
     // caller needs the manage permission. Reads of the Archiv corpus go through
     // the dedicated `/api/archiv/documents` endpoint, not this proxy.
+    if (wholeCollectionDelete) return refuseWholeCollectionDelete()
+    if (upload) return refuseRawUpload('archiv_')
+    if (fileDelete) return refuseChunkOnlyDelete('/api/archiv/documents/[id]')
     if (!session?.organizationId) {
       return handleAuthzError(new Error('Forbidden'))
     }
@@ -166,6 +241,18 @@ export async function validateCollectionName(
   }
 
   if (collectionName.startsWith('s_')) {
+    // A chat's attachments are rows (ADR-0047 Phase 2): uploaded through
+    // `/api/session/documents/upload`, deleted through
+    // `/api/session/documents/[id]`, and the collection itself erased by the
+    // conversation delete. A write here would skip the file-type gate and the
+    // quota, or remove chunks while the row that names them stays.
+    if (method !== 'GET') {
+      if (upload) return refuseRawUpload('s_')
+      if (wholeCollectionDelete) return refuseWholeCollectionDelete()
+      return errorEnvelope(403, 'FORBIDDEN', 'Change chat attachments through /api/session/documents')
+    }
+    // Reads are authorized by the scope builder (`viewer` on an existing
+    // conversation), on the collection's own conversation.
     if (
       !context.conversationId ||
       sessionCollectionName(context.conversationId) !== collectionName

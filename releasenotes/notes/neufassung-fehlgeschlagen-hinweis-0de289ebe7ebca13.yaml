@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    If a new version of a document cannot be processed, the preview now says
+    that search and Piloti still use the previous version while the download
+    already gives you the new file.

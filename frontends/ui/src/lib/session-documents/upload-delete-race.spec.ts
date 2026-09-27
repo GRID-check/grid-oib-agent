@@ -32,6 +32,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 
 vi.mock('server-only', () => ({}))
+// No legal hold in play here; the gate itself is `compliance/holds` and the
+// predicate is SQL (`legal-hold.integration.spec.ts`).
+vi.mock('@/lib/compliance/repository', () => ({
+  isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
+}))
 
 const CONVERSATION_ID = 's_11111111-2222-3333-4444-555555555555'
 const ORG_ID = 'org_1'
@@ -154,6 +159,12 @@ const admitOrDiscard = vi.fn()
 vi.mock('@/lib/storage/admission', () => ({
   admitOrDiscard: (...args: unknown[]) => admitOrDiscard(...args),
   admitReplacementOrDiscard: vi.fn(),
+}))
+// The version record is not this file's subject (it is `lifecycle.spec.ts`'s
+// and the session service spec's); the claim here ends at the object write.
+vi.mock('@/lib/documents/lifecycle', () => ({
+  nextVersionNumber: vi.fn().mockResolvedValue(2),
+  recordUploadedVersionOrDiscard: vi.fn().mockResolvedValue({ id: 'version_1' }),
 }))
 // A first upload: the replace probe finds nothing to supersede.
 vi.mock('@/lib/documents/repository', () => ({

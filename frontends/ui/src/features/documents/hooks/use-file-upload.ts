@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useLocale, useTranslations } from '@/i18n'
 import { createDocumentsClient } from '@/adapters/api'
+import { deleteSessionDocument } from '@/adapters/api/session-documents-client'
 import { xhrUpload, XhrUploadError } from '@/lib/http/xhr-upload'
 import { useDocumentsStore } from '../store'
 import { useAuth } from '@/adapters/auth'
@@ -19,7 +20,7 @@ import { useAppConfig } from '@/shared/context'
 import { useLayoutStore } from '@/features/layout/store'
 import type { TrackedFile } from '../types'
 import { mapUploadResponseStatus } from '../utils'
-import { distributeBatchBytes, shouldEmitProgress } from '../lib/upload-progress'
+import { shouldEmitProgress } from '../lib/upload-progress'
 import { runWithConcurrency, UPLOAD_CONCURRENCY } from '../lib/upload-queue'
 import { validateFileUpload, type ValidationContext } from '../validation'
 import { summarizeValidation } from '../lib/validation-messages'
@@ -28,11 +29,30 @@ import type { PendingJob } from '../orchestrator'
 import { markSessionHasCollection } from '../persistence'
 import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
 
-/** The durable-upload endpoints' response (`/api/documents/upload`, `/api/archiv/documents/upload`). */
+/**
+ * The upload endpoints' response: `/api/documents/upload`,
+ * `/api/archiv/documents/upload` and `/api/session/documents/upload`.
+ */
 interface UploadDocumentResponse {
   documentId?: string
   jobId?: string | null
   status?: string
+}
+
+/** Where each shelf deletes one of its documents. */
+const DELETE_ROUTE: Record<'project' | 'archiv', (id: string) => string> = {
+  project: (id) => `/api/documents/${encodeURIComponent(id)}`,
+  archiv: (id) => `/api/archiv/documents/${encodeURIComponent(id)}`,
+}
+
+/** Delete one document through its shelf's first-party route. Already gone is success. */
+async function deleteShelfDocument(shelf: 'project' | 'archiv' | 'session', documentId: string): Promise<void> {
+  if (shelf === 'session') return deleteSessionDocument(documentId)
+  const response = await fetch(DELETE_ROUTE[shelf](documentId), { method: 'DELETE' })
+  if (response.ok || response.status === 404) return
+  const body: unknown = await response.json().catch(() => null)
+  const message = (body as { error?: { message?: unknown } } | null)?.error?.message
+  throw new Error(typeof message === 'string' && message ? message : `Delete failed: ${response.status}`)
 }
 
 /** A user-initiated cancel, not a failure — it must not colour a row red. */
@@ -63,6 +83,13 @@ interface UseFileUploadOptions {
    * `archiv_<orgId>` collection passed as `collectionName`.
    */
   archiv?: boolean
+  /**
+   * For a chat upload (no `projectId`, not `archiv`): the project the chat
+   * belongs to. The server uses it only if it has to create the conversation
+   * row, so a chat attached to before its first message still lands in its
+   * project.
+   */
+  conversationProjectId?: string | null
   onComplete?: () => void
   onError?: (error: Error) => void
 }
@@ -108,7 +135,13 @@ interface UseFileUploadReturn {
 }
 
 export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUploadReturn => {
-  const { collectionName, projectId, folderId, archiv, onComplete, onError } = options
+  const { collectionName, projectId, folderId, archiv, conversationProjectId, onComplete, onError } =
+    options
+  /**
+   * Which shelf this upload surface files into. The caller says so through its
+   * options; nothing reads it off the collection name (ADR-0047).
+   */
+  const shelf: 'project' | 'archiv' | 'session' = archiv ? 'archiv' : projectId ? 'project' : 'session'
 
   const { idToken } = useAuth()
   const t = useTranslations('files')
@@ -123,8 +156,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
    * One abort handle per in-flight request, keyed by tracked-file id. Per-file
    * rather than one for the batch: a 150 MB model that the user changed their
    * mind about must be abandonable without taking the eleven PDFs beside it
-   * down too. (The session path sends the batch as a single request, so it
-   * registers one handle under its first file's id.)
+   * down too. Every shelf, a chat included, sends one request per file.
    */
   const abortControllersRef = useRef(new Map<string, AbortController>())
 
@@ -173,10 +205,10 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
     const previousSessionId = previousSessionIdRef.current
 
     if (collectionName !== previousSessionId) {
-      UploadOrchestrator.handleSessionChange(collectionName)
+      UploadOrchestrator.handleSessionChange(collectionName, shelf === 'session' ? 'session' : 'corpus')
       previousSessionIdRef.current = collectionName
     }
-  }, [collectionName])
+  }, [collectionName, shelf])
 
   // Retry file loading when knowledgeLayerAvailable becomes true.
   // On browser refresh, the initial loadFilesForSession call may fire before
@@ -196,6 +228,13 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
 
   const ensureCollectionExists = useCallback(
     async (collectionName: string): Promise<void> => {
+      if (shelf === 'session') {
+        // The server files the upload into the chat's collection and the
+        // ingestor creates it on first use; there is nothing to create here.
+        markSessionHasCollection(collectionName)
+        setCurrentCollection(collectionName)
+        return
+      }
       let collection = await clientRef.current.getCollection(collectionName)
 
       if (!collection) {
@@ -212,7 +251,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       setCurrentCollection(collectionName)
       setCollectionInfo(collection)
     },
-    [setCurrentCollection, setCollectionInfo]
+    [shelf, setCurrentCollection, setCollectionInfo]
   )
 
   const uploadFiles = useCallback(
@@ -302,150 +341,117 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       try {
         await ensureCollectionExists(targetCollection)
 
-        if (projectId || archiv) {
-          // Project AND Archiv uploads persist a durable document row before
-          // backend ingestion (unlike throwaway chat-session uploads). They
-          // share the per-file POST; only the endpoint and form fields differ
-          // (Archiv resolves the org server-side, no projectId/folderId).
-          //
-          // Several at a time, not one after another: each POST also writes to
-          // object storage, checks the org quota and dispatches to the ingest
-          // API, so a serial loop left the connection idle for most of every
-          // file and made the batch take the SUM of all of them.
-          const uploadUrl = archiv ? '/api/archiv/documents/upload' : '/api/documents/upload'
-          const results = await runWithConcurrency(entries, UPLOAD_CONCURRENCY, async ({ file, tracked }) => {
-            const controller = new AbortController()
-            abortControllersRef.current.set(tracked.id, controller)
-            // Getting a slot is what turns "queued" into "uploading" — the byte
-            // count cannot say, because it is legitimately 0 for both.
-            updateTrackedFile(tracked.id, { uploadStartedAt: Date.now() })
-
-            const formData = new FormData()
-            if (projectId) {
-              formData.append('projectId', projectId)
-              // Per file when the caller filed the batch (a folder upload),
-              // otherwise the folder the reader is standing in. `undefined`
-              // defers; `null` is a deliberate "the project root".
-              const target = options?.folderIdFor ? options.folderIdFor(file) : folderId
-              const resolved = target === undefined ? folderId : target
-              if (resolved) formData.append('folderId', resolved)
-            }
-            formData.append('file', file)
-            // Where the file sat before it came here. Set by a folder INPUT
-            // (`webkitdirectory`) and stamped onto a dropped tree's files by
-            // `asPathStampedFiles`, so one property covers both ways of
-            // choosing a folder. Absent for a picked file, which genuinely has
-            // no origin path — the server records null rather than a guess.
-            if (file.webkitRelativePath) {
-              formData.append('originPath', file.webkitRelativePath)
-            }
-
-            let lastEmitted = 0
-            try {
-              const responseText = await xhrUpload({
-                url: uploadUrl,
-                body: formData,
-                signal: controller.signal,
-                onProgress: (loaded, total) => {
-                  // `total` counts multipart framing too; scale back to the
-                  // file's own bytes so the row's percentage is the file's.
-                  const bytes = total > 0 ? Math.min(file.size, Math.round((loaded / total) * file.size)) : 0
-                  if (!shouldEmitProgress(lastEmitted, bytes, file.size)) return
-                  lastEmitted = bytes
-                  setUploadProgress(tracked.id, bytes)
-                },
-              })
-
-              const result = JSON.parse(responseText) as UploadDocumentResponse
-              updateTrackedFile(tracked.id, {
-                status: mapUploadResponseStatus(result.status),
-                serverFileId: result.documentId,
-                jobId: result.jobId ?? undefined,
-                // Every byte is on the server now, whatever the last progress
-                // event happened to say.
-                bytesUploaded: file.size,
-              })
-            } catch (err) {
-              if (isAbort(err)) {
-                updateTrackedFile(tracked.id, { status: 'canceled' })
-                return
-              }
-              // The failure belongs to THIS file. The other eleven documents in
-              // an Einreichung are still wanted, and the row that refused is the
-              // one that has to say so.
-              const message = failureMessage(err, 'Upload failed')
-              updateTrackedFile(tracked.id, { status: 'failed', errorMessage: message })
-              throw err instanceof Error ? err : new Error(message)
-            } finally {
-              abortControllersRef.current.delete(tracked.id)
-            }
-          })
-
-          // Once, after the batch — not per file inside the fan-out. The
-          // document listings held for the page lifetime are now stale: until
-          // something fired this, a file uploaded mid-conversation was
-          // invisible to the citation resolver, and the answer cited it while
-          // the chip said there was nothing to open (#623, on the path its fix
-          // missed). Firing it fifty times for a fifty-file folder upload would
-          // make every surface that mounts during the batch refetch four
-          // listings again for each one.
-          notifyDocumentsChanged()
-
-          const firstFailure = results.find((result) => result.status === 'rejected')
-          if (firstFailure && firstFailure.status === 'rejected') {
-            const failedCount = results.filter((result) => result.status === 'rejected').length
-            const message = failureMessage(firstFailure.reason, 'Upload failed')
-            setError(
-              failedCount > 1
-                ? t('errors.someUploadsFailed', { failed: failedCount, total: entries.length, reason: message })
-                : message
-            )
-            onError?.(firstFailure.reason instanceof Error ? firstFailure.reason : new Error(message))
-          }
-        } else {
-          // Session uploads go through the canonical collection documents API,
-          // which takes the whole batch in ONE multipart request — so there is
-          // one progress stream for all of them, split back out per file below.
+        // Every shelf persists a durable document row before backend
+        // ingestion, through its own first-party route, which also runs the
+        // file-type gate and the storage quota. They share the per-file POST;
+        // only the endpoint and form fields differ (Archiv resolves the org
+        // server-side, a chat names its conversation).
+        //
+        // Several at a time, not one after another: each POST also writes to
+        // object storage, checks the org quota and dispatches to the ingest
+        // API, so a serial loop left the connection idle for most of every
+        // file and made the batch take the SUM of all of them.
+        const uploadUrl =
+          shelf === 'archiv'
+            ? '/api/archiv/documents/upload'
+            : shelf === 'session'
+              ? '/api/session/documents/upload'
+              : '/api/documents/upload'
+        const results = await runWithConcurrency(entries, UPLOAD_CONCURRENCY, async ({ file, tracked }) => {
           const controller = new AbortController()
-          const batchKey = entries[0].tracked.id
-          abortControllersRef.current.set(batchKey, controller)
-          const startedAt = Date.now()
-          for (const { tracked } of entries) updateTrackedFile(tracked.id, { uploadStartedAt: startedAt })
+          abortControllersRef.current.set(tracked.id, controller)
+          // Getting a slot is what turns "queued" into "uploading" — the byte
+          // count cannot say, because it is legitimately 0 for both.
+          updateTrackedFile(tracked.id, { uploadStartedAt: Date.now() })
 
-          const sizes = entries.map((entry) => entry.file.size)
-          const lastEmitted = sizes.map(() => 0)
-
-          try {
-            const { job_id: jobId, file_ids: fileIds } = await clientRef.current.uploadFiles(
-              targetCollection,
-              validFiles,
-              {
-                signal: controller.signal,
-                onProgress: (loaded, total) => {
-                  distributeBatchBytes(loaded, total, sizes).forEach((bytes, index) => {
-                    if (!shouldEmitProgress(lastEmitted[index], bytes, sizes[index])) return
-                    lastEmitted[index] = bytes
-                    setUploadProgress(entries[index].tracked.id, bytes)
-                  })
-                },
-              }
-            )
-            removeRecentlyDeletedIds(fileIds)
-
-            entries.forEach(({ file, tracked }, index) => {
-              updateTrackedFile(tracked.id, {
-                status: 'ingesting',
-                serverFileId: fileIds[index],
-                jobId,
-                bytesUploaded: file.size,
-              })
-            })
-            // Same staleness, the other upload path — which is already one
-            // request for the whole batch, so one notification.
-            notifyDocumentsChanged()
-          } finally {
-            abortControllersRef.current.delete(batchKey)
+          const formData = new FormData()
+          if (shelf === 'session') {
+            formData.append('conversationId', targetCollection)
+            if (conversationProjectId) formData.append('projectId', conversationProjectId)
           }
+          if (projectId) {
+            formData.append('projectId', projectId)
+            // Per file when the caller filed the batch (a folder upload),
+            // otherwise the folder the reader is standing in. `undefined`
+            // defers; `null` is a deliberate "the project root".
+            const target = options?.folderIdFor ? options.folderIdFor(file) : folderId
+            const resolved = target === undefined ? folderId : target
+            if (resolved) formData.append('folderId', resolved)
+          }
+          formData.append('file', file)
+          // Where the file sat before it came here. Set by a folder INPUT
+          // (`webkitdirectory`) and stamped onto a dropped tree's files by
+          // `asPathStampedFiles`, so one property covers both ways of
+          // choosing a folder. Absent for a picked file, which genuinely has
+          // no origin path — the server records null rather than a guess.
+          if (shelf !== 'session' && file.webkitRelativePath) {
+            formData.append('originPath', file.webkitRelativePath)
+          }
+
+          let lastEmitted = 0
+          try {
+            const responseText = await xhrUpload({
+              url: uploadUrl,
+              body: formData,
+              signal: controller.signal,
+              onProgress: (loaded, total) => {
+                // `total` counts multipart framing too; scale back to the
+                // file's own bytes so the row's percentage is the file's.
+                const bytes = total > 0 ? Math.min(file.size, Math.round((loaded / total) * file.size)) : 0
+                if (!shouldEmitProgress(lastEmitted, bytes, file.size)) return
+                lastEmitted = bytes
+                setUploadProgress(tracked.id, bytes)
+              },
+            })
+
+            const result = JSON.parse(responseText) as UploadDocumentResponse
+            // A re-upload replaces a document in place, under the same id: a
+            // tombstone from an earlier delete must not hide it.
+            if (result.documentId) removeRecentlyDeletedIds([result.documentId])
+            updateTrackedFile(tracked.id, {
+              status: mapUploadResponseStatus(result.status),
+              serverFileId: result.documentId,
+              jobId: result.jobId ?? undefined,
+              // Every byte is on the server now, whatever the last progress
+              // event happened to say.
+              bytesUploaded: file.size,
+            })
+          } catch (err) {
+            if (isAbort(err)) {
+              updateTrackedFile(tracked.id, { status: 'canceled' })
+              return
+            }
+            // The failure belongs to THIS file. The other eleven documents in
+            // an Einreichung are still wanted, and the row that refused is the
+            // one that has to say so.
+            const message = failureMessage(err, 'Upload failed')
+            updateTrackedFile(tracked.id, { status: 'failed', errorMessage: message })
+            throw err instanceof Error ? err : new Error(message)
+          } finally {
+            abortControllersRef.current.delete(tracked.id)
+          }
+        })
+
+        // Once, after the batch — not per file inside the fan-out. The
+        // document listings held for the page lifetime are now stale: until
+        // something fired this, a file uploaded mid-conversation was
+        // invisible to the citation resolver, and the answer cited it while
+        // the chip said there was nothing to open (#623, on the path its fix
+        // missed). Firing it fifty times for a fifty-file folder upload would
+        // make every surface that mounts during the batch refetch four
+        // listings again for each one.
+        notifyDocumentsChanged()
+
+        const firstFailure = results.find((result) => result.status === 'rejected')
+        if (firstFailure && firstFailure.status === 'rejected') {
+          const failedCount = results.filter((result) => result.status === 'rejected').length
+          const message = failureMessage(firstFailure.reason, 'Upload failed')
+          setError(
+            failedCount > 1
+              ? t('errors.someUploadsFailed', { failed: failedCount, total: entries.length, reason: message })
+              : message
+          )
+          onError?.(firstFailure.reason instanceof Error ? firstFailure.reason : new Error(message))
         }
       } catch (err) {
         if (isAbort(err)) {
@@ -463,7 +469,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         // already accepted is ingesting server-side and must keep its real
         // status. (Per-file failures in the concurrent path above have already
         // marked themselves; this covers the batch-wide ones — a collection that
-        // could not be created, a session upload that was refused whole.)
+        // could not be created.)
         for (const { tracked } of entries) {
           const storeFile = useDocumentsStore.getState().trackedFiles.find((f) => f.id === tracked.id)
           if (!storeFile || storeFile.serverFileId || storeFile.jobId) continue
@@ -473,22 +479,32 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       } finally {
         // Enqueue polling for every job the server accepted — including when
         // another file in the batch failed, otherwise those live jobs are
-        // never polled and their rows stay stuck at "processing".
-        const filesByJob = new Map<string, TrackedFile[]>()
-        for (const { tracked } of entries) {
-          const storeFile = useDocumentsStore.getState().trackedFiles.find((f) => f.id === tracked.id)
-          if (!storeFile?.jobId) continue
-          const files = filesByJob.get(storeFile.jobId) || []
-          files.push(storeFile)
-          filesByJob.set(storeFile.jobId, files)
-        }
+        // never polled and their rows stay stuck at "processing". A chat's
+        // attachments are polled by re-listing them instead (first-party, and
+        // it covers the IFC path, which has no ingest job).
+        const settled = entries.map(({ tracked }) =>
+          useDocumentsStore.getState().trackedFiles.find((f) => f.id === tracked.id)
+        )
+        if (shelf === 'session') {
+          if (settled.some((file) => file?.status === 'ingesting')) {
+            UploadOrchestrator.pollSessionDocuments(targetCollection)
+          }
+        } else {
+          const filesByJob = new Map<string, TrackedFile[]>()
+          for (const storeFile of settled) {
+            if (!storeFile?.jobId) continue
+            const files = filesByJob.get(storeFile.jobId) || []
+            files.push(storeFile)
+            filesByJob.set(storeFile.jobId, files)
+          }
 
-        const pendingJobEntries: PendingJob[] = []
-        for (const [jobId, files] of filesByJob) {
-          pendingJobEntries.push({ jobId, collectionName: targetCollection, files })
-        }
-        if (pendingJobEntries.length > 0) {
-          UploadOrchestrator.enqueueJobs(pendingJobEntries)
+          const pendingJobEntries: PendingJob[] = []
+          for (const [jobId, files] of filesByJob) {
+            pendingJobEntries.push({ jobId, collectionName: targetCollection, files })
+          }
+          if (pendingJobEntries.length > 0) {
+            UploadOrchestrator.enqueueJobs(pendingJobEntries)
+          }
         }
         setUploading(false)
       }
@@ -497,7 +513,8 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       collectionName,
       projectId,
       folderId,
-      archiv,
+      shelf,
+      conversationProjectId,
       validationContext,
       fileUploadConfig,
       locale,
@@ -549,8 +566,16 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         return
       }
 
-      const collectionName = file.collectionName
-      const deleteId = file.serverFileId || file.fileName
+      // Every shelf's file is a document row, deleted with its chunks and its
+      // objects by that shelf's first-party route, by DOCUMENT id. This used to
+      // be the proxy's chunk-only file delete, which takes filenames: handed a
+      // document id it matched nothing, and the row and the object stayed. A
+      // file that never reached the server has nothing to delete there.
+      const documentId = file.serverFileId
+      if (!documentId) {
+        removeTrackedFile(fileId)
+        return
+      }
 
       // Optimistic delete: remove from UI immediately, call API in background.
       // This prevents the file from reappearing if a concurrent server reload
@@ -558,7 +583,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       removeTrackedFile(fileId)
 
       try {
-        await clientRef.current.deleteFiles(collectionName, [deleteId])
+        await deleteShelfDocument(shelf, documentId)
       } catch (err) {
         // Restore the file on failure so the user can retry.
         // Also undo the recentlyDeletedIds entry so the file isn't
@@ -569,7 +594,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         setError(message)
       }
     },
-    [trackedFiles, addTrackedFile, removeTrackedFile, unmarkRecentlyDeleted, setError]
+    [shelf, trackedFiles, addTrackedFile, removeTrackedFile, unmarkRecentlyDeleted, setError]
   )
 
   const retryFile = useCallback(

@@ -27,14 +27,19 @@ vi.mock('./repository', () => ({ findDocumentInOrg: vi.fn() }))
 vi.mock('./version-repository', () => ({
   findDocumentVersion: vi.fn(),
   findDocumentVersionInOrg: vi.fn(),
-  mirrorVersionOntoDocument: vi.fn(),
   setDocumentLifecycle: vi.fn(),
+  swapVersionContent: vi.fn(),
 }))
+vi.mock('@/lib/storage/discard', () => ({ discardObject: vi.fn() }))
 vi.mock('@/lib/conversations/repository', () => ({ findConversationInOrg: vi.fn() }))
 vi.mock('@/lib/organizations/service', () => ({
   getOrganizationDisplayName: vi.fn().mockResolvedValue('Büro Nord ZT GmbH'),
 }))
-vi.mock('@/lib/storage/service', () => ({ assertWithinStorageQuota: vi.fn() }))
+vi.mock('@/lib/storage/service', () => ({
+  assertWithinStorageQuota: vi.fn(),
+  getStorageQuotaBytes: vi.fn().mockResolvedValue(10_000),
+  STORAGE_QUOTA_EXCEEDED_MESSAGE: 'no storage space left',
+}))
 vi.mock('@/lib/storage/bucket', () => ({
   ensureTenantBucketChecked: vi.fn().mockResolvedValue('grid-org-1'),
   resolveDocumentBucket: () => 'grid-org-1',
@@ -61,17 +66,19 @@ import { purgeIngestedChunks } from './collection-file-ref'
 import { findDocumentInOrg } from './repository'
 import {
   findDocumentVersionInOrg,
-  mirrorVersionOntoDocument,
   setDocumentLifecycle,
+  swapVersionContent,
 } from './version-repository'
+import { discardObject } from '@/lib/storage/discard'
 import {
   admitVersionBytes,
   archiveDocument,
+  newVersionWriteId,
   readVersionForService,
   renderVersionBytes,
-  storeVersionBytes,
-  versionedStorageKey,
   versionMirrorsItem,
+  versionWriteKey,
+  writeVersionContent,
 } from './version-content'
 import { AI_PROVENANCE_PROPERTIES } from '@/lib/ai-provenance'
 
@@ -136,17 +143,43 @@ beforeEach(() => {
   vi.mocked(getAccessibleDocument).mockResolvedValue(document)
 })
 
-describe('versionedStorageKey', () => {
-  it('leaves version 1 exactly where it is, so nothing that predates 0082 moves', () => {
-    expect(versionedStorageKey('org/o/project/p/doc/d/plan.pdf', 1)).toBe(
-      'org/o/project/p/doc/d/plan.pdf',
+describe('versionWriteKey', () => {
+  it('gives every re-upload a directory of its own, even when the number reads 1', () => {
+    // The number is a hint. It reads 1 while a concurrent first upload has its
+    // row but not its version; a plain key here would overwrite that upload.
+    expect(versionWriteKey('org/o/session/s_1/doc/d/plan.pdf', 1, 'a1b2c3d4e5f6')).toBe( // pragma: allowlist secret (a write-id fixture, not a credential)
+      'org/o/session/s_1/doc/d/v1/a1b2c3d4e5f6/plan.pdf',
     )
   })
 
-  it('gives every later version a prefix of its own', () => {
-    expect(versionedStorageKey('org/o/project/p/Plaene/doc/d/plan.pdf', 3)).toBe(
-      'org/o/project/p/Plaene/doc/d/v3/plan.pdf',
+  it('never hands two overlapping re-uploads the same key, although both read the same number', () => {
+    const base = 'org/o/project/p/doc/d/plan.pdf'
+    const first = versionWriteKey(base, 3, newVersionWriteId())
+    const second = versionWriteKey(base, 3, newVersionWriteId())
+    expect(first).not.toBe(second)
+    expect(first).toMatch(/\/doc\/d\/v3\/[0-9a-f]{12}\/plan\.pdf$/)
+  })
+
+  it('replaces an earlier version segment rather than nesting inside it', () => {
+    expect(
+      versionWriteKey('org/o/project/p/doc/d/v3/a1b2c3d4e5f6/plan.md', 5, 'ffffffffffff'),
+    ).toBe('org/o/project/p/doc/d/v5/ffffffffffff/plan.md')
+    expect(versionWriteKey('org/o/archiv/doc/d/v2/plan.md', 2, 'ffffffffffff')).toBe(
+      'org/o/archiv/doc/d/v2/ffffffffffff/plan.md',
     )
+  })
+
+  it('has no version-1 shortcut: a rewrite of version 1 still gets its own object', () => {
+    expect(versionWriteKey('org/o/session/s_1/doc/d/plan.md', 1, 'ffffffffffff')).toBe(
+      'org/o/session/s_1/doc/d/v1/ffffffffffff/plan.md',
+    )
+  })
+
+  it('still gives a key that predates the shelf layout a directory of its own', () => {
+    expect(versionWriteKey('legacy/plan.md', 2, 'ffffffffffff')).toBe(
+      'legacy/v2/ffffffffffff/plan.md',
+    )
+    expect(versionWriteKey('plan.md', 2, 'ffffffffffff')).toBe('v2/ffffffffffff/plan.md')
   })
 })
 
@@ -175,58 +208,243 @@ describe('renderVersionBytes — the marking survives an update', () => {
   })
 })
 
+/**
+ * The courtesy check's estimate. The ceiling is measured in the swap's own
+ * transaction (`version-repository.spec.ts`); this only has to refuse the
+ * obvious case before the bytes move, and it must not undercharge a fork.
+ */
 describe('admitVersionBytes', () => {
-  it('charges the DELTA, because the version being replaced is already counted', async () => {
-    await admitVersionBytes('org_1', version({ fileSize: 1_000 }), 1_600)
+  const published = makeDocument({
+    ...document,
+    storageKey: 'org/org_1/project/proj_1/doc/doc_1/plan.md',
+    publishedVersionId: 'ver_published',
+  })
+
+  it('charges a freshly forked draft the FULL size, because the published bytes stay', async () => {
+    // The fork shares the published object, so its `fileSize` IS the published
+    // file's. `1_600 − 1_000` charged 600 for 1_600 new bytes; the loop of fork,
+    // write, reject, fork again was never checked at all when sizes matched.
+    const fork = version({ id: 'ver_draft', storageKey: published.storageKey, fileSize: 1_000 })
+    await admitVersionBytes('org_1', published, fork, 1_600)
+    expect(assertWithinStorageQuota).toHaveBeenCalledWith('org_1', 1_600)
+  })
+
+  it('charges the DELTA for a draft that owns its previous object', async () => {
+    const written = version({
+      id: 'ver_draft',
+      storageKey: 'org/org_1/project/proj_1/doc/doc_1/v2/aaaaaaaaaaaa/plan.md',
+      fileSize: 1_000,
+    })
+    await admitVersionBytes('org_1', published, written, 1_600)
     expect(assertWithinStorageQuota).toHaveBeenCalledWith('org_1', 600)
   })
 
-  it('asks nothing when the replacement is smaller', async () => {
-    await admitVersionBytes('org_1', version({ fileSize: 1_000 }), 400)
+  it('charges the DELTA for the version that IS the item’s bytes', async () => {
+    const item = makeDocument({ ...published, publishedVersionId: null })
+    await admitVersionBytes(
+      'org_1',
+      item,
+      version({ versionNumber: 1, storageKey: item.storageKey, fileSize: 1_000 }),
+      1_600,
+    )
+    expect(assertWithinStorageQuota).toHaveBeenCalledWith('org_1', 600)
+  })
+
+  it('asks nothing when a draft of its own shrinks', async () => {
+    await admitVersionBytes(
+      'org_1',
+      published,
+      version({ id: 'ver_draft', storageKey: 'k/own', fileSize: 1_000 }),
+      400,
+    )
     expect(assertWithinStorageQuota).not.toHaveBeenCalled()
   })
 
   it('lets a refusal through, so nothing is written or swapped', async () => {
-    vi.mocked(assertWithinStorageQuota).mockRejectedValue(new Error('no room'))
-    await expect(admitVersionBytes('org_1', version(), 10_000)).rejects.toThrow(/no room/)
+    vi.mocked(assertWithinStorageQuota).mockRejectedValueOnce(new Error('no room'))
+    await expect(admitVersionBytes('org_1', published, version(), 10_000)).rejects.toThrow(
+      /no room/,
+    )
   })
 })
 
-describe('storeVersionBytes — the item mirror', () => {
+/**
+ * Two writers holding the same `If-Match` (the defect this block pins).
+ *
+ * `If-Match` is checked against a row read at the start, and the swap used to
+ * filter on `state = 'draft'` alone — draft → draft — so both writers won and
+ * both wrote ONE key, in either order. Now each write has its own object,
+ * stored before the swap, and the swap asserts the state, key and hash that
+ * were read.
+ */
+describe('writeVersionContent — one object per write, swapped only if unchanged', () => {
   const rendered = {
     bytes: Buffer.from('# neu', 'utf8'),
     contentType: 'text/markdown',
     contentHash: 'sha256:neu',
   }
-
-  it('mirrors onto the item when the version IS the item’s bytes', async () => {
-    // `sum(documents.file_size)` is the hot half of the quota ledger. A version
-    // whose bytes were replaced in place and did not write them back leaves the
-    // organization charged the size the file had on the day it was created.
-    await storeVersionBytes(
-      'org_1',
-      makeDocument({ ...agentDocument, publishedVersionId: null }),
-      version({ versionNumber: 1, fileSize: 5, contentHash: 'sha256:neu' }),
-      rendered,
-    )
-    expect(mirrorVersionOntoDocument).toHaveBeenCalledWith(
-      'doc_1',
-      'org_1',
-      expect.objectContaining({ fileSize: 5, contentHash: 'sha256:neu' }),
-    )
+  const draftKey = 'org/org_1/project/proj_1/doc/doc_1/v2/aaaaaaaaaaaa/plan.md'
+  const read = version({
+    id: 'ver_draft',
+    versionNumber: 2,
+    storageKey: draftKey,
+    contentHash: 'sha256:alt',
+  })
+  const item = makeDocument({
+    ...agentDocument,
+    storageKey: 'org/org_1/project/proj_1/doc/doc_1/plan.md',
+    publishedVersionId: 'ver_published',
   })
 
-  it('leaves the item alone for a draft standing beside the published version', async () => {
-    // A forked draft is not what the download path serves; copying its bytes
-    // onto the item would publish something nobody released.
-    await storeVersionBytes(
-      'org_1',
-      makeDocument({ ...agentDocument, publishedVersionId: 'ver_published' }),
-      version({ id: 'ver_draft', versionNumber: 2 }),
+  function putKeys(): string[] {
+    return vi
+      .mocked(s3Client.send)
+      .mock.calls.map(([command]) => (command as unknown as { input: { Key: string } }).input.Key)
+  }
+
+  beforeEach(() => {
+    vi.mocked(swapVersionContent).mockImplementation(async (input) => ({
+      ok: true,
+      version: { ...read, ...input.patch } as DocumentVersion,
+      previousKeyOrphaned: true,
+    }))
+  })
+
+  it('stores the bytes under a fresh key BEFORE the swap, and swaps on what it read', async () => {
+    const order: string[] = []
+    vi.mocked(s3Client.send).mockImplementation(async () => {
+      order.push('put')
+      return {}
+    })
+    vi.mocked(swapVersionContent).mockImplementationOnce(async (input) => {
+      order.push('swap')
+      return { ok: true, version: { ...read, ...input.patch } as DocumentVersion, previousKeyOrphaned: false }
+    })
+
+    const swapped = await writeVersionContent({
+      organizationId: 'org_1',
+      document: item,
+      version: read,
       rendered,
+      stamp: { state: 'draft' },
+    })
+
+    expect(order).toEqual(['put', 'swap'])
+    const [written] = putKeys()
+    expect(written).toMatch(/\/doc\/doc_1\/v2\/[0-9a-f]{12}\/plan\.md$/)
+    expect(written).not.toBe(draftKey)
+    expect(swapVersionContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        versionId: 'ver_draft',
+        // The expectation is the row AS READ — the loser of two writers holding
+        // one If-Match matches no row.
+        expected: { state: 'draft', storageKey: draftKey, contentHash: 'sha256:alt' },
+        patch: expect.objectContaining({
+          state: 'draft',
+          storageKey: written,
+          contentHash: 'sha256:neu',
+          fileSize: 5,
+        }),
+        mirrorsItem: false,
+      }),
     )
-    expect(s3Client.send).toHaveBeenCalled()
-    expect(mirrorVersionOntoDocument).not.toHaveBeenCalled()
+    expect(swapped.storageKey).toBe(written)
+  })
+
+  it('never writes two concurrent replaces to one key', async () => {
+    const input = { organizationId: 'org_1', document: item, version: read, rendered, stamp: {} }
+    await Promise.all([writeVersionContent(input), writeVersionContent(input)])
+    const [first, second] = putKeys()
+    expect(first).not.toBe(second)
+  })
+
+  it('answers the loser with 409 and deletes the object it wrote — never the winner’s', async () => {
+    vi.mocked(swapVersionContent).mockResolvedValueOnce({ ok: false, reason: 'conflict' })
+
+    await expect(
+      writeVersionContent({ organizationId: 'org_1', document: item, version: read, rendered, stamp: {} }),
+    ).rejects.toMatchObject({ status: 409 })
+
+    const [written] = putKeys()
+    expect(discardObject).toHaveBeenCalledTimes(1)
+    expect(discardObject).toHaveBeenCalledWith('grid-org-1', written)
+  })
+
+  it('deletes the object it wrote when the swap itself fails', async () => {
+    vi.mocked(swapVersionContent).mockRejectedValueOnce(new Error('connection reset'))
+    await expect(
+      writeVersionContent({ organizationId: 'org_1', document: item, version: read, rendered, stamp: {} }),
+    ).rejects.toThrow('connection reset')
+    expect(discardObject).toHaveBeenCalledWith('grid-org-1', putKeys()[0])
+  })
+
+  it('deletes the draft’s previous object once nothing names it', async () => {
+    await writeVersionContent({ organizationId: 'org_1', document: item, version: read, rendered, stamp: {} })
+    expect(discardObject).toHaveBeenCalledWith('grid-org-1', draftKey)
+  })
+
+  it('leaves a shared previous object alone — a fresh fork still carries the published key', async () => {
+    vi.mocked(swapVersionContent).mockImplementationOnce(async (input) => ({
+      ok: true,
+      version: { ...read, ...input.patch } as DocumentVersion,
+      previousKeyOrphaned: false,
+    }))
+    await writeVersionContent({
+      organizationId: 'org_1',
+      document: item,
+      version: { ...read, storageKey: item.storageKey },
+      rendered,
+      stamp: {},
+    })
+    expect(discardObject).not.toHaveBeenCalled()
+  })
+
+  it('mirrors onto the item when the version IS the item’s bytes', async () => {
+    // `sum(documents.file_size)` is the hot half of the quota ledger, and the
+    // download path reads `documents.storage_key`.
+    await writeVersionContent({
+      organizationId: 'org_1',
+      document: makeDocument({ ...agentDocument, publishedVersionId: null }),
+      version: version({ versionNumber: 1 }),
+      rendered,
+      stamp: {},
+    })
+    expect(swapVersionContent).toHaveBeenCalledWith(expect.objectContaining({ mirrorsItem: true }))
+  })
+
+  it('hands the swap the organization’s quota, so the ceiling is held under the lock', async () => {
+    await writeVersionContent({ organizationId: 'org_1', document: item, version: read, rendered, stamp: {} })
+    expect(swapVersionContent).toHaveBeenCalledWith(expect.objectContaining({ quotaBytes: 10_000 }))
+  })
+
+  it('takes its object back and answers 507 when the locked admission refuses', async () => {
+    vi.mocked(swapVersionContent).mockResolvedValueOnce({
+      ok: false,
+      reason: 'quota',
+      usedBytes: 9_999,
+    })
+
+    await expect(
+      writeVersionContent({ organizationId: 'org_1', document: item, version: read, rendered, stamp: {} }),
+    ).rejects.toMatchObject({ status: 507 })
+    expect(discardObject).toHaveBeenCalledWith('grid-org-1', putKeys()[0])
+    // The previous object is NOT touched: the row still names it.
+    expect(discardObject).toHaveBeenCalledTimes(1)
+  })
+
+  it('writes and swaps nothing when the quota courtesy check refuses', async () => {
+    vi.mocked(assertWithinStorageQuota).mockRejectedValueOnce(new Error('no room'))
+    await expect(
+      writeVersionContent({
+        organizationId: 'org_1',
+        document: item,
+        version: { ...read, fileSize: 1 },
+        rendered: { ...rendered, bytes: Buffer.alloc(10_000) },
+        stamp: {},
+      }),
+    ).rejects.toThrow(/no room/)
+    expect(s3Client.send).not.toHaveBeenCalled()
+    expect(swapVersionContent).not.toHaveBeenCalled()
   })
 })
 

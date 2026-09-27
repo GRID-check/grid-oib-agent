@@ -50,7 +50,7 @@ function makeTx({
     }
     const text = strings.join('$').replace(/\s+/g, ' ').trim()
     executed.push({ text, values })
-    if (text.startsWith('SELECT') && text.includes('FROM legal_holds')) {
+    if (text.startsWith('SELECT') && text.includes('grid_legal_hold_blocks')) {
       holdChecks += 1
       return Promise.resolve(holdOnCheck[holdChecks] ?? holdRows)
     }
@@ -153,7 +153,7 @@ describe('purgeProject', () => {
     const { tx, executed } = makeTx({
       projectRow: { id: 'p1', collection_name: 'proj_abc' },
       conversationRows: [{ id: 'c1' }],
-      holdRows: [{ '?column?': 1 }],
+      holdRows: [{ held: true }],
     })
     const deps = makeDeps()
 
@@ -240,7 +240,7 @@ describe('purgeProject', () => {
       documentBucketRows: [{ storage_bucket: 'grid-org-org1-abcdef123456' }],
       // Checks 1 and 2 are the pre-flight and post-backend ones; 3 guards the
       // first bucket, 4 the second. Placing the hold at 4 lets one sweep run.
-      holdOnCheck: { 4: [{ '?column?': 1 }] },
+      holdOnCheck: { 4: [{ held: true }] },
     })
 
     const deps = makeDeps()
@@ -445,7 +445,7 @@ describe('session attachments', () => {
         { conversation_id: 's_c1', collection_name: 's_c1', storage_bucket: null },
       ],
       // 1 is the pre-flight check; 2 guards the first session collection.
-      holdOnCheck: { 2: [{ '?column?': 1 }] },
+      holdOnCheck: { 2: [{ held: true }] },
     })
     const deps = makeDeps()
 

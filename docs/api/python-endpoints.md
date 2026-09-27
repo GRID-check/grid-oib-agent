@@ -125,7 +125,7 @@ These routes are **not registered by custom code** — they are provided by the 
 | `GET` | `/v1/jobs/async/job/{job_id}` | Get job status | — | `{ job_id, status, agent_type, error?, created_at }` | Same |
 | `GET` | `/v1/jobs/async/job/{job_id}/stream` | SSE event stream (from beginning) | — | SSE stream (`text/event-stream`) | Same |
 | `GET` | `/v1/jobs/async/job/{job_id}/stream/{last_event_id}` | SSE event stream (reconnection) | — | SSE stream | Same |
-| `POST` | `/v1/jobs/async/job/{job_id}/cancel` | Cancel a running job | — | `{ job_id, status, task_cancelled }` | Same |
+| `POST` | `/v1/jobs/async/job/{job_id}/cancel` | Cancel a submitted or running job. The INTERRUPTED write is conditional on the job still being active; a job that finished between the read and the write gets `400`, like one that had already ended. The route then reports the outcome to the BFF (`/api/internal/jobs/{id}/outcome`, tenant from `job_access`), because a job no worker claimed has no runner left to report it | — | `{ job_id, status, task_cancelled }` | Same |
 | `GET` | `/v1/jobs/async/job/{job_id}/state` | Get job artifacts (tool calls, outputs, sources) | — | `{ job_id, has_state, artifacts }` | Same |
 | `GET` | `/v1/jobs/async/job/{job_id}/report` | Get final report. **2026-08-20**: additively returns `cards` — the run's Grid cards as the runner persisted them beside the report (`output["cards"]`), so the BFF can pass them to `fileResearchReport` and the filed PDF's „Rechtsgrundlagen" section has something to render. | — | `{ job_id, has_report, report, cards? }` | Same |
 | `GET` | `/v1/data_sources` | List available data sources | — | `[{ id, name, description, requires_auth }]` | Same |
@@ -193,6 +193,8 @@ The `AuthMiddleware` (`frontends/aiq_api/src/aiq_api/auth/middleware.py`) wraps 
 | `ws`/`wss` | `/websocket` | Real-time bidirectional chat with HITL support. Uses NAT's `WebSocketMessageHandler` protocol. The `ReconnectableWebSocketMessageHandler` in `aiq_api.websocket_reconnect` monkey-patches NAT to support HITL reconnection after network interruption. |
 
 WebSocket auth mirrors the HTTP middleware: `authenticate_websocket_connection()` validates the handshake token using the same validator chain. Per-message token expiry checks reject work under expired handshake JWTs with `auth_expired` error messages.
+
+A socket is bound to one conversation at the handshake: the `conversationId` signed into `X-Grid-Request-Context`, which the BFF authorized. A `user_message` or `user_interaction` frame naming any other conversation is refused with an `error_message` (`conversation_mismatch`) and runs nothing. Without an envelope (internal caller, anonymous mode) the first conversation a frame names binds the socket. Details: `docs/architecture/backend-deep-dive.md` §2c.
 
 ## Configuration introspection
 

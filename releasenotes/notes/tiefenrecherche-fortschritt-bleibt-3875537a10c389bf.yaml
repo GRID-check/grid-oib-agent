@@ -1,0 +1,5 @@
+---
+fixes:
+  - >
+    A deep research that carries on after an interruption now keeps its progress
+    instead of starting over.

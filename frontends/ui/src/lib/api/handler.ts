@@ -72,6 +72,11 @@ import {
 import { requestBodyLimitBytes } from '@/shared/config/request-body-limit'
 import { REQUEST_ID_HEADER, resolveRequestId } from './request-id'
 import { databaseUnavailableCode } from '@/lib/db/errors'
+import {
+  LEGAL_HOLD_MESSAGE,
+  LEGAL_HOLD_REASON,
+  LEGAL_HOLD_SQLSTATE,
+} from '@/lib/compliance/legal-hold-codes'
 
 /** Context passed to session-authenticated handlers. */
 export interface ApiContext<TParams = Record<string, never>> {
@@ -280,6 +285,16 @@ export function errorResponse(error: unknown, request: Request): Response {
   // authzErrorResponse() did so behavior stays stable while they migrate.
   if (isAuthzError(error)) {
     return errorPayload({ error: 'Forbidden', code: 'FORBIDDEN' }, 403, requestId)
+  }
+  // The database's delete trigger refused a row a legal hold covers (migration
+  // 0093). The service check normally answers first with the same 409; this is
+  // the path that forgot to ask, and it must still read as a hold, not a 500.
+  if (findPostgresCode(error) === LEGAL_HOLD_SQLSTATE) {
+    return errorPayload(
+      { error: LEGAL_HOLD_MESSAGE, code: 'CONFLICT', details: { reason: LEGAL_HOLD_REASON } },
+      409,
+      requestId,
+    )
   }
   // Binding a filename to a uuid column is not an internal failure (#572).
   if (isInvalidUuidQueryError(error)) {

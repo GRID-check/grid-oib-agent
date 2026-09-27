@@ -1184,10 +1184,11 @@ describe('AgentResponse', () => {
       expect(screen.queryByRole('button', { name: 'Copy answer' })).not.toBeInTheDocument()
     })
 
-    test('a card no marker claimed waits for the stream to finish', () => {
-      // "Unplaced" is read off the body SO FAR. A card whose `[[card:N]]` has
-      // not arrived yet looks unplaced, and drawing it mid-stream would put it
-      // below the prose for a second and then jump it up the answer.
+    test('a card no marker claimed lands as soon as the streamed prose is complete', () => {
+      // A live frame carries cards only once the envelope's `answer` string
+      // closed (ADR-0066), so a streaming answer that holds cards has all of
+      // its prose: nothing can claim the card any more, and waiting for the
+      // terminal held it back until verification and the pipeline were done.
       const cards = [
         {
           type: 'summary' as const,
@@ -1197,9 +1198,13 @@ describe('AgentResponse', () => {
         },
       ]
 
-      const midStream = render(<AgentResponse content="Die " cards={cards} isStreaming />)
-      expect(midStream.container.textContent).not.toContain('Nachgestellte Karte')
-      midStream.unmount()
+      const prose = render(<AgentResponse content="Die " isStreaming />)
+      expect(prose.container.textContent).not.toContain('Nachgestellte Karte')
+      prose.unmount()
+
+      const cardsWritten = render(<AgentResponse content="Die Antwort." cards={cards} isStreaming />)
+      expect(cardsWritten.container.textContent).toContain('Nachgestellte Karte')
+      cardsWritten.unmount()
 
       const finished = render(<AgentResponse content="Die Antwort." cards={cards} />)
       expect(finished.container.textContent).toContain('Nachgestellte Karte')

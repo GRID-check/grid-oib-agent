@@ -66,10 +66,6 @@ from aiq_agent.common import filter_tools_by_sources
 from aiq_agent.common import get_all_tool_refs
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_latest_user_query
-from aiq_agent.common import get_model_overrides_from_context
-from aiq_agent.common import get_org_llm_credential_from_context
-from aiq_agent.common import get_reasoning_efforts
-from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
@@ -78,6 +74,7 @@ from aiq_agent.common.agent_tools import load_agent_tools
 from aiq_agent.common.plan_documents import MAX_PLAN_DOCUMENTS
 from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.plan_documents import documents_from_plan
+from aiq_agent.common.request_llm_context import read_request_llm_context
 from aiq_agent.common.turn_status import push_custom_step
 from aiq_agent.project_context import get_organization_id_from_context
 from nat.builder.builder import Builder
@@ -804,7 +801,7 @@ class Clarifier:
             boot=build_deps(provider, tools, planner_llm, settings, ask_user, callbacks),
         )
 
-    def deps_for(self, request: ClarifyRequest) -> ClarifyDeps:
+    async def deps_for(self, request: ClarifyRequest) -> ClarifyDeps:
         """What this request varies from the boot deps, or the boot deps themselves.
 
         Two sources of variation, both per-org: the runtime model override
@@ -817,21 +814,16 @@ class Clarifier:
         selected = filter_tools_by_sources(list(self.tools), request.data_sources)
         if all_mapped_tools_filtered_out(list(self.tools), selected, request.data_sources):
             logger.warning("Clarifier received data_sources with no matching tools")
-        overrides = get_model_overrides_from_context()
-        credential = get_org_llm_credential_from_context()
-        active = (
-            self.provider.with_model_overrides(overrides)
-            .with_reasoning_efforts(get_reasoning_efforts())
-            .with_credential(credential)
-            .with_zdr(get_zdr_only_from_context())
-        )
+        # Off the loop: each dial can fall back to a blocking BFF call.
+        context = await read_request_llm_context()
+        active = context.apply(self.provider)
         if active is self.provider and selected == list(self.tools):
             return self.boot
-        planner = _request_planner(self.planner_llm, overrides, credential)
+        planner = _request_planner(self.planner_llm, context.model_overrides, context.credential)
         return build_deps(active, selected, planner, self.settings, self.ask_user, self.callbacks)
 
     async def __call__(self, request: ClarifyRequest) -> ClarifyResult:
-        return await clarify(request, self.deps_for(request))
+        return await clarify(request, await self.deps_for(request))
 
 
 async def build_clarifier(settings: ClarifierSettings, builder: Builder) -> ClarifyFn:

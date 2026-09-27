@@ -19,6 +19,7 @@ import logging
 import re
 from collections.abc import Awaitable
 from collections.abc import Callable
+from collections.abc import Collection
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
@@ -308,6 +309,22 @@ def _handed_markers(messages: Sequence[Any]) -> set[int]:
     return handed
 
 
+def _envelope_index(number: int, handed: Collection[int]) -> int | None:
+    """Which card of the envelope's ``cards`` array the model's ``[[card:N]]`` names; ``None`` for a tool's own.
+
+    The one reading of the taught rule (``cards/envelope._MARKER_RULE``), for
+    the terminal's renumbering and the live stream's alike
+    (:meth:`LiveAnswer.place`): a number a tool handed out is a registry
+    position already; past the highest handed one, N is array card
+    ``N - offset``; at or below it, a model that ignored the offset wrote an
+    array number, the only reading left.
+    """
+    if number in handed:
+        return None
+    offset = max(handed, default=0)
+    return number - offset if number > offset else number
+
+
 def _renumber_envelope_markers(content: str, *, handed: set[int], positions: dict[int, int], count: int) -> str:
     """The envelope's card markers moved from array numbers to registry positions.
 
@@ -326,14 +343,10 @@ def _renumber_envelope_markers(content: str, *, handed: set[int], positions: dic
     """
     if count == 0:
         return content
-    offset = max(handed, default=0)
 
     def substitute(match: re.Match[str]) -> str:
-        number = int(match.group(1))
-        if number in handed:
-            return match.group(0)
-        index = number - offset if number > offset else number
-        if not 1 <= index <= count:
+        index = _envelope_index(int(match.group(1)), handed)
+        if index is None or not 1 <= index <= count:
             return match.group(0)
         position = positions.get(index)
         return f"[[card:{position}]]" if position is not None else ""
@@ -438,6 +451,11 @@ def _source_lookup_attempted(messages: Sequence[Any]) -> bool:
 def looked_up_this_turn(messages: Sequence[Any]) -> bool:
     """Whether a data-source tool ran since the last human message: the gate on the single-source fallback."""
     return _source_lookup_attempted(this_turn(messages))
+
+
+def handed_this_turn(messages: Sequence[Any]) -> frozenset[int]:
+    """The ``[[card:N]]`` numbers a tool handed the model since the last human message."""
+    return frozenset(_handed_markers(this_turn(messages)))
 
 
 @dataclass(frozen=True)
@@ -694,19 +712,30 @@ class LiveAnswer:
     - the prose, when the ``answer`` string closes: verified, renumbered, and
       the masthead gated again, now against the prose;
     - each card, when its object closes: the one card validator, its ``[N]``
-      held to the settled numbers. Only while no tool has registered a card
-      this turn: the reader places ``[[card:N]]`` against the message's card
-      list, which such a card would shift.
+      held to the settled numbers.
+
+    The live card list is the terminal's order: the cards tools registered
+    this turn first (:meth:`tool_cards`, as they stand in the registry), then
+    the envelope's, which the pipeline registers after them. The model numbers
+    its ``[[card:N]]`` against its own array, so :meth:`place` moves each
+    marker the stream shows to the position its card will hold, the move
+    ``_register_envelope_cards`` makes on the finished answer. Only a card the
+    terminal DROPS moves the ones after it; the live list keeps its place
+    empty, and the terminal renumbers text and cards together.
 
     ``settle`` runs in a worker thread with the turn's context copied
     (``asyncio.to_thread`` in ``turn/answer_stream.py``): no loop-bound
     objects, no awaiting.
     """
 
-    def __init__(self, registry: SourceRegistry, *, lookup_attempted: bool = True) -> None:
+    def __init__(
+        self, registry: SourceRegistry, *, lookup_attempted: bool = True, handed: Collection[int] = ()
+    ) -> None:
         self._registry = registry
         self._lookup_attempted = lookup_attempted
+        self._handed = frozenset(handed)
         self._settled: SettledStream | None = None
+        self._tool_cards: list[dict[str, Any]] | None = None
 
     def masthead(self, fields: dict[str, Any], prose: str = "") -> dict[str, Any] | None:
         from aiq_agent.common.answer_envelope import MASTHEAD_FIELDS
@@ -740,14 +769,37 @@ class LiveAnswer:
         self._settled = replace(settled, answer_meta=meta)
         return self._settled
 
+    def tool_cards(self) -> list[dict[str, Any]]:
+        """The cards tools registered this turn, in registry order: the head of the terminal's list.
+
+        Read once per answering call, the first time it is asked: no tool runs
+        while the call writes, and the markers placed before the cards arrive
+        must count the same cards the frame then carries.
+        """
+        if self._tool_cards is None:
+            from aiq_agent.cards.registry import get_card_registry
+
+            registry = get_card_registry()
+            self._tool_cards = registry.snapshot() if registry is not None else []
+        return list(self._tool_cards)
+
+    def place(self, text: str) -> str:
+        """``text`` with each envelope ``[[card:N]]`` moved behind the tool cards, where the terminal puts it."""
+        tools = len(self.tool_cards())
+        if not tools and not self._handed:
+            return text
+
+        def substitute(match: re.Match[str]) -> str:
+            index = _envelope_index(int(match.group(1)), self._handed)
+            return match.group(0) if index is None or index < 1 else f"[[card:{tools + index}]]"
+
+        return _CARD_MARKER_NUMBER_RE.sub(substitute, text)
+
     def card(self, payload: Any) -> dict[str, Any] | None:
+        """One envelope card as it closes, validated, its ``[N]`` recited; a tool's card never comes through here."""
         from aiq_agent.cards.envelope import validate_model_card
-        from aiq_agent.cards.registry import get_card_registry
         from aiq_agent.cards.surface_citations import recite_surface
 
-        registry = get_card_registry()
-        if registry is not None and len(registry.snapshot()) > 0:
-            return None
         card, _refusal = validate_model_card(payload)
         if card is None:
             return None

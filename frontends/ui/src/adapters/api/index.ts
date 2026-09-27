@@ -68,7 +68,6 @@ export { createDocumentsClient } from './documents-client'
 export type {
   DocumentsClient,
   DocumentsClientOptions,
-  UploadFilesOptions,
 } from './documents-client'
 
 // Data Sources Client

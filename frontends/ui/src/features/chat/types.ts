@@ -1076,8 +1076,9 @@ export interface ChatActions {
    * Put a run's own message into the open thread with the id the SERVER gave
    * it (ADR-0062): the run's message already exists, so this adopts a row
    * rather than minting a second block for one run. Idempotent by that id.
+   * Written into `conversationId`, which need not be the open thread any more.
    */
-  adoptRunMessage: (message: ChatMessage) => void
+  adoptRunMessage: (conversationId: string, message: ChatMessage) => void
   /** Patch a specific message in a conversation */
   patchConversationMessage: (
     conversationId: string,

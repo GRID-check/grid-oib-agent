@@ -26,6 +26,7 @@ import {
   isJobConversation,
 } from '../lib/project-scope'
 import { mapServerMessagesToChatMessages } from '../lib/server-message-mapper'
+import { mergeRemoteMessages } from './messages-store'
 import { encodeCitations } from '../lib/citations'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import type { MessageStages } from '@/lib/conversations/message-stages'
@@ -292,6 +293,19 @@ const cancelLiveRuns = (
   }
 }
 
+/**
+ * Leave the open conversation's turn as a reload leaves it. The socket goes with
+ * the conversation, so the streaming bubble can never finish: settled, it kept
+ * its caret and `streamingAssistantMessageId`, and on return it was the last
+ * message, which hid the open question from the recovery in
+ * `restoreSessionState`. Dropped (storage never held it: a live turn's growth is
+ * not written), the question is open again and coming back fetches the finished
+ * answer or replays the turn, exactly as after a reload.
+ */
+const leaveOpenTurn = (get: () => ChatStore): void => {
+  if (get().streamingAssistantMessageId) get().discardStreamingAssistantMessage()
+}
+
 const maybeDiscardAbandonedUploadOnlySession = (
   get: () => ChatStore,
   sessionId: string | null | undefined
@@ -306,7 +320,8 @@ const maybeDiscardAbandonedUploadOnlySession = (
   // No messages HERE is not no messages: the server holds a conversation whose
   // messages storage evicted or this page never fetched, and discarding it
   // deleted it on the server.
-  if (isAwaitingServerMessages(conv.id)) return
+  // A fetch in flight is not an answer yet either.
+  if (isAwaitingServerMessages(conv.id) || hydratingConversationIds.has(conv.id)) return
   if (!hasNoUserChatMessages(conv.messages)) return
   if (hasLiveRun(conv.messages)) return
 
@@ -408,7 +423,11 @@ export const createSessionsSlice: StateCreator<
       // If the restored current session lost its messages locally (storage
       // cleanup, new device), repopulate them from the server right away.
       const { currentConversation } = get()
-      if (currentConversation && currentConversation.messages.length === 0) {
+      if (
+        currentConversation &&
+        (currentConversation.messages.length === 0 ||
+          isAwaitingServerMessages(currentConversation.id))
+      ) {
         void get().hydrateConversationMessages(currentConversation.id)
       }
     } catch (err) {
@@ -422,7 +441,10 @@ export const createSessionsSlice: StateCreator<
 
   hydrateConversationMessages: async (conversationId: string) => {
     const conversation = get().conversations.find((c) => c.id === conversationId)
-    if (!conversation || conversation.messages.length > 0) return
+    if (!conversation) return
+    // Messages here are the whole thread unless the server's were never loaded:
+    // a follow-up sent before the history arrived is only the tail of it.
+    if (conversation.messages.length > 0 && !isAwaitingServerMessages(conversationId)) return
     if (hydratingConversationIds.has(conversationId)) return
     hydratingConversationIds.add(conversationId)
 
@@ -430,18 +452,24 @@ export const createSessionsSlice: StateCreator<
       const conversationsClient = await getConversationsClient()
       const serverMessages = await conversationsClient.listMessages(conversationId)
       const messages = mapServerMessagesToChatMessages(serverMessages)
-      if (messages.length === 0) return
 
-      clearAwaitingServerMessages(conversationId)
       const { conversations, currentConversation, isStreaming, isLoading } = get()
       const target = conversations.find((c) => c.id === conversationId)
-      // The session may have been deleted or received live messages while the
-      // fetch was in flight — never overwrite newer local state.
-      if (!target || target.messages.length > 0) return
+      if (!target) return
+      if (messages.length === 0) {
+        // The server confirms the thread is empty: now it is known, not missing.
+        if (target.messages.length === 0) clearAwaitingServerMessages(conversationId)
+        return
+      }
 
-      const hydrated: Conversation = { ...target, messages }
+      // Messages that arrived while the fetch was in flight stay, and the
+      // server's history goes under them. Replacing either with the other
+      // hid the history for good: the awaiting flag was cleared regardless.
+      const { messages: merged } = mergeRemoteMessages(target.messages, messages, false)
+      const hydrated: Conversation = { ...target, messages: merged }
       const isCurrent = currentConversation?.id === conversationId
 
+      clearAwaitingServerMessages(conversationId)
       set(
         {
           conversations: updateConversationInList(conversations, hydrated),
@@ -561,6 +589,7 @@ export const createSessionsSlice: StateCreator<
       throw new Error('Cannot start session draft without authenticated user')
     }
 
+    leaveOpenTurn(get)
     maybeDiscardAbandonedUploadOnlySession(get, currentConversation?.id)
 
     const layoutState = useLayoutStore.getState()
@@ -623,21 +652,24 @@ export const createSessionsSlice: StateCreator<
         ? beforeLeave.currentConversation.id
         : undefined
 
-    if (leavingId) {
-      maybeDiscardAbandonedUploadOnlySession(get, leavingId)
-    }
-
-    const { conversations, currentUserId, projectId } = get()
-    const conversation = conversations.find((c) => c.id === conversationId)
-
     // Ownership AND project-context guard: a stale URL or persisted state
     // must never activate another project's session under this project's
     // WebSocket projectId (cross-project retrieval bleed, UX-8).
-    if (
-      conversation &&
-      conversation.userId === currentUserId &&
-      conversationMatchesProject(conversation, projectId)
-    ) {
+    const canOpen = (candidate: Conversation | undefined): candidate is Conversation =>
+      candidate !== undefined &&
+      candidate.userId === get().currentUserId &&
+      conversationMatchesProject(candidate, get().projectId)
+
+    if (leavingId) {
+      // Only a switch that happens leaves the turn: a refused one stays on it.
+      if (canOpen(beforeLeave.conversations.find((c) => c.id === conversationId))) {
+        leaveOpenTurn(get)
+      }
+      maybeDiscardAbandonedUploadOnlySession(get, leavingId)
+    }
+
+    const conversation = get().conversations.find((c) => c.id === conversationId)
+    if (canOpen(conversation)) {
       set(
         {
           currentConversation: conversation,
@@ -664,7 +696,7 @@ export const createSessionsSlice: StateCreator<
 
       // Past chats whose messages were pruned from localStorage (or that came
       // from another device) repopulate from the server-persisted history.
-      if (conversation.messages.length === 0) {
+      if (conversation.messages.length === 0 || isAwaitingServerMessages(conversation.id)) {
         void get().hydrateConversationMessages(conversation.id)
       }
     }

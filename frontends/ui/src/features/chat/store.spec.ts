@@ -1688,6 +1688,40 @@ describe('useChatStore', () => {
         expect(message?.cardInteractions).toBeUndefined()
       })
 
+      test("a tool's card heads the live list, so its decision survives the terminal that adds the envelope's", () => {
+        // The backend sends the tools' cards first, in the terminal's order
+        // (ADR-0066): the draft is `document_draft-0` live and at the end.
+        setupConversation()
+        const draft = { type: 'document_draft', path: 'a.md' } as unknown as GridCard
+        const table = { type: 'table', title: 'T' } as unknown as GridCard
+        useChatStore.getState().appendAgentResponseDelta('Entwurf liegt vor.\n\n[[card:2]]')
+        useChatStore.getState().appendAgentResponseDelta('', [{ ...draft }])
+        const state = useChatStore.getState()
+        const conv = state.currentConversation!
+        const decided: Conversation = {
+          ...conv,
+          messages: conv.messages.map((m) =>
+            m.id === state.streamingAssistantMessageId
+              ? {
+                  ...m,
+                  cardInteractions: {
+                    'document_draft-0': { decision: 'accepted', decidedAt: '2026-09-25T00:00:00Z' },
+                  },
+                }
+              : m
+          ),
+        }
+        useChatStore.setState({ currentConversation: decided, conversations: [decided] })
+        useChatStore.getState().appendAgentResponseDelta('', [{ ...draft }, table])
+
+        useChatStore
+          .getState()
+          .finalizeAgentResponse('Entwurf liegt vor.\n\n[[card:2]]', [{ ...draft }, table])
+        const message = useChatStore.getState().currentConversation?.messages?.[0]
+        expect(message?.cards).toHaveLength(2)
+        expect(message?.cardInteractions?.['document_draft-0']?.decision).toBe('accepted')
+      })
+
       test('cards on the legacy single in_progress frame survive an empty terminal', () => {
         setupConversation()
         const cards = [card('c1')]
@@ -1739,18 +1773,24 @@ describe('useChatStore', () => {
       test('a terminal with text and no sources takes the snapshot citations back; an empty one keeps them', () => {
         // Citations are numbered against the text and go with it. One rule
         // with the spectator's fold (spectator-frames.ts).
-        const citations = [{ id: 's1', content: '', timestamp: new Date(), number: 1 }] as CitationSource[]
+        const citations = [
+          { id: 's1', content: '', timestamp: new Date(), number: 1 },
+        ] as CitationSource[]
         setupConversation()
         useChatStore.getState().appendAgentResponseDelta('R 90 [1')
         useChatStore.getState().replaceStreamingAgentResponse('R 90 [1].', citations)
         useChatStore.getState().finalizeAgentResponse('R 90.')
-        expect(useChatStore.getState().currentConversation?.messages?.[0]?.citations).toBeUndefined()
+        expect(
+          useChatStore.getState().currentConversation?.messages?.[0]?.citations
+        ).toBeUndefined()
 
         setupConversation()
         useChatStore.getState().appendAgentResponseDelta('R 90 [1')
         useChatStore.getState().replaceStreamingAgentResponse('R 90 [1].', citations)
         useChatStore.getState().finalizeAgentResponse('')
-        expect(useChatStore.getState().currentConversation?.messages?.[0]?.citations).toBe(citations)
+        expect(useChatStore.getState().currentConversation?.messages?.[0]?.citations).toBe(
+          citations
+        )
       })
 
       test('a whitespace-only terminal is not text: it keeps the answer and the live extras', () => {

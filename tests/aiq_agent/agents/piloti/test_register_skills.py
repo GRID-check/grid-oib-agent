@@ -19,6 +19,7 @@ import aiq_agent.agents.piloti.register as register_module
 from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.agents.piloti.register import ResearchAgentConfig
 from aiq_agent.agents.piloti.register import research_agent
+from aiq_agent.common import request_llm_context
 
 
 @tool
@@ -429,9 +430,9 @@ async def test_the_model_credential_and_zdr_lookups_overlap():
 
     with (
         patch.object(register_module, "PilotiAgent", _make_agent_stub()),
-        patch.object(register_module, "get_model_overrides_from_context", side_effect=_slow_overrides),
-        patch.object(register_module, "get_org_llm_credential_from_context", side_effect=_slow_reader),
-        patch.object(register_module, "get_zdr_only_from_context", side_effect=_slow_zdr),
+        patch.object(request_llm_context, "get_model_overrides_from_context", side_effect=_slow_overrides),
+        patch.object(request_llm_context, "get_org_llm_credential_from_context", side_effect=_slow_reader),
+        patch.object(request_llm_context, "get_zdr_only_from_context", side_effect=_slow_zdr),
     ):
         run_fn, gen = await _get_run_fn(config, builder)
         await run_fn(ResearchAgentState(messages=[HumanMessage(content="hallo")]))
@@ -452,9 +453,9 @@ async def test_one_bad_tenant_reader_does_not_poison_the_others():
 
     with (
         patch.object(register_module, "PilotiAgent", _make_agent_stub()),
-        patch.object(register_module, "get_model_overrides_from_context", return_value={"shallow_research": "x/y"}),
-        patch.object(register_module, "get_org_llm_credential_from_context", side_effect=_boom),
-        patch.object(register_module, "get_zdr_only_from_context", return_value=False),
+        patch.object(request_llm_context, "get_model_overrides_from_context", return_value={"shallow_research": "x/y"}),
+        patch.object(request_llm_context, "get_org_llm_credential_from_context", side_effect=_boom),
+        patch.object(request_llm_context, "get_zdr_only_from_context", return_value=False),
     ):
         run_fn, gen = await _get_run_fn(config, builder)
         result = await run_fn(ResearchAgentState(messages=[HumanMessage(content="hallo")]))

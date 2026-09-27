@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.language_models import GenericFakeChatModel
@@ -42,9 +43,18 @@ def _text(sink: AnswerStreamSink) -> str:
 class _Live:
     """A LiveAnswer double: records what it was asked, answers what the test set."""
 
-    def __init__(self, settled=None, masthead=None, card=lambda payload: payload, raises=False):
+    def __init__(self, settled=None, masthead=None, card=lambda payload: payload, raises=False, tool_cards=()):
         self.settled, self._masthead, self._card, self.raises = settled, masthead, card, raises
+        self._tool_cards = list(tool_cards)
         self.asked: list[tuple] = []
+
+    def tool_cards(self):
+        return list(self._tool_cards)
+
+    def place(self, text):
+        # The real move (``LiveAnswer.place``): array card N behind the tools' cards.
+        offset = len(self._tool_cards)
+        return re.sub(r"\[\[card:(\d+)\]\]", lambda m: f"[[card:{int(m.group(1)) + offset}]]", text)
 
     def masthead(self, fields, prose=""):
         self.asked.append(("masthead", fields))
@@ -164,6 +174,55 @@ async def test_the_masthead_goes_out_before_the_first_word_and_the_cards_after_t
     cards = [item for item in items if isinstance(item, Cards)][-1].cards
     # A refused card keeps its place, so [[card:3]] still finds the surface.
     assert [card and card["type"] for card in cards] == ["table", None, "surface"]
+
+
+def _envelope_with_cards(answer: str, cards: list[dict]) -> str:
+    return "```answer_json\n" + json.dumps({"answer": answer, "cards": cards}) + "\n```"
+
+
+async def test_a_tools_card_heads_the_live_list_and_the_markers_follow_it():
+    # The terminal lists the tools' cards first and moves the model's
+    # [[card:1]] behind them; the live frames must say the same, or the
+    # envelope card lands on the tool's place and the draft's key shifts.
+    draft = {"type": "document_draft", "path": "a.md"}
+    reply = _envelope_with_cards(
+        "Der Entwurf liegt vor.\n\n[[card:1]]\n\nSiehe oben [1].\n\n**Quellen:**\n- [1] a.pdf, p.1",
+        [{"type": "table"}],
+    )
+    live = _Live(
+        settled=Snapshot(content="Der Entwurf liegt vor.\n\n[[card:1]]\n\nSiehe oben [1].", sources=[]),
+        tool_cards=[draft],
+    )
+    sink = AnswerStreamSink()
+    await _answer_in_a_node(GenericFakeChatModel(messages=iter([AIMessage(content=reply)])), sink, _Counter(), live)
+
+    items = sink._drain()
+    text = "".join(item for item in items if isinstance(item, str))
+    assert "[[card:2]]" in text and "[[card:1]]" not in text
+    snapshot = next(item for item in items if isinstance(item, Snapshot))
+    assert "[[card:2]]" in snapshot.content and "[[card:1]]" not in snapshot.content
+    frames = [item.cards for item in items if isinstance(item, Cards)]
+    assert frames[0] == [draft]  # with the settled prose, before the envelope's card closed
+    assert frames[-1] == [draft, {"type": "table"}]
+
+
+async def test_a_tools_card_goes_out_with_the_settled_prose_when_the_envelope_has_none():
+    draft = {"type": "document_draft", "path": "a.md"}
+    live = _Live(settled=Snapshot(content="…", sources=[]), tool_cards=[draft])
+    sink = AnswerStreamSink()
+    await _answer_in_a_node(GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)])), sink, _Counter(), live)
+
+    items = sink._drain()
+    kinds = [type(item).__name__ for item in items]
+    assert kinds.index("Snapshot") < kinds.index("Cards")
+    assert [item.cards for item in items if isinstance(item, Cards)] == [[draft]]
+
+
+async def test_without_a_tools_card_no_cards_frame_goes_out_for_an_envelope_without_cards():
+    sink = AnswerStreamSink()
+    live = _Live(settled=Snapshot(content="…", sources=[]))
+    await _answer_in_a_node(GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)])), sink, _Counter(), live)
+    assert not any(isinstance(item, Cards) for item in sink._drain())
 
 
 async def test_the_relay_sends_a_window_of_tokens_as_one_frame_and_keeps_snapshots_in_place(monkeypatch):

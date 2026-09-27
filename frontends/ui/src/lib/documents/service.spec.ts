@@ -107,7 +107,21 @@ vi.mock('./reconcile-status', () => ({
   describeBackendIngestState: vi.fn(),
 }))
 
+// The hold predicate is SQL (`grid_legal_hold_blocks`, migration 0093), proven
+// against Postgres in `legal-hold.integration.spec.ts`; the gate runs for real.
+// The erasure of a document's objects is `object-cleanup.spec.ts`'s subject;
+// here it is what the delete asks for, and what the delete does when it fails.
+vi.mock('@/lib/documents/object-cleanup', () => ({
+  eraseDocumentObjectsOrKeepRow: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('@/lib/compliance/repository', () => ({
+  isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
+}))
+
 import { findProjectInOrg } from '@/lib/projects/repository'
+import { isCoveredByActiveHold } from '@/lib/compliance/repository'
+import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
@@ -149,6 +163,8 @@ import {
   type ReconcilableDocument,
 } from './reconcile-status'
 import type { DocumentListRow } from './repository'
+import { insertPublishedVersion, nextVersionNumber } from './version-repository'
+import { LiveFilenameTakenError, ReplacedDocumentGoneError } from './unique-conflicts'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { makeDocument, makeProject } from '@/test-utils/db-fixtures'
@@ -1179,6 +1195,38 @@ describe('deleteDocument', () => {
     expect(recordAuditEvent).not.toHaveBeenCalled()
   })
 
+  it('refuses a held document with a 409 before erasing anything', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(isCoveredByActiveHold).mockResolvedValueOnce(true)
+    vi.mocked(s3Client.send).mockClear()
+    mockFetch.mockClear()
+
+    const error = await deleteDocument(session, 'doc-1', new Request('http://x')).catch(
+      (e: unknown) => e
+    )
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect((error as ConflictError).details).toEqual({ reason: 'legal_hold', entityType: 'document' })
+    expect(isCoveredByActiveHold).toHaveBeenCalledWith('org-1', 'document', 'doc-1')
+    // Nothing went: no chunk purge, no object, no row, no audit.
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(s3Client.send).not.toHaveBeenCalled()
+    expect(eraseDocumentObjectsOrKeepRow).not.toHaveBeenCalled()
+    expect(deleteProjectDocument).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('asks about the hold only after the access check', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockRejectedValueOnce(new NotFoundError())
+
+    await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(
+      NotFoundError
+    )
+    expect(isCoveredByActiveHold).not.toHaveBeenCalled()
+  })
+
   it('purges chunks, deletes the object + row, and audits', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
     vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
@@ -1200,6 +1248,38 @@ describe('deleteDocument', () => {
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'document.deleted', organizationId: 'org-1' })
     )
+  })
+
+  it('erases every stored object (each version, _thumb, _img/, _bim/) before the row', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    mockFetch.mockResolvedValue({ ok: true })
+    const order: string[] = []
+    vi.mocked(eraseDocumentObjectsOrKeepRow).mockImplementationOnce(async () => {
+      order.push('objects')
+    })
+    vi.mocked(deleteProjectDocument).mockImplementationOnce(async () => {
+      order.push('row')
+    })
+
+    await deleteDocument(session, 'doc-1', new Request('http://x'))
+
+    expect(eraseDocumentObjectsOrKeepRow).toHaveBeenCalledWith(projectDoc, 'org-1')
+    expect(order).toEqual(['objects', 'row'])
+  })
+
+  it('keeps the row, and audits nothing, when the objects could not be erased', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    mockFetch.mockResolvedValue({ ok: true })
+    vi.mocked(eraseDocumentObjectsOrKeepRow).mockRejectedValueOnce(new UpstreamError('nope'))
+
+    await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(
+      UpstreamError
+    )
+    // The row is the only handle a retry has on the bytes that stayed.
+    expect(deleteProjectDocument).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
   })
 
   it('still deletes the row + audits when the best-effort chunk purge fails', async () => {
@@ -1759,11 +1839,50 @@ describe('re-uploading a filename this collection already holds', () => {
 
     expect(admitOrDiscard).not.toHaveBeenCalled()
     expect(admitReplacementOrDiscard).toHaveBeenCalled()
-    // The quota is charged the DELTA, under the same lock: the row being
-    // replaced already contributes its old size to the usage this is measured
-    // against, so it is excluded there rather than double-counted here.
+    // Admitted under the same lock, at the full new size: the replaced bytes
+    // stay as the superseded version (`replaceDocumentWithinQuota`).
     const call = vi.mocked(admitReplacementOrDiscard).mock.calls.at(-1)
     expect(call?.[3]).toBe('doc-existing')
+  })
+
+  it('writes its bytes to a key no overlapping re-upload can share', async () => {
+    // Two uploads of plan.pdf that overlap both read `nextVersionNumber` = 2.
+    // Before the write id they both PUT `…/v2/plan.pdf`, the second silently
+    // replacing the first one's bytes.
+    await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+    await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+    const keys = vi
+      .mocked(s3Client.send)
+      .mock.calls.map(([command]) => (command as unknown as { input: { Key?: string } }).input.Key)
+      .filter((key): key is string => typeof key === 'string' && key.endsWith('/plan.pdf'))
+    expect(keys).toHaveLength(2)
+    expect(keys[0]).toMatch(/\/doc\/doc-existing\/v2\/[0-9a-f]{12}\/plan\.pdf$/)
+    expect(keys[0]).not.toBe(keys[1])
+  })
+
+  it('records the version with the key THIS upload stored, not whatever the row says now', async () => {
+    // An overlapping upload may have rewritten the item row between this
+    // request's admission and its version insert. Reading the key back off the
+    // row recorded the OTHER upload's object twice and this one's never.
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({
+        id: 'doc-existing',
+        storageKey: 'org/org-1/project/proj-1/doc/doc-existing/v2/000000000000/plan.pdf',
+      }),
+    )
+
+    await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+    const put = vi
+      .mocked(s3Client.send)
+      .mock.calls.map(([command]) => (command as unknown as { input: { Key?: string } }).input.Key)
+      .find((key) => typeof key === 'string' && key.endsWith('/plan.pdf'))
+    const recorded = vi.mocked(insertPublishedVersion).mock.calls.at(-1)?.[0]
+    expect(recorded?.storageKey).toBe(put)
+    expect(recorded?.storageKey).not.toContain('/000000000000/')
+    // The number is not the caller's to hand in: it is allocated at insert.
+    expect(recorded).not.toHaveProperty('versionNumber')
   })
 
   it('records that these are new bytes rather than a new document', async () => {
@@ -1866,6 +1985,170 @@ describe('re-uploading a filename this collection already holds', () => {
       filename: 'Pr\u00fcfbericht.pdf',
     })
     expect(result.filename).toBe('Pr\u00fcfbericht.pdf')
+  })
+})
+
+describe('a delete that lands after the upload wrote its row', () => {
+  /**
+   * The row is written and points at this upload's bytes; a delete commits
+   * before the version is recorded. `recordUploadedVersion` used to return
+   * null, which nobody read: the upload dispatched the deleted document for
+   * ingest and answered 200. It is a 409 now, and nothing downstream runs.
+   */
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(findProjectInOrg).mockResolvedValue(
+      makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
+    )
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(null)
+    vi.mocked(findDocumentInOrg).mockResolvedValue(null)
+  })
+
+  it('answers 409, dispatches nothing and takes its object back', async () => {
+    await expect(
+      uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x')),
+    ).rejects.toMatchObject({ status: 409, details: { reason: 'deleted_during_upload' } })
+
+    expect(insertPublishedVersion).not.toHaveBeenCalled()
+    expect(mockFetch.mock.calls.some(([url]) => String(url).includes('/v1/ingest'))).toBe(false)
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+    // The object this upload PUT is deleted again (the delete usually took it
+    // already; deleting a missing key is a no-op).
+    const commands = vi.mocked(s3Client.send).mock.calls.map(([command]) => command as unknown as {
+      constructor: { name: string }
+      input: { Key?: string }
+    })
+    const put = commands.find((command) => command.constructor.name === 'PutObjectCommand')
+    const removed = commands.filter((command) => command.constructor.name === 'DeleteObjectCommand')
+    expect(removed.map((command) => command.input.Key)).toContain(put?.input.Key)
+  })
+
+  it('does not retry it as a first upload', async () => {
+    // Upload, then delete, in commit order: the file being gone is the
+    // delete's outcome, so nothing is filed a second time.
+    await expect(
+      uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x')),
+    ).rejects.toMatchObject({ status: 409 })
+    expect(admitOrDiscard).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a re-upload whose document is deleted underneath it', () => {
+  /**
+   * The probe found the document, and a delete committed before the
+   * replacement's update. The update matched no row and used to report
+   * success: the new object was named by nothing, and a version was recorded
+   * for a document that no longer existed. Now it is a first upload of the
+   * name again — what the same drop after the delete would have been.
+   */
+  const existing = {
+    id: 'doc-deleted',
+    storageKey: 'org/org-1/project/proj-1/doc/doc-deleted/plan.pdf',
+    storageBucket: 'test-bucket',
+    fileSize: 900,
+    contentHash: null,
+    folderId: null,
+    status: 'ready',
+  }
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(findProjectInOrg).mockResolvedValue(
+      makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
+    )
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(existing).mockResolvedValueOnce(null)
+    vi.mocked(admitReplacementOrDiscard).mockRejectedValueOnce(
+      new ReplacedDocumentGoneError('doc-deleted'),
+    )
+  })
+
+  afterEach(() => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(null)
+  })
+
+  it('files the bytes as a first upload under a new id', async () => {
+    const result = await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+    expect(admitReplacementOrDiscard).toHaveBeenCalledTimes(1)
+    expect(admitOrDiscard).toHaveBeenCalledTimes(1)
+    const inserted = vi.mocked(admitOrDiscard).mock.calls.at(-1)
+    expect(inserted?.[2]).toMatchObject({ filename: 'plan.pdf' })
+    expect(inserted?.[2].id).not.toBe('doc-deleted')
+    expect(result.documentId).toBe(inserted?.[2].id)
+    // A new document, so the trail does not call it a replacement.
+    expect(vi.mocked(recordAuditEvent).mock.calls.at(-1)?.[0]?.metadata).not.toHaveProperty('replaced')
+  })
+})
+
+describe('two FIRST uploads of one filename at once', () => {
+  /**
+   * Both probes miss, both PUT under their own fresh id, and
+   * `uniq_documents_live_name_per_collection` refuses the second insert. That
+   * used to be a 500 after the loser's bytes had landed. The loser becomes the
+   * next version of the winner's document \u2014 what the same two drops one after
+   * the other would have produced (ADR-0054 correction 14).
+   */
+  const winner = {
+    id: 'doc-winner',
+    storageKey: 'org/org-1/project/proj-1/doc/doc-winner/plan.pdf',
+    storageBucket: 'test-bucket',
+    fileSize: 8,
+    contentHash: null,
+    folderId: null,
+    status: 'uploaded',
+  }
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(findProjectInOrg).mockResolvedValue(
+      makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
+    )
+    // The loser's probe ran before the winner inserted; its retry's does not.
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(null).mockResolvedValueOnce(winner)
+    vi.mocked(admitOrDiscard).mockRejectedValueOnce(new LiveFilenameTakenError('plan.pdf'))
+    // No version recorded for the winner yet: the hint reads 1.
+    vi.mocked(nextVersionNumber).mockResolvedValueOnce(1)
+  })
+
+  afterEach(() => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(null)
+  })
+
+  it('records the loser as a new version of the winner\u2019s document', async () => {
+    const result = await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+    expect(result.documentId).toBe('doc-winner')
+    expect(admitOrDiscard).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(admitReplacementOrDiscard).mock.calls.at(-1)?.[3]).toBe('doc-winner')
+    // The version is recorded against the winner's row (the double answers
+    // any id with its fixture, so the lookup is what is asserted).
+    expect(vi.mocked(findDocumentInOrg).mock.calls.at(-1)?.[0]).toBe('doc-winner')
+    expect(insertPublishedVersion).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(recordAuditEvent).mock.calls.at(-1)?.[0]?.metadata).toMatchObject({
+      replaced: true,
+    })
+  })
+
+  it('writes the retry under a write key of its own, never over the winner\u2019s bytes', async () => {
+    await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+    const keys = vi
+      .mocked(s3Client.send)
+      .mock.calls.map(([command]) => (command as unknown as { input: { Key?: string } }).input.Key)
+      .filter((key): key is string => typeof key === 'string' && key.endsWith('/plan.pdf'))
+    // First attempt under the loser's own fresh id; the retry under the
+    // winner's id \u2014 with a write segment even though the hint read 1, because
+    // the version-1 shortcut would have been the winner's own flat key.
+    expect(keys).toHaveLength(2)
+    expect(keys[0]).not.toContain('doc-winner')
+    expect(keys[1]).toMatch(/\/doc\/doc-winner\/v1\/[0-9a-f]{12}\/plan\.pdf$/)
+    expect(keys[1]).not.toBe(winner.storageKey)
+    // What is kept is what is charged: the retry's key, at the full size.
+    expect(vi.mocked(admitReplacementOrDiscard).mock.calls.at(-1)?.[1]).toBe(keys[1])
+    expect(vi.mocked(admitReplacementOrDiscard).mock.calls.at(-1)?.[4]).toMatchObject({
+      storageKey: keys[1],
+      fileSize: 1234,
+    })
   })
 })
 

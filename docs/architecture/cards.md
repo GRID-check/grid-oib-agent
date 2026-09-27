@@ -75,7 +75,7 @@ answer it has just written.
 | `type` | Purpose | Key fields |
 |---|---|---|
 | `summary` **(envelope)** | A short overview / key points. Retired as a card: the envelope's `summary` field carries it only when the answer has a consequence for the reader that its opening does not state (what to do next, what it means for the project; `piloti_static.md`), rendered as the masthead's standfirst (≤ 320 chars, gated); the card type survives for stored threads | `title`, `content`, `key_points` |
-| `legal_basis` | An OIB/norm legal-basis citation. Placed with `[[card:N]]`, it is framed where the marker sits. The first unplaced one renders flat after the prose once the answer is final (`EvidenceBlock`), never in the fallback grid | `law`, `article`, `section`, `summary`, `original_text` |
+| `legal_basis` | An OIB/norm legal-basis citation. Placed with `[[card:N]]`, it is framed where the marker sits. The first unplaced one renders flat after the prose once its prose is complete (`EvidenceBlock`), never in the fallback grid | `law`, `article`, `section`, `summary`, `original_text` |
 | `project_profile_patch` **(interactive)** | A proposed change to the project brief | `title`, `rationale`, `patch[]` — JSON-Patch ops restricted to `/facts`, `/goals`, `/unknowns`, `/assumptions` (the before/after rows are built from the patch and the live profile, never from the model) |
 | `requirement_checklist` | Several pass/fail criteria for one question, each with verdict + own norm reference | `title`, `items[]` (`label`, `status`, `detail`, `reference`), `reference`, `note` |
 | `comparison_table` | Side-by-side comparison of a small number of options (columns) across criteria (rows) | `title`, `options[]`, `rows[]` (`label`, `values[]`, `highlight_index`), `recommendation`, `reference`, `note` |
@@ -785,7 +785,14 @@ this turn's registry (`[[card:2]]` for the second card emitted). A marker writte
 on a line of its own in the answer body is consumed by a remark plugin
 (`grid-cards/card-markers.ts`) and the card is spliced in at that point; the
 cards no marker claimed still follow the prose as a block, which is also what
-happens when the answer places none. Position is used rather than an id because
+happens when the answer places none. While the answer streams, that block is
+drawn as soon as "unplaced" is final: a live frame carries cards only once the
+envelope's `answer` string has closed (the tools' cards of the turn go out at
+that moment, ahead of the envelope's and numbered as the terminal numbers
+them, `LiveAnswer.place`), so an answer that holds cards has all
+its prose, and once the paced reveal has shown it no marker is still to come
+(`unplacedIsFinal` in `features/chat/components/AgentResponse.tsx`). It used to
+wait for the terminal frame, after verification and the rest of the pipeline. Position is used rather than an id because
 an id would have to survive validation, persistence AND the deep-research path,
 which builds its cards post-hoc from a finished report and has no emission order
 to refer back to.

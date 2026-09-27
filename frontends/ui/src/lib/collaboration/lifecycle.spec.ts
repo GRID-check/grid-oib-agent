@@ -27,6 +27,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/db', () => ({ getDb: vi.fn() }))
+// No legal hold in play here; the gate itself is `compliance/holds` and the
+// predicate is SQL (`legal-hold.integration.spec.ts`).
+vi.mock('@/lib/compliance/repository', () => ({
+  isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
+}))
 
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn().mockResolvedValue(undefined) }))
 

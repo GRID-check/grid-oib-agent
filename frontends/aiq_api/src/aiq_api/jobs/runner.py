@@ -342,6 +342,26 @@ async def _should_write_notice(*, job_store: Any, job_id: str, verdict: str, fin
     return False
 
 
+async def _should_notify_outcome(*, job_store: Any, job_id: str, verdict: str, finalized: bool) -> bool:
+    """Whether a terminal path may report ``verdict`` to the BFF's outcome route.
+
+    The BFF closes the run's ``task_runs`` row from this call and nothing else,
+    so a path whose verdict is already standing must report it too: the cancel
+    route writes INTERRUPTED before the runner's ``CancelledError`` arrives, and
+    until 2026-09 only a run that wrote the status itself (``finalized``)
+    notified, so a cancelled run stayed ``running`` in the BFF forever.
+
+    Stricter than :func:`_should_write_notice` on one point: an unreadable status
+    does NOT fail open. The outcome route overwrites the row's status, so a
+    guessed ``interrupted`` could relabel a run the winner already reported as a
+    success. Reporting the standing verdict twice is harmless (the BFF writes the
+    same status and upserts one inbox row per run).
+    """
+    if finalized:
+        return True
+    return await _current_job_status(job_store, job_id) == verdict
+
+
 async def _should_emit_cancelled_event(*, job_store: Any, job_id: str, finalized: bool) -> bool:
     """Whether the cancel path may stream ``job.cancelled`` (hardening item 7).
 
@@ -470,7 +490,14 @@ async def _finalize_cancelled_run(
             usage_context=usage_context,
             notice=INTERRUPTED_NOTICE,
         )
-    if finalized:
+    # Standing INTERRUPTED counts: the cancel route wrote it before this abort
+    # arrived, and the BFF's run row closes only on this report.
+    if await _should_notify_outcome(
+        job_store=job_store,
+        job_id=job_id,
+        verdict=JobStatus.INTERRUPTED.value,
+        finalized=finalized,
+    ):
         await notify_job_outcome(job_id=job_id, usage_context=usage_context, status="interrupted")
 
     # The event agrees with the standing verdict too (item 7): after the
@@ -765,6 +792,26 @@ def _purge_deep_checkpoint(job_id: str) -> None:
             conn.commit()
     except Exception:
         logger.debug("Deep checkpoint purge skipped for job %s", job_id, exc_info=True)
+
+
+async def _purge_deep_checkpoint_unless_reclaimed(db_url: str, job_id: str, claim_owner: str | None) -> bool:
+    """Purge the run's deep checkpoint at its end, unless the job was reclaimed.
+
+    The rows (``AIQ_DEEP_CHECKPOINT_DB``, ``thread_id == job_id``) are keyed by
+    job, not by worker, so after a reclaim they are the NEW owner's resume
+    point. A stalled loser reaching its ``finally`` deleted them from under it,
+    and the winner resumed from nothing. ``worker.py`` already skipped its own
+    purge on claim loss; the runner's did not. Same positive-loss rule as every
+    other gate here (:func:`_lost_claim`): an indeterminate claim still purges,
+    and the Dask path (no claim) always does. Both purges are idempotent.
+
+    Returns True when it purged.
+    """
+    if await _lost_claim(db_url, job_id, claim_owner):
+        logger.warning("Job %s lost its queue claim; leaving the deep checkpoint to the owning worker", job_id)
+        return False
+    _purge_deep_checkpoint(job_id)
+    return True
 
 
 def _load_agent_class(agent_class_path: str) -> type:
@@ -1737,7 +1784,14 @@ async def run_agent_job(
                 usage_context=usage_context,
                 notice=FAILURE_NOTICE,
             )
-        if finalized:
+        # A standing FAILURE (the reaper's) is reported by the reaper too; a
+        # repeat here is harmless. A reclaimed loser reports nothing.
+        if not lost_claim and await _should_notify_outcome(
+            job_store=job_store,
+            job_id=job_id,
+            verdict=JobStatus.FAILURE.value,
+            finalized=finalized,
+        ):
             await notify_job_outcome(job_id=job_id, usage_context=usage_context, status="failure", error=safe_error)
 
         if event_store is None:
@@ -1775,11 +1829,9 @@ async def run_agent_job(
         # Drop the job's URL dedup caches: they are class-level dicts keyed by
         # job_id and otherwise accumulate for the life of the worker process.
         AgentEventCallback.cleanup_job_urls(job_id)
-        # Drop the run's durable deep-checkpoint rows (AIQ_DEEP_CHECKPOINT_DB,
-        # thread_id == job_id) once the run is terminal, so they don't grow
-        # forever.  Both the Dask (this file) and DB-queue (worker.py) paths
-        # run this; the worker-path call is idempotent with this one.
-        _purge_deep_checkpoint(job_id)
+        # Drop the run's durable deep-checkpoint rows once the run is terminal,
+        # unless another worker now owns the job (see the helper).
+        await _purge_deep_checkpoint_unless_reclaimed(db_url, job_id, claim_owner)
 
 
 def _create_agent_instance(

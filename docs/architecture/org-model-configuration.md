@@ -105,7 +105,7 @@ determine what a turn costs and how good it is.
 | Table | `platform_model_defaults` | `platform_reasoning_efforts` (0030) |
 | Org override | yes, per group, wins | **no — platform only** |
 | Validated against | the live OpenRouter catalog | a closed vocabulary we own |
-| Reaches the backend via | the `x-grid-model-overrides` header (or the org-id fallback) | `GET /api/internal/reasoning-efforts`, TTL-cached |
+| Reaches the backend via | the signed `X-Grid-Request-Context` envelope's `modelOverrides`; the `x-grid-model-overrides` header only when no envelope arrived (a job worker); else the org-id fallback | `GET /api/internal/reasoning-efforts`, TTL-cached |
 | Falls back to | the YAML `model_name` | the YAML `reasoning_effort` for that role |
 
 There is deliberately no org layer for effort: a tenant choosing its own model is
@@ -128,9 +128,15 @@ DeepSeek's `max`, which OpenRouter rejects) into a request. Parity is pinned by
 Applied at the same two seams as the model. Every user-facing agent (chat,
 the clarifier agent, deep research) resolves its LLMs
 through `LLMProvider`, so the effort has its own provider method,
-`with_reasoning_efforts(get_reasoning_efforts())`, chained right after
-`with_model_overrides` in each `_active_provider`/`_agent_for_request`, and in
-the detached worker (`aiq_api/jobs/runner.py`) after the captured overrides.
+`with_reasoning_efforts(...)`, chained right after `with_model_overrides` in
+`RequestLLMContext.apply` (`common/request_llm_context.py`, which chat's
+`_active_provider`, `Clarifier.deps_for` and deep research's
+`_agent_for_request` all go through), and in the detached worker
+(`aiq_api/jobs/runner.py`) after the captured overrides. The four per-request
+lookups (overrides, efforts, BYOK credential, ZDR) are read there by
+`read_request_llm_context`, each on its own `asyncio.to_thread` hop: every one
+can fall back to a blocking BFF call, and on the loop a cold miss stalled every
+turn on the replica.
 Directly held LLMs (the clarifier planner, the reflection stage, the RIS
 router) get it inside `apply_model_override`. A dial that reaches only the
 second seam is the bug this paragraph used to describe as impossible: it was
@@ -304,7 +310,8 @@ org admin saves → org_model_config_versions (+ pointer)
                                      │           ├─ getEffectiveModelOverrides()
 WS upgrade: /api/auth/websocket-scope merges both┘   (org wins per group)
                                      │  response.modelOverrides = {group: modelId}
-server.js  ──  x-grid-model-overrides: base64url(JSON)  ──▶  aiq backend
+server.js  ──  envelope.modelOverrides (signed) + x-grid-model-overrides  ──▶  aiq backend
+             (inbound x-grid-* stripped first)   the envelope wins when present
                                      │
    model_overrides.py: parse + sanitize (unknown group / bad id dropped, fail-open {})
                                      │

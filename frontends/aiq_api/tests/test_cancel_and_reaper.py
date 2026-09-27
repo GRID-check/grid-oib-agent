@@ -229,7 +229,19 @@ async def cancel_app(db_url, monkeypatch):
         lambda: Principal(type="jwt", sub="user-1", email="user@example.com"),
     )
 
-    job_store = SimpleNamespace(get_job=AsyncMock(), update_status=AsyncMock())
+    job_store = SimpleNamespace(get_job=AsyncMock(), update_status=AsyncMock(), conditional_wins=True)
+
+    async def _conditional_write(store, job_id, status, **kwargs):
+        # The route's write is the sticky-terminal conditional; the double
+        # records it on `update_status` and lets a test lose the race.
+        if not store.conditional_wins:
+            return False
+        await store.update_status(job_id, status, **kwargs)
+        return True
+
+    monkeypatch.setattr(jobs_routes, "_update_status_if_not_terminal", _conditional_write)
+    job_store.notify = AsyncMock(return_value=True)
+    monkeypatch.setattr(jobs_routes, "notify_job_outcome_from_access", job_store.notify)
     worker = SimpleNamespace(
         _dask_available=True,
         _job_store=job_store,
@@ -294,6 +306,90 @@ class TestCancelRoute:
 
         assert response.status_code == 400
         job_store.update_status.assert_not_awaited()
+        job_store.notify.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_cancel_reports_the_outcome_it_wrote(self, cancel_app, db_url):
+        """The BFF closes the run row on this report. Before, the route wrote
+        INTERRUPTED and told nobody, and the runner then lost the write race and
+        told nobody either: the run stayed `running` in the BFF forever."""
+        app, job_store = cancel_app
+        job_store.get_job.return_value = _job("running")
+
+        with TestClient(app) as client:
+            response = client.post("/v1/jobs/async/job/job-1/cancel")
+
+        assert response.status_code == 200
+        job_store.notify.assert_awaited_once_with(job_id="job-1", db_url=db_url, status="interrupted")
+
+    @pytest.mark.asyncio
+    async def test_a_cancel_losing_the_race_to_the_finish_changes_nothing(self, cancel_app, db_url):
+        """Read RUNNING, but the run finished before the write: no relabel, no
+        report, no cancellation event, and the same 400 as an ended job."""
+        app, job_store = cancel_app
+        job_store.get_job.return_value = _job("running")
+        job_store.conditional_wins = False
+
+        with TestClient(app) as client:
+            response = client.post("/v1/jobs/async/job/job-1/cancel")
+
+        assert response.status_code == 400
+        job_store.update_status.assert_not_awaited()
+        job_store.notify.assert_not_awaited()
+        EventStore._ensure_table_exists(db_url)
+        assert EventStore.get_events(db_url, "job-1") == []
+
+    @pytest.mark.asyncio
+    async def test_db_mode_cancel_of_an_unclaimed_job_drops_it_and_reports(self, cancel_app, db_url, monkeypatch):
+        """No worker ever claimed it, so no runner will ever report it."""
+        from aiq_api.jobs import queue
+
+        monkeypatch.setenv("GRID_JOB_EXECUTION", "db")
+        queue.ensure_research_queue_table(db_url)
+        queue.enqueue(db_url, "job-1", {"input_text": "x"})
+        app, job_store = cancel_app
+        job_store.get_job.return_value = _job("submitted")
+
+        with TestClient(app) as client:
+            response = client.post("/v1/jobs/async/job/job-1/cancel")
+
+        assert response.status_code == 200
+        assert queue.claim_next(db_url, "worker-A", 30, 3) is None
+        job_store.notify.assert_awaited_once_with(job_id="job-1", db_url=db_url, status="interrupted")
+
+
+class TestReaperReportsItsVerdict:
+    @pytest.mark.asyncio
+    async def test_a_reaped_job_is_reported_as_failed(self, db_url, monkeypatch):
+        import aiq_api.routes.jobs as jobs_routes
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStore
+
+        _insert_job_info(db_url, "job-stuck", status="running", age_seconds=STALE_AGE)
+        EventStore._ensure_table_exists(db_url)
+        monkeypatch.setattr(jobs_routes, "_cancel_dask_task", AsyncMock(return_value=True))
+        notify = AsyncMock(return_value=True)
+        monkeypatch.setattr(jobs_routes, "notify_job_outcome_from_access", notify)
+
+        reaped = await _reap_stale_jobs_once(JobStore(scheduler_address="", db_url=db_url), db_url, None)
+
+        assert reaped == ["job-stuck"]
+        notify.assert_awaited_once_with(
+            job_id="job-stuck", db_url=db_url, status="failure", error=jobs_routes.GHOST_JOB_ERROR
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_job_that_finished_first_is_not_reported_by_the_reaper(self, db_url, monkeypatch):
+        import aiq_api.routes.jobs as jobs_routes
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStore
+
+        _insert_job_info(db_url, "job-1", status="success", age_seconds=STALE_AGE)
+        EventStore._ensure_table_exists(db_url)
+        monkeypatch.setattr(jobs_routes, "_find_stale_jobs", lambda *args, **kwargs: ["job-1"])
+        notify = AsyncMock(return_value=True)
+        monkeypatch.setattr(jobs_routes, "notify_job_outcome_from_access", notify)
+
+        assert await _reap_stale_jobs_once(JobStore(scheduler_address="", db_url=db_url), db_url, None) == []
+        notify.assert_not_awaited()
 
 
 class TestWriteNowRoute:

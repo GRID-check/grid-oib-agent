@@ -52,7 +52,7 @@ vi.mock('./repository', () => ({
 
 import type { Document } from '@/lib/db/schema'
 import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
-import { purgeCollectionChunks, purgeSessionDocuments } from './cleanup'
+import { deleteSessionCollection, purgeCollectionChunks, purgeSessionDocuments } from './cleanup'
 import { collectionFileRef } from '@/lib/documents/collection-file-ref'
 
 const CONVERSATION_ID = 's_11111111-2222-3333-4444-555555555555'
@@ -327,5 +327,65 @@ describe('purgeSessionDocuments', () => {
       purged: 0,
     })
     expect(deleteSessionDocumentsByIds).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The chat's collection as a whole: what the conversation delete erases after
+ * the rows, so chunks no row names do not outlive the chat. Idempotent, because
+ * most chats never had one and a retry finds it already gone.
+ */
+describe('deleteSessionCollection', () => {
+  /** Answers in call order: the existence probe first, then the delete. */
+  function stubFetchSequence(...statuses: number[]): ReturnType<typeof vi.fn> {
+    const fetchMock = vi.fn()
+    for (const status of statuses) {
+      fetchMock.mockResolvedValueOnce({ ok: status >= 200 && status < 300, status })
+    }
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('deletes an existing collection', async () => {
+    const fetchMock = stubFetchSequence(200, 200)
+
+    expect(await deleteSessionCollection(CONVERSATION_ID)).toEqual({ ok: true })
+    const [probeUrl, probe] = fetchMock.mock.calls[0]
+    const [deleteUrl, del] = fetchMock.mock.calls[1]
+    expect(probeUrl).toBe(`http://backend:8000/v1/collections/${CONVERSATION_ID}`)
+    expect(probe.method).toBe('GET')
+    expect(deleteUrl).toBe(`http://backend:8000/v1/collections/${CONVERSATION_ID}`)
+    expect(del.method).toBe('DELETE')
+  })
+
+  it('treats a missing collection as already erased, without deleting', async () => {
+    // The backend answers a DELETE of a missing collection with 500, so asking
+    // first is what keeps "never had attachments" from failing the chat delete.
+    const fetchMock = stubFetchSequence(404)
+
+    expect(await deleteSessionCollection(CONVERSATION_ID)).toEqual({ ok: true })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('treats a deployment without a knowledge layer as having nothing to erase', async () => {
+    stubFetchSequence(503)
+
+    expect(await deleteSessionCollection(CONVERSATION_ID)).toEqual({ ok: true })
+  })
+
+  it('reports FAILURE when the delete is refused', async () => {
+    stubFetchSequence(200, 500)
+
+    const result = await deleteSessionCollection(CONVERSATION_ID)
+    expect(result.ok).toBe(false)
+    expect(result.reason).toContain('500')
+  })
+
+  it('reports FAILURE when the backend cannot be reached', async () => {
+    stubFetch(new Error('ECONNREFUSED'))
+
+    const result = await deleteSessionCollection(CONVERSATION_ID)
+    expect(result.ok).toBe(false)
+    expect(result.reason).toContain('ECONNREFUSED')
   })
 })

@@ -117,11 +117,18 @@ _EXCLUDED_LOCK = threading.Lock()
 _SYNC_LOCK = threading.Lock()
 
 # Per-basename locks. The collection keys chunks on the filename, so all corpus
-# mutations for ONE document (delete chunks + upload, or delete + unlink) must
-# not interleave: without this a delete can land between a concurrent ingest's
-# delete and upload, leaving the file indexed after a "successful" removal, or
-# two ingests of the same name can double-index it. Different documents stay
-# fully concurrent, which is the point of the multi-worker executor.
+# mutations for ONE document (an upload and its replacement of the previous
+# version, or delete + unlink) must not interleave: without this a delete can
+# land while a concurrent ingest is still indexing, leaving the file indexed
+# after a "successful" removal, or two ingests of the same name can double-index
+# it. Different documents stay fully concurrent, which is the point of the
+# multi-worker executor.
+#
+# This lock is per PROCESS. The replacement itself is also serialised inside the
+# ingestor, per (collection, name) and across replicas (`keyed_lock` in
+# `_run_ingestion`), so an admin upload on one replica and a sync on another
+# still leave one version. What only this lock covers is the upload → poll →
+# registry cycle and the delete + unlink, which the ingestor never sees.
 _FILE_LOCKS: dict[str, threading.Lock] = {}
 _FILE_LOCKS_GUARD = threading.Lock()
 
@@ -275,19 +282,23 @@ def ingest_single(pdf: Path) -> "FileStatus | None":
     the registry hash is recorded only on success. Returns the terminal
     FileStatus, or None on timeout.
 
-    Holds the document's per-basename lock for the whole delete → upload → poll
-    cycle, so a concurrent removal or sync of the same filename cannot interleave
-    with it (see ``_file_lock``).
+    The replacement is the ingestor's own: it retires the previous version's
+    chunks once the new one is indexed, and keeps them when it is not, taking
+    back out whatever part of the new version a failure had already inserted.
+    Finding the previous version reads only this file's chunks, not the
+    collection. There is deliberately no ``delete_file`` first. That deleted the chunks AND the
+    metadata row before the new file was read, so a re-ingest that then failed
+    left the document with nothing, and one that succeeded lost the Dokumentart
+    the platform owner had set on the row.
+
+    Holds the document's per-basename lock for the whole upload → poll cycle,
+    so a concurrent removal or sync of the same filename cannot interleave with
+    it (see ``_file_lock``).
     """
     current_hash = _file_hash(pdf)
     with _file_lock(pdf.name):
         ingestor = _get_oib_ingestor()
         _ensure_collection(ingestor)
-
-        try:
-            ingestor.delete_file(pdf.name, COLLECTION_NAME)
-        except Exception as exc:
-            logger.warning("Could not delete existing chunks for %s before ingest: %s", pdf.name, exc)
 
         file_info = ingestor.upload_file(str(pdf), COLLECTION_NAME)
         logger.info("Submitted OIB upload %s size=%d file_id=%s", pdf.name, pdf.stat().st_size, file_info.file_id)
@@ -482,7 +493,8 @@ def mark_for_reingest(name: str) -> Path | None:
     and a path cannot traverse out of the corpus.
 
     Dropping the registry hash is NOT what makes the re-ingest happen -- ``ingest_single``
-    deletes and re-uploads regardless of what the registry says. It is what makes the
+    re-uploads, and the ingestor replaces the old version, regardless of what the
+    registry says. It is what makes the
     re-ingest *visible*: ``oib_status`` reports a file with no registry entry as PENDING,
     which is the state the admin UI already polls on. Without it a re-ingest of an
     already-ingested document would read as INGESTED for its whole duration and the
@@ -548,16 +560,12 @@ def _sync_locked() -> tuple[int, int]:
         logger.warning("No PDF files found in %s", OIB_DIR)
         return 0, 0
 
-    # Set when the stored chunk format is stale, and consulted at the delete-then-upload
-    # step below. Emptying the registry is what triggers the re-ingest, and it is ALSO
-    # what would make that re-ingest additive: the delete step is guarded by
-    # `str(pdf) in registry`, which is false for every file once the registry is empty,
-    # so each PDF's new chunks would be written alongside its old ones rather than
-    # replacing them. The collection would end up holding both formats of all 39 PDFs,
-    # both retrievable, both scored on the same scale and both rendering as a valid
-    # citation, until somebody reset it by hand. This flag is the delete's other reason
-    # to run. (The version gate has never fired before, so the bug has never executed.)
-    format_changed = False
+    # A stale chunk format empties the registry, which is what triggers the re-ingest.
+    # It must not make that re-ingest additive: the collection would hold both formats
+    # of the whole corpus, both retrievable and both rendering as a valid citation.
+    # It does not, because the ingestor replaces every file by name once the new
+    # version is indexed, whatever the registry says (a pre-ingest delete guarded by
+    # `str(pdf) in registry` once had to be forced here for exactly that reason).
     with _REGISTRY_LOCK:
         registry = _load_registry()
         if registry and registry.get(_FORMAT_KEY) != CHUNK_FORMAT_VERSION:
@@ -568,7 +576,6 @@ def _sync_locked() -> tuple[int, int]:
                 CHUNK_FORMAT_VERSION,
             )
             registry = {}
-            format_changed = True
         registry.setdefault(_FORMAT_KEY, CHUNK_FORMAT_VERSION)
         _save_registry(registry)
 
@@ -635,21 +642,12 @@ def _sync_locked() -> tuple[int, int]:
 
             # Held until this file reaches a terminal state, so a concurrent
             # upload or removal of the same basename cannot interleave with the
-            # delete → upload → poll cycle below (see _file_lock).
+            # upload → poll cycle below (see _file_lock). No delete first: the
+            # ingestor replaces the previous version once this one is indexed
+            # (see ingest_single).
             lock = _file_lock(pdf.name)
             lock.acquire()
             try:
-                # `format_changed` stands in for the registry entry the version reset
-                # just discarded: the collection still holds this file's old-format
-                # chunks even though the registry no longer says so. Deleting a file
-                # that is not there is already tolerated, so the extra call on a fresh
-                # collection costs one no-op per PDF, once.
-                if format_changed or str(pdf) in registry:
-                    try:
-                        ingestor.delete_file(pdf.name, COLLECTION_NAME)
-                    except Exception as exc:
-                        logger.warning("Could not delete existing chunks for %s before reingest: %s", pdf.name, exc)
-
                 file_info = ingestor.upload_file(str(pdf), COLLECTION_NAME)
             except BaseException:
                 lock.release()

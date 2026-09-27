@@ -62,7 +62,37 @@ export async function listAssignmentCandidates(
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
+/**
+ * Who is assigned to ONE resource. Requires `viewer` on it.
+ *
+ * The route used to call the batch helper below directly, which checks
+ * nothing, while its `authz` declaration claimed it did: any member of the
+ * organization could read who is on the hook for a private chat or a document
+ * in a project they are not in, given its id. A 404 for "missing" and "not
+ * yours" alike, as everywhere in `requireResourceAccess`.
+ */
 export async function listResourceAssignments(
+  session: AuthorizedSession,
+  resourceType: ShareableResourceType,
+  resourceId: string,
+): Promise<AssignedPerson[]> {
+  if (!isCollaborationEnabled(session)) {
+    throw new NotFoundError()
+  }
+  await requireResourceAccess(session, resourceType, resourceId, 'viewer')
+  const grouped = await listAssignmentsWithoutAccessCheck(session, resourceType, [resourceId])
+  return grouped[resourceId] ?? []
+}
+
+/**
+ * Assignees for many resources at once, grouped by id. **Checks no access.**
+ *
+ * For callers that have already authorized every id they pass — a document
+ * listing behind `project:view` on the project the ids were read from, and the
+ * assign/release paths after their own `collaborator` check. Anything taking
+ * ids from a request goes through {@link listResourceAssignments}.
+ */
+export async function listAssignmentsWithoutAccessCheck(
   session: AuthorizedSession,
   resourceType: ShareableResourceType,
   resourceIds: readonly string[],
@@ -139,7 +169,8 @@ export async function addResourceAssignment(
     ])
   }
 
-  const grouped = await listResourceAssignments(session, resourceType, [resourceId])
+  // Authorized above (`collaborator`).
+  const grouped = await listAssignmentsWithoutAccessCheck(session, resourceType, [resourceId])
   return grouped[resourceId] ?? []
 }
 
@@ -166,7 +197,8 @@ export async function removeResourceAssignment(
     request,
   })
 
-  const grouped = await listResourceAssignments(session, resourceType, [resourceId])
+  // Authorized above (`collaborator`).
+  const grouped = await listAssignmentsWithoutAccessCheck(session, resourceType, [resourceId])
   return grouped[resourceId] ?? []
 }
 

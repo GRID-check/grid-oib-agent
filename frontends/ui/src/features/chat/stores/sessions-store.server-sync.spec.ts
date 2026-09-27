@@ -40,7 +40,7 @@ vi.mock('@/adapters/api/conversations-client', () => ({
 }))
 
 import { useChatStore } from '../store'
-import { isAwaitingServerMessages } from './chat-storage'
+import { isAwaitingServerMessages, markAwaitingServerMessages } from './chat-storage'
 import type { ChatMessage, Conversation } from '../types'
 
 let uniqueCounter = 0
@@ -133,7 +133,7 @@ describe('selectConversation message repopulation', () => {
     expect(useChatStore.getState().currentConversation?.messages).toEqual([localMessage])
   })
 
-  it('never overwrites messages that arrived while the fetch was in flight', async () => {
+  it('keeps messages that arrived while the fetch was in flight, with the history under them', async () => {
     const conv = makeConversation()
     useChatStore.setState({ conversations: [conv] })
 
@@ -149,14 +149,53 @@ describe('selectConversation message repopulation', () => {
     // A live message lands before the server responds.
     useChatStore.getState().addUserMessage('typed while fetching')
 
-    resolveFetch([serverRow(conv.id, 'm1', 'user', 'stale server copy')])
+    resolveFetch([
+      serverRow(conv.id, 'm1', 'user', 'earlier question'),
+      serverRow(conv.id, 'm2', 'assistant', 'earlier answer'),
+    ])
     // Flush the hydration continuation (macrotask so all microtasks drain).
     await new Promise((resolve) => setTimeout(resolve, 0))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
+    // Dropping the server rows here hid the history for good: the awaiting
+    // flag was cleared, so nothing ever fetched it again.
     const messages = useChatStore.getState().currentConversation!.messages
-    expect(messages).toHaveLength(1)
-    expect(messages[0].content).toBe('typed while fetching')
+    expect(messages.map((m) => m.content)).toEqual([
+      'earlier question',
+      'earlier answer',
+      'typed while fetching',
+    ])
+    expect(
+      useChatStore.getState().conversations.find((c) => c.id === conv.id)?.messages
+    ).toHaveLength(3)
+    expect(isAwaitingServerMessages(conv.id)).toBe(false)
+  })
+
+  it('fetches the history of an awaiting chat that already holds a follow-up', async () => {
+    const followUp: ChatMessage = {
+      id: 'local-follow-up',
+      role: 'user',
+      content: 'follow-up',
+      timestamp: new Date('2026-07-02T09:00:00.000Z'),
+      messageType: 'user',
+    }
+    const conv = makeConversation({ messages: [followUp] })
+    useChatStore.setState({ conversations: [conv] })
+    markAwaitingServerMessages(conv.id)
+    mockConversationsClient.listMessages.mockResolvedValue([
+      serverRow(conv.id, 'm1', 'user', 'earlier question'),
+    ])
+
+    useChatStore.getState().selectConversation(conv.id)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(mockConversationsClient.listMessages).toHaveBeenCalledWith(conv.id)
+    expect(useChatStore.getState().currentConversation!.messages.map((m) => m.content)).toEqual([
+      'earlier question',
+      'follow-up',
+    ])
+    expect(isAwaitingServerMessages(conv.id)).toBe(false)
   })
 })
 

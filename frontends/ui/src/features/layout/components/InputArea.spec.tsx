@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@/test-utils'
+import { act, render, screen, waitFor, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { toast } from 'sonner'
@@ -1926,6 +1926,38 @@ describe('InputArea', () => {
    * The composer now says it, in the panel's exact words (the identical sentence
    * is asserted in FileSourcesTab.spec.tsx).
    */
+  /**
+   * A chat's first attachment, before its first message. The composer makes the
+   * conversation row real first and then uploads into it through the
+   * first-party session route, which checks the file type and the quota and
+   * writes a document row (and would create the row itself if the first call
+   * had failed). The hook is handed the chat's project for that case.
+   */
+  describe('attaching to a chat that has no server row yet', () => {
+    test('makes the conversation real before the bytes, then uploads into the chat', async () => {
+      const order: string[] = []
+      mockEnsureConversationExists.mockImplementationOnce(async () => {
+        order.push('ensureConversation')
+      })
+      mockUploadFiles.mockImplementationOnce(async () => {
+        order.push('upload')
+      })
+
+      render(<InputArea isAuthenticated={true} />)
+      const { onDrop } = vi.mocked(useFileDragDrop).mock.calls[0][0]
+      await act(async () => {
+        await onDrop([new File(['x'], 'plan.pdf', { type: 'application/pdf' })])
+      })
+
+      expect(order).toEqual(['ensureConversation', 'upload'])
+      expect(mockUploadFiles).toHaveBeenCalledWith(expect.any(Array), { collectionOverride: 'session-1' })
+      expect(vi.mocked(useFileUpload)).toHaveBeenCalledWith(
+        expect.objectContaining({ collectionName: 'session-1', conversationProjectId: undefined })
+      )
+      expect(vi.mocked(useFileUpload).mock.calls[0][0]).toHaveProperty('conversationProjectId')
+    })
+  })
+
   describe('the composer states where an attached file goes', () => {
     const DESTINATION = 'Files uploaded here go to private session unless removed.'
 

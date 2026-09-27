@@ -97,8 +97,13 @@ whose restatement checks need it. A `[[card:N]]` holds a placeholder where it
 stands; each card object is read as it closes, gated
 (`validate_model_card`, its `[N]` recited to the settled numbers), and sent
 on a live `cards` frame that fills its place, growing from the placeholder.
-Cards go live only while no tool pushed a card this turn: then the model's
-numbers ARE the registry's. What the terminal omits (a suppressed card, a
+The live list is the terminal's: the cards tools registered this turn
+first, sent the moment the `answer` string closes, then the envelope's as
+each closes, and every streamed `[[card:N]]` moved behind the tools' cards
+the way the pipeline moves it (`LiveAnswer.place`). (Amended 2026-09-27: the
+first cut sent no card live on a turn where a tool had pushed one, because the
+model numbers its own array; a turn that filed a draft or queued a task drew
+every card at the terminal.) What the terminal omits (a suppressed card, a
 masthead gated out) it takes back. Measured on two recorded turns with the
 `/dev/stream-replay` probe, before this: the reader's anchor jumped 82-150 px
 on desktop and 104-229 px on a phone at the terminal frame, from the masthead
@@ -160,6 +165,9 @@ that changed the settled text (`settled_replaced`).
   marker, nor the sources heading, and the sources are collected whole.
 * `tests/aiq_agent/agents/piloti/test_settle_streamed.py`: an unbacked marker
   goes and the rest take the numbers the terminal will give.
+  `test_live_answer_card.py::test_the_live_positions_are_the_terminals`: with
+  a tool's card registered, the streamed markers and the live card list are the
+  finished answer's.
 * `citation-markers.spec.ts`, `store.spec.ts`, `use-websocket-chat.spec.ts`,
   `spectator-frames.spec.ts`: a pending marker, the replacing snapshot, and a
   spectator that does not read the answer twice. `store.spec.ts` also: a

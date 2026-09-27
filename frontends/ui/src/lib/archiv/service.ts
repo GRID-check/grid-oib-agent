@@ -17,14 +17,13 @@
  */
 
 import 'server-only'
-import { PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
+import { PutObjectCommand } from '@aws-sdk/client-s3'
 import {
   s3Client,
   bucketAdminS3Client,
   buildArchivStorageKey,
-  buildThumbnailStorageKey,
 } from '@/lib/s3'
-import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
+import { ensureTenantBucketChecked } from '@/lib/storage/bucket'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
@@ -40,18 +39,18 @@ import {
 import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
 import { contentDigest } from '@/lib/documents/content-digest'
 import { documentNameKey } from '@/lib/documents/name-match'
-import { deleteBimDerivedObjects } from '@/lib/bim/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
+import { retryRacedUpload } from '@/lib/documents/unique-conflicts'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { findLiveDocumentByFilename } from '@/lib/documents/repository'
-import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
+import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
+import { assertNoActiveHold } from '@/lib/compliance/holds'
 import {
   nextVersionNumber,
-  recordUploadedVersion,
+  recordUploadedVersionOrDiscard,
 } from '@/lib/documents/lifecycle'
-import { versionedStorageKey } from '@/lib/documents/version-content'
-import { listDocumentVersionObjects } from '@/lib/documents/version-repository'
+import { newVersionWriteId, versionWriteKey } from '@/lib/documents/version-content'
 import type { DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { archivCollectionName } from './collection'
@@ -141,18 +140,6 @@ export async function uploadArchivDocument(
   // decomposed name off a Mac would put a second row here too. See
   // `@/lib/documents/name-match`.
   const filename = documentNameKey(file.name)
-  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
-  const documentId = superseded?.id ?? crypto.randomUUID()
-  // A re-upload writes new bytes under a new `v<n>/` key, so the version it
-  // replaces keeps an object a reader can open (ADR-0054). Version 1 keeps
-  // today's key exactly.
-  const versionNumber = superseded
-    ? await nextVersionNumber(documentId, session.organizationId)
-    : 1
-  const storageKey = versionedStorageKey(
-    buildArchivStorageKey(session.organizationId, documentId, filename),
-    versionNumber,
-  )
 
   // Same provisioning step as the project path (ADR-0043): the Archiv shares
   // the tenant's bucket, because it shares the tenant's bytes.
@@ -164,54 +151,88 @@ export async function uploadArchivDocument(
   // the bytes on every shelf, so a row here is not the one that has to be
   // explained later.
   const contentHash = contentDigest(bytes)
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: storageBucket,
-      Key: storageKey,
-      Body: bytes,
-      ContentType: file.type || 'application/octet-stream',
-    }),
-  )
 
-  // Same hard ceiling as the project path, and the same compensating delete on
-  // refusal (ADR-0042). The Archiv shares the tenant's bytes, so it must not be
-  // a way around the limit — including under concurrency, which is what the
-  // pre-check above cannot cover.
-  if (superseded) {
-    await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
-      storageKey,
-      storageBucket,
-      fileSize: file.size,
-      contentType: file.type || null,
-      contentHash,
-      folderId: null,
-      createdBy: session.userId,
-    })
-    // Nothing is discarded: the previous bytes are the previous VERSION's now
-    // (ADR-0054) and its row still names them. They go with the document.
-  } else {
-    await admitOrDiscard(storageBucket, storageKey, {
-      id: documentId,
-      organizationId: session.organizationId,
-      projectId: null,
-      scope: 'archiv',
-      folderId: null,
-      createdBy: session.userId,
-      filename,
-      storageKey,
-      storageBucket,
-      collectionName,
-      fileSize: file.size,
-      contentType: file.type || null,
-      contentHash,
-      status: 'uploaded',
-    })
-  }
+  // Probe, store, admit — and once more when a concurrent FIRST upload of this
+  // name won the shelf: the second run finds the winner and records these bytes
+  // as its next version, as the same two drops in sequence would have. See
+  // `retryRacedUpload` and `uploadDocument`.
+  const { documentId, storageKey } = await retryRacedUpload(async () => {
+    const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
+    const documentId = superseded?.id ?? crypto.randomUUID()
+    // A re-upload writes new bytes under a new `v<n>/<write id>/` key, so the
+    // version it replaces keeps an object a reader can open (ADR-0054). Version
+    // 1 keeps today's key exactly. A re-upload never takes the version-1
+    // shortcut: the number is a hint and reads 1 while the winner of a
+    // concurrent first upload has not recorded its version yet, which would aim
+    // this PUT at the winner's own key. The row's number is allocated under a
+    // lock when the version is recorded.
+    const baseKey = buildArchivStorageKey(session.organizationId, documentId, filename)
+    const storageKey = superseded
+      ? versionWriteKey(
+          baseKey,
+          await nextVersionNumber(documentId, session.organizationId),
+          newVersionWriteId(),
+        )
+      : baseKey
+
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: storageBucket,
+        Key: storageKey,
+        Body: bytes,
+        ContentType: file.type || 'application/octet-stream',
+      }),
+    )
+
+    // Same hard ceiling as the project path, and the same compensating delete on
+    // refusal (ADR-0042). The Archiv shares the tenant's bytes, so it must not be
+    // a way around the limit — including under concurrency, which is what the
+    // pre-check above cannot cover.
+    if (superseded) {
+      await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
+        storageKey,
+        storageBucket,
+        fileSize: file.size,
+        contentType: file.type || null,
+        contentHash,
+        folderId: null,
+        createdBy: session.userId,
+      })
+      // Nothing is discarded: the previous bytes are the previous VERSION's now
+      // (ADR-0054) and its row still names them. They go with the document.
+    } else {
+      // A `LiveFilenameTakenError` here is the lost first-upload race; the
+      // object is already discarded and nothing was charged.
+      await admitOrDiscard(storageBucket, storageKey, {
+        id: documentId,
+        organizationId: session.organizationId,
+        projectId: null,
+        scope: 'archiv',
+        folderId: null,
+        createdBy: session.userId,
+        filename,
+        storageKey,
+        storageBucket,
+        collectionName,
+        fileSize: file.size,
+        contentType: file.type || null,
+        contentHash,
+        status: 'uploaded',
+      })
+    }
+    return { documentId, storageKey }
+  })
 
   // The version, through the same transition table every other shelf uses
   // (ADR-0054): born `published` and born approved, because the person who
-  // uploaded it is the assertion.
-  await recordUploadedVersion(session, documentId, request)
+  // uploaded it is the assertion. With the columns THIS request stored.
+  await recordUploadedVersionOrDiscard(session, documentId, request, {
+    storageKey,
+    storageBucket,
+    contentType: file.type || null,
+    fileSize: file.size,
+    contentHash,
+  })
 
   // Same dispatcher as every other shelf: the STEP source of an IFC is never
   // embedded, so an uploaded model is parsed and its digest is what reaches the
@@ -253,6 +274,9 @@ export async function deleteArchivDocument(
 
   const doc = await findArchivDocument(documentId, session.organizationId)
   if (!doc) throw new NotFoundError()
+  // Before the first destructive step: a hold on the document, its uploader or
+  // the organization refuses the delete with a 409 (`@/lib/compliance/holds`).
+  await assertNoActiveHold(session.organizationId, 'document', documentId)
 
   // Best-effort: remove the ingested chunks so a deleted document stops showing
   // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB
@@ -272,34 +296,9 @@ export async function deleteArchivDocument(
     ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
     : null
 
-  // Every VERSION's objects, not only the live one (ADR-0054) — see the same
-  // loop in `deleteDocument` for why a superseded version's bytes would
-  // otherwise stay in the bucket, invisible and still charged.
-  for (const version of await listDocumentVersionObjects(documentId, session.organizationId)) {
-    if (version.storageKey === doc.storageKey) continue
-    await deleteDocumentObjects(version).catch(() => undefined)
-  }
-
-  if (doc.storageKey) {
-    try {
-      const bucket = resolveDocumentBucket(doc.storageBucket)
-      await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: doc.storageKey }))
-      // The ingest pipeline writes `_thumb.jpg` beside the object; deleting
-      // only the document left it orphaned. Same fix as the project path.
-      const thumbKey = buildThumbnailStorageKey(doc.storageKey)
-      if (thumbKey) {
-        await s3Client
-          .send(new DeleteObjectCommand({ Bucket: bucket, Key: thumbKey }))
-          .catch(() => undefined)
-      }
-      // The IFC pipeline writes its digest and index under a `_bim/`
-      // subdirectory of the same document folder — nested, so the exact-key
-      // deletes above never reach them.
-      await deleteBimDerivedObjects(doc.storageKey, doc.storageBucket).catch(() => undefined)
-    } catch {
-      // ignore — the object may already be gone; the row delete below is the record of intent
-    }
-  }
+  // Every version's objects and derivatives, or a 502 and the row stays — the
+  // same erasure the project delete runs (`eraseDocumentObjectsOrKeepRow`).
+  await eraseDocumentObjectsOrKeepRow(doc, session.organizationId)
 
   await deleteArchivDocumentRow(documentId, session.organizationId)
 

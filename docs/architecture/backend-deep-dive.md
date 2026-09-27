@@ -250,11 +250,14 @@ before the envelope existed.
 never buffers the response body, so SSE routes are unaffected) fail-closed
 rejects (403 / WS policy-violation close) a workflow-invoking request when
 ALL of: `REQUIRE_AUTH=true`; the caller is a WorkOS-authenticated JWT user;
-the path is on the conservative enforced allowlist (`/websocket`,
-`/v1/jobs/async/submit`, `/v1/internal/workflows/submit`, `/generate`); and no
-valid envelope is present. Exempt regardless of path: anonymous mode,
-internal-token-authenticated service calls, and every non-enumerated path —
-the enforced-path list is an allowlist, not a denylist. Dev fail-open note:
+the path is not on `ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES`; and no valid envelope
+is present. It is deny-by-default: the exempt list is the paths that run no
+workflow and that a BFF proxy forwards with the member's bearer alone
+(`/health`, `/v1/collections`, `/v1/documents`, `/v1/data_sources`, the async
+job reads and controls under `/v1/jobs/async/{jobs,job,agents}`, `/v1/drafts`);
+every other path, NAT's `/chat`, `/v1/chat/completions` and `/v1/workflow`
+routes and the WebSocket included, needs the envelope. Always exempt:
+anonymous mode and internal-token-authenticated service calls. Dev fail-open note:
 when `GRID_INTERNAL_API_TOKEN` is unset, signature verification is skipped
 but envelope *presence* is still required for authenticated requests.
 
@@ -322,6 +325,19 @@ in `use-websocket-chat.ts` + the chat store.
   base to (a) tolerate either key and (b) re-register the reconnected socket in
   the registry (NAT's base only swaps the handler's `_socket` attribute). Without
   the re-register, the running turn's frames would not reach the new socket.
+  Behind the BFF neither query key decides the reattach: the override reattaches
+  only to the conversation id signed into the envelope, because the snake_case
+  param never reaches the scope route that authorizes the camelCase one.
+- **One socket, one conversation.** Every `user_message` and `user_interaction`
+  frame carries its own `conversation_id`, and NAT copies it into the handler;
+  the registry, the task a new turn cancels, the pending HITL future and the
+  checkpoint (`thread_id_for_turn`) all key on it. So the handler binds the socket
+  at the handshake to the envelope's `conversationId` (the id the scope route ran
+  `authorizeConversationScope` on) and `_admit_conversation` refuses any frame
+  naming another, in the workflow, HITL and ingest-only branches alike, with an
+  `error_message` frame whose message is `conversation_mismatch`. A signed socket
+  without a conversation accepts only frames naming none. Off the BFF (internal
+  caller, anonymous mode, no envelope) the first id a frame names binds it.
 - **Registry.** `WebSocketSessionRegistry` (module-global `_registry`) maps
   `conversation_id → socket` and holds pending HITL futures + the running
   workflow task. `set_socket` on send/reconnect, `clear_socket` on disconnect.
@@ -1659,7 +1675,11 @@ the point the re-injection would otherwise be skipped.
 LangGraph checkpointing for the deep-research graph, configured via
 `deep_research_agent.checkpoint_db` (env `AIQ_DEEP_CHECKPOINT_DB`; unset by
 default) — see §9's "Async deep-research jobs are not restart-safe" bullet
-for the full mechanism and its manual-resubmit resume contract.
+for the full mechanism and its manual-resubmit resume contract. A run's rows
+(`thread_id == job_id`) are purged when it ends, by the runner's `finally`
+(`_purge_deep_checkpoint_unless_reclaimed`) and again by the DB worker. Both skip
+the purge when another worker now holds the job's claim: the rows are keyed by
+job, so after a reclaim they are the new owner's resume point.
 
 **Agent Skills and Jobs (ADR-0046)**: project-level **jobs** — a prompt on a
 timer, with a skill optionally attached — can fire this same async pipeline on

@@ -45,6 +45,17 @@ describe('a placed card while the answer streams', () => {
     expect(document.body.textContent).not.toContain('[[card:')
   })
 
+  test('once its card is written, it fills the place and is not drawn again below the prose', () => {
+    const cards = [{ type: 'summary' as const, title: 'Platzierte Karte', content: 'Inhalt', key_points: null }]
+    render(<AgentResponse content={PROSE} cards={cards} isStreaming />)
+
+    expect(screen.queryByTestId('pending-card-slot')).not.toBeInTheDocument()
+    expect(screen.getAllByText('Platzierte Karte')).toHaveLength(1)
+    const card = screen.getByText('Platzierte Karte')
+    const after = screen.getByText('Danach.')
+    expect(card.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   test('a final answer with no card behind the marker holds nothing', () => {
     render(<AgentResponse content={PROSE} />)
 

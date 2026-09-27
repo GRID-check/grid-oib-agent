@@ -31,7 +31,14 @@ ws://BACKEND_URL/websocket
 |-----------|----------|-------------|
 | `projectId` | No | UUID scoping the backend Milvus collection |
 | `conversationId` | No | Session ID for conversation continuity (Grid collection scoping) |
-| `conversation_id` | No | Same session ID, snake_case duplicate of `conversationId`. Read by NAT's base `_restore_execution_state` to swap a reconnected socket into a still-running handler (live reattach). The client sends both keys; the backend override tolerates either. See backend-deep-dive §2c. |
+| `conversation_id` | No | Same session ID, snake_case duplicate of `conversationId`. Read by NAT's base `_restore_execution_state` to swap a reconnected socket into a still-running handler (live reattach). The client sends both keys; the backend override tolerates either, and behind the BFF reattaches only to the signed id. See backend-deep-dive §2c. |
+
+**A socket serves one conversation.** The conversation the scope route
+authorized is signed into the envelope, and every frame's `conversation_id` must
+equal it. A frame naming another conversation (or none, on a socket opened for
+one) is refused with an `error_message` whose `content.message` is
+`conversation_mismatch`; nothing runs for it and the socket stays open. To talk
+in another conversation, open a socket for it.
 
 ---
 
@@ -41,7 +48,7 @@ ws://BACKEND_URL/websocket
 
 The `server.js` gateway handles WebSocket upgrade requests:
 
-1. **Upgrade interception:** The `server.on('upgrade', ...)` handler checks if `req.url` starts with `/websocket`.
+1. **Upgrade interception:** The `server.on('upgrade', ...)` handler checks if `req.url` starts with `/websocket`, then removes every inbound `x-grid-*`, `authorization` and `x-internal-token` header (`src/lib/proxy/ws-upgrade-headers.js`). Only the proxy sets those; before 2026-09 a client's own header survived whenever the scope below had no value to overwrite it with.
 2. **Scope resolution:** Calls `/api/auth/websocket-scope?projectId=xxx&conversationId=yyy` (internal HTTP request to the same server) to resolve:
    - `x-grid-collection-scope` header — passes collection scope to backend.
    - `x-grid-organization-id` / `x-grid-user-id` — forwards user context.
@@ -76,11 +83,18 @@ exactly as before the envelope existed.
 **Enforcement matrix** (`aiq_api.context_envelope.GridContextEnvelopeMiddleware`,
 403 / WS policy-violation close): applies only when ALL of — `REQUIRE_AUTH=true`;
 the caller is a WorkOS-authenticated JWT user (not internal-token, not
-anonymous); the path is on the conservative enforced allowlist (`/websocket`,
-`/v1/jobs/async/submit`, `/v1/internal/skills/submit`, `/generate`); and no
-valid envelope is present. Exempt regardless of path: anonymous mode
-(`REQUIRE_AUTH=false`), internal-token-authenticated service calls, and every
-non-enumerated path — the enforced-path list is an allowlist, not a denylist.
+anonymous); the path is NOT on the short exempt list; and no valid envelope is
+present. **Deny by default**: every path needs the envelope, `/websocket` and
+all of NAT's workflow routes (`/chat`, `/v1/chat`, `/v1/chat/completions`,
+`/v1/workflow`, `/generate`, … and their `/stream` forms) included, except
+`ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES` — `/health`, `/v1/collections`,
+`/v1/documents`, `/v1/data_sources`, `/v1/jobs/async/jobs`,
+`/v1/jobs/async/job`, `/v1/jobs/async/agents`, `/v1/drafts` — which run no
+workflow and which a BFF proxy forwards with the member's bearer alone. The
+list used to be the other way round (an allowlist of enforced paths), and the
+unlisted NAT routes ran full agent turns with no organization, budget or
+source policy. Always exempt: anonymous mode (`REQUIRE_AUTH=false`) and
+internal-token-authenticated service calls.
 See `docs/architecture/backend-deep-dive.md` and
 `frontends/aiq_api/src/aiq_api/context_envelope.py`'s module docstring for the
 full design.
@@ -460,7 +474,7 @@ as it is written. Each is one of four kinds, told apart by what it carries:
 | Delta | `content` | Append to the streaming bubble. A `[N]` with no source yet renders as a pending citation. |
 | Snapshot | `content`, `sources`, `stream_replace: true`, `answer_meta` | Replace the bubble's text with the settled prose: citations verified and renumbered, the pending markers now pointing at `sources`. The citations are replaced too, and an empty `sources` clears them. A snapshot without `answer_meta` removes the masthead: the backend re-gated it against the prose and dropped it. Sent at most once per answering call, when the envelope's `answer` string closes; not at all when the prose has no sources section or the turn retrieved nothing, and the streamed text then stands until `complete`. The exception is an empty snapshot (`content: ""` and no `sources` field, since the backend attaches `sources` only when non-empty): it retracts a streamed call that turned out to be a tool round. It clears the cards that round drew along with its text, citations and masthead. A later call may stream again, and send its own snapshot, but need not. |
 | Masthead | empty `content`, `answer_meta` | Set the masthead above the prose. The text is unchanged. |
-| Cards | empty `content`, `cards` | Fill the `[[card:N]]` placeholders with the cards written so far. The text is unchanged. Sent only while no tool pushed a card this turn. |
+| Cards | empty `content`, `cards` | Fill the `[[card:N]]` placeholders with the cards written so far. The text is unchanged. The list is whole and in the `complete` frame's order: the cards tools registered this turn first (sent once the `answer` string closes, even when the envelope carries none), then the envelope's as each closes, `null` for one the validator refused. The streamed `[[card:N]]` are already numbered against that list. |
 
 None of them is persisted. The `complete` frame that follows replaces the text
 again and is authoritative: what it omits (a card suppressed, a masthead gated
@@ -655,7 +669,7 @@ A `ConnectionChangeContext` with `{ intentional?: boolean }` distinguishes user-
 | `sendMessage` | `(content: string, enabledDataSources?: string[]) => string \| null` | Sends a user message, returns message ID |
 | `sendInteractionResponse` | `(promptId: string, parentId: string, responseText: string) => string \| null` | Sends response to a human prompt |
 | `isConnected` | `() => boolean` | Checks `WebSocket.OPEN` |
-| `updateConversationId` | `(id: string) => void` | Switches conversation scope |
+| `updateConversationId` | `(id: string) => void` | Changes the id later frames carry. The backend refuses frames for a conversation the socket was not opened for, so a switch needs a new socket; `use-websocket-chat.ts` disconnects and builds a new client on every conversation change |
 
 ### Auto-Reconnect
 

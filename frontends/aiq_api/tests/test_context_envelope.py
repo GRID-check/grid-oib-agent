@@ -18,10 +18,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from aiq_api.context_envelope import ENFORCED_HTTP_PATH_PREFIXES
-from aiq_api.context_envelope import ENFORCED_WEBSOCKET_PATH_PREFIXES
+from aiq_api.context_envelope import ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES
+from aiq_api.context_envelope import ENVELOPE_EXEMPT_WEBSOCKET_PATH_PREFIXES
 from aiq_api.context_envelope import GridContextEnvelopeMiddleware
-from aiq_api.context_envelope import _path_is_enforced
+from aiq_api.context_envelope import _path_matches
 
 SECRET = "envelope-test-secret"  # noqa: S105 - test fixture value, not a real credential
 
@@ -80,20 +80,20 @@ def _clear_internal_token(monkeypatch):
 
 class TestPathMatching:
     def test_exact_match(self):
-        assert _path_is_enforced("/v1/jobs/async/submit", ENFORCED_HTTP_PATH_PREFIXES)
+        assert _path_matches("/v1/data_sources", ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES)
 
     def test_sub_path_match(self):
-        assert _path_is_enforced("/generate/stream", ENFORCED_HTTP_PATH_PREFIXES)
+        assert _path_matches("/v1/jobs/async/job/abc/stream", ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES)
 
     def test_unrelated_path_not_prefix_polluted(self):
-        # "/generate-report" must NOT match the "/generate" prefix.
-        assert not _path_is_enforced("/generate-report", ENFORCED_HTTP_PATH_PREFIXES)
+        # "/v1/collections-admin" must NOT match the "/v1/collections" prefix.
+        assert not _path_matches("/v1/collections-admin", ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES)
 
-    def test_websocket_prefix(self):
-        assert _path_is_enforced("/websocket", ENFORCED_WEBSOCKET_PATH_PREFIXES)
+    def test_job_submit_is_not_covered_by_the_job_reads(self):
+        assert not _path_matches("/v1/jobs/async/submit", ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES)
 
-    def test_non_enforced_path(self):
-        assert not _path_is_enforced("/v1/admin/oib/sync", ENFORCED_HTTP_PATH_PREFIXES)
+    def test_websocket_has_no_exemption(self):
+        assert not _path_matches("/websocket", ENVELOPE_EXEMPT_WEBSOCKET_PATH_PREFIXES)
 
 
 class TestDisabledWhenAuthNotRequired:
@@ -108,16 +108,28 @@ class TestDisabledWhenAuthNotRequired:
         assert calls == ["/v1/jobs/async/submit"]
 
 
-class TestNonEnforcedPaths:
+class TestExemptPaths:
     @pytest.mark.asyncio
-    async def test_passes_through_unenforced_http_path(self, capture_asgi):
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/health",
+            "/v1/collections/s_abc/documents",
+            "/v1/documents/job-1/status",
+            "/v1/data_sources",
+            "/v1/jobs/async/jobs",
+            "/v1/jobs/async/job/job-1/stream",
+            "/v1/jobs/async/agents",
+            "/v1/drafts/s_abc",
+        ],
+    )
+    async def test_exempt_path_passes_without_envelope(self, capture_asgi, path):
         app, calls = capture_asgi
         mw = GridContextEnvelopeMiddleware(app, require_auth=True)
-        scope = _http_scope("/v1/admin/oib/sync", user={"type": "jwt"})
 
-        await mw(scope, AsyncMock(), AsyncMock())
+        await mw(_http_scope(path, user={"type": "jwt"}), AsyncMock(), AsyncMock())
 
-        assert calls == ["/v1/admin/oib/sync"]
+        assert calls == [path]
 
     @pytest.mark.asyncio
     async def test_lifespan_scope_reaches_inner_app(self):
@@ -130,6 +142,70 @@ class TestNonEnforcedPaths:
         await mw({"type": "lifespan"}, AsyncMock(), AsyncMock())
 
         assert calls == ["lifespan"]
+
+
+class TestDenyByDefault:
+    """Every workflow endpoint NAT mounts, and any path nobody listed."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "path",
+        [
+            # NAT's default workflow routes — these ran full agent turns for a
+            # signed-in member with no envelope, reached through the BFF's v1
+            # proxy with nothing but a cookie.
+            "/chat",
+            "/chat/stream",
+            "/v1/chat",
+            "/v1/chat/stream",
+            "/v1/chat/completions",
+            "/v1/workflow",
+            "/v1/workflow/stream",
+            "/generate",
+            "/generate/stream",
+            "/v1/jobs/async/submit",
+            "/v1/internal/skills/submit",
+            # A path a future release adds is closed until someone decides.
+            "/v1/some/new/workflow",
+            "/v1/admin/oib/sync",
+        ],
+    )
+    async def test_jwt_without_envelope_rejected(self, capture_asgi, path):
+        app, calls = capture_asgi
+        mw = GridContextEnvelopeMiddleware(app, require_auth=True)
+        messages: list[dict] = []
+
+        async def send(msg):
+            messages.append(msg)
+
+        await mw(_http_scope(path, user={"type": "jwt", "sub": "user-1"}), AsyncMock(), send)
+
+        assert calls == []
+        assert messages[0]["status"] == 403
+
+    @pytest.mark.asyncio
+    async def test_jwt_with_valid_envelope_reaches_chat_completions(self, monkeypatch, capture_asgi):
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", SECRET)
+        app, calls = capture_asgi
+        mw = GridContextEnvelopeMiddleware(app, require_auth=True)
+        scope = _http_scope(
+            "/v1/chat/completions",
+            user={"type": "jwt", "sub": "user-1"},
+            extra_headers=_envelope_headers({"organizationId": "org_1"}),
+        )
+
+        await mw(scope, AsyncMock(), AsyncMock())
+
+        assert calls == ["/v1/chat/completions"]
+
+    @pytest.mark.asyncio
+    async def test_internal_caller_still_exempt_on_a_workflow_path(self, capture_asgi):
+        app, calls = capture_asgi
+        mw = GridContextEnvelopeMiddleware(app, require_auth=True)
+
+        await mw(_http_scope("/v1/chat/completions", user={"type": "internal"}), AsyncMock(), AsyncMock())
+
+        assert calls == ["/v1/chat/completions"]
 
 
 class TestExemptions:
@@ -368,7 +444,32 @@ class TestWebSocketEnforcement:
         assert calls == ["/websocket"]
 
     @pytest.mark.asyncio
-    async def test_non_enforced_websocket_path_passes_through(self, capture_asgi):
+    async def test_any_websocket_path_requires_the_envelope_for_a_jwt_caller(self, capture_asgi):
+        from unittest.mock import AsyncMock as AM
+        from unittest.mock import MagicMock
+
+        app, calls = capture_asgi
+        mock_v = MagicMock()
+        mock_v.can_handle.return_value = True
+        mock_v.validate = AM(return_value=({"type": "jwt", "sub": "user-1"}, None))
+        mw = GridContextEnvelopeMiddleware(app, require_auth=True, validators=[mock_v])
+
+        async def receive():
+            return {"type": "websocket.connect"}
+
+        sent: list[dict] = []
+
+        async def send(msg):
+            sent.append(msg)
+
+        scope = _ws_scope("/some/other/ws/path", extra_headers=[(b"authorization", b"Bearer good")])
+        await mw(scope, receive, send)
+
+        assert calls == []
+        assert sent == [{"type": "websocket.close", "code": 1008}]
+
+    @pytest.mark.asyncio
+    async def test_non_jwt_caller_on_another_websocket_path_passes_through(self, capture_asgi):
         app, calls = capture_asgi
         mw = GridContextEnvelopeMiddleware(app, require_auth=True)
         scope = _ws_scope("/some/other/ws/path")

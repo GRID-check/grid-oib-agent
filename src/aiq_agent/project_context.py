@@ -732,6 +732,26 @@ def get_user_message_id_from_context() -> str | None:
         return None
 
 
+def get_signed_request_context() -> GridRequestContext | None:
+    """The verified ``X-Grid-Request-Context`` envelope for this request, or None.
+
+    For a reader of a field that DECIDES something for the tenant: the model an
+    agent group runs on, the budget left, the sources the organization switched
+    off. When an envelope arrived, those come from it and nowhere else. The
+    individual ``x-grid-*`` headers are unsigned, and a client talking to the WS
+    proxy directly could set them; `server.js` now strips them, but a reader that
+    trusts the signature does not depend on the proxy remembering to.
+
+    ``None`` off the BFF (a job worker, which injects its own headers; the CLI;
+    an eval) — only then may the reader fall back to the individual header.
+    """
+    return GridRequestContext.from_envelope(
+        _read_header(REQUEST_CONTEXT_ENVELOPE_HEADER),
+        _read_header(REQUEST_CONTEXT_ENVELOPE_SIG_HEADER),
+        os.environ.get("GRID_INTERNAL_API_TOKEN"),
+    )
+
+
 def get_request_envelope_from_context() -> tuple[str | None, str | None]:
     """The signed envelope EXACTLY as it arrived: ``(header, signature)``.
 

@@ -254,7 +254,7 @@ export const documents = pgTable('documents', {
 
 - `uniq_documents_authored_ref_producer_per_project` — **UNIQUE**, on (`organization_id`, `project_id`, `authored_by_ref`, `authored_by_producer`), **PARTIAL** (`WHERE authored_by <> 'user'`) — one machine-authored document per reference per producer. Its columns are exactly the WHERE clause of `findDocumentAuthoredByRef`: an index narrower than that probe rejects rows the probe would accept, a wider one admits the duplicates the probe was meant to prevent, so the two are changed together or not at all. Introduced without the producer as `uniq_documents_authored_run_per_project` (migration `0064`, one document per RUN) and widened by migration `0065`, because a run can owe more than one file — a diagram is a previewable SVG that carries its own source and an attachable PDF, and under the old key the second call answered "already filed". Restated under the renamed column by migration `0066` rather than renamed, so the live rule is readable in one file instead of split between a `CREATE` in `0065` and an `ALTER … RENAME` in `0066`. `authored_by_ref_kind` is deliberately NOT in the key: it is a function of `authored_by_producer`, which is already in it. Partial on `<> 'user'` because the CHECK below deliberately lets a HUMAN row carry a reference too, and two colleagues saving one run's artefact into one project must not collide. A NULL producer is not covered (NULL never equals NULL), which `documents_authorship_requires_provenance` makes unreachable for these rows.
 
-- `uniq_documents_live_name_per_collection` — **UNIQUE**, on (`organization_id`, `collection_name`, `filename`), **PARTIAL** (`WHERE authored_by = 'user' OR filename LIKE 'piloti/%'`) — one live document per filename per collection over every row that can own chunks, because the ingest pipeline replaces passages by filename and a second row under one name is a ghost (migration `0074`, widened by `0083`). The predicate is two disjoint arms: `authored_by = 'user'` is 0074's rule, and `filename LIKE 'piloti/%'` covers the namespace an agent-authored document is filed under once a version of it may be published and therefore indexed (ADR-0054). They cannot meet — no browser produces a filename containing a slash, so no upload can reach the second arm — and a machine-authored row OUTSIDE the namespace is in neither: it carries a model-chosen name, owns no chunks, and must coexist with a person's file of the same name. Its columns and its FIRST arm are the WHERE clause of `findLiveDocumentByFilename`, the probe that makes a re-upload replace instead of insert; the index closes the concurrent-first-upload race the probe cannot. The second arm has no probe and needs none — the document id inside the namespace is unique by construction, and the filing path's idempotency is `uniq_documents_authored_ref_producer_per_project` one level up — so it is the database refusing to hold a collision the application has no way to create. Created with `AND deleted_at IS NULL` and restated without it by migration `0077`, which dropped `documents.deleted_at`: the column was added by `0009` for a soft delete that documents never got (every document delete is a hard DELETE), so the clause was inert, and a predicate over a column nothing writes hides rows the day something does. `projects` and `conversations` keep their `deleted_at`.
+- `uniq_documents_live_name_per_collection` — **UNIQUE**, on (`organization_id`, `collection_name`, `filename`), **PARTIAL** (`WHERE authored_by = 'user' OR filename LIKE 'piloti/%'`) — one live document per filename per collection over every row that can own chunks, because the ingest pipeline replaces passages by filename and a second row under one name is a ghost (migration `0074`, widened by `0083`). The predicate is two disjoint arms: `authored_by = 'user'` is 0074's rule, and `filename LIKE 'piloti/%'` covers the namespace an agent-authored document is filed under once a version of it may be published and therefore indexed (ADR-0054). They cannot meet — no browser produces a filename containing a slash, so no upload can reach the second arm — and a machine-authored row OUTSIDE the namespace is in neither: it carries a model-chosen name, owns no chunks, and must coexist with a person's file of the same name. Its columns and its FIRST arm are the WHERE clause of `findLiveDocumentByFilename`, the probe that makes a re-upload replace instead of insert; the index closes the concurrent-first-upload race the probe cannot. Its refusal is an OUTCOME, not a bug: `insertDocumentWithinQuota` maps a 23505 on THIS index (by name, `lib/documents/unique-conflicts.ts`) to `LiveFilenameTakenError`, a `409`, and the project and Archiv upload paths answer it by retrying once as a re-upload (`retryRacedUpload`) — the refused insert charged nothing and `admitOrDiscard` already deleted the loser's object, so the retry's bytes become the next version of the winner's document, under a `v<n>/<write id>/` key of their own, charged in full (ADR-0054 correction 14). The second arm has no probe and needs none — the document id inside the namespace is unique by construction, and the filing path's idempotency is `uniq_documents_authored_ref_producer_per_project` one level up — so it is the database refusing to hold a collision the application has no way to create. Created with `AND deleted_at IS NULL` and restated without it by migration `0077`, which dropped `documents.deleted_at`: the column was added by `0009` for a soft delete that documents never got (every document delete is a hard DELETE), so the clause was inert, and a predicate over a column nothing writes hides rows the day something does. `projects` and `conversations` keep their `deleted_at`.
 
 The three `authored_by` partial indexes above live **only in the migration** — drizzle's index builder cannot express a `WHERE` clause — with a NOTE beside the relevant column in `schema/documents.ts`; the filename one is declared in the schema as well. `documents.spec.ts` pins each one to its migration so a regeneration cannot quietly drop it.
 
@@ -293,7 +293,11 @@ thumbnail, ingest, the quota ledger — work unchanged.
 **Columns:** `id`, `organization_id`, `document_id` + `project_id` (composite FK
 to `documents (id, project_id)`, the `documents_folder_id_project_id_fkey`
 shape; `project_id` is NULL for the Archiv and session shelves, where MATCH
-SIMPLE skips the check), `version_number`, `state`, `storage_key`,
+SIMPLE skips the check — and cascades nothing — which is why migration `0094`
+adds the plain `document_versions_document_id_fkey`, `document_id → documents
+(id) ON DELETE CASCADE`, holding on every shelf; a 23503 on either key is an
+upload recording its version for a document deleted first,
+`DocumentDeletedError`, a 409), `version_number`, `state`, `storage_key`,
 `storage_bucket`, `content_type`, `file_size`, `content_hash`,
 `submitted_by`/`_at`, `reviewed_by`/`_at`, `approved_by`/`_at`,
 `published_by`/`_at`, `review_comment`, `created_by`,
@@ -308,13 +312,52 @@ SIMPLE skips the check), `version_number`, `state`, `storage_key`,
 - `document_versions_refusal_has_comment` — `state NOT IN ('changes_requested', 'rejected') OR review_comment IS NOT NULL`. A refusal with nothing in it is a decision the next attempt cannot act on.
 - `document_versions_submitted_by_actor_known` — `human | agent` (migration `0085`).
 
-**Indexes:** `idx_document_versions_document (document_id, version_number)`,
-`idx_document_versions_organization_id`, and two PARTIAL unique indexes that
+**One number per document (migration `0092`):** the constraint
+`document_versions_document_id_version_number_key` is `UNIQUE (document_id,
+version_number)`, and it replaced the plain `idx_document_versions_document` on
+the same columns. The number used to be `max + 1`, read in one statement and
+inserted in another (and on the upload paths read before the bytes even moved),
+so two overlapping re-uploads of one filename both recorded „Version N" and
+both wrote the same object key. Now:
+
+- the number is allocated INSIDE the inserting transaction, under a
+  per-document advisory lock (`allocateVersionNumber`,
+  `lib/documents/version-repository.ts`, key `document_versions:<document id>`).
+  Neither insert accepts a number from its caller; the type does not have the
+  field;
+- the object key is unique per WRITE, not per number: `…/doc/<id>/v<n>/<write
+  id>/<file>` (`versionWriteKey`, for every write but a first upload on every shelf). The `v<n>` in a key is
+  the number the writer expected (`nextVersionNumber` is a hint) and can differ
+  from the row's; nothing reads it back. Version 1 of a fresh upload keeps the
+  flat `doc/<id>/<file>` key, which is unique because the id is new. A
+  RE-upload always takes the write segment (`versionWriteKey`), even when the
+  hint reads 1: the hint is 1 whenever the existing row has no version yet —
+  the winner of a concurrent first upload, between its insert and its version —
+  and the shortcut would aim the PUT at that row's own object;
+- each upload records its version with the columns ITS request stored
+  (`recordUploadedVersion`'s `stored`), never re-read off the item row an
+  overlapping upload may have rewritten.
+
+The migration first moves every row that shares its number with an EARLIER row
+of the same document to the end of that document's history (`max + 1`, … in
+creation order). The earliest row keeps its number, every unambiguous row keeps
+its number, and no storage key or state changes. A 23505 on this constraint
+means a path inserted a version without the lock.
+
+**Indexes:** the unique constraint's own index on `(document_id,
+version_number)`, `idx_document_versions_organization_id`, and two PARTIAL unique indexes that
 live only in the migration (with `COMMENT ON INDEX`, because the next person to
 meet one meets it as a constraint violation in a log line):
 `uniq_document_versions_open_per_document` — at most one `draft`/`in_review`/
 `changes_requested` version per document, so two chat turns cannot fork one file
 into two live drafts — and `uniq_document_versions_published_per_document`.
+`insertDocumentVersion` maps a 23505 on the FIRST one, by name, to
+`OpenVersionExistsError` (a `409`); `forkDraftVersion` re-reads the winner and
+answers the same `409 { versionId, state }` its probe gives, so two forks at
+once are one draft and one 409, never a 500. A 23505 on any other constraint of
+the table stays unmapped: on the number key it means a path skipped the lock, on
+the published index it means a published row was inserted outside
+`insertPublishedVersion`, and both are bugs.
 
 The second one is why publishing is ONE transaction: "two published versions of
 one document" is unrepresentable, so the previous version must already have been
@@ -333,10 +376,23 @@ that, **every re-upload of a document failed** on the constraint.
 
 **Bytes:** a superseded version keeps its object. They are purged when the
 document is deleted — `deleteDocument`, `deleteArchivDocument` and
-`deleteSessionDocument` each walk every version — and not when one is replaced.
+`deleteSessionDocument` each walk every version (`listDocumentVersionObjects`
+pages through all of them; it used to stop at the 500-row list page and leak
+the rest) — and not when one is replaced.
 The consequence is stated rather than hidden: superseded versions stay charged
 against the organization's storage quota, because they exist. A per-organization
 retention policy is a later row on a later table.
+
+**Replacing a draft's bytes (`PUT …/content`):** the swap is `UPDATE … WHERE
+state = $read AND storage_key = $read AND content_hash = $read` (`IS NULL` for a
+row with no digest), not `state` alone. `update` goes draft → draft, so a state
+guard let two writers holding the same `If-Match` both win. The new bytes are
+written FIRST, under a fresh `v<n>/<write id>/` key nobody else is aiming at;
+the loser's object is deleted, and the draft's previous object is deleted once
+neither the item nor any version names it (a fresh fork's key is the published
+version's, and stays). The swap, the item mirror (when the version IS the
+item's bytes) and that orphan check are one transaction
+(`swapVersionContent`).
 
 **And the ledger says so.** That sentence was a claim the code did not honour
 for a while: usage summed `documents.file_size` alone, which is the LIVE bytes,
@@ -349,6 +405,22 @@ measure the same thing. The predicate compares KEYS rather than ids on purpose:
 a draft forked from the published version deliberately shares that version's
 object until its content is replaced, and two rows over one object are one
 charge.
+
+**What each admission charges.** A re-upload (`replaceDocumentWithinQuota`)
+charges the FULL new size against the whole organization's usage: the replaced
+bytes stay as the superseded version, so nothing is freed. It used to exclude
+the replaced row from the sum, which counted the old bytes nowhere during the
+admission. When the row is gone — deleted after the upload probed the name —
+the update matches nothing and the function throws `ReplacedDocumentGoneError`
+instead of reporting success, so nothing is charged and the admission discards
+the upload's object; the project and Archiv uploads then retry as a first
+upload (ADR-0054 correction 16). A draft's content write (`swapVersionContent`) is admitted under the
+same per-organization lock, by reading the usage before the swap and again
+after it in the same transaction and rolling back when the after-state crosses
+the quota — so a fresh fork's first write is charged in full (the published
+object stays), a draft rewriting its own object is charged the difference, and
+a shrinking write is always admitted. It used to be an unlocked
+`incoming − fileSize`, which for a fork was ≈ 0.
 
 **Whose hand submitted (migration `0085`):** `submitted_by_actor` (`human` |
 `agent`, default `human`) is written from `TransitionInput.actingHuman` at the

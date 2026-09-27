@@ -1403,7 +1403,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           const conversationId = useChatStore.getState().currentConversation?.id
           if (conversationId) {
             void fetchRunMessage(conversationId, commissionedRun.runMessageId).then((message) => {
-              if (message) adoptRunMessage(message)
+              if (message) adoptRunMessage(conversationId, message)
             })
           }
           // The turn is over for the composer: what happens next happens in the
@@ -1664,6 +1664,13 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       },
 
       onError: async (errorContent: NATErrorContent) => {
+        // The error belongs to the thread open NOW. After an await the reader
+        // may be in another one, whose socket this is not: its card would land
+        // there. Leaving already ended this turn (the effect cleanup), and
+        // coming back runs the recovery, so a late error is dropped.
+        const erroredIn = useChatStore.getState().currentConversation?.id
+        const leftMeanwhile = (): boolean =>
+          useChatStore.getState().currentConversation?.id !== erroredIn
         // Any error resolves the current turn one way or another; stand the
         // inactivity watchdog down. Paths that keep streaming alive (the
         // auth_expired rotation below) re-arm it before they return.
@@ -1731,6 +1738,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           if (!budgetDiagnosticsCheckedRef.current) {
             budgetDiagnosticsCheckedRef.current = true
             const budgetMessage = await discoverBudgetFailureMessage()
+            if (leftMeanwhile()) return
             if (budgetMessage) {
               addErrorCard('budget.exhausted', budgetMessage)
               setCurrentStatus(null)
@@ -1745,6 +1753,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           }
 
           const backendUp = await checkBackendHealthCached()
+          if (leftMeanwhile()) return
 
           const errorInfo = backendUp
             ? getTransportFailure(errorContent.message, errorContent.details)
@@ -2072,7 +2081,14 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         isStreaming: wasStreaming,
         isLoading: wasLoading,
         currentStatus: status,
+        currentConversation: nowOpen,
+        streamingAssistantMessageId,
       } = useChatStore.getState()
+      // Left mid-turn by a path other than `selectConversation` (which drops it
+      // itself): this socket was the only thing that could finish the bubble.
+      if (streamingAssistantMessageId && nowOpen?.id !== currentConversationId) {
+        discardStreamingAssistantMessage()
+      }
       if (wasStreaming || wasLoading || status !== null) {
         setStreaming(false)
         setLoading(false)
@@ -2099,6 +2115,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     buildWsClient,
     clearUnacknowledgedOutgoing,
     clearStreamingWatchdog,
+    discardStreamingAssistantMessage,
     setStreaming,
     setLoading,
     setCurrentStatus,

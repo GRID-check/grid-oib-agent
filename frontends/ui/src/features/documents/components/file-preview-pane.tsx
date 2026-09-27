@@ -1238,6 +1238,16 @@ export function FilePreviewPane({
                     <p className="text-muted-foreground break-words text-xs">
                       {file.errorMessage || t('preview.ingestionFailedGeneric')}
                     </p>
+                    {/* A failed NEW version: the row already points at its
+                      bytes, while the ingestor kept the previous version's
+                      passages. Without this the two surfaces disagree
+                      silently — the download is the new file, the answers
+                      quote the old one. */}
+                    {(file.versionCount ?? 0) > 1 && (
+                      <p className="text-muted-foreground break-words text-xs">
+                        {t('preview.ingestionFailedPreviousVersionKept')}
+                      </p>
+                    )}
                   </div>
                 </div>
                 {canManage && (

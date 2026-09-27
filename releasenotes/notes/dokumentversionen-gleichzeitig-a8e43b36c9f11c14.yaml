@@ -1,0 +1,19 @@
+---
+fixes:
+  - >
+    Uploading the same file twice in quick succession now gives two separate,
+    numbered versions instead of the second silently overwriting the first.
+  - >
+    When two people, or Piloti and a person, save the same draft at once, one
+    change wins and the other is told the draft has changed. Before, the second
+    could silently overwrite the first.
+  - >
+    When two people press Veröffentlichen at the same time, the second is told
+    the version is already published instead of seeing an error.
+  - >
+    Every new version now counts fully towards your storage, because earlier
+    versions are kept. Before, repeated revisions could exceed the storage limit
+    unnoticed.
+  - >
+    Deleting a document with more than 500 versions now removes the files of
+    every version, not only the first 500.

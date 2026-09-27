@@ -1,3 +1,4 @@
+import { isUniqueViolation } from '@/lib/db/errors'
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { executeRows } from '@/lib/db/execute-rows'
@@ -519,7 +520,7 @@ export async function createProjectMemoryItem(
     // Race backstop: a concurrent write may have inserted the same normalized
     // content between our check and this insert, tripping the partial unique
     // index (migration 0010). Treat that as a duplicate and return the winner.
-    if ((err as { code?: string } | null)?.code === '23505') {
+    if (isUniqueViolation(err)) {
       const winner = await findActiveDuplicate(values)
       if (winner) return winner
     }

@@ -396,8 +396,20 @@ def get_model_overrides_from_context() -> dict[str, str]:
 
     Returns ``{}`` when no overrides apply — callers then use the
     YAML-configured models unchanged.
+
+    When the signed envelope arrived, its ``modelOverrides`` is the only source:
+    the raw header is unsigned, and a client that set it could run any agent
+    group on any model at the organization's expense. Only a request with no
+    envelope (the job worker, which injects the header itself; the CLI) reads it.
     """
     from aiq_agent.project_context import _read_header
+    from aiq_agent.project_context import get_signed_request_context
+
+    envelope = get_signed_request_context()
+    if envelope is not None:
+        if envelope.model_overrides is not None:
+            return sanitize_model_overrides(envelope.model_overrides)
+        return resolve_org_model_overrides(envelope.organization_id)
 
     raw = _read_header(MODEL_OVERRIDES_HEADER)
     if raw:

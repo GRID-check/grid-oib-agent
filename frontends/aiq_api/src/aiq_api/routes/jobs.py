@@ -45,8 +45,10 @@ if TYPE_CHECKING:
     from nat.builder.workflow_builder import WorkflowBuilder
     from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorker
 
+from ..jobs.outcome_notify import notify_job_outcome_from_access
 from ..jobs.runner import DOCUMENT_ADDED_EVENT_TYPE
 from ..jobs.runner import WRITE_NOW_EVENT_TYPE
+from ..jobs.runner import _update_status_if_not_terminal
 
 logger = logging.getLogger(__name__)
 
@@ -796,7 +798,16 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         if job.status not in (JobStatus.RUNNING.value, JobStatus.SUBMITTED.value):
             raise HTTPException(400, f"Job not cancellable: {job_id} (status: {job.status})")
 
-        await job_store.update_status(job_id, JobStatus.INTERRUPTED, error="cancelled by user")
+        # Conditional, like every other terminal writer: the run may have
+        # finished between the read above and this write, and an unconditional
+        # write would relabel its SUCCESS as a cancel (and, with the report
+        # below, tell the BFF so). The loser of that race gets the same 400 as
+        # a job that had already ended.
+        written = await _update_status_if_not_terminal(
+            job_store, job_id, JobStatus.INTERRUPTED, error="cancelled by user"
+        )
+        if not written:
+            raise HTTPException(400, f"Job not cancellable: {job_id} (already finished)")
 
         def _record_cancellation_event() -> None:
             # EventStore construction and store() are blocking DB I/O — keep
@@ -824,6 +835,15 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             task_cancelled = await _cancel_dask_task(scheduler_address, job_id)
 
         logger.info("Cancel requested for job %s: status updated, task_cancelled=%s", job_id, task_cancelled)
+
+        # This route wrote the verdict, so it reports it. A running worker
+        # reports the same INTERRUPTED again when its abort lands, which the BFF
+        # absorbs; but a job no worker ever claimed (db mode: the queue row was
+        # just dropped) or whose Dask task never started has no runner left to
+        # report anything, and the BFF's run row would stay `running` forever.
+        # No error text, exactly like the runner's own report, so the two
+        # reports write the same row.
+        await notify_job_outcome_from_access(job_id=job_id, db_url=db_url, status="interrupted")
 
         return {"job_id": job_id, "status": JobStatus.INTERRUPTED.value, "task_cancelled": task_cancelled}
 
@@ -1026,6 +1046,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
 
 GHOST_JOB_TIMEOUT_SECONDS = 300  # 5 minutes without events = ghost job
+GHOST_JOB_ERROR = "Job timed out (no heartbeat received from worker)"
 GHOST_REAPER_INTERVAL_SECONDS = 60  # check every 60 seconds
 
 
@@ -1223,7 +1244,6 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
     from ..jobs.event_store import EventStore
-    from ..jobs.runner import _update_status_if_not_terminal
     from ..jobs.submit import job_execution_mode
 
     if job_execution_mode() == "db":
@@ -1252,7 +1272,7 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
                 job_store,
                 stale_job_id,
                 JobStatus.FAILURE,
-                error="Job timed out (no heartbeat received from worker)",
+                error=GHOST_JOB_ERROR,
             )
             if not written:
                 logger.info(
@@ -1265,7 +1285,7 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
                 {
                     "type": "job.error",
                     "data": {
-                        "error": "Job timed out (no heartbeat received from worker)",
+                        "error": GHOST_JOB_ERROR,
                         "error_type": "GhostJobTimeout",
                     },
                 }
@@ -1276,6 +1296,14 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
             # and its CancellationMonitor stops it once it polls the FAILURE).
             if scheduler_address:
                 await _cancel_dask_task(scheduler_address, stale_job_id)
+            # The run is dead or will lose every later write, so nothing else
+            # will tell the BFF; its run row closes on this report.
+            await notify_job_outcome_from_access(
+                job_id=stale_job_id,
+                db_url=db_url,
+                status="failure",
+                error=GHOST_JOB_ERROR,
+            )
             reaped.append(stale_job_id)
         except Exception as e:
             logger.warning("Failed to reap ghost job %s: %s", stale_job_id, e)

@@ -532,6 +532,34 @@ def test_delete_by_file_in_one_collection_leaves_the_same_file_in_another_untouc
     assert store.search("project_alpha", "Treppenlaufbreite") == []
 
 
+def test_delete_chunks_removes_those_ids_and_keeps_a_newer_version_of_the_same_file(store):
+    """A re-ingest retires its predecessor by id once the new version is mirrored.
+
+    Both versions carry the same ``file_name`` at that moment, so a delete by
+    name would take the new version's rows too.
+    """
+    store.upsert_many(
+        "project_alpha",
+        [
+            ChunkTextRow(chunk_id="old-1", body="Alte Fassung der Statik", file_name="statik.pdf", page_label="1"),
+            ChunkTextRow(chunk_id="old-2", body="Alte Fassung Seite zwei", file_name="statik.pdf", page_label="2"),
+            ChunkTextRow(chunk_id="new-1", body="Neue Fassung der Statik", file_name="statik.pdf", page_label="1"),
+        ],
+    )
+    store.upsert_many(
+        BASE_COLLECTION,
+        [ChunkTextRow(chunk_id="old-1", body="Gleiche Id, andere Sammlung", file_name="x.pdf", page_label="1")],
+    )
+
+    assert store.delete_chunks("project_alpha", ["old-1", "old-2"]) == 2
+
+    assert store.count("project_alpha") == 1
+    assert store.search("project_alpha", "Fassung") == ["new-1"]
+    assert store.count(BASE_COLLECTION) == 1, "an id in another collection is a different chunk"
+    assert store.delete_chunks("project_alpha", []) == 0
+    assert store.delete_chunks("", ["new-1"]) == 0
+
+
 def test_delete_collection_removes_that_collection_and_only_that_collection(store):
     rows = _rows()
     store.upsert_many(BASE_COLLECTION, rows)
