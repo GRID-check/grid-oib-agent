@@ -41,7 +41,8 @@ import logging
 from typing import Any
 
 from aiq_agent.common.message_contract import normalize_chat_request
-from nat.builder.framework_enum import LLMFrameworkEnum
+from nat.plugin_api import LLMFrameworkEnum
+from nat.utils.exception_handlers.automatic_retries import patch_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -294,7 +295,19 @@ async def get_langchain_llm(builder: Any, ref: Any) -> Any:
     applied later at the per-request seam in ``model_overrides`` (which copies
     the instance), never here.
     """
-    llm = await builder.get_llm(ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    wrapped = await builder.get_llm(ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    # NAT 1.9 returns the chat model inside a `RunnableConfigurableFields` (its
+    # per-call `model_name` switch) and retry-patches that wrapper. Every
+    # hardening here, and every per-request copy in `model_overrides`, needs the
+    # chat model itself: on the wrapper they fail or no-op silently. So take it
+    # out and retry-patch it with the same settings NAT used.
+    config = builder.get_llm_config(ref)
+    llm = patch_with_retry(
+        wrapped.default,
+        retries=config.num_retries,
+        retry_codes=config.retry_on_status_codes,
+        retry_on_messages=config.retry_on_errors,
+    )
     hardened = disable_previous_response_id(apply_openrouter_structured_defaults(llm))
     return enforce_chat_request_contract(hardened)
 

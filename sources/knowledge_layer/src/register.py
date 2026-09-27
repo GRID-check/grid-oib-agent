@@ -17,11 +17,11 @@ from typing import Literal
 from pydantic import Field
 from pydantic import model_validator
 
-from nat.builder.builder import Builder
-from nat.builder.context import Context
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import Context
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import register_function
 
 logger = logging.getLogger(__name__)
 

@@ -477,3 +477,21 @@ class TestWebSocketEnforcement:
         await mw(scope, AsyncMock(), AsyncMock())
 
         assert calls == ["/some/other/ws/path"]
+
+
+class TestNatRouteCoverage:
+    """Every path NAT's front end mounts a workflow on stays enforced, read from
+    NAT's own endpoint config so a path a NAT release adds (1.9 added
+    `routes/v1_chat_completions.py`) is checked without anyone listing it."""
+
+    def test_no_nat_workflow_path_is_exempt(self):
+        from nat.front_ends.fastapi.fastapi_front_end_config import FastApiFrontEndConfig
+
+        endpoint = FastApiFrontEndConfig().workflow.model_dump()
+        paths = {key: value for key, value in endpoint.items() if key.endswith("path") and value}
+        assert paths, "NAT's endpoint config carries no paths any more; re-read the route adders"
+
+        websocket = paths.pop("websocket_path")
+        assert not _path_matches(websocket, ENVELOPE_EXEMPT_WEBSOCKET_PATH_PREFIXES)
+        for path in [*paths.values(), *(f"{p}/stream" for p in paths.values())]:
+            assert not _path_matches(path, ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES), path

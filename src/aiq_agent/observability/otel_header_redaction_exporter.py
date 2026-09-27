@@ -8,9 +8,9 @@ from aiq_agent.observability.langfuse_trace_attributes import LangfuseTraceAttri
 from aiq_agent.observability.langfuse_trace_attributes import PromptLinkProcessor
 from aiq_agent.observability.langfuse_trace_attributes import UsageAttributeProcessor
 from aiq_agent.observability.langfuse_trace_attributes import identity_attributes_enabled
-from nat.builder.builder import Builder
-from nat.cli.register_workflow import register_telemetry_exporter
 from nat.observability.exporter.base_exporter import BaseExporter
+from nat.plugin_api import Builder
+from nat.plugin_api import register_telemetry_exporter
 
 logger = logging.getLogger(__name__)
 

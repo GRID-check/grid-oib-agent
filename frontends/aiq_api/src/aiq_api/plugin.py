@@ -35,7 +35,7 @@ from aiq_agent.stages.delivery import register_stage_frame_sink
 from aiq_api.auth.middleware import AuthMiddleware
 from aiq_api.context_envelope import GridContextEnvelopeMiddleware
 from nat.builder.workflow_builder import WorkflowBuilder
-from nat.cli.register_workflow import register_front_end
+from nat.cli.register_workflow import register_front_end  # noqa: TID251
 from nat.data_models.config import Config
 from nat.front_ends.fastapi.fastapi_front_end_config import FastApiFrontEndConfig
 from nat.front_ends.fastapi.fastapi_front_end_plugin import FastApiFrontEndPlugin

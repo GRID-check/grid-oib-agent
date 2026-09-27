@@ -20,8 +20,8 @@ from ris_adapter.register import ris_search
 
 from aiq_agent.common.norm_registry import NormEntry
 from aiq_agent.common.norm_registry import NormRegistry
-from nat.builder.function import LambdaFunction
-from nat.data_models.function import FunctionBaseConfig
+from nat.builder.function import LambdaFunction  # noqa: TID251
+from nat.plugin_api import FunctionBaseConfig
 
 
 def _sample_hit() -> RisHit:
@@ -318,10 +318,14 @@ class _SequenceStructuredLLM:
 
 
 def _builder_with_planner(llm):
+    from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
-    builder = MagicMock()
-    builder.get_llm = AsyncMock(return_value=llm)
+    from nat.llm.openai_llm import OpenAIModelConfig
+
+    # NAT 1.9 returns the chat model inside its configurable wrapper.
+    builder = MagicMock(get_llm_config=MagicMock(return_value=OpenAIModelConfig(model_name="test-model")))
+    builder.get_llm = AsyncMock(return_value=SimpleNamespace(default=llm))
     return builder
 
 

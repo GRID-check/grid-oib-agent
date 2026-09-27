@@ -1594,7 +1594,8 @@ class _RestoreWorker(DummyWorker):
         self.handlers = handlers
         self.lookups: list[str] = []
 
-    def get_conversation_handler(self, conversation_id: str) -> object | None:
+    def get_conversation_handler(self, user_id: str, conversation_id: str) -> object | None:
+        assert user_id == "internal", "NAT 1.9 keys a running handler by its caller"
         self.lookups.append(conversation_id)
         return self.handlers.get(conversation_id)
 
@@ -1618,6 +1619,7 @@ def _restore_handler(socket: _RestoreSocket, worker: _RestoreWorker, monkeypatch
         step_adaptor=DummyStepAdaptor(),
         worker=worker,
     )
+    handler._authenticated_user = {"type": "internal"}  # what the socket endpoint sets before entering
     registered: list[str] = []
 
     async def fake_set_socket(conversation_id, _socket):

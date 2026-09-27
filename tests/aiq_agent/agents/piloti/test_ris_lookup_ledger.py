@@ -186,7 +186,7 @@ async def test_a_miss_is_a_round_with_no_documents_not_a_missing_round(scripted_
 @pytest.fixture
 def status_steps():
     """Every status payload pushed during the test, oldest first."""
-    from nat.builder.context import ContextState
+    from nat.plugin_api import ContextState
     from nat.utils.reactive.subject import Subject
 
     state = ContextState.get()

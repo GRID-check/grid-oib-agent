@@ -22,10 +22,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from nat.data_models.interactive import HumanPrompt
-from nat.data_models.interactive import HumanPromptRadio
-from nat.data_models.interactive import HumanPromptText
-from nat.data_models.interactive import MultipleChoiceOption
+from nat.plugin_api import HumanPrompt
+from nat.plugin_api import HumanPromptRadio
+from nat.plugin_api import HumanPromptText
+from nat.plugin_api import MultipleChoiceOption
 
 DEFAULT_TEXT_PLACEHOLDER = "Please provide more details..."
 """Placeholder for the free-text box, kept identical for both prompt shapes."""

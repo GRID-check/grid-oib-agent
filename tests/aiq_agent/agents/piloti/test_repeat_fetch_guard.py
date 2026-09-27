@@ -179,7 +179,7 @@ def scripted_agent():
 @pytest.fixture
 def steps():
     """Every custom step pushed during the test, as parsed payloads."""
-    from nat.builder.context import ContextState
+    from nat.plugin_api import ContextState
     from nat.utils.reactive.subject import Subject
 
     state = ContextState.get()

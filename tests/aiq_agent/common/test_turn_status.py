@@ -22,7 +22,7 @@ import pytest
 
 from aiq_agent.common import turn_status
 from aiq_agent.skills.events import ALL_SKILL_KEYS
-from nat.builder.context import ContextState
+from nat.plugin_api import ContextState
 
 
 @pytest.fixture(autouse=True)
@@ -108,7 +108,7 @@ class TestSpanHygiene:
         def _boom():
             raise RuntimeError("no context here")
 
-        monkeypatch.setattr("nat.builder.context.Context.get", staticmethod(_boom))
+        monkeypatch.setattr("nat.plugin_api.Context.get", staticmethod(_boom))
         turn_status.emit_citation_check()
         turn_status.emit_escalation("weil")
 

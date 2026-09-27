@@ -31,10 +31,10 @@ from aiq_agent.tools.files.resolve import ResolvedDocument
 from aiq_agent.tools.files.resolve import known_folders
 from aiq_agent.tools.files.resolve import resolve_document
 from aiq_agent.tools.files.resolve import resolve_folder
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import register_function
 
 logger = logging.getLogger(__name__)
 

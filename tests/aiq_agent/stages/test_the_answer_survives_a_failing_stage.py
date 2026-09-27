@@ -182,7 +182,13 @@ async def _emit_answer(session_registry: WebSocketSessionRegistry, socket: _Sock
 
 
 def _answer_frames(socket: _Socket) -> list[dict]:
-    return [frame for frame in socket.sent if frame.get("type") != "grid_stage_message"]
+    # Less the wall clock: NAT 1.9 stamps each frame when it is built, where 1.7
+    # stamped every frame with the time its model class was imported.
+    return [
+        {key: value for key, value in frame.items() if key != "timestamp"}
+        for frame in socket.sent
+        if frame.get("type") != "grid_stage_message"
+    ]
 
 
 def _stage_frames(socket: _Socket) -> list[dict]:

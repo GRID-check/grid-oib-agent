@@ -3253,7 +3253,7 @@ class TestTruncationIsObservable:
         """Every custom step pushed during the test, as parsed payloads."""
         import json
 
-        from nat.builder.context import ContextState
+        from nat.plugin_api import ContextState
         from nat.utils.reactive.subject import Subject
 
         state = ContextState.get()
@@ -3719,7 +3719,7 @@ def _bind_signed_turn(monkeypatch, *, conversation_id: str) -> None:
     import json
     from types import SimpleNamespace
 
-    import nat.builder.context as nat_context
+    from nat.plugin_api import Context
 
     secret = "graph-turn-secret"  # noqa: S105 - test fixture value  # pragma: allowlist secret
     payload = json.dumps(
@@ -3746,7 +3746,7 @@ def _bind_signed_turn(monkeypatch, *, conversation_id: str) -> None:
         conversation_id = None
 
     _Ctx.conversation_id = conversation_id
-    monkeypatch.setattr(nat_context.Context, "get", staticmethod(lambda: _Ctx()))
+    monkeypatch.setattr(Context, "get", staticmethod(lambda: _Ctx()))
 
 
 class TestATurnThatWritesADraft:

@@ -75,7 +75,7 @@ def _bypass_citation_pipeline():
 
 @pytest.fixture
 def steps():
-    from nat.builder.context import ContextState
+    from nat.plugin_api import ContextState
     from nat.utils.reactive.subject import Subject
 
     state = ContextState.get()

@@ -570,6 +570,7 @@ class TestRestoreExecutionStateReattach:
             authenticated_user={"type": "internal"},
             socket=_FakeRestoreSocket(query_string),
         )
+        handler._restoration_attempted = False  # NAT 1.9's __init__ sets it
         return handler
 
     def _disconnected_handler(self) -> MagicMock:
@@ -599,6 +600,19 @@ class TestRestoreExecutionStateReattach:
         # And the override wired the reconnected socket into Grid's registry so
         # the dual-write guard / live send / HITL routing target it.
         reg.set_socket.assert_awaited_once_with("conv-1", handler._socket)
+        # NAT 1.9 keys the handler by caller too; a service caller's key is its type.
+        handler._worker.get_conversation_handler.assert_called_with("internal", "conv-1")
+
+    @pytest.mark.asyncio
+    async def test_verified_subject_keys_the_reattach(self) -> None:
+        handler = self._handler("conversation_id=conv-1")
+        handler._authenticated_user = {"sub": "user_01"}
+        handler._worker = MagicMock()
+        handler._worker.get_conversation_handler = MagicMock(return_value=None)
+
+        await handler._restore_execution_state()
+
+        handler._worker.get_conversation_handler.assert_called_with("user_01", "conv-1")
 
     @pytest.mark.asyncio
     async def test_snake_case_param_reattaches_and_registers(self) -> None:
@@ -823,3 +837,22 @@ class TestTurnHeartbeat:
         with patch.object(websocket_reconnect._registry, "send", AsyncMock()) as send:
             await websocket_reconnect._beat_while_running(None, "msg-1")
         send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_nat_mounts_the_patched_socket_endpoint() -> None:
+    """NAT's own route adder calls our replacement endpoint with its own
+    arguments (1.9 added `jwt_validators`), so a signature drift fails here and
+    not at server start."""
+    from fastapi import FastAPI
+
+    from nat.front_ends.fastapi.fastapi_front_end_config import FastApiFrontEndConfig
+    from nat.front_ends.fastapi.routes import websocket as websocket_routes
+
+    websocket_reconnect.install_reconnectable_handler()
+    app = FastAPI()
+    worker = MagicMock(front_end_config=FastApiFrontEndConfig())
+
+    await websocket_routes.add_websocket_routes(worker, app, worker.front_end_config.workflow, MagicMock())
+
+    assert "/websocket" in [route.path for route in app.routes]

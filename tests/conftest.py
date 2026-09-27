@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -15,8 +16,20 @@ from langchain_core.outputs import ChatResult
 from pydantic import Field
 
 from aiq_agent.common.llm_factory import enforce_chat_request_contract
+from nat.llm.openai_llm import OpenAIModelConfig
 
 logger = logging.getLogger(__name__)
+
+
+def nat_langchain_client(model: Any) -> Any:
+    """What NAT 1.9's ``builder.get_llm(ref, wrapper_type=LANGCHAIN)`` returns:
+    the chat model inside its ``RunnableConfigurableFields``, which
+    ``get_langchain_llm`` takes it out of. A fake builder returns this, and
+    answers ``get_llm_config`` with :data:`NAT_LLM_CONFIG`."""
+    return SimpleNamespace(default=model)
+
+
+NAT_LLM_CONFIG = OpenAIModelConfig(model_name="test-model")
 
 try:  # pragma: no cover - import guard, not behaviour
     from aiq_agent.common.cache import reset_local_store
