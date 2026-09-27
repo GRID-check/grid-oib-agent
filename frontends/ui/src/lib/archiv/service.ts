@@ -17,14 +17,13 @@
  */
 
 import 'server-only'
-import { PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
+import { PutObjectCommand } from '@aws-sdk/client-s3'
 import {
   s3Client,
   bucketAdminS3Client,
   buildArchivStorageKey,
-  buildThumbnailStorageKey,
 } from '@/lib/s3'
-import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
+import { ensureTenantBucketChecked } from '@/lib/storage/bucket'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
@@ -40,19 +39,17 @@ import {
 import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
 import { contentDigest } from '@/lib/documents/content-digest'
 import { documentNameKey } from '@/lib/documents/name-match'
-import { deleteBimDerivedObjects } from '@/lib/bim/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { findLiveDocumentByFilename } from '@/lib/documents/repository'
-import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
+import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
 import { assertNoActiveHold } from '@/lib/compliance/holds'
 import {
   nextVersionNumber,
   recordUploadedVersion,
 } from '@/lib/documents/lifecycle'
 import { newVersionWriteId, versionedStorageKey } from '@/lib/documents/version-content'
-import { listDocumentVersionObjects } from '@/lib/documents/version-repository'
 import type { DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { archivCollectionName } from './collection'
@@ -285,34 +282,9 @@ export async function deleteArchivDocument(
     ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
     : null
 
-  // Every VERSION's objects, not only the live one (ADR-0054) — see the same
-  // loop in `deleteDocument` for why a superseded version's bytes would
-  // otherwise stay in the bucket, invisible and still charged.
-  for (const version of await listDocumentVersionObjects(documentId, session.organizationId)) {
-    if (version.storageKey === doc.storageKey) continue
-    await deleteDocumentObjects(version).catch(() => undefined)
-  }
-
-  if (doc.storageKey) {
-    try {
-      const bucket = resolveDocumentBucket(doc.storageBucket)
-      await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: doc.storageKey }))
-      // The ingest pipeline writes `_thumb.jpg` beside the object; deleting
-      // only the document left it orphaned. Same fix as the project path.
-      const thumbKey = buildThumbnailStorageKey(doc.storageKey)
-      if (thumbKey) {
-        await s3Client
-          .send(new DeleteObjectCommand({ Bucket: bucket, Key: thumbKey }))
-          .catch(() => undefined)
-      }
-      // The IFC pipeline writes its digest and index under a `_bim/`
-      // subdirectory of the same document folder — nested, so the exact-key
-      // deletes above never reach them.
-      await deleteBimDerivedObjects(doc.storageKey, doc.storageBucket).catch(() => undefined)
-    } catch {
-      // ignore — the object may already be gone; the row delete below is the record of intent
-    }
-  }
+  // Every version's objects and derivatives, or a 502 and the row stays — the
+  // same erasure the project delete runs (`eraseDocumentObjectsOrKeepRow`).
+  await eraseDocumentObjectsOrKeepRow(doc, session.organizationId)
 
   await deleteArchivDocumentRow(documentId, session.organizationId)
 

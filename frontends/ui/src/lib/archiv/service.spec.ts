@@ -96,6 +96,12 @@ vi.mock('@/lib/storage/admission', () => ({
 // The hold predicate is SQL (`grid_legal_hold_blocks`, migration 0093) and is
 // exercised against Postgres in `legal-hold.integration.spec.ts`; here the gate
 // itself runs for real over a doubled answer.
+// The erasure of a document's objects is `object-cleanup.spec.ts`'s subject;
+// here it is what the delete asks for, and what the delete does when it fails.
+vi.mock('@/lib/documents/object-cleanup', () => ({
+  eraseDocumentObjectsOrKeepRow: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('@/lib/compliance/repository', () => ({
   isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
 }))
@@ -110,8 +116,9 @@ import { canManageArchiv } from '@/lib/authz/organizations'
 import { assertUploadTypeAllowed, dispatchDocument, fetchSemanticHits, joinHitsToFiles } from '@/lib/documents/service'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { isCoveredByActiveHold } from '@/lib/compliance/repository'
+import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
 import { s3Client } from '@/lib/s3'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { findLiveDocumentByFilename } from '@/lib/documents/repository'
@@ -356,10 +363,32 @@ describe('deleteArchivDocument', () => {
     // Nothing went: no chunk purge, no object delete, no row, no audit.
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(s3Client.send).not.toHaveBeenCalled()
+    expect(eraseDocumentObjectsOrKeepRow).not.toHaveBeenCalled()
     expect(deleteArchivDocumentRow).not.toHaveBeenCalled()
     expect(recordAuditEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: 'archiv.document.deleted' }),
     )
+  })
+
+  it('erases every stored object through the shared cleanup, and keeps the row when it fails', async () => {
+    const doc = makeDocument({
+      id: 'd1',
+      scope: 'archiv',
+      projectId: null,
+      collectionName: 'archiv_org-1',
+      storageKey: 'org/org-1/archiv/doc/d1/plan.pdf',
+    })
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+    vi.mocked(findArchivDocument).mockResolvedValue(doc)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }))
+    vi.mocked(eraseDocumentObjectsOrKeepRow).mockRejectedValueOnce(new UpstreamError('nope'))
+
+    await expect(deleteArchivDocument(session, 'd1', request)).rejects.toBeInstanceOf(UpstreamError)
+
+    // The `_img/` rasters used to be left behind here and every failure
+    // swallowed; now the shared erasure runs, and a failure keeps the row.
+    expect(eraseDocumentObjectsOrKeepRow).toHaveBeenCalledWith(doc, 'org-1')
+    expect(deleteArchivDocumentRow).not.toHaveBeenCalled()
   })
 
   it('purges no chunks for a machine-authored row, and still deletes it', async () => {

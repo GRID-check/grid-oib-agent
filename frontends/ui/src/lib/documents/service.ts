@@ -10,7 +10,6 @@
 
 import 'server-only'
 import {
-  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -84,12 +83,12 @@ import {
   type DocumentListRow,
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
-import { deleteBimDerivedObjects, runBimExtraction } from '@/lib/bim/service'
+import { runBimExtraction } from '@/lib/bim/service'
 import { getAccessibleDocument } from './access'
 import { nextVersionNumber, recordUploadedVersion } from './lifecycle'
 import { newVersionWriteId, versionedStorageKey } from './version-content'
-import { findOpenVersion, listDocumentVersionObjects } from './version-repository'
-import { deleteDocumentObjects } from './object-cleanup'
+import { findOpenVersion } from './version-repository'
+import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
 import {
   INLINE_PREVIEW_CONTENT_TYPES,
@@ -1654,16 +1653,9 @@ export async function deleteDocument(
   // that a hold exists) and before the first destructive step below.
   await assertNoActiveHold(session.organizationId, 'document', documentId)
 
-  await Promise.all([
-    purgeResourceCollaboration('document', documentId).catch(() => undefined),
-    deleteAssignmentsForResource(session.organizationId, 'document', documentId).catch(
-      () => undefined
-    ),
-  ])
-
   // Best-effort: remove the ingested chunks so a deleted document stops showing
-  // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB
-  // cleanup below, so failures here are swallowed.
+  // up in retrieval. A backend hiccup must not block the object and row
+  // cleanup below, so it is recorded on the audit event rather than thrown.
   //
   // No ref → no chunks to purge, and this is where that mattered most. A
   // machine-authored row was never dispatched to `/v1/ingest`, so `file_ids:
@@ -1681,46 +1673,17 @@ export async function deleteDocument(
     ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
     : null
 
-  /*
-   * Every VERSION's objects, not only the live one (ADR-0054).
-   *
-   * A document used to have one set of bytes, so one delete erased it. With a
-   * history it has several, each under its own `v<n>/` prefix, and a delete that
-   * removed only the published version would leave every superseded one in the
-   * bucket: invisible to the UI, still charged to the organization, and readable
-   * by anyone who can presign a key. Best-effort per version, for the reason the
-   * live-object delete below is: the row delete is the record of intent.
-   */
-  for (const version of await listDocumentVersionObjects(documentId, session.organizationId)) {
-    if (version.storageKey === doc.storageKey) continue
-    await deleteDocumentObjects(version).catch(() => undefined)
-  }
+  await eraseDocumentObjectsOrKeepRow(doc, session.organizationId)
 
-  if (doc.storageKey) {
-    try {
-      const bucket = resolveDocumentBucket(doc.storageBucket)
-      await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: doc.storageKey }))
-      // The ingest pipeline writes `_thumb.jpg` as a SIBLING of the object, in
-      // the same `doc/<id>/` directory. Deleting only the document left it
-      // behind: invisible to the UI, invisible to the quota ledger (which
-      // counts rows, not bytes), and reachable by anyone who could presign the
-      // key. The project-level purge swept it up eventually; a single-document
-      // delete never did.
-      const thumbKey = buildThumbnailStorageKey(doc.storageKey)
-      if (thumbKey) {
-        await s3Client
-          .send(new DeleteObjectCommand({ Bucket: bucket, Key: thumbKey }))
-          .catch(() => undefined)
-      }
-      // The IFC pipeline writes its digest and index under a `_bim/`
-      // subdirectory of the same document folder. Those are nested, not
-      // siblings, so the exact-key deletes above never reach them — and the
-      // digest is the object the RAG index points at.
-      await deleteBimDerivedObjects(doc.storageKey, doc.storageBucket).catch(() => undefined)
-    } catch {
-      // ignore — the object may already be gone; the row delete below is the record of intent
-    }
-  }
+  // Only once the bytes are gone. Grants and assignments are cheap to keep and
+  // expensive to lose: a delete that stops at the object store above leaves a
+  // document people can still open, and it should still be shared with them.
+  await Promise.all([
+    purgeResourceCollaboration('document', documentId).catch(() => undefined),
+    deleteAssignmentsForResource(session.organizationId, 'document', documentId).catch(
+      () => undefined
+    ),
+  ])
 
   await deleteProjectDocument(documentId, session.organizationId, doc.projectId)
 

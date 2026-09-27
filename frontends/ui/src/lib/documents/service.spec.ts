@@ -109,12 +109,19 @@ vi.mock('./reconcile-status', () => ({
 
 // The hold predicate is SQL (`grid_legal_hold_blocks`, migration 0093), proven
 // against Postgres in `legal-hold.integration.spec.ts`; the gate runs for real.
+// The erasure of a document's objects is `object-cleanup.spec.ts`'s subject;
+// here it is what the delete asks for, and what the delete does when it fails.
+vi.mock('@/lib/documents/object-cleanup', () => ({
+  eraseDocumentObjectsOrKeepRow: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('@/lib/compliance/repository', () => ({
   isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
 }))
 
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { isCoveredByActiveHold } from '@/lib/compliance/repository'
+import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
@@ -1204,6 +1211,7 @@ describe('deleteDocument', () => {
     // Nothing went: no chunk purge, no object, no row, no audit.
     expect(mockFetch).not.toHaveBeenCalled()
     expect(s3Client.send).not.toHaveBeenCalled()
+    expect(eraseDocumentObjectsOrKeepRow).not.toHaveBeenCalled()
     expect(deleteProjectDocument).not.toHaveBeenCalled()
     expect(recordAuditEvent).not.toHaveBeenCalled()
   })
@@ -1239,6 +1247,38 @@ describe('deleteDocument', () => {
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'document.deleted', organizationId: 'org-1' })
     )
+  })
+
+  it('erases every stored object (each version, _thumb, _img/, _bim/) before the row', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    mockFetch.mockResolvedValue({ ok: true })
+    const order: string[] = []
+    vi.mocked(eraseDocumentObjectsOrKeepRow).mockImplementationOnce(async () => {
+      order.push('objects')
+    })
+    vi.mocked(deleteProjectDocument).mockImplementationOnce(async () => {
+      order.push('row')
+    })
+
+    await deleteDocument(session, 'doc-1', new Request('http://x'))
+
+    expect(eraseDocumentObjectsOrKeepRow).toHaveBeenCalledWith(projectDoc, 'org-1')
+    expect(order).toEqual(['objects', 'row'])
+  })
+
+  it('keeps the row, and audits nothing, when the objects could not be erased', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    mockFetch.mockResolvedValue({ ok: true })
+    vi.mocked(eraseDocumentObjectsOrKeepRow).mockRejectedValueOnce(new UpstreamError('nope'))
+
+    await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(
+      UpstreamError
+    )
+    // The row is the only handle a retry has on the bytes that stayed.
+    expect(deleteProjectDocument).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
   })
 
   it('still deletes the row + audits when the best-effort chunk purge fails', async () => {
