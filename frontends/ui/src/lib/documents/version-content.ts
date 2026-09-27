@@ -21,7 +21,7 @@
 import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
-import { ConflictError, NotFoundError } from '@/lib/api/errors'
+import { ConflictError, InsufficientStorageError, NotFoundError } from '@/lib/api/errors'
 import { markingIsInBytes, type AiProvenanceMarking } from '@/lib/ai-provenance'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { recordAuditEvent } from '@/lib/audit/service'
@@ -32,7 +32,11 @@ import type { Document, DocumentVersion } from '@/lib/db/schema'
 import { getOrganizationDisplayName } from '@/lib/organizations/service'
 import { bucketAdminS3Client, s3Client } from '@/lib/s3'
 import { discardObject } from '@/lib/storage/discard'
-import { assertWithinStorageQuota } from '@/lib/storage/service'
+import {
+  assertWithinStorageQuota,
+  getStorageQuotaBytes,
+  STORAGE_QUOTA_EXCEEDED_MESSAGE,
+} from '@/lib/storage/service'
 import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { getAccessibleDocument } from './access'
 import { AGENT_DOCUMENT_MEDIA_TYPE, renderAgentDocumentMarkdown } from './agent-document-markdown'
@@ -242,31 +246,52 @@ export async function renderVersionBytes(
 }
 
 /**
- * Refuse a replacement the organization has no room for.
+ * What a replacement will add to the organization's usage, as best it can be
+ * told before anything is locked.
  *
- * The DELTA and not the whole file: the version being replaced is already
- * counted, whichever row carries it, so charging the full new size against a
- * total that still includes the old one would refuse a corrected report for
- * space the correction itself frees — the argument `replaceDocumentWithinQuota`
- * makes for a re-upload, restated for a version.
+ * The FULL size when the old bytes stay: a draft freshly forked from the
+ * published version shares the published object, and replacing the draft does
+ * not free it. This used to charge `incoming − version.fileSize` there too — the
+ * published file's size, so ≈ 0 for a same-sized revision — and fork, write,
+ * reject, fork again grew storage without ever being checked. The DELTA when the
+ * version owns its old object alone (a draft that has been written to, or the
+ * version that IS the item's bytes), because that object goes once the swap has
+ * won.
  *
- * This is `assertWithinStorageQuota`, the advisory half of the admission, and
- * that is a deliberate trade rather than an oversight. The hard ceiling on the
- * upload paths is an insert inside the quota transaction; a version replacement
- * has no insert — it is a compare-and-swap whose whole job is to lose races —
- * and holding the quota lock across the object write is exactly what
- * `insertDocumentWithinQuota`'s header refuses to do. Before this there was no
- * check of any kind on this path, which is what made an unattended revision
- * loop unbounded.
+ * An estimate for the courtesy check only. The hard ceiling is measured inside
+ * the swap's transaction, on the state it is about to commit
+ * (`swapVersionContent`), which also sees a key shared with a SUPERSEDED version
+ * that this cannot.
+ */
+export function versionReplacementCharge(
+  document: Document,
+  version: DocumentVersion,
+  incomingBytes: number,
+): number {
+  const sharesPublishedObject =
+    version.storageKey === document.storageKey && !versionMirrorsItem(document, version)
+  if (sharesPublishedObject) return incomingBytes
+  return incomingBytes - (version.fileSize ?? 0)
+}
+
+/**
+ * Refuse, before any byte moves, a replacement that obviously does not fit.
+ *
+ * `assertWithinStorageQuota`, the advisory half, so an over-quota revision is
+ * refused before its object is written. The ceiling itself is enforced in
+ * `swapVersionContent`, under the per-organization quota lock every upload
+ * takes — the object is written first and taken back on a refusal, the same
+ * shape as `admitOrDiscard`.
  */
 export async function admitVersionBytes(
   organizationId: string,
+  document: Document,
   version: DocumentVersion,
   incomingBytes: number,
 ): Promise<void> {
-  const delta = incomingBytes - (version.fileSize ?? 0)
-  if (delta <= 0) return
-  await assertWithinStorageQuota(organizationId, delta)
+  const charge = versionReplacementCharge(document, version, incomingBytes)
+  if (charge <= 0) return
+  await assertWithinStorageQuota(organizationId, charge)
 }
 
 /** What {@link writeVersionContent} needs: the row that was read, and the new bytes. */
@@ -304,7 +329,8 @@ export interface WriteVersionContentInput {
  */
 export async function writeVersionContent(input: WriteVersionContentInput): Promise<DocumentVersion> {
   const { organizationId, document, version, rendered } = input
-  await admitVersionBytes(organizationId, version, rendered.bytes.byteLength)
+  await admitVersionBytes(organizationId, document, version, rendered.bytes.byteLength)
+  const quotaBytes = await getStorageQuotaBytes(organizationId)
 
   const storageBucket = await resolveVersionBucket(organizationId)
   const storageKey = versionWriteKey(document.storageKey, version.versionNumber, newVersionWriteId())
@@ -337,6 +363,7 @@ export async function writeVersionContent(input: WriteVersionContentInput): Prom
         contentHash: rendered.contentHash,
       },
       mirrorsItem: versionMirrorsItem(document, version),
+      quotaBytes,
     })
   } catch (error) {
     await discardObject(storageBucket, storageKey)
@@ -344,7 +371,15 @@ export async function writeVersionContent(input: WriteVersionContentInput): Prom
   }
 
   if (!outcome.ok) {
+    // Nothing names the object this request wrote, whichever way it lost.
     await discardObject(storageBucket, storageKey)
+    if (outcome.reason === 'quota') {
+      throw new InsufficientStorageError(STORAGE_QUOTA_EXCEEDED_MESSAGE, {
+        quotaBytes: quotaBytes ?? 0,
+        usedBytes: outcome.usedBytes,
+        requestedBytes: rendered.bytes.byteLength,
+      })
+    }
     throw new ConflictError('The version changed while you were writing', {
       contentHash: version.contentHash,
     })

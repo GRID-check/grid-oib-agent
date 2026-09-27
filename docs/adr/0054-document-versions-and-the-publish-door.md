@@ -313,6 +313,17 @@ nobody what it cost to find them.
     and 4 in that order" in the old `replaceVersionContent` header had traded
     this for a different failure; writing to a unique key removes the trade.
 
+13. **The quota still undercharged, in both admissions.** Correction 3 made the
+    ledger count superseded versions, and the two admitting paths kept an
+    argument from before this record: that a replacement frees what it
+    replaces. A re-upload excluded the replaced row from the usage, although
+    the row's bytes now stay as the superseded version; a draft rewrite
+    charged `incoming − fileSize` outside any lock, and a fresh fork's
+    `fileSize` is the published file's, so fork, write, reject, fork again was
+    never checked. A re-upload now charges its full size, and a content write
+    is admitted inside its swap transaction under the per-organization quota
+    lock, by measuring the usage it is about to commit.
+
 ### What this amends in ADR-0047
 
 ADR-0047's 2026-08-20 addendum says `Zuweisen` is the promotion gesture and that

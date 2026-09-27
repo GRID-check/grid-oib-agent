@@ -107,7 +107,8 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/db/tenant-isolation.integration.spec.ts \
     src/lib/bim/query.integration.spec.ts \
     src/lib/bim/model-shelf.integration.spec.ts \
-    src/lib/projects/memory-service.integration.spec.ts
+    src/lib/projects/memory-service.integration.spec.ts \
+    src/lib/documents/document-versions.integration.spec.ts
 
 # ---------------------------------------------------------------------------
 # Migration 0086: the backfill, asserted per row shape, and its DOWN migration.

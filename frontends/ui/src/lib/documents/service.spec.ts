@@ -1760,9 +1760,8 @@ describe('re-uploading a filename this collection already holds', () => {
 
     expect(admitOrDiscard).not.toHaveBeenCalled()
     expect(admitReplacementOrDiscard).toHaveBeenCalled()
-    // The quota is charged the DELTA, under the same lock: the row being
-    // replaced already contributes its old size to the usage this is measured
-    // against, so it is excluded there rather than double-counted here.
+    // Admitted under the same lock, at the full new size: the replaced bytes
+    // stay as the superseded version (`replaceDocumentWithinQuota`).
     const call = vi.mocked(admitReplacementOrDiscard).mock.calls.at(-1)
     expect(call?.[3]).toBe('doc-existing')
   })

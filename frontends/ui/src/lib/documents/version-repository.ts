@@ -17,6 +17,11 @@ import {
   type DocumentVersion,
   type NewDocumentVersion,
 } from '@/lib/db/schema'
+import {
+  lockStorageQuota,
+  readStorageUsage,
+  type DbTransaction,
+} from '@/lib/storage/repository'
 import type { DocumentVersionState } from './lifecycle-types'
 import { DOCUMENT_VERSION_STATES, OPEN_DOCUMENT_VERSION_STATES } from './lifecycle-types'
 
@@ -42,7 +47,7 @@ export const DOCUMENT_VERSION_LIST_LIMIT = 500
 export type NewDocumentVersionValues = Omit<NewDocumentVersion, 'versionNumber'>
 
 /** The handle a `db.transaction` callback receives. */
-type Transaction = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0]
+type Transaction = DbTransaction
 
 /**
  * The next number for a document, allocated INSIDE the inserting transaction.
@@ -566,6 +571,8 @@ export interface SwapVersionContentInput {
    * published.
    */
   mirrorsItem: boolean
+  /** The organization's quota in bytes, or `null` for none. */
+  quotaBytes: number | null
 }
 
 export type SwapVersionContentOutcome =
@@ -576,6 +583,15 @@ export type SwapVersionContentOutcome =
       previousKeyOrphaned: boolean
     }
   | { ok: false; reason: 'conflict' }
+  | { ok: false; reason: 'quota'; usedBytes: number }
+
+/** The swap would leave the organization over its quota — roll it back. */
+class OverQuota extends Error {
+  constructor(readonly usedBytes: number) {
+    super('storage quota exceeded')
+    this.name = 'OverQuota'
+  }
+}
 
 /**
  * Point a version at new bytes, but only if it is still what the caller read.
@@ -594,21 +610,39 @@ export type SwapVersionContentOutcome =
  * nothing): a row backfilled from a document that predates `content_hash`
  * carries NULL, and `assertGuards` already lets such a version be replaced.
  *
- * ## One transaction
+ * ## One transaction, on the locked admission path
  *
- * The swap, the item mirror and the orphan check are one step: a mirror that
- * committed separately could copy a loser's columns onto the item, and an
- * orphan check outside it could see a row that is about to change. The object
- * for `patch.storageKey` must already be stored in full when this runs — the
- * caller writes it first, under a key no other writer shares.
+ * The swap, the item mirror, the quota and the orphan check are one step: a
+ * mirror that committed separately could copy a loser's columns onto the item,
+ * and an orphan check outside it could see a row that is about to change. The
+ * object for `patch.storageKey` must already be stored in full when this runs —
+ * the caller writes it first, under a key no other writer shares.
+ *
+ * The quota is admitted HERE, under the same per-organization lock as every
+ * upload, by measuring the usage before the swap and again after it inside the
+ * transaction, and rolling back when the after-state crosses the ceiling. That
+ * replaced a delta computed outside any lock (`incoming − version.fileSize`),
+ * which was wrong exactly where it mattered: a draft freshly forked from the
+ * published version shares the published object, so its "old size" was the
+ * published file's and the delta was ≈ 0 — and fork, write, reject, fork again
+ * grew the bucket without ever being checked. Measuring the after-state with the
+ * ledger's own predicate (`readStorageUsage`) charges what the commit really
+ * adds: the full size when the old bytes stay (a fork's shared key), the
+ * difference when they go (a draft's own previous object). A shrinking write is
+ * always admitted, even over a quota someone lowered.
  */
 export async function swapVersionContent(
   input: SwapVersionContentInput,
 ): Promise<SwapVersionContentOutcome> {
   const db = getDb()
-  const { versionId, documentId, organizationId, expected, patch } = input
+  const { versionId, documentId, organizationId, expected, patch, quotaBytes } = input
   try {
     return await db.transaction(async (tx) => {
+      // The lock first, and only then the swap: the same order as the upload
+      // paths, so two writers of one organization never hold each other's locks.
+      await lockStorageQuota(tx, organizationId)
+      const usedBefore = quotaBytes === null ? 0 : await readStorageUsage(tx, organizationId)
+
       const [version] = await tx
         .update(documentVersions)
         .set({ ...patch, updatedAt: new Date() })
@@ -641,6 +675,11 @@ export async function swapVersionContent(
           .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId)))
       }
 
+      if (quotaBytes !== null) {
+        const usedAfter = await readStorageUsage(tx, organizationId)
+        if (usedAfter > quotaBytes && usedAfter > usedBefore) throw new OverQuota(usedBefore)
+      }
+
       const previousKeyOrphaned = await keyIsUnnamed(
         tx,
         documentId,
@@ -651,6 +690,9 @@ export async function swapVersionContent(
     })
   } catch (error) {
     if (error instanceof LostCompareAndSwap) return { ok: false, reason: 'conflict' }
+    if (error instanceof OverQuota) {
+      return { ok: false, reason: 'quota', usedBytes: error.usedBytes }
+    }
     throw error
   }
 }

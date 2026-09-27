@@ -35,7 +35,11 @@ vi.mock('@/lib/conversations/repository', () => ({ findConversationInOrg: vi.fn(
 vi.mock('@/lib/organizations/service', () => ({
   getOrganizationDisplayName: vi.fn().mockResolvedValue('Büro Nord ZT GmbH'),
 }))
-vi.mock('@/lib/storage/service', () => ({ assertWithinStorageQuota: vi.fn() }))
+vi.mock('@/lib/storage/service', () => ({
+  assertWithinStorageQuota: vi.fn(),
+  getStorageQuotaBytes: vi.fn().mockResolvedValue(10_000),
+  STORAGE_QUOTA_EXCEEDED_MESSAGE: 'no storage space left',
+}))
 vi.mock('@/lib/storage/bucket', () => ({
   ensureTenantBucketChecked: vi.fn().mockResolvedValue('grid-org-1'),
   resolveDocumentBucket: () => 'grid-org-1',
@@ -215,20 +219,63 @@ describe('renderVersionBytes — the marking survives an update', () => {
   })
 })
 
+/**
+ * The courtesy check's estimate. The ceiling is measured in the swap's own
+ * transaction (`version-repository.spec.ts`); this only has to refuse the
+ * obvious case before the bytes move, and it must not undercharge a fork.
+ */
 describe('admitVersionBytes', () => {
-  it('charges the DELTA, because the version being replaced is already counted', async () => {
-    await admitVersionBytes('org_1', version({ fileSize: 1_000 }), 1_600)
+  const published = makeDocument({
+    ...document,
+    storageKey: 'org/org_1/project/proj_1/doc/doc_1/plan.md',
+    publishedVersionId: 'ver_published',
+  })
+
+  it('charges a freshly forked draft the FULL size, because the published bytes stay', async () => {
+    // The fork shares the published object, so its `fileSize` IS the published
+    // file's. `1_600 − 1_000` charged 600 for 1_600 new bytes; the loop of fork,
+    // write, reject, fork again was never checked at all when sizes matched.
+    const fork = version({ id: 'ver_draft', storageKey: published.storageKey, fileSize: 1_000 })
+    await admitVersionBytes('org_1', published, fork, 1_600)
+    expect(assertWithinStorageQuota).toHaveBeenCalledWith('org_1', 1_600)
+  })
+
+  it('charges the DELTA for a draft that owns its previous object', async () => {
+    const written = version({
+      id: 'ver_draft',
+      storageKey: 'org/org_1/project/proj_1/doc/doc_1/v2/aaaaaaaaaaaa/plan.md',
+      fileSize: 1_000,
+    })
+    await admitVersionBytes('org_1', published, written, 1_600)
     expect(assertWithinStorageQuota).toHaveBeenCalledWith('org_1', 600)
   })
 
-  it('asks nothing when the replacement is smaller', async () => {
-    await admitVersionBytes('org_1', version({ fileSize: 1_000 }), 400)
+  it('charges the DELTA for the version that IS the item’s bytes', async () => {
+    const item = makeDocument({ ...published, publishedVersionId: null })
+    await admitVersionBytes(
+      'org_1',
+      item,
+      version({ versionNumber: 1, storageKey: item.storageKey, fileSize: 1_000 }),
+      1_600,
+    )
+    expect(assertWithinStorageQuota).toHaveBeenCalledWith('org_1', 600)
+  })
+
+  it('asks nothing when a draft of its own shrinks', async () => {
+    await admitVersionBytes(
+      'org_1',
+      published,
+      version({ id: 'ver_draft', storageKey: 'k/own', fileSize: 1_000 }),
+      400,
+    )
     expect(assertWithinStorageQuota).not.toHaveBeenCalled()
   })
 
   it('lets a refusal through, so nothing is written or swapped', async () => {
-    vi.mocked(assertWithinStorageQuota).mockRejectedValue(new Error('no room'))
-    await expect(admitVersionBytes('org_1', version(), 10_000)).rejects.toThrow(/no room/)
+    vi.mocked(assertWithinStorageQuota).mockRejectedValueOnce(new Error('no room'))
+    await expect(admitVersionBytes('org_1', published, version(), 10_000)).rejects.toThrow(
+      /no room/,
+    )
   })
 })
 
@@ -374,6 +421,26 @@ describe('writeVersionContent — one object per write, swapped only if unchange
       stamp: {},
     })
     expect(swapVersionContent).toHaveBeenCalledWith(expect.objectContaining({ mirrorsItem: true }))
+  })
+
+  it('hands the swap the organization’s quota, so the ceiling is held under the lock', async () => {
+    await writeVersionContent({ organizationId: 'org_1', document: item, version: read, rendered, stamp: {} })
+    expect(swapVersionContent).toHaveBeenCalledWith(expect.objectContaining({ quotaBytes: 10_000 }))
+  })
+
+  it('takes its object back and answers 507 when the locked admission refuses', async () => {
+    vi.mocked(swapVersionContent).mockResolvedValueOnce({
+      ok: false,
+      reason: 'quota',
+      usedBytes: 9_999,
+    })
+
+    await expect(
+      writeVersionContent({ organizationId: 'org_1', document: item, version: read, rendered, stamp: {} }),
+    ).rejects.toMatchObject({ status: 507 })
+    expect(discardObject).toHaveBeenCalledWith('grid-org-1', putKeys()[0])
+    // The previous object is NOT touched: the row still names it.
+    expect(discardObject).toHaveBeenCalledTimes(1)
   })
 
   it('writes and swaps nothing when the quota courtesy check refuses', async () => {

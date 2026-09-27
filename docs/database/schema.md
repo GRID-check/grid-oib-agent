@@ -389,6 +389,18 @@ a draft forked from the published version deliberately shares that version's
 object until its content is replaced, and two rows over one object are one
 charge.
 
+**What each admission charges.** A re-upload (`replaceDocumentWithinQuota`)
+charges the FULL new size against the whole organization's usage: the replaced
+bytes stay as the superseded version, so nothing is freed. It used to exclude
+the replaced row from the sum, which counted the old bytes nowhere during the
+admission. A draft's content write (`swapVersionContent`) is admitted under the
+same per-organization lock, by reading the usage before the swap and again
+after it in the same transaction and rolling back when the after-state crosses
+the quota — so a fresh fork's first write is charged in full (the published
+object stays), a draft rewriting its own object is charged the difference, and
+a shrinking write is always admitted. It used to be an unlocked
+`incoming − fileSize`, which for a fork was ≈ 0.
+
 **Whose hand submitted (migration `0085`):** `submitted_by_actor` (`human` |
 `agent`, default `human`) is written from `TransitionInput.actingHuman` at the
 submit transition. `submitted_by` stays whose AUTHORITY the submission carried —

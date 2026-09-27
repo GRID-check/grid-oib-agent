@@ -25,10 +25,12 @@ interface CapturedQuery {
 }
 
 const captured: CapturedQuery[] = []
+/** Row pages the proxy answers with, in order (pg-proxy rows are value arrays). */
+const pages: unknown[][][] = []
 
 const proxyDb = drizzle(async (sql, params) => {
   captured.push({ sql, params })
-  return { rows: [] }
+  return { rows: pages.shift() ?? [] }
 })
 
 /**
@@ -55,6 +57,7 @@ function onlyQuery(): CapturedQuery {
 
 beforeEach(() => {
   captured.length = 0
+  pages.length = 0
   currentDb = proxyDb
 })
 
@@ -236,9 +239,16 @@ describe('findPreviousVersion — the diff base', () => {
 describe('swapVersionContent — the swap asserts what was read', () => {
   const dialect = new PgDialect()
 
-  function fakeSwapDb(opts: { swapped: unknown[]; named: boolean }) {
+  /**
+   * A drizzle-shaped transaction for the content swap. `usage` answers the
+   * ledger reads in order (before the swap, after it); each is split into the
+   * live half and the version-overhead half, the way `readStorageUsage` reads.
+   */
+  function fakeSwapDb(opts: { swapped: unknown[]; named: boolean; usage?: number[] }) {
     const wheres: Array<{ sql: string; params: unknown[] }> = []
     const statements: string[] = []
+    const usage = [...(opts.usage ?? [])]
+    let updates = 0
     const tx = {
       update: () => ({
         set: () => ({
@@ -246,12 +256,26 @@ describe('swapVersionContent — the swap asserts what was read', () => {
             const rendered = dialect.sqlToQuery(condition)
             wheres.push({ sql: rendered.sql, params: rendered.params })
             statements.push('UPDATE')
-            const result = statements.length === 1 ? opts.swapped : []
+            updates += 1
+            const result = updates === 1 ? opts.swapped : []
             return Object.assign(Promise.resolve(result), { returning: async () => result })
           },
         }),
       }),
-      execute: async () => {
+      select: () => ({
+        from: () => ({
+          where: async () => {
+            statements.push('USAGE')
+            return [{ bytes: String(usage.shift() ?? 0), versionBytes: '0' }]
+          },
+        }),
+      }),
+      execute: async (query: { queryChunks?: unknown[] }) => {
+        const text = JSON.stringify(query.queryChunks ?? query)
+        if (text.includes('pg_advisory_xact_lock')) {
+          statements.push(`LOCK ${text.includes('storage_quota:org_1') ? 'storage_quota:org_1' : text}`)
+          return []
+        }
         statements.push('ORPHAN CHECK')
         return [{ named: opts.named }]
       },
@@ -277,6 +301,7 @@ describe('swapVersionContent — the swap asserts what was read', () => {
       contentHash: 'sha256:neu',
     },
     mirrorsItem: false,
+    quotaBytes: null,
   }
 
   it('matches on state, storage key AND content hash', async () => {
@@ -312,7 +337,7 @@ describe('swapVersionContent — the swap asserts what was read', () => {
       reason: 'conflict',
     })
     // No item mirror, no orphan check: the transaction was abandoned at the swap.
-    expect(fake.statements).toEqual(['UPDATE'])
+    expect(fake.statements).toEqual(['LOCK storage_quota:org_1', 'UPDATE'])
   })
 
   it('mirrors the item in the same transaction when the version is the item’s bytes', async () => {
@@ -321,7 +346,12 @@ describe('swapVersionContent — the swap asserts what was read', () => {
 
     await swapVersionContent({ ...input, mirrorsItem: true })
 
-    expect(fake.statements).toEqual(['UPDATE', 'UPDATE', 'ORPHAN CHECK'])
+    expect(fake.statements).toEqual([
+      'LOCK storage_quota:org_1',
+      'UPDATE',
+      'UPDATE',
+      'ORPHAN CHECK',
+    ])
   })
 
   it('says whether the previous key is still named by anything', async () => {
@@ -330,5 +360,104 @@ describe('swapVersionContent — the swap asserts what was read', () => {
 
     currentDb = fakeSwapDb({ swapped: [{ id: 'ver_1' }], named: false }).db
     await expect(swapVersionContent(input)).resolves.toMatchObject({ previousKeyOrphaned: true })
+  })
+})
+
+/**
+ * The draft rewrite on the LOCKED admission path (the undercharge defect).
+ *
+ * The rewrite used to be admitted outside any lock as `incoming − fileSize`.
+ * For a draft freshly forked from the published version that is the published
+ * file's size, so ≈ 0 — fork, write, reject, fork again grew the bucket without
+ * a check. Now the usage is read under the quota lock before and after the
+ * swap, inside one transaction, and a crossing after-state rolls it back.
+ */
+describe('swapVersionContent — the quota is measured on the state it commits', () => {
+  const dialect = new PgDialect()
+
+  function fakeQuotaDb(usage: [number, number]) {
+    const statements: string[] = []
+    const reads = [...usage]
+    let updates = 0
+    const tx = {
+      update: () => ({
+        set: () => ({
+          where: (condition: SQL) => {
+            dialect.sqlToQuery(condition)
+            statements.push('UPDATE')
+            updates += 1
+            const result = updates === 1 ? [{ id: 'ver_1' }] : []
+            return Object.assign(Promise.resolve(result), { returning: async () => result })
+          },
+        }),
+      }),
+      select: () => ({
+        from: () => ({
+          where: async () => {
+            statements.push('USAGE')
+            return [{ bytes: String(reads.shift() ?? 0), versionBytes: '0' }]
+          },
+        }),
+      }),
+      execute: async (query: { queryChunks?: unknown[] }) => {
+        const text = JSON.stringify(query.queryChunks ?? query)
+        statements.push(text.includes('pg_advisory_xact_lock') ? 'LOCK' : 'ORPHAN CHECK')
+        return [{ named: true }]
+      },
+    }
+    return { statements, db: { transaction: async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx) } }
+  }
+
+  const base = {
+    versionId: 'ver_1',
+    documentId: 'doc_1',
+    organizationId: 'org_1',
+    expected: { state: 'draft' as const, storageKey: 'k/published', contentHash: 'sha256:alt' },
+    patch: {
+      storageKey: 'k/new',
+      storageBucket: 'b',
+      contentType: 'text/markdown',
+      fileSize: 4_000,
+      contentHash: 'sha256:neu',
+    },
+    mirrorsItem: false,
+  }
+
+  it('takes the storage lock, reads the usage, swaps, and reads it again — in that order', async () => {
+    const fake = fakeQuotaDb([5_000, 9_000])
+    currentDb = fake.db
+    await swapVersionContent({ ...base, quotaBytes: 10_000 })
+    expect(fake.statements).toEqual(['LOCK', 'USAGE', 'UPDATE', 'USAGE', 'ORPHAN CHECK'])
+  })
+
+  it('refuses a forked draft’s rewrite at its FULL size, because the published bytes stay', async () => {
+    // Before: 8_000 (the published file, shared by the fresh fork). After the
+    // swap the draft owns 4_000 more of its own: 12_000 > 10_000. The old delta
+    // (4_000 − the published file's 4_000 = 0) admitted this without a check.
+    currentDb = fakeQuotaDb([8_000, 12_000]).db
+    await expect(swapVersionContent({ ...base, quotaBytes: 10_000 })).resolves.toEqual({
+      ok: false,
+      reason: 'quota',
+      usedBytes: 8_000,
+    })
+  })
+
+  it('admits a rewrite that fits, and one that shrinks even over a lowered quota', async () => {
+    currentDb = fakeQuotaDb([5_000, 9_000]).db
+    await expect(swapVersionContent({ ...base, quotaBytes: 10_000 })).resolves.toMatchObject({
+      ok: true,
+    })
+
+    currentDb = fakeQuotaDb([12_000, 11_000]).db
+    await expect(swapVersionContent({ ...base, quotaBytes: 10_000 })).resolves.toMatchObject({
+      ok: true,
+    })
+  })
+
+  it('still serializes on the lock, and reads nothing, when the organization is unlimited', async () => {
+    const fake = fakeQuotaDb([0, 0])
+    currentDb = fake.db
+    await swapVersionContent({ ...base, quotaBytes: null })
+    expect(fake.statements).toEqual(['LOCK', 'UPDATE', 'ORPHAN CHECK'])
   })
 })

@@ -895,10 +895,9 @@ export async function uploadDocument(
   // not inserted, so nothing else will ever reference those bytes and leaving
   // them would be an orphan that only a bucket-wide sweep could find.
   if (superseded) {
-    // The row already exists and is already counted against the quota, so the
-    // charge is the DELTA — see `replaceDocumentWithinQuota`. Charging the full
-    // size against a total that still includes the old one would refuse a
-    // corrected plan for space the correction itself frees.
+    // The FULL size is charged: the previous bytes stay behind as the
+    // superseded version, so the correction frees nothing — see
+    // `replaceDocumentWithinQuota`.
     await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
       storageKey,
       storageBucket,

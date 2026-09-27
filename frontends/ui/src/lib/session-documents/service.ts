@@ -210,7 +210,7 @@ export async function uploadSessionDocument(
   // Same hard ceiling and the same compensating delete on refusal as the
   // project and Archiv paths (ADR-0042).
   if (superseded) {
-    // The row is already counted against the quota, so the charge is the delta.
+    // The full size is charged: the previous bytes stay as the superseded version.
     await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
       storageKey,
       storageBucket,
