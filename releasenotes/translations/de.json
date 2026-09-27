@@ -1596,6 +1596,10 @@
     "de": "Die Zeile „Belegt durch“ zeigt ab acht Quellen „+N weitere“ und klappt auf Wunsch alle auf, und „Alle Quellen kopieren“ übernimmt stets jede Quelle."
   },
   {
+    "en": "The Herleitung builds up more calmly while Piloti works: new steps and sources simply appear, and only the lines into the step in progress move. A finished Herleitung does not move at all.",
+    "de": "Die Herleitung baut sich während der Arbeit ruhiger auf: Neue Schritte und Quellen erscheinen einfach, und nur die Linien in den gerade offenen Schritt bewegen sich. Eine abgeschlossene Herleitung bewegt sich gar nicht."
+  },
+  {
     "en": "The Herleitung names what was actually searched instead of calling every search OIB knowledge.",
     "de": "Die Herleitung benennt, wonach tatsächlich gesucht wurde, statt jede Suche als OIB-Wissen zu bezeichnen."
   },

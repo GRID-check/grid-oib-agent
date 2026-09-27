@@ -3,8 +3,10 @@
  */
 import { describe, test, expect } from 'vitest'
 import {
+  animateFrontier,
   buildGraph,
   defaultFoldedRounds,
+  keepEdgeIdentity,
   planFan,
   type ReasoningFlowProps,
   type SpineFolding,
@@ -592,29 +594,50 @@ describe('buildGraph — only the handles a layout needs (P2-8)', () => {
   })
 })
 
-describe('buildGraph — a card animates once, not once per re-pack', () => {
-  test('only cards in enterOrder carry a cascade slot, and it starts at 0 per batch', () => {
-    // The fan re-packs on every card-count change, which moves cards between
-    // column NODES; React remounts them there and the CSS entrance replays. The
-    // columns therefore animate by card IDENTITY: `enterOrder` holds only the
-    // cards that have never entered, numbered from 0 within that batch.
-    const cards = [card('a'), card('b'), card('c')]
-    const fresh = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 3), cards, new Map([['c', 0]]))
-    const orders = fresh.nodes
-      .filter((n) => n.type === 'sourceColumn')
-      .map((n) => (n.data as unknown as { enterOrder: ReadonlyMap<string, number> }).enterOrder)
-    // Every column reads the same map, so a card's slot does not depend on
-    // which column the re-pack happened to put it in.
-    for (const o of orders) expect(o.get('c')).toBe(0)
-    for (const o of orders) expect(o.has('a')).toBe(false)
+describe('the only motion: React Flow\'s animated edges into the newest row', () => {
+  const liveSpine = (): ReasoningFlowProps => ({
+    ...base,
+    live: true,
+    steps: [
+      retrievalStep(0, 'q0', 'Grundregel steht.'),
+      toolHit('h0', 'a', 0),
+      retrievalStep(1, 'q1', 'Treppenraum offen.'),
+      toolHit('h1', 'b', 1),
+    ],
   })
 
-  test('a graph built without an enterOrder animates nothing', () => {
-    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 2), [card('a'), card('b')])
-    const order = (g.nodes.find((n) => n.type === 'sourceColumn')!.data as unknown as {
-      enterOrder: ReadonlyMap<string, number>
-    }).enterOrder
-    expect(order.size).toBe(0)
+  test('while live, exactly the edges into the newest row are animated', () => {
+    const cards = [card('a'), card('b')]
+    const g = buildGraph(liveSpine(), t, planFan(DESKTOP_W, 2), cards)
+    const newest = g.rows.at(-1)!
+    const edges = animateFrontier(g.edges, newest)
+    const into = edges.filter((e) => newest.includes(e.target))
+    expect(into.length).toBeGreaterThan(0)
+    for (const e of into) expect(e.animated).toBe(true)
+    for (const e of edges.filter((e) => !newest.includes(e.target))) expect(e.animated).toBeUndefined()
+  })
+
+  test('a settled graph has no animated edge', () => {
+    const cards = [card('a'), card('b')]
+    const g = buildGraph({ ...liveSpine(), live: false, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 2), cards)
+    expect(g.edges.length).toBeGreaterThan(0)
+    // Settled is an empty newest row, which is what ReasoningFlow passes.
+    expect(animateFrontier(g.edges, []).some((e) => e.animated)).toBe(false)
+    // …and `buildGraph` itself never marks one.
+    expect(g.edges.some((e) => e.animated)).toBe(false)
+  })
+
+  test('an unchanged edge keeps its object across a rebuild', () => {
+    const cards = [card('a'), card('b')]
+    const first = animateFrontier(buildGraph(liveSpine(), t, planFan(DESKTOP_W, 2), cards).edges, [])
+    const again = keepEdgeIdentity(first, animateFrontier(buildGraph(liveSpine(), t, planFan(DESKTOP_W, 2), cards).edges, []))
+    expect(again).toBe(first)
+    const target = first[0]!.target
+    const marked = keepEdgeIdentity(first, animateFrontier(first, [target]))
+    for (const [i, e] of marked.entries()) {
+      if (e.target === target) expect(e).not.toBe(first[i])
+      else expect(e).toBe(first[i])
+    }
   })
 })
 
@@ -645,7 +668,7 @@ describe('a turn that was CUT OFF says so where the fan converges', () => {
     // The worst case: cut off before it found anything. Without this the graph
     // simply stops after the framing card with nothing anywhere saying why.
     const props: ReasoningFlowProps = { ...base, steps: [budgetStep(['knowledge_search'])] }
-    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [])
     expect(g.nodes.find((n) => n.id === 'findings')).toBeDefined()
     expect(findings(g)?.truncation?.step).toBe('thinking.stepName.corpus')
   })
@@ -658,13 +681,13 @@ describe('a turn that was CUT OFF says so where the fan converges', () => {
       ...base,
       steps: [budgetStep(['use_skill', 'find_elements', 'light_incidence'])],
     }
-    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [])
     expect(findings(g)?.truncation).toMatchObject({ step: 'light_incidence', mono: true })
   })
 
   test('truncated with no tool named falls back to saying less', () => {
     const props: ReasoningFlowProps = { ...base, steps: [budgetStep([])] }
-    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [])
     expect(findings(g)?.truncation).toEqual({
       before: 'thinking.node.findingsTruncated',
       after: '',
@@ -674,13 +697,13 @@ describe('a turn that was CUT OFF says so where the fan converges', () => {
 
   test('a turn that finished its research carries no truncation line', () => {
     const props: ReasoningFlowProps = { ...base, answerConfidence: 'high' }
-    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [])
     expect(findings(g)?.truncation).toBeUndefined()
   })
 
   test('while the turn is still live the graph claims nothing about the ending', () => {
     const props: ReasoningFlowProps = { ...base, steps: [budgetStep(['knowledge_search'])], live: true }
-    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [])
     expect(findings(g)?.truncation).toBeUndefined()
   })
 })
@@ -717,7 +740,7 @@ describe('a deep run that was cut off or degraded says so under the assessment',
       | undefined)?.limits
 
   const build = (steps: ThinkingStep[], translator: Translator = t) =>
-    buildGraph({ ...base, steps }, translator, planFan(DESKTOP_W, 0), [], new Map())
+    buildGraph({ ...base, steps }, translator, planFan(DESKTOP_W, 0), [])
 
   test('a cut-off turn with no verdict and no sources still gets an assessment node', () => {
     // Same case the truncation line exists for, reached down the other road: a
@@ -776,7 +799,7 @@ describe('a deep run that was cut off or degraded says so under the assessment',
   test('a clean turn carries no limits block — there is no "all clear" row', () => {
     // Presence is the fact. A row saying nothing went wrong would be true on
     // almost every turn, which makes it a constant rather than an event.
-    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 0), [], new Map())
+    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 0), [])
     expect(limits(g)).toBeUndefined()
   })
 
@@ -785,8 +808,7 @@ describe('a deep run that was cut off or degraded says so under the assessment',
       { ...base, steps: [degradedStep(['no_valid_citations'])], live: true },
       t,
       planFan(DESKTOP_W, 0),
-      [],
-      new Map()
+      []
     )
     expect(limits(g)).toBeUndefined()
   })
@@ -859,7 +881,6 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
       t,
       planFan(DESKTOP_W, 1),
       cards,
-      new Map(),
       folding
     )
   }
@@ -946,7 +967,6 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
         translator,
         planFan(DESKTOP_W, 4),
         cards,
-        new Map(),
         { folded: new Set([0]), onToggle: () => {} }
       )
       const folded = roundData(g, 0)
@@ -962,7 +982,6 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
       createTranslator(de, 'chat') as Translator,
       planFan(DESKTOP_W, 4),
       cards,
-      new Map(),
       { folded: new Set([0]), onToggle: () => {} }
     )
     expect(roundData(g, 0).toggleLabel).toBe('Schritt 1 aufklappen')
@@ -993,7 +1012,6 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
         translator,
         planFan(DESKTOP_W, 2),
         [paged, card('b')],
-        new Map(),
         { folded: new Set([0]), onToggle: () => {} }
       )
       expect(roundData(g, 0).foldSummary).toBe(dictionary === de ? 'a · S. 3' : 'a · p. 3')
@@ -1016,7 +1034,6 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
       translator,
       planFan(DESKTOP_W, 2),
       [card('OIB-RL_2'), card('Brandschutzkonzept')],
-      new Map(),
       { folded: new Set([0]), onToggle: () => {} }
     )
     const summary = roundData(g, 0).foldSummary
@@ -1049,7 +1066,6 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
         translator,
         planFan(DESKTOP_W, 1),
         [retrieved],
-        new Map(),
         { folded: new Set([0]), onToggle: () => {} }
       )
       expect(roundData(g, 0).foldSummary).toBe('a')
@@ -1062,7 +1078,6 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
       t,
       planFan(DESKTOP_W, 2),
       [card('a'), card('b')],
-      new Map(),
       { folded: new Set(), onToggle: () => {} }
     )
     expect(roundData(g, 0).foldable).toBe(false)
@@ -1300,7 +1315,6 @@ describe('a ledger round draws its own fan', () => {
       createTranslator(de, 'chat') as Translator,
       planFan(DESKTOP_W, 2),
       [cited],
-      new Map(),
       folding
     )
     const round1 = g.nodes.find((n) => n.id === 'round-1')!.data as { foldSummary: string }
@@ -1314,7 +1328,7 @@ describe('sameNodeData: a rebuilt node that draws the same keeps its object', ()
   test('equal by value, however freshly built', () => {
     const build = () => ({
       cards: [{ id: 'a', hits: 2 }],
-      enterOrder: new Map([['a', 0]]),
+      order: new Map([['a', 0]]),
       folded: new Set([1]),
       label: 'Quellen',
       onToggle: () => {},
@@ -1323,9 +1337,9 @@ describe('sameNodeData: a rebuilt node that draws the same keeps its object', ()
   })
 
   test('any change a node would draw is a change', () => {
-    const base = { cards: [{ id: 'a', hits: 2 }], enterOrder: new Map([['a', 0]]), label: 'Quellen' }
+    const base = { cards: [{ id: 'a', hits: 2 }], order: new Map([['a', 0]]), label: 'Quellen' }
     expect(sameNodeData(base, { ...base, cards: [{ id: 'a', hits: 3 }] })).toBe(false)
-    expect(sameNodeData(base, { ...base, enterOrder: new Map([['a', 1]]) })).toBe(false)
+    expect(sameNodeData(base, { ...base, order: new Map([['a', 1]]) })).toBe(false)
     expect(sameNodeData(base, { ...base, label: 'Treffer' })).toBe(false)
     expect(sameNodeData(base, { ...base, extra: true })).toBe(false)
     expect(sameNodeData({ at: new Date(1) }, { at: new Date(2) })).toBe(false)
