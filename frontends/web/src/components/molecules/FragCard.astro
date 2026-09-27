@@ -25,19 +25,19 @@ const posStyle = Object.entries(pos)
 {
   variant === 'stage' ? (
     <div
-      class="absolute rounded-xl bg-ink px-3.5 py-2.5 shadow-frag"
+      class="absolute rounded-xl border border-surface/15 bg-ink px-3.5 py-2.5"
       style={posStyle}
       data-frag={`${dx},${dy}`}
       data-target={`${fx},${fy}`}
     >
-      <p class="font-display text-2xs uppercase tracking-label text-white/60">{tag}</p>
+      <p class="font-mono text-2xs uppercase tracking-label text-white/60">{tag}</p>
       <p class="mt-1.5 font-mono text-2xs leading-normal text-white/90">
         <slot />
       </p>
     </div>
   ) : (
-    <div data-hub-node class="relative min-w-0 rounded-xl bg-ink px-3 py-2.5 shadow-frag">
-      <p class="m-0 font-display text-2xs uppercase tracking-wider text-white/60">{tag}</p>
+    <div data-hub-node class="relative min-w-0 rounded-xl border border-surface/15 bg-ink px-3 py-2.5">
+      <p class="m-0 font-mono text-2xs uppercase tracking-wider text-white/60">{tag}</p>
       <p class="m-0 mt-1 break-words font-mono text-xs leading-snug text-white/90">
         <slot />
       </p>

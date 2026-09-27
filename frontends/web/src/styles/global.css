@@ -195,9 +195,6 @@
   --shadow-card: 0 1px 2px rgb(32 38 24 / 0.06), 0 4px 14px -6px rgb(32 38 24 / 0.1);
   --shadow-lift: 0 2px 4px rgb(24 28 16 / 0.05), 0 18px 44px -14px rgb(24 28 16 / 0.16);
   --shadow-mock: 0 1px 2px rgb(42 48 31 / 0.06), 0 30px 68px -34px rgb(42 48 31 / 0.34);
-  --shadow-frag: 0 8px 24px rgb(0 0 0 / 0.35);
-  --shadow-float: 0 18px 40px -22px rgb(0 0 0 / 0.6);
-  --shadow-hero: 0 24px 60px -24px rgb(0 0 0 / 0.7);
 }
 
 @media (min-width: 40rem) {

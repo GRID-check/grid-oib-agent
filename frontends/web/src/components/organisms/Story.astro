@@ -69,7 +69,7 @@ const plan = `<svg width="94" height="60" viewBox="0 0 94 60" fill="none" class=
         <div
           data-frag="-42,4"
           data-target="0.70,0.87"
-          class="absolute rounded-xl border border-surface/15 bg-panel px-3.5 py-3 shadow-frag"
+          class="absolute rounded-xl border border-surface/15 bg-panel px-3.5 py-3"
           style="left: 3%; top: 48%"
         >
           <p class="mb-2 font-display text-2xs font-semibold uppercase tracking-label text-on-dark-tag">
@@ -89,14 +89,17 @@ const plan = `<svg width="94" height="60" viewBox="0 0 94 60" fill="none" class=
         data-h-solution
         class="absolute left-1/2 top-[21%] z-20 w-[min(51rem,100%-6rem)] text-center opacity-0 max-lg:hidden"
       >
-        <h2 class="m-0 font-voice text-v4 text-on-dark-strong" style="text-wrap: balance">
+        <!-- The headline sits on a patch of the panel's own colour, so the
+             wires from the top fragments stop at its edge instead of running
+             through the words (they did at 1024 and 1440). -->
+        <h2 class="m-0 mx-auto w-fit bg-panel px-8 py-3 font-voice text-v4 text-on-dark-strong" style="text-wrap: balance">
           {t.story.solution}
         </h2>
       </div>
 
       <div
         data-solution-card
-        class="absolute left-1/2 top-[57%] z-30 box-border w-68 rounded-card bg-surface px-9 py-7 text-center text-panel opacity-0 shadow-hero max-lg:hidden"
+        class="absolute left-1/2 top-[57%] z-30 box-border w-68 rounded-card bg-surface px-9 py-7 text-center text-panel opacity-0 max-lg:hidden"
       >
         <p class="m-0 mb-2 font-display text-lg font-bold tracking-tight">Piloti</p>
         <p class="m-0 text-sm leading-normal text-accent-600">
@@ -131,7 +134,7 @@ const plan = `<svg width="94" height="60" viewBox="0 0 94 60" fill="none" class=
 
           <div
             data-hub-core
-            class="relative mx-auto my-9 max-w-[17rem] rounded-card bg-surface px-6 py-5 text-center text-panel shadow-hero"
+            class="relative mx-auto my-9 max-w-[17rem] rounded-card bg-surface px-6 py-5 text-center text-panel"
           >
             <p class="m-0 mb-1.5 font-display text-lg font-bold tracking-tight">Piloti</p>
             <p class="m-0 text-sm leading-normal text-accent-600">{t.story.cardTagline}</p>
@@ -141,7 +144,7 @@ const plan = `<svg width="94" height="60" viewBox="0 0 94 60" fill="none" class=
             {infos.map((c) => <InfoCard variant="tile" {...c} />)}
           </div>
           <div class="relative mt-2 flex justify-center">
-            <div data-hub-node class="rounded-xl border border-surface/15 bg-panel px-3.5 py-3 shadow-frag">
+            <div data-hub-node class="rounded-xl border border-surface/15 bg-panel px-3.5 py-3">
               <p class="m-0 mb-2 font-display text-2xs font-semibold uppercase tracking-wider text-on-dark-tag">
                 {t.story.tags.plan}
               </p>
