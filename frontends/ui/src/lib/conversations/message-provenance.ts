@@ -29,6 +29,8 @@
  * a client-supplied array in it is otherwise an unbounded write.
  */
 
+import type { SourceSignal } from '@/features/layout/lib/source-presets'
+import type { Shelf, SourceKind } from '@/features/chat/lib/source-kinds'
 import type { RetrievalLedger } from './message-retrieval-ledger'
 import { sanitizeRetrievalLedger } from './message-retrieval-ledger'
 
@@ -42,6 +44,49 @@ export const STEP_KINDS = [
   'clarification',
 ] as const
 export type StepKind = (typeof STEP_KINDS)[number]
+
+/**
+ * What a step may say on the live line and the Herleitung spine: the key, its
+ * values (what was searched, in which corpus), the model's own `reason` (its
+ * checkpoint sentence, attributed and never interpolated), and the `tools`
+ * that round called. Bounded on write, because the values are a
+ * client-supplied record.
+ */
+export interface StoredTurnEvent {
+  key: string
+  values?: Record<string, string>
+  reason?: string
+  tools?: string[]
+}
+
+/** One document hit inside a lane of a `sources` step. */
+export interface TraceSourceHit {
+  /** Raw document identity (corpus filename, hostname): what dedupes. */
+  name: string
+  /** The backend's human title; absent, `documentShortName` derives one from `name`. */
+  title?: string
+  detail?: string
+  /** The shelf the hit was read from (ADR-0047). */
+  shelf?: Shelf
+  /** The retrieval round that returned it. */
+  round?: number
+}
+
+/**
+ * One lane of a search's fan-out, as a `sources` step stores it: the wire's
+ * `TraceLane`, renamed to the stored field names and tinted once, when the
+ * fold takes the step (docs/design/chat-wire-v2.md §e.1).
+ */
+export interface TraceLaneCard {
+  key: string
+  label: string
+  hitCount: number
+  sources: TraceSourceHit[]
+  /** Canonical coarse source kind (ADR-0026), as the backend classified it. */
+  kind?: SourceKind
+  /** Provenance signal for the --source-* tint. */
+  signal: SourceSignal
+}
 
 /**
  * The compact stored form of one Herleitung step: exactly what the turn fold
@@ -62,16 +107,9 @@ export interface StoredThinkingStep {
   kind: StepKind
   /** Set only for in-process deep research; a chat step stores no key. */
   scope?: 'deep'
-  /**
-   * The turn event's key, values (what was searched, in which corpus),
-   * optional `reason` (the model's checkpoint sentence), and optional `tools`
-   * (basenames this round called). Bounded because the values are a
-   * client-supplied record. `reason` is the model's own words, capped like
-   * other reasons.
-   */
-  turnEvent?: { key: string; values?: Record<string, string>; reason?: string; tools?: string[] }
-  /** The sources fan-out (`TraceLaneCard[]`), which is the part of a step a reader actually reads. */
-  traceLanes?: unknown[]
+  turnEvent?: StoredTurnEvent
+  /** The sources fan-out, which is the part of a step a reader actually reads. */
+  traceLanes?: TraceLaneCard[]
   round?: number
   /** A tool's basename (`tool`, `sources`). */
   tool?: string
@@ -293,6 +331,15 @@ function sanitizeDetail(input: unknown): Record<string, StepDetailValue> | undef
   return Object.keys(detail).length > 0 ? detail : undefined
 }
 
+/** A lane with the fields every reader dereferences; its hits are bounded by the lane cap above. */
+const isTraceLane = (value: unknown): value is TraceLaneCard =>
+  isRecord(value) &&
+  typeof value.key === 'string' &&
+  typeof value.label === 'string' &&
+  typeof value.signal === 'string' &&
+  typeof value.hitCount === 'number' &&
+  Array.isArray(value.sources)
+
 /**
  * One step, or null. A step without a known `kind` is not a step: this is the
  * v2 shape only, and an older shape reaching this function is a writer bug,
@@ -319,9 +366,10 @@ function sanitizeStep(input: unknown): StoredThinkingStep | null {
   if (input.scope === 'deep') step.scope = 'deep'
   const { turnEvent } = sanitizeTurnEvent(input.turnEvent)
   if (turnEvent) step.turnEvent = turnEvent
-  if (Array.isArray(input.traceLanes) && input.traceLanes.length > 0) {
-    step.traceLanes = input.traceLanes.slice(0, MAX_TRACE_LANES)
-  }
+  const traceLanes = Array.isArray(input.traceLanes)
+    ? input.traceLanes.slice(0, MAX_TRACE_LANES).filter(isTraceLane)
+    : []
+  if (traceLanes.length > 0) step.traceLanes = traceLanes
   const round = nonNegativeInt(input.round)
   if (round !== undefined) step.round = round
   const tool = cap(input.tool, MAX_NAME_CHARS)

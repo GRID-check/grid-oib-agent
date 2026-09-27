@@ -76,7 +76,7 @@ const createMockChatState = (
     isSessionBusy?: (sessionId: string) => boolean
     hasAnyBusySession?: () => boolean
     isStreaming?: boolean
-    pendingInteraction?: { id: string; type: string; content: string } | null
+    pendingInteraction?: { turnId: string; interactionId: string; input: 'text' | 'choice' } | null
   } = {}
 ) => ({
   isSessionBusy: overrides.isSessionBusy ?? (() => false),
@@ -463,7 +463,7 @@ describe('SessionsPanel - Session Switching', () => {
   test('blocks switching when pending HITL interaction exists', async () => {
     setupChatStoreMock({
       isStreaming: false,
-      pendingInteraction: { id: 'p1', type: 'approval', content: 'Approve plan?' },
+      pendingInteraction: { turnId: 'm1', interactionId: 'p1', input: 'text' },
     })
 
     const user = userEvent.setup()
@@ -537,7 +537,7 @@ describe('SessionsPanel - New chat button', () => {
 
   test('disables new session button when HITL interaction is pending', () => {
     setupChatStoreMock({
-      pendingInteraction: { id: 'p1', type: 'approval', content: 'Approve?' },
+      pendingInteraction: { turnId: 'm1', interactionId: 'p1', input: 'text' },
     })
 
     render(<SessionsPanel sessions={mockSessions} />)

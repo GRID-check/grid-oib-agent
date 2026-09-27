@@ -225,8 +225,14 @@ primitive:
 | id | minted by | value shape | who knows it |
 |---|---|---|---|
 | user message row id | browser, `uuidv4()` | uuid4 | browser + BFF |
-| assistant message row id | browser, `uuidv4()` (`stores/messages-store.ts:1230`, `:1291`) | uuid4 | browser + BFF |
-| WS turn id (`parent_id`) | browser, **`msg_${Date.now()}_${counter}`** (`adapters/api/websocket-client.ts:266-269`, used at `:446-450`) | not a uuid | browser + agent tier |
+| assistant message row id | browser, `uuidv4()` | uuid4 | browser + BFF |
+| WS turn id (`parent_id`) | browser, **`msg_${Date.now()}_${counter}`** | not a uuid | browser + agent tier |
+
+> **[chat wire v2]** The three are one now. The question's row id is the
+> `user_message`'s `message_id`, which the agent tier makes the `turn_id`, and
+> the answer's row id is `uuid5(grid:assistant:<conversation>:<turn>)`, which
+> `RUN_STARTED` names. A stage event carries the `turn_id` and folds into the
+> turn's view like every other event (`features/chat/lib/turn-fold.ts`).
 
 The agent tier's only handle on the turn is the third one — NAT stores it as
 `self._message_parent_id` (`nat/front_ends/fastapi/message_handler.py:125`).
@@ -1628,9 +1634,9 @@ Then the specific risks:
    case is a suggested question the user must still read and send. That is
    materially safer than reflection, whose output is persisted memory (audit S2).
    The payload is still rendered as text, never as markdown or HTML.
-7. **Version skew.** New backend + old tab: the frame is dropped with a
-   warn-once (`websocket-client.ts:597-613`). Old backend + new tab: no frame
-   arrives, nothing renders. Both degrade to today's behaviour.
+7. **Version skew.** New backend + old tab: the old bundle's socket is closed
+   with 4426 and the tab asks to be reloaded (chat wire v2). Old backend + new
+   tab: no stage event arrives, nothing renders.
 8. **The `stages` metadata key grows.** It is jsonb on a hot table. Bound it in
    the sanitiser — a fixed key set, per-stage size caps — the same discipline
    `sanitizeProvenance` already applies (`service.ts:600-611`, and the reasoning

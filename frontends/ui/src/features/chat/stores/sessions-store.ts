@@ -5,14 +5,12 @@ import type {
   ChatStore,
   Conversation,
   ChatMessage,
-  PendingInteraction,
   RecoveryOutcome,
   ResumableTurn,
 } from '../types'
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
 import { discardSessionDocumentsResources } from '@/features/documents/discard-session-resources'
-import { stripThinkingStepsForStorage } from '../lib/prune-message-for-storage'
 import {
   clearAwaitingServerMessages,
   isAwaitingServerMessages,
@@ -26,7 +24,7 @@ import {
   isJobConversation,
 } from '../lib/project-scope'
 import { mapServerMessagesToChatMessages } from '../lib/server-message-mapper'
-import { mergeRemoteMessages } from './messages-store'
+import { mergeRemoteMessages, turnStateFor } from './messages-store'
 import { encodeCitations } from '../lib/citations'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import type { MessageStages } from '@/lib/conversations/message-stages'
@@ -45,7 +43,11 @@ export type SessionsSlice = {
    * settles back to false with nothing recovered.
    */
   isRecoveryPending: boolean
-  /** See `ChatState.resumableTurn`. */
+  /**
+   * A turn a reload (or a dead page) left open in this conversation, waiting
+   * for a socket to `attach` it from its first event. Taken by the socket hook
+   * once it is connected (`beginTurn`); never persisted.
+   */
   resumableTurn: ResumableTurn | null
 
   /**
@@ -293,19 +295,6 @@ const cancelLiveRuns = (
   }
 }
 
-/**
- * Leave the open conversation's turn as a reload leaves it. The socket goes with
- * the conversation, so the streaming bubble can never finish: settled, it kept
- * its caret and `streamingAssistantMessageId`, and on return it was the last
- * message, which hid the open question from the recovery in
- * `restoreSessionState`. Dropped (storage never held it: a live turn's growth is
- * not written), the question is open again and coming back fetches the finished
- * answer or replays the turn, exactly as after a reload.
- */
-const leaveOpenTurn = (get: () => ChatStore): void => {
-  if (get().streamingAssistantMessageId) get().discardStreamingAssistantMessage()
-}
-
 const maybeDiscardAbandonedUploadOnlySession = (
   get: () => ChatStore,
   sessionId: string | null | undefined
@@ -526,9 +515,6 @@ export const createSessionsSlice: StateCreator<
     } else {
       set(
         {
-          thinkingSteps: [],
-          activeThinkingStepId: null,
-          currentStatus: null,
           pendingInteraction: null,
         },
         false,
@@ -572,9 +558,6 @@ export const createSessionsSlice: StateCreator<
       (state) => ({
         conversations: [newConversation, ...state.conversations],
         currentConversation: newConversation,
-        thinkingSteps: [],
-        activeThinkingStepId: null,
-        currentStatus: null,
         pendingInteraction: null,
       }),
       false,
@@ -589,7 +572,6 @@ export const createSessionsSlice: StateCreator<
       throw new Error('Cannot start session draft without authenticated user')
     }
 
-    leaveOpenTurn(get)
     maybeDiscardAbandonedUploadOnlySession(get, currentConversation?.id)
 
     const layoutState = useLayoutStore.getState()
@@ -603,9 +585,6 @@ export const createSessionsSlice: StateCreator<
         isStreaming: false,
         isLoading: false,
         currentUserMessageId: null,
-        thinkingSteps: [],
-        activeThinkingStepId: null,
-        currentStatus: null,
         pendingInteraction: null,
       },
       false,
@@ -634,9 +613,6 @@ export const createSessionsSlice: StateCreator<
       (state) => ({
         conversations: [newConversation, ...state.conversations],
         currentConversation: newConversation,
-        thinkingSteps: [],
-        activeThinkingStepId: null,
-        currentStatus: null,
         pendingInteraction: null,
       }),
       false,
@@ -660,13 +636,9 @@ export const createSessionsSlice: StateCreator<
       candidate.userId === get().currentUserId &&
       conversationMatchesProject(candidate, get().projectId)
 
-    if (leavingId) {
-      // Only a switch that happens leaves the turn: a refused one stays on it.
-      if (canOpen(beforeLeave.conversations.find((c) => c.id === conversationId))) {
-        leaveOpenTurn(get)
-      }
-      maybeDiscardAbandonedUploadOnlySession(get, leavingId)
-    }
+    // A turn running in the conversation left keeps its view: its socket goes
+    // with the conversation, and coming back attaches from the view's last seq.
+    if (leavingId) maybeDiscardAbandonedUploadOnlySession(get, leavingId)
 
     const conversation = get().conversations.find((c) => c.id === conversationId)
     if (canOpen(conversation)) {
@@ -798,9 +770,6 @@ export const createSessionsSlice: StateCreator<
         conversations: remainingConversations,
         composerDrafts: nextComposerDrafts,
         currentConversation: shouldClearCurrent ? null : currentConversation,
-        thinkingSteps: [],
-        activeThinkingStepId: null,
-        currentStatus: null,
         pendingInteraction: null,
       },
       false,
@@ -929,102 +898,27 @@ export const createSessionsSlice: StateCreator<
   },
 
   restoreSessionState: (conversation: Conversation) => {
-    const allSteps = conversation.messages
-      .filter((m) => m.thinkingSteps && m.thinkingSteps.length > 0)
-      .flatMap((m) => m.thinkingSteps!)
+    // Turn state is the views' (a turn still running here, left and come back
+    // to, carries on from its view), never the messages'.
+    const turnState = turnStateFor(get().turns, conversation.id)
+    set(turnState, false, 'restoreSessionState')
+    if (turnState.isStreaming || turnState.pendingInteraction) return
 
-    const unrespondedPrompt = [...conversation.messages]
-      .reverse()
-      .find((m) => m.messageType === 'prompt' && !m.isPromptResponded)
-
-    let restoredPendingInteraction: PendingInteraction | null = null
-    if (
-      unrespondedPrompt?.promptId &&
-      unrespondedPrompt?.promptParentId &&
-      unrespondedPrompt?.promptInputType
-    ) {
-      restoredPendingInteraction = {
-        id: unrespondedPrompt.promptId,
-        parentId: unrespondedPrompt.promptParentId,
-        inputType: unrespondedPrompt.promptInputType,
-        text: unrespondedPrompt.content,
-        options: unrespondedPrompt.promptOptions,
-      }
-    }
-
-    set(
-      {
-        thinkingSteps: allSteps,
-        activeThinkingStepId: null,
-        isStreaming: false,
-        isLoading: false,
-        currentStatus: null,
-        pendingInteraction: restoredPendingInteraction,
-      },
-      false,
-      'restoreSessionState'
-    )
-
-    if (!restoredPendingInteraction) {
-      const meaningfulTypes = new Set(['user', 'assistant', 'agent_response', 'error', 'prompt'])
-      const lastMeaningful = [...conversation.messages]
-        .reverse()
-        .find((m) => meaningfulTypes.has(m.messageType ?? ''))
-
-      // A question this browser sent carries the turn id it went out under
-      // (`wsParentId`): even with no thinking step yet, its turn is known.
-      const lastIsOpenQuestion =
-        lastMeaningful?.messageType === 'user' &&
-        Boolean(lastMeaningful.thinkingSteps?.length || lastMeaningful.wsParentId)
-      if (lastMeaningful && lastIsOpenQuestion) {
-        // The turn LOOKS interrupted (last meaningful local message is the user
-        // turn, with thinking steps but no assistant reply). But the client may
-        // simply have been disconnected when the terminal frame was sent — the
-        // backend finishes the turn and persists the response server-side in
-        // that case. Refetch server history first: if the finished assistant
-        // message is there, render it and skip the banner. Only when the
-        // refetch yields nothing do we fall back to today's interrupted banner.
-        //
-        // Nothing finished yet does not mean nothing is coming: a turn still
-        // running on the server has no finished answer, and "answer lost" over
-        // it is wrong. Its frames are in the replay stream, so the socket hook
-        // rebuilds the turn from them (`resumableTurn`), and puts this banner
-        // up itself when the stream no longer holds it.
-        const interruptedUserId = lastMeaningful.id
-        const wsParentId = lastMeaningful.wsParentId
-        void (async () => {
-          const outcome = await get()._recoverInterruptedAssistantMessage(
-            conversation.id,
-            interruptedUserId
-          )
-          if (outcome === 'nothing' && wsParentId) {
-            set(
-              {
-                resumableTurn: {
-                  conversationId: conversation.id,
-                  userMessageId: interruptedUserId,
-                  wsParentId,
-                },
-              },
-              false,
-              'restoreSessionState:resumable'
-            )
-            return
-          }
-          if (outcome !== 'nothing') return
-          // No turn id to resume from: wait for the server's own write while
-          // the turn is still working, and say "lost" only when it is not.
-          const settled = await get()._awaitServerAnswer(conversation.id, interruptedUserId)
-          // `addErrorCard` writes into the open conversation: the reader may
-          // have moved to another one during a wait of minutes.
-          if (settled === 'nothing' && get().currentConversation?.id === conversation.id) {
-            // No explicit message: ErrorBanner localizes the registry default
-            // via `agent.response_interrupted`'s messageKey.
-            get().addErrorCard('agent.response_interrupted')
-          }
-        })()
-      }
-    }
+    // The newest thing in the thread is an open turn of mine: my question with
+    // no answer after it, or a prompt of my turn. A reload cut it off, or the
+    // page died before its answer. Its turn id is the question's own id, so
+    // the socket re-attaches it from its first event (`resumableTurn`); a
+    // stream that no longer holds it sends the reader to the server's copy.
+    const meaningfulTypes = new Set(['user', 'assistant', 'agent_response', 'error', 'prompt'])
+    const last = conversation.messages.findLast((m) => meaningfulTypes.has(m.messageType ?? ''))
+    const mine = !last?.authorUserId || last.authorUserId === get().currentUserId
+    const turnId =
+      last?.messageType === 'user' && mine
+        ? last.id
+        : last?.messageType === 'prompt'
+          ? last.promptParentId
+          : undefined
+    if (turnId) set({ resumableTurn: { conversationId: conversation.id, turnId } }, false, 'restoreSessionState:resumable')
   },
 
   _awaitServerAnswer: (conversationId: string, afterUserMessageId: string): Promise<RecoveryOutcome> => {
@@ -1196,7 +1090,6 @@ export const createSessionsSlice: StateCreator<
           ...(message.messageType === 'prompt'
             ? {
                 prompt: {
-                  ...(message.promptType && { promptType: message.promptType }),
                   ...(message.promptId && { promptId: message.promptId }),
                   ...(message.promptParentId && { promptParentId: message.promptParentId }),
                   ...(message.promptInputType && { promptInputType: message.promptInputType }),
@@ -1282,13 +1175,9 @@ export const createSessionsSlice: StateCreator<
     const targets: Array<[string, Record<string, unknown>]> = []
 
     if (userMessage?.thinkingSteps?.length) {
-      // The COMPACT form — the same one localStorage keeps, so a thread restored
-      // from the server and one restored from the browser look identical rather
-      // than differing in ways nobody would predict.
-      targets.push([
-        userMessage.id,
-        { thinkingSteps: stripThinkingStepsForStorage(userMessage.thinkingSteps) },
-      ])
+      // The stored shape is what the fold writes, so the server row, the
+      // browser's copy and the live turn cannot disagree.
+      targets.push([userMessage.id, { thinkingSteps: userMessage.thinkingSteps }])
     }
 
     if (assistantMessage) {

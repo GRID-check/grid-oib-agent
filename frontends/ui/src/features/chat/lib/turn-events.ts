@@ -13,7 +13,7 @@
  * render.
  */
 
-import type { StoredThinkingStep } from './turn-fold'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 import { stepEventLiveText, type StepEventTranslator } from './turn-event-keys'
 
 /**

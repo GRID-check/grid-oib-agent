@@ -20,7 +20,7 @@
  * (`toStoredStep`), so a titleless id never reaches the header.
  */
 
-import type { StoredThinkingStep } from '@/features/chat/lib/turn-fold'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 
 export type SkillActivityPhase = 'offered' | 'activated' | 'loaded'
 

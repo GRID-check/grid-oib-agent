@@ -5,16 +5,21 @@
  */
 
 import type { GridCard } from '@/shared/cards/schemas'
-import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
+import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
-import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
+import type {
+  AnswerConfidenceCappedReason,
+  StoredThinkingStep,
+} from '@/lib/conversations/message-provenance'
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import type { Findings } from '@/lib/conversations/message-findings'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import type { RunLedger } from '@/lib/runs/run-ledger-types'
 import type { MessageStages } from '@/lib/conversations/message-stages'
-import type { StageFrame } from './stores/messages-store'
-import type { SourceSignal } from '@/features/layout/lib/source-presets'
+import type { StoredPromptOption } from '@/lib/conversations/message-prompt'
+import type { MessagesSlice } from './stores/messages-store'
+import type { SessionsSlice } from './stores/sessions-store'
+import type { InteractionSlice } from './stores/interaction-store'
 
 import type { Shelf, SourceKind } from './lib/source-kinds'
 import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
@@ -76,18 +81,6 @@ export interface ComposerPrefill {
   subject?: ComposerSubject
 }
 
-/** Status types for status card messages */
-export type StatusType =
-  | 'thinking'
-  | 'searching'
-  | 'planning'
-  | 'researching'
-  | 'writing'
-  | 'complete'
-  | 'data_source_added'
-  | 'data_source_removed'
-  | 'error'
-
 /** File status for file operations */
 export type FileStatus = 'uploading' | 'ingesting' | 'success' | 'deleted' | 'error'
 
@@ -97,6 +90,8 @@ export type ErrorCode =
   | 'connection.lost'
   | 'connection.failed'
   | 'connection.timeout'
+  // The server speaks a newer wire than this page (close code 4426): reload.
+  | 'connection.client_outdated'
   // Auth errors
   | 'auth.session_expired'
   | 'auth.unauthorized'
@@ -132,93 +127,10 @@ export type ErrorCode =
  */
 export type RecoveryOutcome = 'recovered' | 'superseded' | 'nothing'
 
-/** A question a reload cut off mid-answer, and the WS id its frames carry as `parent_id`. */
+/** A question a reload cut off mid-answer: its turn is the question's own id. */
 export interface ResumableTurn {
   conversationId: string
-  userMessageId: string
-  wsParentId: string
-}
-
-export type PromptType = 'clarification' | 'approval' | 'choice' | 'text-input' | 'plan_approval'
-
-/**
- * Human prompt input types, aligned with NAT's real HITL enum plus the legacy
- * values kept for back-compat. `radio`/`checkbox`/`dropdown` render with the
- * existing choice UI; see `mapHumanPromptType`.
- */
-export type HumanPromptInputType =
-  | 'text'
-  | 'notification'
-  | 'binary_choice'
-  | 'radio'
-  | 'checkbox'
-  | 'dropdown'
-  | 'oauth_consent'
-  // Legacy values (older backends / persisted sessions)
-  | 'multiple_choice'
-  | 'approval'
-
-/**
- * Transparency extras attached to an answer from the terminal system_response
- * frame (WP-A → WP-B wire contract). All optional; each renders its own bit of
- * UI (the "Hinweis" role tab, capped-confidence note, citations-removed note)
- * only when present.
- */
-export interface AnswerTransparency {
-  /** Which path the turn turned out to take, observed after the answer. */
-  routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
-  escalationReason?: string
-  answerConfidenceCappedReason?: AnswerConfidenceCappedReason
-  /** The model's own one-clause justification for its self-assessment, shown verbatim in the chip tooltip. */
-  answerConfidenceReason?: string
-  citationsRemoved?: { count: number; reasons: string[] }
-  /**
-   * Retrieved-but-uncited documents for this answer (document key +
-   * lane/kind + page, no prose). Renders the collapsed "Gelesen, nicht
-   * zitiert" disclosure under the answer; absent when everything retrieved
-   * was cited.
-   */
-  readSources?: CitationSource[]
-  /**
-   * The turn's research was CUT OFF at its tool-iteration ceiling: the answer
-   * rests on the evidence gathered up to that point, not on a finished search.
-   * Present or absent, never false. Independent of `answerConfidence` — a
-   * truncated answer can be perfectly grounded in the little it did find.
-   */
-  researchTruncated?: true
-  /**
-   * WHY the research stopped early, as a stable token the dictionary turns into
-   * words. Read independently of `researchTruncated`: the flag and its cause
-   * are separate facts on the wire, and a cause without a flag says nothing.
-   */
-  truncationReason?: string
-  /**
-   * Ways this answer came out weaker than a healthy run, as stable tokens.
-   * Absent rather than empty — an empty list is not a claim.
-   */
-  degradedReasons?: string[]
-  /**
-   * Skills whose full instructions the agent loaded this turn (`use_skill`), in
-   * activation order. Absent when none — a skill merely being available is not
-   * reportable, only the decision to load one is.
-   */
-  skillsActivated?: string[]
-  /** The grid-hidden subset of skillsActivated — muted in the disclosure, never dropped. */
-  skillsHidden?: string[]
-  /**
-   * The answer's structured anatomy (verdict / takeaways / callout) — native
-   * answer fields, gated backend-side and sanitized at the wire boundary,
-   * rendered in a fixed layout by AgentResponse. Never cards.
-   */
-  answerMeta?: AnswerMeta
-  /** The report's findings (`lib/conversations/message-findings.ts`), rendered as the Befundmatrix. */
-  findings?: Findings
-  /**
-   * The backend's own account of this turn's retrieval rounds — native answer
-   * fields, recorded backend-side and sanitized at the wire boundary. The
-   * Herleitung spine draws each round's fan from it (`roundFan`).
-   */
-  retrievalLedger?: RetrievalLedger
+  turnId: string
 }
 
 /** File card data for file messages */
@@ -257,20 +169,14 @@ export interface ChatMessage {
   messageType?: MessageType
   /** Whether this message is still streaming */
   isStreaming?: boolean
-  /** Intermediate thinking steps from the agent */
-  intermediateSteps?: IntermediateStep[]
-  /** Status type for status messages */
-  statusType?: StatusType
-  /** Prompt type for prompt messages */
-  promptType?: PromptType
-  /** Prompt ID for HITL routing (may differ from message ID) */
+  /** The `interaction_id` of a HITL prompt message. */
   promptId?: string
-  /** Parent message ID for HITL response routing */
+  /** The turn the prompt belongs to (the question's id). */
   promptParentId?: string
-  /** Input type for HITL prompts */
-  promptInputType?: HumanPromptInputType
-  /** Options for choice prompts */
-  promptOptions?: string[]
+  /** What the prompt asks for: typed text, or one of `promptOptions`. */
+  promptInputType?: 'text' | 'choice'
+  /** The choices of a `choice` prompt; the answer is the chosen option's `id`. */
+  promptOptions?: StoredPromptOption[]
   /** Placeholder for text input prompts */
   promptPlaceholder?: string
   /** User's response to prompt */
@@ -296,8 +202,8 @@ export interface ChatMessage {
 
   // Session persistence fields (embedded in messages for localStorage persistence)
 
-  /** Thinking steps that occurred during processing (for user messages) */
-  thinkingSteps?: ThinkingStep[]
+  /** The turn's Herleitung, on the question it answers, exactly as it is persisted. */
+  thinkingSteps?: StoredThinkingStep[]
   /** Citations/sources used (for agent_response messages) */
   citations?: CitationSource[]
   /**
@@ -460,21 +366,11 @@ export interface ChatMessage {
    */
   runTitle?: string
   /**
-   * The WS turn id (`parent_id`) this answer belongs to
-   * (`docs/architecture/post-answer-stages.md` §1.6, §4.1).
-   *
-   * There are THREE independent id spaces for one turn: this message's row id
-   * (minted here, a uuid4), the user message's row id, and the WS turn id the
-   * client mints as `msg_${Date.now()}_${counter}`. The agent tier only ever
-   * sees the third, so it is the only id both halves genuinely share — and
-   * therefore the only correlation key a post-answer stage frame can carry.
-   *
-   * Browser-local by design: it is a handle on a live socket's turn, not a fact
-   * about the answer, so it is never persisted to the message row. A frame that
-   * matches no message in this tab is dropped, which is the correct outcome for
-   * a turn this tab did not ask.
+   * The asker pressed Stop and the server cancelled the turn: this is the
+   * partial answer it had written, kept and persisted as such
+   * (`RUN_FINISHED` with outcome `cancelled`).
    */
-  wsParentId?: string
+  stopped?: true
   /**
    * What a POST-ANSWER STAGE computed for this turn, arriving after the answer
    * (`docs/architecture/post-answer-stages.md` §4.3).
@@ -486,99 +382,6 @@ export interface ChatMessage {
   stages?: MessageStages
 }
 
-/** Intermediate thinking step from agent */
-export interface IntermediateStep {
-  id: string
-  name: string
-  status: 'in_progress' | 'complete' | 'error'
-  content: string
-  timestamp: Date
-}
-
-/** Categories for intermediate step tabs in the thinking panel */
-export type IntermediateStepCategory = 'tasks' | 'agents' | 'tools'
-
-/**
- * Compact lane hit surviving storage prune (Herleitung fan-out).
- * Mirrors `TraceLaneCard` in `./lib/trace-lanes` without a circular import.
- */
-export interface ThinkingTraceLane {
-  key: string
-  label: string
-  hitCount: number
-  sources: Array<{
-    name: string
-    title?: string
-    detail?: string
-    shelf?: Shelf
-    /** Retrieval round that produced this hit. Lets the spine split a merged tool step. */
-    round?: number
-  }>
-  /**
-   * Canonical coarse source kind (ADR-0026), as classified by the backend.
-   * Optional: lanes persisted before the `## Trace-Lanes` block carried it have
-   * only `signal`, which stays the field consumers read.
-   */
-  kind?: SourceKind
-  signal: SourceSignal
-}
-
-/** Thinking step for the Details Panel Thinking tab */
-export interface ThinkingStep {
-  /** Unique identifier for this step */
-  id: string
-  /** ID of the user message that triggered this thinking step */
-  userMessageId: string
-  /** Category for tab routing (tasks, agents, tools) */
-  category: IntermediateStepCategory
-  /** Raw function name from backend (e.g., "web_search_tool") */
-  functionName: string
-  /** Human-readable display name (e.g., "Web Search Tool") */
-  displayName: string
-  /** Content/output of this step (parsed payload) */
-  content: string
-  /** Raw payload from backend for debugging */
-  rawPayload?: string
-  /** When this step started */
-  timestamp: Date
-  /** Whether this step is complete (Function Complete received) */
-  isComplete: boolean
-  /** Whether this step is from deep research (for Research Panel routing) */
-  isDeepResearch?: boolean
-  /** True when backend name is "Function Start: ..." (top-level workflow step); false for model/tool sub-calls (indented) */
-  isTopLevel?: boolean
-  /**
-   * Compact Herleitung lane cards derived from tool output. Survives content
-   * stripping on localStorage prune so the sources fan-out remains after reload.
-   */
-  traceLanes?: ThinkingTraceLane[]
-  /**
-   * The turn event this step carried, hoisted: the stable key (`status.retrieval.withQuery`)
-   * and its interpolation values (the corpus, the query the model actually sent).
-   * The live line reads these out of `content`, which the storage prune blanks —
-   * so until this existed a reloaded thread, a colleague, or a second device had
-   * no record of what was searched. Same discipline as `traceLanes`: derived
-   * before the payload is dropped, newest renderable event of the slot wins.
-   */
-  turnEvent?: StoredTurnEvent
-}
-
-/** The one thing of a turn event worth keeping past the turn. */
-export interface StoredTurnEvent {
-  key: string
-  values?: Record<string, string>
-  /**
-   * The model's own words: the conclusion that caused this fetch. Same
-   * discipline as an escalation `reason` — not interpolated into the live
-   * line, attributed on the Herleitung spine. Absent when the model skipped
-   * Thought; the graph then keeps the layer without inventing a caption.
-   */
-  reason?: string
-  /** Tool basenames this round actually called. Architect-facing labels come from the dictionary. */
-  tools?: string[]
-}
-
-/** Conversation/Session */
 export interface Conversation {
   id: string
   /** Owner of this session - used to filter sessions by user */
@@ -615,20 +418,12 @@ export interface Conversation {
   enabledDataSourceIds?: string[]
 }
 
-/** Pending human interaction from agent */
+/** The question the agent is waiting on in the open conversation (`interaction_request`). */
 export interface PendingInteraction {
-  /** Unique ID for this interaction */
-  id: string
-  /** Parent message ID for response */
-  parentId: string
-  /** Type of input expected */
-  inputType: HumanPromptInputType
-  /** Prompt text */
-  text: string
-  /** Options for choice prompts */
-  options?: string[]
-  /** Default value for text input */
-  defaultValue?: string
+  turnId: string
+  interactionId: string
+  /** `choice`: the answer is an option's `id`; `text`: it is the typed text. */
+  input: 'text' | 'choice'
 }
 
 /** Citation source from research (deep SSE or shallow WS ``sources``). */
@@ -759,458 +554,9 @@ export interface WireCitationSource {
   binding_status?: string | null
 }
 
-/** Chat state for Zustand store */
-export interface ChatState {
-  /** Current authenticated user ID - used for filtering sessions */
-  currentUserId: string | null
-  /** Current active conversation */
-  currentConversation: Conversation | null
-  /** All conversations for the sessions sidebar (includes all users) */
-  conversations: Conversation[]
-  /**
-   * True while an interrupted-answer recovery fetch is in flight (FIX 3). Shows
-   * the calm "reconnecting — checking for a finished answer" copy instead of
-   * racing straight to the "answer lost" notice; the lost/interrupted UI only
-   * appears once this settles to false with nothing recovered.
-   */
-  isRecoveryPending: boolean
-  /**
-   * A turn a reload interrupted, waiting for its socket to rebuild it from the
-   * replay stream (`GET /api/conversations/:id/frames`). Set by
-   * `restoreSessionState` when the finished-answer recovery finds nothing: a
-   * turn still running on the server has no finished answer yet, and its
-   * frames, read back, continue it. Taken by the socket hook once it is
-   * connected (`resumeTurn`), which ends the turn with the banner if the
-   * stream no longer holds it. Never persisted.
-   */
-  resumableTurn: ResumableTurn | null
-  /**
-   * Whether the server conversation list has been asked for at least once. A
-   * `?session=<id>` deep link needs this to tell "stale id" from "not fetched
-   * yet" before it strips itself from the URL (see the sessions slice).
-   */
-  serverConversationsLoaded: boolean
-  /** Whether a message is currently streaming */
-  isStreaming: boolean
-  /** Whether we're waiting for the first response token */
-  isLoading: boolean
-  /** ID of the current user message being processed (for associating thinking steps) */
-  currentUserMessageId: string | null
-  /**
-   * The WS turn id (`parent_id`) of the turn in flight — the twin of
-   * `currentUserMessageId` in the id space the AGENT tier owns
-   * (`docs/architecture/post-answer-stages.md` §1.6). The answer bubble is
-   * stamped with it as it is built, so a post-answer stage frame, which knows
-   * only the turn, can find the message it belongs to. Null between turns.
-   */
-  currentTurnWsParentId: string | null
-  /** When this browser sent the current turn's question (epoch ms); null when it did not. */
-  currentTurnStartedAt: number | null
-  /** Thinking steps for the Details Panel - Thinking tab */
-  thinkingSteps: ThinkingStep[]
-  /** ID of the currently active thinking step (for appending content) */
-  activeThinkingStepId: string | null
-  /**
-   * ID of the assistant `agent_response` bubble currently accumulating streamed
-   * answer deltas for the active turn. Set on the first `in_progress` delta,
-   * cleared when the turn finalizes (terminal `complete` frame) or a new user
-   * turn begins. Null when no answer is mid-stream. This is what keeps N delta
-   * frames collapsing into ONE bubble instead of appending a fresh bubble per
-   * frame.
-   */
-  streamingAssistantMessageId: string | null
-  /** Active project ID for scoping (set by project chat page) */
-  projectId: string | null
-  /**
-   * One-shot draft text queued for the chat composer (InputArea). Set by deep
-   * links (`?ask=`) and welcome-screen suggestion chips; consumed exactly once
-   * by the composer. Null when there is nothing to prefill.
-   *
-   * `mentions` carries the STRUCTURED references a prefill renders as `@…`
-   * tokens (e.g. the hand-off banner's "ask Piloti instead"): without them the
-   * tokens are dead text and the send routes as a plain message, which is not
-   * what the button that queued the prefill promised (spec MN-3 — a mention is
-   * never re-derived from text).
-   */
-  composerPrefill: ComposerPrefill | null
-  /**
-   * What this draft/session is asking about. Survives the one-shot prefill
-   * consume so the composer chip stays up. Same Ask Piloti as `?ask=`.
-   *
-   * A peek-bound subject (citation auto-peek / document_grid via
-   * `openFilePeek`) lives only while that peek is visible: hide/close MUST
-   * clear this. A user-intent subject (`?doc=`) is not peek-bound and
-   * survives hide so the bar can restore the file.
-   */
-  composerSubject: ComposerSubject | null
-  /**
-   * Per-session composer drafts: the user's own in-progress, unsent text keyed
-   * by conversation id. Distinct from `composerPrefill` (one-shot, external):
-   * a draft is long-lived, survives session switches and reloads (persisted in
-   * the chat store's localStorage index, `stores/chat-storage.ts`), and is cleared only when its
-   * message is sent successfully or its session is removed. Keyed by
-   * conversation id so it is inherently project/user-scoped and never leaks
-   * across contexts.
-   */
-  composerDrafts: Record<string, string>
-  /**
-   * Transient live chat send callback registered by InputArea's WebSocket hook
-   * (mirrors `respondToInteractionFn`, not persisted). Lets components that do
-   * not own the socket — e.g. the retry action on an errored answer in
-   * ChatArea — resend through the real send path.
-   */
-  chatSendFn: ((content: string) => void) | null
-  /** Current status type (for status indicators) */
-  currentStatus: StatusType | null
-  /** Pending interaction requiring user response (for HITL) */
-  pendingInteraction: PendingInteraction | null
-  /** Transient callback for responding to HITL interactions (registered by InputArea, not persisted) */
-  respondToInteractionFn: ((response: string) => void) | null
-
-}
-
-/** Chat actions for Zustand store */
-export interface ChatActions {
-  /**
-   * Load conversations from the server and merge with local state.
-   * Pass a projectId to fetch that project's conversations (plus legacy
-   * unscoped rows) — used when entering a project chat.
-   */
-  loadServerConversations: (projectId?: string) => Promise<void>
-  /**
-   * Repopulate a conversation's messages from the server-persisted history
-   * when the local copy is empty (localStorage cleanup, new device). No-op
-   * for sessions that already have local messages.
-   */
-  hydrateConversationMessages: (conversationId: string) => Promise<void>
-  /** Set the current authenticated user ID */
-  setCurrentUser: (userId: string | null) => void
-  /**
-   * Get conversations filtered by current user AND the active project
-   * context (legacy sessions without a projectId fail open — see
-   * `lib/project-scope.ts`).
-   */
-  getUserConversations: () => Conversation[]
-  /** Create a new conversation for the current user (stamped with the active projectId) */
-  createConversation: () => Conversation
-  /** Start a new unsaved session draft; persisted only after first interaction. */
-  startNewSessionDraft: () => void
-  /** Ensure a session exists, creating one if needed. Returns session ID or undefined if no user. */
-  ensureSession: () => string | undefined
-  /** Select a conversation (only if owned by current user and visible in the active project context) */
-  selectConversation: (conversationId: string) => void
-  /** Add a user message to the current conversation */
-  addUserMessage: (
-    content: string,
-    metadata?: {
-      enabledDataSources?: string[]
-      messageFiles?: Array<{ id: string; fileName: string }>
-    }
-  ) => ChatMessage
-  /** Start streaming an assistant response */
-  startAssistantMessage: () => ChatMessage
-  /** Append content to the streaming assistant message */
-  appendToAssistantMessage: (content: string) => void
-  /** Complete the streaming assistant message */
-  completeAssistantMessage: () => void
-  /** Set loading state */
-  setLoading: (loading: boolean) => void
-  /** Set streaming state */
-  setStreaming: (streaming: boolean) => void
-  /**
-   * User-initiated cancel of the in-flight turn: flush batched deltas, finalize
-   * the current streaming bubble, clear isStreaming/isLoading/currentStatus, and
-   * trigger the websocket teardown. [C1]
-   */
-  stopStreaming: () => void
-  /** Delete a conversation */
-  deleteConversation: (conversationId: string) => void
-  /**
-   * Delete all of the current user's conversations in the active project
-   * context — exactly what the sessions panel shows there. Sessions stamped
-   * with a different project are never touched.
-   */
-  deleteAllConversations: () => void
-  /** Update conversation title */
-  updateConversationTitle: (conversationId: string, title: string) => void
-  /**
-   * ChatGPT-style naming: after the first answer completes, generate a concise
-   * title + OIB topic tags for the conversation from its opening exchange.
-   * Fires at most once per conversation; best-effort (keeps the provisional
-   * title on failure).
-   */
-  maybeGenerateConversationName: (conversationId: string) => void
-  /** Persist enabled data source IDs to the current conversation for per-session storage */
-  saveDataSourcesToConversation: (ids: string[]) => void
-
-  // New actions for thinking/report content and status/prompts
-
-  /** Add a new thinking step to the Details Panel with category and metadata */
-  addThinkingStep: (step: Omit<ThinkingStep, 'id' | 'timestamp' | 'userMessageId'>) => string
-  /** Get thinking steps filtered by user message ID */
-  getThinkingStepsForMessage: (userMessageId: string) => ThinkingStep[]
-  /** Append content to an existing thinking step */
-  appendToThinkingStep: (stepId: string, content: string) => void
-  /** Mark a thinking step as complete */
-  completeThinkingStep: (stepId: string) => void
-  /** Update or complete a thinking step by function name (for "Function Complete" messages) */
-  updateThinkingStepByFunctionName: (
-    functionName: string,
-    content: string,
-    isComplete: boolean
-  ) => void
-  /** Find a thinking step by function name */
-  findThinkingStepByFunctionName: (functionName: string) => ThinkingStep | undefined
-  /** Clear all thinking steps (for new request) */
-  clearThinkingSteps: () => void
-  /** Set current status type */
-  setCurrentStatus: (status: StatusType | null) => void
-  /** Add an agent prompt message to the conversation */
-  addAgentPrompt: (
-    type: PromptType,
-    content: string,
-    options?: string[],
-    placeholder?: string,
-    promptId?: string,
-    parentId?: string,
-    inputType?: HumanPromptInputType
-  ) => void
-  /** Respond to a prompt */
-  respondToPrompt: (messageId: string, response: string) => void
-
-  // Actions for agent responses and HITL
-
-  /** Add an agent response message to the chat (for short answers) */
-  addAgentResponse: (
-    content: string,
-    cards?: (GridCard | undefined)[],
-    answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[],
-    transparency?: AnswerTransparency
-  ) => void
-  /**
-   * Accumulate a streamed answer delta (`in_progress` content frame) into a
-   * single assistant bubble for the active turn. Creates the bubble on the
-   * first delta and appends text on each subsequent one. Meta (cards/
-   * confidence/citations) is normally absent on deltas but merged when present
-   * so the legacy single-`in_progress`-frame path (full text + cards on one
-   * delta) still attaches its cards.
-   */
-  appendAgentResponseDelta: (
-    content: string,
-    cards?: (GridCard | undefined)[],
-    answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[],
-    /** The masthead, when a live frame carries it ahead of the prose (ADR-0066). */
-    answerMeta?: AnswerMeta
-  ) => void
-  /**
-   * Replace the streaming bubble's text with a settled snapshot (ADR-0066):
-   * the prose so far with its `[N]` markers verified and renumbered, the
-   * sources they now point at, and the masthead re-gated against the prose.
-   * The bubble keeps streaming; the terminal frame still finalizes it.
-   */
-  replaceStreamingAgentResponse: (
-    content: string,
-    citations?: CitationSource[],
-    answerMeta?: AnswerMeta
-  ) => void
-  /**
-   * Finalize the accumulating answer bubble on the terminal `complete` frame:
-   * replace its content with the authoritative full text (idempotent — equals
-   * the accumulation), attach cards/sources/confidence, and mark it final. An
-   * EMPTY terminal (the legacy synthetic `complete` frame) keeps the
-   * accumulated text rather than wiping it. Falls back to a one-shot
-   * `addAgentResponse` when no delta ever opened a bubble.
-   */
-  finalizeAgentResponse: (
-    content: string,
-    cards?: (GridCard | undefined)[],
-    answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[],
-    transparency?: AnswerTransparency
-  ) => void
-  /**
-   * Record which WS turn the answer being built belongs to. Idempotent within a
-   * turn — every frame of a turn carries the same `parent_id`.
-   */
-  setTurnWsParentId: (wsParentId: string) => void
-  /**
-   * Stamp the question with the WS id it was sent under (`wsParentId`), so a
-   * reload can tell which of the conversation's replayed frames answer it.
-   */
-  markTurnWsParentId: (userMessageId: string, wsParentId: string) => void
-  /**
-   * Take the turn a reload left to resume, if it is this conversation's, and
-   * open it again: it is the current turn, streaming, with the thinking steps
-   * the reload kept dropped, because the replay rebuilds them.
-   */
-  resumeTurn: (conversationId: string) => ResumableTurn | null
-  /**
-   * Apply a post-answer stage frame to the turn it addresses
-   * (`docs/architecture/post-answer-stages.md` §4.3, §8).
-   *
-   * Declines the frame — silently, and normally — when it addresses no message
-   * here, when the answer is still streaming, when anything sits below that
-   * answer in the thread, or when the reader has started typing. Returns the id
-   * of the message it landed on when something was stored, so the caller can
-   * mirror it to the server; null otherwise.
-   */
-  applyStageFrame: (frame: StageFrame) => string | null
-  /**
-   * Drop the in-progress streaming assistant bubble of the current turn
-   * entirely (message removed, not finalized) and clear
-   * `streamingAssistantMessageId`. Used when a turn resolves in a surface other
-   * than an answer bubble — e.g. a job-admission rejection rendered as a banner
-   * — so any orphaned bubble opened by earlier deltas leaves no lingering caret.
-   * No-op when no streaming bubble is open.
-   */
-  discardStreamingAssistantMessage: () => void
-  /** Add an agent response with additional metadata - returns the created message ID */
-  addAgentResponseWithMeta: (
-    content: string,
-    meta: Partial<ChatMessage>,
-    cards?: (GridCard | undefined)[]
-  ) => string
-  /**
-   * Put a run's own message into the open thread with the id the SERVER gave
-   * it (ADR-0062): the run's message already exists, so this adopts a row
-   * rather than minting a second block for one run. Idempotent by that id.
-   * Written into `conversationId`, which need not be the open thread any more.
-   */
-  adoptRunMessage: (conversationId: string, message: ChatMessage) => void
-  /** Patch a specific message in a conversation */
-  patchConversationMessage: (
-    conversationId: string,
-    messageId: string,
-    patch: Partial<ChatMessage>
-  ) => void
-  /**
-   * Record the user's answer to one interactive card of an answer (see
-   * `features/grid-cards/card-decision.ts`). Writes it onto the owning message
-   * — persisting it to localStorage through the store's `persist` middleware —
-   * and mirrors it to the server message row so the decision also survives a
-   * storage wipe or a different device. No-op when the message is unknown.
-   */
-  setCardDecision: (messageId: string, cardKey: string, decision: CardDecision) => void
-  /** Set pending interaction requiring user response */
-  setPendingInteraction: (interaction: PendingInteraction | null) => void
-  /** Clear pending interaction (after user responds) */
-  clearPendingInteraction: () => void
-  /** Register the respondToInteraction callback (called by InputArea on mount) */
-  setRespondToInteractionFn: (fn: ((response: string) => void) | null) => void
-
-  // Actions for file and error cards
-
-  /** Add a file card message to the conversation */
-  addFileCard: (data: FileCardData) => void
-  /** Update file card status (for progress updates) */
-  updateFileCard: (messageId: string, data: Partial<FileCardData>) => void
-  /** Add an error card message to the conversation */
-  addErrorCard: (code: ErrorCode, message?: string, details?: string) => void
-  /** Dismiss an error card */
-  dismissErrorCard: (messageId: string) => void
-  /** Dismiss all connection error cards (connection.*) from the current conversation */
-  dismissConnectionErrors: () => void
-
-  // Session restoration
-
-  /** Restore ephemeral state (thinkingSteps, the pending HITL prompt) from a conversation's messages */
-  restoreSessionState: (conversation: Conversation) => void
-
-  /**
-   * Refetch server-persisted history for a seemingly-interrupted turn and, if
-   * the backend persisted the assistant reply while the client was disconnected,
-   * append it locally.
-   *
-   * Three outcomes rather than a boolean, because only ONE of them means the
-   * reader should be told their turn was interrupted. See {@link RecoveryOutcome}.
-   */
-  _recoverInterruptedAssistantMessage: (
-    conversationId: string,
-    afterUserMessageId: string,
-    options?: { quiet?: boolean }
-  ) => Promise<RecoveryOutcome>
-  /**
-   * Wait for the server's finished answer to a turn this page lost track of,
-   * for as long as the turn is still producing frames (its heartbeat), then
-   * look once more. `nothing` only when the turn has ended without one.
-   */
-  _awaitServerAnswer: (conversationId: string, afterUserMessageId: string) => Promise<RecoveryOutcome>
-
-  // Session busy checks (for disabling UI controls)
-
-  /**
-   * Check if a specific session has active operations.
-   * Scans message history for background jobs - the only way to detect jobs in non-current sessions.
-   * @param conversationId - The conversation ID to check
-   * @returns true if the session has active operations (shallow or deep research)
-   */
-  isSessionBusy: (conversationId: string) => boolean
-  /**
-   * Check if ANY session has active operations.
-   * Used to disable "Delete All Sessions" button.
-   * @returns true if any session has active operations
-   */
-  hasAnyBusySession: () => boolean
-
-  /** Ensure the current conversation record exists on the server */
-  _ensureConversationExists: () => Promise<void>
-  /** Append a single message to the server for the current conversation */
-  _appendMessage: (message: ChatMessage) => Promise<void>
-  /**
-   * Mirror a message's card decisions to its server row. Best-effort: the local
-   * store is already the authoritative copy, so a failure here only costs the
-   * cross-device/after-a-storage-wipe replay and is logged, never surfaced.
-   */
-  _persistCardInteractions: (
-    conversationId: string,
-    messageId: string,
-    cardInteractions: CardInteractions
-  ) => Promise<void>
-  /**
-   * Mirror the settled turn's provenance to its server rows (ADR-0037): the
-   * Herleitung onto the user message, the confidence and routing transparency onto
-   * the assistant message.
-   *
-   * Best-effort, like the card mirror. Without it a colleague — who holds no agent
-   * socket by design — sees a bare answer, and the asker loses the reasoning on any
-   * other device.
-   */
-  _persistTurnProvenance: () => Promise<void>
-  /**
-   * Mirror the answer to a human-in-the-loop prompt onto its message row, so the
-   * transcript records what was decided and a colleague's reload sees it settled.
-   */
-  _persistPromptState: (messageId: string, response: string) => Promise<void>
-  /**
-   * Mirror a post-answer stage's output onto its message row
-   * (`docs/architecture/post-answer-stages.md` §4.3). Best-effort, like the
-   * other mirrors: the chips are already rendered from the store, so losing it
-   * costs the replay, not the turn.
-   */
-  _persistStageOutput: (messageId: string, stages: MessageStages) => Promise<void>
-
-  /** Set the active project ID for collection scoping */
-  setProjectId: (projectId: string | null) => void
-
-  /** Queue text for the composer to pick up (does NOT auto-send). */
-  setComposerPrefill: (text: string, mentions?: DraftMention[], subject?: ComposerSubject) => void
-  setComposerSubject: (subject: ComposerSubject | null) => void
-  /** Read and clear the queued composer prefill; returns null when empty. */
-  consumeComposerPrefill: () => ComposerPrefill | null
-  /** Register the live chat send callback (called by InputArea on mount). */
-  setChatSendFn: (fn: ((content: string) => void) | null) => void
-  /** Resend the current conversation's last user message (retry affordance). */
-  retryLastUserMessage: () => void
-
-  /** Save (or update) the in-progress composer draft for a session. Passing an empty string drops the entry. */
-  setComposerDraft: (conversationId: string, text: string) => void
-  /** Read the persisted composer draft for a session ('' when none). */
-  getComposerDraft: (conversationId: string) => string
-  /** Drop a session's composer draft (on successful send or session removal). */
-  clearComposerDraft: (conversationId: string) => void
-}
-
-/** Combined chat store type */
-export type ChatStore = ChatState & ChatActions
+/**
+ * The chat store: the union of its three slices, each of which declares (and
+ * documents) its own state and actions. There is no second declaration here
+ * to keep in step with them.
+ */
+export type ChatStore = MessagesSlice & SessionsSlice & InteractionSlice

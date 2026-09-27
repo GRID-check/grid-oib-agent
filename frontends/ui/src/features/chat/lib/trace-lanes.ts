@@ -10,13 +10,7 @@
  */
 
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
-import type { ThinkingTraceLane } from '../types'
-import type { StoredThinkingStep } from './turn-fold'
-
-/** One lane of a search's fan-out, as stored on a `sources` step. */
-export type TraceLaneCard = ThinkingTraceLane
-/** One document hit inside a lane. */
-export type TraceSourceHit = ThinkingTraceLane['sources'][number]
+import type { StoredThinkingStep, TraceLaneCard } from '@/lib/conversations/message-provenance'
 
 /** Law first, then project, model, office, auto; within a signal by label. */
 const SIGNAL_ORDER: Record<SourceSignal, number> = {

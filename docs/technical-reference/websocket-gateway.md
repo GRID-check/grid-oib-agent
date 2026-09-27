@@ -69,69 +69,26 @@ Called internally (no external route) by `server.js` during WebSocket upgrade. R
 | `X-Grid-User-Id` | Session `userId` | Caller identity |
 | `Authorization` | `Bearer <accessToken>` | JWT for backend validation |
 
-## NAT protocol
+## The chat wire
 
-The `NATWebSocketClient` (`frontends/ui/src/adapters/api/websocket-client.ts`) sends and receives JSON messages typed by a `"type"` field.
+The socket speaks chat wire v2: the upgrade asks for `?v=2`, and any other
+version is closed with `4426`. The event set, the four client messages and
+the rejection codes are the contract in
+[`websocket-protocol.md`](../api/websocket-protocol.md); the design, and why
+it replaced NAT's frames, is [`chat-wire-v2.md`](../design/chat-wire-v2.md).
 
-### Outgoing messages
+The client is `createTurnSocket` (`frontends/ui/src/adapters/api/turn-socket.ts`):
 
-**user_message**: Standard chat query
-
-```json
-{
-  "type": "user_message",
-  "schema_type": "chat_stream",
-  "id": "msg_<timestamp>_<counter>",
-  "conversation_id": "s_<uuid>",
-  "content": {
-    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "{\"query\":\"...\",\"data_sources\":[...]}" }] }]
-  },
-  "timestamp": "2026-06-30T..."
-}
-```
-
-**user_interaction**: Response to a human prompt
-
-```json
-{
-  "type": "user_interaction",
-  "id": "msg_<timestamp>_<counter>",
-  "parent_id": "<prompt_message_id>",
-  "conversation_id": "s_<uuid>",
-  "content": {
-    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "<response>" }] }]
-  },
-  "timestamp": "2026-06-30T..."
-}
-```
-
-### Incoming messages
-
-**system_response**: Streaming or final response
-
-```json
-{ "type": "system_response", "content": "...", "status": "streaming|complete", "parent_id": "...", "cards": [...] }
-```
-
-**system_intermediate**: Thinking steps, tool calls, citations
-
-```json
-{ "type": "system_intermediate", "content": { ... }, "status": "...", "parent_id": "..." }
-```
-
-**system_interaction**: Human prompt (HITL)
-
-```json
-{ "type": "system_interaction", "id": "...", "parent_id": "...", "content": { "type": "clarification|approval", "title": "...", "message": "...", "options": [...] } }
-```
-
-**error**: Processing or auth error
-
-```json
-{ "type": "error", "content": { "code": "CONNECTION_FAILED|token_expired|auth_expired", "message": "...", "details": "..." } }
-```
-
-Auth errors with codes `auth_error`, `token_expired`, `token_invalid`, or `auth_expired` are tracked via `trackAuthEvent()` for RUM monitoring. `auth_expired` triggers a socket rotation with `refreshAuthBeforeReconnect`.
+- **Reconnect.** A jittered ladder (`createRetryLadder`, 1 s doubling to 30 s,
+  12 attempts), with the auth cookie refreshed before each attempt, since the
+  handshake is the only point where the gateway reads it. A `rejected{auth_expired}`
+  reopens the socket the same way and sends the refused message again.
+- **Resume.** On every reopen each turn the client still holds open is
+  re-`attach`ed from the last `seq` it folded; the agent tier replays the
+  turn from its stream and continues live.
+- **Liveness.** While a turn runs the server sends `heartbeat{every_ms}`;
+  three beats of silence and the socket is dropped and reopened. Nothing is
+  watched before `RUN_STARTED` or after the terminal.
 
 **`CUSTOM` `heartbeat`**: the running turn is still running (chat wire v2)
 
@@ -152,23 +109,3 @@ because it is thinking from one that is quiet because its backend is gone.
 `every_ms` is the server's stated cadence and the client's deadline is a
 multiple of it, so the interval is retuned on the backend alone. The whole event
 set is [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md).
-
-## Reconnection
-
-The `NATWebSocketClient` implements automatic reconnection with these characteristics:
-
-- **Max attempts**: 3 (configurable via `reconnectAttempts`)
-- **Base delay**: 1000ms between attempts (configurable via `reconnectDelay`)
-- **Backoff**: Fixed delay (not exponential in the current implementation)
-- **Auth refresh**: The `onBeforeReconnect` callback fires before each connect attempt, allowing the caller to refresh httpOnly auth cookies. Failures are swallowed — the connect proceeds with whatever cookies the browser has.
-- **Socket rotation**: `rotate()` atomically replaces the underlying WebSocket. It detaches all event handlers from the old socket before closing it, uses a per-handler `this.ws === socket` guard against stale events, and coalesces concurrent rotation calls into a single in-flight promise.
-
-### Connection lifecyle
-
-```
-disconnected → connect() → connecting → onopen → connected
-                                                 → onclose (intentional) → disconnected
-                                                 → onclose (unintentional) → handleReconnect()
-                                                                             → retry < max? → connect()
-                                                                             → retry >= max? → disconnected (final) + error
-```

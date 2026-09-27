@@ -18,7 +18,7 @@ import { SectionLabel } from '@/components/ui/section-label'
 import type { Translator } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import { stepNameLabel } from '../../lib/executed-steps'
-import type { StoredThinkingStep } from '../../lib/turn-fold'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 
 /** The row label for one stored step. */
 export const technicalStepLabel = (step: StoredThinkingStep, t: Translator): string => {

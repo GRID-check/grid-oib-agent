@@ -17,7 +17,8 @@
  */
 
 import type { WireEvent } from '@/adapters/api/wire-v2'
-import { foldTurnEvent, type StoredThinkingStep, type TurnView } from '@/features/chat/lib/turn-fold'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
+import { foldTurnEvent, type TurnView } from '@/features/chat/lib/turn-fold'
 import { INTERACTIVE_CARD_TYPES } from '@/features/grid-cards/card-decision'
 import { SYSTEM_CARD_TYPES } from '@/features/skills/lib/card-catalog'
 import { validateGridCards, type GridCard } from '@/shared/cards/schemas'

@@ -1230,6 +1230,10 @@ export const chat = {
       title: 'Connection Failed',
       message: 'Unable to connect to the server. Please check your network connection.',
     },
+    clientOutdated: {
+      title: 'Piloti was updated',
+      message: 'Reload the page to continue.',
+    },
     connectionTimeout: {
       title: 'Request Timeout',
       message: 'The request took too long to complete.',

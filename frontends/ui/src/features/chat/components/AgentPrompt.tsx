@@ -24,6 +24,7 @@ import {
   stripPlanFence,
   type PlanShape,
 } from './PlanChecklist'
+import type { StoredPromptOption } from '@/lib/conversations/message-prompt'
 
 /**
  * The byte-stable approval envelope (`researcher/clarify.py`
@@ -63,17 +64,11 @@ const APPROVAL_RESPONSE_KEYS: Record<string, string> = {
   cancel: 'agentPrompt.responseCancelled',
 }
 
-/** One option of a `choice` prompt, as the wire names it. */
-export interface PromptOption {
-  id: string
-  label: string
-}
-
 export interface AgentPromptProps {
   /** The question the agent asked. */
   content: string
   /** `choice` prompts carry options; a pick sends the option's `id`. */
-  options?: PromptOption[]
+  options?: StoredPromptOption[]
   /** Whether the prompt has been responded to */
   isResponded?: boolean
   /** The answer: the typed text, or the chosen option's `id`. */

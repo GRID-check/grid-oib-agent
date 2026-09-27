@@ -4,7 +4,7 @@ import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ChatThinking } from './ChatThinking'
 import { useLayoutStore } from '@/features/layout/store'
 import { storedStep } from '@/test-utils/wire-v2-steps'
-import type { StoredThinkingStep } from '../lib/turn-fold'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 
 /** A running tool this build has no name for: it speaks on no line and earns no chip. */
 const createStep = (overrides: Partial<StoredThinkingStep> = {}): StoredThinkingStep => ({

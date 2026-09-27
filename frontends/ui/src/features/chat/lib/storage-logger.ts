@@ -49,7 +49,7 @@ export const logStorageFailure = (key: string, chars: number, error: unknown): v
 export const logStorageMigration = (conversationCount: number): void => {
   if (process.env.NODE_ENV !== 'development') return
 
-  console.debug(`${LOG_PREFIX} Moved ${conversationCount} conversations to one key each`, {
+  console.debug(`${LOG_PREFIX} Dropped the cached messages of ${conversationCount} conversations (older shape)`, {
     timestamp: getTimestamp(),
   })
 }
