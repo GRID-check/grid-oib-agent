@@ -833,10 +833,7 @@ export const chat: typeof en.chat = {
     awaitingSomeone: 'Piloti wartet auf eine andere Person',
     needsInput: 'Piloti benötigt Ihre Eingabe',
     receivedInput: 'Piloti hat Ihre Eingabe erhalten',
-    approve: 'Genehmigen',
-    reject: 'Ablehnen',
     approvePlan: 'Plan genehmigen',
-    rejectPlan: 'Plan ablehnen',
     // The current three-way plan decision (start / answer briefly / cancel).
     startResearch: 'Recherche starten',
     answerShallow: 'Kurz beantworten',
@@ -845,8 +842,6 @@ export const chat: typeof en.chat = {
     cancelResearchAria: 'Recherche abbrechen',
     selectOption: 'Option auswählen: {option}',
     yourResponse: 'Ihre Antwort:',
-    approvalInstruction:
-      'Wählen Sie „Genehmigen“, um die Recherche zu starten, oder „Ablehnen“, um abzubrechen.',
     approvalInstructionThreeWay:
       'Starten Sie die Recherche, lassen Sie Ihre Frage stattdessen kurz beantworten, oder brechen Sie ab.',
     durationHint:
@@ -861,7 +856,6 @@ export const chat: typeof en.chat = {
     responseApproved: 'Recherche gestartet',
     responseShallow: 'Kurze Antwort angefordert',
     responseCancelled: 'Recherche abgebrochen',
-    responseRejected: 'Plan abgelehnt',
   },
   // Die einzelne Aufklappung in der Antwortfußzeile für alles hinter der
   // Quellenzeile und den Kopieraktionen (Konfidenz, Merknotiz, Skills,
@@ -915,25 +909,6 @@ export const chat: typeof en.chat = {
     working: 'Antwort wird erstellt …',
     waiting: 'Warten auf Antwort',
     elapsedAria: 'Vergangen: {seconds, plural, one {# Sekunde} other {# Sekunden}}',
-    // Live-Einzeiler, was der Assistent gerade tut — aus dem neuesten OFFENEN
-    // Schritt, der sich für Lesende formulieren lässt. Bewusst ohne Eintrag
-    // „zeig den Schrittnamen“: ein interner Bezeichner im Status-Gewand ist
-    // Rauschen. Ein nicht klassifizierbarer Schritt fällt auf die vorige
-    // sinnvolle Phrase zurück, sonst auf `working` weiter oben.
-    activity: {
-      // Gleiche Wörter wie die Chips darunter (`stepName.*`, etwa
-      // `stepName.corpus` = "Wissen"): Lesende sollen ein Vokabular
-      // lernen, nicht zwei für dieselbe Sache.
-      understanding: 'Frage wird eingeordnet …',
-      planning: 'Rechercheweg wird festgelegt …',
-      searchingWeb: 'Web wird durchsucht …',
-      searchingKnowledge: 'Wissen wird durchsucht …',
-      searchingRis: 'RIS wird durchsucht …',
-      searchingSources: 'Quellen werden durchsucht …',
-      researching: 'Recherche läuft …',
-      reading: 'Ergebnisse werden gelesen …',
-      composing: 'Antwort wird formuliert …',
-    },
     // ── Turn-Events: die Worte zu dem, was das Backend GEMELDET hat ───────
     //
     // Der Agent erzählt sich selbst über `status:<slot>`-Schritte — und zwar in
@@ -1052,7 +1027,6 @@ export const chat: typeof en.chat = {
       webSearch: 'Websuche',
       ris: 'RIS',
       corpus: 'Wissen',
-      assistant: 'Assistent',
       reading: 'Lesen',
       // Das Arbeitsverzeichnis der Unterhaltung: schreiben, lesen, ändern,
       // auflisten — ein Wort für alle vier. Was Lesende interessiert, ist dass
@@ -1068,8 +1042,6 @@ export const chat: typeof en.chat = {
       // `{name}` liefert die einzige Label-Instanz
       // (features/skills/lib/skill-activity).
       skill: 'Skill: {name}',
-      // Das blanke `use_skill`-Frame ohne erkennbaren Skill dahinter.
-      skillUnnamed: 'Skill',
       model: 'Gebäudemodell',
       measure: 'Messung',
       drawing: 'Plan',
@@ -1078,34 +1050,11 @@ export const chat: typeof en.chat = {
       card: 'Karte',
       compliance: 'Normprüfung',
     },
-    // Lesbare Namen für die Knoten und Werkzeuge, die das Backend meldet — für
-    // das Technik-Panel (Opt-in). Auf der Leitung stehen interne Ids
-    // (`knowledge_search`), und NAT reicht zusätzlich LangChain-Span-Namen
-    // durch, also CamelCase-Klassennamen. Deshalb löst das Panel jede Zeile
-    // über diese Map auf, statt zu title-casen, was gerade ankam. Was schon
-    // einen Chip hat, nutzt `stepName.*` oben mit: ein Knoten, eine Wortwahl.
+    // Die Namen im Technik-Panel für die zwei Schrittarten ohne eigenes
+    // Werkzeug oder eigenen Slot. Werkzeuge nutzen `stepName.*` oben.
     nodeName: {
-      // Der Rahmen, der den ganzen Zug über offen ist — kein Schritt darin.
-      workflow: 'Ablauf',
       clarification: 'Rückfrage',
-      deepResearch: 'Tiefenrecherche',
-      dataSources: 'Datenquellen',
-      note: 'Notiz gespeichert',
-      card: 'Ergebniskarte',
-      documents: 'Dokumentenliste',
-      askUser: 'Rückfrage an Sie',
-      model: 'Gebäudemodell',
-      measure: 'Modellmessung',
-      compliance: 'Normprüfung',
       skillSelection: 'Skill-Auswahl',
-      // Ein Knoten, für den dieser Build keinen Namen hat. Die Zeile bleibt —
-      // das Panel zählt seine Schritte und jeder trägt eine Uhrzeit, ein
-      // Weglassen ließe Liste und Zähler auseinanderlaufen und verschwiege,
-      // dass etwas lief — sagt aber nur, dass intern etwas passiert ist. Der
-      // rohe Name ist kein Vokabular, das man lernen kann (anders als ein
-      // `status:`-Slot, der genau das ist und bewusst wörtlich bleibt); er ist,
-      // wie das Framework diesen Span zufällig genannt hat.
-      internal: 'Interner Schritt',
     },
     interrupted: 'Unterbrochen',
     // Kompakter Inline-Hinweis auf einer unterbrochenen Antwort: eine stille

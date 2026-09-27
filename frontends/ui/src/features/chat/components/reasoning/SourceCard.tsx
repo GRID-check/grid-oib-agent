@@ -3,7 +3,7 @@
  *
  * It renders a {@link CitedDocument}, which is the same object the answer's
  * "Belegt durch" chips render. That is the point: this card and that chip used
- * to be built from two disconnected pipelines (the `## Trace-Lanes` JSON here,
+ * to be built from two disconnected pipelines (the trace-lane text block here,
  * the structured citation wire there) with no shared identity, so the trace
  * could show what was searched but never say which document became `[3]`, and
  * the two could disagree about a document's name and colour without anything

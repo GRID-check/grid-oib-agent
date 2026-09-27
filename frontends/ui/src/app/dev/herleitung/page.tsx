@@ -35,17 +35,16 @@
 import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
 import { ChatThinking } from '@/features/chat/components/ChatThinking'
-import type { ThinkingStep, CitationSource } from '@/features/chat/types'
+import type { CitationSource } from '@/features/chat/types'
+import type { StoredThinkingStep } from '@/features/chat/lib/turn-events'
 
-const step: ThinkingStep = {
+const step: StoredThinkingStep = {
   id: 'kb',
   userMessageId: 'msg-1',
-  category: 'tools',
-  functionName: 'knowledge_retrieval',
-  displayName: 'Knowledge Retrieval',
-  content: '',
+  kind: 'sources',
+  tool: 'knowledge_search',
   isComplete: true,
-  timestamp: new Date('2024-01-15T14:30:00'),
+  timestamp: '2024-01-15T14:30:00Z',
   traceLanes: [
     {
       key: 'baurecht_oib',
@@ -137,7 +136,7 @@ const defaultCommon = {
 // across five lanes. This is the case the old layout got wrong: the single-row
 // fan needed ~1.4k px, did not fit the 680px thread column, and collapsed the
 // whole graph into one vertical list. It must now pack into stacked columns.
-const denseStep: ThinkingStep = {
+const denseStep: StoredThinkingStep = {
   ...step,
   id: 'kb-dense',
   traceLanes: [
@@ -200,51 +199,39 @@ const denseCommon = {
 // count, and a spine of three or more arrives with everything but the newest
 // layer folded (`SPINE_FOLD_THRESHOLD`).
 //
-// The step shapes here are the wire's, taken from
-// `tests/fixtures/herleitung/two_search_rounds_steps.json`: the round stamp on
-// each hit is what splits one merged `knowledge_search` completion across the
-// fetches, and the `reason` is the model's own conclusion — never the query
-// (PF-12), which is why every `query` below is a string the graph must not show.
+// The steps are stored v2 rows: the round stamp on each hit is what joins it
+// to its fetch, and the `reason` is the model's own conclusion — never the
+// query (PF-12), which is why every `query` below is a string the graph must
+// not show.
 
-/** One `status:retrieval:N` line: the checkpoint that caused fetch N. */
-const retrievalStep = (index: number, query: string, reason: string): ThinkingStep => ({
-  id: `retrieval-${index}`,
+/** One `retrieval` step: the checkpoint that caused fetch N. */
+const retrievalStep = (index: number, query: string, reason: string): StoredThinkingStep => ({
+  id: `status:retrieval:${index}`,
   userMessageId: 'msg-1',
-  category: 'agents',
-  functionName: `status:retrieval:${index}`,
-  displayName: `status:retrieval:${index}`,
-  content: JSON.stringify({
-    kind: 'status',
-    channel: 'live',
-    slot: `retrieval:${index}`,
+  kind: 'retrieval',
+  round: index,
+  turnEvent: {
     key: 'status.retrieval.withQuery',
     values: { corpus: 'knowledge', query },
     tools: ['knowledge_search'],
     reason,
-  }),
+  },
   isComplete: true,
-  timestamp: new Date('2024-01-15T14:30:00'),
+  timestamp: '2024-01-15T14:30:00Z',
 })
 
-/**
- * ONE `knowledge_search` completion carrying every round's hits, which is what
- * production actually delivers: the store merges completions by function name,
- * so stream order cannot tell two fetches apart and the `round` stamp is the
- * only join.
- */
+/** ONE `sources` row carrying every round's hits: the per-hit `round` stamp is the join. */
 const mergedHits = (
   rounds: ReadonlyArray<
     ReadonlyArray<{ name: string; detail: string; lane: 'law' | 'project' | 'office' }>
   >
-): ThinkingStep => ({
+): StoredThinkingStep => ({
   id: 'kb-spine',
   userMessageId: 'msg-1',
-  category: 'tools',
-  functionName: 'knowledge_search',
-  displayName: 'Knowledge Search',
-  content: '',
+  kind: 'sources',
+  tool: 'knowledge_search',
   isComplete: true,
-  timestamp: new Date('2024-01-15T14:30:02'),
+  timestamp: '2024-01-15T14:30:02Z',
   traceLanes: rounds.flatMap((hits, round) =>
     (['law', 'project', 'office'] as const).flatMap((signal) => {
       const laneHits = hits.filter((hit) => hit.lane === signal)
@@ -334,32 +321,20 @@ const branchesCommon = {
   },
 }
 
-// Live scenario: a turn mid-stream — the agent's own step still open, the KB
-// hit, and an in-progress web search. Exercises the live activity phrase (shown only
+// Live scenario: a turn mid-stream — the KB hit and an in-progress web
+// search. Exercises the live activity phrase (shown only
 // while the step actually runs), the animated edges, the executed-step chips
 // with the running pulse, and the elapsed-time pill.
 const liveCommon = {
   steps: [
-    {
-      id: 'agent',
-      userMessageId: 'msg-1',
-      category: 'agents' as const,
-      functionName: 'shallow_research_agent',
-      displayName: 'Shallow Research Agent',
-      content: '',
-      isComplete: false,
-      timestamp: new Date('2024-01-15T14:30:00'),
-    },
     { ...step, id: 'kb' },
     {
-      id: 'web',
+      id: 'tool:web',
       userMessageId: 'msg-1',
-      category: 'tools' as const,
-      functionName: 'web_search_tool',
-      displayName: 'Web Search Tool',
-      content: '',
+      kind: 'tool' as const,
+      tool: 'web_search_tool',
       isComplete: false,
-      timestamp: new Date('2024-01-15T14:30:05'),
+      timestamp: '2024-01-15T14:30:05Z',
     },
   ],
   isThinking: true as const,

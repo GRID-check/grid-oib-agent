@@ -2,23 +2,38 @@
  * @vitest-environment node
  */
 import { describe, test, expect } from 'vitest'
-import { deriveExecutedSteps } from './executed-steps'
-import type { ThinkingStep } from '../types'
+import { fixtureSteps, storedStep } from '@/test-utils/wire-v2-steps'
+import { deriveExecutedSteps, stepNameLabel } from './executed-steps'
 
-// Echo translator: returns the key so assertions read the resolved step-name
-// key directly.
-const t = (key: string) => key
+// Echo translator: returns the key, except for the skill template.
+const t = (key: string) => (key === 'thinking.stepName.skill' ? 'Skill: {name}' : key)
 
-const step = (overrides: Partial<ThinkingStep> = {}): ThinkingStep => ({
-  id: 's',
-  userMessageId: 'm',
-  category: 'tools',
-  functionName: 'unknown',
-  displayName: 'Unknown',
-  content: '',
-  isComplete: true,
-  timestamp: new Date('2024-01-01T00:00:00Z'),
-  ...overrides,
+let n = 0
+const tool = (name: string, status: 'running' | 'ok' | 'error' = 'ok') =>
+  storedStep({ id: `tool:${(n += 1)}`, kind: 'tool', tool: name, status })
+
+const skill = (fields: Record<string, unknown>) =>
+  storedStep({ id: `skill:${String(fields.skill ?? 'x')}`, kind: 'skill', ...fields })
+
+describe('stepNameLabel', () => {
+  test.each([
+    ['web_search_tool', 'thinking.stepName.webSearch'],
+    ['advanced_web_search_tool', 'thinking.stepName.webSearch'],
+    ['ris_catalog_lookup_tool', 'thinking.stepName.ris'],
+    ['knowledge_search', 'thinking.stepName.corpus'],
+    ['read_passage', 'thinking.stepName.reading'],
+    ['view_knowledge_image', 'thinking.stepName.drawing'],
+    ['write_file', 'thinking.stepName.draft'],
+    ['file_draft', 'thinking.stepName.filing'],
+    ['set_doc_class', 'thinking.stepName.fileProposal'],
+  ])('%s → %s', (name, key) => {
+    expect(stepNameLabel(name, t)).toBe(key)
+  })
+
+  test('a basename without an entry has no label; nothing is pattern-matched', () => {
+    expect(stepNameLabel('ask_user', t)).toBeNull()
+    expect(stepNameLabel('my_knowledge_thing', t)).toBeNull()
+  })
 })
 
 describe('deriveExecutedSteps', () => {
@@ -26,332 +41,85 @@ describe('deriveExecutedSteps', () => {
     expect(deriveExecutedSteps([], t)).toEqual([])
   })
 
-  test.each([
-    ['web_search_tool', 'thinking.stepName.webSearch'],
-    ['tavily_search', 'thinking.stepName.webSearch'],
-    ['ris_search', 'thinking.stepName.ris'],
-    ['knowledge_retrieval', 'thinking.stepName.corpus'],
-    ['shallow_research_agent', 'thinking.stepName.assistant'],
-    ['url_fetch', 'thinking.stepName.reading'],
-    // The working directory's four verbs, one chip between them: what a reader
-    // wants to know is that a draft was worked on, not how many times.
-    ['write_file', 'thinking.stepName.draft'],
-    ['read_file', 'thinking.stepName.draft'],
-    ['edit_file', 'thinking.stepName.draft'],
-    ['ls', 'thinking.stepName.draft'],
-    // Leaving the working directory is a different fact, and it must not be
-    // eaten by the `draft` rule — hence the order of the two.
-    ['file_draft', 'thinking.stepName.filing'],
-    ['submit_draft', 'thinking.stepName.filing'],
-    ['create_task', 'thinking.stepName.task'],
-    // The five file-operation tools propose and write nothing (ADR-0003).
-    ['move_document', 'thinking.stepName.fileProposal'],
-    ['rename_document', 'thinking.stepName.fileProposal'],
-    ['create_folder', 'thinking.stepName.fileProposal'],
-    ['assign_document', 'thinking.stepName.fileProposal'],
-  ])('maps %s → %s', (functionName, expected) => {
-    expect(deriveExecutedSteps([step({ functionName })], t)[0].label).toBe(expected)
-  })
-
-  test('renders the working directory once, however many files a turn touched', () => {
-    // A turn that reads its draft, edits it twice and lists the directory is
-    // ONE piece of work. Five chips would be a log stream, which is what the
-    // technical panel is for.
-    const chips = deriveExecutedSteps(
-      [
-        step({ functionName: 'read_file' }),
-        step({ functionName: 'edit_file' }),
-        step({ functionName: 'edit_file' }),
-        step({ functionName: 'ls' }),
-      ],
-      t,
-    )
-    expect(chips.map((chip) => chip.label)).toEqual(['thinking.stepName.draft'])
-  })
-
-  test('an unlabelled internal function gets no chip — it is not title-cased into work', () => {
-    // The display-name fallback is what manufactured the noise: it took any
-    // internal name, title-cased it, and presented an identifier as a step the
-    // reader could learn something from. The step still appears in the
-    // technical steps panel for anyone who opts in — neutrally labelled, never
-    // under its internal name.
+  test('a recorded turn: the tool and the activated skill, and no status line', () => {
     expect(
-      deriveExecutedSteps(
-        [step({ functionName: 'acme_custom_tool', displayName: 'Acme Custom Tool' })],
-        t
-      )
-    ).toEqual([])
+      deriveExecutedSteps(fixtureSteps('turn-answered.jsonl'), t).map((chip) => chip.label)
+    ).toEqual(['thinking.stepName.corpus', 'Skill: Brandschutznachweis'])
   })
 
-  test('skips graph scaffolding, LLM model names, and deep-research steps', () => {
+  test('tools of one kind share one chip, in run order', () => {
     const chips = deriveExecutedSteps(
       [
-        step({ functionName: '<workflow>' }),
-        step({ functionName: 'chat_deepresearcher_agent' }),
-        step({ functionName: 'nvidia/nvidia/Nemotron-3-Nano-30B-A3B' }),
-        step({ functionName: 'web_search_tool', isDeepResearch: true }),
+        tool('ris_search_tool'),
+        tool('knowledge_search'),
+        tool('ris_fetch_tool'),
+        tool('write_file'),
       ],
       t
     )
-    expect(chips).toEqual([])
+    expect(chips.map((chip) => chip.label)).toEqual([
+      'thinking.stepName.ris',
+      'thinking.stepName.corpus',
+      'thinking.stepName.draft',
+    ])
   })
 
-  test('dedups a re-run tool into one chip and keeps run order', () => {
-    const chips = deriveExecutedSteps(
-      [
-        step({ id: '1', functionName: 'shallow_research_agent' }),
-        step({ id: '2', functionName: 'web_search_tool' }),
-        step({ id: '3', functionName: 'web_search_tool' }),
-      ],
-      t
-    )
-    expect(chips.map((c) => c.key)).toEqual(['shallow_research_agent', 'web_search_tool'])
+  test('an unlabelled tool gets no chip', () => {
+    expect(deriveExecutedSteps([tool('ask_user')], t)).toEqual([])
   })
 
-  test('marks the in-progress step as running; a re-run refreshes the flag', () => {
-    const chips = deriveExecutedSteps(
-      [
-        step({ id: '1', functionName: 'web_search_tool', isComplete: true }),
-        step({ id: '2', functionName: 'web_search_tool', isComplete: false }),
-      ],
-      t
-    )
-    expect(chips).toHaveLength(1)
-    expect(chips[0].running).toBe(true)
+  test('the newest step under a chip decides whether it is running', () => {
+    expect(deriveExecutedSteps([tool('ris_search_tool', 'running')], t)[0].running).toBe(true)
+    expect(
+      deriveExecutedSteps([tool('ris_search_tool', 'running'), tool('ris_fetch_tool')], t)[0]
+        .running
+    ).toBe(false)
+    expect(
+      deriveExecutedSteps([tool('ris_search_tool'), tool('ris_fetch_tool', 'running')], t)[0]
+        .running
+    ).toBe(true)
   })
 
-  test('a completed re-run clears the running flag of the earlier entry', () => {
-    const chips = deriveExecutedSteps(
-      [
-        step({ id: '1', functionName: 'web_search_tool', isComplete: false }),
-        step({ id: '2', functionName: 'web_search_tool', isComplete: true }),
-      ],
-      t
-    )
-    expect(chips).toHaveLength(1)
-    expect(chips[0].running).toBe(false)
+  test('deep-research steps get no chip', () => {
+    const deep = storedStep({ id: 'tool:d', kind: 'tool', tool: 'web_search_tool', scope: 'deep' })
+    expect(deriveExecutedSteps([deep], t)).toEqual([])
   })
-})
 
-/**
- * Skill chips.
- *
- * `use_skill` is an ordinary LangChain tool, so before the `skill:` steps
- * existed the chip row said "Use Skill" — English, in a German UI, naming the
- * mechanism rather than the skill — and three activated skills collapsed into
- * one entry because the raw tool name is the same every time. The per-skill
- * steps give each activation its own identity; the label comes from the single
- * authority in `features/skills/lib/skill-activity`.
- */
-describe('deriveExecutedSteps — skills', () => {
-  const skillStep = (name: string, payload: Record<string, unknown>, over = {}) =>
-    step({
-      id: `skill-${name}`,
-      functionName: `skill:${name}`,
-      displayName: name,
-      content: JSON.stringify(payload),
-      ...over,
-    })
-
-  test('an activated skill with a title reads as the title, in proportional text', () => {
+  test('an activated skill with a title reads as the title', () => {
     const [chip] = deriveExecutedSteps(
-      [skillStep('oib-brandschutz', { phase: 'activated', name: 'oib-brandschutz', title: 'Brandschutznachweis' })],
+      [skill({ phase: 'activated', skill: 'a', title: 'Brandschutz' })],
       t
     )
-    expect(chip.label).toBe('thinking.stepName.skill')
+    expect(chip).toMatchObject({ label: 'Skill: Brandschutz', skill: true })
     expect(chip.mono).toBeUndefined()
-    expect(chip.prefix).toBeUndefined()
   })
 
   test('an activated skill without a title keeps its bare identifier, in mono', () => {
-    const [chip] = deriveExecutedSteps(
-      [skillStep('oib-brandschutz', { phase: 'activated', name: 'oib-brandschutz' })],
-      t
-    )
-    expect(chip.mono).toBe('oib-brandschutz')
-    // Never title-cased into "Oib Brandschutz".
-    expect(chip.mono).not.toMatch(/Oib/)
+    const [chip] = deriveExecutedSteps([skill({ phase: 'activated', skill: 'oib-bsn' })], t)
+    expect(chip).toMatchObject({ label: 'Skill: oib-bsn', prefix: 'Skill:', mono: 'oib-bsn' })
   })
 
-  test('three activated skills produce three chips, not one', () => {
-    const chips = deriveExecutedSteps(
-      [
-        skillStep('a', { phase: 'activated', name: 'a' }),
-        skillStep('b', { phase: 'loaded', name: 'b' }),
-        skillStep('c', { phase: 'activated', name: 'c' }),
-      ],
-      t
-    )
-    expect(chips.map((c) => c.key)).toEqual(['skill:a', 'skill:b', 'skill:c'])
-  })
-
-  test('an OFFERED skill is availability and gets no chip', () => {
-    // The same rule that killed the phantom "Websuche": a skill being in the
-    // catalogue is not something this turn did.
-    expect(
-      deriveExecutedSteps([skillStep('a', { phase: 'offered', name: 'a', description: 'x' })], t)
-    ).toEqual([])
-  })
-
-  test('the round-level skill_selection bookkeeping gets no chip', () => {
+  test('offered and hidden skills are availability and get no chip', () => {
     expect(
       deriveExecutedSteps(
         [
-          step({
-            functionName: 'skill_selection',
-            content: JSON.stringify({ phase: 'offered', offered_count: 6, forced_names: [] }),
-          }),
+          skill({ phase: 'offered', count: 4 }),
+          skill({ phase: 'activated', skill: 'h', title: 'H', hidden: true }),
         ],
         t
       )
     ).toEqual([])
   })
 
-  test('a skill step with an unreadable payload is dropped rather than guessed at', () => {
-    // Without a phase we cannot tell an offer from an activation, and guessing
-    // in the direction that overclaims is the bug this whole change removes.
-    expect(deriveExecutedSteps([skillStep('a', {} as Record<string, unknown>)], t)).toEqual([])
-  })
-
-  test('the phases of one skill arrive under one step name and stay one chip', () => {
-    // The store appends each phase's payload to the same step, so `content`
-    // holds several JSON objects; the newest phase wins.
+  test('two named skills are two chips; loaded after activated stays one', () => {
     const chips = deriveExecutedSteps(
       [
-        step({
-          functionName: 'skill:a',
-          content:
-            JSON.stringify({ phase: 'offered', name: 'a' }) +
-            '\n' +
-            JSON.stringify({ phase: 'loaded', name: 'a', body_chars: 4096 }),
-        }),
+        skill({ phase: 'activated', skill: 'a', title: 'A' }),
+        skill({ phase: 'loaded', skill: 'a', title: 'A' }),
+        storedStep({ id: 'skill:b', kind: 'skill', phase: 'activated', skill: 'b', title: 'B' }),
       ],
       t
     )
-    expect(chips).toHaveLength(1)
-    expect(chips[0].mono).toBe('a')
-  })
-
-  test('bare use_skill is labelled honestly and unnamed, never "Use Skill"', () => {
-    const [chip] = deriveExecutedSteps([step({ functionName: 'use_skill' })], t)
-    expect(chip.label).toBe('thinking.stepName.skillUnnamed')
-  })
-
-  test('named skill chips supersede the bare use_skill chip — one fact, one chip', () => {
-    const chips = deriveExecutedSteps(
-      [step({ functionName: 'use_skill' }), skillStep('a', { phase: 'activated', name: 'a' })],
-      t
-    )
-    expect(chips.map((c) => c.key)).toEqual(['skill:a'])
-  })
-})
-
-/**
- * Status one-liners must not become chips.
- *
- * They are sentences about the turn, and NAT reports them as TOP-LEVEL
- * functions — so without an explicit rule they land here under raw machine
- * names. `status:retrieval:0` is the sharp case: it matches the corpus rule on
- * "retriev" and would render a second, plausible-looking "OIB-Korpus" chip
- * beside the real retrieval tool's own.
- */
-describe('deriveExecutedSteps — turn status events', () => {
-  const statusStep = (slot: string, payload: Record<string, unknown>) =>
-    step({
-      id: `status-${slot}`,
-      functionName: `status:${slot}`,
-      displayName: `status:${slot}`,
-      content: JSON.stringify({ kind: 'status', channel: 'live', slot, ...payload }),
-    })
-
-  test.each([['routing'], ['retrieval:0'], ['documents'], ['citations'], ['escalation']])(
-    'status:%s earns no chip',
-    (slot) => {
-      expect(
-        deriveExecutedSteps([statusStep(slot, { key: 'status.citations', values: {} })], t)
-      ).toEqual([])
-    }
-  )
-
-  test('the retrieval status does not duplicate the tool chip it describes', () => {
-    const chips = deriveExecutedSteps(
-      [
-        statusStep('retrieval:0', {
-          key: 'status.retrieval.withQuery',
-          values: { corpus: 'knowledge', query: 'GK4' },
-          tools: ['knowledge_search'],
-        }),
-        step({ id: 'tool', functionName: 'knowledge_search_tool' }),
-      ],
-      t
-    )
-    expect(chips.map((c) => c.key)).toEqual(['knowledge_search_tool'])
-    expect(chips[0].label).toBe('thinking.stepName.corpus')
-  })
-
-  describe('one chip per kind of work, not per tool call', () => {
-    /**
-     * The stakeholder report was „AUSGEFÜHRT: Einordnung, Assistent,
-     * OIB-Wissen, OIB-Wissen, OIB-Wissen…" — a word repeated, which reads as a
-     * stutter rather than as three tools and tells the reader nothing the first
-     * chip had not. The cause was deduplicating on the internal tool NAME while
-     * labelling by rule: `ris_search_tool`, `ris_fetch_tool` and
-     * `ris_catalog_lookup_tool` are three names for one chip.
-     */
-    test('renders RIS once, however many RIS tools ran', () => {
-      const steps = [
-        step({ functionName: 'ris_search_tool' }),
-        step({ functionName: 'ris_fetch_tool' }),
-        step({ functionName: 'ris_catalog_lookup_tool' }),
-      ]
-
-      expect(deriveExecutedSteps(steps, t).map((chip) => chip.label)).toEqual([
-        'thinking.stepName.ris',
-      ])
-    })
-
-    test('renders the corpus once, however many retrieval tools ran', () => {
-      const steps = [
-        step({ functionName: 'knowledge_search' }),
-        step({ functionName: 'knowledge_search' }),
-        step({ functionName: 'corpus_retrieve' }),
-      ]
-
-      expect(deriveExecutedSteps(steps, t)).toHaveLength(1)
-    })
-
-    test('still shows different kinds of work as different chips', () => {
-      const steps = [
-        step({ functionName: 'shallow_research_agent' }),
-        step({ functionName: 'knowledge_search' }),
-        step({ functionName: 'ris_search_tool' }),
-        step({ functionName: 'web_search_tool' }),
-      ]
-
-      expect(deriveExecutedSteps(steps, t)).toHaveLength(4)
-    })
-
-    test('a later tool under one chip still clears the running flag', () => {
-      // Steps are newest last, so the completed fetch must un-run the chip the
-      // in-progress search raised — otherwise a finished turn keeps a spinner.
-      const steps = [
-        step({ functionName: 'ris_search_tool', isComplete: false }),
-        step({ functionName: 'ris_fetch_tool', isComplete: true }),
-      ]
-
-      const chips = deriveExecutedSteps(steps, t)
-
-      expect(chips).toHaveLength(1)
-      expect(chips[0]!.running).toBe(false)
-    })
-
-    test('and a later tool under one chip can raise it', () => {
-      const steps = [
-        step({ functionName: 'ris_search_tool', isComplete: true }),
-        step({ functionName: 'ris_fetch_tool', isComplete: false }),
-      ]
-
-      expect(deriveExecutedSteps(steps, t)[0]!.running).toBe(true)
-    })
+    expect(chips.map((chip) => chip.label)).toEqual(['Skill: A', 'Skill: B'])
   })
 })

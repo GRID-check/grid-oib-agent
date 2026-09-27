@@ -8,7 +8,7 @@
  *  |------------------------------|----------------------------------------|
  *  | structured wire (`sources`)  | identity, title, kind/lane, page, `[N]` |
  *  | written `## Quellen` list    | `[N]` ↔ locator binding, as prose       |
- *  | `## Trace-Lanes` fan-out     | what was RETRIEVED (cited or not)       |
+ *  | `sources` step lanes         | what was RETRIEVED (cited or not)       |
  *  | `legal_basis` cards          | a law name and an excerpt, no locus     |
  *
  * They used to be consumed by three different surfaces with three different

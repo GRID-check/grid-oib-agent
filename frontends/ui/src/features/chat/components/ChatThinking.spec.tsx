@@ -3,19 +3,30 @@ import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ChatThinking } from './ChatThinking'
 import { useLayoutStore } from '@/features/layout/store'
-import type { ThinkingStep } from '../types'
+import { storedStep } from '@/test-utils/wire-v2-steps'
+import type { StoredThinkingStep } from '../lib/turn-events'
 
-const createStep = (overrides: Partial<ThinkingStep> = {}): ThinkingStep => ({
+/** A running tool this build has no name for: it speaks on no line and earns no chip. */
+const createStep = (overrides: Partial<StoredThinkingStep> = {}): StoredThinkingStep => ({
   id: 'step-1',
   userMessageId: 'msg-1',
-  category: 'tasks',
-  functionName: 'test_function',
-  displayName: 'Test Function',
-  content: 'Step content here',
+  kind: 'tool',
+  tool: 'acme_internal',
   isComplete: false,
-  timestamp: new Date('2024-01-15T14:30:00'),
+  timestamp: '2024-01-15T14:30:00',
   ...overrides,
 })
+
+const oibSources = (hits: Array<{ name: string; detail: string }>) =>
+  storedStep({
+    id: 'sources:0:knowledge_search:1',
+    kind: 'sources',
+    tool: 'knowledge_search',
+    round: 0,
+    lanes: [
+      { key: 'baurecht_oib', label: 'OIB-Richtlinie', kind: 'baurecht', hit_count: hits.length, sources: hits },
+    ],
+  })
 
 /** Expand outer Herleitung, then technical intermediate-steps section. The raw
  *  technical steps are now a profile opt-in (default off), so enable the
@@ -102,24 +113,27 @@ describe('ChatThinking', () => {
       render(<ChatThinking steps={steps} isThinking={true} />)
 
       expect(screen.getByLabelText('Thinking in progress')).toBeInTheDocument()
-      // An unclassifiable step gets NO phrase of its own: its display name is an
-      // internal identifier, and dressing one up as a status is the noise this
-      // line exists to avoid. The calm generic stands in.
+      // A tool step never speaks on the live line: only a turn event does. The
+      // calm generic stands in, never the identifier.
       expect(screen.getByText('Working on a response …')).toBeInTheDocument()
-      expect(screen.queryByText('Test Function …')).not.toBeInTheDocument()
+      expect(screen.queryByText(/acme_internal/)).not.toBeInTheDocument()
     })
 
-    test('shows a friendly activity phrase derived from the current step', () => {
+    test('shows the newest turn event the backend reported, in the reader\'s words', () => {
       const steps = [
-        createStep({
-          functionName: 'web_search_tool',
-          displayName: 'Web Search Tool',
+        storedStep({
+          id: 'status:retrieval:0',
+          kind: 'retrieval',
+          round: 0,
+          key: 'status.retrieval.withQuery',
+          values: { corpus: 'knowledge', query: 'Fluchtweg' },
         }),
+        createStep({ id: 'tool:1', tool: 'knowledge_search' }),
       ]
 
       render(<ChatThinking steps={steps} isThinking={true} />)
 
-      expect(screen.getByText('Searching the web …')).toBeInTheDocument()
+      expect(screen.getByText('Searching the knowledge base: “Fluchtweg”')).toBeInTheDocument()
     })
 
     test('shows check icon and done text when isThinking is false', () => {
@@ -140,8 +154,9 @@ describe('ChatThinking', () => {
       expect(screen.getByText('Working on a response …')).toBeInTheDocument()
     })
 
-    test('falls back to the generic working copy when the open step cannot be phrased', () => {
-      render(<ChatThinking steps={[createStep({ functionName: 'acme_internal' })]} isThinking />)
+    test('falls back to the generic working copy when no step can be phrased', () => {
+      const unknownKey = storedStep({ id: 'status:x', kind: 'status', slot: 'x', key: 'status.nope' })
+      render(<ChatThinking steps={[unknownKey]} isThinking />)
 
       expect(screen.getByText('Working on a response …')).toBeInTheDocument()
     })
@@ -240,9 +255,8 @@ describe('ChatThinking', () => {
 
   describe('collapse/expand toggle', () => {
     test('the header counts no steps, and no source is no clause', () => {
-      // The step count was raw NAT event names (status one-liners, skill
-      // bookkeeping, model sub-calls), which read as "the agent took 19
-      // turns". "0 sources" reads as a failure to find anything.
+      // A step count read as "the agent took 19 turns", and "0 sources" reads
+      // as a failure to find anything.
       render(<ChatThinking steps={[createStep(), createStep({ id: 'step-2' })]} />)
 
       expect(screen.getByText('Trace')).toBeInTheDocument()
@@ -251,23 +265,23 @@ describe('ChatThinking', () => {
     })
 
     test('step list is collapsed by default', () => {
-      const steps = [createStep({ displayName: 'Intent Classifier' })]
+      const steps = [createStep({ kind: 'status', tool: undefined, slot: 'decision:routing' })]
 
       render(<ChatThinking steps={steps} />)
 
       expect(screen.getByText('Trace')).toBeInTheDocument()
-      expect(screen.queryByText('Intent Classifier')).not.toBeInTheDocument()
+      expect(screen.queryByText('decision:routing')).not.toBeInTheDocument()
     })
 
     test('expands technical steps after second toggle', async () => {
       const user = userEvent.setup()
-      const steps = [createStep({ displayName: 'Intent Classifier' })]
+      const steps = [createStep({ kind: 'status', tool: undefined, slot: 'decision:routing' })]
 
       render(<ChatThinking steps={steps} />)
 
       await expandToSteps(user)
 
-      expect(within(stepList()).getByText('Intent Classifier')).toBeVisible()
+      expect(within(stepList()).getByText('decision:routing')).toBeVisible()
     })
   })
 
@@ -279,22 +293,7 @@ describe('ChatThinking', () => {
       // second later.
       const user = userEvent.setup()
       const steps = [
-        createStep({
-          id: 'kb',
-          category: 'tools',
-          functionName: 'knowledge_retrieval',
-          displayName: 'Knowledge Retrieval',
-          content: '',
-          traceLanes: [
-            {
-              key: 'baurecht_oib',
-              label: 'OIB-Richtlinie',
-              hitCount: 1,
-              sources: [{ name: 'OIB-RL_2_Brandschutz.pdf', detail: 'p.12' }],
-              signal: 'law',
-            },
-          ],
-        }),
+        oibSources([{ name: 'OIB-RL_2_Brandschutz.pdf', detail: 'p.12' }]),
       ]
 
       const { rerender } = render(<ChatThinking steps={steps} isThinking={true} />)
@@ -310,25 +309,10 @@ describe('ChatThinking', () => {
     test('renders per-document source cards from traceLanes', async () => {
       const user = userEvent.setup()
       const steps = [
-        createStep({
-          id: 'kb',
-          category: 'tools',
-          functionName: 'knowledge_retrieval',
-          displayName: 'Knowledge Retrieval',
-          content: '',
-          traceLanes: [
-            {
-              key: 'baurecht_oib',
-              label: 'OIB-Richtlinie',
-              hitCount: 2,
-              sources: [
+        oibSources([
                 { name: 'OIB-RL_2_Brandschutz.pdf', detail: 'p.12' },
                 { name: 'OIB-RL_2_Brandschutz.pdf', detail: 'p.18' },
-              ],
-              signal: 'law',
-            },
-          ],
-        }),
+              ]),
       ]
 
       render(<ChatThinking steps={steps} isThinking={false} />)
@@ -349,13 +333,13 @@ describe('ChatThinking', () => {
   })
 
   describe('step list rendering', () => {
-    test('renders all steps as flat list with displayName', async () => {
+    test('names each row by its kind: a tool in the chip words, a slot verbatim', async () => {
       const user = userEvent.setup()
       const steps = [
-        createStep({ id: '1', displayName: 'Intent Classifier', category: 'agents' }),
-        createStep({ id: '2', displayName: 'Depth Router', category: 'agents' }),
-        createStep({ id: '3', displayName: 'Web Search Tool', category: 'tools' }),
-        createStep({ id: '4', displayName: 'Tavily Search', category: 'tools' }),
+        createStep({ id: '1', kind: 'status', tool: undefined, slot: 'decision:routing' }),
+        createStep({ id: '2', tool: 'web_search_tool' }),
+        createStep({ id: '3', tool: 'acme_internal' }),
+        storedStep({ id: 'clarification', kind: 'clarification', max_turns: 3 }),
       ]
 
       render(<ChatThinking steps={steps} />)
@@ -363,39 +347,21 @@ describe('ChatThinking', () => {
       await expandToSteps(user)
 
       const list = within(stepList())
-      expect(list.getByText('Intent Classifier')).toBeVisible()
-      expect(list.getByText('Depth Router')).toBeVisible()
-      expect(list.getByText('Web Search Tool')).toBeVisible()
-      expect(list.getByText('Tavily Search')).toBeVisible()
+      expect(list.getByText('decision:routing')).toBeVisible()
+      expect(list.getByText('Web search')).toBeVisible()
+      expect(list.getByText('acme_internal')).toBeVisible()
+      expect(list.getByText('Clarifying question')).toBeVisible()
     })
 
     test('shows timestamps for each step', async () => {
       const user = userEvent.setup()
-      const steps = [createStep({ timestamp: new Date('2024-01-15T14:30:00') })]
+      const steps = [createStep({ timestamp: '2024-01-15T14:30:00' })]
 
       render(<ChatThinking steps={steps} />)
 
       await expandToSteps(user)
 
       expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
-    })
-
-    test('renders steps from all categories in a flat list (no tabs)', async () => {
-      const user = userEvent.setup()
-      const steps = [
-        createStep({ id: '1', category: 'tasks', displayName: 'Workflow Task' }),
-        createStep({ id: '2', category: 'agents', displayName: 'Agent Step' }),
-        createStep({ id: '3', category: 'tools', displayName: 'Tool Step' }),
-      ]
-
-      render(<ChatThinking steps={steps} />)
-
-      await expandToSteps(user)
-
-      const list = within(stepList())
-      expect(list.getByText('Workflow Task')).toBeVisible()
-      expect(list.getByText('Agent Step')).toBeVisible()
-      expect(list.getByText('Tool Step')).toBeVisible()
     })
 
     test('step list has correct ARIA role', async () => {
@@ -456,21 +422,15 @@ describe('ChatThinking', () => {
    * registry, so the old basis footer claimed "Websuche" inside the Herleitung
    * on EVERY turn — a bare greeting included, where the backend drops all
    * data-source tools before the model ever sees them. Availability is the
-   * constant, activation is the event: only the `Ran:` row, derived from real
-   * Function Start/Complete frames, may say what a turn did.
+   * constant, activation is the event: only the `Ran:` row, derived from the
+   * turn's `tool` and `skill` steps, may say what a turn did.
    */
   describe('enabled data sources are never rendered as activity', () => {
     const enabled = ['web_search', 'knowledge_layer', 'ris']
 
     test('a turn with sources enabled but no executed search renders no source-activity chip', () => {
-      // A greeting: one assistant step ran, no search tool did.
-      const steps = [
-        createStep({
-          functionName: 'shallow_research_agent',
-          displayName: 'Shallow Research Agent',
-          isComplete: true,
-        }),
-      ]
+      // A greeting: the answer was composed, no search tool ran.
+      const steps = [storedStep({ id: 'status:synthesis', kind: 'status', slot: 'synthesis', key: 'status.synthesis' })]
 
       render(
         <ChatThinking
@@ -481,10 +441,8 @@ describe('ChatThinking', () => {
         />
       )
 
-      // The activity row is present and names what really ran …
-      expect(screen.getByText('Ran:')).toBeVisible()
-      expect(screen.getByText('Assistant')).toBeVisible()
-      // … and nothing anywhere claims a search happened.
+      // Nothing ran that has a chip, and nothing anywhere claims a search happened.
+      expect(screen.queryByText('Ran:')).not.toBeInTheDocument()
       expect(screen.queryByText('Web search')).not.toBeInTheDocument()
       expect(screen.queryByText('Web Search')).not.toBeInTheDocument()
       expect(screen.queryByText('RIS')).not.toBeInTheDocument()
@@ -496,11 +454,7 @@ describe('ChatThinking', () => {
 
     test('an executed web search IS reported — the fix removes the false claim, not the true one', () => {
       const steps = [
-        createStep({
-          functionName: 'web_search_tool',
-          displayName: 'Web Search Tool',
-          isComplete: true,
-        }),
+        createStep({ tool: 'web_search_tool', isComplete: true }),
       ]
 
       render(
@@ -535,13 +489,7 @@ describe('ChatThinking', () => {
    */
   describe('skill activity', () => {
     const skillStep = (name: string, payload: Record<string, unknown>) =>
-      createStep({
-        id: `skill-${name}`,
-        functionName: `skill:${name}`,
-        displayName: name,
-        content: JSON.stringify(payload),
-        isComplete: true,
-      })
+      storedStep({ id: `skill:${name}`, kind: 'skill', skill: name, ...payload })
 
     test('each activated skill gets its own chip, named by its title', () => {
       render(
@@ -551,10 +499,9 @@ describe('ChatThinking', () => {
           steps={[
             skillStep('oib-brandschutz', {
               phase: 'loaded',
-              name: 'oib-brandschutz',
               title: 'Brandschutznachweis',
             }),
-            skillStep('schallschutz', { phase: 'activated', name: 'schallschutz' }),
+            skillStep('schallschutz', { phase: 'activated' }),
           ]}
         />
       )
@@ -572,7 +519,7 @@ describe('ChatThinking', () => {
         <ChatThinking
           isThinking
           defaultOpen
-          steps={[skillStep('a', { phase: 'offered', name: 'a', description: 'available' })]}
+          steps={[skillStep('a', { phase: 'offered', count: 1 })]}
         />
       )
 
@@ -589,7 +536,6 @@ describe('ChatThinking', () => {
           steps={[
             skillStep('oib-brandschutz', {
               phase: 'loaded',
-              name: 'oib-brandschutz',
               title: 'Brandschutznachweis',
             }),
           ]}

@@ -140,7 +140,8 @@ import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { useLayoutStore } from '@/features/layout/store'
 import { TechnicalSteps } from './TechnicalSteps'
-import type { ThinkingStep, CitationSource } from '../../types'
+import type { CitationSource } from '../../types'
+import type { StoredThinkingStep } from '../../lib/turn-events'
 import { deriveTraceLanes } from '../../lib/trace-lanes'
 import { buildCitationModel, citedLoci, totalHits, type CitedDocument, type CitationLocus } from '../../lib/citations'
 import { documentShortName } from '../../lib/document-names'
@@ -553,7 +554,7 @@ const nodeTypes = {
 }
 
 export interface ReasoningFlowProps {
-  steps: ThinkingStep[]
+  steps: StoredThinkingStep[]
   userQuestion: string
   answerConfidence?: 'low' | 'medium' | 'high'
   citations?: CitationSource[]
