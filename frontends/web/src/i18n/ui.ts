@@ -482,7 +482,6 @@ const de = {
     categoryLabel: 'Kategorie',
     entry: 'Eintrag',
     empty: 'Noch keine Beiträge. Der erste Artikel ist in Arbeit.',
-    readMore: 'Weiterlesen →',
     allPosts: '← Alle Beiträge',
   },
   // The changelog page. Its ENTRIES are not here: they come from
@@ -1049,7 +1048,6 @@ const en: typeof de = {
     categoryLabel: 'Category',
     entry: 'Entry',
     empty: 'No posts yet. The first article is in the works.',
-    readMore: 'Read on →',
     allPosts: '← All posts',
   },
   changelog: {

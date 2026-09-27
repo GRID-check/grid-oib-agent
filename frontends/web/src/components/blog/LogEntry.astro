@@ -1,10 +1,11 @@
 ---
 /**
  * One build-log post as a line in a site diary: entry number and date in mono
- * on the left, title and summary on the right. Sits inside BuildLog, which
- * draws the ruled sheet around it.
+ * on the left, title and summary on the right. Sits inside BuildLog, whose
+ * rules are the sheet. The number stands alone: an "Entry" label over every
+ * one of them said what the number already does.
  */
-import { ui, type Locale } from '../../i18n/ui'
+import type { Locale } from '../../i18n/ui'
 import { blogPath } from '../../lib/categories'
 import { formatDate, postSlug, type BlogPost } from '../../lib/posts'
 
@@ -18,20 +19,18 @@ interface Props {
 const { post, locale, number, level = 3 } = Astro.props
 const { title, description, pubDate } = post.data
 const Heading = level === 2 ? 'h2' : 'h3'
-const t = ui[locale].blog
 ---
 
-<li class="border-t border-ink/10 first:border-t-0" data-reveal>
+<li class="border-t border-ink/15" data-reveal>
   <a
     href={`${blogPath(locale)}${postSlug(post.id)}/`}
-    class="group grid gap-y-3 px-5 py-6 transition-colors hover:bg-surface/60 sm:grid-cols-[6.5rem_1fr] sm:gap-x-6 sm:px-7"
+    class="group grid gap-y-3 py-6 hover:text-inherit sm:grid-cols-[5rem_1fr] sm:gap-x-6"
   >
     {/* On a phone the margin column would squeeze the text to a strip, so the
         number and date run as one line above the title instead. */}
     <p
       class="flex items-baseline gap-x-3 border-b border-dashed border-ink/15 pb-2 font-mono uppercase tabular-nums sm:block sm:border-0 sm:pb-0"
     >
-      <span class="text-2xs tracking-label text-ink-mute sm:block">{t.entry}</span>
       <span class="text-2xl leading-tight text-accent-600 sm:block">{String(number).padStart(2, '0')}</span>
       <time
         datetime={pubDate.toISOString()}
@@ -47,7 +46,6 @@ const t = ui[locale].blog
         {title}
       </Heading>
       <p class="mt-2 text-base leading-relaxed text-ink-soft">{description}</p>
-      <p class="mt-3 font-mono text-2xs uppercase tracking-label text-accent-600">{t.readMore}</p>
     </div>
   </a>
 </li>
