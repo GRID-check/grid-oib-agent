@@ -346,3 +346,77 @@ describe('deleteSessionDocument under a legal hold', () => {
     expect(recordAuditEvent).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * An ingest whose existence check landed before the row delete still saw the
+ * row and kept the chunks it inserted after the first purge (ADR-0054,
+ * correction 18). The delete purges once more after the row is gone.
+ */
+describe('deleteSessionDocument purges the chunks again after the row', () => {
+  const attached = {
+    ...existing,
+    conversationId: CONVERSATION_ID,
+    collectionName: CONVERSATION_ID,
+    filename: 'brandschutz.pdf',
+    authoredBy: 'user',
+  }
+
+  it('purges, erases the objects, deletes the row, then purges again', async () => {
+    const order: string[] = []
+    vi.mocked(findSessionDocument).mockResolvedValue(attached as never)
+    vi.mocked(purgeCollectionChunks).mockImplementation(async () => {
+      order.push('purge')
+      return { ok: true }
+    })
+    vi.mocked(deleteDocumentObjects).mockImplementation(async () => {
+      order.push('objects')
+      return { ok: true }
+    })
+    vi.mocked(deleteSessionDocumentRow).mockImplementation(async () => {
+      order.push('row')
+    })
+
+    await deleteSessionDocument(session, 'doc-existing', new Request('http://x'))
+
+    expect(order).toEqual(['purge', 'objects', 'row', 'purge'])
+    const calls = vi.mocked(purgeCollectionChunks).mock.calls
+    expect(calls[1]).toEqual(calls[0])
+  })
+
+  it('logs a failed second purge and still completes the delete', async () => {
+    vi.mocked(findSessionDocument).mockResolvedValue(attached as never)
+    vi.mocked(purgeCollectionChunks)
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: false, reason: 'answered 502' })
+    vi.mocked(deleteDocumentObjects).mockResolvedValue({ ok: true })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    await expect(
+      deleteSessionDocument(session, 'doc-existing', new Request('http://x')),
+    ).resolves.toBeUndefined()
+
+    expect(deleteSessionDocumentRow).toHaveBeenCalled()
+    expect(recordAuditEvent).toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('second chunk purge'),
+      'doc-existing',
+      'answered 502',
+    )
+    warn.mockRestore()
+  })
+
+  it('makes no second purge when the first erase failed and the row is kept', async () => {
+    vi.mocked(findSessionDocument).mockResolvedValue(attached as never)
+    vi.mocked(purgeCollectionChunks).mockResolvedValue({ ok: true })
+    vi.mocked(deleteDocumentObjects).mockResolvedValue({ ok: false, reason: 'SeaweedFS 500' })
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(
+      deleteSessionDocument(session, 'doc-existing', new Request('http://x')),
+    ).rejects.toThrow()
+
+    expect(purgeCollectionChunks).toHaveBeenCalledTimes(1)
+    expect(deleteSessionDocumentRow).not.toHaveBeenCalled()
+    error.mockRestore()
+  })
+})

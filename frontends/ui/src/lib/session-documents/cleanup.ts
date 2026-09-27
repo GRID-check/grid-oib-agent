@@ -21,6 +21,7 @@
 
 import 'server-only'
 import { getBackendUrl } from '@/lib/backend-proxy'
+import type { Document } from '@/lib/db/schema'
 import {
   collectionFileRef,
   type CollectionFileRef,
@@ -79,6 +80,31 @@ export async function purgeCollectionChunks(
     return { ok: true }
   } catch (error) {
     return { ok: false, reason: `chunk purge of ${collectionName}: ${describeError(error)}` }
+  }
+}
+
+/**
+ * The second chunk purge, after the rows are deleted: closes the window in
+ * which an ingest that checked before the row delete keeps what it inserted
+ * after the first purge. Grouped per collection, like the first.
+ *
+ * **Logged, never surfaced.** The rows are gone, so a failure here has nothing
+ * left to keep for a retry and must not turn a completed delete into an error.
+ * The orphaned-vector sweep (`lib/platform/vector-reconcile.ts`) is the net,
+ * and for a whole chat the `s_` collection erase that follows is as well.
+ */
+export async function purgeChunksAgain(docs: readonly Document[]): Promise<void> {
+  const byCollection = new Map<string, CollectionFileRef[]>()
+  for (const doc of docs) {
+    const ref = collectionFileRef(doc)
+    if (!ref) continue
+    byCollection.set(doc.collectionName, [...(byCollection.get(doc.collectionName) ?? []), ref])
+  }
+  for (const [collectionName, refs] of byCollection) {
+    const again = await purgeCollectionChunks(collectionName, refs)
+    if (!again.ok) {
+      console.warn('[session-documents] second chunk purge after the row delete failed:', again.reason)
+    }
   }
 }
 
@@ -214,6 +240,13 @@ export async function purgeSessionDocuments(
     // objects are still in the BUCKET — and those bytes would then be nameless.
     await deleteSessionDocumentsByIds(erasedIds, organizationId, conversationId)
     result.purged += erasedIds.length
+
+    // Once more, now that these rows are gone: an ingest of one of them that
+    // asked `GET /api/internal/document-exists` before its row went saw it,
+    // and kept chunks it inserted after the first purge (ADR-0054,
+    // correction 18). Any check from here on reads „gone“ and discards its
+    // own. Only the rows this pass erased, whose first purge succeeded.
+    await purgeChunksAgain(docs.filter((doc) => erasedIds.includes(doc.id)))
 
     // A short conversation is the common case and it is done in one pass; only
     // a full page can possibly have more behind it. Retained rows occupy the

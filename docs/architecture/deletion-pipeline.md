@@ -133,10 +133,10 @@ the file is indexed, and on `exists: false` takes back out exactly what it
 inserted, retires nothing and writes no `document_metadata` row. It discards on
 that definite answer only; an unreachable BFF leaves the chunks in. Because the
 row is deleted last, an ingest that asks between step 2 and step 4 still finds
-it and keeps what it inserted after step 2, so the immediate project and Archiv
-deletes purge the chunks once more after the row (logged, never surfaced; the
-orphaned-vector sweep is the net). The chat-attachment delete does not purge
-twice yet
+it and keeps what it inserted after step 2, so every immediate delete (project,
+Archiv, a chat attachment, and a whole chat's attachments in step 4 of the
+conversation delete below) purges the chunks once more after the row (logged,
+never surfaced; the orphaned-vector sweep is the net)
 ([a document deleted while it indexed](../technical-reference/document-ingestion.md#a-document-deleted-while-it-indexed-takes-its-chunks-back-out)).
 
 **Conversation**:
@@ -150,7 +150,7 @@ step after the hold check is safe to repeat:
 1. `owner` on the conversation (or the creator of one already marked deleting, so a failed erase can be retried).
 2. `assertNoActiveHold`, before anything is marked or erased.
 3. Mark the conversation `deleted_at`, which hides it and makes the session upload refuse new bytes, and in the same transaction insert a `deletion_queue` row (`entity_type = 'conversation'`, `purge_after` = now + 10 minutes, `CONVERSATION_ERASURE_RETRY_DELAY_MS`). The active-row index keeps one pending row per chat, so a repeated delete leaves the queued retry and its attempts alone.
-4. `purgeSessionDocuments` (`lib/session-documents/cleanup.ts`): for each attachment row, its chunks, its objects, then the row. A row whose erase failed is kept, and so is the conversation.
+4. `purgeSessionDocuments` (`lib/session-documents/cleanup.ts`): for each attachment row, its chunks, its objects, then the row, then its chunks once more (logged only). A row whose erase failed is kept, and so is the conversation.
 5. `deleteSessionCollection`: the chat's whole `s_` collection through the backend's `DELETE /v1/collections/{name}`. This covers chunks no row names, such as attachments uploaded before session files were rows. A collection that does not exist (404), or a deployment with no knowledge layer (503), counts as erased. Any other failure keeps the conversation.
 6. Delete the `conversations` row (`messages` and the remaining document rows cascade), then the collaboration rows; close the queue row (`pending` or `failed` → `purged`, never a row the purger has claimed); then the agent's drafts.
 

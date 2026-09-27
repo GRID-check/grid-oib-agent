@@ -319,6 +319,54 @@ describe('purgeSessionDocuments', () => {
     expect(listSessionDocumentsForCleanup.mock.calls.length).toBeLessThanOrEqual(2)
   })
 
+  it('purges the erased rows’ chunks once more after their rows are deleted', async () => {
+    const order: string[] = []
+    listSessionDocumentsForCleanup.mockResolvedValueOnce([sessionDoc()]).mockResolvedValue([])
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === 'DELETE') order.push(`purge:${init.body as string}`)
+        return { ok: true, status: 200 }
+      }),
+    )
+    deleteSessionDocumentsByIds.mockImplementation(async (ids: string[]) => {
+      order.push(`rows:${ids.join(',')}`)
+    })
+
+    await purgeSessionDocuments(CONVERSATION_ID, ORG_ID)
+
+    const body = JSON.stringify({ file_ids: ['brandschutz.pdf'] })
+    expect(order).toEqual([`purge:${body}`, 'rows:doc-1', `purge:${body}`])
+  })
+
+  it('makes no second purge for a retained row, and a failed second purge is only logged', async () => {
+    const good = sessionDoc({ id: 'doc-good', filename: 'a.pdf', storageKey: 'org/x/session/c/doc/good/a.pdf' })
+    const bad = sessionDoc({ id: 'doc-bad', filename: 'b.pdf', storageKey: 'org/x/session/c/doc/bad/b.pdf' })
+    listSessionDocumentsForCleanup.mockResolvedValue([good, bad])
+    send.mockImplementation((command: DeleteObjectCommand) =>
+      command.input.Key?.includes('/bad/') ? Promise.reject(new Error('boom')) : Promise.resolve({}),
+    )
+    const bodies: string[] = []
+    let calls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        bodies.push(init?.body as string)
+        calls += 1
+        // The first purge succeeds, the second one fails.
+        return calls === 1 ? { ok: true, status: 200 } : { ok: false, status: 502 }
+      }),
+    )
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const result = await purgeSessionDocuments(CONVERSATION_ID, ORG_ID)
+
+    expect(result).toMatchObject({ ok: false, purged: 1, retained: 1 })
+    expect(bodies[1]).toBe(JSON.stringify({ file_ids: ['a.pdf'] }))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('second chunk purge'), expect.stringContaining('502'))
+    warn.mockRestore()
+  })
+
   it('does nothing for a conversation with no attachments', async () => {
     listSessionDocumentsForCleanup.mockResolvedValue([])
 

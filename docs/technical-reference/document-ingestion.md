@@ -242,15 +242,16 @@ wait minutes and outlast the BFF's request timeout.
 
 The BFF's delete purges the chunks first and deletes the row last, after the
 objects, so an ingest whose check lands between the two still sees the row and
-keeps the chunks it inserted after that purge. The project and Archiv deletes
+keeps the chunks it inserted after that purge. Every immediate delete therefore
+purges once more after the row is gone: the project and Archiv deletes
 (`deleteDocument` in `lib/documents/service.ts`, `deleteArchivDocument` in
-`lib/archiv/service.ts`) therefore purge once more after the row is gone: an
-ingest that asked before the row went has indexed by then, and one that asks
-afterwards reads "gone". That second purge is logged, never surfaced; the row
-is already gone, and the weekly orphaned-vector sweep
-(`lib/platform/vector-reconcile.ts`) is the net when it fails. The chat
-attachment delete (`lib/session-documents/cleanup.ts`) does not purge twice
-yet, so the window stays open there.
+`lib/archiv/service.ts`), the chat-attachment delete (`deleteSessionDocument`
+in `lib/session-documents/service.ts`) and a whole chat's attachment purge
+(`purgeSessionDocuments` in `lib/session-documents/cleanup.ts`, for the rows
+that pass erased). An ingest that asked before the row went has indexed by
+then, and one that asks afterwards reads "gone". That second purge is logged,
+never surfaced; the row is already gone, and the weekly orphaned-vector sweep
+(`lib/platform/vector-reconcile.ts`) is the net when it fails.
 
 One window remains, narrow and named:
 

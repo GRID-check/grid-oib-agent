@@ -480,15 +480,16 @@ itself teaches nobody what it cost to find them.
     would wait minutes and outlast the BFF's request timeout.
 
     The BFF's delete purges chunks first and deletes the row last, so an
-    ingest whose check lands between those two steps still saw the row. The
-    project and Archiv deletes (`deleteDocument`, `deleteArchivDocument`) now
-    purge once more after the row is gone, which closes it there: an ingest
-    that asked before the row went has indexed by then, and one that asks
-    after reads "gone". A failure of that second purge is logged and not
-    surfaced, since the row is gone and the orphaned-vector sweep is the net.
-    Stated rather than hidden: the chat-attachment delete
-    (`lib/session-documents/cleanup.ts`) does not purge twice yet, so the
-    window stays open for chat attachments.
+    ingest whose check lands between those two steps still saw the row. Every
+    immediate delete now purges once more after the row is gone, which closes
+    it: the project and Archiv deletes (`deleteDocument`,
+    `deleteArchivDocument`), the single chat-attachment delete
+    (`deleteSessionDocument`) and a whole chat's attachment purge
+    (`purgeSessionDocuments`, `lib/session-documents/cleanup.ts`, for the rows
+    that pass erased). An ingest that asked before the row went has indexed by
+    then, and one that asks after reads "gone". A failure of that second purge
+    is logged and not surfaced, since the row is gone and the orphaned-vector
+    sweep is the net.
 
     Pinned against a real Chroma collection in
     `tests/knowledge_layer_tests/test_reingest_replaces_versions.py` (a delete
