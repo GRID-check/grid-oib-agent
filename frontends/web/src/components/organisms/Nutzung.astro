@@ -47,7 +47,8 @@ const t = ui[locale]
              the moment. -->
         <PagePrint name={PLATES.VI} locale={locale} size="half" still class="mt-12 max-lg:hidden" />
       </div>
-      <!-- Below lg the chain is told as stories; ChatMock serves lg and up. -->
+      <!-- Below lg the chain is told as stories; from lg the same frames are
+           laid down one spine (ChatMock). -->
       <div class="max-lg:hidden"><ChatMock locale={locale} /></div>
       <ChainStories locale={locale} />
     </div>
