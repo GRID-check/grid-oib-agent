@@ -41,6 +41,7 @@ import { contentDigest } from '@/lib/documents/content-digest'
 import { documentNameKey } from '@/lib/documents/name-match'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
+import { retryLostFirstUpload } from '@/lib/documents/unique-conflicts'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { findLiveDocumentByFilename } from '@/lib/documents/repository'
 import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
@@ -49,7 +50,7 @@ import {
   nextVersionNumber,
   recordUploadedVersion,
 } from '@/lib/documents/lifecycle'
-import { newVersionWriteId, versionedStorageKey } from '@/lib/documents/version-content'
+import { newVersionWriteId, versionWriteKey } from '@/lib/documents/version-content'
 import type { DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { archivCollectionName } from './collection'
@@ -139,21 +140,6 @@ export async function uploadArchivDocument(
   // decomposed name off a Mac would put a second row here too. See
   // `@/lib/documents/name-match`.
   const filename = documentNameKey(file.name)
-  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
-  const documentId = superseded?.id ?? crypto.randomUUID()
-  // A re-upload writes new bytes under a new `v<n>/` key, so the version it
-  // replaces keeps an object a reader can open (ADR-0054). Version 1 keeps
-  // today's key exactly. The number is a hint for the key; the write id keeps
-  // two overlapping re-uploads' objects apart, and the row's number is
-  // allocated under a lock when the version is recorded.
-  const versionHint = superseded
-    ? await nextVersionNumber(documentId, session.organizationId)
-    : 1
-  const storageKey = versionedStorageKey(
-    buildArchivStorageKey(session.organizationId, documentId, filename),
-    versionHint,
-    newVersionWriteId(),
-  )
 
   // Same provisioning step as the project path (ADR-0043): the Archiv shares
   // the tenant's bucket, because it shares the tenant's bytes.
@@ -165,49 +151,77 @@ export async function uploadArchivDocument(
   // the bytes on every shelf, so a row here is not the one that has to be
   // explained later.
   const contentHash = contentDigest(bytes)
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: storageBucket,
-      Key: storageKey,
-      Body: bytes,
-      ContentType: file.type || 'application/octet-stream',
-    }),
-  )
 
-  // Same hard ceiling as the project path, and the same compensating delete on
-  // refusal (ADR-0042). The Archiv shares the tenant's bytes, so it must not be
-  // a way around the limit — including under concurrency, which is what the
-  // pre-check above cannot cover.
-  if (superseded) {
-    await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
-      storageKey,
-      storageBucket,
-      fileSize: file.size,
-      contentType: file.type || null,
-      contentHash,
-      folderId: null,
-      createdBy: session.userId,
-    })
-    // Nothing is discarded: the previous bytes are the previous VERSION's now
-    // (ADR-0054) and its row still names them. They go with the document.
-  } else {
-    await admitOrDiscard(storageBucket, storageKey, {
-      id: documentId,
-      organizationId: session.organizationId,
-      projectId: null,
-      scope: 'archiv',
-      folderId: null,
-      createdBy: session.userId,
-      filename,
-      storageKey,
-      storageBucket,
-      collectionName,
-      fileSize: file.size,
-      contentType: file.type || null,
-      contentHash,
-      status: 'uploaded',
-    })
-  }
+  // Probe, store, admit — and once more when a concurrent FIRST upload of this
+  // name won the shelf: the second run finds the winner and records these bytes
+  // as its next version, as the same two drops in sequence would have. See
+  // `retryLostFirstUpload` and `uploadDocument`.
+  const { documentId, storageKey } = await retryLostFirstUpload(async () => {
+    const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
+    const documentId = superseded?.id ?? crypto.randomUUID()
+    // A re-upload writes new bytes under a new `v<n>/<write id>/` key, so the
+    // version it replaces keeps an object a reader can open (ADR-0054). Version
+    // 1 keeps today's key exactly. A re-upload never takes the version-1
+    // shortcut: the number is a hint and reads 1 while the winner of a
+    // concurrent first upload has not recorded its version yet, which would aim
+    // this PUT at the winner's own key. The row's number is allocated under a
+    // lock when the version is recorded.
+    const baseKey = buildArchivStorageKey(session.organizationId, documentId, filename)
+    const storageKey = superseded
+      ? versionWriteKey(
+          baseKey,
+          await nextVersionNumber(documentId, session.organizationId),
+          newVersionWriteId(),
+        )
+      : baseKey
+
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: storageBucket,
+        Key: storageKey,
+        Body: bytes,
+        ContentType: file.type || 'application/octet-stream',
+      }),
+    )
+
+    // Same hard ceiling as the project path, and the same compensating delete on
+    // refusal (ADR-0042). The Archiv shares the tenant's bytes, so it must not be
+    // a way around the limit — including under concurrency, which is what the
+    // pre-check above cannot cover.
+    if (superseded) {
+      await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
+        storageKey,
+        storageBucket,
+        fileSize: file.size,
+        contentType: file.type || null,
+        contentHash,
+        folderId: null,
+        createdBy: session.userId,
+      })
+      // Nothing is discarded: the previous bytes are the previous VERSION's now
+      // (ADR-0054) and its row still names them. They go with the document.
+    } else {
+      // A `LiveFilenameTakenError` here is the lost first-upload race; the
+      // object is already discarded and nothing was charged.
+      await admitOrDiscard(storageBucket, storageKey, {
+        id: documentId,
+        organizationId: session.organizationId,
+        projectId: null,
+        scope: 'archiv',
+        folderId: null,
+        createdBy: session.userId,
+        filename,
+        storageKey,
+        storageBucket,
+        collectionName,
+        fileSize: file.size,
+        contentType: file.type || null,
+        contentHash,
+        status: 'uploaded',
+      })
+    }
+    return { documentId, storageKey }
+  })
 
   // The version, through the same transition table every other shelf uses
   // (ADR-0054): born `published` and born approved, because the person who

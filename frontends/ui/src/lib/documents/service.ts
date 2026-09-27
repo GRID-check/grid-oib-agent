@@ -48,6 +48,7 @@ import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/sign
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
+import { retryLostFirstUpload } from '@/lib/documents/unique-conflicts'
 import {
   FEATURE_FLAGS,
   isCollaborationEnabled,
@@ -86,7 +87,7 @@ import { documentDisplayName, validateDocumentName } from './display-name'
 import { runBimExtraction } from '@/lib/bim/service'
 import { getAccessibleDocument } from './access'
 import { nextVersionNumber, recordUploadedVersion } from './lifecycle'
-import { newVersionWriteId, versionedStorageKey } from './version-content'
+import { newVersionWriteId, versionWriteKey } from './version-content'
 import { findOpenVersion } from './version-repository'
 import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
@@ -790,37 +791,6 @@ export async function uploadDocument(
    */
   const filename = documentNameKey(file.name)
 
-  const superseded = await findLiveDocumentByFilename(
-    session.organizationId,
-    collectionName,
-    filename
-  )
-  const documentId = superseded?.id ?? crypto.randomUUID()
-  /*
-   * A re-upload writes NEW bytes, so it needs a NEW key (ADR-0054).
-   *
-   * The id is deliberately kept — that is what makes citations, chat subjects
-   * and folder assignments survive a corrected plan — but the key used to be
-   * derived from the id alone, so the new bytes landed on top of the old ones
-   * and `discardSupersededObjects` tidied up what was left. That is versioning
-   * without the history. Version 1 keeps today's key exactly, so nothing that
-   * predates this moves; version N lands under `v<n>/`, and the previous
-   * version's row still names an object a reader can open.
-   *
-   * The number is a HINT for the key, never the row's number: two overlapping
-   * re-uploads read the same one. The write id is what keeps their objects
-   * apart, and the row's number is allocated under a lock when the version is
-   * recorded (`allocateVersionNumber`).
-   */
-  const versionHint = superseded
-    ? await nextVersionNumber(documentId, session.organizationId)
-    : 1
-  const storageKey = versionedStorageKey(
-    buildStorageKey(session.organizationId, projectId, documentId, filename, folderPath),
-    versionHint,
-    newVersionWriteId()
-  )
-
   // Create the organization's bucket if this is its first upload (ADR-0043).
   // A no-op — not even a round trip — when per-org buckets are off. Done before
   // the PUT so a provisioning failure leaves nothing behind, same reasoning as
@@ -845,94 +815,145 @@ export async function uploadDocument(
   const contentHash = contentDigest(bytes)
 
   /*
-   * THE SAME BYTES, ALREADY HERE. Nothing to do.
-   *
-   * A folder re-sync is mostly this: a büro drops the project directory again
-   * to bring three corrected drawings in, and five hundred files that have not
-   * changed come along with them. The planner already skips the ones it can
-   * prove are identical — but it can only prove it where the row carries a
-   * digest, so a corpus that predates `content_hash`, a browser without
-   * `crypto.subtle`, and every non-secure context all fall through to here.
-   *
-   * This tier has the bytes and the row, so it can answer. Answering saves the
-   * object write, the quota round trip, and — the expensive one — a full
-   * re-ingest that would churn the chunks a citation already points at, for a
-   * file that did not change.
-   *
-   * Deliberately narrow. Only when the row has actually LANDED — a failed, a
-   * still-processing and an unrecognised status must all be allowed to retry,
-   * which is why the test is the status vocabulary's own `success` and not a
-   * list of spellings written out again here — and only when it is already
-   * filed where this upload would file it, because otherwise the re-file IS the
-   * gesture and skipping would drop it.
-   *
-   * No audit event either, and that is the point rather than an omission: the
-   * trail records who brought which file into which project, and this brought
-   * nothing.
+   * Probe, store, admit — and once more when a concurrent FIRST upload of this
+   * name won the shelf (`retryLostFirstUpload`). The second run re-probes, finds
+   * the winner, and records these bytes as its next version, exactly as the
+   * same two drops one after the other would have.
    */
-  if (
-    superseded &&
-    superseded.contentHash === contentHash &&
-    documentStatusFacts(superseded.status)?.variant === 'success' &&
-    (superseded.folderId ?? null) === (folderId ?? null)
-  ) {
-    return { documentId, jobId: null, status: 'uploaded', filename }
-  }
-
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: storageBucket,
-      Key: storageKey,
-      Body: bytes,
-      ContentType: file.type || 'application/octet-stream',
-    })
-  )
-
-  // The quota's HARD ceiling: the usage is re-read inside the same transaction
-  // that inserts the row, under a per-organization lock, so concurrent uploads
-  // cannot jointly cross the limit the way the pre-check above allows (ADR-0042).
-  //
-  // The object is already written, so a refusal has to take it back — the row was
-  // not inserted, so nothing else will ever reference those bytes and leaving
-  // them would be an orphan that only a bucket-wide sweep could find.
-  if (superseded) {
-    // The FULL size is charged: the previous bytes stay behind as the
-    // superseded version, so the correction frees nothing — see
-    // `replaceDocumentWithinQuota`.
-    await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
-      storageKey,
-      storageBucket,
-      fileSize: file.size,
-      contentType: file.type || null,
-      contentHash,
-      folderId: folderId ?? null,
-      createdBy: session.userId,
-    })
-    // NOTHING is discarded here any more. The previous bytes are the previous
-    // VERSION's bytes now (ADR-0054), and a superseded version whose object was
-    // deleted is a row in the history that opens nothing. They go when the
-    // document is deleted — `deleteDocument` walks every version — or when a
-    // retention policy that does not exist yet says so.
-  } else {
-    await admitOrDiscard(storageBucket, storageKey, {
-      id: documentId,
-      organizationId: session.organizationId,
-      projectId,
-      folderId: folderId ?? null,
-      createdBy: session.userId,
-      filename,
-      storageKey,
-      // Recorded even when it IS the shared bucket, so only rows predating
-      // migration 0033 rely on the NULL-means-shared convention.
-      storageBucket,
+  const placed = await retryLostFirstUpload(async () => {
+    const superseded = await findLiveDocumentByFilename(
+      session.organizationId,
       collectionName,
-      fileSize: file.size,
-      contentType: file.type || null,
-      contentHash,
-      originPath,
-      status: 'uploaded',
-    })
+      filename
+    )
+    const documentId = superseded?.id ?? crypto.randomUUID()
+    /*
+     * A re-upload writes NEW bytes, so it needs a NEW key (ADR-0054).
+     *
+     * The id is deliberately kept — that is what makes citations, chat subjects
+     * and folder assignments survive a corrected plan — but the key used to be
+     * derived from the id alone, so the new bytes landed on top of the old ones
+     * and `discardSupersededObjects` tidied up what was left. That is versioning
+     * without the history. Version 1 keeps today's key exactly, so nothing that
+     * predates this moves; a re-upload lands under `v<n>/<write id>/`, and the
+     * previous version's row still names an object a reader can open.
+     *
+     * A re-upload ALWAYS gets the write segment (`versionWriteKey`), never the
+     * version-1 shortcut: the number is a hint, and it reads 1 whenever the
+     * existing row has no version recorded yet — the winner of a concurrent
+     * first upload, between its insert and its version — which would aim this
+     * PUT at the winner's own flat key and overwrite its bytes. The row's number
+     * is allocated under a lock when the version is recorded
+     * (`allocateVersionNumber`).
+     */
+    const baseKey = buildStorageKey(session.organizationId, projectId, documentId, filename, folderPath)
+    const storageKey = superseded
+      ? versionWriteKey(
+          baseKey,
+          await nextVersionNumber(documentId, session.organizationId),
+          newVersionWriteId()
+        )
+      : baseKey
+
+    /*
+     * THE SAME BYTES, ALREADY HERE. Nothing to do.
+     *
+     * A folder re-sync is mostly this: a büro drops the project directory again
+     * to bring three corrected drawings in, and five hundred files that have not
+     * changed come along with them. The planner already skips the ones it can
+     * prove are identical — but it can only prove it where the row carries a
+     * digest, so a corpus that predates `content_hash`, a browser without
+     * `crypto.subtle`, and every non-secure context all fall through to here.
+     *
+     * This tier has the bytes and the row, so it can answer. Answering saves the
+     * object write, the quota round trip, and — the expensive one — a full
+     * re-ingest that would churn the chunks a citation already points at, for a
+     * file that did not change.
+     *
+     * Deliberately narrow. Only when the row has actually LANDED — a failed, a
+     * still-processing and an unrecognised status must all be allowed to retry,
+     * which is why the test is the status vocabulary's own `success` and not a
+     * list of spellings written out again here — and only when it is already
+     * filed where this upload would file it, because otherwise the re-file IS the
+     * gesture and skipping would drop it.
+     *
+     * No audit event either, and that is the point rather than an omission: the
+     * trail records who brought which file into which project, and this brought
+     * nothing.
+     */
+    if (
+      superseded &&
+      superseded.contentHash === contentHash &&
+      documentStatusFacts(superseded.status)?.variant === 'success' &&
+      (superseded.folderId ?? null) === (folderId ?? null)
+    ) {
+      return { unchanged: true as const, documentId }
+    }
+
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: storageBucket,
+        Key: storageKey,
+        Body: bytes,
+        ContentType: file.type || 'application/octet-stream',
+      })
+    )
+
+    // The quota's HARD ceiling: the usage is re-read inside the same transaction
+    // that inserts the row, under a per-organization lock, so concurrent uploads
+    // cannot jointly cross the limit the way the pre-check above allows (ADR-0042).
+    //
+    // The object is already written, so a refusal has to take it back — the row was
+    // not inserted, so nothing else will ever reference those bytes and leaving
+    // them would be an orphan that only a bucket-wide sweep could find.
+    if (superseded) {
+      // The FULL size is charged: the previous bytes stay behind as the
+      // superseded version, so the correction frees nothing — see
+      // `replaceDocumentWithinQuota`.
+      await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
+        storageKey,
+        storageBucket,
+        fileSize: file.size,
+        contentType: file.type || null,
+        contentHash,
+        folderId: folderId ?? null,
+        createdBy: session.userId,
+      })
+      // NOTHING is discarded here any more. The previous bytes are the previous
+      // VERSION's bytes now (ADR-0054), and a superseded version whose object was
+      // deleted is a row in the history that opens nothing. They go when the
+      // document is deleted — `deleteDocument` walks every version — or when a
+      // retention policy that does not exist yet says so.
+    } else {
+      // A `LiveFilenameTakenError` out of here is the lost first-upload race:
+      // the object is already discarded and nothing was charged, so the retry
+      // around this closure starts clean.
+      await admitOrDiscard(storageBucket, storageKey, {
+        id: documentId,
+        organizationId: session.organizationId,
+        projectId,
+        folderId: folderId ?? null,
+        createdBy: session.userId,
+        filename,
+        storageKey,
+        // Recorded even when it IS the shared bucket, so only rows predating
+        // migration 0033 rely on the NULL-means-shared convention.
+        storageBucket,
+        collectionName,
+        fileSize: file.size,
+        contentType: file.type || null,
+        contentHash,
+        originPath,
+        status: 'uploaded',
+      })
+    }
+    return { unchanged: false as const, documentId, storageKey, replaced: Boolean(superseded) }
+  })
+
+  if (placed.unchanged) {
+    return { documentId: placed.documentId, jobId: null, status: 'uploaded', filename }
   }
+  const { documentId, storageKey, replaced } = placed
 
   // The version, recorded through the SAME transition table the agent's drafts
   // walk (ADR-0054). Born `published` and born approved: the person who
@@ -977,7 +998,7 @@ export async function uploadDocument(
       projectId,
       filename: filename.slice(0, 200),
       fileSize: file.size,
-      ...(superseded ? { replaced: true } : {}),
+      ...(replaced ? { replaced: true } : {}),
     },
     request,
   })

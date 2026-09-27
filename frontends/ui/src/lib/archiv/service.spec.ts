@@ -122,6 +122,7 @@ import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
 import { s3Client } from '@/lib/s3'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { findLiveDocumentByFilename } from '@/lib/documents/repository'
+import { LiveFilenameTakenError } from '@/lib/documents/unique-conflicts'
 import {
   listArchivDocuments,
   findArchivDocument,
@@ -443,5 +444,30 @@ describe('deleteArchivDocument', () => {
     expect(result.documentId).toBe('archiv-doc-1')
     expect(admitOrDiscard).not.toHaveBeenCalled()
     expect(admitReplacementOrDiscard).toHaveBeenCalled()
+  })
+
+  it('makes the loser of two concurrent first uploads a new version of the winner', async () => {
+    // Both probes missed; the live-name index refused the loser's insert (and
+    // `admitOrDiscard` took its object back). The retry finds the winner.
+    const winner = {
+      id: 'archiv-winner',
+      storageKey: 'org/org-1/archiv/doc/archiv-winner/norm.pdf',
+      storageBucket: 'test-bucket',
+      fileSize: 500,
+      contentHash: null,
+      folderId: null,
+      status: 'uploaded',
+    }
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(null).mockResolvedValueOnce(winner)
+    vi.mocked(admitOrDiscard).mockRejectedValueOnce(new LiveFilenameTakenError('norm.pdf'))
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+
+    const result = await uploadArchivDocument(session, makeFile('norm.pdf'), request)
+
+    expect(result.documentId).toBe('archiv-winner')
+    const replaced = vi.mocked(admitReplacementOrDiscard).mock.calls.at(-1)
+    expect(replaced?.[3]).toBe('archiv-winner')
+    // Its own write key under the winner's id — never the winner's own object.
+    expect(replaced?.[1]).toMatch(/\/doc\/archiv-winner\/v\d+\/[0-9a-f]{12}\/norm\.pdf$/)
   })
 })

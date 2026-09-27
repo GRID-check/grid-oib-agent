@@ -163,7 +163,8 @@ import {
   type ReconcilableDocument,
 } from './reconcile-status'
 import type { DocumentListRow } from './repository'
-import { insertPublishedVersion } from './version-repository'
+import { insertPublishedVersion, nextVersionNumber } from './version-repository'
+import { LiveFilenameTakenError } from './unique-conflicts'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { makeDocument, makeProject } from '@/test-utils/db-fixtures'
@@ -1984,6 +1985,78 @@ describe('re-uploading a filename this collection already holds', () => {
       filename: 'Pr\u00fcfbericht.pdf',
     })
     expect(result.filename).toBe('Pr\u00fcfbericht.pdf')
+  })
+})
+
+describe('two FIRST uploads of one filename at once', () => {
+  /**
+   * Both probes miss, both PUT under their own fresh id, and
+   * `uniq_documents_live_name_per_collection` refuses the second insert. That
+   * used to be a 500 after the loser's bytes had landed. The loser becomes the
+   * next version of the winner's document \u2014 what the same two drops one after
+   * the other would have produced (ADR-0054 correction 14).
+   */
+  const winner = {
+    id: 'doc-winner',
+    storageKey: 'org/org-1/project/proj-1/doc/doc-winner/plan.pdf',
+    storageBucket: 'test-bucket',
+    fileSize: 8,
+    contentHash: null,
+    folderId: null,
+    status: 'uploaded',
+  }
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(findProjectInOrg).mockResolvedValue(
+      makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
+    )
+    // The loser's probe ran before the winner inserted; its retry's does not.
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(null).mockResolvedValueOnce(winner)
+    vi.mocked(admitOrDiscard).mockRejectedValueOnce(new LiveFilenameTakenError('plan.pdf'))
+    // No version recorded for the winner yet: the hint reads 1.
+    vi.mocked(nextVersionNumber).mockResolvedValueOnce(1)
+  })
+
+  afterEach(() => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(null)
+  })
+
+  it('records the loser as a new version of the winner\u2019s document', async () => {
+    const result = await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+    expect(result.documentId).toBe('doc-winner')
+    expect(admitOrDiscard).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(admitReplacementOrDiscard).mock.calls.at(-1)?.[3]).toBe('doc-winner')
+    // The version is recorded against the winner's row (the double answers
+    // any id with its fixture, so the lookup is what is asserted).
+    expect(vi.mocked(findDocumentInOrg).mock.calls.at(-1)?.[0]).toBe('doc-winner')
+    expect(insertPublishedVersion).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(recordAuditEvent).mock.calls.at(-1)?.[0]?.metadata).toMatchObject({
+      replaced: true,
+    })
+  })
+
+  it('writes the retry under a write key of its own, never over the winner\u2019s bytes', async () => {
+    await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+    const keys = vi
+      .mocked(s3Client.send)
+      .mock.calls.map(([command]) => (command as unknown as { input: { Key?: string } }).input.Key)
+      .filter((key): key is string => typeof key === 'string' && key.endsWith('/plan.pdf'))
+    // First attempt under the loser's own fresh id; the retry under the
+    // winner's id \u2014 with a write segment even though the hint read 1, because
+    // the version-1 shortcut would have been the winner's own flat key.
+    expect(keys).toHaveLength(2)
+    expect(keys[0]).not.toContain('doc-winner')
+    expect(keys[1]).toMatch(/\/doc\/doc-winner\/v1\/[0-9a-f]{12}\/plan\.pdf$/)
+    expect(keys[1]).not.toBe(winner.storageKey)
+    // What is kept is what is charged: the retry's key, at the full size.
+    expect(vi.mocked(admitReplacementOrDiscard).mock.calls.at(-1)?.[1]).toBe(keys[1])
+    expect(vi.mocked(admitReplacementOrDiscard).mock.calls.at(-1)?.[4]).toMatchObject({
+      storageKey: keys[1],
+      fileSize: 1234,
+    })
   })
 })
 

@@ -15,6 +15,7 @@
  *     npx vitest run src/lib/documents/document-versions.integration.spec.ts
  */
 
+import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
@@ -41,6 +42,7 @@ describe.skipIf(!url)('document versions under concurrency', () => {
   let withTenant: typeof import('@/lib/db/tenant-context').withTenant
   let repo: typeof import('./version-repository')
   let storage: typeof import('@/lib/storage/repository')
+  let conflicts: typeof import('./unique-conflicts')
   let projectId: string
 
   const inTenant = <T>(run: () => Promise<T>): Promise<T> =>
@@ -103,6 +105,7 @@ describe.skipIf(!url)('document versions under concurrency', () => {
     db = (await import('@/lib/db')).getDb()
     repo = await import('./version-repository')
     storage = await import('@/lib/storage/repository')
+    conflicts = await import('./unique-conflicts')
 
     const rows = await inTenant(() =>
       db.execute<{ id: string }>(sql`
@@ -160,6 +163,10 @@ describe.skipIf(!url)('document versions under concurrency', () => {
     const cause = (refusal as { cause?: { code?: string; constraint_name?: string } } | null)?.cause
     expect(cause?.code).toBe('23505')
     expect(cause?.constraint_name).toBe('document_versions_document_id_version_number_key')
+    // The premise of `isUniqueViolation` (ADR-0054 correction 15): the thrown
+    // wrapper carries no code of its own, so `error.code === '23505'` is never
+    // true of a real failure.
+    expect((refusal as { code?: unknown } | null)?.code).toBeUndefined()
   })
 
   it('answers the loser of a concurrent publish with null, never a thrown rollback', async () => {
@@ -298,5 +305,148 @@ describe.skipIf(!url)('document versions under concurrency', () => {
     // And the ledger agrees afterwards: the old version joined the overhead.
     const after = await inTenant(() => db.transaction((tx) => storage.readStorageUsage(tx, ORG)))
     expect(after).toBe(used + 900)
+  })
+
+  /** A first upload's row, as `uploadDocument` hands it to admission. */
+  const firstUpload = (filename: string, fileSize: number) => {
+    const id = randomUUID()
+    return {
+      id,
+      organizationId: ORG,
+      projectId,
+      createdBy: USER,
+      filename,
+      storageKey: `org/${ORG}/project/p/doc/${id}/${filename}`,
+      storageBucket: null,
+      collectionName: 'coll_versions',
+      fileSize,
+      contentType: 'application/pdf',
+      contentHash: `sha256:${id}`,
+      status: 'uploaded',
+    }
+  }
+
+  it('refuses the loser of two concurrent first uploads as a typed 409, charging it nothing', async () => {
+    seq += 1
+    const filename = `race-${seq}.pdf`
+    const used = await inTenant(() => db.transaction((tx) => storage.readStorageUsage(tx, ORG)))
+    const a = firstUpload(filename, 300)
+    const b = firstUpload(filename, 300)
+
+    // Both probes have missed by now; the two inserts meet the index. The
+    // quota lock serializes them, so the second sees the first's COMMITTED row.
+    const outcomes = await Promise.allSettled([
+      inTenant(() => storage.insertDocumentWithinQuota(a, null)),
+      inTenant(() => storage.insertDocumentWithinQuota(b, null)),
+    ])
+
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
+    const lost = outcomes.find((outcome) => outcome.status === 'rejected')
+    const reason = lost?.status === 'rejected' ? lost.reason : null
+    // Mapped at the repository — not a raw drizzle wrapper, which a route
+    // would have answered with a 500.
+    expect(reason).toBeInstanceOf(conflicts.LiveFilenameTakenError)
+    expect(reason).toMatchObject({ status: 409 })
+
+    const rows = await inTenant(async () =>
+      Array.from(
+        await db.execute<{ id: string }>(sql`
+          SELECT id FROM documents WHERE organization_id = ${ORG} AND filename = ${filename}
+        `),
+      ),
+    )
+    expect(rows).toHaveLength(1)
+    const after = await inTenant(() => db.transaction((tx) => storage.readStorageUsage(tx, ORG)))
+    expect(after).toBe(used + 300)
+  })
+
+  it('records the loser, retried as a re-upload, as the next version — charged what is kept', async () => {
+    seq += 1
+    const filename = `race-${seq}.pdf`
+    const used = await inTenant(() => db.transaction((tx) => storage.readStorageUsage(tx, ORG)))
+    const winner = firstUpload(filename, 300)
+    const loser = firstUpload(filename, 200)
+
+    await inTenant(() => storage.insertDocumentWithinQuota(winner, null))
+    await expect(
+      inTenant(() => storage.insertDocumentWithinQuota(loser, null)),
+    ).rejects.toBeInstanceOf(conflicts.LiveFilenameTakenError)
+
+    // The retry: the loser's bytes under a write key of the WINNER's document,
+    // admitted as a replacement — interleaved with the winner still recording
+    // its own version 1, which is the order the race actually produces.
+    const retryKey = `org/${ORG}/project/p/doc/${winner.id}/v1/abcdef012345/${filename}`
+    await inTenant(() =>
+      storage.replaceDocumentWithinQuota(
+        ORG,
+        winner.id,
+        {
+          storageKey: retryKey,
+          storageBucket: null,
+          fileSize: 200,
+          contentType: 'application/pdf',
+          contentHash: loser.contentHash,
+          folderId: null,
+          createdBy: USER,
+        },
+        null,
+      ),
+    )
+    await Promise.all([
+      inTenant(() =>
+        repo.insertPublishedVersion({
+          ...published(winner.id, winner.storageKey, 300),
+          contentHash: winner.contentHash,
+        }),
+      ),
+      inTenant(() =>
+        repo.insertPublishedVersion({
+          ...published(winner.id, retryKey, 200),
+          contentHash: loser.contentHash,
+        }),
+      ),
+    ])
+
+    const rows = await versionsOf(winner.id)
+    expect(rows.map((row) => Number(row.version_number))).toEqual([1, 2])
+    expect(rows.filter((row) => row.state === 'published')).toHaveLength(1)
+    expect(new Set(rows.map((row) => row.storage_key))).toEqual(new Set([winner.storageKey, retryKey]))
+    // Two objects are kept, so both are charged — and nothing for the loser's
+    // first object, which was never admitted.
+    const after = await inTenant(() => db.transaction((tx) => storage.readStorageUsage(tx, ORG)))
+    expect(after).toBe(used + 500)
+  })
+
+  it('refuses the loser of two concurrent forks as a typed 409, leaving one open draft', async () => {
+    const doc = await seedDocument()
+    await inTenant(() => repo.insertPublishedVersion(published(doc.id, doc.storageKey)))
+    const fork = () =>
+      inTenant(() => repo.insertDocumentVersion({ ...baseVersion(doc.id, doc.storageKey), state: 'draft' }))
+
+    const outcomes = await Promise.allSettled([fork(), fork()])
+
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
+    const lost = outcomes.find((outcome) => outcome.status === 'rejected')
+    const reason = lost?.status === 'rejected' ? lost.reason : null
+    expect(reason).toBeInstanceOf(conflicts.OpenVersionExistsError)
+    expect(reason).toMatchObject({ status: 409, documentId: doc.id })
+    const rows = await versionsOf(doc.id)
+    expect(rows.filter((row) => row.state === 'draft')).toHaveLength(1)
+  })
+
+  it('leaves a 23505 on any other document_versions constraint unmapped', async () => {
+    const doc = await seedDocument()
+    await inTenant(() => repo.insertPublishedVersion(published(doc.id, doc.storageKey)))
+    // A second PUBLISHED insert outside `insertPublishedVersion` meets the
+    // published-per-document index, which is a bug and must stay a 500.
+    const refusal = await inTenant(() =>
+      repo.insertDocumentVersion(published(doc.id, `${doc.storageKey}.again`)),
+    ).then(
+      () => null,
+      (error: unknown) => error,
+    )
+    expect(refusal).not.toBeInstanceOf(conflicts.OpenVersionExistsError)
+    const { isUniqueViolation } = await import('@/lib/db/errors')
+    expect(isUniqueViolation(refusal, 'uniq_document_versions_published_per_document')).toBe(true)
   })
 })

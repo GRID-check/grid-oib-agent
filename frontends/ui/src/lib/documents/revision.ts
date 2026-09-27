@@ -21,6 +21,7 @@ import 'server-only'
  * checks the acting session exactly as it does for a person's own submit.
  */
 
+import { ConflictError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { DocumentVersion } from '@/lib/db/schema'
 import { getAccessibleDocument } from './access'
@@ -58,13 +59,37 @@ export async function openDraftForRevision(
   // right now must not be rewritten under them. Nothing here forces it — the
   // caller gets the row and `replaceVersionContent` refuses with a 409, which is
   // the honest answer ("a person has it") rather than a silent second draft.
-  const version = open ?? (await forkDraftVersion(session, documentId))
+  const version = open ?? (await forkOrJoin(session, documentId))
 
   return {
     version,
     filename: documentDisplayName(document),
     reviewers: await lastRefusers(documentId, session.organizationId),
   }
+}
+
+/**
+ * Fork a draft, or take the one a concurrent fork opened a moment ago.
+ *
+ * The route's 409 („there is already a draft") is the right answer to a person
+ * pressing a button; for this function it is the answer to its own question —
+ * "which version do the revised bytes go into" — so the winner's draft is
+ * re-read and used. Only a conflict that names a version is joined; any other
+ * refusal propagates.
+ */
+async function forkOrJoin(session: AuthorizedSession, documentId: string): Promise<DocumentVersion> {
+  try {
+    return await forkDraftVersion(session, documentId)
+  } catch (error) {
+    if (!(error instanceof ConflictError) || !hasVersionId(error.details)) throw error
+    const winner = await findOpenVersion(documentId, session.organizationId)
+    if (!winner) throw error
+    return winner
+  }
+}
+
+function hasVersionId(details: unknown): boolean {
+  return typeof details === 'object' && details !== null && 'versionId' in details
 }
 
 /**

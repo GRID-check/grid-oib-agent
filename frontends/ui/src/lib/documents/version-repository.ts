@@ -24,6 +24,7 @@ import {
 } from '@/lib/storage/repository'
 import type { DocumentVersionState } from './lifecycle-types'
 import { DOCUMENT_VERSION_STATES, OPEN_DOCUMENT_VERSION_STATES } from './lifecycle-types'
+import { mapVersionInsertError } from './unique-conflicts'
 
 /**
  * A document's version list is a page, like every other list in this tier.
@@ -92,19 +93,32 @@ export async function allocateVersionNumber(
   return row?.highest === null || row?.highest === undefined ? 1 : Number(row.highest) + 1
 }
 
-/** Insert one version, its number allocated under the per-document lock. */
+/**
+ * Insert one version, its number allocated under the per-document lock.
+ *
+ * An open version refused by `uniq_document_versions_open_per_document` is
+ * thrown as `OpenVersionExistsError`: a concurrent fork of this document opened
+ * its one draft first. The per-document lock serializes the two inserts, so the
+ * loser meets the winner's COMMITTED row and is refused at once. No other 23505
+ * is mapped — one on the version-number key means a path skipped the lock, and
+ * that must stay a 500.
+ */
 export async function insertDocumentVersion(
   values: NewDocumentVersionValues,
 ): Promise<DocumentVersion> {
   const db = getDb()
-  return db.transaction(async (tx) => {
-    const versionNumber = await allocateVersionNumber(tx, values.documentId, values.organizationId)
-    const [row] = await tx
-      .insert(documentVersions)
-      .values({ ...values, versionNumber })
-      .returning()
-    return row
-  })
+  return db
+    .transaction(async (tx) => {
+      const versionNumber = await allocateVersionNumber(tx, values.documentId, values.organizationId)
+      const [row] = await tx
+        .insert(documentVersions)
+        .values({ ...values, versionNumber })
+        .returning()
+      return row
+    })
+    .catch((error: unknown) => {
+      throw mapVersionInsertError(error, values.documentId)
+    })
 }
 
 /**

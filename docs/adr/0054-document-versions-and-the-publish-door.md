@@ -324,6 +324,62 @@ nobody what it cost to find them.
     is admitted inside its swap transaction under the per-organization quota
     lock, by measuring the usage it is about to commit.
 
+14. **Two races on the two partial unique indexes still answered 500.** Both
+    indexes were described as closing a race the probe cannot, and both did —
+    by refusing the second insert with a raw 23505 that no layer mapped.
+
+    *Two first uploads of one filename.* Both probes miss, both PUT under a
+    fresh id, and `uniq_documents_live_name_per_collection` refuses the second
+    insert after its bytes have landed. The loser now becomes a NEW VERSION of
+    the winner's document, because that is what the same two drops one after
+    the other produce under this record, and an outcome that depended on
+    milliseconds would be two products. It is safe because nothing of the
+    first attempt survives it: the refused insert rolled back (no row, no
+    quota charge) and `admitOrDiscard` deletes the object on any admission
+    failure. `insertDocumentWithinQuota` maps the refusal — by constraint name,
+    in `lib/documents/unique-conflicts.ts` — to `LiveFilenameTakenError`, and
+    the project and Archiv uploads run their probe-store-admit step once more
+    (`retryLostFirstUpload`), which finds the winner and takes the re-upload
+    path, charged in full for the object it keeps. The session shelf does not
+    retry; there the mapped error is a `409`, object discarded.
+
+    That retry exposed a second hole. A re-upload's key used the version-1
+    shortcut whenever `nextVersionNumber` read 1, and it reads 1 for a row
+    with no version yet — the winner, between its insert and its version — so
+    the retry would have PUT over the winner's own object. A re-upload now
+    always takes the `v<n>/<write id>/` segment.
+
+    *Two forks of one document.* Both see no open version, and
+    `uniq_document_versions_open_per_document` refuses the second insert. The
+    route's contract already said what the loser is owed: „a second attempt is
+    a 409 naming the draft that exists". `insertDocumentVersion` maps the
+    refusal to `OpenVersionExistsError`, and `forkDraftVersion` re-reads the
+    winner and throws the SAME 409, `{ versionId, state }`, its probe throws.
+    The typed client and the Python filing tool are unchanged: the client
+    already parses that 409 into `DocumentLifecycleError`, and the agent's
+    internal route has no fork op. `openDraftForRevision` — whose question is
+    "which version do the revised bytes go into", not "may I open one" — joins
+    the winner's draft instead of failing the revision task.
+
+    Only these two constraints are mapped. A 23505 on the version-number key
+    means a path skipped the per-document lock, and one on the published index
+    means a published row was inserted outside `insertPublishedVersion`; both
+    are bugs and stay 500s.
+
+15. **No race backstop that read `error.code === '23505'` ever ran.** Finding
+    the two above turned up why the pattern was trusted: drizzle 0.45 wraps
+    every failed query in `DrizzleQueryError`, whose own `code` is undefined —
+    the driver's error, with `code` and `constraint_name`, is its `cause`. So
+    the recovery in `fileGeneratedDocument` (two tabs filing one report), in
+    the folder service (a duplicate folder name, the `Berichte` get-or-create),
+    in project memory and in platform lessons matched nothing in production,
+    and each loser got a 500. In the folder service it was not only a race:
+    creating a folder under a name a sibling already has runs no probe, so it
+    answered 500 every time. Their unit specs threw a flat `{ code: '23505' }`
+    and passed. `isUniqueViolation(error, constraint?)` in `lib/db/errors.ts`
+    walks the cause chain, every site uses it, the filing path names its index,
+    and `no-restricted-syntax` refuses the literal `'23505'` outside specs.
+
 ### What this amends in ADR-0047
 
 ADR-0047's 2026-08-20 addendum says `Zuweisen` is the promotion gesture and that

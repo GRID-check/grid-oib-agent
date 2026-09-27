@@ -132,6 +132,7 @@ import {
   promoteVersionToPublished,
 } from './version-repository'
 import { renderVersionBytes, writeVersionContent } from './version-content'
+import { OpenVersionExistsError } from './unique-conflicts'
 import {
   createDocumentVersion,
   forkDraftVersion,
@@ -1024,6 +1025,32 @@ describe('forkDraftVersion', () => {
       status: 409,
       details: { versionId: 'ver_open', state: 'draft' },
     })
+  })
+
+  it('answers the loser of two concurrent forks with the same 409, naming the winner', async () => {
+    // Both forks passed the probe (nothing open yet), and the index refused the
+    // second insert. The repository maps THAT refusal; the service re-reads
+    // the winner so the loser is told what the sequential caller is told.
+    vi.mocked(findOpenVersion)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(version({ id: 'ver_winner', state: 'draft' }))
+    vi.mocked(findPublishedVersion).mockResolvedValue(version({ state: 'published' }))
+    vi.mocked(insertDocumentVersion).mockRejectedValue(new OpenVersionExistsError('doc_1'))
+
+    await expect(forkDraftVersion(session, 'doc_1')).rejects.toMatchObject({
+      status: 409,
+      code: 'CONFLICT',
+      details: { versionId: 'ver_winner', state: 'draft' },
+    })
+  })
+
+  it('lets any other insert failure through unmapped', async () => {
+    vi.mocked(findOpenVersion).mockResolvedValue(null)
+    vi.mocked(findPublishedVersion).mockResolvedValue(version({ state: 'published' }))
+    const other = new Error('Failed query', { cause: { code: '23505', constraint_name: 'other' } })
+    vi.mocked(insertDocumentVersion).mockRejectedValue(other)
+
+    await expect(forkDraftVersion(session, 'doc_1')).rejects.toBe(other)
   })
 
   it('shares the published version’s key until the content is replaced', async () => {

@@ -58,6 +58,7 @@ import { collectionFileRef, purgeIngestedChunks } from './collection-file-ref'
 import { documentDisplayName } from './display-name'
 import { findDocumentInOrg, findFolderPathInProject } from './repository'
 import { listReviewCandidates, resolveReviewers } from './reviewers'
+import { OpenVersionExistsError } from './unique-conflicts'
 import {
   BACKEND_PURGE_TIMEOUT_MS,
   readVersionContent,
@@ -933,6 +934,17 @@ export async function createDocumentVersion(
 }
 
 /**
+ * „There is already a draft", naming it — the fork's one 409, whether the probe
+ * saw the open version or the index refused a concurrent second insert.
+ */
+function openVersionConflict(open: DocumentVersion): ConflictError {
+  return new ConflictError('This document already has an open version', {
+    versionId: open.id,
+    state: open.state,
+  })
+}
+
+/**
  * Start a new draft from the published version.
  *
  * The draft SHARES the published version's storage key until its content is
@@ -944,7 +956,9 @@ export async function createDocumentVersion(
  *
  * One open version per document is the database's rule (a partial unique
  * index); this reports it as a 409 with the existing draft named, because "there
- * is already a draft" is something the caller can act on.
+ * is already a draft" is something the caller can act on. The probe answers the
+ * sequential case; the index answers two forks at once, and its refusal is
+ * mapped to the same 409 (ADR-0054 correction 14) instead of escaping as a 500.
  */
 export async function forkDraftVersion(
   session: AuthorizedSession,
@@ -953,12 +967,7 @@ export async function forkDraftVersion(
 ): Promise<DocumentVersion> {
   const document = await getAccessibleDocument(session, documentId, 'write')
   const open = await findOpenVersion(documentId, session.organizationId)
-  if (open) {
-    throw new ConflictError('This document already has an open version', {
-      versionId: open.id,
-      state: open.state,
-    })
-  }
+  if (open) throw openVersionConflict(open)
   const published = await findPublishedVersion(documentId, session.organizationId)
   const source = published ?? {
     storageKey: document.storageKey,
@@ -983,6 +992,14 @@ export async function forkDraftVersion(
     fileSize: source.fileSize,
     contentHash: source.contentHash,
     createdBy: session.userId,
+  }).catch(async (error: unknown) => {
+    // Two forks both passed the probe above, and the index refused the second
+    // insert. The loser gets the SAME 409 the probe gives — the contract names
+    // the draft that exists, so the caller can open it — rather than a 500. If
+    // the winner is already gone again, the mapped error is itself a 409.
+    if (!(error instanceof OpenVersionExistsError)) throw error
+    const winner = await findOpenVersion(documentId, session.organizationId)
+    throw winner ? openVersionConflict(winner) : error
   })
 
   await runEffects({

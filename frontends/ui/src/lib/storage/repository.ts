@@ -44,6 +44,7 @@ import {
   type DocumentScope,
   type NewDocument,
 } from '@/lib/db/schema'
+import { mapDocumentInsertError } from '@/lib/documents/unique-conflicts'
 
 /** Bytes and document count for one scope. */
 export interface StorageScopeUsage {
@@ -412,6 +413,16 @@ export async function replaceDocumentWithinQuota(
   })
 }
 
+/**
+ * Insert a document row if the organization has room, under the quota lock.
+ *
+ * A refusal by `uniq_documents_live_name_per_collection` is thrown as
+ * `LiveFilenameTakenError` — a concurrent FIRST upload of this filename into
+ * this shelf committed while this one waited on the lock — and nothing else is
+ * mapped: any other 23505 keeps its original error. The transaction rolled
+ * back, so nothing was charged; the upload paths answer it by re-probing and
+ * recording their bytes as a new version of the winner's document.
+ */
 export async function insertDocumentWithinQuota(
   values: NewDocument,
   quotaBytes: number | null,
@@ -435,5 +446,7 @@ export async function insertDocumentWithinQuota(
 
     await tx.insert(documents).values(values)
     return { ok: true as const }
+  }).catch((error: unknown) => {
+    throw mapDocumentInsertError(error, values.filename)
   })
 }
