@@ -1,0 +1,5 @@
+---
+fixes:
+  - >
+    When Piloti's reply breaks after its answer text, the chat now shows the
+    answer instead of a block of raw data.

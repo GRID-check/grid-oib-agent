@@ -48,6 +48,10 @@ export interface QueueEntry {
  */
 export interface PurgeDeps {
   backendUrl: string;
+  /** The BFF, for the erasures whose steps live there (a chat's). */
+  frontendUrl: string;
+  /** `GRID_INTERNAL_API_TOKEN`: the agent's maintenance endpoint and the BFF's
+   *  internal routes both accept it. */
   internalToken: string;
   /** The deployment's shared bucket. Every other bucket a sweep visits is read
    *  from the document rows themselves (ADR-0043). */

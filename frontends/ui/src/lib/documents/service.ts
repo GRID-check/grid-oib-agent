@@ -70,6 +70,7 @@ import {
 } from './collection-file-ref'
 import {
   deleteProjectDocument,
+  documentExistsInCollection,
   findDocumentInOrg,
   findFolderPathInProject,
   findStorageKeyByCollectionAndFilename,
@@ -88,7 +89,7 @@ import { runBimExtraction } from '@/lib/bim/service'
 import { getAccessibleDocument } from './access'
 import { nextVersionNumber, recordUploadedVersionOrDiscard } from './lifecycle'
 import { newVersionWriteId, versionWriteKey } from './version-content'
-import { findOpenVersion } from './version-repository'
+import { findOpenVersion, listDocumentVersionSummaries } from './version-repository'
 import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
 import {
@@ -1709,6 +1710,13 @@ export async function deleteDocument(
 
   await deleteProjectDocument(documentId, session.organizationId, doc.projectId)
 
+  // Once more, now that the row is gone: an ingest of this document that
+  // asked `GET /api/internal/document-exists` before the row went saw it,
+  // and kept chunks it inserted after the first purge (ADR-0054, correction
+  // 18). Any check from here on reads „gone“ and discards its own. Logged
+  // inside, never thrown: the row is gone, and the orphan sweep is the net.
+  if (purgeRef) await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
+
   // Data-provenance event: who removed which file from which project.
   await recordAuditEvent({
     organizationId: session.organizationId,
@@ -2141,7 +2149,10 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
   const [reconciled] = await reconcileDocumentStatuses([doc], session.organizationId)
-  const openVersion = await findOpenVersion(reconciled.id, session.organizationId)
+  const [openVersion, [versionSummary]] = await Promise.all([
+    findOpenVersion(reconciled.id, session.organizationId),
+    listDocumentVersionSummaries([reconciled.id], session.organizationId),
+  ])
 
   return {
     id: reconciled.id,
@@ -2187,6 +2198,14 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     // it is in — belong. `null` means the live bytes are the published ones and
     // nothing extra has to travel.
     openVersion: openVersion ? { id: openVersion.id, state: openVersion.state } : null,
+    // HOW MANY VERSIONS, so the chat peek can tell a failed re-upload from a
+    // file that never indexed. A new version that fails to process leaves the
+    // previous one's passages in the index — Piloti still cites it — and a
+    // peek that said "cannot cite this file" for that case was wrong. The same
+    // count the Files listing carries (`summarizeDocumentVersions`), for the
+    // one document this payload is about. `null` when there is no version row
+    // at all, which the peek reads as "no earlier version known".
+    versionCount: versionSummary?.versionCount ?? null,
   }
 }
 
@@ -2204,6 +2223,21 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
  * SeaweedFS for the `view_knowledge_image` tool (ADR-0039), so this is
  * read-only metadata — it never returns the bytes themselves.
  */
+/**
+ * Whether the document an ingest was dispatched for still exists — the
+ * pipeline's question once a file is indexed, before it retires the previous
+ * version (`GET /api/internal/document-exists`). A delete that landed while
+ * the ingest ran leaves no row, and the pipeline then takes back out the
+ * chunks it just inserted. Service-token caller, so no session to authorize.
+ */
+export async function documentStillExists(
+  documentId: string,
+  collectionName: string,
+  organizationId?: string
+): Promise<boolean> {
+  return documentExistsInCollection(documentId, collectionName, organizationId)
+}
+
 /**
  * One presigned PUT slot for the `imageIndex`-th raster the ingest pipeline
  * cut out of a document, plus the key it will land on.

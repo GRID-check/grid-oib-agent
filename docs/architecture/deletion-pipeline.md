@@ -58,11 +58,11 @@ This doubles as GDPR **Art. 18 (restriction of processing)** support: restricted
 
 **What a hold covers, and who asks (migration 0093).** "Covered" is one database function, `grid_legal_hold_blocks(entity_type, entity_id, organization_id)`, and every reader calls it rather than restating it. An entity is covered by an active hold of its own organization on: the organization; the entity itself; what contains it (a document's project and conversation, a conversation's project); what it contains, since erasing it erases that too (a conversation's attachments; a project's documents, chats and the chats' attachments; for an organization, any hold in it at all); and the user who created it (a custodian hold: `documents.created_by`, `conversations.created_by`). Three readers:
 
-- **The purger** — its claim query and the TOCTOU re-checks in `purge-project.js`. The predicate used to be written out in `purger/db.js` and saw only the project and the organization, so a held document inside a deleted project was purged with it.
+- **The purger** — its claim query and the TOCTOU re-checks in `purge-project.js` and `purge-conversation.js`. The predicate used to be written out in `purger/db.js` and saw only the project and the organization, so a held document inside a deleted project was purged with it.
 - **The BFF's immediate deletes** — documents, Archiv documents, conversations and chat attachments are hard-deleted in the request, not queued, so each calls `assertNoActiveHold` (`lib/compliance/holds.ts`) after its access check and before its first destructive step. A covered entity answers **409** `{ code: 'CONFLICT', details: { reason: 'legal_hold' } }` and nothing is erased; the chat is not even marked deleting. The response never names the hold or its reason.
 - **The delete triggers** — `BEFORE DELETE` on `documents` and `conversations` raise SQLSTATE `GLH01` for a covered row, including a row reached by a cascade from a project. This is the backstop for a delete path that forgot to ask; `lib/api/handler.ts` maps `GLH01` to the same 409. It guards the rows only: object storage and the vector store are outside the transaction, which is why the application check comes first. A project row has no trigger of its own: its content has, and an empty project row is not content (its creation rollback, `deleteProjectRow`, must keep working under an organization hold).
 
-Unlike the purge, an immediate delete is **refused**, not deferred: there is no queue row for a document or a chat to resume from once the hold is released, so the requester gets the refusal and deletes again after release.
+Unlike the purge, an immediate delete is **refused**, not deferred: there is no queue row for a document to resume from once the hold is released, so the requester gets the refusal and deletes again after release. A chat is refused the same way when the hold exists at delete time. A hold placed after the chat was marked deleting, while its erasure waits in the queue for a retry, defers that retry instead (see **Conversation** below).
 
 API: `POST /api/holds` and `POST /api/holds/[id]/release` (org owner + internal support only), `GET /api/holds` (org admin). Management UI is out of scope for now — holds are rare, deliberate legal events; the API + audit trail is what compliance requires.
 
@@ -125,20 +125,72 @@ place and takes back out any of its own chunks that were already inserted; two
 re-uploads of one name at once are serialised, so the later one is what stays
 ([document ingestion](../technical-reference/document-ingestion.md#a-re-upload-replaces-the-previous-version-once-it-has-indexed)).
 
+A delete does not wait for an ingest of the same document. Step 2 removes the
+chunks that are there, and an ingest still running (a re-upload on another
+replica, or a dispatch that left after the upload recorded its version) inserts
+the rest afterwards. The ingestor asks `GET /api/internal/document-exists` once
+the file is indexed, and on `exists: false` takes back out exactly what it
+inserted, retires nothing and writes no `document_metadata` row. It discards on
+that definite answer only; an unreachable BFF leaves the chunks in. Because the
+row is deleted last, an ingest that asks between step 2 and step 4 still finds
+it and keeps what it inserted after step 2, so every immediate delete (project,
+Archiv, a chat attachment, and a whole chat's attachments in step 4 of the
+conversation delete below) purges the chunks once more after the row (logged,
+never surfaced; the orphaned-vector sweep is the net)
+([a document deleted while it indexed](../technical-reference/document-ingestion.md#a-document-deleted-while-it-indexed-takes-its-chunks-back-out)).
+
 **Conversation**:
 1. Delete LangGraph checkpoints (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes` in `aiq_checkpoints`) for `thread_id = conversation id`
 2. Delete `conversations` row (`messages` cascade)
 
-What `DELETE /api/conversations/[id]` does today is immediate, not queued
-(`deleteConversation`, `lib/conversations/service.ts`), and every step after the
-hold check is safe to repeat:
+What `DELETE /api/conversations/[id]` does today is immediate, with the queue
+as its retry (`deleteConversation`, `lib/conversations/service.ts`), and every
+step after the hold check is safe to repeat:
 
 1. `owner` on the conversation (or the creator of one already marked deleting, so a failed erase can be retried).
 2. `assertNoActiveHold`, before anything is marked or erased.
-3. Mark the conversation `deleted_at`, which hides it and makes the session upload refuse new bytes.
-4. `purgeSessionDocuments` (`lib/session-documents/cleanup.ts`): for each attachment row, its chunks, its objects, then the row. A row whose erase failed is kept, and so is the conversation.
+3. Mark the conversation `deleted_at`, which hides it and makes the session upload refuse new bytes, and in the same transaction insert a `deletion_queue` row (`entity_type = 'conversation'`, `purge_after` = now + 10 minutes, `CONVERSATION_ERASURE_RETRY_DELAY_MS`). The active-row index keeps one pending row per chat, so a repeated delete leaves the queued retry and its attempts alone.
+4. `purgeSessionDocuments` (`lib/session-documents/cleanup.ts`): for each attachment row, its chunks, its objects, then the row, then its chunks once more (logged only). A row whose erase failed is kept, and so is the conversation.
 5. `deleteSessionCollection`: the chat's whole `s_` collection through the backend's `DELETE /v1/collections/{name}`. This covers chunks no row names, such as attachments uploaded before session files were rows. A collection that does not exist (404), or a deployment with no knowledge layer (503), counts as erased. Any other failure keeps the conversation.
-6. Delete the `conversations` row (`messages` and the remaining document rows cascade), then the collaboration rows and the agent's drafts.
+6. Delete the `conversations` row (`messages` and the remaining document rows cascade), then the collaboration rows; close the queue row (`pending` or `failed` → `purged`, never a row the purger has claimed); then the agent's drafts.
+
+Steps 4 to 6 are one function (`eraseMarkedConversation`). When step 4 or 5
+fails, typically because the agent service is down, the request answers 502 and
+the chat stays marked, and the queue row is what brings it back. The purger
+claims it like any other row (`FOR UPDATE SKIP LOCKED`, backoff from
+`claimed_at`, `failed` after 10 attempts, `reapStranded`) and runs
+`purger/purge-conversation.js`, which re-checks the hold and calls
+`POST /api/internal/conversations/[id]/erase` on the BFF (`FRONTEND_INTERNAL_URL`,
+`GRID_INTERNAL_API_TOKEN`, the queue row's organization as the tenant scope).
+That route calls `retryConversationErasure`, which runs the same
+`eraseMarkedConversation`. The steps are not copied into the purger: they need
+the BFF's tenant scope, the session-document ledger and its backend clients, and
+a JavaScript copy would drift from the TypeScript one. What the retry decides on
+its own:
+
+- **A legal hold placed after the mark defers the erasure.** The chat does not
+  come back: the requester already saw it go, and its attachments may be half
+  erased. The route answers 409 `legal_hold`, the purger puts the row back to
+  `pending` without spending an attempt, and the claim skips it while the hold
+  is active, the same semantics as a held project purge. It stays listed as
+  pending in `GET /api/deletions`, and the erasure resumes on the tick after the
+  release.
+- **A chat that is not marked deleting is refused** (409 `not_deleting`), and the
+  purger fails the row for good on the first such answer (`markFailedPermanent`,
+  `last_error` saying the row names a live chat and nothing was erased) rather
+  than retrying ten times for the same refusal. It is `failed`, not `purged`,
+  because nothing was erased. A queue row that names a live chat is a bug to
+  surface, not an instruction to follow.
+- **A chat whose row is already gone is finished**, not a failure. A project purge
+  takes its chats' rows, and a request can die after the row delete. The steps
+  are keyed by the id and are no-ops on an absent row, so the collaboration rows,
+  the drafts and the queue row are still dealt with.
+
+A row that reaches `failed` stays in `GET /api/deletions` with its `last_error`
+(the Recently deleted panel shows only projects). A person who deletes the chat
+again gets a new pending row, and a successful erase closes both.
+Migration 0095 queued the chats that were already stuck deleting before this
+existed.
 
 The browser's discard of an abandoned upload-only chat sends only this delete.
 It used to send a collection delete through the v1 proxy alongside it, and when
@@ -179,7 +231,8 @@ Beside it, `POST /v1/maintenance/reconcile-summaries` (same guard) forgets summa
 - `DELETE /api/projects/[id]` — reworked: permission check → set `projects.deleted_at` → insert `deletion_queue` row. No hard deletes, no WorkOS call here.
 - `POST /api/projects/[id]/restore` — org admin; within grace; clears `deleted_at`, sets queue row `restored`.
 - `DELETE /api/documents/[id]` — new; soft-delete + enqueue (grace 0).
-- `DELETE /api/conversations/[id]` — new/reworked to soft-delete + enqueue (grace 0), replacing any direct-delete path.
+- `DELETE /api/conversations/[id]` — marks and enqueues, then erases in the request; the queue row is the retry when that erase fails (see **Conversation** above).
+- `POST /api/internal/conversations/[id]/erase` — token-guarded; the purger's retry of that erase, in the queue row's organization.
 - `DELETE /api/organizations/[id]` + `POST /api/organizations/[id]/restore` — org owner only.
 - `GET /api/deletions?entity_type=…` — org-admin list of pending/failed deletions (powers "Recently deleted" UI).
 

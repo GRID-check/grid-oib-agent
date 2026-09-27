@@ -72,6 +72,12 @@ export function fileItemFromStatus(body: {
    * exactly what the column's default means — a person uploaded it.
    */
   authoredBy?: DocumentAuthor | null
+  /**
+   * How many versions the document has (`getDocumentStatus`). The peek reads it
+   * to say "still citing the previous version" for a failed re-upload instead
+   * of "cannot cite this file". Absent on an older payload, which is `null`.
+   */
+  versionCount?: number | null
 }): {
   id: string
   filename: string
@@ -88,6 +94,7 @@ export function fileItemFromStatus(body: {
   contentTypes: string[] | null
   tags: string[] | null
   authoredBy?: DocumentAuthor
+  versionCount: number | null
 } {
   return {
     id: body.id,
@@ -107,6 +114,7 @@ export function fileItemFromStatus(body: {
     chunkCount: body.chunkCount ?? null,
     contentTypes: body.contentTypes ?? null,
     tags: body.tags ?? null,
+    versionCount: body.versionCount ?? null,
     // Omitted rather than `null` when unknown: `FileItem.authoredBy` is
     // OPTIONAL and its absence already means "a person uploaded it", so writing
     // a null would be inventing a third state the byline has to interpret.

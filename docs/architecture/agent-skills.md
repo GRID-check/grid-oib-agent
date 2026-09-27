@@ -1060,11 +1060,14 @@ Piloti "no" about reaches the run rather than a log line.
 
 Plain-Node worker (purger idiom: CommonJS, `postgres` client, `.spec.mjs`
 tests), compose service `skill-scheduler` (container `grid-skill-scheduler`)
-running `node scheduler/index.js` off the frontend image. It refuses to start
-— clean log, exit 0 — unless the deployment gate is on
+running `node scheduler/index.js` off the frontend image. It fires schedules
+(steps 1–3 below) only when the deployment gate is on
 (`GRID_SKILLS_ENABLED=true` or `GRID_ENFORCE_FEATURE_FLAGS=true`), read
 case-insensitively exactly as the BFF reads it, so `TRUE` cannot enable the UI
-while silently no-op'ing this container.
+while silently skipping the schedules. With the gate off it does not exit: it
+stays up as the run reconciler's clock (step 4), because runs exist without
+Agent Skills — a chat question escalated to deep research is a `task_runs` row
+with no definition behind it (ADR-0062).
 
 Tick (default 30 s), with a reentrancy guard so a slow tick never overlaps the
 next interval:
@@ -1094,6 +1097,21 @@ next interval:
    '$GRID_SKILL_RUNS_RETENTION_DAYS days'` (batched by id-subselect so each
    statement locks a bounded set). The definition survives its pruned runs, so
    a schedule keeps firing after its oldest attempts age out.
+4. Run reconciler, every tick and whatever the gate says: `POST
+   {FRONTEND_INTERNAL_URL}/api/internal/runs/reconcile`. The BFF does the work
+   (`lib/runs/reconcile.ts`): it claims up to 25 still-`queued`/`running` runs
+   nothing has checked for `GRID_RUN_RECONCILE_STALE_MINUTES` (default 10),
+   stamping `reconcile_checked_at` in the same statement (`FOR UPDATE SKIP
+   LOCKED`, migration 0096), asks the job store for each job's real verdict
+   (`GET /v1/internal/jobs/{id}/outcome`, service token), and for a finished job
+   fills an empty run message (`writeRunReport`), settles a live ledger
+   (`applyRunLedgerOp`) and closes the row (`recordRunOutcome` with
+   `onlyIfActive`) — the same functions the worker's own writes reach. A job the
+   store cannot find, or a run that never got a backend job id, is closed as
+   failed once it is older than `GRID_RUN_RECONCILE_UNKNOWN_GRACE_MINUTES`
+   (default 120). The container logs a sweep only when it closed or failed
+   something. See the run section of
+   [`backend-deep-dive.md`](backend-deep-dive.md) and ADR-0062.
 
 Claiming advances the job **before** firing, which is what makes a run
 at-most-once per occurrence across replicas and crashes.
@@ -1116,7 +1134,9 @@ renaming them is a deployment change with no user-visible gain.
 
 | Variable | Service | Default | Purpose |
 |---|---|---|---|
-| `GRID_SKILLS_ENABLED` | frontend, skill-scheduler | `false` | Dark-launch fallback gate while flags are unenforced; also the scheduler's start gate |
+| `GRID_SKILLS_ENABLED` | frontend, skill-scheduler | `false` | Dark-launch fallback gate while flags are unenforced; also the scheduler's schedules gate (the run reconciler runs regardless) |
+| `GRID_RUN_RECONCILE_STALE_MINUTES` | frontend | `10` | A still-active run is asked about once nothing has checked it for this long |
+| `GRID_RUN_RECONCILE_UNKNOWN_GRACE_MINUTES` | frontend | `120` | A run whose job cannot be found is closed as failed once this old |
 | `GRID_SKILL_SCHEDULER_POLL_MS` | skill-scheduler | `30000` | Tick interval |
 | `GRID_SKILL_SCHEDULER_BATCH` | skill-scheduler | `20` | Max claims per tick |
 | `GRID_SKILL_MIN_INTERVAL_MINUTES` | frontend | `15` | Minimum cron cadence accepted at save time |

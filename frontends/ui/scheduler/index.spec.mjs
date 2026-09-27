@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { shouldStart, readConfig, fireOne, INTERNAL_TOKEN_HEADER } from './index.js'
+import { schedulesEnabled, readConfig, fireOne, reconcileRuns, tick, INTERNAL_TOKEN_HEADER } from './index.js'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -19,19 +19,19 @@ const OLD_NAMES = {
   retentionDays: 'GRID_WORKFLOW_RUNS_RETENTION_DAYS',
 }
 
-describe('shouldStart (deployment start gate)', () => {
-  it('is off when neither gate env is set — the container no-ops', () => {
-    expect(shouldStart({})).toBe(false)
-    expect(shouldStart({ GRID_SKILLS_ENABLED: 'false' })).toBe(false)
-    expect(shouldStart({ GRID_SKILLS_ENABLED: '1' })).toBe(false) // only literal 'true'
+describe('schedulesEnabled (the schedules gate)', () => {
+  it('is off when neither gate env is set — schedules are not fired', () => {
+    expect(schedulesEnabled({})).toBe(false)
+    expect(schedulesEnabled({ GRID_SKILLS_ENABLED: 'false' })).toBe(false)
+    expect(schedulesEnabled({ GRID_SKILLS_ENABLED: '1' })).toBe(false) // only literal 'true'
   })
 
   it('starts when the dark-launch opt-in is true', () => {
-    expect(shouldStart({ GRID_SKILLS_ENABLED: 'true' })).toBe(true)
+    expect(schedulesEnabled({ GRID_SKILLS_ENABLED: 'true' })).toBe(true)
   })
 
   it('starts when feature-flag enforcement is on', () => {
-    expect(shouldStart({ GRID_ENFORCE_FEATURE_FLAGS: 'true' })).toBe(true)
+    expect(schedulesEnabled({ GRID_ENFORCE_FEATURE_FLAGS: 'true' })).toBe(true)
   })
 })
 
@@ -144,5 +144,69 @@ describe('fireOne', () => {
     expect(ok).toBe(false)
     expect(warn.mock.calls[0].join(' ')).toContain('sk-skip')
     expect(warn.mock.calls[0].join(' ')).toContain('schedule disabled')
+  })
+})
+
+describe('reconcileRuns (the run reconciler’s clock)', () => {
+  const config = { frontendUrl: 'http://frontend:3000', internalToken: 'secret-tok' }
+  const counts = { checked: 3, closed: 1, alreadyClosed: 0, waiting: 2, failed: 0 }
+
+  it('POSTs the BFF sweep with the internal token and returns its counts', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve(counts) })
+
+    const result = await reconcileRuns(config, fetchImpl)
+
+    expect(result).toEqual(counts)
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://frontend:3000/api/internal/runs/reconcile')
+    expect(init.method).toBe('POST')
+    expect(init.headers[INTERNAL_TOKEN_HEADER]).toBe('secret-tok')
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('says nothing for a sweep that changed nothing', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const quiet = { ...counts, closed: 0 }
+    await reconcileRuns(config, vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(quiet) }))
+    expect(log).not.toHaveBeenCalled()
+  })
+
+  it('never throws, on a refusal or a transport error', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const refused = vi.fn().mockResolvedValue({ ok: false, status: 403, text: () => Promise.resolve('Forbidden') })
+    expect(await reconcileRuns(config, refused)).toBeNull()
+    expect(await reconcileRuns(config, vi.fn().mockRejectedValue(new Error('aborted')))).toBeNull()
+    expect(errorLog).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('tick', () => {
+  const base = { frontendUrl: 'http://frontend:3000', internalToken: 't', batch: 20, retentionDays: 90 }
+  const reconciled = () => vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ closed: 0, failed: 0 }) })
+
+  it('with the schedules gate off, fires nothing but still reconciles runs', async () => {
+    // A run exists without Agent Skills (an escalated chat question), so its
+    // reconciliation cannot wait on the skills feature.
+    const sql = { begin: vi.fn() }
+    const fetchImpl = reconciled()
+
+    const fired = await tick(sql, { ...base, schedulesEnabled: false }, fetchImpl)
+
+    expect(fired).toBe(0)
+    expect(sql.begin).not.toHaveBeenCalled()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(fetchImpl.mock.calls[0][0]).toBe('http://frontend:3000/api/internal/runs/reconcile')
+  })
+
+  it('with the gate on, a failed claim still leaves the reconciler its turn', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const sql = { begin: vi.fn().mockRejectedValue(new Error('db down')) }
+    const fetchImpl = reconciled()
+
+    await tick(sql, { ...base, schedulesEnabled: true }, fetchImpl)
+
+    expect(sql.begin).toHaveBeenCalled()
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual(['http://frontend:3000/api/internal/runs/reconcile'])
   })
 })

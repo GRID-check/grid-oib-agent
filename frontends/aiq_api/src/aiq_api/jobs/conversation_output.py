@@ -181,7 +181,9 @@ def _answer_metadata(
     return metadata
 
 
-async def _write_into_run_message(*, job_id: str, text: str, metadata: dict[str, Any]) -> str | None:
+async def _write_into_run_message(
+    *, job_id: str, text: str, metadata: dict[str, Any], expect_run: bool = False
+) -> str | None:
     """Try the run's own message; the id it landed in, or None when it did not.
 
     The guard is this module's first rule applied to a second door: the helper
@@ -191,7 +193,7 @@ async def _write_into_run_message(*, job_id: str, text: str, metadata: dict[str,
     still has a conversation to write into.
     """
     try:
-        return await post_internal_run_report(job_id=job_id, text=text, metadata=metadata)
+        return await post_internal_run_report(job_id=job_id, text=text, metadata=metadata, expect_run=expect_run)
     except Exception:  # noqa: BLE001 — best-effort by contract; see module docstring
         logger.warning("Could not write into the run message for job %s (non-fatal)", job_id, exc_info=True)
         return None
@@ -212,8 +214,14 @@ async def write_job_turn(
     skills_activated: list[str] | None = None,
     sources: list[Any] | None = None,
     transparency: dict[str, Any] | None = None,
+    expect_run: bool = False,
 ) -> str | None:
     """Write the job's question and its answer into the conversation.
+
+    ``expect_run`` is True when the job was submitted for a ``task_runs`` row
+    (the runner holds its run id): the run-message write then retries a 404
+    briefly, because the BFF may not have recorded the row's backend job id yet,
+    before falling back to the question-and-answer pair.
 
     Returns the id of the message the answer landed in — the run's own message
     when it has one, the derived assistant row otherwise — so the run's ledger
@@ -264,7 +272,7 @@ async def write_job_turn(
     # question nobody typed. ``False`` means this run has no such message — an
     # interactive deep-research job, or a run older than the design — and the
     # question-and-answer pair below is what those still get.
-    landed = await _write_into_run_message(job_id=job_id, text=answer, metadata=metadata)
+    landed = await _write_into_run_message(job_id=job_id, text=answer, metadata=metadata, expect_run=expect_run)
     if landed is not None:
         return landed
 
@@ -323,6 +331,7 @@ async def write_job_notice(
     job_id: str,
     usage_context: dict | None,
     notice: str,
+    expect_run: bool = False,
 ) -> None:
     """Say in the thread that the run produced nothing.
 
@@ -335,7 +344,11 @@ async def write_job_notice(
     the failure is stated in the place the reader has been watching, and only
     otherwise as a message of its own.
     """
-    if await _write_into_run_message(job_id=job_id, text=notice, metadata={"job_id": job_id}) is not None:
+    notice_metadata = {"job_id": job_id}
+    if (
+        await _write_into_run_message(job_id=job_id, text=notice, metadata=notice_metadata, expect_run=expect_run)
+        is not None
+    ):
         return
 
     if not conversation_id:
@@ -357,3 +370,48 @@ async def write_job_notice(
         )
     except Exception:  # noqa: BLE001 — best-effort by contract
         logger.warning("Failed to write the failure notice for job %s", job_id, exc_info=True)
+
+
+def run_message_for_outcome(
+    *,
+    job_id: str,
+    status: str,
+    output: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """What a finished job's run message should hold, rebuilt from the job store.
+
+    The BFF's run reconciler asks for this when a run's own write never arrived
+    (``GET /v1/internal/jobs/{job_id}/outcome``). It must be the SAME content and
+    metadata the runner would have posted, so it is built here, next to the
+    writers above, from the job's persisted ``output`` — the dict
+    ``runner._build_job_output`` wrote, whose report, cards, sources and
+    transparency keys are the ones ``_answer_metadata`` reads. The one thing the
+    output does not keep is the skills a run activated, so a reconciled message
+    carries no ``skills_activated``.
+
+    ``{"content": ..., "metadata": ...}`` for a terminal job; None while it runs
+    or when a success left no report to show.
+    """
+    normalized = status.lower()
+    if normalized == "success":
+        output = output or {}
+        report = output.get("report")
+        if not isinstance(report, str) or not report:
+            return None
+        cards = output.get("cards")
+        sources = output.get("sources")
+        metadata = _answer_metadata(
+            job_id=job_id,
+            cards=cards if isinstance(cards, list) else None,
+            skills_activated=None,
+            sources=sources if isinstance(sources, list) else None,
+            # The output IS the transparency dict plus the report; the allowlist
+            # in ``_transparency_metadata`` keeps exactly the keys it would have.
+            transparency=output,
+        )
+        return {"content": report, "metadata": metadata}
+    if normalized == "failure":
+        return {"content": FAILURE_NOTICE, "metadata": {"job_id": job_id}}
+    if normalized == "interrupted":
+        return {"content": INTERRUPTED_NOTICE, "metadata": {"job_id": job_id}}
+    return None

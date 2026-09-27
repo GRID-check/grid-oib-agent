@@ -1651,6 +1651,27 @@ answer are unaffected, and the fallback says so.
   thread (`features/runs`, ADR-0062); the report and its findings land on the
   run's message.
 
+**How a finished run reaches the BFF, and what heals a lost write (backlog
+T3-11).** The worker makes three writes when a run ends: the outcome
+(`jobs/outcome_notify.py` → `/api/internal/jobs/{id}/outcome`, closes the
+`task_runs` row, files the report, tells the requester), the report into the
+run's message (`conversation_output.py` → `/api/internal/runs/by-job/{id}/report`)
+and the ledger's terminal op. The first two, and the thread-turn fallback, go
+through `aiq_api/internal_retry.py`: three attempts over about 25 s on a
+transport failure or a 5xx, and on a 404 too when the job was submitted for a
+run (the runner holds a `run_id`), because then the 404 means the BFF has not
+yet written the backend job id onto the row. The ledger client keeps its single
+short attempt; a lost terminal op is settled by the reconciler below.
+What the retry does not heal the BFF's run reconciler does
+(`frontends/ui/src/lib/runs/reconcile.ts`, driven by the `skill-scheduler`
+tick): it asks the job store for the verdict of every run still active after
+ten minutes without a check (`GET /v1/internal/jobs/{id}/outcome`, service
+token, tenant checked against `job_access`), which also hands back the run
+message rebuilt by `run_message_for_outcome`, and closes the run through the
+same three BFF functions. A run whose job the store cannot find is closed as
+failed after two hours. The transactional outbox the backlog item describes is
+still deferred; this is pull-based reconciliation instead.
+
 **Open items**: synchronous inline deep-research answers (no Dask) do not
 carry Grid cards (§3; the async job path generates them post-hoc in the
 runner). And the research tab can 403 — see §9.

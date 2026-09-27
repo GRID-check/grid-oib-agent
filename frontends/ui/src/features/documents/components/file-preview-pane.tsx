@@ -44,6 +44,7 @@ import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dial
 import { DocumentActionsMenu, useDocumentActions, type DocumentScope } from './document-actions'
 import {
   DocumentStatusBadge,
+  failedWithPreviousVersion,
   fileTypeIcon,
   isCitable,
   isNeverIndexed,
@@ -1243,7 +1244,7 @@ export function FilePreviewPane({
                       passages. Without this the two surfaces disagree
                       silently — the download is the new file, the answers
                       quote the old one. */}
-                    {(file.versionCount ?? 0) > 1 && (
+                    {failedWithPreviousVersion(file) && (
                       <p className="text-muted-foreground break-words text-xs">
                         {t('preview.ingestionFailedPreviousVersionKept')}
                       </p>

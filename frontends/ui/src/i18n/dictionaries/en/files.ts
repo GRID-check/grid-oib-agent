@@ -216,6 +216,13 @@ export const files = {
      */
     peekIndexingHint: 'Piloti cannot cite this file until it is indexed.',
     peekFailedHint: 'Indexing failed — Piloti cannot cite this file.',
+    /**
+     * The same failure on a document with an earlier version: the index keeps
+     * that version's passages, so the file is still citable, just not the new
+     * bytes. Mirrors `ingestionFailedPreviousVersionKept` in the pane.
+     */
+    peekFailedPreviousVersionHint:
+      'The new file could not be read — Piloti is still citing the previous version.',
     /** The way out of that: the enlarged view carries the error and the retry. */
     peekFailedAction: 'Details',
   },

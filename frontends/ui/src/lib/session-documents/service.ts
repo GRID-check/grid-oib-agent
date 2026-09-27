@@ -368,6 +368,18 @@ export async function deleteSessionDocument(
 
   await deleteSessionDocumentRow(documentId, session.organizationId, doc.conversationId)
 
+  // Once more, now that the row is gone: an ingest of this attachment that
+  // asked `GET /api/internal/document-exists` before the row went saw it, and
+  // kept chunks it inserted after the first purge (ADR-0054, correction 18).
+  // Any check from here on reads „gone“ and discards its own. Logged, never
+  // thrown: the row is gone, and the orphaned-vector sweep is the net.
+  if (purgeRef) {
+    const again = await purgeCollectionChunks(doc.collectionName, [purgeRef])
+    if (!again.ok) {
+      console.warn('[session-documents] second chunk purge after the row delete failed:', documentId, again.reason)
+    }
+  }
+
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },

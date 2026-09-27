@@ -15,6 +15,7 @@ vi.mock('./repository', () => ({
   findRunInProject: vi.fn(),
   listRunsInProject: vi.fn(),
   updateRun: vi.fn(),
+  closeActiveRun: vi.fn(),
   listRejectedReviewsForDefinition: vi.fn(),
 }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
@@ -445,5 +446,45 @@ describe('recordRunOutcome', () => {
     const [[emission]] = vi.mocked(emitInboxItems).mock.calls
     expect(emission[0].type).toBe('job.failed')
     expect(fileAgentDocumentDraft).not.toHaveBeenCalled()
+  })
+
+  describe('onlyIfActive — the run reconciler’s mode', () => {
+    it('closes through the conditional write and then does everything the worker’s report does', async () => {
+      vi.mocked(emitInboxItems).mockResolvedValue(1)
+      vi.mocked(repository.closeActiveRun).mockImplementation(
+        async (_id, _org, patch) => ({ ...run, ...patch }) as TaskRun,
+      )
+
+      const result = await recordRunOutcome(run, { status: 'success', report: '# Bericht' }, { onlyIfActive: true })
+
+      expect(result.closed).toBe(true)
+      expect(repository.closeActiveRun).toHaveBeenCalledWith(
+        'run-1',
+        'org_1',
+        expect.objectContaining({ status: 'succeeded', error: null }),
+      )
+      expect(recordAuditEvent).toHaveBeenCalledTimes(1)
+      expect(fileResearchReport).toHaveBeenCalledTimes(1)
+      expect(emitInboxItems).toHaveBeenCalledTimes(1)
+    })
+
+    it('does nothing past the close when the row had already ended — the requester hears once', async () => {
+      vi.mocked(repository.closeActiveRun).mockResolvedValue(null)
+
+      const result = await recordRunOutcome(run, { status: 'success', report: '# Bericht' }, { onlyIfActive: true })
+
+      expect(result).toEqual({ notified: false, filed: null, closed: false })
+      expect(repository.updateRun).not.toHaveBeenCalled()
+      expect(recordAuditEvent).not.toHaveBeenCalled()
+      expect(fileResearchReport).not.toHaveBeenCalled()
+      expect(emitInboxItems).not.toHaveBeenCalled()
+    })
+
+    it('the worker’s own report still closes unconditionally, so a retried report reaches the inbox', async () => {
+      vi.mocked(emitInboxItems).mockResolvedValue(1)
+      const result = await recordRunOutcome({ ...run, status: 'succeeded' } as TaskRun, { status: 'success' })
+      expect(repository.closeActiveRun).not.toHaveBeenCalled()
+      expect(result).toMatchObject({ notified: true, closed: true })
+    })
   })
 })

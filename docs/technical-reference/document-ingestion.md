@@ -202,6 +202,63 @@ unguarded, logged.
 The OIB sync (`src/aiq_agent/oib_sync.py`) relies on the same step and calls no
 `delete_file` before it uploads.
 
+### A document deleted while it indexed takes its chunks back out
+
+A delete does not wait for the lock. `delete_file` removes the chunks under the
+name it is given, and an ingest of that name still running goes on inserting
+afterwards. A delete can also land after the upload has recorded its version
+and before the dispatch runs (ADR-0054, correction 17), and the dispatch then
+indexes a document that no longer exists. Either way a deleted document used to
+stay retrievable, with no row behind it.
+
+So once a file is in the vector store, and before its predecessor is retired,
+the ingestor asks the BFF whether the document it was dispatched for still
+exists: `GET /api/internal/document-exists?documentId=&collection=[&organizationId=]`
+with the service token (`knowledge_layer/llamaindex/document_presence.py`,
+`_deleted_while_indexing` in the adapter). The job config carries the
+`document_id` and `organization_id` that `/v1/ingest` received. On
+`{ "exists": false }` the file:
+
+- discards what this attempt inserted, by the same `_discard_partial_version`
+  difference a failure uses, from Chroma and from the lexical mirror;
+- retires nothing. Under the same name the predecessor may already be a new
+  document's first version: a delete, then a new upload of the name that
+  indexed while this attempt waited for the lock;
+- writes no metadata row, and ends `FAILED` with
+  `document_deleted: the document was deleted while it was being ingested`, so
+  the end-of-job summary reconciliation, which backfills a row for every
+  successful file, does not write one either.
+
+Only a definite "gone" discards. No BFF configured (`FRONTEND_INTERNAL_URL`,
+`GRID_INTERNAL_API_TOKEN`), a timeout, a non-200 (including the 404 of a BFF
+that predates the route) or a body without a boolean `exists` all read as
+"present", and the file indexes as it did before: an unreachable BFF must never
+cost a live document its chunks. A job without a `document_id` (the OIB sync,
+`/v1/documents`) is never asked about.
+
+`delete_file` does not take the lock instead. The ingestor holds it for the
+whole of a file, extraction and embedding included, so a delete behind it would
+wait minutes and outlast the BFF's request timeout.
+
+The BFF's delete purges the chunks first and deletes the row last, after the
+objects, so an ingest whose check lands between the two still sees the row and
+keeps the chunks it inserted after that purge. Every immediate delete therefore
+purges once more after the row is gone: the project and Archiv deletes
+(`deleteDocument` in `lib/documents/service.ts`, `deleteArchivDocument` in
+`lib/archiv/service.ts`), the chat-attachment delete (`deleteSessionDocument`
+in `lib/session-documents/service.ts`) and a whole chat's attachment purge
+(`purgeSessionDocuments` in `lib/session-documents/cleanup.ts`, for the rows
+that pass erased). An ingest that asked before the row went has indexed by
+then, and one that asks afterwards reads "gone". That second purge is logged,
+never surfaced; the row is already gone, and the weekly orphaned-vector sweep
+(`lib/platform/vector-reconcile.ts`) is the net when it fails.
+
+One window remains, narrow and named:
+
+- A delete that runs completely between the check and the metadata writes
+  leaves a summary row with no chunks. The `reconcile-summaries` maintenance
+  pass forgets such rows ([deletion pipeline](../architecture/deletion-pipeline.md)).
+
 ### Configuration
 
 | Parameter | Default | Description |

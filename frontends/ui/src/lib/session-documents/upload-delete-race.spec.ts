@@ -90,6 +90,7 @@ vi.mock('@/lib/conversations/repository', () => ({
     return conversation
   }),
   mergeMessageMetadata: vi.fn(),
+  recordConversationErased: vi.fn(async () => 1),
   updateConversationMetaInOrg: vi.fn(),
   updateConversationTitleInOrg: vi.fn(),
   upsertConversationRead: vi.fn(),

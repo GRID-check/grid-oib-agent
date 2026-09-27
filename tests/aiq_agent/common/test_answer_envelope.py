@@ -87,6 +87,26 @@ class TestExtraction:
         assert prose == content
         assert meta is None
 
+    def test_a_break_after_the_answer_keeps_the_answer_and_drops_the_rest(self):
+        # The recorded failure: a surface card closed one brace too many, after
+        # the prose had closed whole and settled on screen.
+        content = (
+            '```answer_json\n{"kind":"ruling","answer":"Die Außentreppe ist in A2 auszuführen [2].\\n\\n'
+            '[[card:1]]","cards":[{"type":"surface","components":[{"id":"t","component":"Text",'
+            '"text":"Tabelle [2]."}}},{"type":"legal_basis","law":"OIB-Richtlinie 2"}]}\n```'
+        )
+        prose, meta = extract_answer_envelope(content)
+        assert prose == "Die Außentreppe ist in A2 auszuführen [2].\n\n[[card:1]]"
+        assert meta is None
+
+    def test_a_break_inside_the_answer_recovers_nothing(self):
+        content = '```answer_json\n{"kind":"direct","answer":"Die Höhe gilt \\q nach Tabelle."}}\n```'
+        assert extract_answer_envelope(content) == (content, None)
+
+    def test_an_unclosed_answer_recovers_nothing(self):
+        content = '```answer_json\n{"kind":"direct","answer":"Die Höhe gilt nach Tab\n```'
+        assert extract_answer_envelope(content) == (content, None)
+
     def test_trailing_junk_after_the_object_is_tolerated(self):
         content = "```answer_json\n" + json.dumps({"answer": _PROSE}) + "\nDone.\n```"
         prose, meta = extract_answer_envelope(content)

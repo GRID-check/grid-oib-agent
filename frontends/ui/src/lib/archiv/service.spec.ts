@@ -22,6 +22,7 @@ vi.mock('@/lib/documents/version-repository', () => ({
   findDocumentVersion: vi.fn().mockResolvedValue(null),
   findPublishedVersion: vi.fn().mockResolvedValue(null),
   findOpenVersion: vi.fn().mockResolvedValue(null),
+  listDocumentVersionSummaries: vi.fn().mockResolvedValue([]),
   // 2: the only caller asks for it on the REPLACE path, where the next version
   // is by definition not the first.
   nextVersionNumber: vi.fn().mockResolvedValue(2),
@@ -137,6 +138,7 @@ import {
 } from './repository'
 import { listArchiv, uploadArchivDocument, deleteArchivDocument, searchArchivDocuments } from './service'
 import { makeDocument } from '@/test-utils/db-fixtures'
+import { listDocumentVersionSummaries } from '@/lib/documents/version-repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { DocumentMetadata, ReconcilableDocument } from '@/lib/documents/reconcile-status'
 import type { SearchedDocument } from '@/lib/documents/service'
@@ -211,6 +213,31 @@ describe('listArchiv', () => {
     expect(result.canManage).toBe(false)
     expect(result.documents[0]).not.toHaveProperty('metadata')
     expect(result.documents[0]).toMatchObject({ id: 'd1', summary: 's' })
+  })
+
+  // The chat peek reads this to tell a failed re-upload (the previous version
+  // is still cited) from a Büro file that never indexed.
+  it('annotates each row with its version count', async () => {
+    vi.mocked(listArchivDocuments).mockResolvedValue([])
+    const row = (id: string): ReconcilableDocument & DocumentMetadata => ({
+      id,
+      filename: `${id}.pdf`,
+      status: 'failed',
+      collectionName: 'archiv_org-1',
+      authoredBy: 'user',
+      publishedVersionId: null,
+      errorMessage: null,
+      metadata: {},
+    })
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([row('d1'), row('d2')])
+    vi.mocked(listDocumentVersionSummaries).mockResolvedValueOnce([
+      { documentId: 'd1', versionCount: 3, state: 'published' },
+    ])
+
+    const result = await listArchiv(session)
+
+    expect(listDocumentVersionSummaries).toHaveBeenCalledWith(['d1', 'd2'], 'org-1')
+    expect(result.documents.map((d) => d.versionCount)).toEqual([3, null])
   })
 })
 
@@ -344,6 +371,48 @@ describe('deleteArchivDocument', () => {
     expect(deleteArchivDocumentRow).toHaveBeenCalledWith('d1', 'org-1')
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'archiv.document.deleted' }),
+    )
+  })
+
+  // An ingest that asked whether its document exists before the row went saw
+  // it, and kept chunks inserted after the first purge; the purge after the
+  // row takes those (ADR-0054, correction 18).
+  it('purges the chunks again once the row is gone, and a failure there is not surfaced', async () => {
+    const doc = makeDocument({
+      id: 'd1',
+      scope: 'archiv',
+      projectId: null,
+      collectionName: 'archiv_org-1',
+      storageKey: 'org/org-1/archiv/doc/d1/plan.pdf',
+    })
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+    vi.mocked(findArchivDocument).mockResolvedValue(doc)
+    const order: string[] = []
+    let purges = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        order.push('purge')
+        purges += 1
+        if (purges === 2) throw new Error('backend down')
+        return { ok: true }
+      }),
+    )
+    vi.mocked(eraseDocumentObjectsOrKeepRow).mockImplementationOnce(async () => {
+      order.push('objects')
+    })
+    vi.mocked(deleteArchivDocumentRow).mockImplementationOnce(async () => {
+      order.push('row')
+    })
+
+    await deleteArchivDocument(session, 'd1', request)
+
+    expect(order).toEqual(['purge', 'objects', 'row', 'purge'])
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'archiv.document.deleted',
+        metadata: expect.objectContaining({ chunksPurged: true }),
+      }),
     )
   })
 

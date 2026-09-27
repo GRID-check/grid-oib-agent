@@ -334,6 +334,23 @@ export async function writeRunReport(
 }
 
 /**
+ * What a run's own message holds right now: its prose and its ledger.
+ *
+ * For the run reconciler (`./reconcile.ts`), which fills in only what the
+ * worker's own writes did not: a report into a message that is still empty, a
+ * terminal fact into a ledger that still reads as live. Runs inside the caller's
+ * tenant scope. Null when the run has no message, or it is gone.
+ */
+export async function readRunMessage(
+  run: Pick<TaskRun, 'conversationId' | 'runMessageId'>
+): Promise<{ content: string; ledger: RunLedger | null } | null> {
+  if (!run.conversationId || !run.runMessageId) return null
+  const message = await findMessageInConversation(run.conversationId, run.runMessageId)
+  if (!message) return null
+  return { content: message.content ?? '', ledger: storedLedger(message) }
+}
+
+/**
  * One run as a person reads it: where its message is, and what the ledger says.
  *
  * Project-scoped and session-authorized — `project:view`, the same gate the

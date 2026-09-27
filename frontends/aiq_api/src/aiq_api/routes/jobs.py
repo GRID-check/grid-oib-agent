@@ -10,6 +10,8 @@ Routes:
     POST /v1/jobs/async/job/{job_id}/cancel               - Cancel running job
     GET  /v1/jobs/async/job/{job_id}/state                - Get artifacts from event store
     GET  /v1/jobs/async/job/{job_id}/report               - Get final report
+    GET  /v1/internal/jobs/{job_id}/outcome               - A job's verdict for the BFF's run reconciler
+                                                            (service token, never on the external allowlist)
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from typing import Any
 from fastapi import Body
 from fastapi import FastAPI
 from fastapi import HTTPException
+from fastapi import Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic import ConfigDict
@@ -49,6 +52,7 @@ from ..jobs.outcome_notify import notify_job_outcome_from_access
 from ..jobs.runner import DOCUMENT_ADDED_EVENT_TYPE
 from ..jobs.runner import WRITE_NOW_EVENT_TYPE
 from ..jobs.runner import _update_status_if_not_terminal
+from .internal_auth import _require_internal_token
 
 logger = logging.getLogger(__name__)
 
@@ -392,6 +396,68 @@ def _report_sources(raw: Any) -> list[dict] | None:
         return None
     sources = [entry for entry in raw if isinstance(entry, dict)]
     return sources or None
+
+
+class InternalJobOutcomeResponse(BaseModel):
+    """A job's verdict as the BFF's run reconciler reads it (internal only).
+
+    Everything the run's own terminal writes would have carried, rebuilt from
+    the job store: the status and error for ``/api/internal/jobs/{id}/outcome``,
+    the report and cards for filing, and the run message's content and metadata
+    for ``/api/internal/runs/by-job/{id}/report``.
+    """
+
+    job_id: str
+    status: str = Field(..., description="submitted, running, success, failure or interrupted")
+    error: str | None = None
+    report: str | None = None
+    cards: list[dict] | None = None
+    message: dict[str, Any] | None = Field(
+        None, description="What the run message should hold: {content, metadata}; null while the job runs"
+    )
+
+
+def _job_status_value(status: Any) -> str:
+    """The job store's status as its lowercase wire word, enum or string alike."""
+    return str(getattr(status, "value", status)).lower()
+
+
+async def internal_job_outcome(
+    job_store: Any, db_url: str, job_id: str, organization_id: str
+) -> InternalJobOutcomeResponse:
+    """The job's verdict for one organization, or a 404.
+
+    The tenant is checked against the job's ``job_access`` row, written at
+    submit: the service token names no organization, and a reconciler that
+    asked about another tenant's job id must learn nothing about it, not even
+    that it exists.
+    """
+    from ..jobs.access import get_job_access
+    from ..jobs.conversation_output import run_message_for_outcome
+
+    job = await job_store.get_job(job_id)
+    access = await asyncio.get_running_loop().run_in_executor(None, get_job_access, job_id, db_url) if job else None
+    if not job or not access or access.get("organization_id") != organization_id:
+        raise HTTPException(404, f"Job not found: {job_id}")
+
+    status = _job_status_value(job.status)
+    output: dict[str, Any] | None = None
+    if job.output:
+        try:
+            parsed = json.loads(job.output) if isinstance(job.output, str) else job.output
+            output = parsed if isinstance(parsed, dict) else None
+        except (json.JSONDecodeError, TypeError):
+            output = None
+
+    report = output.get("report") if output and status == "success" else None
+    return InternalJobOutcomeResponse(
+        job_id=job_id,
+        status=status,
+        error=job.error if status in ("failure", "interrupted") else None,
+        report=report if isinstance(report, str) and report else None,
+        cards=_report_cards(output.get("cards")) if output and report else None,
+        message=run_message_for_outcome(job_id=job_id, status=status, output=output),
+    )
 
 
 class ResearchRunItem(BaseModel):
@@ -970,6 +1036,24 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             sources=sources,
             project_collection=project_collection,
         )
+
+    @app.get(
+        "/v1/internal/jobs/{job_id}/outcome",
+        response_model=InternalJobOutcomeResponse,
+        tags=["async jobs", "internal"],
+        summary="A job's verdict for the BFF's run reconciler (internal)",
+        description=(
+            "Service-token guarded. The run reconciler holds no user token, and the job's owner "
+            "is whoever asked for the run, so the owner-scoped status route cannot answer it."
+        ),
+        responses={403: {"description": "Missing or invalid internal token"}, 404: {"description": "Job not found"}},
+    )
+    async def get_internal_job_outcome(
+        job_id: str, organization_id: str, request: Request
+    ) -> InternalJobOutcomeResponse:
+        """The job's status, error, report and run-message content, for one organization."""
+        _require_internal_token(request)
+        return await internal_job_outcome(job_store, db_url, job_id, organization_id)
 
     @app.get(
         "/v1/jobs/async/jobs",

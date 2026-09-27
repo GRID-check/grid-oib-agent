@@ -593,6 +593,17 @@ trigger (`once`, no due date), which is what lets chat say „jeden Montag".
   still files. No foreign key, deliberately: a deleted conversation must not
   cascade away a run's own history, and a dangling id reads as „keine
   Nachricht".
+- **`reconcile_checked_at` (timestamptz, nullable, migration `0096`):** when the
+  run reconciler (`lib/runs/reconcile.ts`) last asked the job store about this
+  still-active run. The claim sets it in the same statement that selects the row
+  (`FOR UPDATE SKIP LOCKED` in the subquery), which keeps two BFF replicas off
+  one run and asks about a genuinely running run once per stale window rather
+  than once per tick. NULL until the first check; the claim then judges the row
+  by `started_at`, else `created_at`. Bookkeeping only, nothing renders it.
+  Index `idx_task_runs_reconcile_due` on `COALESCE(reconcile_checked_at,
+  started_at, created_at)` is **partial**, `WHERE status IN ('queued',
+  'running')`, and lives only in the migration (an expression index Drizzle
+  cannot express).
 
 ---
 

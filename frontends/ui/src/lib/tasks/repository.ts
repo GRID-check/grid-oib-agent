@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { and, desc, eq, isNotNull } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   taskDefinitions,
@@ -21,6 +21,7 @@ import {
   type Task,
   type TaskDefinition,
   type TaskRun,
+  type TaskRunStatus,
 } from '@/lib/db/schema'
 
 /** Newest-first page size for a project's task list. */
@@ -355,6 +356,79 @@ export async function updateRun(
     .where(and(eq(taskRuns.id, runId), eq(taskRuns.organizationId, organizationId)))
     .returning()
   return row ?? null
+}
+
+/** The statuses a run is still in the worker's hands in; see `isActiveTaskRunStatus`. */
+const ACTIVE_RUN_STATUSES = ['queued', 'running'] as const satisfies readonly TaskRunStatus[]
+
+/**
+ * Close a run only while it is still active, and answer whether this call did.
+ *
+ * The conditional twin of {@link updateRun}, for the run reconciler: the worker's
+ * own report and the reconciler can close one run at the same moment, and the
+ * `status IN ('queued','running')` guard lets exactly one of them go on to file
+ * the report and tell the requester. Null means the row had already ended (or
+ * is not this organization's), which the caller reads as „nothing to do".
+ */
+export async function closeActiveRun(
+  runId: string,
+  organizationId: string,
+  patch: Pick<NewTaskRun, 'status' | 'error' | 'finishedAt'>,
+): Promise<TaskRun | null> {
+  const db = getDb()
+  const [row] = await db
+    .update(taskRuns)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(
+      and(
+        eq(taskRuns.id, runId),
+        eq(taskRuns.organizationId, organizationId),
+        inArray(taskRuns.status, [...ACTIVE_RUN_STATUSES]),
+      ),
+    )
+    .returning()
+  return row ?? null
+}
+
+/**
+ * Claim up to `limit` active runs nobody has checked since `checkedBefore`, and
+ * stamp them checked — in ONE statement, across every organization.
+ *
+ * The subquery's `FOR UPDATE SKIP LOCKED` is what makes this safe with several
+ * BFF replicas: a row another sweep is claiming right now is skipped, not waited
+ * for, and once this statement commits the stamp moves the row out of the
+ * window, so the next sweep leaves it alone until the window has passed again.
+ * A run that is genuinely still working is therefore asked about once per
+ * window, never once per tick.
+ *
+ * The age a row is judged by is its last check, else when it started, else when
+ * it was created — the same expression `idx_task_runs_reconcile_due` is built
+ * on (migration 0096), so the scan stays on that partial index.
+ *
+ * NOT tenant-filtered: the caller runs this under platform access and does each
+ * run's work inside that run's own organization.
+ */
+export async function claimRunsToReconcile(
+  checkedBefore: Date,
+  limit: number,
+): Promise<TaskRun[]> {
+  const db = getDb()
+  const age = sql`COALESCE(${taskRuns.reconcileCheckedAt}, ${taskRuns.startedAt}, ${taskRuns.createdAt})`
+  const due = db
+    .select({ id: taskRuns.id })
+    .from(taskRuns)
+    // An ISO string, not the Date: compared against an `sql` expression rather
+    // than a column, the parameter reaches postgres-js without drizzle's column
+    // encoder, and postgres-js refuses a bare Date there (ERR_INVALID_ARG_TYPE).
+    .where(and(inArray(taskRuns.status, [...ACTIVE_RUN_STATUSES]), lt(age, checkedBefore.toISOString())))
+    .orderBy(age)
+    .limit(limit)
+    .for('update', { skipLocked: true })
+  return db
+    .update(taskRuns)
+    .set({ reconcileCheckedAt: sql`now()` })
+    .where(inArray(taskRuns.id, due))
+    .returning()
 }
 
 export async function listRunsForDefinition(

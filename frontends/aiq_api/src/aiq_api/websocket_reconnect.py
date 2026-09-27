@@ -37,6 +37,7 @@ from aiq_api.auth.middleware import user_context
 from aiq_api.auth.request_trace import request_trace_tag_context
 from aiq_api.conversation_bus import get_bus
 from aiq_api.conversation_bus import is_multi_replica_bus
+from aiq_api.internal_retry import send_with_retry
 from aiq_api.workflow_stream import stream_workflow
 from nat.data_models.api_server import ChatResponseChunk
 from nat.data_models.api_server import Error
@@ -778,26 +779,26 @@ async def post_internal_conversation_message(
         payload["createdAt"] = created_at
     url = f"{base_url.rstrip('/')}/api/internal/conversations/{conversation_id}/messages"
 
-    try:
+    async def _send() -> httpx.Response:
         async with httpx.AsyncClient(timeout=_PERSIST_TIMEOUT_SECONDS) as client:
-            response = await client.post(url, json=payload, headers=headers)
-        if response.status_code not in (200, 201):
-            logger.warning(
-                "Server-side persist for conversation %s returned HTTP %s",
-                conversation_id,
-                response.status_code,
-            )
-            return False
-        logger.info("Persisted %s message server-side for conversation %s", role, conversation_id)
-        return True
-    except Exception:  # noqa: BLE001 — fail-soft by contract; callers must not break
+            return await client.post(url, json=payload, headers=headers)
+
+    # Retried briefly on a transport failure or a 5xx (``internal_retry``); the
+    # deterministic message id is what makes a repeated write a no-op. A 404 is
+    # final here: the conversation is not there, and it will not appear.
+    response = await send_with_retry(_send, label=f"Server-side persist for conversation {conversation_id}")
+    if response is None:
+        logger.warning("Failed to persist %s message server-side for conversation %s", role, conversation_id)
+        return False
+    if response.status_code not in (200, 201):
         logger.warning(
-            "Failed to persist %s message server-side for conversation %s",
-            role,
+            "Server-side persist for conversation %s returned HTTP %s",
             conversation_id,
-            exc_info=True,
+            response.status_code,
         )
         return False
+    logger.info("Persisted %s message server-side for conversation %s", role, conversation_id)
+    return True
 
 
 async def post_internal_run_report(
@@ -805,6 +806,7 @@ async def post_internal_run_report(
     job_id: str,
     text: str,
     metadata: dict[str, Any] | None = None,
+    expect_run: bool = False,
 ) -> str | None:
     """Write a finished run's answer INTO the run's own message. Fail-soft.
 
@@ -828,6 +830,11 @@ async def post_internal_run_report(
     The write goes over the internal HTTP API with the service token, like every
     other backend→BFF write: ``grid_app`` is single-writer and Python never
     touches the database.
+
+    Retried briefly (``internal_retry``). ``expect_run`` says the job was
+    submitted for a ``task_runs`` row, so a 404 may only mean the BFF has not
+    recorded the row's backend job id yet; it is retried before the caller
+    falls back to the older question-and-answer pair.
     """
     base_url = _internal_base_url()
     headers = _internal_persist_headers()
@@ -838,11 +845,13 @@ async def post_internal_run_report(
     url = f"{base_url.rstrip('/')}/api/internal/runs/by-job/{job_id}/report"
     payload: dict[str, Any] = {"content": text, "metadata": metadata or {}}
 
-    try:
+    async def _send() -> httpx.Response:
         async with httpx.AsyncClient(timeout=_PERSIST_TIMEOUT_SECONDS) as client:
-            response = await client.post(url, json=payload, headers=headers)
-    except Exception:  # noqa: BLE001 — fail-soft by contract; callers must not break
-        logger.warning("Failed to write the run report for job %s", job_id, exc_info=True)
+            return await client.post(url, json=payload, headers=headers)
+
+    response = await send_with_retry(_send, label=f"Run report for job {job_id}", retry_not_found=expect_run)
+    if response is None:
+        logger.warning("Failed to write the run report for job %s", job_id)
         return None
 
     if response.status_code == 404:

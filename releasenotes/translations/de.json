@@ -36,6 +36,10 @@
     "de": "Eine Chat-Verbindung gilt jetzt nur noch für die Unterhaltung, für die sie geöffnet wurde. Nachrichten, die eine andere Unterhaltung nennen, werden abgewiesen."
   },
   {
+    "en": "A chat whose deletion failed because a service was briefly unavailable is now deleted automatically once the service is back, instead of staying hidden until someone deleted it again.",
+    "de": "Ein Chat, dessen Löschen fehlgeschlagen ist, weil ein Dienst kurz nicht erreichbar war, wird jetzt automatisch gelöscht, sobald der Dienst wieder verfügbar ist. Bisher blieb er ausgeblendet, bis jemand ihn erneut löschte."
+  },
+  {
     "en": "A conversation from another device is no longer deleted when you open it after a reload and leave before its history has loaded.",
     "de": "Eine Unterhaltung von einem anderen Gerät wird nicht mehr gelöscht, wenn Sie sie nach einem Neuladen öffnen und verlassen, bevor ihr Verlauf geladen ist."
   },
@@ -102,6 +106,10 @@
   {
     "en": "A document can now be moved to another folder with Move to folder in its ⋯ menu. Each destination is listed by its full path, and All Files takes it out of every folder.",
     "de": "Ein Dokument lässt sich jetzt über „In Ordner verschieben“ im ⋯-Menü in einen anderen Ordner legen. Jedes Ziel steht mit seinem vollständigen Pfad da, und „Alle Dateien“ nimmt es aus jedem Ordner heraus."
+  },
+  {
+    "en": "A document deleted while it was still being read in no longer turns up in answers afterwards. Piloti now checks, once reading is done, that the document still exists, and drops what it read if it does not.",
+    "de": "Ein Dokument, das gelöscht wird, während es noch eingelesen wird, taucht danach nicht mehr in Antworten auf. Piloti prüft jetzt nach dem Einlesen, ob das Dokument noch existiert, und verwirft das Eingelesene, wenn nicht."
   },
   {
     "en": "A document stuck on \"processing\" after an ingestion job was lost can now be retried from its menu instead of deleted and re-uploaded. The retry keeps the document, so sources, chat references and assignments survive, and it refuses while ingestion is genuinely still running.",
@@ -278,6 +286,10 @@
   {
     "en": "A research report can now show a file from the project or the office archive as a card, as the chat already could.",
     "de": "Auch ein Recherchebericht kann jetzt eine Datei aus dem Projekt oder dem Büroarchiv als Karte zeigen, wie es der Chat schon konnte."
+  },
+  {
+    "en": "A research run or task that finished during a brief outage now shows its result, instead of staying \"running\" with an empty message forever. Piloti checks unfinished runs regularly and fills in what was missed.",
+    "de": "Ein Recherchelauf oder Auftrag, der während eines kurzen Ausfalls fertig wurde, zeigt jetzt sein Ergebnis, statt für immer „läuft“ mit einer leeren Nachricht anzuzeigen. Piloti prüft unfertige Läufe regelmäßig und ergänzt, was gefehlt hat."
   },
   {
     "en": "A research run that hits your organization's budget now says so and tells you where an admin can raise the limit, instead of reporting an internal error.",
@@ -2028,6 +2040,10 @@
     "de": "Sucht Piloti zweimal, zeigt jeder Schritt der Herleitung jetzt die Dateien seiner eigenen Suche, statt beide beim ersten aufzulisten. Eine Zusammenfassung erscheint nicht mehr versehentlich als Urteil."
   },
   {
+    "en": "When Piloti's reply breaks after its answer text, the chat now shows the answer instead of a block of raw data.",
+    "de": "Bricht die Antwort von Piloti nach dem Antworttext ab, zeigt der Chat jetzt die Antwort statt eines Blocks roher Daten."
+  },
+  {
     "en": "When a deep-research run promised to file its report in the project and the filing then failed, the banner said nothing at all — so the report looked filed and „Berichte\" was empty. It now takes the promise back in one quiet line, and the report itself is still there in the research panel either way.",
     "de": "Wenn ein Deep-Research-Lauf zugesagt hat, seinen Bericht im Projekt abzulegen, und das dann fehlschlug, blieb der Banner völlig stumm – so sah es aus, als wäre der Bericht abgelegt, obwohl „Berichte“ leer war. Jetzt nimmt der Banner die Zusage mit einer einzigen unaufdringlichen Zeile zurück; der Bericht selbst bleibt in jedem Fall im Research-Panel."
   },
@@ -2046,6 +2062,10 @@
   {
     "en": "When a new version is published, the previous one leaves the index before the new one enters it, so Piloti never answers out of a version that has just been replaced. The older bytes stay in the version list and can still be opened.",
     "de": "Wenn eine neue Version veröffentlicht wird, wird die vorherige aus dem Index entfernt, bevor die neue aufgenommen wird. So antwortet Piloti nie auf Basis einer gerade ersetzten Version. Ältere Versionen bleiben in der Versionsliste und lassen sich weiterhin öffnen."
+  },
+  {
+    "en": "When a new version of a file cannot be read, the file preview beside the chat now says that Piloti is still citing the previous version, instead of saying the file cannot be cited at all.",
+    "de": "Lässt sich eine neue Fassung einer Datei nicht lesen, sagt die Dateivorschau neben dem Chat jetzt, dass Piloti weiterhin die vorige Fassung zitiert, statt zu melden, die Datei sei gar nicht zitierbar."
   },
   {
     "en": "When a project has more notes than fit in one answer, Piloti now says so instead of silently showing a partial list, and pinned notes can no longer push everything else out of view.",

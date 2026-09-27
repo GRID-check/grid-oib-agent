@@ -24,6 +24,7 @@ vi.mock('./version-repository', () => ({
   findDocumentVersion: vi.fn().mockResolvedValue(null),
   findPublishedVersion: vi.fn().mockResolvedValue(null),
   findOpenVersion: vi.fn().mockResolvedValue(null),
+  listDocumentVersionSummaries: vi.fn().mockResolvedValue([]),
   // 2: the only caller asks for it on the REPLACE path, where the next version
   // is by definition not the first.
   nextVersionNumber: vi.fn().mockResolvedValue(2),
@@ -163,7 +164,11 @@ import {
   type ReconcilableDocument,
 } from './reconcile-status'
 import type { DocumentListRow } from './repository'
-import { insertPublishedVersion, nextVersionNumber } from './version-repository'
+import {
+  insertPublishedVersion,
+  listDocumentVersionSummaries,
+  nextVersionNumber,
+} from './version-repository'
 import { LiveFilenameTakenError, ReplacedDocumentGoneError } from './unique-conflicts'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
@@ -1294,6 +1299,64 @@ describe('deleteDocument', () => {
       expect.objectContaining({ action: 'document.deleted' })
     )
   })
+
+  // An ingest asks whether its document still exists once it has indexed. One
+  // that asked before the row went saw it, and kept the chunks it inserted
+  // after the first purge; the purge after the row takes those, and every
+  // later ask reads „gone“ (ADR-0054, correction 18).
+  it('purges the chunks again once the row is gone', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    const order: string[] = []
+    mockFetch.mockImplementation(async (url: unknown, init?: RequestInit) => {
+      if (String(url).endsWith('/documents') && init?.method === 'DELETE') order.push('purge')
+      return { ok: true }
+    })
+    vi.mocked(eraseDocumentObjectsOrKeepRow).mockImplementationOnce(async () => {
+      order.push('objects')
+    })
+    vi.mocked(deleteProjectDocument).mockImplementationOnce(async () => {
+      order.push('row')
+    })
+
+    await deleteDocument(session, 'doc-1', new Request('http://x'))
+
+    expect(order).toEqual(['purge', 'objects', 'row', 'purge'])
+  })
+
+  it('audits and answers normally when only the purge after the row fails', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    mockFetch.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(new Error('backend down'))
+
+    await deleteDocument(session, 'doc-1', new Request('http://x'))
+
+    // The row is gone either way; the orphaned-vector sweep is the net, and
+    // the audit still says the first purge was confirmed.
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'document.deleted',
+        metadata: expect.objectContaining({ chunksPurged: true }),
+      })
+    )
+  })
+
+  it('does not purge after a row it kept', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    mockFetch.mockClear()
+    mockFetch.mockResolvedValue({ ok: true })
+    vi.mocked(eraseDocumentObjectsOrKeepRow).mockRejectedValueOnce(new UpstreamError('nope'))
+
+    await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(
+      UpstreamError
+    )
+    const purges = mockFetch.mock.calls.filter(
+      ([url, init]) =>
+        String(url).endsWith('/documents') && (init as RequestInit)?.method === 'DELETE'
+    )
+    expect(purges).toHaveLength(1)
+  })
 })
 
 describe('renameDocument', () => {
@@ -1486,6 +1549,27 @@ describe('getDocumentStatus', () => {
     const status = await getDocumentStatus(session, 'doc-1')
 
     expect(status).toHaveProperty('displayName', null)
+  })
+
+  // The chat peek reads this count to tell a failed re-upload (the previous
+  // version is still cited) from a file that never indexed at all.
+  it('carries the version count from the document_versions summary', async () => {
+    vi.mocked(listDocumentVersionSummaries).mockResolvedValueOnce([
+      { documentId: projectDoc.id, versionCount: 2, state: 'published' },
+    ])
+
+    const status = await getDocumentStatus(session, 'doc-1')
+
+    expect(status).toHaveProperty('versionCount', 2)
+    expect(listDocumentVersionSummaries).toHaveBeenCalledWith([projectDoc.id], session.organizationId)
+  })
+
+  it('reports a null versionCount when the document has no version row', async () => {
+    vi.mocked(listDocumentVersionSummaries).mockResolvedValueOnce([])
+
+    const status = await getDocumentStatus(session, 'doc-1')
+
+    expect(status).toHaveProperty('versionCount', null)
   })
 })
 

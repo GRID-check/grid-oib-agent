@@ -101,7 +101,7 @@ done
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query, memory consolidation and legal-hold suites as grid_app_rw"
+echo "==> running the isolation, BIM query, memory consolidation, legal-hold, chat-erasure and run-reconciler suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
@@ -109,7 +109,9 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/bim/model-shelf.integration.spec.ts \
     src/lib/projects/memory-service.integration.spec.ts \
     src/lib/documents/document-versions.integration.spec.ts \
-    src/lib/compliance/legal-hold.integration.spec.ts
+    src/lib/compliance/legal-hold.integration.spec.ts \
+    src/lib/conversations/erasure-queue.integration.spec.ts \
+    src/lib/runs/reconcile.integration.spec.ts
 
 # ---------------------------------------------------------------------------
 # Migration 0086: the backfill, asserted per row shape, and its DOWN migration.
