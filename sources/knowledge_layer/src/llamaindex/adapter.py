@@ -442,6 +442,12 @@ TTL_CLEANUP_INTERVAL_SECONDS = _env_int("AIQ_TTL_CLEANUP_INTERVAL_SECONDS", 3600
 # pruned so in-memory job tracking doesn't grow for the life of the process.
 JOB_RETENTION_SECONDS = 3600  # 1 hour
 
+# The per-file error of an attempt whose document was deleted while it indexed
+# (see `document_presence`). FAILED rather than SUCCESS so the end-of-job
+# summary reconciliation, which backfills a row for every successful file,
+# never writes one for a document that no longer exists.
+DOCUMENT_DELETED_DURING_INGEST = "document_deleted: the document was deleted while it was being ingested"
+
 # Terminal per-file tracking entries (self._files) are retained this long, then
 # pruned. SUCCESS files are still listable afterwards (list_files rebuilds them
 # from Chroma chunks — with a fresh id, exactly as for any never-tracked file);
@@ -2837,6 +2843,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         The file_id parameter may be either a backend UUID or a human-readable
         filename (the frontend sends filenames). Both are handled: UUID is looked
         up directly in self._files, while a filename triggers a value-based search.
+
+        Deliberately does NOT take the replacement lock
+        (:func:`_replacement_lock_key`). The ingestor holds it for the whole
+        of a file's ingest, extraction and embedding included, so a delete
+        behind it would wait minutes and outlast the BFF's request timeout. An
+        ingest still running when this deletes inserts the rest of its chunks
+        afterwards; it takes them back out itself once it has indexed, when
+        the BFF answers that the document is gone
+        (``document_presence``, ``_deleted_while_indexing``).
         """
         import re
 
@@ -3471,6 +3486,27 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 "Could not discard the partial chunks of %s; they sit beside the kept version", file_name, exc_info=True
             )
 
+    @staticmethod
+    def _deleted_while_indexing(config: dict[str, Any], collection_name: str) -> bool:
+        """True only when the BFF says the dispatched document is gone.
+
+        Asked once the file is in the vector store and before its predecessor
+        is retired (``knowledge_layer.llamaindex.document_presence`` has the
+        two windows this closes). A job with no ``document_id`` was not
+        dispatched for a BFF row (the OIB corpus sync, ``/v1/documents``) and
+        is never asked about. Anything short of a definite "gone" reads as
+        present: an unreachable BFF must not cost a live document its chunks.
+        """
+        document_id = config.get("document_id")
+        if not document_id:
+            return False
+        from knowledge_layer.llamaindex import document_presence
+
+        answer = document_presence.document_still_exists(
+            str(document_id), collection_name, config.get("organization_id")
+        )
+        return answer is False
+
     def _run_ingestion(
         self,
         job_id: str,
@@ -3570,6 +3606,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 file_scope = contextlib.ExitStack()
                 previous = None
                 retired = False
+                deleted = False
                 # What answered to this name before the attempt inserted
                 # anything; None until indexing starts and again once it is in.
                 chunks_before: set[str] | None = None
@@ -4070,6 +4107,25 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     except Exception as mirror_error:
                         logger.warning("Chunk text mirror skipped for %s: %s", file_name, mirror_error)
 
+                    # The document may have been deleted while this attempt
+                    # ran: by a delete that did not wait for the replacement
+                    # lock, or one that landed after the upload and before
+                    # this dispatch. Its chunks go back out, by the same
+                    # difference a failure uses, and nothing is written to the
+                    # metadata row. The predecessor is NOT retired: under this
+                    # name it may already be a new document's first version.
+                    if self._deleted_while_indexing(config, collection_name):
+                        self._discard_partial_version(chroma_collection, collection_name, file_name, chunks_before)
+                        chunks_before = None
+                        deleted = True
+                        self._update_file_status(job, i, FileStatus.FAILED, error=DOCUMENT_DELETED_DURING_INGEST)
+                        logger.warning(
+                            "Discarded the ingest of %s in %s: its document was deleted while it indexed",
+                            file_name,
+                            collection_name,
+                        )
+                        continue
+
                     # Count chunks (nodes)
                     chunks_created = len(all_documents)
                     total_chunks += chunks_created
@@ -4194,8 +4250,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     file_scope.close()
                     # A predecessor still here had a re-upload that did not
                     # index (raised, or reported FAILED and skipped ahead); it
-                    # stays the version retrieval serves.
-                    if previous is not None and not retired:
+                    # stays the version retrieval serves. Not so for a
+                    # deleted document: what answers to its name now is the
+                    # delete's business, or a new document's first version.
+                    if previous is not None and not retired and not deleted:
                         kept_previous.append(file_name)
 
             for name in kept_previous:

@@ -125,6 +125,18 @@ place and takes back out any of its own chunks that were already inserted; two
 re-uploads of one name at once are serialised, so the later one is what stays
 ([document ingestion](../technical-reference/document-ingestion.md#a-re-upload-replaces-the-previous-version-once-it-has-indexed)).
 
+A delete does not wait for an ingest of the same document. Step 2 removes the
+chunks that are there, and an ingest still running (a re-upload on another
+replica, or a dispatch that left after the upload recorded its version) inserts
+the rest afterwards. The ingestor asks `GET /api/internal/document-exists` once
+the file is indexed, and on `exists: false` takes back out exactly what it
+inserted, retires nothing and writes no `document_metadata` row. It discards on
+that definite answer only; an unreachable BFF leaves the chunks in. Because the
+row is deleted last, an ingest that asks between step 2 and step 4 still finds
+it and keeps what it inserted after step 2, which the orphaned-vector sweep
+removes
+([a document deleted while it indexed](../technical-reference/document-ingestion.md#a-document-deleted-while-it-indexed-takes-its-chunks-back-out)).
+
 **Conversation**:
 1. Delete LangGraph checkpoints (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes` in `aiq_checkpoints`) for `thread_id = conversation id`
 2. Delete `conversations` row (`messages` cascade)

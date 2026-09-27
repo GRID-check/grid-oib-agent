@@ -446,7 +446,51 @@ itself teaches nobody what it cost to find them.
     then sees every row and object, so nothing is orphaned in Postgres or the
     bucket, but a dispatch already in flight can index a document that no
     longer exists. Closing it needs the dispatch to be conditional on the row,
-    which is the ingest pipeline's contract, not this upload's.
+    which is the ingest pipeline's contract, not this upload's. Correction 18
+    closes it there.
+
+18. **An ingest indexed a document deleted while it ran.** Two windows, one
+    cause: the ingest never learned about the delete. The window correction 17
+    left open is one. The other is a delete on one replica during a same-name
+    re-ingest on another: `delete_file` does not take the per-name
+    `keyed_lock` the ingestor holds, so it removed the chunks that were there
+    and the ingest inserted the rest after it. Both left chunks retrievable
+    with no row behind them.
+
+    One mechanism closes both, in the pipeline. Once a file is indexed and
+    before its predecessor is retired, the ingestor asks the BFF whether the
+    document it was dispatched for still exists (`GET
+    /api/internal/document-exists`, service token, by the `document_id` and
+    collection `/v1/ingest` already carried). Python never reads the BFF's
+    Postgres, so this is an internal route rather than a query. On `exists:
+    false` the attempt discards exactly the chunks it inserted
+    (`_discard_partial_version`), retires nothing and writes no metadata row.
+    Retiring would be wrong: after a delete and a new upload of the same name
+    (correction 16's first upload under a new id), the predecessor this
+    attempt found under the lock is the NEW document's version.
+
+    Fail-open, and only on a definite answer. The route answers 200 with a
+    boolean, and 404 is not "gone": it is also what a BFF without the route
+    answers. A timeout, a non-200 or an unreadable body keeps the chunks,
+    because an unreachable BFF deleting a live document's chunks is worse than
+    the window it failed to close.
+
+    Taking the lock in `delete_file` was the other option and was rejected:
+    the ingestor holds it for a whole file, embedding included, so a delete
+    would wait minutes and outlast the BFF's request timeout.
+
+    Stated rather than hidden: the BFF's `deleteDocument` purges chunks first
+    and deletes the row last, so an ingest whose check lands between those two
+    steps still sees the row. That window is the object erase, not the ingest,
+    and the orphaned-vector sweep removes what it leaves. Purging the chunks
+    once more after the row is gone would close it.
+
+    Pinned against a real Chroma collection in
+    `tests/knowledge_layer_tests/test_reingest_replaces_versions.py` (a delete
+    between two inserts leaves no chunk and no row; a stale attempt does not
+    retire a new document's version; an unreachable BFF keeps the new
+    version), the client's answers in `test_document_presence.py`, and the
+    route in `src/app/api/internal/document-exists/route.spec.ts`.
 
 ### What this amends in ADR-0047
 

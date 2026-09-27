@@ -27,12 +27,16 @@ no chunks at all. The end-to-end tests at the bottom pin exactly that.
 - a file that fails after some of its chunks went in takes exactly those chunks
   back out, and the previous version stays whole;
 - two jobs for one name replace one after the other: the one that finishes last
-  is the only version left.
+  is the only version left;
+- a document the BFF says was deleted while it indexed leaves none of this
+  attempt's chunks and no metadata row, and retires nothing; a BFF that cannot
+  answer changes nothing.
 """
 
 import threading
 import time
 import uuid
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -531,3 +535,163 @@ def test_two_jobs_for_one_name_leave_only_the_later_version(tmp_path, monkeypatc
     assert _wait_terminal(live_ingestor, job_b).file_details[0].status.value == "success"
     assert list(_chunks(live_ingestor, "proj_race").values()) == ["Fassung B"]
     assert stores.count("proj_race") == 1
+
+
+# ---------------------------------------------------------------------------
+# A document deleted while it was being ingested
+# ---------------------------------------------------------------------------
+#
+# Once a file is in, the ingestor asks the BFF whether the document it was
+# dispatched for still exists. On a definite "gone" it takes back out exactly
+# what this attempt inserted and writes no metadata; on anything else (no
+# answer, an unreachable BFF) it carries on as before.
+
+
+@pytest.fixture()
+def presence(monkeypatch):
+    """The BFF's answer about the dispatched document, and who asked."""
+    from knowledge_layer.llamaindex import document_presence
+
+    state = SimpleNamespace(answer=True, asked=[])
+
+    def still_exists(document_id, collection, organization_id=None):
+        state.asked.append((document_id, collection, organization_id))
+        return state.answer
+
+    monkeypatch.setattr(document_presence, "document_still_exists", still_exists)
+    return state
+
+
+def _dispatched(file_name: str, **extra) -> dict:
+    """The job config ``/v1/ingest`` builds for a BFF document."""
+    return {"original_filenames": [file_name], "document_id": "doc-1", **_TEXT_ONLY, **extra}
+
+
+def _no_metadata_row(collection_name: str, file_name: str) -> None:
+    from aiq_agent.knowledge import get_available_documents
+    from aiq_agent.knowledge import get_document_doc_class
+
+    assert get_available_documents(collection_name) == []
+    assert get_document_doc_class(collection_name, file_name) is None
+
+
+def test_a_delete_during_a_reupload_leaves_no_chunks(tmp_path, monkeypatch, live_ingestor, stores, presence):
+    """Window (a): the delete runs on another replica between two inserts.
+
+    ``delete_file`` does not wait for the replacement lock, so it removes the
+    old version and page one, and page two goes in after it. The check after
+    indexing takes page two back out, and no metadata row comes back.
+    """
+    deleted: list[bool] = []
+
+    class _DeletedBetweenInserts(_IndexIntoChroma):
+        def insert(self, document):
+            super().insert(document)
+            if not deleted:
+                deleted.append(live_ingestor.delete_file("statik.pdf", "proj_del"))
+
+    monkeypatch.setattr("llama_index.core.VectorStoreIndex", _DeletedBetweenInserts)
+    _seed_previous_version(live_ingestor, stores, "proj_del", "statik.pdf")
+    upload = _two_page_pdf(monkeypatch, tmp_path)
+    presence.answer = False
+
+    job_id = live_ingestor.submit_job([str(upload)], "proj_del", config=_dispatched("statik.pdf"))
+    status = _wait_terminal(live_ingestor, job_id)
+
+    assert deleted == [True]
+    # The second page really did land after the delete; the check removed it.
+    assert _chunks(live_ingestor, "proj_del") == {}
+    assert stores.count("proj_del") == 0
+    _no_metadata_row("proj_del", "statik.pdf")
+    assert status.file_details[0].status.value == "failed"
+    assert status.file_details[0].error_message == adapter_module.DOCUMENT_DELETED_DURING_INGEST
+    assert presence.asked == [("doc-1", "proj_del", None)]
+
+
+def test_a_dispatch_for_a_deleted_document_indexes_nothing(tmp_path, live_ingestor, stores, presence):
+    """Window (b): the delete committed after the upload's version, before this dispatch."""
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Ein Dokument, das es nicht mehr gibt.", encoding="utf-8")
+    presence.answer = False
+
+    job_id = live_ingestor.submit_job([str(upload)], "proj_gone", config=_dispatched("gone.txt"))
+    status = _wait_terminal(live_ingestor, job_id)
+
+    assert _chunks(live_ingestor, "proj_gone") == {}
+    assert stores.count("proj_gone") == 0
+    # Not even the fallback summary the end-of-job reconciliation writes for
+    # a successful file: this one is not successful.
+    _no_metadata_row("proj_gone", "gone.txt")
+    assert status.status.value == "failed"
+
+
+def test_a_deleted_document_does_not_retire_what_now_answers_to_its_name(tmp_path, live_ingestor, stores, presence):
+    """A delete, then a new upload of the same name that indexed first: that version is live.
+
+    The stale attempt finds it as its predecessor under the lock. Retiring it
+    would delete a document somebody just uploaded; only the attempt's own
+    chunk goes.
+    """
+    from aiq_agent.knowledge import get_available_documents
+    from aiq_agent.knowledge import get_document_doc_class
+
+    _seed_previous_version(live_ingestor, stores, "proj_new", "statik.txt")
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Die Fassung des gelöschten Dokuments.", encoding="utf-8")
+    presence.answer = False
+
+    job_id = live_ingestor.submit_job([str(upload)], "proj_new", config=_dispatched("statik.txt"))
+    _wait_terminal(live_ingestor, job_id)
+
+    assert sorted(_chunks(live_ingestor, "proj_new")) == ["old-1", "old-2"]
+    assert stores.count("proj_new") == 2
+    assert [doc.summary for doc in get_available_documents("proj_new")] == ["Die alte Statik."]
+    assert get_document_doc_class("proj_new", "statik.txt") == "tragwerk"
+
+
+def test_an_unreachable_bff_keeps_the_new_version(tmp_path, monkeypatch, live_ingestor, stores):
+    """No answer is not "gone": the re-upload replaces its predecessor as it always did."""
+    # Nothing listens on port 9: the real client gets a refused connection.
+    monkeypatch.setenv("FRONTEND_INTERNAL_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "secret")
+    _seed_previous_version(live_ingestor, stores, "proj_down", "statik.txt")
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Neue Fassung der Statik.", encoding="utf-8")
+
+    job_id = live_ingestor.submit_job([str(upload)], "proj_down", config=_dispatched("statik.txt"))
+    status = _wait_terminal(live_ingestor, job_id)
+
+    assert status.file_details[0].status.value == "success"
+    assert list(_chunks(live_ingestor, "proj_down").values()) == ["Neue Fassung der Statik."]
+    assert stores.count("proj_down") == 1
+
+
+def test_a_document_that_still_exists_is_replaced_as_before(tmp_path, live_ingestor, stores, presence):
+    from aiq_agent.knowledge import get_document_doc_class
+
+    _seed_previous_version(live_ingestor, stores, "proj_live", "statik.txt")
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Neue Fassung der Statik.", encoding="utf-8")
+
+    job_id = live_ingestor.submit_job(
+        [str(upload)], "proj_live", config=_dispatched("statik.txt", organization_id="org_1")
+    )
+    status = _wait_terminal(live_ingestor, job_id)
+
+    assert status.file_details[0].status.value == "success"
+    assert list(_chunks(live_ingestor, "proj_live").values()) == ["Neue Fassung der Statik."]
+    assert get_document_doc_class("proj_live", "statik.txt") == "tragwerk"
+    assert presence.asked == [("doc-1", "proj_live", "org_1")]
+
+
+def test_a_job_no_bff_document_dispatched_is_never_asked_about(tmp_path, live_ingestor, stores, presence):
+    """The OIB sync and ``/v1/documents`` carry no document id: there is nothing to ask."""
+    presence.answer = False
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Korpusdokument.", encoding="utf-8")
+
+    job_id = live_ingestor.submit_job([str(upload)], "proj_corpus", config={"original_filenames": ["oib.txt"]})
+    status = _wait_terminal(live_ingestor, job_id)
+
+    assert status.file_details[0].status.value == "success"
+    assert presence.asked == []
