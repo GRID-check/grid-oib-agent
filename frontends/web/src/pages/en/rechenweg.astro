@@ -1,6 +1,7 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro'
 import Rechenweg from '../../components/organisms/Rechenweg.astro'
+import EndInvite from '../../components/molecules/EndInvite.astro'
 import { ui } from '../../i18n/ui'
 import { SHARE_ART } from '../../lib/seo'
 
@@ -8,7 +9,9 @@ const t = ui.en.seo.pages.rechenweg
 ---
 
 <BaseLayout locale="en" title={t.title} description={t.description} ogArt={SHARE_ART.rechenweg}>
+  <!-- Under the honesty note: the pilot is the answer to what it admits. -->
   <Rechenweg locale="en" />
+  <EndInvite locale="en" page="rechenweg" class="max-w-[80rem]" gutter="px-2 sm:px-10" />
 </BaseLayout>
 
 <script>

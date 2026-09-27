@@ -123,6 +123,9 @@ const jsonLd = postLd({
     </div>
   </article>
 
+  <!-- The page's close, composed by the route: the invitation after the post. -->
+  <slot />
+
   {
     more.length > 0 && (
       <aside

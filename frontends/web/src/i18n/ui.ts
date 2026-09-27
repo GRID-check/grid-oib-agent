@@ -348,6 +348,13 @@ const de = {
       'Guten Tag,\n\nwir interessieren uns für die Pilotphase.\n\nBüro:\nOrt:\nPlaner:innen im Team:\nWofür wir Piloti zuerst einsetzen würden:\n\n',
     bodyCall: 'Guten Tag,\n\nwir würden gern mit Ihnen sprechen.\n\nBüro:\nTermine, die uns passen:\n\n',
   },
+  // The one line that closes a subpage (EndInvite), before the footer. Each
+  // says only what the landing page already stands behind.
+  invite: {
+    blog: 'Wir entwickeln Piloti mit wenigen Pilotbüros. Soll Ihres dabei sein, schreiben Sie uns.',
+    changelog: 'Was hier als Nächstes steht, bestimmen die Pilotbüros mit.',
+    rechenweg: 'Gemessen hat das noch niemand. Messen wir es in Ihrem Büro.',
+  },
   chat: {
     header: 'Piloti',
     fictional: 'Fiktives Beispiel',
@@ -927,6 +934,11 @@ const en: typeof de = {
     bodyPilot:
       'Hello,\n\nwe are interested in the pilot phase.\n\nOffice:\nLocation:\nPlanners on the team:\nWhat we would use Piloti for first:\n\n',
     bodyCall: 'Hello,\n\nwe would like to talk to you.\n\nOffice:\nTimes that suit us:\n\n',
+  },
+  invite: {
+    blog: 'We are building Piloti with a few pilot offices. If yours should be one of them, write to us.',
+    changelog: 'The pilot offices help decide what comes next on this list.',
+    rechenweg: 'Nobody has measured this yet. Let us measure it in your office.',
   },
   chat: {
     header: 'Piloti',

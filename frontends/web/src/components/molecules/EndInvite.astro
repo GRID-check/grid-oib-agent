@@ -1,0 +1,37 @@
+---
+/**
+ * The close of a subpage (a post, the changelog, the Rechenweg): one line
+ * written for that page and one button that opens the pilot mail, prefilled.
+ * A mail, not a link to /#kontakt: the reader has already made up their mind
+ * by the end of the page, and a second page between them and the mail is a
+ * step they can leave on. No panel and no print, so the page's own ending
+ * stays the last thing it says.
+ */
+import Pill from '../atoms/Pill.astro'
+import { mailtoHref } from '../../consts'
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  locale: Locale
+  page: keyof (typeof ui)['de']['invite']
+  /** The width of the column the line sits in, to line up with the page. */
+  class?: string
+  /** The page's own side padding, so the rule starts where its text does. */
+  gutter?: string
+}
+const { locale, page, class: width = 'max-w-3xl', gutter = 'px-4 sm:px-6 md:px-10' } = Astro.props
+const cta = ui[locale].cta
+---
+
+<aside aria-label={cta.title} class={`pb-16 md:pb-20 ${gutter}`}>
+  <div
+    class={`mx-auto flex flex-col gap-5 border-t border-ink/15 pt-6 sm:flex-row sm:items-center sm:gap-8 ${width}`}
+  >
+    <p class="m-0 max-w-xl text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">
+      {ui[locale].invite[page]}
+    </p>
+    <Pill href={mailtoHref(cta.subjectPilot, cta.bodyPilot)} variant="solid" class="shrink-0 self-start sm:self-auto">
+      {cta.primary}
+    </Pill>
+  </div>
+</aside>
