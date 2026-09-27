@@ -28,6 +28,10 @@
     "de": "Ein abgebrochener, abgestürzter oder nie gestarteter Lauf steht in der Aufgabenliste nicht mehr endlos auf „läuft“. Er schließt jetzt mit seinem tatsächlichen Ergebnis, und wer ihn angestoßen hat, erfährt davon."
   },
   {
+    "en": "A card in a streamed answer now grows into its place in one smooth movement, without blinking or pushing the text twice. The answer also settles sooner at the end, because saving waits until it is on screen.",
+    "de": "Eine Karte in einer gestreamten Antwort wächst jetzt in einer ruhigen Bewegung an ihren Platz, ohne zu flackern oder den Text zweimal zu verschieben. Die Antwort steht am Ende auch schneller, weil das Speichern wartet, bis sie zu sehen ist."
+  },
+  {
     "en": "A caveat now sits next to the paragraph it concerns instead of at the end of the answer.",
     "de": "Ein Hinweis steht jetzt beim Absatz, den er betrifft, statt am Ende der Antwort."
   },

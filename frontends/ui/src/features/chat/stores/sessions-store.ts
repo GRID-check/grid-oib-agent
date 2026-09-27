@@ -30,6 +30,7 @@ import { mergeRemoteMessages } from './messages-store'
 import { encodeCitations } from '../lib/citations'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import type { MessageStages } from '@/lib/conversations/message-stages'
+import { flushDeferredPersistence } from '../lib/deferred-persistence'
 
 export type SessionsSlice = {
   currentUserId: string | null
@@ -492,6 +493,8 @@ export const createSessionsSlice: StateCreator<
   },
 
   setCurrentUser: (userId: string | null) => {
+    // A settled turn's saving still queued reads the open conversation: it runs first.
+    flushDeferredPersistence()
     const { conversations, currentConversation, projectId } = get()
 
     const shouldClearCurrent =
@@ -584,6 +587,8 @@ export const createSessionsSlice: StateCreator<
   },
 
   startNewSessionDraft: () => {
+    // A settled turn's saving still queued reads the open conversation: it runs first.
+    flushDeferredPersistence()
     const { currentUserId, currentConversation } = get()
     if (!currentUserId) {
       throw new Error('Cannot start session draft without authenticated user')
@@ -646,6 +651,8 @@ export const createSessionsSlice: StateCreator<
   },
 
   selectConversation: (conversationId: string) => {
+    // A settled turn's saving still queued reads the open conversation: it runs first.
+    flushDeferredPersistence()
     const beforeLeave = get()
     const leavingId =
       beforeLeave.currentConversation?.id && beforeLeave.currentConversation.id !== conversationId
@@ -703,6 +710,8 @@ export const createSessionsSlice: StateCreator<
   },
 
   deleteConversation: (conversationId: string) => {
+    // A settled turn's saving still queued reads the open conversation: it runs first.
+    flushDeferredPersistence()
     const { currentConversation, conversations, composerDrafts } = get()
 
     const conversationToDelete = conversations.find((c) => c.id === conversationId)

@@ -54,6 +54,7 @@ import { validateGridCards } from '@/shared/cards/schemas'
 import { citationsFromWireList } from '../lib/wire-citation'
 import { fetchRunMessage } from '../lib/commissioned-run'
 import { hasLiveRun } from '../lib/session-activity'
+import { deferPersistence } from '../lib/deferred-persistence'
 import { conversationsClient } from '@/adapters/api/conversations-client'
 import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
 import type { GridCard } from '@/shared/cards/schemas'
@@ -791,6 +792,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const clearPendingInteraction = useChatStore((s) => s.clearPendingInteraction)
   const setLoading = useChatStore((s) => s.setLoading)
   const setStreaming = useChatStore((s) => s.setStreaming)
+  const settleTurn = useChatStore((s) => s.settleTurn)
   const resumableTurn = useChatStore((s) => s.resumableTurn)
   const storeCreateConversation = useChatStore((s) => s.createConversation)
   const setCurrentUser = useChatStore((s) => s.setCurrentUser)
@@ -1472,12 +1474,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             currentStatusRef.current = null
           }
 
-          // Stop streaming and mark complete
-          setStreaming(false)
-          setCurrentStatus('complete')
-
-          // Clear any pending interaction (HITL prompt) on completion
-          clearPendingInteraction()
+          // Stop streaming, mark complete and clear any pending interaction
+          // (HITL prompt), in one store update.
+          settleTurn()
 
           // Workflow finished cleanly -- drop the resend buffer.
           lastSentOutgoingRef.current = null
@@ -1486,9 +1485,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           // provisional first-message title with a generated name + OIB tags.
           // Best-effort and self-gated (fires once, first turn only, skips deep
           // research); reads the finalized conversation straight from the store.
+          // After the settle's frame, with the rest of its saving
+          // (`lib/deferred-persistence.ts`).
           const finishedConversationId = useChatStore.getState().currentConversation?.id
           if (finishedConversationId) {
-            maybeGenerateConversationName(finishedConversationId)
+            deferPersistence(() => maybeGenerateConversationName(finishedConversationId))
           }
         }
       },
@@ -1973,6 +1974,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     clearPendingInteraction,
     setLoading,
     setStreaming,
+    settleTurn,
     maybeGenerateConversationName,
     getTransportFailure,
     rotateSocket,

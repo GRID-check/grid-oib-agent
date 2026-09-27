@@ -34,8 +34,10 @@
  *   so it would read back as the last write does;
  * - a composer draft is written 400 ms after the last keystroke and when the
  *   page hides;
- * - anything else (a deletion, a rename, a new session, a settled turn) is
- *   written at once;
+ * - a settled turn is written after the frame that shows it
+ *   (`deferChatStorageWrites`, `lib/deferred-persistence.ts`), and when the
+ *   page hides;
+ * - anything else (a deletion, a rename, a new session) is written at once;
  * - a store update that leaves every persisted field the same object writes
  *   and serializes nothing.
  */
@@ -44,6 +46,7 @@ import type { PersistStorage, StorageValue } from 'zustand/middleware'
 import type { ChatMessage, ChatState, Conversation } from '../types'
 import { pruneMessageForStorage } from '../lib/prune-message-for-storage'
 import { hasLiveRun } from '../lib/session-activity'
+import { deferPersistence } from '../lib/deferred-persistence'
 import {
   logStorageAvailability,
   logStorageEviction,
@@ -591,6 +594,24 @@ const migrate = (area: ChatStorageArea, legacy: PersistedChatStorageValue): void
 // The adapter
 // ---------------------------------------------------------------------------
 
+/** Nonzero while `deferChatStorageWrites` runs: a write it causes is held, not made. */
+let deferringWrites = 0
+
+/**
+ * Run `update` (a store update) with the storage write it causes held until
+ * after the frame: queued on `deferPersistence`, and written at once when the
+ * page is hidden or left, or when a later update writes anyway. For the update
+ * that settles a turn, whose frame is the most expensive the chat draws.
+ */
+export function deferChatStorageWrites(update: () => void): void {
+  deferringWrites += 1
+  try {
+    update()
+  } finally {
+    deferringWrites -= 1
+  }
+}
+
 /**
  * The persisted chat store's localStorage adapter (see the file comment).
  * `undefined` where there is no localStorage.
@@ -617,7 +638,8 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
   // A draft is written this long after the last keystroke, and when the page
   // is hidden. Written with every key it serialised the whole history inside
   // the input event: 264 ms a keystroke on a 4× throttled phone with 20
-  // conversations stored (React performance audit, 2026-09).
+  // conversations stored (React performance audit, 2026-09). A settled turn is
+  // held the same way, until after the frame (`deferChatStorageWrites`).
   let heldDraft: { name: string; state: PersistedChatState } | null = null
   let heldDraftTimer: ReturnType<typeof setTimeout> | undefined
   const writeHeldDraft = (): void => {
@@ -630,6 +652,11 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
     heldDraft = { name, state }
     clearTimeout(heldDraftTimer)
     heldDraftTimer = setTimeout(writeHeldDraft, DRAFT_WRITE_DELAY_MS)
+  }
+  const holdUntilAfterFrame = (name: string, state: PersistedChatState): void => {
+    heldDraft = { name, state }
+    clearTimeout(heldDraftTimer)
+    deferPersistence(writeHeldDraft)
   }
   if (typeof window !== 'undefined') {
     window.addEventListener('pagehide', writeHeldDraft)
@@ -721,6 +748,10 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
       // streamed. The answer is written once, when it settles.
       if (area.onlyTheOpenTurnOrDraftsChanged(value.state)) {
         if (value.state.composerDrafts !== area.lastWritten?.composerDrafts) holdDraft(name, value.state)
+        return
+      }
+      if (deferringWrites > 0) {
+        holdUntilAfterFrame(name, value.state)
         return
       }
       // Anything else is written at once, and carries the drafts with it.

@@ -77,7 +77,7 @@ describe('persisting a streamed answer', () => {
     useChatStore.persist.clearStorage()
   })
 
-  it('writes nothing while the answer opens and grows, and the settled answer at once', () => {
+  it('writes nothing while the answer opens and grows, and the settled answer after its frame', () => {
     const setItem = vi.spyOn(localStorage, 'setItem')
     const writes = () => setItem.mock.calls.filter(([key]) => key.startsWith(STORAGE_KEY)).length
 
@@ -89,8 +89,24 @@ describe('persisting a streamed answer', () => {
     expect(writes()).toBe(0)
     expect(storedAnswer() ?? '').not.toContain('Wort49')
 
+    // Not inside the settle: it was most of a 1 s task at the end of a
+    // recorded turn, ahead of the render that shows the answer settled.
     useChatStore.getState().finalizeAgentResponse('Die ganze Antwort.')
+    expect(writes()).toBe(0)
+    expect(storedAnswer()).not.toBe('Die ganze Antwort.')
+
+    vi.advanceTimersByTime(0)
     expect(storedAnswer()).toBe('Die ganze Antwort.')
     setItem.mockRestore()
+  })
+
+  it('writes the settled answer at once when the page is left before the write ran', () => {
+    useChatStore.getState().appendAgentResponseDelta('Wort ')
+    vi.advanceTimersByTime(1_000)
+    useChatStore.getState().finalizeAgentResponse('Die ganze Antwort.')
+    expect(storedAnswer()).not.toBe('Die ganze Antwort.')
+
+    window.dispatchEvent(new Event('pagehide'))
+    expect(storedAnswer()).toBe('Die ganze Antwort.')
   })
 })

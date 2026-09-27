@@ -36,6 +36,7 @@ const mockSetPendingInteraction = vi.fn()
 const mockClearPendingInteraction = vi.fn()
 const mockSetLoading = vi.fn()
 const mockSetStreaming = vi.fn()
+const mockSettleTurn = vi.fn()
 const mockClearThinkingSteps = vi.fn()
 const mockCreateConversation = vi.fn()
 const mockSetCurrentUser = vi.fn()
@@ -109,6 +110,7 @@ const defaultUseChatStoreImpl = (selector?: StoreSelector<ChatStoreWithHydration
     clearPendingInteraction: mockClearPendingInteraction,
     setLoading: mockSetLoading,
     setStreaming: mockSetStreaming,
+    settleTurn: mockSettleTurn,
     clearThinkingSteps: mockClearThinkingSteps,
     createConversation: mockCreateConversation,
     setCurrentUser: mockSetCurrentUser,
@@ -1778,8 +1780,10 @@ describe('useWebSocketChat', () => {
       undefined
     )
     expect(mockAddAgentResponse).not.toHaveBeenCalled()
-    expect(mockSetStreaming).toHaveBeenCalledWith(false)
-    expect(mockSetCurrentStatus).toHaveBeenCalledWith('complete')
+    // Not streaming, status complete, no open prompt: one store update.
+    expect(mockSettleTurn).toHaveBeenCalledTimes(1)
+    expect(mockSetStreaming).not.toHaveBeenCalled()
+    expect(mockSetCurrentStatus).not.toHaveBeenCalled()
   })
 
   test('onResponse callback accumulates streaming deltas into the answer bubble', () => {

@@ -42,8 +42,8 @@ WS handler's persistence gating, and the frontend accumulation logic.
 > envelope writes its masthead (`kind`, `topic`, `context`, `verdict`,
 > `summary`) BEFORE `answer`, so a live frame carries it, gated, above the
 > first word; a `[[card:N]]` marker streams whole and holds its card's place
-> (`PendingCardSlot`) until the card, gated, arrives on a live `cards` frame
-> and grows into it (`CardArrival`). A live `cards` frame lists the cards in
+> (`CardSlot`) until the card, gated, arrives on a live `cards` frame
+> and is drawn into it (see [card arrival](#card-arrival)). A live `cards` frame lists the cards in
 > the terminal's order: the ones tools registered this turn first (a draft, a
 > document grid), sent with the settled prose, then the envelope's as each
 > closes; each streamed `[[card:N]]` is moved behind the tools' cards as the
@@ -196,7 +196,8 @@ Three rules keep the rest to the answer bubble:
   of them a full write. A composer draft is written 400 ms after the last
   keystroke and when the page is hidden, not with every key. Any other change
   while a turn works (a deletion, a rename, a new session) is written at once,
-  and the settled turn is written when it settles. A store update that leaves
+  and the settled turn is written right after the frame it settles in
+  (below). A store update that leaves
   every persisted field the same object (a loading flag) writes nothing and
   serializes nothing.
 - A write costs one conversation, not the history. Storage is one key per
@@ -314,6 +315,44 @@ settle (the answer's cards). Forty conversations used to fit the quota and now
 keep 26 with their messages: the 3 M-character budget leaves the rest of the
 origin room, and is the number to raise if refetching an older conversation
 on open turns out to cost more than the headroom saves.
+
+### The end of a turn
+
+The settle is the most expensive frame the chat draws: the whole answer
+re-renders with its footer, its citations and its cards. A production trace
+(2026-09) showed a 1018 ms task there, and the saving ran inside it, ahead of
+the render. Now the terminal ends the turn in two store updates
+(`finalizeAgentResponse`, then `settleTurn`, which clears streaming, sets the
+status and drops an open prompt at once, where it used to be three updates),
+and the saving waits for the frame to pass (`lib/deferred-persistence.ts`):
+the browser copy (`deferChatStorageWrites` holds the write the settle causes),
+the server copy of the message and of its provenance (`_appendMessage`,
+`_persistTurnProvenance`) and the conversation's generated name run as one
+background task (`scheduler.postTask`, else `setTimeout(0)`). The queue runs at
+once on `pagehide` and on `visibilitychange` to hidden, and before a switch,
+new session, deletion or user change, since its jobs read the open
+conversation.
+
+### Card arrival
+
+A placed card's place is one element from marker to card (`CardSlot`,
+`CardSlotArrival.tsx`), so the reader sees one frame change, never one box
+replaced by another. Pending, it is a card-shaped placeholder
+(`CardPlaceholder`, the framed register) 96 px tall, since the card's type is
+not known yet. When the card exists it is mounted invisibly under the
+placeholder, and the frame moves to the height that type usually has
+(`CARD_PLACEHOLDER_HEIGHTS`, measured on `/dev/a2ui`). When the card reports
+itself drawn (`CardDrawnProvider`, called by `A2uiCard`) the frame takes the
+card's measured height in one CSS height transition while the card fades in
+over the placeholder (opacity only), and then lets go of its height. In
+practice A2UI draws before the first paint, so the reader sees one growth from
+96 px to the card's height. A card arrives once per page (`messageId:index`):
+a remounted slot (the Markdown renderer keys blocks by position) draws it at
+once. Reduced motion draws it at once. Whether the answer is live reaches the
+slot through context, so the settle does not hand every slot a new renderer;
+a card re-sent unchanged on a later frame keeps its object
+(`reuseEqualCards`), so nothing under it re-renders. `/dev/stream-chat`
+replays the recorded cards (`cards=0` turns them off).
 
 ### Single-consumer fold (`--input` CLI, single-shot HTTP)
 

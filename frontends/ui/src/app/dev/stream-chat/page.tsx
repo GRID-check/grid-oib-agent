@@ -30,7 +30,10 @@
  * times over, as one answer N times as long: what a reveal step costs must
  * not grow with the length of the answer. `steps=N` gives the turn N
  * Herleitung steps when the question is sent, so the Herleitung is open while
- * the answer streams and its collapse can be watched. Each commit carries
+ * the answer streams and its collapse can be watched. The recorded cards are
+ * replayed on their live `cards` frame and the terminal, so a card's arrival
+ * into its `[[card:N]]` place can be watched too; `cards=0` replays the prose
+ * alone, as this page did before 2026-09-27. Each commit carries
  * React's `start` and commit (`at`) time, `completeAt` is when the terminal
  * frame landed, and `settledAt` when the answer had finished revealing it and
  * settled (`answer-reveal-store.ts`). Development only.
@@ -209,6 +212,7 @@ const instrumentStorage = (probe: StreamChatProbe): (() => void) => {
 const replay = (
   turn: RecordedTurn,
   speed: number,
+  withCards: boolean,
   later: (run: () => void, ms: number) => void,
   onDone: () => void,
   onFirstFrame: () => void,
@@ -221,28 +225,23 @@ const replay = (
       () => {
         if (index === 0) onFirstFrame()
         const citations = citationsFromWireList(frame.sources)
+        // Validated per frame, as the socket hook does: a new object every
+        // time, which the store keeps as the one it has while it is equal.
+        const cards = withCards && frame.cards ? validateGridCards(frame.cards) : undefined
         if (frame.status === 'complete') {
           // Recorded first: an answer that settles at once (a rewrite, a
           // hidden page) clears its reveal inside these updates, and the
           // settle probe only counts a clear that follows `completeAt`.
           onComplete()
-          store().finalizeAgentResponse(
-            frame.content,
-            undefined,
-            frame.answer_confidence,
-            citations
-          )
-          store().setStreaming(false)
+          store().finalizeAgentResponse(frame.content, cards, frame.answer_confidence, citations)
+          store().settleTurn()
           store().setLoading(false)
         } else if (frame.stream_replace) {
           store().replaceStreamingAgentResponse(frame.content, citations)
-        } else if (frame.content) {
-          store().appendAgentResponseDelta(
-            frame.content,
-            undefined,
-            frame.answer_confidence,
-            citations
-          )
+        } else if (frame.content || cards?.length) {
+          // A live `cards` frame has no text: the card arrives into the place
+          // its `[[card:N]]` marker has been holding (`CardSlotArrival.tsx`).
+          store().appendAgentResponseDelta(frame.content, cards, frame.answer_confidence, citations)
         }
         if (index === turn.frames.length - 1) later(onDone, 1500)
       },
@@ -263,6 +262,8 @@ export default function StreamChatPage() {
   const fixture = params.get('fixture') === 'oib2' ? 'oib2' : 'varianten'
   const repeat = Math.max(1, Math.floor(Number(params.get('repeat') ?? '1')) || 1)
   const steps = Math.max(0, Math.floor(Number(params.get('steps') ?? '0')) || 0)
+  // The recorded cards, on their live frame and the terminal; `cards=0` replays the prose alone.
+  const withCards = params.get('cards') !== '0'
   const [turn] = useState(() => lengthened(STREAM_FRAMES[fixture], repeat))
   const extras = params.get('extras') === '1'
   const [probe] = useState<StreamChatProbe>(() => ({
@@ -340,6 +341,7 @@ export default function StreamChatPage() {
       replay(
         turn,
         speed,
+        withCards,
         later,
         () => (probe.done = true),
         () => (probe.firstFrameAt = performance.now()),
@@ -352,7 +354,7 @@ export default function StreamChatPage() {
       unsubscribeReveal()
       restoreStorage()
     }
-  }, [ready, probe, speed, sendDelay, turn, steps])
+  }, [ready, probe, speed, sendDelay, turn, steps, withCards])
 
   return (
     <I18nProvider initialLocale="de" fixedLocale>

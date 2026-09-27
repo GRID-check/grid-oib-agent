@@ -917,6 +917,8 @@ export interface ChatActions {
   setLoading: (loading: boolean) => void
   /** Set streaming state */
   setStreaming: (streaming: boolean) => void
+  /** End a clean turn in one update: not streaming, status `complete`, no open prompt */
+  settleTurn: () => void
   /**
    * User-initiated cancel of the in-flight turn: flush batched deltas, finalize
    * the current streaming bubble, clear isStreaming/isLoading/currentStatus, and
