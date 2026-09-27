@@ -16,11 +16,13 @@ const t = ui[locale]
   id="nutzung"
   aria-labelledby="nutzung-title"
   data-screen-label={t.sheets.nutzung}
-  class="frame-panel section-y"
+  class="frame section-y lg:frame-panel"
 >
-  <div class="rounded-panel bg-surface-dim sheet-light panel-pad">
+  <!-- The sheet from lg only. Below it the stories are the section's picture,
+       and a panel around them left a thin beige frame about the phone. -->
+  <div class="lg:rounded-panel lg:bg-surface-dim lg:sheet-light lg:panel-pad">
     <div class="grid grid-cols-1 items-center gap-x-14 gap-y-10 lg:grid-cols-[minmax(20rem,5fr)_7fr]">
-      <div data-reveal class="px-2 sm:px-0">
+      <div data-reveal>
         <h2 id="nutzung-title" class="m-0 mb-5 font-voice text-v4 sm:mb-6" style="text-wrap: balance">
           {t.nutzung.title}
         </h2>
