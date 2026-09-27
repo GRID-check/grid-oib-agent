@@ -25,6 +25,7 @@ from aiq_agent.agents.piloti.conversation import ConversationGraph
 from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.common import _build_checkpointer_serde
+from tests.aiq_agent.agents.piloti.conversation import turn
 
 THREAD = "conversation-across-the-deploy"
 
@@ -98,7 +99,7 @@ async def test_the_next_turn_after_the_deploy_answers_on_the_old_history(checkpo
     agent = ConversationGraph(
         research_fn=_answering, deep_research_fn=_unused, clarifier_fn=None, checkpointer=checkpointer
     )
-    result = await agent.run(ConversationState(messages=[HumanMessage(content="Und im Keller?")]), thread_id=THREAD)
+    result = await turn(agent, ConversationState(messages=[HumanMessage(content="Und im Keller?")]), thread_id=THREAD)
 
     assert [message.content for message in result.messages] == [
         "Was gilt für Brüstungen?",
@@ -129,7 +130,7 @@ async def test_a_refusal_recorded_by_the_old_graph_is_still_honoured(checkpointe
     agent = ConversationGraph(
         research_fn=escalating, deep_research_fn=_unused, clarifier_fn=_unused, checkpointer=checkpointer
     )
-    result = await agent.run(ConversationState(messages=[HumanMessage(content="Und jetzt?")]), thread_id=THREAD)
+    result = await turn(agent, ConversationState(messages=[HumanMessage(content="Und jetzt?")]), thread_id=THREAD)
 
     assert result.deep_research_declined is True
     assert result.escalate_to_deep is True, "the ask is recorded"

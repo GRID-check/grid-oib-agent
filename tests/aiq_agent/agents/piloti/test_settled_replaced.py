@@ -1,4 +1,9 @@
-"""Whether the terminal frame changed the text the reader had already read (ADR-0066)."""
+"""Whether RUN_FINISHED changed the text the reader had already read (ADR-0066), and how `_run` ends.
+
+The answer suite counts the log line (``scripts/turn_census/suite.py``,
+``settled_replaced``), so it is asserted where it is written: in the workflow's
+own ``_run``, over the bodies it yields.
+"""
 
 from __future__ import annotations
 
@@ -7,176 +12,130 @@ import contextlib
 import logging
 import types
 
+import pytest
+
 from aiq_agent.agents.piloti import conversation_register as cr
-from aiq_agent.agents.piloti.conversation_register import _relay_live
-from aiq_agent.agents.piloti.conversation_register import note_settled_replaced
-from aiq_agent.turn.answer_stream import AnswerStreamSink
-from aiq_agent.turn.answer_stream import Snapshot
-from aiq_agent.turn.streaming import live_chunk
+from aiq_agent.common.wire_v2 import AnswerRetractedBody
+from aiq_agent.common.wire_v2 import AnswerSnapshot
+from aiq_agent.common.wire_v2 import EmptyValue
+from aiq_agent.common.wire_v2 import RunFinishedBody
+from aiq_agent.common.wire_v2 import StateSnapshotBody
+from aiq_agent.common.wire_v2 import TextMessageContentBody
+from aiq_agent.common.wire_v2 import TurnResult
+from aiq_agent.turn import answer_stream
+from aiq_agent.turn.admission import TurnOutcome
+from aiq_agent.turn.streaming import note_settled_replaced
+
+
+def _snapshot(text: str) -> StateSnapshotBody:
+    return StateSnapshotBody(snapshot=AnswerSnapshot(text=text))
+
+
+def _terminal(text: str) -> RunFinishedBody:
+    return RunFinishedBody(outcome="answered", result=TurnResult(message_id="m1", text=text))
 
 
 def test_a_terminal_that_repeats_the_settled_text_is_not_a_change(caplog):
     with caplog.at_level(logging.INFO):
-        assert note_settled_replaced("R 90 [1].\n", [live_chunk("R 90 [1].")]) is False
+        assert note_settled_replaced("R 90 [1].\n", "R 90 [1].") is False
     assert "replaced the settled answer" not in caplog.text
 
 
 def test_a_terminal_that_differs_is_logged_for_the_suite_to_count(caplog):
     with caplog.at_level(logging.INFO):
-        assert note_settled_replaced("R 90 [1].", [live_chunk("R 90 [1] [nicht wörtlich].")]) is True
+        assert note_settled_replaced("R 90 [1].", "R 90 [1] [nicht wörtlich].") is True
     assert "terminal frame replaced the settled answer" in caplog.text
 
 
 def test_nothing_settled_is_nothing_replaced():
-    assert note_settled_replaced(None, [live_chunk("Antwort.")]) is False
+    assert note_settled_replaced(None, "Antwort.") is False
 
 
-async def _relayed(sink, answer) -> list:
-    task = asyncio.create_task(answer())
-    return [chunk async for chunk in _relay_live(sink, task)]
+@pytest.fixture
+def workflow(monkeypatch):
+    """``_run`` with the request parse, the setup and the answering run replaced; what it yielded and did."""
+    seen: dict = {"order": [], "prose": []}
+
+    async def prepare(*_args, runtime, **_kwargs):
+        context = types.SimpleNamespace(stage_facts=types.SimpleNamespace(ws_parent_id="t1"))
+        yield cr._Turn(None, None, None, context, None, types.SimpleNamespace(organization_id=None), runtime)
+
+    @contextlib.asynccontextmanager
+    async def registries(*_args):
+        yield None
+
+    async def flush(*_ledgers):
+        seen["order"].append("ledgers flushed")
+
+    monkeypatch.setattr(cr.Context, "get", staticmethod(lambda: types.SimpleNamespace(conversation_id="c1")))
+    monkeypatch.setattr(cr.GridRequestContext, "from_context", staticmethod(lambda: None))
+    monkeypatch.setattr(cr, "extract_turn_inputs", lambda _q: types.SimpleNamespace(query_text="q", data_sources=[]))
+    monkeypatch.setattr(cr, "get_scoped_collections_from_context", lambda: None)
+    monkeypatch.setattr(cr, "documents_loading_step", lambda _shelves: None)
+    monkeypatch.setattr(cr, "turn_identity", lambda *_a: None)
+    monkeypatch.setattr(cr, "track_agent_profile", lambda **_kw: contextlib.nullcontext())
+    monkeypatch.setattr(cr, "_prepare_turn", prepare)
+    monkeypatch.setattr(cr, "turn_registries", registries)
+    monkeypatch.setattr(cr, "flush_after_answer", flush)
+    monkeypatch.setattr(cr, "answer_message_id", lambda *_a: "m1")
+    monkeypatch.setattr(cr, "_finished", lambda outcome, *_a, **_kw: outcome.state)
+
+    def run(bodies, terminal, *, streaming=True):
+        async def answer_turn(*_args, **_kwargs):
+            seen["prose"].append(answer_stream._PROSE.get())
+            for body in bodies:
+                yield body
+            yield TurnOutcome(state=terminal, refusal=None)
+
+        monkeypatch.setattr(cr, "answer_turn", answer_turn)
+        monkeypatch.setattr(cr, "answer_streaming_enabled", lambda: streaming)
+        config = types.SimpleNamespace(enable_clarifier=False)
+        return cr._turn_runner(object(), config, {})("q")
+
+    seen["run"] = run
+    return seen
 
 
-async def test_a_retraction_is_not_a_settled_answer_the_terminal_replaced(caplog):
+async def test_the_workflow_logs_a_terminal_that_replaced_the_settled_text(workflow, caplog):
+    run = workflow["run"]([_snapshot("R 90 [1].")], _terminal("R 90 [1] [nicht wörtlich]."))
+    with caplog.at_level(logging.INFO):
+        bodies = [body async for body in run]
+    assert bodies[-1].result.text == "R 90 [1] [nicht wörtlich]."
+    assert "terminal frame replaced the settled answer" in caplog.text
+
+
+async def test_a_retraction_is_not_a_settled_answer_the_terminal_replaced(workflow, caplog):
     # A tool round settled its prose, then took it back; the answer streamed later
     # never settled. The terminal replaced nothing the reader was left reading.
-    sink = AnswerStreamSink()
-
-    async def answer():
-        sink.put(Snapshot(content="Vorläufig [1].", sources=[]))
-        sink.retract()
-        return [live_chunk("Die eigentliche Antwort [1].")]
-
+    bodies = [_snapshot("Vorläufig [1]."), AnswerRetractedBody(value=EmptyValue())]
+    run = workflow["run"](bodies, _terminal("Die eigentliche Antwort [1]."))
     with caplog.at_level(logging.INFO):
-        await _relayed(sink, answer)
+        assert [body async for body in run][:2] == bodies
     assert "replaced the settled answer" not in caplog.text
 
 
-async def test_an_abandoned_stream_leaves_the_answer_unwound_before_it_returns():
-    sink = AnswerStreamSink()
-    unwound = asyncio.Event()
+async def test_the_live_prose_is_bound_only_when_the_platform_lets_the_answer_stream(workflow):
+    [_ async for _ in workflow["run"]([], _terminal("A."), streaming=True)]
+    [_ async for _ in workflow["run"]([], _terminal("A."), streaming=False)]
+    on, off = workflow["prose"]
+    assert on is not None and on.message_id == "m1" and not on.streamed
+    assert off is None
 
-    async def answer():
-        sink.push("Erstes Wort ")
+
+async def test_a_stream_the_reader_abandons_unwinds_the_answer_before_the_ledgers_flush(workflow, monkeypatch):
+    """`_run` closes the answer itself; ``async for`` alone would leave it suspended."""
+    order = workflow["order"]
+
+    async def answer_turn(*_args, **_kwargs):
         try:
-            await asyncio.sleep(3600)
-        finally:
-            unwound.set()
-
-    task = asyncio.create_task(answer())
-    relay = _relay_live(sink, task)
-    await anext(relay)
-    await relay.aclose()  # the consumer walked away
-    assert task.cancelled()
-    assert unwound.is_set()
-
-
-async def test_a_stream_the_reader_abandons_unwinds_the_answer_before_the_ledgers_flush(monkeypatch):
-    """The runner closes the relay itself; ``async for`` alone would leave it suspended."""
-    sink = AnswerStreamSink()
-    order: list[str] = []
-
-    async def answer():
-        sink.push("Erstes Wort ")
-        try:
+            yield TextMessageContentBody(message_id="m1", delta="Erstes Wort ")
             await asyncio.sleep(3600)
         finally:
             order.append("answer unwound")
 
-    async def prepare(*_args, **_kwargs):
-        return object()
-
-    async def flush(*_ledgers):
-        order.append("ledgers flushed")
-
-    monkeypatch.setattr(cr.Context, "get", staticmethod(lambda: types.SimpleNamespace(conversation_id="c1")))
-    monkeypatch.setattr(cr.GridRequestContext, "from_context", staticmethod(lambda: None))
-    monkeypatch.setattr(cr, "extract_turn_inputs", lambda _q: types.SimpleNamespace(query_text="q", data_sources=[]))
-    monkeypatch.setattr(cr, "get_scoped_collections_from_context", lambda: None)
-    monkeypatch.setattr(cr, "turn_identity", lambda *_a: None)
-    monkeypatch.setattr(cr, "track_agent_profile", lambda **_kw: contextlib.nullcontext())
-    monkeypatch.setattr(cr, "_prepare_turn", prepare)
-    monkeypatch.setattr(cr, "answer_streaming_enabled", lambda: True)
-    monkeypatch.setattr(cr, "_start_answer", lambda _turn, **_kw: (sink, asyncio.create_task(answer())))
-    monkeypatch.setattr(cr, "flush_after_answer", flush)
-    config = types.SimpleNamespace(enable_clarifier=False)
-
-    stream = cr._turn_runner(object(), config, {}, "wf")("q")
-    await anext(stream)
-    await stream.aclose()  # the reader walked away after the first word
+    run = workflow["run"]([], _terminal("A."))
+    monkeypatch.setattr(cr, "answer_turn", answer_turn)
+    await anext(run)
+    await run.aclose()  # the reader walked away after the first word
 
     assert order == ["answer unwound", "ledgers flushed"]
-
-
-async def _sink_seen_by_the_answer(monkeypatch, *, stream: bool):
-    """What the answering task finds bound, when ``_start_answer`` runs with ``stream``."""
-    from aiq_agent.turn import answer_stream
-
-    seen: dict[str, object] = {}
-
-    async def answer_in_registries(*_args, **_kwargs):
-        seen["sink"] = answer_stream._SINK.get()
-        return object(), object()
-
-    monkeypatch.setattr(cr, "_answer_in_registries", answer_in_registries)
-    monkeypatch.setattr(cr, "_answer_chunks", lambda *_a, **_kw: [])
-    runtime = types.SimpleNamespace(
-        thread_id="t", identity=None, metadata={}, ledgers=None, workflow_id="wf", stage_llms={}
-    )
-    turn = types.SimpleNamespace(
-        runtime=runtime,
-        agent=object(),
-        state=object(),
-        session_registry=object(),
-        request=types.SimpleNamespace(organization_id=None),
-        context=object(),
-        inputs=object(),
-    )
-    sink, answering = cr._start_answer(turn, stream=stream)
-    assert await answering == []
-    return sink, seen["sink"]
-
-
-async def test_with_streaming_on_the_answer_writes_into_the_turns_sink(monkeypatch):
-    sink, seen = await _sink_seen_by_the_answer(monkeypatch, stream=True)
-    assert seen is sink
-
-
-async def test_with_streaming_switched_off_the_answer_finds_no_sink(monkeypatch):
-    """No sink, so ``streaming_call`` hands back the buffered call and the answer goes out whole."""
-    _sink, seen = await _sink_seen_by_the_answer(monkeypatch, stream=False)
-    assert seen is None
-
-
-async def test_the_runner_asks_the_platform_switch_before_starting_the_answer(monkeypatch):
-    asked: list[bool] = []
-    sink = AnswerStreamSink()
-
-    async def prepare(*_args, **_kwargs):
-        return object()
-
-    async def flush(*_ledgers):
-        return None
-
-    async def answer():
-        return []
-
-    def start(_turn, *, stream):
-        asked.append(stream)
-        return sink, asyncio.create_task(answer())
-
-    monkeypatch.setattr(cr.Context, "get", staticmethod(lambda: types.SimpleNamespace(conversation_id="c1")))
-    monkeypatch.setattr(cr.GridRequestContext, "from_context", staticmethod(lambda: None))
-    monkeypatch.setattr(cr, "extract_turn_inputs", lambda _q: types.SimpleNamespace(query_text="q", data_sources=[]))
-    monkeypatch.setattr(cr, "get_scoped_collections_from_context", lambda: None)
-    monkeypatch.setattr(cr, "turn_identity", lambda *_a: None)
-    monkeypatch.setattr(cr, "track_agent_profile", lambda **_kw: contextlib.nullcontext())
-    monkeypatch.setattr(cr, "_prepare_turn", prepare)
-    monkeypatch.setattr(cr, "answer_streaming_enabled", lambda: False)
-    monkeypatch.setattr(cr, "_start_answer", start)
-    monkeypatch.setattr(cr, "flush_after_answer", flush)
-    config = types.SimpleNamespace(enable_clarifier=False)
-
-    chunks = [chunk async for chunk in cr._turn_runner(object(), config, {}, "wf")("q")]
-
-    assert chunks == []
-    assert asked == [False]

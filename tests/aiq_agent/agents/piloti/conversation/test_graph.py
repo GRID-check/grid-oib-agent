@@ -19,6 +19,7 @@ from aiq_agent.agents.piloti.markers import ESCALATION_MARKER
 from aiq_agent.agents.piloti.models import ClarifyResult
 from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.agents.piloti.models import ResearchAgentState
+from tests.aiq_agent.agents.piloti.conversation import turn
 
 
 def _research_result(messages, answer: str, *, escalating: bool = False, direct: bool = False):
@@ -128,7 +129,7 @@ class TestConversationGraph:
         )
 
         state = ConversationState(messages=[HumanMessage(content="Hello!")])
-        result = await agent.run(state, thread_id="test-thread")
+        result = await turn(agent, state, thread_id="test-thread")
 
         assert result.routing_decision == "meta"
         contents = [m.content for m in result.messages if isinstance(m, AIMessage)]
@@ -144,7 +145,7 @@ class TestConversationGraph:
         )
 
         state = ConversationState(messages=[HumanMessage(content="What is CUDA?")])
-        result = await agent.run(state, thread_id="test-thread")
+        result = await turn(agent, state, thread_id="test-thread")
 
         assert result is not None
         assert result.routing_decision == "shallow"
@@ -165,7 +166,7 @@ class TestConversationGraph:
         state = ConversationState(
             messages=[HumanMessage(content="Compare CUDA vs OpenCL")],
         )
-        result = await agent.run(state, thread_id="test-thread")
+        result = await turn(agent, state, thread_id="test-thread")
 
         assert result is not None
         assert result.routing_decision == "deep"
@@ -201,7 +202,7 @@ class TestConversationGraph:
         state = ConversationState(
             messages=[HumanMessage(content="Remember for the whole org: the firm is Grid and Partners")],
         )
-        result = await agent.run(state, thread_id="test-thread")
+        result = await turn(agent, state, thread_id="test-thread")
 
         assert result is not None
         assert deep_called is False, "a direct reply must not reach deep research"
@@ -220,7 +221,7 @@ class TestConversationGraph:
         )
 
         state = ConversationState(messages=[])
-        result = await agent.run(state, thread_id="test-thread")
+        result = await turn(agent, state, thread_id="test-thread")
 
         assert result is not None
 
@@ -238,7 +239,7 @@ class TestConversationGraph:
         )
 
         state = ConversationState(messages=[HumanMessage(content="Hi")])
-        result = await agent.run(state)
+        result = await turn(agent, state)
 
         assert result is not None
 
@@ -261,7 +262,7 @@ class TestConversationGraph:
             messages=[HumanMessage(content="Hello!")],
             data_sources=["gdrive", "confluence"],
         )
-        await agent.run(state, thread_id="test-thread")
+        await turn(agent, state, thread_id="test-thread")
 
         assert captured_state["data_sources"] == ["gdrive", "confluence"]
 
@@ -282,7 +283,7 @@ class TestConversationGraph:
             messages=[HumanMessage(content="Hello!")],
             collection_scope=["oib_knowledge", "proj_project-1", "s_conv-1"],
         )
-        result = await agent.run(state, thread_id="test-thread")
+        result = await turn(agent, state, thread_id="test-thread")
 
         assert result.collection_scope == ["oib_knowledge", "proj_project-1", "s_conv-1"]
 
@@ -305,7 +306,7 @@ class TestConversationGraph:
             messages=[HumanMessage(content="Hello!")],
             data_sources=None,
         )
-        await agent.run(state, thread_id="test-thread")
+        await turn(agent, state, thread_id="test-thread")
 
         assert captured_state["data_sources"] is None
 
@@ -328,7 +329,7 @@ class TestConversationGraph:
             messages=[HumanMessage(content="Hello!")],
             data_sources=[],
         )
-        await agent.run(state, thread_id="test-thread")
+        await turn(agent, state, thread_id="test-thread")
 
         assert captured_state["data_sources"] == []
 
@@ -352,13 +353,15 @@ class TestConversationGraph:
             clarifier_fn=mock_clarifier,
         )
 
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content="welche Dateien hast du im Büroarchiv")]),
             thread_id="t",
         )
         assert seen["shelf"] == Shelf.ARCHIV
 
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content="was sagt OIB-RL 2 zum Brandschutz")]),
             thread_id="t2",
         )
@@ -412,7 +415,7 @@ class TestRoutingBoundary:
             clarifier_fn=clarifier,
         )
         state = ConversationState(messages=[HumanMessage(content="How do I bake a cake?")])
-        result = await agent.run(state, thread_id="t")
+        result = await turn(agent, state, thread_id="t")
 
         assert calls["research"] is True, "Piloti answers every turn, off-topic ones included"
         assert calls["deep"] is False
@@ -433,7 +436,7 @@ class TestRoutingBoundary:
             clarifier_fn=clarifier,
         )
         state = ConversationState(messages=[HumanMessage(content="Was regelt die OIB-Richtlinie 2?")])
-        result = await agent.run(state, thread_id="t")
+        result = await turn(agent, state, thread_id="t")
 
         assert calls["research"] is True
         assert calls["clarifier"] is False, "a well-specified shallow question must not be sent to the clarifier"
@@ -454,7 +457,7 @@ class TestRoutingBoundary:
         state = ConversationState(
             messages=[HumanMessage(content="Vergleiche die OIB-2-Anforderungen über alle Gebäudeklassen")],
         )
-        result = await agent.run(state, thread_id="t")
+        result = await turn(agent, state, thread_id="t")
 
         assert calls["research"] is True, "every turn starts with the answering agent"
         assert calls["clarifier"] is True, "an escalation must pass through the clarifier"
@@ -516,7 +519,8 @@ class TestAppendContextMessage:
         agent = self._agent(trackers)
 
         # 1. Matthias asks Piloti.
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content="Ist das Atrium ein eigener Abschnitt?")]),
             thread_id="conv-1",
         )
@@ -536,7 +540,8 @@ class TestAppendContextMessage:
             return _research_result(messages, "Neu geprüft.")
 
         agent.research_fn = capture_research
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content="@Piloti given that, recheck")]),
             thread_id="conv-1",
         )
@@ -581,7 +586,8 @@ class TestTurnBoundary:
             return _research_result(state_input.messages, "Die Datei wird noch gelesen.", direct=True)
 
         agent = ConversationGraph(research_fn=research, deep_research_fn=_unused, clarifier_fn=None)
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content="Was steht im Plan?")], in_flight_documents=["plan.pdf"]),
             thread_id="t",
         )
@@ -594,7 +600,7 @@ class TestTurnBoundary:
             return _research_result(state_input.messages, "Antwort [1].")
 
         agent = ConversationGraph(research_fn=research, deep_research_fn=_unused, clarifier_fn=None)
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
         assert isinstance(result, ConversationState)
 
 
@@ -619,7 +625,7 @@ class TestEscalation:
             return _research_result(state_input.messages, "Ich konnte keine Informationen dazu finden.")
 
         agent = ConversationGraph(research_fn=research, deep_research_fn=_unused, clarifier_fn=_unused)
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
 
         assert not result.escalate_to_deep
         assert result.routing_decision == "shallow"
