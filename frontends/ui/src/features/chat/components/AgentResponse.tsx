@@ -831,8 +831,16 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const {
     body,
     entries: sourceEntries,
-    numbers: citationNumbers,
+    numbers: splitNumbers,
   } = useMemo(() => splitAnswerBody(shownContent), [shownContent])
+  // The numbers keep one identity while they stay the same: the split makes a
+  // new set for every reveal step, and a new set is a new plugin list, which
+  // re-parses every block of the answer instead of the one that grew.
+  const citationNumbersKey = [...splitNumbers].join(',')
+  const citationNumbers = useMemo(
+    (): ReadonlySet<number> => new Set(citationNumbersKey ? citationNumbersKey.split(',').map(Number) : []),
+    [citationNumbersKey]
+  )
 
   // The lede is suppressed when the envelope carries a summary or a topic:
   // the masthead's standfirst or title holds that emphasis, and a 17px
@@ -879,6 +887,9 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     conversationId: conversationId ?? null,
     isStreaming,
   })
+  // A new list re-parses every block of the answer, so it is rebuilt only when
+  // what the plugins read changes: a boolean for the callout, not the anatomy.
+  const hasCallout = Boolean(anatomy?.callout)
   const markerPlugins = useMemo(
     (): PluggableList => [
       // While it streams, a marker with no source yet is a pending pill, not
@@ -886,16 +897,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix, pending: isStreaming }],
       // While it streams, a card marker holds its card's place until the card,
       // written after the prose, arrives to fill it.
-      [
-        remarkCardMarkers,
-        { count: cardCount, callout: Boolean(anatomy?.callout), pending: isStreaming },
-      ],
+      [remarkCardMarkers, { count: cardCount, callout: hasCallout, pending: isStreaming }],
       // AFTER the citation pass, so a filename that happens to sit inside a
       // marker's label is left alone: the pass skips `link` subtrees, and by
       // this point every `[N]` already is one.
       [remarkFileReferences, { fileNames: fileReferences.fileNames }],
     ],
-    [citationNumbers, anchorPrefix, isStreaming, cardCount, anatomy, fileReferences.fileNames]
+    [citationNumbers, anchorPrefix, isStreaming, cardCount, hasCallout, fileReferences.fileNames]
   )
   // What a run of Markdown INSIDE a card (a tab's `Text`) parses with: the
   // citations only. Its `[2]` is this answer's source 2; card markers are not

@@ -239,18 +239,31 @@ Three rules keep the rest to the answer bubble:
   count, a boolean), and the sessions panel's rows keep their identity across a
   flush (`use-session-rows.ts`). A flush does not bump `updatedAt`.
 
-**Why the Markdown is re-parsed whole on every flush.** Rendering the
-streamed prefix costs about 3 ms per flush for the recorded 2.9k-character
-answer, 84% of it parsing (2026-09, `MarkdownRenderer` rendered to a string
-under vitest). Rendering only the blocks that changed would save little
-unless the parse were incremental too, and Markdown is not safely
-incremental: a later line can change earlier blocks (a `---` under a
-paragraph makes it a heading, a delimiter row makes it a table, a blank line
-makes a whole list loose). The cost is linear in length, about 14 ms at 9k
-characters and 30 ms at 17k, so it starts to cost frames on answers past
-roughly 10k characters. Revisit when answers that long are common, and
-check any incremental scheme against rendering the whole text for every
-prefix of the recorded answers.
+**The Markdown is parsed block by block.** `MarkdownRenderer` cuts the text
+into top-level blocks of at least 1200 characters (`markdown-blocks.ts`) and
+parses each on its own, memoised on its source, so a reveal step parses only
+the block that grew. Parsing the whole text on every step cost time linear in
+the answer's length: on a production build at 390×844 with a 4× CPU throttle,
+a 10k-character answer spent 262 ms of every second in the Markdown pipeline,
+its commits reached 41 ms at p95, and it had 32 long tasks (2026-09). Blocks
+brought that to 75 ms, 14 ms and 7 to 9 long tasks.
+
+Markdown is not safely incremental: a later line can change earlier blocks (a
+`---` under a paragraph makes it a heading, a delimiter row makes it a table,
+a blank line makes a whole list loose). So the text is cut only where no later
+line can reach back across the cut, and one that holds a construct reaching
+across blocks (a link definition, a footnote, an HTML block) is not cut at
+all. The rule it is held to, `streaming-markdown-equivalence.spec.tsx`: for
+every prefix of the recorded answers, the blocks render the same HTML as the
+whole text rendered at once, at the default size and with a cut at every
+permitted place. A cut, once made, stays where it is while the text grows.
+
+Why a minimum size: every parse has a fixed cost, and when the turn ends
+every block is parsed again, because the chat's plugins stop drawing pending
+markers. A block per paragraph made that settle cost nearly twice what the
+whole text does. At 1200 characters it is back near the whole-text cost: 28
+against 24 ms for 11k characters under vitest. In the browser it is 10 to 25
+ms heavier for a 2.6k-character answer, and no heavier for a 10k one.
 
 **A reload mid-answer.** Nothing streams in a page that is only now loading,
 so the storage drops a stored answer that still says `isStreaming` when it
@@ -389,7 +402,7 @@ in `features/chat/lib/stream-pace.ts`):
   slower than `MIN_CHARS_PER_SECOND`, and never holds text back longer than
   `MAX_LAG_MS` (1.2 s).
 - It steps every `PACE_TICK_MS` (50 ms), not every frame: each step re-parses
-  the answer as Markdown, and a phone pays for that per step.
+  the Markdown block that grew, and a phone pays for that per step.
 - It cuts only at a word gap outside an open `**`, link, code span, fence or
   table row; a table row appears whole. A store flush boundary is not a clean
   cut: a recorded first delta was `**Die Außentreppe ist in GK 4 in A2`, and
