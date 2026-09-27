@@ -2,13 +2,14 @@
 /**
  * Measure one chat turn through the real socket path: `/dev/stream-socket`.
  *
- *   node scripts/measure-stream-socket.mjs [--url http://localhost:3001] [--mode heavy|light|both]
+ *   node scripts/measure-stream-socket.mjs [--url http://localhost:3001]
  *        [--speed 1] [--runs 1] [--viewport phone|desktop|both]
  *
  * Opens the page in headless Chromium at 390x844 (CPU throttled 4x over CDP,
  * the phone case) and at 1280x800 (unthrottled), waits for the turn to settle
  * and prints one JSON line per run:
  *
+ *   maxFrameKB / totalKB  the largest frame but the terminal, and the whole turn
  *   longTaskMs / maxLongTaskMs / longTasksOver50  main-thread tasks during the turn
  *   rafBusyMs      summed rAF gaps beyond one 60 Hz frame (sees shorter work too)
  *   backlogMs      last frame sent → last frame handled by the client
@@ -18,9 +19,9 @@
  *   cls            layout shift summed over the turn
  *
  * The page is development only, so this measures `next dev`: several times
- * the production cost, and the React dev build. Compare runs of the same
- * mode on the same server (heavy against light, before against after), never
- * a dev number with a production one (docs/contributing/gotchas.md).
+ * the production cost, and the React dev build. Compare runs on the same
+ * server (before against after), never a dev number with a production one
+ * (docs/contributing/gotchas.md).
  *
  * Chromium comes from PLAYWRIGHT_BROWSERS_PATH (default /opt/pw-browsers) or
  * CHROMIUM_PATH; nothing here downloads a browser.
@@ -37,7 +38,6 @@ const arg = (name, fallback) => {
 }
 
 const baseUrl = arg('url', 'http://localhost:3001')
-const modes = arg('mode', 'both') === 'both' ? ['heavy', 'light'] : [arg('mode', 'heavy')]
 const speed = arg('speed', '1')
 const runs = Math.max(1, Number(arg('runs', '1')) || 1)
 const viewportArg = arg('viewport', 'both')
@@ -69,6 +69,8 @@ const summarize = (probe) => {
     framesScripted: probe.framesScripted,
     framesHandled: probe.framesHandled,
     stepKB: round(probe.stepBytes / 1024),
+    maxFrameKB: Math.round(probe.maxFrameBytes / 102.4) / 10,
+    totalKB: round(probe.totalBytes / 1024),
     heartbeats: probe.heartbeats,
     longTaskMs: tasks.reduce((sum, task) => sum + task.ms, 0),
     maxLongTaskMs: tasks.reduce((max, task) => Math.max(max, task.ms), 0),
@@ -85,7 +87,7 @@ const summarize = (probe) => {
   }
 }
 
-const measure = async (browser, mode, viewportName) => {
+const measure = async (browser, viewportName) => {
   const viewport = VIEWPORTS[viewportName]
   const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } })
   // The dev server's HMR socket, passed through except for its close: a dev
@@ -100,7 +102,7 @@ const measure = async (browser, mode, viewportName) => {
     const cdp = await context.newCDPSession(page)
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: viewport.cpuThrottle })
   }
-  const url = `${baseUrl}/dev/stream-socket?mode=${mode}&speed=${speed}`
+  const url = `${baseUrl}/dev/stream-socket?speed=${speed}`
   try {
     await page.goto(url, { waitUntil: 'load', timeout: 180_000 })
     await page.waitForFunction(() => window.__streamSocket?.done === true, null, {
@@ -108,20 +110,20 @@ const measure = async (browser, mode, viewportName) => {
       polling: 500,
     })
     const probe = await page.evaluate(() => window.__streamSocket)
-    return { mode, viewport: viewportName, cpuThrottle: viewport.cpuThrottle, ...summarize(probe), pageErrors: errors.length }
+    return { viewport: viewportName, cpuThrottle: viewport.cpuThrottle, ...summarize(probe), pageErrors: errors.length }
   } finally {
     await context.close()
   }
 }
 
 /** A run the dev server interrupted (restarting, still compiling) is run again, up to three times. */
-const measureWithRetry = async (browser, mode, viewportName) => {
+const measureWithRetry = async (browser, viewportName) => {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await measure(browser, mode, viewportName)
+      return await measure(browser, viewportName)
     } catch (error) {
       if (attempt >= 3) throw error
-      console.error(`retrying ${mode}/${viewportName}: ${error.message.split('\n')[0]}`)
+      console.error(`retrying ${viewportName}: ${error.message.split('\n')[0]}`)
       await new Promise((resolve) => setTimeout(resolve, 10_000))
     }
   }
@@ -133,10 +135,8 @@ const main = async () => {
   try {
     for (let run = 0; run < runs; run++) {
       for (const viewportName of viewports) {
-        for (const mode of modes) {
-          const result = await measureWithRetry(browser, mode, viewportName)
-          console.log(JSON.stringify({ run: run + 1, ...result }))
-        }
+        const result = await measureWithRetry(browser, viewportName)
+        console.log(JSON.stringify({ run: run + 1, ...result }))
       }
     }
   } finally {
