@@ -72,21 +72,31 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText }[] = [
     <!-- The case, then the calculator that works it. The close of the page
          carries the invitation to talk; this section does not repeat it. -->
     <div class="grid grid-cols-1 gap-y-10 lg:grid-cols-[5fr_7fr] lg:gap-x-16">
-      <div data-reveal class="px-2 sm:px-0">
+      <!-- Ordered, so the heading leads on a phone and the plate hangs above
+           it from lg, without the print twice in the markup. -->
+      <div data-reveal class="flex flex-col">
         <!-- Plate VII, the balance tipping towards the paper: the case the
-             calculator weighs. A third on a phone, above the heading. -->
-        <PagePrint name={PLATES.VII} locale={locale} size="half" phone="third" tone="dark" class="mb-8 lg:mb-10" />
-        <h2 class="m-0 mb-5 font-voice text-v2 text-surface sm:mb-6" style="text-wrap: balance">
+             calculator weighs. A third on a phone, after the claim; from lg
+             above the heading. -->
+        <PagePrint
+          name={PLATES.VII}
+          locale={locale}
+          size="half"
+          phone="third"
+          tone="dark"
+          class="order-3 mt-8 lg:order-none lg:mb-10 lg:mt-0"
+        />
+        <h2 class="order-1 m-0 mb-5 font-voice text-v2 text-surface sm:mb-6" style="text-wrap: balance">
           {t.roi.title}
         </h2>
-        <p class="m-0 text-base leading-relaxed text-on-dark sm:text-lg" style="text-wrap: pretty">
+        <p class="order-2 m-0 text-base leading-relaxed text-on-dark sm:text-lg" style="text-wrap: pretty">
           {t.roi.body}
         </p>
 
-        <p class="m-0 mt-8 font-mono text-2xs uppercase tracking-widest text-on-dark-label sm:mt-9">
+        <p class="order-4 m-0 mt-8 font-mono text-2xs uppercase tracking-widest text-on-dark-label sm:mt-9">
           {t.roi.claimsLabel}
         </p>
-        <dl class="m-0 mt-3">
+        <dl class="order-5 m-0 mt-3">
           {
             claims.map((c) => (
               <div class="flex items-baseline justify-between gap-4 border-t border-surface/15 py-2.5 last:border-b">
@@ -98,16 +108,15 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText }[] = [
         </dl>
       </div>
 
-      <div
-        data-reveal
-        class="sm:rounded-card sm:border sm:border-surface/15 sm:bg-accent-800/70 sm:p-8 lg:self-start"
-      >
+      <!-- The sliders sit on the panel itself; the result below is the one
+           framed object in the section. -->
+      <div data-reveal class="lg:self-start">
 
         {
           sliders.map((s) => {
             const range = ROI_RANGES[s.key]
             return (
-              <div class="grid grid-cols-[1fr_auto] items-baseline gap-x-4 border-t border-surface/15 px-2 pt-4 pb-1 first:border-t-0 first:pt-0 sm:px-0 sm:pt-5 sm:first:pt-0">
+              <div class="grid grid-cols-[1fr_auto] items-baseline gap-x-4 border-t border-surface/15 pt-4 pb-1 first:border-t-0 first:pt-0 sm:pt-5 sm:first:pt-0">
                 <label for={`roi-${s.key}`} class="text-base leading-snug text-on-dark sm:text-sm">
                   {s.label}
                 </label>
@@ -162,18 +171,9 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText }[] = [
              already announces its own value, and the thing worth hearing is
              what it did to the total. -->
         <div
-          class="relative isolate mt-5 overflow-hidden rounded-card border border-surface/15 bg-accent-900/80 p-5 sm:mt-7 sm:p-6"
+          class="mt-5 rounded-card border border-surface/15 bg-accent-900 p-5 sm:mt-7 sm:p-6"
           aria-live="polite"
         >
-          <!-- A single soft light behind the figure. The panel is otherwise flat
-               by design, so one gradient is enough to make this the focal point
-               without turning the section into a dashboard. -->
-          <div
-            class="pointer-events-none absolute -left-16 -top-24 -z-10 size-80 rounded-full opacity-75 blur-3xl"
-            style="background: radial-gradient(circle, rgb(164 208 106 / 0.28), transparent 70%)"
-            aria-hidden="true"
-          >
-          </div>
           <p class="m-0 font-mono text-2xs uppercase tracking-widest text-on-dark-label">
             {t.roi.resultLabel}
           </p>
@@ -219,7 +219,7 @@ const metrics: { key: keyof RoiText; label: string; live?: keyof RoiText }[] = [
         </div>
 
         <p
-          class="m-0 mt-5 px-2 text-sm leading-relaxed text-on-dark/80 sm:mt-6 sm:px-0 sm:text-2xs"
+          class="m-0 mt-5 text-sm leading-relaxed text-on-dark/80 sm:mt-6 sm:text-2xs"
           style="text-wrap: pretty"
         >
           {t.roi.footnote}{' '}
