@@ -556,8 +556,10 @@ services:
     # Agent Skills cron scheduler (ADR-0046). Dedicated worker off the frontend
     # image (like the purger): DB-claimed ticks advance each due schedule's
     # next_run_at (FOR UPDATE SKIP LOCKED — replica- and crash-safe), then POST
-    # the BFF internal fire endpoint. No-ops and exits 0 unless the skills
+    # the BFF internal fire endpoint. Fires schedules only when the skills
     # feature gate is on (GRID_SKILLS_ENABLED / GRID_ENFORCE_FEATURE_FLAGS).
+    # Every tick, gate or not, it also POSTs the BFF's run reconciler, which
+    # closes runs whose ending never reached the BFF (lib/runs/reconcile.ts).
     image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
     build:
       context: ../../frontends/ui
@@ -582,10 +584,10 @@ services:
       - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
       - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
-      # Deployment start gate: the scheduler refuses to run (clean exit 0) unless
-      # skills are enabled here or feature-flag enforcement is on. This service
-      # previously passed GRID_WORKFLOWS_ENABLED, which the worker no longer
-      # reads — so the container started, found no gate, and exited 0 forever.
+      # Schedules gate: due schedules are fired only when skills are enabled
+      # here or feature-flag enforcement is on; with it off the container stays
+      # up as the run reconciler's clock. This service previously passed
+      # GRID_WORKFLOWS_ENABLED, which the worker no longer reads.
       - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
       - GRID_ENFORCE_FEATURE_FLAGS=${GRID_ENFORCE_FEATURE_FLAGS:-false}
       - GRID_SKILL_SCHEDULER_POLL_MS=${GRID_SKILL_SCHEDULER_POLL_MS:-30000}

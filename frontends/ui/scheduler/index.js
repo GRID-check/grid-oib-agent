@@ -7,7 +7,10 @@
  *      via FOR UPDATE SKIP LOCKED (db.claimDue) — replica- and crash-safe;
  *   2. AFTER that transaction commits, POSTs each claimed definition to the BFF
  *      internal fire endpoint (which records the run row + submits the run);
- *   3. prunes `task_runs` older than the retention window.
+ *   3. prunes `task_runs` older than the retention window;
+ *   4. POSTs the BFF's run reconciler (`/api/internal/runs/reconcile`), which
+ *      closes the runs whose ending never reached the BFF by asking the job
+ *      store (`lib/runs/reconcile.ts`, backlog T3-11).
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:
@@ -17,8 +20,12 @@
  *   GRID_SKILL_SCHEDULER_POLL_MS       - tick interval (default 30000)
  *   GRID_SKILL_SCHEDULER_BATCH         - max claims per tick (default 20)
  *   GRID_SKILL_RUNS_RETENTION_DAYS     - run-history retention (default 90)
- * Start gate (deployment-level): refuses to run unless GRID_SKILLS_ENABLED=true
- * or GRID_ENFORCE_FEATURE_FLAGS=true — a clean no-op container otherwise.
+ *
+ * Schedules gate (steps 1-3): only when GRID_SKILLS_ENABLED=true or
+ * GRID_ENFORCE_FEATURE_FLAGS=true. Step 4 runs regardless, because runs exist
+ * without Agent Skills: a chat question escalated to deep research is a
+ * `task_runs` row with no definition behind it (ADR-0062). With the gate off the
+ * container is a reconcile-only worker rather than exiting.
  */
 
 const { createSql, claimDue, pruneOldRuns } = require('./db')
@@ -35,13 +42,18 @@ const LOG = '[job-scheduler]'
 const INTERNAL_TOKEN_HEADER = 'x-grid-internal-token'
 const FIRE_TIMEOUT_MS = 30000
 const FIRE_BODY_SNIPPET = 500
+// One sweep claims at most 25 runs and asks the backend about 5 at a time, each
+// with a 10 s timeout: about a minute in the worst case. The reentrancy guard in
+// main() keeps a slow sweep from overlapping the next tick.
+const RECONCILE_TIMEOUT_MS = 120000
 
 /**
- * Deployment start gate. The scheduler is a clean no-op unless the skills
- * feature is turned on for this deployment — either the dark-launch env opt-in
- * (GRID_SKILLS_ENABLED) or enforced WorkOS flags (GRID_ENFORCE_FEATURE_FLAGS).
+ * The schedules gate. Due definitions are claimed and fired only when the
+ * skills feature is turned on for this deployment — either the dark-launch env
+ * opt-in (GRID_SKILLS_ENABLED) or enforced WorkOS flags
+ * (GRID_ENFORCE_FEATURE_FLAGS). The run reconciler runs either way.
  */
-function shouldStart(env) {
+function schedulesEnabled(env) {
   // Case-insensitive, matching how the BFF reads these vars
   // (feature-flags.ts lowercases before comparing) — 'TRUE' must not enable
   // the UI while silently no-op'ing this container.
@@ -61,6 +73,58 @@ function readConfig(env) {
     pollMs: toPositiveInt(env.GRID_SKILL_SCHEDULER_POLL_MS, 30000),
     batch: toPositiveInt(env.GRID_SKILL_SCHEDULER_BATCH, 20),
     retentionDays: toPositiveInt(env.GRID_SKILL_RUNS_RETENTION_DAYS, 90),
+    schedulesEnabled: schedulesEnabled(env),
+  }
+}
+
+/**
+ * One run-reconciler sweep: POST {frontendUrl}/api/internal/runs/reconcile.
+ *
+ * The BFF does the work — it owns the run lifecycle, and closing a run through
+ * any path but its outcome service would be a second author of the row. This
+ * container only supplies the clock, as it does for firing. The sweep is
+ * replica-safe on the BFF side (the claim stamps each run it takes), so running
+ * this from every scheduler replica is fine. Logs only when it changed
+ * something or failed; never throws. Returns the sweep's counts, or null.
+ */
+async function reconcileRuns(config, fetchImpl = fetch) {
+  const url = `${config.frontendUrl}/api/internal/runs/reconcile`
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), RECONCILE_TIMEOUT_MS)
+  try {
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: { [INTERNAL_TOKEN_HEADER]: config.internalToken },
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      let body = ''
+      try {
+        body = (await res.text()).slice(0, FIRE_BODY_SNIPPET)
+      } catch {
+        /* body unreadable — status is enough to act on */
+      }
+      console.error(`${LOG} run reconcile failed: HTTP ${res.status} ${body}`)
+      return null
+    }
+    let counts = null
+    try {
+      counts = await res.json()
+    } catch {
+      /* non-JSON 200 — nothing to report */
+    }
+    if (counts && (counts.closed > 0 || counts.failed > 0)) {
+      console.log(
+        `${LOG} run reconcile: checked ${counts.checked}, closed ${counts.closed}, ` +
+          `already closed ${counts.alreadyClosed}, waiting ${counts.waiting}, failed ${counts.failed}`,
+      )
+    }
+    return counts
+  } catch (error) {
+    console.error(`${LOG} run reconcile request errored:`, error && error.message ? error.message : error)
+    return null
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -125,12 +189,23 @@ async function fireOne(config, scheduleId, fetchImpl = fetch) {
 }
 
 /**
- * One scheduler tick. Claim + advance (atomic), then fire the claimed rows
- * concurrently (batch <= 20), then prune. Every stage is defended so nothing
- * throws out of the tick — a failed claim skips this tick's fires, a failed
- * fire is logged, a failed prune is logged. Returns the count fired (for logs).
+ * One scheduler tick: the schedules (when their gate is on), then the run
+ * reconciler (always). Neither can throw out of the tick. Returns the count
+ * fired (for logs).
  */
-async function tick(sql, config) {
+async function tick(sql, config, fetchImpl = fetch) {
+  const fired = config.schedulesEnabled ? await fireDue(sql, config) : 0
+  await reconcileRuns(config, fetchImpl)
+  return fired
+}
+
+/**
+ * Claim + advance (atomic), then fire the claimed rows concurrently
+ * (batch <= 20), then prune. Every stage is defended so nothing throws — a
+ * failed claim skips this tick's fires, a failed fire is logged, a failed prune
+ * is logged. Returns the count fired.
+ */
+async function fireDue(sql, config) {
   let claimed = []
   try {
     claimed = await claimDue(sql, config.batch, (cron, tz) => nextOccurrence(cron, tz, new Date()))
@@ -177,31 +252,32 @@ function main() {
     }
   }
 
-  console.log(
-    `${LOG} started, polling every ${config.pollMs}ms ` +
-      `(batch ${config.batch}, retention ${config.retentionDays}d, target ${config.frontendUrl})`,
-  )
+  if (config.schedulesEnabled) {
+    console.log(
+      `${LOG} started, polling every ${config.pollMs}ms ` +
+        `(batch ${config.batch}, retention ${config.retentionDays}d, target ${config.frontendUrl})`,
+    )
+  } else {
+    console.log(
+      `${LOG} skills feature is off for this deployment ` +
+        `(set GRID_SKILLS_ENABLED=true or GRID_ENFORCE_FEATURE_FLAGS=true to fire schedules) — ` +
+        `running the run reconciler only, every ${config.pollMs}ms (target ${config.frontendUrl})`,
+    )
+  }
   void runTick()
   setInterval(() => void runTick(), config.pollMs)
 }
 
 if (require.main === module) {
-  if (!shouldStart(process.env)) {
-    console.log(
-      `${LOG} skills feature is off for this deployment ` +
-        `(set GRID_SKILLS_ENABLED=true or GRID_ENFORCE_FEATURE_FLAGS=true to enable) — ` +
-        `nothing to do, exiting cleanly.`,
-    )
-    process.exit(0)
-  }
   main()
 }
 
 module.exports = {
-  shouldStart,
+  schedulesEnabled,
   readConfig,
   toPositiveInt,
   fireOne,
+  reconcileRuns,
   tick,
   INTERNAL_TOKEN_HEADER,
 }

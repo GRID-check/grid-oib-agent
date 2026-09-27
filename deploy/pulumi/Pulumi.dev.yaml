@@ -160,7 +160,7 @@ config:
   grid-oib:enforceFeatureFlags: "true"
   # Agent Skills + Jobs (ADR-0046). Inert for the UI under enforcement — the
   # per-org `skills` flag decides, and it is ON for all staging organizations —
-  # but still what creates the `skill-scheduler` Deployment, so it stays "true".
+  # but still what lets the `skill-scheduler` fire schedules, so it stays "true".
   grid-oib:skillsEnabled: "true"
   # Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox. Also
   # inert under enforcement (the `collaboration` flag is ON for all staging

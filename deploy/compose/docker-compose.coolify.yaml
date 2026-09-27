@@ -615,8 +615,9 @@ services:
   skill-scheduler:
     # Agent Skills cron scheduler (ADR-0046) — dedicated worker off the frontend
     # image (like the purger). DB-claimed ticks advance each due workflow's
-    # next_run_at, then POST the BFF internal fire endpoint. No-ops and exits 0
-    # unless the workflows feature gate is on.
+    # next_run_at, then POST the BFF internal fire endpoint — only when the
+    # skills feature gate is on. Every tick it also POSTs the BFF's run
+    # reconciler, which closes runs whose ending never reached the BFF.
     build:
       context: ./frontends/ui
       dockerfile: deploy/Dockerfile
