@@ -25,12 +25,24 @@ import uvicorn
 START_WEB = Path(__file__).resolve().parents[1] / "deploy" / "start_web.py"
 
 
-def _production_implementation() -> str:
-    """``WS_IMPLEMENTATION`` from start_web.py, read without importing it (the script has import-time effects)."""
+def _module_constant(name: str) -> object:
+    """A constant from start_web.py, read without importing it (the script has import-time effects)."""
     for node in ast.parse(START_WEB.read_text()).body:
-        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "WS_IMPLEMENTATION" for t in node.targets):
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == name for t in node.targets):
             return ast.literal_eval(node.value)
-    raise AssertionError("deploy/start_web.py no longer names WS_IMPLEMENTATION")
+    raise AssertionError(f"deploy/start_web.py no longer names {name}")
+
+
+def _production_implementation() -> str:
+    return str(_module_constant("WS_IMPLEMENTATION"))
+
+
+def _uvicorn_run_keywords() -> dict[str, str]:
+    """The keyword arguments ``main()`` passes to ``uvicorn.run``, each as the name or literal it is given."""
+    for node in ast.walk(ast.parse(START_WEB.read_text())):
+        if isinstance(node, ast.Call) and ast.unparse(node.func) == "uvicorn.run":
+            return {kw.arg: ast.unparse(kw.value) for kw in node.keywords if kw.arg}
+    raise AssertionError("deploy/start_web.py no longer calls uvicorn.run")
 
 
 async def _app(scope, receive, send):
@@ -108,3 +120,13 @@ async def test_the_implementation_production_runs_serves_and_closes_quietly():
     reports, echoed = await _close_during_a_ping(implementation)
     assert echoed == "hallo"
     assert reports == []
+
+
+def test_keepalive_tolerates_a_late_pong():
+    # uvicorn's default ws_ping_timeout of 20 s closed live chat sockets with
+    # 1011 when a background tab or a waking radio answered late.
+    keywords = _uvicorn_run_keywords()
+    assert keywords["ws_ping_interval"] == "WS_PING_INTERVAL"
+    assert keywords["ws_ping_timeout"] == "WS_PING_TIMEOUT"
+    assert _module_constant("WS_PING_INTERVAL") == 20.0
+    assert _module_constant("WS_PING_TIMEOUT") == 60.0

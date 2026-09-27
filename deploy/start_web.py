@@ -106,6 +106,18 @@ import warnings
 #: ``tests/test_websocket_implementation.py`` holds both to that.
 WS_IMPLEMENTATION = "websockets-sansio"
 
+#: Server keepalive: ping every ``WS_PING_INTERVAL`` seconds, and close with
+#: 1011 "keepalive ping timeout" (logged only at TRACE) when the pong is more
+#: than ``WS_PING_TIMEOUT`` seconds late. uvicorn's default timeout is 20 s, and
+#: a throttled background tab, a mobile radio waking up or a short event-loop
+#: stall on either side can exceed that without the peer being gone, which
+#: dropped a chat socket mid-turn. The chat client recovers by replaying
+#: ``/frames?after=``, but a socket that is still there should not be killed.
+#: A dead peer is still found within 80 s. ``tests/test_websocket_implementation.py``
+#: holds ``main()`` to both.
+WS_PING_INTERVAL = 20.0
+WS_PING_TIMEOUT = 60.0
+
 # Suppress warnings unless PYTHONWARNINGS is explicitly set
 if not os.environ.get("PYTHONWARNINGS"):
     warnings.filterwarnings("ignore")
@@ -281,6 +293,8 @@ def main():
         factory=True,
         loop="asyncio",
         ws=WS_IMPLEMENTATION,
+        ws_ping_interval=WS_PING_INTERVAL,
+        ws_ping_timeout=WS_PING_TIMEOUT,
     )
 
 
