@@ -168,6 +168,7 @@ export const research = {
     targetProjectLower: 'project knowledge',
     targetSessionLower: 'private session',
     availableInProject: 'Available in this project.',
+    projectFilesManagedInFiles: 'Delete project files in the project’s files.',
     preparingCorpus: 'Preparing project knowledge...',
     onlyThisSession: 'Only available in this chat session.',
     loadingFiles: 'Loading files',

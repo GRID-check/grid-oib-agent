@@ -181,36 +181,6 @@ describe('createDocumentsClient', () => {
     })
   })
 
-  describe('deleteFiles', () => {
-    test('deletes files successfully', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-      })
-
-      const client = createDocumentsClient()
-      await client.deleteFiles('test-collection', ['file-1', 'file-2'])
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        '/api/v1/collections/test-collection/documents',
-        expect.objectContaining({
-          method: 'DELETE',
-          body: JSON.stringify({ file_ids: ['file-1', 'file-2'] }),
-        })
-      )
-    })
-
-    test('ignores 404 on delete', async () => {
-      mockFetch.mockResolvedValue({
-        ok: false,
-        status: 404,
-      })
-
-      const client = createDocumentsClient()
-
-      await expect(client.deleteFiles('test', ['file-1'])).resolves.not.toThrow()
-    })
-  })
-
   describe('getJobStatus', () => {
     test('gets job status successfully', async () => {
       const mockStatus = {

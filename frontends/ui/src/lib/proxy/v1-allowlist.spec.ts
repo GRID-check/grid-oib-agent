@@ -12,7 +12,6 @@ describe('isForwardableV1Request', () => {
     ['POST', ['collections']],
     ['GET', ['collections', 's_abc']],
     ['GET', ['collections', 's_abc', 'documents']],
-    ['DELETE', ['collections', 's_abc', 'documents']],
     ['get', ['data_sources']],
   ])('forwards %s %j, which a product client makes', (method, path) => {
     expect(isForwardableV1Request(method, path)).toBe(true)
@@ -33,6 +32,9 @@ describe('isForwardableV1Request', () => {
     ['POST', ['collections', 's_abc', 'documents']],
     ['POST', ['collections', 'proj_abc', 'documents']],
     ['DELETE', ['collections', 's_abc']],
+    // The chunk-only file delete, which a document-id caller turned into a
+    // no-op that left the row and the object behind.
+    ['DELETE', ['collections', 'proj_abc', 'documents']],
     ['POST', ['collections', 's_abc', 'search']],
     ['GET', ['documents', 'job-1']],
     ['GET', ['documents', '', 'status']],

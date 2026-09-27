@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Im Dateidialog eines Chats lassen sich Projektdateien nicht mehr löschen.
+    Der Löschen-Knopf dort hat bei Projektdateien nichts entfernt. Projektdateien
+    löschen Sie in den Projektdateien; der Dialog weist jetzt darauf hin. Die
+    eigenen Anhänge eines Chats lassen sich dort weiterhin löschen.

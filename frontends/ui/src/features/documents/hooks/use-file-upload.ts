@@ -39,6 +39,22 @@ interface UploadDocumentResponse {
   status?: string
 }
 
+/** Where each shelf deletes one of its documents. */
+const DELETE_ROUTE: Record<'project' | 'archiv', (id: string) => string> = {
+  project: (id) => `/api/documents/${encodeURIComponent(id)}`,
+  archiv: (id) => `/api/archiv/documents/${encodeURIComponent(id)}`,
+}
+
+/** Delete one document through its shelf's first-party route. Already gone is success. */
+async function deleteShelfDocument(shelf: 'project' | 'archiv' | 'session', documentId: string): Promise<void> {
+  if (shelf === 'session') return deleteSessionDocument(documentId)
+  const response = await fetch(DELETE_ROUTE[shelf](documentId), { method: 'DELETE' })
+  if (response.ok || response.status === 404) return
+  const body: unknown = await response.json().catch(() => null)
+  const message = (body as { error?: { message?: unknown } } | null)?.error?.message
+  throw new Error(typeof message === 'string' && message ? message : `Delete failed: ${response.status}`)
+}
+
 /** A user-initiated cancel, not a failure — it must not colour a row red. */
 const isAbort = (error: unknown): boolean => error instanceof Error && error.name === 'AbortError'
 
@@ -550,12 +566,13 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         return
       }
 
-      const collectionName = file.collectionName
-      const deleteId = file.serverFileId || file.fileName
-      // A chat attachment is a document row, deleted with its chunks and its
-      // objects by the first-party route. One that never reached the server has
-      // nothing to delete there.
-      if (shelf === 'session' && !file.serverFileId) {
+      // Every shelf's file is a document row, deleted with its chunks and its
+      // objects by that shelf's first-party route, by DOCUMENT id. This used to
+      // be the proxy's chunk-only file delete, which takes filenames: handed a
+      // document id it matched nothing, and the row and the object stayed. A
+      // file that never reached the server has nothing to delete there.
+      const documentId = file.serverFileId
+      if (!documentId) {
         removeTrackedFile(fileId)
         return
       }
@@ -566,11 +583,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       removeTrackedFile(fileId)
 
       try {
-        if (shelf === 'session') {
-          await deleteSessionDocument(deleteId)
-        } else {
-          await clientRef.current.deleteFiles(collectionName, [deleteId])
-        }
+        await deleteShelfDocument(shelf, documentId)
       } catch (err) {
         // Restore the file on failure so the user can retry.
         // Also undo the recentlyDeletedIds entry so the file isn't

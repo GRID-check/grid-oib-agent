@@ -17,12 +17,13 @@
  *
  *   - `adapters/api/data-sources-client.ts` — GET `data_sources`;
  *   - `adapters/api/documents-client.ts` — create a project or Archiv
- *     collection, read one, list / delete its files, poll an ingest job
+ *     collection, read one, list its files, poll an ingest job
  *     (`documents/<jobId>/status`). A chat's attachments are no longer among
  *     them: they go through `/api/session/documents` (ADR-0047 Phase 2), and
  *     the conversation delete erases a chat's collection. No product client
- *     uploads through here or deletes a whole collection, so neither request
- *     is forwarded;
+ *     uploads or deletes through here (each shelf has first-party routes that
+ *     write and remove the document row), so no write into a collection's
+ *     files is forwarded;
  *   - `adapters/api/research-runs-client.ts` — GET `jobs/async/jobs`.
  *
  * Everything else answers 404 before any upstream request, including paths
@@ -47,7 +48,6 @@ const PROXY_ROUTES: readonly ProxyRoute[] = [
   { method: 'POST', shape: ['collections'] },
   { method: 'GET', shape: ['collections', ANY] },
   { method: 'GET', shape: ['collections', ANY, 'documents'] },
-  { method: 'DELETE', shape: ['collections', ANY, 'documents'] },
 ]
 
 function matches(route: ProxyRoute, method: string, path: readonly string[]): boolean {

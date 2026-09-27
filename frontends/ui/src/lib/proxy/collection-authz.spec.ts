@@ -330,10 +330,24 @@ describe('validateCollectionName — what the proxy never does', () => {
     }
   )
 
-  it('still lets a project writer delete files and read the project collection', async () => {
-    expect(
-      await validateCollectionName(['collections', 'proj_abc', 'documents'], session, {}, { method: 'DELETE', deps: deps() })
-    ).toBeNull()
+  it.each([
+    ['proj_abc', session, '/api/documents/[id]'],
+    ['archiv_org-1', archivManager, '/api/archiv/documents/[id]'],
+  ])(
+    'refuses a chunk-only file delete in %s (403): the row, the object and the audit entry would stay',
+    async (name, who, route) => {
+      const response = await validateCollectionName(
+        ['collections', name, 'documents'],
+        who,
+        {},
+        { method: 'DELETE', deps: deps() }
+      )
+      expect(response?.status).toBe(403)
+      expect(((await response?.json()) as { error: { message: string } }).error.message).toContain(route)
+    }
+  )
+
+  it('still lets a project writer read the project collection', async () => {
     expect(
       await validateCollectionName(['collections', 'proj_abc'], session, {}, { method: 'GET', deps: deps() })
     ).toBeNull()

@@ -636,6 +636,30 @@ describe('useFileUpload — durable document uploads', () => {
     )
   })
 
+  /**
+   * The project delete used to go through the proxy's chunk-only file delete,
+   * which takes FILENAMES. A durable upload's tracked row carries the document
+   * id, so the delete named a file that does not exist and removed nothing:
+   * the row, the object and the chunks all stayed, and the file came back on
+   * the next listing.
+   */
+  test('deletes a project document through the first-party route, by document id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 })
+    vi.stubGlobal('fetch', fetchMock)
+    mockDocumentsStoreState.trackedFiles = [
+      { id: 'row-1', fileName: 'plan.pdf', collectionName: 'proj-collection', fileSize: 10, serverFileId: 'doc-1' },
+    ] as unknown[]
+    const { result } = renderUpload()
+
+    await act(async () => {
+      await result.current.deleteFile('row-1')
+    })
+    vi.unstubAllGlobals()
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-1', { method: 'DELETE' })
+    expect(mockClient.deleteFiles).not.toHaveBeenCalled()
+  })
+
   test('the Archiv posts to its own endpoint and never names a project', async () => {
     const { result } = renderHook(() =>
       useFileUpload({ collectionName: 'archiv_org-1', archiv: true })

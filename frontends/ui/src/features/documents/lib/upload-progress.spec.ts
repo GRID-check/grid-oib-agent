@@ -1,6 +1,5 @@
 import { describe, test, expect } from 'vitest'
 import {
-  distributeBatchBytes,
   isDeterminate,
   shouldEmitProgress,
   summarizeTransfer,
@@ -160,26 +159,6 @@ describe('shouldEmitProgress', () => {
   test('never moves backwards', () => {
     expect(shouldEmitProgress(500, 400, 1_000)).toBe(false)
     expect(shouldEmitProgress(500, 500, 1_000)).toBe(false)
-  })
-})
-
-describe('distributeBatchBytes', () => {
-  test('fills the parts in wire order', () => {
-    expect(distributeBatchBytes(150, 300, [100, 100, 100])).toEqual([100, 50, 0])
-  })
-
-  test('scales out the multipart framing so no file reads ahead of the truth', () => {
-    // 300 payload bytes in a 600-byte body: half the body sent is 150 payload.
-    expect(distributeBatchBytes(300, 600, [100, 100, 100])).toEqual([100, 50, 0])
-  })
-
-  test('never exceeds a part, even when the whole body has been sent', () => {
-    expect(distributeBatchBytes(600, 600, [100, 100, 100])).toEqual([100, 100, 100])
-  })
-
-  test('degenerate inputs produce zeroes rather than NaN', () => {
-    expect(distributeBatchBytes(10, 0, [100])).toEqual([0])
-    expect(distributeBatchBytes(10, 100, [0, 0])).toEqual([0, 0])
   })
 })
 

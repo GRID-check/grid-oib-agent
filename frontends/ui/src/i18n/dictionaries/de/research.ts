@@ -177,6 +177,7 @@ export const research: typeof en.research = {
     targetProjectLower: 'das Projektwissen',
     targetSessionLower: 'die private Sitzung',
     availableInProject: 'In diesem Projekt verfügbar.',
+    projectFilesManagedInFiles: 'Projektdateien löschen Sie in den Projektdateien.',
     preparingCorpus: 'Projektwissen wird vorbereitet...',
     onlyThisSession: 'Nur in dieser Chat-Sitzung verfügbar.',
     loadingFiles: 'Dateien werden geladen',

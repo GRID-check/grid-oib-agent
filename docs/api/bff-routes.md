@@ -271,13 +271,12 @@ Source: `frontends/ui/src/app/api/health/route.ts`
 |--------|------|------|-------------|-------------|----------|
 | `GET` | `/api/v1/{path}` | Varies | Proxy for the agent service's `/v1/*` routes a product client uses — an **allowlist** (`lib/proxy/v1-allowlist.ts`): `data_sources`, `documents/{jobId}/status`, `jobs/async/jobs`, `collections/{name}`, `collections/{name}/documents`. Anything else answers `404` before any upstream request. | — | JSON from backend |
 | `POST` | `/api/v1/{path}` | Varies | Same allowlist: `collections` (create). No upload is forwarded: every shelf has a first-party upload route. NAT's agent-turn routes (`chat`, `chat/completions`, `workflow`, …) are not forwarded: they ran outside the signed context envelope. | JSON | JSON from backend |
-| `DELETE` | `/api/v1/{path}` | Varies | Same allowlist: `collections/{name}/documents`. A whole collection is never deleted through the proxy. | JSON body | JSON or `204 No Content` |
 
 Collection validation rules in `validateCollectionName()` (per method):
 - Base collection (e.g., `oib_knowledge`): rejected with `400 INVALID_COLLECTION`.
 - `GET /api/v1/collections` (every tenant's collections): `404`.
-- Project collections (`proj_*`): requires authenticated session + `project:documents:write` (or `project:edit`). A raw upload is refused with `403` — `/api/documents/upload` writes the document row and runs the file-type and quota admission, which the ingest path does not. Deleting the whole collection is refused with `403` (the project purge erases it).
-- Archiv collections (`archiv_*`): this org's Archiv + `org:archiv:manage`. Raw upload (`/api/archiv/documents/upload` instead) and whole-collection delete: `403`.
+- Project collections (`proj_*`): requires authenticated session + `project:documents:write` (or `project:edit`). A raw upload is refused with `403` — `/api/documents/upload` writes the document row and runs the file-type and quota admission, which the ingest path does not. A file delete is refused with `403` too: it removed chunks by filename and nothing else, so the row and the object stayed (`DELETE /api/documents/{id}` instead). Deleting the whole collection is refused with `403` (the project purge erases it). No `DELETE` is forwarded at all.
+- Archiv collections (`archiv_*`): this org's Archiv + `org:archiv:manage`. Raw upload (`/api/archiv/documents/upload` instead), file delete (`DELETE /api/archiv/documents/{id}` instead) and whole-collection delete: `403`.
 - Session collections (`s_*`): read-only. A read must match the `conversationId` query param and is authorized by the scope builder (`viewer` on an existing chat). Every write is refused with `403`, anonymous mode included: uploads and file deletes go through [`/api/session/documents`](#chat-attachments-session-documents-adr-0047-phase-2), and the conversation delete erases the collection. A raw upload skipped the file-type gate and the quota and wrote no row; a raw file delete removed chunks while the row naming them stayed.
 
 Source: `frontends/ui/src/app/api/v1/[...path]/route.ts`

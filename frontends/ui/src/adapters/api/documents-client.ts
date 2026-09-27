@@ -1,10 +1,11 @@
 /**
  * Documents API Client
  *
- * Collection reads, file listing / deletion and ingest-job polling for the
+ * Collection reads, file listing and ingest-job polling for the
  * project and Archiv collections, through the `/api/v1` proxy. Uploads do not
- * go through here: every shelf posts to its first-party upload route, and a
- * chat's attachments are read and deleted through `session-documents-client`.
+ * or deletes go through here: every shelf uploads and deletes through its
+ * first-party routes, and a chat's attachments are also read through
+ * `session-documents-client`.
  */
 
 import { apiConfig } from './config'
@@ -156,21 +157,6 @@ export const createDocumentsClient = (options: DocumentsClientOptions = {}) => {
 
       const validated = FileListResponseSchema.parse(data)
       return validated.files
-    },
-
-    /**
-     * Delete files from a collection
-     */
-    async deleteFiles(collectionName: string, fileIds: string[]): Promise<void> {
-      const response = await fetch(`${getCollectionsUrl()}/${collectionName}/documents`, {
-        method: 'DELETE',
-        headers: getHeaders(),
-        body: JSON.stringify({ file_ids: fileIds }),
-      })
-
-      if (!response.ok && response.status !== 404) {
-        await handleApiError(response, 'Failed to delete files')
-      }
     },
 
     // --------------------------------------------------------------------------

@@ -275,6 +275,11 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
             : t('fileSourcesTab.preparingCorpus')
           : t('fileSourcesTab.onlyThisSession')}
       </span>
+      {isProjectTarget && projectCollectionName && (
+        <span className="text-xs text-muted-foreground">
+          {t('fileSourcesTab.projectFilesManagedInFiles')}
+        </span>
+      )}
     </div>
   ) : null
 
@@ -387,7 +392,11 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
             status={mapToDisplayStatus(file.status)}
             errorMessage={file.errorMessage ?? undefined}
             expirationIntervalHours={fileUploadConfig.fileExpirationCheckIntervalHours}
-            onDelete={handleDeleteClick}
+            // A project document is deleted in the project's Files, where the
+            // delete runs the legal-hold check and erases every version. This
+            // dialog lists what the chat can see; it only deletes the chat's own
+            // attachments.
+            onDelete={isProjectTarget ? undefined : handleDeleteClick}
             onOpen={handleOpenPreview}
           />
         ))}

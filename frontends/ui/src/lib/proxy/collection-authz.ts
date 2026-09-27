@@ -12,7 +12,11 @@
  *   conversation id, and are never written: a chat's attachments are uploaded
  *   and deleted through `/api/session/documents`, and its whole collection is
  *   erased by the conversation delete (ADR-0047 Phase 2);
- * - a whole collection is never deleted through the proxy;
+ * - a whole collection is never deleted through the proxy, and neither are a
+ *   collection's files: the proxy's file delete removes chunks by filename and
+ *   nothing else, so the row, the object and the audit entry stayed. Each shelf
+ *   deletes through its own route (`/api/documents/[id]`,
+ *   `/api/archiv/documents/[id]`, `/api/session/documents/[id]`);
  * - a proxied upload into any shelf is refused: each shelf has a first-party
  *   route that writes the document row and runs the file-type and
  *   storage-quota admission, and the raw ingest path runs neither;
@@ -133,6 +137,10 @@ function refuseWholeCollectionDelete(): Response {
   return errorEnvelope(403, 'FORBIDDEN', 'Deleting a whole collection is not allowed')
 }
 
+function refuseChunkOnlyDelete(route: string): Response {
+  return errorEnvelope(403, 'FORBIDDEN', `Delete through ${route}`)
+}
+
 function refuseRawUpload(prefix: 'proj_' | 'archiv_' | 's_'): Response {
   return errorEnvelope(403, 'FORBIDDEN', `Upload through ${FIRST_PARTY_UPLOAD[prefix]}`)
 }
@@ -178,6 +186,7 @@ async function authorizeCollection(
 ): Promise<Response | null> {
   const wholeCollectionDelete = method === 'DELETE' && subPath.length === 0
   const upload = method === 'POST' && subPath[0] === 'documents'
+  const fileDelete = method === 'DELETE' && subPath[0] === 'documents'
   const baseName = process.env.BASE_COLLECTION_NAME || 'oib_knowledge'
 
   if (collectionName === baseName) {
@@ -190,6 +199,7 @@ async function authorizeCollection(
     // No document row, no file-type gate, no quota: `/api/documents/upload` is
     // the one way bytes enter a project (and nothing in the product posts here).
     if (upload) return refuseRawUpload('proj_')
+    if (fileDelete) return refuseChunkOnlyDelete('/api/documents/[id]')
     if (!session?.organizationId) {
       return handleAuthzError(new Error('Forbidden'))
     }
@@ -217,6 +227,7 @@ async function authorizeCollection(
     // the dedicated `/api/archiv/documents` endpoint, not this proxy.
     if (wholeCollectionDelete) return refuseWholeCollectionDelete()
     if (upload) return refuseRawUpload('archiv_')
+    if (fileDelete) return refuseChunkOnlyDelete('/api/archiv/documents/[id]')
     if (!session?.organizationId) {
       return handleAuthzError(new Error('Forbidden'))
     }
