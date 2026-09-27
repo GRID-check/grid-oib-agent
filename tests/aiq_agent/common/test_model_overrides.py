@@ -647,7 +647,7 @@ class TestSignedEnvelopeBeatsTheRawHeaders:
     sources back on.
     """
 
-    SECRET = "envelope-secret"
+    SECRET = "envelope-secret"  # pragma: allowlist secret (test signing key)
 
     def _headers(self, monkeypatch, payload: dict | None, **raw_headers: object) -> None:
         import hashlib

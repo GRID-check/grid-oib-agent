@@ -1368,7 +1368,7 @@ async def test_an_unanswered_hitl_prompt_expires_instead_of_hanging(
 # envelope, so that signed id is the one every frame must name.
 # ---------------------------------------------------------------------------
 
-_ENVELOPE_SECRET = "test-envelope-secret"
+_ENVELOPE_SECRET = "test-envelope-secret"  # pragma: allowlist secret (test signing key)
 
 
 def _envelope_headers(payload: dict, *, secret: str = _ENVELOPE_SECRET) -> list[tuple[bytes, bytes]]:

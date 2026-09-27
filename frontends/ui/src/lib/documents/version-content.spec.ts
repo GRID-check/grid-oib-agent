@@ -147,7 +147,7 @@ describe('versionWriteKey', () => {
   it('gives every re-upload a directory of its own, even when the number reads 1', () => {
     // The number is a hint. It reads 1 while a concurrent first upload has its
     // row but not its version; a plain key here would overwrite that upload.
-    expect(versionWriteKey('org/o/session/s_1/doc/d/plan.pdf', 1, 'a1b2c3d4e5f6')).toBe(
+    expect(versionWriteKey('org/o/session/s_1/doc/d/plan.pdf', 1, 'a1b2c3d4e5f6')).toBe( // pragma: allowlist secret (a write-id fixture, not a credential)
       'org/o/session/s_1/doc/d/v1/a1b2c3d4e5f6/plan.pdf',
     )
   })

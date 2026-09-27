@@ -17,7 +17,7 @@ import { stripClientContextHeaders } from './ws-upgrade-headers.js'
 describe('stripClientContextHeaders', () => {
   it('removes every x-grid-* header a client sent', () => {
     const headers: Record<string, string> = {
-      'x-grid-model-overrides': 'eyJkZWVwX3Jlc2VhcmNoIjoieC9ncm9rIn0',
+      'x-grid-model-overrides': 'eyJkZWVwX3Jlc2VhcmNoIjoieC9ncm9rIn0', // pragma: allowlist secret (base64 JSON fixture, not a credential)
       'x-grid-budget': 'eyJyZW1haW5pbmdPcmdVc2QiOjk5OTk5fQ',
       'x-grid-disabled-sources': 'W10',
       'x-grid-request-context': 'forged',
