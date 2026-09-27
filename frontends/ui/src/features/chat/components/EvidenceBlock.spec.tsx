@@ -229,7 +229,13 @@ describe('AgentResponse evidence wiring', () => {
     expect(container.textContent).not.toContain('Rechtsgrundlage')
   })
 
-  test('the evidence block waits for the stream like unclaimed cards do', () => {
+  test('the evidence block lands with the unclaimed cards, once the streamed prose is complete', () => {
+    // A live frame carries cards only once the `answer` string has closed, so
+    // a streaming answer that holds a card has all of its prose.
+    const streaming = renderDe(<AgentResponse content="Die Antwort steht in der Richtlinie." isStreaming />)
+    expect(streaming.container.textContent).not.toContain('Rechtsgrundlage')
+    streaming.unmount()
+
     const { container } = renderDe(
       <AgentResponse
         content="Die Antwort steht in der Richtlinie."
@@ -237,7 +243,7 @@ describe('AgentResponse evidence wiring', () => {
         isStreaming
       />
     )
-    expect(container.textContent).not.toContain('Rechtsgrundlage')
+    expect(container.textContent).toContain('Rechtsgrundlage')
   })
 
   test('a topic masthead passes through: eyebrow, title, context, summary, then prose', () => {
