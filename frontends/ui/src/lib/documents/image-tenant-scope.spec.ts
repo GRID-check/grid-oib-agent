@@ -86,7 +86,7 @@ vi.mock('@/lib/sharing/access', () => ({ requireResourceAccess: vi.fn() }))
 // Assignment + collaboration cascade are off this path; they pull the sharing
 // registry, which reads schema table objects the narrow mock above does not
 // provide. Same reason `requireResourceAccess` is mocked.
-vi.mock('@/lib/assignments/service', () => ({ listResourceAssignments: vi.fn() }))
+vi.mock('@/lib/assignments/service', () => ({ listAssignmentsWithoutAccessCheck: vi.fn() }))
 vi.mock('@/lib/assignments/repository', () => ({ deleteAssignmentsForResource: vi.fn() }))
 vi.mock('@/lib/collaboration/cleanup', () => ({ purgeResourceCollaboration: vi.fn() }))
 vi.mock('@/lib/projects/repository', () => ({ findProjectInOrg: vi.fn() }))

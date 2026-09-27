@@ -54,7 +54,7 @@ import {
   isFeatureEnabled,
   isIfcModelsEnabled,
 } from '@/lib/authz/feature-flags'
-import { listResourceAssignments, type AssignedPerson } from '@/lib/assignments/service'
+import { listAssignmentsWithoutAccessCheck, type AssignedPerson } from '@/lib/assignments/service'
 import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
 import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import { assertNoActiveHold } from '@/lib/compliance/holds'
@@ -399,7 +399,8 @@ export async function listDocuments(
     return listed.map((row) => ({ ...row, assignees: [] }))
   }
 
-  const grouped = await listResourceAssignments(
+  // Every id was read from this project, behind `project:view` above.
+  const grouped = await listAssignmentsWithoutAccessCheck(
     session,
     'document',
     listed.map((row) => row.id)

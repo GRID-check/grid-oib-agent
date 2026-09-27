@@ -27,10 +27,10 @@ export const GET = apiRoute<Params>(
     const gated = requireCollaborationEnabled(session)
     if (gated) return gated
     const resourceType = requireShareableType(params.resourceType)
-    const grouped = await listResourceAssignments(session, resourceType, [params.resourceId])
-    return { assignees: grouped[params.resourceId] ?? [] }
+    const assignees = await listResourceAssignments(session, resourceType, params.resourceId)
+    return { assignees }
   },
-  { authz: { enforcedBy: 'listResourceAssignments (requireResourceAccess via list)' } },
+  { authz: { enforcedBy: 'listResourceAssignments (requireResourceAccess viewer)' } },
 )
 
 export const POST = apiRoute<Params>(

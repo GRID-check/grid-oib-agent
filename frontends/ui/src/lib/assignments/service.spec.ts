@@ -57,7 +57,8 @@ import { canUserAccessProject, filterUsersWithProjectAccess } from '@/lib/authz/
 import type { ResourceRole } from '@/lib/db/schema'
 import { requireResourceAccess } from '@/lib/sharing/access'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
-import { addResourceAssignment, listAssignmentCandidates } from './service'
+import { addResourceAssignment, listAssignmentCandidates, listResourceAssignments } from './service'
+import { listAssignmentsForResources } from './repository'
 
 const session = {
   userId: 'user_me',
@@ -149,5 +150,41 @@ describe('addResourceAssignment — container check', () => {
     await addResourceAssignment(session, 'document', 'doc_1', 'user_anna')
 
     expect(canUserAccessProject).toHaveBeenCalledWith(session, 'proj_1', 'user_anna')
+  })
+})
+
+describe('listResourceAssignments — the GET route', () => {
+  beforeEach(() => {
+    vi.mocked(loadOrganizationDirectory).mockResolvedValue(new Map([['user_anna', person('user_anna', 'Anna')]]))
+    vi.mocked(listAssignmentsForResources).mockResolvedValue([
+      { resourceId: 'doc_1', subjectUserId: 'user_anna', assignedBy: 'user_me' },
+    ] as never)
+  })
+
+  it('requires viewer on the resource before reading who is assigned', async () => {
+    stubCallerRole('viewer')
+
+    const assignees = await listResourceAssignments(session, 'document', 'doc_1')
+
+    expect(requireResourceAccess).toHaveBeenCalledWith(session, 'document', 'doc_1', 'viewer')
+    expect(assignees.map((p) => p.userId)).toEqual(['user_anna'])
+  })
+
+  it('reads nothing for a resource the caller cannot reach (404)', async () => {
+    vi.mocked(requireResourceAccess).mockRejectedValue(new NotFoundError())
+    vi.mocked(listAssignmentsForResources).mockClear()
+
+    await expect(listResourceAssignments(session, 'conversation', 's_private')).rejects.toBeInstanceOf(
+      NotFoundError
+    )
+    expect(listAssignmentsForResources).not.toHaveBeenCalled()
+  })
+
+  it('is invisible when collaboration is off', async () => {
+    vi.mocked(isCollaborationEnabled).mockReturnValueOnce(false)
+    vi.mocked(requireResourceAccess).mockClear()
+
+    await expect(listResourceAssignments(session, 'document', 'doc_1')).rejects.toBeInstanceOf(NotFoundError)
+    expect(requireResourceAccess).not.toHaveBeenCalled()
   })
 })
