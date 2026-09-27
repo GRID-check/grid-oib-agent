@@ -31,9 +31,11 @@ interface Props {
   /** Gives the print its declared alt text; without it the print is decorative. */
   locale?: Locale
   loading?: 'lazy' | 'eager'
+  /** The page's LCP image: loaded eagerly and fetched first. */
+  priority?: boolean
   class?: string
 }
-const { plate, variant, locale, loading = 'lazy', class: className = '' } = Astro.props
+const { plate, variant, locale, priority = false, loading = priority ? 'eager' : 'lazy', class: className = '' } = Astro.props
 const id = COVER_PLATES[plate].cover
 const bare = art(id, { onPage: true })
 const paper = art(id)
@@ -69,6 +71,7 @@ const SIZES = {
         height={bare.height}
         alt={alt}
         loading={loading}
+        fetchpriority={priority ? 'high' : undefined}
         decoding="async"
       />
     </picture>

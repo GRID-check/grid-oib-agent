@@ -16,8 +16,10 @@ interface Props {
   locale: Locale
   /** Heading level of the title: 2 under a page h1, 3 under a section h2. */
   level?: 2 | 3
+  /** The first card on the page: its image is the LCP on a phone, so it is not lazy. */
+  priority?: boolean
 }
-const { post, locale, level = 3 } = Astro.props
+const { post, locale, level = 3, priority = false } = Astro.props
 const { title, description, pubDate, cover, plate, category } = post.data
 const Heading = level === 2 ? 'h2' : 'h3'
 ---
@@ -29,7 +31,7 @@ const Heading = level === 2 ? 'h2' : 'h3'
 >
   {
     plate ? (
-      <RisoCover plate={plate} variant="card" />
+      <RisoCover plate={plate} variant="card" priority={priority} />
     ) : cover && (
       <Image
         src={cover}
@@ -37,7 +39,8 @@ const Heading = level === 2 ? 'h2' : 'h3'
         widths={[480, 800, 1200]}
         sizes="(min-width: 1024px) 560px, (min-width: 768px) 45vw, 100vw"
         class="aspect-[16/9] w-full object-cover"
-        loading="lazy"
+        loading={priority ? 'eager' : 'lazy'}
+        fetchpriority={priority ? 'high' : undefined}
       />
     )
   }
