@@ -202,7 +202,7 @@ reverse, must all give identical pixels. Run it after changing a drawing,
 **Two modes, and only two.**
 
 - **On page**, the default, for every print shown bare: a section plate, the
-  changelog's stamps, a blog cover on a Journal card or on a phone. The
+  changelog's stamps, a blog cover on a Journal card or a post. The
   on-page file, `art(id, { onPage: true })`, with `mix-blend-mode: multiply`,
   so the inks print into the page and its drawing grid and no sheet stands on
   it. `PagePrint` (`src/components/craft/`) does this for a plate. On a dark
@@ -210,7 +210,8 @@ reverse, must all give identical pixels. Run it after changing a drawing,
   reversed, a negative in its own hues, with `screen`.
 - **Taped print**, `TapedPrint`: the print keeps its paper, because it is an
   object lying on the page, with tape and a white margin. At most one per
-  page: the Team section's plate I, and a post's cover from md up.
+  page: the Team section's Tragwerk II, and an uploaded photographic post
+  cover. A riso post cover is on page, at every width.
 
 A paper file shown bare is a beige box a shade darker than the canvas (the
 paper is `#F4F2E8` and mottled to about 225–250; the canvas is `#f7f7f3`):

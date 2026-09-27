@@ -1,5 +1,5 @@
 ---
-import PagePrint from '../craft/PagePrint.astro'
+import PageHead from '../molecules/PageHead.astro'
 import { PLATES } from '../craft/plates'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
@@ -73,44 +73,46 @@ const key = [
   },
 ]
 
-const origin: Record<Origin, string> = {
-  ours: 'border-accent-600/45 text-accent-600',
-  yours: 'border-accent-900/70 bg-accent-900 text-surface',
-  price: 'border-ink/25 text-ink-mute',
-  sum: 'border-transparent text-ink-faint',
+// Provenance is marked on the value itself: an assumed or example figure in the
+// quiet grey, the reader's own number in ink and semibold, and a mono letter
+// after each (the first letter of its short name) that the one legend line
+// above the table explains. It was a pill on every row plus a legend of pills,
+// and on a phone the pills wrapped under the labels and doubled each row.
+const tone: Record<Origin, string> = {
+  ours: 'text-ink-mute',
+  yours: 'font-semibold text-ink',
+  price: 'text-ink-mute',
+  sum: 'text-panel',
 }
+const mark = (o: Origin) => r.origins[o].charAt(0).toUpperCase()
 const legend: Origin[] = ['ours', 'yours', 'price']
 ---
 
-<section class="mx-auto box-border max-w-[85rem] px-2 pb-16 pt-24 sm:px-10 sm:pb-28 sm:pt-32">
-  <div class="box-border rounded-panel bg-paper px-5 py-12 shadow-card ring-1 ring-ink/8 sheet-light sm:px-16 sm:py-20">
-    <div class="mb-10 flex items-start justify-between gap-10 sm:mb-12">
-      <div data-reveal class="max-w-2xl">
-        <h1 class="m-0 font-voice text-v3 text-panel" style="text-wrap: balance">
-          {r.title}
-        </h1>
-        <!-- The script rewrites the link with the office it painted, so "change
-             the numbers" returns the visitor to their own sliders. -->
-        <p class="m-0 mt-6 border-t border-ink/15 pt-5 text-base text-ink-mute sm:text-sm">
-          <span data-roi-out="office">{text.office}</span>{' '}
-          <a
-            href={`${home}#wert`}
-            data-roi-back={home}
-            class="text-accent-600 underline underline-offset-2 hover:text-accent-700"
-            >{r.back}</a
-          >
-        </p>
-      </div>
-      <!-- Tafeln V, the test bench: the numbers put on it, one by one. -->
-      <PagePrint name={PLATES.V} locale={locale} size="third" priority class="shrink-0 max-md:hidden" />
-    </div>
+<!-- Open page in the frame, like every subpage: it was the one page wrapped in
+     a white shadowed sheet. -->
+<section class="frame pb-16 pt-28 sm:pb-28 md:pt-36">
+  <div>
+    <!-- Tafeln V, the test bench: the numbers put on it, one by one. -->
+    <PageHead title={r.title} plate={PLATES.V} locale={locale} priority>
+      <!-- The script rewrites the link with the office it painted, so "change
+           the numbers" returns the visitor to their own sliders. -->
+      <p class="m-0 text-base text-ink-mute">
+        <span data-roi-out="office">{text.office}</span>{' '}
+        <a
+          href={`${home}#wert`}
+          data-roi-back={home}
+          class="text-accent-600 underline underline-offset-2 hover:text-accent-700"
+          >{r.back}</a
+        >
+      </p>
+    </PageHead>
 
     <!-- The claim, drawn to scale. A ruled bar is the one form in which "30 %
          of the week, and 40 % of that back" can be checked at a glance instead
          of believed: each cell is an hour, so the returned time is countable. -->
-    <figure data-reveal class="m-0 mb-14">
+    <figure data-reveal class="m-0 mb-14 mt-12">
       <figcaption class="m-0 mb-5 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6">
-        <span class="font-display text-sm font-semibold tracking-tight text-panel">
+        <span class="text-sm font-semibold text-panel">
           {r.week.title}
         </span>
         <span class="font-mono text-2xs uppercase tracking-widest text-ink-faint">
@@ -171,12 +173,12 @@ const legend: Origin[] = ['ours', 'yours', 'price']
       <dl class="m-0 mt-6 grid grid-cols-3 gap-x-8 gap-y-4 max-sm:grid-cols-1">
         {
           key.map((k) => (
-            <div class="grid grid-cols-[auto_1fr] items-baseline gap-x-3">
-              <span class={`mt-1.5 size-3 rounded-xs ${k.swatch}`} aria-hidden="true" />
-              <div>
-                <dt class="m-0 font-mono text-sm tabular-nums text-panel">{k.value}</dt>
-                <dd class={`m-0 mt-0.5 text-sm leading-snug ${k.tone}`}>{k.label}</dd>
-              </div>
+            <div>
+              <dt class="m-0 flex items-baseline gap-3 font-mono text-sm tabular-nums text-panel">
+                <span class={`size-3 shrink-0 translate-y-px rounded-xs ${k.swatch}`} aria-hidden="true" />
+                {k.value}
+              </dt>
+              <dd class={`m-0 mt-0.5 pl-6 text-sm leading-snug ${k.tone}`}>{k.label}</dd>
             </div>
           ))
         }
@@ -187,23 +189,21 @@ const legend: Origin[] = ['ours', 'yours', 'price']
       <!-- The ledger. Live: drag a slider two sections up and the working
            re-derives with it, because it is the same model. -->
       <div data-reveal>
-        <ul class="m-0 mb-5 flex list-none flex-wrap gap-2 p-0">
+        <p class="m-0 mb-4 flex flex-wrap gap-x-5 gap-y-1 font-mono text-2xs uppercase tracking-widest text-ink-mute">
           {
             legend.map((o) => (
-              <li
-                class={`rounded-full border px-3 py-1 font-mono text-2xs uppercase tracking-widest ${origin[o]}`}
-              >
-                {r.originsLong[o]}
-              </li>
+              <span>
+                <span class={tone[o]}>{mark(o)}</span>&nbsp;{r.originsLong[o]}
+              </span>
             ))
           }
-        </ul>
+        </p>
         <dl class="m-0">
         {
           rows.map((row) => (
             <div
               class:list={[
-                'grid grid-cols-[1fr_auto_auto] items-baseline gap-x-4 border-t py-3 sm:gap-x-6',
+                'grid grid-cols-[1fr_auto] items-baseline gap-x-4 border-t py-3 sm:gap-x-6',
                 row.rule === 'total'
                   ? 'border-t-2 border-panel'
                   : row.rule === 'sub'
@@ -229,30 +229,22 @@ const legend: Origin[] = ['ours', 'yours', 'price']
                     {text[row.noteKey]}
                   </span>
                 )}
-                {row.origin !== 'sum' && (
-                  <span
-                    class={`mt-1 block w-fit rounded-full border px-2 py-0.5 font-mono text-2xs uppercase tracking-widest sm:hidden ${origin[row.origin]}`}
-                  >
-                    {r.origins[row.origin]}
-                  </span>
-                )}
               </dt>
               <dd
-                data-roi-out={row.key}
                 class:list={[
-                  'm-0 font-mono tabular-nums text-panel',
+                  'm-0 whitespace-nowrap text-right font-mono tabular-nums',
+                  tone[row.origin],
                   row.rule === 'total' ? 'text-xl font-medium' : 'text-sm',
                 ]}
               >
-                {text[row.key]}
-              </dd>
-              <dd class="m-0 w-28 text-right max-sm:hidden">
-                {row.origin !== 'sum' && (
-                  <span
-                    class={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 font-mono text-2xs uppercase tracking-widest ${origin[row.origin]}`}
-                  >
-                    {r.origins[row.origin]}
-                  </span>
+                <span data-roi-out={row.key}>{text[row.key]}</span>
+                {row.origin !== 'sum' ? (
+                  <sup class="ml-1 inline-block w-[1ch] text-2xs font-normal text-ink-faint">
+                    <span aria-hidden="true">{mark(row.origin)}</span>
+                    <span class="sr-only">({r.origins[row.origin]})</span>
+                  </sup>
+                ) : (
+                  <span class="ml-1 inline-block w-[1ch]" aria-hidden="true" />
                 )}
               </dd>
             </div>
@@ -262,9 +254,9 @@ const legend: Origin[] = ['ours', 'yours', 'price']
       </div>
 
       <div data-reveal>
-        <h3 class="m-0 font-display text-lg font-semibold tracking-tight text-panel">
+        <h2 class="m-0 text-lg font-semibold text-panel">
           {r.excludedTitle}
-        </h3>
+        </h2>
         <ol class="m-0 mt-5 list-none p-0">
           {
             r.excluded.map((e, i) => (

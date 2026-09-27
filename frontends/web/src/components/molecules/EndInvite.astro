@@ -14,19 +14,15 @@ import { ui, type Locale } from '../../i18n/ui'
 interface Props {
   locale: Locale
   page: keyof (typeof ui)['de']['invite']
-  /** The width of the column the line sits in, to line up with the page. */
-  class?: string
-  /** The page's own side padding, so the rule starts where its text does. */
-  gutter?: string
 }
-const { locale, page, class: width = 'max-w-3xl', gutter = 'px-4 sm:px-6 md:px-10' } = Astro.props
+const { locale, page } = Astro.props
 const cta = ui[locale].cta
 ---
 
-<aside aria-label={cta.title} class={`pb-16 md:pb-20 ${gutter}`}>
-  <div
-    class={`mx-auto flex flex-col gap-5 border-t border-ink/15 pt-6 sm:flex-row sm:items-center sm:gap-8 ${width}`}
-  >
+<!-- In the page frame (global.css), so the rule starts at the edge every
+     subpage heading starts at. -->
+<aside aria-label={cta.title} class="frame pb-16 md:pb-20">
+  <div class="flex flex-col gap-5 border-t border-ink/15 pt-6 sm:flex-row sm:items-center sm:gap-8">
     <p class="m-0 max-w-xl text-base leading-relaxed text-ink-soft" style="text-wrap: pretty">
       {ui[locale].invite[page]}
     </p>
