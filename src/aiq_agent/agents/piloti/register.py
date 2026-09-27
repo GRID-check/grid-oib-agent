@@ -47,15 +47,15 @@ from aiq_agent.skills import SkillResolver
 from aiq_agent.skills import SkillRuntime
 from aiq_agent.skills.events import emit_skills_offered
 from aiq_agent.tools.documents.tools import draft_tools_for_turn
-from nat.builder.builder import Builder
-from nat.builder.framework_enum import LLMFrameworkEnum
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
 from nat.data_models.api_server import ChatResponse
-from nat.data_models.component_ref import FunctionGroupRef
-from nat.data_models.component_ref import FunctionRef
-from nat.data_models.component_ref import LLMRef
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionGroupRef
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import FunctionRef
+from nat.plugin_api import LLMFrameworkEnum
+from nat.plugin_api import LLMRef
+from nat.plugin_api import register_function
 
 # Importing this module runs its ``@register_function`` so NAT discovers the
 # ``ask_user`` tool through the same ``aiq_researcher`` entry point

@@ -244,7 +244,7 @@ def _get_parent_trace_context() -> tuple[
                   parent_workflow_run_id, parent_workflow_trace_id, parent_conversation_id, request_trace_tags)
     """
     try:
-        from nat.builder.context import ContextState
+        from nat.plugin_api import ContextState
     except ImportError:
         return (None, None, None, None, None, None, {})
 

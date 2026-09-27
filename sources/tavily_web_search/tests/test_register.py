@@ -73,7 +73,7 @@ class TestTavilyWebSearchToolConfig:
         assert config.exclude_domains == ["example.com"]
 
     def test_inherits_from_function_base_config(self):
-        from nat.data_models.function import FunctionBaseConfig
+        from nat.plugin_api import FunctionBaseConfig
 
         assert issubclass(TavilyWebSearchToolConfig, FunctionBaseConfig)
 

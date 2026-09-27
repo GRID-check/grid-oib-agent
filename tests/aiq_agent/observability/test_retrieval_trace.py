@@ -139,7 +139,7 @@ class TestEmission:
 
     @pytest.fixture
     def context_state(self):
-        from nat.builder.context import ContextState
+        from nat.plugin_api import ContextState
         from nat.utils.reactive.subject import Subject
 
         state = ContextState.get()

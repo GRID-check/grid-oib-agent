@@ -53,12 +53,12 @@ from nat.data_models.api_server import WebSocketSystemIntermediateStepMessage
 from nat.data_models.api_server import WebSocketSystemResponseTokenMessage
 from nat.data_models.api_server import WebSocketUserInteractionResponseMessage
 from nat.data_models.api_server import WebSocketUserMessage
-from nat.data_models.interactive import HumanPromptNotification
-from nat.data_models.interactive import HumanResponse
-from nat.data_models.interactive import HumanResponseNotification
-from nat.data_models.interactive import InteractionPrompt
 from nat.front_ends.fastapi.auth_flow_handlers.websocket_flow_handler import WebSocketAuthenticationFlowHandler
 from nat.front_ends.fastapi.message_handler import WebSocketMessageHandler
+from nat.plugin_api import HumanPromptNotification
+from nat.plugin_api import HumanResponse
+from nat.plugin_api import HumanResponseNotification
+from nat.plugin_api import InteractionPrompt
 
 logger = logging.getLogger(__name__)
 
@@ -1013,6 +1013,11 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
           Re-register so live delivery and HITL routing target the new
           connection.
         """
+        # NAT 1.9 keys a running handler by (user_id, conversation_id) and skips
+        # restore without a user. Its own `_user_id` is decoded from whatever the
+        # handshake carried; ours is the verified subject, or the caller type for
+        # a service or anonymous caller, which carries none.
+        self._user_id = self._authenticated_subject() or (self._authenticated_user or {}).get("type")
         params = self._socket.query_params
         if self._envelope_present:
             # Behind the BFF the ONLY id this socket may reattach to is the signed
@@ -1037,7 +1042,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         # Only when a disconnected handler was actually restored: wire the new
         # socket into the registry so live send and HITL routing target this
         # reconnected connection.
-        if conversation_id and self._worker.get_conversation_handler(conversation_id):
+        if conversation_id and self._worker.get_conversation_handler(self._user_id, conversation_id):
             if self._bound_conversation_id is None:
                 self._bound_conversation_id = conversation_id
             await _registry.set_socket(conversation_id, self._socket)
@@ -1852,8 +1857,12 @@ def install_reconnectable_handler() -> None:  # TODO: upstream to NAT
     worker_module.WebSocketMessageHandler = ReconnectableWebSocketMessageHandler
     websocket_routes.WebSocketMessageHandler = ReconnectableWebSocketMessageHandler
 
-    def patched_websocket_endpoint(*, worker: Any, session_manager: Any):
-        """Build websocket endpoint handler with reconnect support and verified auth."""
+    def patched_websocket_endpoint(*, worker: Any, session_manager: Any, jwt_validators: Any):
+        """Build websocket endpoint handler with reconnect support and verified auth.
+
+        ``jwt_validators`` are NAT's ``identity_authentication`` providers. We
+        configure none: `authenticate_websocket_connection` verifies instead.
+        """
 
         async def _websocket_endpoint(websocket: WebSocket):
             session_id = websocket.query_params.get("session")
@@ -1898,13 +1907,15 @@ def install_reconnectable_handler() -> None:  # TODO: upstream to NAT
                 await websocket.close(code=close_code)
                 return
 
-            async with ReconnectableWebSocketMessageHandler(
+            handler = ReconnectableWebSocketMessageHandler(
                 websocket,
                 session_manager,
                 worker.get_step_adaptor(),
                 worker,
-            ) as handler:
-                handler._authenticated_user = user
+            )
+            # Before `__aenter__`, whose restore keys the reattach by this user.
+            handler._authenticated_user = user
+            async with handler:
                 flow_handler = WebSocketAuthenticationFlowHandler(worker._add_flow, worker._remove_flow, handler)
                 handler.set_flow_handler(flow_handler)
                 with user_context(user or detect_internal_caller(dict(websocket.scope.get("headers", [])))):

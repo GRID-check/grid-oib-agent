@@ -385,7 +385,7 @@ def _current_turn_id() -> str | None:
     never breaks the search.
     """
     try:
-        from nat.builder.context import Context
+        from nat.plugin_api import Context
 
         ctx = Context.get()
         if ctx is None:

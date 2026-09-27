@@ -239,7 +239,7 @@ def normalize_org_instructions(value: str | None) -> str | None:
 def _read_header(name: str) -> str | None:
     """Read a raw header value from NAT Context metadata."""
     try:
-        from nat.builder.context import Context
+        from nat.plugin_api import Context
 
         ctx = Context.get()
         if ctx is None or ctx.metadata is None:
@@ -718,7 +718,7 @@ def get_user_message_id_from_context() -> str | None:
     them onto a single key.
     """
     try:
-        from nat.builder.context import Context
+        from nat.plugin_api import Context
 
         ctx = Context.get()
         if ctx is None:
@@ -769,7 +769,7 @@ def get_request_envelope_from_context() -> tuple[str | None, str | None]:
 def get_conversation_id_from_context() -> str | None:
     """Best-effort read of the active conversation id for provenance."""
     try:
-        from nat.builder.context import Context
+        from nat.plugin_api import Context
 
         ctx = Context.get()
         if ctx is None:

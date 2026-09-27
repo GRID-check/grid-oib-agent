@@ -431,10 +431,10 @@ def push_custom_step(step_name: str, payload: dict[str, Any]) -> None:
     Fail-open by contract — see the module docstring. Never raises.
     """
     try:
-        from nat.builder.context import Context
         from nat.data_models.intermediate_step import IntermediateStepPayload
         from nat.data_models.intermediate_step import IntermediateStepType
         from nat.data_models.intermediate_step import StreamEventData
+        from nat.plugin_api import Context
 
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         step_id = str(uuid.uuid4())

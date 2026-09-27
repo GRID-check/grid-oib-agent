@@ -15,7 +15,7 @@ from aiq_agent.skills.events import ALL_SKILL_KEYS
 from aiq_agent.skills.events import emit_skills_offered
 from aiq_agent.skills.models import Skill
 from aiq_agent.skills.runtime import SkillRuntime
-from nat.builder.context import ContextState
+from nat.plugin_api import ContextState
 
 S1 = Skill(name="alpha", description="Erster Skill.", body="alpha body", origin="platform")
 S2 = Skill(name="beta", description="Zweiter Skill.", body="beta body", origin="platform")

@@ -198,7 +198,7 @@ class TestSynthesisAnnouncement:
     def synthesis_steps(self):
         """Status payloads pushed during the test, oldest first."""
         """Every status payload pushed during the test, oldest first."""
-        from nat.builder.context import ContextState
+        from nat.plugin_api import ContextState
         from nat.utils.reactive.subject import Subject
 
         state = ContextState.get()
@@ -295,7 +295,7 @@ class TestCheckpointRate:
     @pytest.fixture
     def steps(self):
         """Every custom step pushed during the test, as parsed payloads."""
-        from nat.builder.context import ContextState
+        from nat.plugin_api import ContextState
         from nat.utils.reactive.subject import Subject
 
         state = ContextState.get()
@@ -428,7 +428,7 @@ def build_two_search_round_steps() -> list[dict]:
     under the round stamp its fetch ran with. Nothing here is hand-written, so
     the fixture cannot quietly describe a wire nobody emits.
     """
-    from nat.builder.context import ContextState
+    from nat.plugin_api import ContextState
     from nat.utils.reactive.subject import Subject
 
     state = ContextState.get()

@@ -130,10 +130,10 @@ def emit_retrieval_span(*, tool_name: str, search_input: dict[str, Any], picks: 
     other span renders input/output in Langfuse. Never raises.
     """
     try:
-        from nat.builder.context import Context
         from nat.data_models.intermediate_step import IntermediateStepPayload
         from nat.data_models.intermediate_step import IntermediateStepType
         from nat.data_models.intermediate_step import StreamEventData
+        from nat.plugin_api import Context
 
         body_input = json.dumps(search_input, ensure_ascii=False, separators=(",", ":"))
         body_output = json.dumps(picks, ensure_ascii=False, separators=(",", ":"))

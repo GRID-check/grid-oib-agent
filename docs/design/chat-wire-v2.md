@@ -86,6 +86,14 @@ and what of ours that deletes.
   one argument, and NAT's own restore is a no-op without `_user_id`. S0 adapts
   those few lines so the **old** wire keeps working on 1.9. S3 then deletes
   them.
+- `routes.websocket.websocket_endpoint` gains a required `jwt_validators`
+  keyword, which NAT's route adder passes. Our replacement endpoint takes it,
+  and a test mounts it through NAT's own `add_websocket_routes`.
+- `builder.get_llm(…, LANGCHAIN)` returns the chat model inside a
+  `RunnableConfigurableFields`, retry-patched on the wrapper. Every hardening
+  in `get_langchain_llm` and every per-request copy in `model_overrides` no-op'd
+  on it, silently (found by `nat run`, not by the suite). `get_langchain_llm`
+  takes `.default` out and retry-patches it as NAT did.
 - `WebSocketMessageHandler.__init__` gains three keyword arguments. They are
   optional, so our patched endpoint still constructs it.
 - 1.9 adds `routes/v1_chat_completions.py`. `GridContextEnvelopeMiddleware` is

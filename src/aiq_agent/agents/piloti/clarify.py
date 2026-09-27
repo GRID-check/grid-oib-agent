@@ -77,11 +77,11 @@ from aiq_agent.common.plan_documents import documents_from_plan
 from aiq_agent.common.request_llm_context import read_request_llm_context
 from aiq_agent.common.turn_status import push_custom_step
 from aiq_agent.project_context import get_organization_id_from_context
-from nat.builder.builder import Builder
-from nat.builder.context import Context
-from nat.data_models.component_ref import FunctionGroupRef
-from nat.data_models.component_ref import FunctionRef
-from nat.data_models.component_ref import LLMRef
+from nat.plugin_api import Builder
+from nat.plugin_api import Context
+from nat.plugin_api import FunctionGroupRef
+from nat.plugin_api import FunctionRef
+from nat.plugin_api import LLMRef
 
 from .models.clarify import ClarificationResponse
 from .models.clarify import ClarifyRequest

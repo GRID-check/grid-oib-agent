@@ -30,6 +30,8 @@ from aiq_agent.agents.piloti.register import research_agent
 from aiq_agent.common import LLMProvider
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
+from tests.conftest import NAT_LLM_CONFIG
+from tests.conftest import nat_langchain_client
 
 
 @tool
@@ -52,7 +54,10 @@ class _FakeBuilder:
         return [web_search_tool]
 
     async def get_llm(self, ref, wrapper_type):
-        return self._llm
+        return nat_langchain_client(self._llm)
+
+    def get_llm_config(self, ref):
+        return NAT_LLM_CONFIG
 
 
 def _mock_llm():

@@ -44,12 +44,12 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
-from nat.builder.context import Context
 from nat.data_models.api_server import ResponseIntermediateStep
 from nat.data_models.api_server import ResponseObservabilityTrace
 from nat.data_models.api_server import ResponsePayloadOutput
 from nat.data_models.api_server import ResponseSerializable
 from nat.data_models.intermediate_step import IntermediateStep
+from nat.plugin_api import Context
 from nat.runtime.session import Session
 from nat.utils.reactive.subscription import Subscription
 

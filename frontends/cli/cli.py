@@ -17,13 +17,13 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
-from nat.builder.context import ContextState
-from nat.data_models.interactive import HumanPromptModelType
-from nat.data_models.interactive import HumanResponse
-from nat.data_models.interactive import HumanResponseText
-from nat.data_models.interactive import InteractionPrompt
+from nat.data_models.interactive import HumanPromptModelType  # noqa: TID251
 from nat.data_models.intermediate_step import IntermediateStep
 from nat.data_models.intermediate_step import IntermediateStepType
+from nat.plugin_api import ContextState
+from nat.plugin_api import HumanResponse
+from nat.plugin_api import HumanResponseText
+from nat.plugin_api import InteractionPrompt
 from nat.runtime.loader import load_workflow
 from nat.runtime.session import SessionManager
 

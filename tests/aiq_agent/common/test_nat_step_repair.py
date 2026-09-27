@@ -20,9 +20,9 @@ import pytest
 from langchain_core.outputs import LLMResult
 
 from aiq_agent.common.nat_step_repair import SpanClosingProfilerHandler
-from nat.builder.context import Context
-from nat.builder.context import ContextState
 from nat.data_models.intermediate_step import IntermediateStepType
+from nat.plugin_api import Context
+from nat.plugin_api import ContextState
 
 
 @pytest.fixture

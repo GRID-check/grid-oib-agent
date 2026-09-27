@@ -6,9 +6,9 @@ from pydantic import Field
 
 from aiq_agent.common.log_redaction import PresignedUrlFilter
 from aiq_agent.common.log_redaction import install_presigned_url_scrubbing
-from nat.builder.builder import Builder
-from nat.cli.register_workflow import register_logging_method
+from nat.cli.register_workflow import register_logging_method  # noqa: TID251
 from nat.data_models.logging import LoggingBaseConfig
+from nat.plugin_api import Builder
 
 logger = logging.getLogger(__name__)
 

@@ -50,10 +50,10 @@ import logging
 from typing import Any
 
 from aiq_agent import project_context
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import register_function
 
 from ..documents.filing import SignedEnvelope
 from .cards import emit_task_card

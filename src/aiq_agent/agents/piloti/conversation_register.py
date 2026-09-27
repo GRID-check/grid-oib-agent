@@ -78,15 +78,15 @@ from aiq_agent.turn.streaming import fold_chunks_to_response
 from aiq_agent.turn.streaming import live_chunk
 from aiq_agent.turn.streaming import response_to_chunks
 from aiq_agent.turn.subject_document import load_subject_document
-from nat.builder.builder import Builder
-from nat.builder.context import Context
-from nat.builder.framework_enum import LLMFrameworkEnum
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
 from nat.data_models.api_server import ChatResponseChunk
-from nat.data_models.component_ref import LLMRef
-from nat.data_models.function import FunctionBaseConfig
 from nat.data_models.streaming import Streaming
+from nat.plugin_api import Builder
+from nat.plugin_api import Context
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import LLMFrameworkEnum
+from nat.plugin_api import LLMRef
+from nat.plugin_api import register_function
 
 logger = logging.getLogger(__name__)
 

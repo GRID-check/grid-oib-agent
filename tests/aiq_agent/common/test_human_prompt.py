@@ -4,12 +4,12 @@ import pytest
 
 from aiq_agent.common import build_human_prompt
 from aiq_agent.common import extract_user_response
-from nat.data_models.interactive import HumanPromptRadio
-from nat.data_models.interactive import HumanPromptText
-from nat.data_models.interactive import HumanResponseRadio
-from nat.data_models.interactive import HumanResponseText
-from nat.data_models.interactive import InteractionResponse
-from nat.data_models.interactive import MultipleChoiceOption
+from nat.plugin_api import HumanPromptRadio
+from nat.plugin_api import HumanPromptText
+from nat.plugin_api import HumanResponseRadio
+from nat.plugin_api import HumanResponseText
+from nat.plugin_api import InteractionResponse
+from nat.plugin_api import MultipleChoiceOption
 
 
 class TestBuildHumanPrompt:
