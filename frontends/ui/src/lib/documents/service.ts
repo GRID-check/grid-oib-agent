@@ -70,6 +70,7 @@ import {
 } from './collection-file-ref'
 import {
   deleteProjectDocument,
+  documentExistsInCollection,
   findDocumentInOrg,
   findFolderPathInProject,
   findStorageKeyByCollectionAndFilename,
@@ -2215,6 +2216,21 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
  * SeaweedFS for the `view_knowledge_image` tool (ADR-0039), so this is
  * read-only metadata — it never returns the bytes themselves.
  */
+/**
+ * Whether the document an ingest was dispatched for still exists — the
+ * pipeline's question once a file is indexed, before it retires the previous
+ * version (`GET /api/internal/document-exists`). A delete that landed while
+ * the ingest ran leaves no row, and the pipeline then takes back out the
+ * chunks it just inserted. Service-token caller, so no session to authorize.
+ */
+export async function documentStillExists(
+  documentId: string,
+  collectionName: string,
+  organizationId?: string
+): Promise<boolean> {
+  return documentExistsInCollection(documentId, collectionName, organizationId)
+}
+
 /**
  * One presigned PUT slot for the `imageIndex`-th raster the ingest pipeline
  * cut out of a document, plus the key it will land on.
