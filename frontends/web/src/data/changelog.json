@@ -179,8 +179,20 @@
           "key": "improvements",
           "notes": [
             {
+              "en": "While an answer is being written, Piloti now re-renders only the section that is still growing instead of the whole answer on every step. Long answers stay smooth to the end, even on a phone, at the same pace and with the same look as before.",
+              "de": "Während eine Antwort geschrieben wird, bereitet Piloti nur noch den wachsenden letzten Abschnitt neu auf statt jedes Mal die ganze Antwort. Lange Antworten laufen dadurch auch auf dem Telefon bis zum Ende flüssig, im selben Tempo und mit demselben Aussehen wie bisher."
+            },
+            {
               "en": "Answers repeat themselves less: a lead that only restates the first paragraph is dropped, as is a mind map that only redraws the table beside it.",
               "de": "Antworten wiederholen sich weniger: Ein Vorspann, der nur den ersten Absatz wiederholt, entfällt, ebenso eine Mindmap, die nur die Tabelle daneben nachzeichnet."
+            },
+            {
+              "en": "The Herleitung now builds up visibly while Piloti works: new steps and sources fade in, each new connector draws itself once, and the graph grows smoothly instead of jumping. A dot runs along the lines into the step in progress, on phone and desktop alike, and the graph costs less processing time at rest than before.",
+              "de": "Die Herleitung baut sich während der Arbeit sichtbar auf: Neue Schritte und Quellen blenden weich ein, jede neue Verbindungslinie zeichnet sich einmal, und die Grafik wächst gleitend statt zu springen. Ein Punkt läuft entlang der Linien in den gerade offenen Schritt, am Telefon wie am Desktop, und die Grafik kostet im Ruhezustand weniger Rechenzeit als bisher."
+            },
+            {
+              "en": "A finished Herleitung opens at once without animation, and anyone who has chosen reduced motion in their system settings sees none at all.",
+              "de": "Eine abgeschlossene Herleitung erscheint beim Öffnen sofort ohne Animation, und wer in den Systemeinstellungen reduzierte Bewegung gewählt hat, sieht überhaupt keine."
             },
             {
               "en": "The Piloti website loads faster, most of all on a phone. Pages travel compressed, and fonts, images and styles stay in the browser between visits instead of being fetched again on every page.",
