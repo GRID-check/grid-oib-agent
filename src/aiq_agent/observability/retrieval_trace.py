@@ -23,8 +23,7 @@ This module emits ONE balanced NAT step pair per search, named
   `redaction_attributes`). That is by design: the operator's choice removes
   the picking record along with the prose, never leaves one behind.
 
-Mechanics mirror `aiq_agent.common.turn_status.push_custom_step`: a
-FUNCTION_START/FUNCTION_END pair sharing one UUID, pushed through the real
+Mechanics: a FUNCTION_START/FUNCTION_END pair sharing one UUID, pushed through the real
 `IntermediateStepManager`, so span-stack bookkeeping stays exactly balanced.
 Fail-open by contract — telemetry must never take a turn down.
 """
@@ -157,7 +156,7 @@ def emit_retrieval_span(*, tool_name: str, search_input: dict[str, Any], picks: 
             if started:
                 try:
                     # Same UUID, immediately: closes the span this call opened so the next
-                    # real END still pops exactly one frame (see push_custom_step).
+                    # real END still pops exactly one frame.
                     manager.push_intermediate_step(
                         IntermediateStepPayload(
                             UUID=step_id,

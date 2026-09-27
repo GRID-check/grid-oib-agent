@@ -10,7 +10,7 @@ that reads a corpus hit reads this.
 
 from __future__ import annotations
 
-from knowledge_layer.register import _trace_lanes_json
+from knowledge_layer.register import _trace_lanes_for_chunks
 from ris_adapter.lookup.address import Address
 from ris_adapter.lookup.address import land_sentence
 from ris_adapter.lookup.passages import DOC_CLASS
@@ -21,6 +21,10 @@ from aiq_agent.common.grounding_block import GroundingBlock
 from aiq_agent.common.grounding_block import GroundingHit
 from aiq_agent.common.grounding_block import render_grounding_block
 from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.common.wire_v2 import TraceLane
+
+#: The tool's basename, as the ``sources`` step names it.
+RIS_LOOKUP_TOOL = "ris_lookup"
 
 
 def format_passages(passages: list[Passage], ingested_name: str | None, address: Address) -> str:
@@ -37,7 +41,8 @@ def format_passages(passages: list[Passage], ingested_name: str | None, address:
             preamble="\n".join(_preamble_lines(passages, ingested_name, address)),
             degraded_banner="",
             hits=hits,
-            lanes=_trace_lanes_block(passages),
+            lanes=_trace_lanes(passages),
+            tool=RIS_LOOKUP_TOOL,
         )
     )
 
@@ -134,8 +139,8 @@ def _cut_body(body: str) -> tuple[str, bool]:
     return body[: -len(TRUNCATION_MARKER)], True
 
 
-def _trace_lanes_block(passages: list[Passage]) -> str:
-    """The ``## Trace-Lanes`` fan-out, through the knowledge layer's own helper.
+def _trace_lanes(passages: list[Passage]) -> tuple[TraceLane, ...]:
+    """The lane fan-out, through the knowledge layer's own helper.
 
     The helper builds its own records off these hit-likes, so RIS lanes are
     computed by the SAME function as corpus lanes instead of a second table
@@ -164,4 +169,4 @@ def _trace_lanes_block(passages: list[Passage]) -> str:
         )
         for passage in passages
     ]
-    return _trace_lanes_json(chunks, {}, {})
+    return _trace_lanes_for_chunks(chunks, {}, {})

@@ -162,21 +162,9 @@ def _record_flags(verdicts: PassageVerdicts, chunks: Sequence[Any]) -> None:
         return
     sources = sorted({str(getattr(chunks[i], "file_name", "") or "?") for i in flagged})
     logger.warning("Passage(s) with instruction-like text retrieved from %s", ", ".join(sources))
-    try:
-        from aiq_agent.common.turn_status import CHANNEL_TECHNICAL
-        from aiq_agent.common.turn_status import push_custom_step
+    from aiq_agent.common.turn_status import emit_technical
 
-        push_custom_step(
-            "status:decision:passage_injection",
-            {
-                "kind": "status",
-                "channel": CHANNEL_TECHNICAL,
-                "slot": "decision:passage_injection",
-                "values": {"count": len(flagged), "sources": sources[:5]},
-            },
-        )
-    except Exception:  # noqa: BLE001 — the record is worth less than the search
-        logger.debug("Injection record not emitted", exc_info=True)
+    emit_technical("decision:passage_injection", count=len(flagged), sources=sources[:5])
 
 
 class JevReranker:

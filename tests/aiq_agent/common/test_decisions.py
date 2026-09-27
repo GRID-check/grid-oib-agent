@@ -20,6 +20,7 @@ from aiq_agent.common.decisions import decide
 from aiq_agent.common.decisions import decide_many
 from aiq_agent.common.decisions import noul
 from aiq_agent.common.decisions import score
+from aiq_agent.common.wire_v2 import StatusStep
 
 ANSWERS = {
     "needs_evidence": {"type": "noul", "noul": 0.93},
@@ -89,6 +90,20 @@ def records():
         yield record
 
 
+class TestTheRecord:
+    def test_a_decision_is_one_technical_step_of_flat_numbers(self, emitted):
+        """The record is typed detail an operator counts, never the reader's text."""
+        decisions.record_skipped("turn", "no_key", "because")
+        assert emitted.steps == [
+            StatusStep(
+                id="status:decision:turn",
+                slot="decision:turn",
+                channel="technical",
+                detail={"skipped": "no_key", "detail": "because"},
+            )
+        ]
+
+
 class TestTheWire:
     async def test_the_request_is_the_documented_body_and_the_answers_are_typed(self, records):
         seen: list[httpx.Request] = []
@@ -114,8 +129,8 @@ class TestTheWire:
         assert decision.score("urgency") == 1.4
         assert decision.input_tokens == 476 and decision.cost_usd == 0.00002
         slot, values = records.call_args.args
-        assert slot == "turn" and values["answers"]["needs_evidence"] == 0.93
-        assert values["answers"]["corpus"] == {"choice": "baurecht", "p": 0.8}
+        assert slot == "turn" and values["needs_evidence"] == 0.93
+        assert (values["corpus"], values["corpus.p"]) == ("baurecht", 0.8)
 
     async def test_an_unanswered_question_is_none_not_a_guess(self):
         decision = await decide("s", QUESTIONS, slot="t", transport=_transport(_ok))

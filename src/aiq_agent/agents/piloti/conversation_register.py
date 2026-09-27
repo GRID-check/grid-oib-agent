@@ -34,7 +34,6 @@ from aiq_agent.common.agent_tools import load_agent_tools
 from aiq_agent.common.nat_converters import ensure_registered as ensure_nat_converters_registered
 from aiq_agent.common.profiler import flush_after_answer
 from aiq_agent.common.profiler import track_agent_profile
-from aiq_agent.common.turn_status import emit_documents_loading
 from aiq_agent.conversation_context import register_context_appender
 from aiq_agent.knowledge.inventory import set_inventory_drops
 from aiq_agent.knowledge.inventory import set_norm_families
@@ -65,7 +64,7 @@ from aiq_agent.turn.dispatch import build_run_commissioner
 from aiq_agent.turn.inventory import Inventory
 from aiq_agent.turn.inventory import load_inventory
 from aiq_agent.turn.inventory import resolve_scope
-from aiq_agent.turn.inventory import shelves_in_scope
+from aiq_agent.turn.inventory import wait_for_uploads
 from aiq_agent.turn.payload import TurnInputs
 from aiq_agent.turn.payload import extract_turn_inputs
 from aiq_agent.turn.registries import TurnRegistries
@@ -343,6 +342,7 @@ async def _load_setup(
     deliberately not returned — the file it writes IS the result, and the model
     finds it with `ls` exactly as it finds a draft it wrote itself.
     """
+    scope = resolve_scope(header_scope, conversation_id)
     context, inventory, session_registry, _subject = await asyncio.gather(
         spanned(
             "setup.project_context",
@@ -350,7 +350,7 @@ async def _load_setup(
                 request, conversation_id=thread_id, query_text=inputs.query_text, resolve_stages=resolve_stages
             ),
         ),
-        load_inventory(resolve_scope(header_scope, conversation_id)),
+        load_inventory(scope),
         spanned("setup.session_registry", load_session_registry(thread_id)),
         spanned(
             "setup.subject_document",
@@ -364,7 +364,7 @@ async def _load_setup(
             ),
         ),
     )
-    return context, inventory, session_registry
+    return context, await wait_for_uploads(scope, inventory), session_registry
 
 
 async def _answer_in_registries(
@@ -541,9 +541,6 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
         inputs = extract_turn_inputs(query)
         logger.info("ChatDeepResearcherAgent: %s (data sources: %s)", inputs.query_text, inputs.data_sources)
         header_scope = get_scoped_collections_from_context()
-        # Say what is happening in the FIRST hole of the turn — only when one
-        # of the reader's OWN shelves is in scope; the base corpus is a constant.
-        emit_documents_loading(shelves_in_scope(header_scope or ()))
         turn_metadata: dict[str, Any] = {}
         identity = turn_identity(request, conversation_id)
         profiler = None

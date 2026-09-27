@@ -31,6 +31,7 @@ from aiq_agent.common.turn_status import DEGRADED_NO_REPORT_FILE
 from aiq_agent.common.turn_status import begin_lane_capture
 from aiq_agent.common.turn_status import end_lane_capture
 from aiq_agent.common.turn_status import get_lane_captures
+from aiq_agent.common.turn_status import step_scope
 from aiq_agent.observability.langfuse_trace_attributes import begin_trace_contributions
 from aiq_agent.observability.langfuse_trace_attributes import end_trace_contributions
 from aiq_agent.project_context import get_organization_id_from_context
@@ -366,6 +367,11 @@ class DeepResearcherAgent:
         return config or None, stream_kwargs
 
     async def run(self, state: DeepResearchAgentState) -> DeepResearchAgentState:
+        """Execute deep research, every step it emits drawn as deep research's (``scope: deep``)."""
+        with step_scope("deep"):
+            return await self._run(state)
+
+    async def _run(self, state: DeepResearchAgentState) -> DeepResearchAgentState:
         """Execute deep research with multi-phase workflow.
 
         Two contextvars are bound for the run and reset in ``finally``, because

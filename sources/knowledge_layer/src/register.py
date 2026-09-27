@@ -9,6 +9,7 @@ The retriever is instantiated once and reused for all queries.
 import asyncio
 import logging
 import os
+from contextlib import nullcontext
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
@@ -17,6 +18,8 @@ from typing import Literal
 from pydantic import Field
 from pydantic import model_validator
 
+from aiq_agent.common.wire_v2 import TraceLane
+from aiq_agent.common.wire_v2 import TraceLaneSource
 from nat.plugin_api import Builder
 from nat.plugin_api import Context
 from nat.plugin_api import FunctionBaseConfig
@@ -1238,108 +1241,80 @@ def _empty_search_message(
     )
 
 
-def _trace_lanes_json(
+def _trace_lanes_for_chunks(
     chunks,
     resolved: dict[tuple[str, str], str] | None = None,
     resolved_titles: dict[tuple[str, str], str] | None = None,
-) -> str:
-    """Machine-readable lane fan-out for the chat Herleitung UI.
+) -> tuple[TraceLane, ...]:
+    """The lane fan-out of raw chunks, for a producer that has no records yet (RIS).
 
-    One JSON object under a ``## Trace-Lanes`` marker so the frontend can group
-    hits by stratum (OIB / Projekt / Büroarchiv / …) without re-deriving
-    ``lane_for_hit``. Fail-open: never break tool output for the LLM.
-
-    Each lane carries BOTH classifications the consumer needs: the fine ``key``
-    /``label`` from ``lane_for_hit`` (the authority sub-tier — OIB-Richtlinie vs.
-    Rechtsquelle (RIS) vs. …) and the coarse ``kind`` from
-    :func:`~aiq_agent.common.source_kinds.kind_for_lane` — the same taxonomy
-    ``source_entry_to_wire`` puts on every citation (ADR-0026). Shipping ``kind``
-    is what lets the Herleitung fan-out stop mirroring the lane→kind table on the
-    frontend, so the fan-out and the "Belegt durch" chips cannot drift apart.
-
-    Each source carries both identities: ``name`` is the raw filename (document
-    identity — dedup, preview resolution) and ``title`` the user-facing display
-    name, so the Herleitung fan-out shows "OIB-Richtlinie 2, Ausgabe Mai 2023"
-    rather than ``oib-rl_2_ausgabe_mai_2023.pdf``. ``title`` is omitted when it
-    would merely repeat the filename (project/Büroarchiv uploads, where the
-    filename IS the user-meaningful name).
-
-    A source the publish path marked as agent-authored carries a
-    ``provenance`` object (``authored_by``/``approved_by``/``approved_at``/
-    ``producer``) and lands in its own lane, ``buero_piloti``. That lane is
-    decided by the provenance BEFORE the shelf, so a published Piloti document
-    filed on the project shelf keeps its author instead of joining
-    Projektwissen.
-
-    ``resolved`` is the store-authoritative doc_class map from
-    :func:`_resolve_doc_classes` and ``resolved_titles`` the stored display-title
-    map from :func:`_resolve_display_titles`; when omitted they are computed here
-    so the function stays usable standalone.
-
-    This is the CHUNK-facing entry point. It turns chunks into the same
+    It turns the chunks into the same
     :class:`~aiq_agent.common.grounding_block.GroundingHit` records the header
     lines are rendered from and hands them to :func:`_trace_lanes_for_hits`, so
     a hit's shelf, Dokumentart and title are derived once (ADR-0061).
+    ``resolved`` and ``resolved_titles`` are the store-authoritative doc_class
+    and display-title maps; when omitted they are computed here.
     """
-    try:
-        if resolved is None:
-            resolved = _resolve_doc_classes(chunks)
-        if resolved_titles is None:
-            resolved_titles = _resolve_display_titles(chunks)
-        hits = [
-            _grounding_hit(
-                chunk,
-                resolved=resolved,
-                resolved_titles=resolved_titles,
-                # Neither reaches the fan-out: it names documents by raw
-                # filename, so no citation key is built and no folder is read.
-                resolved_folders={},
-                ambiguous=set(),
-            )
-            for chunk in chunks
-        ]
-    except Exception:
-        logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
-        return '{"lanes":[]}'
+    if resolved is None:
+        resolved = _resolve_doc_classes(chunks)
+    if resolved_titles is None:
+        resolved_titles = _resolve_display_titles(chunks)
+    hits = [
+        _grounding_hit(
+            chunk,
+            resolved=resolved,
+            resolved_titles=resolved_titles,
+            # Neither reaches the fan-out: it names documents by raw
+            # filename, so no citation key is built and no folder is read.
+            resolved_folders={},
+            ambiguous=set(),
+        )
+        for chunk in chunks
+    ]
     return _trace_lanes_for_hits(hits)
 
 
-def _trace_lanes_for_hits(hits, opened_files: frozenset[str] = frozenset()) -> str:
-    """The ``## Trace-Lanes`` fan-out for records that are already built.
+def _trace_lanes_for_hits(hits, opened_files: frozenset[str] = frozenset()) -> tuple[TraceLane, ...]:
+    """The lane fan-out of a result set, as typed lanes (the chat wire's ``sources`` step).
+
+    Each lane carries BOTH classifications the reader needs: the fine ``key``
+    /``label`` from ``lane_for_hit`` (the authority sub-tier: OIB-Richtlinie
+    vs. Rechtsquelle (RIS) vs. …) and the coarse ``kind`` from
+    :func:`~aiq_agent.common.source_kinds.kind_for_lane`, the same taxonomy
+    ``source_entry_to_wire`` puts on every citation (ADR-0026), so the fan-out
+    and the "Belegt durch" chips cannot drift apart.
+
+    A source the publish path marked as agent-authored lands in its own lane,
+    ``buero_piloti``, decided by the provenance BEFORE the shelf, so a
+    published Piloti document filed on the project shelf keeps its author.
 
     ``opened_files`` names the documents this result set OPENED rather than
     ranked (the members of a family overview); their hits are stamped as
     locator reads on the turn's ledger.
-
-    Fail-open: never break tool output for the LLM. See :func:`_trace_lanes_json`
-    for what the payload means and why each field is on it.
     """
-    try:
-        import json
-        from collections import OrderedDict
+    from aiq_agent.common.norm_registry import lane_for_knowledge_hit
+    from aiq_agent.common.source_kinds import kind_for_lane
 
-        from aiq_agent.common.norm_registry import lane_for_knowledge_hit
-        from aiq_agent.common.source_kinds import kind_for_lane
-
-        lanes: OrderedDict[str, dict] = OrderedDict()
-        for hit in hits:
-            key, label = lane_for_knowledge_hit(
-                doc_class=hit.doc_class,
-                file_name=hit.file_name,
-                collection=hit.collection,
-                shelf=hit.shelf,
-                authored_by=hit.authored_by,
-            )
-            bucket = lanes.setdefault(
-                key,
-                {"key": key, "label": label, "kind": kind_for_lane(key), "hitCount": 0, "sources": []},
-            )
-            bucket["hitCount"] += 1
-            _append_lane_source(bucket, hit, opened_files)
-        return json.dumps({"lanes": list(lanes.values())}, ensure_ascii=False)
-    except Exception:
-        logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
-        return '{"lanes":[]}'
+    lanes: dict[str, tuple[str, list]] = {}
+    for hit in hits:
+        key, label = lane_for_knowledge_hit(
+            doc_class=hit.doc_class,
+            file_name=hit.file_name,
+            collection=hit.collection,
+            shelf=hit.shelf,
+            authored_by=hit.authored_by,
+        )
+        lanes.setdefault(key, (label, []))[1].append(hit)
+    return tuple(
+        TraceLane(
+            key=key,
+            label=label,
+            kind=kind_for_lane(key),
+            hit_count=len(members),
+            sources=_lane_sources(members, opened_files),
+        )
+        for key, (label, members) in lanes.items()
+    )
 
 
 def _lane_detail(hit) -> str | None:
@@ -1360,74 +1335,49 @@ def _lane_detail(hit) -> str | None:
     return f"Pkt. {hit.punkt} {page}".strip()
 
 
-def _append_lane_source(bucket: dict, hit, opened_files: frozenset[str] = frozenset()) -> None:
-    """Add one hit to its lane's source list, unless the lane already names it.
+def _lane_sources(hits, opened_files: frozenset[str]) -> list[TraceLaneSource]:
+    """One lane's documents, each ``(name, locus)`` once, in hit order."""
+    sources: list[TraceLaneSource] = []
+    seen: set[tuple[str, str]] = set()
+    for hit in hits:
+        detail = _lane_detail(hit)
+        if not hit.file_name or (hit.file_name, detail or "") in seen:
+            continue
+        seen.add((hit.file_name, detail or ""))
+        sources.append(_lane_source(hit, detail, opened=hit.file_name in opened_files))
+    return sources
+
+
+def _lane_source(hit, detail: str | None, *, opened: bool) -> TraceLaneSource:
+    """One document of a lane, stamped with its retrieval round and noted on the turn's ledger.
+
+    ``title`` is omitted when it would merely repeat the filename. The
+    provenance travels as KEYS, not the German sentence, so a reader builds
+    "freigegeben von …" in its own locale.
 
     A hit from a document in ``opened_files`` is stamped as a locator read,
     whatever tool rendered it: the family branch fetches each member the way
     ``read_passage(document=…)`` does, so the ledger must credit those
-    documents as opened, or a later read of one of them is not a repeat.
+    documents as opened, or a later read of one of them is not a repeat. The
+    producing tool is read off its scope, never passed (``record_lane_hit``).
     """
     from aiq_agent.common.provenance import provenance_metadata
+    from aiq_agent.common.turn_status import READ_PASSAGE_TOOL
+    from aiq_agent.common.turn_status import current_retrieval_round
+    from aiq_agent.common.turn_status import lane_tool_scope
+    from aiq_agent.common.turn_status import record_lane_hit
 
-    name = hit.file_name or ""
-    detail = _lane_detail(hit)
-    # Deduplicate identical name+detail pairs inside a lane.
-    existing = {(source.get("name"), source.get("detail") or "") for source in bucket["sources"]}
-    if not name or (name, detail or "") in existing:
-        return
-    entry: dict[str, Any] = {"name": name}
-    if hit.display_title and hit.display_title != name:
-        entry["title"] = hit.display_title
-    if detail:
-        entry["detail"] = detail
-    if hit.shelf is not None:
-        entry["shelf"] = str(hit.shelf)
-    if hit.provenance is not None:
-        # The KEYS, not the German sentence: the fan-out is data, and a
-        # frontend that wants "freigegeben von …" should build it in the
-        # reader's own locale from the approver and the ISO date rather than
-        # parse it back out of prose.
-        entry["provenance"] = provenance_metadata(hit.provenance)
-    _stamp_and_capture_lane_source(entry, opened=name in opened_files)
-    bucket["sources"].append(entry)
-
-
-def _stamp_and_capture_lane_source(entry: dict, *, opened: bool = False) -> None:
-    """Stamp the entry with its retrieval round and note it on the turn's ledger.
-
-    The per-round ledger reads this, never the prose: the capture keeps every
-    round's hits apart, while the turn_sources log dedups documents across
-    rounds. A missing round stamp must not drop the hit.
-
-    ``record_lane_hit`` builds its OWN record and stamps the producing tool on
-    it from the scope the tool opened. That stamp stays in the capture: the
-    ``entry`` below is the Trace-Lanes payload the model and the frontend read,
-    and which tool fetched a passage is how a repeat is DERIVED, not something
-    either of them is shown.
-    """
-    try:
-        from contextlib import nullcontext
-
-        from aiq_agent.common.turn_status import READ_PASSAGE_TOOL
-        from aiq_agent.common.turn_status import current_retrieval_round
-        from aiq_agent.common.turn_status import lane_tool_scope
-        from aiq_agent.common.turn_status import record_lane_hit
-
-        round_index = current_retrieval_round()
-        if round_index is not None:
-            entry["round"] = round_index
-        # The producing tool is read off its scope, never passed (the rule in
-        # ``record_lane_hit``); an opened document gets the locator's scope.
-        with lane_tool_scope(READ_PASSAGE_TOOL) if opened else nullcontext():
-            record_lane_hit(
-                entry["name"],
-                title=entry.get("title"),
-                detail=entry.get("detail"),
-                shelf=entry.get("shelf"),
-            )
-    except Exception:  # noqa: BLE001 (the fan-out survives a missing status module)
-        logger.debug("Turn status unavailable; lane hit goes unstamped", exc_info=True)
+    source = TraceLaneSource(
+        name=hit.file_name,
+        title=hit.display_title if hit.display_title and hit.display_title != hit.file_name else None,
+        detail=detail,
+        shelf=str(hit.shelf) if hit.shelf is not None else None,
+        round=current_retrieval_round(),
+        provenance=provenance_metadata(hit.provenance) if hit.provenance is not None else None,
+    )
+    with lane_tool_scope(READ_PASSAGE_TOOL) if opened else nullcontext():
+        record_lane_hit(source.name, title=source.title, detail=source.detail, shelf=source.shelf)
+    return source
 
 
 def _hit_provenance(chunk):
@@ -1632,6 +1582,8 @@ def _format_results(
 
     from aiq_agent.common.grounding_block import GroundingBlock
     from aiq_agent.common.grounding_block import render_grounding_block
+    from aiq_agent.common.turn_status import KNOWLEDGE_SEARCH_TOOL
+    from aiq_agent.common.turn_status import current_lane_tool
 
     hits = _grounding_hits(retrieval_result.chunks)
     preamble = f"Found {len(hits)} relevant document(s):"
@@ -1643,6 +1595,9 @@ def _format_results(
             # Fan-out summary for the Herleitung UI, from the same records the
             # header lines state.
             lanes=_trace_lanes_for_hits(hits, opened_files),
+            # The scope the calling tool opened; the one caller that opens none
+            # is the search itself.
+            tool=current_lane_tool() or KNOWLEDGE_SEARCH_TOOL,
             trailer=trailer,
         )
     )

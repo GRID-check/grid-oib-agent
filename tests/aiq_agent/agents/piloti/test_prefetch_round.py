@@ -74,25 +74,9 @@ def _bypass_citation_pipeline():
 
 
 @pytest.fixture
-def steps():
-    from nat.plugin_api import ContextState
-    from nat.utils.reactive.subject import Subject
-
-    state = ContextState.get()
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
-    seen: list[dict] = []
-
-    def _on_next(step) -> None:
-        payload = step.payload
-        body = getattr(payload.data, "input", None)
-        if isinstance(body, str) and str(payload.event_type).endswith("START"):
-            seen.append({"step": payload.name, **json.loads(body)})
-
-    state.event_stream.get().subscribe(_on_next)
-    yield seen
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
+def steps(emitted):
+    """Every body the producers wrote during the test (``tests/conftest.py``)."""
+    return emitted
 
 
 def _call(name: str, call_id: str, **args) -> dict:
@@ -149,7 +133,7 @@ class TestRoundZero:
 
     async def test_the_round_is_announced_as_zero_and_costs_no_budget(self, steps):
         result = await _run(_agent(ANSWER, llm_calls=[]))
-        assert any(s["step"] == "status:retrieval:0" for s in steps)
+        assert any(s.id == "status:retrieval:0" for s in steps.steps)
         assert [r.get("index") for r in result.retrieval_rounds] == [0]
         assert result.retrieval_ledger and result.retrieval_ledger[0]["index"] == 0
         assert result.tool_iterations == 0
@@ -173,7 +157,7 @@ class TestRoundZero:
         opens = AIMessage(content="", tool_calls=[_call("read_passage", "c1", document="OIB-RL 2", punkt="3.1")])
         result = await _run(_agent(opens, ANSWER, llm_calls=[]))
         assert [r.get("index") for r in result.retrieval_rounds] == [0, 1]
-        assert any(s["step"] == "status:retrieval:1" for s in steps)
+        assert any(s.id == "status:retrieval:1" for s in steps.steps)
         assert result.tool_iterations == 1
 
 
@@ -186,7 +170,7 @@ class TestAFollowUpRoundZero:
             question="und in GK 4?",
         )
         assert RAN == ["read_passage:OIB-RL 2|2.2"]
-        assert any(s["step"] == "status:retrieval:0" for s in steps)
+        assert any(s.id == "status:retrieval:0" for s in steps.steps)
         assert [m for m in calls[0] if isinstance(m, ToolMessage)][0].content == "Passage aus OIB-RL 2"
         assert result.tool_iterations == 0
 

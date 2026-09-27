@@ -32,7 +32,7 @@ from langgraph.graph import START
 from langgraph.graph import StateGraph
 from langgraph.prebuilt import ToolNode
 
-from nat.builder.context import Context
+from nat.plugin_api import Context
 
 
 class _State(TypedDict, total=False):
