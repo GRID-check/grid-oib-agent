@@ -20,7 +20,7 @@ vi.mock('@/features/diagrams/render-diagram', async (importOriginal) => ({
 }))
 
 import { remarkCardMarkers } from '@/features/grid-cards/card-markers'
-import { CardArrival } from '@/features/chat/components/CardSlotArrival'
+import { CardSlot, CardSlotLiveProvider } from '@/features/chat/components/CardSlotArrival'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import { MarkdownSlotProvider } from './slot-context'
 
@@ -58,17 +58,19 @@ function CardProbe() {
  */
 function Answer({ content }: { content: string }): ReactNode {
   return (
-    <MarkdownSlotProvider
-      render={(index) =>
-        index === 0 ? (
-          <CardArrival live>
-            <CardProbe />
-          </CardArrival>
-        ) : null
-      }
-    >
-      <MarkdownRenderer content={content} isStreaming remarkPlugins={PLUGINS} />
-    </MarkdownSlotProvider>
+    <CardSlotLiveProvider value>
+      <MarkdownSlotProvider
+        render={(index) =>
+          index === 0 ? (
+            <CardSlot arrivalKey="m1:0" type="summary">
+              <CardProbe />
+            </CardSlot>
+          ) : null
+        }
+      >
+        <MarkdownRenderer content={content} isStreaming remarkPlugins={PLUGINS} />
+      </MarkdownSlotProvider>
+    </CardSlotLiveProvider>
   )
 }
 

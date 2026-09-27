@@ -301,6 +301,19 @@ body {
   pointer-events: all;
 }
 
+/* A streamed card's place, while the card arrives into it (`CardSlotArrival.tsx`):
+   the frame goes from the placeholder's height to the card's in one move. Only
+   while it arrives; a standing card takes its height from its content. */
+.card-arrival-frame {
+  transition: height var(--motion-deliberate) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-arrival-frame {
+    transition: none;
+  }
+}
+
 /* =============================================================================
    Theme-aware text color utilities
    Using KUI Foundations theme CSS variables for light/dark theme support

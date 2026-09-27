@@ -79,7 +79,7 @@ import type { Finding, Findings } from '@/lib/conversations/message-findings'
 import { ConfidenceChip, type AnswerConfidence } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
 import { AnswerActions } from './AnswerActions'
-import { CardArrival, PendingCardSlot } from './CardSlotArrival'
+import { CardSlot, CardSlotLiveProvider } from './CardSlotArrival'
 
 /**
  * The first paragraph of a long answer, typeset as a lede.
@@ -1002,11 +1002,14 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // as broken, so there is no muted variant and no spend counting here.
   const cardSet = useMemo(() => [...(cards ?? []), ...(anatomy?.all ?? [])], [cards, anatomy])
   // What a `[[card:N]]` marker in the prose draws. A card the answer has not
-  // reached yet (N past the end of `cards`) holds a skeleton while the answer
+  // reached yet (N past the end of `cards`) holds a place while the answer
   // streams, since the cards are written after the prose, and nothing once it
-  // is done. A hole INSIDE `cards` (a card the validator refused, or one an
+  // is done (`CardSlot` reads which from `CardSlotLiveProvider`, so this
+  // renderer keeps its identity when the answer settles and no card re-renders
+  // for it). A hole INSIDE `cards` (a card the validator refused, or one an
   // observer may not see) is never coming, so it draws nothing at any time:
   // a hole is better than a crash, a raw `[[card:2]]` or a skeleton forever.
+  const arrivalPrefix = messageId ?? fallbackId
   const renderCardSlot = useCallback(
     (index: number) => {
       // The callout's slot: the one anatomy block the prose may anchor.
@@ -1021,15 +1024,12 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         )
       }
       const card = cards?.[index]
+      const arrivalKey = `${arrivalPrefix}:${index}`
       // Still arriving: the card is written after the prose, so its marker
-      // holds the place it will grow from rather than nothing (ADR-0066).
-      if (!card) return live && index >= (cards?.length ?? 0) ? <PendingCardSlot /> : null
-      // `mb-3` is the paragraph rhythm of the markdown body: the card replaced
-      // a paragraph, so it has to leave the same gap behind it. `block!` beats
-      // the streaming caret's `*:last-child]:inline` rule, which would collapse
-      // a card that ends the answer for as long as the answer is still arriving.
+      // holds the place it will arrive into rather than nothing (ADR-0066).
+      if (!card) return index >= (cards?.length ?? 0) ? <CardSlot arrivalKey={arrivalKey} /> : null
       return (
-        <CardArrival live={live}>
+        <CardSlot arrivalKey={arrivalKey} type={card.type}>
           {/* The whole answer's cards, not just this one: a card placed inline
               by a marker still has to know what ELSE the answer is carrying —
               `summary` and `verdict_header` must not both claim the top of it
@@ -1043,10 +1043,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               decisionsMustPersist={readOnly}
             />
           </CardSetProvider>
-        </CardArrival>
+        </CardSlot>
       )
     },
-    [cards, cardSet, projectId, cardMessageId, anatomy?.callout, live, readOnly]
+    [cards, cardSet, projectId, cardMessageId, anatomy?.callout, arrivalPrefix, readOnly]
   )
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
@@ -1214,16 +1214,18 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             streaming, the markdown block + its last child are forced inline so
             the caret trails the final glyph instead of dropping to a new line.
             Cards the answer placed with a marker are spliced into this body. */}
-              <MarkdownSlotProvider render={renderCardSlot}>
-                <div className={proseClass(live, ledeClass)}>
-                  <MarkdownRenderer
-                    content={body}
-                    isStreaming={live}
-                    remarkPlugins={markerPlugins}
-                  />
-                  {live && <StreamingCaret fading={finishing} />}
-                </div>
-              </MarkdownSlotProvider>
+              <CardSlotLiveProvider value={live}>
+                <MarkdownSlotProvider render={renderCardSlot}>
+                  <div className={proseClass(live, ledeClass)}>
+                    <MarkdownRenderer
+                      content={body}
+                      isStreaming={live}
+                      remarkPlugins={markerPlugins}
+                    />
+                    {live && <StreamingCaret fading={finishing} />}
+                  </div>
+                </MarkdownSlotProvider>
+              </CardSlotLiveProvider>
               {/* An unplaced legal basis — flat, right after the prose it grounds: the
             answer comes first (the prompt's own first rule), then the Fundstelle
             it argued from. Never in the fallback grid. */}
@@ -1414,16 +1416,18 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 )}
                 {/* Response Content rendered as markdown (with streaming caret).
               Cards the answer placed with a marker are spliced into this body. */}
-                <MarkdownSlotProvider render={renderCardSlot}>
-                  <div className={proseClass(live, ledeClass)}>
-                    <MarkdownRenderer
-                      content={body}
-                      isStreaming={live}
-                      remarkPlugins={markerPlugins}
-                    />
-                    {live && <StreamingCaret fading={finishing} veil />}
-                  </div>
-                </MarkdownSlotProvider>
+                <CardSlotLiveProvider value={live}>
+                  <MarkdownSlotProvider render={renderCardSlot}>
+                    <div className={proseClass(live, ledeClass)}>
+                      <MarkdownRenderer
+                        content={body}
+                        isStreaming={live}
+                        remarkPlugins={markerPlugins}
+                      />
+                      {live && <StreamingCaret fading={finishing} veil />}
+                    </div>
+                  </MarkdownSlotProvider>
+                </CardSlotLiveProvider>
                 {/* An unplaced legal basis — flat, right after the prose it grounds: the
               answer comes first (the prompt's own first rule), then the Fundstelle
               it argued from. Never in the fallback grid. */}

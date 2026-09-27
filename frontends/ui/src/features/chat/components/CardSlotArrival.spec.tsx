@@ -3,10 +3,23 @@
  * renderer: the place is a slot the card-marker plugin leaves in the parsed
  * document, so a stubbed renderer would only test the stub.
  */
-import { render, screen } from '@/test-utils'
-import { vi, describe, test, expect } from 'vitest'
+import { act, render, screen } from '@/test-utils'
+import { useLayoutEffect, type ReactNode } from 'react'
+import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { AgentResponse } from './AgentResponse'
-import { CardArrival, PENDING_CARD_HEIGHT } from './CardSlotArrival'
+import {
+  CardSlot,
+  CardSlotLiveProvider,
+  hasCardArrived,
+  PENDING_CARD_HEIGHT,
+  resetArrivedCards,
+} from './CardSlotArrival'
+import {
+  CARD_PLACEHOLDER_HEIGHTS,
+  CardPlaceholder,
+  cardPlaceholderHeight,
+} from '@/features/grid-cards/components/CardPlaceholder'
+import { useCardDrawnReporter } from '@/features/grid-cards/card-drawn'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { ChatStoreWithHydration } from '../store'
 
@@ -64,27 +77,121 @@ describe('a placed card while the answer streams', () => {
   })
 })
 
-describe('CardArrival', () => {
-  test('a card that arrives live grows from the placeholder, clipped only while it grows', () => {
+describe('CardSlot', () => {
+  beforeEach(() => resetArrivedCards())
+
+  const live = (node: ReactNode) => <CardSlotLiveProvider value>{node}</CardSlotLiveProvider>
+  const frameOf = (container: HTMLElement) => container.firstElementChild as HTMLElement
+
+  test('a card that arrives live is held at the height a card of its type usually has', () => {
     const { container } = render(
-      <CardArrival live>
-        <div>Karte</div>
-      </CardArrival>
+      live(
+        <CardSlot arrivalKey="m1:0" type="legal_basis">
+          <div>Karte</div>
+        </CardSlot>
+      )
     )
-    const wrapper = container.firstElementChild as HTMLElement
-    expect(wrapper.style.height).toBe(`${PENDING_CARD_HEIGHT}px`)
-    expect(wrapper.style.overflow).toBe('hidden')
+    const frame = frameOf(container)
+    const expected = CARD_PLACEHOLDER_HEIGHTS.legal_basis
+    expect(expected).toBeDefined()
+    expect(expected).not.toBe(PENDING_CARD_HEIGHT)
+    expect(frame.style.height).toBe(`${expected}px`)
+    expect(frame.style.overflow).toBe('hidden')
+    // The placeholder stays up, in the card's own frame, until the card has drawn.
+    expect(container.querySelector('[data-slot="card-placeholder"]')).not.toBeNull()
+  })
+
+  test('grows in the frame the pending placeholder already stood in', () => {
+    const { container, rerender } = render(live(<CardSlot arrivalKey="m1:0" />))
+    const pending = screen.getByTestId('pending-card-slot')
+    expect(pending.style.height).toBe(`${PENDING_CARD_HEIGHT}px`)
+    rerender(
+      live(
+        <CardSlot arrivalKey="m1:0" type="comparison_table">
+          <div>Karte</div>
+        </CardSlot>
+      )
+    )
+    // The same element, so the height moves rather than one box replacing another.
+    expect(frameOf(container)).toBe(pending)
+    expect(pending.style.height).toBe(`${cardPlaceholderHeight('comparison_table')}px`)
+    expect(screen.queryByTestId('pending-card-slot')).not.toBeInTheDocument()
+  })
+
+  test('reveals the card once it reports itself drawn, then stands at its own height', () => {
+    vi.useFakeTimers()
+    try {
+      function Reporting() {
+        const report = useCardDrawnReporter()
+        useLayoutEffect(() => report?.(), [report])
+        return <div>Karte</div>
+      }
+      const { container } = render(
+        live(
+          <CardSlot arrivalKey="m1:0" type="summary">
+            <Reporting />
+          </CardSlot>
+        )
+      )
+      expect(frameOf(container)).toHaveAttribute('data-arrival', 'revealing')
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      const frame = frameOf(container)
+      expect(frame.style.height).toBe('')
+      expect(frame.style.overflow).toBe('')
+      expect(container.querySelector('[data-slot="card-placeholder"]')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('a card that has already arrived does not arrive again when its slot remounts', () => {
+    const card = (
+      <CardSlot arrivalKey="m1:2" type="legal_basis">
+        <div>Karte</div>
+      </CardSlot>
+    )
+    const first = render(live(card))
+    expect(frameOf(first.container).style.height).not.toBe('')
+    first.unmount()
+
+    expect(hasCardArrived('m1:2')).toBe(true)
+    const { container } = render(live(card))
+    const frame = frameOf(container)
+    expect(frame.style.height).toBe('')
+    expect(frame).not.toHaveAttribute('data-arrival')
+    expect(container.querySelector('[data-slot="card-placeholder"]')).toBeNull()
+    expect(screen.getByText('Karte')).toBeInTheDocument()
   })
 
   test('a card that was already there is drawn at once', () => {
     const { container } = render(
-      <CardArrival live={false}>
+      <CardSlot arrivalKey="m1:0" type="legal_basis">
         <div>Karte</div>
-      </CardArrival>
+      </CardSlot>
     )
-    const wrapper = container.firstElementChild as HTMLElement
-    expect(wrapper.style.height).not.toBe(`${PENDING_CARD_HEIGHT}px`)
-    expect(wrapper.style.overflow).toBe('')
+    const frame = frameOf(container)
+    expect(frame.style.height).toBe('')
+    expect(frame.style.overflow).toBe('')
+    expect(container.querySelector('[data-slot="card-placeholder"]')).toBeNull()
     expect(screen.getByText('Karte')).toBeInTheDocument()
+  })
+
+  test('a finished answer holds no place for a card that never came', () => {
+    const { container } = render(<CardSlot arrivalKey="m1:0" />)
+    expect(container.firstElementChild).toBeNull()
+  })
+})
+
+describe('CardPlaceholder', () => {
+  test('is sized by the card type, and by the default when the type is unknown', () => {
+    const { container, rerender } = render(<CardPlaceholder type="verdict_header" />)
+    const placeholder = () => container.querySelector('[data-slot="card-placeholder"]') as HTMLElement
+    expect(placeholder().style.height).toBe(`${CARD_PLACEHOLDER_HEIGHTS.verdict_header}px`)
+    rerender(<CardPlaceholder type="stair_diagram" />)
+    expect(placeholder().style.height).toBe(`${CARD_PLACEHOLDER_HEIGHTS.stair_diagram}px`)
+    rerender(<CardPlaceholder />)
+    expect(placeholder().style.height).toBe(`${PENDING_CARD_HEIGHT}px`)
   })
 })
