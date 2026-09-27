@@ -61,22 +61,48 @@ export async function loadRunForOutcome(backendJobId: string): Promise<TaskRun |
 }
 
 /**
+ * How an outcome may close its row.
+ *
+ * `onlyIfActive` is the run reconciler's mode (`lib/runs/reconcile.ts`): it
+ * closes the row only while it is still `queued`/`running`, and when it is not,
+ * nothing else happens — no filing, no audit event, no inbox row. That is what
+ * keeps a reconciler racing the worker's own late report from telling the
+ * requester twice. The outcome route keeps the unconditional close: a worker
+ * retrying a report after a half-finished first attempt must still reach the
+ * filing and the inbox, and both of those are idempotent.
+ */
+export interface RecordOutcomeOptions {
+  onlyIfActive?: boolean
+}
+
+type CompletedRun = { run: TaskRun; filed: { documentId: string; filename: string } | null }
+
+function closingPatch(outcome: TaskOutcome) {
+  return { status: OUTCOME_TO_STATUS[outcome.status], error: outcome.error ?? null, finishedAt: new Date() }
+}
+
+/**
  * Close the run with the worker's outcome and, for a finished deep-research
  * run, file its report as the requester. Never throws: the outcome route's job
  * is to tell the requester, and that must not wait on a filing.
  */
-export async function completeRunForOutcome(
-  run: TaskRun,
-  outcome: TaskOutcome,
-): Promise<{ run: TaskRun; filed: { documentId: string; filename: string } | null }> {
-  const status = OUTCOME_TO_STATUS[outcome.status]
-  const closed =
-    (await repository.updateRun(run.id, run.organizationId, {
-      status,
-      error: outcome.error ?? null,
-      finishedAt: new Date(),
-    })) ?? run
+export async function completeRunForOutcome(run: TaskRun, outcome: TaskOutcome): Promise<CompletedRun> {
+  const closed = (await repository.updateRun(run.id, run.organizationId, closingPatch(outcome))) ?? run
+  return afterClose(run, closed, outcome)
+}
 
+/**
+ * The same, but only while the row is still active; null when it had already
+ * ended, and then nothing else is done. See {@link RecordOutcomeOptions}.
+ */
+async function completeActiveRunForOutcome(run: TaskRun, outcome: TaskOutcome): Promise<CompletedRun | null> {
+  const closed = await repository.closeActiveRun(run.id, run.organizationId, closingPatch(outcome))
+  return closed ? afterClose(run, closed, outcome) : null
+}
+
+/** What follows a close: the audit event, and the filing for a kind that files. */
+async function afterClose(run: TaskRun, closed: TaskRun, outcome: TaskOutcome): Promise<CompletedRun> {
+  const status = OUTCOME_TO_STATUS[outcome.status]
   await recordAuditEvent({
     organizationId: run.organizationId,
     actor: { userId: run.requesterUserId, email: run.requesterEmail },
@@ -254,12 +280,20 @@ async function fileResultFor(
  *
  * Idempotent: the unique `(recipient, group_key)` upsert folds a retried report
  * into the existing row.
+ *
+ * The run reconciler closes a run through this same function, with
+ * `onlyIfActive` (see {@link RecordOutcomeOptions}); `closed: false` is its
+ * answer when the row had already ended and nothing was done.
  */
 export async function recordRunOutcome(
   run: TaskRun,
   outcome: TaskOutcome,
-): Promise<{ notified: boolean; filed: { documentId: string; filename: string } | null }> {
-  const completed = await completeRunForOutcome(run, outcome)
+  options: RecordOutcomeOptions = {},
+): Promise<{ notified: boolean; filed: { documentId: string; filename: string } | null; closed: boolean }> {
+  const completed = options.onlyIfActive
+    ? await completeActiveRunForOutcome(run, outcome)
+    : await completeRunForOutcome(run, outcome)
+  if (!completed) return { notified: false, filed: null, closed: false }
 
   const type: InboxItemType = outcome.status === 'success' ? 'job.completed' : 'job.failed'
   const anchor = run.backendJobId ?? run.id
@@ -290,7 +324,7 @@ export async function recordRunOutcome(
       },
     },
   ])
-  return { notified: emitted > 0, filed: completed.filed }
+  return { notified: emitted > 0, filed: completed.filed, closed: true }
 }
 
 /** A project's runs, newest first. `project:view`, like the definition list. */

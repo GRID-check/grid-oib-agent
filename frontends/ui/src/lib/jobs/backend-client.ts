@@ -273,3 +273,110 @@ async function postJobControl(
     throw new JobCancelError(await readBody(response), response.status)
   }
 }
+
+/** The job store's words for a job's lifecycle, lowercased as the backend sends them. */
+export type BackendJobStatus = 'submitted' | 'running' | 'success' | 'failure' | 'interrupted'
+
+/**
+ * A job's verdict as the job store holds it, for the run reconciler.
+ *
+ * `message` is what the run's own message should say — the report and its
+ * metadata for a success, the notice for a failure or a cancel — rebuilt by the
+ * backend next to the writers it mirrors (`conversation_output.run_message_for_outcome`),
+ * so this tier never keeps a second copy of that text. Null while the job runs.
+ */
+export interface BackendJobOutcome {
+  status: BackendJobStatus
+  error: string | null
+  report: string | null
+  cards: unknown[] | null
+  message: { content: string; metadata: Record<string, unknown> } | null
+}
+
+/** A probe the backend could not answer. Transient by assumption: the next sweep asks again. */
+export class JobProbeError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message)
+    this.name = 'JobProbeError'
+  }
+}
+
+const BACKEND_JOB_STATUSES: ReadonlySet<string> = new Set<BackendJobStatus>([
+  'submitted',
+  'running',
+  'success',
+  'failure',
+  'interrupted',
+])
+
+const PROBE_TIMEOUT_MS = 10_000
+
+/**
+ * Ask the job store how one job stands: `GET /v1/internal/jobs/{id}/outcome`.
+ *
+ * The internal twin of the status route the browser polls
+ * (`/v1/jobs/async/job/{id}`). That one is owner-scoped and wants the owner's
+ * WorkOS token, which a sweep holds for nobody; this one takes the service
+ * token and the run's organization, which the backend checks against the job's
+ * `job_access` row. Null is the backend's 404 — no such job, or not this
+ * organization's — and the caller decides what that means for the run.
+ * Everything else that is not a well-formed answer throws `JobProbeError`.
+ */
+export async function fetchBackendJobOutcome(
+  backendJobId: string,
+  organizationId: string
+): Promise<BackendJobOutcome | null> {
+  const token = process.env.GRID_INTERNAL_API_TOKEN
+  if (!token) throw new JobProbeError('GRID_INTERNAL_API_TOKEN is not configured', 503)
+
+  const url =
+    `${getBackendUrl()}/v1/internal/jobs/${encodeURIComponent(backendJobId)}/outcome` +
+    `?organization_id=${encodeURIComponent(organizationId)}`
+  let response: Response
+  try {
+    response = await fetch(url, {
+      headers: { Accept: 'application/json', 'x-grid-internal-token': token },
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    })
+  } catch (err) {
+    throw new JobProbeError(err instanceof Error ? err.message : 'network error', 503)
+  }
+  if (response.status === 404) return null
+  if (!response.ok) throw new JobProbeError(await readBody(response), response.status)
+
+  let body: unknown
+  try {
+    body = await response.json()
+  } catch {
+    throw new JobProbeError('malformed backend response', 502)
+  }
+  return parseJobOutcome(body)
+}
+
+/** Narrow the backend's JSON to the outcome, or throw: a guess here would close a run wrongly. */
+function parseJobOutcome(body: unknown): BackendJobOutcome {
+  const raw = (body ?? {}) as Record<string, unknown>
+  if (typeof raw.status !== 'string' || !BACKEND_JOB_STATUSES.has(raw.status)) {
+    throw new JobProbeError(`unknown job status ${JSON.stringify(raw.status)}`, 502)
+  }
+  const message = raw.message as { content?: unknown; metadata?: unknown } | null | undefined
+  return {
+    status: raw.status as BackendJobStatus,
+    error: typeof raw.error === 'string' ? raw.error : null,
+    report: typeof raw.report === 'string' && raw.report ? raw.report : null,
+    cards: Array.isArray(raw.cards) ? raw.cards : null,
+    message:
+      message && typeof message.content === 'string'
+        ? {
+            content: message.content,
+            metadata:
+              message.metadata && typeof message.metadata === 'object'
+                ? (message.metadata as Record<string, unknown>)
+                : {},
+          }
+        : null,
+  }
+}

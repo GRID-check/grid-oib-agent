@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   addDocumentToBackendJob,
   cancelBackendJob,
+  fetchBackendJobOutcome,
   JobCancelError,
+  JobProbeError,
   JobSubmitError,
   JobSubmitSkippedError,
   submitJob,
@@ -151,5 +153,62 @@ describe('addDocumentToBackendJob', () => {
     await expect(
       addDocumentToBackendJob('job-1', { name: 'Einreichplan.pdf' }, 'tok'),
     ).rejects.toMatchObject({ status: 400, message: 'Job not running: job-1' })
+  })
+})
+
+describe('fetchBackendJobOutcome', () => {
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
+
+  it('asks the internal route with the service token and the run’s organization', async () => {
+    fetchMock.mockResolvedValue(json({ job_id: 'job/1', status: 'running', message: null }))
+
+    const outcome = await fetchBackendJobOutcome('job/1', 'org 1')
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('http://backend:8000/v1/internal/jobs/job%2F1/outcome?organization_id=org%201')
+    expect(headersOf(init)['x-grid-internal-token']).toBe('secret')
+    expect(headersOf(init).Authorization).toBeUndefined()
+    expect(outcome).toEqual({ status: 'running', error: null, report: null, cards: null, message: null })
+  })
+
+  it('hands back the verdict and the rebuilt run message', async () => {
+    fetchMock.mockResolvedValue(
+      json({
+        status: 'success',
+        error: null,
+        report: '# Bericht',
+        cards: [{ type: 'x' }],
+        message: { content: '# Bericht', metadata: { job_id: 'job-1' } },
+      }),
+    )
+    expect(await fetchBackendJobOutcome('job-1', 'org_1')).toEqual({
+      status: 'success',
+      error: null,
+      report: '# Bericht',
+      cards: [{ type: 'x' }],
+      message: { content: '# Bericht', metadata: { job_id: 'job-1' } },
+    })
+  })
+
+  it('answers null for the backend’s 404: no such job, or not this organization’s', async () => {
+    fetchMock.mockResolvedValue(new Response('Job not found', { status: 404 }))
+    expect(await fetchBackendJobOutcome('job-1', 'org_1')).toBeNull()
+  })
+
+  it('throws rather than guess: a 5xx, a transport failure, a status it does not know', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('boom', { status: 500 }))
+    await expect(fetchBackendJobOutcome('job-1', 'org_1')).rejects.toBeInstanceOf(JobProbeError)
+
+    fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'))
+    await expect(fetchBackendJobOutcome('job-1', 'org_1')).rejects.toMatchObject({ status: 503 })
+
+    fetchMock.mockResolvedValueOnce(json({ status: 'not_found' }))
+    await expect(fetchBackendJobOutcome('job-1', 'org_1')).rejects.toMatchObject({ status: 502 })
+  })
+
+  it('refuses to ask without the internal token', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', '')
+    await expect(fetchBackendJobOutcome('job-1', 'org_1')).rejects.toMatchObject({ status: 503 })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
