@@ -2206,5 +2206,17 @@
   {
     "en": "„Zitierbar\" no longer appears on every file. A status shows only when it changes what you can do next — a document still being read, one that failed, or a report Piloti wrote and deliberately never indexed.",
     "de": "„Zitierbar“ erscheint nicht mehr bei jeder Datei. Ein Status wird nur angezeigt, wenn er beeinflusst, was Sie als Nächstes tun können – etwa bei einem Dokument, das noch gelesen wird, einem fehlgeschlagenen Dokument oder einem Bericht, den Piloti verfasst und bewusst nie indexiert hat."
+  },
+  {
+    "en": "Stop now ends the answer: Piloti stops working on it, and what you had already read stays in the conversation, marked as stopped.",
+    "de": "Stopp beendet die Antwort jetzt wirklich: Piloti arbeitet nicht weiter daran, und was Sie schon gelesen haben, bleibt im Gespräch, als abgebrochen markiert."
+  },
+  {
+    "en": "A long answer no longer freezes the page while it arrives, and its cards land when they are ready instead of long after the text.",
+    "de": "Eine lange Antwort friert die Seite beim Eintreffen nicht mehr ein, und ihre Karten erscheinen, sobald sie fertig sind, statt lange nach dem Text."
+  },
+  {
+    "en": "A browser tab that was open during the update shows a connection error until it is reloaded.",
+    "de": "Ein Browser-Tab, der während des Updates offen war, zeigt einen Verbindungsfehler, bis er neu geladen wird."
   }
 ]
