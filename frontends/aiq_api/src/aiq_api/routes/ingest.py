@@ -185,7 +185,8 @@ def add_ingest_routes(router: APIRouter):
                         type(thumb_error).__name__,
                     )
 
-            job_id = ingestor.submit_job(
+            job_id = await asyncio.to_thread(
+                ingestor.submit_job,
                 [temp_path],
                 collection,
                 config=config,

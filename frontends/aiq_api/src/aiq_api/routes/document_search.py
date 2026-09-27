@@ -6,6 +6,7 @@ hits; this route aggregates them into a document-centric result — one hit per
 file (its best-scoring chunk), sorted by score descending.
 """
 
+import asyncio
 import logging
 import os
 
@@ -176,7 +177,7 @@ def add_document_search_routes(router: APIRouter):
         _authorize_collection(http_request, collection_name)
 
         # Verify collection exists (same 404 contract as the document routes).
-        collection = ingestor.get_collection(collection_name)
+        collection = await asyncio.to_thread(ingestor.get_collection, collection_name)
         if collection is None:
             raise HTTPException(status_code=404, detail=f"Collection '{collection_name}' not found")
 
