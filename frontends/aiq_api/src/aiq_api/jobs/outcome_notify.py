@@ -16,6 +16,7 @@ so reporting twice is harmless.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 from typing import Literal
@@ -88,3 +89,39 @@ async def notify_job_outcome(
         logger.warning("Job %s: outcome report returned HTTP %s", job_id, response.status_code)
         return False
     return True
+
+
+async def notify_job_outcome_from_access(
+    *,
+    job_id: str,
+    db_url: str,
+    status: JobOutcomeStatus,
+    error: str | None = None,
+) -> bool:
+    """Report an outcome from a terminal writer that never held the run's context.
+
+    The cancel route, the ghost reaper and the queue's retry exhaustion each
+    write a terminal status for a run they are not executing, so they have no
+    ``usage_context``. The tenant the BFF cross-checks is on the job's
+    ``job_access`` row, written at submit. Without this, those three verdicts
+    reached nobody and the BFF's ``task_runs`` row stayed ``running`` forever.
+
+    Best-effort like :func:`notify_job_outcome`: never raises.
+    """
+    from .access import get_job_access
+
+    try:
+        access = await asyncio.to_thread(get_job_access, job_id, db_url)
+    except Exception:  # noqa: BLE001 — best-effort by contract
+        logger.warning("Job %s: could not read job access to report its outcome", job_id, exc_info=True)
+        return False
+    organization_id = (access or {}).get("organization_id")
+    if not organization_id:
+        logger.debug("Job %s: no tenant on record; outcome not reported", job_id)
+        return False
+    return await notify_job_outcome(
+        job_id=job_id,
+        usage_context={"identity": {"organization_id": organization_id}},
+        status=status,
+        error=error,
+    )

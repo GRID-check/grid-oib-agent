@@ -342,6 +342,26 @@ async def _should_write_notice(*, job_store: Any, job_id: str, verdict: str, fin
     return False
 
 
+async def _should_notify_outcome(*, job_store: Any, job_id: str, verdict: str, finalized: bool) -> bool:
+    """Whether a terminal path may report ``verdict`` to the BFF's outcome route.
+
+    The BFF closes the run's ``task_runs`` row from this call and nothing else,
+    so a path whose verdict is already standing must report it too: the cancel
+    route writes INTERRUPTED before the runner's ``CancelledError`` arrives, and
+    until 2026-09 only a run that wrote the status itself (``finalized``)
+    notified, so a cancelled run stayed ``running`` in the BFF forever.
+
+    Stricter than :func:`_should_write_notice` on one point: an unreadable status
+    does NOT fail open. The outcome route overwrites the row's status, so a
+    guessed ``interrupted`` could relabel a run the winner already reported as a
+    success. Reporting the standing verdict twice is harmless (the BFF writes the
+    same status and upserts one inbox row per run).
+    """
+    if finalized:
+        return True
+    return await _current_job_status(job_store, job_id) == verdict
+
+
 async def _should_emit_cancelled_event(*, job_store: Any, job_id: str, finalized: bool) -> bool:
     """Whether the cancel path may stream ``job.cancelled`` (hardening item 7).
 
@@ -470,7 +490,14 @@ async def _finalize_cancelled_run(
             usage_context=usage_context,
             notice=INTERRUPTED_NOTICE,
         )
-    if finalized:
+    # Standing INTERRUPTED counts: the cancel route wrote it before this abort
+    # arrived, and the BFF's run row closes only on this report.
+    if await _should_notify_outcome(
+        job_store=job_store,
+        job_id=job_id,
+        verdict=JobStatus.INTERRUPTED.value,
+        finalized=finalized,
+    ):
         await notify_job_outcome(job_id=job_id, usage_context=usage_context, status="interrupted")
 
     # The event agrees with the standing verdict too (item 7): after the
@@ -1737,7 +1764,14 @@ async def run_agent_job(
                 usage_context=usage_context,
                 notice=FAILURE_NOTICE,
             )
-        if finalized:
+        # A standing FAILURE (the reaper's) is reported by the reaper too; a
+        # repeat here is harmless. A reclaimed loser reports nothing.
+        if not lost_claim and await _should_notify_outcome(
+            job_store=job_store,
+            job_id=job_id,
+            verdict=JobStatus.FAILURE.value,
+            finalized=finalized,
+        ):
             await notify_job_outcome(job_id=job_id, usage_context=usage_context, status="failure", error=safe_error)
 
         if event_store is None:

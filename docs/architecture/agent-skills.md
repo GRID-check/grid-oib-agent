@@ -864,8 +864,15 @@ flag, the worker knows the model.
 
 When the run ends — success, failure or cancellation — the worker reports
 the outcome to `POST /api/internal/jobs/[jobId]/outcome` by the backend job
-id, only when it was the one that wrote the terminal status (a run the reaper
-already finalized is reported by nobody). The BFF turns that into a
+id. Whoever writes the terminal status reports it: the runner for its own
+verdict, the cancel route for INTERRUPTED (the runner repeats it when its abort
+lands, which the BFF absorbs), the ghost reaper and the queue's retry
+exhaustion and poison quarantine for their FAILURE. The last four hold no run
+context, so they read the tenant off the job's `job_access` row
+(`notify_job_outcome_from_access`). A run that loses a status race reports
+nothing unless the standing status is its own verdict. Until 2026-09 only the
+runner reported, and only when it wrote the status itself, so a cancelled,
+reaped or exhausted run stayed `running` in `task_runs` forever. The BFF turns that into a
 `job.completed` or `job.failed` inbox item for the job's creator, one row per
 run, landing on the project's automation page. Best-effort by contract: the
 run is already final in the job store, and a missed notification never

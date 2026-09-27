@@ -274,8 +274,10 @@ class TestUserCancelPreserved:
 
         posts.assert_awaited_once()
         assert posts.await_args.kwargs["text"] == INTERRUPTED_NOTICE
-        # Lost the status-write race, so no second outcome report (unchanged).
-        notify_spy.assert_not_awaited()
+        # Lost the status-write race, but the standing verdict IS this one, so
+        # it is reported: the BFF closes the run row only on this call, and a
+        # cancel that notified nobody left it `running` forever.
+        notify_spy.assert_awaited_once_with(job_id="job-1", usage_context=USAGE, status="interrupted")
 
     @pytest.mark.asyncio
     async def test_runner_winning_the_race_reports_fully(self, db_url, posts, notify_spy):
@@ -377,6 +379,106 @@ class TestLateAbortAfterStandingVerdict:
         assert EventStore.get_events(db_url, "job-1") == []
         posts.assert_not_awaited()
         notify_spy.assert_not_awaited()
+
+
+class TestQueueVerdictsAreReported:
+    """Retry exhaustion and poison quarantine end a run no runner will report."""
+
+    def _worker(self, db_url: str):
+        from aiq_api.jobs import worker as worker_mod
+
+        worker = worker_mod.ResearchWorker()
+        worker.db_url = db_url
+        worker.stale_seconds = 30
+        worker.max_attempts = 1
+        return worker
+
+    @pytest.mark.asyncio
+    async def test_retries_exhausted_reports_failure(self, db_url, monkeypatch):
+        from aiq_api.jobs import worker as worker_mod
+
+        _seed_job(db_url, "job-1", "running")
+        queue.enqueue(db_url, "job-1", {"input_text": "x"})
+        queue.claim_next(db_url, "worker-A", 30, 1)
+        _age_heartbeat(db_url, "job-1", 120)
+        notify = AsyncMock(return_value=True)
+        monkeypatch.setattr(worker_mod, "notify_job_outcome_from_access", notify)
+
+        await self._worker(db_url)._fail_exhausted()
+
+        job = await _make_store(db_url).get_job("job-1")
+        assert job.status == "failure"
+        notify.assert_awaited_once_with(
+            job_id="job-1", db_url=db_url, status="failure", error=worker_mod.RETRIES_EXHAUSTED_ERROR
+        )
+
+    @pytest.mark.asyncio
+    async def test_retries_exhausted_after_the_run_finished_reports_nothing(self, db_url, monkeypatch):
+        from aiq_api.jobs import worker as worker_mod
+
+        _seed_job(db_url, "job-1", "success")
+        queue.enqueue(db_url, "job-1", {"input_text": "x"})
+        queue.claim_next(db_url, "worker-A", 30, 1)
+        _age_heartbeat(db_url, "job-1", 120)
+        notify = AsyncMock(return_value=True)
+        monkeypatch.setattr(worker_mod, "notify_job_outcome_from_access", notify)
+
+        await self._worker(db_url)._fail_exhausted()
+
+        assert (await _make_store(db_url).get_job("job-1")).status == "success"
+        notify.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_quarantined_payload_reports_failure(self, db_url, monkeypatch):
+        from aiq_api.jobs import worker as worker_mod
+
+        _seed_job(db_url, "job-1", "submitted")
+        notify = AsyncMock(return_value=True)
+        monkeypatch.setattr(worker_mod, "notify_job_outcome_from_access", notify)
+
+        await self._worker(db_url)._fail_poison({"job_id": "job-1", queue.POISON_CLAIM_MARKER: True})
+
+        assert (await _make_store(db_url).get_job("job-1")).status == "failure"
+        notify.assert_awaited_once_with(
+            job_id="job-1", db_url=db_url, status="failure", error=worker_mod.POISON_PAYLOAD_ERROR
+        )
+
+
+class TestShouldNotifyOutcome:
+    """``_should_notify_outcome``: report the standing verdict, never guess one."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("status", "finalized", "expected"),
+        [
+            ("running", True, True),  # this run wrote the verdict
+            ("interrupted", False, True),  # the cancel route wrote it first
+            ("success", False, False),  # the winner reported its own
+            ("failure", False, False),  # the reaper reported its own
+            ("running", False, False),  # no verdict recorded at all
+        ],
+    )
+    async def test_truth_table(self, db_url, status, finalized, expected):
+        from aiq_api.jobs.runner import _should_notify_outcome
+
+        _seed_job(db_url, "job-1", status)
+        result = await _should_notify_outcome(
+            job_store=_make_store(db_url), job_id="job-1", verdict="interrupted", finalized=finalized
+        )
+        assert result is expected
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_status_does_not_fail_open(self, db_url):
+        """Unlike the notice: the outcome route overwrites the run row's status,
+        so a guessed `interrupted` could relabel a run already reported done."""
+        from aiq_api.jobs.runner import _should_notify_outcome
+
+        assert (
+            await _should_notify_outcome(
+                job_store=_make_store(db_url), job_id="nope", verdict="interrupted", finalized=False
+            )
+            is False
+        )
 
 
 class TestShouldEmitCancelledEvent:
