@@ -10,7 +10,8 @@ import {
   mapVersionInsertError,
   OPEN_VERSION_INDEX,
   OpenVersionExistsError,
-  retryLostFirstUpload,
+  ReplacedDocumentGoneError,
+  retryRacedUpload,
 } from './unique-conflicts'
 
 function violation(constraintName: string): Error {
@@ -61,21 +62,31 @@ describe('mapVersionInsertError', () => {
   })
 })
 
-describe('retryLostFirstUpload', () => {
+describe('retryRacedUpload', () => {
   it('runs the attempt once more when a concurrent first upload won the name', async () => {
     const attempt = vi
       .fn<() => Promise<string>>()
       .mockRejectedValueOnce(new LiveFilenameTakenError('plan.pdf'))
       .mockResolvedValueOnce('as a new version')
 
-    await expect(retryLostFirstUpload(attempt)).resolves.toBe('as a new version')
+    await expect(retryRacedUpload(attempt)).resolves.toBe('as a new version')
     expect(attempt).toHaveBeenCalledTimes(2)
   })
 
   it('retries only once, and the second loss is a 409', async () => {
     const attempt = vi.fn<() => Promise<string>>().mockRejectedValue(new LiveFilenameTakenError('plan.pdf'))
 
-    await expect(retryLostFirstUpload(attempt)).rejects.toMatchObject({ status: 409 })
+    await expect(retryRacedUpload(attempt)).rejects.toMatchObject({ status: 409 })
+    expect(attempt).toHaveBeenCalledTimes(2)
+  })
+
+  it('runs the attempt once more when the document a re-upload replaced was deleted', async () => {
+    const attempt = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(new ReplacedDocumentGoneError('doc_1'))
+      .mockResolvedValueOnce('as a first upload')
+
+    await expect(retryRacedUpload(attempt)).resolves.toBe('as a first upload')
     expect(attempt).toHaveBeenCalledTimes(2)
   })
 
@@ -83,7 +94,7 @@ describe('retryLostFirstUpload', () => {
     const refusal = new Error('quota')
     const attempt = vi.fn<() => Promise<string>>().mockRejectedValue(refusal)
 
-    await expect(retryLostFirstUpload(attempt)).rejects.toBe(refusal)
+    await expect(retryRacedUpload(attempt)).rejects.toBe(refusal)
     expect(attempt).toHaveBeenCalledTimes(1)
   })
 })

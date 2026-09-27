@@ -449,4 +449,37 @@ describe.skipIf(!url)('document versions under concurrency', () => {
     const { isUniqueViolation } = await import('@/lib/db/errors')
     expect(isUniqueViolation(refusal, 'uniq_document_versions_published_per_document')).toBe(true)
   })
+
+  it('reports a re-upload whose document was deleted after the probe, changing and charging nothing', async () => {
+    const doc = await seedDocument(1_000)
+    await inTenant(() => repo.insertPublishedVersion(published(doc.id, doc.storageKey, 1_000)))
+    // The upload probed the name and found this row; then somebody deleted it.
+    await inTenant(() => db.execute(sql`DELETE FROM documents WHERE id = ${doc.id}::uuid`))
+    const used = await inTenant(() => db.transaction((tx) => storage.readStorageUsage(tx, ORG)))
+
+    const replaced = inTenant(() =>
+      storage.replaceDocumentWithinQuota(
+        ORG,
+        doc.id,
+        {
+          storageKey: `${doc.storageKey}.v2`,
+          storageBucket: null,
+          fileSize: 400,
+          contentType: 'text/markdown',
+          contentHash: 'sha256:v2',
+          folderId: null,
+          createdBy: USER,
+        },
+        used + 10_000,
+      ),
+    )
+
+    // It used to resolve `{ ok: true }` having updated nothing, and the caller
+    // went on to record a version for a document that no longer existed while
+    // its new object was named by no row.
+    await expect(replaced).rejects.toBeInstanceOf(conflicts.ReplacedDocumentGoneError)
+    const after = await inTenant(() => db.transaction((tx) => storage.readStorageUsage(tx, ORG)))
+    expect(after).toBe(used)
+    expect(await versionsOf(doc.id)).toEqual([])
+  })
 })

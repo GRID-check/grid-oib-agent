@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    Wird eine Datei gelöscht, während jemand sie gerade neu hochlädt, landet
+    der Upload jetzt als neue Datei im Projekt oder im Archiv. Bisher meldete
+    er Erfolg, die hochgeladene Datei tauchte aber nirgends auf.

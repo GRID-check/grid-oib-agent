@@ -13,7 +13,7 @@ vi.mock('server-only', () => ({}))
  * A mock that only checked "an insert happened" would pass on a version of this
  * function with no lock at all, which is the version that was already shipped.
  */
-function fakeDb(usedBytes: number, versionBytes = 0) {
+function fakeDb(usedBytes: number, versionBytes = 0, rowExists = true) {
   const statements: string[] = []
   const inserted: unknown[] = []
   const updated: unknown[] = []
@@ -45,11 +45,15 @@ function fakeDb(usedBytes: number, versionBytes = 0) {
     })),
     update: vi.fn(() => ({
       set: vi.fn((values: unknown) => ({
-        where: vi.fn(async () => {
-          statements.push('UPDATE')
-          updated.push(values)
-          return []
-        }),
+        where: vi.fn(() => ({
+          // The update names what it matched, so a deleted row is visible.
+          returning: vi.fn(async () => {
+            statements.push('UPDATE')
+            if (!rowExists) return []
+            updated.push(values)
+            return [{ id: 'doc-1' }]
+          }),
+        })),
       })),
     })),
   }
@@ -71,6 +75,7 @@ vi.mock('@/lib/db/tenant-context', () => ({
 }))
 
 import { insertDocumentWithinQuota, replaceDocumentWithinQuota } from './repository'
+import { ReplacedDocumentGoneError } from '@/lib/documents/unique-conflicts'
 import type { NewDocument } from '@/lib/db/schema'
 
 const row = (fileSize: number): NewDocument =>
@@ -292,6 +297,18 @@ describe('replaceDocumentWithinQuota', () => {
     await replaceDocumentWithinQuota('org-1', 'doc-1', next(1), null)
 
     expect(fake.statements).toEqual([expect.stringContaining('pg_advisory_xact_lock'), 'UPDATE'])
+  })
+
+  it('reports a row deleted since the caller probed it, instead of admitting nothing', async () => {
+    // Zero rows matched: the document was deleted between the upload's name
+    // probe and this update. "ok" here left the new object named by no row.
+    const fake = fakeDb(0, 0, false)
+    getDb.mockReturnValue(fake.db)
+
+    const outcome = replaceDocumentWithinQuota('org-1', 'doc-1', next(1), 10)
+
+    await expect(outcome).rejects.toBeInstanceOf(ReplacedDocumentGoneError)
+    await expect(outcome).rejects.toMatchObject({ status: 409, documentId: 'doc-1' })
   })
 
   it('updates inside the transaction, not outside it', async () => {

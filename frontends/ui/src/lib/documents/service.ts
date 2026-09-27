@@ -48,7 +48,7 @@ import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/sign
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
-import { retryLostFirstUpload } from '@/lib/documents/unique-conflicts'
+import { retryRacedUpload } from '@/lib/documents/unique-conflicts'
 import {
   FEATURE_FLAGS,
   isCollaborationEnabled,
@@ -816,11 +816,11 @@ export async function uploadDocument(
 
   /*
    * Probe, store, admit — and once more when a concurrent FIRST upload of this
-   * name won the shelf (`retryLostFirstUpload`). The second run re-probes, finds
+   * name won the shelf (`retryRacedUpload`). The second run re-probes, finds
    * the winner, and records these bytes as its next version, exactly as the
    * same two drops one after the other would have.
    */
-  const placed = await retryLostFirstUpload(async () => {
+  const placed = await retryRacedUpload(async () => {
     const superseded = await findLiveDocumentByFilename(
       session.organizationId,
       collectionName,

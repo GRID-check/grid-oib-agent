@@ -41,7 +41,7 @@ import { contentDigest } from '@/lib/documents/content-digest'
 import { documentNameKey } from '@/lib/documents/name-match'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
-import { retryLostFirstUpload } from '@/lib/documents/unique-conflicts'
+import { retryRacedUpload } from '@/lib/documents/unique-conflicts'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { findLiveDocumentByFilename } from '@/lib/documents/repository'
 import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
@@ -155,8 +155,8 @@ export async function uploadArchivDocument(
   // Probe, store, admit — and once more when a concurrent FIRST upload of this
   // name won the shelf: the second run finds the winner and records these bytes
   // as its next version, as the same two drops in sequence would have. See
-  // `retryLostFirstUpload` and `uploadDocument`.
-  const { documentId, storageKey } = await retryLostFirstUpload(async () => {
+  // `retryRacedUpload` and `uploadDocument`.
+  const { documentId, storageKey } = await retryRacedUpload(async () => {
     const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
     const documentId = superseded?.id ?? crypto.randomUUID()
     // A re-upload writes new bytes under a new `v<n>/<write id>/` key, so the

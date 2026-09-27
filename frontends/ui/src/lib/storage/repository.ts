@@ -44,7 +44,7 @@ import {
   type DocumentScope,
   type NewDocument,
 } from '@/lib/db/schema'
-import { mapDocumentInsertError } from '@/lib/documents/unique-conflicts'
+import { mapDocumentInsertError, ReplacedDocumentGoneError } from '@/lib/documents/unique-conflicts'
 
 /** Bytes and document count for one scope. */
 export interface StorageScopeUsage {
@@ -362,6 +362,10 @@ export async function readStorageUsage(tx: DbTransaction, organizationId: string
  * Same advisory lock as the insert path, and deliberately so: a replace and an
  * insert racing for the last megabyte must serialize against each other, not
  * only against their own kind.
+ *
+ * Throws `ReplacedDocumentGoneError` when the row no longer exists — the
+ * document was deleted after the caller probed the name. The upload paths
+ * answer it by retrying as a first upload (`retryRacedUpload`).
  */
 export async function replaceDocumentWithinQuota(
   organizationId: string,
@@ -391,7 +395,7 @@ export async function replaceDocumentWithinQuota(
       }
     }
 
-    await tx
+    const updated = await tx
       .update(documents)
       .set({
         storageKey: next.storageKey,
@@ -409,6 +413,12 @@ export async function replaceDocumentWithinQuota(
         updatedAt: new Date(),
       })
       .where(and(eq(documents.organizationId, organizationId), eq(documents.id, documentId)))
+      .returning({ id: documents.id })
+    // Deleted between the caller's name probe and here. Reporting success
+    // would leave the caller's new object named by no row — invisible to the
+    // UI and the ledger — and record a version for a document that is gone.
+    // Thrown, so the transaction rolls back and the admission's discard runs.
+    if (updated.length === 0) throw new ReplacedDocumentGoneError(documentId)
     return { ok: true as const }
   })
 }

@@ -164,7 +164,7 @@ import {
 } from './reconcile-status'
 import type { DocumentListRow } from './repository'
 import { insertPublishedVersion, nextVersionNumber } from './version-repository'
-import { LiveFilenameTakenError } from './unique-conflicts'
+import { LiveFilenameTakenError, ReplacedDocumentGoneError } from './unique-conflicts'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { makeDocument, makeProject } from '@/test-utils/db-fixtures'
@@ -1985,6 +1985,53 @@ describe('re-uploading a filename this collection already holds', () => {
       filename: 'Pr\u00fcfbericht.pdf',
     })
     expect(result.filename).toBe('Pr\u00fcfbericht.pdf')
+  })
+})
+
+describe('a re-upload whose document is deleted underneath it', () => {
+  /**
+   * The probe found the document, and a delete committed before the
+   * replacement's update. The update matched no row and used to report
+   * success: the new object was named by nothing, and a version was recorded
+   * for a document that no longer existed. Now it is a first upload of the
+   * name again — what the same drop after the delete would have been.
+   */
+  const existing = {
+    id: 'doc-deleted',
+    storageKey: 'org/org-1/project/proj-1/doc/doc-deleted/plan.pdf',
+    storageBucket: 'test-bucket',
+    fileSize: 900,
+    contentHash: null,
+    folderId: null,
+    status: 'ready',
+  }
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(findProjectInOrg).mockResolvedValue(
+      makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
+    )
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(existing).mockResolvedValueOnce(null)
+    vi.mocked(admitReplacementOrDiscard).mockRejectedValueOnce(
+      new ReplacedDocumentGoneError('doc-deleted'),
+    )
+  })
+
+  afterEach(() => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(null)
+  })
+
+  it('files the bytes as a first upload under a new id', async () => {
+    const result = await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+    expect(admitReplacementOrDiscard).toHaveBeenCalledTimes(1)
+    expect(admitOrDiscard).toHaveBeenCalledTimes(1)
+    const inserted = vi.mocked(admitOrDiscard).mock.calls.at(-1)
+    expect(inserted?.[2]).toMatchObject({ filename: 'plan.pdf' })
+    expect(inserted?.[2].id).not.toBe('doc-deleted')
+    expect(result.documentId).toBe(inserted?.[2].id)
+    // A new document, so the trail does not call it a replacement.
+    expect(vi.mocked(recordAuditEvent).mock.calls.at(-1)?.[0]?.metadata).not.toHaveProperty('replaced')
   })
 })
 

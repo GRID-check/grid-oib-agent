@@ -14,8 +14,11 @@
  * table is a different fault and keeps its 500. Both errors ARE a
  * `ConflictError`, so a caller that does not recover still answers 409 rather
  * than 500 — the session shelf's upload, for one, which has no retry.
- * {@link retryLostFirstUpload} is the project and Archiv shelves' answer to the
- * first one; `forkDraftVersion` re-reads the winner for the second.
+ * {@link retryRacedUpload} is the project and Archiv shelves' answer to the
+ * first one; `forkDraftVersion` re-reads the winner for the second. The third
+ * error here, {@link ReplacedDocumentGoneError}, is no index at all: a
+ * re-upload whose document was deleted underneath it, answered by the same
+ * retry.
  *
  * No `server-only` and no drizzle: the two repositories import this, and the
  * unit specs construct the errors directly.
@@ -58,8 +61,23 @@ export function mapVersionInsertError(error: unknown, documentId: string): unkno
 }
 
 /**
- * Run one upload attempt — probe, store, admit — and run it once more when a
- * concurrent FIRST upload of the same filename won the shelf.
+ * A re-upload's document was deleted between its name probe and its update.
+ *
+ * `replaceDocumentWithinQuota` matched no row. Its transaction rolled back, so
+ * nothing was charged, and `admitReplacementOrDiscard` deleted the object the
+ * upload stored for it. A `ConflictError`, so a shelf that does not retry (the
+ * session shelf) still answers 409 rather than a 200 over an orphaned object.
+ */
+export class ReplacedDocumentGoneError extends ConflictError {
+  constructor(readonly documentId: string) {
+    super('The file this upload was replacing was just deleted', { reason: 'replaced_document_gone' })
+  }
+}
+
+/**
+ * Run one upload attempt — probe, store, admit — and run it once more when the
+ * shelf changed under the probe: a concurrent FIRST upload of the same filename
+ * won it, or the document a re-upload was replacing was deleted.
  *
  * ## Why the loser becomes a version, not a 409
  *
@@ -70,25 +88,36 @@ export function mapVersionInsertError(error: unknown, documentId: string): unkno
  * of the first person's document (ADR-0054). Answering the concurrent case
  * differently would make the outcome depend on milliseconds, so it is not.
  *
+ * ## Why a re-upload of a deleted document becomes a first upload, not a 409
+ *
+ * The same argument from the other side. Delete `Grundriss_EG.pdf`, then drop
+ * it again, and the drop is a first upload under a new id, because the name is
+ * free. A delete landing between the re-upload's probe and its update is that
+ * sequence with the two steps overlapping. The person dropping the file asked
+ * for it to be on the shelf; a 409 would tell them to do by hand exactly what
+ * the retry does. There is no history to attach to either way: the delete
+ * walked every version of the document and took them with it.
+ *
  * What makes the second attempt safe:
  *
- *   - the first attempt left nothing behind. The refused insert rolled back (no
- *     row, no quota charge), and `admitOrDiscard` deleted its object on
- *     the throw — it discards on ANY failure of the insert;
- *   - `attempt` re-probes, so the second run finds the winner's row and takes
- *     the re-upload path: its bytes go under a fresh `v<n>/<write id>/` key of
- *     the WINNER's document and are charged in full by the replacement's
- *     admission, which is exactly what is kept.
+ *   - the first attempt left nothing behind. The refused insert or the
+ *     zero-row update rolled back (no row changed, no quota charge), and
+ *     `admitOrDiscard` / `admitReplacementOrDiscard` deleted its object on the
+ *     throw — both discard on ANY failure of the admission;
+ *   - `attempt` re-probes, so the second run takes the path the shelf now calls
+ *     for: the winner's re-upload path, charged in full for the object it keeps
+ *     under a fresh `v<n>/<write id>/` key, or a first upload under a new id.
  *
- * Once, not a loop: the second attempt inserts nothing, so it cannot meet the
- * index again. If it somehow does (the winner deleted and re-created in
- * between), the `LiveFilenameTakenError` propagates, and it is a 409.
+ * Once, not a loop: a second loss means the shelf changed twice during one
+ * request, and the typed error propagates as a 409.
  */
-export async function retryLostFirstUpload<T>(attempt: () => Promise<T>): Promise<T> {
+export async function retryRacedUpload<T>(attempt: () => Promise<T>): Promise<T> {
   try {
     return await attempt()
   } catch (error) {
-    if (!(error instanceof LiveFilenameTakenError)) throw error
+    if (!(error instanceof LiveFilenameTakenError) && !(error instanceof ReplacedDocumentGoneError)) {
+      throw error
+    }
     return attempt()
   }
 }

@@ -190,10 +190,11 @@ does not outlive the passages it described.
 
 ### Corrections after review
 
-The build was reviewed against the code and nine things in this record were
-either wrong or not true of what shipped. They are listed here rather than
-silently edited above, because a record that quietly agrees with itself teaches
-nobody what it cost to find them.
+The build was reviewed against the code, in several rounds, and each item below
+is something in this record that was wrong or not true of what shipped. The
+first review found nine; the later rounds added the rest. They are listed here
+rather than silently edited above, because a record that quietly agrees with
+itself teaches nobody what it cost to find them.
 
 1. **A re-upload could not work at all.** "A re-upload writes version N+1 and
    leaves N standing" was the whole point of the table, and the code inserted
@@ -339,7 +340,7 @@ nobody what it cost to find them.
     failure. `insertDocumentWithinQuota` maps the refusal — by constraint name,
     in `lib/documents/unique-conflicts.ts` — to `LiveFilenameTakenError`, and
     the project and Archiv uploads run their probe-store-admit step once more
-    (`retryLostFirstUpload`), which finds the winner and takes the re-upload
+    (`retryRacedUpload`, named `retryLostFirstUpload` until correction 16), which finds the winner and takes the re-upload
     path, charged in full for the object it keeps. The session shelf does not
     retry; there the mapped error is a `409`, object discarded.
 
@@ -379,6 +380,27 @@ nobody what it cost to find them.
     and passed. `isUniqueViolation(error, constraint?)` in `lib/db/errors.ts`
     walks the cause chain, every site uses it, the filing path names its index,
     and `no-restricted-syntax` refuses the literal `'23505'` outside specs.
+
+16. **A re-upload of a document deleted underneath it orphaned its object.**
+    `replaceDocumentWithinQuota` filtered its UPDATE on the id the upload had
+    probed and never looked at how many rows it changed. A delete committing
+    between the probe and the update left it changing none and answering
+    „admitted": the new object was named by no row, invisible to the UI and to
+    the quota ledger, and the upload went on to record a version for a
+    document that no longer existed. Both an ordinary re-upload and the retry
+    of correction 14 reach that update. It now reads what it matched
+    (`RETURNING id`) and throws `ReplacedDocumentGoneError` on none, which
+    rolls the admission back and lets `admitReplacementOrDiscard` delete the
+    object.
+
+    The project and Archiv uploads answer it the way correction 14 answers a
+    lost first upload: `retryRacedUpload` runs the attempt once more, the
+    probe now misses, and the bytes are filed as a FIRST upload under a new
+    id. Not a 409, for the same reason the other way round: a delete followed
+    by a drop of the same name is a first upload, the overlap of the two is
+    that sequence, and there is no history left to attach to — the delete took
+    every version with it. The session shelf does not retry; the error is a
+    `ConflictError`, so it answers 409 with the object discarded.
 
 ### What this amends in ADR-0047
 
