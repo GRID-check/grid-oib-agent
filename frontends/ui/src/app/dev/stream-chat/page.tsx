@@ -222,6 +222,10 @@ const replay = (
         if (index === 0) onFirstFrame()
         const citations = citationsFromWireList(frame.sources)
         if (frame.status === 'complete') {
+          // Recorded first: an answer that settles at once (a rewrite, a
+          // hidden page) clears its reveal inside these updates, and the
+          // settle probe only counts a clear that follows `completeAt`.
+          onComplete()
           store().finalizeAgentResponse(
             frame.content,
             undefined,
@@ -230,7 +234,6 @@ const replay = (
           )
           store().setStreaming(false)
           store().setLoading(false)
-          onComplete()
         } else if (frame.stream_replace) {
           store().replaceStreamingAgentResponse(frame.content, citations)
         } else if (frame.content) {
