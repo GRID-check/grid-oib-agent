@@ -1,22 +1,36 @@
-"""The answer's prose on the wire while the final call writes it (ADR-0066)."""
+"""The answer's prose on the wire while the final call writes it (ADR-0066, chat wire v2 §b).
+
+Every test here runs the answering call inside a real LangGraph node under
+``astream(stream_mode="custom")``, so what is asserted is what the graph's own
+writer carried: the bodies a turn's socket would send, in order.
+"""
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
+from typing import TypedDict
 
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.language_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
-from langchain_core.runnables import RunnableLambda
+from langgraph.graph import END
+from langgraph.graph import START
+from langgraph.graph import StateGraph
 
+from aiq_agent.agents.piloti.answer_pipeline import SettledStream
+from aiq_agent.common.wire_v2 import AnswerRetractedBody
+from aiq_agent.common.wire_v2 import CardBody
+from aiq_agent.common.wire_v2 import CardRefusedBody
+from aiq_agent.common.wire_v2 import MastheadBody
+from aiq_agent.common.wire_v2 import StateSnapshotBody
+from aiq_agent.common.wire_v2 import TextMessageContentBody
+from aiq_agent.common.wire_v2 import TextMessageEndBody
+from aiq_agent.common.wire_v2 import TextMessageStartBody
 from aiq_agent.turn import answer_stream
-from aiq_agent.turn.answer_stream import AnswerStreamSink
-from aiq_agent.turn.answer_stream import Cards
-from aiq_agent.turn.answer_stream import Snapshot
-from aiq_agent.turn.answer_stream import bound_answer_stream
+from aiq_agent.turn.answer_stream import LiveProse
+from aiq_agent.turn.answer_stream import bound_live_prose
 from aiq_agent.turn.answer_stream import streaming_call
 
 ENVELOPE = (
@@ -36,8 +50,16 @@ class _Counter(AsyncCallbackHandler):
         self.starts += 1
 
 
-def _text(sink: AnswerStreamSink) -> str:
-    return "".join(item for item in sink._drain() if isinstance(item, str))
+def _text(bodies) -> str:
+    return "".join(body.delta for body in bodies if isinstance(body, TextMessageContentBody))
+
+
+def _of(bodies, kind):
+    return [body for body in bodies if isinstance(body, kind)]
+
+
+def _settled(content: str, sources=()) -> SettledStream:
+    return SettledStream(content=content, sources=list(sources))
 
 
 class _Live:
@@ -70,40 +92,60 @@ class _Live:
         return self._card(payload)
 
 
-async def _answer_in_a_node(llm, sink: AnswerStreamSink, parent: _Counter, live=None) -> AIMessage:
-    async def node(_):
-        answering, config = streaming_call(llm, live=live)
-        return await answering.ainvoke([HumanMessage(content="Fluchtweg GK 4?")], config)
+class _State(TypedDict, total=False):
+    reply: object
 
-    with bound_answer_stream(sink):
-        return await RunnableLambda(node).ainvoke("x", config={"callbacks": [parent]})
+
+async def _answer_in_a_node(llm, parent: _Counter, live=None, prose: LiveProse | None = None):
+    """The answering call in a graph node under ``astream``: its reply, the bodies it wrote, the turn's prose."""
+
+    async def node(_state):
+        answering, config = streaming_call(llm, live=live)
+        return {"reply": await answering.ainvoke([HumanMessage(content="Fluchtweg GK 4?")], config)}
+
+    builder = StateGraph(_State)
+    builder.add_node("answer", node)
+    builder.add_edge(START, "answer")
+    builder.add_edge("answer", END)
+    graph = builder.compile()
+    bodies, reply = [], None
+    with bound_live_prose("m1") as bound:
+        if prose is not None:
+            bound.streamed = prose.streamed
+        async for mode, chunk in graph.astream({}, config={"callbacks": [parent]}, stream_mode=["custom", "values"]):
+            if mode == "custom":
+                bodies.append(chunk)
+            else:
+                reply = chunk.get("reply")
+    return reply, bodies, bound
 
 
 async def test_the_answering_call_streams_its_prose_and_the_profiler_still_sees_it():
-    sink, parent = AnswerStreamSink(), _Counter()
+    parent = _Counter()
     llm = GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)]))
 
-    message = await _answer_in_a_node(llm, sink, parent)
+    message, bodies, prose = await _answer_in_a_node(llm, parent)
 
     assert message.content == ENVELOPE  # the reply the pipeline reads is unchanged
     assert parent.starts == 1  # the inherited handlers were added to, not replaced
-    assert sink.streamed
+    assert prose.streamed
     # The marker streams as written; the sources section does not.
-    assert _text(sink).rstrip() == "In GK 4 gilt ein Fluchtweg von höchstens 40 m [1]."
+    assert _text(bodies).rstrip() == "In GK 4 gilt ein Fluchtweg von höchstens 40 m [1]."
+    assert bodies[0] == TextMessageStartBody(message_id="m1")
+    assert bodies[-1] == TextMessageEndBody(message_id="m1")
+    assert {body.message_id for body in bodies} == {"m1"}
 
 
 async def test_a_round_that_is_not_an_envelope_streams_nothing():
-    sink = AnswerStreamSink()
     llm = GenericFakeChatModel(messages=iter([AIMessage(content="Ich suche zuerst in der OIB-RL 2.")]))
-    await _answer_in_a_node(llm, sink, _Counter())
-    assert not sink.streamed and sink._drain() == []
+    _, bodies, prose = await _answer_in_a_node(llm, _Counter())
+    assert not prose.streamed and bodies == []
 
 
 async def test_once_prose_went_out_no_later_call_streams():
-    sink = AnswerStreamSink()
-    sink.push("Schon gezeigt.")
     llm = GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)]))
-    with bound_answer_stream(sink):
+    with bound_live_prose("m1") as prose:
+        prose.streamed = True
         answering, config = streaming_call(llm)
     assert answering is llm and config is None
 
@@ -120,30 +162,30 @@ def test_the_answer_streams_unless_the_platform_switch_is_off(monkeypatch):
     assert answer_stream.answer_streaming_enabled() is True
 
 
-def test_without_a_sink_the_call_is_the_buffered_one():
+def test_without_live_prose_bound_the_call_is_the_buffered_one():
     llm = GenericFakeChatModel(messages=iter([]))
     assert streaming_call(llm) == (llm, None)
 
 
 async def test_the_closed_answer_is_settled_into_one_snapshot():
     """The markers already on screen become the answer's citations before the cards arrive."""
-    live = _Live(settled=Snapshot(content="In GK 4 gilt … 40 m [1].", sources=[{"number": 1}]))
-    sink = AnswerStreamSink()
-    await _answer_in_a_node(GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)])), sink, _Counter(), live)
+    live = _Live(settled=_settled("In GK 4 gilt … 40 m [1].", [{"content": "[OIB] a.pdf", "number": 1}]))
+    llm = GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)]))
+    _, bodies, _ = await _answer_in_a_node(llm, _Counter(), live)
 
-    items = sink._drain()
-    snapshots = [item for item in items if isinstance(item, Snapshot)]
-    assert len(snapshots) == 1 and snapshots[0].sources[0]["number"] == 1
-    assert items[-1] is snapshots[0]  # after every delta it settles
+    (snapshot,) = _of(bodies, StateSnapshotBody)
+    assert snapshot.snapshot.sources[0].number == 1
+    # END, then the snapshot: after every delta it settles.
+    assert bodies[-2:] == [TextMessageEndBody(message_id="m1"), snapshot]
     _, prose, sources_text, _fields = live.asked[-1]
     assert prose.rstrip().endswith("40 m [1].") and sources_text.startswith("**Quellen:**")
 
 
 async def test_a_settle_that_raises_leaves_the_markers_pending():
-    sink = AnswerStreamSink()
-    live = _Live(raises=True)
-    await _answer_in_a_node(GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)])), sink, _Counter(), live)
-    assert not any(isinstance(item, Snapshot) for item in sink._drain())
+    llm = GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)]))
+    _, bodies, _ = await _answer_in_a_node(llm, _Counter(), _Live(raises=True))
+    assert _of(bodies, StateSnapshotBody) == []
+    assert _text(bodies)
 
 
 async def test_the_masthead_goes_out_before_the_first_word_and_the_cards_after_the_prose():
@@ -160,20 +202,20 @@ async def test_the_masthead_goes_out_before_the_first_word_and_the_cards_after_t
         + "\n```"
     )
     live = _Live(
-        settled=Snapshot(content="…", sources=[]),
+        settled=_settled("…"),
         masthead={"v": 1, "kind": "ruling", "topic": "Fluchtweg"},
         card=lambda payload: None if payload["type"] == "broken" else payload,
     )
-    sink = AnswerStreamSink()
-    await _answer_in_a_node(GenericFakeChatModel(messages=iter([AIMessage(content=reply)])), sink, _Counter(), live)
+    llm = GenericFakeChatModel(messages=iter([AIMessage(content=reply)]))
+    _, bodies, _ = await _answer_in_a_node(llm, _Counter(), live)
 
-    items = sink._drain()
-    kinds = [type(item).__name__ for item in items]
-    assert kinds[0] == "Masthead" and items[0].answer_meta["topic"] == "Fluchtweg"
-    assert kinds.index("Snapshot") < kinds.index("Cards")
-    cards = [item for item in items if isinstance(item, Cards)][-1].cards
+    assert isinstance(bodies[0], MastheadBody) and bodies[0].value.answer_meta["topic"] == "Fluchtweg"
+    kinds = [type(body) for body in bodies]
+    assert kinds.index(StateSnapshotBody) < kinds.index(CardBody)
     # A refused card keeps its place, so [[card:3]] still finds the surface.
-    assert [card and card["type"] for card in cards] == ["table", None, "surface"]
+    cards = [(b.value.index, b.value.card["type"]) for b in _of(bodies, CardBody)]
+    assert cards == [(0, "table"), (2, "surface")]
+    assert [b.value.index for b in _of(bodies, CardRefusedBody)] == [1]
 
 
 def _envelope_with_cards(answer: str, cards: list[dict]) -> str:
@@ -182,73 +224,60 @@ def _envelope_with_cards(answer: str, cards: list[dict]) -> str:
 
 async def test_a_tools_card_heads_the_live_list_and_the_markers_follow_it():
     # The terminal lists the tools' cards first and moves the model's
-    # [[card:1]] behind them; the live frames must say the same, or the
+    # [[card:1]] behind them; the live events must say the same, or the
     # envelope card lands on the tool's place and the draft's key shifts.
     draft = {"type": "document_draft", "path": "a.md"}
     reply = _envelope_with_cards(
         "Der Entwurf liegt vor.\n\n[[card:1]]\n\nSiehe oben [1].\n\n**Quellen:**\n- [1] a.pdf, p.1",
         [{"type": "table"}],
     )
-    live = _Live(
-        settled=Snapshot(content="Der Entwurf liegt vor.\n\n[[card:1]]\n\nSiehe oben [1].", sources=[]),
-        tool_cards=[draft],
-    )
-    sink = AnswerStreamSink()
-    await _answer_in_a_node(GenericFakeChatModel(messages=iter([AIMessage(content=reply)])), sink, _Counter(), live)
+    live = _Live(settled=_settled("Der Entwurf liegt vor.\n\n[[card:1]]\n\nSiehe oben [1]."), tool_cards=[draft])
+    llm = GenericFakeChatModel(messages=iter([AIMessage(content=reply)]))
+    _, bodies, _ = await _answer_in_a_node(llm, _Counter(), live)
 
-    items = sink._drain()
-    text = "".join(item for item in items if isinstance(item, str))
+    text = _text(bodies)
     assert "[[card:2]]" in text and "[[card:1]]" not in text
-    snapshot = next(item for item in items if isinstance(item, Snapshot))
-    assert "[[card:2]]" in snapshot.content and "[[card:1]]" not in snapshot.content
-    frames = [item.cards for item in items if isinstance(item, Cards)]
-    assert frames[0] == [draft]  # with the settled prose, before the envelope's card closed
-    assert frames[-1] == [draft, {"type": "table"}]
+    (snapshot,) = _of(bodies, StateSnapshotBody)
+    assert "[[card:2]]" in snapshot.snapshot.text and "[[card:1]]" not in snapshot.snapshot.text
+    cards = [(b.value.index, b.value.card) for b in _of(bodies, CardBody)]
+    # The tool's card with the settled prose, before the envelope's card closed.
+    assert cards == [(0, draft), (1, {"type": "table"})]
 
 
 async def test_a_tools_card_goes_out_with_the_settled_prose_when_the_envelope_has_none():
     draft = {"type": "document_draft", "path": "a.md"}
-    live = _Live(settled=Snapshot(content="…", sources=[]), tool_cards=[draft])
-    sink = AnswerStreamSink()
-    await _answer_in_a_node(GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)])), sink, _Counter(), live)
+    live = _Live(settled=_settled("…"), tool_cards=[draft])
+    llm = GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)]))
+    _, bodies, _ = await _answer_in_a_node(llm, _Counter(), live)
 
-    items = sink._drain()
-    kinds = [type(item).__name__ for item in items]
-    assert kinds.index("Snapshot") < kinds.index("Cards")
-    assert [item.cards for item in items if isinstance(item, Cards)] == [[draft]]
-
-
-async def test_without_a_tools_card_no_cards_frame_goes_out_for_an_envelope_without_cards():
-    sink = AnswerStreamSink()
-    live = _Live(settled=Snapshot(content="…", sources=[]))
-    await _answer_in_a_node(GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)])), sink, _Counter(), live)
-    assert not any(isinstance(item, Cards) for item in sink._drain())
+    kinds = [type(body) for body in bodies]
+    assert kinds.index(StateSnapshotBody) < kinds.index(CardBody)
+    assert [b.value.card for b in _of(bodies, CardBody)] == [draft]
 
 
-async def test_the_relay_sends_a_window_of_tokens_as_one_frame_and_keeps_snapshots_in_place(monkeypatch):
-    # A window far longer than a loop turn, and the third token pushed only
-    # once the first frame is out: the frames do not depend on timer jitter.
-    monkeypatch.setattr(answer_stream, "RELAY_WINDOW_S", 0.25)
-    sink = AnswerStreamSink()
-    snapshot = Snapshot(content="Ein Satz [1] und noch einer.", sources=[])
-    first_frame = asyncio.Event()
+async def test_without_a_tools_card_no_card_goes_out_for_an_envelope_without_cards():
+    llm = GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)]))
+    _, bodies, _ = await _answer_in_a_node(llm, _Counter(), _Live(settled=_settled("…")))
+    assert _of(bodies, CardBody) == [] and _of(bodies, CardRefusedBody) == []
 
-    async def answer() -> str:
-        sink.push("Ein ")
-        await asyncio.sleep(0)
-        sink.push("Satz [1] ")  # inside the window: the same frame
-        await first_frame.wait()
-        sink.push("und noch einer.")  # after it: the next frame
-        sink.put(snapshot)  # never merged into text
-        return "fertig"
 
-    task = asyncio.create_task(answer())
-    items = []
-    async for item in sink.relay(task):
-        items.append(item)
-        first_frame.set()
-    assert items == ["Ein Satz [1] ", "und noch einer.", snapshot]
-    assert await task == "fertig"
+async def test_deltas_are_coalesced_at_the_producer_and_flushed_before_any_other_body(monkeypatch):
+    """At most one CONTENT per window; what the window held goes out before END, so order holds.
+
+    The clock stands still: the first delta goes out at once (time to first
+    prose), every later one falls inside the same window and waits for END.
+    """
+    monkeypatch.setattr(answer_stream.time, "monotonic", lambda: 0.0)
+    answer = "Ein Satz [1] und noch einer. Und ein zweiter Satz folgt hier."
+    reply = "```answer_json\n" + json.dumps({"answer": answer}) + "\n```"
+    llm = GenericFakeChatModel(messages=iter([AIMessage(content=reply)]))
+
+    _, bodies, _ = await _answer_in_a_node(llm, _Counter())
+
+    deltas = [body.delta for body in _of(bodies, TextMessageContentBody)]
+    assert len(deltas) == 2, "the first delta at once, the rest in one body at END, never one per token"
+    assert "".join(deltas) == answer
+    assert isinstance(bodies[-2], TextMessageContentBody) and isinstance(bodies[-1], TextMessageEndBody)
 
 
 def test_a_responses_api_token_is_its_text_blocks_and_never_its_reasoning():
@@ -289,32 +318,32 @@ async def test_a_call_that_also_asks_for_tools_takes_back_what_it_showed():
             call = {"name": "knowledge_search", "args": '{"query": "GK 4"}', "id": "c1", "index": 0}
             yield ChatGenerationChunk(message=AIMessageChunk(content="", tool_call_chunks=[call]))
 
-    sink = AnswerStreamSink()
-    await _answer_in_a_node(_ToolRound(), sink, _Counter())
+    _, bodies, prose = await _answer_in_a_node(_ToolRound(), _Counter())
 
-    items = sink._drain()
-    assert any(isinstance(item, str) and item for item in items)  # it did stream, before it knew
-    assert items[-1] == Snapshot(content="", sources=[], answer_meta=None)
-    assert not sink.streamed  # the real answer, a later call, may stream
+    assert _text(bodies)  # it did stream, before it knew
+    assert isinstance(bodies[-1], AnswerRetractedBody)
+    assert not prose.streamed  # the real answer, a later call, may stream
 
 
-async def test_a_tool_round_that_showed_nothing_retracts_nothing():
+async def test_a_tool_round_that_showed_nothing_retracts_nothing(monkeypatch):
     """A masthead read but gated away, and no prose yet: there is nothing on the wire to take back."""
     from langchain_core.messages import AIMessageChunk
     from langchain_core.outputs import ChatGenerationChunk
     from langchain_core.outputs import LLMResult
 
+    from aiq_agent.common import turn_status
     from aiq_agent.turn.answer_stream import _ProseTokenHandler
 
-    sink = AnswerStreamSink()
-    handler = _ProseTokenHandler(sink, _Live(masthead=None))
+    written: list = []
+    monkeypatch.setattr(turn_status, "emit", written.append)
+    handler = _ProseTokenHandler(LiveProse("m1"), _Live(masthead=None))
     await handler.on_chat_model_start({}, [])
     await handler.on_llm_new_token('{"kind": "direct", "answer": "')
     call = {"name": "knowledge_search", "args": "{}", "id": "c1", "index": 0}
     message = AIMessageChunk(content="", tool_call_chunks=[call])
     await handler.on_llm_end(LLMResult(generations=[[ChatGenerationChunk(message=message)]]))
 
-    assert sink._drain() == []
+    assert written == []
 
 
 async def test_the_settle_runs_off_the_event_loop():
@@ -328,27 +357,7 @@ async def test_the_settle_runs_off_the_event_loop():
             threads.append(threading.get_ident())
             return super().settle(prose, sources_text, fields)
 
-    live = _Recording(settled=Snapshot(content="x", sources=[]))
-    await _answer_in_a_node(
-        GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)])), AnswerStreamSink(), _Counter(), live
-    )
+    live = _Recording(settled=_settled("x"))
+    await _answer_in_a_node(GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)])), _Counter(), live)
 
     assert threads and threads[0] != threading.get_ident()
-
-
-async def test_a_cancelled_relay_leaves_no_queue_get_pending():
-    sink = AnswerStreamSink()
-    answering = asyncio.create_task(asyncio.sleep(3600))
-
-    async def consume() -> None:
-        async for _ in sink.relay(answering):
-            pass
-
-    consumer = asyncio.create_task(consume())
-    await asyncio.sleep(0.01)  # the relay is parked on its Queue.get
-    consumer.cancel()
-    await asyncio.gather(consumer, return_exceptions=True)
-    await asyncio.sleep(0)  # let a cancelled get finish unwinding
-    pending = [t for t in asyncio.all_tasks() if not t.done() and "Queue.get" in t.get_coro().__qualname__]
-    answering.cancel()
-    assert pending == []

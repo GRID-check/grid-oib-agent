@@ -91,12 +91,10 @@ so the frontend can read them at `message.<field>` (not nested under
 - `sources` → `message.sources` (verified citation sources)
 
 **Transparency extras (WP-A).** The same lift carries a family of optional,
-additive "why did the turn behave this way?" signals. Each rides
-`turn.streaming.STREAM_EXTRA_FIELDS` onto the terminal `ChatResponseChunk`
-(`response_to_chunks`), then `websocket_reconnect.py` lifts it onto the terminal
-`system_response` message via `_TRANSPARENCY_EXTRA_FIELDS` / `_pull_response_extra`.
-All are **absent unless applicable** (never null-spammed) and reset at the turn
-boundary in `ConversationGraph.run()`:
+additive "why did the turn behave this way?" signals. Each is a field of the
+typed `TurnResult` that `turn.response.build_result` lifts off the finished state
+and `RUN_FINISHED` carries (chat wire v2). A frame omits every field at its
+default, and each is reset at the turn boundary in `ConversationGraph.stream()`:
 
 - `routing_decision` (`meta`/`shallow`/`deep`/`error`) — which path the turn
   took, OBSERVED after the answer
