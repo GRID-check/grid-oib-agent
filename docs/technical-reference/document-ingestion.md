@@ -152,6 +152,32 @@ For each file:
 5. **Indexing** — All `Document` objects are inserted into a `VectorStoreIndex` backed by ChromaDB with OpenRouter embeddings (`openai/text-embedding-3-large` by default; see "Embedding-model changes" below — stored vectors only match query vectors from the same model)
 6. **Job completion** — Status updated to `JobState.COMPLETED` with metadata about chunks, tables, charts, and images created
 
+### A re-upload replaces the previous version once it has indexed
+
+Chunks are keyed by file name within a collection, so a file uploaded under a
+name the collection already holds is a new version of that document, not a
+second document. The replacement runs in two steps inside `_run_ingestion`:
+
+1. Before the first file, `_find_previous_versions` reads which chunk ids answer
+   to each incoming name (matching `tmp[8]_`-prefixed and percent-encoded stored
+   names, as `delete_file` does) and what a person set on their metadata row:
+   `doc_class`, `display_title`, `folder_path`. It deletes nothing.
+2. After a file reaches `SUCCESS`, `_retire_previous_version` deletes exactly
+   those collected ids from Chroma and from the lexical mirror
+   (`ChunkTextStore.delete_chunks`), and bumps the collection version. The
+   metadata row under the new name is the new version's row and keeps the
+   fields people set; a row under another spelling of the name is dropped, and
+   its fields were carried onto the new row.
+
+A file that fails (an encrypted PDF, nothing extracted, no VLM key for an
+image, any exception) retires nothing: the previous version stays the one
+retrieval serves, and the job logs `Kept the previous version of …`. Deleting
+first, as this step once did, left such a document with no chunks at all.
+The cost is that both versions are retrievable for the length of the job.
+
+The OIB sync (`src/aiq_agent/oib_sync.py`) relies on the same step and calls no
+`delete_file` before it uploads.
+
 ### Configuration
 
 | Parameter | Default | Description |

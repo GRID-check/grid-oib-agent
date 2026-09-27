@@ -146,7 +146,11 @@ points the existing document at the new bytes and re-indexes it: the document
 keeps its identity, so citations, chat subjects and folder placement all
 survive, and the organization is charged for one copy rather than two. The
 previous version's thumbnail and parsed model are discarded with it, so nothing
-rendered from the old bytes is shown as if it were the new ones. The database
+rendered from the old bytes is shown as if it were the new ones. The old
+passages are removed only once the new file has been indexed: if it cannot be
+(a password-protected PDF, a file with no readable text), the upload is marked
+as failed and search keeps finding the previous version until a working file
+replaces it. The database
 enforces one live document per name and collection, so two uploads racing each
 other cannot recreate the duplicate either. This is the behaviour the
 ingestion pipeline already had — it replaces a document's passages by filename —

@@ -108,6 +108,13 @@ For each row: set `status='purging'`, run the entity's step list, then set `purg
 3. Delete `document_metadata` row (`aiq_jobs`) for (collection, filename)
 4. Delete `documents` row
 
+A re-upload under the same name is not a deletion and takes none of these
+steps. The ingestor retires the previous version's chunks, by the ids it
+collected before the job, only after the new version has indexed, and keeps
+the `document_metadata` row with the Dokumentart, title and folder a person set
+on it. A re-upload that fails to index leaves the previous version in place
+([document ingestion](../technical-reference/document-ingestion.md#a-re-upload-replaces-the-previous-version-once-it-has-indexed)).
+
 **Conversation**:
 1. Delete LangGraph checkpoints (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes` in `aiq_checkpoints`) for `thread_id = conversation id`
 2. Delete `conversations` row (`messages` cascade)

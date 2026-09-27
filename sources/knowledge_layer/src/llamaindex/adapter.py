@@ -39,6 +39,8 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from dataclasses import field
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
@@ -2005,6 +2007,36 @@ def _normalized_file_name(name: str | None) -> str:
     return unquote(_TMP_UPLOAD_PREFIX.sub("", name or ""))
 
 
+@dataclass
+class _PreviousVersion:
+    """An earlier upload of one normalized file name, collected before a re-ingest."""
+
+    chunk_ids: list[str] = field(default_factory=list)
+    stored_names: list[str] = field(default_factory=list)
+    preserved: dict[str, str] = field(default_factory=dict)
+
+
+def _read_human_set_fields(collection_name: str, found: dict[str, _PreviousVersion]) -> None:
+    """Copy what people set on each previous version's row onto its entry. Fail-open."""
+    try:
+        from aiq_agent.knowledge import get_document_display_titles
+        from aiq_agent.knowledge import get_document_doc_classes
+        from aiq_agent.knowledge import get_document_folder_paths
+
+        stored_names = [stored for version in found.values() for stored in version.stored_names]
+        for name, values in (
+            ("doc_class", get_document_doc_classes(collection_name, stored_names)),
+            ("display_title", get_document_display_titles(collection_name, stored_names)),
+            ("folder_path", get_document_folder_paths(collection_name, stored_names)),
+        ):
+            for stored, value in values.items():
+                version = found.get(_normalized_file_name(stored))
+                if version is not None:
+                    version.preserved.setdefault(name, value)
+    except Exception:  # noqa: BLE001 — losing them must not keep the old chunks
+        logger.warning("Could not read the previous versions' metadata; re-deriving it", exc_info=True)
+
+
 @register_ingestor("llamaindex")
 class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     """
@@ -3259,11 +3291,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         except Exception:
             logger.warning("Failed to upload thumbnail", exc_info=True)
 
-    def _replace_previous_versions(
+    def _find_previous_versions(
         self, chroma_collection, collection_name: str, incoming_names: list[str]
-    ) -> dict[str, dict[str, str]]:
-        """Delete the chunks of any EARLIER upload of these file names, so a
-        re-upload REPLACES its predecessor instead of coexisting with it.
+    ) -> dict[str, _PreviousVersion]:
+        """Find the chunks of any EARLIER upload of these file names, keyed by
+        normalized name, so a re-upload can REPLACE its predecessor instead of
+        coexisting with it. Reads only; nothing is deleted here.
 
         Law does not go stale, it gets replaced — and the OIB sync already has
         replacement semantics through its hash registry. Uploaded office and
@@ -3273,10 +3306,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         superseded one with full confidence. The newest upload of a name is the
         version the user means; this enforces exactly that, per collection.
 
+        The old version is retired by :meth:`_retire_previous_version` only
+        once the new one is in the vector store. Deleting it first, as this
+        step once did, meant a re-upload that then failed (an encrypted PDF, an
+        empty extraction, a missing VLM key) left the document with no chunks
+        at all: the user replaced a working version with nothing. Retiring
+        afterwards means both versions are retrievable for the length of the
+        job, which is the smaller harm.
+
         Matching mirrors delete_file's normalization (tmp[8]_ prefix strip plus
         percent-decoding), because stored names carry either form depending on
         how the file reached the backend. One metadata scan per ingestion JOB,
-        not per file. Defensive: replacement failing must never fail the
+        not per file. Defensive: the lookup failing must never fail the
         ingest — worst case is the pre-existing duplicate behavior, logged.
 
         Deliberately name-based only: a NEW name is a new document, even when
@@ -3284,66 +3325,75 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         semantically would guess, and a wrong guess silently deletes a document
         someone still cites — the human-classification-wins rule applies.
 
-        Returns what people set on each replaced document's metadata row
-        (``doc_class``, ``display_title``, ``folder_path``), keyed by the
-        normalized name, so the new version keeps them. The row goes with the
-        chunks, which is what makes a superseded version's summary and
-        provenance go too; read after it, the Dokumentart a person chose was
-        gone, and the filename guess replaced it.
+        Each entry also carries what people set on the previous version's
+        metadata row (``doc_class``, ``display_title``, ``folder_path``). A row
+        stored under the same name is the new version's row too and keeps them
+        by itself; one stored under another spelling (a ``tmp`` prefix,
+        percent-encoding) is dropped at retirement, and the new row takes them
+        over from here.
         """
-        preserved: dict[str, dict[str, str]] = {}
+        found: dict[str, _PreviousVersion] = {}
         try:
-            from aiq_agent.knowledge import get_document_display_titles
-            from aiq_agent.knowledge import get_document_doc_classes
-            from aiq_agent.knowledge import get_document_folder_paths
-            from aiq_agent.knowledge import unregister_summary
-            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
-
             normalize = _normalized_file_name
             targets = {normalize(name) for name in incoming_names if name}
             targets.discard("")
             if not targets:
-                return preserved
+                return found
             existing = chroma_collection.get(include=["metadatas"])
-            ids_by_stored: dict[str, list[str]] = {}
             for chunk_id, meta in zip(existing.get("ids", []), existing.get("metadatas", []) or [], strict=False):
                 stored = (meta or {}).get("file_name", "") or ""
-                if normalize(stored) in targets:
-                    ids_by_stored.setdefault(stored, []).append(chunk_id)
-            if not ids_by_stored:
-                return preserved
-            stored_names = list(ids_by_stored)
-            try:
-                for field, values in (
-                    ("doc_class", get_document_doc_classes(collection_name, stored_names)),
-                    ("display_title", get_document_display_titles(collection_name, stored_names)),
-                    ("folder_path", get_document_folder_paths(collection_name, stored_names)),
-                ):
-                    for stored, value in values.items():
-                        preserved.setdefault(normalize(stored), {}).setdefault(field, value)
-            except Exception:  # noqa: BLE001 — losing them must not keep the old chunks
-                logger.warning("Could not read the replaced versions' metadata; re-deriving it", exc_info=True)
-            all_ids = [cid for ids in ids_by_stored.values() for cid in ids]
-            chroma_collection.delete(ids=all_ids)
-            bump_collection_version(collection_name)
-            for stored in ids_by_stored:
-                unregister_summary(collection_name, stored)
-                get_chunk_text_store().delete_by_file(collection_name, stored)
-                normalized = normalize(stored)
-                if normalized != stored:
-                    get_chunk_text_store().delete_by_file(collection_name, normalized)
-            logger.info(
-                "Replaced previous version(s): removed %d chunk(s) of %s from %s before re-ingest",
-                len(all_ids),
-                sorted(ids_by_stored),
-                collection_name,
-            )
+                if normalize(stored) not in targets:
+                    continue
+                version = found.setdefault(normalize(stored), _PreviousVersion())
+                version.chunk_ids.append(chunk_id)
+                if stored not in version.stored_names:
+                    version.stored_names.append(stored)
         except Exception:  # noqa: BLE001 — replacement must never break ingestion
             logger.warning(
-                "Could not remove previous versions before ingest; duplicate chunks may remain",
+                "Could not look up previous versions before ingest; duplicate chunks may remain", exc_info=True
+            )
+            return {}
+        if found:
+            _read_human_set_fields(collection_name, found)
+        return found
+
+    def _retire_previous_version(
+        self, chroma_collection, collection_name: str, file_name: str, previous: _PreviousVersion | None
+    ) -> None:
+        """Delete a replaced version once its successor is in the vector store.
+
+        By the chunk ids collected before the job, never by name: the new
+        version carries the same ``file_name`` and would go with it — in Chroma,
+        and in the lexical mirror, which is why the mirror is cleaned with
+        ``delete_chunks`` rather than ``delete_by_file``. For the same reason
+        the metadata row is dropped only under a stored spelling OTHER than
+        ``file_name``: the row under ``file_name`` is the new version's row, and
+        keeping it is what keeps the Dokumentart, title and folder a person set.
+        """
+        if previous is None or not previous.chunk_ids:
+            return
+        try:
+            from aiq_agent.knowledge import unregister_summary
+            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+            chroma_collection.delete(ids=previous.chunk_ids)
+            bump_collection_version(collection_name)
+            get_chunk_text_store().delete_chunks(collection_name, previous.chunk_ids)
+            for stored in previous.stored_names:
+                if stored != file_name:
+                    unregister_summary(collection_name, stored)
+            logger.info(
+                "Replaced previous version(s): removed %d chunk(s) of %s from %s after re-ingest",
+                len(previous.chunk_ids),
+                sorted(previous.stored_names),
+                collection_name,
+            )
+        except Exception:  # noqa: BLE001 — the new version is in; retiring the old must not fail it
+            logger.warning(
+                "Could not remove the previous version of %s after ingest; duplicate chunks may remain",
+                file_name,
                 exc_info=True,
             )
-        return preserved
 
     def _run_ingestion(
         self,
@@ -3428,13 +3478,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
             # A re-upload replaces its predecessor (same normalized file name,
-            # this collection) before anything new is written — see
-            # _replace_previous_versions for why versions must not coexist.
+            # this collection) once the new version is indexed — see
+            # _find_previous_versions for why versions must not coexist, and
+            # why the old one is kept until then.
             provided_names = config.get("original_filenames", [])
             incoming_names = [
                 provided_names[i] if i < len(provided_names) else Path(fp).name for i, fp in enumerate(file_paths)
             ]
-            preserved_by_name = self._replace_previous_versions(chroma_collection, collection_name, incoming_names)
+            previous_by_name = self._find_previous_versions(chroma_collection, collection_name, incoming_names)
 
             # Track extraction stats
             total_chunks = 0
@@ -3463,9 +3514,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
                     from aiq_agent.knowledge import get_document_doc_class
 
-                    # What a person set on the version this upload replaced:
-                    # its row went with its chunks, so it is read from there.
-                    preserved = preserved_by_name.get(_normalized_file_name(file_name), {})
+                    # The version this upload replaces, and what a person set
+                    # on its row: a row under another spelling of the name is
+                    # dropped when that version is retired.
+                    previous = previous_by_name.get(_normalized_file_name(file_name))
+                    preserved = previous.preserved if previous else {}
                     stored_doc_class = get_document_doc_class(collection_name, file_name) or preserved.get("doc_class")
                     base_corpus = legacy_shelf_for_collection_name(collection_name) is None
                     doc_class = stored_doc_class or (guess_doc_class(file_name) if base_corpus else None)
@@ -3901,6 +3954,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         mirrored_ids = mirrored.get("ids") or []
                         mirrored_docs = mirrored.get("documents") or []
                         mirrored_meta = mirrored.get("metadatas") or []
+                        # The previous version still answers to this name until
+                        # it is retired below; mirroring it again is wasted work.
+                        retiring = set(previous.chunk_ids) if previous else set()
                         get_chunk_text_store().upsert_many(
                             collection_name,
                             [
@@ -3922,6 +3978,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                     ),
                                 }
                                 for index, chunk_id in enumerate(mirrored_ids)
+                                if chunk_id not in retiring
                             ],
                         )
                     except Exception as mirror_error:
@@ -3932,6 +3989,16 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     total_chunks += chunks_created
 
                     self._update_file_status(job, i, FileStatus.SUCCESS, chunks_created=chunks_created)
+
+                    # The new version is in the vector store: only now does the
+                    # one it replaces go. Popped, so a second file of the same
+                    # normalized name in this job has nothing left to retire.
+                    self._retire_previous_version(
+                        chroma_collection,
+                        collection_name,
+                        file_name,
+                        previous_by_name.pop(_normalized_file_name(file_name), None),
+                    )
 
                     # Drawing PDFs (text-sparse) whose LLM summary failed fall
                     # back to a deterministic, watermark-free summary synthesised
@@ -3974,7 +4041,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         if stored_doc_class is None:
                             set_document_doc_class(collection_name, file_name, doc_class)
                         suggestion = _future_result(doc_class_future, "Dokumentart suggestion", file_name)
-                        if suggestion:
+                        # A replaced version's row is kept under the same
+                        # name, so its old suggestion is cleared rather than
+                        # left standing for a document it no longer describes.
+                        if suggestion or previous is not None:
                             from aiq_agent.knowledge import set_document_doc_class_suggestion
 
                             set_document_doc_class_suggestion(collection_name, file_name, suggestion)
@@ -3999,9 +4069,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # collection listing, the agent's inventory — sees the
                         # author too. The row is deleted with the chunks
                         # (`unregister_summary` in `delete_file`), which is what
-                        # makes a superseded or archived version's provenance
-                        # go with the passages it described.
-                        if provenance:
+                        # makes an archived version's provenance go with the
+                        # passages it described. A re-upload keeps the row, so
+                        # it overwrites the provenance, clearing it for a
+                        # version a person wrote.
+                        if provenance or previous is not None:
                             from aiq_agent.knowledge import set_document_provenance
 
                             set_document_provenance(collection_name, file_name, provenance)
@@ -4032,6 +4104,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 except Exception as e:
                     logger.exception(f"Error processing file {file_path}")
                     self._update_file_status(job, i, FileStatus.FAILED, error=str(e))
+
+            # A predecessor still here had a re-upload that did not index; it
+            # stays the version retrieval serves, and the file reads FAILED.
+            for name in previous_by_name:
+                logger.warning(
+                    "Kept the previous version of %s in %s: its re-upload did not index", name, collection_name
+                )
 
             # Determine extraction mode
             mode_parts = ["text"]

@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    Lässt sich eine neu hochgeladene Fassung einer Datei nicht verarbeiten,
+    etwa weil das PDF passwortgeschützt ist, findet Piloti weiterhin die
+    vorige Fassung. Bisher war das Dokument danach für die Suche leer. Beim
+    Neueinlesen der OIB-Richtlinien gilt dasselbe, und die dort festgelegte
+    Dokumentart bleibt jetzt erhalten.
