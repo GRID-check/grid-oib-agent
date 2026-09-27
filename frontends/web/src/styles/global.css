@@ -110,48 +110,24 @@
   --color-on-dark-tag: #8fa06a;
 
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* Only ChatMock (not part of this pass) still reads `font-display`, for its
+     small labels. When it moves them to `font-mono`, delete this token and
+     the Archivo @font-face at the top of the file. */
   --font-display: 'Helvetica Neue', Archivo, Helvetica, sans-serif;
   /* The voice. Used for what the site says, never for what it counts. */
   --font-voice: 'Instrument Serif', 'Iowan Old Style', 'Times New Roman', serif;
   --font-logo: Poppins, 'Helvetica Neue', Archivo, sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
 
-  /* Type scale. The display sizes are fluid and carry their own leading,
-     tracking and weight, so a heading is one utility (`text-h2`) instead of a
-     size/leading/tracking triplet repeated in every section.
-
-     The display weights are 600, not 700, and the tracking is tighter than the
-     face's default. Bold-and-loose is how a landing page announces itself;
-     large type set a shade lighter and drawn closer together is how a printed
-     one carries authority without raising its voice. The scale is also a step
-     larger, because the confidence is in the size, not the weight. */
+  /* Type scale. The site sets three faces: the serif voice for what it says
+     (the `text-v*` scale below), Inter for everything it states and counts,
+     Plex Mono for labels and figures in tables. Poppins is the wordmark only.
+     A second grotesque (Archivo, `font-display`) sat beside Inter in small
+     bold titles and read as a squeezed twin of it; its display scale
+     (`text-display`, `text-h1`…`h4`) had one user. Both went; see
+     `--font-display` above for the one component that still reads it. */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1.45;
-
-  --text-display: clamp(2.5rem, 5.2vw, 5rem);
-  --text-display--line-height: 1.02;
-  --text-display--letter-spacing: -0.038em;
-  --text-display--font-weight: 600;
-
-  --text-h1: clamp(2.375rem, 5.6vw, 4.75rem);
-  --text-h1--line-height: 1.04;
-  --text-h1--letter-spacing: -0.034em;
-  --text-h1--font-weight: 600;
-
-  --text-h2: clamp(1.875rem, 4.2vw, 3.375rem);
-  --text-h2--line-height: 1.07;
-  --text-h2--letter-spacing: -0.03em;
-  --text-h2--font-weight: 600;
-
-  --text-h3: clamp(1.75rem, 3.6vw, 3rem);
-  --text-h3--line-height: 1.1;
-  --text-h3--letter-spacing: -0.026em;
-  --text-h3--font-weight: 600;
-
-  --text-h4: clamp(1.4375rem, 2.7vw, 2.5rem);
-  --text-h4--line-height: 1.14;
-  --text-h4--letter-spacing: -0.024em;
-  --text-h4--font-weight: 600;
 
   /* The voice scale. A serif of this contrast reads a size smaller than the
      grotesque at the same measure and needs less negative tracking, so these are
@@ -195,9 +171,6 @@
   --shadow-card: 0 1px 2px rgb(32 38 24 / 0.06), 0 4px 14px -6px rgb(32 38 24 / 0.1);
   --shadow-lift: 0 2px 4px rgb(24 28 16 / 0.05), 0 18px 44px -14px rgb(24 28 16 / 0.16);
   --shadow-mock: 0 1px 2px rgb(42 48 31 / 0.06), 0 30px 68px -34px rgb(42 48 31 / 0.34);
-  --shadow-frag: 0 8px 24px rgb(0 0 0 / 0.35);
-  --shadow-float: 0 18px 40px -22px rgb(0 0 0 / 0.6);
-  --shadow-hero: 0 24px 60px -24px rgb(0 0 0 / 0.7);
 }
 
 @media (min-width: 40rem) {
@@ -226,6 +199,71 @@
   --travel-hair: 3px;
   --travel-sm: 8px;
   --travel-md: 16px;
+}
+
+/* ── Page frame and section rhythm ───────────────────────────────────────────
+   One content edge for every page: the landing sections, the footer and every
+   subpage heading start at the same x, 72rem wide inside an 85rem frame (the
+   gutters are the landing page's own). Running text below a subpage heading
+   keeps to `max-w-measure` from that same edge, never centred on its own.
+
+   `section-y` is the landing page's one vertical rhythm: every section pads
+   by the same amount, so two neighbours sit two paddings apart whether either
+   is a panel or open page. A section sets no `py-*` of its own. */
+@theme {
+  --container-measure: 42rem;
+}
+
+:root {
+  --section-y: clamp(2.5rem, 5vw, 4.5rem);
+}
+
+@utility frame {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 85rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+  @media (width >= 40rem) {
+    padding-inline: 2.5rem;
+  }
+  @media (width >= 64rem) {
+    padding-inline: 6.5rem;
+  }
+}
+
+/* A panel section's frame: the panel runs wider than the content edge (8px of
+   the screen on a phone), and its own inner padding brings the content back to
+   the frame's line. */
+@utility frame-panel {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 85rem;
+  margin-inline: auto;
+  padding-inline: 0.5rem;
+  @media (width >= 40rem) {
+    padding-inline: 1rem;
+  }
+  @media (width >= 64rem) {
+    padding-inline: 2.5rem;
+  }
+}
+
+@utility section-y {
+  padding-block: var(--section-y);
+}
+
+/* The inner padding of the three panels that remain (the story, sources and
+   value): one value, so their content lines up with the open sections'. */
+@utility panel-pad {
+  box-sizing: border-box;
+  padding: 3rem 1rem;
+  @media (width >= 40rem) {
+    padding: 4rem 1.5rem;
+  }
+  @media (width >= 64rem) {
+    padding: 5rem 4rem;
+  }
 }
 
 /* Panels are sheets of drafting paper: they carry the same grid the page
@@ -370,6 +408,51 @@ html:not(.js) [data-solution-card] {
   transform: translate(-50%, -50%) scale(1);
 }
 
+/* ── The seam under the hero ─────────────────────────────────────────────────
+   The hero's photograph ended on a hard horizontal cut, with a 16px strip of
+   grid paper between it and the story panel. Its foot now settles into the
+   page: the page itself (canvas and grid, the grid positioned to line up
+   with the body's) fades in over the last few rem, short enough to stay clear
+   of the buttons above it (pb-14 on a phone, pb-28 from lg). The story then
+   starts one section's rhythm below, like every other section. */
+[data-hero-wrap]::after {
+  --seam: 3rem;
+  --hero-h: 100svh;
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: var(--seam);
+  pointer-events: none;
+  background-color: var(--color-canvas);
+  background-image:
+    linear-gradient(to right, rgb(42 48 31 / 0.075) 0 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(42 48 31 / 0.075) 0 1px, transparent 1px),
+    linear-gradient(to right, rgb(42 48 31 / 0.032) 0 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(42 48 31 / 0.032) 0 1px, transparent 1px);
+  background-size:
+    168px 168px,
+    168px 168px,
+    28px 28px,
+    28px 28px;
+  background-position: center calc(var(--seam) - var(--hero-h));
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000);
+  mask-image: linear-gradient(to bottom, transparent, #000);
+}
+@media (width >= 64rem) {
+  [data-hero-wrap]::after {
+    --seam: 5rem;
+    --hero-h: 100vh;
+  }
+}
+/* The story's sticky frame keeps 1rem around its panel (the pinned panel is
+   a screen less 2rem), so its margins make up the rest of the rhythm. Margin,
+   not padding: the pin script sets this wrapper's height to its runway. */
+[data-pin='story'] {
+  margin-top: calc(2 * var(--section-y) - 1rem);
+  margin-bottom: calc(var(--section-y) - 1rem);
+}
+
 /* ── Mechanical counter (src/scripts/counter.ts) ─────────────────────────────
    One window per digit, one line tall, with a wheel of digits behind it. */
 .counter {
@@ -401,6 +484,11 @@ html:not(.js) [data-solution-card] {
   transition-duration: var(--duration-base);
   transition-timing-function: var(--ease-draft);
 }
+/* The bar's links are bare text: at the base 2px offset the focus ring touched
+   the letters. */
+[data-nav] a:focus-visible {
+  outline-offset: 4px;
+}
 [data-nav-bar][data-tone='dark'].rounded-full {
   background-color: rgb(34 39 26 / 0.88);
   --tw-ring-color: rgb(238 242 228 / 0.12);
@@ -414,10 +502,14 @@ html:not(.js) [data-solution-card] {
 [data-nav-bar][data-tone='dark'].rounded-full a:hover {
   color: var(--color-accent-400);
 }
-/* The CTA inverts, as Pill's `light` variant does on a dark panel. */
-[data-nav-bar][data-tone='dark'].rounded-full a.bg-accent-800 {
-  background-color: var(--color-surface);
-  color: var(--color-accent-900);
+/* The outline CTA inverts: a light hairline and label on the dark rail. */
+[data-nav-bar][data-tone='dark'].rounded-full a.nav-cta {
+  border-color: rgb(238 242 228 / 0.35);
+  color: var(--color-on-dark-strong);
+}
+[data-nav-bar][data-tone='dark'].rounded-full a.nav-cta:hover {
+  border-color: var(--color-on-dark-strong);
+  background-color: rgb(238 242 228 / 0.08);
 }
 
 /* ── Page transitions ────────────────────────────────────────────────────────
@@ -481,7 +573,7 @@ html:not(.js) [data-solution-card] {
   margin-top: 1.15em;
 }
 .prose-piloti h1 {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 1.875rem;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -489,7 +581,7 @@ html:not(.js) [data-solution-card] {
 }
 .prose-piloti h2 {
   margin-top: 1.9em;
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 1.5rem;
   font-weight: 600;
   letter-spacing: -0.015em;
@@ -497,7 +589,7 @@ html:not(.js) [data-solution-card] {
 }
 .prose-piloti h3 {
   margin-top: 1.7em;
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: 1.1875rem;
   font-weight: 600;
   color: var(--color-ink);

@@ -7,7 +7,8 @@ be a staple". So the series is built around one drawing, **the Piloti column**, 
 plate, a share card, a LinkedIn banner, a deck title slide and a 96 px spot. Art ids:
 `tragwerk/saeule/{plate,og,spot,linkedin,deck,social}`, `tragwerk/drei/{plate,og}`,
 `tragwerk/ordnung/{plate,og}`, `tragwerk/ziegel/{plate,og}`. Placed (by the lead): II taped in the Team
-section, IV on the 404, I's og as the landing share card, III's og for the Journal.
+section, IV on the 404, I on the blog index, III beside the FAQ, I's og as the landing share card,
+III's og for the Journal.
 
 ## Series principle
 

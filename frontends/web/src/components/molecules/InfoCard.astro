@@ -40,7 +40,7 @@ const posStyle = Object.entries(pos)
 {
   variant === 'stage' ? (
     <div
-      class="absolute flex items-center gap-3 rounded-xl bg-surface py-3 pl-3 pr-4 shadow-float"
+      class="absolute flex items-center gap-3 rounded-xl bg-surface py-3 pl-3 pr-4"
       style={posStyle}
       data-frag={`${dx},${dy}`}
       data-target={`${fx},${fy}`}
@@ -59,7 +59,7 @@ const posStyle = Object.entries(pos)
       <span class="ml-2 text-sm font-semibold text-panel">{value}</span>
     </div>
   ) : (
-    <div data-hub-node class="relative flex min-w-0 items-start gap-2.5 rounded-xl bg-surface p-2.5 shadow-float">
+    <div data-hub-node class="relative flex min-w-0 items-start gap-2.5 rounded-xl bg-surface p-2.5">
       <span
         class="inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-xs"
         style={`background: ${tile}`}

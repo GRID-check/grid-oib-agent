@@ -1,25 +1,20 @@
 ---
 /**
- * A post's riso cover (the `cover` format, 720 × 405 CSS px) at a native size:
+ * A post's riso cover (the `cover` format, 720 × 405 CSS px) at a native size,
+ * always on page: the on-page file (the inks as alpha, no paper,
+ * `art(id, { onPage: true })`) multiplied into the page, so no beige sheet and
+ * no taped paper stands on it (art/riso/README.md, "Showing a print").
  *
- *   header  the post page. From md up the 720 print is taped onto the page,
- *           as TapedPrint tapes a plate, on its paper; on a phone it is the
- *           360 print, bare, centred and allowed a pixel of the gutter on
- *           each side.
- *   card    a Journal card: the 360 print on a tinted strip of the card.
- *   thumb   a build-log entry: the 240 print (a third), bare.
- *
- * Bare means on page: the on-page file (the inks as alpha, no paper,
- * `art(id, { onPage: true })`) multiplied into what lies below, so no beige
- * sheet stands on the page. Only the taped header keeps its paper, because
- * there the print is an object (art/riso/README.md, "Showing a print").
+ *   header  the post page: the 720 print from md up, the 360 below, set on
+ *           the text column's left edge.
+ *   card    a Journal entry: the 360 print, left-aligned over the title.
+ *   thumb   a build-log entry: the 240 print (a third).
  *
  * Never any other width: a halftone screen resampled by an odd factor turns
  * into moiré (src/lib/art.ts). Where a slot is narrower than the print (a
- * card on a 360 px phone), the strip clips the print's empty margin instead
+ * card on a 360 px phone), the figure clips the print's empty margin instead
  * of scaling it.
  */
-import Tape from '../craft/Tape.astro'
 import { art, artFile, artSrcset } from '../../lib/art'
 import type { CoverPlate } from '../craft/plates'
 import { COVER_PLATES } from '../craft/plates'
@@ -31,12 +26,13 @@ interface Props {
   /** Gives the print its declared alt text; without it the print is decorative. */
   locale?: Locale
   loading?: 'lazy' | 'eager'
+  /** The page's LCP image: loaded eagerly and fetched first. */
+  priority?: boolean
   class?: string
 }
-const { plate, variant, locale, loading = 'lazy', class: className = '' } = Astro.props
+const { plate, variant, locale, priority = false, loading = priority ? 'eager' : 'lazy', class: className = '' } = Astro.props
 const id = COVER_PLATES[plate].cover
 const bare = art(id, { onPage: true })
-const paper = art(id)
 const alt = locale ? bare.alt[locale] : ''
 const SIZES = {
   header: `(min-width: 768px) ${bare.width}px, ${bare.width / 2}px`,
@@ -46,110 +42,43 @@ const SIZES = {
 ---
 
 <figure class:list={['riso-cover', `riso-cover--${variant}`, className]}>
-  {
-    variant === 'header' && (
-      <span class="riso-cover__tape">
-        <Tape class="-top-2.5 left-1/2 -translate-x-1/2" length="8rem" rotate={0.9} seed={plate.length} />
-      </span>
-    )
-  }
-  <div class="riso-cover__sheet">
-    <picture>
-      {
-        /* The taped header (md up) is the print on its paper; everything bare is on page. */
-        variant === 'header' && (
-          <source media="(min-width: 768px)" srcset={artSrcset(paper)} sizes={`${bare.width}px`} />
-        )
-      }
-      <img
-        src={artFile(bare).src}
-        srcset={artSrcset(bare)}
-        sizes={SIZES[variant]}
-        width={bare.width}
-        height={bare.height}
-        alt={alt}
-        loading={loading}
-        decoding="async"
-      />
-    </picture>
-  </div>
+  <img
+    src={artFile(bare).src}
+    srcset={artSrcset(bare)}
+    sizes={SIZES[variant]}
+    width={bare.width}
+    height={bare.height}
+    alt={alt}
+    loading={loading}
+    fetchpriority={priority ? 'high' : undefined}
+    decoding="async"
+  />
 </figure>
 
 <style>
   /* No margin here: preflight zeroes a figure's, and a scoped rule would beat the caller's mt-*. */
   .riso-cover {
-    position: relative;
-  }
-  .riso-cover picture {
-    display: contents;
+    overflow: hidden;
   }
   .riso-cover img {
     display: block;
     max-width: none;
     height: auto;
-    /* On page: the inks multiply into the page, the card strip or (taped) the
-       print's own paper, where multiplying by the opaque file changes nothing. */
+    /* On page: the inks multiply into the page and its grid. */
     mix-blend-mode: multiply;
   }
 
-  /* header: 360 bare on a phone, 720 taped from md up */
-  .riso-cover--header {
-    display: flex;
-    justify-content: center;
-    /* the 360 print may be up to 2 px wider than a 358 px column: let it use the gutter */
-    margin-inline: -1rem;
-  }
   .riso-cover--header img {
     width: 360px;
   }
-  .riso-cover--header .riso-cover__tape {
-    display: none;
-  }
   @media (min-width: 768px) {
-    .riso-cover--header {
-      display: block;
-      width: fit-content;
-      margin-inline: 0;
-      rotate: -0.6deg;
-    }
     .riso-cover--header img {
       width: 720px;
     }
-    .riso-cover--header .riso-cover__tape {
-      display: contents;
-    }
-    .riso-cover--header .riso-cover__sheet {
-      background: #fdfdfb;
-      padding: 0.75rem;
-      border-radius: 2px;
-      box-shadow:
-        0 0 0 1px rgb(30 34 22 / 0.05),
-        0 1px 2px rgb(30 34 22 / 0.1),
-        0 14px 28px -16px rgb(30 34 22 / 0.3);
-    }
   }
 
-  /* card: the inks printed onto a tinted strip of the card. Where the strip is
-     narrower than the print (a card on a phone), it clips the print's empty
-     margin; nothing scales it. */
-  .riso-cover--card {
-    container-type: inline-size;
-  }
-  .riso-cover--card .riso-cover__sheet {
-    display: flex;
-    justify-content: center;
-    overflow: hidden;
-    padding-block: 1.5rem;
-    background: var(--color-surface-dim);
-  }
   .riso-cover--card img {
     width: 360px;
-    flex: none;
-  }
-  @container (max-width: 25rem) {
-    .riso-cover--card .riso-cover__sheet {
-      padding-block: 0;
-    }
   }
 
   .riso-cover--thumb img {

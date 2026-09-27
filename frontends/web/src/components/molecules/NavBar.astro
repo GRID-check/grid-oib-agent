@@ -25,23 +25,23 @@ const langs = (['de', 'en'] as const).map((l) => ({
 }))
 ---
 
-<header data-nav class="fixed inset-x-0 top-0 z-50 px-2 pt-2 sm:px-4 sm:pt-4">
+<header data-nav class="fixed inset-x-0 top-0 z-50 px-2 pt-2 sm:px-4 sm:pt-3">
   <!-- Dims the page while the phone menu is open; a tap on it closes the menu. -->
   <div data-nav-scrim hidden class="fixed inset-0 -z-10 bg-ink/25 lg:hidden" aria-hidden="true"></div>
 
   <nav
     data-nav-bar
-    class="relative mx-auto flex w-full max-w-[84rem] items-center justify-between gap-2 rounded-card py-1.5 pl-3.5 pr-1.5 transition-[max-width,background-color,box-shadow,border-radius] duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] sm:pl-5 lg:grid lg:grid-cols-[1fr_auto_1fr] lg:px-5 lg:py-2"
+    class="relative mx-auto flex w-full max-w-[84rem] items-center justify-between gap-2 rounded-card py-1.5 pl-3.5 pr-1.5 transition-[max-width,background-color,box-shadow,border-radius] duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] sm:pl-5 lg:grid lg:grid-cols-[1fr_auto_1fr] lg:px-5 lg:py-1.5"
     aria-label={t.nav.ariaLabel}
   >
-    <div class="hidden items-center gap-6 text-sm font-medium lg:flex">
+    <div class="hidden items-center gap-6 text-[0.8125rem] font-medium lg:flex">
       <a href={blog} class="whitespace-nowrap text-ink hover:text-accent-600">{t.nav.blog}</a>
       <a href={changelog} class="whitespace-nowrap text-ink hover:text-accent-600">{t.nav.changelog}</a>
     </div>
 
     <Logo href={`${home}#top`} label={t.nav.logoLabel} class="inline-flex min-h-11 shrink-0 items-center" />
 
-    <div class="flex shrink-0 items-center justify-end gap-1 text-sm font-medium sm:gap-2 lg:gap-3.5">
+    <div class="flex shrink-0 items-center justify-end gap-1 text-[0.8125rem] font-medium sm:gap-2 lg:gap-3.5">
       <a
         href={SIGN_IN_HREF}
         data-sign-in
@@ -66,8 +66,9 @@ const langs = (['de', 'en'] as const).map((l) => ({
 
       <Pill
         href={`${home}#kontakt`}
-        variant="solid"
+        variant="outline"
         size="nav"
+        class="nav-cta"
       >
         {t.nav.cta}
       </Pill>
@@ -86,7 +87,7 @@ const langs = (['de', 'en'] as const).map((l) => ({
                     {l.label}
                   </span>
                 ) : (
-                  <a href={switchTo} class="hover:text-accent-600" hreflang={l.code}>
+                  <a href={switchTo} class="lang-other hover:text-accent-600" hreflang={l.code}>
                     {l.label}
                   </a>
                 )}
@@ -213,3 +214,19 @@ const langs = (['de', 'en'] as const).map((l) => ({
     </div>
   </div>
 </header>
+
+<style>
+  /* The language not shown. Over the hero the pill is translucent and lets the
+     photograph through: in the row's ghost grey it measured 4.14:1 there, in
+     the muted ink it clears 4.5:1. On the dark rail it takes the row's light
+     colour from global.css. In the components layer, so the hover utility still
+     wins. */
+  @layer components {
+    .lang-other {
+      color: var(--color-ink-mute);
+    }
+    :global([data-tone='dark']) .lang-other {
+      color: inherit;
+    }
+  }
+</style>
