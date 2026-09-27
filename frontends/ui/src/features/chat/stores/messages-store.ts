@@ -19,8 +19,7 @@ import type {
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
 import { turnAnswerId } from '@/lib/conversations/turn-answer-id'
 import type { GridCard } from '@/shared/cards/schemas'
-import { reuseEqualCards } from '@/shared/cards/reuse-equal-cards'
-import { deferPersistence } from '../lib/deferred-persistence'
+import { replaceEqualDeep } from '@tanstack/react-query'
 import { deferChatStorageWrites } from './chat-storage'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import { reconcileCardInteractions } from '@/features/grid-cards/card-decision'
@@ -155,12 +154,6 @@ export type MessagesSlice = {
   completeAssistantMessage: () => void
   setLoading: (isLoading: boolean) => void
   setStreaming: (isStreaming: boolean) => void
-  /**
-   * The turn has ended cleanly: not streaming, status `complete`, no open
-   * prompt. One store update for what used to be three at the end of a turn,
-   * each running every subscriber's selector.
-   */
-  settleTurn: () => void
   /**
    * User-initiated cancel of the in-flight turn [C1]: flush any batched delta
    * text, finalize/close the current streaming bubble (isStreaming -> false),
@@ -749,7 +742,7 @@ export const createMessagesSlice: StateCreator<
             // set arriving again).
             ...(meta.cards && meta.cards.length > 0
               ? {
-                  cards: reuseEqualCards(msg.cards, meta.cards),
+                  cards: replaceEqualDeep(msg.cards, meta.cards),
                   cardInteractions: reconcileCardInteractions(
                     msg.cardInteractions,
                     msg.cards,
@@ -916,10 +909,6 @@ export const createMessagesSlice: StateCreator<
 
     setStreaming: (isStreaming: boolean) => {
       set({ isStreaming }, false, 'setStreaming')
-    },
-
-    settleTurn: () => {
-      set({ isStreaming: false, currentStatus: 'complete', pendingInteraction: null }, false, 'settleTurn')
     },
 
     stopStreaming: () => {
@@ -1574,7 +1563,7 @@ export const createMessagesSlice: StateCreator<
           // legacy path attaches cards on the in_progress frame).
           ...(cards && cards.length > 0
             ? {
-                cards: reuseEqualCards(msg.cards, cards),
+                cards: replaceEqualDeep(msg.cards, cards),
                 cardInteractions: reconcileCardInteractions(msg.cardInteractions, msg.cards, cards),
               }
             : {}),
@@ -1634,8 +1623,8 @@ export const createMessagesSlice: StateCreator<
         updatedAt: new Date(),
       }
 
-      // The settle is the most expensive frame the chat draws; its saving waits
-      // until after it (`lib/deferred-persistence.ts`): the browser copy...
+      // The settle is the most expensive frame the chat draws; its browser copy
+      // is written after it (`deferChatStorageWrites`).
       deferChatStorageWrites(() =>
         set(
           {
@@ -1648,13 +1637,11 @@ export const createMessagesSlice: StateCreator<
         )
       )
 
-      // ...and the server's: addAgentResponse's persistence, but ONCE at
-      // finalize rather than per delta.
+      // Mirror addAgentResponse's server persistence, but ONCE at finalize
+      // rather than per delta.
       if (finalizedMessage) {
-        deferPersistence(() => {
-          void get()._appendMessage(finalizedMessage)
-          void get()._persistTurnProvenance()
-        })
+        get()._appendMessage(finalizedMessage)
+        void get()._persistTurnProvenance()
       }
     },
 

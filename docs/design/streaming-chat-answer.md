@@ -196,7 +196,7 @@ Three rules keep the rest to the answer bubble:
   of them a full write. A composer draft is written 400 ms after the last
   keystroke and when the page is hidden, not with every key. Any other change
   while a turn works (a deletion, a rename, a new session) is written at once,
-  and the settled turn is written right after the frame it settles in
+  and the settled turn is written one task after the one it settles in
   (below). A store update that leaves
   every persisted field the same object (a loading flag) writes nothing and
   serializes nothing.
@@ -320,39 +320,30 @@ on open turns out to cost more than the headroom saves.
 
 The settle is the most expensive frame the chat draws: the whole answer
 re-renders with its footer, its citations and its cards. A production trace
-(2026-09) showed a 1018 ms task there, and the saving ran inside it, ahead of
-the render. Now the terminal ends the turn in two store updates
-(`finalizeAgentResponse`, then `settleTurn`, which clears streaming, sets the
-status and drops an open prompt at once, where it used to be three updates),
-and the saving waits for the frame to pass (`lib/deferred-persistence.ts`):
-the browser copy (`deferChatStorageWrites` holds the write the settle causes),
-the server copy of the message and of its provenance (`_appendMessage`,
-`_persistTurnProvenance`) and the conversation's generated name run as one
-background task (`scheduler.postTask`, else `setTimeout(0)`). The queue runs at
-once on `pagehide` and on `visibilitychange` to hidden, and before a switch,
-new session, deletion or user change, since its jobs read the open
-conversation.
+(2026-09) showed a 1018 ms task there, most of it the browser copy of the
+history (a prune, a `JSON.stringify` and a `localStorage.setItem`) written
+inside the settle, ahead of the render. `finalizeAgentResponse` now holds that
+write for one task (`deferChatStorageWrites`), the way a composer draft is
+held, so it is still written at once when the page hides or a later update
+writes anyway.
 
 ### Card arrival
 
 A placed card's place is one element from marker to card (`CardSlot`,
 `CardSlotArrival.tsx`), so the reader sees one frame change, never one box
 replaced by another. Pending, it is a card-shaped placeholder
-(`CardPlaceholder`, the framed register) 96 px tall, since the card's type is
-not known yet. When the card exists it is mounted invisibly under the
-placeholder, and the frame moves to the height that type usually has
-(`CARD_PLACEHOLDER_HEIGHTS`, measured on `/dev/a2ui`). When the card reports
-itself drawn (`CardDrawnProvider`, called by `A2uiCard`) the frame takes the
-card's measured height in one CSS height transition while the card fades in
-over the placeholder (opacity only), and then lets go of its height. In
-practice A2UI draws before the first paint, so the reader sees one growth from
-96 px to the card's height. A card arrives once per page (`messageId:index`):
-a remounted slot (the Markdown renderer keys blocks by position) draws it at
-once. Reduced motion draws it at once. Whether the answer is live reaches the
-slot through context, so the settle does not hand every slot a new renderer;
-a card re-sent unchanged on a later frame keeps its object
-(`reuseEqualCards`), so nothing under it re-renders. `/dev/stream-chat`
-replays the recorded cards (`cards=0` turns them off).
+(`CardPlaceholder`, the framed register) 96 px tall. When the card exists it
+is mounted invisibly under the placeholder; when it reports itself drawn (the
+catalog's `DrawnProvider`, which `A2uiCard` passes on) the card fades in over
+the placeholder while the frame grows to the card's height, both in motion
+(`height: 'auto'`, `AnimatePresence` for the placeholder's exit). A card
+arrives once per page (`messageId:index`): a remounted slot (the Markdown
+renderer keys blocks by position) shows it at once, as do a reload, a finished
+answer and reduced motion. Whether the answer is live reaches the slot through
+context, so the settle does not hand every slot a new renderer; a card re-sent
+unchanged on a later frame keeps its object (TanStack Query's
+`replaceEqualDeep`), so nothing under it re-renders. `/dev/stream-chat`
+replays the recorded cards on their live frame and the terminal.
 
 ### Single-consumer fold (`--input` CLI, single-shot HTTP)
 

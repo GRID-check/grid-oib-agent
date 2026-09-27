@@ -62,7 +62,7 @@ function Answer({ content }: { content: string }): ReactNode {
       <MarkdownSlotProvider
         render={(index) =>
           index === 0 ? (
-            <CardSlot arrivalKey="m1:0" type="summary">
+            <CardSlot arrivalKey="m1:0">
               <CardProbe />
             </CardSlot>
           ) : null

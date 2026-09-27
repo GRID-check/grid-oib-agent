@@ -3,23 +3,12 @@
  * renderer: the place is a slot the card-marker plugin leaves in the parsed
  * document, so a stubbed renderer would only test the stub.
  */
-import { act, render, screen } from '@/test-utils'
-import { useLayoutEffect, type ReactNode } from 'react'
+import { render, screen, waitFor } from '@/test-utils'
+import { useLayoutEffect, useState, type ReactNode } from 'react'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { AgentResponse } from './AgentResponse'
-import {
-  CardSlot,
-  CardSlotLiveProvider,
-  hasCardArrived,
-  PENDING_CARD_HEIGHT,
-  resetArrivedCards,
-} from './CardSlotArrival'
-import {
-  CARD_PLACEHOLDER_HEIGHTS,
-  CardPlaceholder,
-  cardPlaceholderHeight,
-} from '@/features/grid-cards/components/CardPlaceholder'
-import { useCardDrawnReporter } from '@/features/grid-cards/card-drawn'
+import { CardSlot, CardSlotLiveProvider } from './CardSlotArrival'
+import { useDrawnReporter } from '@/features/a2ui/catalog'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { ChatStoreWithHydration } from '../store'
 
@@ -31,6 +20,12 @@ vi.mock('../store', () => ({
     }
     return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
   }),
+}))
+
+let reducedMotion = false
+vi.mock('motion/react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('motion/react')>()),
+  useReducedMotion: () => reducedMotion,
 }))
 
 vi.mock('@/adapters/api', () => ({
@@ -59,7 +54,9 @@ describe('a placed card while the answer streams', () => {
   })
 
   test('once its card is written, it fills the place and is not drawn again below the prose', () => {
-    const cards = [{ type: 'summary' as const, title: 'Platzierte Karte', content: 'Inhalt', key_points: null }]
+    const cards = [
+      { type: 'summary' as const, title: 'Platzierte Karte', content: 'Inhalt', key_points: null },
+    ]
     render(<AgentResponse content={PROSE} cards={cards} isStreaming />)
 
     expect(screen.queryByTestId('pending-card-slot')).not.toBeInTheDocument()
@@ -78,120 +75,113 @@ describe('a placed card while the answer streams', () => {
 })
 
 describe('CardSlot', () => {
-  beforeEach(() => resetArrivedCards())
+  let key = 0
+  // Every test is a card of its own: an arrival plays once per key and page.
+  const nextKey = () => `m1:${(key += 1)}`
+  beforeEach(() => {
+    reducedMotion = false
+  })
 
   const live = (node: ReactNode) => <CardSlotLiveProvider value>{node}</CardSlotLiveProvider>
-  const frameOf = (container: HTMLElement) => container.firstElementChild as HTMLElement
+  const placeholder = () => document.querySelector('[data-slot="card-placeholder"]')
+  /** The card is on screen: mounted, and not faded out behind the placeholder. */
+  const cardShown = () => screen.getByText('Karte').parentElement?.style.opacity !== '0'
 
-  test('a card that arrives live is held at the height a card of its type usually has', () => {
-    const { container } = render(
-      live(
-        <CardSlot arrivalKey="m1:0" type="legal_basis">
-          <div>Karte</div>
-        </CardSlot>
-      )
-    )
-    const frame = frameOf(container)
-    const expected = CARD_PLACEHOLDER_HEIGHTS.legal_basis
-    expect(expected).toBeDefined()
-    expect(expected).not.toBe(PENDING_CARD_HEIGHT)
-    expect(frame.style.height).toBe(`${expected}px`)
-    expect(frame.style.overflow).toBe('hidden')
-    // The placeholder stays up, in the card's own frame, until the card has drawn.
-    expect(container.querySelector('[data-slot="card-placeholder"]')).not.toBeNull()
+  /** A card that reports itself drawn when `drawn` says so, as `A2uiCard` does. */
+  function Card({ drawn = true }: { drawn?: boolean }) {
+    const report = useDrawnReporter()
+    useLayoutEffect(() => {
+      if (drawn) report?.()
+    }, [drawn, report])
+    return <div>Karte</div>
+  }
+
+  test('holds the place with a card-shaped placeholder while the card is pending', () => {
+    const { container } = render(live(<CardSlot arrivalKey={nextKey()} />))
+    expect(screen.getByTestId('pending-card-slot')).toBe(container.firstElementChild)
+    expect(screen.getByTestId('pending-card-slot')).toHaveAttribute('aria-busy', 'true')
+    expect(placeholder()).not.toBeNull()
   })
 
-  test('grows in the frame the pending placeholder already stood in', () => {
-    const { container, rerender } = render(live(<CardSlot arrivalKey="m1:0" />))
-    const pending = screen.getByTestId('pending-card-slot')
-    expect(pending.style.height).toBe(`${PENDING_CARD_HEIGHT}px`)
+  test('the card arrives into the same frame, behind the placeholder until it has drawn', () => {
+    const arrivalKey = nextKey()
+    const { container, rerender } = render(live(<CardSlot arrivalKey={arrivalKey} />))
+    const frame = container.firstElementChild
     rerender(
       live(
-        <CardSlot arrivalKey="m1:0" type="comparison_table">
-          <div>Karte</div>
+        <CardSlot arrivalKey={arrivalKey}>
+          <Card drawn={false} />
         </CardSlot>
       )
     )
-    // The same element, so the height moves rather than one box replacing another.
-    expect(frameOf(container)).toBe(pending)
-    expect(pending.style.height).toBe(`${cardPlaceholderHeight('comparison_table')}px`)
-    expect(screen.queryByTestId('pending-card-slot')).not.toBeInTheDocument()
+    // One element from marker to card: nothing is swapped for anything else.
+    expect(container.firstElementChild).toBe(frame)
+    expect(placeholder()).not.toBeNull()
+    expect(cardShown()).toBe(false)
   })
 
-  test('reveals the card once it reports itself drawn, then stands at its own height', () => {
-    vi.useFakeTimers()
-    try {
-      function Reporting() {
-        const report = useCardDrawnReporter()
-        useLayoutEffect(() => report?.(), [report])
-        return <div>Karte</div>
-      }
-      const { container } = render(
-        live(
-          <CardSlot arrivalKey="m1:0" type="summary">
-            <Reporting />
+  test('once drawn, the card fades in over the placeholder, which then goes', async () => {
+    const arrivalKey = nextKey()
+    function Arriving() {
+      const [drawn, setDrawn] = useState(false)
+      return (
+        <>
+          <button onClick={() => setDrawn(true)}>draw</button>
+          <CardSlot arrivalKey={arrivalKey}>
+            <Card drawn={drawn} />
           </CardSlot>
-        )
+        </>
       )
-      expect(frameOf(container)).toHaveAttribute('data-arrival', 'revealing')
-      act(() => {
-        vi.advanceTimersByTime(1000)
-      })
-      const frame = frameOf(container)
-      expect(frame.style.height).toBe('')
-      expect(frame.style.overflow).toBe('')
-      expect(container.querySelector('[data-slot="card-placeholder"]')).toBeNull()
-    } finally {
-      vi.useRealTimers()
     }
+    render(live(<Arriving />))
+    expect(cardShown()).toBe(false)
+    screen.getByText('draw').click()
+    await waitFor(() => expect(placeholder()).toBeNull())
+    expect(cardShown()).toBe(true)
+    expect(screen.getByText('Karte').closest('[aria-busy]')).toBeNull()
   })
 
-  test('a card that has already arrived does not arrive again when its slot remounts', () => {
-    const card = (
-      <CardSlot arrivalKey="m1:2" type="legal_basis">
-        <div>Karte</div>
+  test('a card that has already arrived does not arrive again when its slot remounts', async () => {
+    const arrivalKey = nextKey()
+    const slot = live(
+      <CardSlot arrivalKey={arrivalKey}>
+        <Card />
       </CardSlot>
     )
-    const first = render(live(card))
-    expect(frameOf(first.container).style.height).not.toBe('')
+    const first = render(slot)
+    await waitFor(() => expect(placeholder()).toBeNull())
     first.unmount()
 
-    expect(hasCardArrived('m1:2')).toBe(true)
-    const { container } = render(live(card))
-    const frame = frameOf(container)
-    expect(frame.style.height).toBe('')
-    expect(frame).not.toHaveAttribute('data-arrival')
-    expect(container.querySelector('[data-slot="card-placeholder"]')).toBeNull()
-    expect(screen.getByText('Karte')).toBeInTheDocument()
+    render(slot)
+    expect(placeholder()).toBeNull()
+    expect(cardShown()).toBe(true)
   })
 
-  test('a card that was already there is drawn at once', () => {
-    const { container } = render(
-      <CardSlot arrivalKey="m1:0" type="legal_basis">
-        <div>Karte</div>
+  test('a card that was already there is shown at once', () => {
+    render(
+      <CardSlot arrivalKey={nextKey()}>
+        <Card drawn={false} />
       </CardSlot>
     )
-    const frame = frameOf(container)
-    expect(frame.style.height).toBe('')
-    expect(frame.style.overflow).toBe('')
-    expect(container.querySelector('[data-slot="card-placeholder"]')).toBeNull()
-    expect(screen.getByText('Karte')).toBeInTheDocument()
+    expect(placeholder()).toBeNull()
+    expect(cardShown()).toBe(true)
+  })
+
+  test('with reduced motion, a card that arrives live is shown at once', () => {
+    reducedMotion = true
+    render(
+      live(
+        <CardSlot arrivalKey={nextKey()}>
+          <Card drawn={false} />
+        </CardSlot>
+      )
+    )
+    expect(placeholder()).toBeNull()
+    expect(cardShown()).toBe(true)
   })
 
   test('a finished answer holds no place for a card that never came', () => {
-    const { container } = render(<CardSlot arrivalKey="m1:0" />)
+    const { container } = render(<CardSlot arrivalKey={nextKey()} />)
     expect(container.firstElementChild).toBeNull()
-  })
-})
-
-describe('CardPlaceholder', () => {
-  test('is sized by the card type, and by the default when the type is unknown', () => {
-    const { container, rerender } = render(<CardPlaceholder type="verdict_header" />)
-    const placeholder = () => container.querySelector('[data-slot="card-placeholder"]') as HTMLElement
-    expect(placeholder().style.height).toBe(`${CARD_PLACEHOLDER_HEIGHTS.verdict_header}px`)
-    rerender(<CardPlaceholder type="stair_diagram" />)
-    expect(placeholder().style.height).toBe(`${CARD_PLACEHOLDER_HEIGHTS.stair_diagram}px`)
-    rerender(<CardPlaceholder />)
-    expect(placeholder().style.height).toBe(`${PENDING_CARD_HEIGHT}px`)
   })
 })

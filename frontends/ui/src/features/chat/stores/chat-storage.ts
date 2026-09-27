@@ -34,9 +34,8 @@
  *   so it would read back as the last write does;
  * - a composer draft is written 400 ms after the last keystroke and when the
  *   page hides;
- * - a settled turn is written after the frame that shows it
- *   (`deferChatStorageWrites`, `lib/deferred-persistence.ts`), and when the
- *   page hides;
+ * - a settled turn is written in the task after the one that shows it
+ *   (`deferChatStorageWrites`), and when the page hides;
  * - anything else (a deletion, a rename, a new session) is written at once;
  * - a store update that leaves every persisted field the same object writes
  *   and serializes nothing.
@@ -46,7 +45,6 @@ import type { PersistStorage, StorageValue } from 'zustand/middleware'
 import type { ChatMessage, ChatState, Conversation } from '../types'
 import { pruneMessageForStorage } from '../lib/prune-message-for-storage'
 import { hasLiveRun } from '../lib/session-activity'
-import { deferPersistence } from '../lib/deferred-persistence'
 import {
   logStorageAvailability,
   logStorageEviction,
@@ -594,21 +592,15 @@ const migrate = (area: ChatStorageArea, legacy: PersistedChatStorageValue): void
 // The adapter
 // ---------------------------------------------------------------------------
 
-/** Nonzero while `deferChatStorageWrites` runs: a write it causes is held, not made. */
-let deferringWrites = 0
+let deferring = false
 
-/**
- * Run `update` (a store update) with the storage write it causes held until
- * after the frame: queued on `deferPersistence`, and written at once when the
- * page is hidden or left, or when a later update writes anyway. For the update
- * that settles a turn, whose frame is the most expensive the chat draws.
- */
+/** Run `update` with the write it causes held like a draft, for one task: out of the settle's frame. */
 export function deferChatStorageWrites(update: () => void): void {
-  deferringWrites += 1
+  deferring = true
   try {
     update()
   } finally {
-    deferringWrites -= 1
+    deferring = false
   }
 }
 
@@ -638,8 +630,7 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
   // A draft is written this long after the last keystroke, and when the page
   // is hidden. Written with every key it serialised the whole history inside
   // the input event: 264 ms a keystroke on a 4× throttled phone with 20
-  // conversations stored (React performance audit, 2026-09). A settled turn is
-  // held the same way, until after the frame (`deferChatStorageWrites`).
+  // conversations stored (React performance audit, 2026-09).
   let heldDraft: { name: string; state: PersistedChatState } | null = null
   let heldDraftTimer: ReturnType<typeof setTimeout> | undefined
   const writeHeldDraft = (): void => {
@@ -648,15 +639,10 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
     heldDraft = null
     if (held) areaFor(held.name).write(held.state)
   }
-  const holdDraft = (name: string, state: PersistedChatState): void => {
+  const holdDraft = (name: string, state: PersistedChatState, delayMs = DRAFT_WRITE_DELAY_MS): void => {
     heldDraft = { name, state }
     clearTimeout(heldDraftTimer)
-    heldDraftTimer = setTimeout(writeHeldDraft, DRAFT_WRITE_DELAY_MS)
-  }
-  const holdUntilAfterFrame = (name: string, state: PersistedChatState): void => {
-    heldDraft = { name, state }
-    clearTimeout(heldDraftTimer)
-    deferPersistence(writeHeldDraft)
+    heldDraftTimer = setTimeout(writeHeldDraft, delayMs)
   }
   if (typeof window !== 'undefined') {
     window.addEventListener('pagehide', writeHeldDraft)
@@ -750,10 +736,7 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
         if (value.state.composerDrafts !== area.lastWritten?.composerDrafts) holdDraft(name, value.state)
         return
       }
-      if (deferringWrites > 0) {
-        holdUntilAfterFrame(name, value.state)
-        return
-      }
+      if (deferring) return holdDraft(name, value.state, 0)
       // Anything else is written at once, and carries the drafts with it.
       if (heldDraft?.name === name) {
         heldDraft = null
