@@ -7,6 +7,7 @@ import type { ChatMessage, ThinkingStep } from '@/features/chat/types'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { UseSpectatedTurnOptions } from '@/features/collaboration/hooks/use-spectated-turn'
 import type { SpectatedTurnState } from '@/features/collaboration/lib/spectator-frames'
+import { useAnswerRevealStore } from '@/features/chat/stores/answer-reveal-store'
 
 /**
  * The store slice and the messages ChatArea reads, as these tests fixture them.
@@ -1066,6 +1067,43 @@ describe('ChatArea', () => {
     // Second turn is actively streaming — shows spinner, not interrupted.
     expect(secondCallProps.isThinking).toBe(true)
     expect(secondCallProps.isInterrupted).toBe(false)
+  })
+
+  test('keeps the Herleitung live after the stream ends until the answer has settled on screen', () => {
+    mockGetThinkingStepsForMessage.mockImplementation((messageId: string) =>
+      messageId === 'user-1' ? [thinkingStep({ id: 'step-1', userMessageId: 'user-1' })] : []
+    )
+    vi.mocked(useChatStore).mockImplementation(
+      (selector?: StoreSelector<ChatStoreWithHydration>) => {
+        const state: ChatStoreFixture = {
+          currentConversation: {
+            messages: [
+              { id: 'user-1', role: 'user', content: 'Frage', messageType: 'user' },
+              { id: 'answer-1', role: 'assistant', content: 'Antwort', messageType: 'agent_response' },
+            ],
+          },
+          isLoading: false,
+          // The stream is over; the answer is still finishing its held-back words.
+          isStreaming: false,
+          hasHydrated: true,
+          currentUserMessageId: 'user-1',
+          thinkingSteps: [],
+          respondToPrompt: mockRespondToPrompt,
+          dismissErrorCard: mockDismissErrorCard,
+          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
+        }
+        return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+      }
+    )
+    const herleitung = () =>
+      mockChatThinking.mock.calls.at(-1)![0] as { isThinking?: boolean; autoOpen?: boolean }
+
+    useAnswerRevealStore.setState({ revealingId: 'answer-1' })
+    render(<ChatArea isAuthenticated={true} />)
+    expect(herleitung()).toMatchObject({ isThinking: true, autoOpen: true })
+
+    act(() => useAnswerRevealStore.getState().end('answer-1'))
+    expect(herleitung()).toMatchObject({ isThinking: false, autoOpen: false })
   })
 })
 
