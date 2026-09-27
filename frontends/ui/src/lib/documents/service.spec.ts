@@ -149,6 +149,7 @@ import {
   type ReconcilableDocument,
 } from './reconcile-status'
 import type { DocumentListRow } from './repository'
+import { insertPublishedVersion } from './version-repository'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { makeDocument, makeProject } from '@/test-utils/db-fixtures'
@@ -1764,6 +1765,46 @@ describe('re-uploading a filename this collection already holds', () => {
     // against, so it is excluded there rather than double-counted here.
     const call = vi.mocked(admitReplacementOrDiscard).mock.calls.at(-1)
     expect(call?.[3]).toBe('doc-existing')
+  })
+
+  it('writes its bytes to a key no overlapping re-upload can share', async () => {
+    // Two uploads of plan.pdf that overlap both read `nextVersionNumber` = 2.
+    // Before the write id they both PUT `…/v2/plan.pdf`, the second silently
+    // replacing the first one's bytes.
+    await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+    await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+    const keys = vi
+      .mocked(s3Client.send)
+      .mock.calls.map(([command]) => (command as unknown as { input: { Key?: string } }).input.Key)
+      .filter((key): key is string => typeof key === 'string' && key.endsWith('/plan.pdf'))
+    expect(keys).toHaveLength(2)
+    expect(keys[0]).toMatch(/\/doc\/doc-existing\/v2\/[0-9a-f]{12}\/plan\.pdf$/)
+    expect(keys[0]).not.toBe(keys[1])
+  })
+
+  it('records the version with the key THIS upload stored, not whatever the row says now', async () => {
+    // An overlapping upload may have rewritten the item row between this
+    // request's admission and its version insert. Reading the key back off the
+    // row recorded the OTHER upload's object twice and this one's never.
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({
+        id: 'doc-existing',
+        storageKey: 'org/org-1/project/proj-1/doc/doc-existing/v2/000000000000/plan.pdf',
+      }),
+    )
+
+    await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+
+    const put = vi
+      .mocked(s3Client.send)
+      .mock.calls.map(([command]) => (command as unknown as { input: { Key?: string } }).input.Key)
+      .find((key) => typeof key === 'string' && key.endsWith('/plan.pdf'))
+    const recorded = vi.mocked(insertPublishedVersion).mock.calls.at(-1)?.[0]
+    expect(recorded?.storageKey).toBe(put)
+    expect(recorded?.storageKey).not.toContain('/000000000000/')
+    // The number is not the caller's to hand in: it is allocated at insert.
+    expect(recorded).not.toHaveProperty('versionNumber')
   })
 
   it('records that these are new bytes rather than a new document', async () => {

@@ -33,10 +33,71 @@ import { DOCUMENT_VERSION_STATES, OPEN_DOCUMENT_VERSION_STATES } from './lifecyc
  */
 export const DOCUMENT_VERSION_LIST_LIMIT = 500
 
-export async function insertDocumentVersion(values: NewDocumentVersion): Promise<DocumentVersion> {
+/**
+ * What an insert is handed: everything but the number, which it allocates.
+ *
+ * `versionNumber` is not optional-and-ignored but ABSENT from the type, so a
+ * caller cannot compute one outside the transaction and have it believed.
+ */
+export type NewDocumentVersionValues = Omit<NewDocumentVersion, 'versionNumber'>
+
+/** The handle a `db.transaction` callback receives. */
+type Transaction = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0]
+
+/**
+ * The next number for a document, allocated INSIDE the inserting transaction.
+ *
+ * ## Why this is not `nextVersionNumber` followed by an insert
+ *
+ * It was. `max + 1` read in one statement and inserted in another is a
+ * check-then-act: two overlapping re-uploads of one filename read the same N
+ * and both recorded „Version N" — and before migration 0092 nothing refused the
+ * second. The per-document advisory lock makes the read and the insert one step
+ * for every writer of this document: the second transaction blocks here until
+ * the first commits, then reads the number the first one wrote.
+ *
+ * Keyed by the DOCUMENT, not the organization, so versions of different files
+ * never queue behind each other, and namespaced (`document_versions:`) so it
+ * can never share a key with the quota lock (`storage_quota:`). Held for one
+ * `max()` and one insert; never across an object write.
+ *
+ * `UNIQUE (document_id, version_number)` (migration 0092) is the ratchet under
+ * it: a path that inserts without this lock gets a 23505, not a duplicate.
+ */
+export async function allocateVersionNumber(
+  tx: Transaction,
+  documentId: string,
+  organizationId: string,
+): Promise<number> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${`document_versions:${documentId}`}, 0))`,
+  )
+  const [row] = await tx
+    .select({ highest: sql<number | string | null>`max(${documentVersions.versionNumber})` })
+    .from(documentVersions)
+    .where(
+      and(
+        eq(documentVersions.documentId, documentId),
+        eq(documentVersions.organizationId, organizationId),
+      ),
+    )
+  // Coerced: a raw fragment is decoded by the driver, which may answer a string.
+  return row?.highest === null || row?.highest === undefined ? 1 : Number(row.highest) + 1
+}
+
+/** Insert one version, its number allocated under the per-document lock. */
+export async function insertDocumentVersion(
+  values: NewDocumentVersionValues,
+): Promise<DocumentVersion> {
   const db = getDb()
-  const [row] = await db.insert(documentVersions).values(values).returning()
-  return row
+  return db.transaction(async (tx) => {
+    const versionNumber = await allocateVersionNumber(tx, values.documentId, values.organizationId)
+    const [row] = await tx
+      .insert(documentVersions)
+      .values({ ...values, versionNumber })
+      .returning()
+    return row
+  })
 }
 
 /**
@@ -57,10 +118,14 @@ export async function insertDocumentVersion(values: NewDocumentVersion): Promise
  * history; objects go when the document is deleted.
  */
 export async function insertPublishedVersion(
-  values: NewDocumentVersion,
+  values: NewDocumentVersionValues,
 ): Promise<{ version: DocumentVersion; superseded: DocumentVersion[] }> {
   const db = getDb()
   return db.transaction(async (tx) => {
+    // First, so the supersede below and the insert run for one writer of this
+    // document at a time: the second of two overlapping re-uploads supersedes
+    // the FIRST one's new version, rather than racing it for number N.
+    const versionNumber = await allocateVersionNumber(tx, values.documentId, values.organizationId)
     const superseded = await tx
       .update(documentVersions)
       .set({ state: 'superseded', updatedAt: new Date() })
@@ -73,7 +138,10 @@ export async function insertPublishedVersion(
       )
       .returning()
 
-    const [version] = await tx.insert(documentVersions).values(values).returning()
+    const [version] = await tx
+      .insert(documentVersions)
+      .values({ ...values, versionNumber })
+      .returning()
 
     await tx
       .update(documents)
@@ -292,7 +360,14 @@ export async function listDocumentVersionSummaries(
 }
 
 /**
- * The next `version_number` for a document.
+ * The number the next version of a document will PROBABLY get — a hint.
+ *
+ * The upload paths read it before the bytes move, to put `v<n>/` in the object
+ * key where a person browsing the bucket can read it. It is not an allocation:
+ * two overlapping uploads read the same value. The row's real number is
+ * allocated at insert ({@link allocateVersionNumber}), and the key stays unique
+ * because it also carries a per-write id (`versionedStorageKey`). Never write
+ * this value into a row.
  *
  * `max(...) + 1` read through a raw fragment, so the value is COERCED on the
  * way out (`Number(...)`): drizzle decodes only direct column references, and a

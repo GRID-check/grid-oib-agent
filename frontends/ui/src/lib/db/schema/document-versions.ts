@@ -102,7 +102,11 @@ export const documentVersions = pgTable(
     /** 1, 2, 3 … within one document. Human-facing; not an id. */
     versionNumber: integer('version_number').notNull(),
     state: text('state').$type<DocumentVersionState>().notNull().default('draft'),
-    /** This version's own bytes. Two versions may share a key — see `forkDraft`. */
+    /**
+     * This version's own bytes. Two versions may share a key — see `forkDraft`.
+     * Every key written after migration 0092 carries a per-write segment
+     * (`v<n>/<write id>/<file>`), so two writers can never aim at one object.
+     */
     storageKey: text('storage_key').notNull(),
     storageBucket: text('storage_bucket'),
     contentType: text('content_type'),
@@ -164,7 +168,18 @@ export const documentVersions = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    documentIdx: index('idx_document_versions_document').on(table.documentId, table.versionNumber),
+    /**
+     * One row per number per document (migration 0092). It replaced the plain
+     * `idx_document_versions_document` on the same columns, which let two
+     * overlapping re-uploads both record „Version 3". The number is allocated
+     * inside the inserting transaction under a per-document lock
+     * (`allocateVersionNumber` in `@/lib/documents/version-repository`); this is
+     * what makes a forgotten lock a 23505 instead of a silent duplicate.
+     */
+    numberPerDocument: unique('document_versions_document_id_version_number_key').on(
+      table.documentId,
+      table.versionNumber,
+    ),
     orgIdx: index('idx_document_versions_organization_id').on(table.organizationId),
     /**
      * Referenceable `(id, document_id)`, so `documents.published_version_id` can

@@ -47,7 +47,7 @@ import {
   nextVersionNumber,
   recordUploadedVersion,
 } from '@/lib/documents/lifecycle'
-import { versionedStorageKey } from '@/lib/documents/version-content'
+import { newVersionWriteId, versionedStorageKey } from '@/lib/documents/version-content'
 import { listDocumentVersionObjects } from '@/lib/documents/version-repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { purgeCollectionChunks } from './cleanup'
@@ -159,13 +159,16 @@ export async function uploadSessionDocument(
   const documentId = superseded?.id ?? crypto.randomUUID()
   // A re-upload writes new bytes under a new `v<n>/` key, so the version it
   // replaces keeps an object a reader can open (ADR-0054). Version 1 keeps
-  // today's key exactly.
-  const versionNumber = superseded
+  // today's key exactly. The number is a hint for the key; the write id keeps
+  // two overlapping re-uploads' objects apart, and the row's number is
+  // allocated under a lock when the version is recorded.
+  const versionHint = superseded
     ? await nextVersionNumber(documentId, session.organizationId)
     : 1
   const storageKey = versionedStorageKey(
     buildSessionStorageKey(session.organizationId, conversationId, documentId, filename),
-    versionNumber,
+    versionHint,
+    newVersionWriteId(),
   )
 
   // Same provisioning step as the other shelves (ADR-0043): a session
@@ -247,8 +250,14 @@ export async function uploadSessionDocument(
   // building instead of being embedded as STEP noise.
   // The version, through the same transition table every other shelf uses
   // (ADR-0054): born `published` and born approved, because the person who
-  // attached it is the assertion.
-  await recordUploadedVersion(session, documentId, request)
+  // attached it is the assertion. With the columns THIS request stored.
+  await recordUploadedVersion(session, documentId, request, {
+    storageKey,
+    storageBucket,
+    contentType: file.type || null,
+    fileSize: file.size,
+    contentHash,
+  })
 
   const { jobId, status } = await dispatchDocument({
     organizationId: session.organizationId,

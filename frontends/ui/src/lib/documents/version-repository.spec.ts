@@ -39,7 +39,12 @@ let currentDb: unknown = proxyDb
 vi.mock('@/lib/db', () => ({ getDb: () => currentDb }))
 
 import { TransactionRollbackError } from 'drizzle-orm'
-import { findPreviousVersion, promoteVersionToPublished } from './version-repository'
+import {
+  findPreviousVersion,
+  insertDocumentVersion,
+  insertPublishedVersion,
+  promoteVersionToPublished,
+} from './version-repository'
 
 function onlyQuery(): CapturedQuery {
   expect(captured).toHaveLength(1)
@@ -57,12 +62,34 @@ beforeEach(() => {
  * and `tx.rollback()` THROWS `TransactionRollbackError` rather than returning.
  * Each `update(...).returning()` answers the next queued row list.
  */
-function fakeTransactionalDb(updateResults: unknown[][]) {
+function fakeTransactionalDb(updateResults: unknown[][], highest: number | string | null = null) {
   const statements: string[] = []
+  const inserted: Array<Record<string, unknown>> = []
   const tx = {
     rollback: () => {
       throw new TransactionRollbackError()
     },
+    execute: async (query: { queryChunks?: unknown[] }) => {
+      statements.push(`EXECUTE ${JSON.stringify(query.queryChunks ?? query)}`)
+      return []
+    },
+    select: () => ({
+      from: () => ({
+        where: async () => {
+          statements.push('SELECT max')
+          return [{ highest }]
+        },
+      }),
+    }),
+    insert: () => ({
+      values: (values: Record<string, unknown>) => ({
+        returning: async () => {
+          statements.push('INSERT')
+          inserted.push(values)
+          return [{ id: 'ver_new', ...values }]
+        },
+      }),
+    }),
     update: () => ({
       set: () => ({
         where: () => {
@@ -76,9 +103,72 @@ function fakeTransactionalDb(updateResults: unknown[][]) {
   }
   return {
     statements,
+    inserted,
     db: { transaction: async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx) },
   }
 }
+
+const NEW_VERSION = {
+  organizationId: 'org_1',
+  documentId: 'doc_1',
+  projectId: 'proj_1',
+  state: 'published' as const,
+  storageKey: 'org/org_1/project/proj_1/doc/doc_1/v3/a1b2c3d4e5f6/plan.pdf',
+  createdBy: 'user_1',
+  approvedBy: 'user_1',
+  approvedAt: new Date(),
+}
+
+/**
+ * The version number, allocated inside the inserting transaction (migration
+ * 0092). `max + 1` read in one statement and inserted in another let two
+ * overlapping re-uploads both record „Version N"; the per-document lock makes
+ * the read and the insert one step for every writer of that document.
+ */
+describe('the version number is allocated under a per-document lock', () => {
+  it('locks, reads the highest number, then inserts — in one transaction (plain insert)', async () => {
+    const fake = fakeTransactionalDb([], '2')
+    currentDb = fake.db
+
+    await insertDocumentVersion({ ...NEW_VERSION, state: 'draft' })
+
+    expect(fake.statements).toHaveLength(3)
+    expect(fake.statements[0]).toContain('pg_advisory_xact_lock')
+    expect(fake.statements[0]).toContain('document_versions:doc_1')
+    expect(fake.statements[1]).toBe('SELECT max')
+    expect(fake.statements[2]).toBe('INSERT')
+    // Coerced: the driver may answer `max()` as a string, and '2' + 1 is '21'.
+    expect(fake.inserted[0].versionNumber).toBe(3)
+  })
+
+  it('takes the lock BEFORE the supersede on a born-published insert', async () => {
+    // supersede → the old published row; pointer move → nothing to return.
+    const fake = fakeTransactionalDb([[{ id: 'ver_old' }], []], 4)
+    currentDb = fake.db
+
+    const outcome = await insertPublishedVersion(NEW_VERSION)
+
+    expect(fake.statements[0]).toContain('pg_advisory_xact_lock')
+    expect(fake.statements[1]).toBe('SELECT max')
+    expect(fake.statements.slice(2)).toEqual(['UPDATE', 'INSERT', 'UPDATE'])
+    expect(outcome.version.versionNumber).toBe(5)
+    expect(outcome.superseded).toEqual([{ id: 'ver_old' }])
+  })
+
+  it('numbers the first version of a document 1', async () => {
+    const fake = fakeTransactionalDb([], null)
+    currentDb = fake.db
+    await insertDocumentVersion({ ...NEW_VERSION, state: 'draft' })
+    expect(fake.inserted[0].versionNumber).toBe(1)
+  })
+
+  it('does not share its lock key with the storage quota', async () => {
+    const fake = fakeTransactionalDb([], null)
+    currentDb = fake.db
+    await insertDocumentVersion({ ...NEW_VERSION, state: 'draft' })
+    expect(fake.statements[0]).not.toContain('storage_quota:')
+  })
+})
 
 describe('promoteVersionToPublished — the loser of a publish race', () => {
   it('reports a lost compare-and-swap as null (the 409), not as a thrown rollback (a 500)', async () => {

@@ -893,7 +893,6 @@ export async function createDocumentVersion(
     organizationId: session.organizationId,
     documentId: input.document.id,
     projectId: input.document.projectId,
-    versionNumber: await nextVersionNumber(input.document.id, session.organizationId),
     storageKey: input.storageKey,
     storageBucket: input.storageBucket,
     contentType: input.contentType,
@@ -980,7 +979,6 @@ export async function forkDraftVersion(
     organizationId: session.organizationId,
     documentId,
     projectId: document.projectId,
-    versionNumber: await nextVersionNumber(documentId, session.organizationId),
     state: 'draft',
     storageKey: source.storageKey,
     storageBucket: source.storageBucket,
@@ -1095,10 +1093,17 @@ export async function replaceVersionContent(
 /**
  * Record the version a human upload just stored.
  *
- * Called by all three upload shelves AFTER the bytes are admitted, so the row it
- * reads already carries the storage columns it should mirror. The quota is not
- * charged again here: `admitOrDiscard` / `admitReplacementOrDiscard` is the one
- * admitting path and this is bookkeeping on top of it.
+ * Called by all three upload shelves AFTER the bytes are admitted. The quota is
+ * not charged again here: `admitOrDiscard` / `admitReplacementOrDiscard` is the
+ * one admitting path and this is bookkeeping on top of it.
+ *
+ * `stored` is what THIS upload wrote. It used to be read back off the item row,
+ * which is right only while nobody else writes that row: two overlapping
+ * re-uploads of one filename each rewrite it, and the one that recorded its
+ * version second could read the OTHER upload's key — two versions over one
+ * object, and its own object named by nothing. Passing it in makes each version
+ * describe the bytes its own request stored. Omitted only by callers that have
+ * no bytes of their own in flight.
  *
  * A re-upload's previous version is superseded by the same transaction and
  * KEEPS ITS OBJECT — which is why the callers no longer call
@@ -1109,19 +1114,24 @@ export async function recordUploadedVersion(
   session: AuthorizedSession,
   documentId: string,
   request?: Request,
+  stored?: Pick<
+    DocumentVersion,
+    'storageKey' | 'storageBucket' | 'contentType' | 'fileSize' | 'contentHash'
+  >,
 ): Promise<DocumentVersion | null> {
   const document = await findDocumentInOrg(documentId, session.organizationId)
   // The upload wrote the row a moment ago; a miss means somebody deleted it in
   // between, and inventing a version for a document that is gone helps nobody.
   if (!document) return null
+  const bytes = stored ?? document
   return createDocumentVersion(session, {
     document,
     op: 'upload',
-    storageKey: document.storageKey,
-    storageBucket: document.storageBucket,
-    contentType: document.contentType,
-    fileSize: document.fileSize,
-    contentHash: document.contentHash,
+    storageKey: bytes.storageKey,
+    storageBucket: bytes.storageBucket,
+    contentType: bytes.contentType,
+    fileSize: bytes.fileSize,
+    contentHash: bytes.contentHash,
     request,
   })
 }

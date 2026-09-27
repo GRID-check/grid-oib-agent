@@ -67,11 +67,13 @@ import {
 import {
   admitVersionBytes,
   archiveDocument,
+  newVersionWriteId,
   readVersionForService,
   renderVersionBytes,
   storeVersionBytes,
   versionedStorageKey,
   versionMirrorsItem,
+  versionWriteKey,
 } from './version-content'
 import { AI_PROVENANCE_PROPERTIES } from '@/lib/ai-provenance'
 
@@ -138,15 +140,51 @@ beforeEach(() => {
 
 describe('versionedStorageKey', () => {
   it('leaves version 1 exactly where it is, so nothing that predates 0082 moves', () => {
-    expect(versionedStorageKey('org/o/project/p/doc/d/plan.pdf', 1)).toBe(
+    expect(versionedStorageKey('org/o/project/p/doc/d/plan.pdf', 1, 'a1b2c3d4e5f6')).toBe(
       'org/o/project/p/doc/d/plan.pdf',
     )
   })
 
-  it('gives every later version a prefix of its own', () => {
-    expect(versionedStorageKey('org/o/project/p/Plaene/doc/d/plan.pdf', 3)).toBe(
-      'org/o/project/p/Plaene/doc/d/v3/plan.pdf',
+  it('gives every later version a prefix of its own, and every WRITE a directory of its own', () => {
+    expect(versionedStorageKey('org/o/project/p/Plaene/doc/d/plan.pdf', 3, 'a1b2c3d4e5f6')).toBe(
+      'org/o/project/p/Plaene/doc/d/v3/a1b2c3d4e5f6/plan.pdf',
     )
+  })
+
+  it('never hands two overlapping re-uploads the same key, although both read the same number', () => {
+    // Both uploads read `nextVersionNumber` = 3 before either recorded a row.
+    // Without the write id they both PUT `…/v3/plan.pdf` and the second upload
+    // silently replaced the first one's bytes while both rows described their
+    // own.
+    const base = 'org/o/project/p/doc/d/plan.pdf'
+    const first = versionedStorageKey(base, 3, newVersionWriteId())
+    const second = versionedStorageKey(base, 3, newVersionWriteId())
+    expect(first).not.toBe(second)
+    expect(first).toMatch(/\/doc\/d\/v3\/[0-9a-f]{12}\/plan\.pdf$/)
+  })
+})
+
+describe('versionWriteKey', () => {
+  it('replaces an earlier version segment rather than nesting inside it', () => {
+    expect(
+      versionWriteKey('org/o/project/p/doc/d/v3/a1b2c3d4e5f6/plan.md', 5, 'ffffffffffff'),
+    ).toBe('org/o/project/p/doc/d/v5/ffffffffffff/plan.md')
+    expect(versionWriteKey('org/o/archiv/doc/d/v2/plan.md', 2, 'ffffffffffff')).toBe(
+      'org/o/archiv/doc/d/v2/ffffffffffff/plan.md',
+    )
+  })
+
+  it('has no version-1 shortcut: a rewrite of version 1 still gets its own object', () => {
+    expect(versionWriteKey('org/o/session/s_1/doc/d/plan.md', 1, 'ffffffffffff')).toBe(
+      'org/o/session/s_1/doc/d/v1/ffffffffffff/plan.md',
+    )
+  })
+
+  it('still gives a key that predates the shelf layout a directory of its own', () => {
+    expect(versionWriteKey('legacy/plan.md', 2, 'ffffffffffff')).toBe(
+      'legacy/v2/ffffffffffff/plan.md',
+    )
+    expect(versionWriteKey('plan.md', 2, 'ffffffffffff')).toBe('v2/ffffffffffff/plan.md')
   })
 })
 

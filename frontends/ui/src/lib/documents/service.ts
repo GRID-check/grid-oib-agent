@@ -86,7 +86,7 @@ import { documentDisplayName, validateDocumentName } from './display-name'
 import { deleteBimDerivedObjects, runBimExtraction } from '@/lib/bim/service'
 import { getAccessibleDocument } from './access'
 import { nextVersionNumber, recordUploadedVersion } from './lifecycle'
-import { versionedStorageKey } from './version-content'
+import { newVersionWriteId, versionedStorageKey } from './version-content'
 import { findOpenVersion, listDocumentVersionObjects } from './version-repository'
 import { deleteDocumentObjects } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
@@ -805,13 +805,19 @@ export async function uploadDocument(
    * without the history. Version 1 keeps today's key exactly, so nothing that
    * predates this moves; version N lands under `v<n>/`, and the previous
    * version's row still names an object a reader can open.
+   *
+   * The number is a HINT for the key, never the row's number: two overlapping
+   * re-uploads read the same one. The write id is what keeps their objects
+   * apart, and the row's number is allocated under a lock when the version is
+   * recorded (`allocateVersionNumber`).
    */
-  const versionNumber = superseded
+  const versionHint = superseded
     ? await nextVersionNumber(documentId, session.organizationId)
     : 1
   const storageKey = versionedStorageKey(
     buildStorageKey(session.organizationId, projectId, documentId, filename, folderPath),
-    versionNumber
+    versionHint,
+    newVersionWriteId()
   )
 
   // Create the organization's bucket if this is its first upload (ADR-0043).
@@ -932,8 +938,16 @@ export async function uploadDocument(
   // walk (ADR-0054). Born `published` and born approved: the person who
   // uploaded it is the assertion, so the `published requires an approver` CHECK
   // is satisfied honestly rather than worked around, and no review round is
-  // invented for a gesture that never asked for one.
-  await recordUploadedVersion(session, documentId, request)
+  // invented for a gesture that never asked for one. Handed the columns THIS
+  // request stored, not re-read off a row an overlapping upload may have
+  // rewritten in the meantime.
+  await recordUploadedVersion(session, documentId, request, {
+    storageKey,
+    storageBucket,
+    contentType: file.type || null,
+    fileSize: file.size,
+    contentHash,
+  })
 
   const { jobId: ingestJobId, status: ingestStatus } = await dispatchDocument({
     organizationId: session.organizationId,

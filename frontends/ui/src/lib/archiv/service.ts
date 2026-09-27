@@ -50,7 +50,7 @@ import {
   nextVersionNumber,
   recordUploadedVersion,
 } from '@/lib/documents/lifecycle'
-import { versionedStorageKey } from '@/lib/documents/version-content'
+import { newVersionWriteId, versionedStorageKey } from '@/lib/documents/version-content'
 import { listDocumentVersionObjects } from '@/lib/documents/version-repository'
 import type { DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -145,13 +145,16 @@ export async function uploadArchivDocument(
   const documentId = superseded?.id ?? crypto.randomUUID()
   // A re-upload writes new bytes under a new `v<n>/` key, so the version it
   // replaces keeps an object a reader can open (ADR-0054). Version 1 keeps
-  // today's key exactly.
-  const versionNumber = superseded
+  // today's key exactly. The number is a hint for the key; the write id keeps
+  // two overlapping re-uploads' objects apart, and the row's number is
+  // allocated under a lock when the version is recorded.
+  const versionHint = superseded
     ? await nextVersionNumber(documentId, session.organizationId)
     : 1
   const storageKey = versionedStorageKey(
     buildArchivStorageKey(session.organizationId, documentId, filename),
-    versionNumber,
+    versionHint,
+    newVersionWriteId(),
   )
 
   // Same provisioning step as the project path (ADR-0043): the Archiv shares
@@ -210,8 +213,14 @@ export async function uploadArchivDocument(
 
   // The version, through the same transition table every other shelf uses
   // (ADR-0054): born `published` and born approved, because the person who
-  // uploaded it is the assertion.
-  await recordUploadedVersion(session, documentId, request)
+  // uploaded it is the assertion. With the columns THIS request stored.
+  await recordUploadedVersion(session, documentId, request, {
+    storageKey,
+    storageBucket,
+    contentType: file.type || null,
+    fileSize: file.size,
+    contentHash,
+  })
 
   // Same dispatcher as every other shelf: the STEP source of an IFC is never
   // embedded, so an uploaded model is parsed and its digest is what reaches the

@@ -19,6 +19,7 @@
  */
 
 import 'server-only'
+import { randomUUID } from 'node:crypto'
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { NotFoundError } from '@/lib/api/errors'
 import { markingIsInBytes, type AiProvenanceMarking } from '@/lib/ai-provenance'
@@ -76,7 +77,18 @@ export const BACKEND_PURGE_TIMEOUT_MS = 10_000
  * the previous version's row names.
  */
 export function versionStorageKey(document: Document, versionNumber: number): string {
-  return versionedStorageKey(document.storageKey, versionNumber)
+  if (versionNumber <= 1) return document.storageKey
+  return document.storageKey.replace(/\/([^/]+)$/, `/v${versionNumber}/$1`)
+}
+
+/**
+ * A fresh id for one object write — twelve hex characters of a random uuid.
+ *
+ * The collision space is per document and per version number, so twelve hex
+ * digits (48 bits) is far past what two concurrent writers of one file need.
+ */
+export function newVersionWriteId(): string {
+  return randomUUID().replace(/-/g, '').slice(0, 12)
 }
 
 /**
@@ -85,15 +97,49 @@ export function versionStorageKey(document: Document, versionNumber: number): st
  * The upload paths build their key before the document exists, so they cannot
  * hand in a `Document`. Pure, so all four shelves — project, Archiv, session and
  * the generated-document filer — get the same answer.
+ *
+ * `versionNumber` is a HINT here (`nextVersionNumber`): two overlapping
+ * re-uploads read the same one, and before the write id they wrote the same
+ * key, so the second PUT silently replaced the first upload's bytes while both
+ * rows described their own. The write id makes each upload's object its own;
+ * the row's number is allocated at insert, under a lock, and may differ from
+ * the one in the key.
  */
-export function versionedStorageKey(baseStorageKey: string, versionNumber: number): string {
+export function versionedStorageKey(
+  baseStorageKey: string,
+  versionNumber: number,
+  writeId: string,
+): string {
   if (versionNumber <= 1) return baseStorageKey
-  // Derived from the item's OWN key rather than rebuilt from its parts, so the
-  // folder path, the shelf prefix (`project/`, `archiv/`, `session/`) and the
-  // sanitised filename are whatever this document already uses. Rebuilding them
-  // here would be a second copy of `buildStorageKey`'s three shelf variants,
-  // and the copies would agree until somebody moved a document.
-  return baseStorageKey.replace(/\/([^/]+)$/, `/v${versionNumber}/$1`)
+  return versionWriteKey(baseStorageKey, versionNumber, writeId)
+}
+
+/**
+ * `…/doc/<id>/v<n>/<write id>/<filename>` — one object per write, always.
+ *
+ * Unlike {@link versionedStorageKey} there is no version-1 shortcut: this is
+ * for REWRITING a version's bytes, and a rewrite that reused the key it read
+ * would aim at the object another writer, or the published version, may be
+ * reading.
+ *
+ * Derived from the item's OWN key rather than rebuilt from its parts, so the
+ * folder path, the shelf prefix (`project/`, `archiv/`, `session/`) and the
+ * sanitised filename are whatever this document already uses. Rebuilding them
+ * here would be a second copy of `buildStorageKey`'s three shelf variants, and
+ * the copies would agree until somebody moved a document. Whatever already
+ * sits between `doc/<id>/` and the filename — an earlier `v<n>/` or
+ * `v<n>/<write id>/` — is replaced rather than nested, so a document's keys do
+ * not grow a segment per revision.
+ */
+export function versionWriteKey(key: string, versionNumber: number, writeId: string): string {
+  const segment = `v${versionNumber}/${writeId}`
+  const underDoc = /^(.*\/doc\/[^/]+)\/(?:.+\/)?([^/]+)$/.exec(key)
+  if (underDoc) return `${underDoc[1]}/${segment}/${underDoc[2]}`
+  // A key without a `doc/<id>/` segment predates the shelf layout; it still
+  // gets a directory of its own beside its filename.
+  return key.replace(/\/?([^/]+)$/, (_match, name: string) =>
+    key.includes('/') ? `/${segment}/${name}` : `${segment}/${name}`,
+  )
 }
 
 /**

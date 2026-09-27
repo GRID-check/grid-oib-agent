@@ -287,6 +287,22 @@ nobody what it cost to find them.
    states all four of its consequences including the two nobody guesses: that
    Piloti stops citing the file, and that nothing in the product brings it back.
 
+10. **Two overlapping re-uploads were the same version.** The version number
+    was `max + 1` read outside any transaction, and the upload paths read it
+    before the bytes moved to build the `v<n>/` key, so two re-uploads of one
+    filename both got N, both PUT the same object key (the second replacing the
+    first's bytes) and both recorded „Version N". Nothing refused either:
+    `(document_id, version_number)` had an index and no uniqueness. Migration
+    `0092` makes it `UNIQUE`; both inserts allocate the number inside their own
+    transaction under a per-document advisory lock; every write gets its own
+    object key (`v<n>/<write id>/`); and an upload records its version with the
+    columns its own request stored rather than re-reading the item row.
+
+11. **The loser of a concurrent publish got a 500.** `promoteVersionToPublished`
+    called `tx.rollback()` and then `return null`, and drizzle's `rollback()`
+    throws, so the null — the 409 — was unreachable. A sentinel is thrown and
+    caught outside the transaction; a lint rule refuses the call.
+
 ### What this amends in ADR-0047
 
 ADR-0047's 2026-08-20 addendum says `Zuweisen` is the promotion gesture and that

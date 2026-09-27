@@ -308,8 +308,36 @@ SIMPLE skips the check), `version_number`, `state`, `storage_key`,
 - `document_versions_refusal_has_comment` — `state NOT IN ('changes_requested', 'rejected') OR review_comment IS NOT NULL`. A refusal with nothing in it is a decision the next attempt cannot act on.
 - `document_versions_submitted_by_actor_known` — `human | agent` (migration `0085`).
 
-**Indexes:** `idx_document_versions_document (document_id, version_number)`,
-`idx_document_versions_organization_id`, and two PARTIAL unique indexes that
+**One number per document (migration `0092`):** the constraint
+`document_versions_document_id_version_number_key` is `UNIQUE (document_id,
+version_number)`, and it replaced the plain `idx_document_versions_document` on
+the same columns. The number used to be `max + 1`, read in one statement and
+inserted in another (and on the upload paths read before the bytes even moved),
+so two overlapping re-uploads of one filename both recorded „Version N" and
+both wrote the same object key. Now:
+
+- the number is allocated INSIDE the inserting transaction, under a
+  per-document advisory lock (`allocateVersionNumber`,
+  `lib/documents/version-repository.ts`, key `document_versions:<document id>`).
+  Neither insert accepts a number from its caller; the type does not have the
+  field;
+- the object key is unique per WRITE, not per number: `…/doc/<id>/v<n>/<write
+  id>/<file>` (`versionedStorageKey`, `versionWriteKey`). The `v<n>` in a key is
+  the number the writer expected (`nextVersionNumber` is a hint) and can differ
+  from the row's; nothing reads it back. Version 1 of a fresh upload keeps the
+  flat `doc/<id>/<file>` key, which is unique because the id is new;
+- each upload records its version with the columns ITS request stored
+  (`recordUploadedVersion`'s `stored`), never re-read off the item row an
+  overlapping upload may have rewritten.
+
+The migration first moves every row that shares its number with an EARLIER row
+of the same document to the end of that document's history (`max + 1`, … in
+creation order). The earliest row keeps its number, every unambiguous row keeps
+its number, and no storage key or state changes. A 23505 on this constraint
+means a path inserted a version without the lock.
+
+**Indexes:** the unique constraint's own index on `(document_id,
+version_number)`, `idx_document_versions_organization_id`, and two PARTIAL unique indexes that
 live only in the migration (with `COMMENT ON INDEX`, because the next person to
 meet one meets it as a constraint violation in a log line):
 `uniq_document_versions_open_per_document` — at most one `draft`/`in_review`/
