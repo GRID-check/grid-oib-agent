@@ -190,6 +190,8 @@ export const files: typeof en.files = {
     downloadFailed: 'Der Download konnte nicht gestartet werden. Bitte versuchen Sie es erneut.',
     ingestionFailed: 'Verarbeitung fehlgeschlagen',
     ingestionFailedGeneric: 'Dieses Dokument konnte nicht für die Suche verarbeitet werden.',
+    ingestionFailedPreviousVersionKept:
+      'Die Suche und Piloti verwenden weiterhin die vorige Fassung. Der Download liefert die neue Datei.',
     retryIngestion: 'Verarbeitung erneut starten',
     retryingIngestion: 'Wird erneut gestartet …',
     retryIngestionError:

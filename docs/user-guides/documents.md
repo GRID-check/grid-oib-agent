@@ -150,7 +150,10 @@ rendered from the old bytes is shown as if it were the new ones. The old
 passages are removed only once the new file has been indexed: if it cannot be
 (a password-protected PDF, a file with no readable text), the upload is marked
 as failed and search keeps finding the previous version until a working file
-replaces it. The database
+replaces it, while the download already returns the new file. The preview says
+so under the failure reason, for a document with more than one version. A file
+that fails partway through indexing leaves none of its passages behind, and two
+people re-uploading one name at once end with the version indexed last. The database
 enforces one live document per name and collection, so two uploads racing each
 other cannot recreate the duplicate either. This is the behaviour the
 ingestion pipeline already had — it replaces a document's passages by filename —

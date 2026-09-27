@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    Lässt sich eine neue Fassung eines Dokuments nicht verarbeiten, sagt die
+    Vorschau jetzt, dass Suche und Piloti weiterhin die vorige Fassung
+    verwenden, während der Download bereits die neue Datei liefert.

@@ -195,6 +195,8 @@ export const files = {
     downloadFailed: "The download couldn't be started. Please try again.",
     ingestionFailed: 'Ingestion failed',
     ingestionFailedGeneric: "This document couldn't be processed for search.",
+    ingestionFailedPreviousVersionKept:
+      'Search and Piloti still use the previous version. The download serves the new file.',
     retryIngestion: 'Retry ingestion',
     retryingIngestion: 'Retrying…',
     retryIngestionError: "Ingestion couldn't be restarted. Please try again.",

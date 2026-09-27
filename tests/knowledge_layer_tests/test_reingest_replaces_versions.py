@@ -366,6 +366,9 @@ def test_a_reupload_that_fails_keeps_the_previous_version(tmp_path, monkeypatch,
     status = _wait_terminal(live_ingestor, job_id)
 
     assert status.file_details[0].status.value == "failed"
+    # The JOB fails too: it is what the BFF reconciles the document's status
+    # from, and the collection's file list still reports the name as indexed.
+    assert status.status.value == "failed"
     assert sorted(_chunks(live_ingestor, "proj_fail")) == ["old-1", "old-2"]
     assert stores.count("proj_fail") == 2
     assert get_document_doc_class("proj_fail", "statik.pdf") == "tragwerk"
