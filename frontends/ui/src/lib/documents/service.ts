@@ -58,6 +58,7 @@ import {
 import { listResourceAssignments, type AssignedPerson } from '@/lib/assignments/service'
 import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
 import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
+import { assertNoActiveHold } from '@/lib/compliance/holds'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document, DocumentAuthor } from '@/lib/db/schema'
 import { reconcileDocumentStatuses, describeBackendIngestState, type DocumentMetadata } from './reconcile-status'
@@ -1627,7 +1628,9 @@ export async function renameDocument(
 /**
  * Delete a project document: purge its RAG chunks (best-effort), remove the
  * SeaweedFS object, delete the row, and audit. Requires `project:edit` on the
- * owning project — the same permission the upload path checks. Mirrors
+ * owning project — the same permission the upload path checks. A legal hold on
+ * the document, its project, its uploader or the organization refuses it with
+ * a 409 before anything is erased (`@/lib/compliance/holds`). Mirrors
  * {@link import('@/lib/archiv/service').deleteArchivDocument}, differing only in
  * scope: per-project FGA instead of org-level `org:archiv:manage`.
  *
@@ -1647,6 +1650,9 @@ export async function deleteDocument(
   if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
 
   await requireProjectAccess(session, doc.projectId, ['project:documents:write', 'project:edit'])
+  // After the access check (an unauthorized caller learns nothing, not even
+  // that a hold exists) and before the first destructive step below.
+  await assertNoActiveHold(session.organizationId, 'document', documentId)
 
   await Promise.all([
     purgeResourceCollaboration('document', documentId).catch(() => undefined),

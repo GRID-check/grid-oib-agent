@@ -362,6 +362,7 @@ export const files = {
     deleting: 'Deleting…',
     success: '“{name}” was removed from the project',
     error: 'The document could not be deleted',
+    legalHold: 'The document is under a legal hold and cannot be deleted',
   },
   /**
    * The folder-upload plan — the dialog a dropped directory tree opens before

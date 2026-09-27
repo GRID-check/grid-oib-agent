@@ -30,6 +30,7 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import { NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { sessionCollectionName } from '@/lib/collection-scope'
 import { requireResourceAccess } from '@/lib/sharing/access'
+import { assertNoActiveHold } from '@/lib/compliance/holds'
 import { assertConversationAcceptsUploads, createConversation } from '@/lib/conversations/service'
 import {
   assertFileSizeAllowed,
@@ -318,6 +319,9 @@ export async function deleteSessionDocument(
   if (!doc?.conversationId) throw new NotFoundError()
 
   await requireResourceAccess(session, 'conversation', doc.conversationId, 'collaborator')
+  // A hold on the attachment, its chat, its uploader or the organization
+  // refuses the delete (409) before the chunk purge, the first erasure below.
+  await assertNoActiveHold(session.organizationId, 'document', documentId)
 
   // `collectionFileRef` or nothing: a row that owns no chunks has none to purge,
   // and purging by its filename would address whatever human document shares it.

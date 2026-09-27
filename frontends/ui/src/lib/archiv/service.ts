@@ -46,6 +46,7 @@ import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admissi
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { findLiveDocumentByFilename } from '@/lib/documents/repository'
 import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
+import { assertNoActiveHold } from '@/lib/compliance/holds'
 import {
   nextVersionNumber,
   recordUploadedVersion,
@@ -262,6 +263,9 @@ export async function deleteArchivDocument(
 
   const doc = await findArchivDocument(documentId, session.organizationId)
   if (!doc) throw new NotFoundError()
+  // Before the first destructive step: a hold on the document, its uploader or
+  // the organization refuses the delete with a 409 (`@/lib/compliance/holds`).
+  await assertNoActiveHold(session.organizationId, 'document', documentId)
 
   // Best-effort: remove the ingested chunks so a deleted document stops showing
   // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB

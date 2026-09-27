@@ -107,7 +107,14 @@ vi.mock('./reconcile-status', () => ({
   describeBackendIngestState: vi.fn(),
 }))
 
+// The hold predicate is SQL (`grid_legal_hold_blocks`, migration 0093), proven
+// against Postgres in `legal-hold.integration.spec.ts`; the gate runs for real.
+vi.mock('@/lib/compliance/repository', () => ({
+  isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
+}))
+
 import { findProjectInOrg } from '@/lib/projects/repository'
+import { isCoveredByActiveHold } from '@/lib/compliance/repository'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
@@ -1178,6 +1185,37 @@ describe('deleteDocument', () => {
     )
     expect(deleteProjectDocument).not.toHaveBeenCalled()
     expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('refuses a held document with a 409 before erasing anything', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(isCoveredByActiveHold).mockResolvedValueOnce(true)
+    vi.mocked(s3Client.send).mockClear()
+    mockFetch.mockClear()
+
+    const error = await deleteDocument(session, 'doc-1', new Request('http://x')).catch(
+      (e: unknown) => e
+    )
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect((error as ConflictError).details).toEqual({ reason: 'legal_hold', entityType: 'document' })
+    expect(isCoveredByActiveHold).toHaveBeenCalledWith('org-1', 'document', 'doc-1')
+    // Nothing went: no chunk purge, no object, no row, no audit.
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(s3Client.send).not.toHaveBeenCalled()
+    expect(deleteProjectDocument).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('asks about the hold only after the access check', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
+    vi.mocked(requireProjectAccess).mockRejectedValueOnce(new NotFoundError())
+
+    await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(
+      NotFoundError
+    )
+    expect(isCoveredByActiveHold).not.toHaveBeenCalled()
   })
 
   it('purges chunks, deletes the object + row, and audits', async () => {

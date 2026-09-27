@@ -342,6 +342,7 @@ export const files: typeof en.files = {
     deleting: 'Wird gelöscht…',
     success: '„{name}“ wurde aus dem Projekt entfernt',
     error: 'Das Dokument konnte nicht gelöscht werden',
+    legalHold: 'Das Dokument unterliegt einer rechtlichen Sperre und kann nicht gelöscht werden',
   },
   /**
    * Der Ordner-Upload-Plan — der Dialog, den ein abgelegter Ordnerbaum öffnet,

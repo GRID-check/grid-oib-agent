@@ -93,6 +93,13 @@ vi.mock('@/lib/storage/admission', () => ({
   admitReplacementOrDiscard: vi.fn().mockResolvedValue(undefined),
 }))
 
+// The hold predicate is SQL (`grid_legal_hold_blocks`, migration 0093) and is
+// exercised against Postgres in `legal-hold.integration.spec.ts`; here the gate
+// itself runs for real over a doubled answer.
+vi.mock('@/lib/compliance/repository', () => ({
+  isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
+}))
+
 vi.mock('./repository', () => ({
   listArchivDocuments: vi.fn(),
   findArchivDocument: vi.fn(),
@@ -103,7 +110,9 @@ import { canManageArchiv } from '@/lib/authz/organizations'
 import { assertUploadTypeAllowed, dispatchDocument, fetchSemanticHits, joinHitsToFiles } from '@/lib/documents/service'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { isCoveredByActiveHold } from '@/lib/compliance/repository'
+import { s3Client } from '@/lib/s3'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { findLiveDocumentByFilename } from '@/lib/documents/repository'
 import {
@@ -319,6 +328,36 @@ describe('deleteArchivDocument', () => {
     )
     expect(deleteArchivDocumentRow).toHaveBeenCalledWith('d1', 'org-1')
     expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'archiv.document.deleted' }),
+    )
+  })
+
+  it('refuses a held document with a 409 before erasing anything', async () => {
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+    vi.mocked(findArchivDocument).mockResolvedValue(
+      makeDocument({
+        id: 'd1',
+        scope: 'archiv',
+        projectId: null,
+        collectionName: 'archiv_org-1',
+        storageKey: 'org/org-1/archiv/doc/d1/plan.pdf',
+      }),
+    )
+    vi.mocked(isCoveredByActiveHold).mockResolvedValueOnce(true)
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true })
+    vi.stubGlobal('fetch', fetchSpy)
+    vi.mocked(s3Client.send).mockClear()
+
+    const error = await deleteArchivDocument(session, 'd1', request).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect((error as ConflictError).details).toEqual({ reason: 'legal_hold', entityType: 'document' })
+    expect(isCoveredByActiveHold).toHaveBeenCalledWith('org-1', 'document', 'd1')
+    // Nothing went: no chunk purge, no object delete, no row, no audit.
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(s3Client.send).not.toHaveBeenCalled()
+    expect(deleteArchivDocumentRow).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({ action: 'archiv.document.deleted' }),
     )
   })

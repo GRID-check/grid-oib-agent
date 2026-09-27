@@ -32,6 +32,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 
 vi.mock('server-only', () => ({}))
+// No legal hold in play here; the gate itself is `compliance/holds` and the
+// predicate is SQL (`legal-hold.integration.spec.ts`).
+vi.mock('@/lib/compliance/repository', () => ({
+  isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
+}))
 
 const CONVERSATION_ID = 's_11111111-2222-3333-4444-555555555555'
 const ORG_ID = 'org_1'

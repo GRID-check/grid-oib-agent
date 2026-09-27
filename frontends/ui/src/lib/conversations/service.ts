@@ -42,6 +42,7 @@ import type {
 import { purgeConversationCollaboration } from '@/lib/collaboration/cleanup'
 import { discardConversationDrafts } from './working-directory'
 import { purgeSessionDocuments } from '@/lib/session-documents/cleanup'
+import { assertNoActiveHold } from '@/lib/compliance/holds'
 import { publishToUsers } from '@/lib/events/bus'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems, markResourceItemsReadFor } from '@/lib/inbox/service'
@@ -511,6 +512,12 @@ export async function deleteConversation(
   conversationId: string
 ): Promise<void> {
   await authorizeConversationDelete(session, conversationId)
+
+  // A legal hold refuses the delete outright (409), before it is even marked:
+  // the chat stays visible and whole. Covered are the chat, its project, its
+  // creator, any attachment in it (and that attachment's uploader), and the
+  // organization — the erasure below would take every one of them.
+  await assertNoActiveHold(session.organizationId, 'conversation', conversationId)
 
   // Announce the deletion BEFORE erasing anything.
   //

@@ -56,6 +56,14 @@ Semantics: a hold does **not** block soft delete (the entity still disappears fr
 
 This doubles as GDPR **Art. 18 (restriction of processing)** support: restricted data is preserved but not actively processed.
 
+**What a hold covers, and who asks (migration 0093).** "Covered" is one database function, `grid_legal_hold_blocks(entity_type, entity_id, organization_id)`, and every reader calls it rather than restating it. An entity is covered by an active hold of its own organization on: the organization; the entity itself; what contains it (a document's project and conversation, a conversation's project); what it contains, since erasing it erases that too (a conversation's attachments; a project's documents, chats and the chats' attachments; for an organization, any hold in it at all); and the user who created it (a custodian hold: `documents.created_by`, `conversations.created_by`). Three readers:
+
+- **The purger** — its claim query and the TOCTOU re-checks in `purge-project.js`. The predicate used to be written out in `purger/db.js` and saw only the project and the organization, so a held document inside a deleted project was purged with it.
+- **The BFF's immediate deletes** — documents, Archiv documents, conversations and chat attachments are hard-deleted in the request, not queued, so each calls `assertNoActiveHold` (`lib/compliance/holds.ts`) after its access check and before its first destructive step. A covered entity answers **409** `{ code: 'CONFLICT', details: { reason: 'legal_hold' } }` and nothing is erased; the chat is not even marked deleting. The response never names the hold or its reason.
+- **The delete triggers** — `BEFORE DELETE` on `documents` and `conversations` raise SQLSTATE `GLH01` for a covered row, including a row reached by a cascade from a project. This is the backstop for a delete path that forgot to ask; `lib/api/handler.ts` maps `GLH01` to the same 409. It guards the rows only: object storage and the vector store are outside the transaction, which is why the application check comes first. A project row has no trigger of its own: its content has, and an empty project row is not content (its creation rollback, `deleteProjectRow`, must keep working under an organization hold).
+
+Unlike the purge, an immediate delete is **refused**, not deferred: there is no queue row for a document or a chat to resume from once the hold is released, so the requester gets the refusal and deletes again after release.
+
 API: `POST /api/holds` and `POST /api/holds/[id]/release` (org owner + internal support only), `GET /api/holds` (org admin). Management UI is out of scope for now — holds are rare, deliberate legal events; the API + audit trail is what compliance requires.
 
 ### Query filtering

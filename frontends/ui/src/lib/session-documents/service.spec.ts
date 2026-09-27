@@ -85,6 +85,9 @@ vi.mock('@/lib/documents/object-cleanup', () => ({
   deleteDocumentObjects: vi.fn(),
 }))
 vi.mock('./cleanup', () => ({ purgeCollectionChunks: vi.fn() }))
+vi.mock('@/lib/compliance/repository', () => ({
+  isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
+}))
 vi.mock('./repository', () => ({
   deleteSessionDocument: vi.fn(),
   findSessionDocument: vi.fn(),
@@ -96,7 +99,16 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import { dispatchDocument } from '@/lib/documents/service'
 import { findLiveDocumentByFilename } from '@/lib/documents/repository'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
-import { uploadSessionDocument } from './service'
+import { ConflictError } from '@/lib/api/errors'
+import { isCoveredByActiveHold } from '@/lib/compliance/repository'
+import { requireResourceAccess } from '@/lib/sharing/access'
+import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
+import { purgeCollectionChunks } from './cleanup'
+import {
+  deleteSessionDocument as deleteSessionDocumentRow,
+  findSessionDocument,
+} from './repository'
+import { deleteSessionDocument, uploadSessionDocument } from './service'
 
 const session = { userId: USER_ID, organizationId: ORG_ID, email: 'me@grid.test' } as unknown as AuthorizedSession
 
@@ -189,5 +201,31 @@ describe('uploadSessionDocument, a genuinely new file', () => {
       expect.objectContaining({ id: 'doc-fresh', scope: 'session', conversationId: CONVERSATION_ID }),
     )
     expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
+  })
+})
+
+describe('deleteSessionDocument under a legal hold', () => {
+  const attached = {
+    ...existing,
+    conversationId: CONVERSATION_ID,
+    collectionName: CONVERSATION_ID,
+    filename: 'brandschutz.pdf',
+  }
+
+  it('refuses with a 409 after the access check and before the first erasure', async () => {
+    vi.mocked(findSessionDocument).mockResolvedValue(attached as never)
+    vi.mocked(isCoveredByActiveHold).mockResolvedValueOnce(true)
+
+    const error = await deleteSessionDocument(session, 'doc-existing', new Request('http://x')).catch(
+      (e: unknown) => e,
+    )
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect(requireResourceAccess).toHaveBeenCalledWith(session, 'conversation', CONVERSATION_ID, 'collaborator')
+    expect(isCoveredByActiveHold).toHaveBeenCalledWith(ORG_ID, 'document', 'doc-existing')
+    expect(purgeCollectionChunks).not.toHaveBeenCalled()
+    expect(deleteDocumentObjects).not.toHaveBeenCalled()
+    expect(deleteSessionDocumentRow).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
   })
 })

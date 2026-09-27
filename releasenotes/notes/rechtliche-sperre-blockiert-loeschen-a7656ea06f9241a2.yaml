@@ -1,0 +1,12 @@
+---
+fixes:
+  - >
+    Eine rechtliche Sperre (Legal Hold) verhindert jetzt jedes Löschen. Bisher
+    ließen sich ein gesperrtes Dokument, Archiv-Dokument, ein Chat oder ein
+    Chat-Anhang trotzdem sofort löschen. Das Löschen wird jetzt abgelehnt,
+    solange eine Sperre auf dem Eintrag, auf seinem Projekt oder Chat, auf der
+    Person, die ihn angelegt hat, oder auf der Organisation liegt.
+  - >
+    Das Endlöschen eines Projekts wartet jetzt auch, wenn nur ein Dokument oder
+    ein Chat darin gesperrt ist. Bisher wurden gesperrte Inhalte mit dem
+    Projekt gelöscht.

@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   claimNext,
+  hasActiveHold,
   markFailed,
   markFailedPermanent,
   markPurged,
@@ -62,8 +63,12 @@ describe('claimNext', () => {
     expect(select.text).toContain("q.status = 'purging' AND q.claimed_at < now()")
     // shared attempt cap + legal-hold guard + lock
     expect(select.text).toContain('q.attempts < $')
-    expect(select.text).toContain('FROM legal_holds h')
-    expect(select.text).toContain('h.released_at IS NULL')
+    // The hold guard is the shared database predicate, not a copy of it
+    // (migration 0093): the BFF's deletes and the delete triggers call it too.
+    expect(select.text).toContain(
+      'AND NOT grid_legal_hold_blocks(q.entity_type, q.entity_id, q.organization_id)',
+    )
+    expect(select.text).not.toContain('FROM legal_holds')
     expect(select.text).toContain('FOR UPDATE SKIP LOCKED')
     expect(select.text).toContain('ORDER BY q.requested_at')
     // bindings: STALE_CLAIM_MINUTES (15) then MAX_ATTEMPTS
@@ -84,6 +89,25 @@ describe('claimNext', () => {
     expect(entry).toBeNull()
     expect(queries(executed)).toHaveLength(1)
     expect(queries(executed)[0].text).toMatch(/^SELECT/)
+  })
+})
+
+describe('hasActiveHold', () => {
+  const entry = { entity_type: 'project', entity_id: 'p1', organization_id: 'org_1' }
+
+  it('asks the shared database predicate with the entry, nothing hand-written', async () => {
+    const { fn, executed } = makeSql([{ held: true }])
+
+    await expect(hasActiveHold(fn, entry)).resolves.toBe(true)
+
+    expect(executed).toHaveLength(1)
+    expect(executed[0].text).toBe('SELECT grid_legal_hold_blocks($, $, $) AS held')
+    expect(executed[0].values).toEqual(['project', 'p1', 'org_1'])
+  })
+
+  it('answers false when the predicate does', async () => {
+    const { fn } = makeSql([{ held: false }])
+    await expect(hasActiveHold(fn, entry)).resolves.toBe(false)
   })
 })
 

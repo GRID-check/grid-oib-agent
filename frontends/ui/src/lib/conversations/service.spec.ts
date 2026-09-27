@@ -61,6 +61,9 @@ vi.mock('@/lib/sharing/service', () => ({ resolveParticipants: vi.fn() }))
 // state what the service does with each outcome; the erasure itself is tested
 // in `session-documents/cleanup.spec.ts`.
 vi.mock('@/lib/session-documents/cleanup', () => ({ purgeSessionDocuments: vi.fn() }))
+vi.mock('@/lib/compliance/repository', () => ({
+  isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
+}))
 vi.mock('./working-directory', () => ({ discardConversationDrafts: vi.fn() }))
 vi.mock('@/lib/collaboration/cleanup', () => ({ purgeConversationCollaboration: vi.fn() }))
 vi.mock('@/lib/events/bus', () => ({ publishToUsers: vi.fn() }))
@@ -83,7 +86,8 @@ vi.mock('./engagement', () => ({
   setEngagement: vi.fn(),
 }))
 
-import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { isCoveredByActiveHold } from '@/lib/compliance/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess, type ProjectRole } from '@/lib/authz/projects'
 import { threadIsAwaitingHuman } from '@/lib/mentions/service'
@@ -426,6 +430,24 @@ describe('discarding a chat that holds attachments', () => {
     // something to refuse on — without it, one landing between the purge and
     // the row delete lost its row to the cascade and left its bytes behind.
     expect(order).toEqual(['mark', 'purge', 'delete'])
+  })
+
+  it('refuses a held chat with a 409 before it is even marked deleting', async () => {
+    vi.mocked(isCoveredByActiveHold).mockResolvedValueOnce(true)
+
+    const error = await deleteConversation(session, CONVERSATION_ID).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect((error as ConflictError).details).toEqual({
+      reason: 'legal_hold',
+      entityType: 'conversation',
+    })
+    expect(isCoveredByActiveHold).toHaveBeenCalledWith('org_1', 'conversation', CONVERSATION_ID)
+    // The chat stays visible and whole: not marked, not purged, not deleted.
+    expect(markConversationDeleting).not.toHaveBeenCalled()
+    expect(purgeSessionDocuments).not.toHaveBeenCalled()
+    expect(deleteConversationInOrg).not.toHaveBeenCalled()
+    expect(discardConversationDrafts).not.toHaveBeenCalled()
   })
 
   it('KEEPS the conversation when the external cleanup could not finish', async () => {

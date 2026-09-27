@@ -23,6 +23,24 @@ describe('errorResponse', () => {
     expect(response.status).toBe(404)
   })
 
+  it('answers the legal-hold delete trigger (GLH01) with the same 409 the service check gives', async () => {
+    // Migration 0093's backstop: a delete path that forgot to ask the hold gate
+    // still reaches the trigger, and the refusal must read as a hold, not a 500.
+    const error = Object.assign(new Error('Failed query: delete from "documents"'), {
+      cause: Object.assign(new Error('legal hold: document d1 is covered by an active legal hold'), {
+        code: 'GLH01',
+      }),
+    })
+
+    const response = errorResponse(error, new Request('https://grid.test/api/documents/d1', { method: 'DELETE' }))
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({
+      code: 'CONFLICT',
+      details: { reason: 'legal_hold' },
+    })
+  })
+
   it('logs the postgres code beside an unhandled database failure (#581)', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
