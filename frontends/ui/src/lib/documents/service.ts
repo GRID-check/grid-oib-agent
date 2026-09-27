@@ -88,7 +88,7 @@ import { runBimExtraction } from '@/lib/bim/service'
 import { getAccessibleDocument } from './access'
 import { nextVersionNumber, recordUploadedVersionOrDiscard } from './lifecycle'
 import { newVersionWriteId, versionWriteKey } from './version-content'
-import { findOpenVersion } from './version-repository'
+import { findOpenVersion, listDocumentVersionSummaries } from './version-repository'
 import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
 import {
@@ -2141,7 +2141,10 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
   const [reconciled] = await reconcileDocumentStatuses([doc], session.organizationId)
-  const openVersion = await findOpenVersion(reconciled.id, session.organizationId)
+  const [openVersion, [versionSummary]] = await Promise.all([
+    findOpenVersion(reconciled.id, session.organizationId),
+    listDocumentVersionSummaries([reconciled.id], session.organizationId),
+  ])
 
   return {
     id: reconciled.id,
@@ -2187,6 +2190,14 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     // it is in — belong. `null` means the live bytes are the published ones and
     // nothing extra has to travel.
     openVersion: openVersion ? { id: openVersion.id, state: openVersion.state } : null,
+    // HOW MANY VERSIONS, so the chat peek can tell a failed re-upload from a
+    // file that never indexed. A new version that fails to process leaves the
+    // previous one's passages in the index — Piloti still cites it — and a
+    // peek that said "cannot cite this file" for that case was wrong. The same
+    // count the Files listing carries (`summarizeDocumentVersions`), for the
+    // one document this payload is about. `null` when there is no version row
+    // at all, which the peek reads as "no earlier version known".
+    versionCount: versionSummary?.versionCount ?? null,
   }
 }
 

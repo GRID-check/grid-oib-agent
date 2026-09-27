@@ -24,6 +24,7 @@ vi.mock('./version-repository', () => ({
   findDocumentVersion: vi.fn().mockResolvedValue(null),
   findPublishedVersion: vi.fn().mockResolvedValue(null),
   findOpenVersion: vi.fn().mockResolvedValue(null),
+  listDocumentVersionSummaries: vi.fn().mockResolvedValue([]),
   // 2: the only caller asks for it on the REPLACE path, where the next version
   // is by definition not the first.
   nextVersionNumber: vi.fn().mockResolvedValue(2),
@@ -163,7 +164,11 @@ import {
   type ReconcilableDocument,
 } from './reconcile-status'
 import type { DocumentListRow } from './repository'
-import { insertPublishedVersion, nextVersionNumber } from './version-repository'
+import {
+  insertPublishedVersion,
+  listDocumentVersionSummaries,
+  nextVersionNumber,
+} from './version-repository'
 import { LiveFilenameTakenError, ReplacedDocumentGoneError } from './unique-conflicts'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
@@ -1486,6 +1491,27 @@ describe('getDocumentStatus', () => {
     const status = await getDocumentStatus(session, 'doc-1')
 
     expect(status).toHaveProperty('displayName', null)
+  })
+
+  // The chat peek reads this count to tell a failed re-upload (the previous
+  // version is still cited) from a file that never indexed at all.
+  it('carries the version count from the document_versions summary', async () => {
+    vi.mocked(listDocumentVersionSummaries).mockResolvedValueOnce([
+      { documentId: projectDoc.id, versionCount: 2, state: 'published' },
+    ])
+
+    const status = await getDocumentStatus(session, 'doc-1')
+
+    expect(status).toHaveProperty('versionCount', 2)
+    expect(listDocumentVersionSummaries).toHaveBeenCalledWith([projectDoc.id], session.organizationId)
+  })
+
+  it('reports a null versionCount when the document has no version row', async () => {
+    vi.mocked(listDocumentVersionSummaries).mockResolvedValueOnce([])
+
+    const status = await getDocumentStatus(session, 'doc-1')
+
+    expect(status).toHaveProperty('versionCount', null)
   })
 })
 

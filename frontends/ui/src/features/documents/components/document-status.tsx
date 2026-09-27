@@ -71,6 +71,26 @@ export function isFailedStatus(status: string | null | undefined): boolean {
 }
 
 /**
+ * A failed ingestion that left an earlier version citable.
+ *
+ * A new version that fails to process does not take the document out of search:
+ * the ingestor keeps the previous version's passages, so Piloti goes on citing
+ * it while the row (and the download) already point at the new bytes. One rule
+ * for every surface that explains a failure — the pane under the error, the
+ * chat peek in its strip — so the two cannot disagree about the same file.
+ *
+ * `versionCount` is `null`/absent on a payload that did not read it, which is
+ * read as "no earlier version known": the single-version message is the
+ * conservative one.
+ */
+export function failedWithPreviousVersion(file: {
+  status?: string | null
+  versionCount?: number | null
+}): boolean {
+  return isFailedStatus(file.status) && (file.versionCount ?? 0) > 1
+}
+
+/**
  * The document has come to rest without ever being indexed — today, exactly
  * `stored`: an agent-authored report, deliberately never dispatched to
  * `/v1/ingest`. It is the case where "not citable yet" would be a lie, because

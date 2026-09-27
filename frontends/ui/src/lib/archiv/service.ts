@@ -49,6 +49,7 @@ import { assertNoActiveHold } from '@/lib/compliance/holds'
 import {
   nextVersionNumber,
   recordUploadedVersionOrDiscard,
+  summarizeDocumentVersions,
 } from '@/lib/documents/lifecycle'
 import { newVersionWriteId, versionWriteKey } from '@/lib/documents/version-content'
 import type { DocumentListRow } from '@/lib/documents/repository'
@@ -64,7 +65,18 @@ import {
 const BACKEND_FETCH_TIMEOUT_MS = 10_000
 
 export interface ArchivListResult {
-  documents: Array<Omit<DocumentListRow, 'metadata'> & DocumentMetadata>
+  documents: Array<
+    Omit<DocumentListRow, 'metadata'> &
+      DocumentMetadata & {
+        /**
+         * How many versions the document has; `null` without a version row.
+         * The chat peek reads it to say a failed re-upload is still cited
+         * through its previous version — the same count `/api/documents`
+         * carries for a project file.
+         */
+        versionCount: number | null
+      }
+  >
   collectionName: string
   /** Whether the caller may upload/delete (drives the read-only vs manage UI). */
   canManage: boolean
@@ -79,8 +91,15 @@ export interface ArchivListResult {
 export async function listArchiv(session: AuthorizedSession): Promise<ArchivListResult> {
   const rows = await listArchivDocumentRows(session.organizationId)
   const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
+  const versions = await summarizeDocumentVersions(
+    session.organizationId,
+    reconciled.map((row) => row.id),
+  )
   return {
-    documents: reconciled.map(({ metadata: _metadata, ...row }) => row),
+    documents: reconciled.map(({ metadata: _metadata, ...row }) => ({
+      ...row,
+      versionCount: versions.get(row.id)?.versionCount ?? null,
+    })),
     collectionName: archivCollectionName(session.organizationId),
     canManage: canManageArchiv(session),
   }

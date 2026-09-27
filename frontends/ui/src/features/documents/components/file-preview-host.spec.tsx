@@ -190,10 +190,66 @@ describe('FilePreviewHost', () => {
   })
 
   describe('the peek says what the reader needs to know', () => {
-    const peekOnChat = (status: string): void => {
+    const peekOnChat = (status: string, versionCount: number | null = null): void => {
       nav.pathname = '/app/projects/p1/chat'
-      useFilePreviewStore.getState().open({ ...FILE, status }, 'peek', { projectId: 'p1' })
+      useFilePreviewStore.getState().open({ ...FILE, status, versionCount }, 'peek', { projectId: 'p1' })
     }
+
+    it('says a single-version file that failed cannot be cited', () => {
+      peekOnChat('failed', 1)
+      render(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+        </FilePreviewBridge>,
+      )
+
+      expect(screen.getByRole('status')).toHaveTextContent(/Piloti cannot cite this file/i)
+      expect(screen.getByRole('button', { name: 'Details' })).toBeInTheDocument()
+    })
+
+    it('says a failed re-upload is still cited through the previous version', () => {
+      peekOnChat('failed', 2)
+      render(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+        </FilePreviewBridge>,
+      )
+
+      // The index kept the previous version's passages, so "cannot cite" would
+      // be false. The strip says what is actually true, and still offers the
+      // way to the error and the retry for the new file.
+      const strip = screen.getByRole('status')
+      expect(strip).toHaveTextContent(/still citing the previous version/i)
+      expect(strip).not.toHaveTextContent(/cannot cite/i)
+      expect(screen.getByRole('button', { name: 'Details' })).toBeInTheDocument()
+    })
+
+    it('picks up the version count from the settling poll after a re-upload', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: 'doc-1', status: 'failed', versionCount: 2 }),
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      vi.useFakeTimers()
+      try {
+        peekOnChat('processing', 1)
+        render(
+          <FilePreviewBridge>
+            <div>chat transcript</div>
+          </FilePreviewBridge>,
+        )
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5_000)
+        })
+
+        expect(useFilePreviewStore.getState().file).toMatchObject({ status: 'failed', versionCount: 2 })
+        expect(screen.getByRole('status')).toHaveTextContent(/still citing the previous version/i)
+      } finally {
+        vi.useRealTimers()
+        vi.unstubAllGlobals()
+      }
+    })
 
     it('carries the status of a file the agent cannot cite yet', () => {
       peekOnChat('processing')

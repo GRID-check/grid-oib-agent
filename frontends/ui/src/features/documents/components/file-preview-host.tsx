@@ -22,7 +22,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { useDocumentActions, type DocumentScope } from './document-actions'
-import { isCitableStatus, isFailedStatus } from './document-status'
+import { failedWithPreviousVersion, isCitableStatus, isFailedStatus } from './document-status'
 import { FilePreviewPane } from './file-preview-pane'
 import type { FileItem } from './project-file-workspace'
 import {
@@ -197,11 +197,17 @@ export function FilePreviewHost({
       const res = await fetch(`/api/documents/${id}/status`)
       if (!res.ok) return
       const data: unknown = await res.json()
-      const status = (data as { status?: unknown } | null)?.status
+      const body = data as { status?: unknown; versionCount?: unknown } | null
+      const status = body?.status
       // Guard the id: a slow answer for the PREVIOUS document must not land on
       // the one the reader has since opened.
       if (typeof status === 'string' && useFilePreviewStore.getState().file?.id === id) {
-        patchFile({ status })
+        // The count rides along because a re-upload is exactly what puts a
+        // peek back into this poll: the snapshot was taken while the document
+        // had one version, and the failure that follows is only explained
+        // correctly ("still citing the previous version") with the new count.
+        const versionCount = body?.versionCount
+        patchFile(typeof versionCount === 'number' ? { status, versionCount } : { status })
       }
     } catch {
       // Offline or a hiccup — the poll's next tick asks again.
@@ -744,9 +750,15 @@ function PeekToolbar({
           <Spinner size="xs" aria-hidden className="text-muted-foreground mt-0.5 shrink-0" />
         )}
         <p className="text-muted-foreground min-w-0 flex-1 text-pretty leading-snug">
-          {isFailedStatus(file.status)
-            ? t('preview.peekFailedHint')
-            : t('preview.peekIndexingHint')}
+          {/* A failed NEW version is not a file Piloti cannot cite: the
+              previous version's passages stay in the index, so the sentence
+              that says "cannot cite" would be wrong about the one thing the
+              strip exists to say. Same rule as the pane's failure panel. */}
+          {failedWithPreviousVersion(file)
+            ? t('preview.peekFailedPreviousVersionHint')
+            : isFailedStatus(file.status)
+              ? t('preview.peekFailedHint')
+              : t('preview.peekIndexingHint')}
         </p>
         {/* NO DEAD ENDS. "Piloti cannot cite this file" was a statement with
             nothing after it — the worst kind of message, because it tells the

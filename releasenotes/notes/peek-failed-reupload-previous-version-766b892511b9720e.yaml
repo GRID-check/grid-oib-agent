@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    When a new version of a file cannot be read, the file preview beside the
+    chat now says that Piloti is still citing the previous version, instead of
+    saying the file cannot be cited at all.

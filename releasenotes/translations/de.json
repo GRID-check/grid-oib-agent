@@ -2048,6 +2048,10 @@
     "de": "Wenn eine neue Version veröffentlicht wird, wird die vorherige aus dem Index entfernt, bevor die neue aufgenommen wird. So antwortet Piloti nie auf Basis einer gerade ersetzten Version. Ältere Versionen bleiben in der Versionsliste und lassen sich weiterhin öffnen."
   },
   {
+    "en": "When a new version of a file cannot be read, the file preview beside the chat now says that Piloti is still citing the previous version, instead of saying the file cannot be cited at all.",
+    "de": "Lässt sich eine neue Fassung einer Datei nicht lesen, sagt die Dateivorschau neben dem Chat jetzt, dass Piloti weiterhin die vorige Fassung zitiert, statt zu melden, die Datei sei gar nicht zitierbar."
+  },
+  {
     "en": "When a project has more notes than fit in one answer, Piloti now says so instead of silently showing a partial list, and pinned notes can no longer push everything else out of view.",
     "de": "Wenn ein Projekt mehr Notizen enthält, als in eine Antwort passen, weist Piloti jetzt darauf hin, statt stillschweigend nur einen Teil der Liste anzuzeigen, und angeheftete Notizen können nicht mehr alles andere aus dem Blickfeld verdrängen."
   },

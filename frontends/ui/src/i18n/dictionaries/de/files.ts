@@ -200,6 +200,8 @@ export const files: typeof en.files = {
     resizePeek: 'Breite der Dateivorschau ändern',
     peekIndexingHint: 'Piloti kann diese Datei erst nach der Indizierung zitieren.',
     peekFailedHint: 'Indizierung fehlgeschlagen — Piloti kann diese Datei nicht zitieren.',
+    peekFailedPreviousVersionHint:
+      'Die neue Datei konnte nicht gelesen werden — Piloti zitiert weiterhin die vorige Fassung.',
     peekFailedAction: 'Details',
   },
   browser: {
