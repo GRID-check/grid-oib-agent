@@ -194,6 +194,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/ws-frames.js ./src
 # the WebSocket upgrade. `server-js-runtime-copies.spec.ts` fails when a
 # `server.js` require has no COPY line here.
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/proxy/ws-upgrade-headers.js ./src/lib/proxy/ws-upgrade-headers.js
+# And this one to classify and log WebSocket teardown after the upgrade.
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/proxy/ws-teardown.js ./src/lib/proxy/ws-teardown.js
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 
