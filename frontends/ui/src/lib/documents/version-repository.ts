@@ -352,6 +352,30 @@ export async function compareAndSwapVersionState(
 }
 
 /**
+ * A compare-and-swap inside a transaction matched nothing.
+ *
+ * Thrown to roll the transaction back and caught OUTSIDE it, where it becomes
+ * the `null` the caller reads as a 409.
+ *
+ * ## Why not `tx.rollback()`
+ *
+ * {@link promoteVersionToPublished} used to call it and then `return null`. On
+ * drizzle 0.45 with postgres-js, `rollback()` does not mark the transaction and
+ * return: it THROWS `TransactionRollbackError`, and `db.transaction` re-throws
+ * it. The `return null` after it was unreachable, so the loser of two people
+ * pressing „Veröffentlichen" at once got a 500 instead of the promised 409.
+ * Throwing a class of our own keeps the rollback and makes the outcome
+ * something this module decides, not whatever the driver's error type is in the
+ * next release. `version-repository.spec.ts` pins it.
+ */
+export class LostCompareAndSwap extends Error {
+  constructor() {
+    super('compare-and-swap matched no row')
+    this.name = 'LostCompareAndSwap'
+  }
+}
+
+/**
  * Publish a version: supersede whatever was published, swap this one in, and
  * point the item at it — in ONE transaction.
  *
@@ -384,56 +408,58 @@ export async function promoteVersionToPublished(
   patch: Partial<Omit<NewDocumentVersion, 'id' | 'organizationId' | 'documentId'>> = {},
 ): Promise<{ version: DocumentVersion; superseded: DocumentVersion[] } | null> {
   const db = getDb()
-  const outcome = await db.transaction(async (tx) => {
-    const superseded = await tx
-      .update(documentVersions)
-      .set({ state: 'superseded', updatedAt: new Date() })
-      .where(
-        and(
-          eq(documentVersions.documentId, documentId),
-          eq(documentVersions.organizationId, organizationId),
-          eq(documentVersions.state, 'published'),
-          ne(documentVersions.id, versionId),
-        ),
-      )
-      .returning()
+  try {
+    return await db.transaction(async (tx) => {
+      const superseded = await tx
+        .update(documentVersions)
+        .set({ state: 'superseded', updatedAt: new Date() })
+        .where(
+          and(
+            eq(documentVersions.documentId, documentId),
+            eq(documentVersions.organizationId, organizationId),
+            eq(documentVersions.state, 'published'),
+            ne(documentVersions.id, versionId),
+          ),
+        )
+        .returning()
 
-    const [swapped] = await tx
-      .update(documentVersions)
-      .set({ ...patch, updatedAt: new Date() })
-      .where(
-        and(
-          eq(documentVersions.id, versionId),
-          eq(documentVersions.organizationId, organizationId),
-          eq(documentVersions.state, expected),
-        ),
-      )
-      .returning()
+      const [swapped] = await tx
+        .update(documentVersions)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(
+          and(
+            eq(documentVersions.id, versionId),
+            eq(documentVersions.organizationId, organizationId),
+            eq(documentVersions.state, expected),
+          ),
+        )
+        .returning()
 
-    if (!swapped) {
       // Roll the supersede back with the failed swap: a document that lost its
       // published version because somebody else won the race is worse than the
-      // 409 the caller is about to get.
-      tx.rollback()
-      return null
-    }
+      // 409 the caller is about to get. Thrown and caught below, never
+      // `tx.rollback()` — see {@link LostCompareAndSwap}.
+      if (!swapped) throw new LostCompareAndSwap()
 
-    await tx
-      .update(documents)
-      .set({
-        publishedVersionId: swapped.id,
-        storageKey: swapped.storageKey,
-        storageBucket: swapped.storageBucket,
-        contentType: swapped.contentType,
-        fileSize: swapped.fileSize,
-        contentHash: swapped.contentHash,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId)))
+      await tx
+        .update(documents)
+        .set({
+          publishedVersionId: swapped.id,
+          storageKey: swapped.storageKey,
+          storageBucket: swapped.storageBucket,
+          contentType: swapped.contentType,
+          fileSize: swapped.fileSize,
+          contentHash: swapped.contentHash,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId)))
 
-    return { version: swapped, superseded }
-  })
-  return outcome ?? null
+      return { version: swapped, superseded }
+    })
+  } catch (error) {
+    if (error instanceof LostCompareAndSwap) return null
+    throw error
+  }
 }
 
 /**

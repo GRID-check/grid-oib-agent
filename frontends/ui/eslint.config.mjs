@@ -110,6 +110,25 @@ export default [
     rules: { 'grid/card-type-scale': 'error' },
   },
   {
+    // drizzle's `tx.rollback()` THROWS `TransactionRollbackError`; it does not
+    // return. `promoteVersionToPublished` called it and then `return null`, the
+    // null was unreachable, and a lost publish race answered 500 instead of 409.
+    // Throw a sentinel of your own inside the transaction and catch it outside
+    // (`LostCompareAndSwap` in lib/documents/version-repository.ts).
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.spec.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.property.name='rollback'][arguments.length=0]",
+          message:
+            "drizzle's tx.rollback() throws TransactionRollbackError, so nothing after it runs. Throw a sentinel inside the transaction and catch it outside (see LostCompareAndSwap).",
+        },
+      ],
+    },
+  },
+  {
     files: ['src/**/*.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-unused-vars': [

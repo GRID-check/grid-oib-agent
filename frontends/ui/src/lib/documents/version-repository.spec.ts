@@ -31,9 +31,15 @@ const proxyDb = drizzle(async (sql, params) => {
   return { rows: [] }
 })
 
-vi.mock('@/lib/db', () => ({ getDb: () => proxyDb }))
+/**
+ * The handle `getDb()` returns. The pg-proxy driver refuses transactions, so a
+ * test about one swaps in a drizzle-SHAPED fake (below) for its duration.
+ */
+let currentDb: unknown = proxyDb
+vi.mock('@/lib/db', () => ({ getDb: () => currentDb }))
 
-import { findPreviousVersion } from './version-repository'
+import { TransactionRollbackError } from 'drizzle-orm'
+import { findPreviousVersion, promoteVersionToPublished } from './version-repository'
 
 function onlyQuery(): CapturedQuery {
   expect(captured).toHaveLength(1)
@@ -42,6 +48,71 @@ function onlyQuery(): CapturedQuery {
 
 beforeEach(() => {
   captured.length = 0
+  currentDb = proxyDb
+})
+
+/**
+ * A transaction handle that behaves the way drizzle 0.45 on postgres-js does
+ * where it matters: `db.transaction` re-throws whatever its callback throws,
+ * and `tx.rollback()` THROWS `TransactionRollbackError` rather than returning.
+ * Each `update(...).returning()` answers the next queued row list.
+ */
+function fakeTransactionalDb(updateResults: unknown[][]) {
+  const statements: string[] = []
+  const tx = {
+    rollback: () => {
+      throw new TransactionRollbackError()
+    },
+    update: () => ({
+      set: () => ({
+        where: () => {
+          const result = updateResults.shift() ?? []
+          statements.push('UPDATE')
+          const settled = Promise.resolve(result)
+          return Object.assign(settled, { returning: async () => result })
+        },
+      }),
+    }),
+  }
+  return {
+    statements,
+    db: { transaction: async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx) },
+  }
+}
+
+describe('promoteVersionToPublished — the loser of a publish race', () => {
+  it('reports a lost compare-and-swap as null (the 409), not as a thrown rollback (a 500)', async () => {
+    // supersede → one row; the swap → nothing matched.
+    const fake = fakeTransactionalDb([[{ id: 'ver_old' }], []])
+    currentDb = fake.db
+
+    await expect(
+      promoteVersionToPublished('ver_new', 'doc_1', 'org_1', 'approved', {}),
+    ).resolves.toBeNull()
+    // The pointer move never ran: the transaction was abandoned at the swap.
+    expect(fake.statements).toEqual(['UPDATE', 'UPDATE'])
+  })
+
+  it('still returns the published version and the superseded one when it wins', async () => {
+    const fake = fakeTransactionalDb([[{ id: 'ver_old' }], [{ id: 'ver_new' }], []])
+    currentDb = fake.db
+
+    await expect(
+      promoteVersionToPublished('ver_new', 'doc_1', 'org_1', 'approved', {}),
+    ).resolves.toEqual({ version: { id: 'ver_new' }, superseded: [{ id: 'ver_old' }] })
+    expect(fake.statements).toEqual(['UPDATE', 'UPDATE', 'UPDATE'])
+  })
+
+  it('lets a real database failure through rather than calling it a lost race', async () => {
+    currentDb = {
+      transaction: async () => {
+        throw new Error('connection reset')
+      },
+    }
+    await expect(
+      promoteVersionToPublished('ver_new', 'doc_1', 'org_1', 'approved', {}),
+    ).rejects.toThrow('connection reset')
+  })
 })
 
 describe('findPreviousVersion — the diff base', () => {
