@@ -612,7 +612,7 @@ class ConversationGraph:
         # Transparency must never take a turn down, and the stakes went UP when this
         # moved into a conditional edge: a raise inside a routing function does not
         # degrade the turn, it ends it with no answer at all. Nothing in
-        # ``emit_escalation`` can raise today (``push_custom_step`` swallows, and
+        # ``emit_escalation`` can raise today (``turn_status.emit`` swallows, and
         # ``clip``/``str.split`` are total on ``str | None``), which is exactly why the
         # guard has to be here rather than trusted to stay true one refactor from now.
         try:
