@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    Hat Piloti in einer Antwort einen Entwurf abgelegt, eine Aufgabe angelegt,
+    Dokumente zusammengestellt oder etwas zum Merken vorgeschlagen, erscheinen
+    diese Karten und die Karten der Antwort jetzt, während die Antwort noch
+    geprüft wird. Bisher kamen in solchen Antworten alle Karten erst ganz am
+    Schluss.

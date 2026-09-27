@@ -787,7 +787,9 @@ on a line of its own in the answer body is consumed by a remark plugin
 cards no marker claimed still follow the prose as a block, which is also what
 happens when the answer places none. While the answer streams, that block is
 drawn as soon as "unplaced" is final: a live frame carries cards only once the
-envelope's `answer` string has closed, so an answer that holds cards has all
+envelope's `answer` string has closed (the tools' cards of the turn go out at
+that moment, ahead of the envelope's and numbered as the terminal numbers
+them, `LiveAnswer.place`), so an answer that holds cards has all
 its prose, and once the paced reveal has shown it no marker is still to come
 (`unplacedIsFinal` in `features/chat/components/AgentResponse.tsx`). It used to
 wait for the terminal frame, after verification and the rest of the pipeline. Position is used rather than an id because

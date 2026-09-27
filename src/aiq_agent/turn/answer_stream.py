@@ -60,7 +60,12 @@ class Masthead:
 
 @dataclass(frozen=True)
 class Cards:
-    """The answer's cards so far, in envelope order; ``None`` holds a refused card's place."""
+    """The answer's cards so far, in the terminal's order; ``None`` holds a refused card's place.
+
+    The cards tools registered this turn come first, then the envelope's as
+    each closes, so ``[[card:N]]`` finds the same card here as in the
+    terminal frame, and an interactive card keeps its ``${type}-${index}`` key.
+    """
 
     cards: list[dict[str, Any] | None]
 
@@ -79,6 +84,10 @@ class Live(Protocol):
     def masthead(self, fields: dict[str, Any], prose: str = "") -> dict[str, Any] | None: ...
 
     def settle(self, prose: str, sources_text: str, fields: dict[str, Any] | None) -> Any: ...
+
+    def tool_cards(self) -> list[dict[str, Any]]: ...
+
+    def place(self, text: str) -> str: ...
 
     def card(self, payload: Any) -> dict[str, Any] | None: ...
 
@@ -221,11 +230,16 @@ class _ProseTokenHandler(AsyncCallbackHandler):
             self._show_masthead(reader.masthead)
         if delta:
             self._shown = True
-            self._sink.push(delta)
+            self._sink.push(self._placed(delta))
         if reader.closed and not self._settled:
             self._settled = True
             await self._settle_prose(reader)
-        if self._settled:
+            # The tools' cards head the list, and go out with the settled
+            # prose even when the envelope has none of its own: the reader
+            # draws an unplaced card once the prose is complete.
+            self._cards = list(self._guarded("tool cards", lambda live: live.tool_cards()) or [])
+            self._show_cards(reader.take_cards(), announce=bool(self._cards and reader.emitted))
+        elif self._settled:
             self._show_cards(reader.take_cards())
 
     async def on_llm_end(self, response: Any, **kwargs: Any) -> None:
@@ -263,15 +277,26 @@ class _ProseTokenHandler(AsyncCallbackHandler):
         if settled is not None:
             self._put(
                 Snapshot(
-                    content=settled.content,
+                    content=self._placed(settled.content),
                     sources=list(settled.sources),
                     answer_meta=getattr(settled, "answer_meta", None),
                 )
             )
 
-    def _show_cards(self, payloads: list[dict[str, Any]]) -> None:
-        """Each card as it closes; its place is kept even when it is refused."""
-        if not payloads:
+    def _placed(self, text: str) -> str:
+        """``text`` with its card markers at the positions the live list gives them (``Live.place``)."""
+        if "[[card:" not in text:
+            return text
+        placed = self._guarded("placement", lambda live: live.place(text))
+        return placed if isinstance(placed, str) else text
+
+    def _show_cards(self, payloads: list[dict[str, Any]], *, announce: bool = False) -> None:
+        """Each card as it closes, after the tools'; its place is kept even when it is refused.
+
+        ``announce`` sends the list even when no card closed now: the tools'
+        cards, the moment the prose settles.
+        """
+        if not payloads and not announce:
             return
         for payload in payloads:
             self._cards.append(self._guarded("card", lambda live, payload=payload: live.card(payload)))
