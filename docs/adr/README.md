@@ -106,7 +106,7 @@ Consequences, where a reader looks for them.
 | [0044](0044-langfuse-durable-llm-observability.md) | Langfuse as the durable LLM-observability backend | Proposed |
 | [0045](0045-ifc-models-as-a-queryable-building-not-a-document.md) | IFC models are a queryable building, not another document | Accepted |
 | [0046](0046-agent-skills.md) | Agent skills — user-selected, progressive-disclosure instruction packages | Proposed |
-| [0047](0047-document-shelf-travels-as-data.md) | A document's shelf travels as data, not as a name or a label | Proposed |
+| [0047](0047-document-shelf-travels-as-data.md) | A document's shelf travels as data, not as a name or a label | Accepted |
 | [0048](0048-tool-schemas-stay-with-the-provider.md) | Tool schemas stay with the provider, and a namespace is what makes that true | Proposed |
 | [0049](0049-folders-travel-as-a-materialised-path.md) | Folders reach the backend as a materialised path, mirrored on move | Proposed |
 | [0050](0050-scoped-agent-onboarding-guides.md) | Agent onboarding guides are scoped per service and bridged into Claude Code by import | Accepted |
