@@ -284,6 +284,10 @@
     "de": "Auch ein Recherchebericht kann jetzt eine Datei aus dem Projekt oder dem Büroarchiv als Karte zeigen, wie es der Chat schon konnte."
   },
   {
+    "en": "A research run or task that finished during a brief outage now shows its result, instead of staying \"running\" with an empty message forever. Piloti checks unfinished runs regularly and fills in what was missed.",
+    "de": "Ein Recherchelauf oder Auftrag, der während eines kurzen Ausfalls fertig wurde, zeigt jetzt sein Ergebnis, statt für immer „läuft“ mit einer leeren Nachricht anzuzeigen. Piloti prüft unfertige Läufe regelmäßig und ergänzt, was gefehlt hat."
+  },
+  {
     "en": "A research run that hits your organization's budget now says so and tells you where an admin can raise the limit, instead of reporting an internal error.",
     "de": "Scheitert ein Recherchelauf am Budget Ihrer Organisation, sagt die Meldung das jetzt und nennt, wo ein Admin die Grenze anheben kann, statt einen internen Fehler zu melden."
   },
