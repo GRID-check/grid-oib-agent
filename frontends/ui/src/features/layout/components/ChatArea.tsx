@@ -37,6 +37,7 @@ import {
   formatElapsed,
 } from '@/features/chat'
 import type { ChatMessage, StatusType, ThinkingStep } from '@/features/chat'
+import { useAnswerRevealStore } from '@/features/chat/stores/answer-reveal-store'
 import type { ChoicePrompt } from '@/features/chat/components/reasoning'
 // Imported from its own module rather than the `@/features/chat` barrel so the
 // shared-thread additions do not depend on that barrel's mock in existing specs.
@@ -140,6 +141,12 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
       isRecoveryPending: s.isRecoveryPending,
     }))
   )
+  // The stream ends before the answer's text is all on screen: the answer
+  // finishes what its pace held back, then settles. The Herleitung stays live
+  // until then, so it collapses in the same frame the answer settles, not
+  // while the text is still growing (`answer-reveal-store.ts`).
+  const answerRevealing = useAnswerRevealStore((s) => s.revealingId !== null)
+  const turnLive = isStreaming || answerRevealing
 
   const respondToPrompt = useChatStore((s) => s.respondToPrompt)
   // The project this thread is scoped to. Read here for one reason: the
@@ -859,7 +866,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         // Derive post-thinking state for user messages with thinking steps.
                         // Priority: isThinking (active) > isWaiting (HITL) > isInterrupted > done
                         const isCurrentlyStreaming =
-                          isStreaming && message.id === currentUserMessageId
+                          turnLive && message.id === currentUserMessageId
                         const shouldCheckPostState =
                           isUserMessage && hasThinkingSteps && !isCurrentlyStreaming
                         const remaining = shouldCheckPostState
@@ -1000,11 +1007,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                               <div className="w-full">
                                 <ChatThinking
                                   steps={messageSteps}
-                                  isThinking={isStreaming && message.id === currentUserMessageId}
-                                  autoOpen={
-                                    (isStreaming && message.id === currentUserMessageId) ||
-                                    isWaiting
-                                  }
+                                  isThinking={isCurrentlyStreaming}
+                                  autoOpen={isCurrentlyStreaming || isWaiting}
                                   isWaiting={isWaiting}
                                   isInterrupted={isInterrupted}
                                   isRecoveryPending={isRecoveryPending}

@@ -11,30 +11,45 @@
  * have, over text that was already finished; this one smooths a latency the
  * system does have, and never holds text back longer than `MAX_LAG_MS`.
  *
- * Only a streaming answer is paced. A finished one is shown whole at once:
- * the terminal frame is authoritative, and pacing it made the answer drain
- * after the reasoning had already collapsed, a second jump where one belongs
- * (stream audit 2026-09, defect 4). A rewrite of text already shown (the
- * settled snapshot renumbering a marker) is a correction, not new text: it
- * keeps the length that was shown and paces only what lies beyond it
+ * When the turn ends, what is still held back is not dumped at once: it is
+ * finished quickly (`finishCut`, 300–500 ms), and only then does the answer
+ * settle (the caret goes, the footer and the unplaced cards come, the
+ * Herleitung collapses), all in one frame. Dumping it was a visible jump once
+ * the reveal held back more than a beat. Pacing the terminal at the streaming
+ * rate made the answer drain after the reasoning had already collapsed, a
+ * second jump where one belongs (stream audit 2026-09, defect 4); the finish
+ * is short, and nothing settles until it is done. A rewrite of text already
+ * shown (the settled snapshot renumbering a marker) is a correction, not new
+ * text: it keeps the length that was shown and paces only what lies beyond it
  * (`keepThroughRewrite`). It used to fall back to the first changed character
  * and type the answer out again (defect 1).
  *
  * Pure, so the rules are testable without timers: `advancePace` takes the
- * state, what has arrived and how long since the last tick, and returns the
+ * state, what has arrived and how long since the last step, and returns the
  * next state.
  */
 
 import { isDelimiterRow } from '@/lib/text/markdown-table'
 
-/** How far behind the arrivals the reveal aims to sit. */
-export const TARGET_LAG_MS = 450
+/**
+ * How far behind the arrivals the reveal aims to sit. Long enough that the
+ * bursts the model and the store batching deliver (a sentence, then half a
+ * second of nothing) are paid out at one steady rate instead of the reveal
+ * speeding up and stalling, which is what gives the word fade room to read.
+ */
+export const TARGET_LAG_MS = 1200
 /** The most the reveal may hold back: past this it catches up at once. */
-export const MAX_LAG_MS = 1200
+export const MAX_LAG_MS = 2500
 /** The slowest the reveal goes while there is anything to show, in characters per second. */
 export const MIN_CHARS_PER_SECOND = 45
-/** How often the reveal steps, in ms. Coarse on purpose: every step re-parses the answer. */
-export const PACE_TICK_MS = 50
+/** The most unused rate one step carries to the next, in ms at the current rate. */
+const CREDIT_CAP_MS = 200
+/** The finish of a turn's held-back text takes at least this long… */
+export const FINISH_MIN_MS = 300
+/** …and at most this long, however much is left. */
+export const FINISH_MAX_MS = 500
+/** Between the two, each character left adds this much. */
+const FINISH_MS_PER_CHAR = 0.5
 
 export interface PaceState {
   /** How many characters of the arrived text are shown. */
@@ -136,6 +151,12 @@ export function noteArrival(state: PaceState, length: number, now: number): Pace
   return { ...state, arrivals: [...state.arrivals, length], arrivedAt: [...state.arrivedAt, now] }
 }
 
+/** The two numbers the reveal is tuned by; the defaults are the shipped ones. */
+export interface PaceTuning {
+  targetLagMs?: number
+  maxLagMs?: number
+}
+
 /**
  * One step of the reveal of a streaming answer.
  *
@@ -145,31 +166,59 @@ export function noteArrival(state: PaceState, length: number, now: number): Pace
  * text that is already moving, not for holding back the first words. Text
  * that has waited `MAX_LAG_MS` is shown whatever the rate says, clean or not.
  */
-export function advancePace(state: PaceState, text: string, elapsedMs: number, now: number): PaceState {
+export function advancePace(
+  state: PaceState,
+  text: string,
+  elapsedMs: number,
+  now: number,
+  { targetLagMs = TARGET_LAG_MS, maxLagMs = MAX_LAG_MS }: PaceTuning = {}
+): PaceState {
   const length = text.length
   if (state.shown >= length) return { ...state, shown: length, credit: 0, arrivals: [], arrivedAt: [] }
 
   const backlog = length - state.shown
-  const perSecond = Math.max(MIN_CHARS_PER_SECOND, (backlog * 1000) / TARGET_LAG_MS)
+  const perSecond = Math.max(MIN_CHARS_PER_SECOND, (backlog * 1000) / targetLagMs)
   const credit = state.credit + (perSecond * elapsedMs) / 1000
   const limit = Math.min(length, state.shown + Math.floor(credit))
 
   // Whatever arrived longer ago than the ceiling is due now.
   let due = state.shown
   state.arrivals.forEach((boundary, i) => {
-    if (now - (state.arrivedAt[i] ?? now) >= MAX_LAG_MS) due = Math.max(due, boundary)
+    if (now - (state.arrivedAt[i] ?? now) >= maxLagMs) due = Math.max(due, boundary)
   })
 
   const first = state.shown === 0 ? (nextCleanCut(text, 0) ?? 0) : 0
   const cut = Math.max(due, first, furthestCleanCut(text, state.shown, limit))
   const shown = Math.min(length, cut)
   const keep = state.arrivals.map((b, i) => [b, state.arrivedAt[i] ?? now] as const).filter(([b]) => b > shown)
+  // What the cut did not use carries over, but never more than a moment's
+  // worth of catching up, so a long wait for a clean cut does not become a
+  // lurch. Always enough to reach the next word, though: at a slow rate a
+  // moment is fewer characters than „erforderlich, " has, and a cap below the
+  // next word stalls the reveal until the ceiling dumps the text.
+  const nextWord = shown < length ? (nextCleanCut(text, shown) ?? length) - shown : 0
+  const cap = Math.max((perSecond * CREDIT_CAP_MS) / 1000, nextWord)
   return {
     shown,
-    // What the cut did not use carries over, but never more than one tick's worth
-    // of catching up: a long wait for a clean cut must not become a lurch.
-    credit: Math.max(0, Math.min(credit - (shown - state.shown), perSecond * (PACE_TICK_MS / 1000) * 4)),
+    credit: Math.max(0, Math.min(credit - (shown - state.shown), cap)),
     arrivals: keep.map(([b]) => b),
     arrivedAt: keep.map(([, t]) => t),
   }
+}
+
+/** How long the finish of `remaining` held-back characters takes. */
+export const finishDuration = (remaining: number): number =>
+  Math.min(FINISH_MAX_MS, Math.max(FINISH_MIN_MS, FINISH_MIN_MS + remaining * FINISH_MS_PER_CHAR))
+
+/**
+ * Where the finish of a turn stands `elapsedMs` into it: the text was shown up
+ * to `from` when the turn ended, and the rest is revealed over `durationMs`,
+ * fast at first and easing into the end, cut at clean word gaps. At the end
+ * it is the whole text.
+ */
+export function finishCut(text: string, from: number, shown: number, elapsedMs: number, durationMs: number): number {
+  if (elapsedMs >= durationMs) return text.length
+  const progress = 1 - (1 - elapsedMs / durationMs) ** 2
+  const target = from + Math.floor((text.length - from) * progress)
+  return Math.max(shown, furthestCleanCut(text, shown, target))
 }

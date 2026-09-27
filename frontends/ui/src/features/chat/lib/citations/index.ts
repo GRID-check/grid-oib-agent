@@ -88,6 +88,7 @@ export {
   documentShelfLabel,
   documentTabLabel,
   referencesByNumber,
+  proseLength,
   splitAnswerBody,
   totalHits,
   unusedDocuments,

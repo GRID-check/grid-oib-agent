@@ -242,18 +242,31 @@ Three rules keep the rest to the answer bubble:
   count, a boolean), and the sessions panel's rows keep their identity across a
   flush (`use-session-rows.ts`). A flush does not bump `updatedAt`.
 
-**Why the Markdown is re-parsed whole on every flush.** Rendering the
-streamed prefix costs about 3 ms per flush for the recorded 2.9k-character
-answer, 84% of it parsing (2026-09, `MarkdownRenderer` rendered to a string
-under vitest). Rendering only the blocks that changed would save little
-unless the parse were incremental too, and Markdown is not safely
-incremental: a later line can change earlier blocks (a `---` under a
-paragraph makes it a heading, a delimiter row makes it a table, a blank line
-makes a whole list loose). The cost is linear in length, about 14 ms at 9k
-characters and 30 ms at 17k, so it starts to cost frames on answers past
-roughly 10k characters. Revisit when answers that long are common, and
-check any incremental scheme against rendering the whole text for every
-prefix of the recorded answers.
+**The Markdown is parsed block by block.** `MarkdownRenderer` cuts the text
+into top-level blocks of at least 1200 characters (`markdown-blocks.ts`) and
+parses each on its own, memoised on its source, so a reveal step parses only
+the block that grew. Parsing the whole text on every step cost time linear in
+the answer's length: on a production build at 390×844 with a 4× CPU throttle,
+a 10k-character answer spent 262 ms of every second in the Markdown pipeline,
+its commits reached 41 ms at p95, and it had 32 long tasks (2026-09). Blocks
+brought that to 75 ms, 14 ms and 7 to 9 long tasks.
+
+Markdown is not safely incremental: a later line can change earlier blocks (a
+`---` under a paragraph makes it a heading, a delimiter row makes it a table,
+a blank line makes a whole list loose). So the text is cut only where no later
+line can reach back across the cut, and one that holds a construct reaching
+across blocks (a link definition, a footnote, an HTML block) is not cut at
+all. The rule it is held to, `streaming-markdown-equivalence.spec.tsx`: for
+every prefix of the recorded answers, the blocks render the same HTML as the
+whole text rendered at once, at the default size and with a cut at every
+permitted place. A cut, once made, stays where it is while the text grows.
+
+Why a minimum size: every parse has a fixed cost, and when the turn ends
+every block is parsed again, because the chat's plugins stop drawing pending
+markers. A block per paragraph made that settle cost nearly twice what the
+whole text does. At 1200 characters it is back near the whole-text cost: 28
+against 24 ms for 11k characters under vitest. In the browser it is 10 to 25
+ms heavier for a 2.6k-character answer, and no heavier for a 10k one.
 
 **A reload mid-answer.** Nothing streams in a page that is only now loading,
 so the storage drops a stored answer that still says `isStreaming` when it
@@ -399,11 +412,32 @@ arrived, the answer lurched forward a sentence at a time. Since 2026-09 it is
 shown at a steady pace a beat behind what has arrived (`usePacedText`, rules
 in `features/chat/lib/stream-pace.ts`):
 
-- The reveal aims to sit `TARGET_LAG_MS` (450 ms) behind the arrivals, never
+- The reveal aims to sit `TARGET_LAG_MS` (1.2 s) behind the arrivals, never
   slower than `MIN_CHARS_PER_SECOND`, and never holds text back longer than
-  `MAX_LAG_MS` (1.2 s).
-- It steps every `PACE_TICK_MS` (50 ms), not every frame: each step re-parses
-  the answer as Markdown, and a phone pays for that per step.
+  `MAX_LAG_MS` (2.5 s). Long enough that a burst is paid out at one rate
+  rather than the reveal speeding up and stalling. Simulated over both
+  recorded answers, targets from 1.0 to 1.5 s and ceilings from 2 to 3 s
+  differ little: the stalls that remain (0.6 s at most) are the model's own
+  pauses. 1.2 s had the steadiest rate. 1.5 s left twice the text for the
+  finish (below).
+- It is clocked by animation frames but commits only when the cut moves to
+  the next word gap, so a word appears whole and the Markdown block that grew
+  is re-parsed once per word, about 24 times a second on the recorded answer,
+  as often as the 50 ms tick it replaced. The rate's carried-over credit
+  always reaches the next word: capped at 200 ms of a slow rate, it could not
+  reach „erforderlich, " and the reveal stalled until the ceiling dumped it.
+- The newest words come out of a short gradient that trails the caret, drawn
+  in the card's colour (`StreamingCaret`'s `veil`): each word starts faint and
+  darkens as the next ones push it out. It moves with the caret and animates
+  nothing. A fade per word (a span per word, each playing an opacity and 2 px
+  lift entrance once, keyed so a shown word kept its DOM node) was built and
+  measured first: on the prose-heavy recorded answer at 390 px with a 4×
+  throttle it took fps from 57 to 45–49, long tasks from 4 to 7–10 and main
+  thread from 580 to 780 ms/s, because each word is a compositor layer
+  painted twice. With `display` animated in the keyframes the compositor
+  could not run it at all (165 paints/s against 105); as an inline opacity
+  fade it painted every frame (330/s). The veil keeps fps at 57–58, long
+  tasks at 2–4 and main thread at 550 ms/s (2026-09).
 - It cuts only at a word gap outside an open `**`, link, code span, fence or
   table row; a table row appears whole. A store flush boundary is not a clean
   cut: a recorded first delta was `**Die Außentreppe ist in GK 4 in A2`, and
@@ -418,17 +452,47 @@ in `features/chat/lib/stream-pace.ts`):
   again: 1086 → 391 characters on the phone, and CLS in the answer phase
   0.16 → 1.19 (stream audit, 2026-09). A spec replays both recorded answers
   through the hook and fails if the shown text ever shrinks.
-- A finished answer is never paced. The terminal is authoritative and is
-  shown whole the moment it lands, so the answer settles in the same frame
-  as the reasoning collapses; a drain after the terminal made the end of the
-  turn jump twice (CLS after completion on the phone 0.02 → 0.59).
-  `AgentResponse` gates its caret, footer and whole-answer actions on
-  `isStreaming` alone.
+- Only the prose is paced. A written `## Quellen` section is lifted into the
+  source rows and never drawn as text (`proseLength`), so it joins the text
+  once the prose is all shown. Pacing it held the end of the turn back by
+  half a second after the last visible word.
 
-Measured on the recorded answer (production build, 390 px, 4× throttle): the
-visible text grows in steps of 15 characters every 50 ms (median) where it
-used to grow in 25-character steps every 83 ms with gaps up to 400 ms, and
-long tasks during the answer fell from 9–12 to 4–7.
+**The end of the turn is one step.** With more than a second held back,
+showing the terminal whole would be a visible jump, and draining it at the
+streaming rate after the reasoning had collapsed made the end jump twice
+(CLS after completion on the phone 0.02 → 0.59, removed in #772). So:
+
+1. When the terminal lands, the text still held back is finished in 300–500
+   ms (`finishCut`, `finishDuration`: longer for more text, fast at first and
+   easing into the end, at clean word gaps). The caret fades out meanwhile.
+   A terminal that does not continue what is shown (a rewrite, a shorter
+   text) is shown whole at once, never typed again.
+2. Only when all of it is on screen is the answer `settled`, and everything
+   that belongs to a finished answer follows that, not `isStreaming`: the
+   caret goes, the footer and the unplaced cards come, the citation chips
+   turn real, and the Herleitung collapses. The Herleitung lives in
+   `ChatArea`, outside the answer, so the answer publishes that it is still
+   revealing (`stores/answer-reveal-store.ts`) and `ChatArea` keeps the turn
+   live until it stops.
+3. A hidden page gets no animation frames, so a turn that ends while the page
+   is hidden, or is hidden during the finish, settles at once; a timer
+   settles it if the frames stop for any other reason (`SETTLE_GRACE_MS`).
+
+Specs: `use-paced-text.spec.ts` (settles only with the last word, settles
+once, the hidden-page and timer fallbacks, and the recorded answers never
+shrink and land whole at the end of the finish), `AgentResponse.settle.spec.tsx`
+(the copy action and the reveal signal change in the frame the text is
+complete, and the signal fires once), `ChatArea.spec.tsx` (the Herleitung
+stays live until the answer has settled), and
+`streaming-markdown-equivalence.spec.tsx` (what is already shown keeps its DOM
+nodes through a reveal step).
+
+Measured on both recorded answers (production build, 390×844, 4× throttle,
+against the block-parsing renderer before this change): the answer settles
+70–100 ms after the terminal; CLS after completion is unchanged (0.18–0.20 on
+`varianten`, 0.59–0.69 on `oib2`, where it comes from the card placeholder
+leaving and the Herleitung's height animation, both at the settle); fps,
+long tasks and main-thread time are within run-to-run noise of before.
 
 This is not the typewriter below. That one simulated a latency the system
 did not have, over text that was already finished; this one smooths a

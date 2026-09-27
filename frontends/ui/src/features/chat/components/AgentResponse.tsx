@@ -20,6 +20,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useState,
 } from 'react'
@@ -50,6 +51,7 @@ import { ANSWER_DEGRADED_REASONS, TRUNCATION_REASONS } from '@/lib/conversations
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import { useChatStore } from '../store'
+import { useAnswerRevealStore } from '../stores/answer-reveal-store'
 import { useAnswerFileReferences } from '../hooks/use-answer-file-references'
 import { usePacedText } from '../hooks/use-paced-text'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -58,6 +60,7 @@ import {
   answerDocuments,
   answerSourceAnchorPrefix,
   buildCitationModel,
+  proseLength,
   splitAnswerBody,
 } from '../lib/citations'
 import { AnswerCitations } from './AnswerCitations'
@@ -333,12 +336,32 @@ function answerRoleTab(
   return 'result'
 }
 
-/** Blinking caret shown at the tail of a still-streaming answer (C6). */
-const StreamingCaret: FC = () => (
+/**
+ * Blinking caret shown at the tail of a still-streaming answer (C6). It fades
+ * out while the finish reveals the last words (`fading`), so by the time the
+ * answer settles and it is removed there is nothing left to disappear. The
+ * fade is on a wrapper: the blink already animates the caret's own opacity,
+ * and two animations of one property on one element fight.
+ *
+ * `veil`: the newest words come out of a short gradient trailing the caret,
+ * drawn in the card's colour, so each word the reveal adds starts faint and
+ * darkens as the next ones push it out, like ink settling. It moves with the
+ * caret and animates nothing, so it costs no more than the caret does. A
+ * fade per word (a span per word, each with its own entrance) cost a 4×
+ * throttled phone 10 fps and 200 ms of main thread a second on a prose-heavy
+ * answer, the long tasks included (docs/design/streaming-chat-answer.md).
+ * Only on the card, whose colour it is drawn in.
+ */
+const StreamingCaret: FC<{ fading?: boolean; veil?: boolean }> = ({ fading = false, veil = false }) => (
   <span
     aria-hidden="true"
-    className="bg-foreground/70 ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.15em] animate-pulse rounded-full align-baseline motion-reduce:animate-none"
-  />
+    className={`relative inline-block transition-opacity duration-base ease-out ${fading ? 'opacity-0' : 'opacity-100'}`}
+  >
+    {veil && (
+      <span className="to-card pointer-events-none absolute -top-[0.1em] right-full -bottom-[0.15em] w-[2.5em] bg-gradient-to-r from-transparent" />
+    )}
+    <span className="bg-foreground/70 ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.15em] animate-pulse rounded-full align-baseline motion-reduce:animate-none" />
+  </span>
 )
 
 /**
@@ -823,16 +846,45 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // The prose streams while the model writes it (ADR-0066), in bursts. It is
   // shown at a steady pace a beat behind what has arrived (`usePacedText`,
   // rules in `../lib/stream-pace.ts`), so it reads as being written rather
-  // than lurching forward a sentence at a time. A finished answer is never
-  // paced, so the answer settles in the same frame the turn ends: the caret,
-  // the reserved footer and everything that acts on a WHOLE answer follow
-  // `isStreaming` alone.
-  const shownContent = usePacedText(content, isStreaming)
+  // than lurching forward a sentence at a time. When the turn ends, the text
+  // it held back is finished in a few hundred ms, and only then does the
+  // answer settle. Everything that belongs to a WHOLE answer (the caret going,
+  // the footer, citations turning real) follows `live`, not `isStreaming`, so
+  // it all lands in the one frame the text is complete. The unplaced cards
+  // may land earlier (`unplacedIsFinal`): a live frame carries cards only once
+  // the prose is complete, so they wait only for the reveal to catch up.
+  // Only the prose is paced: a written „## Quellen" section is lifted into the
+  // source rows, never drawn as text, and pacing it held the settle back by
+  // half a second after the last visible word. It joins the text once the
+  // prose is all shown.
+  const prose = useMemo(() => content.slice(0, proseLength(content)), [content])
+  const paced = usePacedText(prose, isStreaming)
+  const settled = paced.settled
+  const shownContent = paced.text.length >= prose.length ? content : paced.text
+  const live = !settled
+  // The finish: the stream is over, the rest of the text is being revealed.
+  const finishing = live && !isStreaming
+  // Outside the answer, the Herleitung's collapse waits for the same moment.
+  const beginReveal = useAnswerRevealStore((s) => s.begin)
+  const endReveal = useAnswerRevealStore((s) => s.end)
+  useLayoutEffect(() => {
+    if (!messageId || !live) return
+    beginReveal(messageId)
+    return () => endReveal(messageId)
+  }, [messageId, live, beginReveal, endReveal])
   const {
     body,
     entries: sourceEntries,
-    numbers: citationNumbers,
+    numbers: splitNumbers,
   } = useMemo(() => splitAnswerBody(shownContent), [shownContent])
+  // The numbers keep one identity while they stay the same: the split makes a
+  // new set for every reveal step, and a new set is a new plugin list, which
+  // re-parses every block of the answer instead of the one that grew.
+  const citationNumbersKey = [...splitNumbers].join(',')
+  const citationNumbers = useMemo(
+    (): ReadonlySet<number> => new Set(citationNumbersKey ? citationNumbersKey.split(',').map(Number) : []),
+    [citationNumbersKey]
+  )
 
   // The lede is suppressed when the envelope carries a summary or a topic:
   // the masthead's standfirst or title holds that emphasis, and a 17px
@@ -877,25 +929,25 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     projectId: storeProjectId,
     // The conversation whose private attachments a named file may live in.
     conversationId: conversationId ?? null,
-    isStreaming,
+    isStreaming: live,
   })
+  // A new list re-parses every block of the answer, so it is rebuilt only when
+  // what the plugins read changes: a boolean for the callout, not the anatomy.
+  const hasCallout = Boolean(anatomy?.callout)
   const markerPlugins = useMemo(
     (): PluggableList => [
       // While it streams, a marker with no source yet is a pending pill, not
       // a stray "[2]": the settled text names its source within seconds.
-      [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix, pending: isStreaming }],
+      [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix, pending: live }],
       // While it streams, a card marker holds its card's place until the card,
       // written after the prose, arrives to fill it.
-      [
-        remarkCardMarkers,
-        { count: cardCount, callout: Boolean(anatomy?.callout), pending: isStreaming },
-      ],
+      [remarkCardMarkers, { count: cardCount, callout: hasCallout, pending: live }],
       // AFTER the citation pass, so a filename that happens to sit inside a
       // marker's label is left alone: the pass skips `link` subtrees, and by
       // this point every `[N]` already is one.
       [remarkFileReferences, { fileNames: fileReferences.fileNames }],
     ],
-    [citationNumbers, anchorPrefix, isStreaming, cardCount, anatomy, fileReferences.fileNames]
+    [citationNumbers, anchorPrefix, live, cardCount, hasCallout, fileReferences.fileNames]
   )
   // What a run of Markdown INSIDE a card (a tab's `Text`) parses with: the
   // citations only. Its `[2]` is this answer's source 2; card markers are not
@@ -933,7 +985,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // no marker is still to come. Waiting for the terminal instead held every
   // unplaced card back until verification and the pipeline were done: 22 s
   // after the card was written on the recorded `oib2` turn.
-  const unplacedIsFinal = !isStreaming || ((cards?.length ?? 0) > 0 && shownContent === content)
+  const unplacedIsFinal = !live || ((cards?.length ?? 0) > 0 && shownContent === content)
   // The after-prose anatomy: the callout leaves this block the moment the
   // prose claims it with a marker — same pre-render reading as the card
   // fallback above, and for the same reason.
@@ -971,13 +1023,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       const card = cards?.[index]
       // Still arriving: the card is written after the prose, so its marker
       // holds the place it will grow from rather than nothing (ADR-0066).
-      if (!card) return isStreaming && index >= (cards?.length ?? 0) ? <PendingCardSlot /> : null
+      if (!card) return live && index >= (cards?.length ?? 0) ? <PendingCardSlot /> : null
       // `mb-3` is the paragraph rhythm of the markdown body: the card replaced
       // a paragraph, so it has to leave the same gap behind it. `block!` beats
       // the streaming caret's `*:last-child]:inline` rule, which would collapse
       // a card that ends the answer for as long as the answer is still arriving.
       return (
-        <CardArrival live={isStreaming}>
+        <CardArrival live={live}>
           {/* The whole answer's cards, not just this one: a card placed inline
               by a marker still has to know what ELSE the answer is carrying —
               `summary` and `verdict_header` must not both claim the top of it
@@ -994,7 +1046,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         </CardArrival>
       )
     },
-    [cards, cardSet, projectId, cardMessageId, anatomy?.callout, isStreaming, readOnly]
+    [cards, cardSet, projectId, cardMessageId, anatomy?.callout, live, readOnly]
   )
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
@@ -1043,7 +1095,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // hand over, so both are excluded rather than given a button that copies ''.
   const hasAnswerActions =
     !readOnly &&
-    !isStreaming &&
+    !live &&
     Boolean(content) &&
     content.trim().length > 0 &&
     content !== 'null'
@@ -1052,7 +1104,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Streaming still has no chips/thumbs, but the row is reserved at chip
   // height so the footer does not jump when they land. An idle answer with
   // nothing to hold still omits the row (no empty band).
-  const reserveMetaRow = hasMetaRow || isStreaming
+  const reserveMetaRow = hasMetaRow || live
   // What the single footer disclosure would actually hold. The copy actions
   // and the feedback stay visible beside its trigger, so a bare answer shows
   // the action and no empty trigger line. Read sources count only when at
@@ -1120,7 +1172,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // A streaming answer whose masthead arrived before its first word is not
   // empty: the masthead stands while the prose is still being written.
   const hasLiveMasthead =
-    isStreaming && Boolean(anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic))
+    live && Boolean(anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic))
   if ((!content || !content.trim() || content === 'null') && !hasCards && !hasLiveMasthead) {
     return null
   }
@@ -1163,13 +1215,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             the caret trails the final glyph instead of dropping to a new line.
             Cards the answer placed with a marker are spliced into this body. */}
               <MarkdownSlotProvider render={renderCardSlot}>
-                <div className={proseClass(isStreaming, ledeClass)}>
+                <div className={proseClass(live, ledeClass)}>
                   <MarkdownRenderer
                     content={body}
-                    isStreaming={isStreaming}
+                    isStreaming={live}
                     remarkPlugins={markerPlugins}
                   />
-                  {isStreaming && <StreamingCaret />}
+                  {live && <StreamingCaret fading={finishing} />}
                 </div>
               </MarkdownSlotProvider>
               {/* An unplaced legal basis — flat, right after the prose it grounds: the
@@ -1194,7 +1246,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             carries both. */}
               {/* The anatomy below the prose: the callout (unless its marker placed
             it inline), then the takeaways. */}
-              {!isStreaming && anatomyBelow.length > 0 && (
+              {!live && anatomyBelow.length > 0 && (
                 <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
                   <CardSetProvider cards={cardSet}>
                     {anatomyBelow.map((card) => (
@@ -1220,7 +1272,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 documents={documents}
                 anchorPrefix={anchorPrefix}
                 routingDecision={routingDecision}
-                isStreaming={isStreaming}
+                isStreaming={live}
               />
 
               {/* No copy actions here, deliberately. This variant is the box-less
@@ -1363,13 +1415,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 {/* Response Content rendered as markdown (with streaming caret).
               Cards the answer placed with a marker are spliced into this body. */}
                 <MarkdownSlotProvider render={renderCardSlot}>
-                  <div className={proseClass(isStreaming, ledeClass)}>
+                  <div className={proseClass(live, ledeClass)}>
                     <MarkdownRenderer
                       content={body}
-                      isStreaming={isStreaming}
+                      isStreaming={live}
                       remarkPlugins={markerPlugins}
                     />
-                    {isStreaming && <StreamingCaret />}
+                    {live && <StreamingCaret fading={finishing} veil />}
                   </div>
                 </MarkdownSlotProvider>
                 {/* An unplaced legal basis — flat, right after the prose it grounds: the
@@ -1392,7 +1444,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               /dev/chat-turn?variant=two-cards shows. */}
                 {/* The anatomy below the prose: the callout (unless its marker placed
               it inline), then the takeaways. */}
-                {!isStreaming && anatomyBelow.length > 0 && (
+                {!live && anatomyBelow.length > 0 && (
                   <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
                     <CardSetProvider cards={cardSet}>
                       {anatomyBelow.map((card) => (
@@ -1425,7 +1477,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   documents={documents}
                   anchorPrefix={anchorPrefix}
                   routingDecision={routingDecision}
-                  isStreaming={isStreaming}
+                  isStreaming={live}
                   withDivider={false}
                 />
                 {reserveMetaRow && (

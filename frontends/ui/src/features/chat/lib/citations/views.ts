@@ -182,6 +182,19 @@ export const splitAnswerBody = (markdown: string): AnswerBodySplit => {
 
 const EMPTY_NUMBERS: ReadonlySet<number> = new Set()
 
+/**
+ * How much of `markdown` is prose the reader sees as text: all of it, or,
+ * when it ends in a written sources section that {@link splitAnswerBody}
+ * lifts into the source rows, the part before that section. What a reveal has
+ * to pace; the section is never drawn as text, so pacing it only delays the
+ * end of the answer.
+ */
+export const proseLength = (markdown: string): number => {
+  const split = splitReportSources(markdown)
+  if (split.entries.length === 0 || !markdown.startsWith(split.body)) return markdown.length
+  return split.body.length
+}
+
 /** The reader's words for a provenance tab: the `chat.sourceTabs` dictionary block. */
 export interface SourceTabLabels {
   (key: `sourceTabs.${SourceSignal}` | `sourceTabs.shelves.${Shelf}`): string

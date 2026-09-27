@@ -43,6 +43,7 @@
 import type { Paragraph, PhrasingContent, Root, RootContent, Text } from 'mdast'
 import type { Parent } from 'unist'
 import { MARKDOWN_SLOT_TAG } from '@/shared/components/MarkdownRenderer/slot-context'
+import { documentContinues } from '@/shared/components/MarkdownRenderer/markdown-blocks'
 
 export interface CardMarkerOptions {
   /**
@@ -88,7 +89,7 @@ export const CALLOUT_SLOT_INDEX = -1
  */
 export const remarkCardMarkers =
   ({ count, callout = false, pending = false }: CardMarkerOptions) =>
-  (tree: Root): void => {
+  (tree: Root, file?: Parameters<typeof documentContinues>[0]): void => {
     const children: RootContent[] = []
     let changed = false
 
@@ -109,7 +110,9 @@ export const remarkCardMarkers =
     // Whatever the pass above could not place is prose the reader would read as
     // machine noise — including the marker of a card that has not streamed in.
     stripMarkers(tree)
-    stripPartialTail(tree)
+    // The renderer parses a document block by block; only the last block's
+    // tail is the document's.
+    if (!documentContinues(file)) stripPartialTail(tree)
   }
 
 /** The slot node one placed marker becomes. */

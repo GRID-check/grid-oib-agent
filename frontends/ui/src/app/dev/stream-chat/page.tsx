@@ -25,7 +25,15 @@
  * every seeded answer the sources, cards and masthead the recorded one
  * settled with, the weight real answers carry into storage. `shell=1` mounts
  * the whole `MainLayout` (toolbar, sessions panel, chat, composer) instead of
- * the chat and the composer alone. Development only.
+ * the chat and the composer alone. `fixture` picks the recorded answer
+ * (`varianten`, the default, or `oib2`), and `repeat=N` streams its prose N
+ * times over, as one answer N times as long: what a reveal step costs must
+ * not grow with the length of the answer. `steps=N` gives the turn N
+ * Herleitung steps when the question is sent, so the Herleitung is open while
+ * the answer streams and its collapse can be watched. Each commit carries
+ * React's `start` and commit (`at`) time, `completeAt` is when the terminal
+ * frame landed, and `settledAt` when the answer had finished revealing it and
+ * settled (`answer-reveal-store.ts`). Development only.
  */
 
 import { Profiler, useEffect, useState, type ProfilerOnRenderCallback } from 'react'
@@ -37,11 +45,12 @@ import { ChatArea } from '@/features/layout/components'
 import { InputArea } from '@/features/layout/components/InputArea'
 import { MainLayout } from '@/features/layout'
 import { useChatStore } from '@/features/chat'
+import { useAnswerRevealStore } from '@/features/chat/stores/answer-reveal-store'
 import type { ChatMessage, Conversation } from '@/features/chat/types'
 import { citationsFromWireList } from '@/features/chat/lib/wire-citation'
 import { validateGridCards } from '@/shared/cards/schemas'
 import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
-import { STREAM_FRAMES } from '../_fixtures/stream-frames'
+import { STREAM_FRAMES, type RecordedFrame, type RecordedTurn } from '../_fixtures/stream-frames'
 
 const config: AppConfig = {
   authRequired: false,
@@ -53,7 +62,9 @@ interface StreamChatProbe {
   /** `performance.now()` when the question was sent, and when the first answer frame landed. */
   sentAt: number
   firstFrameAt: number
-  commits: { id: string; ms: number }[]
+  completeAt: number
+  settledAt: number
+  commits: { id: string; ms: number; start: number; at: number }[]
   storageWrites: number
   storageMs: number
   longTasks: number[]
@@ -73,6 +84,7 @@ declare global {
 const HARNESS_STORAGE_KEY = 'aiq-chat-store:stream-chat'
 
 const TURN = STREAM_FRAMES.varianten
+/** The seeded history's reply, whatever the streamed fixture. */
 const TERMINAL = TURN.frames[TURN.frames.length - 1]
 const ANSWER = TERMINAL?.content ?? ''
 /**
@@ -133,9 +145,50 @@ const conversation = (id: string, turns: number, extras: boolean, rank: number):
 /** Record every commit under a profiled subtree with its actual duration. */
 const onRender =
   (probe: StreamChatProbe): ProfilerOnRenderCallback =>
-  (id, _phase, actualDuration) => {
-    probe.commits.push({ id, ms: Math.round(actualDuration * 10) / 10 })
+  (id, _phase, actualDuration, _base, startTime, commitTime) => {
+    probe.commits.push({ id, ms: Math.round(actualDuration * 10) / 10, start: startTime, at: commitTime })
   }
+
+/** The prose, and the `## Quellen` section after it (empty when there is none). */
+const proseAndSources = (text: string): [string, string] => {
+  const at = text.search(/\n#{1,3} Quellen\b/)
+  return at < 0 ? [text, ''] : [text.slice(0, at), text.slice(at)]
+}
+
+/** `text` with its prose written `times` times over and its sources once, at the end. */
+const repeatedText = (text: string, times: number): string => {
+  const [prose, sources] = proseAndSources(text)
+  return Array.from({ length: times }, () => prose.trimEnd()).join('\n\n') + sources
+}
+
+/**
+ * A synthetic answer `times` as long as the recorded one: its prose deltas
+ * streamed `times` times over at their recorded pace, then its snapshot and
+ * terminal with the prose repeated as often.
+ */
+const lengthened = (turn: RecordedTurn, times: number): RecordedTurn => {
+  const isDelta = (frame: RecordedFrame) =>
+    frame.status !== 'complete' && !frame.stream_replace && frame.content !== ''
+  const deltas = turn.frames.filter(isDelta)
+  const firstDelta = deltas[0]
+  const lastDelta = deltas[deltas.length - 1]
+  if (times <= 1 || !firstDelta || !lastDelta) return turn
+  const last = turn.frames.indexOf(lastDelta)
+  const span = lastDelta.t - firstDelta.t + 0.1
+  const passes = Array.from({ length: times - 1 }, (_, pass) =>
+    deltas.map((frame, index) => ({
+      ...frame,
+      t: frame.t + span * (pass + 1),
+      content: index === 0 ? `\n\n${frame.content}` : frame.content,
+    }))
+  ).flat()
+  const after = turn.frames.slice(last + 1).map((frame) => ({
+    ...frame,
+    t: frame.t + span * (times - 1),
+    content: frame.content ? repeatedText(frame.content, times) : frame.content,
+  }))
+  return { ...turn, frames: [...turn.frames.slice(0, last + 1), ...passes, ...after] }
+}
 
 /** Count and time the persisted store's localStorage writes, one per key written. */
 const instrumentStorage = (probe: StreamChatProbe): (() => void) => {
@@ -154,19 +207,25 @@ const instrumentStorage = (probe: StreamChatProbe): (() => void) => {
 
 /** The recorded frames, applied the way `use-websocket-chat` applies them. */
 const replay = (
+  turn: RecordedTurn,
   speed: number,
   later: (run: () => void, ms: number) => void,
   onDone: () => void,
-  onFirstFrame: () => void
+  onFirstFrame: () => void,
+  onComplete: () => void
 ) => {
   const store = useChatStore.getState
-  const t0 = TURN.frames[0]?.t ?? 0
-  TURN.frames.forEach((frame, index) =>
+  const t0 = turn.frames[0]?.t ?? 0
+  turn.frames.forEach((frame, index) =>
     later(
       () => {
         if (index === 0) onFirstFrame()
         const citations = citationsFromWireList(frame.sources)
         if (frame.status === 'complete') {
+          // Recorded first: an answer that settles at once (a rewrite, a
+          // hidden page) clears its reveal inside these updates, and the
+          // settle probe only counts a clear that follows `completeAt`.
+          onComplete()
           store().finalizeAgentResponse(
             frame.content,
             undefined,
@@ -185,7 +244,7 @@ const replay = (
             citations
           )
         }
-        if (index === TURN.frames.length - 1) later(onDone, 1500)
+        if (index === turn.frames.length - 1) later(onDone, 1500)
       },
       ((frame.t - t0) * 1000) / speed + 800
     )
@@ -201,11 +260,17 @@ export default function StreamChatPage() {
   // on its own, clear of the page's mount.
   const sendDelay = Number(params.get('delay') ?? '300') || 300
   const shell = params.get('shell') === '1'
+  const fixture = params.get('fixture') === 'oib2' ? 'oib2' : 'varianten'
+  const repeat = Math.max(1, Math.floor(Number(params.get('repeat') ?? '1')) || 1)
+  const steps = Math.max(0, Math.floor(Number(params.get('steps') ?? '0')) || 0)
+  const [turn] = useState(() => lengthened(STREAM_FRAMES[fixture], repeat))
   const extras = params.get('extras') === '1'
   const [probe] = useState<StreamChatProbe>(() => ({
     done: false,
     sentAt: 0,
     firstFrameAt: 0,
+    completeAt: 0,
+    settledAt: 0,
     commits: [],
     storageWrites: 0,
     storageMs: 0,
@@ -245,31 +310,49 @@ export default function StreamChatPage() {
       for (const entry of list.getEntries()) probe.longTasks.push(Math.round(entry.duration))
     })
     observer.observe({ type: 'longtask', buffered: false })
+    const unsubscribeReveal = useAnswerRevealStore.subscribe((state, prev) => {
+      if (probe.completeAt > 0 && prev.revealingId !== null && state.revealingId === null) {
+        probe.settledAt = performance.now()
+      }
+    })
     const timers: number[] = []
     const later = (run: () => void, ms: number) => timers.push(window.setTimeout(run, ms))
     later(() => {
       const store = useChatStore.getState()
-      store.addUserMessage(TURN.question)
+      store.addUserMessage(turn.question)
       store.setLoading(true)
       store.setStreaming(true)
+      for (let i = 0; i < steps; i++) {
+        store.addThinkingStep({
+          category: 'tools',
+          functionName: 'knowledge_retrieval',
+          displayName: `Recherche ${i + 1}`,
+          content: '',
+          isComplete: true,
+          isTopLevel: true,
+        })
+      }
       probe.commits = []
       probe.storageWrites = 0
       probe.storageMs = 0
       probe.longTasks = []
       probe.sentAt = performance.now()
       replay(
+        turn,
         speed,
         later,
         () => (probe.done = true),
-        () => (probe.firstFrameAt = performance.now())
+        () => (probe.firstFrameAt = performance.now()),
+        () => (probe.completeAt = performance.now())
       )
     }, sendDelay)
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer))
       observer.disconnect()
+      unsubscribeReveal()
       restoreStorage()
     }
-  }, [ready, probe, speed, sendDelay])
+  }, [ready, probe, speed, sendDelay, turn, steps])
 
   return (
     <I18nProvider initialLocale="de" fixedLocale>
