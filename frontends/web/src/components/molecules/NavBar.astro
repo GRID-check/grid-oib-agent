@@ -87,7 +87,7 @@ const langs = (['de', 'en'] as const).map((l) => ({
                     {l.label}
                   </span>
                 ) : (
-                  <a href={switchTo} class="hover:text-accent-600" hreflang={l.code}>
+                  <a href={switchTo} class="lang-other hover:text-accent-600" hreflang={l.code}>
                     {l.label}
                   </a>
                 )}
@@ -214,3 +214,19 @@ const langs = (['de', 'en'] as const).map((l) => ({
     </div>
   </div>
 </header>
+
+<style>
+  /* The language not shown. Over the hero the pill is translucent and lets the
+     photograph through: in the row's ghost grey it measured 4.14:1 there, in
+     the muted ink it clears 4.5:1. On the dark rail it takes the row's light
+     colour from global.css. In the components layer, so the hover utility still
+     wins. */
+  @layer components {
+    .lang-other {
+      color: var(--color-ink-mute);
+    }
+    :global([data-tone='dark']) .lang-other {
+      color: inherit;
+    }
+  }
+</style>
