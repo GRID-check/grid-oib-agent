@@ -46,15 +46,14 @@ const columns = [
 ---
 
 <!-- The footer is where a visitor lands who did not convert: it has to say who
-     we are, where everything is, and how to reach a person. On a phone it is
-     the same sheet folded tighter — link groups side by side, 44px rows — not
-     a column of everything stacked. -->
-<footer class="px-2 pb-2 pt-4 sm:px-4 sm:pb-8 lg:px-10">
-  <div
-    class="mx-auto box-border max-w-[80rem] rounded-panel bg-surface-dim px-5 py-10 sheet-light sm:px-10 sm:py-16 lg:px-16 lg:py-20"
-  >
+     we are, where everything is, and how to reach a person. It is the foot of
+     the sheet, not a box on it: one hairline, then the page itself. The
+     addresses stay here as the fallback for every mailto button above. On a
+     phone the link groups sit side by side, with 44px rows. -->
+<footer class="frame">
+  <div class="border-t border-ink/15 pb-10 pt-12 lg:pb-14 lg:pt-16">
     <div
-      class="grid grid-cols-2 gap-x-6 gap-y-8 sm:gap-x-10 sm:gap-y-12 lg:grid-cols-[1.6fr_1fr_1fr_1fr]"
+      class="grid grid-cols-2 gap-x-6 gap-y-8 sm:gap-x-10 sm:gap-y-12 lg:grid-cols-[1.5fr_1fr_1fr_1fr_1.5fr]"
     >
       <div class="col-span-2 max-w-sm lg:col-span-1 lg:max-w-xs">
         <Logo href={`${home}#top`} label={t.nav.logoLabel} size="sm" />
@@ -84,16 +83,14 @@ const columns = [
           </nav>
         ))
       }
-    </div>
 
-    <!-- The addresses are the links: a button beside them would be a third way
-         to the same two inboxes. -->
-    <div class="mt-8 border-t border-ink/12 pt-8 sm:mt-14 sm:pt-10">
-      <div>
+      <!-- The addresses are the links: a button beside them would be a third way
+           to the same two inboxes. -->
+      <div class="col-span-2 min-w-0 lg:col-span-1">
         <p class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
           {t.footer.contactHeading}
         </p>
-        <p class="m-0 mt-2 max-w-sm text-base leading-relaxed text-ink-mute sm:text-sm">
+        <p class="m-0 mt-2 max-w-sm text-base leading-relaxed text-ink-mute sm:mt-5 sm:text-sm">
           {t.footer.contactBody}
         </p>
         <ul class="m-0 mt-2 list-none p-0">
@@ -101,7 +98,7 @@ const columns = [
             CONTACT_EMAILS.map((email) => (
               <li>
                 <a
-                  class="inline-flex min-h-11 items-center font-display text-lg font-semibold tracking-tight text-panel hover:text-accent-600 sm:min-h-0 sm:py-0.5"
+                  class="inline-flex min-h-11 items-center break-all text-base font-medium text-ink hover:text-accent-600 sm:min-h-0 sm:py-0.5 sm:text-sm"
                   href={mailtoHref()}
                 >
                   {email}
@@ -115,7 +112,7 @@ const columns = [
 
     <!-- The foot of the sheet states what the sheet is, the way a drawing does
          in the corner where its title block sits. -->
-    <div class="mt-8 border-t border-ink/12 pt-6 sm:mt-12">
+    <div class="mt-10 border-t border-ink/12 pt-6 sm:mt-14">
       <dl class="m-0 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-5">
         {
           block.map((cell) => (
