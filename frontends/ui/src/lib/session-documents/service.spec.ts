@@ -26,6 +26,11 @@ vi.mock('@/lib/documents/version-repository', () => ({
     versionNumber: 1,
     ...values,
   })),
+  // The born-published insert every upload records its version with.
+  insertPublishedVersion: vi.fn(async (values: Record<string, unknown>) => ({
+    version: { id: 'version_1', state: 'published', versionNumber: 1, ...values },
+    superseded: [],
+  })),
   listDocumentVersions: vi.fn().mockResolvedValue([]),
   findDocumentVersion: vi.fn().mockResolvedValue(null),
   findPublishedVersion: vi.fn().mockResolvedValue(null),
@@ -77,9 +82,17 @@ vi.mock('@/lib/storage/admission', () => ({
 }))
 vi.mock('@/lib/documents/repository', () => ({
   findLiveDocumentByFilename: vi.fn(),
-  // Read back by `recordUploadedVersion` (ADR-0054); see the Archiv suite for
-  // why null is the honest default.
-  findDocumentInOrg: vi.fn().mockResolvedValue(null),
+  // Read back by `recordUploadedVersionOrDiscard` (ADR-0054) before it records
+  // the version. The row the upload just wrote: a miss means the attachment was
+  // deleted mid-upload, a 409 of its own, so the default is the row existing.
+  findDocumentInOrg: vi.fn(async (id: string) =>
+    (await import('@/test-utils/db-fixtures')).makeDocument({
+      id,
+      projectId: null,
+      scope: 'session',
+      conversationId: 's_11111111-2222-3333-4444-555555555555',
+    }),
+  ),
 }))
 vi.mock('@/lib/documents/object-cleanup', () => ({
   deleteDocumentObjects: vi.fn(),
@@ -97,7 +110,7 @@ vi.mock('./repository', () => ({
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { dispatchDocument } from '@/lib/documents/service'
-import { findLiveDocumentByFilename } from '@/lib/documents/repository'
+import { findDocumentInOrg, findLiveDocumentByFilename } from '@/lib/documents/repository'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { ConflictError } from '@/lib/api/errors'
 import { isCoveredByActiveHold } from '@/lib/compliance/repository'
@@ -280,6 +293,31 @@ describe('uploadSessionDocument, when the shelf changes under the probe', () => 
     const put = s3Send.mock.calls.find((call) => call[0] instanceof PutObjectCommand)?.[0] as PutObjectCommand
     expect(put.input.Key).not.toBe(existing.storageKey)
     expect(put.input.Key).toMatch(/\/doc\/doc-existing\/v1\/[0-9a-f]{12}\/brandschutz\.pdf$/)
+  })
+})
+
+/**
+ * An attachment deleted, or its chat discarded, after the admission and before
+ * the version is recorded. The lenient recorder answered null and the upload
+ * went on: it dispatched a gone document for ingest, audited it as uploaded and
+ * left its object in the bucket with no row naming it.
+ */
+describe('uploadSessionDocument, when the attachment is deleted mid-upload', () => {
+  it('answers 409, discards the stored object, and neither dispatches nor audits', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValueOnce(null)
+
+    await expect(
+      uploadSessionDocument(session, { conversationId: CONVERSATION_ID, file: file('neu.pdf') }, new Request('http://x')),
+    ).rejects.toMatchObject({ status: 409, details: { reason: 'deleted_during_upload' } })
+
+    const put = s3Send.mock.calls.find((call) => call[0] instanceof PutObjectCommand)?.[0] as PutObjectCommand
+    const deletedKeys = s3Send.mock.calls
+      .map((call) => call[0])
+      .filter((command): command is DeleteObjectCommand => command instanceof DeleteObjectCommand)
+      .map((command) => command.input.Key)
+    expect(deletedKeys).toContain(put.input.Key)
+    expect(dispatchDocument).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
   })
 })
 

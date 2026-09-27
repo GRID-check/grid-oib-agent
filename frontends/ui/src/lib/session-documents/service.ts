@@ -46,7 +46,7 @@ import { findLiveDocumentByFilename, type DocumentListRow } from '@/lib/document
 import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
 import {
   nextVersionNumber,
-  recordUploadedVersion,
+  recordUploadedVersionOrDiscard,
 } from '@/lib/documents/lifecycle'
 import { newVersionWriteId, versionWriteKey } from '@/lib/documents/version-content'
 import { retryRacedUpload } from '@/lib/documents/unique-conflicts'
@@ -259,13 +259,16 @@ export async function uploadSessionDocument(
     return { documentId, storageKey, replaced: Boolean(superseded) }
   })
 
-  // The whole point of Phase 2: a session upload now reaches the SAME dispatcher
-  // the other shelves use, so an IFC dropped into a chat is parsed into a
-  // building instead of being embedded as STEP noise.
   // The version, through the same transition table every other shelf uses
   // (ADR-0054): born `published` and born approved, because the person who
   // attached it is the assertion. With the columns THIS request stored.
-  await recordUploadedVersion(session, documentId, request, {
+  //
+  // The strict form, as on the project and Archiv shelves: an attachment
+  // deleted (or its chat discarded) between the admission and this point has no
+  // row to version. That discards the object this upload stored and throws
+  // `DocumentDeletedError` (409 `deleted_during_upload`), so a gone document is
+  // neither dispatched for ingest nor audited as uploaded.
+  await recordUploadedVersionOrDiscard(session, documentId, request, {
     storageKey,
     storageBucket,
     contentType: file.type || null,
@@ -273,6 +276,9 @@ export async function uploadSessionDocument(
     contentHash,
   })
 
+  // The whole point of Phase 2: a session upload now reaches the SAME dispatcher
+  // the other shelves use, so an IFC dropped into a chat is parsed into a
+  // building instead of being embedded as STEP noise.
   const { jobId, status } = await dispatchDocument({
     organizationId: session.organizationId,
     projectId: null,

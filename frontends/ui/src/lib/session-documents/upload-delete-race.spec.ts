@@ -160,6 +160,12 @@ vi.mock('@/lib/storage/admission', () => ({
   admitOrDiscard: (...args: unknown[]) => admitOrDiscard(...args),
   admitReplacementOrDiscard: vi.fn(),
 }))
+// The version record is not this file's subject (it is `lifecycle.spec.ts`'s
+// and the session service spec's); the claim here ends at the object write.
+vi.mock('@/lib/documents/lifecycle', () => ({
+  nextVersionNumber: vi.fn().mockResolvedValue(2),
+  recordUploadedVersionOrDiscard: vi.fn().mockResolvedValue({ id: 'version_1' }),
+}))
 // A first upload: the replace probe finds nothing to supersede.
 vi.mock('@/lib/documents/repository', () => ({
   findDocumentInOrg: vi.fn().mockResolvedValue(null),
