@@ -1102,7 +1102,7 @@ next interval:
    (`lib/runs/reconcile.ts`): it claims up to 25 still-`queued`/`running` runs
    nothing has checked for `GRID_RUN_RECONCILE_STALE_MINUTES` (default 10),
    stamping `reconcile_checked_at` in the same statement (`FOR UPDATE SKIP
-   LOCKED`, migration 0095), asks the job store for each job's real verdict
+   LOCKED`, migration 0096), asks the job store for each job's real verdict
    (`GET /v1/internal/jobs/{id}/outcome`, service token), and for a finished job
    fills an empty run message (`writeRunReport`), settles a live ledger
    (`applyRunLedgerOp`) and closes the row (`recordRunOutcome` with

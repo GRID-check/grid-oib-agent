@@ -211,7 +211,7 @@ Two changes, and neither is a queue:
 * **The BFF pulls what the push lost.** The run reconciler
   (`lib/runs/reconcile.ts`), on the `skill-scheduler`'s tick, claims the runs
   still active after ten minutes without a check (`reconcile_checked_at`,
-  migration 0095, stamped by the claim under `FOR UPDATE SKIP LOCKED` so
+  migration 0096, stamped by the claim under `FOR UPDATE SKIP LOCKED` so
   replicas never share a run), asks the job store
   (`GET /v1/internal/jobs/{id}/outcome`, service token, tenant checked against
   `job_access`) and, for an ended job, makes the three writes the worker would
