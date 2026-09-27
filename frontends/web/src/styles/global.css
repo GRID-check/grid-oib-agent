@@ -1,13 +1,5 @@
 @import 'tailwindcss';
 
-@font-face {
-  font-family: Archivo;
-  font-style: normal;
-  font-weight: 400 700;
-  font-stretch: 100%;
-  font-display: swap;
-  src: url('/fonts/archivo-var-latin.woff2') format('woff2');
-}
 /*
  * Instrument Serif (SIL OFL 1.1, fontsource.org/fonts/instrument-serif).
  *
@@ -110,13 +102,9 @@
   --color-on-dark-tag: #8fa06a;
 
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  /* Only ChatMock (not part of this pass) still reads `font-display`, for its
-     small labels. When it moves them to `font-mono`, delete this token and
-     the Archivo @font-face at the top of the file. */
-  --font-display: 'Helvetica Neue', Archivo, Helvetica, sans-serif;
   /* The voice. Used for what the site says, never for what it counts. */
   --font-voice: 'Instrument Serif', 'Iowan Old Style', 'Times New Roman', serif;
-  --font-logo: Poppins, 'Helvetica Neue', Archivo, sans-serif;
+  --font-logo: Poppins, 'Helvetica Neue', sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
 
   /* Type scale. The site sets three faces: the serif voice for what it says
@@ -124,8 +112,8 @@
      Plex Mono for labels and figures in tables. Poppins is the wordmark only.
      A second grotesque (Archivo, `font-display`) sat beside Inter in small
      bold titles and read as a squeezed twin of it; its display scale
-     (`text-display`, `text-h1`…`h4`) had one user. Both went; see
-     `--font-display` above for the one component that still reads it. */
+     (`text-display`, `text-h1`…`h4`) had one user. Both went, and the font
+     file with them when the decision chain moved its labels to Plex Mono. */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1.45;
 
@@ -348,33 +336,8 @@
   }
 }
 
-@keyframes chain-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@keyframes chain-draw {
-  from {
-    stroke-dashoffset: 460;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-@keyframes chain-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
-}
+/* A pending spinner (the navigation's sign-in). The name is historical: the
+   decision chain that first used it no longer does. */
 @keyframes chain-spin {
   to {
     transform: rotate(360deg);
