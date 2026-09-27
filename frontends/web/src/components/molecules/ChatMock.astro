@@ -77,7 +77,7 @@ const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2)
     </li>
 
     <!-- 2 · Quellen: one branch off the spine, three sources at once. -->
-    <li class="stage" data-stage>
+    <li class="stage stage--fan" data-stage>
       <span class="node" aria-hidden="true"><span class="node-done" data-node-done></span><span class="node-now" data-node-now></span></span>
       <span class="seg" aria-hidden="true"><span class="seg-fill" data-seg></span></span>
       <span class="branch" data-branch aria-hidden="true"></span>
@@ -301,7 +301,22 @@ const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2)
     transform-origin: 50% 0;
   }
   /* The fan-out: one branch leaves the spine and meets the bus the three
-     sources hang from. */
+     sources hang from. Its node sits where the branch leaves, not level with
+     the label, so the sources visibly come out of that dot: the node, its
+     segment and the segment arriving from the question all move down to the
+     branch's height. */
+  .stage--fan {
+    --node-y: calc(var(--pad-top) + var(--meta-h) + var(--gap));
+  }
+  .stage--fan .node {
+    top: calc(var(--node-y) - 0.375rem);
+  }
+  .stage--fan .seg {
+    top: var(--node-y);
+  }
+  .stage:has(+ .stage--fan) .seg {
+    bottom: calc(-1 * (var(--stage-gap) + var(--pad-top) + var(--meta-h) + var(--gap)));
+  }
   .branch {
     position: absolute;
     z-index: 1;
