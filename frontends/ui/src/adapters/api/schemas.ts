@@ -1,47 +1,11 @@
 /**
- * API Schemas and Types
- *
- * Zod schemas for runtime validation of API responses.
- * All external data passes through these schemas at the adapter boundary.
+ * The old NAT chat wire. Nothing new reads it: the chat socket speaks v2
+ * (`./wire-v2.ts`, `docs/design/chat-wire-v2.md`). What is left here is what
+ * `websocket-client.ts` and the chat hook still import until the v2 cut lands
+ * whole; the file goes with them.
  */
 
 import { z } from 'zod'
-
-// ============================================================================
-// Chat Completion API (OpenAI-Compatible)
-// ============================================================================
-
-export const MessageSchema = z.object({
-  role: z.enum(['system', 'user', 'assistant']),
-  content: z.string(),
-  name: z.string().optional(),
-})
-
-export const ChatCompletionRequestSchema = z.object({
-  messages: z.array(MessageSchema),
-  model: z.string().optional(),
-  temperature: z.number().optional(),
-  max_tokens: z.number().optional(),
-  stream: z.boolean().optional(),
-  session_id: z.string().optional(),
-})
-
-export const ChatCompletionChoiceSchema = z.object({
-  index: z.number(),
-  delta: z.object({
-    role: z.enum(['assistant']).optional(),
-    content: z.string().optional(),
-  }),
-  finish_reason: z.enum(['stop', 'length', 'tool_calls']).nullable(),
-})
-
-export const ChatCompletionChunkSchema = z.object({
-  id: z.string(),
-  object: z.literal('chat.completion.chunk'),
-  created: z.number(),
-  model: z.string(),
-  choices: z.array(ChatCompletionChoiceSchema),
-})
 
 // ============================================================================
 // WebSocket Protocol (NAT Compatible)
@@ -610,134 +574,16 @@ export const NATIncomingMessageSchema = z.discriminatedUnion('type', [
   NATTurnHeartbeatSchema,
 ])
 
-// ----------------------------------------------------------------------------
-// Legacy WebSocket Protocol (kept for backwards compatibility)
-// ----------------------------------------------------------------------------
-
-export const WebSocketConnectMessageSchema = z.object({
-  type: z.literal('connect'),
-  session_id: z.string(),
-  /** Auth token for backend authentication */
-  auth_token: z.string().optional(),
-})
-
-export const WebSocketUserMessageSchema = z.object({
-  type: z.literal('message'),
-  content: z.string(),
-  session_id: z.string(),
-})
-
-export const WebSocketAgentTextMessageSchema = z.object({
-  type: z.literal('agent_text'),
-  content: z.string(),
-  is_final: z.boolean(),
-})
-
-export const WebSocketStatusMessageSchema = z.object({
-  type: z.literal('status'),
-  status: z.enum(['thinking', 'processing', 'complete', 'error']),
-  message: z.string().optional(),
-})
-
-export const WebSocketToolCallMessageSchema = z.object({
-  type: z.literal('tool_call'),
-  tool_name: z.string(),
-  tool_input: z.record(z.unknown()),
-  tool_output: z.string().optional(),
-})
-
-export const WebSocketErrorMessageSchema = z.object({
-  type: z.literal('error'),
-  code: z.string(),
-  message: z.string(),
-})
-
-export const WebSocketIncomingMessageSchema = z.discriminatedUnion('type', [
-  WebSocketAgentTextMessageSchema,
-  WebSocketStatusMessageSchema,
-  WebSocketToolCallMessageSchema,
-  WebSocketErrorMessageSchema,
-])
-
-// ============================================================================
-// Workflow Configuration
-// ============================================================================
-
-export const WorkflowConfigSchema = z.object({
-  Workflow: z.object({
-    DisplayName: z.string(),
-    Description: z.string(),
-    Version: z.string(),
-  }),
-  Application: z.object({
-    EnableConversationSideBar: z.boolean(),
-    EnableFeedback: z.boolean(),
-    EnableFileUpload: z.boolean(),
-    MaxFileSize: z.number(),
-    AllowedFileTypes: z.array(z.string()),
-  }),
-  Chat: z.object({
-    SystemPrompt: z.string(),
-    WelcomeMessage: z.string(),
-    SuggestedQuestions: z.array(z.string()),
-    MaxTokens: z.number(),
-    Temperature: z.number(),
-  }),
-  Theme: z.object({
-    PrimaryColor: z.string(),
-    LogoUrl: z.string(),
-    FaviconUrl: z.string(),
-  }),
-})
-
-// ============================================================================
-// Error Response
-// ============================================================================
-
-export const ApiErrorSchema = z.object({
-  error: z.object({
-    code: z.string(),
-    message: z.string(),
-    details: z.record(z.unknown()).optional(),
-  }),
-})
-
 // ============================================================================
 // Type Exports
 // ============================================================================
 
-export type Message = z.infer<typeof MessageSchema>
-export type ChatCompletionRequest = z.infer<typeof ChatCompletionRequestSchema>
-export type ChatCompletionChunk = z.infer<typeof ChatCompletionChunkSchema>
-export type ChatCompletionChoice = z.infer<typeof ChatCompletionChoiceSchema>
-
-// NAT WebSocket Types
 export type NATUserMessage = z.infer<typeof NATUserMessageSchema>
-export type NATUserMessageContent = z.infer<typeof NATUserMessageContentSchema>
-export type NATUserMessageItem = z.infer<typeof NATUserMessageItemSchema>
-export type NATUserContentText = z.infer<typeof NATUserContentTextSchema>
 export type NATUserInteractionResponse = z.infer<typeof NATUserInteractionResponseSchema>
 export type NATHumanPrompt = z.infer<typeof NATHumanPromptSchema>
-export type NATSystemInteractionMessage = z.infer<typeof NATSystemInteractionMessageSchema>
-export type NATSystemResponseMessage = z.infer<typeof NATSystemResponseMessageSchema>
-export type NATSystemResponseContent = z.infer<typeof NATSystemResponseContentSchema>
-export type NATSystemIntermediateMessage = z.infer<typeof NATSystemIntermediateMessageSchema>
-export type NATObservabilityTraceMessage = z.infer<typeof NATObservabilityTraceMessageSchema>
 export type NATIntermediateStepContent = z.infer<typeof NATIntermediateStepContentSchema>
-export type NATErrorMessage = z.infer<typeof NATErrorMessageSchema>
 export type NATErrorContent = z.infer<typeof NATErrorContentSchema>
 export type NATStageMessage = z.infer<typeof NATStageMessageSchema>
 export type StageId = (typeof STAGE_IDS)[number]
 export type NATIncomingMessage = z.infer<typeof NATIncomingMessageSchema>
 
-// Legacy WebSocket Types (kept for backwards compatibility)
-export type WebSocketConnectMessage = z.infer<typeof WebSocketConnectMessageSchema>
-export type WebSocketUserMessage = z.infer<typeof WebSocketUserMessageSchema>
-export type WebSocketAgentTextMessage = z.infer<typeof WebSocketAgentTextMessageSchema>
-export type WebSocketStatusMessage = z.infer<typeof WebSocketStatusMessageSchema>
-export type WebSocketToolCallMessage = z.infer<typeof WebSocketToolCallMessageSchema>
-export type WebSocketErrorMessage = z.infer<typeof WebSocketErrorMessageSchema>
-export type WebSocketIncomingMessage = z.infer<typeof WebSocketIncomingMessageSchema>
-
-export type WorkflowConfig = z.infer<typeof WorkflowConfigSchema>
-export type ApiError = z.infer<typeof ApiErrorSchema>
