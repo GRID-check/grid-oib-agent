@@ -4,11 +4,16 @@ import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { FileSourcesTab } from './FileSourcesTab'
 
 // Mock the chat store
+const callOrder: string[] = []
+const mockEnsureConversationExists = vi.fn(async () => {
+  callOrder.push('ensureConversation')
+})
 vi.mock('@/features/chat/store', () => ({
   useChatStore: vi.fn((selector) => {
     const state = {
       currentConversation: { id: 'session-1' },
       ensureSession: vi.fn(() => 'session-1'),
+      _ensureConversationExists: mockEnsureConversationExists,
     }
     return selector(state)
   }),
@@ -135,6 +140,23 @@ describe('FileSourcesTab', () => {
     render(<FileSourcesTab />)
 
     expect(screen.getByText('Upload Zone')).toBeInTheDocument()
+  })
+
+  // An attachment is authorized on its conversation, and the proxy refuses an
+  // upload into one the server has never heard of — which a chat is until its
+  // first message. So the row is made real first.
+  test('makes the conversation real on the server before uploading into it', async () => {
+    callOrder.length = 0
+    mockUploadFiles.mockImplementation(async () => {
+      callOrder.push('upload')
+    })
+    const user = userEvent.setup()
+    render(<FileSourcesTab />)
+
+    await user.click(screen.getByText('Upload Zone'))
+
+    expect(callOrder).toEqual(['ensureConversation', 'upload'])
+    expect(mockUploadFiles).toHaveBeenCalledWith(expect.any(Array), { collectionOverride: 'session-1' })
   })
 
   test('renders file list when files exist', () => {

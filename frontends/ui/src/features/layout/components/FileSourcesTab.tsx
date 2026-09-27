@@ -70,6 +70,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   // Get current conversation and ensureSession for session management
   const currentConversationId = useChatStore((state) => state.currentConversation?.id)
   const ensureSession = useChatStore((state) => state.ensureSession)
+  const ensureConversationExists = useChatStore((state) => state._ensureConversationExists)
   const projectId = useChatStore((state) => state.projectId)
   const [uploadTarget, setUploadTarget] = useState<'project' | 'session'>(
     projectId ? 'project' : 'session'
@@ -187,13 +188,18 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
           console.error('Failed to create session for upload')
           return
         }
+        // The server row BEFORE the bytes. An attachment is authorized on its
+        // conversation (`collaborator`), and the upload is refused for one the
+        // server has never heard of — which a chat is until its first message.
+        // Idempotent and shared per id with the send path (`ensureServerConversation`).
+        await ensureConversationExists()
       }
       // Pass the (possibly just-created) session explicitly: the hook's
       // memoized collectionName still reflects the previous render, so the
       // first upload in a fresh session would otherwise abort.
       await uploadFiles(files, { collectionOverride: sessionId })
     },
-    [ensureSession, isProjectTarget, projectCollectionName, uploadFiles]
+    [ensureSession, ensureConversationExists, isProjectTarget, projectCollectionName, uploadFiles]
   )
 
   // Hidden file input ref

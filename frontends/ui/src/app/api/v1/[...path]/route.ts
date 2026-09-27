@@ -129,7 +129,9 @@ export const GET = tenantSlotRoute(async function GET(
     const session = await resolveOptionalSession()
     const context = parseQueryContext(searchParams)
 
-    const validationError = await validateCollectionName(path, session, context)
+    const validationError = await validateCollectionName(path, session, context, {
+      method: req.method,
+    })
     if (validationError) {
       return validationError
     }
@@ -202,7 +204,9 @@ export const POST = tenantSlotRoute(async function POST(
 
     const context = resolveRequestContext(searchParams, parsedBody)
 
-    const validationError = await validateCollectionName(path, session, context)
+    const validationError = await validateCollectionName(path, session, context, {
+      method: req.method,
+    })
     if (validationError) {
       return validationError
     }
@@ -255,7 +259,9 @@ export const DELETE = tenantSlotRoute(async function DELETE(
     const session = await resolveOptionalSession()
     const context = parseQueryContext(searchParams)
 
-    const validationError = await validateCollectionName(path, session, context)
+    const validationError = await validateCollectionName(path, session, context, {
+      method: req.method,
+    })
     if (validationError) {
       return validationError
     }

@@ -256,10 +256,14 @@ Source: `frontends/ui/src/app/api/health/route.ts`
 | `POST` | `/api/v1/{path}` | Varies | Same as GET, for POST requests. Supports `multipart/form-data` (streams raw body without buffering). | JSON or `multipart/form-data` | JSON from backend |
 | `DELETE` | `/api/v1/{path}` | Varies | Same as GET, for DELETE requests. | Optional JSON body | JSON or `204 No Content` |
 
-Collection validation rules in `validateCollectionName()`:
-- Base collection (e.g., `oib_knowledge`): uploads rejected with `400 INVALID_COLLECTION`.
-- Project collections (`proj_*`): requires authenticated session + `project:edit` permission.
-- Session collections (`s_*`): must match the `conversationId` query/body param.
+Collection validation rules in `validateCollectionName()` (per method):
+- Base collection (e.g., `oib_knowledge`): rejected with `400 INVALID_COLLECTION`.
+- `GET /api/v1/collections` (every tenant's collections): `404`.
+- Project collections (`proj_*`): requires authenticated session + `project:documents:write` (or `project:edit`). A raw upload is refused with `403` — `/api/documents/upload` writes the document row and runs the file-type and quota admission, which the ingest path does not. Deleting the whole collection is refused with `403` (the project purge erases it).
+- Archiv collections (`archiv_*`): this org's Archiv + `org:archiv:manage`. Raw upload (`/api/archiv/documents/upload` instead) and whole-collection delete: `403`.
+- Session collections (`s_*`): must match the `conversationId` query/body param (a create or whole-collection delete names itself). A read is authorized by the scope builder (`viewer` on an existing chat). A **write** needs the conversation to exist and `collaborator` on it — `404` otherwise, so a viewer of a shared chat cannot delete its files and an id nobody created is not an upload target. Deleting the whole collection (the discard of an abandoned chat) needs the chat's delete authority (`owner`).
+
+**Open gap:** a chat attachment is still uploaded by the browser through this proxy straight to the ingest path, so it has no document row, no file-type gate and no quota charge. `/api/session/documents/upload` does all three and is built, but the chat composer does not call it yet (ADR-0047 Phase 2: rerouting upload, listing, delete and polling together).
 
 Source: `frontends/ui/src/app/api/v1/[...path]/route.ts`
 

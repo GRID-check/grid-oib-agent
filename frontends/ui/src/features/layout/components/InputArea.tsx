@@ -1297,12 +1297,17 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
       // Attached files now surface as inline chips above the composer, so there
       // is no panel to auto-open — the chips give instant feedback in place.
+      // The server row BEFORE the bytes. An attachment is authorized on its
+      // conversation (`collaborator`), and the upload is refused for one the
+      // server has never heard of — which a chat is until its first message.
+      // Idempotent and shared per id with the send path (`ensureServerConversation`).
+      await ensureConversationExists()
       // Pass the (possibly just-created) session explicitly: the hook's
       // memoized collectionName still reflects the previous render, so the
       // first upload in a fresh session would otherwise abort.
       await uploadFiles(files, { collectionOverride: sessionId })
     },
-    [ensureSession, uploadFiles, cannotContribute, isUploading, isBusy]
+    [ensureSession, ensureConversationExists, uploadFiles, cannotContribute, isUploading, isBusy]
   )
 
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
