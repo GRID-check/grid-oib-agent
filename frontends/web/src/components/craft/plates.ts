@@ -14,7 +14,7 @@ export const PLATES = {
   II: 'tafeln/schichten/plate',
   /** Schleife / Loop: the post on learning from corrections. */
   III: 'tafeln/schleife/plate',
-  /** Bauplatz / Building plot: the changelog, beside its heading and as its share card (the 404 wears Tragwerk IV). */
+  /** Bauplatz / Building plot: the changelog's share card (the 404 wears Tragwerk IV). */
   IV: 'tafeln/bauplatz/plate',
   /** Prüfstand / Test bench: the Rechenweg, beside its heading. */
   V: 'tafeln/pruefstand/plate',

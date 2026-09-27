@@ -3,8 +3,6 @@ import ChangelogRelease from '../molecules/ChangelogRelease.astro'
 import { getReleases, olderByMonth, OPEN_RELEASES, releaseAnchor, type ChangelogRelease as Release } from '../../lib/changelog'
 import { releaseStamp } from '../../lib/release-stamp'
 import { ui, type Locale } from '../../i18n/ui'
-import PagePrint from '../craft/PagePrint.astro'
-import { PLATES } from '../craft/plates'
 
 interface Props {
   locale: Locale
@@ -35,11 +33,7 @@ const count = (n: number) => (n === 1 ? t.monthCountOne : t.monthCount.replace('
 
 <section class="px-6 pb-28 pt-36 md:px-10">
   <div class="mx-auto max-w-4xl">
-    <!-- Tafeln IV, the building plot: the site the log below builds on. -->
-    <div class="flex items-end justify-between gap-8">
-      <h1 class="m-0 max-w-2xl font-voice text-v3 text-ink">{t.heading}</h1>
-      <PagePrint name={PLATES.IV} locale={locale} size="third" class="shrink-0 max-sm:hidden" />
-    </div>
+    <h1 class="max-w-2xl font-voice text-v3 text-ink">{t.heading}</h1>
 
     {
       log.length > 1 && (
