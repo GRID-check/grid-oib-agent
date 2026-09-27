@@ -228,6 +228,71 @@
   --travel-md: 16px;
 }
 
+/* ── Page frame and section rhythm ───────────────────────────────────────────
+   One content edge for every page: the landing sections, the footer and every
+   subpage heading start at the same x, 72rem wide inside an 85rem frame (the
+   gutters are the landing page's own). Running text below a subpage heading
+   keeps to `max-w-measure` from that same edge, never centred on its own.
+
+   `section-y` is the landing page's one vertical rhythm: every section pads
+   by the same amount, so two neighbours sit two paddings apart whether either
+   is a panel or open page. A section sets no `py-*` of its own. */
+@theme {
+  --container-measure: 42rem;
+}
+
+:root {
+  --section-y: clamp(2.5rem, 5vw, 4.5rem);
+}
+
+@utility frame {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 85rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+  @media (width >= 40rem) {
+    padding-inline: 2.5rem;
+  }
+  @media (width >= 64rem) {
+    padding-inline: 6.5rem;
+  }
+}
+
+/* A panel section's frame: the panel runs wider than the content edge (8px of
+   the screen on a phone), and its own inner padding brings the content back to
+   the frame's line. */
+@utility frame-panel {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 85rem;
+  margin-inline: auto;
+  padding-inline: 0.5rem;
+  @media (width >= 40rem) {
+    padding-inline: 1rem;
+  }
+  @media (width >= 64rem) {
+    padding-inline: 2.5rem;
+  }
+}
+
+@utility section-y {
+  padding-block: var(--section-y);
+}
+
+/* The inner padding of the three panels that remain (the story, sources and
+   value): one value, so their content lines up with the open sections'. */
+@utility panel-pad {
+  box-sizing: border-box;
+  padding: 3rem 1rem;
+  @media (width >= 40rem) {
+    padding: 4rem 1.5rem;
+  }
+  @media (width >= 64rem) {
+    padding: 5rem 4rem;
+  }
+}
+
 /* Panels are sheets of drafting paper: they carry the same grid the page
    background does, so a coloured panel reads as a sheet laid on the drawing
    rather than as a card pasted over it. */
@@ -368,6 +433,51 @@ html:not(.js) [data-story-stage] {
 html:not(.js) [data-solution-card] {
   opacity: 1;
   transform: translate(-50%, -50%) scale(1);
+}
+
+/* ── The seam under the hero ─────────────────────────────────────────────────
+   The hero's photograph ended on a hard horizontal cut, with a 16px strip of
+   grid paper between it and the story panel. Its foot now settles into the
+   page: the page itself (canvas and grid, the grid positioned to line up
+   with the body's) fades in over the last few rem, short enough to stay clear
+   of the buttons above it (pb-14 on a phone, pb-28 from lg). The story then
+   starts one section's rhythm below, like every other section. */
+[data-hero-wrap]::after {
+  --seam: 3rem;
+  --hero-h: 100svh;
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: var(--seam);
+  pointer-events: none;
+  background-color: var(--color-canvas);
+  background-image:
+    linear-gradient(to right, rgb(42 48 31 / 0.075) 0 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(42 48 31 / 0.075) 0 1px, transparent 1px),
+    linear-gradient(to right, rgb(42 48 31 / 0.032) 0 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(42 48 31 / 0.032) 0 1px, transparent 1px);
+  background-size:
+    168px 168px,
+    168px 168px,
+    28px 28px,
+    28px 28px;
+  background-position: center calc(var(--seam) - var(--hero-h));
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000);
+  mask-image: linear-gradient(to bottom, transparent, #000);
+}
+@media (width >= 64rem) {
+  [data-hero-wrap]::after {
+    --seam: 5rem;
+    --hero-h: 100vh;
+  }
+}
+/* The story's sticky frame keeps 1rem around its panel (the pinned panel is
+   a screen less 2rem), so its margins make up the rest of the rhythm. Margin,
+   not padding: the pin script sets this wrapper's height to its runway. */
+[data-pin='story'] {
+  margin-top: calc(2 * var(--section-y) - 1rem);
+  margin-bottom: calc(var(--section-y) - 1rem);
 }
 
 /* ── Mechanical counter (src/scripts/counter.ts) ─────────────────────────────
