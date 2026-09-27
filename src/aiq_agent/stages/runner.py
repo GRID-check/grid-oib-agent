@@ -102,12 +102,14 @@ def _claim(spec: StageSpec, facts: TurnFacts) -> bool:
 
 
 def stage_value(spec: StageSpec, outcome: StageOutcome) -> StageValue:
-    """The wire value of one stage outcome: a ``stage`` event on the turn's own ``seq`` (chat wire v2).
+    """The ``stage`` event's value for one outcome (chat wire v2, ``CUSTOM stage``).
 
-    ``status`` rides even when there is nothing to show: ``empty`` is not the
-    same fact as "no event arrived", and only the former lets a client stop
-    reserving space. A ``failed`` event carries no reason: failure reasons are
-    machine keys for the ledger, not user-facing text.
+    The handler stamps it with the turn's envelope, so the turn it belongs to
+    is the envelope's ``turn_id``. ``status`` rides even when there is nothing
+    to show: ``empty`` is not the same fact as "no event arrived", and only the
+    former lets a client stop reserving space. A ``failed`` value carries no
+    reason: failure reasons are machine keys for the ledger, not user-facing
+    text.
     """
     status = "failed" if outcome.status == "timeout" else outcome.status
     payload = outcome.payload if outcome.status == "ready" else None
@@ -319,7 +321,7 @@ async def _run_stage(spec: StageSpec, ctx: StageContext) -> StageOutcome:
         payload=payload if status == "ready" else None,
         duration_ms=max(0, round((time.monotonic() - started) * 1000)),
     )
-    if spec.delivery == "frame" and status in {"ready", "empty", "failed", "timeout"} and facts.ws_parent_id:
+    if spec.delivery == "frame" and status in {"ready", "empty", "failed", "timeout"}:
         await deliver_stage_frame(facts.conversation_id, facts.ws_parent_id, stage_value(spec, outcome))
     return outcome
 
@@ -363,11 +365,13 @@ def _validate(spec: StageSpec, result: Any) -> tuple[str, str | None, dict[str, 
         except Exception:
             logger.warning("Stage %s returned a payload its own model rejects", spec.id, exc_info=True)
             return "failed", "invalid_payload", None
-        # ``exclude_none`` because on the wire an absent key and a null are the
-        # same fact, and only one of them is the contract: a v2 frame is never
-        # ``null`` where a value is absent (``wire_v2.to_frame``), and the
-        # payload is passed through as it is, so its own ``None`` defaults
-        # must not be serialised either.
+        # ``exclude_none`` because on this envelope an absent key and a null are
+        # the same fact, and only one of them is the contract: `shared/stages/
+        # frames.json` shows an optional field simply missing, so a model that
+        # serialised its own ``None`` default would make the fixture file and its
+        # own producer disagree — which is the drift the fixtures exist to catch.
+        # It is the same rule the envelope already applies one level up, where a
+        # non-``ready`` frame carries no ``payload`` KEY rather than a null one.
         return "ready", None, validated.model_dump(mode="json", exclude_none=True)
     if not isinstance(result, dict):
         return "failed", "invalid_payload", None

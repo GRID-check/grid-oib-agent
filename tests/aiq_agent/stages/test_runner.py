@@ -342,13 +342,9 @@ class TestBackpressureAndIdempotency:
         assert peak == 1
 
 
-#: A stage the wire contract names (`StageValue.stage`): only those are delivered.
-_FRAME_STAGE = "follow_ups"
-
-
 class TestFrameDelivery:
     @pytest.mark.asyncio
-    async def test_a_frame_stage_hands_its_payload_to_the_registered_sink(self):
+    async def test_a_frame_stage_hands_its_value_to_the_registered_sink_for_its_turn(self):
         sent = []
 
         async def _sink(conversation_id, turn_id, value):
@@ -359,14 +355,13 @@ class TestFrameDelivery:
 
         delivery.register_stage_frame_sink(_sink)
         try:
-            _spec(lambda ctx: _returns({"items": []}), stage_id=_FRAME_STAGE, delivery="frame")
-            await _run_all(_facts(enabled_stages=frozenset({_FRAME_STAGE})))
+            _spec(lambda ctx: _returns({"items": []}), stage_id="follow_ups", delivery="frame")
+            await _run_all(_facts(enabled_stages=frozenset({"follow_ups"})))
         finally:
             delivery.register_stage_frame_sink(None)
 
-        # The turn's sequencer stamps it as a `stage` event after the terminal (chat wire v2).
         assert sent == [
-            ("conv_1", "msg_1755600000000_3", StageValue(stage=_FRAME_STAGE, status="ready", payload={"items": []}))
+            ("conv_1", "msg_1755600000000_3", StageValue(stage="follow_ups", status="ready", payload={"items": []}))
         ]
 
     @pytest.mark.asyncio
@@ -378,11 +373,11 @@ class TestFrameDelivery:
 
         delivery.register_stage_frame_sink(_sink)
         try:
-            _spec(lambda ctx: _returns({"items": []}), stage_id=_FRAME_STAGE, delivery="frame")
-            outcomes = await _run_all(_facts(enabled_stages=frozenset({_FRAME_STAGE})))
+            _spec(lambda ctx: _returns({"items": []}), stage_id="follow_ups", delivery="frame")
+            outcomes = await _run_all(_facts(enabled_stages=frozenset({"follow_ups"})))
         finally:
             delivery.register_stage_frame_sink(None)
-        assert outcomes[_FRAME_STAGE].status == "ready"
+        assert outcomes["follow_ups"].status == "ready"
 
     @pytest.mark.asyncio
     async def test_wiring_the_delivery_changes_nothing_that_lands_in_the_spans(self):
@@ -404,8 +399,8 @@ class TestFrameDelivery:
         def _metadata_for(mode):
             registry._STAGES.clear()
             runner._claimed_keys.clear()
-            _spec(lambda ctx: _returns(StageEmpty("model_declined")), stage_id=_FRAME_STAGE, delivery=mode)
-            return _facts(enabled_stages=frozenset({_FRAME_STAGE}))
+            _spec(lambda ctx: _returns(StageEmpty("model_declined")), stage_id="follow_ups", delivery=mode)
+            return _facts(enabled_stages=frozenset({"follow_ups"}))
 
         spans = {}
         delivery.register_stage_frame_sink(_sink)
@@ -414,7 +409,7 @@ class TestFrameDelivery:
                 facts = _metadata_for(mode)
                 with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
                     await _run_all(facts)
-                spans[mode] = next(s for s in _spans(post) if s["name"] == f"stage:{_FRAME_STAGE}")["metadata"]
+                spans[mode] = next(s for s in _spans(post) if s["name"] == "stage:follow_ups")["metadata"]
         finally:
             delivery.register_stage_frame_sink(None)
 

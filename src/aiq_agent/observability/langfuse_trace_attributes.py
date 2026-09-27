@@ -218,9 +218,9 @@ def reset_contributions() -> None:
 #    another name. Reading only the provider shape is what rendered every
 #    Piloti research generation with bare input/output/total and no cache
 #    bucket, however well the provider was caching.
-# 2. The turn's terminal ``ChatResponse`` is built with an empty
-#    ``Usage()`` (see ``aiq_agent.common._create_chat_response``), so even
-#    the API-level generation object carries no totals.
+# 2. The turn's result carries no usage at all (a chat turn ends with a
+#    ``TurnResult``, an eval wrapper with plain text), so nothing above the
+#    LLM span holds the totals.
 #
 # This processor closes drop 1 at export time, where every LLM span passes
 # regardless of which handler built it (NAT's stock handler on chat turns,

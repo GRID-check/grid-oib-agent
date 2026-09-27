@@ -19,6 +19,7 @@ from aiq_agent.common.turn_admission import TurnAdmissionError
 from aiq_agent.common.wire_v2 import RunFinishedBody
 from aiq_agent.common.wire_v2 import StatusStep
 from aiq_agent.common.wire_v2 import StepFinishedBody
+from aiq_agent.common.wire_v2 import UserMessage
 from aiq_agent.turn import admission as admission_mod
 from aiq_agent.turn import inventory as inventory_mod
 from aiq_agent.turn import registries as registries_mod
@@ -37,6 +38,11 @@ async def _shallow(state):
         answer_confidence_marker="high",
         skills_activated=["oib-brandschutz"],
     )
+
+
+def _ask(text: str, **fields) -> UserMessage:
+    """The v2 user_message the chat socket hands the turn."""
+    return UserMessage(conversation_id="conv-1", message_id="msg-1", text=text, **fields)
 
 
 class TestStageModelWiring:
@@ -59,7 +65,7 @@ def harness(workflow_harness):
 
 class TestRun:
     async def test_a_turn_ends_with_one_run_finished_carrying_the_result(self, harness):
-        bodies = await harness["turn"]('{"query": "Wie hoch muss die Brüstung sein?"}')
+        bodies = await harness["turn"](_ask("Wie hoch muss die Brüstung sein?"))
 
         terminal = bodies[-1]
         assert isinstance(terminal, RunFinishedBody)
@@ -71,8 +77,8 @@ class TestRun:
         assert terminal.result.skills_activated == ["oib-brandschutz"]
 
     async def test_nat_run_prints_the_run_finished_text(self, harness):
-        """`Streaming(convert=fold_turn)`: the single-output path the answer suite reads."""
-        assert await harness["single"]('{"query": "Wie hoch muss die Brüstung sein?"}') == ANSWER
+        """`Streaming(convert=fold_turn)`: the single-output path the answer suite reads, asked a plain question."""
+        assert await harness["single"]("Wie hoch muss die Brüstung sein?") == ANSWER
 
     async def test_the_setup_steps_are_yielded_before_the_graph_starts(self, harness, monkeypatch):
         loading = StatusStep(id="status:documents", slot="documents", key="status.documents.project")
@@ -87,13 +93,13 @@ class TestRun:
         monkeypatch.setattr(register_mod, "pending_uploads", lambda inventory: waiting)
         monkeypatch.setattr(register_mod, "wait_for_uploads", wait_for_uploads)
 
-        bodies = await harness["turn"]('{"query": "Was gilt?"}')
+        bodies = await harness["turn"](_ask("Was gilt?"))
 
         assert bodies[:2] == [StepFinishedBody(step=loading), StepFinishedBody(step=waiting)]
         assert len(waited) == 1
 
     async def test_the_post_answer_stages_get_the_turn_facts(self, harness):
-        await harness["turn"]('{"query": "Wie hoch muss die Brüstung sein?"}')
+        await harness["turn"](_ask("Wie hoch muss die Brüstung sein?"))
 
         (facts,) = harness["scheduled"]
         assert facts.query == "Wie hoch muss die Brüstung sein?"
@@ -104,7 +110,7 @@ class TestRun:
     async def test_the_request_envelope_is_parsed_once_per_turn(self, harness):
         """The organization for admission used to be re-parsed (base64 + HMAC +
         JSON) after the context load had parsed the same envelope."""
-        await harness["turn"]('{"query": "Was gilt?"}')
+        await harness["turn"](_ask("Was gilt?"))
         assert harness["from_context"] == 1
 
     async def test_a_refused_turn_delivers_one_refused_terminal_and_no_stage(self, harness, monkeypatch):
@@ -113,7 +119,7 @@ class TestRun:
 
         monkeypatch.setattr(register_mod, "answer_turn", refuse)
 
-        (terminal,) = await harness["turn"]('{"query": "Was gilt?"}')
+        (terminal,) = await harness["turn"](_ask("Was gilt?"))
 
         assert terminal.outcome == "refused"
         assert terminal.result.text == "Gerade zu viele Anfragen."
@@ -127,10 +133,8 @@ class TestRun:
             seen.append((state.focus_file_name, state.focus_shelf))
             return await _shallow(state)
 
-        await harness["turn"](
-            '{"query": "fass zusammen", "focus_file_name": "Plan.pdf", "focus_shelf": "session"}', shallow
-        )
-        await harness["turn"]('{"query": "welche OIB-Richtlinien gelten in Wien?"}', shallow)
+        await harness["turn"](_ask("fass zusammen", focus_file_name="Plan.pdf", focus_shelf="session"), shallow)
+        await harness["turn"](_ask("welche OIB-Richtlinien gelten in Wien?"), shallow)
 
         assert seen == [("Plan.pdf", "session"), (None, None)]
 
@@ -149,7 +153,7 @@ class TestTurnLedgers:
 
         monkeypatch.setattr(admission_mod, "admit_turn_async", refuse)
 
-        (terminal,) = await harness["turn"]('{"query": "Was gilt?"}')
+        (terminal,) = await harness["turn"](_ask("Was gilt?"))
 
         assert terminal.outcome == "refused"
         assert terminal.result.text == "Gerade zu viele Anfragen."
@@ -175,7 +179,7 @@ class TestTurnLedgers:
 
         monkeypatch.setattr(registries_mod, "get_or_create_session_registry", hydration_down)
 
-        bodies = await harness["turn"]('{"query": "Wie hoch muss die Brüstung sein?"}')
+        bodies = await harness["turn"](_ask("Wie hoch muss die Brüstung sein?"))
 
         assert bodies[-1].result.text == ANSWER
         assert self._root(harness["spans"])["status"] == "ok"
@@ -191,7 +195,7 @@ class TestTurnLedgers:
         monkeypatch.setattr(register_mod, "answer_turn", boom)
 
         with pytest.raises(RuntimeError, match="agent down"):
-            await harness["turn"]('{"query": "Was gilt?"}')
+            await harness["turn"](_ask("Was gilt?"))
 
         assert self._root(harness["spans"])["status"] == "error"
 
@@ -221,6 +225,6 @@ class TestTheInventoryFactsReachTheAnswer:
             seen["dropped"] = sum(get_inventory_drops().values())
             return await _shallow(state)
 
-        await harness["turn"]('{"query": "Was gilt?"}', shallow)
+        await harness["turn"](_ask("Was gilt?"), shallow)
 
         assert seen == {"families": [("2", ("2", "2.1"))], "dropped": 7}

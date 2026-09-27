@@ -55,11 +55,13 @@ Browser WebSocket
     the model's own clause). A commissioned report escalates immediately,
     without a retrieval first.
 
+    Note: Piloti doubles as the conversational assistant, so the UI
+    presents it neutrally as "Assistant" (getDisplayName in
+    intermediate-step-parser.ts), not "Research Agent" — a greeting is
+    not a research run.
   → the turn's wire bodies, stamped and sent by the chat socket (wire v2, ADR-0068)
       frontends/aiq_api/src/aiq_api/chat_socket.py
-  → frontends/ui/src/adapters/api/turn-socket.ts  (parseWireEvent)
-  → frontends/ui/src/features/chat/hooks/use-websocket-chat.ts  (the driver)
-  → store applyTurnEvents → features/chat/lib/turn-fold.ts (foldTurnEvent)
+  → the UI's turn socket and fold (docs/api/websocket-protocol.md, "The client")
   → frontends/ui/src/features/layout/components/ChatArea.tsx → AgentResponse.tsx
 ```
 
@@ -80,9 +82,10 @@ It is authoritative, and it is what the socket persists
 (`chat_socket.persist_turn_result`). No field is lifted by name any more.
 
 **Transparency extras (WP-A).** A family of optional, additive "why did the turn
-behave this way?" signals are fields of the same `TurnResult`. All are **absent
-unless applicable** (a frame omits every field at its default) and reset at the
-turn boundary in `ConversationGraph.stream()`:
+behave this way?" signals are fields of the same `TurnResult`, which
+`turn.response.build_result` lifts off the finished state. A frame omits every
+field at its default, and each is reset at the turn boundary in
+`ConversationGraph.stream()`:
 
 - `routing_decision` (`meta`/`shallow`/`deep`/`error`) — which path the turn
   took, OBSERVED after the answer
@@ -329,7 +332,7 @@ backend pieces live in `chat_socket.py` and `conversation_bus.py`; the design is
   `POST /api/internal/conversations/{id}/messages` with `X-Grid-Internal-Token`
   (org scoped via the `x-grid-organization-id` the upgrade forwarded), not the
   browser session cookie, which expires on long turns. The id is deterministic
-  per turn (`deterministic_assistant_message_id`), so the browser's own write of
+  per turn (`turn.response.answer_message_id`), so the browser's own write of
   the same answer no-ops on the primary key (`onConflictDoNothing`). A
   job-admission "queue full" notice and a run hand-off (no text, no cards) write
   no row.
@@ -415,10 +418,12 @@ fires child effects before parent effects, on first navigation into a project
 (the wizard's landing) the socket connected with `projectId: undefined` → the
 header was never sent → the agent had no project knowledge for that session.
 
-**Fix** (`use-websocket-chat.ts`): subscribe to `projectId` reactively and key
-the socket on it as well as on the conversation, so a socket is opened again,
-with the project scope in its handshake, once the project store resolves. A
-running turn survives the reopen: the new socket re-attaches it.
+**Fix** (`use-websocket-chat.ts`, `websocket-client.ts`):
+- Subscribe to `projectId` reactively and add it to the connect-effect deps, so
+  the socket is (re)established once the project store resolves.
+- Added `NATWebSocketClient.updateProjectId()` which rotates the socket (same
+  atomic swap used for auth rotation) only when the value actually changes, so
+  the handshake re-sends the project scope.
 
 Note: the profile is intentionally **not** embedded into the `proj_*` RAG
 collection — project knowledge reaches the agent only via header text-injection:
