@@ -1,0 +1,26 @@
+---
+fixes:
+  - >
+    Wird dieselbe Datei zweimal kurz hintereinander hochgeladen, entstehen
+    jetzt zwei getrennte Versionen mit fortlaufender Nummer. Bisher konnten
+    beide als dieselbe Version gespeichert werden, und die zweite Datei
+    überschrieb die erste unbemerkt.
+  - >
+    Bearbeiten zwei Personen oder Piloti und eine Person denselben Entwurf
+    gleichzeitig, gewinnt eine Änderung, und die andere erhält den Hinweis,
+    dass sich der Entwurf inzwischen geändert hat. Bisher konnte die zweite
+    Änderung die erste still überschreiben, und die gespeicherte Datei passte
+    dann nicht mehr zu den Angaben der Version.
+  - >
+    Drücken zwei Personen gleichzeitig „Veröffentlichen", erhält die zweite
+    jetzt den Hinweis, dass die Version bereits veröffentlicht wurde, statt
+    einer Fehlermeldung.
+  - >
+    Der Speicherplatz wird bei jeder neuen Version vollständig angerechnet,
+    denn frühere Versionen bleiben erhalten. Bisher wurde eine erneut
+    hochgeladene Datei oder ein überarbeiteter Entwurf zu niedrig angerechnet,
+    und wiederholte Überarbeitungen konnten das Speicherkontingent unbemerkt
+    überschreiten.
+  - >
+    Beim Löschen eines Dokuments mit mehr als 500 Versionen werden jetzt die
+    Dateien aller Versionen entfernt, nicht nur die der ersten 500.

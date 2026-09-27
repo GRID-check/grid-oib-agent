@@ -361,7 +361,9 @@ that, **every re-upload of a document failed** on the constraint.
 
 **Bytes:** a superseded version keeps its object. They are purged when the
 document is deleted — `deleteDocument`, `deleteArchivDocument` and
-`deleteSessionDocument` each walk every version — and not when one is replaced.
+`deleteSessionDocument` each walk every version (`listDocumentVersionObjects`
+pages through all of them; it used to stop at the 500-row list page and leak
+the rest) — and not when one is replaced.
 The consequence is stated rather than hidden: superseded versions stay charged
 against the organization's storage quota, because they exist. A per-organization
 retention policy is a later row on a later table.

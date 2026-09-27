@@ -44,6 +44,7 @@ import { TransactionRollbackError, type SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import {
   findPreviousVersion,
+  listDocumentVersionObjects,
   swapVersionContent,
   insertDocumentVersion,
   insertPublishedVersion,
@@ -459,5 +460,48 @@ describe('swapVersionContent — the quota is measured on the state it commits',
     currentDb = fake.db
     await swapVersionContent({ ...base, quotaBytes: null })
     expect(fake.statements).toEqual(['LOCK', 'UPDATE', 'ORPHAN CHECK'])
+  })
+})
+
+/**
+ * The delete cascade's object list reads EVERY version, not the first page.
+ *
+ * It used to stop at `DOCUMENT_VERSION_LIST_LIMIT` (500), so deleting a
+ * document with a longer history left every later version's object in the
+ * bucket: invisible, still charged, still presignable.
+ */
+describe('listDocumentVersionObjects — past the first page', () => {
+  it('pages by version number until a short page, and returns a shared object once', async () => {
+    const full = Array.from({ length: 500 }, (_, index) => [
+      index + 1,
+      `k/v${index + 1}`,
+      'grid-org-1',
+    ])
+    // A fork shares the published version's key: two rows, one object.
+    full[499] = [500, 'k/v499', 'grid-org-1']
+    pages.push(full, [
+      [501, 'k/v501', 'grid-org-1'],
+      [502, 'k/v502', 'grid-org-1'],
+    ])
+
+    const objects = await listDocumentVersionObjects('doc_1', 'org_1')
+
+    expect(captured).toHaveLength(2)
+    // The second page starts after the last number the first one returned.
+    expect(captured[1].sql).toMatch(/"version_number" > \$\d/)
+    expect(captured[1].params).toContain(500)
+    expect(
+      captured.every(({ sql }) => /order by "document_versions"."version_number" asc/i.test(sql)),
+    ).toBe(true)
+    expect(objects).toHaveLength(501)
+    expect(objects.map((object) => object.storageKey)).toContain('k/v502')
+  })
+
+  it('asks once when the history fits one page', async () => {
+    pages.push([[1, 'k/v1', null]])
+    await expect(listDocumentVersionObjects('doc_1', 'org_1')).resolves.toEqual([
+      { storageKey: 'k/v1', storageBucket: null },
+    ])
+    expect(captured).toHaveLength(1)
   })
 })

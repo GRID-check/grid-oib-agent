@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   documentVersions,
@@ -34,7 +34,9 @@ import { DOCUMENT_VERSION_STATES, OPEN_DOCUMENT_VERSION_STATES } from './lifecyc
  * render bound only. It is still a cap, not a promise: past it the list keeps
  * the oldest rows (`ORDER BY version_number ASC` below), and a true
  * newest-first page (offset/desc) is the follow-up when a history that long
- * stops being theoretical.
+ * stops being theoretical. The delete cascade ({@link listDocumentVersionObjects})
+ * uses it as a PAGE size and reads every page, because an object it misses is
+ * an object nobody deletes.
  */
 export const DOCUMENT_VERSION_LIST_LIMIT = 500
 
@@ -753,26 +755,50 @@ export async function setDocumentLifecycle(
  * one would leave every superseded version's object in the bucket: invisible to
  * the UI, still charged to the organization, and readable by anyone who can
  * presign a key.
+ *
+ * ## Every version, not the first page
+ *
+ * This read the same 500-row page as the version list, so a document with a
+ * longer history left every object past row 500 in the bucket when it was
+ * deleted — the leak the paragraph above exists to prevent, one weekly
+ * re-upload at a time. It pages through ALL of them now, by `version_number`
+ * (unique per document since migration 0092, so the cursor never skips or
+ * repeats a row), one bounded page per query. Two rows over one object (a
+ * fork) come back once.
  */
 export async function listDocumentVersionObjects(
   documentId: string,
   organizationId: string,
 ): Promise<Array<Pick<DocumentVersion, 'storageKey' | 'storageBucket'>>> {
   const db = getDb()
-  return db
-    .select({
-      storageKey: documentVersions.storageKey,
-      storageBucket: documentVersions.storageBucket,
-    })
-    .from(documentVersions)
-    .where(
-      and(
-        eq(documentVersions.documentId, documentId),
-        eq(documentVersions.organizationId, organizationId),
-        isNotNull(documentVersions.storageKey),
-      ),
-    )
-    .limit(DOCUMENT_VERSION_LIST_LIMIT)
+  const objects = new Map<string, Pick<DocumentVersion, 'storageKey' | 'storageBucket'>>()
+  for (let after = 0; ; ) {
+    const page = await db
+      .select({
+        versionNumber: documentVersions.versionNumber,
+        storageKey: documentVersions.storageKey,
+        storageBucket: documentVersions.storageBucket,
+      })
+      .from(documentVersions)
+      .where(
+        and(
+          eq(documentVersions.documentId, documentId),
+          eq(documentVersions.organizationId, organizationId),
+          isNotNull(documentVersions.storageKey),
+          gt(documentVersions.versionNumber, after),
+        ),
+      )
+      .orderBy(asc(documentVersions.versionNumber))
+      .limit(DOCUMENT_VERSION_LIST_LIMIT)
+    for (const row of page) {
+      objects.set(`${row.storageBucket ?? ''}\u0000${row.storageKey}`, {
+        storageKey: row.storageKey,
+        storageBucket: row.storageBucket,
+      })
+    }
+    if (page.length < DOCUMENT_VERSION_LIST_LIMIT) return [...objects.values()]
+    after = Number(page[page.length - 1].versionNumber)
+  }
 }
 
 /**
