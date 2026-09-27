@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Bricht die Verarbeitung einer neuen Fassung mittendrin ab, findet die
+    Suche nur die vorige Fassung, ohne Bruchstücke der neuen daneben. Laden
+    zwei Personen gleichzeitig eine Datei unter demselben Namen hoch, bleibt
+    die zuletzt verarbeitete Fassung übrig statt beider.

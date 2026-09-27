@@ -118,9 +118,11 @@ For each row: set `status='purging'`, run the entity's step list, then set `purg
 
 A re-upload under the same name is not a deletion and takes none of these
 steps. The ingestor retires the previous version's chunks, by the ids it
-collected before the job, only after the new version has indexed, and keeps
-the `document_metadata` row with the Dokumentart, title and folder a person set
-on it. A re-upload that fails to index leaves the previous version in place
+collected before reading the file, only after the new version has indexed, and
+keeps the `document_metadata` row with the Dokumentart, title and folder a
+person set on it. A re-upload that fails to index leaves the previous version in
+place and takes back out any of its own chunks that were already inserted; two
+re-uploads of one name at once are serialised, so the later one is what stays
 ([document ingestion](../technical-reference/document-ingestion.md#a-re-upload-replaces-the-previous-version-once-it-has-indexed)).
 
 **Conversation**:

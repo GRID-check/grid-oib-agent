@@ -17,13 +17,20 @@ no chunks at all. The end-to-end tests at the bottom pin exactly that.
 - exact-name predecessors are found; tmp-prefixed and percent-encoded stored
   names (the two forms ``delete_file`` already normalizes) match their plain
   re-upload; other files are never touched, and nothing is deleted by the find;
+- the find reads the files being replaced, by a ``$in`` filter over their
+  spellings, never the whole collection (once one full scan per OIB PDF);
 - retirement deletes by the COLLECTED ids, in Chroma and in the lexical mirror,
   bumps the collection version, and drops the metadata row only under a stored
   spelling other than the new name (the row under the new name is the new
   version's row, and keeps what people set);
-- a failure in either step never fails the ingest.
+- a failure in either step never fails the ingest;
+- a file that fails after some of its chunks went in takes exactly those chunks
+  back out, and the previous version stays whole;
+- two jobs for one name replace one after the other: the one that finishes last
+  is the only version left.
 """
 
+import threading
 import time
 import uuid
 from unittest.mock import MagicMock
@@ -41,12 +48,19 @@ def ingestor():
 
 
 def _collection(chunks: dict[str, str]) -> MagicMock:
-    """A fake Chroma collection: ``chunks`` maps chunk id → stored file_name."""
+    """A fake Chroma collection: ``chunks`` maps chunk id → stored file_name.
+
+    Honours a ``file_name`` ``$in`` filter the way Chroma does, so a test sees
+    what the filtered read can and cannot reach.
+    """
+
+    def get(where=None, **_kwargs):
+        wanted = (where or {}).get("file_name", {}).get("$in")
+        hits = {cid: name for cid, name in chunks.items() if wanted is None or name in wanted}
+        return {"ids": list(hits), "metadatas": [{"file_name": name} for name in hits.values()]}
+
     collection = MagicMock()
-    collection.get.return_value = {
-        "ids": list(chunks.keys()),
-        "metadatas": [{"file_name": name} for name in chunks.values()],
-    }
+    collection.get.side_effect = get
     return collection
 
 
@@ -75,12 +89,20 @@ def registries(monkeypatch):
     monkeypatch.setattr(knowledge, "get_document_doc_classes", reader("doc_class"))
     monkeypatch.setattr(knowledge, "get_document_display_titles", reader("display_title"))
     monkeypatch.setattr(knowledge, "get_document_folder_paths", reader("folder_path"))
+    # Stored names with a metadata row: where the find learns tmp[8]_ spellings.
+    rows: list[str] = []
+    monkeypatch.setattr(
+        knowledge,
+        "find_tmp_upload_names",
+        lambda coll, names: [row for row in rows if adapter_module._normalized_file_name(row) in names],
+    )
     return {
         "unregistered": unregistered,
         "mirror": mirror_deleted,
         "store": store,
         "bumped": bumped,
         "human_set": human_set,
+        "rows": rows,
     }
 
 
@@ -106,7 +128,9 @@ def test_same_name_predecessor_is_found_and_nothing_is_deleted_yet(ingestor, reg
 
 def test_tmp_prefixed_and_percent_encoded_stored_names_match(ingestor, registries):
     # Stored under the two forms delete_file already normalizes: a backend tmp
-    # copy (tmp[8 chars]_) and a presigned-URL-derived percent encoding.
+    # copy (tmp[8 chars]_) and a presigned-URL-derived percent encoding. The
+    # tmp spelling is random, so the find learns it from the metadata rows.
+    registries["rows"].append("tmpa1b2c3d4_statik-standard.pdf")
     collection = _collection(
         {"c1": "tmpa1b2c3d4_statik-standard.pdf", "c2": "statik%20standard.pdf", "c3": "bleibt.pdf"}
     )
@@ -117,6 +141,24 @@ def test_tmp_prefixed_and_percent_encoded_stored_names_match(ingestor, registrie
     assert found["statik-standard.pdf"].stored_names == ["tmpa1b2c3d4_statik-standard.pdf"]
     assert found["statik standard.pdf"].chunk_ids == ["c2"]
     assert found["statik standard.pdf"].stored_names == ["statik%20standard.pdf"]
+
+
+def test_the_find_filters_by_name_instead_of_reading_the_collection(ingestor, registries):
+    collection = _collection({"c1": "statik standard.pdf", "c2": "anderes.pdf"})
+
+    ingestor._find_previous_versions(collection, "oib_knowledge", ["statik standard.pdf"])
+
+    collection.get.assert_called_once()
+    spellings = collection.get.call_args.kwargs["where"]["file_name"]["$in"]
+    assert "statik standard.pdf" in spellings
+    assert "statik%20standard.pdf" in spellings
+    assert "anderes.pdf" not in spellings
+
+
+def test_a_tmp_prefixed_version_without_a_metadata_row_is_not_found(ingestor, registries):
+    """The price of the filtered read: nothing names that spelling, so it stays."""
+    collection = _collection({"c1": "tmpa1b2c3d4_statik.pdf"})
+    assert ingestor._find_previous_versions(collection, "proj_1", ["statik.pdf"]) == {}
 
 
 def test_first_upload_finds_nothing(ingestor, registries):
@@ -136,6 +178,7 @@ def test_a_failed_lookup_finds_nothing_and_never_fails_the_ingest(ingestor, regi
 
 
 def test_what_people_set_on_the_previous_version_is_carried(ingestor, registries):
+    registries["rows"].append("tmpa1b2c3d4_statik.pdf")
     registries["human_set"]["doc_class"]["tmpa1b2c3d4_statik.pdf"] = "tragwerk"
     registries["human_set"]["display_title"]["tmpa1b2c3d4_statik.pdf"] = "Statik Bauteil B"
     registries["human_set"]["folder_path"]["tmpa1b2c3d4_statik.pdf"] = "/Einreichung"
@@ -373,3 +416,115 @@ def test_a_reupload_that_indexes_replaces_the_previous_version(tmp_path, live_in
     assert get_document_folder_paths("proj_ok", ["statik.txt"]) == {"statik.txt": "/Einreichung"}
     summaries = [doc.summary for doc in get_available_documents("proj_ok")]
     assert len(summaries) == 1 and summaries[0] != "Die alte Statik."
+
+
+def test_a_legacy_tmp_prefixed_version_is_replaced_through_its_metadata_row(tmp_path, live_ingestor, stores):
+    """The filtered read cannot match a random prefix; the row it left behind names it."""
+    from aiq_agent.knowledge import get_document_doc_class
+
+    _seed_previous_version(live_ingestor, stores, "proj_tmp", "tmpa1b2c3d4_statik.txt")
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Neue Fassung der Statik.", encoding="utf-8")
+
+    job_id = live_ingestor.submit_job([str(upload)], "proj_tmp", config={"original_filenames": ["statik.txt"]})
+    status = _wait_terminal(live_ingestor, job_id)
+
+    assert status.file_details[0].status.value == "success"
+    assert list(_chunks(live_ingestor, "proj_tmp").values()) == ["Neue Fassung der Statik."]
+    # The Dokumentart moved from the old spelling's row to the new one.
+    assert get_document_doc_class("proj_tmp", "statik.txt") == "tragwerk"
+    assert get_document_doc_class("proj_tmp", "tmpa1b2c3d4_statik.txt") is None
+
+
+# ---------------------------------------------------------------------------
+# A failure after some chunks went in, and two jobs for one name
+# ---------------------------------------------------------------------------
+
+
+def _two_page_pdf(monkeypatch, tmp_path):
+    """A PDF whose text reader yields two pages: two documents, two inserts."""
+    monkeypatch.setattr(
+        adapter_module,
+        "_extract_text_from_pdf",
+        lambda _path: [
+            {"page_number": 1, "text": "Neue Fassung Seite eins"},
+            {"page_number": 2, "text": "Neue Fassung Seite zwei"},
+        ],
+    )
+    upload = tmp_path / "tmp_upload.pdf"
+    upload.write_bytes(b"%PDF-1.7\n")
+    return upload
+
+
+_TEXT_ONLY = {"extract_tables": False, "extract_images": False, "extract_charts": False}
+
+
+def test_a_reupload_that_fails_halfway_takes_its_own_chunks_back_out(tmp_path, monkeypatch, live_ingestor, stores):
+    """Page one is in when page two's embedding fails: page one goes, the old version stays."""
+    inserted: list[str] = []
+
+    class _FailsOnSecondInsert(_IndexIntoChroma):
+        def insert(self, document):
+            if inserted:
+                raise RuntimeError("embedding batch timed out")
+            super().insert(document)
+            new_ids = [cid for cid in self._collection.get()["ids"] if not cid.startswith("old-")]
+            inserted.extend(new_ids)
+            # A lexical-mirror row for it, as a mirror that ran early would leave.
+            stores.upsert_many(
+                "proj_half",
+                [{"chunk_id": cid, "body": "Neu", "file_name": "statik.pdf", "page_label": "1"} for cid in new_ids],
+            )
+
+    monkeypatch.setattr("llama_index.core.VectorStoreIndex", _FailsOnSecondInsert)
+    _seed_previous_version(live_ingestor, stores, "proj_half", "statik.pdf")
+    upload = _two_page_pdf(monkeypatch, tmp_path)
+
+    job_id = live_ingestor.submit_job(
+        [str(upload)], "proj_half", config={"original_filenames": ["statik.pdf"], **_TEXT_ONLY}
+    )
+    status = _wait_terminal(live_ingestor, job_id)
+
+    assert len(inserted) == 1
+    assert status.file_details[0].status.value == "failed"
+    assert _chunks(live_ingestor, "proj_half") == {
+        "old-1": "Alte Fassung Seite eins",
+        "old-2": "Alte Fassung Seite zwei",
+    }
+    assert stores.count("proj_half") == 2
+
+
+def test_two_jobs_for_one_name_leave_only_the_later_version(tmp_path, monkeypatch, live_ingestor, stores):
+    """Job B waits for job A's replacement, then replaces A's version in turn.
+
+    Without the lock both jobs collect the same old ids, both retire them, and
+    both new versions stay: A is held inside its insert while B would run.
+    """
+    a_inside = threading.Event()
+    release_a = threading.Event()
+
+    class _HoldsJobA(_IndexIntoChroma):
+        def insert(self, document):
+            if "Fassung A" in document.get_content():
+                a_inside.set()
+                assert release_a.wait(10)
+            super().insert(document)
+
+    monkeypatch.setattr("llama_index.core.VectorStoreIndex", _HoldsJobA)
+    _seed_previous_version(live_ingestor, stores, "proj_race", "statik.txt")
+    upload_a = tmp_path / "a.txt"
+    upload_a.write_text("Fassung A", encoding="utf-8")
+    upload_b = tmp_path / "b.txt"
+    upload_b.write_text("Fassung B", encoding="utf-8")
+
+    job_a = live_ingestor.submit_job([str(upload_a)], "proj_race", config={"original_filenames": ["statik.txt"]})
+    assert a_inside.wait(10)
+    job_b = live_ingestor.submit_job([str(upload_b)], "proj_race", config={"original_filenames": ["statik.txt"]})
+    time.sleep(0.5)  # unguarded, B would index and retire the old version here
+    assert not live_ingestor.get_job_status(job_b).is_terminal
+    release_a.set()
+
+    assert _wait_terminal(live_ingestor, job_a).file_details[0].status.value == "success"
+    assert _wait_terminal(live_ingestor, job_b).file_details[0].status.value == "success"
+    assert list(_chunks(live_ingestor, "proj_race").values()) == ["Fassung B"]
+    assert stores.count("proj_race") == 1

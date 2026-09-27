@@ -123,6 +123,12 @@ _SYNC_LOCK = threading.Lock()
 # after a "successful" removal, or two ingests of the same name can double-index
 # it. Different documents stay fully concurrent, which is the point of the
 # multi-worker executor.
+#
+# This lock is per PROCESS. The replacement itself is also serialised inside the
+# ingestor, per (collection, name) and across replicas (`keyed_lock` in
+# `_run_ingestion`), so an admin upload on one replica and a sync on another
+# still leave one version. What only this lock covers is the upload → poll →
+# registry cycle and the delete + unlink, which the ingestor never sees.
 _FILE_LOCKS: dict[str, threading.Lock] = {}
 _FILE_LOCKS_GUARD = threading.Lock()
 
@@ -277,8 +283,10 @@ def ingest_single(pdf: Path) -> "FileStatus | None":
     FileStatus, or None on timeout.
 
     The replacement is the ingestor's own: it retires the previous version's
-    chunks once the new one is indexed, and keeps them when it is not. There is
-    deliberately no ``delete_file`` first. That deleted the chunks AND the
+    chunks once the new one is indexed, and keeps them when it is not, taking
+    back out whatever part of the new version a failure had already inserted.
+    Finding the previous version reads only this file's chunks, not the
+    collection. There is deliberately no ``delete_file`` first. That deleted the chunks AND the
     metadata row before the new file was read, so a re-ingest that then failed
     left the document with nothing, and one that succeeded lost the Dokumentart
     the platform owner had set on the row.

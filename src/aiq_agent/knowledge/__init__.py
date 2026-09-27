@@ -27,6 +27,7 @@ from .factory import clear_active_retriever
 from .factory import clear_all_summaries
 from .factory import clear_collection_summaries
 from .factory import configure_summary_db
+from .factory import find_tmp_upload_names
 from .factory import get_active_ingestor
 from .factory import get_active_retriever
 from .factory import get_available_documents
@@ -119,5 +120,6 @@ __all__ = [
     "render_inventory_block",
     "shelf_hint_from_query",
     "clear_collection_summaries",
+    "find_tmp_upload_names",
     "clear_all_summaries",
 ]

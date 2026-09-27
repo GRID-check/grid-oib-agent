@@ -156,12 +156,19 @@ For each file:
 
 Chunks are keyed by file name within a collection, so a file uploaded under a
 name the collection already holds is a new version of that document, not a
-second document. The replacement runs in two steps inside `_run_ingestion`:
+second document. The replacement runs in two steps inside `_run_ingestion`,
+per file, under a lock on (collection, normalized name):
 
-1. Before the first file, `_find_previous_versions` reads which chunk ids answer
-   to each incoming name (matching `tmp[8]_`-prefixed and percent-encoded stored
-   names, as `delete_file` does) and what a person set on their metadata row:
-   `doc_class`, `display_title`, `folder_path`. It deletes nothing.
+1. Before the file is read, `_find_previous_versions` reads which chunk ids
+   answer to its name and what a person set on their metadata row:
+   `doc_class`, `display_title`, `folder_path`. It deletes nothing. The read is
+   a Chroma `where={"file_name": {"$in": [...]}}` over the spellings a stored
+   version can carry: the name, its percent-encoded forms, and the
+   `tmp[8]_`-prefixed names the metadata rows know
+   (`find_tmp_upload_names`; Chroma cannot filter by pattern and the prefix is
+   random). Its cost is the chunks of the file being replaced; it used to read
+   every chunk of the collection, once per OIB PDF. A legacy tmp-prefixed
+   version with no metadata row is not found and stays beside its re-upload.
 2. After a file reaches `SUCCESS`, `_retire_previous_version` deletes exactly
    those collected ids from Chroma and from the lexical mirror
    (`ChunkTextStore.delete_chunks`), and bumps the collection version. The
@@ -174,6 +181,23 @@ image, any exception) retires nothing: the previous version stays the one
 retrieval serves, and the job logs `Kept the previous version of …`. Deleting
 first, as this step once did, left such a document with no chunks at all.
 The cost is that both versions are retrievable for the length of the job.
+
+A file that fails after some of its chunks were inserted (an embedding batch
+timing out halfway through a long PDF) takes those chunks back out:
+`_discard_partial_version` deletes, from Chroma and the lexical mirror, the ids
+under the name that were not there when the attempt started. Left in, they sat
+beside the kept version as part of a version nobody published.
+
+The lock (`keyed_lock` in `aiq_agent/knowledge/leader_lock.py`) is held from
+the find until the file is retired or discarded. Without it two jobs uploading
+one name at once both collected the same predecessor, both retired it, and both
+new versions stayed. With it the second job waits, finds the first job's new
+version as its predecessor, and replaces it: the version that finishes last is
+the one left. On Postgres (`AIQ_SUMMARY_DB`, else `NAT_JOB_STORE_DB_URL`) it
+is a session advisory lock on a connection of its own, so it holds across
+replicas and is released when a replica dies; with SQLite or no database only
+the in-process lock holds, and an unreachable database lets the file ingest
+unguarded, logged.
 
 The OIB sync (`src/aiq_agent/oib_sync.py`) relies on the same step and calls no
 `delete_file` before it uploads.

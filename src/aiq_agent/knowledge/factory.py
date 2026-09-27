@@ -616,6 +616,15 @@ def get_document_folder_paths(collection: str, filenames: list[str]) -> dict[str
     return _get_document_metadata_store().get_folder_paths_batch(collection, filenames)
 
 
+def find_tmp_upload_names(collection: str, filenames: list[str]) -> list[str]:
+    """Stored names that are one of ``filenames`` behind a ``tmp[8]_`` upload prefix.
+
+    What a re-upload asks to find a legacy spelling of its predecessor that the
+    vector store cannot match by filter (``_find_previous_versions``).
+    """
+    return _get_document_metadata_store().find_tmp_upload_names(collection, filenames)
+
+
 def set_document_provenance(collection: str, filename: str, provenance: dict[str, str] | None) -> bool:
     """Set the provenance of a document Piloti wrote and a person released (ADR-0054).
 

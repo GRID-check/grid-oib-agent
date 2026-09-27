@@ -630,6 +630,34 @@ class DocumentMetadataStore:
             return {}
         return result
 
+    def find_tmp_upload_names(self, collection: str, filenames: list[str]) -> list[str]:
+        """The stored names that are one of ``filenames`` behind a ``tmp[8]_`` upload prefix.
+
+        The vector store cannot filter by pattern, and the prefix is random, so
+        this row table is where a re-upload learns those spellings without
+        reading every chunk of the collection. One indexed query per call. Empty
+        on any failure: the caller then misses a legacy spelling, never fails.
+        """
+        names = [name for name in dict.fromkeys(filenames) if name]
+        if not names:
+            return []
+        from sqlalchemy import text
+
+        # tmp + exactly eight characters + a literal underscore + the name.
+        patterns = {f"p{index}": f"tmp{'_' * 8}\\_{_escape_like(name)}" for index, name in enumerate(names)}
+        where = " OR ".join(f"filename LIKE :{key} ESCAPE '\\'" for key in patterns)
+        try:
+            with self._sync_engine.connect() as conn:
+                rows = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(f"SELECT filename FROM {TABLE_NAME} WHERE collection = :collection AND ({where})"),
+                    {"collection": collection, **patterns},
+                )
+                return [row[0] for row in rows]
+        except Exception as e:
+            logger.warning("Failed to look up tmp-prefixed names in %s: %s", collection, e)
+            return []
+
     def list_collections(self) -> list[str]:
         """Return every distinct collection present in the metadata table (sync).
 
