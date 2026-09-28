@@ -8,12 +8,13 @@
  * right. The level is this chat's (`stores/effort-store.ts`), starts at the
  * organization's default and goes out with every question.
  *
- * A native `<input type="range">`, as in `viewer-slider.tsx`: keyboard- and
- * screen-reader-operable for free. The dial writes on every step because the
- * write is a synchronous store update, never a round trip.
+ * The slider is a native `<input type="range">`, as in `viewer-slider.tsx`:
+ * keyboard- and screen-reader-operable for free, drawn as a wide track whose
+ * dot fill thickens toward the thumb. The dial writes on every step
+ * because the write is a synchronous store update, never a round trip.
  */
 
-import { type FC, useEffect, useId } from 'react'
+import { type CSSProperties, type FC, useEffect, useId } from 'react'
 import { ChevronDown, HelpCircle } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -53,7 +54,6 @@ interface EffortDialProps {
 
 export const EffortDial: FC<EffortDialProps> = ({ conversationId, disabled = false, className }) => {
   const t = useTranslations('chat')
-  const sliderId = useId()
   const effort = useEffortStore((state) => effectiveEffort(state, conversationId))
   const choose = useEffortStore((state) => state.choose)
 
@@ -106,33 +106,83 @@ export const EffortDial: FC<EffortDialProps> = ({ conversationId, disabled = fal
           <span>{t('effortDial.faster')}</span>
           <span>{t('effortDial.smarter')}</span>
         </div>
-        <label htmlFor={sliderId} className="sr-only">
-          {t('effortDial.title')}
-        </label>
-        <input
-          id={sliderId}
-          type="range"
-          data-testid="effort-dial-slider"
-          className="accent-foreground mt-2 h-2 w-full cursor-pointer pointer-coarse:h-11"
-          min={0}
-          max={CHAT_EFFORTS.length - 1}
-          step={1}
-          value={index}
-          aria-valuetext={label}
-          onChange={(event) => {
-            const next = CHAT_EFFORTS[Number(event.target.value)]
-            if (next) choose(conversationId, next)
-          }}
+        <EffortSlider
+          label={t('effortDial.title')}
+          index={index}
+          valueText={label}
+          onChoose={(next) => choose(conversationId, next)}
         />
-        <div className="mt-1 flex justify-between px-1" aria-hidden="true">
-          {CHAT_EFFORTS.map((level, position) => (
-            <span
-              key={level}
-              className={cn('size-1 rounded-full', position <= index ? 'bg-foreground' : 'bg-muted-foreground/40')}
-            />
-          ))}
-        </div>
       </PopoverContent>
     </Popover>
+  )
+}
+
+interface EffortSliderProps {
+  label: string
+  index: number
+  valueText: string
+  onChoose: (level: (typeof CHAT_EFFORTS)[number]) => void
+}
+
+/** Thumb width and its inset from the track edge, in px; the fill is measured with them. */
+const THUMB = 28
+const INSET = 4
+
+/**
+ * The track is drawn behind a transparent range input that covers it, so the
+ * browser still owns dragging, clicking and the arrow keys. Only the thumb is
+ * restyled, and it carries the focus ring: the input's own outline is
+ * suppressed with `!` because the global `:focus-visible` rule in
+ * `globals.css` is unlayered and outranks every utility.
+ *
+ * The dot fill runs from the left edge to the thumb's centre, which the browser
+ * places at `THUMB / 2` plus the value's share of the travel left after the
+ * thumb, and fades in from the left so it is densest at the thumb.
+ */
+const EffortSlider: FC<EffortSliderProps> = ({ label, index, valueText, onChoose }) => {
+  const sliderId = useId()
+  const share = index / (CHAT_EFFORTS.length - 1)
+  const fill = {
+    '--effort-share': share,
+    width: `calc(${INSET + THUMB / 2}px + (100% - ${2 * INSET + THUMB}px) * var(--effort-share))`,
+    backgroundImage: 'radial-gradient(circle, currentColor 1.1px, transparent 1.6px)',
+    backgroundSize: '6px 6px',
+    backgroundPosition: 'left center',
+    maskImage: 'linear-gradient(to right, transparent, black 85%)',
+  } as CSSProperties
+
+  return (
+    <div className="bg-muted relative mt-2 h-10 rounded-xl pointer-coarse:h-11">
+      <div
+        className="text-foreground/70 absolute inset-y-1 left-0 rounded-l-xl"
+        style={fill}
+        aria-hidden="true"
+        data-testid="effort-dial-fill"
+      />
+      <label htmlFor={sliderId} className="sr-only">
+        {label}
+      </label>
+      <input
+        id={sliderId}
+        type="range"
+        data-testid="effort-dial-slider"
+        className={cn(
+          'absolute inset-1 h-[calc(100%-8px)] w-[calc(100%-8px)] cursor-pointer appearance-none bg-transparent focus-visible:outline-none!',
+          '[&::-webkit-slider-thumb]:bg-foreground [&::-webkit-slider-thumb]:h-8 [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-lg [&::-webkit-slider-thumb]:shadow-sm',
+          '[&::-moz-range-thumb]:bg-foreground [&::-moz-range-thumb]:h-8 [&::-moz-range-thumb]:w-7 [&::-moz-range-thumb]:rounded-lg [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:shadow-sm',
+          'focus-visible:[&::-webkit-slider-thumb]:ring-ring/60 focus-visible:[&::-webkit-slider-thumb]:ring-offset-muted focus-visible:[&::-webkit-slider-thumb]:ring-2 focus-visible:[&::-webkit-slider-thumb]:ring-offset-2',
+          'focus-visible:[&::-moz-range-thumb]:ring-ring/60 focus-visible:[&::-moz-range-thumb]:ring-offset-muted focus-visible:[&::-moz-range-thumb]:ring-2 focus-visible:[&::-moz-range-thumb]:ring-offset-2'
+        )}
+        min={0}
+        max={CHAT_EFFORTS.length - 1}
+        step={1}
+        value={index}
+        aria-valuetext={valueText}
+        onChange={(event) => {
+          const next = CHAT_EFFORTS[Number(event.target.value)]
+          if (next) onChoose(next)
+        }}
+      />
+    </div>
   )
 }
