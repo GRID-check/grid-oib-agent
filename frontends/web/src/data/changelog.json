@@ -32,6 +32,25 @@
   },
   "releases": [
     {
+      "id": "2026-W40",
+      "kind": "week",
+      "version": null,
+      "date": "2026-09-28",
+      "dateEnd": "2026-10-04",
+      "summary": null,
+      "sections": [
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Uploading a large folder to the Archiv or to a project no longer stops the chat from saving answers for the next minute. A big upload now slows down when it reaches the limit instead of failing files, and \"Retry all\" sends the failed files a few at a time instead of all at once.",
+              "de": "Ein großer Upload ins Archiv oder in ein Projekt unterbricht nicht mehr eine Minute lang das Speichern von Antworten im Chat. Er wird am Limit nun verlangsamt, statt dass Dateien fehlschlagen, und „Retry all“ sendet fehlgeschlagene Dateien in kleinen Gruppen statt alle auf einmal."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-W39",
       "kind": "week",
       "version": null,

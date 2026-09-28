@@ -2000,6 +2000,10 @@
     "de": "Ein erneut hochgeladener Ordner meldet nicht mehr jede Datei mit Umlaut im Namen als neu; Mac und Windows kodieren Umlaute unterschiedlich, und der ganze Bestand wurde bisher ein zweites Mal übertragen."
   },
   {
+    "en": "Uploading a large folder to the Archiv or to a project no longer stops the chat from saving answers for the next minute. A big upload now slows down when it reaches the limit instead of failing files, and \"Retry all\" sends the failed files a few at a time instead of all at once.",
+    "de": "Ein großer Upload ins Archiv oder in ein Projekt unterbricht nicht mehr eine Minute lang das Speichern von Antworten im Chat. Er wird am Limit nun verlangsamt, statt dass Dateien fehlschlagen, und „Retry all“ sendet fehlgeschlagene Dateien in kleinen Gruppen statt alle auf einmal."
+  },
+  {
     "en": "Uploading a new version of a file under the same name now keeps the document type, display title and folder set for the earlier version. Before, they were lost and Piloti guessed the document type from the file name again.",
     "de": "Wer eine neue Fassung einer Datei unter demselben Namen hochlädt, behält jetzt Dokumentart, Anzeigetitel und Ordner der früheren Fassung. Bisher gingen sie verloren, und Piloti riet die Dokumentart aus dem Dateinamen neu."
   },
