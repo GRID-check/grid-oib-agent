@@ -716,7 +716,7 @@ function MarkdownCell({ children, align, style, node }: React.ComponentPropsWith
   if (properties.dataCell === TASK_CELL) {
     return (
       <td className="w-0 whitespace-nowrap px-2 py-1.5 align-top print:hidden" data-cell={TASK_CELL}>
-        <TaskCellContent node={node as never} />
+        <TaskCellContent node={node} />
       </td>
     )
   }
