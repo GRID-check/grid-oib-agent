@@ -1,0 +1,10 @@
+---
+fixes:
+  - >
+    A chat answer no longer stays on "Denkt nach…" forever: when the assistant
+    gets stuck, the answer now ends with an error message, and Stop always ends
+    it. Time spent waiting for your reply to one of its questions does not
+    count against it.
+  - >
+    A question sent again after a short connection drop is no longer answered
+    twice. The chat picks up the answer already being written.

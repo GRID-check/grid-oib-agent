@@ -274,7 +274,7 @@ async def test_nat_s_socket_objects_are_nat_s_own_and_the_route_is_ours(monkeypa
     monkeypatch.setenv("NAT_CONFIG_FILE", "configs/config_oib_openrouter.yml")
     worker = AIQAPIWorker(Config(general=GeneralConfig(front_end=config)))
     session_manager = object()
-    monkeypatch.setattr(worker, "_create_session_manager", AsyncMock(return_value=session_manager))
+    monkeypatch.setattr(worker, "_create_chat_session_manager", AsyncMock(return_value=session_manager))
     monkeypatch.setattr(FastApiFrontEndPluginWorker, "add_routes", AsyncMock())
     monkeypatch.setattr(plugin, "register_job_routes", AsyncMock())
     monkeypatch.setattr(worker, "_schedule_internal_api_check", lambda: None)
@@ -703,26 +703,55 @@ async def test_attach_replays_after_the_cursor_and_then_goes_live(harness):
 
 
 async def test_attach_splices_a_live_frame_that_arrives_during_the_replay(harness, monkeypatch):
+    """On another replica the replay is read from the bus while the owner keeps publishing."""
+    owner, relay, relay_bus = _replicas()
     gate = Gate()
-    h = harness(gate.turn)
-    first = h.connect()
+    on_owner = harness(gate.turn, owner)
+    first = on_owner.connect()
     first.client(type="user_message", message_id="t1", text="?")
     await until(lambda: gate.calls)
 
-    real_replay = h.registry.bus().replay_turn
+    real_replay = relay_bus.replay_turn
 
     async def slow_replay(conversation_id, turn_id):
         frames = await real_replay(conversation_id, turn_id)
         gate.release.set()  # the terminal is published while the replay is in flight
-        await until(lambda: h.registry.running(CONV) is None)
+        await until(lambda: owner.running(CONV) is None)
         return frames
 
-    monkeypatch.setattr(h.registry.bus(), "replay_turn", slow_replay)
-    second = h.connect()
+    monkeypatch.setattr(relay_bus, "replay_turn", slow_replay)
+    second = harness(gate.turn, relay).connect()
     second.client(type="attach", turn_id="t1", after_seq=0)
     await until(lambda: second.events() and second.events()[-1]["type"] == "RUN_FINISHED")
 
     seqs = [event["seq"] for event in second.events()]
+    assert seqs == list(range(1, seqs[-1] + 1))
+
+
+async def test_attach_on_another_replica_cannot_miss_a_frame_while_its_relay_subscribes(harness, monkeypatch):
+    """The replay is read only once the relay listens: a frame published in between arrives through it."""
+    owner, relay, relay_bus = _replicas()
+    gate = Gate()
+    on_owner = harness(gate.turn, owner)
+    asker = on_owner.connect()
+    asker.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: gate.calls)
+
+    real_subscribe = relay_bus.subscribe_frames
+
+    async def slow_subscribe(conversation_id, *args, **kwargs):
+        await asyncio.sleep(0.1)  # SUBSCRIBE is a round trip, and it ran after the XRANGE
+        async for envelope in real_subscribe(conversation_id, *args, **kwargs):
+            yield envelope
+
+    monkeypatch.setattr(relay_bus, "subscribe_frames", slow_subscribe)
+    elsewhere = harness(gate.turn, relay).connect()
+    elsewhere.client(type="attach", turn_id="t1", after_seq=0)
+    await until(lambda: elsewhere.events())
+    gate.release.set()  # the terminal goes out right after the replay was read
+
+    await until(lambda: "RUN_FINISHED" in _types(elsewhere.events()))
+    seqs = [event["seq"] for event in elsewhere.events()]
     assert seqs == list(range(1, seqs[-1] + 1))
 
 
@@ -877,6 +906,273 @@ async def test_a_failing_stage_never_changes_the_answer_frames(harness, one_fram
         [] if handler is None else [{"stage": "follow_ups", "status": "failed"}]
     )
     assert all(stage["seq"] > answer[-1]["seq"] for stage in stages)
+
+
+# ---------------------------------------------------------------------------
+# Every turn ends: deadline, places, one terminal, supervised loops, a bus down
+# ---------------------------------------------------------------------------
+
+
+async def _hung(request, ask):
+    yield TextMessageStartBody(message_id="m")
+    await asyncio.sleep(3600)  # a model call that never returns
+
+
+async def test_a_hung_turn_ends_at_its_deadline_with_run_error(harness, monkeypatch, persisted):
+    monkeypatch.setattr(chat_socket, "TURN_DEADLINE_SECONDS", 0.1)
+    torn_down = asyncio.Event()
+
+    async def hung(request, ask):
+        try:
+            async for body in _hung(request, ask):
+                yield body
+        finally:
+            torn_down.set()
+
+    h = harness(hung)
+    sock = h.connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: _last(sock) == "RUN_ERROR")
+
+    terminal = sock.events()[-1]
+    assert terminal["code"] == "workflow_error"
+    assert terminal["details"].startswith(chat_socket.DEADLINE_DETAILS)
+    assert "too long" in terminal["message"]
+    assert torn_down.is_set()  # the hung call was cancelled, not abandoned
+    assert h.registry.running(CONV) is None
+    assert persisted == []
+
+
+async def test_waiting_on_a_person_does_not_count_against_the_deadline_but_model_work_does(harness, monkeypatch):
+    monkeypatch.setattr(chat_socket, "TURN_DEADLINE_SECONDS", 0.15)
+    answered = asyncio.Event()
+
+    async def asks_then_hangs(request, ask):
+        content = build_human_prompt("Welches?", ["A", "B"])
+        await ask(InteractionPrompt(id="ask_01", timestamp="2026-09-27T10:00:00Z", content=content))
+        answered.set()
+        async for body in _hung(request, ask):
+            yield body
+
+    sock = harness(asks_then_hangs).connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: "interaction_request" in _types(sock.events()))
+    await asyncio.sleep(0.4)  # the asker reads a drawing for longer than the whole deadline
+    assert _types(sock.events())[-1] == "interaction_request"
+
+    sock.client(type="interaction_response", turn_id="t1", interaction_id="ask_01", answer={"option_id": "1"})
+    await until(answered.is_set)
+    await until(lambda: _last(sock) == "RUN_ERROR")
+    assert sock.events()[-1]["details"].startswith(chat_socket.DEADLINE_DETAILS)
+
+
+def test_the_deadline_never_pre_empts_the_in_process_deep_research_budget():
+    """The longest legitimate chat turn is the deep-research fallback; its own clock must fire first."""
+    from aiq_agent.agents.deep_researcher.agent import DEFAULT_MAX_RUN_SECONDS
+
+    assert chat_socket.TurnDeadline().seconds > DEFAULT_MAX_RUN_SECONDS
+
+
+async def test_a_base_exception_group_still_ends_the_turn_and_is_logged(harness, caplog):
+    async def grouped(request, ask):
+        yield TextMessageStartBody(message_id="m")
+        raise BaseExceptionGroup("tg", [asyncio.CancelledError()])
+
+    h = harness(grouped)
+    sock = h.connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: _last(sock) == "RUN_ERROR")
+    await until(lambda: h.registry.running(CONV) is None)
+    await asyncio.sleep(0)  # the done-callback runs on the next loop pass
+
+    assert [e["type"] for e in sock.events()].count("RUN_ERROR") == 1
+    assert any("ended with an unexpected error" in record.getMessage() for record in caplog.records)
+
+
+async def test_a_stop_ends_the_turn_even_when_the_workflow_teardown_hangs(harness, monkeypatch, persisted):
+    from aiq_api import workflow_stream
+
+    monkeypatch.setattr(workflow_stream, "PRODUCER_TEARDOWN_SECONDS", 0.05)
+    started, unstuck = asyncio.Event(), asyncio.Event()
+
+    async def stubborn(request, ask):
+        try:
+            yield TextMessageStartBody(message_id="m")
+            yield TextMessageContentBody(message_id="m", delta="Bis hier")
+            started.set()
+            await asyncio.sleep(3600)
+        finally:
+            await asyncio.shield(unstuck.wait())  # a checkpoint flush or an MCP close that hangs
+
+    sock = harness(stubborn).connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(started.is_set)
+    sock.client(type="cancel_turn", turn_id="t1")
+    try:
+        await until(lambda: _last(sock) == "RUN_FINISHED")
+    finally:
+        unstuck.set()
+
+    assert (sock.events()[-1]["outcome"], sock.events()[-1]["result"]["text"]) == ("cancelled", "Bis hier")
+
+
+async def test_a_dead_relay_loop_is_restarted(harness, monkeypatch):
+    monkeypatch.setattr(chat_socket, "_LOOP_RESTART_MIN_S", 0.01)
+    owner, relay, relay_bus = _replicas()
+    gate = Gate()
+    asker = harness(gate.turn, owner).connect()
+    asker.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: gate.calls)
+
+    real_subscribe = relay_bus.subscribe_frames
+    subscriptions: list[int] = []
+
+    async def drops_once(conversation_id, *args, **kwargs):
+        subscriptions.append(1)
+        if len(subscriptions) == 1:
+            raise ConnectionError("Connection reset by peer")
+        async for envelope in real_subscribe(conversation_id, *args, **kwargs):
+            yield envelope
+
+    monkeypatch.setattr(relay_bus, "subscribe_frames", drops_once)
+    elsewhere = harness(gate.turn, relay).connect()
+    elsewhere.client(type="attach", turn_id="t1", after_seq=0)
+    await until(lambda: len(subscriptions) == 2)
+    await asyncio.sleep(0.02)
+    gate.release.set()
+
+    await until(lambda: "RUN_FINISHED" in _types(elsewhere.events()))
+
+
+def _bus_down(monkeypatch, bus: ConversationBus, *methods: str) -> None:
+    """Dragonfly refuses these commands, for every replica on it."""
+
+    async def refused(*args, **kwargs):
+        raise ConnectionError("Error 111 connecting to dragonfly:6379. Connection refused.")
+
+    for method in methods:
+        monkeypatch.setattr(bus._t, method, refused)
+
+
+async def test_attach_while_the_bus_is_down_is_answered_and_the_socket_stays(harness, monkeypatch):
+    owner, relay, relay_bus = _replicas()
+    gate = Gate()
+    on_owner = harness(gate.turn, owner)
+    asker = on_owner.connect()
+    asker.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: gate.calls)
+    _bus_down(monkeypatch, relay_bus, "xrange")
+
+    on_relay = harness(gate.turn, relay)
+    elsewhere = on_relay.connect()
+    elsewhere.client(type="attach", turn_id="t1", after_seq=0)
+    await until(lambda: elsewhere.rejected())
+
+    assert elsewhere.rejected() == [{"of": "attach", "code": "turn_not_found"}]
+    assert not on_relay.tasks[0].done()  # answered, not closed 1011
+
+    # The replica running the turn replays it from its own sequencer.
+    here = on_owner.connect()
+    here.client(type="attach", turn_id="t1", after_seq=0)
+    await until(lambda: here.events())
+    assert [event["seq"] for event in here.events()] == [1, 2, 3]
+
+
+async def test_a_stop_the_bus_cannot_carry_is_answered_and_the_socket_stays(harness, monkeypatch):
+    owner, relay, relay_bus = _replicas()
+    gate = Gate()
+    asker = harness(gate.turn, owner).connect()
+    asker.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: gate.calls)
+    _bus_down(monkeypatch, relay_bus, "publish")
+
+    on_relay = harness(gate.turn, relay)
+    elsewhere = on_relay.connect()
+    elsewhere.client(type="cancel_turn", turn_id="t1")
+    await until(lambda: elsewhere.rejected())
+
+    assert elsewhere.rejected()[0]["code"] == "turn_not_found"
+    assert "cannot be reached" in elsewhere.rejected()[0]["message"]
+    assert not on_relay.tasks[0].done()
+
+
+async def test_a_resent_question_on_another_replica_is_a_duplicate_and_runs_once(harness):
+    """The UI resends a question until RUN_STARTED arrives; the resend may reach another replica."""
+    owner, relay, _ = _replicas()
+    gate = Gate()
+    on_owner = harness(gate.turn, owner)
+    on_relay = harness(gate.turn, relay)
+    first = on_owner.connect()
+    first.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: gate.calls)
+
+    resent = on_relay.connect()
+    resent.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: resent.rejected())
+
+    assert resent.rejected() == [{"of": "user_message", "code": "duplicate_turn"}]
+    assert on_relay.sessions.opened == []
+    assert len(on_owner.sessions.opened) == 1
+
+
+async def test_a_resent_question_whose_turn_already_finished_is_a_duplicate(harness, persisted):
+    h = harness()
+    sock = h.connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: persisted)
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: sock.rejected())
+
+    assert sock.rejected() == [{"of": "user_message", "code": "duplicate_turn"}]
+    assert len(h.sessions.opened) == 1
+
+
+async def test_with_the_bus_down_a_question_still_runs(harness, monkeypatch):
+    owner, _, shared = _replicas()
+    _bus_down(monkeypatch, shared, "set_nx", "xadd", "publish")
+    h = harness(answering, owner)
+    sock = h.connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+
+async def test_a_newer_question_on_another_replica_stops_the_stale_turn(harness):
+    owner, relay, _ = _replicas()
+    gate = Gate()
+    first = harness(gate.turn, owner).connect()
+    first.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: gate.calls)
+    await asyncio.sleep(0.02)  # the owner's input subscription lands
+
+    elsewhere = harness(answering, relay).connect()
+    elsewhere.client(type="user_message", message_id="t2", text="!")
+    await until(lambda: _last(first) == "RUN_FINISHED")
+
+    assert first.events()[-1]["outcome"] == "cancelled"
+    assert gate.torn_down
+
+
+async def test_the_chat_session_manager_has_no_nat_semaphore(monkeypatch):
+    """NAT's semaphore queued a turn after RUN_STARTED, heartbeating, behind turns waiting on a person.
+
+    The one concurrency gate is ADR-0040's admission, which refuses at once.
+    """
+    from aiq_api import plugin
+    from aiq_api.plugin import AIQAPIConfig
+    from aiq_api.plugin import AIQAPIWorker
+    from nat.data_models.config import Config
+    from nat.data_models.config import GeneralConfig
+
+    create = AsyncMock(return_value=object())
+    monkeypatch.setattr(plugin.SessionManager, "create", create)
+    monkeypatch.setenv("NAT_CONFIG_FILE", "configs/config_oib_openrouter.yml")
+    worker = AIQAPIWorker(Config(general=GeneralConfig(front_end=AIQAPIConfig())))
+
+    manager = await worker._create_chat_session_manager(builder=object())
+
+    assert create.await_args.kwargs["max_concurrency"] == 0
+    assert manager in worker._session_managers  # shut down with NAT's own
 
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,16 @@ on the replica that ran the turn. Nothing here is the source of truth — the
 persisted answer is; the stream is best-effort (Dragonfly is cache-only,
 ADR-0020).
 
+**Failing fast.** Every command a turn waits on (``publish_frame``,
+``replay_turn``, ``publish_input``, ``claim_turn``) is bounded by
+``BUS_CALL_TIMEOUT_S`` and raises :class:`BusUnavailable` on any failure. After
+one failure the bus stays marked down for ``BUS_RETRY_AFTER_S`` and refuses
+without I/O: ``publish_frame`` runs under the turn's sequencer lock for every
+delta, and a black-holed Dragonfly used to cost each one the full client
+timeout (a second per delta, measured). Callers fail open on
+:class:`BusUnavailable`; the long-lived subscriptions are supervised by the
+chat registry instead.
+
 The transport is injectable so the whole protocol is unit-testable over the
 in-memory transport with two ``ConversationBus`` instances standing in for two
 replicas — no live cluster, no fakeredis dependency.
@@ -34,12 +44,18 @@ import contextlib
 import json
 import logging
 import os
+import time
 import uuid
 from collections import OrderedDict
 from collections.abc import AsyncIterator
+from collections.abc import Awaitable
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 from typing import Protocol
+from typing import TypeVar
+
+T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
 
@@ -47,17 +63,30 @@ logger = logging.getLogger(__name__)
 FRAME = "frame"  # owner -> relays: a stamped chat wire v2 event (payload = the frame)
 HITL_ANSWER = "hitl_answer"  # relay -> owner: an interaction_response, with who sent it
 CANCEL = "cancel"  # relay -> owner: a cancel_turn, with who sent it
+SUPERSEDE = "supersede"  # any replica -> owner: a newer question started, so stop the stale turn
 
 # Per-conversation channel / key names. Mirrors ADR-0020's ``citations:{id}`` style.
 _EVENTS = "conv:{id}:events"  # owner publishes, relays and spectators subscribe
 _INPUT = "conv:{id}:input"  # relays publish, owner subscribes
 _STREAM = "conv:{id}:stream"  # Redis stream: replayable copy of every frame, read by `attach`
+_TURN = "conv:{id}:turn:{turn}"  # SET NX: the one replica that runs this turn id
 
 # Every frame of a turn lands here, and a socket that `attach`es reads back what
 # it missed by `(turn_id, seq)`. A v2 turn is a few dozen frames, so the cap
 # holds many turns; the TTL bounds a conversation nobody comes back to.
 _STREAM_MAXLEN = int(os.environ.get("GRID_CONV_STREAM_MAXLEN", "2000") or "2000")
 _STREAM_TTL_SECONDS = int(os.environ.get("GRID_CONV_STREAM_TTL_SECONDS", "3600") or "3600")
+
+#: The bound on one bus command a turn waits on. RedisTransport's own client
+#: timeout is the same second; this one holds for any transport.
+BUS_CALL_TIMEOUT_S = 1.0
+#: How long a failed bus stays marked down, refusing without I/O, before the
+#: next command tries it again.
+BUS_RETRY_AFTER_S = 5.0
+
+
+class BusUnavailable(ConnectionError):
+    """The bus could not be reached for a command, or failed one within the last ``BUS_RETRY_AFTER_S``."""
 
 
 @dataclass(frozen=True)
@@ -85,9 +114,16 @@ class BusTransport(Protocol):
     """Minimal transport the bus needs. Two impls: in-memory and Redis."""
 
     async def publish(self, channel: str, data: str) -> None: ...
-    def subscribe(self, channel: str) -> AsyncIterator[str]: ...
+    def subscribe(self, channel: str, ready: asyncio.Event | None = None) -> AsyncIterator[str]:
+        """Yield what is published on ``channel``; set ``ready`` once no publish can be missed."""
+        ...
+
     async def xadd(self, stream: str, data: str, maxlen: int, ttl: int) -> None: ...
     async def xrange(self, stream: str) -> list[str]: ...
+    async def set_nx(self, key: str, value: str, ttl: int) -> bool:
+        """Set ``key`` unless it exists, expiring after ``ttl`` seconds. Whether this call set it."""
+        ...
+
     async def close(self) -> None: ...
 
 
@@ -105,14 +141,17 @@ class InMemoryTransport:
     def __init__(self) -> None:
         self._subs: dict[str, list[asyncio.Queue[str]]] = {}
         self._streams: OrderedDict[str, list[str]] = OrderedDict()
+        self._keys: dict[str, float] = {}
 
     async def publish(self, channel: str, data: str) -> None:
         for q in list(self._subs.get(channel, ())):
             q.put_nowait(data)
 
-    async def subscribe(self, channel: str) -> AsyncIterator[str]:
+    async def subscribe(self, channel: str, ready: asyncio.Event | None = None) -> AsyncIterator[str]:
         q: asyncio.Queue[str] = asyncio.Queue()
         self._subs.setdefault(channel, []).append(q)
+        if ready is not None:
+            ready.set()
         try:
             while True:
                 yield await q.get()
@@ -131,6 +170,14 @@ class InMemoryTransport:
 
     async def xrange(self, stream: str) -> list[str]:
         return list(self._streams.get(stream, ()))
+
+    async def set_nx(self, key: str, value: str, ttl: int) -> bool:
+        now = time.monotonic()
+        self._keys = {k: expires for k, expires in self._keys.items() if expires > now}
+        if key in self._keys:
+            return False
+        self._keys[key] = now + ttl
+        return True
 
     async def close(self) -> None:
         return None
@@ -172,11 +219,14 @@ class RedisTransport:
     async def publish(self, channel: str, data: str) -> None:
         await self._redis.publish(channel, data)
 
-    async def subscribe(self, channel: str) -> AsyncIterator[str]:
+    async def subscribe(self, channel: str, ready: asyncio.Event | None = None) -> AsyncIterator[str]:
         pubsub = self._sub_redis.pubsub()
         await pubsub.subscribe(channel)
         try:
             async for msg in pubsub.listen():
+                # The server's own confirmation: from here on no publish is missed.
+                if msg.get("type") == "subscribe" and ready is not None:
+                    ready.set()
                 if msg.get("type") == "message":
                     yield msg["data"]
         finally:
@@ -195,6 +245,9 @@ class RedisTransport:
         entries = await self._redis.xrange(stream)
         return [fields["d"] for _id, fields in entries if "d" in fields]
 
+    async def set_nx(self, key: str, value: str, ttl: int) -> bool:
+        return bool(await self._redis.set(key, value, nx=True, ex=ttl))
+
     async def close(self) -> None:
         with contextlib.suppress(Exception):
             await self._redis.aclose()
@@ -209,19 +262,42 @@ class ConversationBus:
     def __init__(self, transport: BusTransport, replica_id: str | None = None) -> None:
         self._t = transport
         self.replica_id = replica_id or f"{os.environ.get('HOSTNAME', 'local')}:{uuid.uuid4().hex[:8]}"
+        self._down_until = 0.0
+
+    async def _call(self, what: str, command: Callable[[], Awaitable[T]]) -> T:
+        """Run one bus command, bounded, or refuse it at once while the bus is marked down."""
+        if time.monotonic() < self._down_until:
+            raise BusUnavailable(f"{what}: the bus failed within the last {BUS_RETRY_AFTER_S:.0f}s")
+        try:
+            async with asyncio.timeout(BUS_CALL_TIMEOUT_S):
+                return await command()
+        except Exception as exc:
+            self._mark_down(what, exc)
+            raise BusUnavailable(f"{what}: {exc!r}") from exc
+
+    def _mark_down(self, what: str, exc: Exception) -> None:
+        # Once per outage window: the refusals inside it would say nothing new.
+        logger.warning("Conversation bus %s failed (%r); refusing bus commands for %.0fs", what, exc, BUS_RETRY_AFTER_S)
+        self._down_until = time.monotonic() + BUS_RETRY_AFTER_S
 
     # ---- owner -> relays (outbound frames) ------------------------------
     async def publish_frame(self, conv: str, frame: dict[str, Any]) -> None:
         """Append a stamped v2 frame to the replay stream, then publish it to relays and spectators."""
         env = Envelope(conv=conv, type=FRAME, payload=frame, origin=self.replica_id).encode()
-        await self._t.xadd(_STREAM.format(id=conv), env, _STREAM_MAXLEN, _STREAM_TTL_SECONDS)
-        await self._t.publish(_EVENTS.format(id=conv), env)
 
-    async def subscribe_frames(self, conv: str) -> AsyncIterator[Envelope]:
+        async def append_and_publish() -> None:
+            await self._t.xadd(_STREAM.format(id=conv), env, _STREAM_MAXLEN, _STREAM_TTL_SECONDS)
+            await self._t.publish(_EVENTS.format(id=conv), env)
+
+        await self._call("publish_frame", append_and_publish)
+
+    async def subscribe_frames(self, conv: str, ready: asyncio.Event | None = None) -> AsyncIterator[Envelope]:
         """Relay side: yield outbound frames as they are published by the owner.
         Frames this replica itself published are filtered (owner==relay fast
-        path writes the socket directly), preventing double delivery."""
-        async for raw in self._t.subscribe(_EVENTS.format(id=conv)):
+        path writes the socket directly), preventing double delivery. ``ready``
+        is set once the subscription is live, so a replay read after it cannot
+        miss a frame published in between."""
+        async for raw in self._t.subscribe(_EVENTS.format(id=conv), ready):
             env = Envelope.decode(raw)
             if env.origin == self.replica_id:
                 continue
@@ -233,15 +309,26 @@ class ConversationBus:
         The cursor is the frame's own ``(turn_id, seq)``, so the stream entry id
         never reaches a client and a turn is read back the same from any replica.
         """
-        frames = [Envelope.decode(raw).payload for raw in await self._t.xrange(_STREAM.format(id=conv))]
+        raws = await self._call("replay_turn", lambda: self._t.xrange(_STREAM.format(id=conv)))
+        frames = [Envelope.decode(raw).payload for raw in raws]
         mine = [frame for frame in frames if isinstance(frame, dict) and frame.get("turn_id") == turn_id]
         return sorted(mine, key=lambda frame: frame["seq"])
 
+    async def claim_turn(self, conv: str, turn_id: str) -> bool:
+        """Claim ``turn_id`` for this replica, cluster-wide. False when a replica already runs (or ran) it.
+
+        The claim lives as long as the replay stream, so a resent question
+        whose turn already finished is refused too, and its sender attaches to
+        the stream instead of paying for the answer twice.
+        """
+        key = _TURN.format(id=conv, turn=turn_id)
+        return await self._call("claim_turn", lambda: self._t.set_nx(key, self.replica_id, _STREAM_TTL_SECONDS))
+
     # ---- relays -> owner (answers / control) ----------------------------
     async def publish_input(self, conv: str, input_type: str, payload: dict[str, Any]) -> None:
-        """A relay hands a client message to the owner: ``HITL_ANSWER`` or ``CANCEL``."""
+        """Hand a client message to the owner: ``HITL_ANSWER``, ``CANCEL`` or ``SUPERSEDE``."""
         env = Envelope(conv=conv, type=input_type, payload=payload, origin=self.replica_id)
-        await self._t.publish(_INPUT.format(id=conv), env.encode())
+        await self._call("publish_input", lambda: self._t.publish(_INPUT.format(id=conv), env.encode()))
 
     async def subscribe_input(self, conv: str) -> AsyncIterator[Envelope]:
         """Owner side: yield answers + control messages from relays."""

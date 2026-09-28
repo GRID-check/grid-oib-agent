@@ -30,6 +30,14 @@ chat socket cancels the turn's task, the cancel lands here, and the producer's
 cancel unwinds the workflow and every LLM call in it (``chat_socket.run_turn``).
 Items are handed over with ``put_nowait`` on a queue that is never closed.
 
+The wait is bounded by ``PRODUCER_TEARDOWN_SECONDS``. A ``finally`` in the
+workflow that never returns (a checkpoint flush or an MCP close on a dead
+connection) used to hold the Stop forever: the turn's terminal is sent after
+this generator returns, so the reader watched "Denkt nach…" with nothing left
+running for them. Past the bound the teardown is logged and left to finish in
+its own task, where it still unwinds in its own Context and its outcome is
+still read; the turn ends without it.
+
 No intermediate step is read here: the chat wire carries what the turn's
 ``_run`` yields (wire bodies, ADR-0068), and steps go only to the exporters.
 
@@ -54,6 +62,11 @@ logger = logging.getLogger(__name__)
 
 #: Put on the hand-over queue when the producer task has finished, however it finished.
 _END = object()
+
+#: How long a stopped workflow may take over its teardown before the consumer
+#: stops waiting for it. A healthy teardown (ledger posts, a checkpoint write)
+#: takes well under a second.
+PRODUCER_TEARDOWN_SECONDS = 10.0
 
 
 async def stream_workflow(payload: Any, *, session: Session) -> AsyncIterator[Any]:
@@ -84,14 +97,19 @@ async def _produce(items: asyncio.Queue[Any], payload: Any, *, session: Session)
 
 
 async def _stop(producer: asyncio.Task[None]) -> None:
-    """Cancel ``producer`` if it is still running and wait until its teardown is over.
+    """Cancel ``producer`` if it is still running and wait, up to ``PRODUCER_TEARDOWN_SECONDS``, for its teardown.
 
     ``asyncio.wait`` never cancels what it waits on, so a cancel aimed at the
     consumer ends this wait (and propagates) while the producer finishes its
-    teardown in its own task regardless.
+    teardown in its own task regardless. So does the bound.
     """
     producer.cancel()
-    await asyncio.wait({producer})
+    done, _ = await asyncio.wait({producer}, timeout=PRODUCER_TEARDOWN_SECONDS)
+    if not done:
+        logger.warning(
+            "The workflow's teardown did not finish within %.0fs of the stop; the turn ends without waiting for it",
+            PRODUCER_TEARDOWN_SECONDS,
+        )
 
 
 def _read_outcome(producer: asyncio.Task[None]) -> None:

@@ -473,7 +473,10 @@ Expiry sends `interaction_resolved{expired}`, then `RUN_ERROR{interaction_expire
   frames were buffered above the last replayed seq. Nothing for that turn in the
   stream means `rejected{turn_not_found}`, and the client asks for the persisted
   answer (`restoreSessionState`). **A reload** knows its turn (`wsParentId` is
-  persisted) and sends `attach{after_seq: 0}`.
+  persisted) and sends `attach{after_seq: 0}`. *As built:* the replica running
+  the turn replays from the turn's own sequencer (`TurnWire.replay`), and any
+  other replica reads the stream only once its relay subscription is confirmed
+  (`docs/api/websocket-protocol.md`, Resume).
 - **The BFF `/frames` route** keeps only `?peek=1` (the socket-less liveness probe
   in `_awaitServerAnswer`). `?after=`, `readConversationFramesAfter` and
   `framesFromStreamEntries` are deleted, because resume moved to the socket.
