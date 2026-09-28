@@ -315,17 +315,41 @@ backend pieces live in `chat_socket.py` and `conversation_bus.py`; the design is
   frame is stamped by the turn's sequencer (`TurnWire`) and appended to the
   conversation's stream (`conv:<id>:stream`) whether or not a socket takes it.
 - **Resume is `attach{turn_id, after_seq}`** on the new socket. The registry holds
-  live frames for that socket, replays the turn from the stream
-  (`ConversationBus.replay_turn`), then flushes the held frames above the last
-  replayed `seq`, so no frame is sent twice or skipped. A turn the stream and the
-  registry know nothing of is `rejected{turn_not_found}`, and the client asks for
-  the persisted answer.
+  live frames for that socket, replays the turn, then flushes the held frames
+  above the last replayed `seq`, so no frame is sent twice or skipped. A turn
+  this replica runs (or ran, for `STAGE_WIRE_TTL_S`) replays from its own
+  sequencer (`TurnWire.replay`), bus or no bus; any other turn from the stream
+  (`ConversationBus.replay_turn`), read only after the relay's subscription is
+  confirmed, so nothing published in between is lost. A turn nobody knows of,
+  or one the bus cannot be read for, is `rejected{turn_not_found}`, and the
+  client asks for the persisted answer.
+- **A turn runs once, cluster-wide.** Before `RUN_STARTED` the turn id is
+  claimed on the bus (`SET conv:<id>:turn:<turn> NX EX`, as long as the stream
+  lives); a resent question that lands on another replica, or arrives after its
+  turn finished, is `rejected{duplicate_turn}` and the client attaches. A newer
+  question supersedes a stale turn on whichever replica runs it (`SUPERSEDE` on
+  the input channel). With the bus down both fail open to the local registry.
+- **Every turn ends.** `run_turn`'s `finally` guarantees one terminal whatever
+  escaped; the turn has a deadline (`GRID_CHAT_TURN_DEADLINE_SECONDS`) on its
+  own clock, which stops while it waits on a person; a Stop waits at most
+  `workflow_stream.PRODUCER_TEARDOWN_SECONDS` for the workflow's teardown. The
+  chat's NAT session manager runs with `max_concurrency=0`: NAT's semaphore
+  queued a turn after `RUN_STARTED` behind turns waiting on HITL answers, and
+  ADR-0040's admission (`GRID_MAX_ACTIVE_TURNS`) is the gate that refuses at
+  once instead.
+- **The bus fails fast and its loops are supervised.** Bus commands a turn
+  waits on are bounded (`BUS_CALL_TIMEOUT_S`), and a failure marks the bus down
+  for `BUS_RETRY_AFTER_S` so the next frames skip it without I/O. The relay and
+  owner-input loops are restarted with backoff when they die, and every
+  background task logs an unexpected end from its done-callback.
 - **Stop is `cancel_turn`,** authorised against the asker's verified subject
   (`may_act_for`). It cancels the turn's task; the cancel unwinds the workflow
   through `workflow_stream.stream_workflow`, so the graph run and its model call
   stop. The prose so far is the `RUN_FINISHED{outcome: "cancelled"}` result,
   persisted with `metadata.stopped`. On another replica the Stop goes to the
-  owner on the bus input channel, and the owner checks the subject again.
+  owner on the bus input channel, and the owner checks the subject again; when
+  the bus cannot carry it, the sender gets `rejected{turn_not_found}` and the
+  socket stays open.
 - **The server keeps every answer.** Every `RUN_FINISHED`, sent or not, is
   persisted in the background (`persist_turn_result`, a pure mapping from the
   `TurnResult`) to the **internal token-guarded** route

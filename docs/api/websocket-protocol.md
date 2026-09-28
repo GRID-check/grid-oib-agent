@@ -145,7 +145,7 @@ defaults. No field is ever `null`.
 | `STATE_SNAPSHOT` | `snapshot: {text, sources[], answer_meta?}` | ADR-0066's settle: **replace** text, citations and masthead with the verified, renumbered prose. An absent `answer_meta` removes the masthead. Cards are untouched. |
 | `STEP_STARTED` / `STEP_FINISHED` | `step`: a typed step (below) | One Herleitung row. A step with a duration sends STARTED, then FINISHED with the same `id`; an instant step sends only FINISHED. The same `id` again **replaces** the row. |
 | `RUN_FINISHED` | `outcome: answered \| refused \| handed_off \| cancelled`, `result: TurnResult` | The terminal. Replace text, cards (by key), sources and masthead with `result`; streaming ends. Authoritative: what it omits (a card suppressed, a masthead gated out) is dropped. It is what the server persists. |
-| `RUN_ERROR` | `code: workflow_error \| auth_error \| interaction_expired`, `message`, `details?` | The turn failed. Nothing was persisted: ask the server for a finished answer before showing the banner. |
+| `RUN_ERROR` | `code: workflow_error \| auth_error \| interaction_expired`, `message`, `details?` | The turn failed. Nothing was persisted: ask the server for a finished answer before showing the banner. A turn its deadline ended is a `workflow_error` whose `details` start with `turn_deadline_exceeded` (see [Every turn ends](#every-turn-ends)). |
 | `CUSTOM` `masthead` | `{answer_meta}` | Set the masthead above the prose; text unchanged. |
 | `CUSTOM` `card` | `{index, key, card}` | One card, the moment its JSON closed, at `cards[index]` (`[[card:N]]` is index N−1). It may arrive before its marker. `key` is stable into the terminal. |
 | `CUSTOM` `card_refused` | `{index}` | The validator refused that card; its place stays empty. |
@@ -154,7 +154,7 @@ defaults. No field is ever `null`.
 | `CUSTOM` `stage` | `{stage, status: ready \| empty \| failed, payload?}` | A post-answer stage ([`post-answer-stages.md`](../architecture/post-answer-stages.md) §4). The only events after `RUN_FINISHED`, on the same `seq`. |
 | `CUSTOM` `interaction_request` | `{interaction_id, input: text \| choice, text, options[{id,label}], placeholder?, expires_at}` | The turn waits for its asker. Only the asker is offered the controls. |
 | `CUSTOM` `interaction_resolved` | `{interaction_id, outcome: answered \| expired \| cancelled}` | Close the prompt, in every tab and for spectators. |
-| `CUSTOM` `rejected` | `{of, code, message?}`, `seq: 0` | A client message was refused (`auth_expired`, `conversation_mismatch`, `duplicate_turn`, `not_asker`, `no_pending_interaction`, `turn_not_found`, `invalid_message`). Out of band: never replayed, never ends a turn. |
+| `CUSTOM` `rejected` | `{of, code, message?}`, `seq: 0` | A client message was refused (`auth_expired`, `conversation_mismatch`, `duplicate_turn`, `not_asker`, `no_pending_interaction`, `turn_not_found`, `invalid_message`). Out of band: never replayed, never ends a turn. `turn_not_found` is also the answer when the turn runs on another replica and the bus cannot reach it (an `attach` whose replay cannot be read, a Stop or answer that cannot be handed over): the socket stays open, and the client asks for the persisted answer. |
 
 **Not events, on purpose:** there is no status event (a status line is a
 `status` step, persisted as one), no run hand-off event
@@ -245,6 +245,27 @@ so far, with any pending `[N]` removed. The server persists it with
 `metadata.provenance.stopped`, so a reload shows what the reader saw, marked as
 stopped.
 
+### Every turn ends
+
+A running turn heartbeats, and the client trusts the heartbeat, so a turn the
+server never ends is a spinner that never stops. Four things make sure it
+ends, each pinned by a test in `frontends/aiq_api/tests/test_chat_socket.py`:
+
+- **One terminal, structurally.** `run_turn`'s `finally` sends a `RUN_ERROR` if
+  no terminal went out, whatever escaped (a `BaseExceptionGroup` from a task
+  group included). The escaped error is logged by the task's done-callback.
+- **A deadline.** `GRID_CHAT_TURN_DEADLINE_SECONDS` (2700) on the turn's own
+  clock, which stops while the turn waits on a person's answer. At the deadline
+  the turn is cancelled like a Stop and ends with
+  `RUN_ERROR{workflow_error, details: "turn_deadline_exceeded: …"}`.
+- **A bounded teardown.** A Stop waits at most `PRODUCER_TEARDOWN_SECONDS`
+  (`workflow_stream`, 10 s) for the workflow's `finally` blocks, then ends the
+  turn without them.
+- **No hidden queue.** The chat runs with NAT's per-replica semaphore off; the
+  one concurrency gate is ADR-0040's admission (`GRID_MAX_ACTIVE_TURNS`), which
+  refuses a turn at once with a retry hint rather than holding it after
+  `RUN_STARTED`.
+
 ---
 
 ## Client → server
@@ -254,7 +275,7 @@ refused (`rejected{invalid_message}`).
 
 | `type` | Fields | Notes |
 |---|---|---|
-| `user_message` | `message_id` (becomes `turn_id`), `text`, `data_sources[]`, `context_only?`, `author_name?`, `focus_file_name?`, `focus_shelf?`, `source_preset?`, `focus_document_id?`, `focus_version_id?`, `focus_version_state?` | A question. The type name is what the gateway's turn limiter (`lib/limits/ws-frames.js`) counts. A second `user_message` for a turn already running is `rejected{duplicate_turn}`; a new one supersedes and cancels a stale turn. |
+| `user_message` | `message_id` (becomes `turn_id`), `text`, `data_sources[]`, `context_only?`, `author_name?`, `focus_file_name?`, `focus_shelf?`, `source_preset?`, `focus_document_id?`, `focus_version_id?`, `focus_version_state?` | A question. The type name is what the gateway's turn limiter (`lib/limits/ws-frames.js`) counts. A second `user_message` for a turn already running or run, on any replica, is `rejected{duplicate_turn}` (the turn id is claimed on the bus for as long as the stream keeps it); a new one supersedes and cancels a stale turn, on whichever replica runs it. |
 | `interaction_response` | `turn_id`, `interaction_id`, `answer: {text} \| {option_id}` | Exactly one answer, structurally. Only the person the prompt addressed may answer; anyone else gets `rejected{not_asker}`, and an answer with no prompt waiting `rejected{no_pending_interaction}`. |
 | `cancel_turn` | `turn_id` | Stop. Only the asker's verified subject (or an internal caller) may cancel; anyone else gets `rejected{not_asker}`. The server cancels the graph run, not just the socket. |
 | `attach` | `turn_id`, `after_seq` | Replay the turn from `after_seq + 1`, then continue live. Sent for every open turn after a reconnect, and with `after_seq: 0` after a reload. `rejected{turn_not_found}` when the stream holds nothing for the turn: ask for the persisted answer instead. |
@@ -382,8 +403,16 @@ three absent is every ordinary turn.
   `seq ≤ lastSeq` for its turn, and treats `seq > lastSeq + 1` as a gap: it
   sends `attach{turn_id, after_seq: lastSeq}`.
 - **Resume is on the socket.** `attach` registers the socket, buffers live
-  events for it, replays the turn from the stream, then flushes whatever live
-  events arrived above the last replayed `seq`. There is no HTTP replay.
+  events for it, replays the turn, then flushes whatever live events arrived
+  above the last replayed `seq`. There is no HTTP replay. The replica running
+  the turn replays it from the turn's own sequencer, which needs no bus; any
+  other replica reads the stream once its relay subscription is confirmed, so
+  a frame published between the read and the subscription arrives through the
+  relay and is deduplicated by `seq`.
+- **The bus fails fast.** Each bus command a turn waits on is bounded (1 s),
+  and after a failure the bus refuses without I/O for 5 s, so a black-holed
+  Dragonfly costs one bound per outage rather than one per frame. A relay or
+  owner loop that dies is logged and restarted with backoff.
 - **Liveness without a socket:** `GET /api/conversations/:id/frames?peek=1`
   answers `{available, newest, now}`, the newest stream entry id (`<ms>-<n>`)
   and the server clock, so a tab can tell a turn still working (a heartbeat
