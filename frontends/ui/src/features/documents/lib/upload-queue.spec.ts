@@ -1,5 +1,5 @@
 import { describe, test, expect, vi } from 'vitest'
-import { runWithConcurrency, UPLOAD_CONCURRENCY } from './upload-queue'
+import { RATE_LIMIT_RETRIES, runWithConcurrency, sendWaitingOutRateLimit, UPLOAD_CONCURRENCY } from './upload-queue'
 
 /** A worker that never resolves until the test releases it. */
 function deferred<T>() {
@@ -80,5 +80,48 @@ describe('runWithConcurrency', () => {
     // page's own traffic share the same budget.
     expect(UPLOAD_CONCURRENCY).toBeLessThan(6)
     expect(UPLOAD_CONCURRENCY).toBeGreaterThan(1)
+  })
+})
+
+describe('sendWaitingOutRateLimit', () => {
+  const limited = (retryAfter: number) => Object.assign(new Error('429'), { retryAfter })
+  const retryAfterOf = (error: unknown) =>
+    error instanceof Error && 'retryAfter' in error ? (error as { retryAfter: number }).retryAfter : null
+
+  test('waits the server’s Retry-After and sends again', async () => {
+    vi.useFakeTimers()
+    const send = vi.fn().mockRejectedValueOnce(limited(2)).mockResolvedValueOnce('ok')
+    const result = sendWaitingOutRateLimit(send, retryAfterOf)
+    await vi.advanceTimersByTimeAsync(1_999)
+    expect(send).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    await expect(result).resolves.toBe('ok')
+    expect(send).toHaveBeenCalledTimes(2)
+    vi.useRealTimers()
+  })
+
+  test('gives up after a bounded number of waits', async () => {
+    vi.useFakeTimers()
+    const send = vi.fn().mockRejectedValue(limited(1))
+    const result = sendWaitingOutRateLimit(send, retryAfterOf)
+    const settled = expect(result).rejects.toThrow('429')
+    await vi.advanceTimersByTimeAsync(RATE_LIMIT_RETRIES * 1_000)
+    await settled
+    expect(send).toHaveBeenCalledTimes(RATE_LIMIT_RETRIES + 1)
+    vi.useRealTimers()
+  })
+
+  test('rethrows any other failure at once', async () => {
+    const send = vi.fn().mockRejectedValue(new Error('415'))
+    await expect(sendWaitingOutRateLimit(send, retryAfterOf)).rejects.toThrow('415')
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  test('an abort during the wait ends it', async () => {
+    const controller = new AbortController()
+    const send = vi.fn().mockRejectedValue(limited(60))
+    const result = sendWaitingOutRateLimit(send, retryAfterOf, controller.signal)
+    controller.abort()
+    await expect(result).rejects.toMatchObject({ name: 'AbortError' })
   })
 })

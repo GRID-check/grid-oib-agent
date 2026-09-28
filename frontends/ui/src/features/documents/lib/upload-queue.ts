@@ -57,3 +57,47 @@ export async function runWithConcurrency<T, R>(
   await Promise.all(Array.from({ length: runners }, runner))
   return results
 }
+
+/** How many times one file waits out a rate-limit refusal before it is marked failed. */
+export const RATE_LIMIT_RETRIES = 3
+
+/**
+ * `send`, waiting out a 429 with the server's own `Retry-After` instead of
+ * failing the file.
+ *
+ * A folder bigger than the upload budget used to lose every file past the
+ * limit, and "Retry all" then fired them all at once into the same refusal. A
+ * refused file now waits its turn and goes again, a bounded number of times, so
+ * a big batch slows down rather than breaks. Any other failure, and an abort
+ * during the wait, is rethrown as it came.
+ */
+export async function sendWaitingOutRateLimit<T>(
+  send: () => Promise<T>,
+  retryAfterOf: (error: unknown) => number | null,
+  signal?: AbortSignal
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await send()
+    } catch (error) {
+      const wait = retryAfterOf(error)
+      if (wait === null || attempt >= RATE_LIMIT_RETRIES) throw error
+      await abortableDelay(wait * 1000, signal)
+    }
+  }
+}
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException('Upload aborted', 'AbortError'))
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new DOMException('Upload aborted', 'AbortError'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
