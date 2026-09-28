@@ -230,9 +230,14 @@ def _normalize_base_url(base_url: str) -> str:
     return normalized
 
 
+#: The decision-model reranker (``knowledge_layer.decisions.JevReranker``):
+#: one noul per candidate, an option beside the cross-encoder (ADR-0064).
+JEV_PROVIDER = "jev"
+
+
 def available_providers() -> tuple[str, ...]:
     """Provider names this module can talk to (excluding ``none``)."""
-    return (PROVIDER,)
+    return (PROVIDER, JEV_PROVIDER)
 
 
 @dataclass(frozen=True)
@@ -550,8 +555,8 @@ def resolve_cross_encoder(
     timeout_seconds: float | None = None,
     max_doc_chars: int | None = None,
     organization_id: str | None = None,
-) -> CrossEncoderReranker | None:
-    """Build the configured cross-encoder, or ``None`` when reranking stays with the judge.
+) -> Any:
+    """Build the configured reranker (cross-encoder or jev), or ``None`` when reranking stays with the judge.
 
     Returns ``None`` — never raises — for ``none``/empty, an unknown provider name,
     or a key that does not resolve, so a misconfiguration degrades to the
@@ -566,6 +571,19 @@ def resolve_cross_encoder(
     name = (candidate or "none").strip().lower()
     if name in {"", "none", "off", "false", "0", "llm_judge"}:
         return None
+    if name == JEV_PROVIDER:
+        from .decisions import JevReranker
+
+        jev = JevReranker(
+            timeout_seconds=timeout_seconds if timeout_seconds is not None else DEFAULT_TIMEOUT_SECONDS, model=model
+        )
+        if not jev.configured:
+            logger.warning(
+                "Reranker provider 'jev' is configured but decisions are off; falling back to the LLM judge."
+            )
+            return None
+        logger.info("Decision-model reranking via jev (%s)", jev.model)
+        return jev
     if name != PROVIDER:
         if name in _REMOVED_PROVIDERS:
             logger.error(

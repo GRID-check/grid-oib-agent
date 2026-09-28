@@ -18,6 +18,7 @@
 
 #### Related Issues
 
-<!-- Use Closes / Fixes / Resolves / Relates to when applicable. -->
+<!-- Use Closes / Fixes / Resolves / Relates to when applicable, one keyword per issue:
+     "Fixes #1, fixes #2". "Fixes #1, #2" closes only #1 (the Closing keywords check rejects it). -->
 
 - Relates to #

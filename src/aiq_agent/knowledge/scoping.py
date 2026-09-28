@@ -30,7 +30,7 @@ from typing import Any
 
 from aiq_agent.common.source_kinds import Shelf
 from aiq_agent.common.source_kinds import parse_shelf
-from nat.builder.context import Context
+from nat.plugin_api import Context
 
 logger = logging.getLogger(__name__)
 

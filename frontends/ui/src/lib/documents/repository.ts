@@ -611,6 +611,43 @@ export async function findStorageKeyByIdAndCollection(
 }
 
 /**
+ * Whether the document an ingest was dispatched for still exists, addressed
+ * the way {@link findStorageKeyByIdAndCollection} addresses it: by id AND
+ * collection, org-narrowed when the caller carries one. Asked by the ingest
+ * pipeline once a file is indexed, so it can take back out the chunks of a
+ * document deleted while it ran (`document_presence` in the knowledge layer).
+ *
+ * No authorship predicate, unlike the presign lookup. A published
+ * machine-authored version IS ingested (ADR-0054's publish door), and
+ * answering "gone" for it would have the pipeline discard a live document.
+ */
+export async function documentExistsInCollection(
+  documentId: string,
+  collectionName: string,
+  organizationId?: string,
+): Promise<boolean> {
+  const db = getDb()
+  const [row] = await withOptionalTenant(
+    organizationId,
+    'internal document-exists: the ingest pipeline identifies the row by its unguessable ' +
+      'document id and collection name, and carries no organization for a project collection',
+    () =>
+      db
+        .select({ id: documents.id })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.id, documentId),
+            eq(documents.collectionName, collectionName),
+            ...(organizationId ? [eq(documents.organizationId, organizationId)] : []),
+          ),
+        )
+        .limit(1),
+  )
+  return row !== undefined
+}
+
+/**
  * Recording a document goes through `insertDocumentWithinQuota`
  * (`@/lib/storage/repository`), not through a plain insert here.
  *

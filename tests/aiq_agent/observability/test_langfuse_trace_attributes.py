@@ -19,7 +19,6 @@ import pytest
 from aiq_agent.observability.langfuse_trace_attributes import IDENTITY_ATTRIBUTES_ENV
 from aiq_agent.observability.langfuse_trace_attributes import SESSION_ID_ATTRIBUTE
 from aiq_agent.observability.langfuse_trace_attributes import TAGS_ATTRIBUTE
-from aiq_agent.observability.langfuse_trace_attributes import USER_ID_ATTRIBUTE
 from aiq_agent.observability.langfuse_trace_attributes import LangfuseTraceAttributeProcessor
 from aiq_agent.observability.langfuse_trace_attributes import identity_attributes_enabled
 from aiq_agent.observability.langfuse_trace_attributes import langfuse_attributes_for
@@ -38,14 +37,12 @@ def _make_config() -> OtelCollectorRedactionTelemetryExporter:
 class TestAttributeMapping:
     def test_maps_every_identity_field_to_the_name_langfuse_reads(self):
         attributes = langfuse_attributes_for(
-            user_id="user_123",
             organization_id="org_456",
             project_id="proj_789",
             conversation_id="conv_abc",
         )
 
         assert attributes == {
-            USER_ID_ATTRIBUTE: "user_123",
             SESSION_ID_ATTRIBUTE: "conv_abc",
             "langfuse.trace.metadata.organization_id": "org_456",
             "langfuse.trace.metadata.project_id": "proj_789",
@@ -55,11 +52,11 @@ class TestAttributeMapping:
     def test_omits_absent_fields_rather_than_inventing_placeholders(self):
         """
         NAT writes the string "unknown" for its own absent context fields. Doing
-        that here would be actively wrong: Langfuse would render a user named
-        `unknown` and, worse, group every anonymous request into one shared
-        session — inventing a conversation that never happened.
+        that here would be actively wrong: Langfuse would group every anonymous
+        request into one shared session — inventing a conversation that never
+        happened.
         """
-        assert langfuse_attributes_for(user_id=None, organization_id=None, project_id=None, conversation_id=None) == {}
+        assert langfuse_attributes_for(organization_id=None, project_id=None, conversation_id=None) == {}
 
     def test_never_blanks_out_the_session_id_nat_already_set(self):
         """
@@ -68,20 +65,62 @@ class TestAttributeMapping:
         write an empty `langfuse.session.id` — Langfuse prefers the prefixed
         attribute, so an empty one would OVERRIDE a good value.
         """
-        attributes = langfuse_attributes_for(
-            user_id="user_123", organization_id=None, project_id=None, conversation_id=None
-        )
+        attributes = langfuse_attributes_for(organization_id="org_456", project_id=None, conversation_id=None)
 
         assert SESSION_ID_ATTRIBUTE not in attributes
 
     def test_tags_the_tenant_so_the_trace_list_can_filter_on_it(self):
-        attributes = langfuse_attributes_for(
-            user_id=None, organization_id="org_456", project_id=None, conversation_id=None
-        )
+        attributes = langfuse_attributes_for(organization_id="org_456", project_id=None, conversation_id=None)
 
         # A list, not a comma-joined string: Langfuse expects an array here and
         # renders a joined string as one long single tag.
         assert attributes[TAGS_ATTRIBUTE] == ["org:org_456"]
+
+
+class TestUserAttributionIsNats:
+    """The user half is NAT's since 1.9 (#2152): the span exporter stamps `user.id`,
+    which Langfuse maps to the trace's user, from the session's `user_id`, and the
+    chat socket opens every session with the verified subject
+    (`test_chat_socket.py` pins that half)."""
+
+    def test_nat_puts_the_session_user_on_every_span(self):
+        from nat.data_models.intermediate_step import IntermediateStep
+        from nat.data_models.intermediate_step import IntermediateStepPayload
+        from nat.data_models.intermediate_step import IntermediateStepType
+        from nat.data_models.invocation_node import InvocationNode
+        from nat.data_models.span import Span
+        from nat.observability.exporter.span_exporter import SpanExporter
+        from nat.plugin_api import ContextState
+
+        class _Keep(SpanExporter[Span, Span]):
+            async def export_processed(self, item: Span) -> None:
+                return None
+
+        state = ContextState.get()
+        token = state.user_id.set("user_01VERIFIED")
+        try:
+            exporter = _Keep(context_state=state)
+            exporter.export(
+                IntermediateStep(
+                    parent_id="root",
+                    function_ancestry=InvocationNode(function_id="f", function_name="f"),
+                    payload=IntermediateStepPayload(event_type=IntermediateStepType.LLM_START, name="m", UUID="u1"),
+                )
+            )
+        finally:
+            state.user_id.reset(token)
+
+        span = exporter._span_stack["u1"]
+        assert span.attributes["user.id"] == "user_01VERIFIED"
+        assert any(key.endswith(".user.id") for key in span.attributes)
+
+        # With identity attributes off (the default), neither reaches the trace store.
+        import asyncio
+
+        from aiq_agent.observability.langfuse_trace_attributes import UserIdentityStripProcessor
+
+        stripped = asyncio.run(UserIdentityStripProcessor().process(span))
+        assert not [key for key in stripped.attributes if key == "user.id" or key.endswith(".user.id")]
 
 
 class TestAvailabilityGate:
@@ -113,20 +152,20 @@ class TestProcessor:
 
         monkeypatch.setattr(
             "aiq_agent.observability.langfuse_trace_attributes.current_langfuse_attributes",
-            lambda: {USER_ID_ATTRIBUTE: "user_123", SESSION_ID_ATTRIBUTE: "conv_abc"},
+            lambda: {"langfuse.trace.metadata.organization_id": "org_456", SESSION_ID_ATTRIBUTE: "conv_abc"},
         )
 
         span = Span(name="llm-call")
         result = await LangfuseTraceAttributeProcessor().process(span)
 
-        assert result.attributes[USER_ID_ATTRIBUTE] == "user_123"
+        assert result.attributes["langfuse.trace.metadata.organization_id"] == "org_456"
         assert result.attributes[SESSION_ID_ATTRIBUTE] == "conv_abc"
 
     async def test_a_broken_context_degrades_the_trace_instead_of_failing_export(self, monkeypatch):
         """
         Enrichment sits in the export pipeline. An exception escaping it would
         take out span export for the whole process, which is a far worse outcome
-        than a span with no user id on it.
+        than a span with no tenant on it.
         """
         from nat.data_models.span import Span
 
@@ -142,7 +181,7 @@ class TestProcessor:
         result = await LangfuseTraceAttributeProcessor().process(span)
 
         assert result is span
-        assert USER_ID_ATTRIBUTE not in result.attributes
+        assert SESSION_ID_ATTRIBUTE not in result.attributes
 
 
 class TestPipelineWiring:
@@ -155,7 +194,7 @@ class TestPipelineWiring:
     async def test_runs_ahead_of_redaction_when_the_tier_is_on(self, monkeypatch):
         """
         The ordering IS the control. Attributes added after the redaction pass
-        can never be redacted, so listing `langfuse.user.id` in
+        can never be redacted, so listing a `langfuse.trace.metadata.*` key in
         `redaction_attributes` would configure something with no effect — a
         privacy setting that silently does nothing.
         """
@@ -170,15 +209,15 @@ class TestPipelineWiring:
     async def test_identity_attributes_are_actually_redactable(self, monkeypatch):
         """
         The consequence of the ordering above, asserted end-to-end rather than
-        by position: with redaction forced and `langfuse.user.id` listed, the
-        user id must come out redacted.
+        by position: with redaction forced and the tenant key listed, the tenant
+        must come out redacted.
         """
         from nat.data_models.span import Span
 
         monkeypatch.setenv(IDENTITY_ATTRIBUTES_ENV, "true")
         monkeypatch.setattr(
             "aiq_agent.observability.langfuse_trace_attributes.current_langfuse_attributes",
-            lambda: {USER_ID_ATTRIBUTE: "user_123"},
+            lambda: {"langfuse.trace.metadata.organization_id": "org_456"},
         )
 
         config = OtelCollectorRedactionTelemetryExporter(
@@ -187,7 +226,7 @@ class TestPipelineWiring:
             endpoint=ENDPOINT,
             redaction_enabled=True,
             force_redaction=True,
-            redaction_attributes=[USER_ID_ATTRIBUTE],
+            redaction_attributes=["langfuse.trace.metadata.organization_id"],
         )
 
         async with otelcollector_redaction_telemetry_exporter(config, None) as exporter:
@@ -199,7 +238,7 @@ class TestPipelineWiring:
             span = await by_name["langfuse_trace_attributes"].process(span)
             span = await by_name["header_redaction"].process(span)
 
-        assert span.attributes[USER_ID_ATTRIBUTE] == "[REDACTED]"
+        assert span.attributes["langfuse.trace.metadata.organization_id"] == "[REDACTED]"
 
 
 class TestToolContributions:
@@ -227,7 +266,6 @@ class TestToolContributions:
         record_trace_metadata(ifc_op="compliance", ifc_model="haus.ifc", ifc_truncated=True)
 
         assert langfuse_attributes_for(
-            user_id=None,
             organization_id=None,
             project_id=None,
             conversation_id=None,
@@ -249,7 +287,6 @@ class TestToolContributions:
         add_trace_tag("feature:ifc")
 
         attributes = langfuse_attributes_for(
-            user_id=None,
             organization_id="org_456",
             project_id=None,
             conversation_id=None,
@@ -267,7 +304,6 @@ class TestToolContributions:
         record_trace_metadata(ifc_op="overview", ifc_model=None, ifc_truncated=None)
 
         assert langfuse_attributes_for(
-            user_id=None,
             organization_id=None,
             project_id=None,
             conversation_id=None,
@@ -287,12 +323,11 @@ class TestToolContributions:
 
     def test_nothing_is_attached_when_no_tool_contributed(self):
         assert langfuse_attributes_for(
-            user_id="user_123",
             organization_id=None,
             project_id=None,
-            conversation_id=None,
+            conversation_id="conv_abc",
             contributed=None,
-        ) == {USER_ID_ATTRIBUTE: "user_123"}
+        ) == {SESSION_ID_ATTRIBUTE: "conv_abc"}
 
 
 class TestContributionIsolation:
@@ -336,7 +371,6 @@ class TestContributionIsolation:
             fresh = snapshot_contributions()
             assert fresh == {"metadata": {}, "tags": []}
             attributes = langfuse_attributes_for(
-                user_id=None,
                 organization_id=None,
                 project_id=None,
                 conversation_id=None,

@@ -107,6 +107,49 @@ describe('ThumbnailWithFallback', () => {
     expect(hits).toHaveBeenCalledTimes(1)
   })
 
+  it('re-asks once the cached signed url has expired, instead of replaying it (#366)', async () => {
+    // A tab left open replayed urls whose signature had run out days earlier;
+    // the route answered 403 and the image optimizer logged it as an error.
+    const nowS = Math.floor(Date.now() / 1000)
+    const urls = [
+      `/api/documents/i9/image?org=o&v=thumb&exp=${nowS + 30}&sig=a`,
+      `/api/documents/i9/image?org=o&v=thumb&exp=${nowS + 3600}&sig=b`,
+    ]
+    const hits = vi.fn()
+    server.use(
+      http.get('/api/documents/:id/thumbnail', () => {
+        hits()
+        return HttpResponse.json({ url: urls[hits.mock.calls.length - 1] })
+      })
+    )
+    const f = file('i9', 'Plan.pdf', 'application/pdf')
+
+    const first = render(<ThumbnailWithFallback file={f} />)
+    await waitFor(() => expect(hits).toHaveBeenCalledTimes(1))
+    first.unmount()
+    // The first url is inside its last minute: a new card must not be handed it.
+    render(<ThumbnailWithFallback file={f} />)
+    await waitFor(() => expect(hits).toHaveBeenCalledTimes(2))
+  })
+
+  it('keeps a signed url that is still valid', async () => {
+    const nowS = Math.floor(Date.now() / 1000)
+    const hits = vi.fn()
+    server.use(
+      http.get('/api/documents/:id/thumbnail', () => {
+        hits()
+        return HttpResponse.json({ url: `/api/documents/i10/image?v=thumb&exp=${nowS + 3600}&sig=a` })
+      })
+    )
+    const f = file('i10', 'Plan.pdf', 'application/pdf')
+    const first = render(<ThumbnailWithFallback file={f} />)
+    await waitFor(() => expect(hits).toHaveBeenCalledTimes(1))
+    first.unmount()
+    render(<ThumbnailWithFallback file={f} />)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(hits).toHaveBeenCalledTimes(1)
+  })
+
   it('re-asks after ingestion finishes when the document had no preview yet', async () => {
     // A document uploaded a moment ago: the page renders while the backend is
     // still reading it, so the first ask legitimately finds no thumbnail. The

@@ -5,7 +5,6 @@
  * - AppConfigProvider (runtime server-side config)
  * - TooltipProvider / Toaster (shadcn/ui primitives)
  * - AuthKitProvider (WorkOS AuthKit session)
- * - DeepResearchRestorer (checks for active deep research jobs on mount)
  * - ConversationHydrator (loads server-persisted conversations)
  *
  * Theme (dark/light) is applied directly to the document element via
@@ -233,36 +232,6 @@ const ThemeWrapper = ({ children }: { children: ReactNode }): ReactNode => {
 }
 
 /**
- * Restores deep research state on conversation load.
- * - Reconnects to running/submitted jobs for page refresh recovery.
- * - Cleans up orphaned 'starting' banners by polling job status via REST.
- * Completed jobs are loaded on-demand via "View Report" click.
- */
-const DeepResearchRestorer = ({ children }: { children: ReactNode }): ReactNode => {
-  const [mounted, setMounted] = useState(false)
-  const reconnectToActiveJob = useChatStore((state) => state.reconnectToActiveJob)
-  const cleanupOrphanedStartingBanners = useChatStore((state) => state.cleanupOrphanedStartingBanners)
-  const currentConversationId = useChatStore((state) => state.currentConversation?.id)
-  const isDeepResearchStreaming = useChatStore((state) => state.isDeepResearchStreaming)
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  useEffect(() => {
-    if (!mounted || !currentConversationId || isDeepResearchStreaming) return
-
-    const restore = async () => {
-      await reconnectToActiveJob()
-      await cleanupOrphanedStartingBanners()
-    }
-    restore()
-  }, [mounted, currentConversationId, isDeepResearchStreaming, reconnectToActiveJob, cleanupOrphanedStartingBanners])
-
-  return <>{children}</>
-}
-
-/**
  * Loads server-persisted conversations into the chat store on initial mount.
  */
 const useConversationsInit = (): void => {
@@ -278,11 +247,9 @@ const useConversationsInit = (): void => {
 export const Providers = ({ children, config, locale }: ProvidersProps): ReactNode => {
   const content = (
     <ThemeWrapper>
-      <DeepResearchRestorer>
-        <ConversationsHydrator>
-          {children}
-        </ConversationsHydrator>
-      </DeepResearchRestorer>
+      <ConversationsHydrator>
+        {children}
+      </ConversationsHydrator>
     </ThemeWrapper>
   )
 

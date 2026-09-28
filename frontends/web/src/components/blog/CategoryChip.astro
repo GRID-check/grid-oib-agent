@@ -1,0 +1,30 @@
+---
+/**
+ * The category as a mono label, set like the date beside it: no pill, one
+ * style for both strands (there were two, a light chip and a dark one). A link
+ * to the category's listing when `href` is given, in the accent so it reads as
+ * one; a plain label otherwise.
+ */
+import type { Locale } from '../../i18n/ui'
+import { CATEGORIES, type Category } from '../../lib/categories'
+
+interface Props {
+  category: Category
+  locale: Locale
+  href?: string
+}
+const { category, locale, href } = Astro.props
+const Tag = href ? 'a' : 'span'
+---
+
+<Tag
+  href={href}
+  class:list={[
+    'font-mono text-2xs uppercase tracking-label',
+    href
+      ? "relative text-accent-600 transition-colors after:absolute after:-inset-x-1 after:-inset-y-3 after:content-[''] hover:text-accent-700"
+      : 'text-ink-mute',
+  ]}
+>
+  {CATEGORIES[locale][category].label}
+</Tag>

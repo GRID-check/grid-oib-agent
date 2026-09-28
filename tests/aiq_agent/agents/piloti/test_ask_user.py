@@ -18,11 +18,11 @@ import pytest
 from aiq_agent.agents.piloti import ask_user as ask_user_module
 from aiq_agent.agents.piloti.ask_user import AskUserConfig
 from aiq_agent.agents.piloti.ask_user import ask_user
-from nat.data_models.interactive import HumanPromptRadio
-from nat.data_models.interactive import HumanResponseRadio
-from nat.data_models.interactive import HumanResponseText
-from nat.data_models.interactive import InteractionResponse
-from nat.data_models.interactive import MultipleChoiceOption
+from nat.plugin_api import HumanPromptRadio
+from nat.plugin_api import HumanResponseRadio
+from nat.plugin_api import HumanResponseText
+from nat.plugin_api import InteractionResponse
+from nat.plugin_api import MultipleChoiceOption
 
 
 @pytest.fixture(autouse=True)

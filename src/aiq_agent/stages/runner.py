@@ -34,11 +34,10 @@ import time
 import weakref
 from collections import OrderedDict
 from collections.abc import Mapping
-from datetime import UTC
-from datetime import datetime
 from typing import Any
 
 from aiq_agent.common.model_overrides import AgentGroup
+from aiq_agent.common.wire_v2 import StageValue
 from aiq_agent.stages.delivery import deliver_stage_frame
 from aiq_agent.stages.registry import iter_stages
 from aiq_agent.stages.spec import StageContext
@@ -74,10 +73,6 @@ _semaphores: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaph
 _MAX_REMEMBERED_KEYS = 1024
 _claimed_keys: OrderedDict[tuple[str, str, str], None] = OrderedDict()
 
-#: Contract version of the stage frame envelope; bump on a breaking change.
-STAGE_FRAME_VERSION = 1
-STAGE_FRAME_TYPE = "grid_stage_message"
-
 
 def _loop_semaphore(loop: asyncio.AbstractEventLoop) -> asyncio.Semaphore:
     semaphore = _semaphores.get(loop)
@@ -106,29 +101,19 @@ def _claim(spec: StageSpec, facts: TurnFacts) -> bool:
     return True
 
 
-def build_stage_frame(spec: StageSpec, facts: TurnFacts, outcome: StageOutcome) -> dict[str, Any]:
-    """The wire frame for one stage outcome (contract §4.1).
+def stage_value(spec: StageSpec, outcome: StageOutcome) -> StageValue:
+    """The ``stage`` event's value for one outcome (chat wire v2, ``CUSTOM stage``).
 
-    ``parent_id`` is the correlation key and the only one: it is the id both
-    halves genuinely share. A frame whose ``parent_id`` matches no message is
-    dropped client-side. ``status`` rides even when there is nothing to show —
-    ``empty`` is not the same fact as "no frame arrived", and only the former
-    lets a client stop reserving space. A ``failed`` frame carries no reason:
-    failure reasons are machine keys for the ledger, not user-facing text.
+    The handler stamps it with the turn's envelope, so the turn it belongs to
+    is the envelope's ``turn_id``. ``status`` rides even when there is nothing
+    to show: ``empty`` is not the same fact as "no event arrived", and only the
+    former lets a client stop reserving space. A ``failed`` value carries no
+    reason: failure reasons are machine keys for the ledger, not user-facing
+    text.
     """
     status = "failed" if outcome.status == "timeout" else outcome.status
-    frame: dict[str, Any] = {
-        "type": STAGE_FRAME_TYPE,
-        "v": STAGE_FRAME_VERSION,
-        "conversation_id": facts.conversation_id,
-        "parent_id": facts.ws_parent_id,
-        "stage": spec.id,
-        "status": status,
-        "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-    }
-    if outcome.status == "ready" and outcome.payload is not None:
-        frame["payload"] = outcome.payload
-    return frame
+    payload = outcome.payload if outcome.status == "ready" else None
+    return StageValue(stage=spec.id, status=status, payload=payload)
 
 
 def _resolve_llm(spec: StageSpec, llms: Mapping[AgentGroup, Any] | None) -> Any:
@@ -337,7 +322,7 @@ async def _run_stage(spec: StageSpec, ctx: StageContext) -> StageOutcome:
         duration_ms=max(0, round((time.monotonic() - started) * 1000)),
     )
     if spec.delivery == "frame" and status in {"ready", "empty", "failed", "timeout"}:
-        await deliver_stage_frame(facts.conversation_id, build_stage_frame(spec, facts, outcome))
+        await deliver_stage_frame(facts.conversation_id, facts.ws_parent_id, stage_value(spec, outcome))
     return outcome
 
 

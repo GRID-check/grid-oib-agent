@@ -44,6 +44,7 @@ import {
   type DocumentScope,
   type NewDocument,
 } from '@/lib/db/schema'
+import { mapDocumentInsertError, ReplacedDocumentGoneError } from '@/lib/documents/unique-conflicts'
 
 /** Bytes and document count for one scope. */
 export interface StorageScopeUsage {
@@ -300,19 +301,71 @@ function versionOverheadSql(organizationId: string) {
   )`
 }
 
+/** The handle a `db.transaction` callback receives. */
+export type DbTransaction = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0]
+
+/**
+ * Serialize every admission for one organization, until the transaction ends.
+ *
+ * The ONE spelling of the quota lock, so an upload, a re-upload and a
+ * version-content write queue behind the same key. `pg_advisory_xact_lock`
+ * releases at commit or rollback, so there is no path that leaks it.
+ * `hashtextextended` gives the bigint the lock function wants and is stable
+ * across sessions, unlike `hashtext`'s 32-bit output which would collide often
+ * enough at fleet scale to make two tenants share a lock.
+ */
+export async function lockStorageQuota(tx: DbTransaction, organizationId: string): Promise<void> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${`storage_quota:${organizationId}`}, 0))`,
+  )
+}
+
+/**
+ * The organization's usage as the ledger defines it — live bytes plus version
+ * overhead — read inside a transaction that holds {@link lockStorageQuota}.
+ *
+ * One round trip (the overhead rides the same select as a subquery). Measured
+ * on the state the transaction can SEE, which is what lets a caller measure the
+ * state it is about to commit rather than reason about a delta.
+ */
+export async function readStorageUsage(tx: DbTransaction, organizationId: string): Promise<number> {
+  const [row] = await tx
+    .select({
+      bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint`,
+      versionBytes: versionOverheadSql(organizationId),
+    })
+    .from(documents)
+    .where(eq(documents.organizationId, organizationId))
+  return (Number(row?.bytes) || 0) + (Number(row?.versionBytes) || 0)
+}
+
 /**
  * Point an existing document row at new bytes, under the same quota lock.
  *
  * The sibling of {@link insertDocumentWithinQuota}, for a re-upload of a
- * filename this collection already holds. Usage is `sum(file_size)` over live
- * rows, so the row being replaced is ALREADY counted — charging the full new
- * size against a total that includes the old one would refuse a corrected plan
- * for space the correction itself frees. The row is excluded from the sum and
- * the new size charged in its place, which is the real delta.
+ * filename this collection already holds.
+ *
+ * ## The full size is charged, because the old bytes stay
+ *
+ * This used to exclude the row being replaced from the usage and charge the new
+ * size in its place, on the argument that the correction frees the space of
+ * what it corrects. Since ADR-0054 it does not: the previous bytes are kept as
+ * the superseded version, under their own key. Excluding the row meant the old
+ * size was counted NOWHERE during the admission — the item row was left out,
+ * and the version overhead compares against the item's CURRENT key, which is
+ * still the old one until this update — so every re-upload was admitted as if
+ * it were free of the bytes it left behind. The usage after the commit is
+ * `before + next.fileSize` exactly (the item now carries the new size, the old
+ * version's key no longer matches the item's and joins the overhead), so that
+ * is what is compared.
  *
  * Same advisory lock as the insert path, and deliberately so: a replace and an
  * insert racing for the last megabyte must serialize against each other, not
  * only against their own kind.
+ *
+ * Throws `ReplacedDocumentGoneError` when the row no longer exists — the
+ * document was deleted after the caller probed the name. The upload paths
+ * answer it by retrying as a first upload (`retryRacedUpload`).
  */
 export async function replaceDocumentWithinQuota(
   organizationId: string,
@@ -331,28 +384,18 @@ export async function replaceDocumentWithinQuota(
   const db = getDb()
 
   return db.transaction(async (tx) => {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`storage_quota:${organizationId}`}, 0))`,
-    )
+    await lockStorageQuota(tx, organizationId)
 
     if (quotaBytes !== null) {
-      const [row] = await tx
-        .select({
-          bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint`,
-          versionBytes: versionOverheadSql(organizationId),
-        })
-        .from(documents)
-        .where(
-          and(eq(documents.organizationId, organizationId), ne(documents.id, documentId)),
-        )
-
-      const usedBytes = (Number(row?.bytes) || 0) + (Number(row?.versionBytes) || 0)
+      // The whole organization, the row being replaced included: its old bytes
+      // stay, as the superseded version (see above).
+      const usedBytes = await readStorageUsage(tx, organizationId)
       if (usedBytes + next.fileSize > quotaBytes) {
         return { ok: false as const, usedBytes }
       }
     }
 
-    await tx
+    const updated = await tx
       .update(documents)
       .set({
         storageKey: next.storageKey,
@@ -370,10 +413,26 @@ export async function replaceDocumentWithinQuota(
         updatedAt: new Date(),
       })
       .where(and(eq(documents.organizationId, organizationId), eq(documents.id, documentId)))
+      .returning({ id: documents.id })
+    // Deleted between the caller's name probe and here. Reporting success
+    // would leave the caller's new object named by no row — invisible to the
+    // UI and the ledger — and record a version for a document that is gone.
+    // Thrown, so the transaction rolls back and the admission's discard runs.
+    if (updated.length === 0) throw new ReplacedDocumentGoneError(documentId)
     return { ok: true as const }
   })
 }
 
+/**
+ * Insert a document row if the organization has room, under the quota lock.
+ *
+ * A refusal by `uniq_documents_live_name_per_collection` is thrown as
+ * `LiveFilenameTakenError` — a concurrent FIRST upload of this filename into
+ * this shelf committed while this one waited on the lock — and nothing else is
+ * mapped: any other 23505 keeps its original error. The transaction rolled
+ * back, so nothing was charged; the upload paths answer it by re-probing and
+ * recording their bytes as a new version of the winner's document.
+ */
 export async function insertDocumentWithinQuota(
   values: NewDocument,
   quotaBytes: number | null,
@@ -382,25 +441,11 @@ export async function insertDocumentWithinQuota(
   const incoming = values.fileSize ?? 0
 
   return db.transaction(async (tx) => {
-    // Serialize admissions for THIS organization. `pg_advisory_xact_lock`
-    // releases at commit or rollback, so there is no path that leaks it.
-    // `hashtextextended` gives the bigint the lock function wants and is stable
-    // across sessions, unlike `hashtext`'s 32-bit output which would collide
-    // often enough at fleet scale to make two tenants share a lock.
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`storage_quota:${values.organizationId}`}, 0))`,
-    )
+    // Serialize admissions for THIS organization (see `lockStorageQuota`).
+    await lockStorageQuota(tx, values.organizationId)
 
     if (quotaBytes !== null) {
-      const [row] = await tx
-        .select({
-          bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint`,
-          versionBytes: versionOverheadSql(values.organizationId),
-        })
-        .from(documents)
-        .where(eq(documents.organizationId, values.organizationId))
-
-      const usedBytes = (Number(row?.bytes) || 0) + (Number(row?.versionBytes) || 0)
+      const usedBytes = await readStorageUsage(tx, values.organizationId)
       if (usedBytes + incoming > quotaBytes) {
         // Returned rather than thrown: the caller has an object to clean up, and
         // a refusal is an expected outcome here, not an error condition. The
@@ -411,5 +456,7 @@ export async function insertDocumentWithinQuota(
 
     await tx.insert(documents).values(values)
     return { ok: true as const }
+  }).catch((error: unknown) => {
+    throw mapDocumentInsertError(error, values.filename)
   })
 }

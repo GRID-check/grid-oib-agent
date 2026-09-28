@@ -4,7 +4,6 @@ Assumed Bundesland: W (from the question).
 
 --- Result 1 ---
 Source: Wiener Bauordnung
-Source URL: https://ris.bka.gv.at/eli/lgbl/W/1930/11/P63
 Collection: ris/lrw/wien
 Shelf: base
 Dokumentart: gesetz — Gesetz / Bauordnung
@@ -18,7 +17,6 @@ Der Bauwerber hat ...
 
 --- Result 2 ---
 Source: OIB-Gesetz
-Source URL: https://ris.bka.gv.at/eli/bgbl/2020/1
 Collection: ris/kons
 Shelf: base
 Dokumentart: gesetz — Gesetz / Bauordnung

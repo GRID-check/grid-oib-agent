@@ -13,6 +13,14 @@ When a user asks a question, the AI needs to know which knowledge sources to sea
 - The active project collection (`proj_{projectId}`, if working in a project)
 - The session collection (`s_{conversationId}`, if in a conversation)
 
+This page is about which collections a request READS. What writes into the
+session collection is the session-document pipeline, not the browser:
+`POST /api/session/documents/upload` stores the file as a `session` document row
+and dispatches it into `s_{conversationId}`, the listing and delete go through
+`/api/session/documents`, and `DELETE /api/conversations/[id]` erases the whole
+collection. The `/api/v1` proxy only reads an `s_` collection
+([BFF routes](../api/bff-routes.md#chat-attachments-session-documents-adr-0047-phase-2)).
+
 The Archiv collection is injected in `buildCollectionScopeFromRequest` (which has `session.organizationId`) and passed to `computeCollectionScope` as `archivCollectionName`; it rides right after the base corpus, so every project in the org retrieves across the shared Archiv with no per-project configuration.
 
 ---

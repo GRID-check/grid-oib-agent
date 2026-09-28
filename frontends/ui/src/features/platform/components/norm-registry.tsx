@@ -17,6 +17,7 @@
  * would overwrite a registry they have never seen.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {

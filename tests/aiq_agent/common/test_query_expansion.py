@@ -69,6 +69,16 @@ def test_an_english_question_the_glossary_does_not_know_is_unchanged() -> None:
     assert augmented_query(question) == question
 
 
+def test_a_miss_is_logged_once_per_query_and_not_by_a_second_expansion(caplog) -> None:
+    """The miss line is the coverage metric; a caller that expands the query
+    again (the warm-up) passes ``log_miss=False`` so the rate stays per query."""
+    question = "What is the quarterly revenue forecast?"
+    with caplog.at_level("INFO", logger="aiq_agent.common.query_expansion"):
+        augmented_query(question)
+        augmented_query(question, log_miss=False)
+    assert len([r for r in caplog.records if "no glossary concept" in r.getMessage()]) == 1
+
+
 def test_a_glossary_term_inside_a_longer_word_is_not_a_match() -> None:
     """A raw substring test fires on the wrong word and prepends the wrong topic.
 

@@ -1,0 +1,12 @@
+---
+fixes:
+  - >
+    Stop now ends the answer: Piloti stops working on it, and what you had
+    already read stays in the conversation, marked as stopped.
+  - >
+    A long answer no longer freezes the page while it arrives, and its cards
+    land when they are ready instead of long after the text.
+upgrade:
+  - >
+    A browser tab that was open during the update shows a connection error
+    until it is reloaded.

@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    Answers now appear evenly, word by word, instead of jumping a sentence at a
+    time, and the page stays smooth on a phone too.
+  - >
+    While Piloti works, its thinking indicator and the lines of the Herleitung
+    no longer strain a phone.

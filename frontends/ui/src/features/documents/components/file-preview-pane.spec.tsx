@@ -119,6 +119,26 @@ describe('FilePreviewPane', () => {
     expect(screen.queryByText('Document type')).toBeNull()
   })
 
+  /**
+   * A re-upload that fails to index keeps the previous version's passages in
+   * search, while the row already points at the new bytes. Saying only
+   * "failed" left the reader to discover that the answers quote a file the
+   * download no longer returns.
+   */
+  it('says the previous version is still searched when a new version failed', () => {
+    const failed = { ...mockFile, status: 'failed', errorMessage: 'PDF is encrypted' }
+    const { unmount } = render(
+      <FilePreviewPane file={{ ...failed, versionState: 'published', versionCount: 2 }} projectId="proj-1" />
+    )
+    expect(screen.getByText('PDF is encrypted')).toBeInTheDocument()
+    expect(screen.getByText(/still use the previous version/)).toBeInTheDocument()
+    unmount()
+
+    // A first upload that failed has no previous version to speak of.
+    render(<FilePreviewPane file={{ ...failed, versionState: 'published', versionCount: 1 }} projectId="proj-1" />)
+    expect(screen.queryByText(/still use the previous version/)).toBeNull()
+  })
+
   it('offers an expand affordance for a PDF once its preview URL has loaded', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,

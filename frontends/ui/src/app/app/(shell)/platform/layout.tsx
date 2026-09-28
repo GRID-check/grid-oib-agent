@@ -15,6 +15,7 @@
  * explanatory card, mirroring the org page's non-admin experience.
  */
 
+import type { JSX } from 'react'
 import { redirect } from 'next/navigation'
 import { ShieldAlert } from 'lucide-react'
 import { getGridSession } from '@/lib/auth/session'

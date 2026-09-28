@@ -1,0 +1,35 @@
+---
+/**
+ * ScopeFigure's phone and tablet variant: one level as an HTML box holding the
+ * next, so four nested frames reflow instead of shrinking. Recursive.
+ */
+interface Level {
+  label: string
+  holds: string
+  visible: string
+}
+interface Props {
+  levels: Level[]
+  depth?: number
+}
+const { levels, depth = 0 } = Astro.props
+const level = levels[depth]
+const last = depth === levels.length - 1
+---
+
+{
+  level && (
+    <div class:list={['fpm-box', last ? 'fpm-box--tint' : depth > 0 && 'fpm-box--soft']}>
+      <div class="fpm-head">
+        <span class="fpm-label">{level.label}</span>
+        <span class="fpm-accent">{level.visible}</span>
+      </div>
+      <span class="fpm-sub">{level.holds}</span>
+      {!last && (
+        <div style="margin-top: 10px">
+          <Astro.self levels={levels} depth={depth + 1} />
+        </div>
+      )}
+    </div>
+  )
+}

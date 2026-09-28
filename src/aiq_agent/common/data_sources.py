@@ -57,9 +57,18 @@ def parse_disabled_sources(raw: str | None) -> set[str]:
 
 
 def get_disabled_sources_from_context() -> set[str]:
-    """Read the current request's org-disabled sources from NAT context."""
-    from aiq_agent.project_context import _read_header
+    """Read the current request's org-disabled sources from NAT context.
 
+    From the signed envelope when one arrived, never from the unsigned header
+    beside it: a client that could set the header could switch the org's
+    web-search toggle back on for itself. The header is read only off the BFF.
+    """
+    from aiq_agent.project_context import _read_header
+    from aiq_agent.project_context import get_signed_request_context
+
+    envelope = get_signed_request_context()
+    if envelope is not None:
+        return {item.strip().lower() for item in envelope.disabled_sources or [] if item.strip()}
     return parse_disabled_sources(_read_header(DISABLED_SOURCES_HEADER))
 
 

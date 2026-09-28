@@ -111,8 +111,6 @@ export interface ComposerCapabilityInput {
   readonly isBusy: boolean
   /** The composer is collecting a response to a question the agent asked. */
   readonly isResponseMode: boolean
-  /** A finished research session locks further input. */
-  readonly researchLocked: boolean
   /** Somebody else holds the turn. */
   readonly otherPersonsTurn: boolean
 }
@@ -174,7 +172,6 @@ export function composerCapabilities(input: ComposerCapabilityInput): ComposerCa
   const canCompose =
     canContribute &&
     !(input.isBusy && !input.isResponseMode) &&
-    !input.researchLocked &&
     !input.otherPersonsTurn
 
   const canBroadcastTyping = input.canCollaborate && input.sharing === 'shared' && canContribute

@@ -80,12 +80,10 @@ vi.mock('@/features/chat', () => ({
       selector ? selector(asStoreState<ChatStoreWithHydration>(chatState)) : chatState,
     { getState: () => chatState }
   ),
-  useDeepResearchTitle: vi.fn(),
 }))
 
 const clientProps = {
   projectId: 'p1',
-  showSourceBadges: true,
   showConfidenceChip: true,
   showAnswerFeedback: true,
   showResearchInHistory: false,

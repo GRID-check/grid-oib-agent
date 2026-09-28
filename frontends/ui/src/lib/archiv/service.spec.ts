@@ -13,10 +13,16 @@ vi.mock('@/lib/documents/version-repository', () => ({
     versionNumber: 1,
     ...values,
   })),
+  // The born-published insert every upload records its version with.
+  insertPublishedVersion: vi.fn(async (values: Record<string, unknown>) => ({
+    version: { id: 'version_1', state: 'published', versionNumber: 1, ...values },
+    superseded: [],
+  })),
   listDocumentVersions: vi.fn().mockResolvedValue([]),
   findDocumentVersion: vi.fn().mockResolvedValue(null),
   findPublishedVersion: vi.fn().mockResolvedValue(null),
   findOpenVersion: vi.fn().mockResolvedValue(null),
+  listDocumentVersionSummaries: vi.fn().mockResolvedValue([]),
   // 2: the only caller asks for it on the REPLACE path, where the next version
   // is by definition not the first.
   nextVersionNumber: vi.fn().mockResolvedValue(2),
@@ -81,16 +87,31 @@ vi.mock('@/lib/documents/reconcile-status', () => ({
 // path is the insert path it has always been.
 vi.mock('@/lib/documents/repository', () => ({
   findLiveDocumentByFilename: vi.fn().mockResolvedValue(null),
-  // Read back by `recordUploadedVersion` (ADR-0054) to mirror the row's storage
-  // columns onto version 1. Null is the honest default here: this suite is
-  // about the Archiv upload, and a version for a row it did not stub is not a
-  // fact it should invent.
-  findDocumentInOrg: vi.fn().mockResolvedValue(null),
+  // Read back by `recordUploadedVersion` (ADR-0054) before it records version
+  // 1. The row the upload just wrote: a miss means the document was deleted
+  // mid-upload, which is a 409 of its own (ADR-0054 correction 17), so the
+  // default is the row existing.
+  findDocumentInOrg: vi.fn(async (id: string) =>
+    (await import('@/test-utils/db-fixtures')).makeDocument({ id, projectId: null, scope: 'archiv' }),
+  ),
 }))
 
 vi.mock('@/lib/storage/admission', () => ({
   admitOrDiscard: vi.fn().mockResolvedValue(undefined),
   admitReplacementOrDiscard: vi.fn().mockResolvedValue(undefined),
+}))
+
+// The hold predicate is SQL (`grid_legal_hold_blocks`, migration 0093) and is
+// exercised against Postgres in `legal-hold.integration.spec.ts`; here the gate
+// itself runs for real over a doubled answer.
+// The erasure of a document's objects is `object-cleanup.spec.ts`'s subject;
+// here it is what the delete asks for, and what the delete does when it fails.
+vi.mock('@/lib/documents/object-cleanup', () => ({
+  eraseDocumentObjectsOrKeepRow: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('@/lib/compliance/repository', () => ({
+  isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
 }))
 
 vi.mock('./repository', () => ({
@@ -103,9 +124,13 @@ import { canManageArchiv } from '@/lib/authz/organizations'
 import { assertUploadTypeAllowed, dispatchDocument, fetchSemanticHits, joinHitsToFiles } from '@/lib/documents/service'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
+import { isCoveredByActiveHold } from '@/lib/compliance/repository'
+import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
+import { s3Client } from '@/lib/s3'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
-import { findLiveDocumentByFilename } from '@/lib/documents/repository'
+import { findDocumentInOrg, findLiveDocumentByFilename } from '@/lib/documents/repository'
+import { LiveFilenameTakenError, ReplacedDocumentGoneError } from '@/lib/documents/unique-conflicts'
 import {
   listArchivDocuments,
   findArchivDocument,
@@ -113,6 +138,7 @@ import {
 } from './repository'
 import { listArchiv, uploadArchivDocument, deleteArchivDocument, searchArchivDocuments } from './service'
 import { makeDocument } from '@/test-utils/db-fixtures'
+import { listDocumentVersionSummaries } from '@/lib/documents/version-repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { DocumentMetadata, ReconcilableDocument } from '@/lib/documents/reconcile-status'
 import type { SearchedDocument } from '@/lib/documents/service'
@@ -187,6 +213,31 @@ describe('listArchiv', () => {
     expect(result.canManage).toBe(false)
     expect(result.documents[0]).not.toHaveProperty('metadata')
     expect(result.documents[0]).toMatchObject({ id: 'd1', summary: 's' })
+  })
+
+  // The chat peek reads this to tell a failed re-upload (the previous version
+  // is still cited) from a Büro file that never indexed.
+  it('annotates each row with its version count', async () => {
+    vi.mocked(listArchivDocuments).mockResolvedValue([])
+    const row = (id: string): ReconcilableDocument & DocumentMetadata => ({
+      id,
+      filename: `${id}.pdf`,
+      status: 'failed',
+      collectionName: 'archiv_org-1',
+      authoredBy: 'user',
+      publishedVersionId: null,
+      errorMessage: null,
+      metadata: {},
+    })
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([row('d1'), row('d2')])
+    vi.mocked(listDocumentVersionSummaries).mockResolvedValueOnce([
+      { documentId: 'd1', versionCount: 3, state: 'published' },
+    ])
+
+    const result = await listArchiv(session)
+
+    expect(listDocumentVersionSummaries).toHaveBeenCalledWith(['d1', 'd2'], 'org-1')
+    expect(result.documents.map((d) => d.versionCount)).toEqual([3, null])
   })
 })
 
@@ -323,6 +374,100 @@ describe('deleteArchivDocument', () => {
     )
   })
 
+  // An ingest that asked whether its document exists before the row went saw
+  // it, and kept chunks inserted after the first purge; the purge after the
+  // row takes those (ADR-0054, correction 18).
+  it('purges the chunks again once the row is gone, and a failure there is not surfaced', async () => {
+    const doc = makeDocument({
+      id: 'd1',
+      scope: 'archiv',
+      projectId: null,
+      collectionName: 'archiv_org-1',
+      storageKey: 'org/org-1/archiv/doc/d1/plan.pdf',
+    })
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+    vi.mocked(findArchivDocument).mockResolvedValue(doc)
+    const order: string[] = []
+    let purges = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        order.push('purge')
+        purges += 1
+        if (purges === 2) throw new Error('backend down')
+        return { ok: true }
+      }),
+    )
+    vi.mocked(eraseDocumentObjectsOrKeepRow).mockImplementationOnce(async () => {
+      order.push('objects')
+    })
+    vi.mocked(deleteArchivDocumentRow).mockImplementationOnce(async () => {
+      order.push('row')
+    })
+
+    await deleteArchivDocument(session, 'd1', request)
+
+    expect(order).toEqual(['purge', 'objects', 'row', 'purge'])
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'archiv.document.deleted',
+        metadata: expect.objectContaining({ chunksPurged: true }),
+      }),
+    )
+  })
+
+  it('refuses a held document with a 409 before erasing anything', async () => {
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+    vi.mocked(findArchivDocument).mockResolvedValue(
+      makeDocument({
+        id: 'd1',
+        scope: 'archiv',
+        projectId: null,
+        collectionName: 'archiv_org-1',
+        storageKey: 'org/org-1/archiv/doc/d1/plan.pdf',
+      }),
+    )
+    vi.mocked(isCoveredByActiveHold).mockResolvedValueOnce(true)
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true })
+    vi.stubGlobal('fetch', fetchSpy)
+    vi.mocked(s3Client.send).mockClear()
+
+    const error = await deleteArchivDocument(session, 'd1', request).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect((error as ConflictError).details).toEqual({ reason: 'legal_hold', entityType: 'document' })
+    expect(isCoveredByActiveHold).toHaveBeenCalledWith('org-1', 'document', 'd1')
+    // Nothing went: no chunk purge, no object delete, no row, no audit.
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(s3Client.send).not.toHaveBeenCalled()
+    expect(eraseDocumentObjectsOrKeepRow).not.toHaveBeenCalled()
+    expect(deleteArchivDocumentRow).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'archiv.document.deleted' }),
+    )
+  })
+
+  it('erases every stored object through the shared cleanup, and keeps the row when it fails', async () => {
+    const doc = makeDocument({
+      id: 'd1',
+      scope: 'archiv',
+      projectId: null,
+      collectionName: 'archiv_org-1',
+      storageKey: 'org/org-1/archiv/doc/d1/plan.pdf',
+    })
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+    vi.mocked(findArchivDocument).mockResolvedValue(doc)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }))
+    vi.mocked(eraseDocumentObjectsOrKeepRow).mockRejectedValueOnce(new UpstreamError('nope'))
+
+    await expect(deleteArchivDocument(session, 'd1', request)).rejects.toBeInstanceOf(UpstreamError)
+
+    // The `_img/` rasters used to be left behind here and every failure
+    // swallowed; now the shared erasure runs, and a failure keeps the row.
+    expect(eraseDocumentObjectsOrKeepRow).toHaveBeenCalledWith(doc, 'org-1')
+    expect(deleteArchivDocumentRow).not.toHaveBeenCalled()
+  })
+
   it('purges no chunks for a machine-authored row, and still deletes it', async () => {
     // An Archiv row cannot be machine-authored today: `fileGeneratedDocument`
     // sets no scope, so the column defaults to `project`. That is a coincidence
@@ -375,5 +520,67 @@ describe('deleteArchivDocument', () => {
     expect(result.documentId).toBe('archiv-doc-1')
     expect(admitOrDiscard).not.toHaveBeenCalled()
     expect(admitReplacementOrDiscard).toHaveBeenCalled()
+  })
+
+  it('files a re-upload whose document was just deleted as a first upload', async () => {
+    vi.mocked(findLiveDocumentByFilename)
+      .mockResolvedValueOnce({
+        id: 'archiv-deleted',
+        storageKey: 'org/org-1/archiv/doc/archiv-deleted/norm.pdf',
+        storageBucket: 'test-bucket',
+        fileSize: 500,
+        contentHash: null,
+        folderId: null,
+        status: 'ready',
+      })
+      .mockResolvedValueOnce(null)
+    vi.mocked(admitReplacementOrDiscard).mockRejectedValueOnce(
+      new ReplacedDocumentGoneError('archiv-deleted'),
+    )
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+
+    const result = await uploadArchivDocument(session, makeFile('norm.pdf'), request)
+
+    const inserted = vi.mocked(admitOrDiscard).mock.calls.at(-1)
+    expect(inserted?.[2]).toMatchObject({ scope: 'archiv', filename: 'norm.pdf' })
+    expect(result.documentId).not.toBe('archiv-deleted')
+    expect(result.documentId).toBe(inserted?.[2].id)
+  })
+
+  it('answers 409 and dispatches nothing when the document is deleted before its version is recorded', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValueOnce(null)
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+
+    await expect(uploadArchivDocument(session, makeFile('norm.pdf'), request)).rejects.toMatchObject({
+      status: 409,
+      details: { reason: 'deleted_during_upload' },
+    })
+    expect(dispatchDocument).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('makes the loser of two concurrent first uploads a new version of the winner', async () => {
+    // Both probes missed; the live-name index refused the loser's insert (and
+    // `admitOrDiscard` took its object back). The retry finds the winner.
+    const winner = {
+      id: 'archiv-winner',
+      storageKey: 'org/org-1/archiv/doc/archiv-winner/norm.pdf',
+      storageBucket: 'test-bucket',
+      fileSize: 500,
+      contentHash: null,
+      folderId: null,
+      status: 'uploaded',
+    }
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(null).mockResolvedValueOnce(winner)
+    vi.mocked(admitOrDiscard).mockRejectedValueOnce(new LiveFilenameTakenError('norm.pdf'))
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+
+    const result = await uploadArchivDocument(session, makeFile('norm.pdf'), request)
+
+    expect(result.documentId).toBe('archiv-winner')
+    const replaced = vi.mocked(admitReplacementOrDiscard).mock.calls.at(-1)
+    expect(replaced?.[3]).toBe('archiv-winner')
+    // Its own write key under the winner's id — never the winner's own object.
+    expect(replaced?.[1]).toMatch(/\/doc\/archiv-winner\/v\d+\/[0-9a-f]{12}\/norm\.pdf$/)
   })
 })

@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PAGE_SHEET_OVERLAY_CLASS, PAGE_SHEET_PANEL_CLASS } from '@/components/ui/page-sheet'
 

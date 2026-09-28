@@ -80,6 +80,18 @@ export const resolveDocClass = (value: string | null | undefined): DocClass =>
   asDocClass(value) ?? DEFAULT_DOC_CLASS
 
 /**
+ * The decided Dokumentart worth offering: a known class that differs from the
+ * one the document has. Undefined when there is nothing to offer.
+ */
+export const suggestedDocClass = (file: {
+  docClass: string | null
+  docClassSuggestion: string | null
+}): DocClass | undefined => {
+  const suggestion = asDocClass(file.docClassSuggestion)
+  return suggestion && suggestion !== resolveDocClass(file.docClass) ? suggestion : undefined
+}
+
+/**
  * The `--source-*` tint family for a doc_class. All base classes resolve to the
  * `law` (Baurecht) family so they read as authoritative building law, matching
  * the citation chips.

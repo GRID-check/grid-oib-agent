@@ -1,7 +1,10 @@
 ---
-import SectionTag from '../atoms/SectionTag.astro'
-import { getReleases, releaseTitle, sectionTitle } from '../../lib/changelog'
+import ChangelogRelease from '../molecules/ChangelogRelease.astro'
+import { getReleases, olderByMonth, OPEN_RELEASES, releaseAnchor, type ChangelogRelease as Release } from '../../lib/changelog'
+import { releaseStamp } from '../../lib/release-stamp'
 import { ui, type Locale } from '../../i18n/ui'
+import PageHead from '../molecules/PageHead.astro'
+import { PLATES } from '../craft/plates'
 
 interface Props {
   locale: Locale
@@ -9,68 +12,136 @@ interface Props {
 const { locale } = Astro.props
 const t = ui[locale].changelog
 const releases = getReleases()
+const open = releases.slice(0, OPEN_RELEASES)
+const months = olderByMonth(locale)
+// The construction log: every release's stamp in publishing order, oldest on
+// the left, so the house visibly goes up across the weeks. Each links to its
+// release below.
+const isoWeek = (iso: string) => {
+  const d = new Date(`${iso}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7))
+  const year = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+  return Math.ceil(((d.getTime() - year.getTime()) / 86400000 + 1) / 7)
+}
+const shortLabel = (r: Release) =>
+  r.kind === 'version' && r.version ? r.version : r.date ? t.weekShort.replace('{n}', String(isoWeek(r.date))) : t.unreleased
+const log = releases
+  .slice()
+  .reverse()
+  .map((r) => ({ r, stamp: releaseStamp(r.id) }))
+  .filter((x) => x.stamp)
+const count = (n: number) => (n === 1 ? t.monthCountOne : t.monthCount.replace('{count}', String(n)))
 ---
 
-<section class="px-6 pb-28 pt-36 md:px-10">
-  <div class="mx-auto max-w-4xl">
-    <SectionTag>{t.tag}</SectionTag>
-    <h1 class="mt-6 max-w-2xl font-voice text-v3 text-ink">{t.heading}</h1>
-    <p class="mt-5 max-w-xl text-base leading-relaxed text-ink-soft">{t.intro}</p>
+<section class="frame pb-28 pt-28 md:pt-36">
+  <!-- Tafeln IV, the building plot: the site the log below builds on. -->
+  <PageHead title={t.heading} plate={PLATES.IV} locale={locale} />
+  <div class="max-w-4xl">
+
+    {
+      log.length > 1 && (
+        <figure aria-label={t.buildHeading} class="build-log mt-8">
+          <ol class="build-log__track m-0 flex list-none gap-2 overflow-x-auto p-0 pb-2" data-build-log>
+            {log.map(({ r, stamp }, i) => (
+              <li class="shrink-0">
+                <a
+                  href={`#${releaseAnchor(r)}`}
+                  class="group flex flex-col items-center gap-1.5 rounded-md px-1 py-1 no-underline"
+                  aria-current={i === log.length - 1 ? 'step' : undefined}
+                >
+                  <img
+                    src={stamp!.src}
+                    srcset={stamp!.srcset}
+                    width={stamp!.width}
+                    height={stamp!.height}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    class="mix-blend-multiply transition-transform duration-200 group-hover:-translate-y-0.5"
+                  />
+                  <span class="font-mono text-2xs text-ink-faint group-hover:text-ink group-aria-[current=step]:text-ink">
+                    {shortLabel(r)}
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ol>
+        </figure>
+      )
+    }
 
     {
       releases.length === 0 ? (
-        <p class="mt-16 rounded-card bg-white p-10 text-center text-base text-ink-soft">
-          {t.empty}
-        </p>
+        <p class="mt-16 rounded-card bg-white p-10 text-center text-base text-ink-soft">{t.empty}</p>
       ) : (
-        <div data-reveal class="mt-14 space-y-12">
-          {releases.map((release) => (
-            <article class="grid gap-6 border-t border-ink/15 pt-8 md:grid-cols-[11rem_1fr]">
-              <header>
-                <h2 class="font-mono text-2xs uppercase tracking-widest text-accent-600">
-                  {release.date ? (
-                    <time datetime={release.date}>
-                      {releaseTitle(release, locale, t.unreleased)}
-                    </time>
-                  ) : (
-                    releaseTitle(release, locale, t.unreleased)
-                  )}
-                </h2>
-                {release.kind === 'version' && (
-                  <p class="mt-1 text-2xs uppercase tracking-widest text-ink-faint">
-                    {t.versionLabel}
-                  </p>
-                )}
-              </header>
+        <>
+          <div data-reveal class="mt-14 space-y-12">
+            {open.map((release) => (
+              <ChangelogRelease release={release} locale={locale} />
+            ))}
+          </div>
 
-              <div>
-                {release.summary && (
-                  <p class="mb-7 text-base leading-relaxed text-ink">
-                    {release.summary[locale]}
-                  </p>
-                )}
-                <div class="space-y-7">
-                  {release.sections.map((section) => (
-                    <div>
-                      <h3 class="font-display text-lg font-semibold text-ink">
-                        {sectionTitle(section.key, locale)}
-                      </h3>
-                      <ul class="mt-3 space-y-3">
-                        {section.notes.map((note) => (
-                          <li class="flex gap-3 text-sm leading-relaxed text-ink-soft">
-                            <span aria-hidden="true" class="mt-2 h-1 w-1 shrink-0 rounded-full bg-accent-600" />
-                            <span>{note[locale]}</span>
-                          </li>
-                        ))}
-                      </ul>
+          {months.length > 0 && (
+            <div class="mt-20">
+              <h2 class="font-voice text-v4 text-ink">{t.olderHeading}</h2>
+              <div class="mt-6 border-b border-ink/15">
+                {months.map((month) => (
+                  <details id={`m-${month.key}`} class="changelog-month scroll-mt-28 border-t border-ink/15">
+                    <summary class="flex min-h-14 cursor-pointer list-none items-baseline justify-between gap-4 py-4">
+                      <span class="text-lg font-semibold text-ink">{month.label}</span>
+                      <span class="flex items-baseline gap-3 font-mono text-2xs uppercase tracking-widest text-ink-faint">
+                        {count(month.releases.length)}
+                        <span class="changelog-chevron text-ink-soft" aria-hidden="true">+</span>
+                      </span>
+                    </summary>
+                    <div class="space-y-12 pb-12 pt-2">
+                      {month.releases.map((release) => (
+                        <ChangelogRelease release={release} locale={locale} headingAs="h3" />
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </details>
+                ))}
               </div>
-            </article>
-          ))}
-        </div>
+            </div>
+          )}
+        </>
       )
     }
   </div>
 </section>
+
+<style>
+  .changelog-month summary::-webkit-details-marker {
+    display: none;
+  }
+  .changelog-month[open] .changelog-chevron {
+    transform: rotate(45deg);
+  }
+  .changelog-chevron {
+    display: inline-block;
+    transition: transform 0.2s ease;
+  }
+  .changelog-month summary:focus-visible {
+    outline: 2px solid var(--color-accent-500);
+    outline-offset: 2px;
+  }
+</style>
+
+<script>
+  // The newest week is on the right; start the log there when it scrolls.
+  const track = document.querySelector<HTMLElement>('[data-build-log]')
+  if (track) track.scrollLeft = track.scrollWidth
+
+  // A link to a release in a folded month (#r-2026-08-27) opens that month
+  // first, or the browser scrolls to a heading it cannot show.
+  const reveal = () => {
+    const id = decodeURIComponent(window.location.hash.slice(1))
+    const target = id ? document.getElementById(id) : null
+    const month = target?.closest('details')
+    if (!target || !month || month.open) return
+    month.open = true
+    target.scrollIntoView()
+  }
+  reveal()
+  window.addEventListener('hashchange', reveal)
+</script>

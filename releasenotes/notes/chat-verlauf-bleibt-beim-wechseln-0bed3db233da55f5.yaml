@@ -1,0 +1,14 @@
+---
+fixes:
+  - >
+    A conversation from another device is no longer deleted when you open it
+    after a reload and leave before its history has loaded.
+  - >
+    If you write in a conversation before its history has arrived, the earlier
+    messages still appear.
+  - >
+    If you switch to another conversation during an answer and come back, the
+    finished answer appears instead of a half sentence with a blinking cursor.
+  - >
+    A task Piloti starts in a conversation, and a connection message, now appear
+    in that conversation even if you have opened another one in the meantime.

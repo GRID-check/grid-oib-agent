@@ -134,6 +134,25 @@ describe('/api/platform/model-defaults', () => {
     expect(body.workflowDefaults.deep_research).toBe('deepseek/deepseek-v4-flash')
   })
 
+  it('leaves a retired group out of GET, so a save can round-trip what it loaded', async () => {
+    const row = (agentGroup: string) => ({
+      agentGroup,
+      model: 'vendor/capable',
+      note: null,
+      updatedBy: session.userId,
+      updatedByEmail: session.email,
+      updatedAt: new Date('2026-07-29T00:00:00Z'),
+      modelSnapshot: null,
+    })
+    listPlatformModelDefaults.mockResolvedValue([row('deep_research'), row('intent')])
+
+    const body = (await (await get()).json()) as { defaults: Record<string, { model: string }> }
+    expect(Object.keys(body.defaults)).toEqual(['deep_research'])
+
+    const defaults = Object.fromEntries(Object.entries(body.defaults).map(([g, v]) => [g, { model: v.model }]))
+    expect((await put({ defaults })).status).toBe(200)
+  })
+
   it('saves a validated default and audits the fleet-wide change', async () => {
     const response = await put({
       defaults: { deep_research: { model: 'vendor/capable' } },

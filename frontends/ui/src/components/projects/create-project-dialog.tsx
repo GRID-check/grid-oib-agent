@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import { useCallback, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
@@ -22,6 +23,8 @@ interface CreateProjectDialogProps {
   label?: string
   variant?: ButtonProps['variant']
   size?: ButtonProps['size']
+  /** Marks the trigger as a product-tour stop (`data-tour`). */
+  tourAnchor?: string
 }
 
 export function CreateProjectDialog({
@@ -29,6 +32,7 @@ export function CreateProjectDialog({
   label,
   variant = 'default',
   size = 'default',
+  tourAnchor,
 }: CreateProjectDialogProps): JSX.Element {
   const t = useTranslations('projects')
   const router = useRouter()
@@ -50,7 +54,7 @@ export function CreateProjectDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button variant={variant} size={size}>
+        <Button variant={variant} size={size} data-tour={tourAnchor}>
           <Plus className="size-4" />
           {label ?? t('dialog.newProject')}
         </Button>

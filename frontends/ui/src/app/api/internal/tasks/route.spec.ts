@@ -314,8 +314,23 @@ describe('the research op — an escalated question becomes a run', () => {
       question: RESEARCH.question,
       // Absent here: this turn settled nothing with the person first.
       context: null,
+      // And named nothing: no Rahmen, no Unterlagen.
+      dataSources: null,
+      documents: null,
     })
     expect(delegateTask).not.toHaveBeenCalled()
+  })
+
+  it('hands the Rahmen and the Unterlagen on to the commission', async () => {
+    await call({
+      ...RESEARCH,
+      dataSources: ['knowledge_base'],
+      documents: { grundlage: [{ name: 'Einreichplan.pdf', shelf: 'project' }], ausgeschlossen: [] },
+    })
+    expect(vi.mocked(commissionResearchRun).mock.calls[0][1]).toMatchObject({
+      dataSources: ['knowledge_base'],
+      documents: { grundlage: [{ name: 'Einreichplan.pdf', shelf: 'project' }], ausgeschlossen: [] },
+    })
   })
 
   it('refuses a body that names its own thread or a second project', async () => {

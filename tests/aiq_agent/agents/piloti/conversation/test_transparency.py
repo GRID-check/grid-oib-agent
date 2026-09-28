@@ -2,7 +2,7 @@
 
 Covers the pure derivation helpers (observed routing, capped-confidence
 reason, citations-removed normalization, escalation reason) and their
-end-to-end propagation through ``ConversationGraph.run()`` — including the
+end-to-end propagation through ``ConversationGraph.stream()`` — including the
 ``JobAdmissionError`` queue-rejection path that carries both
 ``job_admission_rejected`` and ``retry_after_seconds``.
 
@@ -31,10 +31,12 @@ from aiq_agent.agents.piloti.markers import surface_answer_confidence
 from aiq_agent.agents.piloti.models import ClarifyResult
 from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.agents.piloti.models import ResearchAgentState
+from aiq_agent.common.canned_replies import GENERIC_ERROR_MESSAGE
 from aiq_agent.common.job_admission import JobAdmissionError
+from aiq_agent.common.wire_v2 import TurnResult
 from aiq_agent.turn.commission import CommissionedRun
 from aiq_agent.turn.commission import CommissionRefused
-from aiq_agent.turn.response import RESPONSE_LIFTS
+from tests.aiq_agent.agents.piloti.conversation import turn
 
 
 def _signals(**fields) -> ResearchAgentState:
@@ -174,7 +176,7 @@ class TestAnswerLifts:
             assert field in ConversationState.model_fields, f"{field} is not on ConversationState"
 
     def test_the_transparency_extras_the_wire_carries_are_all_lifted(self):
-        """A field the response lifts but the node never writes reaches nobody."""
+        """A field the result carries but the node never writes reaches nobody."""
         written = {field for _, field in ANSWER_LIFTS} | {
             "research_truncated",
             "escalation_reason",
@@ -183,7 +185,9 @@ class TestAnswerLifts:
             "job_admission_rejected",
             "retry_after_seconds",
         }
-        assert {field for field, _, _ in RESPONSE_LIFTS} <= written
+        # The result's own names, spelled as the state spells them.
+        carried = set(TurnResult.model_fields) - {"message_id", "text", "cards", "sources", "run"}
+        assert carried | {"verified_sources", "run_id", "run_message_id"} <= written
 
 
 class TestCitationsRemovedIsProducedInWireShape:
@@ -270,25 +274,25 @@ class TestRoutingDecisionOnTheWire:
     @pytest.mark.asyncio
     async def test_a_direct_reply_is_meta(self):
         agent = _agent(_research_fn("Hallo!", source_lookup_attempted=False))
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="hallo")]), thread_id="t")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="hallo")]), thread_id="t")
         assert result.routing_decision == "meta"
 
     @pytest.mark.asyncio
     async def test_a_researched_answer_is_shallow(self):
         agent = _agent(_research_fn("Antwort [1].", source_lookup_attempted=True))
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
         assert result.routing_decision == "shallow"
 
     @pytest.mark.asyncio
     async def test_a_graded_answer_without_a_lookup_is_still_shallow(self):
         agent = _agent(_research_fn("Antwort.", source_lookup_attempted=False, confidence_marker="low"))
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
         assert result.routing_decision == "shallow"
 
     @pytest.mark.asyncio
     async def test_an_escalated_turn_is_deep(self):
         agent = _agent(_research_fn("Teilantwort.", escalating=True))
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="Vergleich?")]), thread_id="t")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Vergleich?")]), thread_id="t")
         assert result.routing_decision == "deep"
         assert result.messages[-1].content == "Deep report."
 
@@ -298,7 +302,7 @@ class TestRoutingDecisionOnTheWire:
             raise RuntimeError("boom")
 
         agent = _agent(research_raises)
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
         assert result.routing_decision == "error"
 
     @pytest.mark.asyncio
@@ -315,11 +319,11 @@ class TestRoutingDecisionOnTheWire:
             clarifier_fn=None,
             checkpointer=MemorySaver(),
         )
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="c")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="c")
         assert result.routing_decision == "shallow"
 
         agent.research_fn = second
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="danke")]), thread_id="c")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="danke")]), thread_id="c")
         assert result.routing_decision == "meta"
 
 
@@ -361,7 +365,7 @@ class TestJobAdmissionRejectedPropagation:
         agent = _agent(_research_fn("Teilantwort.", escalating=True), commissioner=rejecting_commissioner)
 
         state = ConversationState(messages=[HumanMessage(content="Deep question")])
-        result = await agent.run(state, thread_id="t")
+        result = await turn(agent, state, thread_id="t")
 
         assert result.job_admission_rejected is True
         assert result.retry_after_seconds == 42
@@ -377,7 +381,7 @@ class TestJobAdmissionRejectedPropagation:
         agent = _agent(_research_fn("Teilantwort.", escalating=True), commissioner=ok_commissioner)
 
         state = ConversationState(messages=[HumanMessage(content="Deep question")])
-        result = await agent.run(state, thread_id="t")
+        result = await turn(agent, state, thread_id="t")
 
         # Absent-when-not-applicable: reset at the turn boundary, never set here.
         assert result.job_admission_rejected is None
@@ -411,7 +415,7 @@ class TestARefusedCommissionStillAnswers:
 
         agent = _agent(_research_fn("Teilantwort.", escalating=True), commissioner=refusing)
 
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="Deep question")]), thread_id="t")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Deep question")]), thread_id="t")
 
         assert result.messages[-1].content == "Deep report."
         assert result.run_id is None
@@ -435,7 +439,7 @@ class TestARefusedCommissionStillAnswers:
 
         agent = _agent(_research_fn("Teilantwort.", escalating=True), commissioner=forbidden)
 
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="Deep question")]), thread_id="t")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Deep question")]), thread_id="t")
 
         assert result.messages[-1].content != "Deep report.", "a forbidden commission ran deep research anyway"
         assert DEEP_RESEARCH_UNAVAILABLE_NOTE in result.messages[-1].content
@@ -451,7 +455,7 @@ class TestARefusedCommissionStillAnswers:
 
         agent = _agent(_research_fn("Teilantwort.", escalating=True), commissioner=busy)
 
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="Deep question")]), thread_id="t")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Deep question")]), thread_id="t")
 
         # Not researched in process: the queue being full is exactly the state
         # in which starting minutes of work in the request would be the wrong
@@ -472,7 +476,7 @@ class TestEscalationReasonEndToEnd:
         agent = _agent(insufficient_research)
 
         state = ConversationState(messages=[HumanMessage(content="Obscure question")])
-        result = await agent.run(state, thread_id="t")
+        result = await turn(agent, state, thread_id="t")
 
         assert result.escalation_reason == "Shallow agent emitted insufficiency marker"
 
@@ -487,7 +491,7 @@ class TestEscalationReasonEndToEnd:
             return _research_result(state.messages, "Teilantwort.", escalating=True, escalation_reason=reason)
 
         agent = _agent(insufficient_research)
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="Vergleich?")]), thread_id="t")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Vergleich?")]), thread_id="t")
 
         # The carrier the clarifier node reads it from...
         assert result.escalation_ask_reason == reason
@@ -514,7 +518,7 @@ class TestEscalationReasonEndToEnd:
         agent = _agent(hedged_research, deep_fn=deep)
 
         state = ConversationState(messages=[HumanMessage(content="Obscure question")])
-        result = await agent.run(state, thread_id="t")
+        result = await turn(agent, state, thread_id="t")
 
         assert result.escalation_reason is None
         assert result.routing_decision == "shallow"
@@ -535,11 +539,11 @@ class TestEscalationReasonEndToEnd:
         agent = _agent(empty_research, deep_fn=deep)
 
         state = ConversationState(messages=[HumanMessage(content="Any question")])
-        result = await agent.run(state, thread_id="t")
+        result = await turn(agent, state, thread_id="t")
 
         assert result.escalation_reason is None
         contents = [m.content for m in result.messages if isinstance(m, AIMessage)]
-        assert any("An error occurred" in c for c in contents)
+        assert GENERIC_ERROR_MESSAGE in contents
 
 
 class TestCitationsRemovedEndToEnd:
@@ -559,7 +563,7 @@ class TestCitationsRemovedEndToEnd:
         agent = _agent(research_with_removed)
 
         state = ConversationState(messages=[HumanMessage(content="Was gilt?")])
-        result = await agent.run(state, thread_id="t")
+        result = await turn(agent, state, thread_id="t")
 
         assert result.citations_removed == {"count": 2, "reasons": ["url_not_in_registry", "unverifiable"]}
 
@@ -568,7 +572,7 @@ class TestCitationsRemovedEndToEnd:
         agent = _agent(_research_fn("Antwort [1]."))
 
         state = ConversationState(messages=[HumanMessage(content="Was gilt?")])
-        result = await agent.run(state, thread_id="t")
+        result = await turn(agent, state, thread_id="t")
 
         # Reset at the turn boundary, never set → absent (None).
         assert result.citations_removed is None
@@ -588,14 +592,14 @@ class TestResearchTruncatedEndToEnd:
             return _research_result(state.messages, "Antwort [1].", research_truncated=True)
 
         state = ConversationState(messages=[HumanMessage(content="Wie tief ist der Lichteinfall?")])
-        result = await _agent(research_truncated_answer).run(state, thread_id="t")
+        result = await turn(_agent(research_truncated_answer), state, thread_id="t")
 
         assert result.research_truncated is True
 
     @pytest.mark.asyncio
     async def test_a_complete_turn_carries_no_flag_at_all(self):
         state = ConversationState(messages=[HumanMessage(content="Was gilt?")])
-        result = await _agent(_research_fn("Antwort [1].")).run(state, thread_id="t")
+        result = await turn(_agent(_research_fn("Antwort [1].")), state, thread_id="t")
 
         # Absent, never False: the note renders on presence, so a False here
         # would be one more default for a reader to interpret.
@@ -611,6 +615,6 @@ class TestResearchTruncatedEndToEnd:
             )
 
         state = ConversationState(messages=[HumanMessage(content="Was gilt?")])
-        result = await _agent(research_escalating).run(state, thread_id="t")
+        result = await turn(_agent(research_escalating), state, thread_id="t")
 
         assert result.research_truncated is None

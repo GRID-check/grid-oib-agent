@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    A research run or task that finished during a brief outage now shows its
+    result, instead of staying "running" with an empty message forever.
+    Piloti checks unfinished runs regularly and fills in what was missed.

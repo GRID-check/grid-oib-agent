@@ -28,7 +28,7 @@ from aiq_agent.cards.models import validate_cards
 from aiq_agent.cards.prompt import build_card_generation_prompt
 
 # The `card_llm` model in configs/config_oib_openrouter.yml.
-MODEL_NAME = "openai/gpt-5.6-luna"
+MODEL_NAME = "openai/gpt-6-luna"
 BASE_URL = "https://openrouter.ai/api/v1"
 
 SAMPLE_QUERY = (

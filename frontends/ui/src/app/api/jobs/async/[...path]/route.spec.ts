@@ -729,3 +729,41 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     expect(fileResearchReport).not.toHaveBeenCalled()
   })
 })
+
+describe('/api/jobs/async/[...path] proxy — a cancel the backend refuses because the run ended (#632)', () => {
+  // The Sessions panel's stop goes out as POST /job/{id}/cancel. The first
+  // fix for #632 guarded GET and DELETE only, so this path kept filing an
+  // ERROR per refused cancel. Both terminal statuses the backend names.
+  beforeEach(() => {
+    delete process.env.REQUIRE_AUTH
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    if (originalRequireAuth !== undefined) process.env.REQUIRE_AUTH = originalRequireAuth
+  })
+
+  it.each(['success', 'failure'])('warns, never errors, for a job already at %s', async (terminal) => {
+    const detail = `{"detail":"Job not cancellable: job-1 (status: ${terminal})"}`
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(detail, { status: 400 }))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const res = await POST(postRequest('https://grid.example/api/jobs/async/job/job-1/cancel'), postParams(['job', 'job-1', 'cancel']))
+
+    expect(res.status).toBe(400)
+    expect(error).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('cancel race'), expect.stringContaining(terminal))
+  })
+
+  it('still errors for any other backend refusal', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"detail":"boom"}', { status: 500 }))
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await POST(postRequest('https://grid.example/api/jobs/async/job/job-1/cancel'), postParams(['job', 'job-1', 'cancel']))
+
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('POST backend error'), 500, '{"detail":"boom"}')
+  })
+})

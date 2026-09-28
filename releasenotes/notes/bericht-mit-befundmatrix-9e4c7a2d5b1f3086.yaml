@@ -1,0 +1,14 @@
+---
+features:
+  - >
+    A deep research report now opens with the verdict, summary and key points,
+    followed by a findings matrix: one row per requirement checked, with value,
+    reference and status. The Word export carries the same table.
+  - >
+    While research runs, its block shows what is already evidenced in each
+    round, and Jetzt schreiben ends the research after the current round and
+    writes the report from what is there.
+fixes:
+  - >
+    A German report now ends with Quellen instead of Sources, and the note on a
+    cut-short report follows the report's language.

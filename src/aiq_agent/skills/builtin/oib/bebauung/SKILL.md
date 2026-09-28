@@ -1,7 +1,8 @@
 ---
 name: bebauung
 description: >
-  Bauwich, Widmung und GFZ. Land und Gemeinde, nicht OIB.
+  Was aufs Grundstück darf: Bauklasse und Gebäudehöhe, Bauwich, Widmung, GFZ,
+  Stellplätze. Land und Gemeinde, nicht OIB.
 metadata:
   grid-agents: researcher,deep_researcher
   grid-cards: setback_plan,density_check,building_section,parking_requirement,legal_basis

@@ -148,6 +148,20 @@ describe('remarkCardMarkers', () => {
     const source = 'Absatz eins.\n\n- Punkt\n- Punkt\n'
     expect(text(parse(source, 2))).toBe(text(parse(source, 0)))
   })
+
+  test('while streaming, a marker whose card has not arrived keeps its slot (ADR-0066)', () => {
+    const source = 'Vor.\n\n[[card:2]]\n\nNach.'
+    const pending = unified()
+      .use(remarkParse)
+      .use(remarkGfm)
+      .use(remarkCardMarkers, { count: 0, pending: true })
+      .runSync(unified().use(remarkParse).use(remarkGfm).parse(source))
+    // The place is held, and the marker is never read as text.
+    expect(slots(pending)).toEqual([1])
+    expect(text(pending)).toBe('Vor.Nach.')
+    // Once the answer is final, a marker with no card behind it is nothing.
+    expect(slots(parse(source, 0))).toEqual([])
+  })
 })
 
 describe('placedCardIndices', () => {

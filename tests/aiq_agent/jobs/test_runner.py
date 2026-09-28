@@ -62,6 +62,8 @@ from aiq_api.jobs.callbacks import EventCategory
 from aiq_api.jobs.callbacks import EventData
 from aiq_api.jobs.callbacks import EventState
 from aiq_api.jobs.callbacks import IntermediateStepEvent
+from tests.conftest import NAT_LLM_CONFIG
+from tests.conftest import nat_langchain_client
 
 
 @pytest.fixture(name="event_store_cache_guard", autouse=True)
@@ -1544,9 +1546,9 @@ class TestAsyncJobRunnerAgentFactory:
         }
 
         async def get_llm(llm_ref, wrapper_type):
-            return llms[llm_ref]
+            return nat_langchain_client(llms[llm_ref])
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(side_effect=get_llm)
         fn_config = DeepResearchAgentConfig(
             orchestrator_llm="orchestrator",
@@ -1578,9 +1580,9 @@ class TestAsyncJobRunnerAgentFactory:
 
         async def get_llm(llm_ref, wrapper_type):
             assert llm_ref == "shared"
-            return shared_llm
+            return nat_langchain_client(shared_llm)
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(side_effect=get_llm)
         fn_config = SimpleNamespace(
             source_router_llm="shared",
@@ -1928,7 +1930,7 @@ class TestDeepResearchReflection:
 
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(return_value=MagicMock())
         report = "R" * 80
 
@@ -1970,7 +1972,7 @@ class TestDeepResearchReflection:
         """Feature flag off → no LLM built, no reflection."""
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock()
 
         with patch(
@@ -1998,7 +2000,7 @@ class TestDeepResearchReflection:
         """No reflection LLM configured → no-op."""
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock()
 
         with patch(
@@ -2026,7 +2028,7 @@ class TestDeepResearchReflection:
         """Org-only job (no project) → reflection has nothing it may write."""
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock()
 
         with patch(
@@ -2056,7 +2058,7 @@ class TestDeepResearchReflection:
 
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(return_value=MagicMock())
 
         with (
@@ -2093,7 +2095,7 @@ class TestDeepResearchReflection:
 
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(return_value=MagicMock())
         started = asyncio.Event()
 
@@ -2481,12 +2483,14 @@ class TestVerifiedCitedSourceStream:
         the assertion would hold whether or not the emit site was ever fixed —
         false comfort, in the shape of a passing test.
 
-        So the never-retrieved URL is hung off the line naming the real OIB
-        Richtlinie. Verification reads the URL, finds it unbacked, and drops
-        the whole line, so the verified report no longer claims that document —
-        while the DRAFT still names it and the callback's document matcher
-        would happily accept it, because the run really did retrieve it. That
-        is a stripped citation the old code announced.
+        So line [1] names the real OIB Richtlinie in the shape of an
+        already-read digest line, which cites the conversation's index rather
+        than a passage. Verification drops the whole line, so the verified
+        report no longer claims that document — while the DRAFT still names it
+        and the callback's document matcher would happily accept it, because
+        the run really did retrieve it. That is a stripped citation the old
+        code announced. (An unbacked URL on the line no longer does this: the
+        document's key now carries the line and only the link is dropped.)
         """
         from aiq_agent.common.citation_verification import verify_citations
 
@@ -2494,8 +2498,7 @@ class TestVerifiedCitedSourceStream:
         draft = (
             "Brandabschnitte sind zu begrenzen [1]. Weiters [2].\n\n"
             "## Quellen\n"
-            "- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12: "
-            "https://fabricated.example.org/nie-abgerufen\n"
+            "- [1] oib-rl_2_ausgabe_mai_2023.pdf | oib_knowledge | Seiten 12 | Punkte 3 | Turn 1\n"
             "- [2] [Web] Beispiel: https://example.com/a\n"
         )
         verification = verify_citations(draft, registry)

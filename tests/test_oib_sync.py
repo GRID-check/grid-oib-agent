@@ -229,8 +229,9 @@ def test_ingest_single_success_updates_registry(monkeypatch, tmp_path):
     registry = json.loads(registry_path.read_text(encoding="utf-8"))
     assert str(pdf) in registry
     assert fake_ingestor.uploaded == ["new.pdf"]
-    # Existing chunks for the name are replaced before re-ingest.
-    assert fake_ingestor.deleted == ["new.pdf"]
+    # No delete first: the ingestor replaces the previous version once this one
+    # is indexed, and keeps it (with its metadata row) when it is not.
+    assert fake_ingestor.deleted == []
 
 
 def test_ingest_single_failure_leaves_registry_untouched(monkeypatch, tmp_path):
@@ -399,18 +400,17 @@ class TestChunkFormatVersionGate:
         stored = json.loads(reg_path.read_text())
         assert stored == {oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION}  # hashes dropped -> all files re-ingest
 
-    def test_the_forced_reingest_replaces_the_old_chunks_instead_of_adding_to_them(self, monkeypatch, tmp_path):
-        """The version bump must not turn a re-ingest into a second copy of the corpus.
+    def test_the_forced_reingest_leaves_the_replacement_to_the_ingestor(self, monkeypatch, tmp_path):
+        """The version bump re-uploads every file and deletes none of them first.
 
-        `sync()` triggers the re-ingest by emptying the registry, and the delete step
-        was guarded by `str(pdf) in registry` — false for every file once it is empty.
-        Each PDF's new chunks would have been written alongside its old ones, leaving
-        both formats of the whole corpus in one collection, both retrievable and both
-        rendering as a valid citation, until somebody reset it by hand.
-
-        This drives the real `sync()` rather than replicating its gate, which is how the
-        defect survived: the tests above simulate the registry reset and never reach the
-        delete.
+        `sync()` triggers the re-ingest by emptying the registry. It once had to force
+        a pre-ingest `delete_file` for every file, because the delete was guarded by
+        `str(pdf) in registry` and the new chunks would otherwise have joined the old
+        ones. That delete ran before the new file was read, so a PDF that then failed
+        to ingest lost its old version too, and the metadata row went with it. The
+        ingestor now replaces by name after the new version is indexed
+        (`tests/knowledge_layer_tests/test_reingest_replaces_versions.py`), so the
+        sync must not delete: a delete here would bring the data loss back.
         """
         fake_ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS, "b.pdf": FileStatus.SUCCESS})
         registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor)
@@ -431,9 +431,7 @@ class TestChunkFormatVersionGate:
         oib_sync.sync()
 
         assert sorted(fake_ingestor.uploaded) == ["a.pdf", "b.pdf"]
-        assert sorted(fake_ingestor.deleted) == ["a.pdf", "b.pdf"], (
-            "every re-ingested file must have its old-format chunks deleted first"
-        )
+        assert fake_ingestor.deleted == [], "the ingestor retires the old version once the new one is indexed"
 
     def test_a_first_ever_sync_still_deletes_nothing(self, monkeypatch, tmp_path):
         """No stored format means no stored chunks; the delete has nothing to undo."""
@@ -506,7 +504,7 @@ class TestConcurrentCorpusMutations:
         try:
             assert polled.wait(10)
             # A concurrent removal/sync of the same basename blocks here instead
-            # of interleaving with the delete → upload → poll cycle.
+            # of interleaving with the upload → poll cycle.
             assert oib_sync._file_lock("busy.pdf").acquire(blocking=False) is False
         finally:
             release.set()
@@ -614,8 +612,8 @@ class TestMarkForReingest:
     def test_it_forgets_only_the_named_document(self, monkeypatch, tmp_path):
         """The registry hash is what `oib_status` reads to say INGESTED.
 
-        Dropping it is not what triggers the rebuild — `ingest_single` deletes and
-        re-uploads regardless. It is what makes the rebuild VISIBLE: without it the
+        Dropping it is not what triggers the rebuild — `ingest_single` re-uploads
+        regardless, and the ingestor replaces the old version. It is what makes the rebuild VISIBLE: without it the
         document reads INGESTED for the whole job and the admin UI's progress panel
         shows work that appears to finish before it starts.
         """

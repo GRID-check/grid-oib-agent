@@ -206,8 +206,7 @@ function fontStyleOf(element: SvgElement): FontStyle {
     : italic
       ? 'Helvetica-Oblique'
       : 'Helvetica'
-  const size = Number.parseFloat((attributeOf(element, 'font-size') ?? '').replace(/px$/i, ''))
-  return { fontFamily: family, fontSize: Number.isFinite(size) && size > 0 ? size : undefined }
+  return { fontFamily: family, fontSize: fontSizeOf(element) }
 }
 
 /** The text a `<text>`/`<tspan>` prints, with element children flattened out. */
@@ -306,7 +305,97 @@ function arrowheadFor(element: SvgElement, at: 'start' | 'end', key: number): Re
 
   // The head is the LINE's colour, not its fill: an edge is stroked and
   // unfilled, so reading `fill` here would paint every arrowhead invisible.
-  return <Polygon key={`${key}-${at}`} points={points2} fill={attributeOf(element, 'stroke') ?? '#000'} />
+  return (
+    <Polygon
+      key={`${key}-${at}`}
+      points={points2}
+      fill={attributeOf(element, 'stroke') ?? '#000'}
+    />
+  )
+}
+
+/** SVG's initial `font-size`, the `em` a text without one resolves against. */
+const DEFAULT_FONT_SIZE = 16
+
+function fontSizeOf(element: SvgElement): number | undefined {
+  const size = numeric(element, 'font-size')
+  return size !== undefined && size > 0 ? size : undefined
+}
+
+/**
+ * A text position in user units: a plain number, `px`, or `em` against the
+ * element's own font size. Only the first value of a list is read — mermaid
+ * never writes per-glyph positions.
+ *
+ * `@react-pdf/renderer` reads `x`/`y` as numbers and ignores `dx`/`dy`, while
+ * mermaid places the labels of its newer grammars with exactly those: a gantt
+ * axis tick is `y="3" dy="1em"`, a mindmap node `<tspan y="-0.1em" dy="1.1em">`.
+ * Read raw, the ticks printed on the axis line and every mindmap label rode
+ * up out of its box; measured on the fixtures in `__fixtures__/`.
+ */
+function lengthOf(raw: string | undefined, fontSize: number): number | undefined {
+  const first = raw?.trim().split(/[\s,]+/)[0]
+  if (!first) return undefined
+  const value = Number.parseFloat(first)
+  if (!Number.isFinite(value)) return undefined
+  return /em$/i.test(first) ? value * fontSize : value
+}
+
+/** Where a `<text>` starts: its `x`/`y` (0 when absent, as in SVG) shifted by `dx`/`dy`. */
+export function textOrigin(element: SvgElement, fontSize: number): { x: number; y: number } {
+  const at = (name: string) => lengthOf(attributeOf(element, name), fontSize) ?? 0
+  return { x: at('x') + at('dx'), y: at('y') + at('dy') }
+}
+
+/**
+ * The tspans of one `<text>`, each at the absolute position SVG would give it.
+ *
+ * SVG places a tspan at its own `x`/`y` when it has them and at the end of
+ * the previous run when it does not, then shifts it by `dx`/`dy`. The PDF
+ * renderer knows only absolute positions, so they are computed here: a gantt
+ * section label is `<tspan x="10">` with no `y`, which the renderer put at
+ * y = 0, over the chart's title. The x carried forward is the line start
+ * rather than the end of the previous run, which only a multi-run line with
+ * no `x` of its own would notice — mermaid does not write one.
+ */
+export function tspanPositions(
+  tspans: SvgElement[],
+  start: { x: number; y: number },
+  inheritedSize: number
+): { x: number; y: number }[] {
+  let x = start.x
+  let y = start.y
+  return tspans.map((tspan) => {
+    const size = fontSizeOf(tspan) ?? inheritedSize
+    x =
+      (lengthOf(attributeOf(tspan, 'x'), size) ?? x) +
+      (lengthOf(attributeOf(tspan, 'dx'), size) ?? 0)
+    y =
+      (lengthOf(attributeOf(tspan, 'y'), size) ?? y) +
+      (lengthOf(attributeOf(tspan, 'dy'), size) ?? 0)
+    return { x, y }
+  })
+}
+
+function placedTspans(
+  tspans: SvgElement[],
+  start: { x: number; y: number },
+  inheritedSize: number
+): React.ReactNode[] {
+  const positions = tspanPositions(tspans, start, inheritedSize)
+  // An empty tspan (mermaid emits them as line spacers) draws nothing, and on
+  // React 19 it crashes react-pdf's layout: React creates no text node for '',
+  // so the tspan lays out to no lines and `lines[0].xAdvance` throws. Its
+  // position still counts, which is why the positions are computed first.
+  return tspans.flatMap((tspan, index) => {
+    const text = textOf(tspan)
+    if (text === '') return []
+    return [
+      <Tspan key={index} x={positions[index].x} y={positions[index].y} {...presentationOf(tspan)}>
+        {text}
+      </Tspan>,
+    ]
+  })
 }
 
 /**
@@ -363,7 +452,7 @@ function toPdfNode(node: SvgNode, key: number): React.ReactNode {
           gradientTransform={attributeOf(element, 'gradientTransform')}
           gradientUnits={oneOf(
             ['userSpaceOnUse', 'objectBoundingBox'] as const,
-            attributeOf(element, 'gradientUnits'),
+            attributeOf(element, 'gradientUnits')
           )}
         >
           {children}
@@ -385,7 +474,7 @@ function toPdfNode(node: SvgNode, key: number): React.ReactNode {
           gradientTransform={attributeOf(element, 'gradientTransform')}
           gradientUnits={oneOf(
             ['userSpaceOnUse', 'objectBoundingBox'] as const,
-            attributeOf(element, 'gradientUnits'),
+            attributeOf(element, 'gradientUnits')
           )}
         >
           {children}
@@ -397,7 +486,12 @@ function toPdfNode(node: SvgNode, key: number): React.ReactNode {
       const stopColor = attributeOf(element, 'stop-color')
       if (offset === undefined || stopColor === undefined) return null
       return (
-        <Stop key={key} offset={offset} stopColor={stopColor} stopOpacity={attributeOf(element, 'stop-opacity')} />
+        <Stop
+          key={key}
+          offset={offset}
+          stopColor={stopColor}
+          stopOpacity={attributeOf(element, 'stop-opacity')}
+        />
       )
     }
     case 'path': {
@@ -424,14 +518,29 @@ function toPdfNode(node: SvgNode, key: number): React.ReactNode {
     case 'circle': {
       const r = attributeOf(element, 'r')
       if (r === undefined) return null
-      return <Circle key={key} {...style} cx={attributeOf(element, 'cx')} cy={attributeOf(element, 'cy')} r={r} />
+      return (
+        <Circle
+          key={key}
+          {...style}
+          cx={attributeOf(element, 'cx')}
+          cy={attributeOf(element, 'cy')}
+          r={r}
+        />
+      )
     }
     case 'ellipse': {
       const rx = attributeOf(element, 'rx')
       const ry = attributeOf(element, 'ry')
       if (rx === undefined || ry === undefined) return null
       return (
-        <Ellipse key={key} {...style} cx={attributeOf(element, 'cx')} cy={attributeOf(element, 'cy')} rx={rx} ry={ry} />
+        <Ellipse
+          key={key}
+          {...style}
+          cx={attributeOf(element, 'cx')}
+          cy={attributeOf(element, 'cy')}
+          rx={rx}
+          ry={ry}
+        />
       )
     }
     case 'line': {
@@ -440,11 +549,17 @@ function toPdfNode(node: SvgNode, key: number): React.ReactNode {
       const x2 = attributeOf(element, 'x2')
       const y2 = attributeOf(element, 'y2')
       if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined) return null
-      return withArrowheads(element, key, <Line key={key} {...style} x1={x1} y1={y1} x2={x2} y2={y2} />)
+      return withArrowheads(
+        element,
+        key,
+        <Line key={key} {...style} x1={x1} y1={y1} x2={x2} y2={y2} />
+      )
     }
     case 'polyline': {
       const points = attributeOf(element, 'points')
-      return points ? withArrowheads(element, key, <Polyline key={key} {...style} points={points} />) : null
+      return points
+        ? withArrowheads(element, key, <Polyline key={key} {...style} points={points} />)
+        : null
     }
     case 'polygon': {
       const points = attributeOf(element, 'points')
@@ -455,25 +570,23 @@ function toPdfNode(node: SvgNode, key: number): React.ReactNode {
       // is a `<text>` with NO x or y inside a `<g transform="translate(...)">`.
       // Requiring them dropped every label in a flowchart and left the boxes
       // empty — a PDF that looks like a diagram and says nothing.
-      const x = attributeOf(element, 'x') ?? 0
-      const y = attributeOf(element, 'y') ?? 0
+      const fontSize = fontSizeOf(element) ?? DEFAULT_FONT_SIZE
+      const { x, y } = textOrigin(element, fontSize)
       const nested = element.children.filter(
-        (child): child is SvgElement => child.kind === 'element' && child.name === 'tspan',
+        (child): child is SvgElement => child.kind === 'element' && child.name === 'tspan'
       )
       return (
         <G key={key} style={fontStyleOf(element)}>
           <Text {...style} x={x} y={y}>
-            {nested.length > 0 ? nested.map((child, index) => toPdfNode(child, index)) : textOf(element)}
+            {nested.length > 0 ? placedTspans(nested, { x, y }, fontSize) : textOf(element)}
           </Text>
         </G>
       )
     }
     case 'tspan':
-      return (
-        <Tspan key={key} x={attributeOf(element, 'x')} y={attributeOf(element, 'y')} {...style}>
-          {textOf(element)}
-        </Tspan>
-      )
+      // Reached only for a tspan outside a <text>, which SVG does not draw
+      // either; a tspan inside one is placed by `placedTspans`.
+      return null
     default:
       // `svg` (handled by the caller), `title`, `desc`, `metadata` — and any
       // element `svg.ts` starts admitting without a branch here, which is the
@@ -571,7 +684,10 @@ export async function renderDiagramPdf(input: DiagramPdfInput): Promise<Uint8Arr
       creator={AI_GENERATOR_NAME}
       producer="Grid"
     >
-      <Page size={landscape ? { width: pageWidth, height: pageHeight } : 'A4'} style={{ padding: MARGIN }}>
+      <Page
+        size={landscape ? { width: pageWidth, height: pageHeight } : 'A4'}
+        style={{ padding: MARGIN }}
+      >
         <View style={{ height: HEADER_HEIGHT }}>
           <Text style={{ fontFamily: 'Helvetica-Bold', fontSize: 14 }}>{input.title}</Text>
           <Text style={{ fontFamily: 'Helvetica', fontSize: 9, color: '#4b5563', marginTop: 4 }}>
@@ -590,7 +706,9 @@ export async function renderDiagramPdf(input: DiagramPdfInput): Promise<Uint8Arr
           export makes for its first-page block.
         */}
         <View style={{ height: FOOTER_HEIGHT, justifyContent: 'flex-end' }}>
-          <Text style={{ fontFamily: 'Helvetica', fontSize: 8, color: '#6b7280' }}>{input.marking}</Text>
+          <Text style={{ fontFamily: 'Helvetica', fontSize: 8, color: '#6b7280' }}>
+            {input.marking}
+          </Text>
         </View>
       </Page>
     </Document>

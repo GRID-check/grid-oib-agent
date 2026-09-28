@@ -16,6 +16,7 @@
  * and occasionally alarming.
  */
 
+import type { JSX } from 'react'
 import { ArrowRight, GitCompare, TrendingDown, TrendingUp, HelpCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

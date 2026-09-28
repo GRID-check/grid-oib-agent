@@ -42,6 +42,28 @@ describe('FeedbackDigest', () => {
     expect(within(concerns).getByText('Escape-route answers are cited wrongly.')).toBeInTheDocument()
   })
 
+  it('lists the sampled unhelpful votes by cause when they were labelled', async () => {
+    stubFetch(
+      digest({
+        causes: [
+          { cause: 'wrong_rule', count: 3 },
+          { cause: 'form', count: 1 },
+        ],
+      }),
+    )
+    render(<FeedbackDigest search="days=30" />)
+
+    const causes = await screen.findByTestId('feedback-digest-causes')
+    expect(causes).toHaveTextContent('wrong regulation 3 · form 1')
+  })
+
+  it('shows no cause line for a digest without causes', async () => {
+    stubFetch(digest())
+    render(<FeedbackDigest search="days=30" />)
+    await screen.findByTestId('feedback-digest-strengths')
+    expect(screen.queryByTestId('feedback-digest-causes')).not.toBeInTheDocument()
+  })
+
   /**
    * The good column is never dropped when it is empty. A layout that collapses to
    * one column the moment there is nothing positive to say quietly re-privileges

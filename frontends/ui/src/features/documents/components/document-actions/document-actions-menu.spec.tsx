@@ -121,6 +121,29 @@ describe('DocumentActionsMenu — deleting', () => {
     await waitFor(() => expect(screen.getByTestId('document-delete-confirm')).toBeInTheDocument())
     expect(onDeleted).not.toHaveBeenCalled()
   })
+
+  it('says a legal hold keeps the document, instead of a generic failure', async () => {
+    const toastError = vi.spyOn((await import('sonner')).toast, 'error')
+    server.use(
+      http.delete('/api/documents/:id', () =>
+        HttpResponse.json(
+          { error: 'held', code: 'CONFLICT', details: { reason: 'legal_hold', entityType: 'document' } },
+          { status: 409 }
+        )
+      )
+    )
+    const onDeleted = vi.fn()
+    const user = userEvent.setup()
+    render(<DocumentActionsMenu document={DOCUMENT} scope="files" onDeleted={onDeleted} />)
+
+    await openMenu(user)
+    await user.click(await screen.findByRole('menuitem', { name: /delete/i }))
+    await user.click(await screen.findByTestId('document-delete-confirm'))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/legal hold|rechtlichen Sperre/i)))
+    expect(onDeleted).not.toHaveBeenCalled()
+    toastError.mockRestore()
+  })
 })
 
 describe('DocumentActionsMenu — renaming', () => {

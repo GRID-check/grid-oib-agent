@@ -1,16 +1,23 @@
 /**
  * `GET /api/conversations/:id/live` — watch a turn as it happens.
  *
- * Server-Sent Events carrying the agent's outbound frames for ONE conversation,
+ * Server-Sent Events carrying the agent's outbound events for ONE conversation,
  * so a colleague sees the answer being written and the reasoning being done
  * rather than a spinner followed by a finished block of text. The asker gets the
- * same frames over their own agent WebSocket; this is the read-only version for
+ * same events over their own agent WebSocket; this is the read-only version for
  * everyone else in the thread.
+ *
+ * **The stream.** `data: {"kind":"frame","payload":<v2 event>}` per event,
+ * relayed verbatim from the bus (`docs/api/websocket-protocol.md`), and once
+ * each `{"kind":"unsupported"}` (no shared cache tier) or `{"kind":"revoked"}`
+ * (access withdrawn), after which the stream ends. The observer parses and
+ * folds each payload exactly as the asker does (`foldTurnEvent`), keyed by the
+ * event's own `(turn_id, seq)`.
  *
  * **Why a second stream rather than `/api/stream`.** That one is per user and
  * carries change hints for the whole session — inbox badges, sharing changes,
  * thread activity — at a rate of a handful of events per minute. This is per
- * conversation, carries hundreds of frames per turn, exists only while a turn is
+ * conversation, carries a few dozen events per turn, exists only while a turn is
  * running, and is subscribed to only by people looking at that thread. Folding
  * token deltas into the session channel would push them at every open tab.
  *
@@ -20,13 +27,13 @@
  * or not any of this was delivered. That is what lets the whole route degrade to
  * a single `unsupported` event when there is no shared cache tier to read from.
  *
- * **No replay, deliberately.** A subscriber sees frames from the moment it
- * attaches. Buffering the turn so far would mean deciding which of the buffered
- * frames belong to the turn that is running *now* — the bus's replay stream is
- * per conversation, not per turn — and getting that wrong shows a colleague a
- * stale answer under a live banner. Opening the thread mid-turn is the only case
- * that loses anything, and it loses only the tokens already spoken: the banner is
- * still there, and the finished answer still lands.
+ * **No replay, in this cut.** A subscriber sees events from the moment it
+ * attaches, and the fold accepts a first event with `seq > 1` without asking
+ * to fill the gap. Opening the thread mid-turn loses only the tokens already
+ * spoken: the banner is still there, and the finished answer still lands.
+ * ADR-0039 §4 refused replay because the stream could not tell turns apart;
+ * every v2 event names its turn now, so a spectator replay is possible and is
+ * follow-up F4 of the wire v2 design, not built here.
  */
 
 import { apiRoute } from '@/lib/api/handler'
@@ -130,7 +137,7 @@ export const GET = apiRoute<Params>(
         heartbeat = setInterval(() => write(': ping\n\n'), HEARTBEAT_MS)
 
         const release = await subscribeConversationFrames(conversationId, (frame) => {
-          write(`data: ${JSON.stringify({ kind: 'frame', ...frame })}\n\n`)
+          write(`data: ${JSON.stringify({ kind: 'frame', payload: frame.payload })}\n\n`)
         })
         if (!release) {
           // Configured but unreachable. Same answer as "not configured": the

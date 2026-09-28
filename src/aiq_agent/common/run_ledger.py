@@ -71,8 +71,15 @@ MAX_LOCUS_CHARS = 128
 MAX_LOCI_PER_DOC = 20
 MAX_OPEN_POINTS = 20
 MAX_OPEN_POINT_CHARS = 200
+#: What a round established, one claim per line, so a run is readable at
+#: minute three: the researcher's notes state them and the fold copies them.
+MAX_FINDINGS_PER_STEP = 8
+MAX_FINDING_CHARS = 200
 MAX_ERROR_REASON_CHARS = 400
 MAX_REFERENCE_ID_CHARS = 128
+#: The Grundlage the reader named, mirrored from ``plan_documents`` so the
+#: block can print the receipt (read with loci, or unread) beside the steps.
+MAX_GRUNDLAGE_DOCS = 20
 
 
 class _Wire(BaseModel):
@@ -116,6 +123,7 @@ class RunStep(_Wire):
     started_at: str = Field(alias="startedAt")
     docs: list[RunLedgerDoc] = Field(default_factory=list, max_length=MAX_DOCS_PER_STEP)
     open_points: list[str] | None = Field(default=None, alias="openPoints", max_length=MAX_OPEN_POINTS)
+    findings: list[str] | None = Field(default=None, max_length=MAX_FINDINGS_PER_STEP)
 
 
 class RunPhaseEntry(_Wire):
@@ -152,6 +160,9 @@ class RunLedger(_Wire):
     steps: list[RunStep] = Field(default_factory=list, max_length=MAX_STEPS)
     result: RunResult | None = None
     error: RunError | None = None
+    #: The documents the reader named as Grundlage (loci empty: the receipt is
+    #: read off the steps). Absent when none was named.
+    grundlage: list[RunLedgerDoc] | None = Field(default=None, max_length=MAX_GRUNDLAGE_DOCS)
     started_at: str = Field(alias="startedAt")
     updated_at: str = Field(alias="updatedAt")
     finished_at: str | None = Field(default=None, alias="finishedAt")
@@ -186,6 +197,8 @@ class RunLedgerAppendRequest(_Wire):
     steps: list[RunStep] | None = Field(default=None, max_length=MAX_STEPS)
     phases: list[RunPhaseEntry] | None = Field(default=None, max_length=len(RUN_PHASES))
     status: RunStatus | None = None
+    #: The whole Grundlage list as it now stands (a live addition re-sends it).
+    grundlage: list[RunLedgerDoc] | None = Field(default=None, max_length=MAX_GRUNDLAGE_DOCS)
 
 
 class RunLedgerFinishRequest(_Wire):

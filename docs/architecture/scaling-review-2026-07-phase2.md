@@ -106,7 +106,8 @@ the TTL-cleanup lock — is a cliff).
   and not in the infra bootstraps.
 - `ingest_jobs` retention (dead `delete()` wired).
 - Deep-run checkpoint purge on completion (`runner._purge_deep_checkpoint`, now
-  on both the Dask and DB-queue execution paths).
+  on both the Dask and DB-queue execution paths; since 2026-09 skipped by both on
+  a lost claim, so a reclaimed loser no longer deletes the winner's resume point).
 - Chat checkpoint age reaper (`jobs/checkpoint_retention.py`) — leader-locked,
   hourly, drops idle threads past the retention window.
 - db-mode `job_info`/`job_access` expiry (`access.expire_terminal_jobs`) folded

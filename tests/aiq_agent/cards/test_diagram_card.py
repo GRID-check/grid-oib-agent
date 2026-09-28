@@ -77,7 +77,7 @@ class TestTheDeclarationIsHonoured:
         with pytest.raises(ValidationError, match="but `source` declares 'flowchart'"):
             grid_card_adapter.validate_python(_card(diagram_type="sequence"))
 
-    @pytest.mark.parametrize("keyword", ["journey", "gantt", "erDiagram", "mindmap"])
+    @pytest.mark.parametrize("keyword", ["journey", "timeline", "erDiagram", "classDiagram"])
     def test_a_grammar_this_pipeline_cannot_carry_is_refused_by_name(self, keyword):
         """Named, because the fix differs from the fix for a missing header.
 
@@ -89,6 +89,18 @@ class TestTheDeclarationIsHonoured:
         """
         with pytest.raises(ValidationError, match=f"is a '{keyword.lower()}' diagram"):
             grid_card_adapter.validate_python(_card(source=f"{keyword}\n  title Etwas"))
+
+    @pytest.mark.parametrize(
+        ("grammar", "source"),
+        [
+            ("gantt", "gantt\n  dateFormat YYYY-MM-DD\n  Vorprüfung :a1, 2026-10-01, 14d"),
+            ("mindmap", "mindmap\n  root((OIB-RL 2))\n    Garagen"),
+        ],
+    )
+    def test_the_grammars_verified_through_the_pdf_are_accepted(self, grammar, source):
+        # Each has a real browser capture that `svg-to-pdf.spec.tsx` prints.
+        card = grid_card_adapter.validate_python(_card(diagram_type=grammar, source=source))
+        assert card.diagram_type == grammar
 
 
 class TestTheSourceSurvivesTheCardPipeline:
@@ -227,3 +239,18 @@ class TestTheCardAcceptsWhatModelsActuallyWrite:
         cards = registry.snapshot()
         assert len(cards) == 1
         assert cards[0]["type"] == "diagram"
+
+
+def test_the_card_and_the_prompt_ask_for_the_same_number_of_nodes():
+    """A mermaid fence and a diagram card are one drawing; the model is given one node budget."""
+    import re
+    from pathlib import Path
+
+    prompt = (Path(__file__).resolve().parents[3] / "src/aiq_agent/agents/piloti/prompts/piloti_static.md").read_text(
+        encoding="utf-8"
+    )
+    budget = re.compile(r"(\w+) to (\w+) nodes", re.IGNORECASE)
+    in_prompt = budget.search(prompt)
+    in_card = budget.search(DiagramCard.model_fields["source"].description or "")
+    assert in_prompt and in_card
+    assert [word.lower() for word in in_card.groups()] == [word.lower() for word in in_prompt.groups()]

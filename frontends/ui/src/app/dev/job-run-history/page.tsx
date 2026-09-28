@@ -14,6 +14,7 @@
  * Not linked from anywhere and 404s outside development (see ../layout.tsx).
  */
 
+import type { JSX } from 'react'
 import { I18nProvider } from '@/i18n'
 import { JobRunHistory } from '@/features/jobs/components/job-run-history'
 

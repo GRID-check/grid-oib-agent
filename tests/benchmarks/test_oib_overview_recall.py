@@ -148,7 +148,10 @@ def test_the_normative_expected_files_resolve_against_the_punkt_index(entries):
 
 def test_no_expected_file_is_production_excluded(entries):
     excluded = overview.production_excluded()
-    assert len(excluded) == 16, "production exclusion list changed shape — re-derive the baseline"
+    # 17: the 16 originals plus `aenderungen_oib-richtlinie_2.2_…`, the name oib.or.at
+    # actually publishes the 2.2 diff under. The fixtures index 2.2 as `oib-rl_2.2_…`,
+    # so that addition excludes nothing the baseline saw.
+    assert len(excluded) == 17, "production exclusion list changed shape — re-derive the baseline"
     for entry in entries:
         assert not (set(entry.expected) & excluded), entry.id
 

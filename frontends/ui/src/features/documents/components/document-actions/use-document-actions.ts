@@ -28,6 +28,7 @@ import { useTranslations } from '@/i18n'
 import { startDocumentDownload } from '@/lib/documents/download'
 import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
 import { documentDisplayName, type NamedDocument } from '@/lib/documents/display-name'
+import { LEGAL_HOLD_REASON } from '@/lib/compliance/legal-hold-codes'
 
 /** Which corpus the document belongs to — and so which words and which route. */
 export type DocumentScope = 'files' | 'archiv'
@@ -79,6 +80,18 @@ export interface DocumentActions {
   isMoving: boolean
   /** Re-file into another folder; `null` is the project root. */
   move: (folderId: string | null, folderName: string) => Promise<boolean>
+}
+
+/** Whether a 409 is the legal-hold refusal (`details.reason`, `lib/compliance`). */
+async function isLegalHoldRefusal(res: Response): Promise<boolean> {
+  const body: unknown = await res.json().catch(() => null)
+  if (!body || typeof body !== 'object') return false
+  const details = (body as { details?: unknown }).details
+  return (
+    !!details &&
+    typeof details === 'object' &&
+    (details as { reason?: unknown }).reason === LEGAL_HOLD_REASON
+  )
 }
 
 export function useDocumentActions({
@@ -146,6 +159,12 @@ export function useDocumentActions({
           ? `/api/archiv/documents/${document.id}`
           : `/api/documents/${document.id}`
       const res = await fetch(url, { method: 'DELETE' })
+      if (res.status === 409 && (await isLegalHoldRefusal(res))) {
+        // Not a failure to retry: the file is preserved on purpose, and the
+        // person needs to know that rather than try again.
+        toast.error(t('delete.legalHold'))
+        return false
+      }
       if (!res.ok && res.status !== 204) throw new Error(`Delete failed (${res.status})`)
       // A citation to a document that no longer exists must degrade honestly
       // rather than keep offering a viewer onto a deleted object.

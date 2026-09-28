@@ -190,6 +190,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/src/shared/config/request-body-li
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/rules.js ./src/lib/limits/rules.js
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/factory.js ./src/lib/limits/factory.js
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/ws-frames.js ./src/lib/limits/ws-frames.js
+# Same reason: `server.js` requires it to strip client-sent x-grid-* headers from
+# the WebSocket upgrade. `server-js-runtime-copies.spec.ts` fails when a
+# `server.js` require has no COPY line here.
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/proxy/ws-upgrade-headers.js ./src/lib/proxy/ws-upgrade-headers.js
+# And this one to classify and log WebSocket teardown after the upgrade.
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/proxy/ws-teardown.js ./src/lib/proxy/ws-teardown.js
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 

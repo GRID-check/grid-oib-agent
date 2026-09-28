@@ -6,7 +6,7 @@
  *
  * Chat is local-first. The chat store persists conversations to browser storage
  * and `hydrateConversationMessages` bails when a conversation already has
- * messages, so the local copy always wins — which is correct for one author and
+ * messages it loaded, so the local copy always wins — which is correct for one author and
  * incorrect by construction for two, because a browser cannot know what a
  * colleague just wrote. ADR-0033 inverts the source of truth for **shared**
  * conversations only, and this hook is the single place that inversion happens.

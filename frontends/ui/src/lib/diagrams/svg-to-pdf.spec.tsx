@@ -17,12 +17,15 @@ import { inflateSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import { MAX_DIAGRAM_SVG_DEPTH } from './diagram-sources'
 import { aiProvenanceMarking } from '@/lib/ai-provenance'
-import { acceptDiagram } from './svg'
-import { renderDiagramPdf } from './svg-to-pdf'
+import { acceptDiagram, type SvgElement } from './svg'
+import { renderDiagramPdf, textOrigin, tspanPositions } from './svg-to-pdf'
 
 /** What `fileGeneratedDocument` hands a diagram producer — see `filing.ts`. */
 const PROVENANCE = aiProvenanceMarking({})
-const MARKING = { notice: 'Von Piloti erstellt — KI-generiert, nicht geprüft.', provenance: PROVENANCE }
+const MARKING = {
+  notice: 'Von Piloti erstellt — KI-generiert, nicht geprüft.',
+  provenance: PROVENANCE,
+}
 
 /** Every Flate stream in the file, inflated. This is where the drawing is. */
 function contentStreams(pdf: Uint8Array): string[] {
@@ -51,7 +54,7 @@ function drawing(svgBody: string, viewBox = '0 0 200 100') {
       sourceKind: 'mermaid',
       source: 'graph TD\n  A --> B',
     },
-    MARKING,
+    MARKING
   )
 }
 
@@ -70,7 +73,9 @@ async function pdfFor(svgBody: string, viewBox?: string) {
 
 describe('a diagram becomes a PDF, without a browser', () => {
   it('produces a real PDF', async () => {
-    const pdf = await pdfFor('<rect x="10" y="10" width="80" height="40" fill="#eef" stroke="#333"/>')
+    const pdf = await pdfFor(
+      '<rect x="10" y="10" width="80" height="40" fill="#eef" stroke="#333"/>'
+    )
     expect(Buffer.from(pdf.subarray(0, 5)).toString('latin1')).toBe('%PDF-')
   })
 
@@ -80,7 +85,9 @@ describe('a diagram becomes a PDF, without a browser', () => {
     // corner coordinates are the assertion that matters: they are the SVG's own
     // numbers, which is what "vector, not a screenshot" means. A rasterised
     // page would carry an image XObject and none of this.
-    const pdf = await pdfFor('<rect x="10" y="10" width="80" height="40" fill="#eef" stroke="#333"/>')
+    const pdf = await pdfFor(
+      '<rect x="10" y="10" width="80" height="40" fill="#eef" stroke="#333"/>'
+    )
     const streams = contentStreams(pdf).join('\n')
     expect(streams).toContain('10 10 m')
     expect(streams).toContain('90 50 l')
@@ -89,7 +96,9 @@ describe('a diagram becomes a PDF, without a browser', () => {
   })
 
   it('draws a path as curves and lines', async () => {
-    const pdf = await pdfFor('<path d="M 10 10 L 90 10 C 95 10 95 40 90 40" stroke="#080" fill="none"/>')
+    const pdf = await pdfFor(
+      '<path d="M 10 10 L 90 10 C 95 10 95 40 90 40" stroke="#080" fill="none"/>'
+    )
     const streams = contentStreams(pdf).join('\n')
     // `m` moveto, `l` lineto, `c` curveto — the path survived as a path.
     expect(streams).toMatch(/\bm\b[\s\S]*\bl\b/)
@@ -110,7 +119,7 @@ describe('a diagram becomes a PDF, without a browser', () => {
     // requesting any of those throws at render time — a diagram would fail to
     // become a PDF over a typeface. Every family lands on Helvetica instead.
     const pdf = await pdfFor(
-      '<text x="10" y="30" font-family="trebuchet ms, verdana" font-weight="bold">Fett</text>',
+      '<text x="10" y="30" font-family="trebuchet ms, verdana" font-weight="bold">Fett</text>'
     )
     expect(Buffer.from(pdf).toString('latin1')).toContain('Helvetica-Bold')
   })
@@ -119,8 +128,12 @@ describe('a diagram becomes a PDF, without a browser', () => {
     // A wide flowchart rotated onto a portrait page is the same drawing at half
     // the size, and the whole reason this artifact exists is that somebody has
     // to read it on paper.
-    const wide = Buffer.from(await pdfFor('<rect width="10" height="10"/>', '0 0 400 100')).toString('latin1')
-    const tall = Buffer.from(await pdfFor('<rect width="10" height="10"/>', '0 0 100 400')).toString('latin1')
+    const wide = Buffer.from(
+      await pdfFor('<rect width="10" height="10"/>', '0 0 400 100')
+    ).toString('latin1')
+    const tall = Buffer.from(
+      await pdfFor('<rect width="10" height="10"/>', '0 0 100 400')
+    ).toString('latin1')
     // The trailing digits are pdfkit's own float formatting of the same A4.
     expect(wide).toMatch(/MediaBox \[0 0 841\.89\d* 595\.28\d*\]/)
     expect(tall).toMatch(/MediaBox \[0 0 595\.28\d* 841\.89\d*\]/)
@@ -164,7 +177,7 @@ describe('the depth the validator admits is a depth this renderer survives', () 
     // raises it toward the ceiling instead of away from it.
     const groups = MAX_DIAGRAM_SVG_DEPTH - 2
     const pdf = await pdfFor(
-      `${'<g>'.repeat(groups)}<rect x="10" y="10" width="80" height="40" fill="#eef"/>${'</g>'.repeat(groups)}`,
+      `${'<g>'.repeat(groups)}<rect x="10" y="10" width="80" height="40" fill="#eef"/>${'</g>'.repeat(groups)}`
     )
     expect(Buffer.from(pdf.subarray(0, 5)).toString('latin1')).toBe('%PDF-')
     // Not just "some bytes came back": the rect at the bottom of the nesting is
@@ -193,7 +206,10 @@ const REAL_MERMAID = readFileSync(join(__dirname, '__fixtures__/mermaid-flowchar
 
 describe('real mermaid output', () => {
   const accepted = () =>
-    acceptDiagram({ svg: REAL_MERMAID, sourceKind: 'mermaid', source: 'graph TD\n  A --> B' }, MARKING)
+    acceptDiagram(
+      { svg: REAL_MERMAID, sourceKind: 'mermaid', source: 'graph TD\n  A --> B' },
+      MARKING
+    )
 
   it('is accepted by the validator that produced it', () => {
     // The client renders THROUGH this same validator before it shows anything,
@@ -223,7 +239,9 @@ describe('real mermaid output', () => {
     // the assertion: an earlier version of this test counted fills on the whole
     // fixture and passed with the heads removed, because the nodes are filled.
     const fills = (pdf: Uint8Array) => contentStreams(pdf).join('\n').match(/\bf\b/g)?.length ?? 0
-    const directed = await pdfFor('<path d="M 10 10 L 10 90" stroke="#000" fill="none" marker-end="url(#a)"/>')
+    const directed = await pdfFor(
+      '<path d="M 10 10 L 10 90" stroke="#000" fill="none" marker-end="url(#a)"/>'
+    )
     const plain = await pdfFor('<path d="M 10 10 L 10 90" stroke="#000" fill="none"/>')
     expect(fills(plain)).toBe(0)
     expect(fills(directed)).toBe(1)
@@ -233,7 +251,9 @@ describe('real mermaid output', () => {
     // An arc's last two coordinate pairs are not its end tangent, so a head
     // placed from them points somewhere the edge does not go. On a drawing
     // somebody signs, no head is better than a wrong one.
-    const arc = await pdfFor('<path d="M 10 10 A 20 20 0 0 1 60 60" stroke="#000" fill="none" marker-end="url(#a)"/>')
+    const arc = await pdfFor(
+      '<path d="M 10 10 A 20 20 0 0 1 60 60" stroke="#000" fill="none" marker-end="url(#a)"/>'
+    )
     expect(contentStreams(arc).join('\n').match(/\bf\b/g)?.length ?? 0).toBe(0)
   })
 
@@ -258,5 +278,79 @@ describe('real mermaid output', () => {
     // text-showing operator, so counting it counts labels that actually print.
     expect(streams.match(/\bTJ\b/g)?.length ?? 0).toBeGreaterThanOrEqual(10)
     expect(pdf.byteLength).toBeGreaterThan(3000)
+  })
+})
+
+/**
+ * Every grammar the prompt teaches, as Chromium drew it on `/dev/answer-blocks`
+ * (captured through `flattenComputedStyles` and this validator, light theme).
+ *
+ * The prompt used to teach four grammars because only four had been verified
+ * through THIS converter, and "previews, then prints blank" is the failure that
+ * matters: the PDF is what gets attached. A grammar joins the prompt's list by
+ * joining this table, and `minLabels` is a floor on the text that actually
+ * prints, counted the way the flowchart test above counts it.
+ */
+// `timeline` draws and prints too, and is still not
+// taught: it lays out sideways, wider than the answer column.
+const TAUGHT_GRAMMARS: { grammar: string; minLabels: number }[] = [
+  { grammar: 'sequence', minLabels: 10 },
+  { grammar: 'state', minLabels: 5 },
+  { grammar: 'gantt', minLabels: 8 },
+  { grammar: 'mindmap', minLabels: 6 },
+  { grammar: 'pie', minLabels: 6 },
+]
+
+describe.each(TAUGHT_GRAMMARS)('real mermaid $grammar', ({ grammar, minLabels }) => {
+  const svg = readFileSync(join(__dirname, `__fixtures__/mermaid-${grammar}.svg`), 'utf8')
+
+  it('is accepted by the validator and becomes a PDF whose labels print', async () => {
+    const diagram = acceptDiagram({ svg, sourceKind: 'mermaid', source: grammar }, MARKING)
+    const pdf = await renderDiagramPdf({
+      root: diagram.root,
+      viewport: diagram.viewport,
+      title: grammar,
+      projectName: 'Straßenhäuser',
+      marking: MARKING.notice,
+      provenance: PROVENANCE,
+      createdAt: new Date('2026-09-24T00:00:00Z'),
+    })
+    const streams = contentStreams(pdf).join('\n')
+    expect(streams.match(/\bTJ\b/g)?.length ?? 0).toBeGreaterThanOrEqual(minLabels)
+    expect(streams.match(/\bm\b/g)?.length ?? 0).toBeGreaterThan(0)
+  })
+})
+
+describe('where a label prints', () => {
+  // The PDF renderer reads `x`/`y` as numbers and ignores `dx`/`dy`, while
+  // mermaid's newer grammars place labels with exactly those. Before these
+  // were resolved, a gantt axis tick (`y="3" dy="1em"`) printed on the axis
+  // line, a gantt section label (`<tspan x="10">`, no y) printed at y = 0 over
+  // the title, and every mindmap and flowchart label rode up out of its box.
+  const element = (name: string, attributes: Record<string, string>): SvgElement => ({
+    kind: 'element',
+    name,
+    attributes: Object.entries(attributes).map(([name, value]) => ({ name, value })),
+    children: [],
+  })
+
+  it('shifts a text by dy, in em of its own font size', () => {
+    expect(textOrigin(element('text', { y: '3', dy: '1em' }), 10)).toEqual({ x: 0, y: 13 })
+  })
+
+  it('keeps a tspan without y on its text line', () => {
+    expect(tspanPositions([element('tspan', { x: '10' })], { x: 10, y: 86 }, 11)).toEqual([
+      { x: 10, y: 86 },
+    ])
+  })
+
+  it('resolves a tspan y in em, then its dy, and stacks the next line from there', () => {
+    const lines = [
+      element('tspan', { x: '0', y: '-0.1em', dy: '1.1em' }),
+      element('tspan', { x: '0', dy: '1.1em' }),
+    ]
+    const [first, second] = tspanPositions(lines, { x: 0, y: -10.1 }, 10)
+    expect(first.y).toBeCloseTo(10)
+    expect(second.y).toBeCloseTo(21)
   })
 })

@@ -1,7 +1,8 @@
-"""The one operator command (`scripts/prompts_pull.py`).
+"""Pulling a Langfuse version into review (`scripts/prompts_pull.py`).
 
-Langfuse owns the platform prompt; this script only ever reads from it and
-writes the bundled fallback in the repository. The cases worth pinning are the
+Git is the platform prompt's source of truth (ADR-0060 (a)); this script only
+ever reads from Langfuse and writes the committed file, which is how an edit
+made there is brought into review. The cases worth pinning are the
 ones a maintainer would otherwise discover by finding the wrong thing committed:
 a fallback overwritten with nothing because the label does not exist, a diff
 that is one trailing newline, and a run that reports success without
@@ -168,18 +169,34 @@ class TestMain:
         assert "updated" in capsys.readouterr().out
 
 
-class TestNoPushPath:
+class TestThePullOnlyReads:
     def test_the_script_can_only_read_from_langfuse(self):
         """
-        The design rule, as a test: Langfuse is the source of truth and nothing
-        here writes to it. A `create_prompt` or `update_prompt` call appearing
-        in this script is a push path, whatever it is called.
+        The pull brings a Langfuse version INTO review; it never writes to
+        Langfuse. Publishing is `scripts/prompts_push.py`, one script with one
+        guard (it never overwrites a version edited in Langfuse), so a
+        `create_prompt` or `update_prompt` appearing here is a second push path.
         """
         source = (REPO_ROOT / "scripts/prompts_pull.py").read_text(encoding="utf-8")
 
         assert "create_prompt" not in source
         assert "update_prompt" not in source
 
-    def test_no_sync_or_push_script_survives_in_the_tree(self):
-        assert not (REPO_ROOT / "scripts/prompts_sync.py").exists()
-        assert not (REPO_ROOT / "scripts/prompts_push.py").exists()
+    def test_there_is_one_push_path(self):
+        assert _scripts_calling("create_prompt(", "update_prompt(") == {"scripts/prompts_push.py"}
+
+    def test_there_is_one_read_of_a_version(self):
+        """
+        The push reads the live version through the pull's `fetch_version`, so
+        a 404 means "no version" in one place and every other error propagates
+        from one place too.
+        """
+        assert _scripts_calling("get_prompt(") == {"scripts/prompts_pull.py"}
+
+
+def _scripts_calling(*needles: str) -> set[str]:
+    return {
+        str(path.relative_to(REPO_ROOT))
+        for path in (REPO_ROOT / "scripts").rglob("*.py")
+        if any(needle in path.read_text(encoding="utf-8") for needle in needles)
+    }

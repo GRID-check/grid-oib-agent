@@ -8,6 +8,7 @@ vi.mock('./access', () => ({ getAccessibleDocument: vi.fn() }))
 vi.mock('./lifecycle', () => ({ forkDraftVersion: vi.fn() }))
 vi.mock('./version-repository', () => ({ findOpenVersion: vi.fn(), listDocumentVersions: vi.fn() }))
 
+import { ConflictError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { DocumentVersion } from '@/lib/db/schema'
 import { makeDocument } from '@/test-utils/db-fixtures'
@@ -58,6 +59,32 @@ describe('openDraftForRevision', () => {
 
     expect(forkDraftVersion).toHaveBeenCalledWith(session, 'doc-1')
     expect(draft.version.id).toBe('ver-9')
+  })
+
+  it('takes the draft a concurrent fork opened, rather than failing the revision', async () => {
+    // Nothing was open at the probe; by the fork, somebody else had opened one.
+    // The fork's 409 names it, and it is where the revised bytes belong.
+    vi.mocked(findOpenVersion)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(version({ id: 'ver-winner', state: 'draft' }))
+    vi.mocked(forkDraftVersion).mockRejectedValue(
+      new ConflictError('This document already has an open version', {
+        versionId: 'ver-winner',
+        state: 'draft',
+      }),
+    )
+
+    const draft = await openDraftForRevision(session, 'doc-1')
+
+    expect(draft.version.id).toBe('ver-winner')
+  })
+
+  it('does not swallow a conflict that names no version', async () => {
+    vi.mocked(findOpenVersion).mockResolvedValue(null)
+    const refusal = new ConflictError('No transition creates a draft')
+    vi.mocked(forkDraftVersion).mockRejectedValue(refusal)
+
+    await expect(openDraftForRevision(session, 'doc-1')).rejects.toBe(refusal)
   })
 
   it('brings back whoever most recently refused a version, to be asked again', async () => {

@@ -16,8 +16,8 @@
  *
  * `public/` carries no raster logo, and `components/brand/logo.tsx` is a client
  * component whose `<svg>` is styled with Tailwind and `currentColor` — neither
- * of which exists in react-pdf. So the glyph is redrawn from the same path data
- * with react-pdf's SVG primitives, which keeps it a vector (it stays crisp when
+ * of which exists in react-pdf. So the mark is redrawn from the same path data
+ * (`BRAND_MARK` in `lib/brand.ts`) with react-pdf's SVG primitives, which keeps it a vector (it stays crisp when
  * the document is printed at any size) and keeps the renderer free of assets it
  * would have to fetch at render time.
  */
@@ -27,8 +27,8 @@ import { Path, StyleSheet, Svg, View } from '@react-pdf/renderer'
 
 // See printable-text.tsx — the wrapper, not the library's `Text`.
 import { Text } from './printable-text'
-import { PRODUCT_NAME } from '@/lib/brand'
-import { BRAND_MARK, PDF_PAGE, PDF_THEME, PDF_TYPE } from './theme'
+import { BRAND_MARK, PRODUCT_NAME } from '@/lib/brand'
+import { PDF_PAGE, PDF_THEME, PDF_TYPE } from './theme'
 
 /** The document's header facts — the small label/value lines under the title. */
 export interface CoverFact {
@@ -264,9 +264,9 @@ const styles = StyleSheet.create({
   },
 })
 
-/** The four-square glyph, at a given edge length and colour. */
+/** The column mark, `size` tall (it is narrower than tall), in one colour. */
 export const BrandMark: React.FC<{ size: number; color: string }> = ({ size, color }) => (
-  <Svg width={size} height={size} viewBox={BRAND_MARK.viewBox}>
+  <Svg width={size * BRAND_MARK.aspect} height={size} viewBox={BRAND_MARK.viewBox}>
     <Path d={BRAND_MARK.path} fill={color} />
   </Svg>
 )
@@ -281,7 +281,7 @@ export const BrandMark: React.FC<{ size: number; color: string }> = ({ size, col
 export const BrandLockup: React.FC<{
   size: number
   color: string
-  /** Wordmark size; defaults to the mark's own edge length, which reads level. */
+  /** Wordmark size; defaults to the mark's height, which centres the caps on the column. */
   fontSize?: number
 }> = ({ size, color, fontSize }) => (
   <View style={styles.lockup}>
@@ -379,7 +379,7 @@ export const CoverContent: React.FC<{ cover: CoverInfo }> = ({ cover }) => (
       ) : null}
     </View>
 
-    {/* The glyph once more at the foot of the cover, with the accent rule
+    {/* The mark once more at the foot of the cover, with the accent rule
         running out of it — the one loud gesture on an otherwise quiet page. */}
     <View style={styles.coverFooter}>
       <BrandMark size={12} color={PDF_THEME.ink} />

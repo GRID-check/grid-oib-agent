@@ -172,12 +172,64 @@ What this deletes: `deep_research_job_id` on the state, on the two lift tables,
 on the websocket frame and in the persisted metadata; and the prose stub the
 client used to parse.
 
-What it deliberately leaves: the deep-research banner, the research panel and
-the SSE store that feed them. Nothing PRODUCES them any more — no turn starts
-that stream — but threads from before this change still hold messages that do,
-and deleting the renderers would blank those threads rather than tidy them.
-They are legacy readers now, and retiring them is its own change, once no live
-conversation needs them.
+What it left at first, and what is gone now (2026-09): the deep-research
+banner, the research side panel and the one-run-at-a-time SSE slice in the chat
+store. Nothing produced them any more, and the threads written before run
+messages existed carry their report as an ordinary answer message, so the
+renderers were deleted rather than kept as legacy readers. Everything outside
+the block that used to read that slice — the composer, the toolbar's „läuft"
+pill, the history's row state, the delete that stops a live run, the watchdog
+that exempts a turn a run is carrying — now reads the run's stored ledger on
+its message (`chat/lib/session-activity`), which the block keeps current while
+the run goes (`features/runs/hooks/use-run-ledger`). There is no right-hand
+panel left: what needs more room than a message opens as a dialog over the
+thread.
+
+The ledger also carries what the reader asked the run to read (`grundlage`,
+2026-09): the documents named on the plan card and any added while the run
+goes, so the block prints a receipt against the steps — read with its loci, or
+not. The receipt is derived, never stored twice; the loci are the steps'.
+
+## Addendum: a run's ending is pushed, and pulled when the push is lost (2026-09-27)
+
+A run ends on the backend, and the BFF learned that from three best-effort
+POSTs: the outcome closed the `task_runs` row, the report filled the run's
+message, the ledger's terminal op settled the block. Each was one attempt. A
+BFF restart or a blip at that moment — or a job that finished before the BFF
+had written its backend job id onto the row, which the report met as a 404 —
+left the row `running`, the message empty and the block „läuft" for good,
+while the job store held the real verdict the whole time (backlog T3-11).
+
+Two changes, and neither is a queue:
+
+* **The push retries.** The outcome and the report (and the older
+  thread-turn fallback) go through `aiq_api/internal_retry.py`: three attempts
+  over about 25 s on a transport failure or a 5xx, and on a 404 when the job was
+  submitted for a run (`run_id` set), because then „not found" means „not
+  recorded yet". Most losses heal here. The ledger client keeps its one short
+  attempt; the pull below settles a ledger it lost.
+* **The BFF pulls what the push lost.** The run reconciler
+  (`lib/runs/reconcile.ts`), on the `skill-scheduler`'s tick, claims the runs
+  still active after ten minutes without a check (`reconcile_checked_at`,
+  migration 0096, stamped by the claim under `FOR UPDATE SKIP LOCKED` so
+  replicas never share a run), asks the job store
+  (`GET /v1/internal/jobs/{id}/outcome`, service token, tenant checked against
+  `job_access`) and, for an ended job, makes the three writes the worker would
+  have made through the same three functions: `writeRunReport` into a message
+  that is still empty, `applyRunLedgerOp` onto a ledger that still reads as
+  live, and `recordRunOutcome` with `onlyIfActive`, so a worker's late report
+  and the reconciler cannot both tell the requester. The run message's content
+  is rebuilt on the backend by `run_message_for_outcome`, beside the writers it
+  mirrors, so no second copy of the notices or the metadata allowlist exists.
+  A job the store cannot find, or a run that never got a backend job id, is
+  closed as failed after two hours with a reason that says its result could not
+  be recovered.
+
+The transactional outbox on a Postgres-native queue library, recorded in the
+same conditional write as the terminal status, stays deferred: it would make
+delivery exactly-once, where this makes it eventual. The difference that
+remains is the skills a run activated, which the job's output does not keep, so
+a message the reconciler filled carries no `skills_activated`.
 
 ## More Information
 

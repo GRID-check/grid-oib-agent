@@ -22,6 +22,7 @@
  *      surface.
  */
 
+import type { JSX } from 'react'
 import { CountPill } from '@/components/ui/count-pill'
 import { useTranslations } from '@/i18n'
 

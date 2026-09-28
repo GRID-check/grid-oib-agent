@@ -22,7 +22,6 @@ which calls were withheld.
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -135,25 +134,9 @@ def _bypass_citation_pipeline():
 
 
 @pytest.fixture
-def steps():
-    from nat.builder.context import ContextState
-    from nat.utils.reactive.subject import Subject
-
-    state = ContextState.get()
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
-    seen: list[dict] = []
-
-    def _on_next(step) -> None:
-        payload = step.payload
-        body = getattr(payload.data, "input", None)
-        if isinstance(body, str) and str(payload.event_type).endswith("START"):
-            seen.append({"step": payload.name, **json.loads(body)})
-
-    state.event_stream.get().subscribe(_on_next)
-    yield seen
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
+def steps(emitted):
+    """Every body the producers wrote during the test (``tests/conftest.py``)."""
+    return emitted
 
 
 def _call(name: str, call_id: str, **args) -> dict:
@@ -277,7 +260,7 @@ class TestWhatARefusedRoundCosts:
         result = await _run(agent, {"web_search"})
 
         assert result.tool_iterations == 1
-        assert [step["slot"] for step in steps if str(step["slot"]).startswith("retrieval")] == []
+        assert [step.id for step in steps.steps if step.id.startswith("status:retrieval")] == []
 
     async def test_the_refusal_is_reported_as_its_own_technical_event(self, steps):
         """A refused call runs nothing and announces nothing, so without this
@@ -293,12 +276,12 @@ class TestWhatARefusedRoundCosts:
 
         await _run(agent, {"web_search"})
 
-        (record,) = [step for step in steps if str(step["slot"]).startswith("refused")]
-        assert record["step"] == "status:refused:0"
-        assert (record["round"], record["withheld"]) == (0, 1)
+        (record,) = [step for step in steps.steps if step.id.startswith("status:refused")]
+        assert record.id == "status:refused:0"
+        assert (record.detail["round"], record.detail["withheld"]) == (0, 1)
         # Technical and key-less, like the repeat record: whether the READER is
         # told is a product decision, and a live key would make it silently.
-        assert record["channel"] == turn_status.CHANNEL_TECHNICAL
+        assert record.channel == turn_status.CHANNEL_TECHNICAL
         assert "key" not in record
 
     async def test_a_round_with_nothing_refused_leaves_no_record(self, steps):
@@ -311,7 +294,7 @@ class TestWhatARefusedRoundCosts:
 
         await _run(agent, {"web_search"})
 
-        assert [step for step in steps if str(step["slot"]).startswith("refused")] == []
+        assert [step for step in steps.steps if step.id.startswith("status:refused")] == []
 
 
 class TestOneCacheShardPerOrgAndModel:

@@ -1,0 +1,11 @@
+---
+improvements:
+  - >
+    Follow-up questions are answered sooner, because only the cited passages of
+    the last answer travel with the conversation.
+fixes:
+  - >
+    The Belegt durch line shows „+N weitere“ beyond eight sources and expands on
+    request, and Alle Quellen kopieren always copies every source.
+  - >
+    Footnotes in an answer follow your language and their jump links work again.

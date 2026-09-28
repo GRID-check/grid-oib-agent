@@ -176,6 +176,16 @@ buys the turn nothing and the guard measures the call, not the reasoning.
   loop eval's `rounds`, `truncated` and `repeat_query` columns, and the
   cached-token share now reported per turn. A prompt edit that re-teaches a
   sequence shows up there or nowhere.
+- **The published prompt comes from git.** `task prompts:push` (2026-09-24)
+  checks a label against the committed `piloti_static.md` and, with `--apply`,
+  publishes it as a `git`-tagged version naming its commit (the tag is not
+  provenance; see the 2026-09-25 amendment); it refuses a label
+  whose version was edited in Langfuse until `task prompts:pull` has brought it
+  into review (`tests/test_prompts_push.py`). The publish is a step an operator
+  runs, not yet one a merge or a deploy runs: `LANGFUSE_PROMPTS_ENABLED` is set
+  in no environment the repository defines, so every fleet renders the
+  committed file. (The pull-only first cut, 2026-09-15, had Langfuse as the
+  source, contrary to (a).)
 
 ## Amendment (2026-09-15): the dynamic half gets the same treatment
 
@@ -243,6 +253,28 @@ variable at all, so a caller cannot reintroduce the block by passing one; and
 `test_static_prompt_split.py` holds the whole rendered prompt as a golden file,
 so an accidental edit fails a test and a deliberate one arrives as a diff
 review reads.
+
+## Amendment (2026-09-25): the tag filters, the commit proves
+
+The confirmation above says `task prompts:push` publishes a `git`-tagged
+version. That reads as if the tag marks where a version came from. It does
+not.
+
+- **The git tag is a UI filter only.** Langfuse keeps tags per prompt, so
+  every later UI edit carries it too.
+- **Provenance is the text Langfuse serves, matched byte for byte against a
+  committed text.** `published_from_git` in `scripts/prompts_push.py` accepts
+  either arm: the file at the commit the version's message names
+  (`git <sha> <path>`), or the file at any commit in its history
+  (`file_history()`). The second arm is what lets a UI edit that was pulled
+  and committed through review count as reviewed.
+- **The label is read and written in two calls.** A UI promotion in between
+  is overwritten. Nothing closes this yet.
+- **Publish with `--apply` only from a commit on `develop`.** Neither arm asks
+  whether a commit was reviewed. Text published from a branch that never
+  merges stays unreviewed, and later pushes accept it for as long as the
+  clone still holds that commit. Once it is gone, no commit in the history
+  holds the text and the next push refuses it as a Langfuse edit.
 
 ## Pros and Cons of the Options
 

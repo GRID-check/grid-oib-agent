@@ -43,13 +43,15 @@
 import type { Paragraph, PhrasingContent, Root, RootContent, Text } from 'mdast'
 import type { Parent } from 'unist'
 import { MARKDOWN_SLOT_TAG } from '@/shared/components/MarkdownRenderer/slot-context'
+import { documentContinues } from '@/shared/components/MarkdownRenderer/markdown-blocks'
 
 export interface CardMarkerOptions {
   /**
-   * How many cards this answer carries. A `[[card:4]]` in an answer holding
-   * three cards renders nothing at all rather than a marker or a hole: while
-   * streaming, the marker regularly arrives frames before the card it names,
-   * and it must not flash as literal text in between.
+   * How many cards this answer carries. A `[[card:4]]` in a finished answer
+   * holding three cards renders nothing at all rather than a marker or a
+   * hole. While streaming the marker arrives seconds before the card it
+   * names, and keeps its slot instead (see `pending`); it never flashes as
+   * literal text in between.
    */
   count: number
   /**
@@ -61,6 +63,14 @@ export interface CardMarkerOptions {
    * with no callout behind it is stripped, never shown.
    */
   callout?: boolean
+  /**
+   * Whether the answer is still arriving. A marker naming a card that has not
+   * arrived yet then keeps its slot, so the surface can hold the card's place
+   * (`CardSlot`) instead of letting the card shove the prose below it
+   * down when it lands (ADR-0066). Once the answer is final, such a marker
+   * renders nothing, as before.
+   */
+  pending?: boolean
 }
 
 /**
@@ -78,15 +88,16 @@ export const CALLOUT_SLOT_INDEX = -1
  * it with the card at that index.
  */
 export const remarkCardMarkers =
-  ({ count, callout = false }: CardMarkerOptions) =>
-  (tree: Root): void => {
+  ({ count, callout = false, pending = false }: CardMarkerOptions) =>
+  (tree: Root, file?: Parameters<typeof documentContinues>[0]): void => {
     const children: RootContent[] = []
     let changed = false
 
     for (const child of tree.children) {
       // Only a top-level paragraph can host a card: it is the one position
       // where replacing the node keeps the document's content model valid.
-      const placed = child.type === 'paragraph' ? placeMarkers(child, count, callout) : null
+      const placed =
+        child.type === 'paragraph' ? placeMarkers(child, pending ? Infinity : count, callout) : null
       if (placed) {
         children.push(...placed)
         changed = true
@@ -99,7 +110,9 @@ export const remarkCardMarkers =
     // Whatever the pass above could not place is prose the reader would read as
     // machine noise — including the marker of a card that has not streamed in.
     stripMarkers(tree)
-    stripPartialTail(tree)
+    // The renderer parses a document block by block; only the last block's
+    // tail is the document's.
+    if (!documentContinues(file)) stripPartialTail(tree)
   }
 
 /** The slot node one placed marker becomes. */

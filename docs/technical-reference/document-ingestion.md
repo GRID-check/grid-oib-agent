@@ -147,10 +147,117 @@ For each file:
 
 1. **Text extraction** — `SimpleDirectoryReader(input_files=[file_path])` loads the file content into LlamaIndex `Document` objects
 2. **Table extraction** (PDF only, optional) — Uses `pdfplumber` to extract tables as markdown; each table becomes a `Document` with `content_type: "table"` metadata
-3. **Image extraction** (PDF only, optional) — Uses `pypdfium2` to extract images (min 100×100px to filter icons); each image is sent to the VLM API (default: `openai/gpt-5.6-luna` via OpenRouter — image input verified, caption quality on OIB drawings still open, see the Configuration table) for classification (chart vs image) and captioning; captions become `Document` objects with `content_type: "chart"` or `"image"` metadata
+3. **Image extraction** (PDF only, optional) — Uses `pypdfium2` to extract images (min 100×100px to filter icons); each image is sent to the VLM API (default: `openai/gpt-6-luna` via OpenRouter — image input verified, caption quality on OIB drawings still open, see the Configuration table) for classification (chart vs image) and captioning; captions become `Document` objects with `content_type: "chart"` or `"image"` metadata
 4. **Summarization** (optional) — If `generate_summary` is enabled, the first and last chunks are combined and sent, as two **concurrent** calls to the same `summary_model` LLM, for a one-sentence summary and a tag classification (document type + OIB discipline; see "Backfilling tags" below). Both calls independently swallow exceptions/timeouts and return nothing on failure. A deterministic, text-derived fallback summary now fires whenever the LLM summary is missing — for any reason, independent of whether tag classification succeeded — so a document that finishes ingestion always gets a `document_metadata` row (see "Silent summary-row loss" below for the fix and the reconciliation backstop).
 5. **Indexing** — All `Document` objects are inserted into a `VectorStoreIndex` backed by ChromaDB with OpenRouter embeddings (`openai/text-embedding-3-large` by default; see "Embedding-model changes" below — stored vectors only match query vectors from the same model)
 6. **Job completion** — Status updated to `JobState.COMPLETED` with metadata about chunks, tables, charts, and images created
+
+### A re-upload replaces the previous version once it has indexed
+
+Chunks are keyed by file name within a collection, so a file uploaded under a
+name the collection already holds is a new version of that document, not a
+second document. The replacement runs in two steps inside `_run_ingestion`,
+per file, under a lock on (collection, normalized name):
+
+1. Before the file is read, `_find_previous_versions` reads which chunk ids
+   answer to its name and what a person set on their metadata row:
+   `doc_class`, `display_title`, `folder_path`. It deletes nothing. The read is
+   a Chroma `where={"file_name": {"$in": [...]}}` over the spellings a stored
+   version can carry: the name, its percent-encoded forms, and the
+   `tmp[8]_`-prefixed names the metadata rows know
+   (`find_tmp_upload_names`; Chroma cannot filter by pattern and the prefix is
+   random). Its cost is the chunks of the file being replaced; it used to read
+   every chunk of the collection, once per OIB PDF. A legacy tmp-prefixed
+   version with no metadata row is not found and stays beside its re-upload.
+2. After a file reaches `SUCCESS`, `_retire_previous_version` deletes exactly
+   those collected ids from Chroma and from the lexical mirror
+   (`ChunkTextStore.delete_chunks`), and bumps the collection version. The
+   metadata row under the new name is the new version's row and keeps the
+   fields people set; a row under another spelling of the name is dropped, and
+   its fields were carried onto the new row.
+
+A file that fails (an encrypted PDF, nothing extracted, no VLM key for an
+image, any exception) retires nothing: the previous version stays the one
+retrieval serves, and the job logs `Kept the previous version of …`. Deleting
+first, as this step once did, left such a document with no chunks at all.
+The cost is that both versions are retrievable for the length of the job.
+
+A file that fails after some of its chunks were inserted (an embedding batch
+timing out halfway through a long PDF) takes those chunks back out:
+`_discard_partial_version` deletes, from Chroma and the lexical mirror, the ids
+under the name that were not there when the attempt started. Left in, they sat
+beside the kept version as part of a version nobody published.
+
+The lock (`keyed_lock` in `aiq_agent/knowledge/leader_lock.py`) is held from
+the find until the file is retired or discarded. Without it two jobs uploading
+one name at once both collected the same predecessor, both retired it, and both
+new versions stayed. With it the second job waits, finds the first job's new
+version as its predecessor, and replaces it: the version that finishes last is
+the one left. On Postgres (`AIQ_SUMMARY_DB`, else `NAT_JOB_STORE_DB_URL`) it
+is a session advisory lock on a connection of its own, so it holds across
+replicas and is released when a replica dies; with SQLite or no database only
+the in-process lock holds, and an unreachable database lets the file ingest
+unguarded, logged.
+
+The OIB sync (`src/aiq_agent/oib_sync.py`) relies on the same step and calls no
+`delete_file` before it uploads.
+
+### A document deleted while it indexed takes its chunks back out
+
+A delete does not wait for the lock. `delete_file` removes the chunks under the
+name it is given, and an ingest of that name still running goes on inserting
+afterwards. A delete can also land after the upload has recorded its version
+and before the dispatch runs (ADR-0054, correction 17), and the dispatch then
+indexes a document that no longer exists. Either way a deleted document used to
+stay retrievable, with no row behind it.
+
+So once a file is in the vector store, and before its predecessor is retired,
+the ingestor asks the BFF whether the document it was dispatched for still
+exists: `GET /api/internal/document-exists?documentId=&collection=[&organizationId=]`
+with the service token (`knowledge_layer/llamaindex/document_presence.py`,
+`_deleted_while_indexing` in the adapter). The job config carries the
+`document_id` and `organization_id` that `/v1/ingest` received. On
+`{ "exists": false }` the file:
+
+- discards what this attempt inserted, by the same `_discard_partial_version`
+  difference a failure uses, from Chroma and from the lexical mirror;
+- retires nothing. Under the same name the predecessor may already be a new
+  document's first version: a delete, then a new upload of the name that
+  indexed while this attempt waited for the lock;
+- writes no metadata row, and ends `FAILED` with
+  `document_deleted: the document was deleted while it was being ingested`, so
+  the end-of-job summary reconciliation, which backfills a row for every
+  successful file, does not write one either.
+
+Only a definite "gone" discards. No BFF configured (`FRONTEND_INTERNAL_URL`,
+`GRID_INTERNAL_API_TOKEN`), a timeout, a non-200 (including the 404 of a BFF
+that predates the route) or a body without a boolean `exists` all read as
+"present", and the file indexes as it did before: an unreachable BFF must never
+cost a live document its chunks. A job without a `document_id` (the OIB sync,
+`/v1/documents`) is never asked about.
+
+`delete_file` does not take the lock instead. The ingestor holds it for the
+whole of a file, extraction and embedding included, so a delete behind it would
+wait minutes and outlast the BFF's request timeout.
+
+The BFF's delete purges the chunks first and deletes the row last, after the
+objects, so an ingest whose check lands between the two still sees the row and
+keeps the chunks it inserted after that purge. Every immediate delete therefore
+purges once more after the row is gone: the project and Archiv deletes
+(`deleteDocument` in `lib/documents/service.ts`, `deleteArchivDocument` in
+`lib/archiv/service.ts`), the chat-attachment delete (`deleteSessionDocument`
+in `lib/session-documents/service.ts`) and a whole chat's attachment purge
+(`purgeSessionDocuments` in `lib/session-documents/cleanup.ts`, for the rows
+that pass erased). An ingest that asked before the row went has indexed by
+then, and one that asks afterwards reads "gone". That second purge is logged,
+never surfaced; the row is already gone, and the weekly orphaned-vector sweep
+(`lib/platform/vector-reconcile.ts`) is the net when it fails.
+
+One window remains, narrow and named:
+
+- A delete that runs completely between the check and the metadata writes
+  leaves a summary row with no chunks. The `reconcile-summaries` maintenance
+  pass forgets such rows ([deletion pipeline](../architecture/deletion-pipeline.md)).
 
 ### Configuration
 
@@ -163,7 +270,7 @@ For each file:
 | `extract_tables` | false | Enable PDF table extraction |
 | `extract_images` | false | Enable PDF image extraction + VLM captioning |
 | `extract_charts` | false | Enable chart extraction with structured data |
-| `vlm_model` | `openai/gpt-5.6-luna` (via OpenRouter) | VLM for image captioning. TODO: evaluate caption quality on OIB drawings; neither this default nor its predecessor has been measured there |
+| `vlm_model` | `openai/gpt-6-luna` (via OpenRouter) | VLM for image captioning. TODO: evaluate caption quality on OIB drawings; neither this default nor its predecessor has been measured there |
 | `generate_summary` | false | Enable document summarization |
 | `summary_model` | null | LLM reference for summarization |
 
@@ -238,7 +345,7 @@ Recovery no longer requires re-ingesting the file; the reconciliation pass
 catches it on the next ingestion run for that collection.
 
 - **Text source**: the document's already-indexed Chroma chunk text when available (the same text ingestion classified from), falling back to the stored summary otherwise.
-- **LLM access**: it runs outside the NAT runtime, so it builds an OpenAI-compatible client from env vars that must match the `summary_llm` block in `configs/config_oib_openrouter.yml`: `BACKFILL_SUMMARY_API_KEY` (falls back to the provider key inferred from the base URL, `OPENROUTER_API_KEY` by default), `BACKFILL_SUMMARY_BASE_URL` (default `https://openrouter.ai/api/v1`), `BACKFILL_SUMMARY_MODEL` (default `GRID_DEFAULT_MODEL`, then `openai/gpt-5.6-luna`).
+- **LLM access**: it runs outside the NAT runtime, so it builds an OpenAI-compatible client from env vars that must match the `summary_llm` block in `configs/config_oib_openrouter.yml`: `BACKFILL_SUMMARY_API_KEY` (falls back to the provider key inferred from the base URL, `OPENROUTER_API_KEY` by default), `BACKFILL_SUMMARY_BASE_URL` (default `https://openrouter.ai/api/v1`), `BACKFILL_SUMMARY_MODEL` (default `GRID_DEFAULT_MODEL`, then `openai/gpt-6-luna`).
 - **Store**: `AIQ_SUMMARY_DB` (or `--summary-db`); chunk source dir `AIQ_CHROMA_DIR` (or `--chroma-dir`).
 - **Exit codes** (for CI): `0` = success (nothing to do, or a completed run with no failures; `--dry-run` always exits `0`), `1` = a real run finished but at least one document failed to classify (`stats.failed > 0`, so a partial backfill can be flagged), `2` = the tagging LLM could not be constructed (no `BACKFILL_SUMMARY_API_KEY` and no provider key for the base URL).
 

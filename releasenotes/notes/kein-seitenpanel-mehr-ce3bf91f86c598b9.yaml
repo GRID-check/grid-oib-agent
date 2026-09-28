@@ -1,0 +1,13 @@
+---
+features:
+  - >
+    Deep research no longer has a side panel: a run is a block in the chat that
+    started it, with its state, findings per round, Jetzt schreiben, Abbrechen
+    and finally the report.
+  - >
+    The chat stays open during and after a deep research, so you can keep asking
+    beside the run, and Bericht fortschreiben runs in the same chat.
+fixes:
+  - >
+    A research run whose end the browser missed no longer locks the chat; a
+    running research never blocks typing, renaming or deleting.

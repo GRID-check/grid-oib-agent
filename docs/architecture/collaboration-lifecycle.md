@@ -167,6 +167,13 @@ Recorded because an undocumented known gap is indistinguishable from a bug.
   makes the gateway destroy the socket — while still allowing an id that does not
   exist yet, which is the ordinary first-message path.
 
+  The upgrade check alone still left the frames. Each `user_message` names its own
+  `conversation_id`, and until 2026-09 the agent tier ran whatever a frame named, so
+  a socket authorized for one conversation could start, answer, cancel or reattach
+  to a turn in any other. The authorized id is now signed into the envelope and the
+  handler refuses every frame naming a different one (`conversation_mismatch`,
+  backend-deep-dive §2c).
+
 ## 8. Where the tests live
 
 `lib/collaboration/lifecycle.spec.ts` (deletion, modification, revocation),

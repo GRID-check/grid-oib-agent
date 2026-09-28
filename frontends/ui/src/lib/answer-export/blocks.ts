@@ -24,8 +24,14 @@ export interface DocRun {
   mono?: boolean
 }
 
+/**
+ * 1 and 2 are the document's own chrome, 3 a card of the answer; 4 and 5 sit
+ * inside a `surface` (its title, then a tab, then the tab's card).
+ */
+export type HeadingLevel = 1 | 2 | 3 | 4 | 5
+
 export type DocBlock =
-  | { kind: 'heading'; level: 1 | 2 | 3; text: string }
+  | { kind: 'heading'; level: HeadingLevel; text: string }
   /** `meta` is the small grey line under a heading (the date, the project). */
   | { kind: 'paragraph'; runs: DocRun[]; style?: 'body' | 'meta' | 'quote' }
   | { kind: 'bullets'; items: DocRun[][] }

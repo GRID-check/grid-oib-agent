@@ -19,7 +19,7 @@ Multimodal options:
     extract_tables: Enable table extraction via pdfplumber (default: False)
     extract_charts: Enable chart extraction with VLM data extraction (default: False)
     extract_images: Enable image extraction with VLM captioning (default: False)
-    vlm_model: VLM model for captioning (default: openai/gpt-5.6-luna)
+    vlm_model: VLM model for captioning (default: openai/gpt-6-luna)
     vlm_base_url: VLM model base URL (default: https://openrouter.ai/api/v1)
 
 Chart extraction uses the VLM to:
@@ -29,6 +29,7 @@ Chart extraction uses the VLM to:
 
 import asyncio
 import base64
+import contextlib
 import hashlib
 import json
 import logging
@@ -39,6 +40,8 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from dataclasses import field
 from datetime import UTC
 from datetime import datetime
 from pathlib import Path
@@ -115,7 +118,7 @@ def _env_int(name: str, fallback: int, *, minimum: float = _POSITIVE) -> int:
 # already holds a key for, so captioning needs no second credential. It takes
 # image input (verified on OpenRouter); caption quality on OIB tables and
 # drawings is still unevaluated, like its predecessor's was.
-DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "openai/gpt-5.6-luna")
+DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "openai/gpt-6-luna")
 # Default VLM model base URL
 DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://openrouter.ai/api/v1")
 
@@ -372,6 +375,20 @@ EMBED_BATCH_SIZE = max(1, _env_int("AIQ_EMBED_BATCH_SIZE", 64))
 EMBED_TIMEOUT_SECONDS = max(1.0, _env_float("AIQ_EMBED_TIMEOUT_SECONDS", 60.0))
 EMBED_MAX_RETRIES = 2
 
+# @environment_variable AIQ_QUERY_EMBED_TIMEOUT_SECONDS
+# @category Knowledge Layer
+# @type float
+# @default 3
+# @required false
+# Per-request timeout for the QUERY embeddings a chat turn waits on, as opposed
+# to the ingestion batches above. A query is one short text: 0.66 s at the
+# median across 276 live calls (September 2026 census), but 8.5 s at p99 and
+# 11.8 s at worst, and a turn makes 5-15 of them before the model starts, so a
+# single tail request held a whole turn for 11 s. At 3 s the client gives up on
+# that one and retries (EMBED_MAX_RETRIES), which a fresh request answers in
+# well under a second: the worst turn pays ~4 s instead of 11.
+QUERY_EMBED_TIMEOUT_SECONDS = max(0.5, _env_float("AIQ_QUERY_EMBED_TIMEOUT_SECONDS", 3.0))
+
 # pypdfium2 page-object type constants (the C API values are not always exposed
 # as Python attributes across versions).
 _PAGEOBJ_TEXT = 1
@@ -424,6 +441,12 @@ TTL_CLEANUP_INTERVAL_SECONDS = _env_int("AIQ_TTL_CLEANUP_INTERVAL_SECONDS", 3600
 # Terminal jobs are retained this long for status polling/file listings, then
 # pruned so in-memory job tracking doesn't grow for the life of the process.
 JOB_RETENTION_SECONDS = 3600  # 1 hour
+
+# The per-file error of an attempt whose document was deleted while it indexed
+# (see `document_presence`). FAILED rather than SUCCESS so the end-of-job
+# summary reconciliation, which backfills a row for every successful file,
+# never writes one for a document that no longer exists.
+DOCUMENT_DELETED_DURING_INGEST = "document_deleted: the document was deleted while it was being ingested"
 
 # Terminal per-file tracking entries (self._files) are retained this long, then
 # pruned. SUCCESS files are still listable afterwards (list_files rebuilds them
@@ -1021,16 +1044,22 @@ def _extract_images_from_pdf(
     return images
 
 
-def _extract_tables_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
+def _extract_tables_from_pdf(pdf_path: str, taken: dict[int, list[tuple]] | None = None) -> list[dict[str, Any]]:
     """
     Extract tables from a PDF file using pdfplumber.
 
     Args:
         pdf_path: Path to the PDF file.
+        taken: Per page number, the bboxes of the tables the text pass already
+            indexed as captioned tables (``_extract_text_from_pdf``'s
+            ``table_boxes``). Those are skipped: indexed again here, every OIB
+            table stood in the index twice, as „Tabelle 3" and as
+            „[TABLE from page 30]", under two competing citations.
 
     Returns:
         List of dicts with 'table_text' (markdown), 'page_number', 'table_index'.
     """
+    taken = taken or {}
     try:
         import pdfplumber
     except ImportError:
@@ -1041,9 +1070,11 @@ def _extract_tables_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
     try:
         with pdfplumber.open(pdf_path) as pdf:
             for page_num, page in enumerate(pdf.pages):
-                page_tables = page.extract_tables()
-
-                for table_idx, table in enumerate(page_tables):
+                skip = taken.get(page_num + 1) or []
+                for table_idx, found in enumerate(page.find_tables()):
+                    if tuple(found.bbox) in skip:
+                        continue
+                    table = found.extract()
                     if table and len(table) > 1:  # Has header and at least one row
                         # Convert to markdown format
                         markdown = _table_to_markdown(table)
@@ -1129,13 +1160,34 @@ def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
         logger.warning("pdfplumber not installed. Install with: pip install pdfplumber")
         return []
 
+    from knowledge_layer.llamaindex.captioned_tables import extract_page_tables
+
     pages: list[dict[str, Any]] = []
     try:
         with pdfplumber.open(pdf_path) as pdf:
+            previous = None
             for page_num, page in enumerate(pdf.pages, start=1):
-                text = _strip_watermark_lines(page.extract_text())
-                if text:
-                    pages.append({"page_number": page_num, "text": text})
+                # Captioned tables are read as tables and cut out of the text,
+                # which would otherwise read them across their columns
+                # (``captioned_tables``). Fail-open: a page whose table finder
+                # raises is extracted exactly as before.
+                try:
+                    found = extract_page_tables(page, page_num, previous)
+                except Exception as exc:  # pragma: no cover - pdfplumber edge cases
+                    logger.warning("Table finding failed on page %d of %s: %s", page_num, pdf_path, exc)
+                    found = []
+                source = page
+                # Only the page right after a table can continue it: a page
+                # without one ends the chain, or a caption-less box pages later
+                # was appended to the old table.
+                previous = found[-1][0] if found else None
+                boxes = [tuple(bbox) for _table, bbox in found]
+                if boxes:
+                    source = page.filter(lambda obj, boxes=boxes: not _inside_any(obj, boxes))
+                text = _strip_watermark_lines(source.extract_text())
+                tables = [table for table, _bbox in found]
+                if text or tables:
+                    pages.append({"page_number": page_num, "text": text, "tables": tables, "table_boxes": boxes})
 
         logger.info("Extracted text from %d PDF pages in %s", len(pages), pdf_path)
 
@@ -1145,6 +1197,15 @@ def _extract_text_from_pdf(pdf_path: str) -> list[dict[str, Any]]:
     return pages
 
 
+def _inside_any(obj: dict[str, Any], boxes: list[tuple]) -> bool:
+    """Whether a pdfplumber object's centre lies in any of ``boxes`` (x0, top, x1, bottom)."""
+    if "x0" not in obj or "top" not in obj:
+        return False
+    x = (obj["x0"] + obj.get("x1", obj["x0"])) / 2
+    y = (obj["top"] + obj.get("bottom", obj["top"])) / 2
+    return any(x0 <= x <= x1 and top <= y <= bottom for x0, top, x1, bottom in boxes)
+
+
 def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, file_size: int) -> list[Any]:
     """Build the text Documents for one PDF, structure-aware where the document allows it.
 
@@ -1152,7 +1213,8 @@ def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, f
     roughly fifteen blended into a 1024-token block, and gives every chunk a Punkt to
     cite rather than only a page. ``punkt_documents`` returns ``None`` for anything
     without a usable outline -- a glossary, a list of standards, any tenant upload -- and
-    that is the per-page path below, byte-for-byte what ingestion did before.
+    that is the per-page path below: one Document per page, its captioned tables put back
+    as Markdown after the text they were cut out of (``page_text_with_tables``).
 
     Extracted from ``_run_ingestion`` so the choice between the two strategies is
     testable without a job, a Chroma client or an embedder.
@@ -1163,9 +1225,11 @@ def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, f
     structured = punkt_documents(text_pages, file_name, file_size)
     if structured is not None:
         return structured
+    from knowledge_layer.llamaindex.captioned_tables import page_text_with_tables
+
     return [
         Document(
-            text=page["text"],
+            text=page_text_with_tables(page["text"], page.get("tables") or []),
             metadata={
                 "file_name": file_name,
                 "file_size": file_size,
@@ -1175,6 +1239,19 @@ def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, f
         )
         for page in text_pages
     ]
+
+
+def page_texts_for_visual_heuristic(text_pages: list[dict[str, Any]]) -> dict[int, str]:
+    """Page number to the page's full text, captioned tables included, for the visual-page check.
+
+    ``text`` has its captioned tables cut out. A page that is mostly a table then
+    fell under ``VISUAL_PAGE_MIN_TEXT_CHARS``, was rendered and captioned by the VLM
+    as a drawing, and competed in the index with the table's own chunks (oib-rl_2
+    pages 29, 31, 33, 34). A table is text, so it counts as text here.
+    """
+    from knowledge_layer.llamaindex.captioned_tables import page_text_with_tables
+
+    return {page["page_number"]: page_text_with_tables(page["text"], page.get("tables") or []) for page in text_pages}
 
 
 def _looks_like_pdf(file_path: str) -> bool:
@@ -1887,6 +1964,19 @@ def _summary_from_drawing_fields(pages: list[dict[str, Any]]) -> str | None:
 # =============================================================================
 
 
+def _future_result(future, what: str, file_name: str, timeout: float = 30):
+    """A background ingestion step's result, or ``None`` when it was not started, timed out or failed."""
+    if future is None:
+        return None
+    try:
+        return future.result(timeout=timeout)
+    except TimeoutError:
+        logger.warning("%s timed out for %s", what, file_name)
+    except Exception as e:  # noqa: BLE001 — an annotation is worth less than the ingestion
+        logger.warning("%s failed for %s: %s", what, file_name, e)
+    return None
+
+
 def _generate_document_summary(text_content: str, file_name: str, llm=None) -> str | None:
     """
     Generate one-sentence summary from document text.
@@ -1914,6 +2004,66 @@ def _generate_document_summary(text_content: str, file_name: str, llm=None) -> s
 # =============================================================================
 
 
+_TMP_UPLOAD_PREFIX = re.compile(r"^tmp.{8}_")
+
+
+def _normalized_file_name(name: str | None) -> str:
+    """A stored file name as its plain re-upload spells it: no ``tmp[8]_`` prefix, percent-decoded."""
+    from urllib.parse import unquote
+
+    return unquote(_TMP_UPLOAD_PREFIX.sub("", name or ""))
+
+
+def _stored_spellings(name: str) -> set[str]:
+    """The ``file_name`` values a stored version of ``name`` can carry, short of a tmp prefix.
+
+    The plain name, and the percent-encoded forms a presigned-URL path produced
+    before ``/v1/ingest`` decoded it: Python's ``quote`` (the S3 presigner's
+    encoding) and the lighter one ``encodeURIComponent`` writes. The random
+    ``tmp[8]_`` prefix cannot be enumerated; the metadata rows supply it
+    (:func:`aiq_agent.knowledge.find_tmp_upload_names`).
+    """
+    from urllib.parse import quote
+
+    plain = _normalized_file_name(name)
+    return {name, plain, quote(plain), quote(plain, safe="!'()*~")}
+
+
+def _replacement_lock_key(collection_name: str, file_name: str) -> str:
+    """The keyed lock one document's replacement holds: its collection and normalized name."""
+    return f"reingest:{collection_name}:{_normalized_file_name(file_name)}"
+
+
+@dataclass
+class _PreviousVersion:
+    """An earlier upload of one normalized file name, collected before a re-ingest."""
+
+    chunk_ids: list[str] = field(default_factory=list)
+    stored_names: list[str] = field(default_factory=list)
+    preserved: dict[str, str] = field(default_factory=dict)
+
+
+def _read_human_set_fields(collection_name: str, found: dict[str, _PreviousVersion]) -> None:
+    """Copy what people set on each previous version's row onto its entry. Fail-open."""
+    try:
+        from aiq_agent.knowledge import get_document_display_titles
+        from aiq_agent.knowledge import get_document_doc_classes
+        from aiq_agent.knowledge import get_document_folder_paths
+
+        stored_names = [stored for version in found.values() for stored in version.stored_names]
+        for name, values in (
+            ("doc_class", get_document_doc_classes(collection_name, stored_names)),
+            ("display_title", get_document_display_titles(collection_name, stored_names)),
+            ("folder_path", get_document_folder_paths(collection_name, stored_names)),
+        ):
+            for stored, value in values.items():
+                version = found.get(_normalized_file_name(stored))
+                if version is not None:
+                    version.preserved.setdefault(name, value)
+    except Exception:  # noqa: BLE001 — losing them must not keep the old chunks
+        logger.warning("Could not read the previous versions' metadata; re-deriving it", exc_info=True)
+
+
 @register_ingestor("llamaindex")
 class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     """
@@ -1933,7 +2083,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         extract_tables: Enable table extraction from PDFs (default: False)
         extract_charts: Enable chart extraction with structured data (default: False)
         extract_images: Enable image extraction with VLM captioning (default: False)
-        vlm_model: VLM for captioning (default: openai/gpt-5.6-luna)
+        vlm_model: VLM for captioning (default: openai/gpt-6-luna)
 
     Environment variables:
         AIQ_CHROMA_DIR: Default ChromaDB persistence directory
@@ -2693,6 +2843,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         The file_id parameter may be either a backend UUID or a human-readable
         filename (the frontend sends filenames). Both are handled: UUID is looked
         up directly in self._files, while a filename triggers a value-based search.
+
+        Deliberately does NOT take the replacement lock
+        (:func:`_replacement_lock_key`). The ingestor holds it for the whole
+        of a file's ingest, extraction and embedding included, so a delete
+        behind it would wait minutes and outlast the BFF's request timeout. An
+        ingest still running when this deletes inserts the rest of its chunks
+        afterwards; it takes them back out itself once it has indexed, when
+        the BFF answers that the document is gone
+        (``document_presence``, ``_deleted_while_indexing``).
         """
         import re
 
@@ -3168,9 +3327,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         except Exception:
             logger.warning("Failed to upload thumbnail", exc_info=True)
 
-    def _replace_previous_versions(self, chroma_collection, collection_name: str, incoming_names: list[str]) -> None:
-        """Delete the chunks of any EARLIER upload of these file names, so a
-        re-upload REPLACES its predecessor instead of coexisting with it.
+    def _find_previous_versions(
+        self, chroma_collection, collection_name: str, incoming_names: list[str]
+    ) -> dict[str, _PreviousVersion]:
+        """Find the chunks of any EARLIER upload of these file names, keyed by
+        normalized name, so a re-upload can REPLACE its predecessor instead of
+        coexisting with it. Reads only; nothing is deleted here.
 
         Law does not go stale, it gets replaced — and the OIB sync already has
         replacement semantics through its hash registry. Uploaded office and
@@ -3180,60 +3342,170 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         superseded one with full confidence. The newest upload of a name is the
         version the user means; this enforces exactly that, per collection.
 
+        The old version is retired by :meth:`_retire_previous_version` only
+        once the new one is in the vector store. Deleting it first, as this
+        step once did, meant a re-upload that then failed (an encrypted PDF, an
+        empty extraction, a missing VLM key) left the document with no chunks
+        at all: the user replaced a working version with nothing. Retiring
+        afterwards means both versions are retrievable for the length of the
+        job, which is the smaller harm.
+
         Matching mirrors delete_file's normalization (tmp[8]_ prefix strip plus
         percent-decoding), because stored names carry either form depending on
-        how the file reached the backend. One metadata scan per ingestion JOB,
-        not per file. Defensive: replacement failing must never fail the
-        ingest — worst case is the pre-existing duplicate behavior, logged.
+        how the file reached the backend. The read is a ``$in`` filter over
+        the spellings a stored version can carry (:func:`_stored_spellings`,
+        plus the tmp-prefixed names the metadata rows know), so it costs the
+        chunks of the files being replaced, not the collection: it used to read
+        every chunk's metadata, which on the OIB corpus was one full scan per
+        PDF. A legacy tmp-prefixed version with no metadata row is not found,
+        and stays beside its re-upload as it always did. Defensive: the lookup
+        failing must never fail the ingest — worst case is the pre-existing
+        duplicate behavior, logged.
+
+        The caller holds :func:`_replacement_lock_key`'s lock from here until
+        the file has been retired or discarded: two jobs for one name would
+        otherwise both collect the same predecessor and both keep their own
+        new version.
 
         Deliberately name-based only: a NEW name is a new document, even when
         its content supersedes an old one. Detecting renamed versions
         semantically would guess, and a wrong guess silently deletes a document
         someone still cites — the human-classification-wins rule applies.
+
+        Each entry also carries what people set on the previous version's
+        metadata row (``doc_class``, ``display_title``, ``folder_path``). A row
+        stored under the same name is the new version's row too and keeps them
+        by itself; one stored under another spelling (a ``tmp`` prefix,
+        percent-encoding) is dropped at retirement, and the new row takes them
+        over from here.
         """
+        found: dict[str, _PreviousVersion] = {}
         try:
-            from urllib.parse import unquote
-
-            from aiq_agent.knowledge import unregister_summary
-            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
-
-            tmp_prefix = re.compile(r"^tmp.{8}_")
-
-            def normalize(name: str) -> str:
-                return unquote(tmp_prefix.sub("", name or ""))
-
+            normalize = _normalized_file_name
             targets = {normalize(name) for name in incoming_names if name}
             targets.discard("")
             if not targets:
-                return
-            existing = chroma_collection.get(include=["metadatas"])
-            ids_by_stored: dict[str, list[str]] = {}
+                return found
+            from aiq_agent.knowledge import find_tmp_upload_names
+
+            spellings = {spelling for name in incoming_names if name for spelling in _stored_spellings(name)}
+            spellings.update(find_tmp_upload_names(collection_name, sorted(spellings)))
+            existing = chroma_collection.get(where={"file_name": {"$in": sorted(spellings)}}, include=["metadatas"])
             for chunk_id, meta in zip(existing.get("ids", []), existing.get("metadatas", []) or [], strict=False):
                 stored = (meta or {}).get("file_name", "") or ""
-                if normalize(stored) in targets:
-                    ids_by_stored.setdefault(stored, []).append(chunk_id)
-            if not ids_by_stored:
-                return
-            all_ids = [cid for ids in ids_by_stored.values() for cid in ids]
-            chroma_collection.delete(ids=all_ids)
-            bump_collection_version(collection_name)
-            for stored in ids_by_stored:
-                unregister_summary(collection_name, stored)
-                get_chunk_text_store().delete_by_file(collection_name, stored)
-                normalized = normalize(stored)
-                if normalized != stored:
-                    get_chunk_text_store().delete_by_file(collection_name, normalized)
-            logger.info(
-                "Replaced previous version(s): removed %d chunk(s) of %s from %s before re-ingest",
-                len(all_ids),
-                sorted(ids_by_stored),
-                collection_name,
-            )
+                if normalize(stored) not in targets:
+                    continue
+                version = found.setdefault(normalize(stored), _PreviousVersion())
+                version.chunk_ids.append(chunk_id)
+                if stored not in version.stored_names:
+                    version.stored_names.append(stored)
         except Exception:  # noqa: BLE001 — replacement must never break ingestion
             logger.warning(
-                "Could not remove previous versions before ingest; duplicate chunks may remain",
+                "Could not look up previous versions before ingest; duplicate chunks may remain", exc_info=True
+            )
+            return {}
+        if found:
+            _read_human_set_fields(collection_name, found)
+        return found
+
+    def _retire_previous_version(
+        self, chroma_collection, collection_name: str, file_name: str, previous: _PreviousVersion | None
+    ) -> None:
+        """Delete a replaced version once its successor is in the vector store.
+
+        By the chunk ids collected before the job, never by name: the new
+        version carries the same ``file_name`` and would go with it — in Chroma,
+        and in the lexical mirror, which is why the mirror is cleaned with
+        ``delete_chunks`` rather than ``delete_by_file``. For the same reason
+        the metadata row is dropped only under a stored spelling OTHER than
+        ``file_name``: the row under ``file_name`` is the new version's row, and
+        keeping it is what keeps the Dokumentart, title and folder a person set.
+        """
+        if previous is None or not previous.chunk_ids:
+            return
+        try:
+            from aiq_agent.knowledge import unregister_summary
+            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+            chroma_collection.delete(ids=previous.chunk_ids)
+            bump_collection_version(collection_name)
+            get_chunk_text_store().delete_chunks(collection_name, previous.chunk_ids)
+            for stored in previous.stored_names:
+                if stored != file_name:
+                    unregister_summary(collection_name, stored)
+            logger.info(
+                "Replaced previous version(s): removed %d chunk(s) of %s from %s after re-ingest",
+                len(previous.chunk_ids),
+                sorted(previous.stored_names),
+                collection_name,
+            )
+        except Exception:  # noqa: BLE001 — the new version is in; retiring the old must not fail it
+            logger.warning(
+                "Could not remove the previous version of %s after ingest; duplicate chunks may remain",
+                file_name,
                 exc_info=True,
             )
+
+    def _chunk_ids_under(self, chroma_collection, file_name: str) -> set[str] | None:
+        """The ids stored under exactly ``file_name``, or None when they could not be read."""
+        try:
+            return set(chroma_collection.get(where={"file_name": file_name}, include=[]).get("ids") or [])
+        except Exception:  # noqa: BLE001 — without it a failure is not cleaned up, and says so
+            logger.warning("Could not read the chunks of %s before indexing it", file_name, exc_info=True)
+            return None
+
+    def _discard_partial_version(
+        self, chroma_collection, collection_name: str, file_name: str, before: set[str] | None
+    ) -> None:
+        """Delete what a failed attempt inserted, and nothing it found there.
+
+        A file can fail after some of its chunks are in (an embedding batch
+        times out halfway through a long PDF). Those chunks carry the same
+        ``file_name`` as the previous version the failure keeps, so left alone
+        they sat beside it: part of a version nobody meant to publish,
+        retrieved with it. ``before`` is what answered to the name when this
+        attempt started, read under the replacement lock, so the difference is
+        exactly this attempt's chunks. Unknown ``before`` deletes nothing.
+        """
+        if before is None:
+            return
+        try:
+            inserted = sorted((self._chunk_ids_under(chroma_collection, file_name) or set()) - before)
+            if not inserted:
+                return
+            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+            chroma_collection.delete(ids=inserted)
+            bump_collection_version(collection_name)
+            get_chunk_text_store().delete_chunks(collection_name, inserted)
+            logger.warning(
+                "Discarded %d chunk(s) a failed ingest of %s left in %s", len(inserted), file_name, collection_name
+            )
+        except Exception:  # noqa: BLE001 — the file already reads FAILED; this must not mask why
+            logger.warning(
+                "Could not discard the partial chunks of %s; they sit beside the kept version", file_name, exc_info=True
+            )
+
+    @staticmethod
+    def _deleted_while_indexing(config: dict[str, Any], collection_name: str) -> bool:
+        """True only when the BFF says the dispatched document is gone.
+
+        Asked once the file is in the vector store and before its predecessor
+        is retired (``knowledge_layer.llamaindex.document_presence`` has the
+        two windows this closes). A job with no ``document_id`` was not
+        dispatched for a BFF row (the OIB corpus sync, ``/v1/documents``) and
+        is never asked about. Anything short of a definite "gone" reads as
+        present: an unreachable BFF must not cost a live document its chunks.
+        """
+        document_id = config.get("document_id")
+        if not document_id:
+            return False
+        from knowledge_layer.llamaindex import document_presence
+
+        answer = document_presence.document_still_exists(
+            str(document_id), collection_name, config.get("organization_id")
+        )
+        return answer is False
 
     def _run_ingestion(
         self,
@@ -3317,15 +3589,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
             storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
-            # A re-upload replaces its predecessor (same normalized file name,
-            # this collection) before anything new is written — see
-            # _replace_previous_versions for why versions must not coexist.
-            provided_names = config.get("original_filenames", [])
-            incoming_names = [
-                provided_names[i] if i < len(provided_names) else Path(fp).name for i, fp in enumerate(file_paths)
-            ]
-            self._replace_previous_versions(chroma_collection, collection_name, incoming_names)
-
             # Track extraction stats
             total_chunks = 0
             total_tables = 0
@@ -3336,11 +3599,31 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # Original filenames for temp file uploads (avoids tmp prefix in metadata)
             original_filenames = config.get("original_filenames", [])
 
-            # Process each file
+            # Process each file, each under its own replacement lock (see
+            # _find_previous_versions), released when the file is done.
+            kept_previous: list[str] = []
             for i, file_path in enumerate(file_paths):
+                file_scope = contextlib.ExitStack()
+                previous = None
+                retired = False
+                deleted = False
+                # What answered to this name before the attempt inserted
+                # anything; None until indexing starts and again once it is in.
+                chunks_before: set[str] | None = None
+                file_name = original_filenames[i] if i < len(original_filenames) else Path(file_path).name
                 try:
-                    file_name = original_filenames[i] if i < len(original_filenames) else Path(file_path).name
                     file_size = os.path.getsize(file_path)
+
+                    # A re-upload replaces its predecessor (same normalized file
+                    # name, this collection) once the new version is indexed —
+                    # see _find_previous_versions for why versions must not
+                    # coexist, and why the old one is kept until then.
+                    from aiq_agent.knowledge.leader_lock import keyed_lock
+
+                    file_scope.enter_context(keyed_lock(_replacement_lock_key(collection_name, file_name)))
+                    previous = self._find_previous_versions(chroma_collection, collection_name, [file_name]).get(
+                        _normalized_file_name(file_name)
+                    )
 
                     # Explicit per-document classification ("Dokumentart").
                     # Prefer a human-set stored class over the filename guess;
@@ -3353,7 +3636,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
                     from aiq_agent.knowledge import get_document_doc_class
 
-                    stored_doc_class = get_document_doc_class(collection_name, file_name)
+                    # What a person set on the replaced version's row: a row
+                    # under another spelling of the name is dropped when that
+                    # version is retired.
+                    preserved = previous.preserved if previous else {}
+                    row_doc_class = get_document_doc_class(collection_name, file_name)
+                    stored_doc_class = row_doc_class or preserved.get("doc_class")
                     base_corpus = legacy_shelf_for_collection_name(collection_name) is None
                     doc_class = stored_doc_class or (guess_doc_class(file_name) if base_corpus else None)
                     is_pdf = (
@@ -3489,12 +3777,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # summary. Rendered visual/vector pages accumulate here.
                     summary_future = None
                     tags_future = None
+                    doc_class_future = None
                     executor = None
                     drawing_pages: list[dict[str, Any]] = []
 
                     # 2. Extract tables (PDF only)
                     if is_pdf and extract_tables:
-                        tables = _extract_tables_from_pdf(file_path)
+                        taken = {page["page_number"]: page.get("table_boxes") or [] for page in text_pages}
+                        tables = _extract_tables_from_pdf(file_path, taken)
                         for table in tables:
                             table_doc = Document(
                                 text=f"[TABLE from page {table['page_number']}]\n\n{table['table_text']}",
@@ -3535,7 +3825,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                 min_paths=VISUAL_PAGE_MIN_PATHS,
                                 max_pages=MAX_RENDERED_PAGES,
                                 max_dim=PAGE_RENDER_MAX_DIM,
-                                page_texts={p["page_number"]: p["text"] for p in text_pages},
+                                page_texts=page_texts_for_visual_heuristic(text_pages),
                             )
 
                         image_results, drawing_pages = _processing.enrich_vlm_batch(
@@ -3657,11 +3947,28 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             llm_input = drawing_source or text_source
                         else:
                             llm_input = text_source
-                        executor = ThreadPoolExecutor(max_workers=2)
+                        executor = ThreadPoolExecutor(max_workers=3)
                         summary_future = executor.submit(
                             _generate_document_summary, llm_input, file_name, self.summary_llm
                         )
-                        tags_future = executor.submit(classify_document_tags, llm_input, file_name, self.summary_llm)
+                        tags_future = executor.submit(
+                            classify_document_tags,
+                            llm_input,
+                            file_name,
+                            self.summary_llm,
+                            organization_id=organization_id,
+                        )
+                        # A base-corpus file whose name gives no OIB hint lands in
+                        # `sonstiges`; the decision model proposes a Dokumentart
+                        # for the platform owner to accept (ADR-0064, use 8).
+                        from aiq_agent.knowledge.document_classification import DEFAULT_DOC_CLASS
+
+                        if stored_doc_class is None and base_corpus and doc_class == DEFAULT_DOC_CLASS:
+                            from aiq_agent.knowledge.document_classification import suggest_doc_class
+
+                            doc_class_future = executor.submit(
+                                suggest_doc_class, llm_input, file_name, organization_id=organization_id
+                            )
 
                     # Wait for summary if started
                     summary = None
@@ -3735,11 +4042,17 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         _apply_metadata_exclusions(doc)
 
                     # Create/update index with all documents
+                    chunks_before = self._chunk_ids_under(chroma_collection, file_name)
                     if index is None:
                         # First successful file - create new index
+                        # The model passed explicitly, not read off the global
+                        # `Settings`: whatever else sets that global (the retriever
+                        # once set it to the query model, whose timeout is sized for
+                        # one short text) must not decide how a batch is embedded.
                         index = VectorStoreIndex.from_documents(
                             all_documents,
                             storage_context=storage_context,
+                            embed_model=self._embed_model,
                             show_progress=False,
                         )
                     else:
@@ -3764,6 +4077,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         mirrored_ids = mirrored.get("ids") or []
                         mirrored_docs = mirrored.get("documents") or []
                         mirrored_meta = mirrored.get("metadatas") or []
+                        # The previous version still answers to this name until
+                        # it is retired below; mirroring it again is wasted work.
+                        retiring = set(previous.chunk_ids) if previous else set()
                         get_chunk_text_store().upsert_many(
                             collection_name,
                             [
@@ -3785,16 +4101,43 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                     ),
                                 }
                                 for index, chunk_id in enumerate(mirrored_ids)
+                                if chunk_id not in retiring
                             ],
                         )
                     except Exception as mirror_error:
                         logger.warning("Chunk text mirror skipped for %s: %s", file_name, mirror_error)
+
+                    # The document may have been deleted while this attempt
+                    # ran: by a delete that did not wait for the replacement
+                    # lock, or one that landed after the upload and before
+                    # this dispatch. Its chunks go back out, by the same
+                    # difference a failure uses, and nothing is written to the
+                    # metadata row. The predecessor is NOT retired: under this
+                    # name it may already be a new document's first version.
+                    if self._deleted_while_indexing(config, collection_name):
+                        self._discard_partial_version(chroma_collection, collection_name, file_name, chunks_before)
+                        chunks_before = None
+                        deleted = True
+                        self._update_file_status(job, i, FileStatus.FAILED, error=DOCUMENT_DELETED_DURING_INGEST)
+                        logger.warning(
+                            "Discarded the ingest of %s in %s: its document was deleted while it indexed",
+                            file_name,
+                            collection_name,
+                        )
+                        continue
 
                     # Count chunks (nodes)
                     chunks_created = len(all_documents)
                     total_chunks += chunks_created
 
                     self._update_file_status(job, i, FileStatus.SUCCESS, chunks_created=chunks_created)
+                    chunks_before = None
+
+                    # The new version is in the vector store: only now does the
+                    # one it replaces go. A second file of the same normalized
+                    # name later in this job finds THIS version as its previous.
+                    self._retire_previous_version(chroma_collection, collection_name, file_name, previous)
+                    retired = True
 
                     # Drawing PDFs (text-sparse) whose LLM summary failed fall
                     # back to a deterministic, watermark-free summary synthesised
@@ -3833,9 +4176,19 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
                         # Persist the doc_class onto the freshly-created summary
                         # row, but never overwrite a human-set stored value —
-                        # only stamp the guess when none was stored.
-                        if stored_doc_class is None:
+                        # only stamp the guess when none was stored. The class
+                        # carried from a row under another spelling is written
+                        # here too: that row goes when its version is retired.
+                        if row_doc_class is None:
                             set_document_doc_class(collection_name, file_name, doc_class)
+                        suggestion = _future_result(doc_class_future, "Dokumentart suggestion", file_name)
+                        # A replaced version's row is kept under the same
+                        # name, so its old suggestion is cleared rather than
+                        # left standing for a document it no longer describes.
+                        if suggestion or previous is not None:
+                            from aiq_agent.knowledge import set_document_doc_class_suggestion
+
+                            set_document_doc_class_suggestion(collection_name, file_name, suggestion)
 
                         # The folder the BFF filed this document in, carried on
                         # the job config from `POST /v1/ingest` (ADR-0049). It is
@@ -3844,17 +4197,24 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # which is what lets a later rename re-file the document
                         # with no re-ingest. Absent config means "project root".
                         folder_path = (config.get("folder_path") or "").strip() or None
+                        folder_path = folder_path or preserved.get("folder_path")
                         if folder_path:
                             set_document_folder_path(collection_name, file_name, folder_path)
+                        if preserved.get("display_title"):
+                            from aiq_agent.knowledge import set_document_display_title
+
+                            set_document_display_title(collection_name, file_name, preserved["display_title"])
 
                         # The same four keys on the document metadata row, so a
                         # surface that reads the row rather than a chunk — the
                         # collection listing, the agent's inventory — sees the
                         # author too. The row is deleted with the chunks
                         # (`unregister_summary` in `delete_file`), which is what
-                        # makes a superseded or archived version's provenance
-                        # go with the passages it described.
-                        if provenance:
+                        # makes an archived version's provenance go with the
+                        # passages it described. A re-upload keeps the row, so
+                        # it overwrites the provenance, clearing it for a
+                        # version a person wrote.
+                        if provenance or previous is not None:
                             from aiq_agent.knowledge import set_document_provenance
 
                             set_document_provenance(collection_name, file_name, provenance)
@@ -3885,6 +4245,21 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 except Exception as e:
                     logger.exception(f"Error processing file {file_path}")
                     self._update_file_status(job, i, FileStatus.FAILED, error=str(e))
+                    self._discard_partial_version(chroma_collection, collection_name, file_name, chunks_before)
+                finally:
+                    file_scope.close()
+                    # A predecessor still here had a re-upload that did not
+                    # index (raised, or reported FAILED and skipped ahead); it
+                    # stays the version retrieval serves. Not so for a
+                    # deleted document: what answers to its name now is the
+                    # delete's business, or a new document's first version.
+                    if previous is not None and not retired and not deleted:
+                        kept_previous.append(file_name)
+
+            for name in kept_previous:
+                logger.warning(
+                    "Kept the previous version of %s in %s: its re-upload did not index", name, collection_name
+                )
 
             # Determine extraction mode
             mode_parts = ["text"]
@@ -4000,6 +4375,31 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 _EXACT_TERM_DF_CACHE_MAX = 512
 
 
+class _InflightEmbedding:
+    """One query embedding being computed, and what it came to.
+
+    Every caller that finds it waits on ``done`` and then reads the outcome
+    here, never the LRU: a failure is re-raised to all of them at once, so a
+    down embedding API fails every waiter after ONE bounded call instead of
+    handing the key to the next waiter and serialising the failures, and a
+    success reaches them even if the LRU evicted it in between.
+    """
+
+    __slots__ = ("done", "embedding", "error")
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.embedding: list[float] | None = None
+        self.error: BaseException | None = None
+
+    def result(self) -> list[float]:
+        self.done.wait()
+        if self.error is not None:
+            raise self.error
+        assert self.embedding is not None
+        return self.embedding
+
+
 @register_retriever("llamaindex")
 class LlamaIndexRetriever(BaseRetriever):
     """
@@ -4077,6 +4477,12 @@ class LlamaIndexRetriever(BaseRetriever):
         self._embed_cache: dict[tuple[str, str], list[float]] = {}
         self._embed_cache_order: list[tuple[str, str]] = []
         self._embed_cache_lock = threading.Lock()
+        # An embedding being computed, by key: a second caller for the same
+        # query waits for it instead of paying the round trip again, and
+        # shares its outcome, error included (``_InflightEmbedding``). The
+        # turn-start warm-up (``warm_query``) races the turn's own search for
+        # the same question, and without this the loser embedded twice.
+        self._embed_inflight: dict[tuple[str, str], _InflightEmbedding] = {}
 
         # Document frequency of each exact term, per collection size, so the
         # `$contains` channel's DF ceiling costs one `get` per new term rather
@@ -4138,7 +4544,6 @@ class LlamaIndexRetriever(BaseRetriever):
         ensure_retrieval_dependencies()
 
         try:
-            from llama_index.core import Settings
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
             embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
@@ -4153,10 +4558,15 @@ class LlamaIndexRetriever(BaseRetriever):
                 model=self.embed_model_name,
                 api_key=embed_api_key,
                 embed_batch_size=EMBED_BATCH_SIZE,
-                timeout=EMBED_TIMEOUT_SECONDS,
+                # The retriever embeds queries a reader is waiting on: bounded
+                # tightly and retried, never the ingestion batch's 60 s.
+                timeout=QUERY_EMBED_TIMEOUT_SECONDS,
                 max_retries=EMBED_MAX_RETRIES,
             )
-            Settings.embed_model = self._embed_model
+            # Not installed as the process-wide `Settings.embed_model`: every
+            # index this retriever builds is handed the model explicitly
+            # (`_get_index`), and the global would put this 3 s query model
+            # under anything else in the process that reads it.
 
             # Shared server when AIQ_CHROMA_URL/HOST is set, else embedded.
             self._chroma_client = _make_chroma_client(self.persist_dir)
@@ -4195,7 +4605,7 @@ class LlamaIndexRetriever(BaseRetriever):
             raise RuntimeError(f"Collection '{collection_name}' {mismatch}")
 
         vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-        index = VectorStoreIndex.from_vector_store(vector_store)
+        index = VectorStoreIndex.from_vector_store(vector_store, embed_model=self._embed_model)
         with self._index_cache_lock:
             self._index_cache[collection_name] = (now, index)
         return index
@@ -4215,25 +4625,67 @@ class LlamaIndexRetriever(BaseRetriever):
         """
         return await asyncio.to_thread(self._retrieve_sync, query, collection_name, top_k, filters)
 
+    async def warm_query(self, query: str) -> None:
+        """Embed ``query`` ahead of the search that will ask for it; never raises.
+
+        The query embedding is a remote round trip (280-980 ms measured
+        2026-09-24) that the knowledge tool pays before it can rank anything.
+        A caller that knows the query before the search starts runs it here,
+        and the search then finds it in the LRU (or waits for it in flight).
+        It also absorbs the adapter's lazy initialisation on a cold process.
+        """
+        try:
+            await asyncio.to_thread(self._warm_sync, query)
+        except Exception:  # noqa: BLE001 - a warm-up is worth less than the turn
+            logger.debug("Query warm-up failed", exc_info=True)
+
+    def _warm_sync(self, query: str) -> None:
+        self._ensure_initialized()
+        self._embed_query_cached(query)
+
     def _embed_query_cached(self, query: str) -> list[float]:
-        """Embed a query once per (model, text); LRU-bounded."""
+        """Embed a query once per (model, text); LRU-bounded, one computation in flight per key.
+
+        A caller that finds the key in flight shares that computation's
+        outcome: its vector, or its exception re-raised. The owner's call is
+        bounded by the embed model's own timeout and retries, so the wait is.
+        """
         key = (self.embed_model_name, query)
+        # With the LRU off (``EMBED_CACHE_MAX`` 0) the owner's entry is evicted
+        # as it lands, but the in-flight record still carries the vector to
+        # every waiter: parallel searches for one query embed it once.
         with self._embed_cache_lock:
-            if key in self._embed_cache:
+            cached = self._embed_cache.get(key)
+            if cached is not None:
                 self._embed_cache_order.remove(key)
                 self._embed_cache_order.append(key)
-                return self._embed_cache[key]
+                return cached
+            pending = self._embed_inflight.get(key)
+            if pending is None:
+                owned = self._embed_inflight[key] = _InflightEmbedding()
+        if pending is not None:
+            return pending.result()
+        return self._embed_as_owner(key, query, owned)
 
-        embedding = self._embed_model.get_query_embedding(query)
-
-        with self._embed_cache_lock:
-            if key not in self._embed_cache:
+    def _embed_as_owner(self, key: tuple[str, str], query: str, record: _InflightEmbedding) -> list[float]:
+        """Compute the embedding ``record`` stands for, cache it, and release every waiter."""
+        try:
+            embedding = self._embed_model.get_query_embedding(query)
+        except BaseException as exc:
+            record.error = exc
+            raise
+        else:
+            record.embedding = embedding
+            with self._embed_cache_lock:
                 self._embed_cache[key] = embedding
                 self._embed_cache_order.append(key)
                 while len(self._embed_cache_order) > self.EMBED_CACHE_MAX:
-                    evicted = self._embed_cache_order.pop(0)
-                    self._embed_cache.pop(evicted, None)
-        return embedding
+                    self._embed_cache.pop(self._embed_cache_order.pop(0), None)
+            return embedding
+        finally:
+            with self._embed_cache_lock:
+                self._embed_inflight.pop(key, None)
+            record.done.set()
 
     def _cached_static_result(self, key: tuple[str, int, str, int, str]) -> RetrievalResult | None:
         with self._result_cache_lock:
@@ -4597,7 +5049,12 @@ class LlamaIndexRetriever(BaseRetriever):
                 content_type = ContentType.TEXT
 
             # Create display citation based on content type
-            if content_type == ContentType.TABLE:
+            if content_type == ContentType.TABLE and "table_index" not in metadata:
+                # A captioned table (``captioned_tables``) is addressed by its
+                # ``punkt_id`` („Tabelle 3"), not by an index on the page, and
+                # is cited by the page key every other hit renders under.
+                display_citation = f"{file_name}, p.{page_number}" if page_number else file_name
+            elif content_type == ContentType.TABLE:
                 table_idx = metadata.get("table_index", 0)
                 display_citation = f"{file_name}, p.{page_number}, Table {table_idx + 1}"
             elif content_type == ContentType.IMAGE:

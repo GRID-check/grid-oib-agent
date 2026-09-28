@@ -133,9 +133,7 @@ entries:
   topics:
   - bautechnikgesetz
   - bauordnung
-  - bauantrag
-  - baubewilligung
-  relevance: Salzburg building technics act (the Salzburg building code)
+  relevance: Salzburg building technics act (technical requirements; the permit procedure is the Baupolizeigesetz)
   application: LrKons
   document_number: LSB40029658
   citation_url: https://www.ris.bka.gv.at/eli/lgbl/SA/2016/1/P0/LSB40029658
@@ -144,6 +142,26 @@ entries:
     title_query: Bautechnikgesetz
     expect: Bautechnikgesetz
   verified_at: '2026-07-17'
+- id: baupolg-sbg
+  title: Baupolizeigesetz 1997
+  short: Sbg. BauPolG
+  rank: landesgesetz
+  bundesland: Salzburg
+  topics:
+  - bauordnung
+  - bauantrag
+  - baubewilligung
+  - bauanzeige
+  - bewilligungsfrei
+  relevance: Salzburg building permit procedure (Bewilligungspflicht, bewilligungsfreie Maßnahmen, Bauanzeige)
+  application: LrKons
+  document_number: LSB40029372
+  citation_url: https://www.ris.bka.gv.at/eli/lgbl/SA/1997/40/P0/LSB40029372
+  full_law_url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrSbg&Gesetzesnummer=10001005
+  verify:
+    title_query: Baupolizeigesetz
+    expect: Baupolizeigesetz
+  verified_at: '2026-09-24'
 - id: bo-tirol
   title: Bauordnung 2022, Tiroler
   short: Tiroler BO

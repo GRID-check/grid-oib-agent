@@ -19,6 +19,7 @@
  * the section shipped unphotographed at every width.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { use, useEffect } from 'react'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'

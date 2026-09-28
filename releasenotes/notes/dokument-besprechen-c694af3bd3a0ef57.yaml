@@ -1,18 +1,11 @@
 ---
 features:
   - >
-    Zu jedem Dokument gibt es jetzt „Besprechen": in der Dateiablage, auf der
-    Berichtskarte im Chat und auf der Freigabe-Aufforderung im Posteingang. Der
-    Knopf öffnet ein Gespräch, das genau um diese Datei geht — überall mit
-    demselben Wort, statt wie bisher nur an einer Stelle und unter einem anderen
-    Namen.
+    Every document now has Besprechen, in Dateien, on the report card in the
+    chat and on the approval request in the inbox. It opens a conversation about
+    exactly that file.
 improvements:
   - >
-    Piloti kann jetzt auch über einen Entwurf sprechen, den noch niemand
-    veröffentlicht hat. Bisher war der Knopf ausgerechnet bei diesen Dateien
-    ausgegraut, weil sie nicht durchsuchbar sind; Piloti liest die Fassung jetzt
-    direkt und beantwortet Fragen wie „warum steht in Abschnitt 3 GK 4?" aus dem
-    Text selbst.
-  - >
-    Aus dem Gespräch heraus lässt sich derselbe Entwurf auch ändern und wieder
-    ablegen. Es entsteht eine neue Fassung desselben Dokuments, kein zweites.
+    Piloti can now discuss a draft nobody has published yet, reading the version
+    directly, and from that conversation change it into the next version of the
+    same document.

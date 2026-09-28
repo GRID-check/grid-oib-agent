@@ -219,6 +219,19 @@ async def test_patch_doc_class_updates(app, store, uploads_dir):
 
 
 @pytest.mark.asyncio
+async def test_a_person_setting_the_doc_class_clears_the_suggestion(app, store, uploads_dir):
+    """ADR-0064 use 8: once someone has decided, the page has nothing left to offer."""
+    register_summary(_COLLECTION, "plan.pdf", "A plan.")
+    store.set_doc_class_suggestion(_COLLECTION, "plan.pdf", "gesetz")
+
+    async with _client(app) as client:
+        res = await client.patch("/v1/admin/oib/documents/plan.pdf/doc-class", json={"doc_class": "sonstiges"})
+
+    assert res.status_code == 200
+    assert store.get_doc_class_suggestions_batch(_COLLECTION, ["plan.pdf"]) == {}
+
+
+@pytest.mark.asyncio
 async def test_patch_invalid_doc_class_400(app, store, uploads_dir):
     register_summary(_COLLECTION, "plan.pdf", "A plan.")
 

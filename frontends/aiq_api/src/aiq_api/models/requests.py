@@ -204,6 +204,14 @@ class FeedbackDigestSample(BaseModel):
     reason: str | None = Field(None, description="Down-vote reason key, when the vote carried one")
     topics: list[str] = Field(default_factory=list, description="Topic tag keys of the conversation")
     question: str = Field(..., description="The user's question, truncated by the caller")
+    comment: str | None = Field(
+        None,
+        max_length=400,
+        description=(
+            "The down-vote's free-text comment, truncated by the caller. Read only to label the vote's cause "
+            "(ADR-0064, use 9) and quoted to the digest as data."
+        ),
+    )
 
 
 class FeedbackDigestRequest(BaseModel):
@@ -262,6 +270,13 @@ class FeedbackDigestResponse(BaseModel):
     recommendation: str | None = Field(
         None,
         description="One concrete next step, when the data supports one",
+    )
+    causes: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "Sampled unhelpful votes by decided cause (feedback_causes.CAUSES keys), most frequent first; "
+            "empty when no decision ran"
+        ),
     )
     error: str | None = Field(
         default=None,

@@ -9,7 +9,7 @@
 import { describe, expect, it, test } from 'vitest'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { ReportSourceEntry } from '@/features/layout/lib/report-citations'
-import type { TraceLaneCard } from '../trace-lanes'
+import type { TraceLaneCard } from '@/lib/conversations/message-provenance'
 import type { CitationSource } from '../../types'
 import { buildCitationModel } from './build'
 import {

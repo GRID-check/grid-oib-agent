@@ -52,7 +52,7 @@ vi.mock('./repository', () => ({
 
 import type { Document } from '@/lib/db/schema'
 import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
-import { purgeCollectionChunks, purgeSessionDocuments } from './cleanup'
+import { deleteSessionCollection, purgeCollectionChunks, purgeSessionDocuments } from './cleanup'
 import { collectionFileRef } from '@/lib/documents/collection-file-ref'
 
 const CONVERSATION_ID = 's_11111111-2222-3333-4444-555555555555'
@@ -319,6 +319,54 @@ describe('purgeSessionDocuments', () => {
     expect(listSessionDocumentsForCleanup.mock.calls.length).toBeLessThanOrEqual(2)
   })
 
+  it('purges the erased rows’ chunks once more after their rows are deleted', async () => {
+    const order: string[] = []
+    listSessionDocumentsForCleanup.mockResolvedValueOnce([sessionDoc()]).mockResolvedValue([])
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === 'DELETE') order.push(`purge:${init.body as string}`)
+        return { ok: true, status: 200 }
+      }),
+    )
+    deleteSessionDocumentsByIds.mockImplementation(async (ids: string[]) => {
+      order.push(`rows:${ids.join(',')}`)
+    })
+
+    await purgeSessionDocuments(CONVERSATION_ID, ORG_ID)
+
+    const body = JSON.stringify({ file_ids: ['brandschutz.pdf'] })
+    expect(order).toEqual([`purge:${body}`, 'rows:doc-1', `purge:${body}`])
+  })
+
+  it('makes no second purge for a retained row, and a failed second purge is only logged', async () => {
+    const good = sessionDoc({ id: 'doc-good', filename: 'a.pdf', storageKey: 'org/x/session/c/doc/good/a.pdf' })
+    const bad = sessionDoc({ id: 'doc-bad', filename: 'b.pdf', storageKey: 'org/x/session/c/doc/bad/b.pdf' })
+    listSessionDocumentsForCleanup.mockResolvedValue([good, bad])
+    send.mockImplementation((command: DeleteObjectCommand) =>
+      command.input.Key?.includes('/bad/') ? Promise.reject(new Error('boom')) : Promise.resolve({}),
+    )
+    const bodies: string[] = []
+    let calls = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        bodies.push(init?.body as string)
+        calls += 1
+        // The first purge succeeds, the second one fails.
+        return calls === 1 ? { ok: true, status: 200 } : { ok: false, status: 502 }
+      }),
+    )
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const result = await purgeSessionDocuments(CONVERSATION_ID, ORG_ID)
+
+    expect(result).toMatchObject({ ok: false, purged: 1, retained: 1 })
+    expect(bodies[1]).toBe(JSON.stringify({ file_ids: ['a.pdf'] }))
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('second chunk purge'), expect.stringContaining('502'))
+    warn.mockRestore()
+  })
+
   it('does nothing for a conversation with no attachments', async () => {
     listSessionDocumentsForCleanup.mockResolvedValue([])
 
@@ -327,5 +375,65 @@ describe('purgeSessionDocuments', () => {
       purged: 0,
     })
     expect(deleteSessionDocumentsByIds).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The chat's collection as a whole: what the conversation delete erases after
+ * the rows, so chunks no row names do not outlive the chat. Idempotent, because
+ * most chats never had one and a retry finds it already gone.
+ */
+describe('deleteSessionCollection', () => {
+  /** Answers in call order: the existence probe first, then the delete. */
+  function stubFetchSequence(...statuses: number[]): ReturnType<typeof vi.fn> {
+    const fetchMock = vi.fn()
+    for (const status of statuses) {
+      fetchMock.mockResolvedValueOnce({ ok: status >= 200 && status < 300, status })
+    }
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('deletes an existing collection', async () => {
+    const fetchMock = stubFetchSequence(200, 200)
+
+    expect(await deleteSessionCollection(CONVERSATION_ID)).toEqual({ ok: true })
+    const [probeUrl, probe] = fetchMock.mock.calls[0]
+    const [deleteUrl, del] = fetchMock.mock.calls[1]
+    expect(probeUrl).toBe(`http://backend:8000/v1/collections/${CONVERSATION_ID}`)
+    expect(probe.method).toBe('GET')
+    expect(deleteUrl).toBe(`http://backend:8000/v1/collections/${CONVERSATION_ID}`)
+    expect(del.method).toBe('DELETE')
+  })
+
+  it('treats a missing collection as already erased, without deleting', async () => {
+    // The backend answers a DELETE of a missing collection with 500, so asking
+    // first is what keeps "never had attachments" from failing the chat delete.
+    const fetchMock = stubFetchSequence(404)
+
+    expect(await deleteSessionCollection(CONVERSATION_ID)).toEqual({ ok: true })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('treats a deployment without a knowledge layer as having nothing to erase', async () => {
+    stubFetchSequence(503)
+
+    expect(await deleteSessionCollection(CONVERSATION_ID)).toEqual({ ok: true })
+  })
+
+  it('reports FAILURE when the delete is refused', async () => {
+    stubFetchSequence(200, 500)
+
+    const result = await deleteSessionCollection(CONVERSATION_ID)
+    expect(result.ok).toBe(false)
+    expect(result.reason).toContain('500')
+  })
+
+  it('reports FAILURE when the backend cannot be reached', async () => {
+    stubFetch(new Error('ECONNREFUSED'))
+
+    const result = await deleteSessionCollection(CONVERSATION_ID)
+    expect(result.ok).toBe(false)
+    expect(result.reason).toContain('ECONNREFUSED')
   })
 })

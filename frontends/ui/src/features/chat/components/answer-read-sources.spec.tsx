@@ -26,13 +26,8 @@ import type { CitationSource } from '../types'
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
     const state: DeepPartial<ChatStoreWithHydration> = {
-      reportContent: '',
-      deepResearchJobId: null,
-      isDeepResearchStreaming: false,
-      deepResearchStreamLoaded: false,
       currentConversation: null,
       patchConversationMessage: vi.fn(),
-      reconnectToActiveJob: vi.fn(),
     }
     return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
   }),

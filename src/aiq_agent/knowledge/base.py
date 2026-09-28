@@ -191,6 +191,10 @@ class BaseRetriever(ABC):
             RetrievalResult containing normalized Chunks.
         """
 
+    async def warm_query(self, query: str) -> None:
+        """Prepare ``query`` for a search about to be made (its embedding). Optional; never raises."""
+        return None
+
     @abstractmethod
     def normalize(self, raw_result: Any) -> Chunk:
         """

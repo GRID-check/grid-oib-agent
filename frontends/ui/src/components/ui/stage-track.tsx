@@ -31,6 +31,7 @@
  * it survives a monochrome print and a reader who cannot tell two tints apart.
  */
 
+import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
 
 /**

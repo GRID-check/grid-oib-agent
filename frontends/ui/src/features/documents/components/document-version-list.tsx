@@ -41,6 +41,7 @@
  * copy (the inbox's own rule).
  */
 
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { ExternalLink, GitCompare } from 'lucide-react'
 import { Button } from '@/components/ui/button'

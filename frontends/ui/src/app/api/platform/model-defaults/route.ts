@@ -25,6 +25,7 @@ import {
   AGENT_GROUPS,
   AGENT_GROUP_IDS,
   OPENROUTER_MODEL_ID_PATTERN,
+  isAgentGroupId,
 } from '@/lib/model-config/agent-groups'
 import { getWorkflowGroupDefaults } from '@/lib/model-config/backend-defaults'
 import {
@@ -67,8 +68,11 @@ export const GET = platformApiRoute(
       getWorkflowGroupDefaults(),
     ])
 
+    // A retired group's row stays in the table; the page sends back what it
+    // loads, so returning it would make every save a 400. Dropped here, the
+    // next save omits it and `savePlatformModelDefaults` deletes the row.
     const defaults = Object.fromEntries(
-      rows.map((row) => [
+      rows.filter((row) => isAgentGroupId(row.agentGroup)).map((row) => [
         row.agentGroup,
         {
           model: row.model,

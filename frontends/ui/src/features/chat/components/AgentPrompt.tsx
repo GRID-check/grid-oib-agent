@@ -1,16 +1,14 @@
 /**
- * AgentPrompt Component
+ * AgentPrompt — the turn's open question (`interaction_request`, chat wire v2).
  *
- * Displays prompts from the agent that require user response.
- * This is a display-only component - user responds via the main chat input.
- *
- * For plan approval prompts, inline Approve/Reject buttons are rendered
- * inside the bubble so the user can respond without typing.
+ * Two shapes exist: `text` (answered in the composer, or with the inline plan
+ * buttons when the text is the research-plan envelope) and `choice` (answered
+ * by picking an option, which sends the option's `id`).
  */
 
 'use client'
 
-import { type FC, useCallback } from 'react'
+import { type FC, useCallback, useMemo, useState } from 'react'
 import { MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useLocale, useTranslations } from '@/i18n'
@@ -18,22 +16,21 @@ import { formatTime } from '@/shared/utils/format-time'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { BranchOptions } from './reasoning/BranchOptions'
 import { useChatStore } from '../store'
-import type { PromptType } from '../types'
-
-export type { PromptType }
+import { useLayoutStore } from '@/features/layout/store'
+import {
+  approvalReply,
+  parsePlanFence,
+  PlanChecklist,
+  stripPlanFence,
+  type PlanShape,
+} from './PlanChecklist'
+import type { StoredPromptOption } from '@/lib/conversations/message-prompt'
 
 /**
- * The two byte-stable approval envelopes the backend has written, oldest
- * first. The legacy sentence offered approve/reject; the current one
- * (`researcher/clarify.py` `format_plan_for_user`) adds the explicit
- * middle way — a quick shallow answer instead of the plan. Both must keep
- * matching: prompts are
- * persisted and restored, so a thread from before the third option still
- * carries the old sentence.
+ * The byte-stable approval envelope (`researcher/clarify.py`
+ * `format_plan_for_user`): approve, a quick shallow answer instead, or cancel.
  */
-const APPROVAL_PROMPT_LEGACY_RE =
-  /Reply\s+\*{0,2}approve\*{0,2}\s+to proceed,\s+\*{0,2}reject\*{0,2}\s+to cancel/i
-const APPROVAL_PROMPT_THREE_WAY_RE =
+const APPROVAL_PROMPT_RE =
   /Reply\s+\*{0,2}approve\*{0,2}\s+to proceed,\s+\*{0,2}shallow\*{0,2}\s+for a quick answer instead/i
 
 /**
@@ -53,6 +50,8 @@ const APPROVAL_PROMPT_STRIP_RE = /[ \t]*Reply\s+\*{0,2}approve\*{0,2}\s+to proce
 const PLAN_HEADER_RE = /\*\*Research Plan Preview\*\*/
 const PLAN_TITLE_LABEL_RE = /\*\*Title:\*\*/
 const PLAN_SECTIONS_LABEL_RE = /\*\*Sections:\*\*/
+/** The whole sections block (label and numbered lines), for a plan drawn as controls. */
+const PLAN_SECTIONS_BLOCK_RE = /\*\*[^*\n]+\*\*\s*\n(?:\s*\d+\.\s[^\n]*\n?)+/
 
 /**
  * Keyword the user's click sent, mapped to the dictionary key of a
@@ -63,26 +62,17 @@ const APPROVAL_RESPONSE_KEYS: Record<string, string> = {
   approve: 'agentPrompt.responseApproved',
   shallow: 'agentPrompt.responseShallow',
   cancel: 'agentPrompt.responseCancelled',
-  reject: 'agentPrompt.responseRejected',
 }
 
 export interface AgentPromptProps {
-  /** Unique identifier for this prompt */
-  id: string
-  /** Type of prompt */
-  type: PromptType
-  /** Main content/question from the agent */
+  /** The question the agent asked. */
   content: string
-  /** Options for choice prompts (displayed as list) */
-  options?: string[]
-  /** Placeholder text for text input prompts (not used - display only) */
-  placeholder?: string
+  /** `choice` prompts carry options; a pick sends the option's `id`. */
+  options?: StoredPromptOption[]
   /** Whether the prompt has been responded to */
   isResponded?: boolean
-  /** The user's response (if already responded) */
+  /** The answer: the typed text, or the chosen option's `id`. */
   response?: string
-  /** Callback when user responds (not used - display only) */
-  onRespond?: (promptId: string, response: string) => void
   /** Timestamp (Date or ISO string from persisted state) */
   timestamp?: Date | string
   /**
@@ -100,15 +90,7 @@ export interface AgentPromptProps {
   addresseeName?: string | null
 }
 
-/**
- * Agent prompt component - display only.
- * User responds via the main chat input area.
- *
- * When the prompt contains plan approval text, Approve/Reject buttons
- * are rendered inline so the user can respond with a single click.
- */
 export const AgentPrompt: FC<AgentPromptProps> = ({
-  type: _type,
   content,
   options = [],
   isResponded = false,
@@ -120,31 +102,59 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   const t = useTranslations('chat')
   const { locale } = useLocale()
   const respondToInteractionFn = useChatStore((state) => state.respondToInteractionFn)
-  const isThreeWayPrompt = APPROVAL_PROMPT_THREE_WAY_RE.test(content)
-  const isApprovalPrompt = isThreeWayPrompt || APPROVAL_PROMPT_LEGACY_RE.test(content)
+  const isApprovalPrompt = APPROVAL_PROMPT_RE.test(content)
   const showApprovalButtons =
     isApprovalPrompt && !isResponded && !!respondToInteractionFn && isAddressee
   // Replace the English envelope sentence and the English plan scaffolding
   // with localized copy; the plan title/sections themselves are already in the
   // user's language (the planner writes them that way).
+  // The plan as data, when the backend sent it beside the text: the card
+  // renders it as controls, and the approval carries the reader's edits.
+  const plan = useMemo(
+    () => (isApprovalPrompt ? parsePlanFence(content) : null),
+    [content, isApprovalPrompt]
+  )
+  const [editedPlan, setEditedPlan] = useState<PlanShape | null>(null)
+  const shownPlan = editedPlan ?? plan
+  // The Rahmen: the composer's Datengrundlage, read off the layout store the
+  // composer writes. The approval carries the ids; the card shows the names.
+  const enabledSourceIds = useLayoutStore((s) => s.enabledDataSourceIds)
+  const availableSources = useLayoutStore((s) => s.availableDataSources)
+  const rahmen = useMemo(() => {
+    if (!plan) return undefined
+    const ids = enabledSourceIds.filter((id) => (availableSources ?? []).some((s) => s.id === id))
+    const labels = ids.map((id) => (availableSources ?? []).find((s) => s.id === id)?.name ?? id)
+    return { ids, labels }
+  }, [plan, enabledSourceIds, availableSources])
+  // An edited approval is the keyword plus JSON; the receipt keys off the keyword.
   const displayContent = isApprovalPrompt
-    ? content
+    ? stripPlanFence(content)
         .replace(APPROVAL_PROMPT_STRIP_RE, '')
         .replace(PLAN_HEADER_RE, `**${t('agentPrompt.planPreviewHeading')}**`)
         .replace(PLAN_TITLE_LABEL_RE, `**${t('agentPrompt.planTitleLabel')}**`)
         .replace(PLAN_SECTIONS_LABEL_RE, `**${t('agentPrompt.planSectionsLabel')}**`)
         .trim()
     : content
+  // With the plan drawn as controls, the numbered list above it would say the
+  // sections twice; the text keeps the title and loses the list.
+  const bubbleContent = plan
+    ? displayContent.replace(PLAN_SECTIONS_BLOCK_RE, '').trim()
+    : displayContent
 
   // The answered bubble's echo. Approval prompts answer with wire keywords;
   // show what the click meant, not the keyword. Every other prompt echoes the
   // user's own words unchanged.
-  const responseKey = isApprovalPrompt && response ? APPROVAL_RESPONSE_KEYS[response.trim().toLowerCase()] : undefined
+  const responseKey =
+    isApprovalPrompt && response
+      ? APPROVAL_RESPONSE_KEYS[response.trim().toLowerCase().split(/\s/)[0] ?? '']
+      : undefined
   const responseLabel = responseKey ? t(responseKey) : response
 
   const handleApprove = useCallback(() => {
-    respondToInteractionFn?.('approve')
-  }, [respondToInteractionFn])
+    respondToInteractionFn?.(
+      plan && shownPlan ? approvalReply(plan, shownPlan, rahmen?.ids ?? []) : 'approve'
+    )
+  }, [respondToInteractionFn, plan, shownPlan, rahmen])
 
   const handleShallow = useCallback(() => {
     respondToInteractionFn?.('shallow')
@@ -154,29 +164,35 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
     respondToInteractionFn?.('cancel')
   }, [respondToInteractionFn])
 
-  const handleReject = useCallback(() => {
-    respondToInteractionFn?.('reject')
-  }, [respondToInteractionFn])
+  const optionLabels = useMemo(() => options.map((option) => option.label), [options])
+  const selectedLabel = options.find((option) => option.id === response)?.label
+  const handleSelect = useCallback(
+    (label: string) => {
+      const option = options.find((candidate) => candidate.label === label)
+      if (option) respondToInteractionFn?.(option.id)
+    },
+    [options, respondToInteractionFn]
+  )
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full justify-start duration-base ease-entrance motion-reduce:animate-none">
+    <div className="animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance flex w-full justify-start motion-reduce:animate-none">
       <div className="flex max-w-[85%] flex-col">
-        <div className="flex flex-col gap-3 overflow-hidden break-words rounded-2xl rounded-bl-md bg-card p-4">
+        <div className="bg-card flex flex-col gap-3 overflow-hidden break-words rounded-2xl rounded-bl-md p-4">
           {/* Agent icon and label */}
           <div
-            className={`flex items-center gap-2 transition-opacity duration-quick ease-out motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
+            className={`duration-quick flex items-center gap-2 transition-opacity ease-out motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
           >
-            <MessageSquare className="size-5 text-muted-foreground" />
-            <span className="text-sm font-semibold text-muted-foreground">
+            <MessageSquare className="text-muted-foreground size-5" />
+            <span className="text-muted-foreground text-sm font-semibold">
               {isResponded ? t('agentPrompt.receivedInput') : t('agentPrompt.needsInput')}
             </span>
           </div>
 
           {/* Content - rendered as markdown */}
           <div
-            className={`prose prose-sm max-w-none transition-opacity duration-quick ease-out motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
+            className={`prose prose-sm duration-quick max-w-none transition-opacity ease-out motion-reduce:transition-none ${isResponded ? 'opacity-75' : ''}`}
           >
-            <MarkdownRenderer content={displayContent} />
+            <MarkdownRenderer content={bubbleContent} />
           </div>
 
           {/* Choice prompts render as the shared Folgewege branch-picker cards
@@ -185,20 +201,29 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
               as the response display. */}
           {options.length > 0 && (
             <BranchOptions
-              options={options}
-              selected={isResponded ? response : undefined}
+              options={optionLabels}
+              selected={isResponded ? selectedLabel : undefined}
               // A colleague sees the choices as a settled list, not a picker: the
               // question is not theirs to answer.
               isResponded={isResponded || !isAddressee}
-              onSelect={isAddressee ? (respondToInteractionFn ?? undefined) : undefined}
+              onSelect={isAddressee && respondToInteractionFn ? handleSelect : undefined}
               digitShortcuts={isAddressee}
+            />
+          )}
+
+          {shownPlan && (
+            <PlanChecklist
+              plan={shownPlan}
+              disabled={isResponded || !isAddressee || !respondToInteractionFn}
+              rahmen={rahmen}
+              onChange={setEditedPlan}
             />
           )}
 
           {/* Why a colleague has no buttons. Without a line here the card reads as
               broken rather than as somebody else's turn. */}
           {!isAddressee && !isResponded && (
-            <p data-testid="agent-prompt-awaiting-other" className="text-xs text-muted-foreground">
+            <p data-testid="agent-prompt-awaiting-other" className="text-muted-foreground text-xs">
               {addresseeName
                 ? t('agentPrompt.awaitingOther', { name: addresseeName })
                 : t('agentPrompt.awaitingSomeone')}
@@ -209,71 +234,43 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
               approval prompts, shown at the decision point (before approval). */}
           {isApprovalPrompt && !isResponded && isAddressee && (
             <div className="flex flex-col gap-1">
-              <span className="text-sm text-foreground">
-                {isThreeWayPrompt
-                  ? t('agentPrompt.approvalInstructionThreeWay')
-                  : t('agentPrompt.approvalInstruction')}
+              <span className="text-foreground text-sm">
+                {t('agentPrompt.approvalInstructionThreeWay')}
               </span>
-              <span className="text-xs text-muted-foreground">
-                {t('agentPrompt.durationHint')}
-              </span>
+              <span className="text-muted-foreground text-xs">{t('agentPrompt.durationHint')}</span>
             </div>
           )}
 
-          {/* The plan decision. The current envelope offers all three answers
-              the backend understands — cancel outright, a quick shallow answer
-              instead (the middle way this bubble existed to hide), and the
-              deep run. A restored legacy prompt keeps its two buttons: sending
-              "shallow" to the backend that wrote that envelope would be read
-              as plan feedback, not as a choice. */}
-          {showApprovalButtons &&
-            (isThreeWayPrompt ? (
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCancel}
-                  aria-label={t('agentPrompt.cancelResearchAria')}
-                >
-                  {t('agentPrompt.cancelResearch')}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleShallow}
-                  aria-label={t('agentPrompt.answerShallowAria')}
-                >
-                  {t('agentPrompt.answerShallow')}
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={handleApprove}
-                  aria-label={t('agentPrompt.approvePlan')}
-                >
-                  {t('agentPrompt.startResearch')}
-                </Button>
-              </div>
-            ) : (
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleReject}
-                  aria-label={t('agentPrompt.rejectPlan')}
-                >
-                  {t('agentPrompt.reject')}
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={handleApprove}
-                  aria-label={t('agentPrompt.approvePlan')}
-                >
-                  {t('agentPrompt.approve')}
-                </Button>
-              </div>
-            ))}
+          {/* The plan decision: cancel outright, a quick shallow answer
+              instead, or the deep run. */}
+          {showApprovalButtons && (
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCancel}
+                aria-label={t('agentPrompt.cancelResearchAria')}
+              >
+                {t('agentPrompt.cancelResearch')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleShallow}
+                aria-label={t('agentPrompt.answerShallowAria')}
+              >
+                {t('agentPrompt.answerShallow')}
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleApprove}
+                aria-label={t('agentPrompt.approvePlan')}
+              >
+                {t('agentPrompt.startResearch')}
+              </Button>
+            </div>
+          )}
 
           {/* Response display for NON-choice prompts (text/approval). Choice
               prompts show their answer via the selected branch card above. */}
@@ -299,7 +296,7 @@ const ResponseDisplay: FC<{ response?: string }> = ({ response }) => {
   if (!response) return null
 
   return (
-    <div className="flex items-center gap-2 rounded-xl bg-muted px-3 py-2">
+    <div className="bg-muted flex items-center gap-2 rounded-xl px-3 py-2">
       <MessageSquare className="text-subtle size-4" />
       <span className="text-subtle text-sm">
         {t('agentPrompt.yourResponse')} <span className="text-primary">{response}</span>

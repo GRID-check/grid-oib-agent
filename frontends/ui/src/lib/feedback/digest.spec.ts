@@ -144,6 +144,39 @@ describe('getFeedbackDigest — what leaves the process', () => {
     expect(serialised).not.toContain('m1')
   })
 
+  /** ADR-0064 use 9: a down-vote's comment is what its cause is read from; an up-vote's is not sent. */
+  it('sends a down-vote comment with its question, and carries the decided causes back', async () => {
+    const turn = {
+      id: 'f1',
+      organizationId: 'org_loud',
+      projectId: null,
+      conversationId: 'c1',
+      messageId: 'm1',
+      createdAt: new Date(),
+      answer: null,
+      conversationTitle: null,
+      topics: [],
+    }
+    vi.mocked(listFeedbackTurns).mockImplementation(async (filters) =>
+      filters?.verdict === 'up'
+        ? ([{ ...turn, verdict: 'up', reason: null, question: 'U-Wert?', comment: 'super' }] as never)
+        : ([{ ...turn, verdict: 'down', reason: 'inaccurate', question: 'GK 4?', comment: 'R 60, nicht R 90' }] as never),
+    )
+    backendReply({
+      headline: 'Mostly fine.',
+      strengths: ['a'],
+      concerns: ['b'],
+      causes: { wrong_value: 1, bogus: 'x', form: 0 },
+    })
+
+    const result = await getFeedbackDigest(health(), {})
+
+    const samples = sentBody().samples as { verdict: string; comment: string | null }[]
+    expect(samples.find((s) => s.verdict === 'down')?.comment).toBe('R 60, nicht R 90')
+    expect(samples.find((s) => s.verdict === 'up')?.comment).toBeNull()
+    expect(result.digest?.causes).toEqual([{ cause: 'wrong_value', count: 1 }])
+  })
+
   /**
    * `health.turns` holds whichever direction the reader is looking at. A digest
    * that sampled only that would write a different story depending on which tab

@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    The file dialog in a chat no longer offers to delete project files, because
+    that button removed nothing. Delete project files in the project's files; a
+    chat's own attachments can still be deleted there.

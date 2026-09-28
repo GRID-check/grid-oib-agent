@@ -71,16 +71,31 @@ export interface DiagramFiling {
   target: DiagramFilingTarget | null
   /** The document once one exists, for the „Im Projekt öffnen" affordance. */
   documentId: string | null
-  /** The paper bytes exist and there is somewhere to put them. */
+  /** The paper bytes exist, or can be drawn on demand, and there is somewhere to put them. */
   canFile: boolean
   file: () => Promise<void>
 }
 
-/** `--- title: X ---` front matter, which is the only title a SOURCE can carry. */
+/**
+ * `--- title: X ---` front matter, which is the only title a SOURCE can carry.
+ *
+ * A scan line by line, not a regex: the model writes the source, and the two
+ * patterns this replaced (`\n\s*---` after a lazy body, `^\s*title:\s*(.+?)\s*$`)
+ * backtracked quadratically over a long run of blank lines or spaces in it.
+ */
 export function titleFromSource(source: string): string | null {
-  const match = source.match(/^\s*---\s*\n([\s\S]*?)\n\s*---/)
-  const title = match?.[1].match(/^\s*title:\s*(.+?)\s*$/m)?.[1]
-  return title ? title.slice(0, 200) : null
+  const lines = source.split('\n')
+  let i = 0
+  while (i < lines.length && lines[i].trim() === '') i++
+  if (lines[i]?.trim() !== '---') return null
+  let title: string | null = null
+  for (i++; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (line.startsWith('---')) return title
+    if (title === null && line.startsWith('title:')) title = line.slice('title:'.length).trim().slice(0, 200) || null
+  }
+  // Front matter never closed: not front matter.
+  return null
 }
 
 /** The `documentId` of one half of the route's answer, or null if it has none. */
@@ -117,6 +132,12 @@ export interface DiagramFilingOptions {
    */
   fileSvg: string | null
   /**
+   * Draws the paper copy on demand, for a surface that shows its own view and
+   * has no `fileSvg` until the reader files (`renderPaperDiagram`). Used only
+   * while `fileSvg` is null.
+   */
+  renderFileSvg?: () => Promise<string>
+  /**
    * A title the SURFACE knows and the source does not. The `diagram` card has a
    * real one the model wrote for this drawing; a fence has only whatever front
    * matter the source carries. Better provenance wins, so this is checked first.
@@ -124,18 +145,20 @@ export interface DiagramFilingOptions {
   title?: string | null
 }
 
-export function useDiagramFiling({ source, fileSvg, title }: DiagramFilingOptions): DiagramFiling {
+export function useDiagramFiling({ source, fileSvg, renderFileSvg, title }: DiagramFilingOptions): DiagramFiling {
   const t = useTranslations('diagrams')
   const target = useDiagramFilingTarget()
   const [state, setState] = useState<DiagramFilingState>({ kind: 'idle' })
 
   const file = useCallback(async () => {
-    if (!target || !fileSvg) return
+    if (!target || (!fileSvg && !renderFileSvg)) return
     // Feedback inside 100ms: this lands synchronously, before the network is
     // touched, so the control the reader pressed is replaced by „Wird abgelegt …"
     // in the same frame as the press.
     setState({ kind: 'filing' })
     try {
+      const svg = fileSvg ?? (await renderFileSvg?.())
+      if (!svg) throw new Error('no paper copy to file')
       const response = await fetch(`/api/projects/${encodeURIComponent(target.projectId)}/diagrams`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -147,7 +170,7 @@ export function useDiagramFiling({ source, fileSvg, title }: DiagramFilingOption
           // The drawing on screen, in the colours a document is printed in.
           // Same source, same fonts, same layout — only the palette differs, and
           // the reason it has to is in `./diagram-palette.ts`.
-          svg: fileSvg,
+          svg,
         }),
       })
       if (!response.ok) {
@@ -174,13 +197,13 @@ export function useDiagramFiling({ source, fileSvg, title }: DiagramFilingOption
       console.debug('[diagrams] filing failed', error)
       setState({ kind: 'failed', message: t('file.failed') })
     }
-  }, [target, fileSvg, source, title, t])
+  }, [target, fileSvg, renderFileSvg, source, title, t])
 
   return {
     state,
     target,
     documentId: state.kind === 'filed' || state.kind === 'partial' ? state.documentId : null,
-    canFile: Boolean(target && fileSvg),
+    canFile: Boolean(target && (fileSvg || renderFileSvg)),
     file,
   }
 }

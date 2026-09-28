@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.common.wire_v2 import StatusStep
 from aiq_agent.knowledge.scoping import ScopedCollection
 from aiq_agent.turn.inventory import Inventory
 from aiq_agent.turn.inventory import aggregate_documents_across_collections
@@ -14,9 +13,11 @@ from aiq_agent.turn.inventory import await_ingest_settling
 from aiq_agent.turn.inventory import fallback_scope
 from aiq_agent.turn.inventory import in_flight_names
 from aiq_agent.turn.inventory import load_inventory
+from aiq_agent.turn.inventory import pending_uploads
 from aiq_agent.turn.inventory import resolve_scope
 from aiq_agent.turn.inventory import session_collection_name
 from aiq_agent.turn.inventory import shelves_in_scope
+from aiq_agent.turn.inventory import wait_for_uploads
 
 
 def _scoped(names):
@@ -309,32 +310,96 @@ class TestLoadInventory:
         assert inventory.in_flight_documents is None
         assert order.index("in_flight") < order.index("fetch:end"), "the in-flight read must overlap the fetch"
 
-    async def test_a_settled_upload_rebuilds_the_inventory(self):
-        reads = [{"s_1": ["plan.pdf"]}, {}]
-        fetches = {"n": 0}
-
-        async def fetch_one(_collection):
-            fetches["n"] += 1
-            return [] if fetches["n"] == 1 else [_Doc("plan.pdf")]
-
-        inventory = await load_inventory(
-            self.SCOPE, fetch_one=fetch_one, read_in_flight=lambda _n: reads.pop(0), timeout_seconds=5.0
-        )
-
-        assert inventory == Inventory([_Doc("plan.pdf", collection="s_1", shelf="session")], None)
-
-    async def test_an_upload_still_pending_at_the_deadline_is_reported(self):
+    async def test_it_reports_what_is_pending_and_does_not_wait(self):
         async def fetch_one(_collection):
             return []
 
         inventory = await load_inventory(
-            self.SCOPE, fetch_one=fetch_one, read_in_flight=lambda _n: {"s_1": ["plan.pdf"]}, timeout_seconds=0
+            self.SCOPE, fetch_one=fetch_one, read_in_flight=lambda _n: {"s_1": ["plan.pdf", "schnitt.pdf"]}
         )
 
-        assert inventory == Inventory(None, ["plan.pdf"])
+        assert inventory == Inventory(None, ["plan.pdf", "schnitt.pdf"], pending={"s_1": ["plan.pdf", "schnitt.pdf"]})
 
 
-@pytest.fixture(autouse=True)
-def _no_status_frames(monkeypatch):
-    """The waiting status line is fail-open transparency; keep it out of the assertions."""
-    monkeypatch.setattr("aiq_agent.turn.inventory.emit_documents_waiting", lambda **_kw: None)
+class TestTheWaitIsAnnouncedFirst:
+    """``_run`` yields :func:`pending_uploads`, then awaits :func:`wait_for_uploads`."""
+
+    SCOPE = [ScopedCollection("s_1", Shelf.SESSION)]
+    PENDING = Inventory(None, ["plan.pdf"], pending={"s_1": ["plan.pdf"]})
+
+    def test_the_waiting_step_counts_the_pending_files(self, emitted):
+        # RETURNED for `_run` to yield: the setup phase runs outside any graph.
+        assert pending_uploads(self.PENDING) == StatusStep(
+            id="status:documents:waiting",
+            slot="documents:waiting",
+            key="status.documents.waiting",
+            detail={"file_count": 1},
+        )
+        assert emitted == []
+
+    def test_no_pending_upload_or_no_wait_budget_is_no_step(self, monkeypatch):
+        assert pending_uploads(Inventory(None, None)) is None
+        monkeypatch.setenv("GRID_INGEST_WAIT_SECONDS", "0")
+        assert pending_uploads(self.PENDING) is None
+
+    async def test_a_settled_upload_rebuilds_the_inventory(self):
+        reads = [{}]
+
+        async def fetch_one(_collection):
+            return [_Doc("plan.pdf")]
+
+        inventory = await wait_for_uploads(
+            self.SCOPE, self.PENDING, fetch_one=fetch_one, read_in_flight=lambda _n: reads.pop(0), timeout_seconds=5.0
+        )
+
+        assert inventory == Inventory([_Doc("plan.pdf", collection="s_1", shelf="session")], None)
+
+    async def test_an_upload_still_pending_at_the_deadline_keeps_the_inventory(self):
+        async def fetch_one(_collection):
+            raise AssertionError("nothing settled, so nothing is re-read")
+
+        inventory = await wait_for_uploads(
+            self.SCOPE, self.PENDING, fetch_one=fetch_one, read_in_flight=lambda _n: {}, timeout_seconds=0
+        )
+
+        assert inventory is self.PENDING
+
+    async def test_nothing_pending_is_an_immediate_return(self):
+        settled = Inventory([_Doc("a.pdf")], None)
+        assert await wait_for_uploads(self.SCOPE, settled) is settled
+
+
+class TestTheFamiliesLeaveTheGather:
+    """The families are set inside two gathers; a ContextVar set there dies with the task."""
+
+    async def test_the_inventory_carries_the_base_families_out(self):
+        from aiq_agent.knowledge.inventory import get_norm_families
+        from aiq_agent.knowledge.inventory import set_norm_families
+
+        scope = [ScopedCollection("oib_knowledge", Shelf.BASE)]
+
+        async def fetch_one(_collection):
+            return [_Doc("oib-rl_2_ausgabe_mai_2023.pdf"), _Doc("oib-rl_2.1_ausgabe_mai_2023.pdf")]
+
+        set_norm_families(())
+        # As the turn runs it: one member of the setup gather.
+        (inventory,) = await asyncio.gather(load_inventory(scope, fetch_one=fetch_one, read_in_flight=lambda _n: {}))
+
+        assert get_norm_families() == ()  # the var the read set did not survive the gather...
+        assert [(f.key, f.members) for f in inventory.norm_families] == [("2", ("2", "2.1"))]  # ...the field did
+
+    async def test_the_inventory_carries_the_cap_drops_out(self, monkeypatch):
+        from aiq_agent.knowledge.inventory import get_inventory_drops
+        from aiq_agent.knowledge.inventory import set_inventory_drops
+
+        monkeypatch.setenv("GRID_AVAILABLE_DOCUMENTS_MAX", "3")
+        scope = [ScopedCollection("s_1", Shelf.SESSION)]
+
+        async def fetch_one(_collection):
+            return [_Doc(f"plan_{i}.pdf") for i in range(10)]
+
+        set_inventory_drops({})
+        (inventory,) = await asyncio.gather(load_inventory(scope, fetch_one=fetch_one, read_in_flight=lambda _n: {}))
+
+        assert get_inventory_drops() == {}  # the var the read set did not survive the gather...
+        assert inventory.inventory_drops == {Shelf.SESSION: 7}  # ...the field did

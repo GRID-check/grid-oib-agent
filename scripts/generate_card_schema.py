@@ -10,7 +10,9 @@ Run with::
     uv run python scripts/generate_card_schema.py
 """
 
+import argparse
 import json
+from collections.abc import Sequence
 from pathlib import Path
 
 from aiq_agent.cards.models import grid_card_adapter
@@ -32,6 +34,20 @@ def write(path: Path = SCHEMA_PATH) -> Path:
     return path
 
 
-if __name__ == "__main__":
+def main(argv: Sequence[str] | None = None) -> None:
+    """Write the schema. Takes no arguments: ``--help`` prints this, and anything else is refused.
+
+    It used to ignore its arguments, so ``--help`` (or a typo) rewrote the
+    tracked file instead of explaining itself.
+    """
+    parser = argparse.ArgumentParser(
+        description=f"Regenerate {SCHEMA_PATH.relative_to(SCHEMA_PATH.parents[2])} from the Pydantic card models.",
+        epilog="Then run `npm run generate:cards` in frontends/ui.",
+    )
+    parser.parse_args(argv)
     written = write()
     print(f"Wrote Grid card JSON Schema to {written}")
+
+
+if __name__ == "__main__":
+    main()

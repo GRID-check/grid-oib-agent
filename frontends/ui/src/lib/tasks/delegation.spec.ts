@@ -257,6 +257,29 @@ describe('delegateTask', () => {
     expect(run?.error).toContain('backend unreachable')
   })
 
+  it('does not call a submitted run failed when recording it fails (#723)', async () => {
+    // The backend accepted the job; the database write after it did not land.
+    // The run is running, and saying `failed` would tell the reader it is not.
+    vi.mocked(repository.updateRun).mockRejectedValue(new Error('connect EHOSTUNREACH 10.0.0.1:5432'))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const { run } = await delegateTask(session, { projectId: PROJECT, kind: 'document', goal: 'Schreib das' })
+
+    expect(run?.status).toBe('running')
+    expect(run?.backendJobId).toBeTruthy()
+    expect(vi.mocked(repository.updateRun).mock.calls.map(([, , patch]) => patch.status)).toEqual(['running'])
+  })
+
+  it('still returns the failed run when recording the failure fails too', async () => {
+    vi.mocked(submitAgentRun).mockRejectedValue(new JobSubmitError('backend unreachable', 502))
+    vi.mocked(repository.updateRun).mockRejectedValue(new Error('the database system is shutting down'))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const { run } = await delegateTask(session, { projectId: PROJECT, kind: 'document', goal: 'Schreib das' })
+
+    expect(run?.status).toBe('failed')
+  })
+
   it('audits the creation as `task.created`, with the trigger named', async () => {
     await delegateTask(session, { projectId: PROJECT, kind: 'compliance_check', goal: 'Prüf das' })
     expect(recordAuditEvent).toHaveBeenCalledWith(
@@ -440,6 +463,44 @@ describe('commissionResearchRun — an escalated question becomes a run', () => 
       `${QUESTION}\n\nWas in der Unterhaltung bereits geklärt wurde:\nFrage: Welches Geschoss? Antwort: Das Erdgeschoss.`,
     )
     expect(inserted.title).toBe('Gilt für das Atrium in Haus A OIB 2 oder OIB 2.3?')
+  })
+
+  it('carries the Rahmen and the Unterlagen onto the run and to the worker, and the context as the clarifier result', async () => {
+    const documents = {
+      grundlage: [{ name: 'Einreichplan.pdf', title: 'Einreichplan EG', shelf: 'project' }],
+      ausgeschlossen: [{ name: 'alt.pdf' }],
+    }
+    await commissionResearchRun(session, {
+      projectId: PROJECT,
+      conversationId: THREAD,
+      question: QUESTION,
+      context: 'Frage: Welches Geschoss? Antwort: Das Erdgeschoss.',
+      dataSources: ['knowledge_base'],
+      documents,
+    })
+
+    const inserted = vi.mocked(repository.insertRun).mock.calls[0][0]
+    expect(inserted.plan).toMatchObject({
+      dataSources: ['knowledge_base'],
+      context: 'Frage: Welches Geschoss? Antwort: Das Erdgeschoss.',
+      documents,
+    })
+    expect(vi.mocked(submitAgentRun).mock.calls[0][0]).toMatchObject({
+      dataSources: ['knowledge_base'],
+      clarifierResult: 'Frage: Welches Geschoss? Antwort: Das Erdgeschoss.',
+      documents,
+    })
+  })
+
+  it('records no Unterlagen when the lists are empty', async () => {
+    await commissionResearchRun(session, {
+      projectId: PROJECT,
+      conversationId: THREAD,
+      question: QUESTION,
+      documents: { grundlage: [], ausgeschlossen: [] },
+    })
+    const inserted = vi.mocked(repository.insertRun).mock.calls[0][0]
+    expect(inserted.plan).not.toHaveProperty('documents')
   })
 
   it('asks for the same permissions handing over a task asks for', async () => {

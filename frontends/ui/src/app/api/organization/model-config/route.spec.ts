@@ -74,7 +74,7 @@ vi.mock('@/lib/organizations/service', () => ({
 }))
 
 import { GET, PUT } from './route'
-import { createAndActivateVersion } from '@/lib/model-config/service'
+import { createAndActivateVersion, getOrgModelConfig } from '@/lib/model-config/service'
 import { isZdrOnlyForOrg } from '@/lib/organizations/service'
 
 const get = (): Request => new Request('http://localhost/api/organization/model-config')
@@ -103,6 +103,19 @@ describe('/api/organization/model-config', () => {
     const body = await res.json()
     expect(body.agentGroups.map((g: { id: string }) => g.id)).toContain('deep_research')
     expect(body.defaults.deep_research).toBe('deepseek/deepseek-v4-flash')
+  })
+
+  it('GET leaves a retired group out of the active version, so a save can round-trip it', async () => {
+    vi.mocked(getOrgModelConfig).mockResolvedValueOnce({
+      activeVersion: {
+        id: 'version-1',
+        overrides: { deep_research: { model: 'vendor/capable' }, intent: { model: 'vendor/capable' } },
+      },
+      updatedBy: null,
+      updatedAt: null,
+    } as unknown as Awaited<ReturnType<typeof getOrgModelConfig>>)
+    const body = await (await GET(get())).json()
+    expect(Object.keys(body.activeVersion.overrides)).toEqual(['deep_research'])
   })
 
   it('PUT rejects non-admins before validation', async () => {

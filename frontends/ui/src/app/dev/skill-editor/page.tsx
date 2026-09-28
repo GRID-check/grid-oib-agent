@@ -29,6 +29,7 @@
  * production on a server boundary.
  */
 
+import type { JSX } from 'react'
 import { Suspense, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 

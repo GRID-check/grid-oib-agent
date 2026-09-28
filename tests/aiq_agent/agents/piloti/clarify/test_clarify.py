@@ -1,21 +1,21 @@
 """Tests for the clarification step."""
 
 import asyncio
+import json
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
-from unittest.mock import patch
 
 import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
+from langgraph.config import get_stream_writer
 
 from aiq_agent.agents.piloti.clarify import CLARIFICATION_PROMPT
 from aiq_agent.agents.piloti.clarify import MAX_TOOL_ROUNDS
 from aiq_agent.agents.piloti.clarify import PLAN_GENERATION_PROMPT
 from aiq_agent.agents.piloti.clarify import SKIP_COMMANDS
-from aiq_agent.agents.piloti.clarify import TRACE_STEP_NAME
 from aiq_agent.agents.piloti.clarify import ClarifierSettings
 from aiq_agent.agents.piloti.clarify import ClarifyDeps
 from aiq_agent.agents.piloti.clarify import build_deps
@@ -29,6 +29,9 @@ from aiq_agent.agents.piloti.models import ClarifyRequest
 from aiq_agent.agents.piloti.models import PlanResponse
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
+from aiq_agent.common.wire_v2 import ClarificationStep
+from aiq_agent.common.wire_v2 import StepFinishedBody
+from tests.conftest import stream_custom
 
 
 @tool
@@ -490,32 +493,22 @@ class TestTheTraceRow:
     """The one thing the reader sees of this step."""
 
     @pytest.mark.asyncio
-    async def test_the_step_announces_itself_under_the_name_the_ui_maps(self):
-        """`clarifier_agent` is a UI dictionary key (intermediate-step-parser.ts)
-        and it is stamped on turns persisted before the NAT function went away,
-        so the live trace has to keep emitting exactly it."""
-        with patch("aiq_agent.agents.piloti.clarify.push_custom_step") as push:
-            await clarify(request_for(), deps_for(make_llm(clarification()), ask=AsyncMock()))
-
-        assert push.call_args.args[0] == TRACE_STEP_NAME == "clarifier_agent"
-
-    @pytest.mark.asyncio
-    async def test_it_is_emitted_before_the_first_question_blocks(self):
-        """A row that arrives after the dialog would appear once the reader has
-        already been waiting on a question with no explanation."""
-        order: list[str] = []
+    async def test_the_step_is_one_clarification_row_written_before_the_first_question(self):
+        """A row that arrived after the dialog would appear once the reader had
+        already been waiting on a question with no explanation. Run through a
+        compiled graph, so what is asserted is what the stream carries."""
 
         async def ask(question: str, options) -> str:
-            order.append("asked")
+            get_stream_writer()("asked")
             return "skip"
 
-        with patch(
-            "aiq_agent.agents.piloti.clarify.push_custom_step",
-            side_effect=lambda *a: order.append("traced"),
-        ):
-            await clarify(request_for(), deps_for(make_llm(clarification("Which angle?")), ask=ask))
+        deps = deps_for(make_llm(clarification("Which angle?")), ask=ask)
+        written = await stream_custom(lambda: clarify(request_for(), deps))
 
-        assert order == ["traced", "asked"]
+        assert written == [
+            StepFinishedBody(step=ClarificationStep(id="clarification", max_turns=deps.max_turns)),
+            "asked",
+        ]
 
 
 class TestPlanApproval:
@@ -872,3 +865,119 @@ class TestTools:
         assert result.outcome is None
         ask.assert_not_called()
         assert "kept searching" in caplog.text
+
+
+class TestThePlanCard:
+    """The plan travels as data beside its text, and comes back edited."""
+
+    def test_the_preview_carries_the_plan_as_json_beside_the_list(self):
+        plan = PlanResponse(
+            title="Brandschutz", sections=["GK", "Fluchtwege"], genre="pruefbericht", depth="kurzpruefung"
+        )
+        text = format_plan_for_user(plan)
+        assert "```plan_json\n" in text
+        payload = json.loads(text.split("```plan_json\n", 1)[1].split("\n```", 1)[0])
+        assert payload == {
+            "title": "Brandschutz",
+            "sections": ["GK", "Fluchtwege"],
+            "genre": "pruefbericht",
+            "depth": "kurzpruefung",
+            "grundlage": [],
+            "ausgeschlossen": [],
+        }
+        assert text.rstrip().endswith("or provide feedback to revise the plan.")
+
+    def test_the_preview_lists_what_the_run_can_read(self):
+        plan = PlanResponse(title="T", sections=["A"], grundlage=["Einreichplan.pdf"])
+        inventory = [
+            {"file_name": "Einreichplan.pdf", "display_title": "Einreichplan EG", "shelf": "project", "summary": "x"},
+            {"file_name": "Notiz.md", "shelf": "session"},
+            {"summary": "a row without a name is not a document"},
+        ]
+        text = format_plan_for_user(plan, inventory)
+        payload = json.loads(text.split("```plan_json\n", 1)[1].split("\n```", 1)[0])
+        assert payload["grundlage"] == ["Einreichplan.pdf"]
+        assert payload["unterlagen"] == [
+            {"name": "Einreichplan.pdf", "title": "Einreichplan EG", "shelf": "project"},
+            {"name": "Notiz.md", "shelf": "session"},
+        ]
+
+    def test_the_unterlagen_edits_land_and_resolve_against_the_inventory(self):
+        from aiq_agent.agents.piloti.clarify import apply_plan_edits
+        from aiq_agent.agents.piloti.clarify import plan_data_sources
+        from aiq_agent.agents.piloti.clarify import plan_documents
+
+        plan = PlanResponse(title="T", sections=["A"])
+        reply = (
+            '{"grundlage": ["Einreichplan EG", "erfunden.pdf"], "ausgeschlossen": ["alt.pdf"], '
+            '"data_sources": ["knowledge_base", " web_search "]}'
+        )
+        edited = apply_plan_edits(plan, reply)
+        assert edited.grundlage == ["Einreichplan EG", "erfunden.pdf"]
+        assert edited.ausgeschlossen == ["alt.pdf"]
+        inventory = [
+            {"file_name": "Einreichplan.pdf", "display_title": "Einreichplan EG", "shelf": "project"},
+            {"file_name": "alt.pdf", "shelf": "archiv"},
+        ]
+        docs = plan_documents(edited, inventory)
+        assert docs is not None
+        # A title resolves to its file; an invented name falls out.
+        assert [d.name for d in docs.grundlage] == ["Einreichplan.pdf"]
+        assert docs.grundlage[0].title == "Einreichplan EG" and docs.grundlage[0].shelf == "project"
+        assert [d.name for d in docs.ausgeschlossen] == ["alt.pdf"]
+        assert plan_data_sources(reply) == ["knowledge_base", "web_search"]
+        assert plan_data_sources('{"sections": ["A"]}') is None
+
+    def test_an_excluded_name_beats_the_same_name_in_the_grundlage(self):
+        from aiq_agent.agents.piloti.clarify import plan_documents
+
+        plan = PlanResponse(title="T", sections=["A"], grundlage=["a.pdf"], ausgeschlossen=["a.pdf"])
+        docs = plan_documents(plan, [{"file_name": "a.pdf"}])
+        assert docs is not None and docs.grundlage == [] and [d.name for d in docs.ausgeschlossen] == ["a.pdf"]
+
+    def test_the_approved_context_names_the_unterlagen(self):
+        from aiq_agent.agents.piloti.clarify import approved_plan_context
+        from aiq_agent.common.plan_documents import PlanDocument
+        from aiq_agent.common.plan_documents import PlanDocuments
+
+        docs = PlanDocuments(
+            grundlage=[PlanDocument(name="Einreichplan.pdf", title="Einreichplan EG", shelf="project")],
+            ausgeschlossen=[PlanDocument(name="alt.pdf")],
+        )
+        text = approved_plan_context(PlanResponse(title="T", sections=["A"]), docs)
+        assert "Grundlage (documents to read in full" in text
+        assert "- Einreichplan EG — Einreichplan.pdf [project]" in text
+        assert "Ausgeschlossen (documents that may not be used" in text and "- alt.pdf" in text
+
+    def test_an_edited_approval_is_approved_with_its_edits(self):
+        decision, edits = parse_plan_reply('approve {"sections": ["Nur Wien"], "depth": "gutachten"}')
+        assert decision == "approved"
+        assert json.loads(edits) == {"sections": ["Nur Wien"], "depth": "gutachten"}
+
+    def test_the_edits_land_on_the_plan_and_the_title_stays(self):
+        from aiq_agent.agents.piloti.clarify import apply_plan_edits
+
+        plan = PlanResponse(title="T", sections=["A", "B"])
+        edited = apply_plan_edits(plan, '{"sections": ["B", " C "], "genre": "aktenvermerk", "depth": "kurzpruefung"}')
+        assert edited.title == "T"
+        assert edited.sections == ["B", "C"]
+        assert edited.genre == "aktenvermerk" and edited.depth == "kurzpruefung"
+
+    def test_unreadable_or_invalid_edits_run_the_plan_as_shown(self):
+        from aiq_agent.agents.piloti.clarify import apply_plan_edits
+
+        plan = PlanResponse(title="T", sections=["A"])
+        assert apply_plan_edits(plan, "not json") == plan
+        assert apply_plan_edits(plan, '{"genre": "roman"}') == plan
+        assert apply_plan_edits(plan, '{"sections": []}') == plan
+
+    def test_the_approved_context_binds_genre_depth_and_the_points(self):
+        from aiq_agent.agents.piloti.clarify import approved_plan_context
+
+        text = approved_plan_context(PlanResponse(title="T", sections=["A", "B"], genre="vergleich", depth="gutachten"))
+        assert "Genre: vergleich" in text and "Depth: gutachten" in text
+        assert "Sections (required components, in this order):\n- A\n- B" in text
+
+    def test_a_plan_without_the_new_keys_still_parses_with_the_defaults(self):
+        plan = parse_json_response('{"title": "T", "sections": ["A"]}', PlanResponse)
+        assert plan is not None and plan.genre == "bericht" and plan.depth == "gutachten"

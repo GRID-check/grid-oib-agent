@@ -63,6 +63,53 @@ class TestSplitting:
         assert "Die Baupläne" in body
         assert "ist zu verhandeln" not in body
 
+    def test_the_header_block_before_each_section_is_folded_into_it(self):
+        """RIS prints ``§ 63`` / ``Text`` / Überschrift, then ``§ 63.`` and the text."""
+        text = (
+            "§ 63\n\nText\n\nBelege für das Baubewilligungsverfahren\n"
+            "§ 63.\n(1)\nFür das Baubewilligungsverfahren hat der Bauwerber vorzulegen:\n"
+            "§ 64\n\nText\n\nBaupläne\n§ 64.\n(1) Die Baupläne haben zu enthalten:"
+        )
+        sections = split_sections(text)
+        assert [s.label for s in sections] == ["§ 63", "§ 64"]
+        assert sections[0].heading == "Belege für das Baubewilligungsverfahren"
+        assert "hat der Bauwerber vorzulegen" in sections[0].body
+
+    def test_a_sentence_opening_with_a_cross_reference_starts_nothing(self):
+        text = "§ 65.\n(1) Baupläne müssen unterfertigt sein.\n§ 66.\n(1) Anderes.\n§ 65 Abs. 2 gilt sinngemäß."
+        sections = split_sections(text)
+        assert [s.label for s in sections] == ["§ 65", "§ 66"]
+        assert sections[1].body.endswith("§ 65 Abs. 2 gilt sinngemäß.")
+
+    def test_a_table_of_contents_entry_is_not_a_second_section(self):
+        """The Tiroler Bauordnung opens with its §§ listed, far from § 8 itself."""
+        text = (
+            "§ 7\nAbstellmöglichkeiten für Fahrräder\n§ 8\nAbstellmöglichkeiten für Kraftfahrzeuge\n"
+            "§ 7\nAbstellmöglichkeiten für Fahrräder\n(1) Beim Neubau sind Fahrradabstellplätze zu schaffen.\n"
+            "§ 8\nAbstellmöglichkeiten für Kraftfahrzeuge\n(1) Beim Neubau von Gebäuden sind Stellplätze zu schaffen."
+        )
+        sections = split_sections(text)
+        assert [s.label for s in sections] == ["§ 7", "§ 8"]
+        assert "Stellplätze zu schaffen" in sections[1].body
+        # The heading under the marker, not the line above it: that is the
+        # table of contents' next entry, or the previous section's text.
+        assert sections[0].heading == "Abstellmöglichkeiten für Fahrräder"
+        assert sections[1].heading == "Abstellmöglichkeiten für Kraftfahrzeuge"
+
+    def test_a_heading_under_the_marker_beats_the_abschnitt_title_above_it(self):
+        text = "2. Abschnitt\nBauplätze\n§ 7\nAbstellmöglichkeiten für Fahrräder\n(1) Beim Neubau."
+        assert split_sections(text)[0].heading == "Abstellmöglichkeiten für Fahrräder"
+
+    def test_a_repealed_provision_beats_its_longer_table_of_contents_entry(self):
+        """``§ 8.`` is a provision's marker; the bare ``§ 8`` of an index is not."""
+        text = "§ 8\nAbstellmöglichkeiten für Kraftfahrzeuge\n§ 9\nBauplätze\n§ 8.\n(entfällt)\n§ 9.\n(1) Ein Bauplatz."
+        sections = split_sections(text)
+        assert [s.label for s in sections] == ["§ 8", "§ 9"]
+        assert "(entfällt)" in sections[0].body
+
+    def test_an_absatz_under_the_marker_is_not_a_heading(self):
+        assert split_sections("Dies ist Text.\n§ 1.\n(1)\nDer Inhalt.")[0].heading == ""
+
 
 class TestAbsaetze:
     def test_the_named_absatz_is_cut_out_of_the_section(self):

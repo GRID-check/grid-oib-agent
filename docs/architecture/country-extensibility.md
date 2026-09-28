@@ -60,13 +60,10 @@ Phase 3 — vocabulary and language surfaces (scoped per country):
    (bundesland options, `gebaeudeklasse` GK1–5, `fluchtniveau` >22m bands,
    `widmung` options, the four AT boolean triggers) — country #2 needs its own
    question set; the intake machinery itself is versioned and generic.
-7. Compliance checker: `RICHTLINIE_NAMES`/1–6 scope, the two German prompts,
-   and the German report renderer are OIB/AT-specific — a per-country
-   requirement taxonomy + renderer behind the profile's applicability hook.
-8. Agent identity prompts: the j2 prompts hardcode "Austrian building
+7. Agent identity prompts: the j2 prompts hardcode "Austrian building
    regulations / RIS / OIB" framing — template off the profile
    (`country_name`, `legal_source_tools`) when country #2 ships.
-9. Request envelope: `GridRequestContext.bundesland` is AT-vocabulary; add a
+8. Request envelope: `GridRequestContext.bundesland` is AT-vocabulary; add a
    `country` envelope field alongside it (the structured `country=<cc>` prompt
    fact is already parsed by `resolve_country`).
 

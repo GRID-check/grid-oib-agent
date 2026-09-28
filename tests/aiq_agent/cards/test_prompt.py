@@ -2,6 +2,7 @@
 
 import pytest
 
+from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
 from aiq_agent.cards.catalog import MODEL_BACKED_CARD_TYPES
 from aiq_agent.cards.catalog import render_card_catalog
 from aiq_agent.cards.catalog import render_card_doctrine
@@ -68,7 +69,7 @@ class TestCatalogSharedAcrossSurfaces:
         # turn whether or not a card is emitted; `describe_card` fetches the one
         # that is actually needed.
         description = _build_tool_description()
-        assert render_card_index() in description
+        assert render_card_index(exclude=CHAT_ONLY_CARD_TYPES) in description
         assert render_card_catalog() not in description
 
     def test_the_tool_teaches_the_shape_on_the_RETRY_rather_than_in_advance(self):
@@ -85,7 +86,8 @@ class TestCatalogSharedAcrossSurfaces:
         assert "never a reason to skip a card the answer called for" in description
 
     def test_post_hoc_generation_embeds_the_catalog_minus_the_model_cards(self):
-        assert render_card_catalog(include_model_backed=False) in build_card_generation_prompt()
+        catalog = render_card_catalog(include_model_backed=False, exclude=CHAT_ONLY_CARD_TYPES)
+        assert catalog in build_card_generation_prompt()
 
     def test_post_hoc_generation_is_not_shown_a_card_it_cannot_fill(self):
         prompt = build_card_generation_prompt()

@@ -47,12 +47,20 @@ _LEGACY_INDEX_NAME = "idx_summaries_collection"
 #: Optional (nullable) columns added after the original schema shipped. Kept as a
 #: single list so both the fresh-create path and the in-place backfill add the
 #: exact same set — a new column is introduced by appending one entry here.
-_OPTIONAL_COLUMNS: tuple[str, ...] = ("tags", "doc_class", "display_title", "folder_path", "provenance")
+_OPTIONAL_COLUMNS: tuple[str, ...] = (
+    "tags",
+    "doc_class",
+    "display_title",
+    "folder_path",
+    "provenance",
+    "doc_class_suggestion",
+)
 
 # Every raw-SQL statement in this module interpolates ONLY trusted, code-defined
 # SQL identifiers: the table/index name constants above, and column names drawn
 # from a fixed allowlist (``_OPTIONAL_COLUMNS`` plus the literal
-# ``"tags"``/``"doc_class"``/``"display_title"``/``"folder_path"``/``"provenance"``
+# ``"tags"``/``"doc_class"``/``"display_title"``/``"folder_path"``/``"provenance"``/
+# ``"doc_class_suggestion"``
 # passed by the typed accessors).
 # SQL identifiers cannot be bound parameters, so they must live in the statement
 # text. Every caller-supplied *value* (collection, filename, summary, tags,
@@ -383,6 +391,19 @@ class DocumentMetadataStore:
         """Return stored explicit ``doc_class`` values for many documents in one query."""
         return self._get_column_batch(collection, filenames, "doc_class")
 
+    def set_doc_class_suggestion(self, collection: str, filename: str, doc_class: str | None) -> bool:
+        """Store (or clear, with ``None``) the decided Dokumentart a human has not confirmed.
+
+        A suggestion, never the class: nothing reads it but the base-knowledge
+        page, which offers it to the platform owner. Same UPDATE-only contract
+        as :meth:`set_doc_class`.
+        """
+        return self._update_column(collection, filename, "doc_class_suggestion", doc_class)
+
+    def get_doc_class_suggestions_batch(self, collection: str, filenames: list[str]) -> dict[str, str]:
+        """Stored Dokumentart suggestions for many documents in one query."""
+        return self._get_column_batch(collection, filenames, "doc_class_suggestion")
+
     def set_display_title(self, collection: str, filename: str, display_title: str | None) -> bool:
         """Replace only the ``display_title`` of an existing metadata row (sync).
 
@@ -608,6 +629,34 @@ class DocumentMetadataStore:
             logger.warning("Failed to batch-get %s for %s: %s", column, collection, e)
             return {}
         return result
+
+    def find_tmp_upload_names(self, collection: str, filenames: list[str]) -> list[str]:
+        """The stored names that are one of ``filenames`` behind a ``tmp[8]_`` upload prefix.
+
+        The vector store cannot filter by pattern, and the prefix is random, so
+        this row table is where a re-upload learns those spellings without
+        reading every chunk of the collection. One indexed query per call. Empty
+        on any failure: the caller then misses a legacy spelling, never fails.
+        """
+        names = [name for name in dict.fromkeys(filenames) if name]
+        if not names:
+            return []
+        from sqlalchemy import text
+
+        # tmp + exactly eight characters + a literal underscore + the name.
+        patterns = {f"p{index}": f"tmp{'_' * 8}\\_{_escape_like(name)}" for index, name in enumerate(names)}
+        where = " OR ".join(f"filename LIKE :{key} ESCAPE '\\'" for key in patterns)
+        try:
+            with self._sync_engine.connect() as conn:
+                rows = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(f"SELECT filename FROM {TABLE_NAME} WHERE collection = :collection AND ({where})"),
+                    {"collection": collection, **patterns},
+                )
+                return [row[0] for row in rows]
+        except Exception as e:
+            logger.warning("Failed to look up tmp-prefixed names in %s: %s", collection, e)
+            return []
 
     def list_collections(self) -> list[str]:
         """Return every distinct collection present in the metadata table (sync).

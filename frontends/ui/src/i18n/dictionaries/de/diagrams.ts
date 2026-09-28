@@ -13,6 +13,14 @@ export const diagrams: typeof en.diagrams = {
   /** The file name a diagram gets when neither the source nor the surface names it. */
   defaultTitle: 'Diagramm',
   fallback: 'Dieses Diagramm konnte nicht gezeichnet werden. Der Quelltext steht darüber.',
+  kind: {
+    flow: 'Ablaufdiagramm',
+    map: 'Gliederung',
+    handoff: 'Übergaben',
+    schedule: 'Zeitplan',
+    shares: 'Anteile',
+  },
+  scrollable: '{name}, seitlich scrollbar',
   file: {
     action: 'Im Projekt ablegen',
     pending: 'Wird abgelegt …',

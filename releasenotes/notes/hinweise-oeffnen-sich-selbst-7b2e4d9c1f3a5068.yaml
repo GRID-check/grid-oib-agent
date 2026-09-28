@@ -1,0 +1,12 @@
+---
+fixes:
+  - >
+    The answer details now open by themselves when an answer carries something
+    that must not be missed: research that was cut short, removed evidence or
+    low confidence.
+  - >
+    Follow-up suggestions, the methods used and the answer header now survive a
+    reload, a change of device and a colleague reading along.
+  - >
+    The verdict in the answer header shows its confidence and reasoning again,
+    and copied answers and Word exports no longer contain internal placeholders.

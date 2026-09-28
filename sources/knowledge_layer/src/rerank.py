@@ -29,6 +29,8 @@ import logging
 import math
 from typing import Any
 
+from aiq_agent.common.message_utils import response_text
+
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
@@ -300,10 +302,7 @@ async def rerank_chunks(
             llm.ainvoke([("system", _SYSTEM_PROMPT), ("user", _build_user_prompt(query, chunks, max_doc_chars))]),
             timeout=timeout_seconds,
         )
-        content = getattr(response, "content", None)
-        if content is None and isinstance(response, dict):
-            content = response.get("content")
-        raw = str(content or "")
+        raw = response_text(response)
         if not raw:
             raise ValueError("empty judge reply")
 

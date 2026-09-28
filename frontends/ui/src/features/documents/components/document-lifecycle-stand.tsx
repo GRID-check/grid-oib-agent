@@ -43,6 +43,7 @@
  * somebody who cannot tell the two tints apart.
  */
 
+import type { JSX } from 'react'
 import { StageTrack } from '@/components/ui/stage-track'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'

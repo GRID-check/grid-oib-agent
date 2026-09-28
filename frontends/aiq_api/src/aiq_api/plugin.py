@@ -28,6 +28,7 @@ from collections.abc import Callable
 from fastapi import APIRouter
 from fastapi import FastAPI
 from pydantic import Field
+from pydantic import model_validator
 from typing_extensions import override
 
 from aiq_agent.common.log_redaction import install_presigned_url_scrubbing
@@ -35,13 +36,18 @@ from aiq_agent.stages.delivery import register_stage_frame_sink
 from aiq_api.auth.middleware import AuthMiddleware
 from aiq_api.context_envelope import GridContextEnvelopeMiddleware
 from nat.builder.workflow_builder import WorkflowBuilder
-from nat.cli.register_workflow import register_front_end
+from nat.cli.register_workflow import register_front_end  # noqa: TID251
 from nat.data_models.config import Config
+from nat.data_models.step_adaptor import StepAdaptorConfig
+from nat.data_models.step_adaptor import StepAdaptorMode
 from nat.front_ends.fastapi.fastapi_front_end_config import FastApiFrontEndConfig
 from nat.front_ends.fastapi.fastapi_front_end_plugin import FastApiFrontEndPlugin
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorker
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorkerBase
 
+from .chat_socket import chat_socket_endpoint
+from .chat_socket import configure_websocket_auth
+from .chat_socket import send_stage
 from .jobs.connection_manager import get_connection_manager
 from .jobs.event_store import EventStore
 from .routes.cards import add_card_catalog_routes
@@ -65,25 +71,23 @@ from .routes.ris import add_ris_routes
 from .routes.skill_review import add_skill_review_routes
 from .routes.skills import add_skill_routes
 from .startup_banner import log_boot_line
-from .websocket_reconnect import configure_websocket_auth
-from .websocket_reconnect import install_reconnectable_handler
-from .websocket_reconnect import send_stage_frame
 
 logger = logging.getLogger(__name__)
 
-install_reconnectable_handler()
+#: Where the chat socket is mounted: the path `server.js`, the scope route and
+#: conversation affinity already use.
+CHAT_SOCKET_PATH = "/websocket"
 
-# The post-answer stage frame channel (docs/architecture/post-answer-stages.md
-# §2.7). `aiq_agent` owns the graph and may not import a WebSocket; this tier
-# owns the socket and publishes the sink to it, the same inversion
+# The post-answer stage channel (docs/architecture/post-answer-stages.md §2.7).
+# `aiq_agent` owns the graph and may not import a WebSocket; this tier owns the
+# socket and publishes the sink to it, the same inversion
 # `register_context_appender` uses in the opposite direction.
 #
-# Registered at IMPORT of this module, next to the handler patch, because that is
-# what "the front end starts up" means: a process that never loads this front end
-# — a CLI run, a Dask job worker — leaves the sink unset, and a `frame` stage
-# there still runs, is still bounded and still records its outcome. It simply has
-# nobody to tell.
-register_stage_frame_sink(send_stage_frame)
+# Registered at IMPORT of this module, because that is what "the front end
+# starts up" means: a process that never loads this front end — a CLI run, a
+# Dask job worker — leaves the sink unset, and a `frame` stage there still runs,
+# is still bounded and still records its outcome. It simply has nobody to tell.
+register_stage_frame_sink(send_stage)
 
 
 _validators: list = []
@@ -162,6 +166,21 @@ class AIQAPIConfig(FastApiFrontEndConfig, name="aiq_api"):
         le=604800,
         description="Job expiry time in seconds (default: 24 hours)",
     )
+    # The chat wire is ours (ADR-0068): NAT mounts no WebSocket route, and its
+    # step adaptor, which fed that route, is off. Steps still reach the
+    # exporters, which subscribe to the step manager and not to the adaptor.
+    workflow: FastApiFrontEndConfig.EndpointBase = FastApiFrontEndConfig().workflow.model_copy(
+        update={"websocket_path": None}
+    )
+    step_adaptor: StepAdaptorConfig = StepAdaptorConfig(mode=StepAdaptorMode.OFF)
+
+    @model_validator(mode="after")
+    def _no_nat_websocket(self) -> "AIQAPIConfig":
+        """`/websocket` is the chat socket's; a NAT socket route beside it would run the old wire."""
+        paths = [self.workflow.websocket_path, *(endpoint.websocket_path for endpoint in self.endpoints)]
+        if any(paths):
+            raise ValueError("aiq_api serves the chat socket itself; leave every websocket_path unset")
+        return self
 
 
 # Track if shutdown signal has been received (for force exit on second Ctrl+C)
@@ -303,6 +322,11 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
     @override
     async def add_routes(self, app: FastAPI, builder: WorkflowBuilder):
         await super().add_routes(app, builder)
+
+        # The chat socket (ADR-0068), on the worker's own session manager so
+        # NAT shuts it down with the others.
+        session_manager = await self._create_session_manager(builder)
+        app.add_api_websocket_route(CHAT_SOCKET_PATH, chat_socket_endpoint(session_manager))
 
         # Presigned URLs are live bearer credentials to a tenant's objects, and
         # this tier handles them on every ingest. Scrubbing is installed on the

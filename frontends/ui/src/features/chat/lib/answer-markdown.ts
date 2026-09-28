@@ -30,10 +30,15 @@ import {
   type CitedDocument,
 } from './citations'
 
-/** A `[[card:N]]` placement marker sitting alone on its line. */
-const CARD_MARKER_LINE = /^ {0,3}\[\[card:\d+\]\][ \t]*$/
-/** A `[[card:N]]` marker anywhere in a line. */
-const CARD_MARKER = /\[\[card:\d+\]\]/g
+/**
+ * A `[[card:N]]` or `[[callout]]` placement marker sitting alone on its line.
+ * The callout marker survives in the prose when its callout did (the backend
+ * leaves at most one for the renderer to splice at), so it is machinery here
+ * exactly like the card markers.
+ */
+const CARD_MARKER_LINE = /^ {0,3}\[\[(?:card:\d+|callout)\]\][ \t]*$/
+/** A placement marker anywhere in a line. */
+const CARD_MARKER = /\[\[(?:card:\d+|callout)\]\]/g
 
 /**
  * Remove the card placement markers from answer markdown.
@@ -109,10 +114,7 @@ const pageTextFor = (doc: CitedDocument, labels: AnswerSourceLabels): string | u
  * `legal_basis` card names a law, not a passage) follow as bullets rather than
  * being given a number the prose never wrote.
  */
-export const sourcesMarkdown = (
-  documents: CitedDocument[],
-  labels: AnswerSourceLabels
-): string => {
+export const sourcesMarkdown = (documents: CitedDocument[], labels: AnswerSourceLabels): string => {
   const docs = answerDocuments(documents)
   if (docs.length === 0) return ''
 

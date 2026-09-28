@@ -160,7 +160,7 @@ config:
   grid-oib:enforceFeatureFlags: "true"
   # Agent Skills + Jobs (ADR-0046). Inert for the UI under enforcement — the
   # per-org `skills` flag decides, and it is ON for all staging organizations —
-  # but still what creates the `skill-scheduler` Deployment, so it stays "true".
+  # but still what lets the `skill-scheduler` fire schedules, so it stays "true".
   grid-oib:skillsEnabled: "true"
   # Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox. Also
   # inert under enforcement (the `collaboration` flag is ON for all staging
@@ -248,5 +248,9 @@ config:
   # Caps are deliberately conservative for a first deployment (20 new issues
   # per day, 600s coalescing window — see src/config.ts). Raise
   # err2issueMaxNewFingerprintsPerDay once steady-state volume is known.
+  # Trace ids link to the Aspire dashboard (derived from otelDomain). Also
+  # optional: err2issueIssueAssignees (comma-separated logins) and
+  # err2issueReopenNotPlanned (default false: an issue closed as not planned
+  # or duplicate stays closed when its error recurs; completed ones reopen).
   grid-oib:err2issueEnabled: "true"
   grid-oib:err2issueGithubRepo: GRID-check/grid-oib-agent

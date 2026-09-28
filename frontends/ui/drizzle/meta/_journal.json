@@ -645,6 +645,48 @@
       "when": 1790208000006,
       "tag": "0091_run_messages",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1790294400006,
+      "tag": "0092_document_version_number_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1790380800006,
+      "tag": "0093_legal_hold_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1790467200006,
+      "tag": "0094_document_versions_document_fk",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1790553600006,
+      "tag": "0095_conversation_erasure_retry",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1790640000006,
+      "tag": "0096_task_runs_reconcile",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1790726400006,
+      "tag": "0097_herleitung_steps_v2",
+      "breakpoints": true
     }
   ]
 }

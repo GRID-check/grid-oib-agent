@@ -14,8 +14,11 @@
  * would have to be kept in step with the first.
  *
  * The envelope shape (`{v, conv, seq, origin, type, payload}`) is that module's
- * wire contract, and `docs/architecture/backend-deep-dive.md` documents it.
- * Anything unrecognised is dropped rather than guessed at.
+ * wire contract, and `docs/architecture/backend-deep-dive.md` documents it. The
+ * payload is a chat wire v2 event (`docs/api/websocket-protocol.md`), relayed
+ * verbatim: it names its own turn and carries its own `seq`, so the envelope's
+ * per-conversation counter is not passed on. Anything that is not a v2 event is
+ * dropped rather than guessed at.
  *
  * ## Why this is a separate module from `./bus`
  *
@@ -41,11 +44,16 @@ import 'server-only'
 
 /** A frame the backend sent to the asker, on its way to an observer. */
 export interface ConversationFrame {
-  /** Monotonic per conversation, assigned by the turn's owner. Used to dedupe. */
-  seq: number
-  /** The raw NAT WebSocket frame (`system_response_message`, …). */
-  payload: unknown
+  /**
+   * The v2 wire event, verbatim. The observer parses it with the same schema
+   * and folds it with the same fold as the asker (`foldTurnEvent`); its
+   * `(turn_id, seq)` is the dedupe key.
+   */
+  payload: Record<string, unknown>
 }
+
+/** The only wire version the relay passes on (`WIRE_VERSION`, wire-v2.ts). */
+const WIRE_VERSION = 2
 
 /** Channel the backend's `ConversationBus.publish_frame` writes to. */
 function conversationChannel(conversationId: string): string {
@@ -75,15 +83,15 @@ export function decodeConversationFrame(raw: string): ConversationFrame | null {
     return null
   }
   if (!parsed || typeof parsed !== 'object') return null
-  const envelope = parsed as { type?: unknown; seq?: unknown; payload?: unknown }
-  // `turn_end` carries the terminal frame in the same `payload` slot; both are
-  // worth relaying, and the observer detects the end from the frame's own
-  // `status: 'complete'` rather than from the envelope, so that one client-side
-  // rule covers a backend that never sets the flag.
+  const envelope = parsed as { type?: unknown; payload?: unknown }
+  // `turn_end` carries the terminal event in the same `payload` slot; both are
+  // relayed, and the observer reads the end from the event's own `type`
+  // (`RUN_FINISHED`), not from the envelope.
   if (envelope.type !== FRAME && envelope.type !== TURN_END) return null
-  if (envelope.payload === undefined || envelope.payload === null) return null
-  const seq = typeof envelope.seq === 'number' ? envelope.seq : 0
-  return { seq, payload: envelope.payload }
+  const payload = envelope.payload
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return null
+  if ((payload as { v?: unknown }).v !== WIRE_VERSION) return null
+  return { payload: payload as Record<string, unknown> }
 }
 
 /**
@@ -153,6 +161,70 @@ function createSubscriberClient(url: string): any {
     connectTimeout: 1000,
     maxRetriesPerRequest: 1,
     enableOfflineQueue: false,
+    lazyConnect: false,
+  })
+  client.on('error', (error: unknown) => {
+    console.warn('[conversation-frames] redis error:', error)
+  })
+  return client
+}
+
+// ── Peek: is a turn still producing frames? ─────────────────────────────────
+//
+// Resume is not read here: a client that lost its socket sends
+// `attach{turn_id, after_seq}` on the new one, and the agent tier replays the
+// turn from this same stream (`ConversationBus.replay_turn`). The BFF only
+// answers the socket-less liveness question.
+
+/** The replay stream `ConversationBus.publish_frame` appends every frame to. */
+function conversationStream(conversationId: string): string {
+  return `conv:${conversationId}:stream`
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let peekClient: any = null
+
+/**
+ * The id of the newest frame in one conversation's replay stream, or `null`
+ * when it holds none; `undefined` when there is no stream to read (no
+ * `REDIS_URL`, or the read failed). One entry, however long the stream: the
+ * cheap question "is a turn still producing frames here?", which a heartbeat
+ * every 20 s answers while the turn runs, with or without a socket.
+ */
+export async function peekNewestConversationFrame(
+  conversationId: string,
+): Promise<string | null | undefined> {
+  const url = process.env.REDIS_URL
+  if (!url) return undefined
+  try {
+    peekClient ??= createCommandClient(url)
+    const entries: [string, string[]][] = await peekClient.xrevrange(
+      conversationStream(conversationId),
+      '+',
+      '-',
+      'COUNT',
+      1,
+    )
+    return entries[0]?.[0] ?? null
+  } catch (error) {
+    console.warn('[conversation-frames] peek failed:', error)
+    return undefined
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function createCommandClient(url: string): any {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const IORedis = require('ioredis')
+  const client = new IORedis(url, {
+    connectTimeout: 1000,
+    commandTimeout: 2000,
+    maxRetriesPerRequest: 1,
+    // Queued, not refused, until the connection is up. The client is created
+    // on the first peek a process serves, and that peek is the one a tab with
+    // no socket is waiting on; with no queue it fails with "Stream isn't
+    // writeable" before the connect lands. `commandTimeout` still bounds it.
+    enableOfflineQueue: true,
     lazyConnect: false,
   })
   client.on('error', (error: unknown) => {

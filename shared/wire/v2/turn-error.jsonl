@@ -1,0 +1,3 @@
+{"v":2,"type":"RUN_STARTED","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000400000_11","seq":1,"ts":1759000400010,"message_id":"212ad6ac-0e92-5c10-9a3b-6c82a3188240"}
+{"v":2,"type":"STEP_FINISHED","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000400000_11","seq":2,"ts":1759000400050,"step":{"id":"status:documents","kind":"status","slot":"documents","key":"status.documents.session"}}
+{"v":2,"type":"RUN_ERROR","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000400000_11","seq":3,"ts":1759000408050,"code":"workflow_error","message":"The assistant hit an unexpected error while handling your request. Please try again.","details":"httpx.ReadTimeout: upstream model timed out"}

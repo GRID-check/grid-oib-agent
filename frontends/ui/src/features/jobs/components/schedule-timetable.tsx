@@ -30,6 +30,7 @@
  * the neutral "other" step — the legend still names it.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { CalendarOff, ChevronLeft, ChevronRight, TriangleAlert } from 'lucide-react'
 

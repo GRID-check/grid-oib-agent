@@ -21,13 +21,11 @@ import 'server-only'
 import { NotFoundError, UnprocessableError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Message } from '@/lib/db/schema'
-import {
-  findConversationInOrg,
-  listMessagesForConversation,
-} from '@/lib/conversations/repository'
+import { findConversationInOrg, listMessagesForConversation } from '@/lib/conversations/repository'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { requireResourceAccess } from '@/lib/sharing/access'
 import { getLocale, getTranslations } from '@/i18n/server'
+import { stripCardMarkers } from '@/features/chat/lib/answer-markdown'
 import { buildAnswerDocument, type AnswerConfidence } from './answer-document'
 import { DOCX_MEDIA_TYPE, renderDocx } from './docx'
 
@@ -51,7 +49,8 @@ const CAPPED_REASONS = new Set(['ungrounded', 'quote_unverified'])
  */
 function readConfidence(metadata: Record<string, unknown>): AnswerConfidence | null {
   const provenance = metadata.provenance
-  if (typeof provenance !== 'object' || provenance === null || Array.isArray(provenance)) return null
+  if (typeof provenance !== 'object' || provenance === null || Array.isArray(provenance))
+    return null
   const record = provenance as Record<string, unknown>
   const level = record.answerConfidence
   if (typeof level !== 'string' || !CONFIDENCE_LEVELS.has(level)) return null
@@ -155,13 +154,15 @@ export async function exportAnswerDocument(
       conversationTitle: conversation.title,
       projectName: project?.name ?? null,
       question: questionFor(history, index),
-      answer: answer.content,
+      // The placement markers are the renderer's, not the reader's.
+      answer: stripCardMarkers(answer.content),
       // The answer's own instant. An export stamped with the download time
       // would date a year-old finding to today, which in a project file is the
       // kind of error nobody catches until it matters.
       createdAt: new Date(answer.createdAt),
       citations: metadata.citations,
       cards: metadata.cards,
+      findings: metadata.findings,
       confidence: readConfidence(metadata),
     },
     t,

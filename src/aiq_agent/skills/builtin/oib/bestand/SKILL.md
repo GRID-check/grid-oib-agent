@@ -48,7 +48,7 @@ Eine Erinnerung an „macht die Behörde oft mit“ ist kein Fall.
 
 ## 4. Zeigen
 
-Mehrere Anforderungen, jede mit eigenem Urteil → `requirement_checklist`.
+Mehrere Anforderungen, jede mit eigenem Urteil → als Prüftabelle (Status-Spalte).
 Das Regime gabelt die Antwort → `condition_tree`.
 Die bindende Klausel → `legal_basis`.
 Eine Frist oder ein Vorbehalt, der das nächste Tun ändert → das `callout`-Feld

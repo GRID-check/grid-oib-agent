@@ -49,7 +49,8 @@ def _subject_store(_one_store: InMemoryStore, monkeypatch: pytest.MonkeyPatch) -
 
 async def test_file_draft_updates_the_document_the_turn_read(monkeypatch, calls) -> None:
     monkeypatch.setattr(subject_document, "get_document_version_content", lambda *_: dict(BODY))
-    path = await subject_document.load_subject_document(SUBJECT, conversation_id=CONVERSATION, organization_id="org_1")
+    step = await subject_document.load_subject_document(SUBJECT, conversation_id=CONVERSATION, organization_id="org_1")
+    path = step.detail["path"]
     assert path == "/entwuerfe/Befund Fluchtwege.md"
 
     monkeypatch.setattr(
@@ -77,8 +78,8 @@ async def test_the_turn_writes_a_path_file_draft_can_find(monkeypatch, calls) ->
     # The tool refuses a path that holds no draft. Naming the same file from both
     # sides is the whole contract, so the refusal must NOT be what comes back.
     monkeypatch.setattr(subject_document, "get_document_version_content", lambda *_: dict(BODY))
-    path = await subject_document.load_subject_document(SUBJECT, conversation_id=CONVERSATION, organization_id="org_1")
-    assert path is not None
+    step = await subject_document.load_subject_document(SUBJECT, conversation_id=CONVERSATION, organization_id="org_1")
+    path = str(step.detail["path"])
 
     monkeypatch.setattr(filing_tools, "post_document_version", _responder([{"documentId": "doc-1"}], calls))
     assert "gibt es keinen Entwurf" not in await filing_tools.run_file_draft(path)

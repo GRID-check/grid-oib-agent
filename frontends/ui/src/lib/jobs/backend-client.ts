@@ -11,6 +11,7 @@
  */
 
 import 'server-only'
+import type { PlanDocument, PlanDocuments } from '@/lib/runs/plan-documents'
 
 /**
  * Backend base URL — same resolution as `getBackendUrl` in
@@ -19,7 +20,8 @@ import 'server-only'
  * path (and these unit tests) must not load. Keep the env chain in sync.
  */
 function getBackendUrl(): string {
-  const url = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+  const url =
+    process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
   return url.replace(/\/$/, '')
 }
 
@@ -60,6 +62,10 @@ export interface JobSubmitPayload {
    * row behind it.
    */
   run_id?: string
+  /** The commissioning turn's settled context; the worker sets it on the agent state. */
+  clarifier_result?: string
+  /** The Unterlagen the reader named on the plan card (`lib/runs/plan-documents`). */
+  documents?: PlanDocuments
   data_sources: string[] | null
   collection_scope: string[] | null
   project_context: string | null
@@ -86,7 +92,7 @@ export interface JobSubmitPayload {
 export class JobSubmitSkippedError extends Error {
   constructor(
     message: string,
-    readonly retryAfterSeconds: number | null,
+    readonly retryAfterSeconds: number | null
   ) {
     super(message)
     this.name = 'JobSubmitSkippedError'
@@ -97,7 +103,7 @@ export class JobSubmitSkippedError extends Error {
 export class JobSubmitError extends Error {
   constructor(
     message: string,
-    readonly status: number,
+    readonly status: number
   ) {
     super(message)
     this.name = 'JobSubmitError'
@@ -129,7 +135,7 @@ async function readBody(response: Response): Promise<string> {
  */
 export async function submitJob(
   payload: JobSubmitPayload,
-  extraHeaders: Record<string, string>,
+  extraHeaders: Record<string, string>
 ): Promise<{ jobId: string }> {
   const token = process.env.GRID_INTERNAL_API_TOKEN
   if (!token) {
@@ -153,7 +159,10 @@ export async function submitJob(
   }
 
   if (response.status === 429) {
-    throw new JobSubmitSkippedError(await readBody(response), parseRetryAfter(response.headers.get('retry-after')))
+    throw new JobSubmitSkippedError(
+      await readBody(response),
+      parseRetryAfter(response.headers.get('retry-after'))
+    )
   }
   if (!response.ok) {
     throw new JobSubmitError(await readBody(response), response.status)
@@ -185,7 +194,7 @@ export async function submitJob(
 export class JobCancelError extends Error {
   constructor(
     message: string,
-    readonly status: number,
+    readonly status: number
   ) {
     super(message)
     this.name = 'JobCancelError'
@@ -204,18 +213,57 @@ export class JobCancelError extends Error {
  * Resolves on a 2xx and throws `JobCancelError` for everything else; a network
  * failure is a 503.
  */
-export async function cancelBackendJob(backendJobId: string, accessToken: string | null): Promise<void> {
+export async function cancelBackendJob(
+  backendJobId: string,
+  accessToken: string | null
+): Promise<void> {
+  return postJobControl(backendJobId, 'cancel', accessToken)
+}
+
+/**
+ * „Jetzt schreiben": ask a running deep research to write its report from what
+ * it has. Same door, same errors as the cancel; the run keeps going until the
+ * report is filed.
+ */
+export async function writeNowBackendJob(
+  backendJobId: string,
+  accessToken: string | null
+): Promise<void> {
+  return postJobControl(backendJobId, 'write-now', accessToken)
+}
+
+/**
+ * Add a document to the Grundlage of a running deep research: the worker
+ * plans one dedicated research query for it in its next batch, and the run
+ * block lists it beside the other Grundlage. Same door, same errors.
+ */
+export async function addDocumentToBackendJob(
+  backendJobId: string,
+  document: PlanDocument,
+  accessToken: string | null
+): Promise<void> {
+  return postJobControl(backendJobId, 'documents', accessToken, document)
+}
+
+async function postJobControl(
+  backendJobId: string,
+  action: 'cancel' | 'write-now' | 'documents',
+  accessToken: string | null,
+  body?: unknown
+): Promise<void> {
   let response: Response
   try {
     response = await fetch(
-      `${getBackendUrl()}/v1/jobs/async/job/${encodeURIComponent(backendJobId)}/cancel`,
+      `${getBackendUrl()}/v1/jobs/async/job/${encodeURIComponent(backendJobId)}/${action}`,
       {
         method: 'POST',
         headers: {
           Accept: 'application/json',
+          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
           ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         },
-      },
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      }
     )
   } catch (err) {
     const message = err instanceof Error ? err.message : 'network error'
@@ -223,5 +271,112 @@ export async function cancelBackendJob(backendJobId: string, accessToken: string
   }
   if (!response.ok) {
     throw new JobCancelError(await readBody(response), response.status)
+  }
+}
+
+/** The job store's words for a job's lifecycle, lowercased as the backend sends them. */
+export type BackendJobStatus = 'submitted' | 'running' | 'success' | 'failure' | 'interrupted'
+
+/**
+ * A job's verdict as the job store holds it, for the run reconciler.
+ *
+ * `message` is what the run's own message should say — the report and its
+ * metadata for a success, the notice for a failure or a cancel — rebuilt by the
+ * backend next to the writers it mirrors (`conversation_output.run_message_for_outcome`),
+ * so this tier never keeps a second copy of that text. Null while the job runs.
+ */
+export interface BackendJobOutcome {
+  status: BackendJobStatus
+  error: string | null
+  report: string | null
+  cards: unknown[] | null
+  message: { content: string; metadata: Record<string, unknown> } | null
+}
+
+/** A probe the backend could not answer. Transient by assumption: the next sweep asks again. */
+export class JobProbeError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message)
+    this.name = 'JobProbeError'
+  }
+}
+
+const BACKEND_JOB_STATUSES: ReadonlySet<string> = new Set<BackendJobStatus>([
+  'submitted',
+  'running',
+  'success',
+  'failure',
+  'interrupted',
+])
+
+const PROBE_TIMEOUT_MS = 10_000
+
+/**
+ * Ask the job store how one job stands: `GET /v1/internal/jobs/{id}/outcome`.
+ *
+ * The internal twin of the status route the browser polls
+ * (`/v1/jobs/async/job/{id}`). That one is owner-scoped and wants the owner's
+ * WorkOS token, which a sweep holds for nobody; this one takes the service
+ * token and the run's organization, which the backend checks against the job's
+ * `job_access` row. Null is the backend's 404 — no such job, or not this
+ * organization's — and the caller decides what that means for the run.
+ * Everything else that is not a well-formed answer throws `JobProbeError`.
+ */
+export async function fetchBackendJobOutcome(
+  backendJobId: string,
+  organizationId: string
+): Promise<BackendJobOutcome | null> {
+  const token = process.env.GRID_INTERNAL_API_TOKEN
+  if (!token) throw new JobProbeError('GRID_INTERNAL_API_TOKEN is not configured', 503)
+
+  const url =
+    `${getBackendUrl()}/v1/internal/jobs/${encodeURIComponent(backendJobId)}/outcome` +
+    `?organization_id=${encodeURIComponent(organizationId)}`
+  let response: Response
+  try {
+    response = await fetch(url, {
+      headers: { Accept: 'application/json', 'x-grid-internal-token': token },
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    })
+  } catch (err) {
+    throw new JobProbeError(err instanceof Error ? err.message : 'network error', 503)
+  }
+  if (response.status === 404) return null
+  if (!response.ok) throw new JobProbeError(await readBody(response), response.status)
+
+  let body: unknown
+  try {
+    body = await response.json()
+  } catch {
+    throw new JobProbeError('malformed backend response', 502)
+  }
+  return parseJobOutcome(body)
+}
+
+/** Narrow the backend's JSON to the outcome, or throw: a guess here would close a run wrongly. */
+function parseJobOutcome(body: unknown): BackendJobOutcome {
+  const raw = (body ?? {}) as Record<string, unknown>
+  if (typeof raw.status !== 'string' || !BACKEND_JOB_STATUSES.has(raw.status)) {
+    throw new JobProbeError(`unknown job status ${JSON.stringify(raw.status)}`, 502)
+  }
+  const message = raw.message as { content?: unknown; metadata?: unknown } | null | undefined
+  return {
+    status: raw.status as BackendJobStatus,
+    error: typeof raw.error === 'string' ? raw.error : null,
+    report: typeof raw.report === 'string' && raw.report ? raw.report : null,
+    cards: Array.isArray(raw.cards) ? raw.cards : null,
+    message:
+      message && typeof message.content === 'string'
+        ? {
+            content: message.content,
+            metadata:
+              message.metadata && typeof message.metadata === 'object'
+                ? (message.metadata as Record<string, unknown>)
+                : {},
+          }
+        : null,
   }
 }

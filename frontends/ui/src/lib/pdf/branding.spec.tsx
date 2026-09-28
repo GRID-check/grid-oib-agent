@@ -24,7 +24,9 @@ import { describe, expect, it } from 'vitest'
 import { CoverContent, RunningHeader } from './branding'
 
 /** Every string in a rendered tree, in document order. */
-const strings = (node: React.ReactNode, out: string[] = []): string[] => {
+const strings = (node: React.ReactNode | Promise<React.ReactNode>, out: string[] = []): string[] => {
+  // React 19's FC may return a promise; these components are synchronous.
+  if (node instanceof Promise) throw new Error('expected a synchronously rendered tree')
   React.Children.forEach(node, (child) => {
     if (typeof child === 'string') out.push(child)
     else if (React.isValidElement(child)) {

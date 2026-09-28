@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Building2, Check, Globe, LayoutDashboard, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
+import { Building2, Check, Compass, Globe, LayoutDashboard, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
 
 import { useAuth } from '@/adapters/auth/use-auth'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useLayoutStore } from '@/features/layout/store'
+import { useStartProductTour } from '@/features/onboarding/components/product-tour'
 import type { ThemeMode } from '@/features/layout/types'
 import { useTranslations, useLocale, locales } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -60,6 +61,8 @@ export interface SidebarUserMenuProps {
    * Omitted when unresolvable, so a label lookup can never blank the footer.
    */
   organizationName?: string | null
+  /** Marks the trigger as a product-tour stop (`data-tour`). */
+  tourAnchor?: string
 }
 
 const THEME_ICONS: Record<ThemeMode, React.ComponentType<{ className?: string }>> = {
@@ -80,6 +83,7 @@ export function SidebarUserMenu({
   canManagePlatform = false,
   avatarSizeClass = 'size-[30px]',
   organizationName = null,
+  tourAnchor,
 }: SidebarUserMenuProps) {
   const { user: authUser, signOut } = useAuth()
   const theme = useLayoutStore((s) => s.theme)
@@ -88,6 +92,7 @@ export function SidebarUserMenu({
   const tc = useTranslations('common')
   const { locale, setLocale, localeNames } = useLocale()
   const ActiveThemeIcon = THEME_ICONS[theme]
+  const startTour = useStartProductTour()
 
   const displayName = user?.name || user?.email || t('userMenu.defaultUser')
   // Two-letter monogram from the first two words (e.g. "Anna Kaufmann" → "AK"),
@@ -112,6 +117,7 @@ export function SidebarUserMenu({
           compact ? 'w-auto rounded-full p-0' : 'w-full rounded-lg py-1 pl-0 pr-2',
         )}
         aria-label={t('userMenu.label', { name: displayName })}
+        data-tour={tourAnchor}
       >
         <span className="flex shrink-0">
           {/* The hairline is not decoration. `AvatarFallback` fills with
@@ -226,6 +232,12 @@ export function SidebarUserMenu({
             ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        {/* The tour lives on the projects home; from anywhere else this
+            navigates there first. */}
+        <DropdownMenuItem onSelect={() => startTour()} className="gap-2">
+          <Compass className="size-4 text-muted-foreground" aria-hidden />
+          {t('userMenu.productTour')}
+        </DropdownMenuItem>
         {authRequired && (
           <>
             <DropdownMenuSeparator />

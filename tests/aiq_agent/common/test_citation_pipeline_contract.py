@@ -158,28 +158,6 @@ def identities(entries) -> list[tuple[str | None, str | None, str | None]]:
     return [(entry.citation_key, entry.collection, entry.doc_class) for entry in entries]
 
 
-def parsed_identities(tool_output: str) -> list[tuple[str | None, str | None, str | None]]:
-    return identities(extract_sources_from_tool_result("knowledge_search", tool_output))
-
-
-def trace_lanes(tool_output: str) -> list[dict]:
-    """The ``## Trace-Lanes`` fan-out the frontend reads, as parsed JSON."""
-    return json.loads(tool_output.split("## Trace-Lanes\n")[1])["lanes"]
-
-
-def trace_lane_shape(tool_output: str):
-    """Only the fan-out fields ``parseTraceLanesBlock`` actually consumes."""
-    return [
-        (
-            lane["key"],
-            lane["label"],
-            lane["hitCount"],
-            [(source["name"], source.get("title"), source.get("detail")) for source in lane["sources"]],
-        )
-        for lane in trace_lanes(tool_output)
-    ]
-
-
 class TestProducerParserContract:
     """Fields must bind to THEIR hit through the real producer's real output.
 
@@ -692,7 +670,7 @@ class TestDocumentKey:
 
 
 class TestSharedWireFixturesAreCurrent:
-    """Pin the three formats a TypeScript consumer parses.
+    """Pin the formats a TypeScript consumer parses.
 
     These formats cross a process boundary, so no single test can exercise both
     ends. Each side asserts against the SAME checked-in fixture instead: this
@@ -711,18 +689,6 @@ class TestSharedWireFixturesAreCurrent:
     consumer and must not break the build, while renaming, removing or
     re-valuing one of the fields the frontend reads must.
     """
-
-    def test_kb_tool_output_fixture_still_describes_the_hits_it_claims(self):
-        """Counterpart: trace-lanes.ts (`parseTraceLanesBlock`)."""
-        tool_output, _, _, _ = run_golden_path()
-        fixture = (FIXTURE_DIR / "kb_tool_output.txt").read_text(encoding="utf-8")
-        assert parsed_identities(fixture) == parsed_identities(tool_output)
-
-    def test_kb_tool_output_fixture_still_carries_the_same_fan_out(self):
-        """Every field ``parseTraceLanesBlock`` reads must still mean what it did."""
-        tool_output, _, _, _ = run_golden_path()
-        fixture = (FIXTURE_DIR / "kb_tool_output.txt").read_text(encoding="utf-8")
-        assert trace_lane_shape(fixture) == trace_lane_shape(tool_output)
 
     def test_verified_report_fixture_matches_the_pipeline(self):
         """Counterpart: report-citations.ts (`splitReportSources`, SOURCE_KIND_TOKEN_RE)."""
@@ -756,12 +722,13 @@ class TestSharedWireFixturesAreCurrent:
         _, _, _, wire = run_golden_path()
         assert {source["origin"] for source in wire} <= {"kb", "ris", "web"}
 
-    def test_trace_lane_keys_agree_with_the_wire_lanes(self):
-        """The fan-out and the chips must not disagree about where a hit belongs."""
-        tool_output, _, _, wire = run_golden_path()
-        lanes = trace_lanes(tool_output)
-        assert [lane["key"] for lane in lanes] == ["baurecht_oib", "projekt", "buero"]
-        assert {source["lane"] for source in wire} <= {lane["key"] for lane in lanes}
+    def test_trace_lane_keys_agree_with_the_wire_lanes(self, emitted):
+        """The fan-out (the tool's ``sources`` step) and the chips must not disagree about where a hit belongs."""
+        _, _, _, wire = run_golden_path()
+        (sources_step,) = [step for step in emitted.steps if step.kind == "sources"]
+        keys = [lane.key for lane in sources_step.lanes]
+        assert keys == ["baurecht_oib", "projekt", "buero"]
+        assert {source["lane"] for source in wire} <= set(keys)
 
 
 class TestBatchToolOutputContract:

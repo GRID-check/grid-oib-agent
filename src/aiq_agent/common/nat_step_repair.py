@@ -52,13 +52,13 @@ import time
 from typing import Any
 from uuid import UUID
 
-from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.data_models.intermediate_step import IntermediateStepPayload
 from nat.data_models.intermediate_step import IntermediateStepType
 from nat.data_models.intermediate_step import StreamEventData
 from nat.data_models.intermediate_step import TraceMetadata
 from nat.data_models.intermediate_step import UsageInfo
 from nat.data_models.token_usage import TokenUsageBaseModel
+from nat.plugin_api import LLMFrameworkEnum
 from nat.plugins.langchain.callback_handler import LangchainProfilerHandler
 
 logger = logging.getLogger(__name__)

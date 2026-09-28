@@ -13,7 +13,7 @@ import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { ServiceUnavailableError, UnprocessableError } from '@/lib/api/errors'
 import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
-import { AGENT_GROUPS, AGENT_GROUP_IDS, MODEL_ID_PATTERN } from '@/lib/model-config/agent-groups'
+import { AGENT_GROUPS, AGENT_GROUP_IDS, MODEL_ID_PATTERN, isAgentGroupId } from '@/lib/model-config/agent-groups'
 import { getGroupDefaults } from '@/lib/model-config/backend-defaults'
 import { validateOverrides } from '@/lib/model-config/openrouter'
 import { getCatalogForOrg } from '@/lib/model-config/org-catalog'
@@ -51,7 +51,7 @@ export const GET = apiRoute(
       defaults,
       catalogSource,
       zdrOnly,
-      activeVersion: config.activeVersion,
+      activeVersion: withoutRetiredGroups(config.activeVersion),
       updatedBy: config.updatedBy,
       updatedAt: config.updatedAt,
     }
@@ -124,3 +124,16 @@ export const PUT = apiRoute(
   },
   { status: 201, authz: { permission: ORG_PERMISSIONS.modelsManage } }
 )
+
+/**
+ * The active version with any retired agent group left out of its overrides.
+ * Versions are immutable history, so the stored row keeps the group; the card
+ * sends back what it loads, and the PUT would reject it with a 400.
+ */
+function withoutRetiredGroups<T extends { overrides: unknown }>(version: T | null): T | null {
+  if (!version || !version.overrides || typeof version.overrides !== 'object') return version
+  const overrides = Object.fromEntries(
+    Object.entries(version.overrides as Record<string, unknown>).filter(([group]) => isAgentGroupId(group))
+  )
+  return { ...version, overrides }
+}

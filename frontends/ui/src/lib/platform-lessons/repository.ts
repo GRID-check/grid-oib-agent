@@ -16,6 +16,7 @@
  */
 
 import 'server-only'
+import { isUniqueViolation } from '@/lib/db/errors'
 import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
@@ -406,7 +407,7 @@ export async function createLessonFromReport(values: {
     // Race backstops: a concurrent sweep processed the same feedback row
     // (reports UNIQUE) or distilled the same normalized content (0068 partial
     // unique index). Either way the work is done; the caller re-reads.
-    if ((err as { code?: string } | null)?.code === '23505') return null
+    if (isUniqueViolation(err)) return null
     throw err
   }
 }
@@ -453,7 +454,7 @@ export async function linkReportToLesson(
     })
     return true
   } catch (err) {
-    if ((err as { code?: string } | null)?.code === '23505') return false
+    if (isUniqueViolation(err)) return false
     throw err
   }
 }
@@ -509,7 +510,7 @@ export async function recordSkippedReport(values: {
       canonicalSummary: values.canonicalSummary,
     })
   } catch (err) {
-    if ((err as { code?: string } | null)?.code === '23505') return
+    if (isUniqueViolation(err)) return
     throw err
   }
 }

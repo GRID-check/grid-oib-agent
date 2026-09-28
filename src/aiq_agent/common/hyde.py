@@ -40,6 +40,7 @@ import re
 from typing import Any
 
 from aiq_agent.common.legal_terms import extract_exact_terms
+from aiq_agent.common.message_utils import response_text
 
 logger = logging.getLogger(__name__)
 
@@ -150,10 +151,7 @@ async def draft_passage(
             llm.ainvoke(build_draft_messages(query)),
             timeout=timeout_seconds,
         )
-        content = getattr(response, "content", None)
-        if content is None and isinstance(response, dict):
-            content = response.get("content")
-        text = str(content or "").strip()
+        text = response_text(response).strip()
         if not text:
             return None
         return text[:max_chars].rstrip() or None

@@ -7,6 +7,10 @@
 > measured; the repo holds **no measured p50/p95 for a chat turn** (§5), so the
 > ranking is structural and the first recommendation is to make it measured.
 >
+> **Measured since:** [`turn-latency-measured-2026-09.md`](turn-latency-measured-2026-09.md)
+> (2026-09-24) puts numbers on the chat turn: 31.3 s median, about half of it
+> (16.2 s) the final call, and the startup sequence to the millisecond.
+>
 > Supersedes the still-open items in
 > `plans/2026-07-18-chat-response-time-perf-audit.md` and
 > `plans/2026-07-19-shallow-research-speedups-fable.md` (§7 says which landed).
@@ -26,6 +30,11 @@ every item in §3 sits in front of the first character the reader sees,
 including the model's own generation. There is no "model
 streaming" slice to subtract; nothing streams.
 
+> **Since 2026-09-24 (ADR-0066) the answer's prose streams** while the final
+> call writes it, so the writing, the cards JSON after it and verification are
+> no longer in front of the first character. The model's thinking before its
+> first token still is.
+
 Ranked by expected seconds saved per turn without touching answer quality:
 
 | # | Driver | Order of cost | Fix shape |
@@ -36,7 +45,7 @@ Ranked by expected seconds saved per turn without touching answer quality:
 | 4 | Three serial internal HTTP hops before the graph starts, one of them a five-hop memory-digest chain | up to 7 s of ceilings, hundreds of ms warm | `asyncio.gather`, version-keyed digest (§3.4) |
 | 5 | Two synchronous `urllib` POSTs on the event loop between "answer final" and "first delta" | up to 10 s of ceilings, blocks every turn on the replica | flush after the yield, off the loop (§3.5) |
 | 6 | Synchronous BFF lookups on the event loop with 5 s timeouts, cold every 60 s per replica | stalls all concurrent turns on a miss | `to_thread` or background refresh (§3.6) |
-| 7 | Ingest hold, repair pass, WS-upgrade chain, deep-research job tail | situational, up to 20 s / 6 min | bound and parallelise (§3.7 to §3.10) |
+| 7 | Ingest hold, repair pass, WS-upgrade chain, deep-research job tail | situational, up to 20 s / 6 min | bound and parallelise (§3.7 to §3.10). **[SUPERSEDED, ADR-0067]** for the repair pass: it is now one small-model call per misremembered quote, no retrievals (§3.8) |
 
 **Caching** (§4): nineteen cache layers exist and the ones that matter for
 correctness are good. What is missing is the LLM-facing half: no provider
@@ -63,7 +72,7 @@ WS frame ──▶ aiq_api handler ──▶ chat_researcher._run
   │        │   └ knowledge_search: embed → chroma → RRF → rerank LLM ‖ requery LLM → format
   │        ├ forced synthesis, JSON-mode ladder (≤ 3 calls)     :848-909
   │        ├ verify_citations, verify_quoted_spans (pure)       :1407 :1423
-  │        ├ repair pass (≤ 2 retrievals + 1 rewrite)           :1436-1481
+  │        ├ repair pass (≤ 2 retrievals + 1 rewrite)           :1436-1481   [SUPERSEDED, ADR-0067: ≤ 3 small quote patches, no retrieval]
   │        └ sanitize_report                                    :1571
   │ teardown: profiler.flush(wait=True), tracker.flush(wait=True)   blocking urllib
   │ fire-and-forget: registry persist, post-answer stages
@@ -148,7 +157,8 @@ tok/s that is ~14 s of decoding alone", on `rerank_llm`, which resolves to the
 same `${GRID_DEFAULT_MODEL}` as every other role (`:317`). It runs once per
 `knowledge_search` (`sources/knowledge_layer/src/register.py:1809`), a second
 time when the requery judge asks for more (`:1816-1831`), and again for each of
-the up to two repair-pass retrievals (`shallow_researcher/agent.py:1154-1163`).
+the up to two repair-pass retrievals (`shallow_researcher/agent.py:1154-1163`;
+gone since ADR-0067, §3.8).
 A two-search turn with one requery is three of these calls, all on the path to
 the first character.
 
@@ -310,6 +320,11 @@ this is a headline or a footnote.
 
 ### 3.8 The repair pass
 
+**[SUPERSEDED, ADR-0067]** `_repair_answer` and its two retrievals are gone.
+The repair now only corrects a misremembered quote in place: one small-model
+call per quote, at most three quotes, 8 s each, no retrievals and no rewrite.
+What follows describes the pass as it was on the audit's date.
+
 **[LANDED, the gather]** The two lookups run together and keep their order.
 The requery skip and the wall-clock bound are still open; both change the
 tail, so they are decisions rather than fixes.
@@ -376,7 +391,7 @@ the reflection in the 45 s the chat path already uses
 | Citation registry snapshot | `citations:{conversation}` | 24 h | Dragonfly | TTL | no |
 | Collection write-version | `knowledge:collection-version:{c}` | none | Dragonfly, Lua, not fail-open | it is the invalidator | no |
 | Static retrieval results (`oib_knowledge` only) | `(collection, version, query, top_k, filters)` | 1 h | **process** | version bump | INFO log |
-| Query embeddings | `(model, query)` LRU 512 | none | **process** | none | no |
+| Query embeddings | `(model, query)` LRU 512; since 2026-09-24 deduped while in flight, warmed at turn start beside the turn decision (`piloti/register.py` `_warm_question` → `knowledge.factory.warm_search_query`) | none | **process** | none | no |
 | Org model overrides + ZDR (backend) | org | 60 s / 30 s | **process** | TTL only | no |
 | BYOK credential (backend) | org | 60 s / 30 s | **process**, by design | TTL only | no |
 | Norm registry, retrieval and reasoning settings, platform lessons | singletons | 30 s to 5 min | **process** | `reset_*_cache()` | no |
@@ -621,6 +636,10 @@ order by prompt_tokens desc;
    already specifies, and flip the flag.
 
 Then re-rank §3 against numbers.
+
+The chat turn has been measured from the outside (the answer suite and a
+startup probe) in [`turn-latency-measured-2026-09.md`](turn-latency-measured-2026-09.md);
+steps 3 to 5 above are still the way to read it from production.
 
 ## 6. Implementation batches
 

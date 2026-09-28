@@ -79,10 +79,10 @@ describe('KeyTakeawaysCard', () => {
     expect(screen.getByText('Gebäudeklasse 4')).toHaveClass('card-title')
   })
 
-  it('steps each takeaway further right than the one above it, with no rules between rows', () => {
-    // The §A5 mark: "ordinals in a descending staircase". Hairlines between
-    // rows are what made this a generic list — four cards in the set drew the
-    // same rules around the same rows — so the rank is drawn, not ruled.
+  it('sets every takeaway on one text column, with no rules between rows', () => {
+    // The rank is the ordinal and the first row's figure. A 6px staircase
+    // (the first §A5 mark) read as misregistration, and hairlines between rows
+    // are the generic-list look, so neither is drawn.
     const four = [
       { text: 'Erstens' },
       { text: 'Zweitens' },
@@ -90,18 +90,10 @@ describe('KeyTakeawaysCard', () => {
       { text: 'Viertens' },
     ]
     const { container } = render(<KeyTakeawaysCard title={null} items={four} />)
-
-    const staircase = ['pl-0', 'pl-1.5', 'pl-3', 'pl-4.5']
-    four.forEach((item, index) => {
-      expect(
-        screen.getByText(item.text),
-        `takeaway ${index + 1} should sit ${index * 6}px in from the one above it`,
-      ).toHaveClass(staircase[index])
+    four.forEach((item) => {
+      expect(screen.getByText(item.text).className).not.toMatch(/\bpl-/)
     })
-    expect(
-      container.querySelector('[class*="divide-y"]'),
-      'a hairline per row is the generic-list look the staircase replaces',
-    ).toBeNull()
+    expect(container.querySelector('[class*="divide-y"]')).toBeNull()
   })
 
   it('skips a takeaway with no text and keeps the ordinals contiguous', () => {

@@ -33,6 +33,7 @@
  * `onCommit`, once per gesture.
  */
 
+import type { JSX } from 'react'
 import { useId, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { ViewerSurface } from './viewer-surface'

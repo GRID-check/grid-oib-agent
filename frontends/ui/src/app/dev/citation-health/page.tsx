@@ -9,6 +9,7 @@
  * from anywhere and 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { CitationHealth } from '@/features/platform/components/citation-health'
 

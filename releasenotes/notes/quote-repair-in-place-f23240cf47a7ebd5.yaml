@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    A quote that is not word for word in its source is marked as soon as the
+    answer stands. A slightly misremembered quote is corrected to the source's
+    wording, but only if the source the sentence names contains it.

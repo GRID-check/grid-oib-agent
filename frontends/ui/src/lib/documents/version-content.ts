@@ -19,8 +19,9 @@
  */
 
 import 'server-only'
+import { randomUUID } from 'node:crypto'
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
-import { NotFoundError } from '@/lib/api/errors'
+import { ConflictError, InsufficientStorageError, NotFoundError } from '@/lib/api/errors'
 import { markingIsInBytes, type AiProvenanceMarking } from '@/lib/ai-provenance'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { recordAuditEvent } from '@/lib/audit/service'
@@ -30,7 +31,12 @@ import { findConversationInOrg } from '@/lib/conversations/repository'
 import type { Document, DocumentVersion } from '@/lib/db/schema'
 import { getOrganizationDisplayName } from '@/lib/organizations/service'
 import { bucketAdminS3Client, s3Client } from '@/lib/s3'
-import { assertWithinStorageQuota } from '@/lib/storage/service'
+import { discardObject } from '@/lib/storage/discard'
+import {
+  assertWithinStorageQuota,
+  getStorageQuotaBytes,
+  STORAGE_QUOTA_EXCEEDED_MESSAGE,
+} from '@/lib/storage/service'
 import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { getAccessibleDocument } from './access'
 import { AGENT_DOCUMENT_MEDIA_TYPE, renderAgentDocumentMarkdown } from './agent-document-markdown'
@@ -49,8 +55,9 @@ import { findDocumentInOrg } from './repository'
 import {
   findDocumentVersion,
   findDocumentVersionInOrg,
-  mirrorVersionOntoDocument,
   setDocumentLifecycle,
+  swapVersionContent,
+  type SwapVersionContentOutcome,
 } from './version-repository'
 
 /**
@@ -66,34 +73,47 @@ import {
 export const BACKEND_PURGE_TIMEOUT_MS = 10_000
 
 /**
- * The key a version's OWN bytes live under.
+ * A fresh id for one object write — twelve hex characters of a random uuid.
  *
- * Version 1 keeps today's key exactly — `doc/<id>/<filename>` — so nothing that
- * predates versioning moves, and every stored object, thumbnail and `_bim/`
- * derivative stays where its row says it is. Later versions get a `v<n>/`
- * segment of their own, which is what makes "a superseded version keeps its
- * bytes" possible at all: without it the re-upload would write over the object
- * the previous version's row names.
+ * The collision space is per document and per version number, so twelve hex
+ * digits (48 bits) is far past what two concurrent writers of one file need.
  */
-export function versionStorageKey(document: Document, versionNumber: number): string {
-  return versionedStorageKey(document.storageKey, versionNumber)
+export function newVersionWriteId(): string {
+  return randomUUID().replace(/-/g, '').slice(0, 12)
 }
 
 /**
- * The same rule, applied to a key that has no row yet.
+ * `…/doc/<id>/v<n>/<write id>/<filename>` — one object per write, always.
  *
- * The upload paths build their key before the document exists, so they cannot
- * hand in a `Document`. Pure, so all four shelves — project, Archiv, session and
- * the generated-document filer — get the same answer.
+ * There is no version-1 shortcut, and that is the point. Every write that is
+ * not a document's first upload goes here: a re-upload on any shelf (project,
+ * Archiv, session) and a rewrite of a version's bytes. A first upload keeps the
+ * plain `doc/<id>/<filename>` key, because its id is fresh. The version number
+ * is a HINT (`nextVersionNumber`): it reads 1 while a concurrent first upload
+ * has its row but not yet its version, so a helper that returned the plain key
+ * for "version 1" aimed a re-upload at the winner's own object and overwrote
+ * its bytes. That helper (`versionedStorageKey`) is gone for that reason. The
+ * write id keeps two overlapping writes of one number apart; the row's number
+ * is allocated under a lock when the version is recorded.
+ *
+ * Derived from the item's OWN key rather than rebuilt from its parts, so the
+ * folder path, the shelf prefix (`project/`, `archiv/`, `session/`) and the
+ * sanitised filename are whatever this document already uses. Rebuilding them
+ * here would be a second copy of `buildStorageKey`'s three shelf variants, and
+ * the copies would agree until somebody moved a document. Whatever already
+ * sits between `doc/<id>/` and the filename — an earlier `v<n>/` or
+ * `v<n>/<write id>/` — is replaced rather than nested, so a document's keys do
+ * not grow a segment per revision.
  */
-export function versionedStorageKey(baseStorageKey: string, versionNumber: number): string {
-  if (versionNumber <= 1) return baseStorageKey
-  // Derived from the item's OWN key rather than rebuilt from its parts, so the
-  // folder path, the shelf prefix (`project/`, `archiv/`, `session/`) and the
-  // sanitised filename are whatever this document already uses. Rebuilding them
-  // here would be a second copy of `buildStorageKey`'s three shelf variants,
-  // and the copies would agree until somebody moved a document.
-  return baseStorageKey.replace(/\/([^/]+)$/, `/v${versionNumber}/$1`)
+export function versionWriteKey(key: string, versionNumber: number, writeId: string): string {
+  const segment = `v${versionNumber}/${writeId}`
+  const underDoc = /^(.*\/doc\/[^/]+)\/(?:.+\/)?([^/]+)$/.exec(key)
+  if (underDoc) return `${underDoc[1]}/${segment}/${underDoc[2]}`
+  // A key without a `doc/<id>/` segment predates the shelf layout; it still
+  // gets a directory of its own beside its filename.
+  return key.replace(/\/?([^/]+)$/, (_match, name: string) =>
+    key.includes('/') ? `/${segment}/${name}` : `${segment}/${name}`,
+  )
 }
 
 /**
@@ -203,69 +223,148 @@ export async function renderVersionBytes(
 }
 
 /**
- * Refuse a replacement the organization has no room for.
+ * What a replacement will add to the organization's usage, as best it can be
+ * told before anything is locked.
  *
- * The DELTA and not the whole file: the version being replaced is already
- * counted, whichever row carries it, so charging the full new size against a
- * total that still includes the old one would refuse a corrected report for
- * space the correction itself frees — the argument `replaceDocumentWithinQuota`
- * makes for a re-upload, restated for a version.
+ * The FULL size when the old bytes stay: a draft freshly forked from the
+ * published version shares the published object, and replacing the draft does
+ * not free it. This used to charge `incoming − version.fileSize` there too — the
+ * published file's size, so ≈ 0 for a same-sized revision — and fork, write,
+ * reject, fork again grew storage without ever being checked. The DELTA when the
+ * version owns its old object alone (a draft that has been written to, or the
+ * version that IS the item's bytes), because that object goes once the swap has
+ * won.
  *
- * This is `assertWithinStorageQuota`, the advisory half of the admission, and
- * that is a deliberate trade rather than an oversight. The hard ceiling on the
- * upload paths is an insert inside the quota transaction; a version replacement
- * has no insert — it is a compare-and-swap whose whole job is to lose races —
- * and holding the quota lock across the object write is exactly what
- * `insertDocumentWithinQuota`'s header refuses to do. Before this there was no
- * check of any kind on this path, which is what made an unattended revision
- * loop unbounded.
+ * An estimate for the courtesy check only. The hard ceiling is measured inside
+ * the swap's transaction, on the state it is about to commit
+ * (`swapVersionContent`), which also sees a key shared with a SUPERSEDED version
+ * that this cannot.
  */
-export async function admitVersionBytes(
-  organizationId: string,
+export function versionReplacementCharge(
+  document: Document,
   version: DocumentVersion,
   incomingBytes: number,
-): Promise<void> {
-  const delta = incomingBytes - (version.fileSize ?? 0)
-  if (delta <= 0) return
-  await assertWithinStorageQuota(organizationId, delta)
+): number {
+  const sharesPublishedObject =
+    version.storageKey === document.storageKey && !versionMirrorsItem(document, version)
+  if (sharesPublishedObject) return incomingBytes
+  return incomingBytes - (version.fileSize ?? 0)
 }
 
 /**
- * Write a version's bytes and, when they are the item's own, mirror them onto it.
+ * Refuse, before any byte moves, a replacement that obviously does not fit.
  *
- * Called AFTER the compare-and-swap has won. The order is the one thing here
- * that is not obvious: writing first and swapping second is how a caller that
- * LOST the race still overwrote the winner's object, because both were aiming
- * at the same key. The cost of this order is the opposite failure — a row that
- * names bytes the object store refused — and that one is recoverable by writing
- * again, whereas bytes destroyed by a loser are not.
+ * `assertWithinStorageQuota`, the advisory half, so an over-quota revision is
+ * refused before its object is written. The ceiling itself is enforced in
+ * `swapVersionContent`, under the per-organization quota lock every upload
+ * takes — the object is written first and taken back on a refusal, the same
+ * shape as `admitOrDiscard`.
  */
-export async function storeVersionBytes(
+export async function admitVersionBytes(
   organizationId: string,
   document: Document,
   version: DocumentVersion,
-  rendered: RenderedVersionBytes,
+  incomingBytes: number,
 ): Promise<void> {
+  const charge = versionReplacementCharge(document, version, incomingBytes)
+  if (charge <= 0) return
+  await assertWithinStorageQuota(organizationId, charge)
+}
+
+/** What {@link writeVersionContent} needs: the row that was read, and the new bytes. */
+export interface WriteVersionContentInput {
+  organizationId: string
+  document: Document
+  /** The row as the caller READ it — its state, key and hash are the expectation. */
+  version: DocumentVersion
+  rendered: RenderedVersionBytes
+  /** The transition's stamp (`stampFor`), written with the storage columns. */
+  stamp: Record<string, unknown>
+}
+
+/**
+ * Store a version's new bytes, then swap the row onto them — or take them back.
+ *
+ * ## Why the object is written FIRST, under a key of its own
+ *
+ * The key is fresh for every write (`versionWriteKey`), so no other writer —
+ * a concurrent replace, the published version a draft was forked from — can be
+ * aiming at it. That is what makes writing before the swap safe, and writing
+ * before the swap is what makes the row honest: by the time
+ * `swapVersionContent` commits, the object it names is stored in full, with the
+ * hash and size the row states. The previous order (swap, then write to a
+ * shared key) let a slow or failed PUT leave the row describing bytes the
+ * object did not hold, and let two winners write one key in either order.
+ *
+ * The swap asserts the state, key and hash this request READ, so the second of
+ * two writers holding one `If-Match` matches no row. Its object is deleted —
+ * nothing names it — and it is told 409.
+ *
+ * The version's PREVIOUS object is deleted after a won swap when nothing names
+ * it any more (a draft is not history). When it is shared — the published
+ * version's key a fresh fork still carries — it stays.
+ */
+export async function writeVersionContent(input: WriteVersionContentInput): Promise<DocumentVersion> {
+  const { organizationId, document, version, rendered } = input
+  await admitVersionBytes(organizationId, document, version, rendered.bytes.byteLength)
+  const quotaBytes = await getStorageQuotaBytes(organizationId)
+
+  const storageBucket = await resolveVersionBucket(organizationId)
+  const storageKey = versionWriteKey(document.storageKey, version.versionNumber, newVersionWriteId())
   await s3Client.send(
     new PutObjectCommand({
-      Bucket: resolveDocumentBucket(version.storageBucket),
-      Key: version.storageKey,
+      Bucket: storageBucket,
+      Key: storageKey,
       Body: rendered.bytes,
       ContentType: rendered.contentType,
     }),
   )
-  if (!versionMirrorsItem(document, version)) return
-  // The ledger reads `documents.file_size`, and the download path reads
-  // `documents.storage_key`. A version that IS the item's bytes and did not
-  // write them back would leave the organization charged the size the file had
-  // on the day it was created.
-  await mirrorVersionOntoDocument(document.id, organizationId, {
-    storageKey: version.storageKey,
-    storageBucket: version.storageBucket,
-    contentType: version.contentType,
-    fileSize: version.fileSize,
-    contentHash: version.contentHash,
-  })
+
+  let outcome: SwapVersionContentOutcome
+  try {
+    outcome = await swapVersionContent({
+      versionId: version.id,
+      documentId: document.id,
+      organizationId,
+      expected: {
+        state: version.state,
+        storageKey: version.storageKey,
+        contentHash: version.contentHash,
+      },
+      patch: {
+        ...input.stamp,
+        storageKey,
+        storageBucket,
+        contentType: rendered.contentType,
+        fileSize: rendered.bytes.byteLength,
+        contentHash: rendered.contentHash,
+      },
+      mirrorsItem: versionMirrorsItem(document, version),
+      quotaBytes,
+    })
+  } catch (error) {
+    await discardObject(storageBucket, storageKey)
+    throw error
+  }
+
+  if (!outcome.ok) {
+    // Nothing names the object this request wrote, whichever way it lost.
+    await discardObject(storageBucket, storageKey)
+    if (outcome.reason === 'quota') {
+      throw new InsufficientStorageError(STORAGE_QUOTA_EXCEEDED_MESSAGE, {
+        quotaBytes: quotaBytes ?? 0,
+        usedBytes: outcome.usedBytes,
+        requestedBytes: rendered.bytes.byteLength,
+      })
+    }
+    throw new ConflictError('The version changed while you were writing', {
+      contentHash: version.contentHash,
+    })
+  }
+  if (outcome.previousKeyOrphaned) {
+    await discardObject(resolveDocumentBucket(version.storageBucket), version.storageKey)
+  }
+  return outcome.version
 }
 
 /** The tenant bucket this organization's version objects go to. */

@@ -42,8 +42,12 @@ changed, and they stayed green through every gate because nothing ran them.
   nothing else returns the whole family: `norm_registry.family_query_number`
   detects it, `read_passage.family_overview` reads every member the corpus
   holds, and `register.search` renders their scope passages ahead of the ranked
-  hits with one `## Gliederung` per member as the block's trailer. Membership
-  is derived from what is indexed, never listed.
+  hits with one `## Gliederung` per member as the block's trailer. It keeps at
+  most four ranked hits beside the overview (`_FAMILY_RANKED_HITS`), and the
+  requery judge does not run on a query whose overview was built
+  (recorded as `search_input["requery_skipped"] = "family"`); a family the
+  corpus lacks is judged as usual.
+  Membership is derived from what is indexed, never listed.
 - [`aiq-add-data-source`](../skills/aiq-add-data-source/SKILL.md) is the
   step-by-step; [`aiq-add-tool`](../skills/aiq-add-tool/SKILL.md) covers a
   non-retrieval tool.

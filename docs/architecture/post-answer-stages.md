@@ -164,7 +164,7 @@ keeps it.
 ### 1.3 Gating today
 
 `_reflection_answer_is_substantive` (`register.py:67-89`) skips:
-canned non-answers (`_REFLECTION_NON_ANSWERS`, `register.py:60-65`), escalation
+canned non-answers (`REFLECTION_NON_ANSWERS`, built from `common/canned_replies.py`), escalation
 keywords, and `user_intent.intent in {meta, error, out_of_scope}`. The call site
 also skips a turn that only commissioned a run (`not run_id`) and requires a
 `project_id` (`reflection.py:420-422`).
@@ -225,8 +225,14 @@ primitive:
 | id | minted by | value shape | who knows it |
 |---|---|---|---|
 | user message row id | browser, `uuidv4()` | uuid4 | browser + BFF |
-| assistant message row id | browser, `uuidv4()` (`stores/messages-store.ts:1230`, `:1291`) | uuid4 | browser + BFF |
-| WS turn id (`parent_id`) | browser, **`msg_${Date.now()}_${counter}`** (`adapters/api/websocket-client.ts:266-269`, used at `:446-450`) | not a uuid | browser + agent tier |
+| assistant message row id | browser, `uuidv4()` | uuid4 | browser + BFF |
+| WS turn id (`parent_id`) | browser, **`msg_${Date.now()}_${counter}`** | not a uuid | browser + agent tier |
+
+> **[chat wire v2]** The three are one now. The question's row id is the
+> `user_message`'s `message_id`, which the agent tier makes the `turn_id`, and
+> the answer's row id is `uuid5(grid:assistant:<conversation>:<turn>)`, which
+> `RUN_STARTED` names. A stage event carries the `turn_id` and folds into the
+> turn's view like every other event (`features/chat/lib/turn-fold.ts`).
 
 The agent tier's only handle on the turn is the third one — NAT stores it as
 `self._message_parent_id` (`nat/front_ends/fastapi/message_handler.py:125`).
@@ -247,6 +253,11 @@ The agent tier's only handle on the turn is the third one — NAT stores it as
 > one idempotency key and silence every turn after the first, so the accessor maps
 > it (and the CLI/REST paths, where it is absent) to `None`, and the runner skips
 > the guard when there is no key.
+> **Since 2026-09 this section describes the past.** The browser now uses the
+> backend's id for the answer (`turnAnswerId`, the same `uuid5`), and the backend
+> persists every finished answer, socket or not. The analysis below is kept for
+> the decisions it led to.
+
 When the client is gone, the backend persists the answer under
 `uuid5(NAMESPACE_URL, f"grid:assistant:{conversation_id}:{parent_id}")`
 (`websocket_reconnect.py:459-468`) — **a different id from the one the browser
@@ -580,39 +591,60 @@ async with _stage_semaphore(loop):
 **Contract first.** The frontend and backend halves are built against this
 section, not against each other. Nothing below depends on either half existing.
 
-### 4.1 The frame
+### 4.1 The event
+
+A stage's outcome is a chat wire v2 event (`src/aiq_agent/common/wire_v2.py`,
+`StageBody`; [`websocket-protocol.md`](../api/websocket-protocol.md)), sent on
+the socket of the turn it follows:
 
 ```jsonc
 {
-  "type": "grid_stage_message",   // new; Grid-owned, not a NAT enum member
-  "v": 1,                          // contract version; bump on breaking change
+  "v": 2,
+  "type": "CUSTOM",
+  "name": "stage",
   "conversation_id": "…",
-  "parent_id": "msg_1755600000000_3",  // the ws user_message id of the answered turn
-  "stage": "follow_ups",
-  "status": "ready" | "empty" | "failed",
-  "payload": { /* stage-specific; absent unless status == "ready" */ },
-  "timestamp": "2026-08-19T10:31:02.114Z"
+  "turn_id": "msg_1759000000000_3",   // the user message id of the answered turn
+  "seq": 21,                           // the turn's own sequence, after RUN_FINISHED
+  "ts": 1759000022882,
+  "value": {
+    "stage": "follow_ups" | "memory_reflection",
+    "status": "ready" | "empty" | "failed",
+    "payload": { /* stage-specific; absent unless status == "ready" */ }
+  }
 }
 ```
 
+> **[as built, chat wire v2]** This replaced the Grid-owned
+> `grid_stage_message` frame (`v: 1`, `parent_id`, ISO `timestamp`) and its
+> fixtures in `shared/stages/frames.json`, which are retired. The envelope is
+> the wire's own, so a stage needs no frame type, builder or version of its
+> own. The recorded examples are the last events of
+> `shared/wire/v2/turn-answered.jsonl`.
+
 Rules, each with a reason:
 
-- **`parent_id` is the correlation key, and the only one.** It is the id both
-  halves share (§1.6). The browser must record it on the assistant message when
-  it opens the streaming bubble (`stores/messages-store.ts:1289-1310`, one added
-  field `wsParentId`); a frame whose `parent_id` matches no message is dropped
-  silently.
+- **`turn_id` is the correlation key, and the only one.** It is the id both
+  halves share (§1.6), and every event of the turn carries it. The browser
+  records it on the assistant message (`wsParentId`); an event whose `turn_id`
+  matches no message is dropped silently.
+- **Stages are the only events after `RUN_FINISHED`, on the same `seq`.** The
+  socket's registry keeps the turn's sequencer after the terminal until the
+  last stage lands or `STAGE_WIRE_TTL_S` (10 min) passes, so a stage is stamped,
+  replayed after `attach` and relayed to spectators like any other event of the
+  turn.
 - **`status` is on the wire even when there is nothing to show.** `empty` is not
-  the same fact as "no frame arrived", and only the former lets the client stop
+  the same fact as "no event arrived", and only the former lets the client stop
   reserving space (§6.3).
 - **`failed` carries no reason to the client.** Failure reasons are machine keys
   for the ledger, not user-facing text. The client renders `failed` and `empty`
   identically.
-- **At most one frame per (turn, stage).** Enforced backend-side by the
+- **At most one event per (turn, stage).** Enforced backend-side by the
   idempotency key (§7.2).
-- **Additive only.** A future stage adds a `stage` value and a `payload` shape;
-  it never changes this envelope. A client that does not know a `stage` value
-  drops the frame — which is exactly what an old tab should do.
+- **The contract refuses what a producer must never send.** An unknown stage,
+  an unknown status, or a payload beside a non-`ready` status fails the schema
+  on both sides (`StageValue`, the generated zod), so there is no separate list
+  of rejected frames to keep. A new stage is a new `stage` literal in
+  `wire_v2.py` and a payload shape here.
 
 ### 4.2 `follow_ups` payload, v1
 
@@ -634,26 +666,19 @@ means `FollowUpsCard.tsx` renders either source unchanged, and the migration in
 
 ### 4.3 Client behaviour, normatively
 
-1. New `onStage` callback on the WS client, dispatched from
-   `handleMessage` (`adapters/api/websocket-client.ts:591-706`) alongside
-   `SYSTEM_RESPONSE`. It **must not** pass through the
-   `if (!currentlyStreaming) return` guard at
-   `hooks/use-websocket-chat.ts:1108-1116` — a stage frame arrives *by
-   definition* when the turn is no longer streaming. That guard is why this needs
-   its own frame type rather than a second `system_response_message`.
-2. `NATStageMessageSchema` added to `NATIncomingMessageSchema`
-   (`adapters/api/schemas.ts:432-439`). Unknown `type` values already degrade
-   gracefully — warn-once-and-drop (`websocket-client.ts:597-613`) — so a **new
-   backend against an old tab loses the chips and nothing else**. That is the
-   correct version-skew behaviour and it is already implemented.
+1. The turn fold (`foldTurnEvent`, `features/chat/lib/turn-fold.ts`) stores
+   each stage event under `stages[stage]` of the turn's view. It is folded like
+   any other event: a stage arrives *by definition* after the turn stopped
+   streaming, and the fold has no streaming guard to route around.
+2. A tab running an older bundle speaks no v2 and is closed with `4426` at the
+   handshake, so there is no version skew for a stage to degrade across.
 3. On `ready`: store the payload on the matching message
    (`message.stages.follow_ups`) and PATCH it to the server via the existing
    `PATCH /api/conversations/:id/messages/:messageId`
-   (`app/api/conversations/[id]/messages/[messageId]/route.ts:67`), extended with
-   a `stages` key sanitised server-side by the same whitelist-and-bound discipline
-   as `provenance` (`lib/conversations/service.ts:600-611`). This is the existing
-   `_persistTurnProvenance` pattern (`stores/sessions-store.ts:91-99`), fired for
-   the same reason.
+   (`app/api/conversations/[id]/messages/[messageId]/route.ts`), with a
+   `stages` key sanitised server-side by the same whitelist-and-bound discipline
+   as `provenance` (`lib/conversations/message-stages.ts`). This is the
+   `_persistTurnProvenance` pattern, fired for the same reason.
 4. On `empty` / `failed`: release any reserved space, persist nothing.
 
 ### 4.4 Where the output is stored, and why not a new table
@@ -1070,7 +1095,7 @@ each is a fact the backend already has:
 | `intent != "out_of_scope"` | `user_intent.intent` | an off-topic redirect must not be handed four ways to stay off topic |
 | `not research_truncated` | `register.py:301` | the turn ran out of budget before it ran out of question; offering four more is the wrong invitation, and the reader already gets the truncation note (`ResearchTruncatedNote`) |
 | `not run_id` | `register.py:1183` | the turn only commissioned a run; the report path is separate (§10) |
-| `len(answer) >= 400` and answer is not a canned non-answer | `_REFLECTION_NON_ANSWERS`, `register.py:60-65` | a one-line factual answer has nothing to open up — the `_CARD_RESTRAINT` rule (`catalog.py:169-173`), enforced instead of suggested |
+| `len(answer) >= 400` and answer is not a canned non-answer | `REFLECTION_NON_ANSWERS`, from `common/canned_replies.py` | a one-line factual answer has nothing to open up — the `_CARD_RESTRAINT` rule (`catalog.py:169-173`), enforced instead of suggested |
 | the answer does not already end in a question | cheap suffix check | "two questions competing for the same reply is how you get neither" (`catalog.py:137-140`) |
 
 Each failed condition produces `outcome:"skipped"` with that condition as
@@ -1462,6 +1487,14 @@ Written here because "contract-first" is unenforceable without it.
   > nothing for a frame builder to assert about them, and they are where the
   > version-skew behaviour of §4.1 stops being a promise.
   >
+  > **[as built, chat wire v2] Retired.** `shared/stages/frames.json` and its two
+  > readers (`test_frame_contract.py`, `stage-frame-wire.spec.ts`) went with the
+  > `grid_stage_message` frame. A stage is now a wire v2 event: the `delivered`
+  > half is the stage events in `shared/wire/v2/*.jsonl`, which both sides'
+  > contract tests read byte for byte, and the `rejected` half is the schema
+  > itself refusing an unknown stage or status (`test_wire_v2.py`,
+  > `wire-v2.spec.ts`, `shared/wire/v2/invalid-events.jsonl`).
+  >
   > **[as built, slice 3] The Python reader is
   > `tests/aiq_agent/stages/test_frame_contract.py`**, and the stand-in is gone.
   > While slice 1 shipped `delivery="silent"` there was no frame to build, so the
@@ -1601,9 +1634,9 @@ Then the specific risks:
    case is a suggested question the user must still read and send. That is
    materially safer than reflection, whose output is persisted memory (audit S2).
    The payload is still rendered as text, never as markdown or HTML.
-7. **Version skew.** New backend + old tab: the frame is dropped with a
-   warn-once (`websocket-client.ts:597-613`). Old backend + new tab: no frame
-   arrives, nothing renders. Both degrade to today's behaviour.
+7. **Version skew.** New backend + old tab: the old bundle's socket is closed
+   with 4426 and the tab asks to be reloaded (chat wire v2). Old backend + new
+   tab: no stage event arrives, nothing renders.
 8. **The `stages` metadata key grows.** It is jsonb on a hot table. Bound it in
    the sanitiser — a fixed key set, per-stage size caps — the same discipline
    `sanitizeProvenance` already applies (`service.ts:600-611`, and the reasoning

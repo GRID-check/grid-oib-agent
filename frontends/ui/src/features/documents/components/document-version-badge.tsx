@@ -24,6 +24,7 @@
  * a plain upload, on purpose.
  */
 
+import type { JSX } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { useTranslations, type Translator } from '@/i18n'
 import { cn } from '@/lib/utils'

@@ -16,6 +16,7 @@
  */
 
 import { describe, test, expect } from 'vitest'
+import { de } from '@/i18n/dictionaries'
 import { buildCitationModel, decodeCitations, documentShelfLabel, documentTabLabel } from './index'
 import { citationFromWire } from '../wire-citation'
 import { parseKbLocator } from './locator'
@@ -42,6 +43,12 @@ const documentFor = (source: WireCitationSource) => {
   if (!document) throw new Error('fixture produced no document')
   return document
 }
+
+/** The reader's words, from the German dictionary the card renders with. */
+const t = (key: string): string =>
+  key
+    .split('.')
+    .reduce<unknown>((node, part) => (node as Record<string, unknown>)[part], de.chat) as string
 
 describe('the shelf arrives explicitly', () => {
   test('the wire field survives the mapping onto a citation', () => {
@@ -78,14 +85,14 @@ describe('an unknown shelf renders unattributed', () => {
     const doc = documentFor(wire({ collection: 'archiv_org1', kind: 'buero' }))
 
     expect(doc.shelf).toBeUndefined()
-    expect(documentShelfLabel(doc)).toBeUndefined()
+    expect(documentShelfLabel(doc, t)).toBeUndefined()
   })
 
   test('an unrecognised shelf value is dropped, not defaulted to base law', () => {
     const doc = documentFor(wire({ shelf: 'baurecht', collection: 'oib_knowledge' }))
 
     expect(doc.shelf).toBeUndefined()
-    expect(documentShelfLabel(doc)).toBeUndefined()
+    expect(documentShelfLabel(doc, t)).toBeUndefined()
   })
 
   test('an unattributed document still renders its display taxonomy', () => {
@@ -94,7 +101,7 @@ describe('an unknown shelf renders unattributed', () => {
     const doc = documentFor(wire({ collection: 'archiv_org1', kind: 'buero' }))
 
     expect(doc.kind).toBe('buero')
-    expect(documentTabLabel(doc)).toBe('Büroarchiv')
+    expect(documentTabLabel(doc, t)).toBe('Büroarchiv')
   })
 
   test('a stored message written before the field existed decodes to no shelf', () => {
@@ -111,15 +118,15 @@ describe('a private session attachment is not project knowledge', () => {
   test('a session source is labelled "Private Sitzung", never "Projektwissen"', () => {
     const doc = documentFor(wire({ shelf: 'session', kind: 'projekt' }))
 
-    expect(documentShelfLabel(doc)).toBe('Private Sitzung')
-    expect(documentTabLabel(doc)).toBe('Private Sitzung')
-    expect(documentTabLabel(doc)).not.toBe('Projektwissen')
+    expect(documentShelfLabel(doc, t)).toBe('Private Sitzung')
+    expect(documentTabLabel(doc, t)).toBe('Private Sitzung')
+    expect(documentTabLabel(doc, t)).not.toBe('Projektwissen')
   })
 
   test('a genuine project document is still Projektwissen', () => {
     const doc = documentFor(wire({ shelf: 'project', kind: 'projekt' }))
 
-    expect(documentTabLabel(doc)).toBe('Projektwissen')
+    expect(documentTabLabel(doc, t)).toBe('Projektwissen')
   })
 
   test('a fine lane label still wins — the shelf does not overwrite the taxonomy', () => {
@@ -128,7 +135,7 @@ describe('a private session attachment is not project knowledge', () => {
     )
 
     expect(doc.shelf).toBe('base')
-    expect(documentTabLabel(doc)).toBe('OIB-Richtlinie')
+    expect(documentTabLabel(doc, t)).toBe('OIB-Richtlinie')
   })
 })
 
@@ -246,7 +253,13 @@ describe('legacy citation keys still parse', () => {
       // a qualifier it quoted: an inference, never a statement. Treating it as
       // explicit would let the answer's prose displace the wire's own reading.
       const [doc] = buildCitationModel({
-        citations: [{ ...guessed, content: '[KB] Plan.pdf (Büroarchiv), p.3', citationKey: 'Plan.pdf (Büroarchiv), p.3' }],
+        citations: [
+          {
+            ...guessed,
+            content: '[KB] Plan.pdf (Büroarchiv), p.3',
+            citationKey: 'Plan.pdf (Büroarchiv), p.3',
+          },
+        ],
         entries: [{ number: 1, markdown: 'Plan.pdf (Projektwissen), p.4' }],
       })
 

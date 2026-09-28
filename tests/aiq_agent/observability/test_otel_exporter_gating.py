@@ -31,8 +31,10 @@ async def test_blank_endpoint_yields_a_noop_exporter(endpoint):
     # `register_telemetry_exporter` turns the factory into an async context manager.
     async with otelcollector_redaction_telemetry_exporter(_make_config(endpoint), None) as exporter:
         assert isinstance(exporter, _DisabledSpanExporter)
-        # And it must actually swallow spans rather than raise.
-        assert await exporter.export(object()) is None
+        # And it must actually swallow spans rather than raise, synchronously:
+        # NAT calls export() without awaiting it, and an async override leaked
+        # an unawaited coroutine per trace event.
+        assert exporter.export(object()) is None
 
 
 async def test_configured_endpoint_yields_a_real_exporter():

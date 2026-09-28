@@ -34,8 +34,24 @@ export interface RetrievalSettingDefinition {
 }
 
 const RIS_PAGE_SIZES = [10, 20, 50, 100] as const
+/** An on/off setting: 0 off, 1 on. */
+const SWITCH_VALUES = [0, 1] as const
 
 export const RETRIEVAL_SETTINGS: readonly RetrievalSettingDefinition[] = [
+  {
+    // Not a retrieval count either: an on/off switch (1 = on) the backend reads
+    // through the same pull. Off, the answering call does not stream and the
+    // answer arrives whole with the terminal frame, the turn as it was before
+    // ADR-0066. The form draws a 0/1 entry as a switch.
+    key: 'chat.answer_streaming',
+    defaultValue: 1,
+    min: 0,
+    max: 1,
+    allowedValues: SWITCH_VALUES,
+    label: 'Chat: Antwort live streamen',
+    description:
+      'An: die Antwort erscheint Wort für Wort, während das Modell sie schreibt. Aus: sie erscheint vollständig, sobald sie fertig ist; die Herleitung läuft in beiden Fällen live. Gilt ab der nächsten Frage, spätestens nach einer Minute.',
+  },
   {
     // Not a retrieval count, but exactly this catalog's shape: one bounded
     // platform-wide integer the backend reads through the same internal pull.
@@ -137,6 +153,10 @@ export const RETRIEVAL_SETTINGS: readonly RetrievalSettingDefinition[] = [
 export const RETRIEVAL_SETTING_KEYS: readonly string[] = RETRIEVAL_SETTINGS.map((setting) => setting.key)
 
 const BY_KEY = new Map(RETRIEVAL_SETTINGS.map((setting) => [setting.key, setting]))
+
+/** An on/off setting, drawn as a switch rather than a number. */
+export const isSwitchSetting = (definition: Pick<RetrievalSettingDefinition, 'allowedValues'>): boolean =>
+  definition.allowedValues?.length === 2 && definition.allowedValues[0] === 0 && definition.allowedValues[1] === 1
 
 export function getRetrievalSettingDefinition(key: string): RetrievalSettingDefinition | undefined {
   return BY_KEY.get(key)

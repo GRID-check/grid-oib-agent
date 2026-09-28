@@ -67,7 +67,7 @@ Source: `frontends/ui/src/features/projects/components/project-intake-wizard.tsx
 
 When you start a chat from a project's "Ask Piloti" (chat) tab, the conversation is tagged with the project's ID. The `buildCollectionScopeFromRequest()` function includes the project's collection (`proj_{uuid}`) in the `X-Grid-Collection-Scope` header. This limits knowledge retrieval to documents uploaded to that project.
 
-Source: `docs/technical-reference/chat-flow.md`, `frontends/ui/src/app/api/chat/route.ts:55`
+Source: `docs/technical-reference/chat-flow.md`, `frontends/ui/src/lib/collection-scope-request.ts`
 
 ## Document management
 

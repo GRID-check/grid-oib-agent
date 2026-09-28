@@ -77,6 +77,30 @@ class TestWhatItAsksFor:
 
         assert "context" not in commissioning[0][0]
 
+    async def test_the_rahmen_and_the_unterlagen_ride_the_commission(self, commissioning):
+        from aiq_agent.common.plan_documents import PlanDocument
+        from aiq_agent.common.plan_documents import PlanDocuments
+
+        docs = PlanDocuments(
+            grundlage=[PlanDocument(name="Einreichplan.pdf", title="Einreichplan EG", shelf="project")],
+            ausgeschlossen=[PlanDocument(name="alt.pdf")],
+        )
+        await commission_research_run(QUESTION, data_sources=["knowledge_base"], documents=docs)
+
+        payload = commissioning[0][0]
+        assert payload["dataSources"] == ["knowledge_base"]
+        assert payload["documents"] == {
+            "grundlage": [{"name": "Einreichplan.pdf", "title": "Einreichplan EG", "shelf": "project"}],
+            "ausgeschlossen": [{"name": "alt.pdf"}],
+        }
+
+    async def test_an_empty_unterlagen_list_is_absent(self, commissioning):
+        from aiq_agent.common.plan_documents import PlanDocuments
+
+        await commission_research_run(QUESTION, documents=PlanDocuments())
+
+        assert "documents" not in commissioning[0][0] and "dataSources" not in commissioning[0][0]
+
     async def test_a_long_question_is_cut_rather_than_refused(self, commissioning):
         # The question is the run's prompt AND its title. Refusing over a long
         # sentence would lose the work to enforce a bound the route also holds.

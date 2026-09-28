@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    The few fixed messages Piloti sends without research, such as a processing
+    error or a search without usable sources, now appear in German and in the
+    same register as its answers.

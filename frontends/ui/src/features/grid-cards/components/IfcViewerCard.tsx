@@ -14,6 +14,7 @@
  * wrong answer into a confidently wrong picture.
  */
 
+import type { JSX } from 'react'
 import { useMemo } from 'react'
 import Link from 'next/link'
 import { Boxes, ExternalLink } from 'lucide-react'

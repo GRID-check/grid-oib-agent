@@ -68,8 +68,9 @@ const UploadErrorAlert: FC<{ message: string; onClose: () => void; className?: s
 export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   const t = useTranslations('research')
   // Get current conversation and ensureSession for session management
-  const currentConversation = useChatStore((state) => state.currentConversation)
+  const currentConversationId = useChatStore((state) => state.currentConversation?.id)
   const ensureSession = useChatStore((state) => state.ensureSession)
+  const ensureConversationExists = useChatStore((state) => state._ensureConversationExists)
   const projectId = useChatStore((state) => state.projectId)
   const [uploadTarget, setUploadTarget] = useState<'project' | 'session'>(
     projectId ? 'project' : 'session'
@@ -112,7 +113,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
 
   const isProjectTarget = uploadTarget === 'project' && !!projectId
   const isProjectTargetReady = isProjectTarget && !!projectCollectionName
-  const targetCollectionName = isProjectTarget ? projectCollectionName : currentConversation?.id
+  const targetCollectionName = isProjectTarget ? projectCollectionName : currentConversationId
   const targetProjectId = isProjectTargetReady ? projectId : undefined
 
   // File upload hook - provides target files and handles validation internally
@@ -127,6 +128,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
   } = useFileUpload({
     collectionName: targetCollectionName,
     projectId: targetProjectId,
+    conversationProjectId: projectId,
   })
 
   // The documents store's currentCollectionName tells us WHICH session is actively being processed.
@@ -187,13 +189,19 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
           console.error('Failed to create session for upload')
           return
         }
+        // The server row BEFORE the bytes, with the chat's title, project and
+        // subject, which the send path would write (`ensureServerConversation`,
+        // idempotent per id). An attachment is authorized on its conversation
+        // (`collaborator`). `/api/session/documents/upload` would create a
+        // missing row too, but only with the project, so it is the fallback.
+        await ensureConversationExists()
       }
       // Pass the (possibly just-created) session explicitly: the hook's
       // memoized collectionName still reflects the previous render, so the
       // first upload in a fresh session would otherwise abort.
       await uploadFiles(files, { collectionOverride: sessionId })
     },
-    [ensureSession, isProjectTarget, projectCollectionName, uploadFiles]
+    [ensureSession, ensureConversationExists, isProjectTarget, projectCollectionName, uploadFiles]
   )
 
   // Hidden file input ref
@@ -267,6 +275,11 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
             : t('fileSourcesTab.preparingCorpus')
           : t('fileSourcesTab.onlyThisSession')}
       </span>
+      {isProjectTarget && projectCollectionName && (
+        <span className="text-xs text-muted-foreground">
+          {t('fileSourcesTab.projectFilesManagedInFiles')}
+        </span>
+      )}
     </div>
   ) : null
 
@@ -379,7 +392,11 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
             status={mapToDisplayStatus(file.status)}
             errorMessage={file.errorMessage ?? undefined}
             expirationIntervalHours={fileUploadConfig.fileExpirationCheckIntervalHours}
-            onDelete={handleDeleteClick}
+            // A project document is deleted in the project's Files, where the
+            // delete runs the legal-hold check and erases every version. This
+            // dialog lists what the chat can see; it only deletes the chat's own
+            // attachments.
+            onDelete={isProjectTarget ? undefined : handleDeleteClick}
             onOpen={handleOpenPreview}
           />
         ))}

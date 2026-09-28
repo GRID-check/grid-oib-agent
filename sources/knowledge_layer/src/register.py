@@ -9,6 +9,7 @@ The retriever is instantiated once and reused for all queries.
 import asyncio
 import logging
 import os
+from contextlib import nullcontext
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
@@ -17,11 +18,13 @@ from typing import Literal
 from pydantic import Field
 from pydantic import model_validator
 
-from nat.builder.builder import Builder
-from nat.builder.context import Context
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from aiq_agent.common.wire_v2 import TraceLane
+from aiq_agent.common.wire_v2 import TraceLaneSource
+from nat.plugin_api import Builder
+from nat.plugin_api import Context
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import register_function
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +208,8 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     reranker_provider: str | None = Field(
         default=None,
         description=(
-            "Cross-encoder reranking provider (none|openrouter). "
+            "Cross-encoder reranking provider (none|openrouter|jev). `jev` scores one decision-model "
+            "noul per candidate (ADR-0064), an option to evaluate beside the cross-encoder. "
             "None falls back to the AIQ_RERANKER_PROVIDER environment default, which is "
             "'none'. When one resolves it becomes the primary reranker and rerank_llm "
             "becomes the fallback; a missing key or any provider error degrades to the judge."
@@ -243,6 +247,24 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
         description=(
             "Ceiling on alternative queries the judge may propose per search when "
             "requery_llm is set. Each is one retrieval per in-scope collection."
+        ),
+    )
+    requery_decider: str = Field(
+        default="llm",
+        description=(
+            "Who answers the judge's yes/no (llm|jev). `jev` asks the decision model one noul per "
+            "passage of the head first (ADR-0064, ~300 ms, a fraction of a cent): a head it finds "
+            "sufficient costs no judge call, and only an insufficient head runs requery_llm, for the "
+            "phrasings. A decision that cannot run (no key, ZDR, breaker open) falls back to the judge."
+        ),
+    )
+    decision_sufficiency_threshold: float = Field(
+        default=0.55,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "With requery_decider=jev: the head is sufficient when any passage's p(answers the question) "
+            "reaches this. Lower = fewer requeries; the decision eval sweeps it."
         ),
     )
     hyde_enabled: bool = Field(
@@ -1219,108 +1241,80 @@ def _empty_search_message(
     )
 
 
-def _trace_lanes_json(
+def _trace_lanes_for_chunks(
     chunks,
     resolved: dict[tuple[str, str], str] | None = None,
     resolved_titles: dict[tuple[str, str], str] | None = None,
-) -> str:
-    """Machine-readable lane fan-out for the chat Herleitung UI.
+) -> tuple[TraceLane, ...]:
+    """The lane fan-out of raw chunks, for a producer that has no records yet (RIS).
 
-    One JSON object under a ``## Trace-Lanes`` marker so the frontend can group
-    hits by stratum (OIB / Projekt / Büroarchiv / …) without re-deriving
-    ``lane_for_hit``. Fail-open: never break tool output for the LLM.
-
-    Each lane carries BOTH classifications the consumer needs: the fine ``key``
-    /``label`` from ``lane_for_hit`` (the authority sub-tier — OIB-Richtlinie vs.
-    Rechtsquelle (RIS) vs. …) and the coarse ``kind`` from
-    :func:`~aiq_agent.common.source_kinds.kind_for_lane` — the same taxonomy
-    ``source_entry_to_wire`` puts on every citation (ADR-0026). Shipping ``kind``
-    is what lets the Herleitung fan-out stop mirroring the lane→kind table on the
-    frontend, so the fan-out and the "Belegt durch" chips cannot drift apart.
-
-    Each source carries both identities: ``name`` is the raw filename (document
-    identity — dedup, preview resolution) and ``title`` the user-facing display
-    name, so the Herleitung fan-out shows "OIB-Richtlinie 2, Ausgabe Mai 2023"
-    rather than ``oib-rl_2_ausgabe_mai_2023.pdf``. ``title`` is omitted when it
-    would merely repeat the filename (project/Büroarchiv uploads, where the
-    filename IS the user-meaningful name).
-
-    A source the publish path marked as agent-authored carries a
-    ``provenance`` object (``authored_by``/``approved_by``/``approved_at``/
-    ``producer``) and lands in its own lane, ``buero_piloti``. That lane is
-    decided by the provenance BEFORE the shelf, so a published Piloti document
-    filed on the project shelf keeps its author instead of joining
-    Projektwissen.
-
-    ``resolved`` is the store-authoritative doc_class map from
-    :func:`_resolve_doc_classes` and ``resolved_titles`` the stored display-title
-    map from :func:`_resolve_display_titles`; when omitted they are computed here
-    so the function stays usable standalone.
-
-    This is the CHUNK-facing entry point. It turns chunks into the same
+    It turns the chunks into the same
     :class:`~aiq_agent.common.grounding_block.GroundingHit` records the header
     lines are rendered from and hands them to :func:`_trace_lanes_for_hits`, so
     a hit's shelf, Dokumentart and title are derived once (ADR-0061).
+    ``resolved`` and ``resolved_titles`` are the store-authoritative doc_class
+    and display-title maps; when omitted they are computed here.
     """
-    try:
-        if resolved is None:
-            resolved = _resolve_doc_classes(chunks)
-        if resolved_titles is None:
-            resolved_titles = _resolve_display_titles(chunks)
-        hits = [
-            _grounding_hit(
-                chunk,
-                resolved=resolved,
-                resolved_titles=resolved_titles,
-                # Neither reaches the fan-out: it names documents by raw
-                # filename, so no citation key is built and no folder is read.
-                resolved_folders={},
-                ambiguous=set(),
-            )
-            for chunk in chunks
-        ]
-    except Exception:
-        logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
-        return '{"lanes":[]}'
+    if resolved is None:
+        resolved = _resolve_doc_classes(chunks)
+    if resolved_titles is None:
+        resolved_titles = _resolve_display_titles(chunks)
+    hits = [
+        _grounding_hit(
+            chunk,
+            resolved=resolved,
+            resolved_titles=resolved_titles,
+            # Neither reaches the fan-out: it names documents by raw
+            # filename, so no citation key is built and no folder is read.
+            resolved_folders={},
+            ambiguous=set(),
+        )
+        for chunk in chunks
+    ]
     return _trace_lanes_for_hits(hits)
 
 
-def _trace_lanes_for_hits(hits, opened_files: frozenset[str] = frozenset()) -> str:
-    """The ``## Trace-Lanes`` fan-out for records that are already built.
+def _trace_lanes_for_hits(hits, opened_files: frozenset[str] = frozenset()) -> tuple[TraceLane, ...]:
+    """The lane fan-out of a result set, as typed lanes (the chat wire's ``sources`` step).
+
+    Each lane carries BOTH classifications the reader needs: the fine ``key``
+    /``label`` from ``lane_for_hit`` (the authority sub-tier: OIB-Richtlinie
+    vs. Rechtsquelle (RIS) vs. …) and the coarse ``kind`` from
+    :func:`~aiq_agent.common.source_kinds.kind_for_lane`, the same taxonomy
+    ``source_entry_to_wire`` puts on every citation (ADR-0026), so the fan-out
+    and the "Belegt durch" chips cannot drift apart.
+
+    A source the publish path marked as agent-authored lands in its own lane,
+    ``buero_piloti``, decided by the provenance BEFORE the shelf, so a
+    published Piloti document filed on the project shelf keeps its author.
 
     ``opened_files`` names the documents this result set OPENED rather than
     ranked (the members of a family overview); their hits are stamped as
     locator reads on the turn's ledger.
-
-    Fail-open: never break tool output for the LLM. See :func:`_trace_lanes_json`
-    for what the payload means and why each field is on it.
     """
-    try:
-        import json
-        from collections import OrderedDict
+    from aiq_agent.common.norm_registry import lane_for_knowledge_hit
+    from aiq_agent.common.source_kinds import kind_for_lane
 
-        from aiq_agent.common.norm_registry import lane_for_knowledge_hit
-        from aiq_agent.common.source_kinds import kind_for_lane
-
-        lanes: OrderedDict[str, dict] = OrderedDict()
-        for hit in hits:
-            key, label = lane_for_knowledge_hit(
-                doc_class=hit.doc_class,
-                file_name=hit.file_name,
-                collection=hit.collection,
-                shelf=hit.shelf,
-                authored_by=hit.authored_by,
-            )
-            bucket = lanes.setdefault(
-                key,
-                {"key": key, "label": label, "kind": kind_for_lane(key), "hitCount": 0, "sources": []},
-            )
-            bucket["hitCount"] += 1
-            _append_lane_source(bucket, hit, opened_files)
-        return json.dumps({"lanes": list(lanes.values())}, ensure_ascii=False)
-    except Exception:
-        logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
-        return '{"lanes":[]}'
+    lanes: dict[str, tuple[str, list]] = {}
+    for hit in hits:
+        key, label = lane_for_knowledge_hit(
+            doc_class=hit.doc_class,
+            file_name=hit.file_name,
+            collection=hit.collection,
+            shelf=hit.shelf,
+            authored_by=hit.authored_by,
+        )
+        lanes.setdefault(key, (label, []))[1].append(hit)
+    return tuple(
+        TraceLane(
+            key=key,
+            label=label,
+            kind=kind_for_lane(key),
+            hit_count=len(members),
+            sources=_lane_sources(members, opened_files),
+        )
+        for key, (label, members) in lanes.items()
+    )
 
 
 def _lane_detail(hit) -> str | None:
@@ -1341,74 +1335,49 @@ def _lane_detail(hit) -> str | None:
     return f"Pkt. {hit.punkt} {page}".strip()
 
 
-def _append_lane_source(bucket: dict, hit, opened_files: frozenset[str] = frozenset()) -> None:
-    """Add one hit to its lane's source list, unless the lane already names it.
+def _lane_sources(hits, opened_files: frozenset[str]) -> list[TraceLaneSource]:
+    """One lane's documents, each ``(name, locus)`` once, in hit order."""
+    sources: list[TraceLaneSource] = []
+    seen: set[tuple[str, str]] = set()
+    for hit in hits:
+        detail = _lane_detail(hit)
+        if not hit.file_name or (hit.file_name, detail or "") in seen:
+            continue
+        seen.add((hit.file_name, detail or ""))
+        sources.append(_lane_source(hit, detail, opened=hit.file_name in opened_files))
+    return sources
+
+
+def _lane_source(hit, detail: str | None, *, opened: bool) -> TraceLaneSource:
+    """One document of a lane, stamped with its retrieval round and noted on the turn's ledger.
+
+    ``title`` is omitted when it would merely repeat the filename. The
+    provenance travels as KEYS, not the German sentence, so a reader builds
+    "freigegeben von …" in its own locale.
 
     A hit from a document in ``opened_files`` is stamped as a locator read,
     whatever tool rendered it: the family branch fetches each member the way
     ``read_passage(document=…)`` does, so the ledger must credit those
-    documents as opened, or a later read of one of them is not a repeat.
+    documents as opened, or a later read of one of them is not a repeat. The
+    producing tool is read off its scope, never passed (``record_lane_hit``).
     """
     from aiq_agent.common.provenance import provenance_metadata
+    from aiq_agent.common.turn_status import READ_PASSAGE_TOOL
+    from aiq_agent.common.turn_status import current_retrieval_round
+    from aiq_agent.common.turn_status import lane_tool_scope
+    from aiq_agent.common.turn_status import record_lane_hit
 
-    name = hit.file_name or ""
-    detail = _lane_detail(hit)
-    # Deduplicate identical name+detail pairs inside a lane.
-    existing = {(source.get("name"), source.get("detail") or "") for source in bucket["sources"]}
-    if not name or (name, detail or "") in existing:
-        return
-    entry: dict[str, Any] = {"name": name}
-    if hit.display_title and hit.display_title != name:
-        entry["title"] = hit.display_title
-    if detail:
-        entry["detail"] = detail
-    if hit.shelf is not None:
-        entry["shelf"] = str(hit.shelf)
-    if hit.provenance is not None:
-        # The KEYS, not the German sentence: the fan-out is data, and a
-        # frontend that wants "freigegeben von …" should build it in the
-        # reader's own locale from the approver and the ISO date rather than
-        # parse it back out of prose.
-        entry["provenance"] = provenance_metadata(hit.provenance)
-    _stamp_and_capture_lane_source(entry, opened=name in opened_files)
-    bucket["sources"].append(entry)
-
-
-def _stamp_and_capture_lane_source(entry: dict, *, opened: bool = False) -> None:
-    """Stamp the entry with its retrieval round and note it on the turn's ledger.
-
-    The per-round ledger reads this, never the prose: the capture keeps every
-    round's hits apart, while the turn_sources log dedups documents across
-    rounds. A missing round stamp must not drop the hit.
-
-    ``record_lane_hit`` builds its OWN record and stamps the producing tool on
-    it from the scope the tool opened. That stamp stays in the capture: the
-    ``entry`` below is the Trace-Lanes payload the model and the frontend read,
-    and which tool fetched a passage is how a repeat is DERIVED, not something
-    either of them is shown.
-    """
-    try:
-        from contextlib import nullcontext
-
-        from aiq_agent.common.turn_status import READ_PASSAGE_TOOL
-        from aiq_agent.common.turn_status import current_retrieval_round
-        from aiq_agent.common.turn_status import lane_tool_scope
-        from aiq_agent.common.turn_status import record_lane_hit
-
-        round_index = current_retrieval_round()
-        if round_index is not None:
-            entry["round"] = round_index
-        # The producing tool is read off its scope, never passed (the rule in
-        # ``record_lane_hit``); an opened document gets the locator's scope.
-        with lane_tool_scope(READ_PASSAGE_TOOL) if opened else nullcontext():
-            record_lane_hit(
-                entry["name"],
-                title=entry.get("title"),
-                detail=entry.get("detail"),
-                shelf=entry.get("shelf"),
-            )
-    except Exception:  # noqa: BLE001 (the fan-out survives a missing status module)
-        logger.debug("Turn status unavailable; lane hit goes unstamped", exc_info=True)
+    source = TraceLaneSource(
+        name=hit.file_name,
+        title=hit.display_title if hit.display_title and hit.display_title != hit.file_name else None,
+        detail=detail,
+        shelf=str(hit.shelf) if hit.shelf is not None else None,
+        round=current_retrieval_round(),
+        provenance=provenance_metadata(hit.provenance) if hit.provenance is not None else None,
+    )
+    with lane_tool_scope(READ_PASSAGE_TOOL) if opened else nullcontext():
+        record_lane_hit(source.name, title=source.title, detail=source.detail, shelf=source.shelf)
+    return source
 
 
 def _hit_provenance(chunk):
@@ -1535,7 +1504,6 @@ def _grounding_hit(chunk, *, resolved, resolved_titles, resolved_folders, ambigu
         provenance=_hit_provenance(chunk),
         stored_image_index=_stored_image_index(metadata),
         status_note=None,
-        source_url=None,
         body=content[:_CHUNK_TRUNCATE_CHARS] if truncated else content,
         body_truncated=truncated,
     )
@@ -1614,6 +1582,8 @@ def _format_results(
 
     from aiq_agent.common.grounding_block import GroundingBlock
     from aiq_agent.common.grounding_block import render_grounding_block
+    from aiq_agent.common.turn_status import KNOWLEDGE_SEARCH_TOOL
+    from aiq_agent.common.turn_status import current_lane_tool
 
     hits = _grounding_hits(retrieval_result.chunks)
     preamble = f"Found {len(hits)} relevant document(s):"
@@ -1625,6 +1595,9 @@ def _format_results(
             # Fan-out summary for the Herleitung UI, from the same records the
             # header lines state.
             lanes=_trace_lanes_for_hits(hits, opened_files),
+            # The scope the calling tool opened; the one caller that opens none
+            # is the search itself.
+            tool=current_lane_tool() or KNOWLEDGE_SEARCH_TOOL,
             trailer=trailer,
         )
     )
@@ -1657,6 +1630,14 @@ class _FamilyBranch:
 
 #: No family branch ran: an ordinary search, with nothing to say about one.
 _NO_FAMILY_BRANCH = _FamilyBranch()
+
+#: Ranked passages kept BESIDE a family overview. The overview already opens
+#: every part at its Geltungsbereich and lists its Gliederung; the ranked
+#: search around it is context, not the answer. Measured on „Was weißt du über
+#: die OIB 2?" (2026-09-23, live): with the full sixteen, the block was 25.5k
+#: characters (~7.4k tokens), half of it Leitfaden and Erläuterungen excerpts
+#: that an overview answer never cites, re-sent on every later call of the turn.
+_FAMILY_RANKED_HITS = 4
 
 
 async def _family_branch(entries, family_key: str) -> _FamilyBranch:
@@ -1833,6 +1814,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     configure_norm_store(config.summary_db)
 
     retriever = _get_retriever(config)
+    # The turn-start warm-up (Piloti) embeds the question in THIS retriever's
+    # cache while the turn decision runs, so the prefetch search skips the
+    # round trip. See ``warm_search_query``.
+    from aiq_agent.knowledge.factory import set_search_retriever
+
+    set_search_retriever(retriever)
 
     _initialize_ingestor(config, summary_llm_obj)
 
@@ -2176,6 +2163,19 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     from knowledge_layer.requery import requery_already_fired
                     from knowledge_layer.requery import should_skip_judge
 
+                    if family_task is not None and (await family_task).overview is not None:
+                        # An overview question is answered by the overview. The
+                        # judge's own criterion counts a scope note and a
+                        # Gliederung as NOT answering, so on this shape it said
+                        # "insufficient" by construction and fanned out two more
+                        # retrievals into a block that already held every part.
+                        # Keyed on the overview PRODUCED, not on the query's
+                        # shape: a corpus without the family, or an overview
+                        # that failed open, leaves ranked passages only, and
+                        # those keep their requery.
+                        requery_skipped_reason = "family"
+                        logger.info("Retrieval loop judge skipped (family) for %r", query[:60])
+                        return None
                     if requery_already_fired():
                         requery_skipped_reason = "already_fired"
                         logger.info("Retrieval loop judge skipped (already_fired) for %r", query[:60])
@@ -2197,7 +2197,14 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     logger.debug("Requery gate failed open to the judge", exc_info=True)
                 from knowledge_layer.requery import judge_sufficiency
 
-                return await judge_sufficiency(requery_llm_obj, query, chunks, max_queries=config.requery_max_queries)
+                return await judge_sufficiency(
+                    requery_llm_obj,
+                    query,
+                    chunks,
+                    max_queries=config.requery_max_queries,
+                    decider=config.requery_decider,
+                    decision_threshold=config.decision_sufficiency_threshold,
+                )
 
             reranked, verdict = await asyncio.gather(_reranked(merged.chunks), _judged(merged.chunks))
             requery_queries: list[str] = []
@@ -2312,10 +2319,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 # corpus that answered nothing.
                 overview = None
             family_note = overview.preamble if overview is not None else ""
+            dropped_by_family = 0
             if overview is not None:
-                merged = merged.model_copy(
-                    update={"chunks": [*overview.chunks, *_without_chunks(merged.chunks, overview.chunks)]}
-                )
+                unaddressed = _without_chunks(merged.chunks, overview.chunks)
+                ranked = unaddressed[:_FAMILY_RANKED_HITS]
+                dropped_by_family = len(unaddressed) - len(ranked)
+                merged = merged.model_copy(update={"chunks": [*overview.chunks, *ranked]})
 
             # The picking, as a first-class observation (ADR-0044): one
             # `retrieve.knowledge_search` span carrying query, collections,
@@ -2363,6 +2372,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     search_input["requery_fired"] = bool(requery_fired)
                     if dropped_by_cap:
                         search_input["dropped_by_cap"] = dropped_by_cap
+                    if dropped_by_family:
+                        search_input["dropped_by_family"] = dropped_by_family
                     if not merged.chunks:
                         search_input["empty"] = True
                     if getattr(merged, "error_message", None):
@@ -2480,10 +2491,15 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         )
     else:
         diversity_clause = "ranked purely by relevance, with no per-document diversity cap."
-    yield FunctionInfo.from_fn(
-        search,
-        description=(
-            f"{_KNOWLEDGE_SEARCH_DESCRIPTION} "
-            f"Returns up to {top_k} excerpts (platform-configurable), {diversity_clause}"
-        ),
-    )
+    try:
+        yield FunctionInfo.from_fn(
+            search,
+            description=(
+                f"{_KNOWLEDGE_SEARCH_DESCRIPTION} "
+                f"Returns up to {top_k} excerpts (platform-configurable), {diversity_clause}"
+            ),
+        )
+    finally:
+        from aiq_agent.knowledge.factory import clear_search_retriever
+
+        clear_search_retriever(retriever)

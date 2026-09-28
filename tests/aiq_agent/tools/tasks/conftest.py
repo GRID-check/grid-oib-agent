@@ -61,10 +61,10 @@ class _Context:
 
 
 def bind_context(monkeypatch: pytest.MonkeyPatch, *, headers: dict[str, str], conversation_id: str | None) -> None:
-    import nat.builder.context as nat_context
+    from nat.plugin_api import Context
 
     context = _Context(headers, conversation_id)
-    monkeypatch.setattr(nat_context.Context, "get", staticmethod(lambda: context))
+    monkeypatch.setattr(Context, "get", staticmethod(lambda: context))
 
 
 @pytest.fixture

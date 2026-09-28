@@ -24,14 +24,18 @@ export function useCitationPeek(options: {
   canCollaborate?: boolean
 }): void {
   const { projectId, projectName, canCollaborate } = options
-  const messages = useChatStore((state) => state.currentConversation?.messages)
+  // The latest FINISHED answer, not the messages: that object keeps its
+  // identity while the next answer streams, so the page that mounts this hook
+  // does not re-render with every delta.
+  const message = useChatStore((state) =>
+    latestFinishedAssistantMessage(state.currentConversation?.messages),
+  )
   const handledMessageId = useRef<string | null>(null)
 
   const decision = useMemo(() => {
-    const message = latestFinishedAssistantMessage(messages)
     if (!message) return null
     return { messageId: message.id, peek: peekableFileForMessage(message) }
-  }, [messages])
+  }, [message])
 
   const surfaced = useMemo(
     () =>

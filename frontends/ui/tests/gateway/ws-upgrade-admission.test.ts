@@ -26,6 +26,7 @@ let upstream: http.Server
 let upstreamPort = 0
 let scopeHits = 0
 let slowScope = false
+let resetAfterUpgrade = false
 const running: ChildProcess[] = []
 const openSockets = new Set<import('node:stream').Duplex>()
 
@@ -61,6 +62,10 @@ beforeAll(async () => {
     sock.write(
       'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n'
     )
+    // A backend that vanishes mid-socket: RST, so the gateway sees ECONNRESET.
+    if (resetAfterUpgrade) {
+      setTimeout(() => (sock as import('node:net').Socket).resetAndDestroy(), 150)
+    }
   })
   await new Promise<void>((resolve) => upstream.listen(0, resolve))
   upstreamPort = (upstream.address() as { port: number }).port
@@ -77,6 +82,7 @@ afterAll(async () => {
 afterEach(() => {
   while (running.length) running.pop()?.kill('SIGKILL')
   slowScope = false
+  resetAfterUpgrade = false
 })
 
 /** Let the OS pick a free port, then hand it to the gateway. */
@@ -264,5 +270,42 @@ describe('gateway WS-upgrade upstream failures', () => {
     expect(gatewayOutput).toContain('ECONNREFUSED')
     // The ERROR-severity wording is what err2issue turns into an issue.
     expect(gatewayOutput).not.toContain('[WS Proxy] Error:')
+  })
+
+  it('treats a reset after the upgrade as teardown and never writes a 502 into the socket', async () => {
+    // Issues #588/#775/#784: a peer leaving a live socket logged
+    // `[WebSocket] upstream socket error` at ERROR, and the same error reached
+    // the ws() callback, which wrote `HTTP/1.1 502` after the 101.
+    resetAfterUpgrade = true
+    const port = await startGateway()
+
+    const received = await new Promise<string>((resolve) => {
+      const req = http.request({
+        port,
+        path: '/websocket?conversationId=conv-1',
+        headers: {
+          Connection: 'Upgrade',
+          Upgrade: 'websocket',
+          'Sec-WebSocket-Version': '13',
+          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+          Cookie: 'session=reset',
+        },
+      })
+      req.on('upgrade', (_res, sock) => {
+        let bytes = ''
+        sock.on('data', (chunk: Buffer) => (bytes += chunk.toString('latin1')))
+        sock.on('error', () => {})
+        sock.on('close', () => resolve(bytes))
+      })
+      req.on('error', () => resolve('request failed'))
+      req.end()
+    })
+
+    expect(received).not.toContain('502')
+    await waitForLog('[WebSocket] closed by upstream')
+    expect(gatewayOutput).toMatch(/\[WebSocket\] upstream socket ECONNRESET after \d+\.\ds/)
+    expect(gatewayOutput).not.toContain('upstream socket error')
+    expect(gatewayOutput).not.toContain('[WS Proxy] Error:')
+    expect(gatewayOutput).not.toContain('rejecting upgrade')
   })
 })

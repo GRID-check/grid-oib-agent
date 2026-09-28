@@ -1,5 +1,10 @@
-"""Collection management endpoints."""
+"""Collection management endpoints.
 
+The ingestor is synchronous (Chroma, SQL), so every call goes through
+``asyncio.to_thread``: see ``routes/documents.py`` for why.
+"""
+
+import asyncio
 import logging
 
 from fastapi import APIRouter
@@ -39,7 +44,8 @@ def add_collection_routes(router: APIRouter):
     ) -> CollectionInfo:
         """Create a new collection for storing documents."""
         try:
-            return ingestor.create_collection(
+            return await asyncio.to_thread(
+                ingestor.create_collection,
                 name=request.name,
                 description=request.description,
                 metadata=request.metadata,
@@ -59,7 +65,7 @@ def add_collection_routes(router: APIRouter):
         ingestor: BaseIngestor = Depends(_require_ingestor),
     ) -> CollectionInfo:
         """Get details for a specific collection."""
-        collection = ingestor.get_collection(name)
+        collection = await asyncio.to_thread(ingestor.get_collection, name)
         if collection is None:
             raise HTTPException(status_code=404, detail=f"Collection '{name}' not found")
         return collection
@@ -75,7 +81,7 @@ def add_collection_routes(router: APIRouter):
     ) -> dict:
         """Delete a collection and all its contents."""
         try:
-            success = ingestor.delete_collection(name)
+            success = await asyncio.to_thread(ingestor.delete_collection, name)
             if not success:
                 raise HTTPException(status_code=500, detail=f"Failed to delete collection '{name}'")
             return {"success": True, "collection": name}

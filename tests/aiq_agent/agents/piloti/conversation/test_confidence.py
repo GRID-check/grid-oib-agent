@@ -1,7 +1,7 @@
 """Tests for self-assessed answer-confidence surfacing in Piloti.
 
 Covers the node-level assembly (`_finalize_answer`) and end-to-end
-propagation through ``ConversationGraph.run()``: the guard caps ungrounded
+propagation through ``ConversationGraph.stream()``: the guard caps ungrounded
 self-reports, escalation/error branches surface nothing, and a control marker
 left in the text is always stripped from the user-visible answer.
 
@@ -19,7 +19,9 @@ from aiq_agent.agents.piloti.conversation import ConversationGraph
 from aiq_agent.agents.piloti.conversation import _finalize_answer
 from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.agents.piloti.models import ResearchAgentState
+from aiq_agent.common.canned_replies import GENERIC_ERROR_MESSAGE
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
+from tests.aiq_agent.agents.piloti.conversation import turn
 
 
 def _signals(**fields) -> ResearchAgentState:
@@ -96,11 +98,11 @@ class TestFinalizeAnswer:
         update = _finalize_answer(AIMessage(content="  \n[CONFIDENCE:high]"), _signals())
         assert update["routing_decision"] == "error"
         assert update["escalate_to_deep"] is False
-        assert "An error occurred" in update["messages"][0].content
+        assert update["messages"][0].content == GENERIC_ERROR_MESSAGE
 
 
 class TestConfidenceEndToEnd:
-    """Propagation of answer_confidence through ConversationGraph.run()."""
+    """Propagation of answer_confidence through ConversationGraph.stream()."""
 
     @pytest.fixture
     def deep_fn(self):
@@ -142,7 +144,7 @@ class TestConfidenceEndToEnd:
 
     async def _run(self, research, deep_fn, thread_id: str) -> ConversationState:
         agent = self._agent(research, deep_fn)
-        return await agent.run(ConversationState(messages=[HumanMessage(content="Frage?")]), thread_id=thread_id)
+        return await turn(agent, ConversationState(messages=[HumanMessage(content="Frage?")]), thread_id=thread_id)
 
     @pytest.mark.asyncio
     async def test_grounded_high_surfaces_high(self, deep_fn):

@@ -25,6 +25,20 @@ export const diagrams = {
   /** The file name a diagram gets when neither the source nor the surface names it. */
   defaultTitle: 'Diagram',
   fallback: 'This diagram could not be drawn. Its source is above.',
+  /**
+   * What a drawn diagram is called to a screen reader when its source names no
+   * title: the kind of picture, never `schematicOnly`, which is a claim about
+   * measurement the drawing does not make.
+   */
+  kind: {
+    flow: 'Flow diagram',
+    map: 'Map of parts',
+    handoff: 'Hand-over sequence',
+    schedule: 'Schedule',
+    shares: 'Shares',
+  },
+  /** The scrolling frame around a graph, named apart from the graph inside it so the two are not announced alike. */
+  scrollable: '{name}, scrolls sideways',
   file: {
     action: 'File in project',
     pending: 'Filing…',

@@ -88,7 +88,7 @@ export const pdfRequestSchema = z
      * without a byline to carry it.
      */
     aiProvenance: z.string().optional(),
-    /** Printed instead of a mermaid fence's source — see `markdownToBlocks`. */
+    /** Printed instead of a mermaid fence's or a `diagram` card's source — see `diagramBlocks`. */
     diagramPlaceholder: z.string().optional(),
     /**
      * Facts the caller knows and the prose does not — Standort, Bundesland,

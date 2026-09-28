@@ -22,6 +22,7 @@
  * instead of walking Overview → Models → Knowledge.
  */
 
+import type { JSX } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {

@@ -4,6 +4,7 @@
  * Archiv's own. A hard load takes the real page instead (`../../archiv`),
  * which renders the same sheet standing alone.
  */
+import type { JSX } from 'react'
 import { ArchivSheet } from '../../archiv/archiv-sheet'
 
 export default function ArchivOverlayPage(): JSX.Element {

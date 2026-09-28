@@ -212,8 +212,9 @@ chat turn that cannot execute it.
 disclosure under an answer reports what shaped it, and a product built on
 traceable sourcing must not have a class of instruction it declines to admit
 ran. With forcing gone there is one way a skill runs — the model read its line
-in the catalog and called `use_skill` — so the panel names exactly the bodies
-that were delivered.
+in the catalog and called `use_skill`, or (ADR-0063) read its body in the
+prompt and named it in the envelope's `skills_applied` — so the panel names
+exactly the bodies that reached the model and that it says it followed.
 
 **Fail-open drops offers and keeps machinery** — see Resolution below. Offers
 reach a run through the BFF payload, and the backend's fail-open baseline is the
@@ -342,33 +343,30 @@ every chat-scoped skill to deep research as well.
 
 Every builtin declares `grid-agents`, and the value splits the corpus in two.
 
-The five in `research/` and `synthesis/` declare `deep_researcher` **and nothing
+The six in `research/` and `synthesis/` declare `deep_researcher` **and nothing
 else**. They are DeepAgents subagent skills: their instructions call `execute`,
 read and write `/shared/` and return `ResearchNotes`, none of which exists in a
 chat turn. That one key is what keeps Piloti from being
 offered a procedure it cannot carry out.
 
-The six in `bim/`, `oib/` and `presentation/` are chat skills and say so.
-`ifc-spatial-reasoning` and the four `oib/` domain skills name both agents;
-`diagrams` names **`researcher` alone**, and the reason is
-worth stating because it looks like an omission. A builtin FILE does not reach
-deep research through `grid-agents` at all: `resolve_served_skills` keeps only
-BFF-served rows (`origin == "org"`), and the builtins reach deep subagents
-through the collection assignment in `deep_research_skills` instead — which
-today names `research` and `synthesis` and nothing else. So naming
-`deep_researcher` on a file in a new collection would claim a channel that does
-not exist. The four `oib/` skills carry it harmlessly; a skill added now should
-not copy it without checking.
+The nine in `bim/` and `oib/` are chat skills: `ifc-spatial-reasoning` and the
+eight `oib/` domain skills name both agents, because the questions they are
+about get asked in chat. A builtin FILE does not reach deep research through
+`grid-agents` at all: `resolve_served_skills` keeps only BFF-served rows
+(`origin == "org"`), and the builtins reach deep subagents through the
+collection assignment in `deep_research_skills` instead, which today names
+`research` and `synthesis` and nothing else. So `deep_researcher` on these nine
+claims a channel that does not exist. It is harmless, and a skill added now
+should not copy it without checking.
+
+There is no `presentation/` collection any more. Its one skill, `diagrams`,
+was retired because every rule it held was already in the static prompt
+(`piloti_static.md` `<formatting>`), and loading it cost a full round. What a
+diagram is drawn as, and why, is in
+[`docs/design/answer-visuals.md`](../design/answer-visuals.md).
 
 Since `grid-agents` is the ONLY thing doing the targeting,
 `platform-skills.spec.ts` asserts every builtin still declares it. The BFF forwards platform metadata
-The research and synthesis builtins declare `grid-agents: deep_researcher`
-and nothing else. They are DeepAgents subagent skills: their instructions call
-`execute`, read and write `/shared/` and return `ResearchNotes`, none of which
-exists in a chat turn. That one key is what keeps Piloti
-from being offered a procedure it cannot carry out. The OIB and BIM skills
-name both agents, because the questions they are about get asked in chat.
-`platform-skills.spec.ts` asserts every builtin still declares `grid-agents`. The BFF forwards platform metadata
 **verbatim** on the resolve endpoint (an empty `metadata: {}` would merge over
 the backend's own filesystem copy and erase this targeting), and the agent
 filter applies to platform rows as well as org rows.
@@ -396,10 +394,25 @@ skill onto a turn: not the request, not the deployment, not a job.
   KV-cache boundary, never a source and never above the rules it may not
   override).
 
-Progressive disclosure has exactly two levels:
+Progressive disclosure has two levels, and a measured shortcut (ADR-0063 as
+amended, ADR-0064): the turn-start decision asks a `skill` choice over every
+resolved skill with `none`, verified by one "fits" noul per skill, and the ONE
+chosen body rides this turn's prompt in full (`SkillRuntime.inline_also`,
+~400 tokens for a chat method, the IFC method on a model question) with its
+preferred card shapes beyond the eight the envelope teaches. An inlined body
+renders as a `<skill name="…">` element under `## Skills`, the rest as one
+line each under `### Available by name`. The model names the inlined skill it
+followed in the envelope's `skills_applied`; the runtime accepts a name only
+when that body was in the prompt, and that is what makes it `activated`.
+Inlining every short method by size (`skills_inline_max_body_chars` /
+`skills_inline_budget_chars`) is an opt-in budget an org can set; the shipped
+config sets neither, because nine bodies were ~4,600 tokens on every call for
+methods most turns never use. Deep research sets nothing and keeps the
+catalog.
 
 - **L1 — the catalog.** One line per RESOLVED skill (`name: description`)
-  under the system prompt's `## Available skills` heading, and nothing else —
+  under the system prompt's `## Available skills` heading (or `### Available
+  by name` when a budget is set), and nothing else —
   there is no second, "active" block any more, and nothing a person sets takes
   a row out. `grid-auto-invoke: false` used to; its author-facing switch is
   gone, so honouring the stored token would hide a skill from every turn with
@@ -407,10 +420,11 @@ Progressive disclosure has exactly two levels:
   decides nothing. The block is pre-collated by the register layer
   (`piloti/register.py::_skills_block`, `deep_researcher/agent.py::_skills_block`)
   and renders via the runtime's `prompt_block()`; `None` renders no section.
-- **L2 — the body.** The model must call the `use_skill` tool to load a
-  body before following it. A failed lookup returns an error listing the
+- **L2 — the body.** A body over the budget is loaded with the `use_skill`
+  tool before it is followed. A failed lookup returns an error listing the
   available names, so a hallucinated skill name is self-correcting rather
-  than a fatal turn.
+  than a fatal turn. `use_skill` still answers for an inlined body (a model on
+  an older prompt), and that delivery activates it exactly as before.
 
 **Every scaffolding string in the runtime is English**, and that is a decision
 rather than an oversight. The one heading left was German once (`## Verfügbare
@@ -850,8 +864,15 @@ flag, the worker knows the model.
 
 When the run ends — success, failure or cancellation — the worker reports
 the outcome to `POST /api/internal/jobs/[jobId]/outcome` by the backend job
-id, only when it was the one that wrote the terminal status (a run the reaper
-already finalized is reported by nobody). The BFF turns that into a
+id. Whoever writes the terminal status reports it: the runner for its own
+verdict, the cancel route for INTERRUPTED (the runner repeats it when its abort
+lands, which the BFF absorbs), the ghost reaper and the queue's retry
+exhaustion and poison quarantine for their FAILURE. The last four hold no run
+context, so they read the tenant off the job's `job_access` row
+(`notify_job_outcome_from_access`). A run that loses a status race reports
+nothing unless the standing status is its own verdict. Until 2026-09 only the
+runner reported, and only when it wrote the status itself, so a cancelled,
+reaped or exhausted run stayed `running` in `task_runs` forever. The BFF turns that into a
 `job.completed` or `job.failed` inbox item for the job's creator, one row per
 run, landing on the project's automation page. Best-effort by contract: the
 run is already final in the job store, and a missed notification never
@@ -1039,11 +1060,14 @@ Piloti "no" about reaches the run rather than a log line.
 
 Plain-Node worker (purger idiom: CommonJS, `postgres` client, `.spec.mjs`
 tests), compose service `skill-scheduler` (container `grid-skill-scheduler`)
-running `node scheduler/index.js` off the frontend image. It refuses to start
-— clean log, exit 0 — unless the deployment gate is on
+running `node scheduler/index.js` off the frontend image. It fires schedules
+(steps 1–3 below) only when the deployment gate is on
 (`GRID_SKILLS_ENABLED=true` or `GRID_ENFORCE_FEATURE_FLAGS=true`), read
 case-insensitively exactly as the BFF reads it, so `TRUE` cannot enable the UI
-while silently no-op'ing this container.
+while silently skipping the schedules. With the gate off it does not exit: it
+stays up as the run reconciler's clock (step 4), because runs exist without
+Agent Skills — a chat question escalated to deep research is a `task_runs` row
+with no definition behind it (ADR-0062).
 
 Tick (default 30 s), with a reentrancy guard so a slow tick never overlaps the
 next interval:
@@ -1073,6 +1097,21 @@ next interval:
    '$GRID_SKILL_RUNS_RETENTION_DAYS days'` (batched by id-subselect so each
    statement locks a bounded set). The definition survives its pruned runs, so
    a schedule keeps firing after its oldest attempts age out.
+4. Run reconciler, every tick and whatever the gate says: `POST
+   {FRONTEND_INTERNAL_URL}/api/internal/runs/reconcile`. The BFF does the work
+   (`lib/runs/reconcile.ts`): it claims up to 25 still-`queued`/`running` runs
+   nothing has checked for `GRID_RUN_RECONCILE_STALE_MINUTES` (default 10),
+   stamping `reconcile_checked_at` in the same statement (`FOR UPDATE SKIP
+   LOCKED`, migration 0096), asks the job store for each job's real verdict
+   (`GET /v1/internal/jobs/{id}/outcome`, service token), and for a finished job
+   fills an empty run message (`writeRunReport`), settles a live ledger
+   (`applyRunLedgerOp`) and closes the row (`recordRunOutcome` with
+   `onlyIfActive`) — the same functions the worker's own writes reach. A job the
+   store cannot find, or a run that never got a backend job id, is closed as
+   failed once it is older than `GRID_RUN_RECONCILE_UNKNOWN_GRACE_MINUTES`
+   (default 120). The container logs a sweep only when it closed or failed
+   something. See the run section of
+   [`backend-deep-dive.md`](backend-deep-dive.md) and ADR-0062.
 
 Claiming advances the job **before** firing, which is what makes a run
 at-most-once per occurrence across replicas and crashes.
@@ -1095,7 +1134,9 @@ renaming them is a deployment change with no user-visible gain.
 
 | Variable | Service | Default | Purpose |
 |---|---|---|---|
-| `GRID_SKILLS_ENABLED` | frontend, skill-scheduler | `false` | Dark-launch fallback gate while flags are unenforced; also the scheduler's start gate |
+| `GRID_SKILLS_ENABLED` | frontend, skill-scheduler | `false` | Dark-launch fallback gate while flags are unenforced; also the scheduler's schedules gate (the run reconciler runs regardless) |
+| `GRID_RUN_RECONCILE_STALE_MINUTES` | frontend | `10` | A still-active run is asked about once nothing has checked it for this long |
+| `GRID_RUN_RECONCILE_UNKNOWN_GRACE_MINUTES` | frontend | `120` | A run whose job cannot be found is closed as failed once this old |
 | `GRID_SKILL_SCHEDULER_POLL_MS` | skill-scheduler | `30000` | Tick interval |
 | `GRID_SKILL_SCHEDULER_BATCH` | skill-scheduler | `20` | Max claims per tick |
 | `GRID_SKILL_MIN_INTERVAL_MINUTES` | frontend | `15` | Minimum cron cadence accepted at save time |
@@ -1188,10 +1229,9 @@ name now gets no link at all rather than one that lands on the chat page and
 silently does nothing. "Run now" opens the history and offers that same *View
 progress* action.
 
-A **deep-research** run has no owning conversation, so the research panel
-attaches to the job without writing banners or error cards into whatever chat
-thread happens to be open; TasksTab's outcome notice reports how the run ended
-instead. A **chat** run does have one, and the run row carries its id
+A **deep-research** run has no owning conversation, so its row in the history
+says what the run became and offers no door into a thread. A **chat** run does
+have one, and the run row carries its id
 (`conversationId` on `adapters/api/jobs-client.ts`) — the handle a link into
 the finished thread is built from. The thread itself is an ordinary
 project-visible conversation today: it is reachable from the project's chat and

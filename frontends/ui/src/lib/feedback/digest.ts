@@ -13,7 +13,9 @@
  * while the praise clusters around fire-compartment sizing. Naming themes is the
  * whole value; the percentages are not.
  *
- * **What leaves this process.** Counts, and questions. The organization rollup is
+ * **What leaves this process.** Counts, questions, and the free-text comment of
+ * a sampled down-vote, which is what the vote's cause is read from (ADR-0064,
+ * use 9) and is quoted to the model as data. The organization rollup is
  * stripped to bare `{up, down}` pairs before it goes anywhere — the digest needs
  * the SHAPE of the distribution ("one tenant accounts for most of it"), never the
  * identity, and the table under the digest names them on screen anyway. Answers
@@ -80,6 +82,17 @@ export interface FeedbackDigest {
   windowDays: number
   /** Votes it was computed over, so a thin digest can be shown as thin. */
   votes: number
+  /**
+   * The sampled unhelpful votes by cause, most frequent first, as the decision
+   * model read them from each vote's comment and reason (ADR-0064, use 9).
+   * Empty when no decision ran. Optional: a digest cached before it existed has none.
+   */
+  causes?: FeedbackCause[]
+}
+
+export interface FeedbackCause {
+  cause: string
+  count: number
 }
 
 export interface FeedbackDigestResult {
@@ -139,6 +152,7 @@ interface BackendDigestResponse {
   strengths?: string[]
   concerns?: string[]
   recommendation?: string | null
+  causes?: Record<string, unknown>
   error?: string | null
 }
 
@@ -216,7 +230,9 @@ async function generateDigest(
   const samples = [...helpful, ...unhelpful].flatMap((turn) => {
     const question = trimQuestion(turn.question)
     if (!question) return []
-    return [{ verdict: turn.verdict, reason: turn.reason, topics: turn.topics, question }]
+    // The comment rides only on a down-vote: it is what the cause is read from.
+    const comment = turn.verdict === 'down' ? trimQuestion(turn.comment) : null
+    return [{ verdict: turn.verdict, reason: turn.reason, topics: turn.topics, question, comment }]
   })
 
   const delta = feedbackTrendDelta(
@@ -285,9 +301,19 @@ async function generateDigest(
       generatedAt: new Date().toISOString(),
       windowDays: health.windowDays,
       votes: health.totals.up + health.totals.down,
+      causes: cleanCauses(payload.causes),
     },
     error: null,
   }
+}
+
+/** Cause counts off the wire: string keys, positive integer counts, in the order sent. */
+function cleanCauses(values: Record<string, unknown> | undefined): FeedbackCause[] {
+  if (!values || typeof values !== 'object') return []
+  return Object.entries(values)
+    .filter((entry): entry is [string, number] => Number.isInteger(entry[1]) && (entry[1] as number) > 0)
+    .map(([cause, count]) => ({ cause, count }))
+    .slice(0, 10)
 }
 
 /** Never trust a list from over the wire — the UI renders these as its own rows. */

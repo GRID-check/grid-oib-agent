@@ -29,6 +29,8 @@ from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
+from tests.conftest import NAT_LLM_CONFIG
+from tests.conftest import nat_langchain_client
 
 
 @tool
@@ -422,7 +424,10 @@ class TestDeepResearcherAgent:
                 return [web_search_tool] if "web_search_tool" in tool_names else []
 
             async def get_llm(self, ref, wrapper_type):
-                return MagicMock()
+                return nat_langchain_client(MagicMock())
+
+            def get_llm_config(self, ref):
+                return NAT_LLM_CONFIG
 
             def get_function_config(self, ref):
                 return None
@@ -465,7 +470,10 @@ class TestDeepResearcherAgent:
                 return [web_search_tool] if "web_search_tool" in tool_names else []
 
             async def get_llm(self, ref, wrapper_type):
-                return MagicMock()
+                return nat_langchain_client(MagicMock())
+
+            def get_llm_config(self, ref):
+                return NAT_LLM_CONFIG
 
             def get_function_config(self, ref):
                 return None
@@ -1835,8 +1843,9 @@ class TestDeepResearcherAgent:
             result = await agent.run(state)
 
         assert result.degraded_reasons == ["no_report_file"]
-        # The reader of the answer alone is told, too.
-        assert result.messages[-1].content.startswith("> **Hinweis:**")
+        # The reader of the answer alone is told, too — in the report's language,
+        # and this salvaged message is English.
+        assert result.messages[-1].content.startswith("> **Note:**")
         assert "did not persist a report file" in result.messages[-1].content
 
     @pytest.mark.asyncio

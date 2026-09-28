@@ -29,10 +29,10 @@ from aiq_agent import project_context
 from aiq_agent.cards.models import grid_card_adapter
 from aiq_agent.cards.registry import get_card_registry
 from aiq_agent.knowledge import project_memory as memory_client
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import register_function
 
 logger = logging.getLogger(__name__)
 

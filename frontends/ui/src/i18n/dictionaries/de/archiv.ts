@@ -104,5 +104,6 @@ export const archiv = {
     deleting: 'Wird gelöscht…',
     success: '„{name}“ wurde aus dem Archiv entfernt',
     error: 'Das Dokument konnte nicht gelöscht werden',
+    legalHold: 'Das Dokument unterliegt einer rechtlichen Sperre und kann nicht gelöscht werden',
   },
 }

@@ -1,42 +1,18 @@
 /**
  * Rendering tests for the WP-B transparency extras: the escalation narration in
- * the Herleitung, the mid-turn drop notice, the deep-research escalation line, and
- * the queue-rejection (research.queue_full) banner. These assert the real i18n
+ * the Herleitung, the mid-turn drop notice, and the queue-rejection
+ * (research.queue_full) banner. These assert the real i18n
  * copy (English, the default test locale) and the real error registry.
  */
 
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
-import { describe, test, expect, vi } from 'vitest'
+import { describe, test, expect } from 'vitest'
 import { ChatThinking } from './ChatThinking'
-import { DeepResearchBanner } from './DeepResearchBanner'
 import { ErrorBanner } from './ErrorBanner'
-import type { ThinkingStep } from '../types'
+import { storedStep } from '@/test-utils/wire-v2-steps'
 
-// DeepResearchBanner reaches into the layout store + job-data hook (which need
-// app-config/auth context). Stub both, matching DeepResearchBanner.spec.tsx.
-vi.mock('@/features/layout/store', () => ({
-  useLayoutStore: vi.fn((selector?: (s: Record<string, unknown>) => unknown) => {
-    const state = { openRightPanel: vi.fn(), setResearchPanelTab: vi.fn() }
-    return selector ? selector(state) : state
-  }),
-}))
-
-vi.mock('../hooks/use-load-job-data', () => ({
-  useLoadJobData: () => ({ loadResearchPanelTab: vi.fn() }),
-}))
-
-const createStep = (overrides: Partial<ThinkingStep> = {}): ThinkingStep => ({
-  id: 'step-1',
-  userMessageId: 'msg-1',
-  category: 'tasks',
-  functionName: 'test_function',
-  displayName: 'Test Function',
-  content: 'Step content',
-  isComplete: true,
-  timestamp: new Date('2024-01-15T14:30:00'),
-  ...overrides,
-})
+const createStep = () => storedStep({ id: 'tool:1', kind: 'tool', tool: 'knowledge_search', status: 'ok' })
 
 describe('ChatThinking escalation narration', () => {
   test('shows the escalation narration in the framing node when escalated', async () => {
@@ -50,7 +26,7 @@ describe('ChatThinking escalation narration', () => {
       />
     )
 
-    await user.click(screen.getByText(/Trace ·/))
+    await user.click(screen.getByText(/^Trace( ·|$)/))
     expect(
       screen.getByText('Escalated to deep research: Die erste Antwort war unzureichend.')
     ).toBeInTheDocument()
@@ -72,28 +48,6 @@ describe('ChatThinking mid-turn drop notice', () => {
     expect(
       screen.queryByText('Connection briefly lost — the answer was dropped. Please resend.')
     ).not.toBeInTheDocument()
-  })
-})
-
-describe('DeepResearchBanner escalation narration', () => {
-  test('renders the escalation line above a starting banner when present', () => {
-    render(
-      <DeepResearchBanner
-        bannerType="starting"
-        jobId="job-1"
-        escalationReason="Die erste Antwort war unzureichend."
-      />
-    )
-
-    expect(
-      screen.getByText('Escalated to deep research: Die erste Antwort war unzureichend.')
-    ).toBeInTheDocument()
-  })
-
-  test('renders no escalation line when absent', () => {
-    render(<DeepResearchBanner bannerType="starting" jobId="job-1" />)
-
-    expect(screen.queryByText(/Escalated to deep research/)).not.toBeInTheDocument()
   })
 })
 

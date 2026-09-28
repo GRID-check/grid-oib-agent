@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   documentStatusLabel,
+  failedWithPreviousVersion,
   isCitableStatus,
   isFailedStatus,
   isSettlingStatus,
@@ -20,6 +21,17 @@ describe('document status families', () => {
     expect(isFailedStatus('error')).toBe(true)
     expect(isSettlingStatus('failed')).toBe(false)
     expect(isSettlingStatus('pending')).toBe(true)
+  })
+
+  it('reads a failed re-upload as still citable through its previous version', () => {
+    expect(failedWithPreviousVersion({ status: 'failed', versionCount: 2 })).toBe(true)
+    // One version: nothing earlier to fall back on.
+    expect(failedWithPreviousVersion({ status: 'failed', versionCount: 1 })).toBe(false)
+    // A payload that did not read the count says the conservative thing.
+    expect(failedWithPreviousVersion({ status: 'failed', versionCount: null })).toBe(false)
+    expect(failedWithPreviousVersion({ status: 'failed' })).toBe(false)
+    // Not a failure at all.
+    expect(failedWithPreviousVersion({ status: 'processing', versionCount: 3 })).toBe(false)
   })
 })
 

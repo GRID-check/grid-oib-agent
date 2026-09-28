@@ -1,0 +1,97 @@
+# Held-out set, written blind to the classifier wording (2026-09-26). Do not tune on it.
+- question: "Welchen U-Wert muss ein Fenster im Neubau einhalten?"
+  reason: inaccurate
+  comment: "1,4 stimmt nicht, in der aktuellen Ausgabe sinds 1,1"
+  cause: wrong_value
+- question: "Mindestbreite Hauptgang in einer Schule?"
+  reason: inaccurate
+  comment: "Da wurde die Tiroler Bauordnung zitiert, wir bauen aber in Vorarlberg!"
+  cause: wrong_rule
+- question: "Brauch ich für die Garage mit 400 m² eine Rauchableitung?"
+  reason: wrong_source
+  comment: "Zitiert Punkt 3 der RL 2.2, das betrifft aber die kleinen Garagen bis 250 m². Richtig wäre Punkt 4."
+  cause: wrong_rule
+- question: "Fass mir bitte das Brandschutzkonzept zusammen"
+  reason: other
+  comment: "findet das dokument nicht obwohl es im ordner Brandschutz liegt"
+  cause: not_found
+- question: "Welche Anforderungen gelten für Aufzüge in Wohnhäusern?"
+  reason: too_slow
+  comment: null
+  cause: slow
+- question: "Was sagt der Bebauungsplan zur maximalen Gebäudehöhe?"
+  reason: other
+  comment: "Antwort bricht mitten im Satz ab"
+  cause: broken
+- question: "Wie hoch muss das Geländer am Balkon im 3. Stock sein?"
+  reason: inaccurate
+  comment: "hab nach dem Balkon gefragt, die Antwort war über Stiegengeländer. Thema verfehlt."
+  cause: misunderstood
+- question: "Welche Schallschutzanforderungen gelten zwischen zwei Reihenhäusern?"
+  reason: wrong_source
+  comment: "Keine Quelle angegeben, nur Behauptungen. Woher kommen die 60 dB?"
+  cause: no_source
+- question: "Anforderungen an eine barrierefreie Rampe"
+  reason: other
+  comment: "viel zu lang, ich wollt nur Neigung und Podestlänge wissen, nicht einen Roman"
+  cause: form
+- question: "Gibts für Kellerabteile eigene Brandschutzvorgaben?"
+  reason: inaccurate
+  comment: "Es fehlt komplett der Teil zu den Trennwänden zwischen den Abteilen, nur die Tür wird erwähnt"
+  cause: incomplete
+- question: "Ab wann ist ein Gebäude ein Hochhaus?"
+  reason: too_slow
+  comment: "hat fast 2 minuten gedauert für so eine einfache frage"
+  cause: slow
+- question: "Was steht im Protokoll vom letzten Jour fixe zum Estrich?"
+  reason: inaccurate
+  comment: "Das Protokoll vom 17.9. existiert, aber er sagt es gibt keins"
+  cause: not_found
+- question: "Wie viel Tageslichtfläche braucht ein Wohnraum?"
+  reason: inaccurate
+  comment: "10% ist falsch, es sind 12% der Bodenfläche"
+  cause: wrong_value
+- question: "Welche Fluchtweglänge ist im Verkaufsraum erlaubt?"
+  reason: wrong_source
+  comment: "Bezieht sich auf die Ausgabe 2015, gilt nicht mehr"
+  cause: wrong_rule
+- question: "Mindestraumhöhe für Aufenthaltsräume im Dachgeschoss?"
+  reason: other
+  comment: null
+  cause: other
+- question: "Welche Brandschutzklasse brauchen Türen zum Heizraum?"
+  reason: other
+  comment: "Leere Antwort, nur 'Ich suche…' und dann nix mehr"
+  cause: broken
+- question: "Was ist der Unterschied zwischen HWB und PEB?"
+  reason: other
+  comment: "Totales Durcheinander, Absätze springen hin und her, Tabelle ist kaputt formatiert"
+  cause: form
+- question: "Welche Stellplatzanzahl brauche ich in Graz für 20 Wohnungen?"
+  reason: inaccurate
+  comment: "Hat die Frage als Fahrradabstellplätze interpretiert"
+  cause: misunderstood
+- question: "Wann muss ein Blitzschutz eingebaut werden?"
+  reason: too_slow
+  comment: null
+  cause: slow
+- question: "Welche Anforderungen gibt es an die Belichtung von Stiegenhäusern?"
+  reason: inaccurate
+  comment: "Nur die Fensterfläche erwähnt, zur Sicherheitsbeleuchtung kein wort"
+  cause: incomplete
+- question: "Wie dick muss die Brandwand an der Grundgrenze sein?"
+  reason: inaccurate
+  comment: "25cm Ziegel? Die Anforderung ist REI 90 + A2, nicht eine Dicke. Die Zahl ist erfunden"
+  cause: wrong_value
+- question: "Zeig mir den Energieausweis vom Projekt"
+  reason: other
+  comment: "konnte die datei nicht öffnen, fehler beim laden"
+  cause: not_found
+- question: "Gelten die Barrierefreiheitsregeln auch bei einem Zubau?"
+  reason: too_slow
+  comment: "Dauert ewig und am Ende kommt nur ein Timeout"
+  cause: broken
+- question: "Muss die Tiefgarage eine Sprinkleranlage haben?"
+  reason: wrong_source
+  comment: "da steht nur 'lt. OIB' ohne Punkt oder Link, kann ich so nicht prüfen"
+  cause: no_source

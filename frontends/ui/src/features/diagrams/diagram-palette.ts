@@ -261,5 +261,77 @@ function build(theme: DiagramTheme): DiagramThemeVariables | null {
     noteBorderColor: line,
     noteTextColor: ink,
     altBackground: inset,
+
+    // --- state -------------------------------------------------------------
+    stateBkg: fill,
+    stateLabelColor: ink,
+    compositeBackground: inset,
+    compositeTitleBackground: inset,
+    transitionColor: line,
+    transitionLabelColor: ink,
+    specialStateColor: line,
+    innerEndBackground: line,
+
+    // --- gantt -------------------------------------------------------------
+    sectionBkgColor: inset,
+    sectionBkgColor2: inset,
+    altSectionBkgColor: surface,
+    taskBkgColor: fill,
+    taskBorderColor: line,
+    taskTextColor: ink,
+    taskTextLightColor: ink,
+    taskTextDarkColor: ink,
+    taskTextOutsideColor: ink,
+    taskTextClickableColor: ink,
+    activeTaskBkgColor: inset,
+    activeTaskBorderColor: line,
+    doneTaskBkgColor: inset,
+    doneTaskBorderColor: line,
+    critBkgColor: fill,
+    critBorderColor: line,
+    excludeBkgColor: surface,
+    gridColor: line,
+    todayLineColor: line,
+
+    // --- mindmap -------------------------------------------------------------
+    // Mermaid colours each branch from `cScale*` and derives the label from it
+    // unless told otherwise; in dark mode that put its light default fills
+    // under the dark theme's light ink, and the root label vanished. One fill
+    // for every branch — the tree carries the structure, not the hue.
+    ...Object.fromEntries(
+      Array.from({ length: 12 }, (_, index) => [
+        [`cScale${index}`, index % 2 === 0 ? fill : inset],
+        [`cScaleLabel${index}`, ink],
+      ]).flat(),
+    ),
+
+    // The root node reads the gitGraph slots, not `cScale*`: left unset it came
+    // out a mid grey with black text in dark mode.
+    git0: inset,
+    gitBranchLabel0: ink,
+
+    // --- pie -----------------------------------------------------------------
+    // Stepped mixes of ink into the surface: neutral like every other drawing
+    // here, distinguishable, and light enough in either theme that the ink
+    // label on a slice still reads.
+    ...Object.fromEntries(PIE_STEPS.map((share, index) => [`pie${index + 1}`, mixHex(ink, surface, share)])),
+    pieStrokeColor: surface,
+    pieOuterStrokeColor: line,
+    pieTitleTextColor: ink,
+    pieSectionTextColor: ink,
+    pieLegendTextColor: ink,
   }
+}
+
+/** How much ink each pie slice carries, in order; mermaid cycles past the last. */
+const PIE_STEPS = [0.1, 0.22, 0.34, 0.16, 0.28, 0.4] as const
+
+/** `a` mixed into `b` at `share` of `a`, channel by channel in sRGB. */
+function mixHex(a: string, b: string, share: number): string {
+  const channels = (hex: string) => [1, 3, 5].map((start) => Number.parseInt(hex.slice(start, start + 2), 16))
+  const [from, to] = [channels(a), channels(b)]
+  return `#${from
+    .map((value, index) => Math.round(value * share + to[index] * (1 - share)))
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('')}`
 }

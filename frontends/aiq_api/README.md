@@ -55,7 +55,9 @@ dotenv -f deploy/.env run nat serve --config configs/config_oib_openrouter.yml
 │   ├── models/requests.py     # Pydantic request/response models │
 │   ├── registry.py            # Agent type registry              │
 │   ├── plugin.py              # NAT FastAPI plugin (AIQAPIWorker)│
-│   └── websocket_reconnect.py # SSE reconnect handling           │
+│   ├── chat_socket.py         # /websocket: the chat wire v2     │
+│   ├── conversation_bus.py    # frames between replicas, attach  │
+│   └── internal_api.py        # writes into the BFF internal API │
 │                                                                 │
 │   Provides: Async jobs + SSE streaming, Knowledge API, event replay │
 └─────────────────────────────────────────────────────────────────┘

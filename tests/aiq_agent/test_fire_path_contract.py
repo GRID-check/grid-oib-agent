@@ -28,7 +28,8 @@ from fastapi import HTTPException
 from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_HEADER
 from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_SIG_HEADER
 from aiq_api.context_envelope import _INTERNAL_TOKEN_HEADER_NAMES
-from aiq_api.context_envelope import ENFORCED_HTTP_PATH_PREFIXES
+from aiq_api.context_envelope import ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES
+from aiq_api.context_envelope import _path_matches
 from aiq_api.jobs.runner import WORKER_IDENTITY_HEADERS
 from aiq_api.routes.internal_auth import _TOKEN_HEADERS
 from aiq_api.routes.internal_auth import _require_internal_token
@@ -134,8 +135,11 @@ def test_the_signed_envelope_headers_match_what_the_bff_signs(contract: dict) ->
 
 
 def test_the_contract_covers_the_route_the_middleware_enforces(contract: dict) -> None:
-    """The fixture names a path, and it must be a path this tier actually guards."""
-    assert contract["route"] in ENFORCED_HTTP_PATH_PREFIXES
+    """The fixture names a path, and it must be a path this tier actually guards.
+
+    The middleware is deny-by-default, so "guarded" means "not exempt".
+    """
+    assert not _path_matches(contract["route"], ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES)
 
 
 def test_every_backend_requirement_is_inside_the_contract(contract: dict) -> None:

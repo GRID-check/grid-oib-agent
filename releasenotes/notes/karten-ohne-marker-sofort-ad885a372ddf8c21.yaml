@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    Cards below an answer now appear as soon as Piloti has written them. Before,
+    they waited until the whole answer was checked, up to twenty seconds on long
+    answers.

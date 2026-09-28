@@ -51,10 +51,6 @@ const group = vi.hoisted(
 vi.mock('next/navigation', () => ({ usePathname: () => nav.pathname }))
 vi.mock('@/hooks/use-is-mobile', () => ({ useIsMobile: () => false }))
 vi.mock('@/hooks/use-reduced-motion', () => ({ useReducedMotion: () => true }))
-vi.mock('@/features/layout/store', () => ({
-  useLayoutStore: (selector: (state: { rightPanel: null }) => unknown) =>
-    selector({ rightPanel: null }),
-}))
 vi.mock('./file-preview-pane', async () => {
   const React = await import('react')
   return {

@@ -138,9 +138,8 @@ export default function ComposerFilesPreviewPage() {
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get('state')
     setState(requested)
-    // The post-research state seeds a SUCCESSFUL deep-research answer so the
-    // composer derives its locked/completed state (isResearchSessionSuccessful)
-    // and shows the "Neue Sitzung starten" forward action + helper line.
+    // The post-research state seeds a finished run's answer: the composer
+    // stays open beside it (a follow-up runs in the same thread, ADR-0062).
     const messages =
       requested === 'research-done'
         ? [
@@ -150,7 +149,6 @@ export default function ComposerFilesPreviewPage() {
               content: 'Recherchebericht erstellt.',
               messageType: 'agent_response' as const,
               deepResearchJobId: 'job-1',
-              deepResearchJobStatus: 'success' as const,
               timestamp: new Date('2024-01-15T10:00:00Z'),
             },
           ]

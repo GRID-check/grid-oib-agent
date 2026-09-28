@@ -20,6 +20,7 @@
  * does not belong on a surface a person scans.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { CalendarClock, Pencil, Play, Sparkles, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'

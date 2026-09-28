@@ -26,6 +26,7 @@
  * decides.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertCircle, Plus, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'

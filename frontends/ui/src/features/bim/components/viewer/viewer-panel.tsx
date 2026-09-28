@@ -13,6 +13,7 @@
  * scrollable card. What goes inside is the inspector's problem.
  */
 
+import type { JSX } from 'react'
 import { X } from 'lucide-react'
 import { type ComponentProps, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'

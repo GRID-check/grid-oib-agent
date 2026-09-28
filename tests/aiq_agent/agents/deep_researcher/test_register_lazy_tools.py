@@ -11,6 +11,8 @@ from aiq_agent.agents.deep_researcher import register as register_module
 from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
 from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig
 from aiq_agent.agents.deep_researcher.register import deep_research_agent
+from tests.conftest import NAT_LLM_CONFIG
+from tests.conftest import nat_langchain_client
 
 
 @tool
@@ -29,7 +31,10 @@ class _FakeBuilder:
         return [self._tools_by_name[n] for n in tool_names if n in self._tools_by_name]
 
     async def get_llm(self, ref, wrapper_type):
-        return MagicMock()
+        return nat_langchain_client(MagicMock())
+
+    def get_llm_config(self, ref):
+        return NAT_LLM_CONFIG
 
     def get_function_config(self, ref):
         return None

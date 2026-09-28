@@ -160,9 +160,11 @@ export function ProjectProfilePatchCard({
           next reader of this proposal would be offered the same write again. The
           question is put where the answer has a home, which is the thread. */}
       {canDecide && (
-        <div className="flex items-center gap-2">
+        // The note wraps onto its own line before it squeezes the buttons: on a
+        // phone it sat beside them four words to a line.
+        <div className="flex flex-wrap items-center gap-2">
           {!projectId && (
-            <p className="text-xs text-muted-foreground">{t('profilePatchCard.noProject')}</p>
+            <p className="min-w-[16rem] flex-1 text-xs text-muted-foreground">{t('profilePatchCard.noProject')}</p>
           )}
           <Button
             type="button"

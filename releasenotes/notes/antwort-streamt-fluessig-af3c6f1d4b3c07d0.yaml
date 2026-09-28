@@ -1,0 +1,5 @@
+---
+fixes:
+  - >
+    The page stays smooth while an answer is arriving, even in a long
+    conversation; it used to stutter and react late to typing.

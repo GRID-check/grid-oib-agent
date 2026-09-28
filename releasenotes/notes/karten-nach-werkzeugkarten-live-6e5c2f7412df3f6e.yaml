@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    When Piloti files a draft, creates a task, gathers documents or suggests
+    something to remember, its cards now appear while the answer is still being
+    checked, instead of all at the very end.

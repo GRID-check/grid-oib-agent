@@ -25,15 +25,16 @@ from aiq_agent.project_context import get_project_id_from_context
 from aiq_agent.tools.bim.failures import NO_ORG_TEXT
 from aiq_agent.tools.bim.failures import NO_PROJECT_TEXT
 from aiq_agent.tools.bim.failures import QUERY_FAILURES
+from aiq_agent.tools.bim.measurement_sources import note_model_read
 from aiq_agent.tools.bim.rendering import clipped
 from aiq_agent.tools.bim.rendering import listed
 from aiq_agent.tools.bim.rendering import render_unresolved
 from aiq_agent.tools.bim.trace import model_handle
 from aiq_agent.tools.bim.trace import record_ifc_call
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import register_function
 
 __all__ = ["NO_PROJECT_TEXT", "VALID_OPERATIONS", "IfcQueryConfig", "IfcQueryInput", "ifc_query"]
 
@@ -716,6 +717,9 @@ def _render(
     model = result.get("model") or {}
     ctx = _RenderContext(project_id, model.get("filename"), gebaeudeklasse, hauptnutzung)
     op = str(result.get("op") or "")
+    # The Herleitung's account of this round: the model file, read by this
+    # operation. Only a RESOLVED result — an unresolved one read no file.
+    note_model_read(ctx.filename, op)
     lines: _Lines = [
         f"Modell: {ctx.filename}" if ctx.filename else None,
         str(result.get("summary") or ""),

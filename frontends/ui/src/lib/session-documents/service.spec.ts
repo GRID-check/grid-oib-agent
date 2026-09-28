@@ -26,6 +26,11 @@ vi.mock('@/lib/documents/version-repository', () => ({
     versionNumber: 1,
     ...values,
   })),
+  // The born-published insert every upload records its version with.
+  insertPublishedVersion: vi.fn(async (values: Record<string, unknown>) => ({
+    version: { id: 'version_1', state: 'published', versionNumber: 1, ...values },
+    superseded: [],
+  })),
   listDocumentVersions: vi.fn().mockResolvedValue([]),
   findDocumentVersion: vi.fn().mockResolvedValue(null),
   findPublishedVersion: vi.fn().mockResolvedValue(null),
@@ -77,14 +82,25 @@ vi.mock('@/lib/storage/admission', () => ({
 }))
 vi.mock('@/lib/documents/repository', () => ({
   findLiveDocumentByFilename: vi.fn(),
-  // Read back by `recordUploadedVersion` (ADR-0054); see the Archiv suite for
-  // why null is the honest default.
-  findDocumentInOrg: vi.fn().mockResolvedValue(null),
+  // Read back by `recordUploadedVersionOrDiscard` (ADR-0054) before it records
+  // the version. The row the upload just wrote: a miss means the attachment was
+  // deleted mid-upload, a 409 of its own, so the default is the row existing.
+  findDocumentInOrg: vi.fn(async (id: string) =>
+    (await import('@/test-utils/db-fixtures')).makeDocument({
+      id,
+      projectId: null,
+      scope: 'session',
+      conversationId: 's_11111111-2222-3333-4444-555555555555',
+    }),
+  ),
 }))
 vi.mock('@/lib/documents/object-cleanup', () => ({
   deleteDocumentObjects: vi.fn(),
 }))
 vi.mock('./cleanup', () => ({ purgeCollectionChunks: vi.fn() }))
+vi.mock('@/lib/compliance/repository', () => ({
+  isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
+}))
 vi.mock('./repository', () => ({
   deleteSessionDocument: vi.fn(),
   findSessionDocument: vi.fn(),
@@ -94,9 +110,20 @@ vi.mock('./repository', () => ({
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { dispatchDocument } from '@/lib/documents/service'
-import { findLiveDocumentByFilename } from '@/lib/documents/repository'
+import { findDocumentInOrg, findLiveDocumentByFilename } from '@/lib/documents/repository'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
-import { uploadSessionDocument } from './service'
+import { ConflictError } from '@/lib/api/errors'
+import { isCoveredByActiveHold } from '@/lib/compliance/repository'
+import { requireResourceAccess } from '@/lib/sharing/access'
+import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
+import { purgeCollectionChunks } from './cleanup'
+import {
+  deleteSessionDocument as deleteSessionDocumentRow,
+  findSessionDocument,
+} from './repository'
+import { deleteSessionDocument, uploadSessionDocument } from './service'
+import { LiveFilenameTakenError, ReplacedDocumentGoneError } from '@/lib/documents/unique-conflicts'
+import { nextVersionNumber } from '@/lib/documents/version-repository'
 
 const session = { userId: USER_ID, organizationId: ORG_ID, email: 'me@grid.test' } as unknown as AuthorizedSession
 
@@ -189,5 +216,207 @@ describe('uploadSessionDocument, a genuinely new file', () => {
       expect.objectContaining({ id: 'doc-fresh', scope: 'session', conversationId: CONVERSATION_ID }),
     )
     expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The races the project and Archiv shelves already answer, on the chat shelf.
+ * Session documents version like the others (ADR-0054), so the loser of two
+ * simultaneous first uploads of one name becomes the winner's next version
+ * rather than a 409, and a re-upload whose attachment was deleted underneath it
+ * becomes a first upload. The losing attempt's object is discarded by the
+ * admission, which these mocks stand in for.
+ */
+describe('uploadSessionDocument, when the shelf changes under the probe', () => {
+  it('retries a lost first-upload race as a new version of the winner', async () => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(null).mockResolvedValueOnce(existing)
+    vi.mocked(admitOrDiscard).mockRejectedValueOnce(new LiveFilenameTakenError('brandschutz.pdf'))
+
+    const result = await uploadSessionDocument(
+      session,
+      { conversationId: CONVERSATION_ID, file: file() },
+      new Request('http://x'),
+    )
+
+    expect(result.documentId).toBe('doc-existing')
+    expect(admitOrDiscard).toHaveBeenCalledTimes(1)
+    expect(admitReplacementOrDiscard).toHaveBeenCalledTimes(1)
+    const puts = s3Send.mock.calls.map((call) => call[0]).filter((c) => c instanceof PutObjectCommand)
+    expect(puts).toHaveLength(2)
+    // The retry never aims at the winner's flat key.
+    expect((puts[1] as PutObjectCommand).input.Key).not.toBe(existing.storageKey)
+    expect((puts[1] as PutObjectCommand).input.Key).toMatch(/\/doc\/doc-existing\/v\d+\/[0-9a-f]{12}\/brandschutz\.pdf$/)
+  })
+
+  it('retries a re-upload of a just-deleted attachment as a first upload', async () => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(existing).mockResolvedValueOnce(null)
+    vi.mocked(admitReplacementOrDiscard).mockRejectedValueOnce(new ReplacedDocumentGoneError('doc-existing'))
+
+    const result = await uploadSessionDocument(
+      session,
+      { conversationId: CONVERSATION_ID, file: file() },
+      new Request('http://x'),
+    )
+
+    expect(result.documentId).toBe('doc-fresh')
+    expect(admitOrDiscard).toHaveBeenCalledWith(
+      'grid-org-org1-abc',
+      expect.stringContaining('/doc/doc-fresh/brandschutz.pdf'),
+      expect.objectContaining({ id: 'doc-fresh', scope: 'session' }),
+    )
+  })
+
+  it('answers 409 when the shelf changes twice in one request', async () => {
+    vi.mocked(admitOrDiscard)
+      .mockRejectedValueOnce(new LiveFilenameTakenError('brandschutz.pdf'))
+      .mockRejectedValueOnce(new LiveFilenameTakenError('brandschutz.pdf'))
+
+    const error = await uploadSessionDocument(
+      session,
+      { conversationId: CONVERSATION_ID, file: file() },
+      new Request('http://x'),
+    ).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect(dispatchDocument).not.toHaveBeenCalled()
+  })
+
+  it('writes a re-upload under a write key even when the version number reads 1', async () => {
+    // The hint reads 1 while a concurrent first upload has its row but not
+    // yet its version. The old version-1 shortcut put this PUT on that
+    // upload's own key.
+    vi.mocked(nextVersionNumber).mockResolvedValueOnce(1)
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(existing)
+
+    await uploadSessionDocument(session, { conversationId: CONVERSATION_ID, file: file() }, new Request('http://x'))
+
+    const put = s3Send.mock.calls.find((call) => call[0] instanceof PutObjectCommand)?.[0] as PutObjectCommand
+    expect(put.input.Key).not.toBe(existing.storageKey)
+    expect(put.input.Key).toMatch(/\/doc\/doc-existing\/v1\/[0-9a-f]{12}\/brandschutz\.pdf$/)
+  })
+})
+
+/**
+ * An attachment deleted, or its chat discarded, after the admission and before
+ * the version is recorded. The lenient recorder answered null and the upload
+ * went on: it dispatched a gone document for ingest, audited it as uploaded and
+ * left its object in the bucket with no row naming it.
+ */
+describe('uploadSessionDocument, when the attachment is deleted mid-upload', () => {
+  it('answers 409, discards the stored object, and neither dispatches nor audits', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValueOnce(null)
+
+    await expect(
+      uploadSessionDocument(session, { conversationId: CONVERSATION_ID, file: file('neu.pdf') }, new Request('http://x')),
+    ).rejects.toMatchObject({ status: 409, details: { reason: 'deleted_during_upload' } })
+
+    const put = s3Send.mock.calls.find((call) => call[0] instanceof PutObjectCommand)?.[0] as PutObjectCommand
+    const deletedKeys = s3Send.mock.calls
+      .map((call) => call[0])
+      .filter((command): command is DeleteObjectCommand => command instanceof DeleteObjectCommand)
+      .map((command) => command.input.Key)
+    expect(deletedKeys).toContain(put.input.Key)
+    expect(dispatchDocument).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+})
+
+describe('deleteSessionDocument under a legal hold', () => {
+  const attached = {
+    ...existing,
+    conversationId: CONVERSATION_ID,
+    collectionName: CONVERSATION_ID,
+    filename: 'brandschutz.pdf',
+  }
+
+  it('refuses with a 409 after the access check and before the first erasure', async () => {
+    vi.mocked(findSessionDocument).mockResolvedValue(attached as never)
+    vi.mocked(isCoveredByActiveHold).mockResolvedValueOnce(true)
+
+    const error = await deleteSessionDocument(session, 'doc-existing', new Request('http://x')).catch(
+      (e: unknown) => e,
+    )
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect(requireResourceAccess).toHaveBeenCalledWith(session, 'conversation', CONVERSATION_ID, 'collaborator')
+    expect(isCoveredByActiveHold).toHaveBeenCalledWith(ORG_ID, 'document', 'doc-existing')
+    expect(purgeCollectionChunks).not.toHaveBeenCalled()
+    expect(deleteDocumentObjects).not.toHaveBeenCalled()
+    expect(deleteSessionDocumentRow).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * An ingest whose existence check landed before the row delete still saw the
+ * row and kept the chunks it inserted after the first purge (ADR-0054,
+ * correction 18). The delete purges once more after the row is gone.
+ */
+describe('deleteSessionDocument purges the chunks again after the row', () => {
+  const attached = {
+    ...existing,
+    conversationId: CONVERSATION_ID,
+    collectionName: CONVERSATION_ID,
+    filename: 'brandschutz.pdf',
+    authoredBy: 'user',
+  }
+
+  it('purges, erases the objects, deletes the row, then purges again', async () => {
+    const order: string[] = []
+    vi.mocked(findSessionDocument).mockResolvedValue(attached as never)
+    vi.mocked(purgeCollectionChunks).mockImplementation(async () => {
+      order.push('purge')
+      return { ok: true }
+    })
+    vi.mocked(deleteDocumentObjects).mockImplementation(async () => {
+      order.push('objects')
+      return { ok: true }
+    })
+    vi.mocked(deleteSessionDocumentRow).mockImplementation(async () => {
+      order.push('row')
+    })
+
+    await deleteSessionDocument(session, 'doc-existing', new Request('http://x'))
+
+    expect(order).toEqual(['purge', 'objects', 'row', 'purge'])
+    const calls = vi.mocked(purgeCollectionChunks).mock.calls
+    expect(calls[1]).toEqual(calls[0])
+  })
+
+  it('logs a failed second purge and still completes the delete', async () => {
+    vi.mocked(findSessionDocument).mockResolvedValue(attached as never)
+    vi.mocked(purgeCollectionChunks)
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: false, reason: 'answered 502' })
+    vi.mocked(deleteDocumentObjects).mockResolvedValue({ ok: true })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    await expect(
+      deleteSessionDocument(session, 'doc-existing', new Request('http://x')),
+    ).resolves.toBeUndefined()
+
+    expect(deleteSessionDocumentRow).toHaveBeenCalled()
+    expect(recordAuditEvent).toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('second chunk purge'),
+      'doc-existing',
+      'answered 502',
+    )
+    warn.mockRestore()
+  })
+
+  it('makes no second purge when the first erase failed and the row is kept', async () => {
+    vi.mocked(findSessionDocument).mockResolvedValue(attached as never)
+    vi.mocked(purgeCollectionChunks).mockResolvedValue({ ok: true })
+    vi.mocked(deleteDocumentObjects).mockResolvedValue({ ok: false, reason: 'SeaweedFS 500' })
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(
+      deleteSessionDocument(session, 'doc-existing', new Request('http://x')),
+    ).rejects.toThrow()
+
+    expect(purgeCollectionChunks).toHaveBeenCalledTimes(1)
+    expect(deleteSessionDocumentRow).not.toHaveBeenCalled()
+    error.mockRestore()
   })
 })

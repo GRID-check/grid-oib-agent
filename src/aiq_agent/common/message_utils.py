@@ -32,6 +32,23 @@ def content_to_text(content: object) -> str:
     return str(content) if content is not None else ""
 
 
+def response_text(response: object) -> str:
+    """The text a model call answered with, whatever shape the provider returned it in.
+
+    A message's ``content`` is a string on some providers and a list of blocks
+    on others (the Responses API, Anthropic): ``[{"type": "reasoning", ...},
+    {"type": "text", "text": "..."}]``. ``BaseMessage.text`` is LangChain's own
+    answer to that: the text blocks joined, everything else skipped. Calling
+    ``.strip()`` on the list crashed card generation (#653); ``str()`` on it
+    fed Python repr to a JSON parser, a judge and an embedding.
+    """
+    if isinstance(response, BaseMessage):
+        return response.text
+    if isinstance(response, dict):
+        return content_to_text(response.get("content"))
+    return content_to_text(getattr(response, "content", response))
+
+
 def get_latest_user_query(messages: list[BaseMessage]) -> str:
     """Return the most recent user-authored message content.
 

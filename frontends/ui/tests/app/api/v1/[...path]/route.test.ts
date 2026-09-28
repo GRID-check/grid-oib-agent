@@ -16,16 +16,24 @@ vi.mock('@/lib/db', () => ({
   getDb: vi.fn(),
 }))
 
+// A write into a chat collection is authorized on its conversation.
+vi.mock('@/lib/sharing/access', () => ({
+  requireResourceAccess: vi.fn(),
+}))
+
 import { GET, POST, DELETE } from '@/app/api/v1/[...path]/route'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
+import { NotFoundError } from '@/lib/api/errors'
+import { requireResourceAccess } from '@/lib/sharing/access'
 
 const mockRequireAuthorizedSession = vi.mocked(requireAuthorizedSession)
 const mockBuildCollectionScopeFromRequest = vi.mocked(buildCollectionScopeFromRequest)
 const mockRequireProjectAccess = vi.mocked(requireProjectAccess)
 const mockGetDb = vi.mocked(getDb)
+const mockRequireResourceAccess = vi.mocked(requireResourceAccess)
 
 /**
  * Mock the drizzle project lookup used by validateCollectionName for
@@ -103,9 +111,9 @@ describe('/api/v1/[...path]', () => {
       const fetchMock = mockFetch()
 
       const req = new Request(
-        'http://localhost:3000/api/v1/agents?projectId=proj-1&conversationId=conv-1'
+        'http://localhost:3000/api/v1/data_sources?projectId=proj-1&conversationId=conv-1'
       )
-      const res = await GET(req, makeParams(['agents']))
+      const res = await GET(req, makeParams(['data_sources']))
 
       expect(res.status).toBe(200)
       expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -134,14 +142,16 @@ describe('/api/v1/[...path]', () => {
         conversationId: 'conv-1',
         projectCollectionName: undefined,
       })
+      mockDbProjectLookup([{ id: 'proj-1' }])
+      mockRequireProjectAccess.mockResolvedValue({ role: 'project-editor' })
       const fetchMock = mockFetch()
 
-      const req = new Request('http://localhost:3000/api/v1/query', {
+      const req = new Request('http://localhost:3000/api/v1/collections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: 'proj-1', session_id: 'conv-1', query: 'hi' }),
+        body: JSON.stringify({ projectId: 'proj-1', session_id: 'conv-1', name: 'proj_proj-1' }),
       })
-      const res = await POST(req, makeParams(['query']))
+      const res = await POST(req, makeParams(['collections']))
 
       expect(res.status).toBe(200)
       expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -152,79 +162,7 @@ describe('/api/v1/[...path]', () => {
       expect(mockBuildCollectionScopeFromRequest).toHaveBeenCalledWith(baseSession, {
         projectId: 'proj-1',
         conversationId: 'conv-1',
-      })
-    })
-
-    it('attaches scope header for multipart uploads', async () => {
-      process.env.REQUIRE_AUTH = 'true'
-      mockRequireAuthorizedSession.mockResolvedValue(baseSession)
-      mockDbProjectLookup([{ id: 'proj-1' }])
-      mockRequireProjectAccess.mockResolvedValue({ role: 'project-editor' })
-      mockBuildCollectionScopeFromRequest.mockResolvedValue({
-        scope: ['oib_knowledge', 'proj_proj-1'],
-        scopedCollections: [
-          { collection: 'oib_knowledge', shelf: 'base' },
-          { collection: 'proj_proj-1', shelf: 'project' },
-        ],
-        headerValue: 'encoded-scope',
-        projectId: 'proj-1',
-        conversationId: undefined,
-        projectCollectionName: undefined,
-      })
-      const fetchMock = mockFetch()
-
-      const stream = new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode('--boundary--'))
-          controller.close()
-        },
-      })
-      const req = new Request('http://localhost:3000/api/v1/collections/proj_proj-1/documents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'multipart/form-data; boundary=----boundary' },
-        body: stream,
-      })
-      const res = await POST(req, makeParams(['collections', 'proj_proj-1', 'documents']))
-
-      expect(res.status).toBe(200)
-      expect(fetchMock).toHaveBeenCalledTimes(1)
-      const init = fetchMock.mock.calls[0][1] as RequestInit
-      expect(getHeader(init, 'X-Grid-Collection-Scope')).toBe('encoded-scope')
-      expect(getHeader(init, 'Authorization')).toBe('Bearer tok')
-      expect(init.body).toBe(stream)
-      expect((init as RequestInit & { duplex?: string }).duplex).toBe('half')
-    })
-
-    it('attaches scope header for DELETE requests', async () => {
-      process.env.REQUIRE_AUTH = 'true'
-      mockRequireAuthorizedSession.mockResolvedValue(baseSession)
-      mockBuildCollectionScopeFromRequest.mockResolvedValue({
-        scope: ['oib_knowledge', 'proj_proj-1'],
-        scopedCollections: [
-          { collection: 'oib_knowledge', shelf: 'base' },
-          { collection: 'proj_proj-1', shelf: 'project' },
-        ],
-        headerValue: 'encoded-scope',
-        projectId: 'proj-1',
-        conversationId: undefined,
-        projectCollectionName: undefined,
-      })
-      const fetchMock = mockFetch()
-
-      const req = new Request('http://localhost:3000/api/v1/documents/doc-1?projectId=proj-1', {
-        method: 'DELETE',
-      })
-      const res = await DELETE(req, makeParams(['documents', 'doc-1']))
-
-      expect(res.status).toBe(200)
-      expect(fetchMock).toHaveBeenCalledTimes(1)
-      const init = fetchMock.mock.calls[0][1] as RequestInit
-      expect(init.method).toBe('DELETE')
-      expect(getHeader(init, 'X-Grid-Collection-Scope')).toBe('encoded-scope')
-      expect(getHeader(init, 'Authorization')).toBe('Bearer tok')
-      expect(mockBuildCollectionScopeFromRequest).toHaveBeenCalledWith(baseSession, {
-        projectId: 'proj-1',
-        conversationId: undefined,
+        collectionName: 'proj_proj-1',
       })
     })
 
@@ -243,8 +181,8 @@ describe('/api/v1/[...path]', () => {
       })
       const fetchMock = mockFetch()
 
-      const req = new Request('http://localhost:3000/api/v1/agents?conversationId=conv-1')
-      const res = await GET(req, makeParams(['agents']))
+      const req = new Request('http://localhost:3000/api/v1/data_sources?conversationId=conv-1')
+      const res = await GET(req, makeParams(['data_sources']))
 
       expect(res.status).toBe(200)
       expect(mockRequireAuthorizedSession).not.toHaveBeenCalled()
@@ -254,142 +192,55 @@ describe('/api/v1/[...path]', () => {
   })
 
   describe('collection name validation', () => {
-    it('allows upload to proj_<id> with a project document-write membership', async () => {
+    // No product client uploads or deletes through the proxy: every shelf has
+    // a first-party route that writes and removes the document row, runs the
+    // file-type gate and charges the quota. So no write into a collection's
+    // files is forwarded, whatever the collection (`lib/proxy/v1-allowlist.ts`).
+    it.each([
+      ['POST', 'proj_proj-1'],
+      ['DELETE', 'proj_proj-1'],
+      ['POST', 'archiv_org_1'],
+      ['POST', 's_conv-1'],
+      ['DELETE', 's_conv-1'],
+      ['POST', 'oib_knowledge'],
+      ['POST', 'random-name'],
+    ] as const)('forwards no %s into the files of %s (404)', async (method, collection) => {
       process.env.REQUIRE_AUTH = 'true'
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
-      mockDbProjectLookup([{ id: 'proj-1' }])
-      mockRequireProjectAccess.mockResolvedValue({ role: 'project-editor' })
-      mockBuildCollectionScopeFromRequest.mockResolvedValue({
-        scope: ['oib_knowledge', 'proj_proj-1'],
-        scopedCollections: [
-          { collection: 'oib_knowledge', shelf: 'base' },
-          { collection: 'proj_proj-1', shelf: 'project' },
-        ],
-        headerValue: 'encoded-scope',
-        projectId: 'proj-1',
-        conversationId: undefined,
-        projectCollectionName: undefined,
-      })
+      mockRequireResourceAccess.mockResolvedValue({} as never)
       const fetchMock = mockFetch()
 
-      const req = new Request('http://localhost:3000/api/v1/collections/proj_proj-1/documents', {
-        method: 'POST',
+      const req = new Request(`http://localhost:3000/api/v1/collections/${collection}/documents`, {
+        method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: 'proj-1' }),
+        body: JSON.stringify({}),
       })
-      const res = await POST(req, makeParams(['collections', 'proj_proj-1', 'documents']))
-
-      expect(res.status).toBe(200)
-      expect(mockRequireProjectAccess).toHaveBeenCalledWith(baseSession, 'proj-1', [
-        'project:documents:write',
-        'project:edit',
-      ])
-      expect(fetchMock).toHaveBeenCalledTimes(1)
-    })
-
-    it('rejects upload to proj_<id> without a project document-write membership', async () => {
-      process.env.REQUIRE_AUTH = 'true'
-      mockRequireAuthorizedSession.mockResolvedValue(baseSession)
-      mockDbProjectLookup([{ id: 'proj-1' }])
-      mockRequireProjectAccess.mockRejectedValue(new Error('Not found'))
-      const fetchMock = mockFetch()
-
-      const req = new Request('http://localhost:3000/api/v1/collections/proj_proj-1/documents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: 'proj-1' }),
-      })
-      const res = await POST(req, makeParams(['collections', 'proj_proj-1', 'documents']))
+      const handler = method === 'POST' ? POST : DELETE
+      const res = await handler(req, makeParams(['collections', collection, 'documents']))
 
       expect(res.status).toBe(404)
-      expect(mockRequireProjectAccess).toHaveBeenCalledWith(baseSession, 'proj-1', [
-        'project:documents:write',
-        'project:edit',
-      ])
       expect(fetchMock).not.toHaveBeenCalled()
     })
 
-    it('allows upload to s_<id> when it matches active conversationId', async () => {
-      process.env.REQUIRE_AUTH = 'true'
-      mockRequireAuthorizedSession.mockResolvedValue(baseSession)
-      mockBuildCollectionScopeFromRequest.mockResolvedValue({
-        scope: ['oib_knowledge', 's_conv-1'],
-        scopedCollections: [
-          { collection: 'oib_knowledge', shelf: 'base' },
-          { collection: 's_conv-1', shelf: 'session' },
-        ],
-        headerValue: 'encoded-scope',
-        projectId: undefined,
-        conversationId: 'conv-1',
-        projectCollectionName: undefined,
-      })
-      const fetchMock = mockFetch()
+    it.each(['POST', 'DELETE'] as const)(
+      'refuses a %s to s_<id> files for a viewer, or for a conversation that does not exist (404)',
+      async (method) => {
+        process.env.REQUIRE_AUTH = 'true'
+        mockRequireAuthorizedSession.mockResolvedValue(baseSession)
+        mockRequireResourceAccess.mockRejectedValue(new NotFoundError())
+        const fetchMock = mockFetch()
 
-      const req = new Request('http://localhost:3000/api/v1/collections/s_conv-1/documents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversationId: 'conv-1' }),
-      })
-      const res = await POST(req, makeParams(['collections', 's_conv-1', 'documents']))
+        const req = new Request(
+          'http://localhost:3000/api/v1/collections/s_conv-1/documents?conversationId=s_conv-1',
+          { method }
+        )
+        const handler = method === 'POST' ? POST : DELETE
+        const res = await handler(req, makeParams(['collections', 's_conv-1', 'documents']))
 
-      expect(res.status).toBe(200)
-      expect(fetchMock).toHaveBeenCalledTimes(1)
-    })
+        expect(res.status).toBe(404)
+        expect(fetchMock).not.toHaveBeenCalled()
+      }
+    )
 
-    it('rejects upload to s_<id> when no conversationId is active', async () => {
-      process.env.REQUIRE_AUTH = 'true'
-      mockRequireAuthorizedSession.mockResolvedValue(baseSession)
-      mockBuildCollectionScopeFromRequest.mockResolvedValue({
-        scope: ['oib_knowledge'],
-        scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }],
-        headerValue: 'encoded-scope',
-        projectId: undefined,
-        conversationId: undefined,
-        projectCollectionName: undefined,
-      })
-      const fetchMock = mockFetch()
-
-      const req = new Request('http://localhost:3000/api/v1/collections/s_conv-1/documents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      })
-      const res = await POST(req, makeParams(['collections', 's_conv-1', 'documents']))
-
-      expect(res.status).toBe(400)
-      expect(fetchMock).not.toHaveBeenCalled()
-    })
-
-    it('rejects upload to base corpus', async () => {
-      process.env.REQUIRE_AUTH = 'true'
-      mockRequireAuthorizedSession.mockResolvedValue(baseSession)
-      const fetchMock = mockFetch()
-
-      const req = new Request('http://localhost:3000/api/v1/collections/oib_knowledge/documents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      })
-      const res = await POST(req, makeParams(['collections', 'oib_knowledge', 'documents']))
-
-      expect(res.status).toBe(400)
-      expect(fetchMock).not.toHaveBeenCalled()
-    })
-
-    it('rejects upload to arbitrary collection name', async () => {
-      process.env.REQUIRE_AUTH = 'true'
-      mockRequireAuthorizedSession.mockResolvedValue(baseSession)
-      const fetchMock = mockFetch()
-
-      const req = new Request('http://localhost:3000/api/v1/collections/random-name/documents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      })
-      const res = await POST(req, makeParams(['collections', 'random-name', 'documents']))
-
-      expect(res.status).toBe(400)
-      expect(fetchMock).not.toHaveBeenCalled()
-    })
   })
 })

@@ -14,6 +14,7 @@
  * at all, only a pointer at who can change the rest, rather than a blank page.
  */
 
+import type { JSX } from 'react'
 import { Building2, Globe, Mail, MessageSquareText, ShieldAlert, Users } from 'lucide-react'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { isOrgAdmin } from '@/lib/authz/organizations'

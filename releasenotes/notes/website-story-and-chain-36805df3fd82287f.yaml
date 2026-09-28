@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    On the Piloti website the knowledge sources gather around Piloti again
+    without lines breaking at the headline, and the example decision now shows
+    why one way is chosen and the others are not.

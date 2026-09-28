@@ -32,10 +32,6 @@ export interface CreateCollectionRequest {
   metadata?: Record<string, unknown>
 }
 
-export interface DeleteFilesRequest {
-  file_ids: string[]
-}
-
 // ============================================================================
 // Frontend State Types
 // ============================================================================

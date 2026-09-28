@@ -30,6 +30,10 @@ lib64/
 !frontends/*/src/**/lib/
 !frontends/ui/src/**/lib/
 !frontends/ui/tests/lib/
+!frontends/web/art/riso/lib/
+# `downloads/` above does the same to the site's committed riso downloads
+# (art/riso/downloads.mjs writes them; the unlisted image page serves them).
+!frontends/web/public/downloads/
 parts/
 sdist/
 var/
@@ -153,6 +157,8 @@ apm_modules/
 coverage.xml
 report-core.xml
 report-api.xml
+report-aiqapi.xml
+coverage-aiqapi.xml
 
 # The OIB corpus is operator-provided; see data/oib/README.md
 data/oib/*.pdf

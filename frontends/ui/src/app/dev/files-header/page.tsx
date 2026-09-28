@@ -26,6 +26,7 @@
  * appeared first. Not linked from anywhere; 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { use, useState } from 'react'
 import { notFound } from 'next/navigation'
 import { LayoutGrid, List } from 'lucide-react'

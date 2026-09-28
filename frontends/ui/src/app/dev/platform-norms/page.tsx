@@ -11,6 +11,7 @@
  * and the RIS verify call. Not linked from anywhere; 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { useEffect } from 'react'
 import { NormRegistry } from '@/features/platform/components/norm-registry'
 

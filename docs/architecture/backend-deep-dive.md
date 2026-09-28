@@ -59,10 +59,9 @@ Browser WebSocket
     presents it neutrally as "Assistant" (getDisplayName in
     intermediate-step-parser.ts), not "Research Agent" — a greeting is
     not a research run.
-  → response streamed back through the MONKEYPATCHED WS handler
-      frontends/aiq_api/src/aiq_api/websocket_reconnect.py
-  → frontends/ui/src/adapters/api/websocket-client.ts  (parse system_response)
-  → frontends/ui/src/features/chat/hooks/use-websocket-chat.ts  (onResponse)
+  → the turn's wire bodies, stamped and sent by the chat socket (wire v2, ADR-0068)
+      frontends/aiq_api/src/aiq_api/chat_socket.py
+  → the UI's turn socket and fold (docs/api/websocket-protocol.md, "The client")
   → frontends/ui/src/features/layout/components/ChatArea.tsx → AgentResponse.tsx
 ```
 
@@ -70,33 +69,23 @@ Key files:
 - Graph build: `src/aiq_agent/agents/piloti/conversation.py` (`_build_graph`,
   nodes). The escalation edge and the conversation-scoped state belong to Piloti; the workflow only wires them up.
 - Workflow registration + response creation: `src/aiq_agent/agents/piloti/conversation_register.py`.
-- WS wire types (NAT, vendored): `.venv/Lib/site-packages/nat/data_models/api_server.py`
-  — `ChatResponse` and the WS message models are `extra="allow"`, so extra
-  fields (cards, run_id) survive serialization.
+- Wire types: `src/aiq_agent/common/wire_v2.py`, the contract both tiers are
+  generated from and tested against (`shared/wire/v2/`).
 
-### The monkeypatch (critical seam)
+### The terminal result (`TurnResult`)
 
-`websocket_reconnect.py:create_websocket_message` takes the workflow's
-`ChatResponse` (`data_model`) and builds the top-level `system_response` WS
-message. It **lifts extra fields off the response onto the top-level message**
-so the frontend can read them at `message.<field>` (not nested under
-`message.content`):
+The turn ends with `RUN_FINISHED`, whose `result` is a typed `TurnResult`
+(`wire_v2.py`): the text, the keyed cards, the verified sources, the
+confidence and its reason, and the run hand-off `run: {run_id, run_message_id}`
+(ADR-0062; the text is then empty, because the run's block is the narration).
+It is authoritative, and it is what the socket persists
+(`chat_socket.persist_turn_result`). No field is lifted by name any more.
 
-- `cards`  → `message.cards`  (rendered as Grid cards)
-- `run_id` / `run_message_id` → the run's block in the thread (ADR-0062); the
-  terminal frame carries no answer text when they are present
-- `answer_confidence` → `message.answer_confidence` (honest self-assessment chip)
-- `answer_confidence_reason` → `message.answer_confidence_reason` (the model's
-  own one-clause justification, shown verbatim in the chip tooltip)
-- `sources` → `message.sources` (verified citation sources)
-
-**Transparency extras (WP-A).** The same lift carries a family of optional,
-additive "why did the turn behave this way?" signals. Each rides
-`turn.streaming.STREAM_EXTRA_FIELDS` onto the terminal `ChatResponseChunk`
-(`response_to_chunks`), then `websocket_reconnect.py` lifts it onto the terminal
-`system_response` message via `_TRANSPARENCY_EXTRA_FIELDS` / `_pull_response_extra`.
-All are **absent unless applicable** (never null-spammed) and reset at the turn
-boundary in `ConversationGraph.run()`:
+**Transparency extras (WP-A).** A family of optional, additive "why did the turn
+behave this way?" signals are fields of the same `TurnResult`, which
+`turn.response.build_result` lifts off the finished state. A frame omits every
+field at its default, and each is reset at the turn boundary in
+`ConversationGraph.stream()`:
 
 - `routing_decision` (`meta`/`shallow`/`deep`/`error`) — which path the turn
   took, OBSERVED after the answer
@@ -250,11 +239,14 @@ before the envelope existed.
 never buffers the response body, so SSE routes are unaffected) fail-closed
 rejects (403 / WS policy-violation close) a workflow-invoking request when
 ALL of: `REQUIRE_AUTH=true`; the caller is a WorkOS-authenticated JWT user;
-the path is on the conservative enforced allowlist (`/websocket`,
-`/v1/jobs/async/submit`, `/v1/internal/workflows/submit`, `/generate`); and no
-valid envelope is present. Exempt regardless of path: anonymous mode,
-internal-token-authenticated service calls, and every non-enumerated path —
-the enforced-path list is an allowlist, not a denylist. Dev fail-open note:
+the path is not on `ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES`; and no valid envelope
+is present. It is deny-by-default: the exempt list is the paths that run no
+workflow and that a BFF proxy forwards with the member's bearer alone
+(`/health`, `/v1/collections`, `/v1/documents`, `/v1/data_sources`, the async
+job reads and controls under `/v1/jobs/async/{jobs,job,agents}`, `/v1/drafts`);
+every other path, NAT's `/chat`, `/v1/chat/completions` and `/v1/workflow`
+routes and the WebSocket included, needs the envelope. Always exempt:
+anonymous mode and internal-token-authenticated service calls. Dev fail-open note:
 when `GRID_INTERNAL_API_TOKEN` is unset, signature verification is skipped
 but envelope *presence* is still required for authenticated requests.
 
@@ -274,16 +266,15 @@ and server-decided (the BFF's `addressees`, computed at persist time); only *del
 changed.
 
 ```
-client  user_message  content.text = {"query": …, "data_sources": […],
-                                      "context_only": true, "author_name": "Anna Weber"}
-  → websocket_reconnect.run()
-      1. per-message re-auth gate (unchanged; an expired token buys no write either)
-      2. context_only_directive(msg)  →  parse_context_only_payload()
-      3. _ingest_context_only_message()
+client  {"v": 2, "type": "user_message", "text": …, "context_only": true, "author_name": "Anna Weber"}
+  → chat_socket.ChatSocket
+      1. per-message re-auth gate (an expired token buys no write either)
+      2. the conversation binding
+      3. _ingest()
            • author = VERIFIED principal name, falling back to author_name
            • format_context_turn()  → "Anna Weber: <text>", capped at 4000 chars
            • append_conversation_context()  → the registered appender
-      4. continue  ← no process_workflow_request, no socket registration
+      4. nothing else: no workflow, no event, no socket registration
   → ConversationGraph.append_context_message()
       graph.aupdate_state({thread_id}, {"messages": [HumanMessage(...)]})
 ```
@@ -294,7 +285,7 @@ no `system_response_message`, no intermediate/status frame, and nothing to strea
 next real turn's `ainvoke` then reads the ingested turns as ordinary history.
 
 Key pieces:
-- Wire parse, char caps, appender registry: `src/aiq_agent/conversation_context.py`.
+- Char caps, appender registry: `src/aiq_agent/conversation_context.py`.
 - The appender is *published*, not imported: `aiq_api` owns the socket and
   `aiq_agent` owns the graph, so `piloti/conversation_register.py` calls
   `register_context_appender(agent.append_context_message)` where the compiled graph
@@ -308,47 +299,46 @@ Key pieces:
 ### 2c. Reconnect & resume semantics (socket drop mid-turn)
 
 A turn can outlive its socket: the browser tab sleeps, the network blips, or a
-token rotation forces a reconnect while a long deep-research answer is still
-generating. Four cooperating mechanisms make sure the finished answer is never
-lost. All backend pieces live in `websocket_reconnect.py`; the frontend pieces
-in `use-websocket-chat.ts` + the chat store.
+token rotation forces a reconnect while a long answer is still generating. The
+backend pieces live in `chat_socket.py` and `conversation_bus.py`; the design is
+`docs/design/chat-wire-v2.md` §c/§d.
 
-- **Live reattach.** NAT's base `WebSocketMessageHandler._restore_execution_state`
-  (vendored, run from `__aenter__` on every new socket) swaps a reconnected
-  socket into the still-running handler for the same conversation. It reads the
-  `conversation_id` query param; the frontend sends both `conversationId` (Grid
-  collection scoping) **and** `conversation_id` (so NAT's lookup matches).
-  `ReconnectableWebSocketMessageHandler._restore_execution_state` overrides the
-  base to (a) tolerate either key and (b) re-register the reconnected socket in
-  the registry (NAT's base only swaps the handler's `_socket` attribute). Without
-  the re-register, the dual-write guard below would still read "client gone".
-- **Registry.** `WebSocketSessionRegistry` (module-global `_registry`) maps
-  `conversation_id → socket` and holds pending HITL futures + the running
-  workflow task. `set_socket` on send/reconnect, `clear_socket` on disconnect.
-  `has_socket` is the **dual-write guard**: it decides whether the client is
-  present (client owns the write) or gone (persist server-side).
-- **Persist-on-drop.** When a terminal `RESPONSE_MESSAGE` cannot be sent (no live
-  socket), `_persist_terminal_message_if_client_gone` → `persist_assistant_message`
-  POSTs the finished answer (text + cards/sources/confidence) to the BFF so it
-  survives a reload. Only the **terminal** frame persists (streamed deltas pass
-  `persist_on_drop=False`); a transient job-admission "queue full" notice is
-  dropped, never persisted. The id is deterministic per turn
-  (`deterministic_assistant_message_id`) so a double-write no-ops on the messages
-  primary key (`onConflictDoNothing`). This POST targets the **internal
-  token-guarded** route `POST /api/internal/conversations/{id}/messages` with
-  `X-Grid-Internal-Token` (org scoped via the `x-grid-organization-id` the WS
-  upgrade forwarded) — not the browser session cookie, which expires on long
-  turns and used to make the fail-soft POST silently 401 and drop the answer.
-- **Rehydrate.** The client re-surfaces a persisted answer two ways: on a fresh
-  mount, `sessions-store.restoreSessionState` refetches server history and, for a
-  turn that looks interrupted, calls `_recoverInterruptedAssistantMessage`; on a
-  same-mount reconnect, `use-websocket-chat.ts` `onConnectionChange('connected')`
-  re-runs the same recovery (skipping the first connect, debounced against
-  rotation storms). While that fetch is in flight the store's `isRecoveryPending`
-  flag renders a calm "reconnecting — checking for a finished answer" line
-  instead of racing straight to the "answer lost" notice; the lost/interrupted UI
-  and the `agent.response_interrupted` card only appear once recovery returns
-  with nothing found.
+- **One socket, one conversation.** Every client message names its
+  `conversation_id`, and the registry, the running turn, the pending HITL
+  question and the checkpoint all key on it. So the socket is bound at the
+  handshake to the envelope's `conversationId` (the id the scope route ran
+  `authorizeConversationScope` on), and a message naming another is refused with
+  `rejected{conversation_mismatch}`. A signed socket without a conversation
+  serves none. Off the BFF (internal caller, anonymous mode) the first id a
+  message names binds it.
+- **A dropped socket does not stop its turn.** The turn's task runs on; every
+  frame is stamped by the turn's sequencer (`TurnWire`) and appended to the
+  conversation's stream (`conv:<id>:stream`) whether or not a socket takes it.
+- **Resume is `attach{turn_id, after_seq}`** on the new socket. The registry holds
+  live frames for that socket, replays the turn from the stream
+  (`ConversationBus.replay_turn`), then flushes the held frames above the last
+  replayed `seq`, so no frame is sent twice or skipped. A turn the stream and the
+  registry know nothing of is `rejected{turn_not_found}`, and the client asks for
+  the persisted answer.
+- **Stop is `cancel_turn`,** authorised against the asker's verified subject
+  (`may_act_for`). It cancels the turn's task; the cancel unwinds the workflow
+  through `workflow_stream.stream_workflow`, so the graph run and its model call
+  stop. The prose so far is the `RUN_FINISHED{outcome: "cancelled"}` result,
+  persisted with `metadata.stopped`. On another replica the Stop goes to the
+  owner on the bus input channel, and the owner checks the subject again.
+- **The server keeps every answer.** Every `RUN_FINISHED`, sent or not, is
+  persisted in the background (`persist_turn_result`, a pure mapping from the
+  `TurnResult`) to the **internal token-guarded** route
+  `POST /api/internal/conversations/{id}/messages` with `X-Grid-Internal-Token`
+  (org scoped via the `x-grid-organization-id` the upgrade forwarded), not the
+  browser session cookie, which expires on long turns. The id is deterministic
+  per turn (`turn.response.answer_message_id`), so the browser's own write of
+  the same answer no-ops on the primary key (`onConflictDoNothing`). A
+  job-admission "queue full" notice and a run hand-off (no text, no cards) write
+  no row.
+- **Rehydrate.** A reload knows its turn and sends `attach{after_seq: 0}`; a turn
+  the stream no longer holds is read from the persisted row
+  (`sessions-store.restoreSessionState`).
 
 ## 3. The card pipeline
 
@@ -466,7 +456,7 @@ definition). The card only proposes: the user's Accept posts the JSON-Patch to
 full fact objects (`source: 'user_confirmed'` — accepting IS the confirmation),
 applies them through the shared patch engine, and prunes unknowns the patch
 just answered. `GridCards` receives the chat store's `projectId` in both the
-chat bubble (`AgentResponse.tsx`) and the research report (`ReportTab.tsx`), so
+chat bubble and the run block's report (both `AgentResponse.tsx`), so
 Accept is live wherever the card renders.
 
 Summary generation: the intake wizard fires
@@ -897,6 +887,16 @@ watermark-scrubbed via `_scrub_watermark_phrases` first, and if scrubbing emptie
 it the summary stays `None` rather than becoming an empty string — so a
 Bebauungsplan JPG is never summarised by its CAD licence stamp.
 
+**Tags are a decision, not a generation** (ADR-0064, use 4). Picking 1–2 of
+twelve document types and 0–3 of six OIB disciplines is asked of the decision
+model (`document_classification.decide_document_tags`: one choice over the
+types, one noul per discipline, the same text the summary reads, bounded at
+5 s) and the generative tag prompt on `summary_llm` runs only when no decision
+did (no key, ZDR, a BYOK key elsewhere, the endpoint down). A decision cannot
+answer outside the vocabulary, so the parse failures the prompt path filters
+are gone on that path. The org id rides the job config into the call, so the
+org's BYOK and ZDR policy hold in the detached ingestion thread.
+
 **Org BYOK + runtime model override for the VLM.** The vision model used across
 all VLM call sites (Phase 2 enrichment) is resolved the SAME way the NAT chat
 models resolve theirs. `/v1/ingest` forwards `x-grid-organization-id` (the BFF's
@@ -985,6 +985,13 @@ shelf, Dokumentart and title from, so the header and the fan-out cannot
 disagree), and `ris_adapter.lookup.render.format_passages` turns `Passage`
 objects into the same records. Neither writes grammar text any more.
 
+The fan-out is typed too: `GroundingBlock.lanes` holds `TraceLane` models
+(`common/wire_v2.py`) and `GroundingBlock.tool` names the tool. The renderer
+emits them as the tool's one `sources` step on the chat wire, so the
+Herleitung never reads them back out of the text. It still writes them as the
+`## Trace-Lanes` line, because deep research's model reads that line
+(chat-wire-v2.md, F2).
+
 The renderer files each block under the SHA-256 of the exact bytes it returns,
 in a per-turn `ContextVar` that `PilotiAgent.run` opens beside
 `begin_lane_capture`. `citation_verification.extract_sources_from_tool_result`
@@ -1048,8 +1055,9 @@ knows they exist at all. `knowledge_search` recognises the shape
 words, overview nouns and edition words around it), asks
 `read_passage.family_overview` for every member the corpus holds, and renders
 those members' scope passages ahead of its own hits in ONE grounding block,
-with one `## Gliederung` per member as the trailer. One search round, then one
-round of Punkt opens. Membership is derived from what is indexed
+with one `## Gliederung` per member as the trailer. Beside the overview the
+block keeps at most four ranked hits (`_FAMILY_RANKED_HITS`), and the requery
+judge never runs on it. One search round, then one round of Punkt opens. Membership is derived from what is indexed
 (`oib_families`), so a deployment without 2.3 is never told it has one, and a
 query that also names a topic, a Punkt, a page, a table or a file is an
 ordinary search, as is one that passes `file_name=` or `folder=`.
@@ -1169,7 +1177,17 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    records `requery_queries`; and the tool result the MODEL reads leads with
    one German line naming the alternative formulations and why they were tried
    (`requery.requery_notice`), so the agent that issued the search is not the
-   one party the widening is hidden from. Fail-open at every step.
+   one party the widening is hidden from. Fail-open at every step. The judge
+   is skipped, and the skip recorded as `search_input["requery_skipped"]`, for a family
+   overview (`"family"`: the judge counts a scope note and a Gliederung as not
+   answering, so it would fan out by construction), keyed on the overview the
+   branch actually produced: a corpus without the family, or an overview that
+   failed open, keeps the judge. The turn's prefetch is judged like any other
+   search: a switch that skipped it (`requery_on_prefetch`) measured 3.4 s
+   slower on the turns it applied to and was removed
+   (`turn-latency-measured-2026-09.md` §3.5; it lived in the requery gate of `knowledge_layer/register.py`, marked by a `ContextVar` the prefetch node set). A pinned file (`"file_pinned"`), a requery that already fired this turn
+   (`"already_fired"`) and the cheap pre-checks of `should_skip_judge` skip it
+   too.
 
 4. **Retrieval-precision feedback** — a new `retrieval_precision` event kind in
    the citation-health pipeline (`src/aiq_agent/common/citation_events.py`):
@@ -1259,7 +1277,7 @@ Country expansion touches data, not architecture: a new
 Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
 
 - **Data** — `configs/norms/<country>/registry.yml` (env override
-  `GRID_NORMS_DIR`; `at` ships 23 entries): per entry `id`, `title`, `short`,
+  `GRID_NORMS_DIR`; `at` ships 24 entries): per entry `id`, `title`, `short`,
   `rank` (bundesgesetz | landesgesetz | verordnung — RIS-backed law lanes —
   plus behoerdliche_info for non-RIS practice guidance with a plain
   `source_url`, e.g. the MA-37 Merkblätter, and norm_extern for
@@ -1340,17 +1358,12 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
    Limits & Grounding** block that instructs agents to treat confirmed wizard
    facts (fluchtniveau, BG Fläche, Anzahl Geschoße, Bauweise, Nutzung,
    Brandschutzanlagen, …) as binding constraints, derive building classes from
-   them, flag contradictions, and surface gaps. The compliance-checker pair
-   (`requirement_profile.j2`, `evidence_batch.j2`) gained a
-   **Projekt-Hartgrenzen** section that maps each wizard fact to its OIB
-   significance.
+   them, flag contradictions, and surface gaps.
 - **Applicability** — `common/applicability.py` is a small hand-written module
   (no DSL): OIB verdicts from project facts (mirrors the UI's
   `applicable-standards.ts`), German trigger hints for the four boolean intake
   facts (Kleingarten, Denkmalschutz, Betriebsanlage, Stellplatz), and the
-  prompt section. The compliance checker scopes Stage 1 with it (verdicts
-  `required`/`likely`/`check` all stay in scope; an explicit user scope is
-  never narrowed).
+  prompt section Piloti renders from the project context.
 - **Display tagging** — `lane_for_hit` / `citation_verification.source_lane`
   map a retrieval or citation hit to a stratum + lane label (Bundesrecht /
   Landesrecht / Verordnung via catalog rank; OIB lanes via filename class;
@@ -1610,9 +1623,31 @@ answer are unaffected, and the fallback says so.
   from the route) falls back to researching IN PROCESS, the same path a
   deployment with no worker takes: what is lost is the block, never the work. A
   full queue is the exception — it is told to the reader with its retry hint.
-- Job data (progress, thinking, citations, report) streams via SSE from backend
-  `/v1/jobs/async/*` through the BFF proxy `/api/jobs/async/[...path]` into the
-  `ResearchPanel` (Tasks / Thinking / Report tabs).
+- The run's ledger snapshots stream via SSE from backend `/v1/jobs/async/*`
+  through the BFF proxy `/api/jobs/async/[...path]` into the run block in the
+  thread (`features/runs`, ADR-0062); the report and its findings land on the
+  run's message.
+
+**How a finished run reaches the BFF, and what heals a lost write (backlog
+T3-11).** The worker makes three writes when a run ends: the outcome
+(`jobs/outcome_notify.py` → `/api/internal/jobs/{id}/outcome`, closes the
+`task_runs` row, files the report, tells the requester), the report into the
+run's message (`conversation_output.py` → `/api/internal/runs/by-job/{id}/report`)
+and the ledger's terminal op. The first two, and the thread-turn fallback, go
+through `aiq_api/internal_retry.py`: three attempts over about 25 s on a
+transport failure or a 5xx, and on a 404 too when the job was submitted for a
+run (the runner holds a `run_id`), because then the 404 means the BFF has not
+yet written the backend job id onto the row. The ledger client keeps its single
+short attempt; a lost terminal op is settled by the reconciler below.
+What the retry does not heal the BFF's run reconciler does
+(`frontends/ui/src/lib/runs/reconcile.ts`, driven by the `skill-scheduler`
+tick): it asks the job store for the verdict of every run still active after
+ten minutes without a check (`GET /v1/internal/jobs/{id}/outcome`, service
+token, tenant checked against `job_access`), which also hands back the run
+message rebuilt by `run_message_for_outcome`, and closes the run through the
+same three BFF functions. A run whose job the store cannot find is closed as
+failed after two hours. The transactional outbox the backlog item describes is
+still deferred; this is pull-based reconciliation instead.
 
 **Open items**: synchronous inline deep-research answers (no Dask) do not
 carry Grid cards (§3; the async job path generates them post-hoc in the
@@ -1638,7 +1673,11 @@ the point the re-injection would otherwise be skipped.
 LangGraph checkpointing for the deep-research graph, configured via
 `deep_research_agent.checkpoint_db` (env `AIQ_DEEP_CHECKPOINT_DB`; unset by
 default) — see §9's "Async deep-research jobs are not restart-safe" bullet
-for the full mechanism and its manual-resubmit resume contract.
+for the full mechanism and its manual-resubmit resume contract. A run's rows
+(`thread_id == job_id`) are purged when it ends, by the runner's `finally`
+(`_purge_deep_checkpoint_unless_reclaimed`) and again by the DB worker. Both skip
+the purge when another worker now holds the job's claim: the rows are keyed by
+job, so after a reclaim they are the new owner's resume point.
 
 **Agent Skills and Jobs (ADR-0046)**: project-level **jobs** — a prompt on a
 timer, with a skill optionally attached — can fire this same async pipeline on
@@ -1663,10 +1702,6 @@ writer middleware stack, structured-output contracts, and graph invariants
 section covers the remaining open defects found by a source audit against the
 installed `deepagents`/`langchain`/`langgraph` versions, several of which are
 now fixed — summarized in §9 below.
-
-**Compliance pipeline (backlog T4-3, 2026-07-16)**: `src/aiq_agent/agents/compliance_checker/README.md`
-documents a separate, purpose-built alternative to running an OIB
-Soll-Ist-Abgleich through this open-ended deep-research harness — see §8c.
 
 ## 8. Backend agent architecture & DRY debt
 
@@ -1730,21 +1765,25 @@ realistic turn fell from 7,724 tokens to 2,962. The amendment section of
 [ADR-0060](../adr/0060-three-instruction-layers-and-tools-that-answer.md)
 records what moved where.
 
-**The direction is Langfuse → repository, and only that way.** A prompt change
-is made in the Langfuse UI: it creates a version, and moving the `production`
-label is what ships it. Running processes pick it up within
-`LANGFUSE_PROMPT_CACHE_TTL_SECONDS` (60s default) — the SDK serves the cached
-text and refreshes in the background, so no turn waits for it.
+**Git is the source of truth** (ADR-0060 (a)).
+`src/aiq_agent/agents/piloti/prompts/piloti_static.md` is the prompt review
+reads, and it is pushed to Langfuse, where labels carry experiments. It is also
+what a process renders when prompt management is off (the default), when the
+Langfuse keys are absent, when Langfuse is unreachable, or when it holds no
+such prompt.
 
-`src/aiq_agent/agents/piloti/prompts/piloti_static.md` in the repository is the
-**bundled fallback**, not the original: what a process renders when prompt
-management is off (the default), when the Langfuse keys are absent, when
-Langfuse is unreachable, or when it holds no such prompt. It is allowed to lag
-the live version and nothing checks the difference — there is no push path and
-no drift gate. `task prompts:pull` (`scripts/prompts_pull.py`) writes the
-current production version into that file so a maintainer can commit a fresher
-fallback now and then. Labels other than `production` are for experiments; a
-deployment joins one by setting `LANGFUSE_PROMPT_LABEL`.
+`task prompts:push` (`scripts/prompts_push.py`) checks a label against the
+committed file and says what publishing would change; it writes nothing. With
+`-- --label <label> --apply` (the label must be named, `production` included)
+it publishes a new version and moves the label to it. The version's commit
+message is `git <sha> <path>`, which is how a later push tells a version
+published from git from one edited in the Langfuse UI. A UI edit is an
+experiment until `task prompts:pull` (`scripts/prompts_pull.py`) brings it into
+the file for review. The push refuses to overwrite it, and refuses a file with
+uncommitted changes. Running processes pick up a moved label within
+`LANGFUSE_PROMPT_CACHE_TTL_SECONDS` (60s default): the SDK serves the cached
+text and refreshes in the background, so no turn waits for it. A deployment
+joins another label by setting `LANGFUSE_PROMPT_LABEL`.
 
 The served text is still a Jinja template when it reaches the agent, with
 exactly one variable, `{{ answer_envelope_schema }}`, which the renderer fills
@@ -1854,31 +1893,14 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   consumes these to show live progress instead of staying silent for the
   first minutes of a run.
 
-## 8c. Compliance-check pipeline (backlog T4-3, 2026-07-16)
+## 8c. Compliance-check pipeline (removed)
 
-`src/aiq_agent/agents/compliance_checker/` is a separate, **deterministic**
-3-stage pipeline for the OIB Soll-Ist-Abgleich (requirements-vs-evidence
-compliance check) — the structured alternative to running the same check
-through the open-ended `deep_research_agent` (which the audit that opened
-T4-3 measured at ~300 LLM turns / 20+ minutes for the same job). Stage 1
-derives applicable requirements per Richtlinie (one structured LLM call each,
-grounded by tool-free `knowledge_search` retrieval against the base OIB
-collection); Stage 2 checks project-document evidence per batch of ~8-10
-requirements (one structured LLM call each); Stage 3 assembles the compliance
-matrix, ranks gaps by risk, and renders a German Markdown report — pure
-Python, no LLM calls. A full 6-Richtlinien check is ~10-25 LLM calls total,
-bounded and predictable.
-
-Registered as the `compliance_check` function (`_type: compliance_check_agent`)
-in `configs/config_oib_openrouter.yml`, backed by a dedicated `compliance_llm`
-role and the `aiq_compliance_checker` `nat.plugins` entry point
-(`pyproject.toml`). **Not yet invoked by any chat/workflow entry point** — the
-function is registered and directly callable, but no orchestrator node, slash
-command, or UI action calls it yet, so it needs a live shakedown before
-user-facing use. See `src/aiq_agent/agents/compliance_checker/README.md` for
-the full stage design, budget math, and its own still-open known limitation
-(`AgentGroup` has no dedicated member for this pipeline's model overrides
-yet).
+The staged OIB Soll-Ist pipeline (`agents/compliance_checker/`, backlog T4-3)
+was retired as a chat tool and then deleted, with its `compliance_llm` role
+and its `compliance_check` model group. A norm check is now a task of kind
+`compliance_check`, run by the general agent with its retrieval tools
+(`TASK_ENGINES` in `frontends/ui/src/lib/tasks/delegation.ts`). The code is in
+git history.
 
 ## 8d. Agent skills (ADR-0046)
 

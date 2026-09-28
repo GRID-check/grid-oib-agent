@@ -1,0 +1,6 @@
+---
+features:
+  - >
+    The answer details now show how long Piloti took, from sending the
+    question to the finished answer. The figure stays after the conversation
+    is reloaded.

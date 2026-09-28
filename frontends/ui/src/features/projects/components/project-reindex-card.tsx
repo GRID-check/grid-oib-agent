@@ -13,6 +13,7 @@
  * upload path notices and every document keeps serving chunks cut by the old rules.
  */
 
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'

@@ -2,7 +2,15 @@
  * @vitest-environment node
  */
 import { describe, expect, it, vi } from 'vitest'
-import { cancelRun, fetchRunView, runCancelPath, RunViewError, runViewPath } from './run-view-client'
+import {
+  cancelRun,
+  commissionRun,
+  fetchRunView,
+  runCancelPath,
+  runsPath,
+  RunViewError,
+  runViewPath,
+} from './run-view-client'
 
 const view = {
   runId: 'run-1',
@@ -16,7 +24,10 @@ const view = {
 const respond = (status: number, body: unknown) =>
   vi.fn(
     async (_input: string, _init?: RequestInit) =>
-      new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }),
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+      })
   )
 
 describe('fetchRunView', () => {
@@ -25,16 +36,21 @@ describe('fetchRunView', () => {
 
     const result = await fetchRunView('p 1', 'run-1', run)
 
-    expect(run).toHaveBeenCalledWith(runViewPath('p 1', 'run-1'), expect.objectContaining({ method: 'GET' }))
+    expect(run).toHaveBeenCalledWith(
+      runViewPath('p 1', 'run-1'),
+      expect.objectContaining({ method: 'GET' })
+    )
     expect(run.mock.calls[0][0]).toBe('/api/projects/p%201/runs/run-1')
     expect(result).toEqual(view)
   })
 
   it('throws a typed error carrying the status on a refused request', async () => {
-    await expect(fetchRunView('p1', 'run-1', respond(404, { error: 'Unknown run' }))).rejects.toBeInstanceOf(
-      RunViewError,
-    )
-    await expect(fetchRunView('p1', 'run-1', respond(404, {}))).rejects.toMatchObject({ status: 404 })
+    await expect(
+      fetchRunView('p1', 'run-1', respond(404, { error: 'Unknown run' }))
+    ).rejects.toBeInstanceOf(RunViewError)
+    await expect(fetchRunView('p1', 'run-1', respond(404, {}))).rejects.toMatchObject({
+      status: 404,
+    })
   })
 
   it('rejects a body this build does not recognise rather than casting it', async () => {
@@ -48,19 +64,56 @@ describe('cancelRun', () => {
 
     const result = await cancelRun('p 1', 'run-1', run)
 
-    expect(run).toHaveBeenCalledWith(runCancelPath('p 1', 'run-1'), expect.objectContaining({ method: 'POST' }))
+    expect(run).toHaveBeenCalledWith(
+      runCancelPath('p 1', 'run-1'),
+      expect.objectContaining({ method: 'POST' })
+    )
     expect(run.mock.calls[0][0]).toBe('/api/projects/p%201/runs/run-1/cancel')
     expect(result).toEqual(view)
   })
 
   it('throws a typed error carrying the status on a refusal', async () => {
-    await expect(cancelRun('p1', 'run-1', respond(409, { error: 'This run has already ended' }))).rejects.toMatchObject(
-      { status: 409 },
-    )
+    await expect(
+      cancelRun('p1', 'run-1', respond(409, { error: 'This run has already ended' }))
+    ).rejects.toMatchObject({ status: 409 })
     await expect(cancelRun('p1', 'run-1', respond(404, {}))).rejects.toBeInstanceOf(RunViewError)
   })
 
   it('rejects a body this build does not recognise rather than casting it', async () => {
     await expect(cancelRun('p1', 'run-1', respond(200, { cancelled: true }))).rejects.toThrow()
+  })
+})
+
+describe('commissionRun', () => {
+  it('posts the brief to the project’s runs door and parses the ids it answers', async () => {
+    const answered = {
+      runId: 'run-9',
+      runMessageId: 'msg-9',
+      conversationId: 's_conv',
+      status: 'queued',
+    }
+    const run = respond(201, answered)
+
+    const result = await commissionRun(
+      'p 1',
+      { conversationId: 's_conv', question: 'Klären: X', context: 'ctx' },
+      run
+    )
+
+    expect(run.mock.calls[0][0]).toBe(runsPath('p 1'))
+    expect(run).toHaveBeenCalledWith(
+      '/api/projects/p%201/runs',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ conversationId: 's_conv', question: 'Klären: X', context: 'ctx' }),
+      })
+    )
+    expect(result).toEqual(answered)
+  })
+
+  it('throws a typed error carrying the status on a refusal', async () => {
+    await expect(
+      commissionRun('p1', { conversationId: 's', question: 'q' }, respond(403, { error: 'no' }))
+    ).rejects.toMatchObject({ status: 403 })
   })
 })

@@ -30,6 +30,21 @@ describe('logsUrl', () => {
   })
 })
 
+describe('resourceAttributes', () => {
+  it('names the build a record came from', async () => {
+    const { resourceAttributes } = await freshModule()
+    expect(resourceAttributes({ OTEL_SERVICE_NAME: 'grid-scheduler', GRID_GIT_SHA: ' abc123 ' })).toEqual({
+      'service.name': 'grid-scheduler',
+      'service.version': 'abc123',
+    })
+  })
+
+  it('omits the version when the image carries none', async () => {
+    const { resourceAttributes } = await freshModule()
+    expect(resourceAttributes({ GRID_GIT_SHA: '' })).toEqual({ 'service.name': 'grid-ui' })
+  })
+})
+
 describe('classifyConsoleRecord', () => {
   // ERROR is the level the collector forwards to err2issue, which files a
   // GitHub issue per unique fingerprint. These cases pin which records are
@@ -104,6 +119,43 @@ describe('classifyConsoleRecord', () => {
       ...WARN,
       attributes: { 'grid.severity.reclassified': 'expected-404' },
     })
+  })
+
+  it('records a render the browser abandoned as WARN (#578)', async () => {
+    const { classifyConsoleRecord } = await freshModule()
+    const body = "⨯ Error: The destination stream closed early.\n    at ignore-listed frames {\n  digest: '1392313014'\n}"
+    expect(classifyConsoleRecord('error', body)).toEqual({
+      ...WARN,
+      attributes: { 'grid.severity.reclassified': 'client-disconnect' },
+    })
+  })
+
+  it('keeps an application error that merely mentions a closed stream at ERROR', async () => {
+    const { classifyConsoleRecord } = await freshModule()
+    const ERROR = { severityNumber: 17, severityText: 'ERROR' }
+    expect(classifyConsoleRecord('error', '[pdf] upload failed: The destination stream closed early.')).toEqual(ERROR)
+  })
+
+  it('records a page render the database outage broke as WARN; the API line files the outage', async () => {
+    const { classifyConsoleRecord } = await freshModule()
+    const body = [
+      '⨯ Error: Failed query: select "organization_id", "deleted_at" from "projects" where "projects"."id" = $1 limit $2',
+      'params: 38d1bb85-5d06-40a5-b88d-1b74043b11a4,1',
+      "  digest: '1660884884',",
+      '  [cause]: Error: connect EHOSTUNREACH 10.111.223.83:5432 - Local (0.0.0.0:0)',
+      "    errno: -113,\n    code: 'EHOSTUNREACH',",
+    ].join('\n')
+    expect(classifyConsoleRecord('error', body)).toEqual({
+      ...WARN,
+      attributes: { 'grid.severity.reclassified': 'database-unavailable-render' },
+    })
+  })
+
+  it('keeps a page render whose query the database rejected at ERROR', async () => {
+    const { classifyConsoleRecord } = await freshModule()
+    const ERROR = { severityNumber: 17, severityText: 'ERROR' }
+    const body = "⨯ Error: Failed query: insert into x\n  [cause]: PostgresError: duplicate key\n    code: '23505'"
+    expect(classifyConsoleRecord('error', body)).toEqual(ERROR)
   })
 
   it('leaves every other ApiError status and code at ERROR', async () => {

@@ -20,7 +20,6 @@ tool performs.
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -183,30 +182,8 @@ async def test_a_miss_is_a_round_with_no_documents_not_a_missing_round(scripted_
     assert ledger[0]["corpora"] == ["ris"], "the `ris_` prefix still places the tool in its corpus"
 
 
-@pytest.fixture
-def status_steps():
-    """Every status payload pushed during the test, oldest first."""
-    from nat.builder.context import ContextState
-    from nat.utils.reactive.subject import Subject
-
-    state = ContextState.get()
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
-    seen: list[dict] = []
-
-    def _on_next(step) -> None:
-        body = getattr(step.payload.data, "input", None)
-        if isinstance(body, str) and str(step.payload.event_type).endswith("START"):
-            seen.append(json.loads(body))
-
-    state.event_stream.get().subscribe(_on_next)
-    yield seen
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
-
-
 @pytest.mark.asyncio
-async def test_the_round_takes_its_checkpoint_from_the_conclusion_argument(scripted_agent, status_steps):
+async def test_the_round_takes_its_checkpoint_from_the_conclusion_argument(scripted_agent, emitted):
     """`conclusion=` is in the signature, so the checkpoint is a SLOT the model
     fills rather than prose it usually skips — which is the whole reason the
     argument exists on every retrieval tool. A RIS round that could not reach
@@ -220,6 +197,6 @@ async def test_the_round_takes_its_checkpoint_from_the_conclusion_argument(scrip
 
     await _run(agent)
 
-    checkpoints = [step for step in status_steps if str(step.get("slot", "")).startswith("checkpoint")]
+    checkpoints = [step for step in emitted.steps if step.id.startswith("status:checkpoint")]
     assert checkpoints, "a retrieval round must announce a checkpoint"
-    assert checkpoints[0]["source"] == "argument"
+    assert checkpoints[0].detail["source"] == "argument"

@@ -1,7 +1,6 @@
 """Tests for fleet-wide OpenRouter structured-output defaults."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -73,14 +72,38 @@ def test_base_url_falls_back_to_client():
     assert {"id": "response-healing"} in llm.extra_body["plugins"]
 
 
+async def _resolved_through_nat(**llm_config):
+    """`get_langchain_llm` on a client NAT itself builds from an `_type: openai` block."""
+    import nat.plugins.langchain.llm  # noqa: F401 - registers NAT's LangChain clients
+    from nat.builder.workflow_builder import WorkflowBuilder
+    from nat.llm.openai_llm import OpenAIModelConfig
+
+    config = OpenAIModelConfig(
+        model_name="openai/gpt-5.6-luna",
+        api_key="test-key",  # pragma: allowlist secret
+        **llm_config,
+    )
+    async with WorkflowBuilder() as builder:
+        await builder.add_llm("llm", config)
+        return await get_langchain_llm(builder, "llm")
+
+
 @pytest.mark.asyncio
-async def test_get_langchain_llm_resolves_and_hardens():
-    llm = FakeLLM()
-    builder = SimpleNamespace(get_llm=AsyncMock(return_value=llm))
-    result = await get_langchain_llm(builder, "some_ref")
-    assert result is llm
-    assert result.extra_body["plugins"] == [{"id": "response-healing"}]
-    builder.get_llm.assert_awaited_once()
+async def test_get_langchain_llm_resolves_and_hardens_the_chat_model_itself():
+    """NAT 1.9 hands back a `RunnableConfigurableFields` wrapper. Hardening that
+    lands on the wrapper fails or no-ops, and a per-request `model_copy` of it
+    keeps sending the original model, so the seam must return the chat model,
+    still retry-patched the way NAT patched the wrapper."""
+    from langchain_openai import ChatOpenAI
+
+    from aiq_agent.common.model_overrides import override_model
+
+    llm = await _resolved_through_nat(base_url="https://openrouter.ai/api/v1")
+
+    assert isinstance(llm, ChatOpenAI)
+    assert llm.extra_body["plugins"] == [{"id": "response-healing"}]
+    assert "invoke" in vars(llm), "NAT's retry patch did not survive the unwrap"
+    assert override_model(llm, "x-ai/grok-4.5").model_name == "x-ai/grok-4.5"
 
 
 # -- prompt-cache affinity on the outgoing request ----------------------------
@@ -254,22 +277,9 @@ def test_a_model_override_changes_the_key():
 # for OpenRouter, where a direct OpenAI endpoint keeps the feature it supports.
 
 
-def _responses_chat_model(base_url):
-    """A client shaped exactly the way NAT builds an `api_type: responses` one."""
-    from langchain_openai import ChatOpenAI
-
-    return ChatOpenAI(
-        model="openai/gpt-5.6-luna",
-        api_key="test-key",  # pragma: allowlist secret
-        base_url=base_url,
-        use_responses_api=True,
-        use_previous_response_id=True,
-    )
-
-
-async def _resolved(llm):
-    builder = SimpleNamespace(get_llm=AsyncMock(return_value=llm))
-    return await get_langchain_llm(builder, "some_ref")
+async def _resolved_responses_client(base_url):
+    """An `api_type: responses` client, built by NAT."""
+    return await _resolved_through_nat(base_url=base_url, api_type="responses")
 
 
 def _turn_after_a_resp_id_answer():
@@ -285,7 +295,7 @@ def _turn_after_a_resp_id_answer():
 
 @pytest.mark.asyncio
 async def test_openrouter_responses_client_never_sends_previous_response_id():
-    llm = await _resolved(_responses_chat_model("https://openrouter.ai/api/v1"))
+    llm = await _resolved_responses_client("https://openrouter.ai/api/v1")
     assert llm.use_previous_response_id is False
 
     payload = _sent_payload(llm, _turn_after_a_resp_id_answer())
@@ -299,7 +309,7 @@ async def test_the_whole_conversation_still_goes_without_the_server_side_handle(
     # Dropping the handle is only safe because the payload stops being truncated
     # to the messages *after* the resp_ id: OpenRouter is stateless, so the
     # history has to travel with every request.
-    llm = await _resolved(_responses_chat_model("https://openrouter.ai/api/v1"))
+    llm = await _resolved_responses_client("https://openrouter.ai/api/v1")
     payload = _sent_payload(llm, _turn_after_a_resp_id_answer())
     sent = str(payload["input"])
     assert "Brüstung" in sent
@@ -308,7 +318,7 @@ async def test_the_whole_conversation_still_goes_without_the_server_side_handle(
 
 @pytest.mark.asyncio
 async def test_a_non_openrouter_responses_client_is_untouched():
-    llm = await _resolved(_responses_chat_model("https://api.openai.test/v1"))
+    llm = await _resolved_responses_client("https://api.openai.test/v1")
     assert llm.use_previous_response_id is True
 
     payload = _sent_payload(llm, _turn_after_a_resp_id_answer())

@@ -95,7 +95,7 @@ on:
 permissions:
   contents: read
   actions: read # poll CI / Security workflow conclusions for the gate step
-  packages: read # verify the rollback tag exists for all three images (dispatch)
+  packages: read # verify an image tag exists for all three images (staging rollback, every prod deploy)
 
 # Concurrency is PER JOB now (`deploy-dev` / `deploy-prod` below): a
 # production apply must not queue behind a staging publish or vice versa.
@@ -409,37 +409,8 @@ jobs:
           # ImagePullBackOff. The workflow_run path never has this problem:
           # rebuilt images carry the sha just pushed, non-rebuilt keep their
           # stored ref.
-          #
-          # Ask GHCR itself, not the packages REST API: there is no
-          # `/repos/{owner}/{repo}/packages/...` endpoint (it 404s), the
-          # org/user variants differ by owner type, and listing versions would
-          # need pagination over every sha ever published. A manifest HEAD is
-          # exactly the lookup the kubelet will perform.
           if [ -z "$RUN_ID" ] && [ -n "$EXPLICIT_TAG" ]; then
-            for service in backend frontend web; do
-              image_path="${owner}/grid-oib-${service}"
-              pull_token="$(curl -sSL -u "${GITHUB_ACTOR}:${GH_TOKEN}" \
-                "https://ghcr.io/token?service=ghcr.io&scope=repository:${image_path}:pull" \
-                | jq -r '.token // empty')"
-              [ -n "$pull_token" ] || {
-                echo "::error::could not obtain a GHCR pull token for ${image_path} — the job token needs 'packages: read'."
-                exit 1
-              }
-              # $IMAGE_TAG is constrained to sha-<40-hex>/v*/latest by the
-              # "Validate image tag" step above, so it is safe in the URL.
-              status="$(curl -sSL -o /dev/null -w '%{http_code}' --head \
-                -H "Authorization: Bearer ${pull_token}" \
-                -H 'Accept: application/vnd.oci.image.index.v1+json' \
-                -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
-                -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' \
-                -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
-                "https://ghcr.io/v2/${image_path}/manifests/${IMAGE_TAG}")"
-              [ "$status" = "200" ] || {
-                echo "::error::rollback tag '$IMAGE_TAG' is not published for grid-oib-${service} (ghcr.io/${image_path} returned HTTP $status). Pick a tag from a fully-built commit."
-                exit 1
-              }
-            done
-            echo "rollback tag '$IMAGE_TAG' verified for backend, frontend and web"
+            ./scripts/verify-image-tag.sh "$owner" "$IMAGE_TAG"
           fi
 
           is_built() {
@@ -625,6 +596,19 @@ jobs:
       - name: Typecheck (cluster-free gate)
         working-directory: deploy/pulumi
         run: npx tsc --noEmit && (cd policy && npx tsc --noEmit)
+
+      # Prod consumes the tag its committed stack file pins, and nothing else
+      # checked that tag was ever built: a promotion to a commit whose publish
+      # built only grid-oib-web left prod's backend on its old image, fixes and
+      # all, with nothing red anywhere. A missing image stops the deploy here.
+      - name: Verify the pinned images exist
+        working-directory: deploy/pulumi
+        run: |
+          tag="$(sed -n 's/^  grid-oib:imageTag: *//p' Pulumi.prod.yaml | tr -d '"' | tr -d "'")"
+          [ -n "$tag" ] || { echo "::error::Pulumi.prod.yaml pins no grid-oib:imageTag"; exit 1; }
+          ./scripts/verify-image-tag.sh "$GITHUB_REPOSITORY_OWNER" "$tag"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Install Pulumi
         run: |

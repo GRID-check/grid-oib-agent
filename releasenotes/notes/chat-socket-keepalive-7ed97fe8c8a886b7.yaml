@@ -1,0 +1,10 @@
+---
+fixes:
+  - >
+    A chat answer that is still running no longer loses its connection when the
+    browser tab is in the background or the phone signal is weak for a moment.
+operators:
+  - >
+    A WebSocket peer leaving mid-turn (EPIPE, ECONNRESET) is now logged as a
+    warning naming the side that closed and the connection age, instead of an
+    error, and the server waits 60 seconds instead of 20 for a keepalive reply.

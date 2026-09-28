@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    The derivation's header no longer counts steps; the count included
+    internal status messages and read as if Piloti had needed many attempts.
+    It now names only the sources.

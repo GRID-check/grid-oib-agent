@@ -47,7 +47,13 @@ import {
 } from '@/lib/conversations/repository'
 import type { Message, TaskRun } from '@/lib/db/schema'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
-import { cancelBackendJob, JobCancelError } from '@/lib/jobs/backend-client'
+import {
+  addDocumentToBackendJob,
+  cancelBackendJob,
+  JobCancelError,
+  writeNowBackendJob,
+} from '@/lib/jobs/backend-client'
+import type { PlanDocument } from './plan-documents'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import * as taskRepository from '@/lib/tasks/repository'
@@ -107,7 +113,7 @@ export function runMessageId(runId: string): string {
 export async function createRunMessage(
   conversationId: string,
   runId: string,
-  options: CreateRunMessageOptions = {},
+  options: CreateRunMessageOptions = {}
 ): Promise<Message> {
   const at = options.at ?? new Date()
   const id = runMessageId(runId)
@@ -144,7 +150,7 @@ export async function createRunMessage(
 async function loadRunForLedger(runId: string) {
   return withPlatformAccess(
     'run ledger: the worker names a run by id, before any organization is known',
-    () => taskRepository.findRunById(runId),
+    () => taskRepository.findRunById(runId)
   )
 }
 
@@ -175,7 +181,7 @@ function finishOutcome(op: Extract<RunLedgerRequest, { op: 'finish' }>) {
 export async function applyRunLedgerOp(
   runId: string,
   op: RunLedgerRequest,
-  at: Date = new Date(),
+  at: Date = new Date()
 ): Promise<RunLedgerResponse> {
   const run = await loadRunForLedger(runId)
   if (!run) throw new NotFoundError('Unknown run')
@@ -280,11 +286,11 @@ async function notifyWaiting(run: TaskRun, before: RunLedger, after: RunLedger):
  * writing an ordinary turn.
  */
 export async function findRunMessageByBackendJobId(
-  backendJobId: string,
+  backendJobId: string
 ): Promise<{ runId: string; conversationId: string; messageId: string } | null> {
   const run = await withPlatformAccess(
     'run message lookup: the worker names a run by its backend job id, before any organization is known',
-    () => taskRepository.findRunByBackendJobId(backendJobId),
+    () => taskRepository.findRunByBackendJobId(backendJobId)
   )
   if (!run?.conversationId || !run.runMessageId) return null
   return { runId: run.id, conversationId: run.conversationId, messageId: run.runMessageId }
@@ -307,7 +313,7 @@ export async function findRunMessageByBackendJobId(
  */
 export async function writeRunReport(
   backendJobId: string,
-  report: { content: string; metadata?: Record<string, unknown> },
+  report: { content: string; metadata?: Record<string, unknown> }
 ): Promise<{ runId: string; conversationId: string; messageId: string }> {
   const target = await findRunMessageByBackendJobId(backendJobId)
   if (!target) throw new NotFoundError('This run has no message to write a report into')
@@ -320,11 +326,28 @@ export async function writeRunReport(
       target.conversationId,
       target.messageId,
       report.content,
-      normalizeAgentAnswerMetadata(report.metadata ?? {}) ?? {},
+      normalizeAgentAnswerMetadata(report.metadata ?? {}) ?? {}
     )
     if (!written) throw new NotFoundError('This run has no message to write a report into')
     return target
   })
+}
+
+/**
+ * What a run's own message holds right now: its prose and its ledger.
+ *
+ * For the run reconciler (`./reconcile.ts`), which fills in only what the
+ * worker's own writes did not: a report into a message that is still empty, a
+ * terminal fact into a ledger that still reads as live. Runs inside the caller's
+ * tenant scope. Null when the run has no message, or it is gone.
+ */
+export async function readRunMessage(
+  run: Pick<TaskRun, 'conversationId' | 'runMessageId'>
+): Promise<{ content: string; ledger: RunLedger | null } | null> {
+  if (!run.conversationId || !run.runMessageId) return null
+  const message = await findMessageInConversation(run.conversationId, run.runMessageId)
+  if (!message) return null
+  return { content: message.content ?? '', ledger: storedLedger(message) }
 }
 
 /**
@@ -337,7 +360,7 @@ export async function writeRunReport(
 export async function getRunView(
   session: AuthorizedSession,
   projectId: string,
-  runId: string,
+  runId: string
 ): Promise<RunView> {
   await requireProjectAccess(session, projectId, 'project:view')
   const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
@@ -398,7 +421,7 @@ async function runView(run: TaskRun): Promise<RunView> {
 export async function cancelRun(
   session: AuthorizedSession,
   projectId: string,
-  runId: string,
+  runId: string
 ): Promise<RunView> {
   await requireProjectAccess(session, projectId, 'project:view')
   await requireProjectAccess(session, projectId, CHAT_PERMISSIONS)
@@ -417,6 +440,67 @@ export async function cancelRun(
     if (error.status === 400) throw new ConflictError('This run has already ended')
     if (error.status === 404) throw new NotFoundError('Unknown run')
     throw new UpstreamError('The run could not be cancelled')
+  }
+  return runView(run)
+}
+
+/**
+ * Add a document to a running run's Grundlage on a person's request. Same
+ * gate and the same refusals as „Jetzt schreiben" ({@link writeNowRun}); the
+ * ledger lists the document through the run's own stream, never here.
+ */
+export async function addRunDocument(
+  session: AuthorizedSession,
+  projectId: string,
+  runId: string,
+  document: PlanDocument
+): Promise<RunView> {
+  await requireProjectAccess(session, projectId, 'project:view')
+  await requireProjectAccess(session, projectId, CHAT_PERMISSIONS)
+  const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
+  if (!run) throw new NotFoundError('Unknown run')
+  if (!isActiveTaskRunStatus(run.status)) throw new ConflictError('This run has already ended')
+  if (!run.backendJobId) throw new ConflictError('This run has no backend job to hand the document to')
+
+  try {
+    await addDocumentToBackendJob(run.backendJobId, document, session.accessToken ?? null)
+  } catch (error) {
+    if (!(error instanceof JobCancelError)) throw error
+    if (error.status === 400) throw new ConflictError('This run has already ended')
+    if (error.status === 404) throw new NotFoundError('Unknown run')
+    throw new UpstreamError('The document could not be handed to the run')
+  }
+  return runView(run)
+}
+
+/**
+ * „Jetzt schreiben": the run stops researching after its current batch and
+ * writes the report from what is there. Same gate as a cancel, the same run
+ * row, the same view answered — the ledger turns `unterbrochen` when the
+ * report lands, never because the button was pressed.
+ */
+export async function writeNowRun(
+  session: AuthorizedSession,
+  projectId: string,
+  runId: string
+): Promise<RunView> {
+  await requireProjectAccess(session, projectId, 'project:view')
+  await requireProjectAccess(session, projectId, CHAT_PERMISSIONS)
+  const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
+  if (!run) throw new NotFoundError('Unknown run')
+  if (!isActiveTaskRunStatus(run.status)) throw new ConflictError('This run has already ended')
+  if (!run.backendJobId) throw new ConflictError('This run has no backend job to write from')
+
+  try {
+    await writeNowBackendJob(run.backendJobId, session.accessToken ?? null)
+  } catch (error) {
+    if (!(error instanceof JobCancelError)) throw error
+    // The backend's verdict on a race: the job finished between the row read
+    // and the request. Its 404 is „not yours or not there", and it says which
+    // to nobody on purpose.
+    if (error.status === 400) throw new ConflictError('This run has already ended')
+    if (error.status === 404) throw new NotFoundError('Unknown run')
+    throw new UpstreamError('The run could not be asked to write now')
   }
   return runView(run)
 }

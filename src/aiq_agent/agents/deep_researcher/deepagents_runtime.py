@@ -33,7 +33,7 @@ from pydantic import field_validator
 
 from aiq_agent.skills.builtin import discover_builtin_skills
 from aiq_agent.skills.resolver import _is_curated
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import FunctionBaseConfig
 
 logger = logging.getLogger(__name__)
 

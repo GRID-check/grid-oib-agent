@@ -228,7 +228,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | **LLM / models** | | |
 | 🔒 **`openrouterApiKey`** / 🔒 **`tavilyApiKey`** | — | Provider keys |
 | `embedModel` / `embedBaseUrl` | text-embedding-3-large / OpenRouter | Embeddings |
-| `vlmModel` / `vlmBaseUrl` | gpt-5.6-luna / OpenRouter | Vision model |
+| `vlmModel` / `vlmBaseUrl` | gpt-6-luna / OpenRouter | Vision model |
 | **Auth / platform** | | |
 | `requireAuth` | `true` | WorkOS AuthKit enforcement |
 | **`workosClientId`** / 🔒 `workosApiKey` / 🔒 `workosCookiePassword` | — | WorkOS |
@@ -278,7 +278,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | 🔒 `langfuseInitUserPassword` | — | Break-glass Langfuse account created at headless init, for when SSO itself is what is broken. A real credential behind the edge gate, not a placeholder |
 | `langfuseInitUserEmail` | `letsEncryptEmail` | That account's email |
 | `langfuseOrgId` / `langfuseProjectId` | `grid` / `grid-oib` | Headless-init identifiers. Deliberately not derived from the hostname: headless init matches on them, so a value that moved with the domain would create a SECOND project and orphan every stored trace |
-| `langfuseWebImage` / `langfuseWorkerImage` | digest-pinned `ghcr.io/langfuse/langfuse{,-worker}@sha256:…` (3.225.1) | Two keys because upstream publishes two images — but they **must be the same version**, and digests are opaque so nothing can check it. Bump together. Both are scanned by the trivy `image-scan` job |
+| `langfuseWebImage` / `langfuseWorkerImage` | digest-pinned `ghcr.io/langfuse/langfuse{,-worker}@sha256:…` (3.225.11) | Two keys because upstream publishes two images — but they **must be the same version**, and digests are opaque so nothing can check it. Bump together. Both are scanned by the trivy `image-scan` job |
 | `clickhouseImage` | digest-pinned `clickhouse/clickhouse-server@sha256:…` (25.8 LTS) | Single-node analytical store. `CLICKHOUSE_CLUSTER_ENABLED=false` makes the migrator emit plain `MergeTree`, so growing to a real cluster is a migration, not a replica count |
 | `clickhouseStorageSize` | `50Gi` | The trace store is the tier's unbounded resource — see the retention note above. The server's own system logs are TTL-bounded at 14 days (`system-log-ttl.xml` in `src/data/clickhouse.ts`) and cannot fill the disk the way `system.trace_log` did on dev in August 2026. Growing the PVC is a PVC patch (`volumeClaimTemplates` is immutable and `ignoreChanges`d) |
 | `langfuseQueueMaxmemory` / `langfuseQueueMemoryLimit` | `512mb` / `1Gi` | Ingestion-queue dataset cap and pod memory limit. Eviction is OFF, so "full" means ingestion stops (loudly) rather than oldest-drops (silently) |

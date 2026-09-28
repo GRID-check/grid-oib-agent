@@ -1236,6 +1236,7 @@ Written as observable outcomes; each maps to at least one requirement above.
 >   "Piloti is answering X's question", then the answer when it lands. Mirroring
 >   the agent's frames to non-askers needs a relay out of the Python tier for a
 >   fraction of the value.
+>   *Superseded:* ADR-0039 (live frames), ADR-0066 (full answer surface).
 >
 > The text below is preserved as the reasoning trail.
 

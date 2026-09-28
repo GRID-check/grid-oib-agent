@@ -1,35 +1,17 @@
 ---
 improvements:
   - >
-    Im Quellendokument lässt sich jetzt Text markieren und kopieren. Bisher war
-    die geöffnete Seite nur ein Bild: Die Maus konnte nichts auswählen, und auch
-    die Suche des Browsers fand darin nichts.
+    Text in a source document can now be selected and copied, and on request a
+    selection becomes a ready citation with document and page, in the same form
+    as citations from answers.
   - >
-    Wer eine Stelle selbst markiert, bekommt sie auf Wunsch als fertiges Zitat —
-    mit Dokument und Seitenzahl, in derselben Form wie die Zitate aus der
-    Antwort. Damit sieht eine Stelle aus dem Dokument und eine aus dem Chat in
-    der Stellungnahme gleich aus.
-  - >
-    Die Werkzeugleiste zeigt jetzt die Seite, auf der man gerade liest, statt
-    nur die Gesamtzahl der Seiten — und sie zählt beim Scrollen mit.
-  - >
-    Die Liste der Fundstellen steht jetzt immer neben dem Dokument, auch wenn
-    eine Quelle nur an einer Stelle gelesen wurde. Sie sagt beim Lesen weiter
-    oben oder unten im Dokument, welche Passage gerade geprüft wird, und zeigt
-    die aktuelle Fundstelle vollständig — der Kasten über dem Dokument entfällt
-    dafür, das Dokument wird entsprechend größer dargestellt.
+    The list of references now always sits beside the document and shows which
+    passage you are reading, and the toolbar shows the page you are on.
 fixes:
   - >
-    Stimmt die Seitenzahl einer Fundstelle nicht mit der Seite im PDF überein —
-    üblich bei Dokumenten mit Deckblatt —, wird die zitierte Stelle jetzt auch
-    auf der Seite davor und danach gesucht statt gar nicht markiert. Bleibt sie
-    unauffindbar, sagt das Fenster das ausdrücklich, statt die Seite wortlos
-    ohne Markierung zu zeigen.
+    When a reference's page number differs from the page in the PDF, as it often
+    does after a cover sheet, the quoted passage is now also sought on the
+    neighbouring pages. If it cannot be found, the window says so.
   - >
-    In einer langen Fundstellenliste bleibt die gerade geöffnete Stelle sichtbar:
-    Bisher wanderte sie beim Weiterblättern aus der Liste heraus.
-  - >
-    Am Telefon sprang das geöffnete Zitat über die markierte Stelle hinaus, so
-    dass die Passage oberhalb des sichtbaren Bereichs lag und die Seite leer
-    wirkte. Außerdem verdrängten die Kopieren-Schaltflächen im Kopf des
-    Dokumentfensters den Dokumentnamen. Beides ist behoben.
+    On a phone the opened citation no longer jumps past the highlighted passage,
+    and the document name is no longer pushed aside by the copy buttons.

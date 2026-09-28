@@ -33,6 +33,10 @@ import { requirePlatformPermission } from '@/lib/authz/platform'
 import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 
+/** The refusal every admitting path reports, so the reader sees one sentence. */
+export const STORAGE_QUOTA_EXCEEDED_MESSAGE =
+  'This organization has no storage space left. Delete documents or ask an administrator to raise the quota.'
+
 /** Key under `organizations.settings` holding the quota, in bytes. */
 export const STORAGE_QUOTA_SETTING = 'storageQuotaBytes'
 
@@ -143,7 +147,7 @@ export async function assertWithinStorageQuota(
   if (usedBytes + incomingBytes <= quotaBytes) return
 
   throw new InsufficientStorageError(
-    'This organization has no storage space left. Delete documents or ask an administrator to raise the quota.',
+    STORAGE_QUOTA_EXCEEDED_MESSAGE,
     { quotaBytes, usedBytes, requestedBytes: incomingBytes }
   )
 }
@@ -169,7 +173,7 @@ export async function admitDocumentWithinQuota(values: NewDocument): Promise<voi
   if (result.ok) return
 
   throw new InsufficientStorageError(
-    'This organization has no storage space left. Delete documents or ask an administrator to raise the quota.',
+    STORAGE_QUOTA_EXCEEDED_MESSAGE,
     {
       quotaBytes: quotaBytes ?? 0,
       usedBytes: result.usedBytes,
@@ -182,9 +186,9 @@ export async function admitDocumentWithinQuota(values: NewDocument): Promise<voi
  * Admit a re-upload that replaces bytes already recorded under a document id.
  *
  * The replace-path twin of {@link admitDocumentWithinQuota}. Same refusal, same
- * error, same hard ceiling under the same lock — the only difference is that
- * the row being replaced is excluded from the usage it is measured against,
- * because it is about to stop contributing its old size.
+ * error, same hard ceiling under the same lock. The FULL new size is charged:
+ * the row's previous bytes stay behind as the superseded version (ADR-0054), so
+ * nothing is freed — see `replaceDocumentWithinQuota`.
  */
 export async function admitReplacementWithinQuota(
   organizationId: string,
@@ -204,7 +208,7 @@ export async function admitReplacementWithinQuota(
   if (result.ok) return
 
   throw new InsufficientStorageError(
-    'This organization has no storage space left. Delete documents or ask an administrator to raise the quota.',
+    STORAGE_QUOTA_EXCEEDED_MESSAGE,
     {
       quotaBytes: quotaBytes ?? 0,
       usedBytes: result.usedBytes,

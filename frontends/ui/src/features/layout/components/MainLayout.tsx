@@ -4,45 +4,32 @@
  * The main application layout container that orchestrates:
  * - ChatToolbar (top)
  * - SessionsPanel (left, overlay)
- * - ChatArea + InputArea (center, responsive width)
- * - ResearchPanel (right, pushes content when open)
+ * - ChatArea + InputArea (center)
  *
  * Handles auth state to show different UI for logged-in vs logged-out users.
  *
- * The research panel is kept and no longer opened from here. A run is one
- * message in the thread that commissioned it (ADR-0062), so the toolbar, the
- * answer card and the `?job=` deep link have all given up their doors to it,
- * and `useDeepResearch()` is no longer mounted — nothing connects the SSE
- * stream the panel's live tabs were fed by. The one door left is the legacy
- * `DeepResearchBanner`, which only appears on threads written before run
- * messages existed. The panel is still rendered and the width math still
- * accounts for it, because retiring the panel itself is the next change.
+ * A run is one message in the thread that commissioned it (ADR-0062): its
+ * progress, its report and its findings are read there, and any deeper look
+ * (a document, the sources) opens as a dialog over the thread. There is no
+ * side panel.
  */
 
 'use client'
 
-import { type FC, useCallback, useMemo } from 'react'
+import { type FC, useCallback } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { ChatToolbar } from './ChatToolbar'
 import { SessionsPanel } from './SessionsPanel'
 import { ChatArea } from './ChatArea'
 import { InputArea } from './InputArea'
-import { ResearchPanel } from './ResearchPanel'
 import { useChatStore, NoSourcesBanner } from '@/features/chat'
-import {
-  getLatestDeepResearchMessage,
-  hasActiveDeepResearchJob,
-  hasCompletedDeepResearchReport,
-  hasExpiredDeepResearchReport,
-} from '@/features/chat/lib/session-activity'
-import { conversationMatchesProject } from '@/features/chat/lib/project-scope'
-import { useLayoutStore } from '../store'
 import { useSessionUrl } from '@/hooks/use-session-url'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { useTranslations } from '@/i18n'
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 import { useComposerMetrics } from '../hooks/use-composer-metrics'
+import { useSessionRows } from '../hooks/use-session-rows'
 import { motion } from '@/components/motion'
 
 interface MainLayoutProps {
@@ -50,12 +37,6 @@ interface MainLayoutProps {
   isAuthenticated?: boolean
   /** Callback when sign in is clicked */
   onSignIn?: () => void
-  /**
-   * Whether report source lines show origin badges (WorkOS
-   * `source-origin-badges` flag, FB-2). Threaded to ResearchPanel → ReportTab.
-   * Defaults to true (fail-open) so existing callers/specs are unaffected.
-   */
-  showSourceBadges?: boolean
   /**
    * Whether shallow answers show the confidence chip (WorkOS
    * `chat-confidence-chip` flag, FB-6). Threaded to ChatArea → AgentResponse.
@@ -98,7 +79,6 @@ interface MainLayoutProps {
 export const MainLayout: FC<MainLayoutProps> = ({
   isAuthenticated = false,
   onSignIn,
-  showSourceBadges = true,
   showConfidenceChip = true,
   showAnswerFeedback = true,
   showResearchInHistory = false,
@@ -107,27 +87,32 @@ export const MainLayout: FC<MainLayoutProps> = ({
   projectCollection = null,
   projectName = null,
 }) => {
+  // Only what the layout shows, never the conversation objects themselves:
+  // a streamed answer replaces the open conversation on every delta, and the
+  // whole shell would re-render with each one. How many messages the thread
+  // holds decides two separate things — whether the toolbar calls the chat
+  // started, and whether the composer is lifted off the floor into the empty
+  // canvas — so it is read once, here.
   const {
-    currentConversation,
-    conversations,
+    currentConversationId,
+    currentConversationTitle,
+    messageCount,
     isStreaming,
     pendingInteraction,
-    isDeepResearchStreaming,
-    deepResearchOwnerConversationId,
     currentUserId,
     projectId,
   } = useChatStore(
     useShallow((s) => ({
-      currentConversation: s.currentConversation,
-      conversations: s.conversations,
+      currentConversationId: s.currentConversation?.id,
+      currentConversationTitle: s.currentConversation?.title,
+      messageCount: s.currentConversation?.messages?.length ?? 0,
       isStreaming: s.isStreaming,
       pendingInteraction: s.pendingInteraction,
-      isDeepResearchStreaming: s.isDeepResearchStreaming,
-      deepResearchOwnerConversationId: s.deepResearchOwnerConversationId,
       currentUserId: s.currentUserId,
       projectId: s.projectId,
     }))
   )
+  const sessions = useSessionRows()
 
   const selectConversation = useChatStore((s) => s.selectConversation)
   const startNewSessionDraft = useChatStore((s) => s.startNewSessionDraft)
@@ -135,18 +120,12 @@ export const MainLayout: FC<MainLayoutProps> = ({
   const deleteAllConversations = useChatStore((s) => s.deleteAllConversations)
   const updateConversationTitle = useChatStore((s) => s.updateConversationTitle)
 
-  const isResearchPanelOpen = useLayoutStore((s) => s.rightPanel === 'research')
   const isMobile = useIsMobile()
   const peekedFile = useFilePreviewStore((s) => s.file)
   const previewHidden = useFilePreviewStore((s) => s.hidden)
   const previewMode = useFilePreviewStore((s) => s.mode)
   const expandFile = useFilePreviewStore((s) => s.expand)
   const tFiles = useTranslations('files')
-
-  // How many messages this thread holds decides two separate things — whether
-  // the toolbar calls the chat started, and whether the composer is lifted off
-  // the floor into the empty canvas — so it is read once, here.
-  const messageCount = currentConversation?.messages?.length ?? 0
 
   // Composer geometry (--composer-h, --welcome-offset, and the lift the stack
   // travels on) — see useComposerMetrics.
@@ -176,13 +155,13 @@ export const MainLayout: FC<MainLayoutProps> = ({
   // Wrap deleteConversation to clear URL if deleting current session
   const handleDeleteSession = useCallback(
     (sessionId: string) => {
-      const wasCurrentSession = currentConversation?.id === sessionId
+      const wasCurrentSession = currentConversationId === sessionId
       deleteConversation(sessionId)
       if (wasCurrentSession) {
         clearSessionUrl()
       }
     },
-    [deleteConversation, currentConversation?.id, clearSessionUrl]
+    [deleteConversation, currentConversationId, clearSessionUrl]
   )
 
   // Delete all sessions for the current user in the active project context
@@ -194,49 +173,6 @@ export const MainLayout: FC<MainLayoutProps> = ({
   }, [deleteAllConversations, clearSessionUrl])
 
   const isNavigationBlocked = isStreaming || pendingInteraction !== null
-
-  // Sessions shown in the panel: the current user's sessions in the active
-  // project context. Legacy sessions without a projectId fail open (always
-  // visible) so users never lose sight of pre-scoping history.
-  const userConversations = useMemo(
-    () =>
-      currentUserId
-        ? conversations
-            .filter((c) => c.userId === currentUserId && conversationMatchesProject(c, projectId))
-            // The store keeps creation order; sort newest-first so date groups
-            // and rows in the sessions panel come out most-recently-updated first.
-            .slice()
-            .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))
-        : [],
-    [conversations, currentUserId, projectId]
-  )
-
-  const sessions = useMemo(
-    () =>
-      userConversations.map((conv) => {
-        // The stuck run's id travels with the row so the history can stop it:
-        // without it a thread whose research will never finish can only be
-        // watched, never dismissed (its delete stays disabled while active).
-        const latestResearch = getLatestDeepResearchMessage(conv.messages)
-        const latestStatus = latestResearch?.deepResearchJobStatus
-        return {
-          id: conv.id,
-          title: conv.title,
-          date: conv.updatedAt,
-          hasActiveDeepResearch:
-            hasActiveDeepResearchJob(conv.messages) ||
-            (isDeepResearchStreaming && deepResearchOwnerConversationId === conv.id),
-          hasCompletedReport: hasCompletedDeepResearchReport(conv.messages),
-          hasExpiredReport: hasExpiredDeepResearchReport(conv.messages),
-          activeDeepResearchJobId:
-            latestResearch?.deepResearchJobId &&
-            (latestStatus === 'submitted' || latestStatus === 'running')
-              ? latestResearch.deepResearchJobId
-              : null,
-        }
-      }),
-    [userConversations, isDeepResearchStreaming, deepResearchOwnerConversationId]
-  )
 
   const content = (
     // h-full pins the chat surface to the viewport: the composer floats at the
@@ -261,16 +197,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
             // 883px panel: a 344px dead band between the conversation and the
             // file it is about, with the resize handle stranded on the far side
             // of it. `/dev/file-ask-split/chat` is the regression evidence.
-            //
-            // Set in ONE pass, never tweened. This used to run `width 300ms`,
-            // which re-laid-out and repainted the ENTIRE chat transcript on
-            // every frame for the whole 300ms each time the research panel
-            // opened — the exact thing `grid-design-language.md` §"Binding
-            // constraints" forbids. The companion panel beside it carries the
-            // arrival on a transform (see `ResearchPanel`), which is where that
-            // motion belongs: the reader needs to see where the PANEL came
-            // from, not watch their own text re-wrap sixty times.
-            width: isResearchPanelOpen ? (isMobile ? '0%' : '50%') : '100%',
+            width: '100%',
             // Published by useComposerMetrics; inherits into ChatArea (a
             // descendant), which reads both via calc().
             ...columnVars,
@@ -292,7 +219,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
               (no band). Sits inside the center column so it spans only the
               chat, not the research panel (which has its own header). */}
           <ChatToolbar
-            sessionTitle={currentConversation?.title}
+            sessionTitle={currentConversationTitle}
             projectName={projectName ?? undefined}
             onNewSession={handleNewSession}
             isNewSessionDisabled={isNavigationBlocked}
@@ -301,7 +228,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
             // strip, the access chip and the share dialog. All three are gated on
             // the dark-launch flag AND on there being a conversation to share, so
             // an unshared or brand-new thread shows no extra chrome at all.
-            conversationId={currentConversation?.id ?? null}
+            conversationId={currentConversationId ?? null}
             isCollaborationEnabled={canCollaborate}
             currentUserId={currentUserId}
           />
@@ -383,11 +310,6 @@ export const MainLayout: FC<MainLayoutProps> = ({
             />
           </motion.div>
         </div>
-
-        {/* Research Panel (Right) - Pushes content, shares the width 50/50.
-            Closed for every thread that is not a legacy one; see the note at
-            the top of the file. */}
-        <ResearchPanel showSourceBadges={showSourceBadges} />
       </div>
 
       {/* Overlay Panels - These slide over the content */}
@@ -395,7 +317,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
       {/* Sessions Panel (Left) - Only functional when authenticated */}
       <SessionsPanel
         sessions={sessions}
-        selectedSessionId={currentConversation?.id}
+        selectedSessionId={currentConversationId}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         onDeleteSession={handleDeleteSession}

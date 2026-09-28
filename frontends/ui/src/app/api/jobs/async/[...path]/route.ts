@@ -324,6 +324,25 @@ async function fileReportIfCommissioned(
 /**
  * Handle GET requests (status, stream, state, report)
  */
+/**
+ * One log line for a backend refusal, at the severity it has.
+ *
+ * A cancel that lands after the job finished (`400 Job not cancellable: <id>
+ * (status: success|failure)`) is the backend's verdict, not a failure: the
+ * Sessions panel's stop is confirmed in a dialog, the run can end while it is
+ * open, and the panel re-reads the list either way. The warn guard for #632
+ * went onto GET and DELETE while the live cancel is a POST
+ * (`cancelJob` → `/job/{id}/cancel`), so it never ran; one helper for every
+ * method is what keeps that from happening twice.
+ */
+function logBackendError(method: 'GET' | 'POST' | 'DELETE', status: number, errorText: string): void {
+  if (status === 400 && errorText.includes('Job not cancellable')) {
+    console.warn(`[Deep Research API] ${method} cancel race: job already terminal:`, errorText.slice(0, 200))
+    return
+  }
+  console.error(`[Deep Research API] ${method} backend error:`, status, errorText)
+}
+
 export const GET = tenantSlotRoute(async function GET(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
@@ -382,15 +401,7 @@ export const GET = tenantSlotRoute(async function GET(
     // Handle error responses
     if (!response.ok) {
       const errorText = await response.text()
-      // #632: cancel-after-terminal race — the client already parses this via
-      // `readTerminalVerdictFromCancelError` and treats it as a verdict, not a
-      // failure. Warn so err2issue stops filing an ERROR per double-clicked
-      // cancel on an already-finished job.
-      if (response.status === 400 && errorText.includes('Job not cancellable')) {
-        console.warn('[Deep Research API] Cancel race: job already terminal:', errorText.slice(0, 200))
-      } else {
-        console.error('[Deep Research API] Backend error:', response.status, errorText)
-      }
+      logBackendError('GET', response.status, errorText)
 
       return backendErrorEnvelope(response.status, errorText)
     }
@@ -519,7 +530,7 @@ export const POST = tenantSlotRoute(async function POST(
     // Handle error responses
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('[Deep Research API] Backend error:', response.status, errorText)
+      logBackendError('POST', response.status, errorText)
 
       return backendErrorEnvelope(response.status, errorText)
     }
@@ -574,13 +585,7 @@ export const DELETE = tenantSlotRoute(async function DELETE(
 
     if (!response.ok) {
       const errorText = await response.text()
-      // Same cancel-after-terminal race as GET (#632): a DELETE that lands
-      // after the job finished is a verdict, not a failure.
-      if (response.status === 400 && errorText.includes('Job not cancellable')) {
-        console.warn('[Deep Research API] DELETE cancel race: job already terminal:', errorText.slice(0, 200))
-      } else {
-        console.error('[Deep Research API] DELETE Backend error:', response.status, errorText)
-      }
+      logBackendError('DELETE', response.status, errorText)
 
       return backendErrorEnvelope(response.status, errorText)
     }

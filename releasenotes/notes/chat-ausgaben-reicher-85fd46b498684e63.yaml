@@ -1,39 +1,26 @@
 ---
 features:
   - >
-    Jede Antwort lässt sich als Word-Dokument herunterladen — mit Frage,
-    Quellenverzeichnis, Prüfkarten und Vertrauenshinweis. Die neue Schaltfläche
-    sitzt neben den Kopieren-Schaltflächen unter der Antwort.
+    Every answer can be downloaded as a Word document, with the question, the
+    list of sources, the cards and the confidence note. The button sits next to
+    the copy buttons under the answer.
 improvements:
   - >
-    Kopierte Antworten kommen jetzt formatiert an: Wer eine Antwort in Word,
-    Outlook oder Notion einfügt, erhält echte Tabellen, Überschriften und
-    Hervorhebungen statt roher Markdown-Zeichen. Als Textquelle bleibt das
-    Markdown erhalten.
+    Copied answers keep their formatting: pasted into Word, Outlook or Notion
+    they arrive with real tables, headings and emphasis instead of raw Markdown
+    characters.
   - >
-    Der Chat nutzt die Breite des Fensters besser: Die Gesprächsspalte ist
-    deutlich breiter geworden, und Antworten füllen sie ganz aus, statt als
-    schmale Karte am linken Rand zu stehen. Die Kopfleiste darüber ist kleiner
-    und zurückhaltender gestaltet und wiederholt den Projektnamen nicht mehr —
-    den zeigen die Projektauswahl im Eingabefeld und die Navigation bereits.
+    Tables in answers keep their column alignment, checklists show real ticks,
+    and deeply structured answers keep every heading level.
   - >
-    Tabellen in Antworten behalten ihre Spaltenausrichtung (Zahlenspalten
-    stehen rechtsbündig), Checklisten zeigen echte Häkchen statt
-    Aufzählungspunkte, und tief gegliederte Antworten behalten alle
-    Überschriftenebenen.
+    The chat uses the width of the window: the conversation column is wider and
+    answers fill it, and the header above it is smaller.
 fixes:
   - >
-    Die Schaltflächen an Codeblöcken („Kopieren", „Alle anzeigen") erscheinen
-    jetzt auf Deutsch.
-  - >
-    Zeitstempel an Fehlermeldungen im Chat folgen jetzt der eingestellten
-    Sprache statt der Browser-Region.
-  - >
-    Wer mit einer chinesischen, japanischen oder koreanischen Eingabemethode
-    schreibt, kann Zeichen mit der Eingabetaste bestätigen, ohne dass die
-    Nachricht vorzeitig abgeschickt wird.
+    Buttons on code blocks and time stamps on chat errors now follow the
+    language you set, and Chinese, Japanese or Korean input methods can confirm
+    characters with Enter without sending the message.
 other:
   - >
-    Die Datenquellen-Auswahl im Eingabefeld ist vorerst ausgeblendet. Piloti
-    zieht automatisch alle verfügbaren Quellen heran; die Herleitung zeigt
-    weiterhin, welche tatsächlich verwendet wurden.
+    The data source picker in the message box is hidden for now; Piloti draws on
+    every available source, and the Herleitung still shows which ones it used.

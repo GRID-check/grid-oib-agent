@@ -455,6 +455,30 @@ class ChunkTextStore:
             f"chunk text for {file_name} in {collection}",
         )
 
+    def delete_chunks(self, collection: str, chunk_ids: Sequence[str]) -> int:
+        """Remove the mirrored rows of these chunk ids IN ONE collection.
+
+        The by-id twin of :meth:`delete_by_file`, for the one caller that must not
+        go by name: a re-ingest retires its predecessor AFTER the new version
+        is mirrored, and both versions carry the same ``file_name`` then. Going
+        by name there deletes the new version's rows with the old ones.
+        """
+        ids = [str(chunk_id) for chunk_id in chunk_ids or () if chunk_id]
+        if not collection or not ids:
+            return 0
+        deleted = 0
+        for start in range(0, len(ids), UPSERT_BATCH_SIZE):
+            batch = ids[start : start + UPSERT_BATCH_SIZE]
+            params: dict[str, Any] = {"collection": collection}
+            params.update({f"id_{index}": chunk_id for index, chunk_id in enumerate(batch)})
+            placeholders = ", ".join(f":id_{index}" for index in range(len(batch)))
+            deleted += self._delete(
+                f"DELETE FROM {TABLE_NAME} WHERE collection = :collection AND chunk_id IN ({placeholders})",
+                params,
+                f"{len(batch)} chunk text row(s) in {collection}",
+            )
+        return deleted
+
     def delete_collection(self, collection: str) -> int:
         """Remove every mirrored chunk of a collection (collection deleted)."""
         if not collection:

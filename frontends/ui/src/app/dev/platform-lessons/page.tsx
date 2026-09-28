@@ -13,6 +13,7 @@
  * Not linked from anywhere and 404s outside development (see ../layout.tsx).
  */
 
+import type { JSX } from 'react'
 import { I18nProvider } from '@/i18n'
 import { PlatformLessons } from '@/app/app/(shell)/platform/lessons/platform-lessons'
 

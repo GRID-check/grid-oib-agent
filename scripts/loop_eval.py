@@ -268,7 +268,7 @@ def _normalise_query(text: object) -> str:
 #: Mirrors the requery gate's known-entity test (duplicated on purpose:
 #: this harness must keep working when the knowledge package is absent).
 _LOCATOR_ELIGIBLE_RE = re.compile(
-    r"oib[-\s_]*rl|richtlinie\s*\d|\brl\s*\d|\bpkt\.?\b|\bpunkt\b|§|\bseite\b|\bpage\b|\btabelle\b|\.pdf\b|oib-rl_",
+    r"oib[-\s_]*rl|richtlinie\s*\d|\brl\s*\d|\bpkt\.?\b|\bpunkt\b|§|\bseite\b|\bpage\b|\btabelle\b|\.pdf\b|oib-rl_|oib-richtlinie_",
     re.IGNORECASE,
 )
 
