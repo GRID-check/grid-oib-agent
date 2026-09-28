@@ -40,6 +40,10 @@
     "de": "Ein Hinweis steht jetzt beim Absatz, den er betrifft, statt am Ende der Antwort."
   },
   {
+    "en": "A chat answer no longer stays on \"Denkt nach…\" forever: when the assistant gets stuck, the answer now ends with an error message, and Stop always ends it. Time spent waiting for your reply to one of its questions does not count against it.",
+    "de": "Eine Chat-Antwort bleibt nicht mehr endlos bei „Denkt nach …“ hängen: Wenn der Assistent feststeckt, endet die Antwort jetzt mit einer Fehlermeldung, und „Stop“ bricht sie immer ab. Die Zeit, in der der Assistent auf Ihre Antwort auf eine seiner Fragen wartet, wird nicht auf sein Zeitlimit angerechnet."
+  },
+  {
     "en": "A chat answer that is still running no longer loses its connection when the browser tab is in the background or the phone signal is weak for a moment.",
     "de": "Eine noch laufende Chat-Antwort bricht nicht mehr ab, wenn der Browser-Tab im Hintergrund ist oder das Mobilfunksignal kurz schwächelt."
   },
@@ -276,8 +280,20 @@
     "de": "Bei einer Frage zu mehreren Paragraphen, etwa „§§ 3 bis 8“, werden jetzt bis zu sechs in einem Schritt gelesen statt nur der erste."
   },
   {
+    "en": "A question in the chat no longer shows „Denkt nach\" forever when the server does not answer it. After half a minute without a reply it ends with an error you can retry.",
+    "de": "Eine Frage im Chat bleibt nicht mehr endlos bei „Denkt nach“, wenn der Server nicht antwortet. Nach einer halben Minute ohne Antwort wird ein Fehler angezeigt und Sie können die Anfrage erneut senden."
+  },
+  {
+    "en": "A question sent again after a short connection drop is no longer answered twice. The chat picks up the answer already being written.",
+    "de": "Eine Frage, die nach einem kurzen Verbindungsabbruch erneut gesendet wird, wird nicht mehr doppelt beantwortet. Der Chat führt die bereits laufende Antwort fort."
+  },
+  {
     "en": "A question that touches the Richtlinien, the RIS and the web now checks all three in its first round instead of saving one for later.",
     "de": "Berührt eine Frage die Richtlinien, das RIS und das Web, prüft Piloti alle drei gleich in der ersten Runde, statt eine davon auf später zu verschieben."
+  },
+  {
+    "en": "A question you stopped before Piloti started on it is no longer sent again when the connection comes back.",
+    "de": "Eine Frage, die Sie abgebrochen haben, bevor Piloti mit der Bearbeitung begonnen hat, wird nach Wiederherstellung der Verbindung nicht erneut gesendet."
   },
   {
     "en": "A quote that is not word for word in its source is marked as soon as the answer stands. A slightly misremembered quote is corrected to the source's wording, but only if the source the sentence names contains it.",
@@ -1804,6 +1820,14 @@
     "de": "Die Befunde eines Berichts gehen als Fakten und offene Punkte ins Projektgedächtnis ein."
   },
   {
+    "en": "The first message of a new chat is saved even when Piloti is briefly busy. Before, such a chat could be missing from your history after a reload.",
+    "de": "Die erste Nachricht eines neuen Chats wird auch dann gespeichert, wenn Piloti kurz ausgelastet ist. Bisher konnte der Chat nach einem Neuladen in Ihrem Verlauf fehlen."
+  },
+  {
+    "en": "The first question of a new chat is no longer lost when it is sent straight from a suggestion without typing.",
+    "de": "Die erste Frage in einem neuen Chat geht nicht mehr verloren, wenn sie direkt aus einem Vorschlag gesendet wird, ohne dass Sie sie eintippen."
+  },
+  {
     "en": "The folder chips above the file list in Dateien are readable again. In projects with a long file list they were squeezed until the folder names were cut through the middle.",
     "de": "Die Ordner-Chips über der Dateiliste sind wieder lesbar. In Projekten mit langer Dateiliste wurden sie so zusammengedrückt, dass die Ordnernamen mittendurch abgeschnitten waren."
   },
@@ -2154,6 +2178,10 @@
   {
     "en": "When something fails, the error message now carries a short reference for support that you can copy with one click.",
     "de": "Schlägt etwas fehl, nennt die Fehlermeldung jetzt eine kurze Referenz für den Support, die sich mit einem Klick kopieren lässt."
+  },
+  {
+    "en": "When the chat reaches a server that runs a different version than the page, Piloti now says so, instead of asking you to check your network.",
+    "de": "Wenn der Chat einen Server erreicht, auf dem eine andere Version als auf der Seite läuft, weist Piloti jetzt darauf hin, statt Sie aufzufordern, Ihre Netzwerkverbindung zu überprüfen."
   },
   {
     "en": "When the on-screen keyboard opens, the app now makes room for it instead of letting it cover the composer, so you can see what you are typing.",
