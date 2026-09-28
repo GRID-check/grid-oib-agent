@@ -1,6 +1,0 @@
----
-fixes:
-  - >
-    A mindmap that only repeated a table in the same answer used to draw while
-    the answer arrived and then disappear when it finished. Piloti now leaves
-    it out from the start, so the answer no longer changes under you.

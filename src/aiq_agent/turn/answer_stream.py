@@ -79,88 +79,6 @@ class Live(Protocol):
 
     def card(self, payload: Any) -> dict[str, Any] | None: ...
 
-    def restates(self, fence: str, prose: str) -> bool: ...
-
-
-_FENCE_OPEN = "```mermaid"
-_FENCE_CLOSE = "\n```"
-
-
-class MindmapHold:
-    """Holds a ```mermaid mindmap fence back until it closes, so a drawing the settle removes is never shown.
-
-    The settle drops a mindmap that only redraws a table in the answer
-    (``agents/piloti/answer_shape.py``). Streamed as written, the reader
-    watched it draw and then vanish when the answer settled. Here the fence is
-    held from its opening line until it closes and ``drop`` decides against
-    the prose already sent: dropped, it never went out; kept, it goes out
-    whole. Any other mermaid fence is released as soon as its first line shows
-    it is not a mindmap, so its skeleton still draws while it streams. A
-    table written after the drawing is the settle's to catch, as before.
-    """
-
-    def __init__(self) -> None:
-        self._held = ""
-        self._holding = False
-        self.sent = ""
-
-    def feed(self, text: str, drop: Any) -> str:
-        """What of ``held + text`` may go out now; ``drop(fence, sent)`` judges a closed mindmap."""
-        buf, out = self._held + text, ""
-        self._held = ""
-        while buf:
-            if self._holding:
-                end = buf.find(_FENCE_CLOSE, buf.find("\n") + 1)
-                if end < 0:
-                    self._held = buf
-                    break
-                end += len(_FENCE_CLOSE)
-                fence, buf = buf[:end], buf[end:]
-                self._holding = False
-                if not drop(fence, self.sent + out):
-                    out += fence
-                continue
-            start = buf.find(_FENCE_OPEN)
-            if start < 0:
-                keep = _open_prefix_len(buf)
-                out, self._held = out + buf[: len(buf) - keep], buf[len(buf) - keep :]
-                break
-            out, buf = out + buf[:start], buf[start:]
-            first = _first_body_line(buf)
-            if first is None:
-                self._held = buf
-                break
-            if first == "mindmap":
-                self._holding = True
-                continue
-            head_end = buf.find("\n") + 1
-            out, buf = out + buf[:head_end], buf[head_end:]
-        self.sent += out
-        return out
-
-    def release(self) -> str:
-        """Everything still held, as written: the answer string closed on it."""
-        rest, self._held, self._holding = self._held, "", False
-        self.sent += rest
-        return rest
-
-
-def _open_prefix_len(text: str) -> int:
-    """Length of the longest tail of ``text`` that could still grow into a fence opening."""
-    for size in range(min(len(text), len(_FENCE_OPEN) - 1), 0, -1):
-        if _FENCE_OPEN.startswith(text[-size:]):
-            return size
-    return 0
-
-
-def _first_body_line(fence: str) -> str | None:
-    """The fence's first non-blank body line once it is complete; ``None`` while it is still arriving."""
-    lines = fence.split("\n")[1:]
-    for line in lines[:-1]:
-        if line.strip():
-            return line.strip()
-    return None
-
 
 @dataclass
 class LiveProse:
@@ -217,7 +135,6 @@ class _ProseTokenHandler(AsyncCallbackHandler):
         #: something to take back.
         self._shown = False
         self._cards = 0
-        self._hold = MindmapHold()
         self._pending = ""
         self._flushed_at: float | None = None
 
@@ -236,7 +153,7 @@ class _ProseTokenHandler(AsyncCallbackHandler):
             self._masthead_read = True
             self._show_masthead(reader.masthead)
         if delta:
-            self._append(self._hold.feed(self._placed(delta), self._restates))
+            self._append(self._placed(delta))
         if reader.closed and not self._settled:
             self._settled = True
             self._end()
@@ -268,8 +185,6 @@ class _ProseTokenHandler(AsyncCallbackHandler):
 
     def _append(self, delta: str) -> None:
         """Prose, coalesced: out at once when the window since the last flush has passed."""
-        if not delta:
-            return
         if not self._started:
             self._started = True
             self._write(TextMessageStartBody(message_id=self._prose.message_id))
@@ -288,7 +203,6 @@ class _ProseTokenHandler(AsyncCallbackHandler):
 
     def _end(self) -> None:
         """The ``answer`` string closed (or the call ended): what is held goes out, then END."""
-        self._append(self._hold.release())
         if self._started and not self._ended:
             self._ended = True
             self._write(TextMessageEndBody(message_id=self._prose.message_id))
@@ -326,10 +240,6 @@ class _ProseTokenHandler(AsyncCallbackHandler):
             text=self._placed(settled.content), sources=list(settled.sources), answer_meta=settled.answer_meta
         )
         self._write(StateSnapshotBody(snapshot=snapshot))
-
-    def _restates(self, fence: str, prose: str) -> bool:
-        """Whether a closed mindmap is one the settle would remove; shown when nothing can say."""
-        return self._guarded("shape", lambda live: live.restates(fence, prose)) is True
 
     def _placed(self, text: str) -> str:
         """``text`` with its card markers at the positions the live list gives them (``Live.place``)."""

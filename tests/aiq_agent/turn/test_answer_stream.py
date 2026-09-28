@@ -30,7 +30,6 @@ from aiq_agent.common.wire_v2 import TextMessageEndBody
 from aiq_agent.common.wire_v2 import TextMessageStartBody
 from aiq_agent.turn import answer_stream
 from aiq_agent.turn.answer_stream import LiveProse
-from aiq_agent.turn.answer_stream import MindmapHold
 from aiq_agent.turn.answer_stream import bound_live_prose
 from aiq_agent.turn.answer_stream import streaming_call
 
@@ -91,11 +90,6 @@ class _Live:
 
     def card(self, payload):
         return self._card(payload)
-
-    def restates(self, fence, prose):
-        from aiq_agent.agents.piloti.answer_shape import restates_table
-
-        return restates_table(fence, prose)
 
 
 class _State(TypedDict, total=False):
@@ -367,51 +361,3 @@ async def test_the_settle_runs_off_the_event_loop():
     await _answer_in_a_node(GenericFakeChatModel(messages=iter([AIMessage(content=ENVELOPE)])), _Counter(), live)
 
     assert threads and threads[0] != threading.get_ident()
-
-
-TABLE = "| Teil | Deckt |\n|---|---|\n| Garagen | Stellplätze |\n| Fluchtwege | Treppenhaus |\n"
-REDRAWN = "```mermaid\nmindmap\n  root((Teile))\n    Garagen\n    Stellplätze\n    Fluchtwege\n    Treppenhaus\n```"
-OWN = "```mermaid\nmindmap\n  root((Teile))\n    Brandabschnitt\n    Rauchableitung\n    Löschwasser\n```"
-
-
-def _through_hold(text: str, size: int) -> str:
-    """``text`` fed to a hold ``size`` characters at a time, as tokens arrive, then released."""
-    from aiq_agent.agents.piloti.answer_shape import restates_table
-
-    hold = MindmapHold()
-    out = "".join(hold.feed(text[i : i + size], restates_table) for i in range(0, len(text), size))
-    return out + hold.release()
-
-
-def test_a_mindmap_that_redraws_the_table_above_it_never_goes_out():
-    for size in (1, 3, 7, 1000):
-        out = _through_hold("Übersicht:\n\n" + TABLE + "\n" + REDRAWN + "\n\nFazit.", size)
-        assert "mindmap" not in out and out.startswith("Übersicht:") and out.endswith("Fazit."), size
-
-
-def test_a_mindmap_that_says_something_of_its_own_goes_out_whole():
-    text = TABLE + "\n" + OWN + "\n\nFazit."
-    for size in (1, 5, 1000):
-        assert _through_hold(text, size) == text, size
-
-
-def test_another_diagram_is_released_at_its_first_line_so_its_skeleton_still_draws():
-    hold = MindmapHold()
-    out = hold.feed("Ablauf:\n```mermaid\nflowchart TD\n  A-->", lambda *_: True)
-    assert out == "Ablauf:\n```mermaid\nflowchart TD\n  A-->"
-
-
-def test_an_unclosed_mindmap_is_released_when_the_answer_closes():
-    hold = MindmapHold()
-    assert hold.feed(TABLE + "```mermaid\nmindmap\n  root((Garagen", lambda *_: True) == TABLE
-    assert hold.release() == "```mermaid\nmindmap\n  root((Garagen"
-
-
-async def test_the_live_prose_never_shows_a_mindmap_the_settle_removes():
-    answer = "Übersicht:\n\n" + TABLE + "\n" + REDRAWN + "\n\nFazit [1].\n\n**Quellen:**\n- [1] a.pdf, p.1"
-    reply = "```answer_json\n" + json.dumps({"answer": answer}) + "\n```"
-    llm = GenericFakeChatModel(messages=iter([AIMessage(content=reply)]))
-    _, bodies, _ = await _answer_in_a_node(llm, _Counter(), _Live())
-
-    text = _text(bodies)
-    assert "Garagen" in text and "mindmap" not in text and "Fazit [1]." in text

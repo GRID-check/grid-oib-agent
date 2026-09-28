@@ -60,7 +60,6 @@ from aiq_agent.common.turn_status import emit_answer_repair
 from aiq_agent.common.turn_status import emit_citation_check
 
 from .answer_shape import drop_restated_mindmaps
-from .answer_shape import restates_table
 from .dsml import strip_and_salvage_dsml_tool_calls
 from .grounding import answer_mentions_normative_claim
 from .markers import detect_and_strip_confidence_marker
@@ -795,10 +794,6 @@ class LiveAnswer:
             return match.group(0) if index is None or index < 1 else f"[[card:{tools + index}]]"
 
         return _CARD_MARKER_NUMBER_RE.sub(substitute, text)
-
-    def restates(self, fence: str, prose: str) -> bool:
-        """Whether a closed mindmap fence only redraws a table in the prose already sent (``answer_shape``)."""
-        return restates_table(fence, prose)
 
     def card(self, payload: Any) -> dict[str, Any] | None:
         """One envelope card as it closes, validated, its ``[N]`` recited; a tool's card never comes through here."""

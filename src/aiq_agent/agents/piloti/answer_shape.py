@@ -48,25 +48,6 @@ def _mindmap_words(body: str) -> set[str]:
     return _words(" ".join(labels))
 
 
-def _redraws(body: str, table_words: set[str]) -> bool:
-    words = _mindmap_words(body)
-    return bool(words) and len(words & table_words) / len(words) >= MINDMAP_TABLE_COVERAGE
-
-
-def restates_table(fence: str, prose: str) -> bool:
-    """Whether the closed ```mermaid ``fence`` is a mindmap that only redraws a table in ``prose``.
-
-    The live relay's question (``LiveAnswer.restates``): it holds a mindmap
-    fence until it closes and asks this against the prose already sent, so a
-    drawing the settle would remove never reaches the screen. The same test
-    ``drop_restated_mindmaps`` runs, so the two cannot disagree about a table
-    that came first.
-    """
-    table_words = _words("\n".join(_TABLE_ROW.findall(prose)))
-    match = _MERMAID_FENCE.search(fence)
-    return bool(table_words) and match is not None and _redraws(match.group("body"), table_words)
-
-
 def drop_restated_mindmaps(content: str) -> tuple[str, int]:
     """``content`` without the mindmaps that only redraw a table in it; how many went."""
     table_words = _words("\n".join(_TABLE_ROW.findall(content)))
@@ -76,7 +57,8 @@ def drop_restated_mindmaps(content: str) -> tuple[str, int]:
 
     def replace(match: re.Match[str]) -> str:
         nonlocal dropped
-        if not _redraws(match.group("body"), table_words):
+        words = _mindmap_words(match.group("body"))
+        if not words or len(words & table_words) / len(words) < MINDMAP_TABLE_COVERAGE:
             return match.group(0)
         dropped += 1
         return "\n\n"

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from aiq_agent.agents.piloti.answer_shape import drop_restated_mindmaps
-from aiq_agent.agents.piloti.answer_shape import restates_table
 
 TABLE = "| Teil | Gilt für |\n|---|---|\n| RL 2.1 | Betriebsbauten |\n| RL 2.2 | Garagen |"
 FLAT = '```mermaid\nmindmap\n  root(("OIB-RL 2"))\n    "Betriebsbauten"\n    "Garagen"\n```'
@@ -42,10 +41,3 @@ def test_other_diagrams_are_not_touched():
     flow = "```mermaid\nflowchart TD\n  A --> B\n```"
     content = f"{TABLE}\n\n{flow}"
     assert drop_restated_mindmaps(content) == (content, 0)
-
-
-def test_the_live_question_agrees_with_the_settle_about_a_table_that_came_first():
-    for fence in (FLAT, NUMBERED, DEEP):
-        dropped = drop_restated_mindmaps(f"{TABLE}\n\n{fence}")[1] == 1
-        assert restates_table(fence, f"{TABLE}\n\n") is dropped
-    assert restates_table(FLAT, "Noch keine Tabelle.") is False

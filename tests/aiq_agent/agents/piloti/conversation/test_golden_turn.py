@@ -92,9 +92,6 @@ class _Live:
     def card(self, payload):
         return None if payload["type"] == "broken" else payload
 
-    def restates(self, fence, prose):
-        return False
-
 
 class _Inner(TypedDict, total=False):
     reply: object
