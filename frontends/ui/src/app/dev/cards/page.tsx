@@ -573,6 +573,21 @@ function Gallery() {
           section="Tabelle 1a"
           summary="Die maximale Brandabschnittsfläche für oberirdische Geschosse in GK 4 beträgt 1.200 m²."
           original_text="Brandabschnitte dürfen eine Nettogrundfläche von höchstens 1.200 m² und eine Längenausdehnung von höchstens 60 m aufweisen."
+          facts={[
+            { label: 'Gebäudeklasse', value: 'GK 4', origin: 'Projektprofil' },
+            { label: 'Nettogrundfläche 2. OG', value: '1.150 m²', origin: 'IFC-Messung' },
+          ]}
+          conclusion="1.150 m² ≤ 1.200 m²: das 2. OG bildet einen einzigen Brandabschnitt."
+          outcome="pass"
+          verification={{
+            status: 'verbatim',
+            number: 2,
+            title: 'OIB-Richtlinie 2',
+            file_name: 'OIB-RL_2_2023.pdf',
+            page: 14,
+            punkt: '3.1.1',
+            url: null,
+          }}
         />
         <LegalBasisCard
           type="legal_basis"
@@ -583,6 +598,12 @@ function Gallery() {
           section="Abs. 4"
           summary="Bauliche Anlagen sind so zu errichten, dass die Standsicherheit und der Brandschutz während der gesamten Nutzungsdauer gewährleistet sind."
           original_text="Bauwerke müssen so geplant und ausgeführt werden, dass sie den zu erwartenden Einwirkungen standhalten."
+          facts={null}
+          conclusion={null}
+          outcome={null}
+          // The other side of the proof: no passage read this turn holds the
+          // wording, so the card shows it as a paraphrase and says so.
+          verification={{ status: 'not_found', number: null, title: null, file_name: null, page: null, punkt: null, url: null }}
         />
       </Section>
 

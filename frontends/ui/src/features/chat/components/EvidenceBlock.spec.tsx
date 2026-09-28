@@ -84,6 +84,10 @@ const legalBasis = (law: string): LegalBasisCardData => ({
   section: '2.3',
   summary: 'Tragende Bauteile in GK 4: mindestens REI 60.',
   original_text: 'Tragende Bauteile sind in REI 60 auszuführen.',
+  facts: null,
+  conclusion: null,
+  outcome: null,
+  verification: null,
 })
 
 describe('EvidenceBlock', () => {
@@ -147,6 +151,10 @@ describe('EvidenceBlock', () => {
           section: null,
           summary: null,
           original_text: null,
+          facts: null,
+          conclusion: null,
+          outcome: null,
+          verification: null,
         }}
       />
     )

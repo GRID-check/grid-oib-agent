@@ -43,6 +43,10 @@ const card = (overrides: Partial<Parameters<typeof LegalBasisCard>[0]> = {}) => 
   section: null,
   summary: null,
   original_text: null,
+  facts: null,
+  conclusion: null,
+  outcome: null,
+  verification: null,
   ...overrides,
 })
 
@@ -247,5 +251,75 @@ describe('the gallery pair', () => {
     })
     expect(LEGAL_BASIS_STATUTE).toMatchObject({ type: 'legal_basis', lane: 'baurecht_ris' })
     expect(LEGAL_BASIS_STATUTE).not.toHaveProperty('edition')
+  })
+})
+
+describe('LegalBasisCard as a proof', () => {
+  // The card argues Norm → Sachverhalt → Ergebnis, and the one claim the model
+  // cannot make is that the wording is the source's: `verification` is stamped
+  // by the server (`cards/legal_proof.py`). These pin that the seal follows the
+  // stamp and nothing else, and that an unfound wording is never set as a quote.
+
+  const QUOTE = 'Brandabschnitte dürfen eine Nettogrundfläche von höchstens 1.200 m² aufweisen.'
+  const verified = {
+    status: 'verbatim' as const,
+    number: 2,
+    title: 'OIB-Richtlinie 2',
+    file_name: 'OIB-RL_2_2023.pdf',
+    page: 14,
+    punkt: '3.1.1',
+    url: null,
+  }
+  const notFound = { ...verified, status: 'not_found' as const, number: null, title: null, file_name: null, page: null, punkt: null }
+
+  it('seals a server-verified wording with its [N] and says where it stands', () => {
+    render(<LegalBasisCard {...card({ lane: 'baurecht_oib', original_text: QUOTE, verification: verified })} />)
+    expect(screen.getByText('Wortlaut belegt [2]')).toBeInTheDocument()
+    expect(screen.getByText('Fundort: OIB-Richtlinie 2 · S. 14 · Pkt. 3.1.1')).toBeInTheDocument()
+    expect(screen.getByText(QUOTE).closest('blockquote')).not.toBeNull()
+    expect(screen.getByText(/Wortlaut maschinell mit der Quelle abgeglichen/)).toBeInTheDocument()
+  })
+
+  it('takes the quotation away from a wording no passage holds, and says so', () => {
+    render(<LegalBasisCard {...card({ lane: 'baurecht_oib', original_text: QUOTE, verification: notFound })} />)
+    expect(screen.getByText('Wortlaut nicht belegt')).toBeInTheDocument()
+    expect(screen.getByText(QUOTE).closest('blockquote')).toBeNull()
+    expect(screen.getByText(/^Sinngemäß/)).toBeInTheDocument()
+    expect(screen.queryByText(/Wortlaut maschinell/)).toBeNull()
+  })
+
+  it('claims nothing without a stamp: no seal, the AI-citation notice as before', () => {
+    render(<LegalBasisCard {...card({ lane: 'baurecht_oib', original_text: QUOTE })} />)
+    expect(screen.queryByText(/Wortlaut belegt/)).toBeNull()
+    expect(screen.queryByText(/Wortlaut nicht belegt/)).toBeNull()
+    expect(screen.getByText(/KI-generierte Zitierung/)).toBeInTheDocument()
+  })
+
+  it('lays out Sachverhalt and Ergebnis when the card argues', () => {
+    render(
+      <LegalBasisCard
+        {...card({
+          lane: 'baurecht_oib',
+          original_text: QUOTE,
+          facts: [
+            { label: 'Gebäudeklasse', value: 'GK 4', origin: 'Projektprofil' },
+            { label: 'Nettogrundfläche 2. OG', value: '1.150 m²', origin: null },
+          ],
+          conclusion: 'Ein Brandabschnitt genügt.',
+          outcome: 'pass',
+        })}
+      />
+    )
+    for (const step of ['Norm', 'Sachverhalt', 'Ergebnis']) expect(screen.getByText(step)).toBeInTheDocument()
+    expect(screen.getByText('1.150 m²')).toBeInTheDocument()
+    expect(screen.getByText('Projektprofil')).toBeInTheDocument()
+    expect(screen.getByText('Ein Brandabschnitt genügt.')).toBeInTheDocument()
+    expect(screen.getByText('erfüllt')).toBeInTheDocument()
+  })
+
+  it('stays a plain citation, without step labels, when it argues nothing', () => {
+    render(<LegalBasisCard {...card({ lane: 'baurecht_oib', original_text: QUOTE })} />)
+    expect(screen.queryByText('Norm')).toBeNull()
+    expect(screen.queryByText('Sachverhalt')).toBeNull()
   })
 })

@@ -34,7 +34,7 @@ describe('card catalogue extraction', () => {
 
   test('carries each card’s own description, on one line', () => {
     const legalBasis = CARD_CATALOG.find((entry) => entry.type === 'legal_basis')
-    expect(legalBasis?.description).toContain('legal norm')
+    expect(legalBasis?.description).toContain('A norm applied to the project')
     // The longer descriptions continue into model-facing emission guidance; a
     // picker row takes the first paragraph only, and never a raw newline.
     for (const entry of CARD_CATALOG) {

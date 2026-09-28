@@ -337,6 +337,26 @@ export const chat: typeof en.chat = {
     authority: 'Rechtsquelle: {tag}',
     viewOib: 'OIB-Richtlinie ansehen',
     verifyRis: 'In RIS prüfen',
+    // Die Rechtsgrundlage als Beweis: Norm → Sachverhalt → Ergebnis. „Belegt“
+    // steht nur da, wenn der Server den Wortlaut in einer gelesenen Passage
+    // gefunden hat (`cards/legal_proof.py`) — nie auf Behauptung des Modells.
+    legalProof: {
+      norm: 'Norm',
+      facts: 'Sachverhalt',
+      result: 'Ergebnis',
+      verbatim: 'Wortlaut belegt',
+      verbatimNumbered: 'Wortlaut belegt [{number}]',
+      verbatimTitle: 'Der Wortlaut steht so in einer gelesenen Quelle.',
+      notFound: 'Wortlaut nicht belegt',
+      notFoundTitle: 'Keine gelesene Quelle enthält diesen Wortlaut.',
+      paraphrase: 'Sinngemäß — dieser Wortlaut steht in keiner gelesenen Quelle. Prüfen Sie die Norm im Original.',
+      foundAt: 'Fundort',
+      page: 'S. {page}',
+      punkt: 'Pkt. {punkt}',
+      openPassage: 'Stelle öffnen',
+      verifiedDisclaimer:
+        'Wortlaut maschinell mit der Quelle abgeglichen. Sachverhalt und Ergebnis sind KI-generiert — prüfen Sie sie.',
+    },
     conditionTree: {
       eyebrow: 'Bedingungsbaum',
       dependsOn: 'Abhängig von',

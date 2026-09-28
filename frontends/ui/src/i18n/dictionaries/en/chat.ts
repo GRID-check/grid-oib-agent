@@ -334,6 +334,26 @@ export const chat = {
     authority: 'Authority: {tag}',
     viewOib: 'View OIB Richtlinie',
     verifyRis: 'Verify in RIS',
+    // The legal basis as a proof: norm → facts → result. "Verified" appears only
+    // when the server found the wording in a passage it read
+    // (`cards/legal_proof.py`) — never on the model's say-so.
+    legalProof: {
+      norm: 'Norm',
+      facts: 'Facts',
+      result: 'Result',
+      verbatim: 'Wording verified',
+      verbatimNumbered: 'Wording verified [{number}]',
+      verbatimTitle: 'This wording appears in a source that was read.',
+      notFound: 'Wording not verified',
+      notFoundTitle: 'No source that was read contains this wording.',
+      paraphrase: 'Paraphrase — no source that was read contains this wording. Check the norm in the original.',
+      foundAt: 'Found in',
+      page: 'p. {page}',
+      punkt: 'Pt. {punkt}',
+      openPassage: 'Open passage',
+      verifiedDisclaimer:
+        'Wording checked against the source by machine. Facts and result are AI-generated — check them.',
+    },
     aiGenerated:
       'AI-generated citation — check the excerpt against the primary source (OIB / RIS).',
     // The muted line under an UNPLACED legal basis surfaced flat above the

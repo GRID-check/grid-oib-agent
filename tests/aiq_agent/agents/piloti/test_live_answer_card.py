@@ -115,7 +115,11 @@ async def test_the_live_positions_are_the_terminals():
     finally:
         reset_card_registry(token)
     assert placed == terminal
-    assert streamed == cards.snapshot()
+    # The live card carries its wording check early (``cards/legal_proof``); the
+    # terminal stamps it in ``finalize_answer``, after registration. Everything
+    # else about the card is the terminal's.
+    unstamped = [{key: value for key, value in card.items() if key != "verification"} for card in streamed]
+    assert unstamped == cards.snapshot()
 
 
 def test_a_surface_after_the_prose_settles_carries_the_settled_numbers():

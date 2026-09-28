@@ -24,8 +24,7 @@ class TestBuildCardGenerationPrompt:
 
     def test_contains_card_type_descriptions(self):
         prompt = build_card_generation_prompt()
-        assert "A legal norm, regulation, or OIB Richtlinie" in prompt
-        assert "legal norm" in prompt.lower()
+        assert "A norm applied to the project" in prompt
 
     def test_expands_nested_building_blocks(self):
         # The nested shapes (the thing that made cards fail to emit when hidden)

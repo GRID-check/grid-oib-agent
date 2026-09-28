@@ -273,9 +273,10 @@ _CARD_TRIGGERS: tuple[tuple[str, str, str], ...] = (
     (
         "the Richtlinie or norm the answer rests on",
         "legal_basis",
-        "One instrument carrying the answer is this card, not a norm_chain. The decisive passage "
-        "goes in `original_text` as short verbatim — the sentence the answer turns on, never the "
-        "paragraph around it.",
+        "One instrument carrying the answer is this card, not a norm_chain. Fill it as a proof: "
+        "`original_text` the sentence the answer turns on, verbatim from a passage you retrieved; "
+        "`facts` the project values that sentence is applied to; `conclusion` and `outcome` what "
+        "follows.",
     ),
     (
         "a chain of norms, one binding, the rest interpreting",
@@ -365,8 +366,9 @@ _CARD_TRIGGERS: tuple[tuple[str, str, str], ...] = (
 _MARKDOWN_FIRST_CRAFT: dict[str, str] = {
     "legal_basis": (
         "One instrument carrying the answer is this card; several, one binding and the rest "
-        "interpreting, are a table in the answer. The decisive passage goes in `original_text` as "
-        "short verbatim — the sentence the answer turns on, never the paragraph around it."
+        "interpreting, are a table in the answer. Fill it as a proof: `original_text` the sentence "
+        "the answer turns on, verbatim from a passage you retrieved; `facts` the project values that "
+        "sentence is applied to; `conclusion` and `outcome` what follows."
     ),
     "condition_tree": (
         "Mark the active branch only where you know which case holds; not knowing means marking "
@@ -699,6 +701,14 @@ CARD_EXAMPLES: dict[str, dict] = {
             "Brandabschnitte dürfen eine Nettogrundfläche von höchstens 1.200 m² und eine "
             "Längenausdehnung von höchstens 60 m aufweisen."
         ),
+        # The Sachverhalt and the Schluss are what turn the citation into a
+        # proof, and the example is the only place the model sees their nesting.
+        "facts": [
+            {"label": "Gebäudeklasse", "value": "GK 4", "origin": "Projektprofil"},
+            {"label": "Nettogrundfläche 2. OG", "value": "1.150 m²", "origin": "IFC-Messung"},
+        ],
+        "conclusion": "1.150 m² ≤ 1.200 m²: das 2. OG bildet einen einzigen Brandabschnitt.",
+        "outcome": "pass",
     },
     "requirement_checklist": {
         "type": "requirement_checklist",
@@ -1144,11 +1154,23 @@ def _is_discriminator(field_name: str, field_info: Any) -> bool:
     return len(getattr(field_info.annotation, "__args__", ())) == 1
 
 
+def _is_server_owned(field_info: Any) -> bool:
+    """Whether the SERVER fills this field after validation (``LegalBasisCard.verification``).
+
+    Kept out of every shape the model reads: a field it is shown is a field it
+    fills, and this one's value is a finding about the model's own output.
+    The validator discards what the model writes there anyway; not showing it
+    saves the tokens and the temptation.
+    """
+    extra = getattr(field_info, "json_schema_extra", None)
+    return isinstance(extra, dict) and bool(extra.get("server_owned"))
+
+
 def _shape(model_cls: type, nested: list[type], *, with_desc: bool) -> str:
     """Render a model's fields as `{ name*: type (desc; constraints), ... }`."""
     parts: list[str] = []
     for field_name, field_info in model_cls.model_fields.items():
-        if _is_discriminator(field_name, field_info):
+        if _is_discriminator(field_name, field_info) or _is_server_owned(field_info):
             continue
         req = "*" if field_info.is_required() else ""
         type_str = _annotation_str(field_info.annotation, nested)
@@ -1170,7 +1192,7 @@ def _field_specs(model_cls: type, nested: list[type]) -> list[dict[str, Any]]:
     """The same per-field information ``_shape`` renders as prose, as data."""
     specs: list[dict[str, Any]] = []
     for field_name, field_info in model_cls.model_fields.items():
-        if _is_discriminator(field_name, field_info):
+        if _is_discriminator(field_name, field_info) or _is_server_owned(field_info):
             continue
         specs.append(
             {
@@ -1420,7 +1442,12 @@ def _legal_basis_note() -> str:
         "  OIB-Richtlinie 2' names the Richtlinie a second time, and 'Anwendungsbereiche der\n"
         "  ergänzenden Richtlinien' says what the passage regulates — that is `summary`, not a\n"
         "  Fundstelle. Omit either field where the passage carries no such number or label; an empty\n"
-        "  margin costs the card nothing, a paragraph in it costs the card its shape."
+        "  margin costs the card nothing, a paragraph in it costs the card its shape.\n"
+        "  The card is a PROOF: norm, facts, result. `original_text` is checked against the passages\n"
+        "  you retrieved, and wording none of them holds is shown as a paraphrase, so copy the\n"
+        "  sentence, do not recall it. Each `facts` entry is a project value the norm is applied to,\n"
+        "  with its `origin`; a value you did not find is not a fact, it is `outcome: needs_input`\n"
+        "  and the gap named in `conclusion`. With no facts the card is a citation: omit `outcome`."
     )
 
 

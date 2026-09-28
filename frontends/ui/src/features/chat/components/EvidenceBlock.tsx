@@ -60,13 +60,22 @@ export const EvidenceBlock: FC<{ card: LegalBasisCardData }> = ({ card }) => {
       >
         <SectionLabel icon={Scale}>{t('cards.legalBasis')}</SectionLabel>
         <p className="text-sm leading-relaxed text-muted-foreground">{fundstelle}</p>
-        {card.original_text && (
-          <blockquote className="max-w-prose border-l-2 border-border pl-4 text-sm italic leading-relaxed text-muted-foreground">
-            {card.original_text}
-          </blockquote>
-        )}
+        {/* The framed card's rule, spare: a wording the server found in no
+            retrieved passage (`cards/legal_proof.py`) is not set as a quote. */}
+        {card.original_text &&
+          (card.verification?.status === 'not_found' ? (
+            <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{card.original_text}</p>
+          ) : (
+            <blockquote className="max-w-prose border-l-2 border-border pl-4 text-sm italic leading-relaxed text-muted-foreground">
+              {card.original_text}
+            </blockquote>
+          ))}
         <p className="text-xs leading-relaxed text-muted-foreground">
-          {t('cards.evidenceQuoteDisclaimer')}
+          {card.verification?.status === 'verbatim'
+            ? t('cards.legalProof.verifiedDisclaimer')
+            : card.verification?.status === 'not_found'
+              ? t('cards.legalProof.paraphrase')
+              : t('cards.evidenceQuoteDisclaimer')}
         </p>
       </section>
     </FadeIn>

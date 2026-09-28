@@ -1,11 +1,18 @@
 /**
- * LegalBasisCard — the product's proof-of-work.
+ * LegalBasisCard — the product's proof-of-work, laid out as a proof.
  *
- * Reads like an authoritative legal citation, not a chat bubble: a quiet card
- * with a thin left accent, the law/Richtlinie + article/§ references in the
- * header (identifiers in mono), the cited regulation excerpt as a real
- * blockquote at a readable measure, a plain-language summary, and — when the
- * source can be resolved — a link out to the primary source (OIB / RIS).
+ * Norm → Sachverhalt → Ergebnis, the Subsumtion an Austrian Gutachten argues
+ * in: the norm's wording and what it requires, the project facts it is applied
+ * to (each with where it came from), and the result. A card with no facts is a
+ * citation and renders as one, without the step labels.
+ *
+ * The one claim the model cannot make is that the wording is the source's.
+ * That is `verification`, stamped by the server (`cards/legal_proof.py`):
+ * `verbatim` puts a „Wortlaut belegt“ seal on the card with the passage's
+ * [N] and opens the document on that page with the sentence marked;
+ * `not_found` takes the quotation marks away and says so; `unchecked` (or no
+ * stamp, a card persisted before it existed) keeps the AI-citation notice the
+ * card always carried.
  *
  * Every wire field here is PLAIN TEXT and is set as a text node, never parsed.
  * A shipped card once printed „[OIB-Richtlinie ansehen](https://www.oib.or.at/
@@ -22,7 +29,7 @@
 'use client'
 
 import { type FC, useState } from 'react'
-import { Scale, ExternalLink, FileText } from 'lucide-react'
+import { Scale, ExternalLink, FileText, ShieldCheck, ShieldAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
@@ -30,7 +37,11 @@ import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dial
 import { resolveCorpusFileName } from '@/features/knowledge/lib/resolve-corpus-file'
 import { useCorpusFiles } from '@/features/knowledge/lib/use-corpus-files'
 import { accentForLane, authorityTag } from '@/features/chat/lib/source-kinds'
+import { StatusBadge } from '../schematics/kit'
 import type { LegalBasisCardData } from '../types'
+
+type Verification = NonNullable<LegalBasisCardData['verification']>
+type Fact = NonNullable<LegalBasisCardData['facts']>[number]
 
 /**
  * How wide a Fundstelle may be before the margin cannot hold it.
@@ -75,6 +86,73 @@ const resolveSourceUrl = (law: string, section: string | null | undefined, isOib
   )}`
 }
 
+/** The viewable corpus file the proof passage lives in, matched on its exact name, or null. */
+const proofFileIn = (fileName: string | null | undefined, files: { fileName: string; origin: string }[]): string | null => {
+  const wanted = fileName?.trim().toLowerCase()
+  if (!wanted) return null
+  return files.find((f) => f.origin !== 'index_only' && f.fileName.toLowerCase() === wanted)?.fileName ?? null
+}
+
+/** Small-caps step label; only drawn when the card argues (has facts). */
+const StepLabel: FC<{ children: string }> = ({ children }) => (
+  <span className="card-meta font-medium uppercase tracking-wider text-muted-foreground">{children}</span>
+)
+
+/** The seal beside the eyebrow: what the server found, never what the model said. */
+const ProofSeal: FC<{ verification: Verification }> = ({ verification }) => {
+  const t = useTranslations('chat')
+  if (verification.status === 'verbatim') {
+    return (
+      <span
+        className="card-meta inline-flex shrink-0 items-center gap-1 rounded-full bg-success-subtle px-2 py-0.5 text-success"
+        title={t('cards.legalProof.verbatimTitle')}
+      >
+        <ShieldCheck className="size-3.5" aria-hidden="true" />
+        {verification.number != null
+          ? t('cards.legalProof.verbatimNumbered', { number: String(verification.number) })
+          : t('cards.legalProof.verbatim')}
+      </span>
+    )
+  }
+  if (verification.status === 'not_found') {
+    return (
+      <span
+        className="card-meta inline-flex shrink-0 items-center gap-1 rounded-full bg-warning-subtle px-2 py-0.5 text-warning"
+        title={t('cards.legalProof.notFoundTitle')}
+      >
+        <ShieldAlert className="size-3.5" aria-hidden="true" />
+        {t('cards.legalProof.notFound')}
+      </span>
+    )
+  }
+  return null
+}
+
+/** „Fundort: OIB-RL_2_2023.pdf · S. 14 · Pkt. 3.1.1“ — where the verified wording stands. */
+const locatorOf = (verification: Verification, t: ReturnType<typeof useTranslations>): string | null => {
+  const parts = [
+    verification.title ?? verification.file_name,
+    verification.page != null ? t('cards.legalProof.page', { page: String(verification.page) }) : null,
+    verification.punkt ? t('cards.legalProof.punkt', { punkt: verification.punkt }) : null,
+  ].filter((part): part is string => Boolean(part))
+  return parts.length ? parts.join(' · ') : null
+}
+
+/** The Sachverhalt: one row per fact — what, its value, where it came from. */
+const FactList: FC<{ facts: Fact[] }> = ({ facts }) => (
+  <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 text-sm">
+    {facts.map((fact, index) => (
+      <div key={index} className="contents">
+        <dt className="min-w-0 text-foreground">
+          {fact.label}
+          {fact.origin && <span className="ml-2 text-xs text-muted-foreground">{fact.origin}</span>}
+        </dt>
+        <dd className="text-right font-mono tabular-nums text-foreground">{fact.value}</dd>
+      </div>
+    ))}
+  </dl>
+)
+
 export const LegalBasisCard: FC<LegalBasisCardData> = ({
   law,
   lane,
@@ -83,6 +161,10 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
   section,
   summary,
   original_text,
+  facts,
+  conclusion,
+  outcome,
+  verification,
 }) => {
   const t = useTranslations('chat')
   const tViewer = useTranslations('knowledge')
@@ -118,6 +200,17 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
   const corpusFileName = resolveCorpusFileName(law, corpusFiles)
   const [viewerOpen, setViewerOpen] = useState(false)
 
+  // The proof. A verified wording opens the very passage that holds it — its
+  // file, its page, the sentence marked — rather than the Richtlinie's cover.
+  const verified = verification?.status === 'verbatim' ? verification : null
+  const paraphrased = verification?.status === 'not_found'
+  const proofFile = verified ? proofFileIn(verified.file_name, corpusFiles) : null
+  const viewerFile = proofFile ?? corpusFileName
+  const locator = verified ? locatorOf(verified, t) : null
+  // A card with facts argues; one without cites. Only the first gets step labels.
+  const factRows = facts?.filter((fact) => fact.label.trim() && fact.value.trim()) ?? []
+  const argues = factRows.length > 0 || Boolean(conclusion?.trim()) || Boolean(outcome)
+
   // The Fundstelle, and whether the margin can hold it. Judged over the PAIR:
   // article and section are one reference, so a short „3.1.1" does not stay in
   // the margin while the section it belongs to runs inline underneath.
@@ -135,8 +228,11 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
         accentClass
       )}
     >
-      {/* Eyebrow — marks this as a citation, not a message */}
-      <SectionLabel icon={Scale}>{t('cards.legalBasis')}</SectionLabel>
+      {/* Eyebrow — marks this as a citation, not a message — and the seal */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <SectionLabel icon={Scale}>{t('cards.legalBasis')}</SectionLabel>
+        {verification && <ProofSeal verification={verification} />}
+      </div>
 
       {/* Header: law/Richtlinie + Ausgabe on the left, article/§ as marginalia
           in a right column sized to its content at 11px mono (at least 72px,
@@ -180,26 +276,64 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
         )}
       </div>
 
-      {/* Cited excerpt — a real blockquote at a readable measure */}
-      {original_text && (
-        <blockquote className="max-w-prose border-l-2 border-border pl-4 text-sm italic leading-relaxed text-muted-foreground">
-          {original_text}
-        </blockquote>
+      {/* 1 · Norm: the wording, and what it requires */}
+      {(original_text || summary) && (
+        <div className="flex flex-col gap-2">
+          {argues && <StepLabel>{t('cards.legalProof.norm')}</StepLabel>}
+          {original_text &&
+            (paraphrased ? (
+              // Wording no retrieved passage holds is NOT a quotation: no
+              // italics, no quote rule, and the card says why.
+              <div className="flex max-w-prose flex-col gap-1">
+                <p className="text-sm leading-relaxed text-muted-foreground">{original_text}</p>
+                <p className="text-xs leading-relaxed text-warning">{t('cards.legalProof.paraphrase')}</p>
+              </div>
+            ) : (
+              <figure className="flex max-w-prose flex-col gap-1">
+                <blockquote className="border-l-2 border-border pl-4 text-sm italic leading-relaxed text-muted-foreground">
+                  {original_text}
+                </blockquote>
+                {locator && (
+                  <figcaption className="card-meta pl-4 text-muted-foreground">
+                    {t('cards.legalProof.foundAt')}: {locator}
+                  </figcaption>
+                )}
+              </figure>
+            ))}
+          {summary && <p className="max-w-prose text-sm leading-relaxed text-foreground">{summary}</p>}
+        </div>
       )}
 
-      {/* Plain-language summary */}
-      {summary && <p className="max-w-prose text-sm leading-relaxed text-foreground">{summary}</p>}
+      {/* 2 · Sachverhalt: the project facts the norm is applied to */}
+      {factRows.length > 0 && (
+        <div className="flex max-w-prose flex-col gap-2">
+          <StepLabel>{t('cards.legalProof.facts')}</StepLabel>
+          <FactList facts={factRows} />
+        </div>
+      )}
 
-      {/* Verifiable primary source: in-app PDF when we have it, link otherwise */}
+      {/* 3 · Ergebnis: the verdict in words and colour, never colour alone */}
+      {(conclusion || outcome) && (
+        <div className="flex max-w-prose flex-col gap-2">
+          <StepLabel>{t('cards.legalProof.result')}</StepLabel>
+          <div className="flex flex-wrap items-start gap-2">
+            {outcome && <StatusBadge status={outcome} />}
+            {conclusion && <p className="min-w-0 flex-1 text-sm leading-relaxed text-foreground">{conclusion}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* Verifiable primary source: the proof passage in-app when we have its
+          file, the Richtlinie in-app otherwise, the external link always */}
       <div className="flex flex-wrap items-center gap-4">
-        {corpusFileName && (
+        {viewerFile && (
           <button
             type="button"
             onClick={() => setViewerOpen(true)}
             className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-primary transition-opacity duration-quick ease-out hover:opacity-80 touch-target focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
           >
             <FileText className="size-3.5" aria-hidden="true" />
-            {tViewer('viewer.view')}
+            {proofFile ? t('cards.legalProof.openPassage') : tViewer('viewer.view')}
           </button>
         )}
         {sourceUrl && (
@@ -215,14 +349,22 @@ export const LegalBasisCard: FC<LegalBasisCardData> = ({
         )}
       </div>
 
-      {corpusFileName && viewerOpen && (
-        <PdfViewerDialog open onOpenChange={setViewerOpen} fileName={corpusFileName} title={law} />
+      {viewerFile && viewerOpen && (
+        <PdfViewerDialog
+          open
+          onOpenChange={setViewerOpen}
+          fileName={viewerFile}
+          title={law}
+          page={proofFile ? verified?.page : null}
+          highlight={proofFile ? original_text : null}
+        />
       )}
 
-      {/* AI-transparency label (EU AI Act Art. 50): the excerpt above is
-          model-generated, not a verbatim copy of the regulation. */}
+      {/* AI-transparency label (EU AI Act Art. 50). Only a server-verified
+          wording earns the narrower notice; everything else is labelled as
+          model-generated, as the card always was. */}
       <p className="text-xs leading-relaxed text-muted-foreground">
-        {t('cards.aiGenerated')}
+        {verified ? t('cards.legalProof.verifiedDisclaimer') : t('cards.aiGenerated')}
       </p>
     </div>
   )

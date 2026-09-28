@@ -118,7 +118,7 @@ const CATALOG = {
     {
       type: 'legal_basis',
       model: 'LegalBasisCard',
-      summary: 'A legal norm, regulation, or OIB Richtlinie that grounds the answer.',
+      summary: 'A norm applied to the project: the wording, the facts, and what follows.',
       emittedBy: 'agent',
       interaction: 'presentational',
       fields: FIELDS.legal_basis,

@@ -643,6 +643,27 @@ def _recite_surface_cards(
             registry.replace(index, recited)
 
 
+def _prove_legal_basis_cards(cited: tuple[CitedSource, ...], registry: SourceRegistry) -> None:
+    """Stamp each ``legal_basis`` card in this turn with the check of its wording (``cards/legal_proof``).
+
+    Runs after the surfaces are recited and the ``[N]`` are final, so the
+    number a card names is the one the reader sees on the chip. In place, like
+    the recital: a card keeps its position and so its marker.
+    """
+    from aiq_agent.cards.legal_proof import prove_card
+    from aiq_agent.cards.registry import get_card_registry
+
+    cards = get_card_registry()
+    if cards is None:
+        return
+    pairs = [(source.entry, source.number) for source in cited]
+    read = registry.all_sources()
+    for index, card in enumerate(cards.snapshot()):
+        proved = prove_card(card, pairs, read)
+        if proved is not card:
+            cards.replace(index, proved)
+
+
 def settle_streamed_citations(
     prose: str, sources_text: str, registry: SourceRegistry, *, lookup_attempted: bool = True
 ) -> SettledStream | None:
@@ -798,13 +819,19 @@ class LiveAnswer:
     def card(self, payload: Any) -> dict[str, Any] | None:
         """One envelope card as it closes, validated, its ``[N]`` recited; a tool's card never comes through here."""
         from aiq_agent.cards.envelope import validate_model_card
+        from aiq_agent.cards.legal_proof import prove_card
         from aiq_agent.cards.surface_citations import recite_surface
 
         card, _refusal = validate_model_card(payload)
         if card is None:
             return None
         settled = self._settled or SettledStream(content="", sources=[])
-        return recite_surface(card, settled.renumber_map, settled.numbers, settled.merged)
+        recited = recite_surface(card, settled.renumber_map, settled.numbers, settled.merged)
+        # Stamped live as the terminal will stamp it, so the card does not read
+        # as unchecked for the seconds until the terminal frame. The stream
+        # knows the passages but not yet which [N] each settles on: the live
+        # stamp names the passage, the terminal adds its number.
+        return prove_card(recited, (), self._registry.all_sources())
 
 
 def _renumbered(cited: tuple[CitedSource, ...], renumber_map: dict[int, int] | None) -> tuple[CitedSource, ...]:
@@ -1063,6 +1090,7 @@ async def finalize_answer(
     content, _ = drop_restated_mindmaps(sanitized.sanitized_report)
     cited = _renumbered(grounding.cited, sanitized.renumber_map)
     _recite_surface_cards(sanitized.renumber_map, cited, grounding.removed_citations)
+    _prove_legal_basis_cards(cited, registry)
     meta = _gated_meta(
         extracted,
         content,

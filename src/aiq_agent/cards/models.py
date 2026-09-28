@@ -134,8 +134,73 @@ class SummaryCard(CardModel):
     key_points: list[str] | None = Field(default=None, description="Bullet points highlighting key facts")
 
 
+#: A requirement's verdict, as every checking card states it. Defined here, above
+#: its first user (``LegalBasisCard.outcome``); the schematic cards below share it.
+DimStatus = Literal["pass", "fail", "warning", "needs_input"]
+
+
+class LegalBasisFact(CardModel):
+    """One fact of the Sachverhalt a ``legal_basis`` card applies its norm to."""
+
+    label: str = Field(min_length=1, description="What the fact is: 'Gebäudeklasse', 'Nettogrundfläche 2. OG'")
+    value: str = Field(min_length=1, description="Its value as the source states it, with unit: 'GK 4', '1.150 m²'")
+    origin: str | None = Field(
+        default=None,
+        description=(
+            "Where the value comes from: 'Projektprofil', 'IFC-Messung', 'Ihre Angabe', 'Einreichplan'. "
+            "Omit it when you cannot say. A value you assumed is not a fact: leave it out and set "
+            "`outcome` to needs_input."
+        ),
+    )
+
+
+#: What the server found when it held a card's wording against the passages
+#: this turn retrieved (``cards/legal_proof.py``):
+#:
+#: - ``verbatim``: a retrieved passage holds ``original_text``, by the same
+#:   coverage test the prose's quotes pass (``QUOTE_MATCH_THRESHOLD``);
+#: - ``not_found``: passages were there to check against and none holds it, so
+#:   the card shows the wording as a paraphrase, never as a quotation;
+#: - ``unchecked``: nothing to check (no wording on the card, or no retrieved
+#:   passage carries text, as on a web-only turn). Says nothing either way.
+ProofStatus = Literal["verbatim", "not_found", "unchecked"]
+
+
+class LegalBasisVerification(CardModel):
+    """The server's check of a ``legal_basis`` card's wording. Never the model's to write.
+
+    Location fields name the passage that holds the wording, so the card can
+    open the document on that page with that sentence marked. ``number`` is
+    the passage's ``[N]`` when the answer cites it; a passage that was read but
+    not cited still proves the wording and carries no number.
+    """
+
+    status: ProofStatus
+    number: int | None = None
+    title: str | None = None
+    file_name: str | None = None
+    page: int | None = None
+    punkt: str | None = None
+    url: str | None = None
+
+
 class LegalBasisCard(CardModel):
-    """A legal norm, regulation, or OIB Richtlinie that grounds the answer.
+    """A norm applied to the project: the wording, the facts, and what follows.
+
+    ## A proof, not a citation
+
+    The card reads as a Subsumtion, the way an Austrian Gutachten argues:
+    the norm's own words (``original_text``) and what they require
+    (``summary``); the project facts they are applied to (``facts``), each with
+    where it came from; and the result (``conclusion``, ``outcome``). A card
+    without facts is still a valid citation, and renders as one.
+
+    What makes it a proof and not a claim is ``verification``, which the SERVER
+    stamps after the answer's citations are settled (``cards/legal_proof.py``):
+    whether a passage retrieved this turn holds the quoted wording, and where.
+    The model cannot set it. The validator below discards whatever arrives in
+    the field, on every emission path, so a card can only say "wörtlich belegt"
+    when the pipeline checked it.
 
     ## Why `lane` is a lane key and not `'oib' | 'law'`
 
@@ -202,8 +267,42 @@ class LegalBasisCard(CardModel):
             "carries no such label."
         ),
     )
-    summary: str | None = Field(default=None, description="Plain-language summary of the legal relevance")
-    original_text: str | None = Field(default=None, description="Literal excerpt from the source, if available")
+    summary: str | None = Field(
+        default=None, description="What the norm requires, in one plain sentence (the Obersatz)"
+    )
+    original_text: str | None = Field(
+        default=None,
+        description=(
+            "The decisive sentence, copied verbatim from a passage you retrieved. It is checked against that "
+            "passage; wording no passage holds is shown as a paraphrase, not a quotation."
+        ),
+    )
+    facts: list[LegalBasisFact] | None = Field(
+        default=None,
+        description="The project facts the norm is applied to (the Sachverhalt), each with its origin",
+    )
+    conclusion: str | None = Field(
+        default=None,
+        description="What follows for THIS project from the norm and the facts, in one or two sentences",
+    )
+    outcome: DimStatus | None = Field(
+        default=None,
+        description=(
+            "The result: pass, fail, warning (met with a condition), needs_input (a fact is missing). "
+            "Omit it when the card only cites and applies nothing."
+        ),
+    )
+    verification: LegalBasisVerification | None = Field(
+        default=None,
+        description="Stamped by the server after the citations are checked. Never written by the model.",
+        json_schema_extra={"server_owned": True},
+    )
+
+    @field_validator("verification", mode="before")
+    @classmethod
+    def _server_owned(cls, value: Any) -> None:
+        """Discard any incoming value: only ``cards/legal_proof.py`` stamps this, after validation."""
+        return None
 
     @field_validator("lane", mode="before")
     @classmethod
@@ -336,8 +435,6 @@ class MemoryProposalCard(CardModel):
 # limits come from the OIB corpus (with a NormReference); actual/geometry values
 # come from the user's question or the project profile. If a value is unknown,
 # leave it null and set status 'needs_input' — do not estimate.
-
-DimStatus = Literal["pass", "fail", "warning", "needs_input"]
 
 #: Where a number on a card came from — the three the spatial engine draws.
 #:
@@ -3063,6 +3160,8 @@ __all__ = [
     "KeyTakeaway",
     "KeyTakeawaysCard",
     "LegalBasisCard",
+    "LegalBasisFact",
+    "LegalBasisVerification",
     "MemoryProposalCard",
     "NormChainCard",
     "NormChainLink",
