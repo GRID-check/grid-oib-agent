@@ -51,6 +51,12 @@ ENV UV_PYTHON=/app/.venv/bin/python
 # nltk pathsec refuses hard-linked corpora (st_nlink>=2). SentenceSplitter
 # opens them on ingest; copy mode is the install that makes that legal.
 ENV UV_LINK_MODE=copy
+# Every install below fetches from PyPI, and one slow response used to fail the
+# whole publish: run 36411247085 died when `uv pip install` of ifc-spatial-py
+# timed out fetching python-dateutil (uv defaults: 30 s, 3 retries). A failed
+# publish leaves its commit with no image, so be patient with the index.
+ENV UV_HTTP_TIMEOUT=120 \
+    UV_HTTP_RETRIES=6
 
 # Copy workspace configuration and lockfile
 COPY pyproject.toml uv.lock ./
