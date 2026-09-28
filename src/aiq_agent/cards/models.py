@@ -430,10 +430,18 @@ class SetbackPlanCard(CardModel):
 
     type: Literal["setback_plan"]
     title: str = Field(min_length=1, description="Title, e.g. 'Abstandsflächen – Lageplan'")
-    parcel_width_m: float = Field(gt=0, description="Parcel width in metres (drawn to scale)")
-    parcel_depth_m: float = Field(gt=0, description="Parcel depth in metres (drawn to scale)")
-    building_width_m: float = Field(gt=0, description="Building footprint width in metres")
-    building_depth_m: float = Field(gt=0, description="Building footprint depth in metres")
+    parcel_width_m: float | None = Field(
+        default=None, gt=0, description="Parcel width in metres (drawn to scale); required unless a pure density question"
+    )
+    parcel_depth_m: float | None = Field(
+        default=None, gt=0, description="Parcel depth in metres (drawn to scale); required unless a pure density question"
+    )
+    building_width_m: float | None = Field(
+        default=None, gt=0, description="Building footprint width in metres; required unless a pure density question"
+    )
+    building_depth_m: float | None = Field(
+        default=None, gt=0, description="Building footprint depth in metres; required unless a pure density question"
+    )
     sides: list[SetbackSide] = Field(description="Required/actual distance per parcel edge")
     parcel_area_m2: float | None = Field(
         default=None, gt=0, description="Parcel (Grundstück) area in m², where it is not the drawn rectangle"
@@ -449,6 +457,35 @@ class SetbackPlanCard(CardModel):
         default=None, description="GFZ (BGF/parcel) vs the limit; value null = renderer derives"
     )
     reference: NormReference = Field(description="Source of the setback requirements")
+
+    @model_validator(mode="after")
+    def _plan_or_areas(self) -> "SetbackPlanCard":
+        """The plan needs its four dimensions; a pure density question needs the parcel area instead.
+
+        A Bebauungsgrad or GFZ question with no parcel geometry leaves ``sides``
+        empty and gives ``parcel_area_m2``: the card draws the readout and no
+        plan. Requiring the dimensions there would leave a model (or the
+        repair model) only one way to pass, inventing a parcel the renderer
+        then draws to scale (``_CARD_HONESTY``).
+        """
+        dimensions = (self.parcel_width_m, self.parcel_depth_m, self.building_width_m, self.building_depth_m)
+        if all(value is not None for value in dimensions):
+            return self
+        if self.sides or self.parcel_area_m2 is None or (self.coverage is None and self.density is None):
+            raise ValueError(
+                "parcel_width_m, parcel_depth_m, building_width_m and building_depth_m are required to draw the "
+                "plan; only a pure density question (no sides, parcel_area_m2 and coverage or density) may omit them"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _ratio_units(self) -> "SetbackPlanCard":
+        """A ratio's unit, when the model gave none: ``%`` for Bebauungsgrad, none for GFZ (never ``cm``)."""
+        if self.coverage is not None and "unit" not in self.coverage.model_fields_set:
+            self.coverage = self.coverage.model_copy(update={"unit": "%"})
+        if self.density is not None and "unit" not in self.density.model_fields_set:
+            self.density = self.density.model_copy(update={"unit": ""})
+        return self
 
 
 class EgressDiagramCard(CardModel):

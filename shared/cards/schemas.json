@@ -2152,16 +2152,32 @@
       "description": "A top-down site plan (schematic): parcel, footprint, setbacks, coverage and GFZ.\n\nEmit for Abstandsfl\u00e4chen/Bauwich questions ('does the building keep the\nrequired Abst\u00e4nde?') and for Bebauungsdichte/Bebauungsgrad/GFZ questions.\nDraws the parcel, the required-setback envelope, and the building\nfootprint, with a distance arrow per side coloured by status, and \u2014 where\n`coverage` or `density` is given \u2014 a readout of Bebauungsgrad (built area /\nparcel) and GFZ (BGF / parcel) against the Bebauungsplan's limits. The\nrenderer computes the ratios from the areas; the model supplies areas and\nlimits only. The readout took over the retired `density_check` card.",
       "properties": {
         "building_depth_m": {
-          "description": "Building footprint depth in metres",
-          "exclusiveMinimum": 0,
-          "title": "Building Depth M",
-          "type": "number"
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Building footprint depth in metres; required unless a pure density question",
+          "title": "Building Depth M"
         },
         "building_width_m": {
-          "description": "Building footprint width in metres",
-          "exclusiveMinimum": 0,
-          "title": "Building Width M",
-          "type": "number"
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Building footprint width in metres; required unless a pure density question",
+          "title": "Building Width M"
         },
         "coverage": {
           "anyOf": [
@@ -2230,16 +2246,32 @@
           "title": "Parcel Area M2"
         },
         "parcel_depth_m": {
-          "description": "Parcel depth in metres (drawn to scale)",
-          "exclusiveMinimum": 0,
-          "title": "Parcel Depth M",
-          "type": "number"
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Parcel depth in metres (drawn to scale); required unless a pure density question",
+          "title": "Parcel Depth M"
         },
         "parcel_width_m": {
-          "description": "Parcel width in metres (drawn to scale)",
-          "exclusiveMinimum": 0,
-          "title": "Parcel Width M",
-          "type": "number"
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Parcel width in metres (drawn to scale); required unless a pure density question",
+          "title": "Parcel Width M"
         },
         "reference": {
           "$ref": "#/$defs/NormReference",
@@ -2268,10 +2300,6 @@
       "required": [
         "type",
         "title",
-        "parcel_width_m",
-        "parcel_depth_m",
-        "building_width_m",
-        "building_depth_m",
         "sides",
         "reference"
       ],
