@@ -62,10 +62,11 @@ const NO_FILE_REFERENCES: FileReferenceResolver = () => null
  */
 const excerptSourceRenderer = (documents: CitedDocument[]): ExcerptSourceRenderer => {
   const byNumber = referencesByNumber(documents)
-  return (props) =>
-    byNumber.has(props.stamp?.number ?? props.number) || byNumber.has(props.number) ? (
+  return function renderExcerptSource(props) {
+    return byNumber.has(props.stamp?.number ?? props.number) || byNumber.has(props.number) ? (
       <CitationExcerptSource {...props} />
     ) : null
+  }
 }
 
 /**
