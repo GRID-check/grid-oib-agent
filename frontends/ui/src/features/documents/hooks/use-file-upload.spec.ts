@@ -573,6 +573,32 @@ describe('useFileUpload — durable document uploads', () => {
     expect(mockOrchestratorFns.enqueueJobs).toHaveBeenCalled()
   })
 
+  test('a rate-limited file waits out Retry-After and goes again instead of failing', async () => {
+    vi.useFakeTimers()
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(1))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.requests[0].respond(429, JSON.stringify({ error: 'Too many requests' }), { 'Retry-After': '2' })
+      await vi.advanceTimersByTimeAsync(2_000)
+    })
+    await act(async () => {
+      xhr.requests[1].respond(200, uploadOk('doc-1'))
+      await pending
+    })
+    vi.useRealTimers()
+
+    expect(xhr.requests).toHaveLength(2)
+    expect(mockDocumentsStoreState.updateTrackedFile).not.toHaveBeenCalledWith(
+      'mock-uuid',
+      expect.objectContaining({ status: 'failed' })
+    )
+  })
+
   test('cancelling aborts the transfer instead of letting it finish invisibly', async () => {
     const { result } = renderUpload()
 

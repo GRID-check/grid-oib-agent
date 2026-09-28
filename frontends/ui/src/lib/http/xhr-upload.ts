@@ -16,7 +16,9 @@ export class XhrUploadError extends Error {
   constructor(
     message: string,
     readonly status: number,
-    readonly responseText: string
+    readonly responseText: string,
+    /** Seconds the server asked the client to wait (`Retry-After`), when it said. */
+    readonly retryAfterSeconds: number | null = null
   ) {
     super(message)
     this.name = 'XhrUploadError'
@@ -89,7 +91,15 @@ export function xhrUpload(options: XhrUploadOptions): Promise<string> {
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve(xhr.responseText)
         } else {
-          reject(new XhrUploadError(`Upload failed with status ${xhr.status}`, xhr.status, xhr.responseText))
+          const retryAfter = Number(xhr.getResponseHeader('Retry-After'))
+          reject(
+            new XhrUploadError(
+              `Upload failed with status ${xhr.status}`,
+              xhr.status,
+              xhr.responseText,
+              Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null
+            )
+          )
         }
       })
     })

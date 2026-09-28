@@ -10,6 +10,7 @@
  */
 
 import { apiRoute, parseFormData } from '@/lib/api/handler'
+import { DOCUMENT_UPLOAD_LIMIT } from '@/lib/limits'
 import { BadRequestError } from '@/lib/api/errors'
 import { uploadSessionDocument } from '@/lib/session-documents/service'
 import { parseConversationId } from '../conversation-id'
@@ -47,5 +48,6 @@ export const POST = apiRoute(
       enforcedBy:
         'uploadSessionDocument (createConversation → requireResourceAccess conversation:collaborator, and project:view when a project is named)',
     },
+    limits: { rule: DOCUMENT_UPLOAD_LIMIT },
   },
 )

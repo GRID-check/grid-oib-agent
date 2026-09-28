@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Uploading a large folder to the Archiv or to a project no longer stops the
+    chat from saving answers for the next minute. A big upload now slows down
+    when it reaches the limit instead of failing files, and "Retry all" sends
+    the failed files a few at a time instead of all at once.
