@@ -2643,7 +2643,7 @@ class TestADirectReplyMayStillEmitACard:
         assert "not every question is a legal question" in rendered
         assert "commit to it; re-plan only" not in rendered
         rules = rendered.split("<research_rules>")[1].split("</research_rules>")[0]
-        assert "retrieved or measured this turn" in rules
+        assert "measured this turn, or retrieved this turn or in the previous one" in rules
         assert "never describe a document you did not open" in rules
         assert "Herleitung checkpoint" in rules
         assert "`conclusion` argument" in rules
