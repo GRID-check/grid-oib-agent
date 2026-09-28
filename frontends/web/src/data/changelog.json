@@ -199,6 +199,10 @@
               "de": "Eine abgeschlossene Herleitung erscheint beim Öffnen sofort ohne Animation, und wer in den Systemeinstellungen reduzierte Bewegung gewählt hat, sieht überhaupt keine."
             },
             {
+              "en": "The Herleitung builds up more calmly while Piloti works: new steps and sources simply appear, and only the lines into the step in progress move. A finished Herleitung does not move at all.",
+              "de": "Die Herleitung baut sich während der Arbeit ruhiger auf: Neue Schritte und Quellen erscheinen einfach, und nur die Linien in den gerade offenen Schritt bewegen sich. Eine abgeschlossene Herleitung bewegt sich gar nicht."
+            },
+            {
               "en": "The Piloti website loads faster, most of all on a phone. Pages travel compressed, and fonts, images and styles stay in the browser between visits instead of being fetched again on every page.",
               "de": "Die Piloti-Website lädt schneller, vor allem am Handy. Seiten werden komprimiert übertragen, und Schriften, Bilder und Stile bleiben zwischen den Besuchen im Browser, statt auf jeder Seite neu geladen zu werden."
             },
@@ -336,6 +340,18 @@
               "de": "Wer einen Chat löscht, entfernt jetzt auch alle darin angehängten Dateien aus der Suche. Bisher konnten Inhalte älterer Anhänge nach dem Löschen auffindbar bleiben."
             },
             {
+              "en": "A chat answer that is still running no longer loses its connection when the browser tab is in the background or the phone signal is weak for a moment.",
+              "de": "Eine noch laufende Chat-Antwort bricht nicht mehr ab, wenn der Browser-Tab im Hintergrund ist oder das Mobilfunksignal kurz schwächelt."
+            },
+            {
+              "en": "Stop now ends the answer: Piloti stops working on it, and what you had already read stays in the conversation, marked as stopped.",
+              "de": "Stopp beendet die Antwort jetzt wirklich: Piloti arbeitet nicht weiter daran, und was Sie schon gelesen haben, bleibt im Gespräch, als abgebrochen markiert."
+            },
+            {
+              "en": "A long answer no longer freezes the page while it arrives, and its cards land when they are ready instead of long after the text.",
+              "de": "Eine lange Antwort friert die Seite beim Eintreffen nicht mehr ein, und ihre Karten erscheinen, sobald sie fertig sind, statt lange nach dem Text."
+            },
+            {
               "en": "A conversation from another device is no longer deleted when you open it after a reload and leave before its history has loaded.",
               "de": "Eine Unterhaltung von einem anderen Gerät wird nicht mehr gelöscht, wenn Sie sie nach einem Neuladen öffnen und verlassen, bevor ihr Verlauf geladen ist."
             },
@@ -440,6 +456,10 @@
               "de": "Wird eine Datei gelöscht, während jemand gerade eine neue Fassung hochlädt, landet der Upload jetzt als neue Datei im Projekt oder im Archiv. Bisher meldete er Erfolg, die Datei tauchte aber nirgends auf."
             },
             {
+              "en": "A card in a streamed answer now grows into its place in one smooth movement, without blinking or pushing the text twice. The answer also settles sooner at the end, because saving waits until it is on screen.",
+              "de": "Eine Karte in einer gestreamten Antwort wächst jetzt in einer ruhigen Bewegung an ihren Platz, ohne zu flackern oder den Text zweimal zu verschieben. Die Antwort steht am Ende auch schneller, weil das Speichern wartet, bis sie zu sehen ist."
+            },
+            {
               "en": "When Piloti files a draft, creates a task, gathers documents or suggests something to remember, its cards now appear while the answer is still being checked, instead of all at the very end.",
               "de": "Legt Piloti einen Entwurf ab, erstellt eine Aufgabe, stellt Dokumente zusammen oder schlägt etwas zum Merken vor, erscheinen die Karten jetzt, während die Antwort noch geprüft wird, statt alle erst ganz am Schluss."
             },
@@ -535,6 +555,15 @@
             {
               "en": "A chat connection now only works for the conversation it was opened for. Messages naming another conversation are refused.",
               "de": "Eine Chat-Verbindung gilt jetzt nur noch für die Unterhaltung, für die sie geöffnet wurde. Nachrichten, die eine andere Unterhaltung nennen, werden abgewiesen."
+            }
+          ]
+        },
+        {
+          "key": "upgrade",
+          "notes": [
+            {
+              "en": "A browser tab that was open during the update shows a connection error until it is reloaded.",
+              "de": "Ein Browser-Tab, der während des Updates offen war, zeigt einen Verbindungsfehler, bis er neu geladen wird."
             }
           ]
         }

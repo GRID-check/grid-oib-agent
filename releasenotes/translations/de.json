@@ -24,6 +24,10 @@
     "de": "Eine kurze Störung erscheint jetzt als vorübergehendes Problem mit der Bitte, es gleich noch einmal zu versuchen, und ein in dieser Zeit gestarteter Auftrag wird nicht mehr als fehlgeschlagen angezeigt, obwohl er läuft."
   },
   {
+    "en": "A browser tab that was open during the update shows a connection error until it is reloaded.",
+    "de": "Ein Browser-Tab, der während des Updates offen war, zeigt einen Verbindungsfehler, bis er neu geladen wird."
+  },
+  {
     "en": "A cancelled, crashed or never-started run no longer shows as running forever in the task list. It now closes with its real outcome, and whoever started it is told.",
     "de": "Ein abgebrochener, abgestürzter oder nie gestarteter Lauf steht in der Aufgabenliste nicht mehr endlos auf „läuft“. Er schließt jetzt mit seinem tatsächlichen Ergebnis, und wer ihn angestoßen hat, erfährt davon."
   },
@@ -34,6 +38,10 @@
   {
     "en": "A caveat now sits next to the paragraph it concerns instead of at the end of the answer.",
     "de": "Ein Hinweis steht jetzt beim Absatz, den er betrifft, statt am Ende der Antwort."
+  },
+  {
+    "en": "A chat answer that is still running no longer loses its connection when the browser tab is in the background or the phone signal is weak for a moment.",
+    "de": "Eine noch laufende Chat-Antwort bricht nicht mehr ab, wenn der Browser-Tab im Hintergrund ist oder das Mobilfunksignal kurz schwächelt."
   },
   {
     "en": "A chat connection now only works for the conversation it was opened for. Messages naming another conversation are refused.",
@@ -202,6 +210,10 @@
   {
     "en": "A legal hold now prevents every deletion: a held document, Archiv document, chat or chat attachment can no longer be deleted. The hold applies when it is on the item, its project or chat, the person who created it, or your organisation.",
     "de": "Eine rechtliche Sperre verhindert jetzt jedes Löschen: Ein gesperrtes Dokument, Archiv-Dokument, ein Chat oder Chat-Anhang lässt sich nicht mehr löschen. Die Sperre greift, wenn sie auf dem Eintrag, seinem Projekt oder Chat, der Person, die ihn angelegt hat, oder Ihrer Organisation liegt."
+  },
+  {
+    "en": "A long answer no longer freezes the page while it arrives, and its cards land when they are ready instead of long after the text.",
+    "de": "Eine lange Antwort friert die Seite beim Eintreffen nicht mehr ein, und ihre Karten erscheinen, sobald sie fertig sind, statt lange nach dem Text."
   },
   {
     "en": "A long research that reports nothing for a while is no longer cut off as if it had died.",
@@ -1548,6 +1560,10 @@
     "de": "Der Einstieg in einen Chat verläuft jetzt fließend statt abrupt. Wenn Sie die erste Frage senden, gleitet das Nachrichtenfeld an den unteren Bildschirmrand, während die Begrüßung darüber ausgeblendet wird. So ist klar, dass Sie weiterhin in dasselbe Feld tippen."
   },
   {
+    "en": "Stop now ends the answer: Piloti stops working on it, and what you had already read stays in the conversation, marked as stopped.",
+    "de": "Stopp beendet die Antwort jetzt wirklich: Piloti arbeitet nicht weiter daran, und was Sie schon gelesen haben, bleibt im Gespräch, als abgebrochen markiert."
+  },
+  {
     "en": "Such a document is never presented as the legal basis of an answer. Piloti quotes it for what your office decided and reaches for the OIB Richtlinien or the Bauordnung for what is required, so an approved office document can never end up standing in for a requirement.",
     "de": "Ein solches Dokument wird niemals als Rechtsgrundlage einer Antwort dargestellt. Piloti zitiert daraus, was Ihr Büro beschlossen hat, und zieht für verbindliche Anforderungen die OIB-Richtlinien oder die Bauordnung heran, sodass ein freigegebenes Bürodokument niemals als Anforderung herhalten kann."
   },
@@ -2210,17 +2226,5 @@
   {
     "en": "„Zitierbar\" no longer appears on every file. A status shows only when it changes what you can do next — a document still being read, one that failed, or a report Piloti wrote and deliberately never indexed.",
     "de": "„Zitierbar“ erscheint nicht mehr bei jeder Datei. Ein Status wird nur angezeigt, wenn er beeinflusst, was Sie als Nächstes tun können – etwa bei einem Dokument, das noch gelesen wird, einem fehlgeschlagenen Dokument oder einem Bericht, den Piloti verfasst und bewusst nie indexiert hat."
-  },
-  {
-    "en": "Stop now ends the answer: Piloti stops working on it, and what you had already read stays in the conversation, marked as stopped.",
-    "de": "Stopp beendet die Antwort jetzt wirklich: Piloti arbeitet nicht weiter daran, und was Sie schon gelesen haben, bleibt im Gespräch, als abgebrochen markiert."
-  },
-  {
-    "en": "A long answer no longer freezes the page while it arrives, and its cards land when they are ready instead of long after the text.",
-    "de": "Eine lange Antwort friert die Seite beim Eintreffen nicht mehr ein, und ihre Karten erscheinen, sobald sie fertig sind, statt lange nach dem Text."
-  },
-  {
-    "en": "A browser tab that was open during the update shows a connection error until it is reloaded.",
-    "de": "Ein Browser-Tab, der während des Updates offen war, zeigt einen Verbindungsfehler, bis er neu geladen wird."
   }
 ]
