@@ -492,6 +492,10 @@
     "de": "Eine geöffnete Datei hat jetzt eine eigene Adresse: Der Link lässt sich weitergeben, und Zurück schließt die Vorschau, statt die Dateien zu verlassen."
   },
   {
+    "en": "An overview now shows its parts either as a table or as a mindmap, never both. The mindmap that repeated the table no longer appears while the answer arrives and then disappears.",
+    "de": "Eine Übersicht zeigt ihre Inhalte jetzt entweder als Tabelle oder als Mindmap, nie beides. Die Mindmap, die die Tabelle wiederholt hat, wird nicht mehr während des Ladens der Antwort eingeblendet und anschließend wieder ausgeblendet."
+  },
+  {
     "en": "An uploaded folder is now matched against the project: Piloti recognises existing folders, even when spelled differently or coming from a Mac, creates only the missing ones and files every document where it stood in the folder tree.",
     "de": "Ein hochgeladener Ordner wird jetzt mit dem Projekt abgeglichen: Piloti erkennt vorhandene Ordner, auch anders geschrieben oder vom Mac, legt nur die fehlenden an und legt jede Datei dorthin, wo sie im Ordnerbaum stand."
   },

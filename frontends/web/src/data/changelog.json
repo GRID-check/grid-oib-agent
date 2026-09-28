@@ -43,6 +43,10 @@
           "key": "fixes",
           "notes": [
             {
+              "en": "An overview now shows its parts either as a table or as a mindmap, never both. The mindmap that repeated the table no longer appears while the answer arrives and then disappears.",
+              "de": "Eine Übersicht zeigt ihre Inhalte jetzt entweder als Tabelle oder als Mindmap, nie beides. Die Mindmap, die die Tabelle wiederholt hat, wird nicht mehr während des Ladens der Antwort eingeblendet und anschließend wieder ausgeblendet."
+            },
+            {
               "en": "Uploading a large folder to the Archiv or to a project no longer stops the chat from saving answers for the next minute. A big upload now slows down when it reaches the limit instead of failing files, and \"Retry all\" sends the failed files a few at a time instead of all at once.",
               "de": "Ein großer Upload ins Archiv oder in ein Projekt unterbricht nicht mehr eine Minute lang das Speichern von Antworten im Chat. Er wird am Limit nun verlangsamt, statt dass Dateien fehlschlagen, und „Retry all“ sendet fehlgeschlagene Dateien in kleinen Gruppen statt alle auf einmal."
             }
