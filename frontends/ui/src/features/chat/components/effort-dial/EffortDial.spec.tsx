@@ -41,17 +41,19 @@ describe('EffortDial', () => {
     expect(useEffortStore.getState().levelForSend('c2')).toBe('medium')
   })
 
-  it('runs the dot fill up to the thumb', async () => {
+  it('marks every stop and moves the thumb to the chosen one', async () => {
     mockOrgSettings({})
     render(<EffortDial conversationId="c1" />)
 
     fireEvent.click(screen.getByTestId('effort-dial-trigger'))
     const slider = await screen.findByTestId('effort-dial-slider')
-    fireEvent.change(slider, { target: { value: '0' } })
-    expect(screen.getByTestId('effort-dial-fill').style.getPropertyValue('--effort-share')).toBe('0')
+    expect(screen.getAllByTestId('effort-dial-stop')).toHaveLength(5)
 
-    fireEvent.change(slider, { target: { value: '4' } })
-    expect(screen.getByTestId('effort-dial-fill').style.getPropertyValue('--effort-share')).toBe('1')
+    fireEvent.change(slider, { target: { value: '0' } })
+    expect(screen.getByTestId('effort-dial-thumb')).toHaveAttribute('data-share', '0')
+
+    fireEvent.change(slider, { target: { value: '3' } })
+    expect(screen.getByTestId('effort-dial-thumb')).toHaveAttribute('data-share', '0.75')
   })
 
   it('does not open its help tooltip when a click opens the dial', async () => {
