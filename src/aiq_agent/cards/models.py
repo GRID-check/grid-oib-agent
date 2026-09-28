@@ -1405,6 +1405,10 @@ class IfcModelPickerCard(CardModel):
 #: The layout components a surface may use, named and shaped as in A2UI's
 #: basic catalog (v0.9): Row and Column take `children`, Tabs takes `tabs`.
 SURFACE_LAYOUTS: frozenset[str] = frozenset({"Row", "Column", "Tabs"})
+#: Retired types whose replacement is an envelope field or nothing, not Markdown a leaf could hold.
+_ENVELOPE_FIELD_TYPES: frozenset[str] = frozenset(
+    {"summary", "verdict_header", "key_takeaways", "callout", "follow_ups"}
+)
 
 #: Which props of each layout component hold child ids, in `a2ui-core`'s shape:
 #: (single-reference fields, list-reference fields). A tab's `child` is one
@@ -1536,7 +1540,9 @@ def _checked_leaf(component: dict[str, Any]) -> dict[str, Any]:
     if name == SURFACE_TEXT:
         return _checked_text(component)
     if name in RETIRED_CARD_TYPES:
-        raise ValueError(f"'{component_id}': {retired_refusal(name)} Use a `Text` leaf holding that Markdown.")
+        # An envelope field (summary, verdict, …) is no leaf's content: the refusal alone says where it goes.
+        leaf = "" if name in _ENVELOPE_FIELD_TYPES else " Use a `Text` leaf holding that Markdown."
+        raise ValueError(f"'{component_id}': {retired_refusal(name)}{leaf}")
     if name in SURFACE_EXCLUDED_LEAVES:
         raise ValueError(f"'{component_id}': a '{name}' cannot sit inside a surface.")
     props = {key: value for key, value in component.items() if key not in ("id", "component")}

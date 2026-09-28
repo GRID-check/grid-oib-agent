@@ -33,7 +33,6 @@ from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.cards.catalog import render_card_doctrine
 from aiq_agent.cards.catalog import render_card_index
 from aiq_agent.cards.catalog import shape_hint_for as _shape_hint_for  # noqa: F401 — re-exported
-from aiq_agent.cards.envelope import REFUSED_RETIRED_TYPE
 from aiq_agent.cards.envelope import REFUSED_SHAPE
 from aiq_agent.cards.envelope import REFUSED_SYSTEM_TYPE
 from aiq_agent.cards.envelope import validate_model_card
@@ -181,11 +180,9 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
                 f"Error: card type '{refusal.card_type}' is system-emitted and cannot be created with "
                 "emit_card. Do not emit this card type."
             )
-        if refusal.kind == REFUSED_RETIRED_TYPE:
-            # A retired type's content is written in the answer's Markdown (or
-            # an envelope field); the refusal names which, so a model that
-            # recognised the content is redirected rather than merely refused.
-            return None, f"Error: {refusal.message}"
+        # A retired type's refusal names the Markdown (or envelope field) that
+        # replaced it, so a model that recognised the content is redirected
+        # rather than merely refused; every other kind says what went wrong.
         return None, f"Error: {refusal.message}"
 
     def _register(validated: dict) -> int | None:
