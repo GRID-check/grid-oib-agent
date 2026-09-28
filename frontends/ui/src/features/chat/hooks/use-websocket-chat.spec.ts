@@ -458,6 +458,21 @@ describe('nothing waits on silence', () => {
     expect(socket().connect.mock.calls.length).toBe(connects + 1)
   })
 
+  it('asks the first question of a new chat, and does not attach it instead', () => {
+    useChatStore.setState({ conversations: [], currentConversation: null })
+    const { result, rerender } = renderHook(() => useWebSocketChat())
+
+    act(() => void result.current.sendMessage('Was weißt du über die OIB 2?'))
+    rerender()
+    const question = messages().find((message) => message.messageType === 'user')!
+
+    expect(sockets).toHaveLength(1)
+    expect(socket().close).not.toHaveBeenCalled()
+    status('open')
+    expect(sentOf('user_message')).toEqual([expect.objectContaining({ message_id: question.id })])
+    expect(sentOf('attach')).toEqual([])
+  })
+
   it('does not ask a question again that was stopped before the server acknowledged it', () => {
     const { result } = open(conversationOf(CONVERSATION))
     act(() => void result.current.sendMessage('Frage'))

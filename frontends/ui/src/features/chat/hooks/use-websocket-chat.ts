@@ -835,16 +835,29 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   // One socket per conversation (and project scope): opened once the gate
   // allows it, closed when the conversation changes. A turn running in the
   // conversation left keeps its view, and coming back re-attaches it.
+  //
+  // "Closed when the conversation changes" is decided by the DRIVER's own
+  // conversation, never by the render's. The first question of a new chat
+  // creates its conversation inside `sendMessage`, and `ensureDriver` makes
+  // that conversation's driver in the same call, holding the question until
+  // its RUN_STARTED. A cleanup keyed on the previous render (no conversation
+  // yet) closed exactly that driver, and its successor, knowing nothing of the
+  // question, attached the turn instead of asking it: the first question was lost.
   useEffect(() => {
     if (currentConversationId && autoConnect && socketPermitted) ensureDriver(currentConversationId)
+    const driver = driverRef.current
+    if (driver && driver.conversationId !== currentConversationId) {
+      driver.close()
+      driverRef.current = null
+      setIsConnected(false)
+    }
   }, [currentConversationId, projectId, autoConnect, socketPermitted, ensureDriver])
   useEffect(
     () => () => {
       driverRef.current?.close()
       driverRef.current = null
-      setIsConnected(false)
     },
-    [currentConversationId]
+    []
   )
 
   // A turn a reload cut off: once there is a socket, fold it again from its
