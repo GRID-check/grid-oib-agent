@@ -66,7 +66,7 @@ export interface AnswerDocumentInput {
    * documents that need it.
    */
   agentAuthored?: boolean
-  /** Printed instead of a mermaid fence's or a `diagram` card's source — see `diagramBlocks`. */
+  /** Printed instead of a mermaid fence's source — see `diagramBlocks`. */
   diagramPlaceholder?: string
 }
 

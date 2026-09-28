@@ -31,11 +31,11 @@ wird, die sich dann als die falsche erweist.
 
 ## Welches Bild
 
-U-Werte je Bauteil der Hülle → als `:::pruefung`, eine Zeile je Bauteil, der
+U-Werte je Bauteil der Hülle → als `:::check`, eine Zeile je Bauteil, der
 Grenzwert mit ≤ in der Anforderungs-Spalte.
-HWB und Energieklasse → als `:::kennzahlen`, die Klasse als `:klasse[B]`.
-Schallschutz je Bauteilpaarung → als `:::pruefung`, die Paarung in der ersten Spalte.
-Mehrere Anforderungen nebeneinander → als Prüftabelle (`:::pruefung`, Status-Spalte).
+HWB und Energieklasse → als `:::metrics`, die Klasse als `:energy-class[B]`.
+Schallschutz je Bauteilpaarung → als `:::check`, die Paarung in der ersten Spalte.
+Mehrere Anforderungen nebeneinander → als Prüftabelle (`:::check`, Status-Spalte).
 
 ## Done
 

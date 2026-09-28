@@ -214,10 +214,10 @@ export function stabilizeStreamingMarkdown(raw: string): string {
 /**
  * Hold back a directive the stream is still writing, so no `:::` or `:klas`
  * flashes as text for a frame. An opened block needs nothing: an unclosed
- * `:::pruefung` runs to the end of the text, so its content is drawn as it
+ * `:::check` runs to the end of the text, so its content is drawn as it
  * arrives. What cannot yet parse is the fence line itself while it is being
  * typed (colons alone, or a `[label` not yet closed), and an inline
- * `:klasse[` whose label has not closed.
+ * `:energy-class[` whose label has not closed.
  */
 export function holdHalfDirective(content: string): string {
   const cut = content.lastIndexOf('\n') + 1
@@ -469,7 +469,7 @@ function MarkdownParagraph({ children }: React.ComponentPropsWithoutRef<'p'>) {
 // point at; without it every footnote link scrolled nowhere.
 function MarkdownListItem({ children, id, node }: React.ComponentPropsWithoutRef<'li'> & ExtraProps) {
   const { compact } = useMarkdownRenderState()
-  // A step of a `:::verfahren` (`directive-shape.ts`).
+  // A step of a `:::procedure` (`directive-shape.ts`).
   if (node?.properties?.dataPhase) return <StepItem node={node}>{children}</StepItem>
   const active = Boolean(node?.properties?.dataActive)
   const muted = Boolean(node?.properties?.dataMuted)
@@ -626,8 +626,8 @@ function MarkdownCaption({ children, node }: React.ComponentPropsWithoutRef<'cap
   )
 }
 
-// A row that holds (`trifft zu`, `aktuell`, a `:trifft` marker) is tinted;
-// in a `:::faelle` the others are muted once one holds (`directive-shape.ts`).
+// A row that holds (`trifft zu`, `aktuell`, a `:applies` marker) is tinted;
+// in a `:::cases` the others are muted once one holds (`directive-shape.ts`).
 function MarkdownRow({ children, node }: React.ComponentPropsWithoutRef<'tr'> & ExtraProps) {
   const active = Boolean(node?.properties?.dataActive)
   const conflict = Boolean(node?.properties?.dataConflict)

@@ -59,7 +59,7 @@ SYSTEM_CARD_TYPES = frozenset(
 #: This map only makes the refusal useful: a model that reaches for one by name
 #: is told the Markdown (or the card) that replaced it, instead of a validator's
 #: "unknown discriminator" that would send it to the repair model. The dialect
-#: names (`:::pruefung`, …) are the ones `piloti_static.md` <formatting> teaches.
+#: names (`:::check`, …) are the ones `piloti_static.md` <formatting> teaches.
 RETIRED_CARD_REPLACEMENTS: dict[str, str] = {
     "summary": "the answer's first sentence, or the `summary` field of your ```answer_json envelope",
     "verdict_header": "the `verdict` field of your ```answer_json envelope",
@@ -67,21 +67,21 @@ RETIRED_CARD_REPLACEMENTS: dict[str, str] = {
     "callout": "the `callout` field of your ```answer_json envelope",
     "follow_ups": "nothing: follow-up questions are computed after the answer",
     "typed_table": "a Markdown table in the answer",
-    "comparison_table": "a `:::vergleich` block: a table with a column per variant",
-    "requirement_checklist": "a `:::pruefung` block: a table with a Status column",
+    "comparison_table": "a `:::compare` block: a table with a column per variant",
+    "requirement_checklist": "a `:::check` block: a table with a Status column",
     "document_checklist": "a table with a Status column (erforderlich, bedingt, vorhanden, fehlt)",
-    "deadline_timeline": "a `:::verfahren` block: a numbered list, each Frist in bold as the Bestimmung words it",
+    "deadline_timeline": "a `:::procedure` block: a numbered list, each Frist in bold as the Bestimmung words it",
     "norm_chain": "a table of the instruments, or a ```mermaid flowchart TD with the binding one on top",
     "change_impact": "a table with a row per consequence and its Fundstelle",
     "diagram": "a ```mermaid fence in the answer",
-    "condition_tree": "a `:::faelle` block: a table of the cases, this project's row with Status `trifft zu`",
-    "process_map": "a `:::verfahren` block around a numbered list; a ```mermaid flowchart TD if it forks",
+    "condition_tree": "a `:::cases` block: a table of the cases, this project's row with Status `trifft zu`",
+    "process_map": "a `:::procedure` block around a numbered list; a ```mermaid flowchart TD if it forks",
     "legal_basis": "a cited blockquote in the answer: > „<the passage verbatim>“ [N]",
-    "fire_compartment": "a `:::pruefung` block; a calculation card where the area is worked out",
-    "thermal_envelope": "a `:::pruefung` block (Bauteil | U-Wert | Anforderung | Status | Fundstelle)",
-    "energy_performance": "a `:::kennzahlen` block, the class as :klasse[B]",
-    "acoustic_check": "a `:::pruefung` block (Bauteil | Nachweis | Anforderung | Status | Fundstelle)",
-    "parking_requirement": "a `:::kennzahlen` block; a calculation card where the count is worked out",
+    "fire_compartment": "a `:::check` block; a calculation card where the area is worked out",
+    "thermal_envelope": "a `:::check` block (Bauteil | U-Wert | Anforderung | Status | Fundstelle)",
+    "energy_performance": "a `:::metrics` block, the class as :energy-class[B]",
+    "acoustic_check": "a `:::check` block (Bauteil | Nachweis | Anforderung | Status | Fundstelle)",
+    "parking_requirement": "a `:::metrics` block; a calculation card where the count is worked out",
     "density_check": "a setback_plan card with `coverage` / `density`",
     "elevator_requirement": "a dimension_diagram card with shape `lift_cabin`",
 }

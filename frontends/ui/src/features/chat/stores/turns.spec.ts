@@ -106,7 +106,7 @@ describe('a turn folded into its thread', () => {
     const answer = answerOf(RESULT.message_id)!
     expect(answer).toMatchObject({ messageType: 'agent_response', isStreaming: true, content: view.text })
     expect(answer.answerMeta).toBeDefined()
-    expect(answer.cards?.[0]?.type).toBe('verdict_header')
+    expect(answer.cards?.[0]?.type).toBe('egress_diagram')
   })
 
   it('keeps a card and an untouched step the same objects across flushes', () => {

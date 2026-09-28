@@ -1,11 +1,11 @@
 /**
- * The chip makes the same single promise `follow_ups` makes, so the tests that
+ * The chip makes one promise — it prefills the composer — so the tests that
  * matter are the negative ones — a click fetches nothing and sends nothing —
  * next to the proof that the sentence which reaches the composer is the whole,
  * sendable German question built from the row's own words, and that a row with
  * nothing to build from offers no chip at all.
  *
- * Both call sites are exercised through their real components rather than the
+ * The schematic legend is exercised through its real component rather than the
  * chip alone: the point of the feature is that a `needs_input` row IS the
  * question, and a chip that renders in isolation but never appears on a row
  * would pass a test of the chip and fail the reader.
@@ -17,7 +17,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactElement } from 'react'
 import { I18nProvider } from '@/i18n'
 import { AskAboutChip } from './AskAboutChip'
-import { RequirementChecklistCard } from './RequirementChecklistCard'
 import { DimChecksList } from '../schematics/kit'
 
 const setComposerPrefill = vi.fn()
@@ -122,60 +121,6 @@ describe('AskAboutChip', () => {
       'Bei „Handlauf beidseitig“ fehlt eine Angabe: kein IfcRailing im Export. ' +
         'Wie kann ich das nachreichen, und was gilt bis dahin?',
     )
-  })
-})
-
-describe('the checklist offers the question only where a row is undecided', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, status: 200, json: async () => ({}) })))
-  })
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
-  const items = [
-    {
-      label: 'Tragende Bauteile REI 60',
-      status: 'pass' as const,
-      detail: 'Stahlbetondecken und -wände erfüllen REI 90.',
-    },
-    {
-      label: 'Treppenhaus als gesicherter Fluchtbereich',
-      status: 'fail' as const,
-      detail: 'Derzeit keine rauchdichte Abtrennung im EG vorgesehen.',
-    },
-    {
-      label: 'Zweiter Fluchtweg oder Anleiterbarkeit',
-      status: 'needs_input' as const,
-      detail: 'Anleiterbarkeit der Nordfassade noch nicht geklärt.',
-    },
-  ]
-
-  it('offers exactly one chip, on the row that cannot be decided', async () => {
-    const user = userEvent.setup()
-    renderDe(
-      <RequirementChecklistCard
-        title="Anforderungen GK 4 – Brandschutz"
-        items={items}
-        reference={{ document: 'OIB-Richtlinie 2' }}
-        note={null}
-      />,
-    )
-
-    // A decided row — pass or fail — has no missing input to ask about, so it
-    // gets no chip; four of them would be decoration.
-    expect(screen.getAllByText(CHIP)).toHaveLength(1)
-
-    await user.click(screen.getByRole('button', { name: /Zweiter Fluchtweg/ }))
-
-    expect(setComposerPrefill).toHaveBeenCalledWith(
-      'Bei „Zweiter Fluchtweg oder Anleiterbarkeit“ fehlt eine Angabe: ' +
-        'Anleiterbarkeit der Nordfassade noch nicht geklärt. ' +
-        'Wie kann ich das nachreichen, und was gilt bis dahin?',
-    )
-    expect(chatSendFn).not.toHaveBeenCalled()
-    expect(fetch).not.toHaveBeenCalled()
   })
 })
 

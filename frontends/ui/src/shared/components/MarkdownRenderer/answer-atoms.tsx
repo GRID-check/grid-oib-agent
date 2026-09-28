@@ -317,22 +317,22 @@ export const FigureTile: FC<{
 // ---------------------------------------------------------------------------
 
 /** The Energieeffizienzklasse as the certificate prints it: the letter on its band's colour. */
-export const EnergyClassChip: FC<{ klasse: string }> = ({ klasse }) => {
+export const EnergyClassChip: FC<{ rating: string }> = ({ rating }) => {
   const t = useTranslations('common')
-  const band = (ENERGY_CLASSES as readonly string[]).indexOf(klasse) + 1
-  if (band <= 0) return <>{klasse}</>
+  const band = (ENERGY_CLASSES as readonly string[]).indexOf(rating) + 1
+  if (band <= 0) return <>{rating}</>
   return (
     <abbr
-      title={t('markdown.energyClass', { klasse })}
+      title={t('markdown.energyClass', { rating })}
       data-testid="energy-class"
-      data-class={klasse}
+      data-class={rating}
       className="mx-0.5 inline-flex h-5 min-w-7 items-center justify-center rounded-sm px-1.5 align-[1px] text-[12px] font-semibold no-underline"
       style={{
         backgroundColor: `var(--energy-band-${band})`,
         color: band === ENERGY_CLASSES.length ? 'var(--energy-band-paper)' : 'var(--energy-band-ink)',
       }}
     >
-      {klasse}
+      {rating}
     </abbr>
   )
 }

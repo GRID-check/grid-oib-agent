@@ -47,8 +47,8 @@ Eine Erinnerung an „macht die Behörde oft mit“ ist kein Fall.
 
 ## 4. Zeigen
 
-Mehrere Anforderungen, jede mit eigenem Urteil → als Prüftabelle (`:::pruefung`, Status-Spalte).
-Das Regime gabelt die Antwort → als `:::faelle`, der Fall dieses Projekts mit
+Mehrere Anforderungen, jede mit eigenem Urteil → als Prüftabelle (`:::check`, Status-Spalte).
+Das Regime gabelt die Antwort → als `:::cases`, der Fall dieses Projekts mit
 Status `trifft zu`, sobald er bekannt ist.
 Die Stelle, an deren Wortlaut die Antwort hängt → als Zitatzeile `> „…“ [N]`.
 Eine Frist oder ein Vorbehalt, der das nächste Tun ändert → das `callout`-Feld

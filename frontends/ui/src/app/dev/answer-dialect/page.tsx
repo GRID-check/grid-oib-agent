@@ -71,7 +71,7 @@ const COMPOSED = `Die Trennwände zwischen den Brandabschnitten brauchen **REI 9
 
 ## Die Prüfung
 
-:::pruefung
+:::check
 | Anforderung | Ist | Soll | Stand |
 |---|---|---|---|
 | Trennwand Brandabschnitte | REI 90 | REI 90 | erfüllt |
@@ -82,18 +82,18 @@ const COMPOSED = `Die Trennwände zwischen den Brandabschnitten brauchen **REI 9
 
 ## Kennzahlen
 
-:::kennzahlen
+:::metrics
 - Brandabschnitt 2. OG: 1.380 m² (max. 1.200 m²)
 - Fluchtweglänge: 38 m (≤ 40 m)
 - Geschoße: 6
-- Energieeffizienz: :klasse[B]
+- Energieeffizienz: :energy-class[B]
 :::
 
 ## Was jetzt zu tun ist
 
-:::verfahren
+:::procedure
 1. Brandschutzkonzept, Stand 3, liegt vor
-2. Brandabschnitt im 2. OG teilen **bis Einreichung** :aktuell
+2. Brandabschnitt im 2. OG teilen **bis Einreichung** :current
    :::details[Was es braucht]
    Eine zusätzliche Brandwand in REI 90 an Achse C, oder eine Sprinkleranlage nach TRVB 127 [2].
    :::
@@ -103,7 +103,7 @@ const COMPOSED = `Die Trennwände zwischen den Brandabschnitten brauchen **REI 9
 
 ## Welche Gebäudeklasse gilt
 
-:::faelle
+:::cases
 | Fluchtniveau | Gebäudeklasse | Stand |
 |---|---|---|
 | bis 7 m | GK 3 | trifft nicht zu |
@@ -113,8 +113,8 @@ const COMPOSED = `Die Trennwände zwischen den Brandabschnitten brauchen **REI 9
 
 ## Zwei Wege, den Abschnitt zu teilen
 
-:::vergleich
-| Kriterium | Brandwand an Achse C :empfohlen | Sprinkleranlage |
+:::compare
+| Kriterium | Brandwand an Achse C :recommended | Sprinkleranlage |
 |---|---|---|
 | Kosten | gering | hoch |
 | Grundriss | eine Wand mehr | unverändert |
@@ -128,9 +128,9 @@ Gemessen vom entferntesten Aufenthaltsraum bis zum Stiegenhaus, entlang der Gang
 
 const BLOCKS: { title: string; note: string; source: string }[] = [
   {
-    title: ':::pruefung — eine Prüfung',
+    title: ':::check — eine Prüfung',
     note: 'Status aus dem Inhalt der Spalte, Balken für Wert gegen Grenzwert (die Rechnung gewinnt über das Wort), „Dazu fragen" an offenen Zeilen.',
-    source: `:::pruefung
+    source: `:::check
 | Anforderung | Ist | Soll | Stand |
 |---|---|---|---|
 | Trittschall | 57 dB | ≥ 55 dB | erfüllt |
@@ -140,9 +140,9 @@ const BLOCKS: { title: string; note: string; source: string }[] = [
 :::`,
   },
   {
-    title: ':::pruefung — alles erfüllt',
+    title: ':::check — alles erfüllt',
     note: 'Eine Prüfung ohne offene Zeile schrumpft auf ihre Zusammenfassung; die Zeilen bleiben einen Klick entfernt.',
-    source: `:::pruefung
+    source: `:::check
 | Anforderung | Ist | Soll | Stand |
 |---|---|---|---|
 | Geländerhöhe | 1,10 m | ≥ 1,00 m | erfüllt |
@@ -151,11 +151,11 @@ const BLOCKS: { title: string; note: string; source: string }[] = [
 :::`,
   },
   {
-    title: ':::verfahren — ein Verfahren',
-    note: 'Jeder Punkt ist ein Schritt; **fett** ist die Frist, :aktuell der Schritt, an dem das Projekt steht, ein :::details darin öffnet auf Klick.',
-    source: `:::verfahren
+    title: ':::procedure — ein Verfahren',
+    note: 'Jeder Punkt ist ein Schritt; **fett** ist die Frist, :current der Schritt, an dem das Projekt steht, ein :::details darin öffnet auf Klick.',
+    source: `:::procedure
 1. Vorprüfung
-2. Einreichung **binnen 6 Wochen** :aktuell
+2. Einreichung **binnen 6 Wochen** :current
    :::details[Was es braucht]
    Einreichpläne, Baubeschreibung, Energieausweis
    :::
@@ -164,18 +164,18 @@ const BLOCKS: { title: string; note: string; source: string }[] = [
 :::`,
   },
   {
-    title: ':::faelle — Fälle',
-    note: 'Der Fall, der zutrifft (Status „trifft zu" oder :trifft), ist getönt; die anderen bleiben lesbar.',
-    source: `:::faelle
+    title: ':::cases — Fälle',
+    note: 'Der Fall, der zutrifft (Status „trifft zu" oder :applies), ist getönt; die anderen bleiben lesbar.',
+    source: `:::cases
 - Fluchtniveau bis 7 m: GK 3
-- Fluchtniveau bis 11 m: GK 4 :trifft
+- Fluchtniveau bis 11 m: GK 4 :applies
 - Fluchtniveau bis 22 m: GK 5
 :::`,
   },
   {
-    title: ':::kennzahlen — Kennzahlen (Tabelle)',
+    title: ':::metrics — Kennzahlen (Tabelle)',
     note: 'Bezeichnung | Wert | Grenzwert | Status; auf dem Telefon zwei je Zeile.',
-    source: `:::kennzahlen
+    source: `:::metrics
 | Kennzahl | Wert | Grenzwert |
 |---|---|---|
 | Bebauungsgrad | 38 % | ≤ 40 % |
@@ -184,10 +184,10 @@ const BLOCKS: { title: string; note: string; source: string }[] = [
 :::`,
   },
   {
-    title: ':::vergleich — Varianten',
-    note: 'Eine Spalte je Variante, :empfohlen im Kopf hebt sie hervor; unter 30rem ein Block je Variante.',
-    source: `:::vergleich
-| Kriterium | Außentreppe | Zweites Stiegenhaus :empfohlen |
+    title: ':::compare — Varianten',
+    note: 'Eine Spalte je Variante, :recommended im Kopf hebt sie hervor; unter 30rem ein Block je Variante.',
+    source: `:::compare
+| Kriterium | Außentreppe | Zweites Stiegenhaus :recommended |
 |---|---|---|
 | Kosten | gering | hoch |
 | Fluchtweg | erfüllt | erfüllt |
@@ -203,13 +203,13 @@ Der Wert folgt aus Tabelle 2, Zeile 3.
   },
   {
     title: 'Zeilen, Zahlen, Klassen — ohne Direktive',
-    note: 'Eine Status-Zeile „trifft zu" ist getönt; eine Spalte aus Werten steht rechtsbündig; :klasse[…] zeichnet die Energieeffizienzklasse. „10:30" bleibt Text.',
+    note: 'Eine Status-Zeile „trifft zu" ist getönt; eine Spalte aus Werten steht rechtsbündig; :energy-class[…] zeichnet die Energieeffizienzklasse. „10:30" bleibt Text.',
     source: `| Bauteil | Klasse | Fläche | Status |
 |---|---|---|---|
 | Decke | EI 60 | 1.200 m² | trifft nicht zu |
 | Wand | EI 90 | 3,5 m² | trifft zu |
 
-Energieausweis: :klasse[A+] statt :klasse[C]. Begehung um 10:30 Uhr.`,
+Energieausweis: :energy-class[A+] statt :energy-class[C]. Begehung um 10:30 Uhr.`,
   },
 ]
 

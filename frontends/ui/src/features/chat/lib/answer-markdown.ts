@@ -111,8 +111,8 @@ const pageTextFor = (doc: CitedDocument, labels: AnswerSourceLabels): string | u
  *
  * Numbered entries come first and are the LOCUS-level projection — one line per
  * `[N]` in the prose, because every marker the reader pasted must lead
- * somewhere. Sources the answer leaned on without numbering them (a
- * `legal_basis` card names a law, not a passage) follow as bullets rather than
+ * somewhere. Sources the answer leaned on without numbering them (a bare law
+ * name with no passage behind it) follow as bullets rather than
  * being given a number the prose never wrote.
  */
 export const sourcesMarkdown = (documents: CitedDocument[], labels: AnswerSourceLabels): string => {

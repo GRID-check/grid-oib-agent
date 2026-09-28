@@ -8,8 +8,7 @@
  * and a takeaway block already exist, charter-reviewed, in the grid-cards
  * types, and two prop contracts for one thing is the drift this repo keeps
  * hunting down. So the anatomy is mapped onto the retired card shapes here —
- * purely as render props and as input to `CardSetProvider` (cross-card rules
- * must see the anatomy), never entering the `cards` array, the card-marker
+ * purely as render props, never entering the `cards` array, the card-marker
  * numbering, the export walker, or persistence.
  */
 
@@ -71,8 +70,6 @@ export interface AnswerAnatomy {
    * inline render `below` without it.
    */
   below: AnatomyShape[]
-  /** Every anatomy shape, for cross-card coordination (`CardSetProvider`). */
-  all: (AnatomyVerdict | AnatomyShape)[]
 }
 
 /** Map a sanitized `answerMeta` onto the card shapes, or null when absent. */
@@ -126,8 +123,7 @@ export function answerMetaToAnatomy(meta: AnswerMeta | undefined): AnswerAnatomy
   const below: AnatomyShape[] = []
   if (callout) below.push(callout)
   if (takeaways) below.push(takeaways)
-  const all: (AnatomyVerdict | AnatomyShape)[] = verdict ? [verdict, ...below] : [...below]
-  return { summary, topic, context, verdict, callout, takeaways, below, all }
+  return { summary, topic, context, verdict, callout, takeaways, below }
 }
 
 /**

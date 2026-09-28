@@ -755,7 +755,7 @@ class TestPilotiAgent:
         # stays with the schematic cards.
         assert "```mermaid" in formatting
         assert "not only when asked" in formatting
-        assert "`:::verfahren`" in formatting and "`:::faelle`" in formatting
+        assert "`:::procedure`" in formatting and "`:::cases`" in formatting
         assert "schematic card" in formatting
         # The box-art ban must survive the rewrite: the third field
         # transcript drew box-drawing characters where a diagram was asked.

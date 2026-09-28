@@ -1,5 +1,5 @@
 /**
- * Render tests for the two cards that carry a derivation and a procedure.
+ * Render tests for the card that carries a derivation.
  *
  * Two things are worth asserting through a mounted tree, and only two — the
  * arithmetic itself is covered far more cheaply in `../lib/calculate.spec.ts`:
@@ -7,7 +7,7 @@
  *   1. The card PRINTS what it computed, not what it was handed. A model can
  *      state operands and a limit and nothing else, so the result appearing on
  *      screen can only have come from the renderer.
- *   2. A click reveals and NOTHING else happens. Both cards are presentational
+ *   2. A click reveals and NOTHING else happens. The card is presentational
  *      („nicht zurück zum LLM … ich klick das und sehe mehr"), so the negative
  *      assertions — no fetch, no send — are the contract.
  */
@@ -18,8 +18,7 @@ import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider } from '@/i18n'
 import { CalculationCard } from './CalculationCard'
-import { ProcessMapCard } from './ProcessMapCard'
-import type { CalculationStepData, ProcessStepData } from '../schematics/types'
+import type { CalculationStepData } from '../schematics/types'
 
 const chatSendFn = vi.fn()
 const setComposerPrefill = vi.fn()
@@ -163,79 +162,5 @@ describe('CalculationCard', () => {
     // decorative, and then they stop clicking the ones that are not.
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument()
-  })
-})
-
-const VERFAHREN: ProcessStepData[] = [
-  {
-    label: 'Einreichung',
-    summary: 'Einreichunterlagen werden eingebracht.',
-    actor: 'Bauwerber',
-    requires: ['Einreichplan'],
-    produces: ['Aktenzeichen'],
-  },
-  { label: 'Bauverhandlung', actor: 'Baubehörde', duration: 'binnen sechs Wochen' },
-  { label: 'Baubewilligung', produces: ['Baubewilligungsbescheid'] },
-]
-
-describe('ProcessMapCard', () => {
-  it('marks only the step it was told about, and opens it', () => {
-    render(<ProcessMapCard title="Baubewilligungsverfahren" steps={VERFAHREN} current_step={2} />)
-
-    expect(screen.getByText('hier stehen Sie')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Schritt 2/ })).toHaveAttribute('aria-current', 'step')
-    // The current step's panel is open from the start: it is already the answer.
-    expect(screen.getByRole('button', { name: /Schritt 2/ })).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByRole('button', { name: /Schritt 1/ })).toHaveAttribute('aria-expanded', 'false')
-  })
-
-  it('marks nothing and opens nothing when the answer does not know where the project is', () => {
-    render(<ProcessMapCard title="Baubewilligungsverfahren" steps={VERFAHREN} current_step={null} />)
-
-    expect(screen.queryByText('hier stehen Sie')).not.toBeInTheDocument()
-    for (const step of [1, 2, 3]) {
-      expect(screen.getByRole('button', { name: new RegExp(`Schritt ${step}`) })).toHaveAttribute(
-        'aria-expanded',
-        'false'
-      )
-    }
-  })
-
-  it('reveals a step’s requirements and result on click, and reaches nothing to do it', async () => {
-    const user = userEvent.setup()
-    render(<ProcessMapCard title="Baubewilligungsverfahren" steps={VERFAHREN} current_step={2} />)
-
-    expect(screen.queryByText('Einreichplan')).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /Schritt 1/ }))
-
-    expect(screen.getByText('Einreichplan')).toBeInTheDocument()
-    expect(screen.getByText('Aktenzeichen')).toBeInTheDocument()
-    expect(fetch).not.toHaveBeenCalled()
-    expect(chatSendFn).not.toHaveBeenCalled()
-    expect(setComposerPrefill).not.toHaveBeenCalled()
-  })
-
-  it('keeps saying where the project actually is inside the panel of another step', async () => {
-    const user = userEvent.setup()
-    render(<ProcessMapCard title="Baubewilligungsverfahren" steps={VERFAHREN} current_step={2} />)
-
-    await user.click(screen.getByRole('button', { name: /Schritt 3/ }))
-
-    // The correcting sentence rides inside the opened panel, so it survives a
-    // crop of that rectangle alone — and the chip never moves off step 2.
-    expect(screen.getByText(/dieses Projekt steht bei Schritt 2: Bauverhandlung/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Schritt 2/ })).toHaveAttribute('aria-current', 'step')
-    expect(screen.getByText('hier stehen Sie')).toBeInTheDocument()
-  })
-
-  it('shows one step at a time, so picking a case is a selection and not five toggles', async () => {
-    const user = userEvent.setup()
-    render(<ProcessMapCard title="Baubewilligungsverfahren" steps={VERFAHREN} current_step={2} />)
-
-    await user.click(screen.getByRole('button', { name: /Schritt 1/ }))
-
-    expect(screen.getByRole('button', { name: /Schritt 1/ })).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByRole('button', { name: /Schritt 2/ })).toHaveAttribute('aria-expanded', 'false')
   })
 })

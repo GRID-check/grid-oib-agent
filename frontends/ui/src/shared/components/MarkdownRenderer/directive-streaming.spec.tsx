@@ -3,7 +3,7 @@
  *
  * The renderer parses a long answer block by block (`markdown-blocks.ts`),
  * cutting at a blank line once a block is long enough. A cut inside an open
- * `:::pruefung` would end the block there, and the rows after the cut would be
+ * `:::check` would end the block there, and the rows after the cut would be
  * parsed apart from their table, so they were lost. The splitter reads the
  * dialect's one fence scanner (`directiveDepths`) and never cuts inside.
  */
@@ -19,7 +19,7 @@ const ROWS = 25
 const LONG_CHECK = [
   'Einleitung. '.repeat(120).trim(),
   '',
-  ':::pruefung',
+  ':::check',
   '| Anforderung | Ist | Soll | Stand |',
   '|---|---|---|---|',
   ...Array.from({ length: ROWS }, (_, i) => `| Kriterium ${i + 1} | ${50 + i} dB | ≥ 50 dB | erfüllt |`),
@@ -29,11 +29,11 @@ const LONG_CHECK = [
   'Schluss. '.repeat(160).trim(),
 ].join('\n')
 
-describe('a long :::pruefung', () => {
+describe('a long :::check', () => {
   it('is never cut by the block splitter', () => {
     const blocks = splitMarkdownBlocks(LONG_CHECK, 200)
     expect(blocks).not.toBeNull()
-    const holding = blocks!.filter((block) => block.source.includes(':::pruefung'))
+    const holding = blocks!.filter((block) => block.source.includes(':::check'))
     expect(holding).toHaveLength(1)
     expect(holding[0].source).toContain(`Kriterium ${ROWS} `)
   })
@@ -62,12 +62,12 @@ describe('holdHalfDirective', () => {
   it('holds a fence line being typed, and an inline label not yet closed', () => {
     expect(holdHalfDirective('Text\n::')).toBe('Text\n')
     expect(holdHalfDirective('Text\n:::details[Was es br')).toBe('Text\n')
-    expect(holdHalfDirective('Klasse :klasse[A')).toBe('Klasse ')
+    expect(holdHalfDirective('Klasse :energy-class[A')).toBe('Klasse ')
   })
 
   it('keeps a closer of an open block, a complete opener, and plain text', () => {
-    expect(holdHalfDirective(':::pruefung\n| a |\n:::')).toBe(':::pruefung\n| a |\n:::')
-    expect(holdHalfDirective('Text\n:::pruefung')).toBe('Text\n:::pruefung')
+    expect(holdHalfDirective(':::check\n| a |\n:::')).toBe(':::check\n| a |\n:::')
+    expect(holdHalfDirective('Text\n:::check')).toBe('Text\n:::check')
     expect(holdHalfDirective('Um 10:30')).toBe('Um 10:30')
   })
 })

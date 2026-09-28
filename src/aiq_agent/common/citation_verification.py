@@ -3738,8 +3738,8 @@ _BODY_URL_RE = re.compile(r"\w+://[^\s<>\"'\]]+")
 # tabs only, never a newline, so punctuation is never pulled up onto the
 # previous line, and never a line's leading indentation. A colon glued to a
 # letter or another colon is not punctuation: it opens a Markdown directive
-# (`:klasse[B]`, `:aktuell`, an indented `:::details`), and pulling the space
-# out of „Klasse :klasse[B]" welds the marker onto the word before it.
+# (`:energy-class[B]`, `:current`, an indented `:::details`), and pulling the space
+# out of „Klasse :energy-class[B]" welds the marker onto the word before it.
 _SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"(?<=\S)[ \t]+(?=[.,;!?]|:(?![^\W\d_]|:))")
 
 

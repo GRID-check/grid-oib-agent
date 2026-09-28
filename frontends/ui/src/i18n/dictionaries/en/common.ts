@@ -69,7 +69,7 @@ export const common = {
     caseApplies: 'applies',
     recommended: 'recommended',
     excerptSource: 'Source',
-    energyClass: 'Energy efficiency class {klasse}',
+    energyClass: 'Energy efficiency class {rating}',
     details: 'Details',
     figureLimit: 'Limit',
   },

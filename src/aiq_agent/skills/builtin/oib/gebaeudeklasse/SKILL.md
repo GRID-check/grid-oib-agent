@@ -40,7 +40,7 @@ dem Gedächtnis.
 
 ## 4. Zeigen
 
-Die Antwort gabelt sich an der Klasse → als `:::faelle`, die Zeile dieses
+Die Antwort gabelt sich an der Klasse → als `:::cases`, die Zeile dieses
 Projekts mit Status `trifft zu`, sobald seine Klasse bekannt ist.
 Höhe und Fluchtniveau sind der Gegenstand → `building_section`.
 Die Stelle, an deren Wortlaut die Antwort hängt → als Zitatzeile `> „…“ [N]`.

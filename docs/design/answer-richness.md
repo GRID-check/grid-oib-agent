@@ -11,8 +11,8 @@ the synthesis follows below them.
 ## Lead's adjustments
 
 - **Priority inside Phase A:** the trust mechanics ship before new blocks:
-  the splitter fix, computed-outcome-wins reconciliation and `:projekt[key]`
-  binding first, then `:::massnahmen` and `:::fehlanzeige`.
+  the splitter fix, computed-outcome-wins reconciliation and `:project[key]`
+  binding first, then `:::actions` and `:::not-found`.
 - **Guardrails 1, 5, 7 and 11 are acceptance criteria**, not aspirations: a
   block that breaks one does not merge.
 - **Deep research waits for the PDF.** A report is filed as a PDF, and the
@@ -20,8 +20,8 @@ the synthesis follows below them.
   dialect in Phase B, together with the PDF renderer that draws the blocks;
   until then reports stay plain GFM with mermaid.
 - **From `claude/relaxed-rubin-pvwcsn` (not merged; it deepened the retired
-  `legal_basis` card):** two of its ideas join Phase A. `:::subsumtion` lays a
-  ruling out as Norm (the verified quote line) → Sachverhalt (`:projekt[…]`
+  `legal_basis` card):** two of its ideas join Phase A. `:::subsumption` lays a
+  ruling out as Norm (the verified quote line) → Sachverhalt (`:project[…]`
   facts, their origin shown by the chip) → Ergebnis (a status). And every
   quote line `> „…" [N]` gets a server-side location stamp (its
   `cards/legal_proof.py` `verification_for`, reused): „Wortlaut belegt [N]"
@@ -48,22 +48,22 @@ Five primitives (matrix, sequence, disclosure, excerpt, chip) sit behind the nam
 
 **Project binding (inline). The model names a key; the renderer prints the value.**
 
-- **`:projekt[key]`**
+- **`:project[key]`**, with English profile keys (`:project[building_class]`, `:project[escape_level_m]`)
   - *Renders:* a value chip from the profile. Solid means confirmed, dashed with "Annahme" means an agent assumption, hatched amber "fehlt · ergänzen" means unknown and opens a `project_profile_patch`.
   - *Data:* profile facts with source and `updatedAt` (`lib/project-profile/types.ts`), and the unknowns and assumptions in `project_context.py`.
   - *Use:* whenever a sentence turns on a project fact.
   - *Don't:* type the number yourself. An unknown key renders as plain text.
-  - *Merged:* the `:offen`, `:bezug` and `:wert{aus=…}` ideas are folded into this.
-  - *Cut:* `:wert[10,8 m]{aus=…}`. It lets the model type a value and then needs a server check to catch it; `:projekt` removes the typed value altogether.
-- **`:messwert[M3]`**
+  - *Merged:* the `:open`, `:basis` and `:value{from=…}` ideas are folded into this.
+  - *Cut:* `:value[10,8 m]{from=…}`. It lets the model type a value and then needs a server check to catch it; `:project` removes the typed value altogether.
+- **`:measurement[M3]`**
   - *Renders:* a measured value with its tolerance and a provenance tag (gemessen, deklariert, or a hollow "vermutlich"). Hovering lights the source elements. It is a display link and never a citation.
   - *Data:* `tools/bim/measurement_sources.py` and `MeasurementFacts` exist. Missing: a handle in the tool output, and a lookup from handle to record on the wire.
   - *Unknown handle:* renders "nicht gemessen" in red, never text the model wrote.
-- **`:klasse[B]`:** stays as it is.
+- **`:energy-class[B]`:** stays as it is.
 
 **Matrix blocks, with column roles declared in the registry:**
 
-- **`:::pruefung`**
+- **`:::check`**
   - *Use when:* three or more criteria each have a status.
   - *Renders:*
     - a tally line ("7 erfüllt · 2 offen · 1 nicht erfüllt");
@@ -71,24 +71,24 @@ Five primitives (matrix, sequence, disclosure, excerpt, chip) sit behind the nam
     - IFC element chips in the Nachweis cell (`ifc-element-chip.tsx`);
     - when every row passes, the rows collapse to "4 von 4 erfüllt".
   - *Status:* when the renderer can compute the outcome (`quantities.ts` `meetsLimit`), that outcome wins. If the model's word disagrees, the row shows "Widerspruch – prüfen" and the tally reads "ungeklärt".
-  - *Later (Phase B):* rows headed `:regel[id]` get their Ist, Soll, status and missing CAD property from `lib/bim/rules.ts`. This replaces the `ifc_compliance` card in prose answers.
-- **`:::faelle{nach=gebaeudeklasse|fluchtniveau_m}`**
+  - *Later (Phase B):* rows headed `:rule[id]` get their Ist, Soll, status and missing CAD property from `lib/bim/rules.ts`. This replaces the `ifc_compliance` card in prose answers.
+- **`:::cases{by=building_class|escape_level_m}`**
   - *Use when:* there are two or more mutually exclusive cases and the deciding factor is known or explicitly open.
-  - *Marking:* with `nach` set, the renderer marks "trifft zu" from the profile. A model-written `:trifft` that disagrees is dropped and logged.
+  - *Marking:* with `by` set, the renderer marks "trifft zu" from the profile. A model-written `:applies` that disagrees is dropped and logged.
   - *Schwellen-Lineal:* when the case column parses as numeric ranges, the renderer draws a scale with the class ticks and a pin at the project's value, e.g. "0,2 m unter GK 5". If it doesn't parse, the table stays a table.
   - *Don't:* use it for a single conditional; write the condition in prose.
-- **`:::kennzahlen`**
+- **`:::metrics`**
   - *Use when:* there are 2–4 figures, each with a limit or a comparison.
-  - *Contract:* the same pill-versus-bar reconciliation as `:::pruefung`. Values should be `:projekt`, `:messwert` or `calculation` results.
+  - *Contract:* the same pill-versus-bar reconciliation as `:::check`. Values should be `:project`, `:measurement` or `calculation` results.
   - *Placement:* in the first block, it joins the masthead as a stat strip.
-- **`:::vergleich{art=varianten|abweichung|aenderung}`**
+- **`:::compare{mode=variants|deviation|change}`**
   - *Use when:* there are two or more columns on three or more attributes.
   - *Modes:*
-    - `varianten` puts the recommended variant (`:empfohlen`) in a highlighted column, and requires a reason in the prose.
-    - `abweichung` strikes the OIB value through next to the Land's value; both citations are required.
-    - `aenderung` draws a slopegraph when the values are numeric and falls back to a table with status marks otherwise.
-  - *Merged:* `:::abweichung` and `:::aenderung` were cut as separate names; each is a mode here.
-- **`:::massnahmen`** (new)
+    - `variants` puts the recommended variant (`:recommended`) in a highlighted column, and requires a reason in the prose.
+    - `deviation` strikes the OIB value through next to the Land's value; both citations are required.
+    - `change` draws a slopegraph when the values are numeric and falls back to a table with status marks otherwise.
+  - *Merged:* `:::deviation` and `:::change` were cut as separate names; each is a mode here.
+- **`:::actions`** (new)
   - *Renders:* a table Wer | Was | bis | Fundstelle.
   - *Wer:* roles only (Planer, Bauwerber, Behörde, Statiker). A person's name is refused.
   - *"Als Aufgabe":* pre-fills the composer so that the agent's `create_task` (ADR-0051) creates it. It adds no new write path.
@@ -96,22 +96,22 @@ Five primitives (matrix, sequence, disclosure, excerpt, chip) sit behind the nam
 
 **Sequence:**
 
-- **`:::verfahren`**
+- **`:::procedure`**
   - *Use when:* three or more ordered steps carry an actor or a Frist.
-  - *`:aktuell`:* only kept when the project or the conversation establishes the step; otherwise it is stripped and logged.
+  - *`:current`:* only kept when the project or the conversation establishes the step; otherwise it is stripped and logged.
   - *`:::details[Unterlagen]`:* becomes a table marked vorhanden/fehlt, matched against the project files (Phase B).
   - *Dates:* no Frist projections. Dates appear only where a document states them.
 
 **Documented negative:**
 
-- **`:::fehlanzeige`** (new)
+- **`:::not-found`** (new)
   - *Renders:* three panes: "Gesucht in", "Nächstliegende Regel" and "Entscheidet".
   - *"Gesucht in":* filled from the turn's tool trace (`Transparency.tsx`), not written by the model.
   - *Use:* only when the verdict is "Nicht geregelt" or partial.
 
 **Overview:**
 
-- **`:::ueberblick`** (Phase B)
+- **`:::overview`** (Phase B)
   - *Renders:* a tile index of the parts of a Regelwerk, each with a "betrifft Ihr Projekt" badge and its `[N]`.
   - *Relevance:* computed from `common/applicability.py` (mirrored in `lib/oib/applicable-standards.ts`), not claimed by the model.
   - *Rule:* replaces the mindmap in the same answer, never sits beside it.
@@ -121,7 +121,7 @@ Five primitives (matrix, sequence, disclosure, excerpt, chip) sit behind the nam
 - **`:::details`:** unchanged. Print output shows it open.
 - **Excerpt** `> „…" [N]`
   - Adds `==decisive words==`, which the server strips before the verbatim check (ADR-0067); an unbalanced mark is rejected.
-  - An optional `:projekt[key]` right after the quote becomes the gloss in the margin.
+  - An optional `:project[key]` right after the quote becomes the gloss in the margin.
 
 **Diagrams and cards:**
 
@@ -130,26 +130,26 @@ Five primitives (matrix, sequence, disclosure, excerpt, chip) sit behind the nam
 
 **Leaf directives the renderer resolves:**
 
-- **`::stand{seit=vorige}`** (Phase B): revision delta, rules whose verdict changed, and confirmations that do not carry over to the new revision. Data: `revision-series.ts` and `compliance-diff`.
-- **`::ansicht[M3]`** (Phase C): a plan cut with the affected elements highlighted. It needs a new plan endpoint (ADR-0055).
+- **`::revision{since=previous}`** (Phase B): revision delta, rules whose verdict changed, and confirmations that do not carry over to the new revision. Data: `revision-series.ts` and `compliance-diff`.
+- **`::view[M3]`** (Phase C): a plan cut with the affected elements highlighted. It needs a new plan endpoint (ADR-0055).
 
 **Cut:**
 
 | Idea | Why |
 |---|---|
-| `:::entwurf` | The `document_draft` card already holds the draft. Give it the paper styling instead, which keeps one form per fact. |
+| `:::draft` | The `document_draft` card already holds the draft. Give it the paper styling instead, which keeps one form per fact. |
 | Case lens GK toggle | A rehearsal state that a reader can mistake for the project state, and it needs a limit column per class. |
 | Pin-block | Filing covers it. |
 | Frist calendar | When a Frist starts depends on the procedure, and the prompt already forbids computed dates. |
-| Authored `:::rand` or grid layouts | That brings back the model designing pages (option 4, which ADR-0069 rejected). |
-| `:::laender` | Deferred to Phase C. It needs a curated table of Land × Richtlinie × edition, and stale data drawn as authority is worse than none. |
+| Authored `:::margin` or grid layouts | That brings back the model designing pages (option 4, which ADR-0069 rejected). |
+| `:::states` | Deferred to Phase C. It needs a curated table of Land × Richtlinie × edition, and stale data drawn as authority is worse than none. |
 
 ## 3. Answer-level composition
 
 **The frame.** The renderer composes the page from the registry's placement rules; the model never writes layout. From top to bottom:
 
 1. Masthead: the value, the topic and the summary.
-2. Projektbezug strip. It shows the facts the answer read through `:projekt`, plus any the masthead lists in its `projekt:` field. When the profile has changed since the answer (by `updatedAt`), it shows "Projektstand seit dieser Antwort geändert".
+2. Projektbezug strip. It shows the facts the answer read through `:project`, plus any the masthead lists in its `project:` field. When the profile has changed since the answer (by `updatedAt`), it shows "Projektstand seit dieser Antwort geändert".
 3. Lead sentence.
 4. Blocks, with Randziffern in the gutter.
 5. Margin column at 900px or wider: source notes with Punkt, edition and binding status, excerpts, and `:::details[Fundstelle]`.
@@ -157,7 +157,7 @@ Five primitives (matrix, sequence, disclosure, excerpt, chip) sit behind the nam
 7. Grundlagen: the source register with editions and the RIS Fassung.
 8. Follow-ups.
 
-**The Schriftfeld** (project, GK, the IFC model checked and its revision, editions, Stand) appears only when the answer has a `:::pruefung` or an `ifc_*` card.
+**The Schriftfeld** (project, GK, the IFC model checked and its revision, editions, Stand) appears only when the answer has a `:::check` or an `ifc_*` card.
 
 **Budget by kind:**
 
@@ -173,29 +173,29 @@ A second block of the same type gets merged.
 
 | Type | Sequence |
 |---|---|
-| Ruling / Grenzwert | masthead → strip → one subsumption sentence → `:::faelle{nach}` with the scale → annotated excerpt → Rechtskette ribbon (Phase B) |
-| Prüfung | masthead "1 Mangel" → strip → Schriftfeld → `:::pruefung` → schematic for the one failing geometric row → `:::massnahmen` |
-| Verfahren | masthead → `:::verfahren` with `:aktuell` → sequence diagram only if the parties matter → `:::massnahmen` |
-| Überblick | masthead → `:::ueberblick` → `:::details` per part |
-| Vergleich | masthead with the recommendation → `:::kennzahlen` of the deltas → `:::vergleich` → schematics in `surface` tabs → "Entscheidung festhalten" |
-| Project question | masthead → strip with missing-fact chips → schematic or `ifc_element` card → a short `:::pruefung` → `:::massnahmen` |
-| Fehlanzeige | masthead "Nicht geregelt" → `:::fehlanzeige` → closest rule as an excerpt → `:::massnahmen` |
+| Ruling / Grenzwert | masthead → strip → one subsumption sentence → `:::cases{by}` with the scale → annotated excerpt → Rechtskette ribbon (Phase B) |
+| Prüfung | masthead "1 Mangel" → strip → Schriftfeld → `:::check` → schematic for the one failing geometric row → `:::actions` |
+| Verfahren | masthead → `:::procedure` with `:current` → sequence diagram only if the parties matter → `:::actions` |
+| Überblick | masthead → `:::overview` → `:::details` per part |
+| Vergleich | masthead with the recommendation → `:::metrics` of the deltas → `:::compare` → schematics in `surface` tabs → "Entscheidung festhalten" |
+| Project question | masthead → strip with missing-fact chips → schematic or `ifc_element` card → a short `:::check` → `:::actions` |
+| Fehlanzeige | masthead "Nicht geregelt" → `:::not-found` → closest rule as an excerpt → `:::actions` |
 | Drafting | a short frame → `document_draft` card |
 
 ## 4. Project-aware and interactive features, ranked
 
-1. **`:projekt`, the strip and `faelle{nach}`.** No write path. A missing chip opens the existing `project_profile_patch` card, which stays under ADR-0030.
+1. **`:project`, the strip and `cases{by}`.** No write path. A missing chip opens the existing `project_profile_patch` card, which stays under ADR-0030.
 2. **Row actions.**
    - "Dazu fragen" exists already.
    - "Als Aufgabe" pre-fills the composer, then the agent's `create_task` runs and a `task_created` card appears.
-   - "Im Prüfbuch öffnen" appears only on a verified `:regel` id.
+   - "Im Prüfbuch öffnen" appears only on a verified `:rule` id.
    - Never "Im Prüfbuch bestätigen" from chat. That verdict is a signature against a revision the person must have opened.
-3. **`:messwert` and `:regel` rows.** The renderer resolves both; they are read-only.
+3. **`:measurement` and `:rule` rows.** The renderer resolves both; they are read-only.
 4. **Proposals anchored to the row they change.**
    - The `project_profile_patch` card gains an optional `anchor: {blockKey, subject}`, and its controls draw inside that row.
    - The anchor is drawn only after the block is final. An unmatched anchor falls back to the card slot.
    - The ADR-0030 decision key does not change.
-5. **"Entscheidung festhalten"** on the recommended `:::vergleich` column emits a `memory_proposal` of kind `decision` (the kind exists, `cards/models.py:217`). Nothing is written until the person accepts it.
+5. **"Entscheidung festhalten"** on the recommended `:::compare` column emits a `memory_proposal` of kind `decision` (the kind exists, `cards/models.py:217`). Nothing is written until the person accepts it.
 6. **Filing a block.**
    - Generalise `use-diagram-filing.ts`, made idempotent on (answer, source hash, producer) as migration 0065 already does for diagrams.
    - Add a `?block=` parameter to `messages/[messageId]/export`.
@@ -217,7 +217,7 @@ A second block of the same type gets merged.
 - **Conformance corpus.**
   - `shared/answer/dialect-fixtures/`, run by both vitest and pytest.
   - It includes the adversarial cases (`10:30`, `Hinweis:Achtung`, `:::` inside code) and every streaming prefix of every fixture.
-  - First fix: `splitMarkdownBlocks` must never cut inside an open container. The architecture lens confirmed that a 25-row `:::pruefung` gets split and its tail rows are lost. The fix reuses the depth tracking in `normalizeDirectiveFences` instead of adding another scanner.
+  - First fix: `splitMarkdownBlocks` must never cut inside an open container. The architecture lens confirmed that a 25-row `:::check` gets split and its tail rows are lost. The fix reuses the depth tracking in `normalizeDirectiveFences` instead of adding another scanner.
 - **Server validator.**
   - Runs after `verify_citations` and before `sanitize_report`, parsing with markdown-it-py and the `container` and `attrs` plugins from mdit-py-plugins.
   - It unwraps unknown names and never deletes content.
@@ -251,13 +251,13 @@ A second block of the same type gets merged.
 | Item | Effort |
 |---|---|
 | Fixtures and the splitter fix | S |
-| Pill-versus-bar reconciliation and an honest tally in `:::pruefung` and `:::kennzahlen` | S |
+| Pill-versus-bar reconciliation and an honest tally in `:::check` and `:::metrics` | S |
 | The registry and its generators, deleting the hand copies | M |
 | Minimal server validator: unknown-name unwrap, marker provenance, budget, census | M |
-| `:projekt[key]`, the Projektbezug strip and `:::faelle{nach}` with the Schwellen-Lineal | M |
+| `:project[key]`, the Projektbezug strip and `:::cases{by}` with the Schwellen-Lineal | M |
 | Bullet graphs, row sort and the all-clear collapse | S |
-| `:::massnahmen` | S–M |
-| `:::fehlanzeige` with "Gesucht in" from the trace | S |
+| `:::actions` | S–M |
+| `:::not-found` with "Gesucht in" from the trace | S |
 | Typographic rhythm: lead, tabular figures, narrow space before units, mono § and Pkt, figure captions | S |
 | Print CSS and the print/export parity spec | S |
 | Suite shapes, the negative set, and a baseline taken before the prompt change | S |
@@ -268,11 +268,11 @@ A second block of the same type gets merged.
 - Margin column with Randziffern, and the Schriftfeld (M).
 - Annotated excerpt with `==…==` (M).
 - Rechtskette ribbon, printing "Edition verbindlich: offen" until the Land table exists (M).
-- `:messwert` (M).
-- `:regel` rows, retiring `ifc_compliance` from prose (M).
-- `:::ueberblick` (S–M).
-- `::stand` (M).
-- `:::vergleich` modes (S).
+- `:measurement` (M).
+- `:rule` rows, retiring `ifc_compliance` from prose (M).
+- `:::overview` (S–M).
+- `::revision` (M).
+- `:::compare` modes (S).
 - Anchored proposals and "Entscheidung festhalten" (M).
 - Filing a block (M).
 - Living-value tags (S).
@@ -283,9 +283,9 @@ A second block of the same type gets merged.
 
 **Phase C.**
 
-- `::ansicht` with a plan endpoint (L).
+- `::view` with a plan endpoint (L).
 - GK small multiples, after a constants file of cited thresholds (M).
-- A curated Land × Richtlinie × edition table, then `:::laender` (L).
+- A curated Land × Richtlinie × edition table, then `:::states` (L).
 - Parcel geometry from BEV DKM, bought as a service, not built (L).
 - Cards moved to primitives with Markdown fallbacks (L).
 
@@ -295,7 +295,7 @@ A second block of the same type gets merged.
 2. A block is used only where the content has that shape (the R1 thresholds), within the budget for its kind. A `direct` answer gets no blocks.
 3. Colour means status, and status is rare. An all-clear collapses to its tally.
 4. Every drawn value also exists as text: in the accessible name, in copy, and in print.
-5. Markers (`:aktuell`, `:trifft`, `:empfohlen`) need provenance. A marker without it is stripped on the server and logged.
+5. Markers (`:current`, `:applies`, `:recommended`) need provenance. A marker without it is stripped on the server and logged.
 6. Every block keeps its `[N]` inside it, or it does not render as a block. Measurements never raise confidence.
 7. The model never types a project value or a GlobalId. It writes keys and handles, and an unknown one degrades visibly.
 8. Validation repairs and unwraps. It never deletes content, and it logs every repair.

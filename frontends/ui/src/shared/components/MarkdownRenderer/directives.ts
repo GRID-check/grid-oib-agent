@@ -8,9 +8,9 @@
  *  - a block of the dialect becomes an `answer-block` element carrying its
  *    name, which `directive-shape.ts` shapes and `directive-blocks.tsx` draws;
  *    its `[label]` (a `details` summary) becomes an `answer-block-label`;
- *  - a marker (`:aktuell`, `:trifft`, `:empfohlen`) becomes an empty
+ *  - a marker (`:current`, `:applies`, `:recommended`) becomes an empty
  *    `answer-marker`, read by the shaping pass and never drawn as text;
- *  - `:klasse[B]` becomes an `answer-energy` element;
+ *  - `:energy-class[B]` becomes an `answer-energy` element;
  *  - anything else is put back exactly as it was written. `remark-directive`
  *    also reads „10:30" and „Hinweis:Achtung" as directives, so an unknown
  *    inline or leaf directive is restored from the source text, and an unknown
@@ -24,7 +24,7 @@
 import type { Properties } from 'hast'
 import type { Data, Parent, Root, RootContent, Text } from 'mdast'
 import type { ContainerDirective, LeafDirective, TextDirective } from 'mdast-util-directive'
-import { energyClass, isDirectiveBlock, isDirectiveMarker } from '@/lib/text/answer-directives'
+import { ENERGY_CLASS_DIRECTIVE, energyClass, isDirectiveBlock, isDirectiveMarker } from '@/lib/text/answer-directives'
 
 type Directive = ContainerDirective | LeafDirective | TextDirective
 
@@ -62,10 +62,10 @@ function transform(node: Directive, source: string): RootContent[] {
       return [node]
     }
     const label = node.children.map((child) => ('value' in child ? String(child.value) : '')).join('')
-    const klasse = node.name === 'klasse' ? energyClass(label) : null
-    if (klasse) {
-      setElement(node, ANSWER_ENERGY_TAG, { dataClass: klasse })
-      node.children = [{ type: 'text', value: klasse }]
+    const rating = node.name === ENERGY_CLASS_DIRECTIVE ? energyClass(label) : null
+    if (rating) {
+      setElement(node, ANSWER_ENERGY_TAG, { dataClass: rating })
+      node.children = [{ type: 'text', value: rating }]
       return [node]
     }
     return [{ type: 'text', value: sourceOf(node, source) } satisfies Text]

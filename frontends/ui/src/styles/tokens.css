@@ -519,7 +519,7 @@
    Austrian / EU Energieausweis, read by its colour before its letter. Graduated
    here unchanged from the retired `energy_performance` card, whose comment
    asked for exactly that the day a second surface needed it: the answer's
-   `:klasse[B]` chip (MarkdownRenderer/answer-atoms.tsx). Nothing else may
+   `:energy-class[B]` chip (MarkdownRenderer/answer-atoms.tsx). Nothing else may
    colour by it.
    Dark is a re-step, not a flip: B/C/D are pulled down so they do not glare on
    charcoal. `ink` is measured: near-black clears 4.5:1 on A++ … F in both

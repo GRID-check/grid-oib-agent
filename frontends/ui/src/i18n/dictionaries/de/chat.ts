@@ -323,41 +323,6 @@ export const chat: typeof en.chat = {
     renameInputAria: 'Sitzungstitel',
   },
   cards: {
-    aiGenerated:
-      'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle (OIB / RIS).',
-    // Die gedämpfte Zeile unter einer UNPLATZIERTEN Rechtsgrundlage, die flach
-    // über der Prosa steht (`EvidenceBlock`): das Zitat ist KI-generiert, wie
-    // auf der gerahmten Karte — hier kürzer, weil der Block daneben schon
-    // schlank ist.
-    evidenceQuoteDisclaimer:
-      'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle.',
-    legalBasis: 'Rechtsgrundlage',
-    // Tooltip auf dem OIB-/RIS-Abzeichen: das Abzeichen selbst ist ein
-    // Eigenname und in beiden Sprachen gleich — hier steht, was er bedeutet.
-    authority: 'Rechtsquelle: {tag}',
-    viewOib: 'OIB-Richtlinie ansehen',
-    verifyRis: 'In RIS prüfen',
-    conditionTree: {
-      eyebrow: 'Bedingungsbaum',
-      dependsOn: 'Abhängig von',
-      applies: 'trifft zu',
-      basis: 'Grundlage',
-      // Überschrift über dem Ergebnis des Falls, der für dieses Projekt gilt.
-      appliesHere: 'Für dieses Projekt gilt:',
-      // Überschrift über jedem anderen Fall — im Konjunktiv, damit schon die
-      // Grammatik sagt, dass hier ein anderer Fall angesehen wird. Ein
-      // Bildschirmfoto dieses Abschnitts kann so nicht als Ergebnis dieses
-      // Projekts gelesen werden.
-      previewLead: 'Bei {condition} würde gelten:',
-      // Dieselbe Überschrift, wenn kein Fall als der zutreffende ausgewiesen
-      // ist: dann steht nichts dagegen, was in den Konjunktiv zu setzen wäre.
-      caseLead: 'Bei {condition} gilt:',
-      // Steht INNERHALB des angesehenen Abschnitts, damit der Hinweis auf
-      // jedem Bildschirmfoto mitgeht.
-      previewNotice: 'Nur zum Vergleich — für dieses Projekt gilt {condition}: {outcome}',
-      backToActive: 'Zurück zu {condition}',
-      caseAria: 'Fall {condition}',
-    },
     askAbout: {
       chip: 'Dazu fragen',
       chipAria: 'Frage zu „{subject}“ ins Eingabefeld übernehmen',
@@ -368,12 +333,10 @@ export const chat: typeof en.chat = {
     },
 
     // ── Gemeinsame Schematik-Chrome ────────────────────────────────────────
-    // `kit.tsx` zeichnet fünfzehn Karten. Sein Wortschatz steht hier, weil er
+    // `kit.tsx` zeichnet acht Karten. Sein Wortschatz steht hier, weil er
     // auf jeder einzelnen erscheint: Verdikt, fehlende Angabe, Herkunft.
     kit: {
       eyebrow: 'Skizze',
-      // Eine Karte, deren Figur eine Skala oder Balken ist, keine Zeichnung.
-      eyebrowCheck: 'Prüfung',
       status: {
         pass: 'erfüllt',
         fail: 'nicht erfüllt',
@@ -439,12 +402,6 @@ export const chat: typeof en.chat = {
       // gerechnet hat die Karte, zu prüfen sind die Werte.
       computedNote:
         'Das Ergebnis wird von dieser Karte aus den obigen Werten berechnet, nicht aus der Antwort übernommen.',
-    },
-    // „Diagramm" und nicht „Grafik": das Wort steht über einer Zeichnung, die
-    // ausdrücklich nichts misst. Die übrigen Worte teilt die Karte mit dem
-    // Mermaid-Block im Fließtext (`diagrams.schematicOnly`, `diagrams.fallback`).
-    diagram: {
-      eyebrow: 'Diagramm',
     },
     // Ein Dokument, das Piloti in den Arbeitsordner dieser Unterhaltung
     // geschrieben hat. Keine Projektunterlage: nichts davon ist abgelegt,
@@ -555,136 +512,16 @@ export const chat: typeof en.chat = {
           'Diese Unterhaltung gehört zu keinem Projekt, es gibt hier also keine Ablage zu ändern.',
       },
     },
-    processMap: {
-      eyebrow: 'Verfahrensablauf',
-      current: 'hier stehen Sie',
-      done: 'erledigt',
-      stepAria: 'Schritt {step}: {label}',
-      requires: 'Voraussetzungen',
-      produces: 'Ergebnis',
-      actor: 'Zuständig',
-      duration: 'Frist',
-      basis: 'Grundlage',
-      // Steht INNERHALB eines geöffneten anderen Schritts, damit der Hinweis
-      // auf einem Bildschirmfoto genau dieses Abschnitts mitgeht.
-      elsewhereNotice: 'Nur zur Ansicht — dieses Projekt steht bei Schritt {step}: {label}',
-      backToCurrent: 'Zurück zu {label}',
-    },
-    // ── Einreichunterlagen ──────────────────────────────────────────────
-    // Die Zahlen in der Übersicht rechnet die Karte selbst aus den Zeilen —
-    // es gibt kein Feld auf der Leitung, das ihnen widersprechen könnte.
-    documentChecklist: {
-      eyebrow: 'Unterlagen',
-      itemAria: 'Unterlage: {label}',
-      requirement: {
-        required: 'erforderlich',
-        conditional: 'bedingt',
-      },
-      // Der Zustand EINER Zeile. „nicht bekannt" ist der Normalfall: nur was
-      // im Gespräch stand, darf hier stehen.
-      status: {
-        present: 'liegt vor',
-        missing: 'fehlt',
-        unknown: 'nicht bekannt',
-      },
-      // Dieselben Begriffe als Beiwort, damit „3 vorhanden" und „2 fehlend"
-      // grammatikalisch stehen, wo „3 liegt vor" falsch wäre.
-      tally: {
-        required: 'erforderlich',
-        conditional: 'bedingt',
-        present: 'vorhanden',
-        missing: 'fehlend',
-        unknown: 'ungeklärt',
-      },
-      tallyAria: 'Stand der Unterlagen',
-      // Steht statt der zweiten Zeile, wenn zu keiner Unterlage etwas bekannt
-      // ist. Eine Leiste, die dann „0 von 5" zeigte, wäre eine Behauptung
-      // über das Projekt und keine Zusammenfassung der Karte.
-      noStatus: 'Ob Sie diese Unterlagen bereits haben, geht aus dem Gespräch nicht hervor.',
-      condition: 'Bedingung',
-      issuer: 'Ausgestellt von',
-      form: 'Form',
-      basis: 'Grundlage',
-    },
-    // ── Fristen ─────────────────────────────────────────────────────────
-    deadlineTimeline: {
-      eyebrow: 'Fristen',
-      deadlineAria: 'Frist {index}: {label}',
-      startsFrom: 'Fristbeginn',
-      consequence: 'Wenn versäumt',
-      actor: 'Zuständig',
-      basis: 'Grundlage',
-      // Der Satz, der die Karte ehrlich hält: Die Reihenfolge ist gezeichnet,
-      // die Länge nicht — die Fristen laufen ab verschiedenen Ereignissen.
-      notToScale:
-        'Die Reihenfolge ist maßstabslos dargestellt: Jede Frist läuft ab einem eigenen Ereignis.',
-      noDatesNote:
-        'Die Fristen stehen so, wie sie die Bestimmung formuliert. Diese Karte rechnet kein Datum aus.',
-    },
-    // ── Auswirkung einer Änderung ───────────────────────────────────────
-    changeImpact: {
-      eyebrow: 'Auswirkung',
-      consequenceAria: 'Auswirkung: {aspect}',
-      changeWithBefore: '{factor}: {from} → {to}',
-      changeWithoutBefore: '{factor} → {to}',
-      // Steht unter der Kopfzeile, wenn der Ausgangswert fehlt. „Bisher" leer
-      // zu lassen wäre die stillere, aber falschere Variante.
-      currentUnknown: 'Der Ausgangswert geht aus dem Gespräch nicht hervor.',
-      direction: {
-        tightens: 'verschärft',
-        relaxes: 'gelockert',
-        unchanged: 'unverändert',
-      },
-      before: 'bisher',
-      after: 'dann',
-      unknownBefore: 'bisher nicht bekannt',
-      basis: 'Grundlage',
-    },
     verdictHeader: {
       confidenceHigh: 'hohe Sicherheit',
       confidenceMedium: 'mittlere Sicherheit',
       confidenceLow: 'geringe Sicherheit',
-    },
-    normChain: {
-      eyebrow: 'Normenkette',
-      // Rang des Rechtsakts. Die Namen sind die der österreichischen
-      // Rechtsordnung und bleiben auch im Englischen stehen.
-      rank: {
-        bundesgesetz: 'Bundesgesetz',
-        landesgesetz: 'Landesgesetz',
-        verordnung: 'Verordnung',
-        oibRichtlinie: 'OIB-Richtlinie',
-        oenorm: 'ÖNORM',
-        leitfaden: 'Leitfaden',
-      },
-      binding: 'bindend',
-      // Eine OIB-Richtlinie bindet erst, wenn ein Land sie für verbindlich
-      // erklärt — das steht am Glied, nicht in einer Fußnote.
-      bindingWhenDeclared: 'bindend, wenn erklärt',
-      interpretive: 'auslegend',
-    },
-    comparison: {
-      eyebrow: 'Vergleich',
-      criterion: 'Kriterium',
-    },
-    typedTable: {
-      eyebrow: 'Tabelle',
     },
     // ── Beschriftungen in den Zeichnungen ──────────────────────────────────
     // Was in der Skizze selbst steht. Symbole (±0,00, Ø, N), Einheiten und
     // Normbezeichnungen (A++ … G, DnT,w) stehen bewusst nicht hier: sie sind
     // in jeder Sprache dasselbe Zeichen.
     schematics: {
-      acoustic: {
-        soundClass: 'Schallschutzklasse',
-        airborne: 'Luftschall',
-        impact: 'Trittschall',
-        airborneResultant: 'Luftschall (resultierend)',
-        lowerIsBetter: '↓ niedriger ist besser',
-        higherIsBetter: '↑ höher ist besser',
-        reserve: 'Reserve +{margin} dB',
-        shortfall: 'Fehlbetrag {margin} dB',
-      },
       daylight: {
         glassArea: 'Lichteintrittsfläche',
         window: 'Fenster',
@@ -693,31 +530,8 @@ export const chat: typeof en.chat = {
           'Bodenfläche {floor} m² → erforderliche Lichteintrittsfläche ≥ {required} m² (10 %).',
         obstructionPierces: 'Die Verschattung durchdringt den 45°-Lichteinfallskegel.',
       },
-      density: {
-        coverage: 'Bebauungsgrad',
-        parcel: 'Grundstück {area} m²',
-        builtUp: 'bebaut',
-        builtUpUnknown: 'bebaute Fläche: {missing}',
-        grossFloorArea: 'Bruttogeschossfläche (BGF)',
-      },
       egress: {
         totalWalkLength: 'Gehweglänge gesamt',
-      },
-      elevator: {
-        accessible: 'Barrierefreier Aufzug',
-        required: 'erforderlich',
-        notRequired: 'nicht erforderlich',
-        entranceLevel: 'Zugangsebene',
-        shaft: 'Aufzug',
-        // Geschossbezeichnung relativ zur Zugangsebene.
-        groundFloor: 'EG',
-        upperFloor: '{level}.OG',
-        basement: '{level}.KG',
-      },
-      energy: {
-        hwb: 'Heizwärmebedarf (HWB)',
-        hwbMarker: 'HWB {value}',
-        fgee: 'Gesamtenergieeffizienzfaktor (fGEE)',
       },
       fireAccess: {
         routeWidth: 'Zufahrt Breite',
@@ -734,10 +548,6 @@ export const chat: typeof en.chat = {
         street: 'STRASSE',
         gebaeudeklasse: 'Gebäudeklasse',
         walkTooFar: ' — der Weg zum Eingang überschreitet das zulässige Maß.',
-      },
-      fireCompartment: {
-        storey: 'Geschoss {label}',
-        plan: 'Grundriss',
       },
       guardrail: {
         context: {
@@ -756,20 +566,6 @@ export const chat: typeof en.chat = {
         atLeast: ' → mind. {value}',
         climbables:
           'Horizontale, zum Aufklettern geeignete Elemente im Kletterschutzbereich (15–60 cm).',
-      },
-      parking: {
-        car: 'Kfz-Stellplätze',
-        bicycle: 'Fahrradabstellplätze',
-        // Abkürzung für Stellplätze, die als Einheit hinter der Zahl steht.
-        unit: 'Stpl.',
-        basis: 'Bemessung',
-        // Die Fehlmenge zählt: bei einem fehlenden Platz „1 fehlt“.
-        short:
-          '{provided} von {required} nachgewiesen — {missing, plural, one {# fehlt} other {# fehlen}}{overflow}',
-        surplus: '{provided} nachgewiesen — Überschuss +{surplus}{overflow}',
-        exact: '{provided} von {required} nachgewiesen{overflow}',
-        truncated: ' (Ausschnitt)',
-        legend: 'Gefüllt = nachgewiesen, gestrichelt = fehlend gegenüber der Anforderung.',
       },
       setback: {
         side: {
@@ -791,13 +587,6 @@ export const chat: typeof en.chat = {
         stepNotation: '{count} Stg · {rise}/{going} cm',
         // Ohne Steigung und Auftritt bleibt nur die Anzahl.
         stepCount: '{count, plural, one {# Stufe} other {# Stufen}}',
-      },
-      thermal: {
-        roof: 'Dach',
-        wall: 'Außenwand',
-        window: 'Fenster',
-        door: 'Tür',
-        floor: 'Boden',
       },
     },
   },

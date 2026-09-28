@@ -5,19 +5,19 @@
  * Runs after `rehypeTableShape`, whose general table treatment (status marks,
  * the tally, a row that holds, value columns) every table gets. On top of it:
  *
- *  - **markers**: `:aktuell`, `:trifft` and `:empfohlen` mark the list item,
+ *  - **markers**: `:current`, `:applies` and `:recommended` mark the list item,
  *    the table row or the header cell they sit in, and are removed;
- *  - **`:::pruefung`**: the status column is found by its CONTENT (every cell
+ *  - **`:::check`**: the status column is found by its CONTENT (every cell
  *    a status word), tallied, and a row that holds a value and a limit
  *    („57 dB" beside „≥ 55 dB") draws the one against the other; an open row
  *    can be asked about;
- *  - **`:::faelle`**: once a row or item is marked as the case that applies,
+ *  - **`:::cases`**: once a row or item is marked as the case that applies,
  *    the others are muted but stay readable;
- *  - **`:::verfahren`**: each item of the list is a step; its first line is
+ *  - **`:::procedure`**: each item of the list is a step; its first line is
  *    the row, a bold phrase in it the Frist, everything after it (a
  *    `:::details`, a nested list) the detail that opens on click;
- *  - **`:::kennzahlen`**: the rows or items become figures;
- *  - **`:::vergleich`**: a column marked `:empfohlen` is highlighted, status
+ *  - **`:::metrics`**: the rows or items become figures;
+ *  - **`:::compare`**: a column marked `:recommended` is highlighted, status
  *    words become marks in every cell, and a copy per variant is built for a
  *    phone, where columns do not fit;
  *  - **a blockquote ending in a citation** is an excerpt, drawn with its
@@ -99,9 +99,9 @@ function consumeMarkers(node: Element | Root, hosts: Element[]): void {
       const host = hosts[hosts.length - 1]
       const marker = String(child.properties?.dataMarker ?? '')
       if (host) {
-        if (marker === 'aktuell') setProps(host, { dataCurrent: 'true', dataActive: 'true' })
-        else if (marker === 'trifft') setProps(host, { dataActive: 'true' })
-        else if (marker === 'empfohlen') setProps(host, { dataRecommended: 'true' })
+        if (marker === 'current') setProps(host, { dataCurrent: 'true', dataActive: 'true' })
+        else if (marker === 'applies') setProps(host, { dataActive: 'true' })
+        else if (marker === 'recommended') setProps(host, { dataRecommended: 'true' })
         // A header cell says „empfohlen" itself; anywhere else the marker
         // stays and is drawn as its word beside the tint.
         if (host.tagName === 'th') {
@@ -124,7 +124,7 @@ function consumeMarkers(node: Element | Root, hosts: Element[]): void {
 }
 
 // ---------------------------------------------------------------------------
-// :::pruefung
+// :::check
 // ---------------------------------------------------------------------------
 
 /** The last column every one of whose (non-empty) cells is a status word, or -1. */
@@ -238,7 +238,7 @@ function shapeCheckTable(table: Element): void {
 }
 
 // ---------------------------------------------------------------------------
-// :::faelle
+// :::cases
 // ---------------------------------------------------------------------------
 
 function shapeCases(block: Element): void {
@@ -264,7 +264,7 @@ function shapeCases(block: Element): void {
 }
 
 // ---------------------------------------------------------------------------
-// :::verfahren
+// :::procedure
 // ---------------------------------------------------------------------------
 
 const BLOCK_TAGS = new Set(['ul', 'ol', 'table', 'blockquote', 'pre', ANSWER_BLOCK_TAG, 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr'])
@@ -318,7 +318,7 @@ function shapeSteps(block: Element): void {
 }
 
 // ---------------------------------------------------------------------------
-// :::kennzahlen
+// :::metrics
 // ---------------------------------------------------------------------------
 
 interface Figure {
@@ -412,7 +412,7 @@ function shapeFigures(block: Element): void {
 }
 
 // ---------------------------------------------------------------------------
-// :::vergleich
+// :::compare
 // ---------------------------------------------------------------------------
 
 function shapeComparison(block: Element): void {
@@ -498,11 +498,11 @@ function shapeBlocks(node: Element | Root): void {
       continue
     }
     const name = blockName(child)
-    if (name === 'pruefung') descendants(child, 'table').forEach(shapeCheckTable)
-    else if (name === 'faelle') shapeCases(child)
-    else if (name === 'verfahren') shapeSteps(child)
-    else if (name === 'kennzahlen') shapeFigures(child)
-    else if (name === 'vergleich') shapeComparison(child)
+    if (name === 'check') descendants(child, 'table').forEach(shapeCheckTable)
+    else if (name === 'cases') shapeCases(child)
+    else if (name === 'procedure') shapeSteps(child)
+    else if (name === 'metrics') shapeFigures(child)
+    else if (name === 'compare') shapeComparison(child)
     else if (name === 'details') shapeDetails(child)
   }
 }

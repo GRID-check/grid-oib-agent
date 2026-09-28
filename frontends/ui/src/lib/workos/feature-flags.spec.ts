@@ -166,7 +166,7 @@ describe('enabledPostAnswerStages', () => {
 
   it('serves follow_ups by default now that the card it replaces is retired', async () => {
     // `follow_ups` shipped `defaultOn: false`, as every new stage does. Slice 4
-    // retired the in-answer `follow_ups` CARD (`SYSTEM_CARD_TYPES`), so the
+    // retired the in-answer `follow_ups` CARD (deleted by ADR-0069), so the
     // stage is the only thing that produces follow-up questions — and a
     // deployment without the WorkOS flag product reads `defaultOn`, so leaving
     // it false there would mean a Grid with none at all and nothing to switch

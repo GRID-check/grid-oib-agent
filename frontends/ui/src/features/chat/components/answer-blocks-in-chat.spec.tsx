@@ -151,7 +151,7 @@ describe('an open row of a check in a chat answer', () => {
   const CHECK = [
     'Die Prüfung ergibt:',
     '',
-    ':::pruefung',
+    ':::check',
     '| Anforderung | Ist | Soll | Stand |',
     '|---|---|---|---|',
     '| Trittschall | 57 dB | ≥ 55 dB | erfüllt |',

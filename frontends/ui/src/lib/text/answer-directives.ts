@@ -11,7 +11,7 @@
  *    turns each block into its designed form;
  *  - everything that leaves the app as text (copy, Word, PDF), which reads the
  *    same Markdown with the directives taken out ({@link stripDirectives}): a
- *    table stays a table, a `details` block is printed open, `:klasse[B]` is
+ *    table stays a table, a `details` block is printed open, `:energy-class[B]` is
  *    „B".
  *
  * The vocabulary is deliberately this small. A name the renderer does not know
@@ -19,27 +19,31 @@
  */
 
 /** Blocks, written `:::name` … `:::` around the Markdown they describe. */
-export const DIRECTIVE_BLOCKS = ['pruefung', 'verfahren', 'faelle', 'kennzahlen', 'vergleich', 'details'] as const
+export const DIRECTIVE_BLOCKS = ['check', 'procedure', 'cases', 'metrics', 'compare', 'details'] as const
 export type DirectiveBlock = (typeof DIRECTIVE_BLOCKS)[number]
 
 /**
  * Inline markers, written `:name` inside a list item, a table cell or a header.
- * What each one prints as when the directives are stripped.
+ * Each maps to the word it prints as when the directives are stripped: German,
+ * because that is the answer's language and the word is what the reader keeps.
  */
 export const DIRECTIVE_MARKERS = {
-  /** The step of a `:::verfahren` the project is at. */
-  aktuell: 'aktuell',
-  /** The case of a `:::faelle` that applies to this project. */
-  trifft: 'trifft zu',
-  /** The column of a `:::vergleich` the answer recommends. */
-  empfohlen: 'empfohlen',
+  /** The step of a `:::procedure` the project is at. */
+  current: 'aktuell',
+  /** The case of a `:::cases` that applies to this project. */
+  applies: 'trifft zu',
+  /** The column of a `:::compare` the answer recommends. */
+  recommended: 'empfohlen',
 } as const
 export type DirectiveMarker = keyof typeof DIRECTIVE_MARKERS
 
-/** The Energieeffizienzklassen `:klasse[…]` accepts, best first. */
+/** The inline directive for an energy performance class, `:energy-class[B]`. */
+export const ENERGY_CLASS_DIRECTIVE = 'energy-class'
+
+/** The Energieeffizienzklassen `:energy-class[…]` accepts, best first. */
 export const ENERGY_CLASSES = ['A++', 'A+', 'A', 'B', 'C', 'D', 'E', 'F', 'G'] as const
 
-/** `:klasse[b ]` → `B`, or null for anything that is not a class. */
+/** `:energy-class[b ]` → `B`, or null for anything that is not a class. */
 export function energyClass(label: string): (typeof ENERGY_CLASSES)[number] | null {
   const normal = label.replace(/\s+/g, '').toUpperCase()
   return (ENERGY_CLASSES as readonly string[]).includes(normal) ? (normal as (typeof ENERGY_CLASSES)[number]) : null
@@ -115,9 +119,9 @@ interface OpenContainer {
  * The same text with every container fence given the colons its nesting needs.
  *
  * `remark-directive` closes a container at the first closing fence with at
- * least as many colons as its opener, so `:::verfahren` holding a
+ * least as many colons as its opener, so `:::procedure` holding a
  * `:::details` is closed by the details' own `:::` and the procedure's list is
- * cut in two. The outer fence has to be longer (`::::verfahren`), which is a
+ * cut in two. The outer fence has to be longer (`::::procedure`), which is a
  * rule a writer (a model, a person) gets wrong. So the renderer does not ask:
  * a bare `:::` closes the innermost open block, and each fence is rewritten to
  * `3 + the depth nested inside it` colons. An unclosed block (a streamed one)
@@ -173,9 +177,9 @@ const TEXT_DIRECTIVE = /(^|[^\w:\\])(:)([A-Za-z][\w-]*)(?:\[([^\]\n]*)\])?(?:\{[
  * - A block's fences go; what they held stays as it was written, so a table
  *   is still a table. A `details` block's label becomes a bold line over its
  *   content, which is printed open.
- * - A marker becomes its word in brackets (`:aktuell` → „(aktuell)"), because
+ * - A marker becomes its word in brackets (`:current` → „(aktuell)"), because
  *   it is information: the step the project is at.
- * - `:klasse[B]` becomes „B".
+ * - `:energy-class[B]` becomes „B".
  * - Anything else that merely looks like a directive (`10:30`, `Hinweis:Text`)
  *   is left exactly as written, which is also how the renderer shows it.
  *
@@ -219,7 +223,7 @@ function stripTextDirectives(line: string): string {
       index % 2 === 1
         ? part
         : part.replace(TEXT_DIRECTIVE, (whole, before: string, _colon, name: string, label?: string) => {
-            if (name === 'klasse' && label !== undefined && energyClass(label)) return `${before}${energyClass(label)}`
+            if (name === ENERGY_CLASS_DIRECTIVE && label !== undefined && energyClass(label)) return `${before}${energyClass(label)}`
             if (isDirectiveMarker(name) && label === undefined) return `${before}(${DIRECTIVE_MARKERS[name]})`
             return whole
           })

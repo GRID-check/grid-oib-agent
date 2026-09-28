@@ -173,8 +173,6 @@ describe('answerMetaToAnatomy topic carry-through', () => {
     })
     expect(anatomy?.topic).toBe('Geländerhöhe bei Balkonen')
     expect(anatomy?.context).toBe('Neubau in GK 4.')
-    // Cross-card coordination still sees cards only.
-    expect(anatomy?.all).toEqual([])
     expect(anatomy?.below).toEqual([])
   })
 
@@ -187,7 +185,6 @@ describe('answerMetaToAnatomy topic carry-through', () => {
     })
     expect(anatomy?.topic).toBe('Geländerhöhe bei Balkonen')
     expect(anatomy?.verdict?.type).toBe('verdict_header')
-    expect(anatomy?.all).toHaveLength(1)
   })
 
   test('no anatomy without anything renderable', () => {

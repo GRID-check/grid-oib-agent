@@ -31,6 +31,8 @@ import { vi, describe, test, expect } from 'vitest'
 import { AgentResponse } from './AgentResponse'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { ChatStoreWithHydration } from '../store'
+import type { GridCard } from '@/shared/cards/schemas'
+import { CARD_PREVIEW_FIXTURES } from '@/features/grid-cards/preview-fixtures'
 
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
@@ -45,18 +47,8 @@ vi.mock('../store', () => ({
 vi.mock('@/adapters/api', () => ({ cancelJob: vi.fn() }))
 vi.mock('@/adapters/auth', () => ({ useAuth: () => ({ accessToken: null }) }))
 /** Two cards, told apart by their titles rather than by their order. */
-const PLACED = {
-  type: 'summary' as const,
-  title: 'Platzierte Karte',
-  content: 'Zusammenfassung.',
-  key_points: null,
-}
-const UNPLACED = {
-  type: 'summary' as const,
-  title: 'Nachgestellte Karte',
-  content: 'Zweite Zusammenfassung.',
-  key_points: null,
-}
+const PLACED = { ...CARD_PREVIEW_FIXTURES.calculation!, title: 'Platzierte Karte' } as GridCard
+const UNPLACED = { ...CARD_PREVIEW_FIXTURES.calculation!, title: 'Nachgestellte Karte' } as GridCard
 
 /** The answer as the reader reads it, whitespace collapsed. */
 const readable = (container: HTMLElement): string =>

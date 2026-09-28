@@ -237,15 +237,15 @@ describe('every label an exported card can print is a translated word', () => {
     // Guards the guard: a traversal that stopped following `$ref`s, or a
     // classification that called everything chrome, would leave the assertions
     // above asserting nothing.
-    expect(walkedTypes.length).toBeGreaterThan(30)
-    expect(labelledFields.size).toBeGreaterThan(100)
+    expect(walkedTypes.length).toBeGreaterThan(8)
+    expect(labelledFields.size).toBeGreaterThan(50)
     // The deep path is the one a shallower walk would lose first.
     expect(labelledFields.get('factor')).toContain('calculation.steps.operands.factor')
     // Same for the vocabularies: a `enumMembers` that stopped unwrapping
     // `anyOf` would silently stop asking for words for every optional enum.
-    expect(vocabularyAt.size).toBeGreaterThan(40)
+    expect(vocabularyAt.size).toBeGreaterThan(15)
     expect(vocabularyAt.get('calculation.limit.comparator')).toContain('between')
-    expect(vocabularyAt.get('document_checklist.items.status')).toContain('present')
+    expect(vocabularyAt.get('stair_diagram.riser_height.status')).toContain('needs_input')
   })
 })
 

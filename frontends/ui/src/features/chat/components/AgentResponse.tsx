@@ -36,7 +36,6 @@ import { remarkFileReferences } from '@/features/layout/lib/file-reference-marke
 import { formatTime } from '@/shared/utils/format-time'
 import { formatDurationElapsed } from '@/lib/format'
 import { GridCardItem, GridCards } from '@/features/grid-cards/components/GridCards'
-import { CardSetProvider } from '@/features/grid-cards/card-set'
 import {
   CALLOUT_SLOT_INDEX,
   hasPlacedCalloutMarker,
@@ -73,7 +72,6 @@ import { turnMemoryItems, type TurnMemoryItem } from '../lib/turn-memory'
 import { answerMetaToAnatomy, summaryDuplicatesBody } from '../lib/answer-meta-cards'
 import { AnatomyBlock, AnatomyMasthead } from './AnswerAnatomy'
 import { FindingsMatrix } from './FindingsMatrix'
-import { EvidenceBlock } from './EvidenceBlock'
 import type { AnswerKind, AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import type { Finding, Findings } from '@/lib/conversations/message-findings'
 import { ConfidenceChip, type AnswerConfidence } from './ConfidenceChip'
@@ -903,9 +901,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // The answer's structured anatomy, rendered FLAT (`AnswerAnatomy.tsx`) as
   // answer typography: the verdict as the masthead above the prose, the
   // takeaways closing it, the callout beside the paragraph its `[[callout]]`
-  // marker anchors it to — or after the prose when unanchored. The shape set
-  // feeds every CardSetProvider so cross-card rules (charter §A2) see the
-  // anatomy too, even though it never joins the `cards` array.
+  // marker anchors it to — or after the prose when unanchored.
   const anatomy = useMemo(() => answerMetaToAnatomy(answerMeta), [answerMeta])
   // A summary that restates the body's opening is the same statement twice,
   // so the masthead drops it (see `summaryDuplicatesBody` in the module
@@ -959,25 +955,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // The cards the prose did NOT claim. Read off the same body the renderer
   // parses, because the block below has to be built before that parse happens.
   const fallbackCardIndices = useMemo(() => unplacedCardIndices(body, cardCount), [body, cardCount])
-  // An UNPLACED `legal_basis` card is not a fallback-grid item: it surfaces
-  // flat above the prose as the answer's RECHTSGRUNDLAGE block
-  // (`EvidenceBlock`), and leaves the fallback indices so it can never render
-  // twice. The first unplaced one only — a second keeps its framed fallback.
-  // Gated like the fallback block itself (`unplacedIsFinal`): "unplaced" is
-  // read off the body SO FAR, and a marker that has not arrived yet must still
-  // be able to claim the card.
-  const evidenceIndex = useMemo(
-    () => fallbackCardIndices.find((index) => cards?.[index]?.type === 'legal_basis'),
-    [cards, fallbackCardIndices]
-  )
-  const fallbackGridIndices = useMemo(
-    () =>
-      evidenceIndex === undefined
-        ? fallbackCardIndices
-        : fallbackCardIndices.filter((index) => index !== evidenceIndex),
-    [fallbackCardIndices, evidenceIndex]
-  )
-  const evidenceCard = evidenceIndex !== undefined ? cards?.[evidenceIndex] : undefined
   // Whether "unplaced" is final, so the cards no marker claimed may be drawn.
   // A live frame carries cards only once the envelope's `answer` string has
   // closed (the backend reads them after it, ADR-0066), so a streaming answer
@@ -1000,7 +977,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // is provenance (where it stands), not decoration — washes/alarms spend the
   // hue budget elsewhere, never by muting the source signal. Grey chips read
   // as broken, so there is no muted variant and no spend counting here.
-  const cardSet = useMemo(() => [...(cards ?? []), ...(anatomy?.all ?? [])], [cards, anatomy])
   // What a `[[card:N]]` marker in the prose draws. A card the answer has not
   // reached yet (N past the end of `cards`) holds a place while the answer
   // streams, since the cards are written after the prose, and nothing once it
@@ -1017,9 +993,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         if (!anatomy?.callout) return null
         return (
           <div className="block! mb-3">
-            <CardSetProvider cards={cardSet}>
-              <AnatomyBlock card={anatomy.callout} />
-            </CardSetProvider>
+            <AnatomyBlock card={anatomy.callout} />
           </div>
         )
       }
@@ -1030,30 +1004,24 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       if (!card) return index >= (cards?.length ?? 0) ? <CardSlot arrivalKey={arrivalKey} /> : null
       return (
         <CardSlot arrivalKey={arrivalKey}>
-          {/* The whole answer's cards, not just this one: a card placed inline
-              by a marker still has to know what ELSE the answer is carrying —
-              `summary` and `verdict_header` must not both claim the top of it
-              (grid-card-charter.md §A2). See `grid-cards/card-set.tsx`. */}
-          <CardSetProvider cards={cardSet}>
-            <GridCardItem
-              card={card}
-              index={index}
-              projectId={projectId}
-              messageId={cardMessageId}
-              decisionsMustPersist={readOnly}
-            />
-          </CardSetProvider>
+          <GridCardItem
+            card={card}
+            index={index}
+            projectId={projectId}
+            messageId={cardMessageId}
+            decisionsMustPersist={readOnly}
+          />
         </CardSlot>
       )
     },
-    [cards, cardSet, projectId, cardMessageId, anatomy?.callout, arrivalPrefix, readOnly]
+    [cards, projectId, cardMessageId, anatomy?.callout, arrivalPrefix, readOnly]
   )
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
   // derivations of one citation is exactly the defect the model removes.
   const documents = useMemo(
-    () => buildCitationModel({ citations, entries: sourceEntries, cards }),
-    [citations, sourceEntries, cards]
+    () => buildCitationModel({ citations, entries: sourceEntries }),
+    [citations, sourceEntries]
   )
   // The SAME predicate the sources row uses to decide between chips and the
   // "Ohne Quellenbeleg" gap row — so the truncation line never promises
@@ -1190,17 +1158,15 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
               {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
               {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
-                <CardSetProvider cards={cardSet}>
-                  <AnatomyMasthead
-                    verdict={anatomy.verdict}
-                    summary={effectiveSummary}
-                    topic={anatomy.topic}
-                    context={anatomy.context}
-                    kind={answerMeta?.kind}
-                    confidence={answerConfidence}
-                    confidenceReason={answerConfidenceReason}
-                  />
-                </CardSetProvider>
+                <AnatomyMasthead
+                  verdict={anatomy.verdict}
+                  summary={effectiveSummary}
+                  topic={anatomy.topic}
+                  context={anatomy.context}
+                  kind={answerMeta?.kind}
+                  confidence={answerConfidence}
+                  confidenceReason={answerConfidenceReason}
+                />
               )}
               {findings && (
                 <FindingsMatrix
@@ -1226,16 +1192,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   </div>
                 </MarkdownSlotProvider>
               </CardSlotLiveProvider>
-              {/* An unplaced legal basis — flat, right after the prose it grounds: the
-            answer comes first (the prompt's own first rule), then the Fundstelle
-            it argued from. Never in the fallback grid. */}
-              {unplacedIsFinal && evidenceCard?.type === 'legal_basis' && (
-                <div className={LATE_BLOCK_ENTER}>
-                  <CardSetProvider cards={cardSet}>
-                    <EvidenceBlock card={evidenceCard} />
-                  </CardSetProvider>
-                </div>
-              )}
 
               {/* Cards no marker claimed. AFTER the body, never before it: an answer
             that opens with three diagrams has pushed itself below the fold.
@@ -1250,18 +1206,16 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             it inline), then the takeaways. */}
               {!live && anatomyBelow.length > 0 && (
                 <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
-                  <CardSetProvider cards={cardSet}>
-                    {anatomyBelow.map((card) => (
-                      <AnatomyBlock key={card.type} card={card} />
-                    ))}
-                  </CardSetProvider>
+                  {anatomyBelow.map((card) => (
+                    <AnatomyBlock key={card.type} card={card} />
+                  ))}
                 </div>
               )}
-              {unplacedIsFinal && cards && fallbackGridIndices.length > 0 && (
+              {unplacedIsFinal && cards && fallbackCardIndices.length > 0 && (
                 <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
                   <GridCards
                     cards={cards}
-                    indices={fallbackGridIndices}
+                    indices={fallbackCardIndices}
                     projectId={projectId}
                     messageId={cardMessageId}
                     decisionsMustPersist={readOnly}
@@ -1394,17 +1348,15 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               <div className="bg-card flex flex-col gap-2 break-words border-b px-[22px] pb-[17px] pt-[18px]">
                 {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
                 {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
-                  <CardSetProvider cards={cardSet}>
-                    <AnatomyMasthead
-                      verdict={anatomy.verdict}
-                      summary={effectiveSummary}
-                      topic={anatomy.topic}
-                      context={anatomy.context}
-                      kind={answerMeta?.kind}
-                      confidence={answerConfidence}
-                      confidenceReason={answerConfidenceReason}
-                    />
-                  </CardSetProvider>
+                  <AnatomyMasthead
+                    verdict={anatomy.verdict}
+                    summary={effectiveSummary}
+                    topic={anatomy.topic}
+                    context={anatomy.context}
+                    kind={answerMeta?.kind}
+                    confidence={answerConfidence}
+                    confidenceReason={answerConfidenceReason}
+                  />
                 )}
                 {findings && (
                   <FindingsMatrix
@@ -1428,16 +1380,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                     </div>
                   </MarkdownSlotProvider>
                 </CardSlotLiveProvider>
-                {/* An unplaced legal basis — flat, right after the prose it grounds: the
-              answer comes first (the prompt's own first rule), then the Fundstelle
-              it argued from. Never in the fallback grid. */}
-                {unplacedIsFinal && evidenceCard?.type === 'legal_basis' && (
-                  <div className={LATE_BLOCK_ENTER}>
-                    <CardSetProvider cards={cardSet}>
-                      <EvidenceBlock card={evidenceCard} />
-                    </CardSetProvider>
-                  </div>
-                )}
 
                 {/* Cards no marker claimed. AFTER the body, never before it: an answer
               that opens with three diagrams has pushed itself below the fold.
@@ -1450,18 +1392,16 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               it inline), then the takeaways. */}
                 {!live && anatomyBelow.length > 0 && (
                   <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
-                    <CardSetProvider cards={cardSet}>
-                      {anatomyBelow.map((card) => (
-                        <AnatomyBlock key={card.type} card={card} />
-                      ))}
-                    </CardSetProvider>
+                    {anatomyBelow.map((card) => (
+                      <AnatomyBlock key={card.type} card={card} />
+                    ))}
                   </div>
                 )}
-                {unplacedIsFinal && cards && fallbackGridIndices.length > 0 && (
+                {unplacedIsFinal && cards && fallbackCardIndices.length > 0 && (
                   <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
                     <GridCards
                       cards={cards}
-                      indices={fallbackGridIndices}
+                      indices={fallbackCardIndices}
                       projectId={projectId}
                       messageId={cardMessageId}
                       decisionsMustPersist={readOnly}

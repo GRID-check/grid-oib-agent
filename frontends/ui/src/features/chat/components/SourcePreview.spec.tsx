@@ -1,7 +1,7 @@
 import { render, screen, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
-import { buildCitationModel, type CitationRef } from '../lib/citations'
+import { buildCitationModel, CitationAccumulator, type CitationRef } from '../lib/citations'
 import type { CitationSource } from '../types'
 import {
   SourcePreviewChip,
@@ -282,9 +282,9 @@ describe('SourcePreviewChip', () => {
   })
 
   test('a source with nothing beyond its name stays a plain, non-interactive chip', () => {
-    const [document] = buildCitationModel({
-      cards: [{ type: 'legal_basis', law: 'OIB-Richtlinie 2' } as never],
-    })
+    const accumulator = new CitationAccumulator()
+    accumulator.add({ identity: { label: 'OIB-Richtlinie 2' }, title: 'OIB-Richtlinie 2' })
+    const [document] = accumulator.build()
     render(<SourcePreviewChip citation={{ document: document! }} />)
 
     expect(screen.getByText('OIB-Richtlinie 2')).toBeInTheDocument()

@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { buildCitationModel, type CitedDocument } from './citations'
+import { buildCitationModel, CitationAccumulator, type CitedDocument } from './citations'
 import type { CitationSource } from '../types'
 import {
   answerMarkdown,
@@ -121,16 +121,9 @@ describe('sourcesMarkdown', () => {
   })
 
   it('lists a source the answer leaned on without numbering as a bullet', () => {
-    const documents = buildCitationModel({
-      cards: [
-        {
-          type: 'legal_basis',
-          law: 'Wiener Bauordnung',
-          article: '§ 87',
-          original_text: 'Der Fluchtweg …',
-        },
-      ] as never,
-    })
+    const accumulator = new CitationAccumulator()
+    accumulator.add({ identity: { label: 'Wiener Bauordnung § 87' }, title: 'Wiener Bauordnung § 87' })
+    const documents = accumulator.build()
 
     expect(hasCopyableSources(documents)).toBe(true)
     expect(sourcesMarkdown(documents, labels)).toContain('- Wiener Bauordnung')
@@ -161,7 +154,7 @@ describe('answerMarkdownWithSources', () => {
 
 describe('answerMarkdown and the answer dialect', () => {
   it('copies the Markdown a directive wraps, never the fences', () => {
-    const copied = answerMarkdown(':::verfahren\n1. Einreichung :aktuell\n2. Bescheid\n:::\n\n[[card:1]]')
+    const copied = answerMarkdown(':::procedure\n1. Einreichung :current\n2. Bescheid\n:::\n\n[[card:1]]')
     expect(copied).toContain('1. Einreichung (aktuell)')
     expect(copied).not.toContain(':::')
     expect(copied).not.toContain('[[card:')

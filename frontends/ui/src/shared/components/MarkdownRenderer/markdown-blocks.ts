@@ -22,7 +22,7 @@
  *   a blank line and still belong to the block above it, so neither needs a
  *   rule: a line that turns the paragraph above into a heading or a table
  *   changes that block's own source, and the block is parsed again.
- * - A directive block (`:::pruefung` … `:::`) is one construct however many
+ * - A directive block (`:::check` … `:::`) is one construct however many
  *   blank lines it holds, so no cut is made while one is open; an unclosed
  *   one (a streamed answer) runs to the end, as `remark-directive` runs it.
  * - Some constructs reach across blocks: a link reference definition
@@ -133,7 +133,7 @@ export function splitMarkdownBlocks(markdown: string, minChars: number = MIN_BLO
   let holdsList = false
   let fence: Fence | null = null
   // Blocks open before each line, from the dialect's one fence scanner: a
-  // line inside a `:::pruefung` is never a place to cut.
+  // line inside a `:::check` is never a place to cut.
   const depths = directiveDepths(lines)
 
   lines.forEach((line, index) => {

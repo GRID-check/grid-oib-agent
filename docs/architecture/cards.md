@@ -190,19 +190,19 @@ stays with the schematic cards, where the renderer draws to scale
 
 The rest of what the retired cards carried is Markdown the model declares with
 a small directive dialect, taught in `piloti_static.md` <formatting> (RICH
-BLOCKS) and drawn by the frontend: `:::pruefung` around a check table (a value
-against a `≥`/`≤` limit draws as a bar), `:::verfahren` around a straight
-Verfahren's numbered list (the current step marked `:aktuell`, its Unterlagen in
-an indented `:::details`), `:::faelle` around a table of cases (this project's
-row carries Status `trifft zu`), `:::kennzahlen` for two to four key numbers,
-`:::vergleich` for variants as columns, `:::details[…]` for detail, `:klasse[B]`
+BLOCKS) and drawn by the frontend: `:::check` around a check table (a value
+against a `≥`/`≤` limit draws as a bar), `:::procedure` around a straight
+Verfahren's numbered list (the current step marked `:current`, its Unterlagen in
+an indented `:::details`), `:::cases` around a table of cases (this project's
+row carries Status `trifft zu`), `:::metrics` for two to four key numbers,
+`:::compare` for variants as columns, `:::details[…]` for detail, `:energy-class[B]`
 for an Energieeffizienzklasse, and a cited quote line `> „…“ [N]` for the
 wording an answer turns on, verified against the source like every quote
 (`verify_quoted_spans`). The backend treats the directive lines as inert text:
 citation verification, renumbering, quote verification and the report hygiene
 pass keep them byte-equal (`tests/aiq_agent/agents/piloti/test_answer_pipeline_directives.py`;
 the hygiene pass keeps a line's leading indentation and never pulls the space
-out of „Klasse :klasse[B]").
+out of „Klasse :energy-class[B]").
 
 ### The five IFC cards carry identifiers, not numbers
 
@@ -755,12 +755,10 @@ charter migrates a card when a sprint touches it rather than in one flag day, so
 a card joins the list when it is clean, and a card already on it cannot regress.
 Adding a new card? Put it on the list from the start.
 
-One cross-card rule exists and only one: `summary` drops its 17px headline to
-`card-title` when the answer also carries a `verdict_header`, so the two do not
-both claim the top. It reads `features/grid-cards/card-set.tsx`, whose provider
-must wrap anything that renders cards — `GridCards` does it, and so does
-`AgentResponse`'s inline `[[card:N]]` slot, because neither sees the whole
-answer's card array on its own.
+No cross-card rule is left. The one there was (`summary` dropping its 17px
+headline under a `verdict_header`) left with both types (ADR-0069), and with it
+the provider that let a card read its neighbours: a card's look depends on its
+own payload alone.
 
 ## Interactive cards: the answer MUST be persisted
 

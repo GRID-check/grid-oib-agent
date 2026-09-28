@@ -71,7 +71,7 @@ export const common: typeof en.common = {
     caseApplies: 'trifft zu',
     recommended: 'empfohlen',
     excerptSource: 'Fundstelle',
-    energyClass: 'Energieeffizienzklasse {klasse}',
+    energyClass: 'Energieeffizienzklasse {rating}',
     details: 'Details',
     figureLimit: 'Grenzwert',
   },

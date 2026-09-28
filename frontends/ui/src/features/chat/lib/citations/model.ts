@@ -173,11 +173,10 @@ export interface CitedDocument {
   /** Tool that produced the hit. */
   tool?: string
   /**
-   * Card-authored excerpt (`legal_basis.original_text`). Only set for documents
-   * that came from a card rather than from retrieval, which have no loci.
+   * The passage the wire stated for this document, when it stated one.
    */
   snippet?: string
-  /** Every place in this document the turn read or cited. Never empty except for cards. */
+  /** Every place in this document the turn read or cited. Empty only for a label-only source. */
   loci: CitationLocus[]
 }
 
@@ -190,7 +189,7 @@ export interface CitedDocument {
  * (`oib-rl_2_ausgabe_mai_2023.pdf`) or a human label (`OIB-Richtlinie 2`).
  *
  * The shared key that collapses the two provenance streams — a KB citation and
- * a `legal_basis` card naming the SAME Richtlinie — onto one document. It
+ * a bare name for the SAME Richtlinie — onto one document. It
  * ignores edition and section deliberately: neither changes WHICH document is
  * cited. Returns null for anything not recognisably OIB, so every other source
  * keeps its own (collection, filename) / URL identity untouched.
@@ -240,9 +239,9 @@ const OIB_NAME_NOISE_RE =
  * The OIB key of a name that IS an OIB corpus document, or null.
  *
  * `oibDocumentKey` answers "does this name mention OIB-Richtlinie 6", which is
- * the right question for a `legal_basis` card — a card's `law` field IS the law
- * — and the wrong one for a FILE. „OIB-Richtlinie 6 Kommentar.pdf" is a project
- * upload ABOUT a Richtlinie, and merging it into the card that names the
+ * the right question for a bare law name — the name IS the law — and the wrong
+ * one for a FILE. „OIB-Richtlinie 6 Kommentar.pdf" is a project
+ * upload ABOUT a Richtlinie, and merging it into the name that names the
  * Richtlinie made two sources one chip whose page-9 locus opened somebody's
  * commentary in place of the base-law document. The shelf rule does not save it:
  * a source known only from the answer's written list carries no shelf at all.
@@ -342,7 +341,7 @@ export interface DocumentIdentityInput {
   fileName?: string
   collection?: string
   url?: string
-  /** Any human label — a card's law name, a chip label, a citation key. */
+  /** Any human label — a law name, a chip label, a citation key. */
   label?: string
 }
 
@@ -359,7 +358,7 @@ export interface DocumentIdentityInput {
  *     and legacy persisted messages carry no collection);
  *  4. normalized URL;
  *  5. the canonical OIB key, for an observation that names a Richtlinie and
- *     nothing else — a `legal_basis` card;
+ *     nothing else — a bare law name;
  *  6. the label, as a last resort so a source is never silently dropped.
  *
  * THE OIB KEY IS LAST, NOT FIRST. It used to win outright, and it deliberately
@@ -377,7 +376,7 @@ export interface DocumentIdentityInput {
  * while its page carried on pointing into the Richtlinie. That is the identity
  * collapse ADR-0047 exists to prevent.
  *
- * The one thing the key was actually FOR — letting a card that knows only
+ * The one thing the key was actually FOR — letting a name that knows only
  * „OIB-Richtlinie 2" join the citation of that Richtlinie — is a MERGE, not an
  * identity, and it is done as one (see `CitationAccumulator.find`).
  */
@@ -394,7 +393,7 @@ export const documentIdentity = (input: DocumentIdentityInput): string => {
   }
   const url = input.url?.trim()
   if (url) return `url:${normalizeUrl(url)}`
-  // Nothing structured: this is a card naming a law. The OIB key is its
+  // Nothing structured: this is a bare name for a law. The OIB key is its
   // identity because the law name is all it has, and it is what lets the same
   // Richtlinie cited from retrieval find it (`CitationAccumulator.find`).
   const oib = oibDocumentKey(input.label)
@@ -496,7 +495,7 @@ export const hostnameOf = (url: string): string | null => {
  *
  * `kind` is what the backend classified (ADR-0026) and is always preferred.
  * The fallbacks exist for messages persisted before the wire carried it and
- * for card-derived documents: lane → kind uses the same shared table the
+ * for label-only documents: lane → kind uses the same shared table the
  * backend applies, and the origin/URL heuristics are last.
  */
 export const resolveKind = (source: {
@@ -703,7 +702,7 @@ export const compareDocuments = (a: CitedDocument, b: CitedDocument): number => 
 /**
  * Builds {@link CitedDocument}s by folding in one observation at a time.
  *
- * Producers (structured wire, written source entries, trace lanes, cards) each
+ * Producers (structured wire, written source entries, trace lanes) each
  * contribute what they know; the accumulator merges on identity and keeps the
  * more specific value field by field. Order of contribution does not change the
  * result, which is what lets a late `citation_use` event raise a locus to cited
@@ -785,7 +784,7 @@ export class CitationAccumulator {
     // Read off the NAME rather than off `id`, which is where it used to come
     // from: the OIB key is no longer an identity (it collapsed two revisions of
     // one corpus document into each other), so an identity that starts with
-    // `oib:` is now only the label-only card. The name is what the inference
+    // `oib:` is now only the label-only document. The name is what the inference
     // always actually meant.
     const laneFromIdentity = oibKeyFrom(observation.fileName || observation.identity.label)
       ? 'baurecht_oib'
@@ -952,11 +951,11 @@ export class CitationAccumulator {
   }
 
   /**
-   * The corpus document a `legal_basis` card's law name refers to, or the card
+   * The corpus document a bare law name refers to, or the label-only document
    * a corpus citation should join.
    *
-   * This is what the canonical OIB key is FOR: a card knows „OIB-Richtlinie 2"
-   * and no filename, retrieval knows `oib-rl_2_ausgabe_mai_2023.pdf` and no law
+   * This is what the canonical OIB key is FOR: a written entry knows
+   * „OIB-Richtlinie 2" and no filename, retrieval knows `oib-rl_2_ausgabe_mai_2023.pdf` and no law
    * name, and they are one document. Doing it here rather than in
    * `documentIdentity` is the whole point — as an IDENTITY the key also
    * collapsed two revisions of one corpus list, and swallowed a project upload
@@ -966,7 +965,7 @@ export class CitationAccumulator {
    * are two documents, whatever their names suggest; a match here requires one
    * of them to have nothing but a law name to go on.
    *
-   * And only against the base corpus. A Richtlinie is base law: a card naming
+   * And only against the base corpus. A Richtlinie is base law: a name for
    * one must never attach itself to a project upload or a private attachment
    * that mentions it, which is the cross-shelf half of the same defect. A
    * document whose shelf is UNKNOWN stays eligible — it contradicts nothing —
@@ -979,7 +978,7 @@ export class CitationAccumulator {
     fileName: string | null | undefined
   ): CitedDocument | undefined {
     const incomingOib = id.startsWith(OIB_IDENTITY_PREFIX) ? id : null
-    // The incoming observation names a file; look for a card holding its key.
+    // The incoming observation names a file; look for a label holding its key.
     const incomingKey = incomingOib ?? oibCorpusKey(fileName ?? title)
     if (!incomingKey) return undefined
     // The shelf rule applies to BOTH sides. Cards run last today, so the
@@ -991,7 +990,7 @@ export class CitationAccumulator {
 
     for (const doc of this.docs.values()) {
       const heldIsLabelOnly = doc.id.startsWith(OIB_IDENTITY_PREFIX)
-      // One side, and only one side, must be the label-only card.
+      // One side, and only one side, must be the label-only document.
       if (heldIsLabelOnly === Boolean(incomingOib)) continue
       if (!isBaseOrUnknownShelf(doc.shelf)) continue
       const heldKey = heldIsLabelOnly ? doc.id : oibCorpusKey(doc.fileName ?? doc.title)

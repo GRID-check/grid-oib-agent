@@ -21,20 +21,20 @@ const catalog = {
   featureRequest: FEATURE_REQUEST,
   cards: [
     {
-      type: 'parking_requirement',
-      model: 'ParkingRequirementCard',
-      summary: 'A parking-provision card: required vs provided count.',
+      type: 'stair_diagram',
+      model: 'StairDiagramCard',
+      summary: 'A staircase drawn to scale with step-geometry checks.',
       emittedBy: 'agent',
       interaction: 'presentational',
       fields: [
         {
-          name: 'car_spaces',
+          name: 'riser_height',
           type: 'DimensionCheck',
           required: true,
-          description: 'Provided vs required Kfz-Stellplätze',
+          description: 'Provided vs required Steigung',
           constraints: [],
         },
-        { name: 'basis', type: 'string', required: false, description: 'How it is derived', constraints: [] },
+        { name: 'comfort_note', type: 'string', required: false, description: 'The comfort rule', constraints: [] },
       ],
     },
     {
@@ -69,11 +69,11 @@ describe('PlatformCards', () => {
   test('renders each catalogued card as an actual card, not a description of one', async () => {
     render(<PlatformCards />)
 
-    const entry = await screen.findByTestId('platform-card-parking_requirement')
+    const entry = await screen.findByTestId('platform-card-stair_diagram')
     // The real renderer ran: the fixture's title is on screen, which no amount
     // of catalog metadata would produce on its own.
-    expect(within(entry).getByText(/Stellplatznachweis/)).toBeInTheDocument()
-    expect(within(entry).getByText('parking_requirement')).toBeInTheDocument()
+    expect(within(entry).getByText(/Treppenlauf/)).toBeInTheDocument()
+    expect(within(entry).getByText('stair_diagram')).toBeInTheDocument()
   })
 
   test('a card that needs real data is described, not faked', async () => {
@@ -104,7 +104,7 @@ describe('PlatformCards', () => {
     expect(within(interactive).getByText(/asks the user/i)).toBeInTheDocument()
     expect(within(interactive).getByText(/system-emitted/i)).toBeInTheDocument()
 
-    const plain = screen.getByTestId('platform-card-parking_requirement')
+    const plain = screen.getByTestId('platform-card-stair_diagram')
     expect(within(plain).queryByText(/asks the user/i)).not.toBeInTheDocument()
   })
 
@@ -112,10 +112,10 @@ describe('PlatformCards', () => {
     const user = userEvent.setup()
     render(<PlatformCards />)
 
-    const entry = await screen.findByTestId('platform-card-parking_requirement')
+    const entry = await screen.findByTestId('platform-card-stair_diagram')
     await user.click(within(entry).getByRole('button', { name: /show values \(2\)/i }))
 
-    expect(within(entry).getByText('car_spaces')).toBeInTheDocument()
+    expect(within(entry).getByText('riser_height')).toBeInTheDocument()
     expect(within(entry).getByText('DimensionCheck')).toBeInTheDocument()
     expect(within(entry).getByText(/Provided vs required/)).toBeInTheDocument()
   })
@@ -123,7 +123,7 @@ describe('PlatformCards', () => {
   test('always offers somewhere to ask for what is missing', async () => {
     render(<PlatformCards />)
 
-    await screen.findByTestId('platform-card-parking_requirement')
+    await screen.findByTestId('platform-card-stair_diagram')
     const links = screen.getAllByRole('link', { name: /request a card/i })
     // Header and foot: the reader who scrolled every card without finding
     // theirs is exactly the one with a request to file.
@@ -140,10 +140,10 @@ describe('PlatformCards', () => {
     render(<PlatformCards />)
 
     expect(await screen.findByText(/could not load the card catalog/i)).toBeInTheDocument()
-    expect(screen.queryByTestId('platform-card-parking_requirement')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('platform-card-stair_diagram')).not.toBeInTheDocument()
 
     fetchMock.mockResolvedValueOnce(jsonResponse(catalog))
     await user.click(screen.getByRole('button', { name: /retry/i }))
-    expect(await screen.findByTestId('platform-card-parking_requirement')).toBeInTheDocument()
+    expect(await screen.findByTestId('platform-card-stair_diagram')).toBeInTheDocument()
   })
 })

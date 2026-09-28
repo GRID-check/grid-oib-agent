@@ -49,7 +49,7 @@ const SKILL = {
 5. Nenne jede Abweichung mit der genauen Klausel und einem konkreten Korrekturvorschlag.
 
 Nenne fehlende Angaben ausdrücklich als fehlend — nie als erfüllt.`,
-  metadata: { 'grid-hidden': 'true', 'grid-cards': 'legal_basis' },
+  metadata: { 'grid-hidden': 'true', 'grid-cards': 'calculation' },
 }
 
 const FINDINGS = {

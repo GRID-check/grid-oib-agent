@@ -80,7 +80,7 @@ describe('the card union covers the canonical catalog', () => {
     // to catch a mapping that has gone empty or tiny, and one pinned to today's
     // number would fire on the legitimate retirement of a single card type —
     // the case the assertion below is supposed to report in its own words.
-    expect(CATALOG_TYPES.length).toBeGreaterThan(30)
+    expect(CATALOG_TYPES.length).toBeGreaterThan(15)
   })
 
   it('parses every card type shared/cards/schemas.json declares', () => {

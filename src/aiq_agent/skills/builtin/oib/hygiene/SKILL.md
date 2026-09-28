@@ -31,7 +31,7 @@ Die Bestimmung liefert den Grenzwert. Eine Zahl ohne Herkunft ist behauptet.
 ## 3. Zeigen
 
 Belichtung mit Prisma und Glasanteil → `daylight_incidence`.
-Mehrere Anforderungen nebeneinander → als Prüftabelle (`:::pruefung`, Status-Spalte).
+Mehrere Anforderungen nebeneinander → als Prüftabelle (`:::check`, Status-Spalte).
 Die Stelle, an deren Wortlaut die Antwort hängt → als Zitatzeile `> „…“ [N]`.
 
 ## Was schiefläuft

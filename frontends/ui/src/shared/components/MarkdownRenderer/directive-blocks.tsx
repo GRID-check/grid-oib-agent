@@ -119,7 +119,7 @@ export function AnswerBlock({ node, children }: NodeProps) {
   const name = prop(node, 'dataBlock') ?? ''
   if (name === 'details') return <DetailsBlock node={node}>{children}</DetailsBlock>
   return (
-    <div data-block={name} className={name === 'vergleich' ? '@container/compare' : undefined}>
+    <div data-block={name} className={name === 'compare' ? '@container/compare' : undefined}>
       {children}
     </div>
   )
@@ -131,7 +131,7 @@ export function AnswerBlock({ node, children }: NodeProps) {
 
 const PHASES = new Set<StepPhase>(['none', 'done', 'current', 'upcoming'])
 
-/** One step of a `:::verfahren`: its line, and what opens beneath it. */
+/** One step of a `:::procedure`: its line, and what opens beneath it. */
 export function StepItem({ node, children }: NodeProps) {
   const t = useTranslations('common')
   const [open, setOpen] = useState(false)
@@ -210,15 +210,15 @@ export function Figure({ node, children }: NodeProps) {
 export function AnswerMarker({ node }: NodeProps) {
   const t = useTranslations('common')
   const marker = prop(node, 'dataMarker')
-  if (marker === 'aktuell') return <MarkChip>{t('markdown.stepCurrent')}</MarkChip>
-  if (marker === 'trifft') return <MarkChip>{t('markdown.caseApplies')}</MarkChip>
-  if (marker === 'empfohlen') return <MarkChip>{t('markdown.recommended')}</MarkChip>
+  if (marker === 'current') return <MarkChip>{t('markdown.stepCurrent')}</MarkChip>
+  if (marker === 'applies') return <MarkChip>{t('markdown.caseApplies')}</MarkChip>
+  if (marker === 'recommended') return <MarkChip>{t('markdown.recommended')}</MarkChip>
   return null
 }
 
 export function AnswerEnergy({ node, children }: NodeProps) {
-  const klasse = prop(node, 'dataClass')
-  return klasse ? <EnergyClassChip klasse={klasse} /> : <>{children}</>
+  const rating = prop(node, 'dataClass')
+  return rating ? <EnergyClassChip rating={rating} /> : <>{children}</>
 }
 
 /** A blockquote; one ending in a citation is a Fundstelle excerpt with its source in the margin. */

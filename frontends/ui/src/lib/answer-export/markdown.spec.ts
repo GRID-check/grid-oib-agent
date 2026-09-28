@@ -68,14 +68,14 @@ describe('markdownToBlocks — the answer dialect', () => {
   it('prints a check as its table, a details block open, and an energy class as its letter', () => {
     const blocks = markdownToBlocks(
       [
-        ':::pruefung',
+        ':::check',
         '| Anforderung | Ist | Soll |',
         '|---|---|---|',
         '| Trittschall | 57 dB | ≥ 55 dB |',
         ':::',
         '',
         ':::details[Herleitung]',
-        'Klasse :klasse[B] laut Energieausweis.',
+        'Klasse :energy-class[B] laut Energieausweis.',
         ':::',
       ].join('\n')
     )

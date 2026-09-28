@@ -206,7 +206,7 @@ describe('folding', () => {
 
     deliver(answered.filter((event) => event.seq === 14 || event.seq === 15))
     // The card flushed the delta before it, without waiting.
-    expect(bubble()!.cards?.[0]?.type).toBe('verdict_header')
+    expect(bubble()!.cards?.[0]?.type).toBe('egress_diagram')
     expect(bubble()!.content).toBe(useChatStore.getState().turns[TURN]!.text)
   })
 

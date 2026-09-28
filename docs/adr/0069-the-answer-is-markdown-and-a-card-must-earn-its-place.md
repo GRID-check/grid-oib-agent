@@ -54,7 +54,7 @@ the positions above are practice, not measurement.
 2. **Plain Markdown, richness inferred.** Tables and lists only; the renderer
    reads header words („Ist/Soll", „Status") to decide how to draw them.
 3. **Markdown with a small directive dialect.** The model declares the
-   block (`:::pruefung`, `:::verfahren`, …) around ordinary Markdown; the
+   block (`:::check`, `:::procedure`, …) around ordinary Markdown; the
    renderer draws it; copy and export strip it.
 4. **Model-generated pages.** The model writes HTML or a bespoke layout per
    answer (Gemini's dynamic view, Claude's inline visuals).
@@ -102,15 +102,15 @@ words) loses its drawing to a synonym or a typo. The dialect is GFM + math +
 mermaid + a handful of `remark-directive` blocks (the generic-directive
 syntax Docusaurus and others use), each a container around ordinary Markdown:
 
-- `:::pruefung`: a check table; status pills, a value-vs-limit bar per row,
+- `:::check`: a check table; status pills, a value-vs-limit bar per row,
   „Dazu fragen" on an open row.
-- `:::verfahren`: a straight Verfahren as a step rail; the step the project
+- `:::procedure`: a straight Verfahren as a step rail; the step the project
   stands at marked, a step's documents in a nested `:::details`.
-- `:::faelle`: cases (Gebäudeklasse, Lage), this project's marked `trifft zu`.
-- `:::kennzahlen`: two to four key numbers as tiles.
-- `:::vergleich`: variants as columns, the recommended one marked.
+- `:::cases`: cases (Gebäudeklasse, Lage), this project's marked `trifft zu`.
+- `:::metrics`: two to four key numbers as tiles.
+- `:::compare`: variants as columns, the recommended one marked.
 - `:::details[…]`: anything that is detail, not answer.
-- `:klasse[B]`: an Energieeffizienzklasse as its colour chip.
+- `:energy-class[B]`: an Energieeffizienzklasse as its colour chip.
 - `> „…" [N]`: the wording that decides the answer, verified like every quote.
 
 A Verfahren that forks or returns is a `flowchart TD` fence. Every block keeps

@@ -63,79 +63,10 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   // where the card says they are).
   file_operation_proposal: 'interactive',
 
-  // Presentation only — no commitment is started, nothing to remember.
-  summary: 'presentational',
-  legal_basis: 'presentational',
-  // Still presentational with the „Dazu fragen" chip on an undecided row: like
-  // the follow-up chips below, it only PREFILLS the composer with a question
-  // built from the row's own words. A queued draft is not a commitment.
-  requirement_checklist: 'presentational',
-  comparison_table: 'presentational',
-  // The verdict, the decision tree, the typed table and the norm chain all only
-  // render what the agent already wrote in the answer — nothing is committed.
-  // Reading a non-active case of the tree is view state for one reader: every
-  // case was already on the client, and picking one decides nothing.
-  verdict_header: 'presentational',
-  condition_tree: 'presentational',
-  typed_table: 'presentational',
-  norm_chain: 'presentational',
-  // The one drawing the renderer does not compute (`components/DiagramCard.tsx`).
-  //
-  // This card HAS the „Im Projekt ablegen" button — the same one the mermaid
-  // FENCE has, through the same `useDiagramFiling` — and is still
-  // `presentational`. That is not a contradiction, and the earlier note here
-  // conflated two things that this entry now keeps apart:
-  //
-  //   - **Should the card offer the action?** Yes, and it always should have.
-  //     Which of the two surfaces a reader gets is not their choice and not a
-  //     property of the drawing — it is whichever shape the model emitted — so
-  //     an affordance on the fence and not here made the same Verfahrensablauf
-  //     saveable by accident.
-  //   - **Should the outcome be PERSISTED as a `CardInteraction`?** No, and
-  //     this is what the classification actually governs. A decision here is a
-  //     `CardDecision` plus a timestamp and NOTHING ELSE, while the thing worth
-  //     remembering about a filed diagram is the id of the document it became —
-  //     the answer's one pointer into the Files pane. Storing `filed` would
-  //     record that it happened, lose where it went, and remove the button that
-  //     could give the id back.
-  //
-  // The button never needed the payload. Filing keys on (answer, source hash,
-  // producer) — `diagramRunId` and migration 0065's index — so a reader who
-  // reloads presses the same control and idempotently gets the same document
-  // and the same link. Nothing is written here, and ADR-0030's own test —
-  // "a decision the user would be annoyed to make twice" — is not met, because
-  // making it twice costs nothing and returns the same answer.
-  //
-  // So the previous note's condition ("the day `CardInteraction` can carry a
-  // payload, this line becomes `'interactive'`") pointed at the wrong thing and
-  // is withdrawn: a payload would let the id be REMEMBERED, which is a nicety,
-  // not the precondition for offering the action.
-  diagram: 'presentational',
-  // The two generic polish cards: expanding a takeaway or a callout's
-  // background is view state for one reader, not a decision — nothing is
-  // written and nothing would be annoying to redo.
-  key_takeaways: 'presentational',
-  callout: 'presentational',
   // The Rechenweg computes its own result from the operands it was given and
   // reveals where those numbers came from on click. Nothing is written, and
   // the disclosure is one reader's view of data that already arrived.
   calculation: 'presentational',
-  // Opening a step of the Verfahren shows what that step needs and produces —
-  // all of it already on the client. Looking at another step decides nothing,
-  // exactly as reading a non-active branch of the condition tree does not.
-  process_map: 'presentational',
-  // The Einreichliste, the Fristen and the impact of a change all only unfold
-  // what the answer already sent. Ticking a document off, starting a clock or
-  // accepting a consequence would be commitments — none of the three offers
-  // any of that, and the click is one reader's view of data already on the
-  // client.
-  document_checklist: 'presentational',
-  deadline_timeline: 'presentational',
-  change_impact: 'presentational',
-  // Follow-up chips only PREFILL the composer — no request, no write, and
-  // the user still presses send. A queued draft they can ignore is not a
-  // decision, so there is nothing to remember across a reload.
-  follow_ups: 'presentational',
   document_grid: 'presentational',
   // Reports a draft the working directory holds, and — once it has been filed,
   // whether by Piloti or by the reader's own press — the project document it
@@ -164,14 +95,7 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   egress_diagram: 'presentational',
   daylight_incidence: 'presentational',
   guardrail_check: 'presentational',
-  density_check: 'presentational',
   fire_access_plan: 'presentational',
-  acoustic_check: 'presentational',
-  fire_compartment: 'presentational',
-  thermal_envelope: 'presentational',
-  energy_performance: 'presentational',
-  elevator_requirement: 'presentational',
-  parking_requirement: 'presentational',
   // The 3D model viewer: orbiting, isolating a storey and selecting an element
   // are view state, not decisions — nothing is written and nothing would be
   // annoying to redo, so there is nothing to persist on the message.

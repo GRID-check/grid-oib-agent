@@ -5,7 +5,7 @@
  * renderer knows Markdown and the dialect, not the chat. Two things in the
  * dialect's blocks are the chat's to draw:
  *
- *  - **a row action.** An open row of a `:::pruefung` („offen", „zu prüfen")
+ *  - **a row action.** An open row of a `:::check` („offen", „zu prüfen")
  *    can be asked about: the chat puts a question built from the row's own
  *    words into the composer („Dazu fragen", `AskAboutChip`). Elsewhere (a
  *    report, the gallery) there is no composer and nothing is drawn.

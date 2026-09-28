@@ -11,7 +11,7 @@ import { MarkdownRenderer } from './MarkdownRenderer'
 import { ExcerptSourceProvider, MarkdownRowActionProvider } from './answer-block-context'
 
 const CHECK = [
-  ':::pruefung',
+  ':::check',
   '| Anforderung | Ist | Soll | Stand |',
   '|---|---|---|---|',
   '| Trittschall | 57 dB | ≥ 55 dB | erfüllt |',
@@ -22,7 +22,7 @@ const CHECK = [
 ].join('\n')
 
 const PASSING = [
-  ':::pruefung',
+  ':::check',
   '| Anforderung | Ist | Soll | Stand |',
   '|---|---|---|---|',
   '| Trittschall | 57 dB | ≥ 55 dB | erfüllt |',
@@ -45,7 +45,7 @@ describe('text that only looks like a directive', () => {
   })
 })
 
-describe(':::pruefung', () => {
+describe(':::check', () => {
   it('finds the status column by its content and marks every row', () => {
     render(<MarkdownRenderer content={CHECK} />)
     expect(screen.getAllByTestId('status-mark')).toHaveLength(4)
@@ -101,11 +101,11 @@ describe(':::pruefung', () => {
   })
 })
 
-describe(':::verfahren', () => {
+describe(':::procedure', () => {
   const STEPS = [
-    ':::verfahren',
+    ':::procedure',
     '1. Vorprüfung durch die Baubehörde',
-    '2. Einreichung der Unterlagen **binnen 6 Wochen** :aktuell',
+    '2. Einreichung der Unterlagen **binnen 6 Wochen** :current',
     '   :::details[Was es braucht]',
     '   Einreichpläne, Baubeschreibung, Energieausweis',
     '   :::',
@@ -136,12 +136,12 @@ describe(':::verfahren', () => {
   })
 })
 
-describe(':::faelle', () => {
+describe(':::cases', () => {
   it('tints the case that applies and mutes the others, in a table', () => {
     const { container } = render(
       <MarkdownRenderer
         content={[
-          ':::faelle',
+          ':::cases',
           '| Fall | Folge | Stand |',
           '|---|---|---|',
           '| Fluchtniveau ≤ 7 m | GK 2 | trifft nicht zu |',
@@ -155,13 +155,13 @@ describe(':::faelle', () => {
     expect(rows[0]).not.toHaveAttribute('data-active')
   })
 
-  it('reads a :trifft marker on a list item', () => {
+  it('reads a :applies marker on a list item', () => {
     const { container } = render(
-      <MarkdownRenderer content={':::faelle\n- Bis 7 m: GK 2\n- Bis 11 m: GK 4 :trifft\n:::'} />
+      <MarkdownRenderer content={':::cases\n- Bis 7 m: GK 2\n- Bis 11 m: GK 4 :applies\n:::'} />
     )
     const items = container.querySelectorAll('li')
     expect(items[1]).toHaveAttribute('data-active', 'true')
-    expect(container.textContent).not.toContain(':trifft')
+    expect(container.textContent).not.toContain(':applies')
   })
 })
 
@@ -174,19 +174,19 @@ describe(':::details', () => {
   })
 })
 
-describe(':klasse', () => {
+describe(':energy-class', () => {
   it('draws an Energieeffizienzklasse on its band, and leaves anything else as text', () => {
-    const { container } = render(<MarkdownRenderer content={'Klasse :klasse[B], nicht :klasse[Z].'} />)
+    const { container } = render(<MarkdownRenderer content={'Klasse :energy-class[B], nicht :energy-class[Z].'} />)
     expect(screen.getByTestId('energy-class')).toHaveAttribute('data-class', 'B')
-    expect(container.textContent).toContain(':klasse[Z]')
+    expect(container.textContent).toContain(':energy-class[Z]')
   })
 })
 
-describe(':::kennzahlen', () => {
+describe(':::metrics', () => {
   it('draws each item as a figure, toned by its limit', () => {
     render(
       <MarkdownRenderer
-        content={':::kennzahlen\n- Bruttogeschoßfläche: 1.180 m² (max. 1.200 m²)\n- Stellplätze: 12 (mind. 14)\n- Geschoße: 4\n:::'}
+        content={':::metrics\n- Bruttogeschoßfläche: 1.180 m² (max. 1.200 m²)\n- Stellplätze: 12 (mind. 14)\n- Geschoße: 4\n:::'}
       />
     )
     const tiles = screen.getAllByTestId('figure-tile')
@@ -196,10 +196,10 @@ describe(':::kennzahlen', () => {
   })
 })
 
-describe(':::vergleich', () => {
+describe(':::compare', () => {
   const COMPARE = [
-    ':::vergleich',
-    '| Kriterium | Außentreppe | Zweites Treppenhaus :empfohlen |',
+    ':::compare',
+    '| Kriterium | Außentreppe | Zweites Treppenhaus :recommended |',
     '|---|---|---|',
     '| Kosten | gering | hoch |',
     '| Fluchtweg | erfüllt | erfüllt |',
@@ -209,7 +209,7 @@ describe(':::vergleich', () => {
   it('highlights the recommended variant and marks status words in every cell', () => {
     const { container } = render(<MarkdownRenderer content={COMPARE} />)
     expect(container.querySelector('th[data-recommended]')).toHaveTextContent('Zweites Treppenhaus')
-    expect(container.textContent).not.toContain(':empfohlen')
+    expect(container.textContent).not.toContain(':recommended')
     expect(container.querySelectorAll('table [data-testid="status-mark"]')).toHaveLength(2)
   })
 
