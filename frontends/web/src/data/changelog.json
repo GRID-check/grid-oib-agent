@@ -51,6 +51,10 @@
               "de": "In den Antwortdetails sehen Sie jetzt, wie viele Credits eine Antwort kostet und – mit Ihrem eigenen Provider-Key – wie viele Tokens. Wenn Sie mit der Maus über die Zeile fahren, sehen Sie, wie viel auf Lesen, Schreiben und Denken entfällt."
             },
             {
+              "en": "The Aufwand slider in the chat input marks its five levels on the track, and the handle glides to the level you pick. With reduced motion turned on in your system settings, it moves there at once.",
+              "de": "Der Aufwand-Slider im Chat-Eingabefeld zeigt seine fünf Stufen auf der Skala an, und der Regler gleitet zur ausgewählten Stufe. Wenn in Ihren Systemeinstellungen „Bewegung reduzieren“ aktiviert ist, wechselt er sofort dorthin."
+            },
+            {
               "en": "A dial beside the send button sets how long Piloti thinks before it answers, from faster to smarter, and each chat keeps its own setting. Administrators choose where a new chat starts under Organisation → Einstellungen.",
               "de": "Ein Drehregler neben dem Senden-Button legt fest, wie lange Piloti vor der Antwort nachdenkt – von schneller bis intelligenter. Jeder Chat behält seine eigene Einstellung. Administratoren wählen unter Organisation → Einstellungen, mit welcher Einstellung neue Chats starten."
             }

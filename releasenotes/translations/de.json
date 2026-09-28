@@ -1656,6 +1656,10 @@
     "de": "Die Aufgabenliste bleibt jetzt aktuell, solange sie sichtbar ist, und wird beim Zurückkehren aktualisiert, statt den Stand vom Öffnen des Tabs anzuzeigen. Anfängliche Einreichungsstatus erscheinen außerdem als Aufgaben in der Warteschlange statt als technische Rohbezeichnungen."
   },
   {
+    "en": "The Aufwand slider in the chat input marks its five levels on the track, and the handle glides to the level you pick. With reduced motion turned on in your system settings, it moves there at once.",
+    "de": "Der Aufwand-Slider im Chat-Eingabefeld zeigt seine fünf Stufen auf der Skala an, und der Regler gleitet zur ausgewählten Stufe. Wenn in Ihren Systemeinstellungen „Bewegung reduzieren“ aktiviert ist, wechselt er sofort dorthin."
+  },
+  {
     "en": "The Automation section now has two tabs: Tasks and Skills. A task can carry its own schedule, and the week timetable is a view inside Tasks rather than a place of its own — old Zeitplan links keep working.",
     "de": "Der Bereich Automation hat jetzt zwei Tabs: Tasks und Skills. Ein Task kann einen eigenen Zeitplan haben, und der Wochenplan ist eine Ansicht innerhalb von Tasks statt eines eigenen Bereichs – alte Zeitplan-Links funktionieren weiterhin."
   },
