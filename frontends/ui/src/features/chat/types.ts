@@ -93,6 +93,8 @@ export type ErrorCode =
   | 'connection.timeout'
   // The server speaks a newer wire than this page (close code 4426): reload.
   | 'connection.client_outdated'
+  // The server does not speak this page's wire (no v2 hello): a deploy fault, not the network.
+  | 'connection.server_incompatible'
   // Auth errors
   | 'auth.session_expired'
   | 'auth.unauthorized'

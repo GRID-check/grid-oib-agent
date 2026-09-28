@@ -498,6 +498,63 @@
       "title": "HeartbeatValue",
       "type": "object"
     },
+    "Hello": {
+      "additionalProperties": false,
+      "description": "The server's first frame on every socket, before it reads any client message.\n\nSent once the version and the caller have been checked, so it says: this\nserver speaks wire v2 and will answer what you send. A connection event, not\na turn's: no ``conversation_id``, ``turn_id`` or ``seq``, never published to\nthe conversation's stream, never replayed. The client sends nothing until it\nhas it, and treats a socket that stays silent, or opens with anything else,\nas a server that does not speak this wire.",
+      "properties": {
+        "name": {
+          "const": "hello",
+          "default": "hello",
+          "title": "Name",
+          "type": "string"
+        },
+        "ts": {
+          "minimum": 0,
+          "title": "Ts",
+          "type": "integer"
+        },
+        "type": {
+          "const": "CUSTOM",
+          "default": "CUSTOM",
+          "title": "Type",
+          "type": "string"
+        },
+        "v": {
+          "const": 2,
+          "default": 2,
+          "title": "V",
+          "type": "integer"
+        },
+        "value": {
+          "$ref": "#/$defs/HelloValue"
+        }
+      },
+      "required": [
+        "ts",
+        "value",
+        "v",
+        "type",
+        "name"
+      ],
+      "title": "Hello",
+      "type": "object"
+    },
+    "HelloValue": {
+      "additionalProperties": false,
+      "properties": {
+        "build": {
+          "description": "The deployed commit (GRID_GIT_SHA), or 'unknown', as /health has it.",
+          "minLength": 1,
+          "title": "Build",
+          "type": "string"
+        }
+      },
+      "required": [
+        "build"
+      ],
+      "title": "HelloValue",
+      "type": "object"
+    },
     "InteractionOption": {
       "additionalProperties": false,
       "properties": {
@@ -1042,7 +1099,7 @@
     },
     "RejectedValue": {
       "additionalProperties": false,
-      "description": "A client message was refused. Out of band: ``seq == 0``, never replayed, never ends a turn.",
+      "description": "A client message was refused. Out of band: ``seq == 0``, never replayed, never ends a turn.\n\n``of`` is the refused message's ``type``, or ``unknown`` for a frame that is\nnot JSON or names no type this contract has: that is answered too, so a\nclient never waits on silence.",
       "properties": {
         "code": {
           "enum": [
@@ -1074,7 +1131,8 @@
             "user_message",
             "interaction_response",
             "cancel_turn",
-            "attach"
+            "attach",
+            "unknown"
           ],
           "title": "Of",
           "type": "string"

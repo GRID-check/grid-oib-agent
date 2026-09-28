@@ -1056,6 +1056,11 @@ export const chat: typeof en.chat = {
       title: 'Piloti wurde aktualisiert',
       message: 'Laden Sie die Seite neu, um weiterzuarbeiten.',
     },
+    serverIncompatible: {
+      title: 'Piloti ist gerade nicht erreichbar',
+      message:
+        'Der Server läuft mit einer anderen Version als diese Seite – das kommt während eines Updates kurz vor. Versuchen Sie es in einigen Minuten erneut; hält es an, melden Sie es dem Support.',
+    },
     connectionTimeout: {
       title: 'Zeitüberschreitung der Anfrage',
       message: 'Die Anfrage hat zu lange gedauert.',

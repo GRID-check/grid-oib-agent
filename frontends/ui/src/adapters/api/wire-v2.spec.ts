@@ -17,7 +17,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { clientMessageSchema, parseWireEvent, type WireEvent } from './wire-v2'
+import { clientMessageSchema, parseHello, parseWireEvent, type WireEvent } from './wire-v2'
 
 function fixtureDir(): string {
   let dir = process.cwd()
@@ -87,6 +87,19 @@ describe('chat wire v2 fixtures', () => {
       const event = parseWireEvent(raw)
       expect(event?.type === 'CUSTOM' && event.name === 'rejected' && event.seq === 0).toBe(true)
     }
+  })
+
+  it('parses the hello, and never as a turn event', () => {
+    const [raw] = lines('hello.jsonl')
+    expect(parseHello(raw)).toMatchObject({ v: 2, name: 'hello', value: { build: expect.any(String) } })
+    expect(parseWireEvent(raw)).toBeNull()
+  })
+
+  it('takes no turn event, and no old frame, for a hello', () => {
+    for (const raw of [...lines('rejected.jsonl'), ...lines('invalid-events.jsonl'), ...lines('turn-answered.jsonl')]) {
+      expect(parseHello(raw)).toBeNull()
+    }
+    expect(parseHello({ v: 3, type: 'CUSTOM', name: 'hello', ts: 1, value: { build: 'x' } })).toBeNull()
   })
 
   it.each(lines('invalid-events.jsonl').map((raw) => [JSON.stringify(raw).slice(0, 80), raw]))(
