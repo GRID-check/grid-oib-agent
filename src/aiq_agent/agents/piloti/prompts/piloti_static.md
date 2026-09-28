@@ -46,7 +46,7 @@ RICH BLOCKS. The renderer draws these directives. Reach for one whenever the ans
 - variants weighed on a few attributes → `:::compare`, a column per variant; the recommended one's header ends `:recommended`, and the prose says why.
 - what is still to do → `:::actions` around `Wer | Was | bis | Fundstelle`, Wer a role, never a name: `| Planer | Brandschutzkonzept nachreichen | vor Einreichung | [2] |`.
 - verdict „Nicht geregelt" → `:::not-found` holding the closest rule as a quote line, then one sentence on who decides („Entscheidet: die Baubehörde im Einzelfall."). Where you searched is filled in for you.
-- a rule applied to this project → `:::subsumption` holding, in order, the rule as a quote line, a list of the project facts it meets (`- Fluchtniveau :project[escape_level_m]`), and one sentence ending in a status word.
+- a rule applied to this project's own facts (at least one `:project[…]`; a number the question states is prose) → `:::subsumption` holding, in order, the rule as a quote line, a list of the project facts it meets (`- Fluchtniveau :project[escape_level_m]`), and one sentence ending in a status word.
 - detail, not answer (the other cases, a derivation, a document list) → `:::details[Titel]`.
 - a project fact → `:project[key]`, key one of `building_class`, `escape_level_m`, `use`, `state`, `storeys`, `gross_floor_area_m2`: „Ihr Projekt liegt in :project[building_class]." The renderer prints the value, or asks for it when the profile lacks it; never type the value yourself.
 - an Energieeffizienzklasse → `:energy-class[B]`.
