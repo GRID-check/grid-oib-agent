@@ -45,6 +45,14 @@
             {
               "en": "Chat answers can now lay out requirement checks, procedure steps, option comparisons and key figures as dedicated blocks, with each check row showing whether the value meets its limit. Copying or exporting an answer keeps the status the page shows.",
               "de": "Chat-Antworten können Anforderungsprüfungen, Verfahrensschritte, Variantenvergleiche und Kennzahlen jetzt als eigene Blöcke darstellen. Jede Prüfzeile zeigt dabei, ob der Wert den Grenzwert einhält. Beim Kopieren oder Exportieren einer Antwort bleibt der auf der Seite angezeigte Status erhalten."
+            },
+            {
+              "en": "An answer's details now show how many credits it cost, and with your own provider key how many tokens. Hovering the line shows how much went to reading, writing and thinking.",
+              "de": "In den Antwortdetails sehen Sie jetzt, wie viele Credits eine Antwort kostet und – mit Ihrem eigenen Provider-Key – wie viele Tokens. Wenn Sie mit der Maus über die Zeile fahren, sehen Sie, wie viel auf Lesen, Schreiben und Denken entfällt."
+            },
+            {
+              "en": "A dial beside the send button sets how long Piloti thinks before it answers, from faster to smarter, and each chat keeps its own setting. Administrators choose where a new chat starts under Organisation → Einstellungen.",
+              "de": "Ein Drehregler neben dem Senden-Button legt fest, wie lange Piloti vor der Antwort nachdenkt – von schneller bis intelligenter. Jeder Chat behält seine eigene Einstellung. Administratoren wählen unter Organisation → Einstellungen, mit welcher Einstellung neue Chats starten."
             }
           ]
         },

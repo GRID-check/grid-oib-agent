@@ -96,6 +96,10 @@
     "de": "Ein im Projekt abgelegtes Diagramm sagt jetzt in der Datei selbst, dass Piloti es gezeichnet hat, im Titel der SVG und in den Dokumenteigenschaften des PDF. Eine Zeichnung, die das Büro verlässt, kann nicht mehr als von Hand gezeichnet durchgehen."
   },
   {
+    "en": "A dial beside the send button sets how long Piloti thinks before it answers, from faster to smarter, and each chat keeps its own setting. Administrators choose where a new chat starts under Organisation → Einstellungen.",
+    "de": "Ein Drehregler neben dem Senden-Button legt fest, wie lange Piloti vor der Antwort nachdenkt – von schneller bis intelligenter. Jeder Chat behält seine eigene Einstellung. Administratoren wählen unter Organisation → Einstellungen, mit welcher Einstellung neue Chats starten."
+  },
+  {
     "en": "A document Piloti has not read only opens; the preview explains on hover why it cannot be asked about.",
     "de": "Ein Dokument, das Piloti nicht gelesen hat, wird nur geöffnet; die Vorschau erklärt beim Überfahren, warum man dazu nicht fragen kann."
   },
@@ -470,6 +474,10 @@
   {
     "en": "An answer with sound references and one quote that could not be confirmed word for word is now rated medium instead of low, and the quote stays marked.",
     "de": "Eine Antwort mit belegten Fundstellen und einem einzelnen, nicht wörtlich bestätigten Zitat wird jetzt mit „mittel“ statt „niedrig“ eingeschätzt, und das Zitat bleibt markiert."
+  },
+  {
+    "en": "An answer's details now show how many credits it cost, and with your own provider key how many tokens. Hovering the line shows how much went to reading, writing and thinking.",
+    "de": "In den Antwortdetails sehen Sie jetzt, wie viele Credits eine Antwort kostet und – mit Ihrem eigenen Provider-Key – wie viele Tokens. Wenn Sie mit der Maus über die Zeile fahren, sehen Sie, wie viel auf Lesen, Schreiben und Denken entfällt."
   },
   {
     "en": "An archived document no longer turns up as a source in answers, whoever wrote it. The file and its versions stay where they were; archiving is not deleting.",
