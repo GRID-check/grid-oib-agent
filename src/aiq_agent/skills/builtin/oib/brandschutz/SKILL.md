@@ -39,7 +39,7 @@ Ein Fluchtweg aus Segmenten, deren Summe geprüft wird → `egress_diagram`. Die
 Segmente einzeln, nie nur die Summe: die Frage ist fast immer, *welches*
 Segment zu lang ist.
 Zufahrt, Durchfahrt, Aufstellfläche → `fire_access_plan`.
-Mehrere Anforderungen, jede mit eigenem Urteil → als Prüftabelle (`:::check`, Status-Spalte).
+Mehrere Anforderungen, jede mit eigenem Urteil → als Prüftabelle mit Status-Spalte.
 Die Stelle, an deren Wortlaut die Antwort hängt → als Zitatzeile `> „…“ [N]`.
 
 ## Done

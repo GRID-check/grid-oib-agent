@@ -47,8 +47,9 @@ Lageplan.
 ## 4. Zeigen
 
 Der Weg Einreichung → Verhandlung → Bewilligung → Fertigstellung → als
-`:::procedure`, der aktuelle Schritt markiert, sobald das Gespräch ihn kennt.
-Das Paket selbst → als Prüftabelle (`:::check`, Status-Spalte), eine Zeile je Unterlage.
+Verfahren (nummerierte Liste, eine Stufe je Zeile), der aktuelle Schritt
+benannt, sobald das Gespräch ihn kennt.
+Das Paket selbst → als Prüftabelle mit Status-Spalte, eine Zeile je Unterlage.
 Die Stelle, an deren Wortlaut die Antwort hängt → als Zitatzeile `> „…“ [N]`.
 
 ## Done

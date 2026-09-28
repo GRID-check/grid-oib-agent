@@ -39,7 +39,7 @@ Grundstück, Fußabdruck, Abstände je Seite → `setback_plan`.
 Bebauungsgrad, GFZ, Flächen gegen die Grenze → `setback_plan` mit `coverage`
 und `density`; die Karte rechnet die Quote aus den Flächen.
 Eine Höhenprüfung über die Geschoße, Fluchtniveau → `building_section`.
-Stellplätze gefordert gegen vorhanden → als `:::metrics`, mit der
+Stellplätze gefordert gegen vorhanden → als Kennzahlen (Wert gegen Grenzwert), mit der
 Bemessungsgrundlage in der Prosa: ohne sie ist die Zahl nicht prüfbar. Eine
 errechnete Stellplatzzahl → `calculation`.
 

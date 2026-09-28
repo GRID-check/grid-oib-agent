@@ -58,8 +58,13 @@ SYSTEM_CARD_TYPES = frozenset(
 #: live model binding that Markdown cannot), so no channel can register one.
 #: This map only makes the refusal useful: a model that reaches for one by name
 #: is told the Markdown (or the card) that replaced it, instead of a validator's
-#: "unknown discriminator" that would send it to the repair model. The dialect
-#: names (`:::check`, …) are the ones `piloti_static.md` <formatting> teaches.
+#: "unknown discriminator" that would send it to the repair model.
+#:
+#: Plain GFM, no `:::` block: these refusals reach deep research (`emit_card`)
+#: and the repair model, and the deep writer's PDF prints a `:::` line as text
+#: until Phase B. The chat envelope never shows them: a retired card there is
+#: turned into its Markdown instead (:func:`retired_card_markdown`), and the
+#: chat's own prompt maps each shape to its block.
 RETIRED_CARD_REPLACEMENTS: dict[str, str] = {
     "summary": "the answer's first sentence, or the `summary` field of your ```answer_json envelope",
     "verdict_header": "the `verdict` field of your ```answer_json envelope",
@@ -67,21 +72,21 @@ RETIRED_CARD_REPLACEMENTS: dict[str, str] = {
     "callout": "the `callout` field of your ```answer_json envelope",
     "follow_ups": "nothing: follow-up questions are computed after the answer",
     "typed_table": "a Markdown table in the answer",
-    "comparison_table": "a `:::compare` block: a table with a column per variant",
-    "requirement_checklist": "a `:::check` block: a table with a Status column",
+    "comparison_table": "a Markdown table with a column per variant",
+    "requirement_checklist": "a Markdown table with a Status column (Anforderung | Ist | Soll | Status | Fundstelle)",
     "document_checklist": "a table with a Status column (erforderlich, bedingt, vorhanden, fehlt)",
-    "deadline_timeline": "a `:::procedure` block: a numbered list, each Frist in bold as the Bestimmung words it",
+    "deadline_timeline": "a numbered list, each Frist in bold as the Bestimmung words it",
     "norm_chain": "a table of the instruments, or a ```mermaid flowchart TD with the binding one on top",
     "change_impact": "a table with a row per consequence and its Fundstelle",
     "diagram": "a ```mermaid fence in the answer",
-    "condition_tree": "a `:::cases` block: a table of the cases, this project's row with Status `trifft zu`",
-    "process_map": "a `:::procedure` block around a numbered list; a ```mermaid flowchart TD if it forks",
+    "condition_tree": "a table of the cases, this project's case named once it is known",
+    "process_map": "a numbered list, one step per line; a ```mermaid flowchart TD if it forks",
     "legal_basis": "a cited blockquote in the answer: > „<the passage verbatim>“ [N]",
-    "fire_compartment": "a `:::check` block; a calculation card where the area is worked out",
-    "thermal_envelope": "a `:::check` block (Bauteil | U-Wert | Anforderung | Status | Fundstelle)",
-    "energy_performance": "a `:::metrics` block, the class as :energy-class[B]",
-    "acoustic_check": "a `:::check` block (Bauteil | Nachweis | Anforderung | Status | Fundstelle)",
-    "parking_requirement": "a `:::metrics` block; a calculation card where the count is worked out",
+    "fire_compartment": "a table with a Status column (Anforderung | Ist | Soll | Status | Fundstelle); a calculation card where the area is worked out",
+    "thermal_envelope": "a table with a Status column (Bauteil | Ist | Soll | Status | Fundstelle), the U-Wert in Ist",
+    "energy_performance": "a table of the figures against their limits, the Energieeffizienzklasse named",
+    "acoustic_check": "a table with a Status column (Bauteil | Ist | Soll | Status | Fundstelle), the Nachweis in Ist",
+    "parking_requirement": "a table of the figures against their limits; a calculation card where the count is worked out",
     "density_check": "a setback_plan card with `coverage` / `density`",
     "elevator_requirement": "a dimension_diagram card with shape `lift_cabin`",
 }
@@ -91,6 +96,80 @@ RETIRED_CARD_TYPES: frozenset[str] = frozenset(RETIRED_CARD_REPLACEMENTS)
 def retired_refusal(card_type: str) -> str:
     """The one sentence every channel refuses a retired card type with: what to write instead."""
     return f"card type '{card_type}' no longer exists: write {RETIRED_CARD_REPLACEMENTS[card_type]} instead."
+
+
+#: Keys of a retired payload whose text is a verbatim passage: a quote line.
+_QUOTE_KEYS = ("original_text", "quote", "excerpt")
+#: Keys whose text heads the Markdown: a bold line.
+_TITLE_KEYS = ("title", "law", "subject")
+#: Nothing a reader lost with the card: the discriminator and styling hints.
+_SKIPPED_KEYS = frozenset({"type", "lane", "highlight_index", "current_step", "v"})
+#: Up to this long a text field is a label on the title line, past it a paragraph.
+_LABEL_CHARS = 40
+
+
+def _cell(value: Any) -> str:
+    """One table cell: a scalar as text, anything else as its scalars joined, pipes escaped."""
+    if isinstance(value, dict):
+        value = " · ".join(_cell(item) for item in value.values() if item not in (None, "", [], {}))
+    elif isinstance(value, list):
+        value = ", ".join(_cell(item) for item in value if item not in (None, "", [], {}))
+    return str(value).replace("|", "\\|").replace("\n", " ").strip() if value is not None else ""
+
+
+def _table(header: list[str], rows: list[list[Any]]) -> list[str]:
+    width = len(header)
+    lines = ["| " + " | ".join(_cell(cell) for cell in header) + " |", "|" + "---|" * width]
+    for row in rows:
+        cells = [_cell(cell) for cell in row][:width]
+        lines.append("| " + " | ".join(cells + [""] * (width - len(cells))) + " |")
+    return lines
+
+
+def retired_card_markdown(payload: object) -> str | None:
+    """A retired card's content as the Markdown that replaced it, or ``None`` when it holds none.
+
+    A model that reaches for a retired type on chat put content in it — the
+    quote of a ``legal_basis``, the rows of a ``typed_table``, the steps of a
+    ``process_map`` — that may be nowhere else in the answer. Dropping the card
+    would delete that content (guardrail 8), so it is laid out as plain
+    Markdown at the card's marker instead: its title as a bold line, a
+    verbatim passage as a quote line (which the quote check then holds to its
+    source like any other), a list of records as a table, text as a paragraph.
+    Generic by shape rather than per type: the types are gone, and so are
+    their models.
+    """
+    if not isinstance(payload, dict) or payload.get("type") not in RETIRED_CARD_TYPES:
+        return None
+    parts: list[str] = []
+    title = next((payload[key] for key in _TITLE_KEYS if isinstance(payload.get(key), str) and payload[key].strip()), None)
+    # Short labels (an edition, a Punkt) ride on the title line; a sentence is its own paragraph.
+    labels = [
+        value.strip()
+        for key, value in payload.items()
+        if key not in _SKIPPED_KEYS and key not in _TITLE_KEYS and key not in _QUOTE_KEYS
+        and isinstance(value, str) and value.strip() and len(value) <= _LABEL_CHARS
+    ]
+    if title or labels:
+        parts.append(" · ".join(([f"**{title.strip()}**"] if title else []) + labels))
+    columns = payload.get("columns")
+    rows = payload.get("rows")
+    if isinstance(columns, list) and isinstance(rows, list) and rows and all(isinstance(row, list) for row in rows):
+        header = [column.get("label", "") if isinstance(column, dict) else column for column in columns]
+        parts.append("\n".join(_table(header, rows)))
+    for key, value in payload.items():
+        if key in _SKIPPED_KEYS or key in _TITLE_KEYS or key in ("columns", "rows") or value in (None, "", [], {}):
+            continue
+        if key in _QUOTE_KEYS and isinstance(value, str):
+            parts.append(f"> „{value.strip()}“")
+        elif isinstance(value, str) and len(value) > _LABEL_CHARS:
+            parts.append(value.strip())
+        elif isinstance(value, list) and value and all(isinstance(item, dict) for item in value):
+            header = list(dict.fromkeys(name for item in value for name in item if name not in _SKIPPED_KEYS))
+            parts.append("\n".join(_table(header, [[item.get(name) for name in header] for item in value])))
+        elif isinstance(value, list) and value:
+            parts.append("\n".join(f"- {_cell(item)}" for item in value))
+    return "\n\n".join(parts) if parts else None
 
 
 # Card types that ASK THE USER TO DECIDE something and act on the answer. They
@@ -191,7 +270,20 @@ Status column renders its words as marks, and `trifft zu` marks the row that hol
 project), a Verfahren or a run of Fristen (a numbered list, or a ```mermaid flowchart TD when it
 forks), and the wording an answer turns on (a cited blockquote > „…“ [N]). A card is only for what
 Markdown cannot carry: an interaction, geometry drawn to scale from measurements, a number the card
-computes (calculation), a live binding to the building model, or variants in tabs (surface)."""
+computes (calculation), or a live binding to the building model."""
+
+#: The chat's MARKDOWN FIRST: the same rule in the blocks the chat prompt teaches
+#: (`piloti_static.md` <formatting> RICH BLOCKS), so the envelope's contract and
+#: the prompt read one way. Only the chat draws the blocks and a `surface`.
+_MARKDOWN_FIRST_CHAT = """\
+MARKDOWN FIRST. The answer's own Markdown carries what the retired cards carried, in the blocks
+RICH BLOCKS teaches: criteria each with a status (`:::check`), the cases of one project factor
+(`:::cases`), a few figures against their limits (`:::metrics`), variants side by side
+(`:::compare`), a Verfahren or a run of Fristen (`:::procedure`, or a ```mermaid flowchart TD when it
+forks), what is still to do (`:::actions`), and the wording an answer turns on (a quote line
+> „…“ [N]). A card is only for what Markdown cannot carry: an interaction, geometry drawn to scale
+from measurements, a number the card computes (calculation), a live binding to the building model,
+or variants in tabs (surface)."""
 
 _CARD_TRIGGER_HEAD = """\
 WHEN TO EMIT ONE. A row that matches your answer is a reason to reach for that card — a stair, a
@@ -804,7 +896,7 @@ def _render_trigger_table(*, include_ifc_triggers: bool, include_craft: bool) ->
     return "\n".join(lines)
 
 
-def render_card_doctrine(*, include_ifc_triggers: bool = True, include_craft: bool = True) -> str:
+def render_card_doctrine(*, include_ifc_triggers: bool = True, include_craft: bool = True, chat: bool = False) -> str:
     """Markdown first, the trigger table, the craft that fills each card, and the negative default.
 
     Framing-free in the same sense as :func:`render_card_catalog`: it says which
@@ -826,12 +918,17 @@ def render_card_doctrine(*, include_ifc_triggers: bool = True, include_craft: bo
             generation turns it off and states its own short craft instead
             (``prompt.py``): half of what is written here is an instruction
             about an answer still being written, which that path cannot act on.
+        chat: The chat envelope's variant: MARKDOWN FIRST names the dialect's
+            blocks and the ``surface`` card, which only the chat draws. Deep
+            research and the post-hoc pass keep plain GFM (their PDF prints a
+            ``:::`` line as text until Phase B) and are offered no ``surface``.
 
     MARKDOWN FIRST leads on every surface: what the retired cards carried
     (:data:`RETIRED_CARD_TYPES`) is written in the answer's own Markdown.
     """
     table = _render_trigger_table(include_ifc_triggers=include_ifc_triggers, include_craft=include_craft)
-    return "\n\n".join((_MARKDOWN_FIRST, table, _CARD_HONESTY, _CARD_RESTRAINT))
+    lead = _MARKDOWN_FIRST_CHAT if chat else _MARKDOWN_FIRST
+    return "\n\n".join((lead, table, _CARD_HONESTY, _CARD_RESTRAINT))
 
 
 def render_card_index(*, include_model_backed: bool = True, exclude: frozenset[str] = frozenset()) -> str:

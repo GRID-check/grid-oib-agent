@@ -120,7 +120,7 @@ def render_envelope_cards_contract() -> str:
     return "\n\n".join(
         part
         for part in (
-            render_card_doctrine(),
+            render_card_doctrine(chat=True),
             render_card_index(),
             (
                 "SHAPES. The exact shape of the cards answers most often earn follows; fill them "

@@ -31,11 +31,12 @@ wird, die sich dann als die falsche erweist.
 
 ## Welches Bild
 
-U-Werte je Bauteil der Hülle → als `:::check`, eine Zeile je Bauteil, der
-Grenzwert mit ≤ in der Anforderungs-Spalte.
-HWB und Energieklasse → als `:::metrics`, die Klasse als `:energy-class[B]`.
-Schallschutz je Bauteilpaarung → als `:::check`, die Paarung in der ersten Spalte.
-Mehrere Anforderungen nebeneinander → als Prüftabelle (`:::check`, Status-Spalte).
+U-Werte je Bauteil der Hülle → als Prüftabelle, eine Zeile je Bauteil, der
+Wert in Ist, der Grenzwert mit ≤ in Soll.
+HWB und Energieklasse → als Kennzahlen (Wert gegen Grenzwert), die
+Energieeffizienzklasse benannt.
+Schallschutz je Bauteilpaarung → als Prüftabelle, die Paarung in der ersten Spalte.
+Mehrere Anforderungen nebeneinander → als Prüftabelle mit Status-Spalte.
 
 ## Done
 
