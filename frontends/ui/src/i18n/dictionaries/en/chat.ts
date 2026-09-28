@@ -3,6 +3,21 @@ export const chat = {
   actions: {
     dismiss: 'Dismiss',
   },
+  effortDial: {
+    title: 'Effort',
+    trigger: 'Effort: {level}',
+    faster: 'Faster',
+    smarter: 'Smarter',
+    help: 'How long Piloti thinks before it answers. More effort helps with tricky questions but costs time and tokens. Applies to this chat.',
+    levels: {
+      minimal: 'Minimal',
+      low: 'Low',
+      medium: 'Medium',
+      high: 'High',
+      xhigh: 'Maximum',
+    },
+  },
+
   // Source preview (WS-9, FB-4): citation chips open a preview of the source.
   sourcePreview: {
     chipAria: 'Preview source: {label}',

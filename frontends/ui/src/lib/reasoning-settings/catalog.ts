@@ -41,3 +41,36 @@ export function validateReasoningEffort(effort: unknown): string | null {
   }
   return null
 }
+
+/**
+ * The levels the chat composer's Aufwand dial offers, cheapest first: the
+ * dial's stops, left ("Schneller") to right ("Intelligenter").
+ *
+ * `none` is not a stop. The chat answer's envelope is a contract the model has
+ * to reason its way into, and without reasoning it loses it. Mirrored by
+ * `CHAT_EFFORTS` in `aiq_agent/common/reasoning_settings.py`; the wire schema
+ * (`UserMessage.reasoning_effort`) refuses anything else.
+ */
+export const CHAT_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const
+
+export type ChatEffort = (typeof CHAT_EFFORTS)[number]
+
+/** Where a chat starts when neither the chat nor the organization chose a level. */
+export const DEFAULT_CHAT_EFFORT: ChatEffort = 'medium'
+
+/**
+ * The organization's default for new chats lives in its settings bag under this
+ * key (Organisation → Einstellungen). Any member may read it; `org:settings:manage`
+ * writes it.
+ */
+export const CHAT_EFFORT_SETTING = 'chatReasoningEffort'
+
+export function isChatEffort(value: unknown): value is ChatEffort {
+  return typeof value === 'string' && (CHAT_EFFORTS as readonly string[]).includes(value)
+}
+
+/** The organization's stored default, or the product default for a missing or stale value. */
+export function chatEffortFromSettings(settings: Record<string, unknown> | null | undefined): ChatEffort {
+  const stored = settings?.[CHAT_EFFORT_SETTING]
+  return isChatEffort(stored) ? stored : DEFAULT_CHAT_EFFORT
+}

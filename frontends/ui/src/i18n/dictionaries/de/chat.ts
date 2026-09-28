@@ -5,6 +5,20 @@ export const chat: typeof en.chat = {
   actions: {
     dismiss: 'Schließen',
   },
+  effortDial: {
+    title: 'Aufwand',
+    trigger: 'Aufwand: {level}',
+    faster: 'Schneller',
+    smarter: 'Intelligenter',
+    help: 'Wie lange Piloti nachdenkt, bevor es antwortet. Mehr Aufwand hilft bei verzwickten Fragen, kostet aber Zeit und Tokens. Gilt für diesen Chat.',
+    levels: {
+      minimal: 'Minimal',
+      low: 'Niedrig',
+      medium: 'Mittel',
+      high: 'Hoch',
+      xhigh: 'Maximal',
+    },
+  },
   sourcePreview: {
     chipAria: 'Quelle ansehen: {label}',
     view: 'Ansehen',

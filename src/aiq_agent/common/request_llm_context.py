@@ -1,8 +1,9 @@
 """What one request changes about the boot LLM provider, read off the event loop.
 
 Four per-org dials reach a turn: the runtime model overrides, the platform
-thinking level, the org's BYOK credential and its ZDR routing bit (ADR-0014,
-ADR-0022). Each lookup is header-first (the platform efforts cache-first), but
+thinking level (with the asker's own level for this turn laid over the chat
+answer's group, `with_turn_effort`), the org's BYOK credential and its ZDR
+routing bit (ADR-0014, ADR-0022). Each lookup is header-first (the platform efforts cache-first), but
 each falls back to a blocking BFF call (5 s timeout, 60 s in-process TTL) under
 a threading lock. Called from a coroutine, a cold miss froze the event loop for
 every turn on the replica, not only the one that missed.
@@ -24,9 +25,11 @@ from dataclasses import field
 from aiq_agent.common.llm_credentials import OrgLLMCredential
 from aiq_agent.common.llm_credentials import get_org_llm_credential_from_context
 from aiq_agent.common.llm_provider import LLMProvider
+from aiq_agent.common.model_overrides import AgentGroup
 from aiq_agent.common.model_overrides import get_model_overrides_from_context
 from aiq_agent.common.model_overrides import get_zdr_only_from_context
 from aiq_agent.common.reasoning_settings import get_reasoning_efforts
+from aiq_agent.common.reasoning_settings import get_turn_reasoning_effort
 
 logger = logging.getLogger(__name__)
 
@@ -89,10 +92,23 @@ async def _read_org_credential() -> OrgLLMCredential | None:
 
 async def _read_reasoning_efforts() -> dict[str, str]:
     try:
-        return await asyncio.to_thread(get_reasoning_efforts)
+        efforts = await asyncio.to_thread(get_reasoning_efforts)
     except Exception:  # noqa: BLE001 - a lost effort costs the thinking level, never the turn
         logger.debug("Reasoning-efforts lookup failed; continuing with the configured levels", exc_info=True)
-        return {}
+        efforts = {}
+    return with_turn_effort(efforts, get_turn_reasoning_effort())
+
+
+def with_turn_effort(efforts: dict[str, str], turn_effort: str | None) -> dict[str, str]:
+    """``efforts`` with the asker's level on the chat answer's group, when one was chosen.
+
+    Only the answering agent's group: the dial is "how hard should Piloti think
+    about my question", not a lever over the clarifier, the card pass or the
+    post-answer stages, which keep their platform levels.
+    """
+    if turn_effort is None:
+        return efforts
+    return {**efforts, AgentGroup.RESEARCH.value: turn_effort}
 
 
 async def _read_zdr_only() -> bool:
