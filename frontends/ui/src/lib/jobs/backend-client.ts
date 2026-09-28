@@ -274,6 +274,51 @@ async function postJobControl(
   }
 }
 
+/** What the backend's platform kill did: `POST /v1/internal/jobs/kill-active`. */
+export interface BackendKillResult {
+  found: number
+  killed: string[]
+  alreadyFinished: number
+  failed: { jobId: string; error: string }[]
+  /** More live jobs than one press takes; pressing again kills the rest. */
+  truncated: boolean
+}
+
+/** Generous: the backend stops and reports each job in turn, up to a thousand of them. */
+const KILL_TIMEOUT_MS = 120_000
+
+/**
+ * Interrupt every submitted or running job in the job store, across every
+ * organization, and stop its worker. Service-token guarded, like the outcome
+ * probe below; the platform maintenance button is the one caller. Throws
+ * `JobCancelError` for anything but a well-formed 2xx.
+ */
+export async function killActiveBackendJobs(): Promise<BackendKillResult> {
+  const token = process.env.GRID_INTERNAL_API_TOKEN
+  if (!token) throw new JobCancelError('GRID_INTERNAL_API_TOKEN is not configured', 503)
+  let response: Response
+  try {
+    response = await fetch(`${getBackendUrl()}/v1/internal/jobs/kill-active`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'x-grid-internal-token': token },
+      signal: AbortSignal.timeout(KILL_TIMEOUT_MS),
+    })
+  } catch (err) {
+    throw new JobCancelError(err instanceof Error ? err.message : 'network error', 503)
+  }
+  if (!response.ok) throw new JobCancelError(await readBody(response), response.status)
+  const raw = ((await response.json().catch(() => null)) ?? {}) as Record<string, unknown>
+  if (!Array.isArray(raw.killed)) throw new JobCancelError('malformed backend response', 502)
+  const failed = Array.isArray(raw.failed) ? (raw.failed as { job_id?: unknown; error?: unknown }[]) : []
+  return {
+    found: Number(raw.found ?? 0),
+    killed: raw.killed.filter((id): id is string => typeof id === 'string'),
+    alreadyFinished: Number(raw.already_finished ?? 0),
+    failed: failed.map((f) => ({ jobId: String(f.job_id ?? ''), error: String(f.error ?? '') })),
+    truncated: raw.truncated === true,
+  }
+}
+
 /** The job store's words for a job's lifecycle, lowercased as the backend sends them. */
 export type BackendJobStatus = 'submitted' | 'running' | 'success' | 'failure' | 'interrupted'
 
