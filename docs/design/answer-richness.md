@@ -221,6 +221,9 @@ A second block of the same type gets merged.
 - **Server validator.**
   - Runs after `verify_citations` and before `sanitize_report` (`common/answer_dialect.py`, Phase A), and in the live settle with the same kind, so the stream never draws a block the terminal unwraps. It scans with a port of the frontend's `scanDirectiveFences`, not markdown-it-py containers: the renderer closes the innermost block at a bare `:::`, which CommonMark containers do not, and the server must see the blocks the reader sees.
   - Phase A does: unknown-name unwrap (a `[label]` becomes a bold line), the budget per kind (the excess unwrapped, never merged; a second diagram only logged), markers outside their block stripped, `:current` kept and logged, an unknown `:project[key]` turned into its text, an unknown `cases{by=…}` key logged. The census (`answer_dialect` in trace metadata) and `FinalAnswer.dialect_repairs` record it.
+  - Both scanners read code fences by one rule (`lib/text/code-fence.ts`: a backtick info string holds no backtick, a closer is bare), repair `::: name` and `:::name free words` to the canonical opener, and unwrap blocks past a nesting depth of 4 or past 64 in one answer. The renderer also drops a closer with nothing open, and outlasts a line of colons inside a code block the block holds.
+  - Copy, Word and PDF print a `:::check` or `:::metrics` row's Status as the page draws it (`MarkdownRenderer/check-rows.ts`, shared by both), and only a quote line stamped verbatim reaches the chat export's „Rechtsgrundlagen".
+  - A retired card type on the chat envelope is laid out as Markdown at its marker (`cards/catalog.retired_card_markdown`), never dropped.
   - It unwraps unknown names and never deletes content.
   - It checks each body against its contract, and checks that every `[N]` inside a block resolves.
   - It strips markers without provenance and applies the budget.
