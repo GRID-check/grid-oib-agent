@@ -1048,6 +1048,11 @@ export const chat = {
       title: 'Piloti was updated',
       message: 'Reload the page to continue.',
     },
+    serverIncompatible: {
+      title: 'Piloti is not reachable right now',
+      message:
+        'The server runs a different version than this page, which happens briefly during an update. Try again in a few minutes; if it persists, tell support.',
+    },
     connectionTimeout: {
       title: 'Request Timeout',
       message: 'The request took too long to complete.',

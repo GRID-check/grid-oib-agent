@@ -49,9 +49,10 @@ export type TurnResult = Extract<WireEvent, { type: 'RUN_FINISHED' }>['result']
 /**
  * One frame off the socket, or `null` when it is not a v2 event.
  *
- * `null` is logged by the caller once per distinct `type` and dropped; a frame
- * the contract does not describe never reaches the fold. There is no second
- * reader: an old frame shape is not a v2 event.
+ * A frame the contract does not describe never reaches the fold. What `null`
+ * means is the caller's: the chat socket takes it for a server newer than this
+ * bundle and asks for a reload (`turn-socket.ts`), a spectator relay drops it.
+ * There is no second reader: an old frame shape is not a v2 event.
  */
 export const parseWireEvent = (raw: unknown): WireEvent | null => {
   const parsed = wireEventSchema.safeParse(raw)

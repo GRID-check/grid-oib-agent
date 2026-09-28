@@ -63,6 +63,18 @@ export const ERROR_REGISTRY: Record<ErrorCode, ErrorMeta> = {
     defaultMessage: 'Unable to connect to the server. Please check your network connection.',
     messageKey: 'errorRegistry.connectionFailed.message',
   },
+  // The socket reached a server that never said it speaks wire v2 (no
+  // `hello`), attempt after attempt: an agent tier older than this page, as
+  // after a rollback. Not the reader's network, so it must not say "check your
+  // connection"; waiting is what helps, and the recovery poll reconnects.
+  'connection.server_incompatible': {
+    status: 'error',
+    title: 'Piloti is not reachable right now',
+    titleKey: 'errorRegistry.serverIncompatible.title',
+    defaultMessage:
+      'The server runs a different version than this page, which happens briefly during an update. Try again in a few minutes; if it persists, tell support.',
+    messageKey: 'errorRegistry.serverIncompatible.message',
+  },
   'connection.timeout': {
     status: 'warning',
     title: 'Request Timeout',

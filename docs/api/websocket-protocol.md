@@ -15,8 +15,10 @@ turns both sides test against, byte for byte. When this page and the models
 disagree, the models are right and this page is a bug.
 
 There is one version. No `v: 1` reader, no NAT frame, no fallback that
-interprets a shape the contract does not describe: a frame that does not parse
-is logged once per distinct `type` and dropped.
+interprets a shape the contract does not describe. A frame that does not parse
+is never dropped and waited past: before the `hello` it means the server does
+not speak this wire, after it that the server speaks a newer v2 than the page
+(see [The client](#the-client)).
 
 ---
 
@@ -413,13 +415,28 @@ three absent is every ordinary turn.
 
 ## The client
 
-`frontends/ui/src/adapters/api/turn-socket.ts` connects with `?v=2`, sends
-client messages, reconnects with jittered backoff and an auth refresh before
-each attempt, and sends `attach` for every open turn on open. Every event is
-parsed with `parseWireEvent` (`adapters/api/wire-v2.ts`) and folded by
-`foldTurnEvent` (`features/chat/lib/turn-fold.ts`), the one interpretation of
-the wire: the live socket, the replay after `attach` and the spectator stream
-all use it. Design: [`design/chat-wire-v2.md`](../design/chat-wire-v2.md) §e.
+`frontends/ui/src/adapters/api/turn-socket.ts` connects with `?v=2`, waits for
+the server's `hello`, sends client messages, reconnects with jittered backoff and
+an auth refresh before each attempt, and sends `attach` for every open turn once
+the hello has arrived. Every event is parsed with `parseWireEvent`
+(`adapters/api/wire-v2.ts`) and folded by `foldTurnEvent`
+(`features/chat/lib/turn-fold.ts`), the one interpretation of the wire: the live
+socket, the replay after `attach` and the spectator stream all use it. Design:
+[`design/chat-wire-v2.md`](../design/chat-wire-v2.md) §e.
+
+**Nothing the page waits on can wait forever.** Every one of these ends on a
+clock, and ends visibly:
+
+| The server… | The client | The reader sees |
+|---|---|---|
+| opens and says nothing for 5 s (`HELLO_TIMEOUT_MS`), or opens with anything but a v2 `hello` | drops the socket and tries again on the ladder; when it is spent the status is `incompatible` | `connection.server_incompatible` („Piloti ist gerade nicht erreichbar"), not "check your network". The health poll does not clear it, since an old agent is healthy; the next question tries a new socket, and its hello clears it |
+| sends, after the hello, a frame this bundle cannot parse | closes the socket: `outdated`, as for `4426` | „Piloti wurde aktualisiert", reload. A turn whose next `seq` cannot be read could never fold its terminal |
+| does not answer a `user_message` within 15 s (`ACK_TIMEOUT_MS`): no `RUN_STARTED`, no `rejected`, no frame of the turn | reopens the socket, which sends the question again; a second miss ends the turn | an `agent.response_failed` card with „Erneut versuchen", after the server was asked once for a finished answer |
+| lets a running turn go silent for three beats | drops and reopens the socket, re-attaching the turn; a second silent socket in a row with nothing of the turn folded ends it | the answer, if the server finished it; otherwise `agent.response_interrupted` |
+| refuses an `attach` or a `cancel_turn` as `invalid_message` or `conversation_mismatch` | treats it as `turn_not_found`: nothing is following the turn any more | as for `turn_not_found` |
+
+A question stopped before its `RUN_STARTED` is not sent again on a reopen, and a
+question asked while the socket has given up opens a new one with a fresh ladder.
 
 ---
 

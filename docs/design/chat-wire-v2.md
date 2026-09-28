@@ -546,9 +546,19 @@ a `sources` step's `TraceLane[]` becomes the stored `TraceLaneCard[]` (with its
 `adapters/api/turn-socket.ts` replaces `websocket-client.ts` (1 030 lines):
 connect with `?v=2`, `send(ClientMessage)`, reconnect with jittered backoff and
 the auth refresh before each attempt, and `attach` for every open turn on open.
-The watchdog declares the socket dead after 3 × `every_ms` of silence during a
-running turn, with no silence before `RUN_STARTED`. Close code `4426` means
-reload. **Buy, don't build:** use `partysocket`'s `ReconnectingWebSocket` (MIT,
+The socket is not open until the server's `hello` (§a): it sends nothing
+before it, and a socket that stays silent for `HELLO_TIMEOUT_MS` (5 s) or opens
+with anything else fails the attempt; a spent ladder then ends `incompatible`,
+not `failed`. The watchdog declares the socket dead after 3 × `every_ms` of
+silence during a running turn, counting only frames it could parse. Close code
+`4426` means reload, and so does a frame this bundle cannot parse after the
+hello: dropping it would leave its turn unable to fold another `seq`. Before
+`RUN_STARTED` the socket watches nothing; the driver does. A question has
+`ACK_TIMEOUT_MS` (15 s) to be answered, by `RUN_STARTED`, a `rejected` or any
+frame of its turn, or the socket is reopened; a second miss ends the turn with
+an error card. A running turn the watchdog finds silent on two sockets in a row
+is ended as interrupted. The full table is in
+[`websocket-protocol.md`](../api/websocket-protocol.md#the-client). **Buy, don't build:** use `partysocket`'s `ReconnectingWebSocket` (MIT,
 pure TypeScript, async URL provider for the auth refresh) for connect, backoff
 and reconnect, if it clears review for size and licence. What we write is then
 only `attach` and the watchdog, about 100 lines. Without it, about 200.
