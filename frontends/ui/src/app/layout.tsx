@@ -38,10 +38,18 @@ const geistSans = Geist({
   display: 'swap',
 })
 
+/**
+ * Not preloaded. A preload is a promise that the page uses the file within
+ * seconds of load, and mono is set only by code, keycaps and admin tables —
+ * nothing on the first paint of the chat. Preloaded on every route, it was a
+ * console warning on every route. It still loads the moment something uses it,
+ * and `swap` shows the fallback stack (`--font-mono` in tokens.css) meanwhile.
+ */
 const geistMono = Geist_Mono({
   subsets: ['latin'],
   variable: '--font-geist-mono',
   display: 'swap',
+  preload: false,
 })
 
 /**
