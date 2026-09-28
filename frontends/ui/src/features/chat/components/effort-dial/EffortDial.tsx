@@ -17,6 +17,7 @@
 import { type CSSProperties, type FC, useEffect, useId } from 'react'
 import { ChevronDown, HelpCircle } from 'lucide-react'
 
+import { motion, springGlide } from '@/components/motion'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -124,41 +125,70 @@ interface EffortSliderProps {
   onChoose: (level: (typeof CHAT_EFFORTS)[number]) => void
 }
 
-/** Thumb width and its inset from the track edge, in px; the fill is measured with them. */
+/** Thumb width and its inset from the track edge, in px; every position is measured with them. */
 const THUMB = 28
 const INSET = 4
 
+/** The rail the thumb's centre travels: from its centre at the left stop to its centre at the right. */
+const RAIL: CSSProperties = { left: INSET + THUMB / 2, right: INSET + THUMB / 2 }
+
+/** A box as wide as the thumb's travel, starting at the thumb's left edge in the left stop. */
+const TRAVEL: CSSProperties = { left: INSET, width: `calc(100% - ${2 * INSET + THUMB}px)` }
+
+const TRAIL: CSSProperties = {
+  // Ends at the thumb's centre and is one track long; the track clips the rest.
+  right: `calc(100% - ${THUMB / 2}px)`,
+  width: `calc(100% + ${2 * INSET + THUMB}px)`,
+  backgroundImage: 'radial-gradient(circle, currentColor 1.1px, transparent 1.6px)',
+  backgroundSize: '6px 6px',
+  backgroundPosition: 'right center',
+  maskImage: 'linear-gradient(to right, transparent, black 85%)',
+}
+
 /**
- * The track is drawn behind a transparent range input that covers it, so the
- * browser still owns dragging, clicking and the arrow keys. Only the thumb is
- * restyled, and it carries the focus ring: the input's own outline is
- * suppressed with `!` because the global `:focus-visible` rule in
- * `globals.css` is unlayered and outranks every utility.
+ * The track is drawn under an invisible range input that covers it, so the
+ * browser still owns dragging, clicking and the arrow keys. The input's own
+ * thumb keeps the drawn thumb's width, which is what makes the browser's stop
+ * positions and the drawn ones the same.
  *
- * The dot fill runs from the left edge to the thumb's centre, which the browser
- * places at `THUMB / 2` plus the value's share of the travel left after the
- * thumb, and fades in from the left so it is densest at the thumb.
+ * Light stops mark the five levels. The thumb and its dot trail glide between
+ * them on `springGlide`: the travel is anything from one stop to all four, and
+ * the glide is the reader's own input carried through. Both move by
+ * `transform`, a share of a box exactly as wide as the travel, so the global
+ * `<MotionConfig reducedMotion="user">` drops the glide for readers who asked
+ * for less motion. They are two elements so the stops can sit between them:
+ * over the trail, under the thumb.
  */
 const EffortSlider: FC<EffortSliderProps> = ({ label, index, valueText, onChoose }) => {
   const sliderId = useId()
   const share = index / (CHAT_EFFORTS.length - 1)
-  const fill = {
-    '--effort-share': share,
-    width: `calc(${INSET + THUMB / 2}px + (100% - ${2 * INSET + THUMB}px) * var(--effort-share))`,
-    backgroundImage: 'radial-gradient(circle, currentColor 1.1px, transparent 1.6px)',
-    backgroundSize: '6px 6px',
-    backgroundPosition: 'left center',
-    maskImage: 'linear-gradient(to right, transparent, black 85%)',
-  } as CSSProperties
+  const glide = { initial: false, animate: { x: `${share * 100}%` }, transition: springGlide } as const
 
   return (
-    <div className="bg-muted relative mt-2 h-10 rounded-xl pointer-coarse:h-11">
-      <div
-        className="text-foreground/70 absolute inset-y-1 left-0 rounded-l-xl"
-        style={fill}
+    <div className="group bg-muted relative mt-2 h-10 overflow-hidden rounded-xl pointer-coarse:h-11">
+      <motion.div className="pointer-events-none absolute inset-y-1" style={TRAVEL} aria-hidden="true" {...glide}>
+        <span className="text-foreground/70 absolute inset-y-0" style={TRAIL} />
+      </motion.div>
+      <div className="pointer-events-none absolute inset-y-0" style={RAIL} aria-hidden="true">
+        {CHAT_EFFORTS.map((level, position) => (
+          <span
+            key={level}
+            data-testid="effort-dial-stop"
+            className="bg-muted-foreground/35 absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+            style={{ left: `${(position / (CHAT_EFFORTS.length - 1)) * 100}%` }}
+          />
+        ))}
+      </div>
+      <motion.div
+        className="pointer-events-none absolute inset-y-1"
+        style={TRAVEL}
         aria-hidden="true"
-        data-testid="effort-dial-fill"
-      />
+        data-testid="effort-dial-thumb"
+        data-share={share}
+        {...glide}
+      >
+        <span className="bg-foreground group-has-[input:focus-visible]:ring-ring/60 group-has-[input:focus-visible]:ring-offset-muted absolute inset-y-0 left-0 w-7 rounded-lg shadow-sm group-has-[input:focus-visible]:ring-2 group-has-[input:focus-visible]:ring-offset-2" />
+      </motion.div>
       <label htmlFor={sliderId} className="sr-only">
         {label}
       </label>
@@ -167,11 +197,9 @@ const EffortSlider: FC<EffortSliderProps> = ({ label, index, valueText, onChoose
         type="range"
         data-testid="effort-dial-slider"
         className={cn(
-          'absolute inset-1 h-[calc(100%-8px)] w-[calc(100%-8px)] cursor-pointer appearance-none bg-transparent focus-visible:outline-none!',
-          '[&::-webkit-slider-thumb]:bg-foreground [&::-webkit-slider-thumb]:h-8 [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-lg [&::-webkit-slider-thumb]:shadow-sm',
-          '[&::-moz-range-thumb]:bg-foreground [&::-moz-range-thumb]:h-8 [&::-moz-range-thumb]:w-7 [&::-moz-range-thumb]:rounded-lg [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:shadow-sm',
-          'focus-visible:[&::-webkit-slider-thumb]:ring-ring/60 focus-visible:[&::-webkit-slider-thumb]:ring-offset-muted focus-visible:[&::-webkit-slider-thumb]:ring-2 focus-visible:[&::-webkit-slider-thumb]:ring-offset-2',
-          'focus-visible:[&::-moz-range-thumb]:ring-ring/60 focus-visible:[&::-moz-range-thumb]:ring-offset-muted focus-visible:[&::-moz-range-thumb]:ring-2 focus-visible:[&::-moz-range-thumb]:ring-offset-2'
+          'absolute inset-1 z-10 h-[calc(100%-8px)] w-[calc(100%-8px)] cursor-pointer appearance-none opacity-0',
+          '[&::-webkit-slider-thumb]:h-8 [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:appearance-none',
+          '[&::-moz-range-thumb]:h-8 [&::-moz-range-thumb]:w-7 [&::-moz-range-thumb]:border-0'
         )}
         min={0}
         max={CHAT_EFFORTS.length - 1}
