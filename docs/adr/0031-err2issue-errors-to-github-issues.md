@@ -204,4 +204,9 @@ directly.
 - `deploy/pulumi/src/platform/network-policies.ts` — rules 2 and 9.
 - `frontends/ui/observability/otel-logs.js` — the Node tiers' `console.*` → OTLP
   bridge, and the `NOT_AN_ERROR` list of records that must not reach this sink.
+- `frontends/ui/workers/failure-streak.js` — how the scheduler and purger log a
+  failure that heals itself: WARN per tick, one fixed ERROR once it has lasted
+  about five minutes, a recovery line after. `workers/database-unavailable.js`
+  is the one "database unreachable" code set the BFF, the bridge and the
+  workers share.
 - `.github/workflows/claude.yml` — the `@claude` consumer of filed issues.

@@ -11,34 +11,15 @@
  * question the same way.
  */
 
-/** SQLSTATEs that mean "no session", not "bad statement": class 08, and the three shutdown codes. */
-const UNAVAILABLE_SQLSTATE = /^(08[0-9A-Z]{3}|57P0[123])$/
+/**
+ * The code set and the cause-chain walk live in `workers/database-unavailable.js`,
+ * CommonJS so the background workers and the log bridge read the same
+ * definition this module does. Re-exported here so the app keeps importing it
+ * from `@/lib/db/errors`.
+ */
+import { MAX_CAUSE_DEPTH, databaseUnavailableCode } from '../../../workers/database-unavailable.js'
 
-/** Socket-level errnos a connect or a live connection fails with. */
-const UNAVAILABLE_ERRNO = new Set(['ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE'])
-
-/** postgres.js's own connection codes (`Errors.connection` in the driver). */
-const UNAVAILABLE_DRIVER_CODE = new Set(['CONNECTION_CLOSED', 'CONNECTION_ENDED', 'CONNECTION_DESTROYED', 'CONNECT_TIMEOUT'])
-
-/** How deep `cause` is followed; Drizzle → driver → socket is three. */
-const MAX_DEPTH = 5
-
-/** The first `code` on the error or its causes that says the database is unreachable, or undefined. */
-export function databaseUnavailableCode(error: unknown): string | undefined {
-  let current: unknown = error
-  for (let depth = 0; depth < MAX_DEPTH && current; depth += 1) {
-    if (typeof current === 'object' && current !== null && 'code' in current) {
-      const code: unknown = (current as { code: unknown }).code
-      if (typeof code === 'string' && isUnavailableCode(code)) return code
-    }
-    current = current instanceof Error ? current.cause : undefined
-  }
-  return undefined
-}
-
-function isUnavailableCode(code: string): boolean {
-  return UNAVAILABLE_SQLSTATE.test(code) || UNAVAILABLE_ERRNO.has(code) || UNAVAILABLE_DRIVER_CODE.has(code)
-}
+export { databaseUnavailableCode }
 
 /**
  * Postgres' `unique_violation`. The ONE spelling: a bare `'23505'` anywhere else
@@ -82,7 +63,7 @@ export function isForeignKeyViolation(error: unknown, constraint?: string): bool
 /** Does the error or one of its causes carry `sqlstate` — on `constraint`, if named? */
 function violates(error: unknown, sqlstate: string, constraint: string | undefined): boolean {
   let current: unknown = error
-  for (let depth = 0; depth < MAX_DEPTH && current; depth += 1) {
+  for (let depth = 0; depth < MAX_CAUSE_DEPTH && current; depth += 1) {
     if (typeof current === 'object' && current !== null && 'code' in current) {
       const { code, constraint_name: name } = current as { code: unknown; constraint_name?: unknown }
       if (code === sqlstate) return constraint === undefined || name === constraint
