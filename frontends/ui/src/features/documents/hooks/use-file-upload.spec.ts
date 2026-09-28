@@ -411,6 +411,45 @@ describe('useFileUpload', () => {
       expect(mockDocumentsStoreState.removeTrackedFile).toHaveBeenCalledWith('file-1')
       expect(xhr.last().url).toBe('/api/session/documents/upload')
     })
+
+    test('same-tick retries on the session shelf go one file at a time, and none is dropped', async () => {
+      const files = ['a.pdf', 'b.pdf'].map((name) => new File(['x'], name, { type: 'application/pdf' }))
+      mockDocumentsStoreState.trackedFiles = files.map((file, index) => ({
+        id: `file-${index}`,
+        fileName: file.name,
+        collectionName: 'session-1',
+        fileSize: 1,
+        file,
+      })) as unknown[]
+
+      const xhr = installFakeXhr()
+      const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }))
+
+      let pending!: Promise<void[]>
+      await act(async () => {
+        // "Retry all" calls retryFile once per failed row in the same tick.
+        pending = Promise.all([result.current.retryFile('file-0'), result.current.retryFile('file-1')])
+        await Promise.resolve()
+      })
+      // One request in flight: the second waits for the first, so the pair
+      // never meets the session batch cap together.
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(xhr.requests).toHaveLength(1)
+      await act(async () => {
+        xhr.requests[0].respond(200, JSON.stringify({ documentId: 'doc-0', jobId: null, status: 'pending' }))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      await act(async () => {
+        xhr.requests[1].respond(200, JSON.stringify({ documentId: 'doc-1', jobId: null, status: 'pending' }))
+        await pending
+      })
+      xhr.restore()
+
+      expect(xhr.requests).toHaveLength(2)
+      expect(xhr.requests.map((request) => (request.body as FormData).get('file'))).toEqual(files)
+    })
   })
 
   describe('clearError', () => {

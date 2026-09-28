@@ -624,14 +624,20 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         return pending.done
       }
       const files = [file.file]
-      const done = Promise.resolve().then(() => {
+      const done = Promise.resolve().then(async () => {
         pendingRetriesRef.current = null
-        return uploadFiles(files)
+        // The chat-session shelf caps a batch's count and total size, and the
+        // validator refuses a batch whole: the combined retries could fail
+        // validation although each file passed on its own, after their rows
+        // were already removed. There, retry one file at a time; the durable
+        // shelves have no batch cap and keep the single capped batch.
+        if (shelf !== 'session') return uploadFiles(files)
+        for (const each of files) await uploadFiles([each])
       })
       pendingRetriesRef.current = { files, done }
       await done
     },
-    [trackedFiles, removeTrackedFile, uploadFiles, setError, t]
+    [trackedFiles, removeTrackedFile, uploadFiles, setError, t, shelf]
   )
 
   return {
