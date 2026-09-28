@@ -768,6 +768,10 @@
     "de": "Auch der Bericht der Tiefenrecherche zeichnet jetzt: Abläufe und Abhängigkeiten erscheinen als echte Grafik im Bericht und im heruntergeladenen PDF."
   },
   {
+    "en": "Deep research runs that have stopped now show as ended, including the ones already stuck on „Läuft\". They used to keep a spinner in the chat list, and „Abbrechen\" did nothing.",
+    "de": "Gestoppte Deep-Research-Läufe werden jetzt als beendet angezeigt, auch jene, die bereits bei „Läuft“ hängen geblieben waren. Bisher wurde in der Chatliste weiterhin ein Spinner angezeigt, und „Abbrechen“ hatte keine Wirkung."
+  },
+  {
     "en": "Deep research works in projects whose description contains German quotation marks or dashes. It used to fail right after starting.",
     "de": "Die Tiefenrecherche funktioniert jetzt auch in Projekten, deren Beschreibung deutsche Anführungszeichen oder Gedankenstriche enthält. Bisher brach sie gleich nach dem Start ab."
   },

@@ -31,6 +31,7 @@ import {
 import { findDocumentInOrg } from '@/lib/documents/repository'
 import { openDraftForRevision } from '@/lib/documents/revision'
 import { fileResearchReport } from '@/lib/documents/research-report'
+import { settleRunLedger } from '@/lib/runs/service'
 import { resolvePeople } from '@/lib/sharing/directory'
 import type { TaskWireRow } from '@/features/tasks/lib/task-view'
 import { loadRunSummaries, toTaskWireRow } from './list-projection'
@@ -284,12 +285,19 @@ async function fileResultFor(
  * The run reconciler closes a run through this same function, with
  * `onlyIfActive` (see {@link RecordOutcomeOptions}); `closed: false` is its
  * answer when the row had already ended and nothing was done.
+ *
+ * The run's block is settled FIRST, and only if it still reads as live
+ * (`settleRunLedger`): the row and the block are two records of one ending,
+ * and every path that closes the row passes here — including the ones with no
+ * worker left to send the block its terminal op. Block before row, so a
+ * failure between them leaves the row active and a retry does both.
  */
 export async function recordRunOutcome(
   run: TaskRun,
   outcome: TaskOutcome,
   options: RecordOutcomeOptions = {},
 ): Promise<{ notified: boolean; filed: { documentId: string; filename: string } | null; closed: boolean }> {
+  await settleRunLedger(run, outcome)
   const completed = options.onlyIfActive
     ? await completeActiveRunForOutcome(run, outcome)
     : await completeRunForOutcome(run, outcome)

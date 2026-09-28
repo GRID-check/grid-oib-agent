@@ -292,6 +292,32 @@ describe('useRunLedger', () => {
     expect(result.current.cancel).not.toBeNull()
   })
 
+  it('reads the run again when the stop is refused because it already ended, and stops offering it', async () => {
+    // The block was showing a ledger older than the run: the row had closed
+    // and the server settled the block since. „Abbrechen" used to close its
+    // dialog on the 409 and leave „Läuft" on screen for good.
+    const ended = ledger({
+      status: 'fehlgeschlagen',
+      error: { reason: 'Job timed out', completedBefore: [] },
+      updatedAt: '2026-09-16T08:30:00.000Z',
+    })
+    vi.mocked(fetchRunView)
+      .mockResolvedValueOnce(view())
+      .mockResolvedValueOnce(view({ status: 'failed', ledger: ended }))
+    vi.mocked(cancelRun).mockRejectedValue(new Error('This run has already ended'))
+
+    const { result } = renderHook(() => useRunLedger({ message: { id: 'msg-1', runLedger: ledger() }, projectId: 'p1' }))
+    await waitFor(() => expect(result.current.cancel).not.toBeNull())
+
+    await act(async () => {
+      await result.current.cancel?.()
+    })
+
+    expect(fetchRunView).toHaveBeenLastCalledWith('p1', RUN)
+    expect(result.current.ledger).toEqual(ended)
+    expect(result.current.cancel).toBeNull()
+  })
+
 
 
   it('writes a status change back onto the stored message, and nothing else', async () => {

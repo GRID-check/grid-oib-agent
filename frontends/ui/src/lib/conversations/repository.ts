@@ -636,6 +636,11 @@ export async function insertMessages(values: NewMessage[]): Promise<Message[]> {
   return db.insert(messages).values(safe).onConflictDoNothing().returning()
 }
 
+/** Keys to merge, or a function of the stored metadata that returns them (null: write nothing). */
+export type MetadataPatch =
+  | Record<string, unknown>
+  | ((current: Record<string, unknown>) => Record<string, unknown> | null)
+
 /**
  * Merge keys into one message's `metadata` jsonb, scoped to its conversation
  * (callers must have resolved that conversation org-scoped first — without the
@@ -659,12 +664,18 @@ export async function insertMessages(values: NewMessage[]): Promise<Message[]> {
  * Last-writer-wins still applies PER ENTRY, which is correct: the same card can
  * only be decided once.
  *
+ * `patch` may instead be a function of the stored metadata, called under the
+ * lock: a writer whose patch DEPENDS on what is stored (a ledger folded one op
+ * further, a value written only while the stored one allows it) must compute it
+ * there, or it computes from a snapshot another writer has already replaced.
+ * It returns null to write nothing, and the stored row is returned unchanged.
+ *
  * Returns null when the message does not exist in that conversation (404).
  */
 export async function mergeMessageMetadata(
   conversationId: string,
   messageId: string,
-  patch: Record<string, unknown>,
+  patch: MetadataPatch,
   deepMergeKeys: readonly string[] = [],
 ): Promise<Message | null> {
   const db = getDb()
@@ -678,11 +689,13 @@ export async function mergeMessageMetadata(
     if (!existing) return null
 
     const current = (existing.metadata ?? {}) as Record<string, unknown>
-    const merged: Record<string, unknown> = { ...current, ...patch }
+    const entries = typeof patch === 'function' ? patch(current) : patch
+    if (!entries) return existing
+    const merged: Record<string, unknown> = { ...current, ...entries }
 
     for (const key of deepMergeKeys) {
       const before = current[key]
-      const after = patch[key]
+      const after = entries[key]
       if (isPlainObject(before) && isPlainObject(after)) {
         merged[key] = { ...before, ...after }
       }

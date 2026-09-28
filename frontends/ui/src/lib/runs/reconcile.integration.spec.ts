@@ -7,7 +7,10 @@
  * prove the SQL: that the claim picks exactly the active runs nobody has
  * checked within the window, stamps them in the same statement so a second
  * sweep — or a second replica sweeping at the same moment — never takes one
- * run twice, and that the conditional close lets exactly one closer win.
+ * run twice, and that the conditional close lets exactly one closer win. And
+ * the ledger heal (migration 0099): a run whose row closed by a path that never
+ * reached its block is claimed once, and its block — a real message, written
+ * through the lock-held merge — ends.
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/runs/reconcile.integration.spec.ts
@@ -193,5 +196,61 @@ describe.skipIf(!url)('run reconciler SQL against live Postgres (migration 0096)
       repository.claimRunsToReconcile(new Date(Date.now() + 60 * 60_000), 500),
     )
     expect(ours(after).map((row) => nameOf(row.id))).not.toContain('stale')
+  })
+
+  it('heals, once, the block of a run the reaper closed by its row alone', async () => {
+    const { insertConversation, findMessageInConversation } = await import('@/lib/conversations/repository')
+    const runs = await import('@/lib/runs/service')
+    const { endingOfClosedRun } = await import('@/lib/runs/reconcile')
+    const conversationId = `s_conv_heal_${STAMP}`
+
+    await withTenant({ organizationId: ORG }, () =>
+      insertConversation({ id: conversationId, organizationId: ORG, createdBy: USER, title: 'Heal', projectId: PROJECT }),
+    )
+    await seedRun('ghost', ORG, PROJECT, { status: 'running', startedAt: minutesAgo(40), createdAt: minutesAgo(40) })
+    const messageId = await withTenant({ organizationId: ORG }, async () => {
+      const message = await runs.createRunMessage(conversationId, ids.ghost, { at: minutesAgo(40) })
+      await repository.updateRun(ids.ghost, ORG, { conversationId, runMessageId: message.id })
+      return message.id
+    })
+    await runs.applyRunLedgerOp(ids.ghost, {
+      op: 'append',
+      phases: [{ phase: 'recherchieren', startedAt: minutesAgo(39).toISOString() }],
+    })
+
+    // The ghost reaper's report: the row closes, the block hears nothing.
+    await withTenant({ organizationId: ORG }, () =>
+      repository.closeActiveRun(ids.ghost, ORG, { status: 'failed', error: 'Job timed out', finishedAt: new Date() }),
+    )
+
+    const claimed = await withPlatformAccess('test: heal claim', () => repository.claimClosedRunsToHeal(500))
+    // Only runs with a block: 'stale' and 'done' closed too, but have no message.
+    expect(ours(claimed).map((row) => nameOf(row.id))).toEqual(['ghost'])
+
+    const [ghost] = ours(claimed)
+    const healed = await withTenant({ organizationId: ORG }, () =>
+      runs.settleRunLedger(ghost, endingOfClosedRun(ghost)),
+    )
+    expect(healed).toBe(true)
+    const message = await withTenant({ organizationId: ORG }, () =>
+      findMessageInConversation(conversationId, messageId),
+    )
+    const ledger = (message?.metadata as Record<string, { status: string; error?: { reason: string } }>).run_ledger
+    expect(ledger.status).toBe('fehlgeschlagen')
+    expect(ledger.error?.reason).toBe('Job timed out')
+
+    // Looked at once: the stamp moved it past its ending.
+    const again = await withPlatformAccess('test: heal claim again', () => repository.claimClosedRunsToHeal(500))
+    expect(ours(again)).toEqual([])
+    // A heal that failed hands its claim back: the run is due on the next sweep.
+    await withTenant({ organizationId: ORG }, () => repository.releaseHealClaim(ids.ghost))
+    const released = await withPlatformAccess('test: heal claim after release', () =>
+      repository.claimClosedRunsToHeal(500),
+    )
+    expect(ours(released).map((row) => nameOf(row.id))).toEqual(['ghost'])
+    // And a second settle of an ended block writes nothing.
+    expect(await withTenant({ organizationId: ORG }, () => runs.settleRunLedger(ghost, { status: 'success' }))).toBe(
+      false,
+    )
   })
 })

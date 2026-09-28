@@ -14,11 +14,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
-vi.mock('@/lib/tasks/repository', () => ({ claimRunsToReconcile: vi.fn() }))
+vi.mock('@/lib/tasks/repository', () => ({
+  claimRunsToReconcile: vi.fn(),
+  claimClosedRunsToHeal: vi.fn(),
+  releaseHealClaim: vi.fn(),
+}))
 vi.mock('@/lib/tasks/service', () => ({ recordRunOutcome: vi.fn() }))
 vi.mock('./service', () => ({
-  applyRunLedgerOp: vi.fn(),
   readRunMessage: vi.fn(),
+  settleRunLedger: vi.fn(),
   writeRunReport: vi.fn(),
 }))
 vi.mock('@/lib/jobs/backend-client', () => ({ fetchBackendJobOutcome: vi.fn() }))
@@ -27,16 +31,16 @@ vi.mock('@/lib/db/tenant-context', () => ({
   withPlatformAccess: vi.fn(async (_why: string, run: () => Promise<unknown>) => run()),
 }))
 
-import { NotFoundError } from '@/lib/api/errors'
 import type { TaskRun } from '@/lib/db/schema'
 import { emptySkillSnapshot } from '@/lib/jobs/types'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { fetchBackendJobOutcome, type BackendJobOutcome } from '@/lib/jobs/backend-client'
-import { claimRunsToReconcile } from '@/lib/tasks/repository'
+import { claimClosedRunsToHeal, claimRunsToReconcile, releaseHealClaim } from '@/lib/tasks/repository'
 import { recordRunOutcome } from '@/lib/tasks/service'
-import { emptyRunLedger, finishRun } from './run-ledger'
 import {
   decideReconciliation,
+  endingOfClosedRun,
+  HEAL_BATCH,
   LOST_JOB_REASON,
   NEVER_SUBMITTED_REASON,
   readReconcileConfig,
@@ -44,7 +48,7 @@ import {
   reconcileStaleRuns,
   type JobProbe,
 } from './reconcile'
-import { applyRunLedgerOp, readRunMessage, writeRunReport } from './service'
+import { readRunMessage, settleRunLedger, writeRunReport } from './service'
 
 const NOW = new Date('2026-09-27T12:00:00.000Z')
 const minutesAgo = (m: number) => new Date(NOW.getTime() - m * 60_000)
@@ -101,20 +105,14 @@ describe('decideReconciliation', () => {
       kind: 'close',
       outcome: { status: 'success', error: null, report: '# Bericht', cards: [{ type: 'x' }] },
       message,
-      ledger: { op: 'finish', result: { filedAt: NOW.toISOString() } },
     })
   })
 
-  it('settles the ledger the way the worker’s fold would, per ending', () => {
+  it('carries a failure or a cancel through as the job store has it', () => {
     const failed = decideReconciliation(run, found({ status: 'failure', error: 'boom', report: null }), NOW, CONFIG)
-    expect(failed).toMatchObject({ outcome: { status: 'failure', error: 'boom' }, ledger: { op: 'finish', error: { reason: 'boom' } } })
-
-    // A cancel has no finish op; „abgebrochen" travels as a status (ADR-0062).
+    expect(failed).toMatchObject({ outcome: { status: 'failure', error: 'boom' } })
     const cancelled = decideReconciliation(run, found({ status: 'interrupted', report: null }), NOW, CONFIG)
-    expect(cancelled).toMatchObject({ outcome: { status: 'interrupted' }, ledger: { op: 'append', status: 'abgebrochen' } })
-
-    const silent = decideReconciliation(run, found({ status: 'failure', error: null, report: null }), NOW, CONFIG)
-    expect(silent).toMatchObject({ ledger: { op: 'finish', error: { reason: 'Der Lauf ist fehlgeschlagen.' } } })
+    expect(cancelled).toMatchObject({ outcome: { status: 'interrupted' } })
   })
 
   it('leaves a job that is still working alone', () => {
@@ -136,7 +134,6 @@ describe('decideReconciliation', () => {
       kind: 'close',
       outcome: { status: 'failure', error: LOST_JOB_REASON },
       message: null,
-      ledger: { op: 'finish', error: { reason: LOST_JOB_REASON } },
     })
   })
 
@@ -182,16 +179,12 @@ describe('reconcileRun', () => {
     expect(fetchBackendJobOutcome).toHaveBeenCalledWith('job-1', 'org_1')
   })
 
-  it('fills an empty message, settles a live ledger, then closes the row through the one outcome recorder', async () => {
-    vi.mocked(readRunMessage).mockResolvedValue({ content: '', ledger: emptyRunLedger('run-1', minutesAgo(30)) })
+  it('fills an empty message, then closes the row (and its block) through the one outcome recorder', async () => {
+    vi.mocked(readRunMessage).mockResolvedValue({ content: '', ledger: null })
     const order: string[] = []
     vi.mocked(writeRunReport).mockImplementation(async () => {
       order.push('message')
       return { runId: 'run-1', conversationId: 's_conv_1', messageId: 'msg-1' }
-    })
-    vi.mocked(applyRunLedgerOp).mockImplementation(async () => {
-      order.push('ledger')
-      return { runId: 'run-1', ledger: emptyRunLedger('run-1') }
     })
     vi.mocked(recordRunOutcome).mockImplementation(async () => {
       order.push('row')
@@ -202,30 +195,29 @@ describe('reconcileRun', () => {
     expect(await reconcileRun(run, CONFIG, NOW)).toBe('closed')
 
     expect(writeRunReport).toHaveBeenCalledWith('job-1', message)
-    expect(applyRunLedgerOp).toHaveBeenCalledWith('run-1', { op: 'finish', result: { filedAt: NOW.toISOString() } }, NOW)
+    // The block is the recorder's to settle, the same as on the worker's own
+    // report: one path, so no closing path can forget it.
+    expect(settleRunLedger).not.toHaveBeenCalled()
     expect(recordRunOutcome).toHaveBeenCalledWith(
       run,
       { status: 'success', error: null, report: '# Bericht', cards: null },
       { onlyIfActive: true },
     )
     // The row last: a sweep that fails halfway leaves it active for the next one.
-    expect(order).toEqual(['message', 'ledger', 'row'])
+    expect(order).toEqual(['message', 'row'])
   })
 
-  it('touches neither the message nor the ledger when the worker’s writes did land', async () => {
-    const settled = finishRun(emptyRunLedger('run-1', minutesAgo(30)), { filedAt: minutesAgo(1).toISOString() }, minutesAgo(1))
-    vi.mocked(readRunMessage).mockResolvedValue({ content: '# Bericht', ledger: settled })
+  it('leaves a message the worker’s write did fill alone', async () => {
+    vi.mocked(readRunMessage).mockResolvedValue({ content: '# Bericht', ledger: null })
 
     await reconcileRun(makeRun(), CONFIG, NOW)
 
     expect(writeRunReport).not.toHaveBeenCalled()
-    expect(applyRunLedgerOp).not.toHaveBeenCalled()
     expect(recordRunOutcome).toHaveBeenCalledTimes(1)
   })
 
   it('is idempotent: a run another path closed first is reported as already closed and nothing more', async () => {
     vi.mocked(readRunMessage).mockResolvedValue({ content: '# Bericht', ledger: null })
-    vi.mocked(applyRunLedgerOp).mockResolvedValue({ runId: 'run-1', ledger: emptyRunLedger('run-1') })
     vi.mocked(recordRunOutcome).mockResolvedValue({ notified: false, filed: null, closed: false })
 
     expect(await reconcileRun(makeRun(), CONFIG, NOW)).toBe('already-closed')
@@ -251,18 +243,25 @@ describe('reconcileRun', () => {
     vi.mocked(readRunMessage).mockResolvedValue(null)
     expect(await reconcileRun(makeRun({ conversationId: null, runMessageId: null }), CONFIG, NOW)).toBe('closed')
     expect(writeRunReport).not.toHaveBeenCalled()
-    expect(applyRunLedgerOp).not.toHaveBeenCalled()
   })
 
-  it('still closes the row when the message refuses a ledger, but not when the ledger write breaks', async () => {
-    vi.mocked(readRunMessage).mockResolvedValue({ content: '# Bericht', ledger: null })
-    vi.mocked(applyRunLedgerOp).mockRejectedValueOnce(new NotFoundError('no message'))
-    expect(await reconcileRun(makeRun(), CONFIG, NOW)).toBe('closed')
-
-    vi.mocked(recordRunOutcome).mockClear()
-    vi.mocked(applyRunLedgerOp).mockRejectedValueOnce(new Error('db down'))
+  it('does not close the row when the report write breaks', async () => {
+    vi.mocked(readRunMessage).mockResolvedValue({ content: '', ledger: null })
+    vi.mocked(writeRunReport).mockRejectedValueOnce(new Error('db down'))
     await expect(reconcileRun(makeRun(), CONFIG, NOW)).rejects.toThrow('db down')
     expect(recordRunOutcome).not.toHaveBeenCalled()
+  })
+})
+
+describe('endingOfClosedRun', () => {
+  it('reads the ending off the row, which the job store’s verdict closed', () => {
+    expect(endingOfClosedRun({ status: 'succeeded', error: null })).toEqual({ status: 'success' })
+    expect(endingOfClosedRun({ status: 'interrupted', error: 'cancelled by user' })).toEqual({ status: 'interrupted' })
+    expect(endingOfClosedRun({ status: 'failed', error: 'Job timed out' })).toEqual({
+      status: 'failure',
+      error: 'Job timed out',
+    })
+    expect(endingOfClosedRun({ status: 'error', error: null })).toEqual({ status: 'failure', error: null })
   })
 })
 
@@ -271,6 +270,7 @@ describe('reconcileStaleRuns', () => {
     vi.clearAllMocks()
     vi.mocked(readRunMessage).mockResolvedValue(null)
     vi.mocked(recordRunOutcome).mockResolvedValue({ notified: true, filed: null, closed: true })
+    vi.mocked(claimClosedRunsToHeal).mockResolvedValue([])
   })
 
   it('claims under platform access with the stale cutoff, then works each run inside its own organization', async () => {
@@ -282,13 +282,13 @@ describe('reconcileStaleRuns', () => {
 
     const result = await reconcileStaleRuns(NOW, CONFIG)
 
-    expect(withPlatformAccess).toHaveBeenCalledTimes(1)
+    expect(withPlatformAccess).toHaveBeenCalledTimes(2)
     expect(claimRunsToReconcile).toHaveBeenCalledWith(minutesAgo(10), 25)
     expect(vi.mocked(withTenant).mock.calls.map(([scope]) => scope)).toEqual([
       { organizationId: 'org_a' },
       { organizationId: 'org_b' },
     ])
-    expect(result).toEqual({ checked: 2, closed: 1, alreadyClosed: 0, waiting: 1, failed: 0 })
+    expect(result).toEqual({ checked: 2, closed: 1, alreadyClosed: 0, waiting: 1, healed: 0, failed: 0 })
   })
 
   it('one run’s failure costs no other run its turn', async () => {
@@ -304,7 +304,96 @@ describe('reconcileStaleRuns', () => {
 
   it('does nothing when nothing is due', async () => {
     vi.mocked(claimRunsToReconcile).mockResolvedValue([])
-    expect(await reconcileStaleRuns(NOW, CONFIG)).toEqual({ checked: 0, closed: 0, alreadyClosed: 0, waiting: 0, failed: 0 })
+    expect(await reconcileStaleRuns(NOW, CONFIG)).toEqual({
+      checked: 0,
+      closed: 0,
+      alreadyClosed: 0,
+      waiting: 0,
+      healed: 0,
+      failed: 0,
+    })
     expect(fetchBackendJobOutcome).not.toHaveBeenCalled()
+    expect(settleRunLedger).not.toHaveBeenCalled()
+  })
+
+  it('heals the block of every closed run nothing looked at since it ended, inside its own organization', async () => {
+    vi.mocked(claimRunsToReconcile).mockResolvedValue([])
+    const reaped = makeRun({
+      id: 'a',
+      organizationId: 'org_a',
+      status: 'failed',
+      error: 'Job timed out',
+      finishedAt: minutesAgo(3 * 24 * 60),
+    })
+    const cancelled = makeRun({ id: 'b', organizationId: 'org_b', status: 'interrupted' })
+    const settled = makeRun({ id: 'c', organizationId: 'org_c', status: 'succeeded' })
+    vi.mocked(claimClosedRunsToHeal).mockResolvedValue([reaped, cancelled, settled])
+    vi.mocked(settleRunLedger).mockImplementation(async (run) => run.id !== 'c')
+
+    const result = await reconcileStaleRuns(NOW, CONFIG)
+
+    expect(claimClosedRunsToHeal).toHaveBeenCalledWith(HEAL_BATCH)
+    // Dated to when the row ended, not to the heal.
+    expect(settleRunLedger).toHaveBeenCalledWith(
+      reaped,
+      { status: 'failure', error: 'Job timed out' },
+      minutesAgo(3 * 24 * 60),
+    )
+    expect(settleRunLedger).toHaveBeenCalledWith(cancelled, { status: 'interrupted' }, NOW)
+    expect(vi.mocked(withTenant).mock.calls.map(([scope]) => scope)).toEqual([
+      { organizationId: 'org_a' },
+      { organizationId: 'org_b' },
+      { organizationId: 'org_c' },
+    ])
+    expect(result).toMatchObject({ healed: 2, failed: 0 })
+  })
+
+  it('a heal that breaks costs no other run its heal, and is counted', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(claimRunsToReconcile).mockResolvedValue([])
+    vi.mocked(claimClosedRunsToHeal).mockResolvedValue([
+      makeRun({ id: 'a', status: 'failed' }),
+      makeRun({ id: 'b', status: 'failed' }),
+    ])
+    vi.mocked(settleRunLedger).mockRejectedValueOnce(new Error('db down')).mockResolvedValueOnce(true)
+
+    expect(await reconcileStaleRuns(NOW, CONFIG)).toMatchObject({ healed: 1, failed: 1 })
+  })
+
+  it('hands a run whose heal broke back to the next sweep, and only that run', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(claimRunsToReconcile).mockResolvedValue([])
+    vi.mocked(claimClosedRunsToHeal).mockResolvedValue([
+      makeRun({ id: 'a', organizationId: 'org_a', status: 'failed' }),
+      makeRun({ id: 'b', status: 'failed' }),
+    ])
+    vi.mocked(settleRunLedger).mockRejectedValueOnce(new Error('db down')).mockResolvedValueOnce(true)
+
+    await reconcileStaleRuns(NOW, CONFIG)
+
+    // The claim's stamp is past the run's finished_at, which never moves: left
+    // in place, the run would never be claimed again.
+    expect(releaseHealClaim).toHaveBeenCalledTimes(1)
+    expect(releaseHealClaim).toHaveBeenCalledWith('a')
+    expect(withTenant).toHaveBeenCalledWith({ organizationId: 'org_a' }, expect.any(Function))
+  })
+
+  it('a release that breaks too is logged, and costs the sweep nothing', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(claimRunsToReconcile).mockResolvedValue([])
+    vi.mocked(claimClosedRunsToHeal).mockResolvedValue([
+      makeRun({ id: 'a', status: 'failed' }),
+      makeRun({ id: 'b', status: 'failed' }),
+    ])
+    vi.mocked(settleRunLedger).mockRejectedValueOnce(new Error('db down')).mockResolvedValueOnce(true)
+    vi.mocked(releaseHealClaim).mockRejectedValueOnce(new Error('still down'))
+
+    expect(await reconcileStaleRuns(NOW, CONFIG)).toMatchObject({ healed: 1, failed: 1 })
+    expect(logged).toHaveBeenCalledWith(
+      '[runs] reconcile: closed run',
+      'a',
+      'could not be handed back to the heal',
+      expect.any(Error),
+    )
   })
 })
