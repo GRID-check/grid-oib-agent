@@ -241,6 +241,20 @@ export function endingOfClosedRun(run: Pick<TaskRun, 'status' | 'error'>): RunEn
  * never reached its block — every such run before `recordRunOutcome` settled
  * the block itself, and any later path that forgets to.
  */
+/**
+ * Make a run whose heal failed due again. The claim's stamp is already past its
+ * `finished_at`, which never moves, so without this the run would never be
+ * claimed again and its block would read „läuft" for good. A release that fails
+ * too is logged, never thrown: it must not cost the other runs their heal.
+ */
+async function releaseHealClaim(run: TaskRun): Promise<void> {
+  try {
+    await withTenant({ organizationId: run.organizationId }, () => taskRepository.releaseHealClaim(run.id))
+  } catch (error) {
+    console.error('[runs] reconcile: closed run', run.id, 'could not be handed back to the heal', error)
+  }
+}
+
 async function healClosedRuns(batch: number, now: Date): Promise<{ healed: number; failed: number }> {
   const claimed = await withPlatformAccess(
     'run reconciler: finding the closed runs of every organization not looked at since they ended',
@@ -258,9 +272,8 @@ async function healClosedRuns(batch: number, now: Date): Promise<{ healed: numbe
             settleRunLedger(run, endingOfClosedRun(run), run.finishedAt ?? now),
           )
         } catch (error) {
-          // The stamp is already set, so this run is not retried on its own;
-          // the error is the log line that says which one to look at.
           console.error('[runs] reconcile: the block of closed run', run.id, 'could not be settled', error)
+          await releaseHealClaim(run)
           return 'failed' as const
         }
       }),

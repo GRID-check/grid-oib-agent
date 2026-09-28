@@ -468,6 +468,19 @@ export async function claimClosedRunsToHeal(limit: number): Promise<TaskRun[]> {
     .returning()
 }
 
+/**
+ * Hand a claimed closed run back to the heal after its settlement failed.
+ *
+ * The claim's stamp already sits past the run's `finished_at`, and a closed
+ * run's `finished_at` never moves again, so a stamp left in place takes the run
+ * out of the heal for good: its block keeps reading „läuft". Clearing it makes
+ * the run due on the next sweep. Tenant-scoped: the caller holds the run's own
+ * organization.
+ */
+export async function releaseHealClaim(runId: string): Promise<void> {
+  await getDb().update(taskRuns).set({ reconcileCheckedAt: null }).where(eq(taskRuns.id, runId))
+}
+
 export async function listRunsForDefinition(
   definitionId: string,
   organizationId: string,

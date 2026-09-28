@@ -14,7 +14,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
-vi.mock('@/lib/tasks/repository', () => ({ claimRunsToReconcile: vi.fn(), claimClosedRunsToHeal: vi.fn() }))
+vi.mock('@/lib/tasks/repository', () => ({
+  claimRunsToReconcile: vi.fn(),
+  claimClosedRunsToHeal: vi.fn(),
+  releaseHealClaim: vi.fn(),
+}))
 vi.mock('@/lib/tasks/service', () => ({ recordRunOutcome: vi.fn() }))
 vi.mock('./service', () => ({
   readRunMessage: vi.fn(),
@@ -31,7 +35,7 @@ import type { TaskRun } from '@/lib/db/schema'
 import { emptySkillSnapshot } from '@/lib/jobs/types'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { fetchBackendJobOutcome, type BackendJobOutcome } from '@/lib/jobs/backend-client'
-import { claimClosedRunsToHeal, claimRunsToReconcile } from '@/lib/tasks/repository'
+import { claimClosedRunsToHeal, claimRunsToReconcile, releaseHealClaim } from '@/lib/tasks/repository'
 import { recordRunOutcome } from '@/lib/tasks/service'
 import {
   decideReconciliation,
@@ -354,5 +358,42 @@ describe('reconcileStaleRuns', () => {
     vi.mocked(settleRunLedger).mockRejectedValueOnce(new Error('db down')).mockResolvedValueOnce(true)
 
     expect(await reconcileStaleRuns(NOW, CONFIG)).toMatchObject({ healed: 1, failed: 1 })
+  })
+
+  it('hands a run whose heal broke back to the next sweep, and only that run', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(claimRunsToReconcile).mockResolvedValue([])
+    vi.mocked(claimClosedRunsToHeal).mockResolvedValue([
+      makeRun({ id: 'a', organizationId: 'org_a', status: 'failed' }),
+      makeRun({ id: 'b', status: 'failed' }),
+    ])
+    vi.mocked(settleRunLedger).mockRejectedValueOnce(new Error('db down')).mockResolvedValueOnce(true)
+
+    await reconcileStaleRuns(NOW, CONFIG)
+
+    // The claim's stamp is past the run's finished_at, which never moves: left
+    // in place, the run would never be claimed again.
+    expect(releaseHealClaim).toHaveBeenCalledTimes(1)
+    expect(releaseHealClaim).toHaveBeenCalledWith('a')
+    expect(withTenant).toHaveBeenCalledWith({ organizationId: 'org_a' }, expect.any(Function))
+  })
+
+  it('a release that breaks too is logged, and costs the sweep nothing', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.mocked(claimRunsToReconcile).mockResolvedValue([])
+    vi.mocked(claimClosedRunsToHeal).mockResolvedValue([
+      makeRun({ id: 'a', status: 'failed' }),
+      makeRun({ id: 'b', status: 'failed' }),
+    ])
+    vi.mocked(settleRunLedger).mockRejectedValueOnce(new Error('db down')).mockResolvedValueOnce(true)
+    vi.mocked(releaseHealClaim).mockRejectedValueOnce(new Error('still down'))
+
+    expect(await reconcileStaleRuns(NOW, CONFIG)).toMatchObject({ healed: 1, failed: 1 })
+    expect(logged).toHaveBeenCalledWith(
+      '[runs] reconcile: closed run',
+      'a',
+      'could not be handed back to the heal',
+      expect.any(Error),
+    )
   })
 })

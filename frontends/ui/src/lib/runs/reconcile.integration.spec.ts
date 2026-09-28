@@ -242,6 +242,12 @@ describe.skipIf(!url)('run reconciler SQL against live Postgres (migration 0096)
     // Looked at once: the stamp moved it past its ending.
     const again = await withPlatformAccess('test: heal claim again', () => repository.claimClosedRunsToHeal(500))
     expect(ours(again)).toEqual([])
+    // A heal that failed hands its claim back: the run is due on the next sweep.
+    await withTenant({ organizationId: ORG }, () => repository.releaseHealClaim(ids.ghost))
+    const released = await withPlatformAccess('test: heal claim after release', () =>
+      repository.claimClosedRunsToHeal(500),
+    )
+    expect(ours(released).map((row) => nameOf(row.id))).toEqual(['ghost'])
     // And a second settle of an ended block writes nothing.
     expect(await withTenant({ organizationId: ORG }, () => runs.settleRunLedger(ghost, { status: 'success' }))).toBe(
       false,
