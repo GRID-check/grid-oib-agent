@@ -41,6 +41,7 @@ vi.mock('@/adapters/api/conversations-client', () => ({
 
 import { useChatStore } from '../store'
 import { isAwaitingServerMessages, markAwaitingServerMessages } from './chat-storage'
+import { isConversationOnServer } from '../lib/conversation-on-server'
 import type { ChatMessage, Conversation } from '../types'
 
 let uniqueCounter = 0
@@ -495,6 +496,28 @@ describe('_appendMessage conversation ensure', () => {
     await useChatStore.getState()._appendMessage(message('m2'))
     expect(mockConversationsClient.create).toHaveBeenCalledTimes(2)
     expect(mockConversationsClient.createMessage).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a chat minted in this page', () => {
+  it('is not on the server until its create succeeds, and is afterwards', async () => {
+    const id = useChatStore.getState().ensureSession()!
+    expect(isConversationOnServer(id)).toBe(false)
+
+    mockConversationsClient.create.mockRejectedValueOnce(new Error('429'))
+    await useChatStore.getState()._appendMessage(message('m1'))
+    expect(isConversationOnServer(id)).toBe(false)
+
+    await useChatStore.getState()._appendMessage(message('m2'))
+    expect(isConversationOnServer(id)).toBe(true)
+  })
+
+  it('a conversation the server listed was never minted here, so it is on the server', async () => {
+    mockConversationsClient.list.mockResolvedValue([
+      { id: 's_listed', createdBy: 'user-1', title: 'Alt', createdAt: '2026-07-01', updatedAt: '2026-07-01' },
+    ])
+    await useChatStore.getState().loadServerConversations()
+    expect(isConversationOnServer('s_listed')).toBe(true)
   })
 })
 

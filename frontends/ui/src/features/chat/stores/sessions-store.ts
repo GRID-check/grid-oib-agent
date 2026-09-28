@@ -26,6 +26,7 @@ import {
 import { mapServerMessagesToChatMessages } from '../lib/server-message-mapper'
 import { mergeRemoteMessages, turnStateFor } from './messages-store'
 import { encodeCitations } from '../lib/citations'
+import { markConversationMinted, markConversationOnServer } from '../lib/conversation-on-server'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 
@@ -120,12 +121,19 @@ export type SessionsSlice = {
 
 // Helper functions
 
+/** An id minted here names nothing on the server until its first message is stored. */
+const mintConversationId = (): string => {
+  const id = `s_${uuidv4().replace(/-/g, '_')}`
+  markConversationMinted(id)
+  return id
+}
+
 const createNewConversation = (
   userId: string,
   projectId: string | null,
   subject?: { resourceType: 'document'; resourceId: string; title?: string | null } | null
 ): Conversation => ({
-  id: `s_${uuidv4().replace(/-/g, '_')}`,
+  id: mintConversationId(),
   userId,
   // Stamp the active project so the session stays scoped to it (UX-8);
   // null = created outside a project context (visible everywhere).
@@ -254,6 +262,8 @@ const ensureServerConversation = (
         ? { resourceType: 'document', resourceId: conversation.subjectResourceId }
         : null
     )
+    // The readers that were waiting for the row may ask about it now.
+    markConversationOnServer(conversation.id)
   })()
 
   // Drop the cached promise on failure so the next append retries the check.
