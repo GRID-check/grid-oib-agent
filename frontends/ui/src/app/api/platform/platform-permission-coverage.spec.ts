@@ -48,6 +48,8 @@ const EXPECTED: Record<string, string> = {
   'lessons/[lessonId]/route.ts PATCH': 'settingsManage',
   'lessons/route.ts GET': 'settingsView',
   'lessons/route.ts POST': 'settingsManage',
+  // Kills every running deep research in every organization.
+  'maintenance/kill-runs/route.ts POST': 'settingsManage',
   'maintenance/reconcile-vectors/route.ts POST': 'settingsManage',
   'model-defaults/models/route.ts GET': 'settingsView',
   'model-defaults/route.ts GET': 'settingsView',

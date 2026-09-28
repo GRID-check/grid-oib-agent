@@ -377,6 +377,52 @@ export const platform = {
     failed: 'Reconcile failed',
     failedHint: 'The request did not complete, so nothing was deleted. Please try again.',
   },
+  runKillSwitch: {
+    title: 'Kill all running research',
+    description:
+      'Stop every deep research that is queued or running, in every organization, and close each run as interrupted.',
+    whatTitle: 'What it does',
+    whatBody:
+      'Every queued or running job in the job store is marked interrupted. Queued jobs are dropped before a worker takes them; running workers see the status and stop, and on Dask their tasks are force-cancelled. Each run then closes as interrupted, so its block stops reading „läuft“ and the person who asked for it gets an inbox notice.',
+    whenTitle: 'When you need it',
+    whenBody:
+      'When workers are stuck, burning tokens in a loop, or holding every admission slot so nothing new can start. The ghost reaper already clears runs that stopped reporting; this is for the ones that are still reporting and must stop anyway.',
+    lossTitle: 'What is lost',
+    lossBody:
+      'Everything the runs had not yet filed. A killed run does not write a partial report and cannot be resumed; the requester has to start it again.',
+    run: 'Kill all running research',
+    running: 'Killing…',
+    confirmTitle: 'Kill every running deep research?',
+    confirmDescription:
+      'Every queued and running deep research on the platform is stopped and closed as interrupted.',
+    confirmWarning:
+      'This runs across all organizations at once and cannot be undone. Work in progress is discarded, and every requester is notified that their run was interrupted.',
+    confirmCta: 'Kill all runs',
+    cancel: 'Cancel',
+    lastRunTitle: 'Last kill',
+    lastRunHint: 'Not recorded anywhere but the server log; this covers what you start from this page.',
+    neverRunTitle: 'Nothing killed yet',
+    neverRunBody: 'Kill all runs to see how many jobs were stopped and how many run rows were closed.',
+    colMeasure: 'Measure',
+    colCount: 'Count',
+    measureFound: 'Live jobs found',
+    measureFoundHint: 'Jobs the job store held as queued or running.',
+    measureKilled: 'Jobs killed',
+    measureKilledHint: 'Marked interrupted, their workers told to stop.',
+    measureFinished: 'Finished on their own',
+    measureFinishedHint: 'Ended while the kill ran; their own result stands.',
+    measureRunsClosed: 'Runs closed here',
+    measureRunsClosedHint: 'Run rows no job report reached, closed as interrupted by this page.',
+    outcomeKilled: 'Killed {jobs} job(s); {runs} further run(s) closed.',
+    outcomeClean: 'Nothing was running.',
+    truncated: 'More was running than one press stops. Press again to kill the rest.',
+    failuresTitle: '{count} job(s) or run(s) could not be stopped',
+    colId: 'Job or run',
+    colError: 'Reason',
+    failed: 'Kill failed',
+    failedHint:
+      'The job store did not confirm the kill, so no run was closed. Workers may still be running. Check the backend and try again.',
+  },
   /** Platform → Skills: the catalogue curated for every organization. */
   skills: {
     hint: 'A skill written here is offered to every organization, and each one decides whether to switch it on. Drafts stay invisible until you publish them. Anything that should apply to every answer belongs in the platform prompt, not in a skill.',
