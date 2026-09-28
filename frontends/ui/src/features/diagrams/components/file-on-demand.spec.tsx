@@ -24,7 +24,6 @@ const MODEL: DiagramModel = {
 }
 vi.mock('../parse-mermaid', () => ({ parseMermaid: async () => MODEL }))
 
-import { DiagramCard } from '@/features/grid-cards/components/DiagramCard'
 import { DiagramFilingProvider } from '../diagram-filing-context'
 import { clearDiagramModelCache } from '../use-diagram-model'
 import { MermaidDiagram } from './mermaid-diagram'
@@ -49,7 +48,6 @@ afterEach(() => {
 
 const SURFACES = {
   fence: () => <MermaidDiagram source={SOURCE} />,
-  card: () => <DiagramCard title="Nutzflächen" source={SOURCE} />,
 }
 
 describe.each(Object.entries(SURFACES))(

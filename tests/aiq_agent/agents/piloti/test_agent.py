@@ -755,7 +755,7 @@ class TestPilotiAgent:
         # stays with the schematic cards.
         assert "```mermaid" in formatting
         assert "not only when asked" in formatting
-        assert "`process_map`" in formatting and "`condition_tree`" in formatting
+        assert "`:::procedure`" in formatting and "`:::cases`" in formatting
         assert "schematic card" in formatting
         # The box-art ban must survive the rewrite: the third field
         # transcript drew box-drawing characters where a diagram was asked.
@@ -764,7 +764,7 @@ class TestPilotiAgent:
         assert "flowchart TD" in formatting
         # And the consequence, so an edit that keeps the rule and drops the
         # reason still fails: a listing where a drawing was promised.
-        assert "monospace listing" in formatting
+        assert "reach the reader as a listing" in formatting
         assert "│" in formatting
 
     def test_project_memory_is_framed_as_fallible_not_binding(self, mock_llm_provider, real_tool):
@@ -2562,9 +2562,9 @@ class TestADirectReplyMayStillEmitACard:
     def test_the_direct_reply_shape_names_the_card_rule_and_its_limit(self):
         contract = self._render().split("<output_contract>")[1].split("</output_contract>")[0]
         direct_shape = contract.split("An off-topic decline")[0]
-        assert "A card only when the reply carries real subject matter" in direct_shape
+        assert "earns the structure its content calls for" in direct_shape
         # ...and closed again for the turns with nothing to show.
-        assert "so emit none" in direct_shape
+        assert "carry no card" in direct_shape
 
     def test_the_hand_off_shape_escalates_a_commissioned_report_at_once(self):
         contract = self._render().split("<output_contract>")[1].split("</output_contract>")[0]
@@ -2882,7 +2882,7 @@ class TestTheModelCardsAreActuallyAskedFor:
 
     def test_the_card_does_not_replace_the_written_answer(self):
         rendered = self._render()
-        assert "always write the prose reply too" in rendered
+        assert "the prose answers on its own" in rendered
 
 
 # ---------------------------------------------------------------------------

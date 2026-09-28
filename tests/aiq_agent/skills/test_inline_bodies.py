@@ -20,7 +20,7 @@ SHORT_TWO = Skill(
     name="kurz-zwei",
     description="Zweite kurze Methode.",
     body="# Zwei\n\nTu das.",
-    metadata={"grid-cards": "legal_basis,condition_tree"},
+    metadata={"grid-cards": "stair_diagram,guardrail_check"},
     origin="platform",
 )
 LONG = Skill(name="lang", description="Lange Methode.", body="x" * 5000, origin="org")
@@ -69,26 +69,26 @@ class TestTheBlock:
 
     def test_a_card_preference_rides_as_names_and_never_as_shapes(self):
         block = _runtime(SHORT_TWO).prompt_block() or ""
-        assert "Preferred cards: `legal_basis`, `condition_tree` — the author's preference, not a requirement." in block
+        line = "Preferred cards: `stair_diagram`, `guardrail_check` — the author's preference, not a requirement."
+        assert line in block
         # The full shapes are what `use_skill` appends; the envelope contract
         # already teaches the common ones.
         assert "shape:" not in block and "Building blocks" not in block
 
-    def test_the_inline_line_leaves_out_types_chat_writes_as_markdown(self):
-        # Only chat inlines, and there `requirement_checklist` is a table with a
-        # Status column: the envelope neither indexes nor shapes it.
+    def test_the_inline_line_leaves_out_types_that_no_longer_exist(self):
+        # A stored org row may still name a retired type: it never reaches the prompt.
         skill = Skill(
             name="pruefen",
             description="Prüfmethode.",
             body="# Prüfen",
-            metadata={"grid-cards": "requirement_checklist,legal_basis,comparison_table"},
+            metadata={"grid-cards": "requirement_checklist,calculation,comparison_table"},
             origin="platform",
         )
         block = _runtime(skill).prompt_block() or ""
-        assert "Preferred cards: `legal_basis` — the author's preference, not a requirement." in block
+        assert "Preferred cards: `calculation` — the author's preference, not a requirement." in block
         assert "requirement_checklist" not in block and "comparison_table" not in block
 
-    def test_only_markdown_types_render_no_preferred_line(self):
+    def test_only_retired_types_render_no_preferred_line(self):
         skill = Skill(
             name="tabelle",
             description="Tabellenmethode.",
@@ -98,16 +98,16 @@ class TestTheBlock:
         )
         assert "Preferred cards" not in (_runtime(skill).prompt_block() or "")
 
-    def test_use_skill_still_offers_the_card_deep_research_can_emit(self):
+    def test_use_skill_offers_the_card_deep_research_can_emit(self):
         skill = Skill(
             name="pruefen",
             description="Prüfmethode.",
             body="# Prüfen",
-            metadata={"grid-cards": "requirement_checklist"},
+            metadata={"grid-cards": "stair_diagram"},
             origin="platform",
         )
         tool = SkillRuntime(skills=(skill,)).build_tools()[0]
-        assert "`requirement_checklist`" in tool.invoke({"skill_name": "pruefen"})
+        assert "`stair_diagram`" in tool.invoke({"skill_name": "pruefen"})
 
     def test_everything_inlined_renders_no_by_name_section(self):
         block = _runtime(SHORT).prompt_block() or ""

@@ -36,7 +36,6 @@ import { remarkFileReferences } from '@/features/layout/lib/file-reference-marke
 import { formatTime } from '@/shared/utils/format-time'
 import { formatDurationElapsed } from '@/lib/format'
 import { GridCardItem, GridCards } from '@/features/grid-cards/components/GridCards'
-import { CardSetProvider } from '@/features/grid-cards/card-set'
 import {
   CALLOUT_SLOT_INDEX,
   hasPlacedCalloutMarker,
@@ -73,13 +72,19 @@ import { turnMemoryItems, type TurnMemoryItem } from '../lib/turn-memory'
 import { answerMetaToAnatomy, summaryDuplicatesBody } from '../lib/answer-meta-cards'
 import { AnatomyBlock, AnatomyMasthead } from './AnswerAnatomy'
 import { FindingsMatrix } from './FindingsMatrix'
-import { EvidenceBlock } from './EvidenceBlock'
 import type { AnswerKind, AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import type { Finding, Findings } from '@/lib/conversations/message-findings'
 import { ConfidenceChip, type AnswerConfidence } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
 import { AnswerActions } from './AnswerActions'
 import { CardSlot, CardSlotLiveProvider } from './CardSlotArrival'
+import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
+import type { QuoteStamp } from '@/lib/conversations/message-quote-stamps'
+import { projectKeysIn } from '@/lib/text/answer-directives'
+import { AnswerDataProvider, type AnswerData } from '@/shared/components/MarkdownRenderer/answer-block-context'
+import { AnswerProjectStrip } from '@/shared/components/MarkdownRenderer/project-binding'
+import { useProjectFacts } from '../hooks/use-project-facts'
+import { isNotRegulated, searchedSources } from '../lib/answer-data'
 
 /**
  * The first paragraph of a long answer, typeset as a lede.
@@ -321,6 +326,20 @@ export interface AgentResponseProps {
    * one, which carries its own. A file the answer names still links.
    */
   readOnly?: boolean
+  /**
+   * The backend's account of the turn's retrieval rounds. Read here for the
+   * „Gesucht in" pane of a `:::not-found`, which lists what the turn searched
+   * from this record and never from the model's words.
+   */
+  retrievalLedger?: RetrievalLedger
+  /** The server's check of each quote line (`TurnResult.quote_stamps`), for „Wortlaut belegt [N]". */
+  quoteStamps?: QuoteStamp[]
+  /**
+   * The project profile `:project[key]` binds, when the caller has it (a
+   * preview, a spec). Omitted, the open project's profile is fetched once for
+   * the thread (`useProjectFacts`).
+   */
+  projectProfile?: unknown
 }
 
 /** Role-tab label for the default answer card. Envelope `kind` wins. */
@@ -826,6 +845,9 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   isStreaming = false,
   routingDecision,
   readOnly = false,
+  retrievalLedger,
+  quoteStamps,
+  projectProfile,
 }) => {
   const t = useTranslations('chat')
   const storeProjectId = useChatStore((s) => s.projectId)
@@ -835,6 +857,22 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // message id). Reading stays: a named file still links.
   const projectId = readOnly ? null : storeProjectId
   const cardMessageId = readOnly ? undefined : messageId
+  // What the answer's blocks read from the record rather than the prose: the
+  // project's values, where the turn searched, the server's quote checks.
+  // „ergänzen" and „Als Aufgabe" only fill the composer, and not in somebody
+  // else's turn (readOnly).
+  const projectFacts = useProjectFacts(storeProjectId, projectProfile)
+  const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
+  const answerData = useMemo(
+    (): AnswerData => ({
+      project: projectFacts ?? undefined,
+      prefill: readOnly ? undefined : setComposerPrefill,
+      searched: searchedSources(retrievalLedger),
+      quoteStamps,
+      notRegulated: isNotRegulated(answerMeta),
+    }),
+    [projectFacts, readOnly, setComposerPrefill, retrievalLedger, quoteStamps, answerMeta]
+  )
   // An answer that ends in a written "## Quellen" list used to state its sources
   // TWICE — that list AND the "Belegt durch" chips, each holding half the truth
   // (numbers/titles/pages vs. provenance color, authority and click-through).
@@ -903,9 +941,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // The answer's structured anatomy, rendered FLAT (`AnswerAnatomy.tsx`) as
   // answer typography: the verdict as the masthead above the prose, the
   // takeaways closing it, the callout beside the paragraph its `[[callout]]`
-  // marker anchors it to — or after the prose when unanchored. The shape set
-  // feeds every CardSetProvider so cross-card rules (charter §A2) see the
-  // anatomy too, even though it never joins the `cards` array.
+  // marker anchors it to — or after the prose when unanchored.
   const anatomy = useMemo(() => answerMetaToAnatomy(answerMeta), [answerMeta])
   // A summary that restates the body's opening is the same statement twice,
   // so the masthead drops it (see `summaryDuplicatesBody` in the module
@@ -919,6 +955,9 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         : anatomy?.summary,
     [anatomy, body]
   )
+  // The Projektbezug strip: the project facts the answer binds, drawn from the
+  // profile under the masthead, only where the answer binds one.
+  const stripKeys = useMemo(() => (body.includes(':project[') ? projectKeysIn(body) : []), [body])
   const ledeClass = opensWithLede(body) && !effectiveSummary && !anatomy?.topic ? LEDE_CLASS : ''
   // The files this answer NAMES, as opposed to the ones it cites. A sentence
   // like „Beginnen Sie mit pd8280-2.pdf" is pointing at a document the reader
@@ -959,25 +998,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // The cards the prose did NOT claim. Read off the same body the renderer
   // parses, because the block below has to be built before that parse happens.
   const fallbackCardIndices = useMemo(() => unplacedCardIndices(body, cardCount), [body, cardCount])
-  // An UNPLACED `legal_basis` card is not a fallback-grid item: it surfaces
-  // flat above the prose as the answer's RECHTSGRUNDLAGE block
-  // (`EvidenceBlock`), and leaves the fallback indices so it can never render
-  // twice. The first unplaced one only — a second keeps its framed fallback.
-  // Gated like the fallback block itself (`unplacedIsFinal`): "unplaced" is
-  // read off the body SO FAR, and a marker that has not arrived yet must still
-  // be able to claim the card.
-  const evidenceIndex = useMemo(
-    () => fallbackCardIndices.find((index) => cards?.[index]?.type === 'legal_basis'),
-    [cards, fallbackCardIndices]
-  )
-  const fallbackGridIndices = useMemo(
-    () =>
-      evidenceIndex === undefined
-        ? fallbackCardIndices
-        : fallbackCardIndices.filter((index) => index !== evidenceIndex),
-    [fallbackCardIndices, evidenceIndex]
-  )
-  const evidenceCard = evidenceIndex !== undefined ? cards?.[evidenceIndex] : undefined
   // Whether "unplaced" is final, so the cards no marker claimed may be drawn.
   // A live frame carries cards only once the envelope's `answer` string has
   // closed (the backend reads them after it, ADR-0066), so a streaming answer
@@ -1000,7 +1020,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // is provenance (where it stands), not decoration — washes/alarms spend the
   // hue budget elsewhere, never by muting the source signal. Grey chips read
   // as broken, so there is no muted variant and no spend counting here.
-  const cardSet = useMemo(() => [...(cards ?? []), ...(anatomy?.all ?? [])], [cards, anatomy])
   // What a `[[card:N]]` marker in the prose draws. A card the answer has not
   // reached yet (N past the end of `cards`) holds a place while the answer
   // streams, since the cards are written after the prose, and nothing once it
@@ -1017,9 +1036,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         if (!anatomy?.callout) return null
         return (
           <div className="block! mb-3">
-            <CardSetProvider cards={cardSet}>
-              <AnatomyBlock card={anatomy.callout} />
-            </CardSetProvider>
+            <AnatomyBlock card={anatomy.callout} />
           </div>
         )
       }
@@ -1030,30 +1047,24 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       if (!card) return index >= (cards?.length ?? 0) ? <CardSlot arrivalKey={arrivalKey} /> : null
       return (
         <CardSlot arrivalKey={arrivalKey}>
-          {/* The whole answer's cards, not just this one: a card placed inline
-              by a marker still has to know what ELSE the answer is carrying —
-              `summary` and `verdict_header` must not both claim the top of it
-              (grid-card-charter.md §A2). See `grid-cards/card-set.tsx`. */}
-          <CardSetProvider cards={cardSet}>
-            <GridCardItem
-              card={card}
-              index={index}
-              projectId={projectId}
-              messageId={cardMessageId}
-              decisionsMustPersist={readOnly}
-            />
-          </CardSetProvider>
+          <GridCardItem
+            card={card}
+            index={index}
+            projectId={projectId}
+            messageId={cardMessageId}
+            decisionsMustPersist={readOnly}
+          />
         </CardSlot>
       )
     },
-    [cards, cardSet, projectId, cardMessageId, anatomy?.callout, arrivalPrefix, readOnly]
+    [cards, projectId, cardMessageId, anatomy?.callout, arrivalPrefix, readOnly]
   )
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
   // derivations of one citation is exactly the defect the model removes.
   const documents = useMemo(
-    () => buildCitationModel({ citations, entries: sourceEntries, cards }),
-    [citations, sourceEntries, cards]
+    () => buildCitationModel({ citations, entries: sourceEntries }),
+    [citations, sourceEntries]
   )
   // The SAME predicate the sources row uses to decide between chips and the
   // "Ohne Quellenbeleg" gap row — so the truncation line never promises
@@ -1180,7 +1191,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Inline variant - no box styling (for use inside containers like thinking process)
   if (variant === 'inline') {
     return (
-      <DiagramFilingProvider target={diagramFilingTarget}>
+      <AnswerDataProvider value={answerData}>
+    <DiagramFilingProvider target={diagramFilingTarget}>
         <NestedMarkdownPluginsProvider plugins={nestedPlugins}>
           <AnswerCitations
             documents={documents}
@@ -1190,18 +1202,17 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
               {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
               {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
-                <CardSetProvider cards={cardSet}>
-                  <AnatomyMasthead
-                    verdict={anatomy.verdict}
-                    summary={effectiveSummary}
-                    topic={anatomy.topic}
-                    context={anatomy.context}
-                    kind={answerMeta?.kind}
-                    confidence={answerConfidence}
-                    confidenceReason={answerConfidenceReason}
-                  />
-                </CardSetProvider>
+                <AnatomyMasthead
+                  verdict={anatomy.verdict}
+                  summary={effectiveSummary}
+                  topic={anatomy.topic}
+                  context={anatomy.context}
+                  kind={answerMeta?.kind}
+                  confidence={answerConfidence}
+                  confidenceReason={answerConfidenceReason}
+                />
               )}
+              <AnswerProjectStrip keys={stripKeys} />
               {findings && (
                 <FindingsMatrix
                   findings={findings}
@@ -1226,16 +1237,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   </div>
                 </MarkdownSlotProvider>
               </CardSlotLiveProvider>
-              {/* An unplaced legal basis — flat, right after the prose it grounds: the
-            answer comes first (the prompt's own first rule), then the Fundstelle
-            it argued from. Never in the fallback grid. */}
-              {unplacedIsFinal && evidenceCard?.type === 'legal_basis' && (
-                <div className={LATE_BLOCK_ENTER}>
-                  <CardSetProvider cards={cardSet}>
-                    <EvidenceBlock card={evidenceCard} />
-                  </CardSetProvider>
-                </div>
-              )}
 
               {/* Cards no marker claimed. AFTER the body, never before it: an answer
             that opens with three diagrams has pushed itself below the fold.
@@ -1250,18 +1251,16 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             it inline), then the takeaways. */}
               {!live && anatomyBelow.length > 0 && (
                 <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
-                  <CardSetProvider cards={cardSet}>
-                    {anatomyBelow.map((card) => (
-                      <AnatomyBlock key={card.type} card={card} />
-                    ))}
-                  </CardSetProvider>
+                  {anatomyBelow.map((card) => (
+                    <AnatomyBlock key={card.type} card={card} />
+                  ))}
                 </div>
               )}
-              {unplacedIsFinal && cards && fallbackGridIndices.length > 0 && (
+              {unplacedIsFinal && cards && fallbackCardIndices.length > 0 && (
                 <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
                   <GridCards
                     cards={cards}
-                    indices={fallbackGridIndices}
+                    indices={fallbackCardIndices}
                     projectId={projectId}
                     messageId={cardMessageId}
                     decisionsMustPersist={readOnly}
@@ -1323,6 +1322,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           </AnswerCitations>
         </NestedMarkdownPluginsProvider>
       </DiagramFilingProvider>
+    </AnswerDataProvider>
     )
   }
 
@@ -1344,6 +1344,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         ? t('roles.answer')
         : t('roles.result')
   return (
+    <AnswerDataProvider value={answerData}>
     <DiagramFilingProvider target={diagramFilingTarget}>
       <NestedMarkdownPluginsProvider plugins={nestedPlugins}>
         <AnswerCitations
@@ -1394,18 +1395,17 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               <div className="bg-card flex flex-col gap-2 break-words border-b px-[22px] pb-[17px] pt-[18px]">
                 {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
                 {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
-                  <CardSetProvider cards={cardSet}>
-                    <AnatomyMasthead
-                      verdict={anatomy.verdict}
-                      summary={effectiveSummary}
-                      topic={anatomy.topic}
-                      context={anatomy.context}
-                      kind={answerMeta?.kind}
-                      confidence={answerConfidence}
-                      confidenceReason={answerConfidenceReason}
-                    />
-                  </CardSetProvider>
+                  <AnatomyMasthead
+                    verdict={anatomy.verdict}
+                    summary={effectiveSummary}
+                    topic={anatomy.topic}
+                    context={anatomy.context}
+                    kind={answerMeta?.kind}
+                    confidence={answerConfidence}
+                    confidenceReason={answerConfidenceReason}
+                  />
                 )}
+                <AnswerProjectStrip keys={stripKeys} />
                 {findings && (
                   <FindingsMatrix
                     findings={findings}
@@ -1428,16 +1428,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                     </div>
                   </MarkdownSlotProvider>
                 </CardSlotLiveProvider>
-                {/* An unplaced legal basis — flat, right after the prose it grounds: the
-              answer comes first (the prompt's own first rule), then the Fundstelle
-              it argued from. Never in the fallback grid. */}
-                {unplacedIsFinal && evidenceCard?.type === 'legal_basis' && (
-                  <div className={LATE_BLOCK_ENTER}>
-                    <CardSetProvider cards={cardSet}>
-                      <EvidenceBlock card={evidenceCard} />
-                    </CardSetProvider>
-                  </div>
-                )}
 
                 {/* Cards no marker claimed. AFTER the body, never before it: an answer
               that opens with three diagrams has pushed itself below the fold.
@@ -1450,18 +1440,16 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               it inline), then the takeaways. */}
                 {!live && anatomyBelow.length > 0 && (
                   <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
-                    <CardSetProvider cards={cardSet}>
-                      {anatomyBelow.map((card) => (
-                        <AnatomyBlock key={card.type} card={card} />
-                      ))}
-                    </CardSetProvider>
+                    {anatomyBelow.map((card) => (
+                      <AnatomyBlock key={card.type} card={card} />
+                    ))}
                   </div>
                 )}
-                {unplacedIsFinal && cards && fallbackGridIndices.length > 0 && (
+                {unplacedIsFinal && cards && fallbackCardIndices.length > 0 && (
                   <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
                     <GridCards
                       cards={cards}
-                      indices={fallbackGridIndices}
+                      indices={fallbackCardIndices}
                       projectId={projectId}
                       messageId={cardMessageId}
                       decisionsMustPersist={readOnly}
@@ -1534,6 +1522,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         </AnswerCitations>
       </NestedMarkdownPluginsProvider>
     </DiagramFilingProvider>
+    </AnswerDataProvider>
   )
 }
 

@@ -1,27 +1,10 @@
 import { type FC, useCallback, useId } from 'react'
 import type { GridCard } from '@/shared/cards/schemas'
 import { cardKey } from '../card-decision'
-import { CardSetProvider } from '../card-set'
-import { SummaryCard } from './SummaryCard'
-import { LegalBasisCard } from './LegalBasisCard'
 import { ProjectProfilePatchCard } from './ProjectProfilePatchCard'
 import { MemoryProposalCard } from './MemoryProposalCard'
 import { FileOperationProposalCard } from './FileOperationProposalCard'
-import { RequirementChecklistCard } from './RequirementChecklistCard'
-import { ComparisonTableCard } from './ComparisonTableCard'
-import { VerdictHeaderCard } from './VerdictHeaderCard'
-import { ConditionTreeCard } from './ConditionTreeCard'
-import { TypedTableCard } from './TypedTableCard'
-import { NormChainCard } from './NormChainCard'
-import { KeyTakeawaysCard } from './KeyTakeawaysCard'
-import { CalloutCard } from './CalloutCard'
 import { CalculationCard } from './CalculationCard'
-import { ProcessMapCard } from './ProcessMapCard'
-import { DocumentChecklistCard } from './DocumentChecklistCard'
-import { DeadlineTimelineCard } from './DeadlineTimelineCard'
-import { ChangeImpactCard } from './ChangeImpactCard'
-import { DiagramCard } from './DiagramCard'
-import { FollowUpsCard } from './FollowUpsCard'
 import { BuildingSectionCard } from '../schematics/BuildingSectionCard'
 import { StairDiagramCard } from '../schematics/StairDiagramCard'
 import { DimensionDiagramCard } from '../schematics/DimensionDiagramCard'
@@ -29,14 +12,7 @@ import { SetbackPlanCard } from '../schematics/SetbackPlanCard'
 import { EgressDiagramCard } from '../schematics/EgressDiagramCard'
 import { DaylightIncidenceCard } from '../schematics/DaylightIncidenceCard'
 import { GuardrailCheckCard } from '../schematics/GuardrailCheckCard'
-import { DensityCheckCard } from '../schematics/DensityCheckCard'
 import { FireAccessPlanCard } from '../schematics/FireAccessPlanCard'
-import { AcousticCheckCard } from '../schematics/AcousticCheckCard'
-import { FireCompartmentCard } from '../schematics/FireCompartmentCard'
-import { ThermalEnvelopeCard } from '../schematics/ThermalEnvelopeCard'
-import { EnergyPerformanceCard } from '../schematics/EnergyPerformanceCard'
-import { ElevatorRequirementCard } from '../schematics/ElevatorRequirementCard'
-import { ParkingRequirementCard } from '../schematics/ParkingRequirementCard'
 import { DocumentGridCard } from './DocumentGridCard'
 import { DocumentDraftCard } from './DocumentDraftCard'
 import { TaskCreatedCard } from './TaskCreatedCard'
@@ -140,115 +116,6 @@ export const GridCardView: FC<GridCardViewProps> = ({
   // The identity an interactive card's persisted decision is stored under.
   const key = leafId === undefined ? cardKey(card, index) : `${cardKey(card, index)}.${leafId}`
 
-  if (card.type === 'summary') {
-    return (
-      <FadeIn distance={6}>
-        <SummaryCard {...card} />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'legal_basis') {
-    return (
-      <FadeIn distance={6}>
-        <LegalBasisCard {...card} />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'requirement_checklist') {
-    return (
-      <FadeIn distance={6}>
-        <RequirementChecklistCard
-          title={card.title}
-          items={card.items ?? []}
-          reference={card.reference}
-          note={card.note}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'comparison_table') {
-    return (
-      <FadeIn distance={6}>
-        <ComparisonTableCard
-          title={card.title}
-          options={card.options ?? []}
-          rows={card.rows ?? []}
-          recommendation={card.recommendation}
-          reference={card.reference}
-          note={card.note}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'verdict_header') {
-    return (
-      <FadeIn distance={6}>
-        <VerdictHeaderCard
-          verdict={card.verdict}
-          subject={card.subject}
-          reference={card.reference}
-          confidence={card.confidence}
-          confidence_reason={card.confidence_reason}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'condition_tree') {
-    return (
-      <FadeIn distance={6}>
-        <ConditionTreeCard
-          title={card.title}
-          question={card.question}
-          branches={card.branches ?? []}
-          reference={card.reference}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'typed_table') {
-    return (
-      <FadeIn distance={6}>
-        <TypedTableCard
-          title={card.title}
-          columns={card.columns ?? []}
-          rows={card.rows ?? []}
-          reference={card.reference}
-          note={card.note}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'norm_chain') {
-    return (
-      <FadeIn distance={6}>
-        <NormChainCard title={card.title} links={card.links ?? []} />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'key_takeaways') {
-    return (
-      <FadeIn distance={6}>
-        <KeyTakeawaysCard title={card.title} items={card.items ?? []} />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'callout') {
-    return (
-      <FadeIn distance={6}>
-        <CalloutCard kind={card.kind} text={card.text} title={card.title} detail={card.detail} />
-      </FadeIn>
-    )
-  }
-
   if (card.type === 'calculation') {
     return (
       <FadeIn distance={6}>
@@ -259,88 +126,6 @@ export const GridCardView: FC<GridCardViewProps> = ({
           reference={card.reference}
           note={card.note}
         />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'process_map') {
-    return (
-      <FadeIn distance={6}>
-        <ProcessMapCard
-          title={card.title}
-          steps={card.steps ?? []}
-          current_step={card.current_step}
-          reference={card.reference}
-          note={card.note}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'document_checklist') {
-    return (
-      <FadeIn distance={6}>
-        <DocumentChecklistCard
-          title={card.title}
-          items={card.items ?? []}
-          reference={card.reference}
-          note={card.note}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'deadline_timeline') {
-    return (
-      <FadeIn distance={6}>
-        <DeadlineTimelineCard
-          title={card.title}
-          deadlines={card.deadlines ?? []}
-          reference={card.reference}
-          note={card.note}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'change_impact') {
-    return (
-      <FadeIn distance={6}>
-        <ChangeImpactCard
-          title={card.title}
-          factor={card.factor}
-          from_value={card.from_value}
-          to_value={card.to_value}
-          consequences={card.consequences ?? []}
-          reference={card.reference}
-          note={card.note}
-        />
-      </FadeIn>
-    )
-  }
-
-  // `diagram_type` is not passed: it is a CONTRACT between the model and the
-  // payload validator (`DiagramCard._source_declares_the_grammar_it_says_it_does`
-  // refuses a source whose declaration disagrees with it), and mermaid reads the
-  // grammar off the source's own first line. A renderer prop for it would be a
-  // second statement of the same fact with no way to be right when they differ.
-  if (card.type === 'diagram') {
-    return (
-      <FadeIn distance={6}>
-        <DiagramCard
-          title={card.title}
-          source={card.source}
-          caption={card.caption}
-          reference={card.reference}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'follow_ups') {
-    return (
-      <FadeIn distance={6}>
-        <FollowUpsCard title={card.title} items={card.items ?? []} />
       </FadeIn>
     )
   }
@@ -400,6 +185,11 @@ export const GridCardView: FC<GridCardViewProps> = ({
           building_depth_m={card.building_depth_m}
           sides={card.sides ?? []}
           reference={card.reference}
+          parcel_area_m2={card.parcel_area_m2}
+          footprint_area_m2={card.footprint_area_m2}
+          gross_floor_area_m2={card.gross_floor_area_m2}
+          coverage={card.coverage}
+          density={card.density}
         />
       </FadeIn>
     )
@@ -455,23 +245,6 @@ export const GridCardView: FC<GridCardViewProps> = ({
     )
   }
 
-  if (card.type === 'density_check') {
-    return (
-      <FadeIn distance={6}>
-        <DensityCheckCard
-          title={card.title}
-          parcel_area_m2={card.parcel_area_m2}
-          footprint_area_m2={card.footprint_area_m2}
-          gross_floor_area_m2={card.gross_floor_area_m2}
-          coverage={card.coverage}
-          density={card.density}
-          reference={card.reference}
-          note={card.note}
-        />
-      </FadeIn>
-    )
-  }
-
   if (card.type === 'fire_access_plan') {
     return (
       <FadeIn distance={6}>
@@ -486,96 +259,6 @@ export const GridCardView: FC<GridCardViewProps> = ({
           aufstellflaeche={card.aufstellflaeche}
           walk_distance_to_entrance={card.walk_distance_to_entrance}
           gebaeudeklasse={card.gebaeudeklasse}
-          reference={card.reference}
-          note={card.note}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'acoustic_check') {
-    return (
-      <FadeIn distance={6}>
-        <AcousticCheckCard
-          title={card.title}
-          checks={card.checks ?? []}
-          sound_class={card.sound_class}
-          note={card.note}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'fire_compartment') {
-    return (
-      <FadeIn distance={6}>
-        <FireCompartmentCard
-          title={card.title}
-          storey_label={card.storey_label}
-          compartments={card.compartments ?? []}
-          gebaeudeklasse={card.gebaeudeklasse}
-          reference={card.reference}
-          note={card.note}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'thermal_envelope') {
-    return (
-      <FadeIn distance={6}>
-        <ThermalEnvelopeCard
-          title={card.title}
-          components={card.components ?? []}
-          reference={card.reference}
-          note={card.note}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'energy_performance') {
-    return (
-      <FadeIn distance={6}>
-        <EnergyPerformanceCard
-          title={card.title}
-          hwb={card.hwb}
-          energy_class={card.energy_class}
-          fgee={card.fgee}
-          reference={card.reference}
-          note={card.note}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'elevator_requirement') {
-    return (
-      <FadeIn distance={6}>
-        <ElevatorRequirementCard
-          title={card.title}
-          storeys_served={card.storeys_served}
-          entrance_level_index={card.entrance_level_index}
-          is_required={card.is_required}
-          requirement_note={card.requirement_note}
-          cabin_width={card.cabin_width}
-          cabin_depth={card.cabin_depth}
-          door_width={card.door_width}
-          reference={card.reference}
-          note={card.note}
-        />
-      </FadeIn>
-    )
-  }
-
-  if (card.type === 'parking_requirement') {
-    return (
-      <FadeIn distance={6}>
-        <ParkingRequirementCard
-          title={card.title}
-          car_spaces={card.car_spaces}
-          bicycle_spaces={card.bicycle_spaces}
-          basis={card.basis}
           reference={card.reference}
           note={card.note}
         />
@@ -806,13 +489,9 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
 }
 
 /**
- * Renders a list of Grid cards in a vertical stack: the structured cards
- * (summary, legal_basis, project_profile_patch, requirement_checklist,
- * comparison_table) plus the fifteen schematic cards (building_section,
- * stair_diagram, dimension_diagram, setback_plan, egress_diagram,
- * daylight_incidence, guardrail_check, density_check, fire_access_plan,
- * acoustic_check, fire_compartment, thermal_envelope, energy_performance,
- * elevator_requirement, parking_requirement).
+ * Renders a list of Grid cards in a vertical stack. Since ADR-0069 a card is
+ * an action or commitment, a to-scale schematic, a calculation, a live model
+ * binding or a `surface`; everything else is the answer's Markdown.
  */
 export const GridCards: FC<GridCardsProps> = ({
   cards,
@@ -829,26 +508,21 @@ export const GridCards: FC<GridCardsProps> = ({
   }
 
   return (
-    // The provider gets the WHOLE array, never `positions`: a cross-card rule
-    // is about the answer, and this stack may be holding only the cards the
-    // prose did not claim (see `card-set.tsx`).
-    <CardSetProvider cards={cards}>
-      <div className="flex w-full flex-col gap-3">
-        {positions.map((index) => {
-          const card = cards[index]
-          if (!card) return null
-          return (
-            <GridCardItem
-              key={cardKey(card, index)}
-              card={card}
-              index={index}
-              projectId={projectId}
-              messageId={messageId}
-              decisionsMustPersist={decisionsMustPersist}
-            />
-          )
-        })}
-      </div>
-    </CardSetProvider>
+    <div className="flex w-full flex-col gap-3">
+      {positions.map((index) => {
+        const card = cards[index]
+        if (!card) return null
+        return (
+          <GridCardItem
+            key={cardKey(card, index)}
+            card={card}
+            index={index}
+            projectId={projectId}
+            messageId={messageId}
+            decisionsMustPersist={decisionsMustPersist}
+          />
+        )
+      })}
+    </div>
   )
 }

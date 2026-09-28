@@ -118,7 +118,7 @@ describe('parseSkillDocument', () => {
       description:
         'Prüft Bauteile und Fluchtwege gegen OIB-Richtlinie 2. Einsetzen, wenn ein Brandschutznachweis erstellt oder vor der Einreichung gegengeprüft werden soll.',
       body: '# Brandschutz\n\nSchritt eins.\n\n- a\n- b',
-      metadata: { 'grid-execution': 'chat', 'grid-cards': 'summary,legal_basis' },
+      metadata: { 'grid-execution': 'chat', 'grid-cards': 'calculation,stair_diagram' },
     }
     expect(ok(renderSkillDocument(input))).toEqual({ ...input, ignoredKeys: [] })
   })

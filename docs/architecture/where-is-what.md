@@ -202,6 +202,8 @@ does not exist, so a moved file is caught; a missing row is not.
 | Answer envelope, Python | `src/aiq_agent/common/answer_envelope.py` — `extract_answer_envelope`, `gate_answer_meta` | [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md) | ADR-0037 |
 | Answer envelope, TypeScript sanitizer | `frontends/ui/src/lib/conversations/message-answer-meta.ts` — `sanitizeAnswerMeta` | same | ADR-0037 |
 | Answer envelope, shared wire fixture | `tests/fixtures/answer_meta/wire_payload.json` | same | ADR-0037 |
+| The answer dialect, server side: vocabulary, budget per kind, unwrap/marker repairs, census | `src/aiq_agent/common/answer_dialect.py` — `validate_dialect`; parity with `frontends/ui/src/lib/text/answer-directives.ts` in `tests/aiq_agent/common/test_answer_dialect_parity.py` | [`docs/design/answer-richness.md`](../design/answer-richness.md) | ADR-0069 |
+| The stamp on each quote line (`TurnResult.quote_stamps`) | `src/aiq_agent/common/quote_stamps.py` — `stamp_quote_lines` | [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md) | ADR-0069 |
 | Answer repair after verification | `src/aiq_agent/agents/piloti/quote_patch.py` — `patch_quotes` | [`repair-pass-alternatives-2026-09.md`](repair-pass-alternatives-2026-09.md) | ADR-0067 |
 | Confidence markers and the overconfidence guard | `src/aiq_agent/agents/piloti/markers.py` | [`quote-verification-calibration-2026-07.md`](quote-verification-calibration-2026-07.md) | ADR-0058 (retrieval correctness) |
 | Turn status steps | `src/aiq_agent/common/turn_status.py` — `emit_status` | [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md) | ADR-0009 |

@@ -390,6 +390,17 @@ body {
   background-color: var(--text-color-feedback-warning);
 }
 
+/* A fact the answer needs and the profile lacks (`:project[key]`): hatched in
+   the warning ink over its tint, so it reads as a gap and never as a value. */
+@utility bg-hatch-warning {
+  background-color: var(--background-color-feedback-warning-subtle);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--text-color-feedback-warning) 22%, transparent) 0 1.5px,
+    transparent 1.5px 6px
+  );
+}
+
 @utility bg-info {
   background-color: var(--text-color-feedback-info);
 }
@@ -1283,4 +1294,58 @@ table[data-stack="always"] > tbody > tr > td:first-child::before {
 }
 table[data-stack="always"] > caption {
   display: block;
+}
+
+/* =============================================================================
+   THE ANSWER AS A PAGE (MarkdownRenderer).
+   One rhythm for every block an answer holds: prose at a reading measure
+   (`max-w-[72ch]`, `mb-4`), section headings with air above them (`mt-8` /
+   `mt-6`) and none below the block they introduce, and every designed block
+   (a table, a check, a procedure, figures, an excerpt, a details row) on the
+   same `my-5` beat, so the page reads as one composed document rather than
+   paragraphs with boxes dropped between them.
+   Unlayered on purpose, like the phone tables above: it must outrank the
+   blocks' own margin utilities.
+   ============================================================================= */
+.markdown-content > :is(h1, h2, h3, h4, h5, h6) + * {
+  margin-top: 0;
+}
+.markdown-content > :is([data-block], figure, [data-variant]) {
+  margin-top: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+/* Math is the model's text: it may not paint outside its own box (a
+   `\rule` or a negative `\kern` laid over the answer), and a wide display
+   formula scrolls instead of widening the page. Sizes are also capped at the
+   source (`maxSize` in MarkdownRenderer). */
+.markdown-content .katex {
+  contain: paint;
+}
+.markdown-content .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.markdown-content > :first-child {
+  margin-top: 0;
+}
+
+/* An answer on paper (answer-richness: print/export parity). Disclosures print
+   open (`PRINT_OPEN_CONTENT`), controls carry `print:hidden`; here, what only
+   print needs: a designed block is never split across a page, and a tint
+   survives the browser's default of dropping backgrounds. */
+@media print {
+  .markdown-content [data-block],
+  .markdown-content figure,
+  .markdown-content table,
+  .markdown-content [data-testid='figure-tile'] {
+    break-inside: avoid;
+  }
+  .markdown-content h2,
+  .markdown-content h3 {
+    break-after: avoid;
+  }
+  .markdown-content {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
 }

@@ -272,6 +272,25 @@ class RunHandoff(_Model):
     run_message_id: str = Field(min_length=1)
 
 
+class QuoteStamp(_Model):
+    """The server's check of one quote line ``> „…“ [N]`` (``common/quote_stamps.py``), in document order.
+
+    ``verbatim`` names the passage that holds the wording and the ``[N]`` it
+    carries (absent for a passage read but not cited); ``not_found`` means no
+    retrieved passage holds it; ``unchecked`` means there was nothing to check
+    against, or the span is too short to mean anything.
+    """
+
+    text: str = Field(description="The wording between the quote marks, as the final text writes it.")
+    status: Literal["verbatim", "not_found", "unchecked"]
+    number: int | None = Field(default=None, ge=1)
+    title: str | None = None
+    file_name: str | None = None
+    page: int | None = None
+    punkt: str | None = None
+    url: str | None = None
+
+
 class TurnResult(_Model):
     """Everything the finished turn delivers; authoritative, and what the server persists.
 
@@ -301,6 +320,8 @@ class TurnResult(_Model):
     skills_activated: list[str] = Field(default_factory=list)
     skills_hidden: list[str] = Field(default_factory=list)
     retrieval_ledger: list[dict[str, Any]] = Field(default_factory=list)
+    #: One stamp per quote line of ``text``, in document order.
+    quote_stamps: list[QuoteStamp] = Field(default_factory=list)
     #: ADR-0062: the run this turn commissioned instead of answering itself.
     run: RunHandoff | None = None
 

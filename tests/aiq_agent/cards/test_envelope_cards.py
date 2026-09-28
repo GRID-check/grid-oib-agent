@@ -13,41 +13,35 @@ from __future__ import annotations
 
 import json
 
+from aiq_agent.cards.catalog import CARD_EXAMPLES
 from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
-from aiq_agent.cards.envelope import REFUSED_ENVELOPE_TYPE
 from aiq_agent.cards.envelope import REFUSED_NOT_AN_OBJECT
+from aiq_agent.cards.envelope import REFUSED_RETIRED_TYPE
 from aiq_agent.cards.envelope import REFUSED_SHAPE
 from aiq_agent.cards.envelope import REFUSED_SYSTEM_TYPE
 from aiq_agent.cards.envelope import envelope_card_objects
 from aiq_agent.cards.envelope import render_envelope_cards_contract
 from aiq_agent.cards.envelope import validate_model_card
 
-BASIS = {
-    "type": "legal_basis",
-    "law": "OIB-Richtlinie 2",
-    "article": "3.1.1",
-    "summary": "Brandabschnitte in GK 4 fassen höchstens 1.200 m².",
-}
+BASIS = CARD_EXAMPLES["calculation"]
 
 
 class TestTheOneValidator:
     def test_a_sound_card_validates_to_its_dump(self):
         validated, refusal = validate_model_card(BASIS)
         assert refusal is None
-        assert validated is not None and validated["type"] == "legal_basis"
+        assert validated is not None and validated["type"] == "calculation"
 
     def test_a_shape_miss_names_the_type_the_clauses_and_the_full_shape(self):
         """What a retry or a repair needs, and nothing a reader must not see."""
-        validated, refusal = validate_model_card(
-            {"type": "process_map", "title": "Einreichung", "steps": [{"title": "x"}]}
-        )
+        validated, refusal = validate_model_card({"type": "stair_diagram", "title": "Treppe", "riser_count": 17})
         assert validated is None
         assert refusal is not None and refusal.kind == REFUSED_SHAPE
-        assert refusal.card_type == "process_map"
-        assert "label" in refusal.detail
-        assert refusal.hint and "process_map" in refusal.hint
+        assert refusal.card_type == "stair_diagram"
+        assert "riser_height" in refusal.detail
+        assert refusal.hint and "stair_diagram" in refusal.hint
         assert "errors.pydantic.dev" not in refusal.for_repair()
-        assert refusal.for_repair().startswith("card of type 'process_map' failed validation:")
+        assert refusal.for_repair().startswith("card of type 'stair_diagram' failed validation:")
 
     def test_a_system_card_is_refused_whatever_its_fields(self):
         validated, refusal = validate_model_card(
@@ -56,14 +50,14 @@ class TestTheOneValidator:
         assert validated is None
         assert refusal is not None and refusal.kind == REFUSED_SYSTEM_TYPE
 
-    def test_an_envelope_field_reached_for_as_a_card_names_the_channel(self):
+    def test_a_retired_type_reached_for_as_a_card_names_what_replaced_it(self):
         validated, refusal = validate_model_card({"type": "summary", "title": "t", "content": "c"})
         assert validated is None
-        assert refusal is not None and refusal.kind == REFUSED_ENVELOPE_TYPE
-        assert "answer envelope" in refusal.message
+        assert refusal is not None and refusal.kind == REFUSED_RETIRED_TYPE
+        assert "`summary` field of your ```answer_json envelope" in refusal.message
 
     def test_a_non_object_is_refused_by_kind(self):
-        validated, refusal = validate_model_card("legal_basis")
+        validated, refusal = validate_model_card("calculation")
         assert validated is None
         assert refusal is not None and refusal.kind == REFUSED_NOT_AN_OBJECT
 
@@ -82,16 +76,18 @@ class TestTheArrayTheModelWrites:
 
 
 class TestTheTaughtContract:
-    def test_it_carries_the_doctrine_the_index_and_the_eight_shapes(self):
+    def test_it_carries_the_doctrine_the_index_and_the_shapes(self):
         contract = render_envelope_cards_contract()
+        assert "MARKDOWN FIRST" in contract
         assert "WHEN TO EMIT ONE" in contract
         assert "WHEN NOT TO" in contract
         assert "Card types:" in contract
         for card_type in ENVELOPE_SHAPE_TYPES:
             assert f'"{card_type}"' in contract or f"{card_type}:" in contract
-        # A shape the eight do not cover is index-only: the whole catalog's
-        # shapes are ~23 000 tokens and stay on demand.
-        assert "fire_compartment" in contract
+        # A shape the envelope does not teach is index-only: the whole
+        # catalog's shapes stay on demand.
+        assert '"stair_diagram":' in contract
+        assert "Steigung" not in contract.split('"stair_diagram":')[1].split("\n")[0]
         assert contract.count("Example:") <= len(ENVELOPE_SHAPE_TYPES) + 1
 
     def test_it_states_the_placement_rule_once(self):
@@ -117,25 +113,13 @@ class TestTheTaughtContract:
 
 
 class TestTheRenderedShapeIsTheValidatedShape:
-    def test_a_building_block_field_called_type_is_rendered_when_it_is_a_choice(self):
-        """``TypedColumn.type`` is required by the validator and was hidden by the
-        renderer, which skipped every field named ``type`` as if it were the
-        card discriminator. A model that copied the shape failed on its first
-        attempt, every time — the tax the shapes-up-front exist to remove."""
+    def test_the_card_discriminator_is_not_rendered_as_a_field(self):
         from aiq_agent.cards.catalog import shape_hint_for
 
-        hint = shape_hint_for("typed_table") or ""
-        block = next(line for line in hint.splitlines() if line.strip().startswith("TypedColumn ="))
-        assert 'type*: "mass" | "norm" | "verdict" | "date" | "text"' in block
-        # The card's own discriminator stays out: the shape line names it.
+        hint = shape_hint_for("stair_diagram") or ""
         assert "shape: { type" not in hint
 
-    def test_a_card_written_from_the_rendered_shape_validates(self):
-        card = {
-            "type": "typed_table",
-            "title": "Teile",
-            "columns": [{"label": "Teil", "type": "text"}, {"label": "Inhalt", "type": "text"}],
-            "rows": [["OIB 2", "Brand"]],
-        }
-        validated, refusal = validate_model_card(card)
-        assert refusal is None and validated is not None
+    def test_a_card_written_from_the_worked_example_validates(self):
+        for card_type, example in CARD_EXAMPLES.items():
+            validated, refusal = validate_model_card(example)
+            assert refusal is None or refusal.kind == REFUSED_SYSTEM_TYPE, card_type

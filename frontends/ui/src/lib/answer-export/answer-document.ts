@@ -19,6 +19,8 @@
 import type { Translator } from '@/i18n/translate'
 import type { Locale } from '@/i18n/config'
 import { compact, labelled, type DocBlock, type DocRun } from './blocks'
+import { legalBasisBlocks } from './excerpts'
+import type { QuoteStamp } from '@/lib/conversations/message-quote-stamps'
 import { cardsBlocks } from './cards'
 import { findingsBlocks } from './findings'
 import { referencesFromStored, splitProse, type ReferenceEntry } from './citations'
@@ -53,6 +55,12 @@ export interface AnswerDocumentInput {
   citations?: unknown
   /** `metadata.cards`, in the stored card shape. */
   cards?: unknown
+  /**
+   * The server's check of the quote lines (`provenance.quoteStamps`). A chat
+   * answer passes it, empty or not, and only a verbatim quote reaches
+   * „Rechtsgrundlagen"; a surface where no check ran leaves it out.
+   */
+  quoteStamps?: readonly QuoteStamp[]
   /** `metadata.findings`, the report's Befundmatrix in the stored shape. */
   findings?: unknown
   confidence?: AnswerConfidence | null
@@ -65,7 +73,7 @@ export interface AnswerDocumentInput {
    * documents that need it.
    */
   agentAuthored?: boolean
-  /** Printed instead of a mermaid fence's or a `diagram` card's source — see `diagramBlocks`. */
+  /** Printed instead of a mermaid fence's source — see `diagramBlocks`. */
   diagramPlaceholder?: string
 }
 
@@ -247,6 +255,9 @@ export function buildAnswerSections(
 
   const confidence = input.confidence ? confidenceBlocks(input.confidence, t) : []
 
+  // The passages the answer quoted, under their verified sources (`excerpts.ts`).
+  const legalBasis = legalBasisBlocks(body, references, t, input.quoteStamps)
+
   const findings = findingsBlocks(input.findings, t)
   const cards = cardsBlocks(input.cards, t, { diagramPlaceholder: input.diagramPlaceholder })
   const cardSection: DocBlock[] =
@@ -265,6 +276,7 @@ export function buildAnswerSections(
       ...questionSection,
       ...answerSection,
       ...confidence,
+      ...legalBasis,
       ...findings,
       ...cardSection,
       ...sourceSection,

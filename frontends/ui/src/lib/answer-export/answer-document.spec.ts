@@ -29,7 +29,6 @@ import { de, en } from '@/i18n/dictionaries'
 import type { DocBlock } from './blocks'
 import { buildAnswerDocument, type AnswerDocumentInput } from './answer-document'
 import { CARD_EXPORT, isCheck, SKIPPED_FIELDS } from './cards'
-import { diagramLabel } from './markdown'
 import { gridCardSchema } from '@/shared/cards/schemas'
 import { previewFixtureFor } from '@/features/grid-cards/preview-fixtures'
 
@@ -320,33 +319,35 @@ describe('fields the stored answer does not have', () => {
 })
 
 describe('cards', () => {
-  const checklist = {
-    type: 'requirement_checklist',
-    title: 'Anforderungen GK 4 – Brandschutz',
-    items: [
+  const dimensions = {
+    type: 'dimension_diagram',
+    title: 'Türbreiten Stiegenhaus',
+    shape: 'door',
+    dimensions: [
       {
-        label: 'Zweiter Fluchtweg vorhanden',
+        label: 'lichte Durchgangsbreite',
+        value: 90,
+        required: 80,
+        unit: 'cm',
+        comparator: '>=',
         status: 'pass',
-        detail: 'über den Balkon',
-        reference: { document: 'OIB-Richtlinie 2', section: 'Pkt. 5.1.1' },
       },
-      { label: 'Brandabschnitt ≤ 1.200 m²', status: 'needs_input' },
+      { label: 'Schwellenhöhe', value: null, unit: 'cm', status: 'needs_input' },
     ],
-    reference: { document: 'OIB-Richtlinie 2', edition: 'Ausgabe Mai 2023' },
+    reference: { document: 'OIB-Richtlinie 4', edition: 'Ausgabe Mai 2023' },
     note: null,
   }
 
-  it('renders a checklist card as a titled table with translated verdicts', () => {
-    const blocks = buildAnswerDocument(input({ cards: [checklist] }), german, 'de')
+  it('renders a card’s checks as a titled table with translated verdicts', () => {
+    const blocks = buildAnswerDocument(input({ cards: [dimensions] }), german, 'de')
     const output = text(blocks)
 
     expect(output).toContain('Befunde')
-    expect(output).toContain('Anforderungen GK 4 – Brandschutz')
-    expect(output).toContain('Position | Beurteilung | Detail | Fundstelle')
-    expect(output).toContain('Zweiter Fluchtweg vorhanden | Anforderung erfüllt | über den Balkon')
+    expect(output).toContain('Türbreiten Stiegenhaus')
+    expect(output).toContain('lichte Durchgangsbreite | 90 | 80 | cm | mindestens | Anforderung erfüllt')
     expect(output).toContain('Angabe erforderlich')
     // The card's own overall Fundstelle, on its own line.
-    expect(output).toContain('OIB-Richtlinie 2, Ausgabe Mai 2023')
+    expect(output).toContain('OIB-Richtlinie 4, Ausgabe Mai 2023')
     // A table is a table — a card must not arrive as a JSON blob.
     expect(output).not.toContain('{')
     expect(blocks.some((block) => block.kind === 'table')).toBe(true)
@@ -392,18 +393,17 @@ describe('cards', () => {
     expect(output).toContain('liest das Modell des Projekts live')
   })
 
-  it('exports a typed table’s rows, headed by the columns the card declares', () => {
-    // `rows` is `list[list[str]]`. The walker handled arrays of scalars and
-    // arrays of objects and fell through both, so the card exported its column
-    // definitions and not one row — and PR #471 makes this the redirect target
-    // for every answer whose cases are all true at once, so the volume of
-    // findings routed through it is about to rise.
+  it('exports a matrix’s rows, headed by the columns the card declares', () => {
+    // `rows` as `list[list[str]]`: the walker handled arrays of scalars and
+    // arrays of objects and fell through both, so the retired `typed_table`
+    // exported its column definitions and not one row. No card in today's
+    // catalogue has the shape; a stored or future one still must export.
     const output = text(
       buildAnswerDocument(
         input({
           cards: [
             {
-              type: 'typed_table',
+              type: 'a_card_from_the_future',
               title: 'Mindestmaße barrierefreie Erschließung',
               columns: [
                 { label: 'Bauteil', type: 'text' },
@@ -427,7 +427,7 @@ describe('cards', () => {
     expect(output).toContain('Rampenneigung | 6 % | OIB 4, Pkt. 2.3')
     // The column definitions are the header, so they are not ALSO printed as a
     // table of their own — the card would otherwise name its columns twice.
-    expect(output).not.toContain('Spalten')
+    expect(output).not.toContain('Columns')
   })
 
   const schrittmass = (limit: Record<string, unknown>) => ({
@@ -476,75 +476,18 @@ describe('cards', () => {
     expect(capped).not.toContain('Ist: 1.2')
   })
 
-  it('labels a field by what it means on the card it is on', () => {
-    const documents = text(
-      buildAnswerDocument(
-        input({
-          cards: [
-            {
-              type: 'document_checklist',
-              title: 'Einreichunterlagen',
-              items: [
-                { label: 'Einreichplan', requirement: 'required' },
-                { label: 'Energieausweis', requirement: 'required' },
-              ],
-            },
-          ],
-        }),
-        german,
-        'de'
-      )
-    )
-    // „Anforderungen“ over a list of Unterlagen tells a Behörde the office
-    // submitted its documents as requirements.
-    expect(documents).toContain('Unterlagen')
-    expect(documents).not.toContain('Anforderungen')
-
-    const takeaways = text(
-      buildAnswerDocument(
-        input({
-          cards: [
-            {
-              type: 'key_takeaways',
-              title: 'Das Wichtigste',
-              items: [{ text: 'Fluchtniveau 9,80 m' }, { text: 'Gebäudeklasse 4' }],
-            },
-          ],
-        }),
-        german,
-        'de'
-      )
-    )
-    expect(takeaways).toContain('Kernaussagen')
-    expect(takeaways).not.toContain('Anforderungen')
-
-    // And the name still means what it always meant where it always meant it.
-    const requirements = text(buildAnswerDocument(input({ cards: [checklist] }), german, 'de'))
-    expect(requirements).toContain('Anforderungen')
-  })
-
   it('prints a card’s closed vocabularies as words, not as wire values', () => {
     const output = text(
       buildAnswerDocument(
         input({
           cards: [
+            { ...dimensions, shape: 'turning_circle' },
             {
-              type: 'change_impact',
-              title: 'Auswirkung',
-              subject: 'Gebäudeklasse 5',
-              consequences: [
-                { aspect: 'Fluchtweg', direction: 'tightens', before: '40 m', after: '30 m' },
-              ],
+              type: 'egress_diagram',
+              title: 'Fluchtweg',
+              segments: [{ label: 'Raum → Gang', length_m: 12, turn: 'straight' }],
+              reference: { document: 'OIB-Richtlinie 2' },
             },
-            {
-              type: 'norm_chain',
-              title: 'Normenkette',
-              links: [
-                { label: 'OIB-Richtlinie 4', rank: 'verordnung' },
-                { label: 'ÖNORM B 1600', rank: 'oenorm' },
-              ],
-            },
-            { type: 'callout', kind: 'frist', text: 'Binnen sechs Wochen ab Zustellung.' },
           ],
         }),
         german,
@@ -552,14 +495,10 @@ describe('cards', () => {
       )
     )
 
-    expect(output).toContain('verschärft')
-    // The binding/interpretive weight the card draws as a terrace — the card
-    // charter (§D5) names this as an example of meaning surviving the export.
-    expect(output).toContain('Verordnung (bindend)')
-    expect(output).toContain('ÖNORM (auslegend)')
-    expect(output).toContain('Frist')
+    expect(output).toContain('Wendekreis')
+    expect(output).toContain('geradeaus')
 
-    for (const wire of ['tightens', 'verordnung', 'oenorm', 'frist']) {
+    for (const wire of ['turning_circle', 'straight']) {
       expect(output, `the wire value ${wire} reached the document`).not.toContain(wire)
     }
   })
@@ -567,14 +506,13 @@ describe('cards', () => {
   it('titles a card that has no title of its own from its type', () => {
     const output = text(
       buildAnswerDocument(
-        input({ cards: [{ type: 'legal_basis', law: 'OIB-Richtlinie 2', article: '§ 3' }] }),
+        input({ cards: [{ type: 'stair_diagram', riser_count: 17 }] }),
         german,
         'de'
       )
     )
 
-    expect(output).toContain('Rechtsgrundlage')
-    expect(output).toContain('Gesetz / Richtlinie | OIB-Richtlinie 2')
+    expect(output).toContain('Treppe')
   })
 })
 
@@ -588,36 +526,6 @@ describe('cards', () => {
  * submitted open questions as requirements.
  */
 describe('the drawing this export cannot draw', () => {
-  const diagram = {
-    type: 'diagram',
-    title: 'Baubewilligungsverfahren – wer wem was übergibt',
-    diagram_type: 'sequence',
-    source: 'sequenceDiagram\n  BW->>BB: Einreichunterlagen',
-    caption: 'Die Fristen zeigt die Grafik nicht.',
-    reference: { document: 'Wiener Bauordnung', section: '§§ 60 ff.' },
-  }
-
-  it('reads exactly like the same drawing written as a fence', () => {
-    // A reader holding only the .docx must not get two different objects
-    // depending on whether the model reached for a card or for a ```mermaid
-    // fence. The label is `markdownToBlocks`' own (commit f21dcb5c), imported
-    // rather than restated, so the two cannot drift into two wordings.
-    const fromCard = text(buildAnswerDocument(input({ answer: '', cards: [diagram] }), german, 'de'))
-    const fromFence = text(
-      buildAnswerDocument(
-        input({ answer: '```mermaid\nsequenceDiagram\n  BW->>BB: Einreichunterlagen\n```' }),
-        german,
-        'de'
-      )
-    )
-
-    expect(fromCard).toContain(diagramLabel('mermaid'))
-    expect(fromFence).toContain(diagramLabel('mermaid'))
-    // And the source itself is KEPT: whoever holds only this file is exactly
-    // the person who might need to regenerate the drawing.
-    expect(fromCard).toContain('BW->>BB: Einreichunterlagen')
-  })
-
   it('prints the placeholder for a drawing inside a composed tab (ADR-0065)', () => {
     const tab = {
       type: 'surface',
@@ -632,54 +540,32 @@ describe('the drawing this export cannot draw', () => {
     expect(output).toContain('Als Grafik in Piloti.')
     expect(output).not.toContain('BW->>BB')
   })
-
-  it('carries the words around the drawing that the picture cannot', () => {
-    // The title heads it, the caption says what the drawing leaves out, and the
-    // Fundstelle is what makes it a Verfahren from somewhere rather than from
-    // nowhere. `diagram_type` is deliberately absent: the source declares its
-    // own grammar on line one, and „Diagrammtyp: Sequence“ is noise beside it.
-    const output = text(buildAnswerDocument(input({ answer: '', cards: [diagram] }), german, 'de'))
-
-    expect(output).toContain(diagram.title)
-    expect(output).toContain('Die Fristen zeigt die Grafik nicht.')
-    expect(output).toContain('Wiener Bauordnung, §§ 60 ff.')
-    expect(output).not.toContain('sequence"')
-  })
-
-  it('puts the label BEFORE the source', () => {
-    // A caption that arrives after the thing it explains is a caption the
-    // reader has already misread — the same order `markdown.spec.ts` pins for
-    // the fence.
-    const output = text(buildAnswerDocument(input({ answer: '', cards: [diagram] }), german, 'de'))
-
-    expect(output.indexOf(diagramLabel('mermaid'))).toBeLessThan(
-      output.indexOf('BW->>BB: Einreichunterlagen')
-    )
-  })
 })
 
 describe('cards that are the app talking, not the answer', () => {
-  const followUps = {
-    type: 'follow_ups',
-    items: [
-      { question: 'Wie wird das Fluchtniveau gemessen?', hint: 'Messpunkt und Bezugsebene' },
-      { question: 'Was wäre bei Gebäudeklasse 5 anders?' },
-    ],
+  const delegation = {
+    type: 'task_created',
+    task_id: '00000000-0000-4000-8000-0000000000f1',
+    kind: 'einreichcheck',
+    title: 'Einreichcheck: Bauansuchen Haus A',
+    goal: 'Mach den Einreichcheck für das Bauansuchen bis Freitag',
+    due_at: null,
+    conversation_id: null,
   }
 
-  it('leaves the follow-up questions out of the document entirely', () => {
-    const output = text(buildAnswerDocument(input({ cards: [followUps] }), german, 'de'))
+  it('leaves a delegation notice out of the document entirely', () => {
+    const output = text(buildAnswerDocument(input({ cards: [delegation] }), german, 'de'))
 
-    expect(output).not.toContain('Wie wird das Fluchtniveau gemessen?')
-    // Not even the heading: an empty „Weiterführende Fragen“ under „Befunde“
-    // would still be the app's chrome inside the findings section.
-    expect(output).not.toContain('Fragen')
+    // Not even the heading: work announced but not yet done is the app's
+    // chrome, not a finding under „Befunde“.
+    expect(output).not.toContain('Einreichcheck: Bauansuchen Haus A')
+    expect(output).not.toContain('Mach den Einreichcheck')
   })
 
   it('omits the findings section altogether when chrome was the only card', () => {
     // The section heading is built from whether any card produced blocks, so a
     // card that contributes nothing must not leave „Befunde“ standing empty.
-    const output = text(buildAnswerDocument(input({ cards: [followUps] }), german, 'de'))
+    const output = text(buildAnswerDocument(input({ cards: [delegation] }), german, 'de'))
     expect(output).not.toContain('Befunde')
   })
 
@@ -768,15 +654,6 @@ describe('every string in the document comes from a dictionary', () => {
    * silently sitting this describe block out.
    */
   const authoredCards: Record<string, unknown>[] = [
-    { type: 'summary', title: 'Kurzfassung', content: 'Kurz.', key_points: ['A', 'B'] },
-    {
-      type: 'legal_basis',
-      law: 'OIB 2',
-      article: '§ 3',
-      section: 'Pkt. 5',
-      summary: 'Kurz.',
-      original_text: 'Wortlaut.',
-    },
     {
       type: 'project_profile_patch',
       title: 'Projektkontext',
@@ -790,14 +667,6 @@ describe('every string in the document comes from a dictionary', () => {
       content: 'Fluchtniveau 9,8 m',
       kind: 'derived_fact',
       confidence: 'high',
-    },
-    { type: 'requirement_checklist', title: 'Liste', items: [{ label: 'A', status: 'pass' }] },
-    {
-      type: 'comparison_table',
-      title: 'GK 4 vs GK 5',
-      options: ['GK 4', 'GK 5'],
-      rows: [{ label: 'Fläche', values: ['1200', '1600'], highlight_index: 0 }],
-      recommendation: 'GK 4',
     },
     {
       type: 'building_section',
@@ -864,16 +733,6 @@ describe('every string in the document comes from a dictionary', () => {
       reference: { document: 'OIB 4' },
     },
     {
-      type: 'density_check',
-      title: 'Dichte',
-      parcel_area_m2: 600,
-      footprint_area_m2: 180,
-      gross_floor_area_m2: 540,
-      coverage: { label: 'Bebauungsgrad', value: 0.3, required: 0.4, unit: '', status: 'pass' },
-      density: { label: 'GFZ', value: 0.9, required: 1.2, unit: '', status: 'pass' },
-      reference: { document: 'Bebauungsplan' },
-    },
-    {
       type: 'fire_access_plan',
       title: 'Feuerwehrzufahrt',
       gebaeudeklasse: 'GK 4',
@@ -911,73 +770,6 @@ describe('every string in the document comes from a dictionary', () => {
         status: 'pass',
       },
       reference: { document: 'TRVB F 134' },
-    },
-    {
-      type: 'acoustic_check',
-      title: 'Schallschutz',
-      sound_class: 'B',
-      checks: [
-        {
-          path_label: 'Wohnungstrennwand',
-          metric: 'DnTw',
-          check: { label: 'DnTw', value: 55, required: 55, unit: 'dB', status: 'pass' },
-          reference: { document: 'OIB 5' },
-        },
-      ],
-    },
-    {
-      type: 'fire_compartment',
-      title: 'Brandabschnitte',
-      storey_label: '2.OG',
-      gebaeudeklasse: 'GK 4',
-      compartments: [
-        {
-          label: 'BA 1',
-          area: { label: 'Fläche', value: 800, required: 1200, unit: 'm²', status: 'pass' },
-          use: 'Wohnen',
-        },
-      ],
-      reference: { document: 'OIB 2' },
-    },
-    {
-      type: 'thermal_envelope',
-      title: 'Wärmeschutz',
-      components: [
-        {
-          label: 'Außenwand',
-          kind: 'wall',
-          u_value: { label: 'U', value: 0.2, required: 0.35, unit: 'W/(m²K)', status: 'pass' },
-        },
-      ],
-      reference: { document: 'OIB 6' },
-    },
-    {
-      type: 'energy_performance',
-      title: 'Energieausweis',
-      energy_class: 'B',
-      hwb: { label: 'HWB', value: 42, required: 50, unit: 'kWh/(m²a)', status: 'pass' },
-      fgee: { label: 'fGEE', value: 0.8, required: 0.85, unit: '', status: 'pass' },
-      reference: { document: 'OIB 6' },
-    },
-    {
-      type: 'elevator_requirement',
-      title: 'Aufzug',
-      storeys_served: 5,
-      entrance_level_index: 0,
-      is_required: true,
-      requirement_note: 'ab 5 Geschossen',
-      cabin_width: { label: 'Breite', value: 110, required: 110, unit: 'cm', status: 'pass' },
-      cabin_depth: { label: 'Tiefe', value: 140, required: 140, unit: 'cm', status: 'pass' },
-      door_width: { label: 'Türbreite', value: 90, required: 90, unit: 'cm', status: 'pass' },
-      reference: { document: 'OIB 4' },
-    },
-    {
-      type: 'parking_requirement',
-      title: 'Stellplätze',
-      car_spaces: { label: 'Kfz', value: 12, required: 10, unit: '', status: 'pass' },
-      bicycle_spaces: { label: 'Rad', value: 20, required: 20, unit: '', status: 'pass' },
-      basis: '1 Stpl. je 100 m² BGF',
-      reference: { document: 'Bauordnung' },
     },
     {
       type: 'document_grid',
@@ -1123,7 +915,7 @@ describe('every string in the document comes from a dictionary', () => {
     const findings = everyCardType.filter((card) => kindOf(card) !== 'chrome')
     // Guards the guard: classifying the catalogue as chrome would make the
     // loop below run over nothing and pass.
-    expect(findings.length).toBeGreaterThan(30)
+    expect(findings.length).toBeGreaterThan(10)
 
     for (const card of findings) {
       const output = text(buildAnswerDocument(input({ cards: [card] }), german, 'de'))
@@ -1143,10 +935,10 @@ describe('every string in the document comes from a dictionary', () => {
    * The assertion above, made strict.
    *
    * "The card added something" is satisfied by a card that emits its heading
-   * and drops its data — which is exactly what `typed_table` did: `rows` is
-   * `list[list[str]]`, the walker handled arrays of scalars and arrays of
-   * objects and fell through both, so the card contributed its `columns` block
-   * and not one row. Length grew, the card was "exported", and every value in
+   * and drops its data — which is exactly what the retired `typed_table` did:
+   * its `rows` were `list[list[str]]`, the walker handled arrays of scalars and
+   * arrays of objects and fell through both, so the card contributed its
+   * `columns` block and not one row. Length grew, the card was "exported", and every value in
    * it was gone. So the question has to be asked of each VALUE, not of the
    * card.
    *
@@ -1176,7 +968,7 @@ describe('every string in the document comes from a dictionary', () => {
     ).toEqual([])
     // Guards the guard: a `payloadValues` that stopped descending would assert
     // nothing while still passing.
-    expect(asserted).toBeGreaterThan(300)
+    expect(asserted).toBeGreaterThan(100)
   })
 
   it('drops every card classified as chrome, and only those', () => {

@@ -19,13 +19,12 @@ class TestBuildCardGenerationPrompt:
 
     def test_contains_card_type_values(self):
         prompt = build_card_generation_prompt()
-        assert '"summary"' in prompt
-        assert '"legal_basis"' in prompt
+        assert '"calculation"' in prompt
+        assert '"stair_diagram"' in prompt
 
     def test_contains_card_type_descriptions(self):
         prompt = build_card_generation_prompt()
-        assert "A legal norm, regulation, or OIB Richtlinie" in prompt
-        assert "legal norm" in prompt.lower()
+        assert "A staircase drawn to scale" in prompt
 
     def test_expands_nested_building_blocks(self):
         # The nested shapes (the thing that made cards fail to emit when hidden)
@@ -144,7 +143,7 @@ class TestTheDoctrineReachesThePostHocPath:
         # go on a card, and how many — and this path pays for both.
         prompt = build_card_generation_prompt()
         assert "WHEN NOT TO" in prompt
-        assert "Two content cards is a turn's ceiling" in prompt
+        assert "two the ceiling" in prompt
         assert "Never fabricate a field, a reference or a number" in prompt
 
     def test_the_volume_rule_is_stated_once_across_the_two_blocks(self):
@@ -152,7 +151,7 @@ class TestTheDoctrineReachesThePostHocPath:
         # two-card ceiling, written before the shared doctrine carried one. Two
         # numbers a paragraph apart is how they drift; the doctrine owns it.
         prompt = build_card_generation_prompt()
-        assert prompt.count("Two content cards") == 1
+        assert prompt.count("two the ceiling") == 1
         assert "Two content cards is the ceiling and one is often right" not in prompt
 
     def test_the_retired_card_reaches_this_path_nowhere(self):
@@ -265,8 +264,8 @@ class TestTheCraftThatCouldNotBeInherited:
         # path cannot edit. What stands in is `_POST_HOC_CRAFT`, a test over the
         # report as handed, at a fraction of the tokens.
         prompt = build_card_generation_prompt()
-        assert "Stations must CARRY something" not in prompt
-        assert "-> process_map" in prompt
+        assert "there is no result field" not in prompt
+        assert "-> calculation" in prompt
         assert "WHICH ONE EARNS ITS PLACE" in prompt
 
     def test_the_generic_cards_carry_their_test(self):
@@ -279,11 +278,10 @@ class TestTheCraftThatCouldNotBeInherited:
         assert "verdict_header" not in prompt
         assert "A second callout" not in prompt
 
-    def test_the_three_table_shaped_cards_are_told_apart(self):
+    def test_a_table_in_the_report_is_already_the_reader_s(self):
         prompt = build_card_generation_prompt()
-        for card_type in ("condition_tree", "typed_table", "comparison_table"):
-            assert card_type in prompt
-        assert "what the reader does with the rows" in prompt
+        assert "already the reader's" in prompt
+        assert prompt.startswith("You are") and "MARKDOWN FIRST" in prompt
 
     def test_the_skill_body_itself_is_not_inlined(self):
         # Inlining it would add a third to the prompt to teach moves this path

@@ -82,13 +82,9 @@ export const answerExport = {
     grounding: { belegt: 'sourced', abgeleitet: 'derived', offen: 'unsourced' },
   },
   /**
-   * Heading of the section a filed research report appends for its
-   * `legal_basis` cards — the cited Richtlinie, § and excerpt an architect is
-   * actually asked to produce.
-   *
-   * Plural, because the section holds every Fundstelle the answer rests on;
-   * each one inside it is headed with the singular `cardTypes.legal_basis`,
-   * which is the same word the .docx heads it with.
+   * Heading of the section an exported answer or filed report appends for the
+   * verbatim passages its prose quotes (`excerpts.ts`) — the cited Richtlinie,
+   * § and excerpt an architect is actually asked to produce.
    */
   legalBasis: 'Legal basis',
   /**
@@ -150,12 +146,8 @@ export const answerExport = {
     'This card reads the project’s model live — a document cannot carry the values it shows. Open the answer in Piloti to see them.',
   /** Heading for a card that carries no title of its own. */
   cardTypes: {
-    summary: 'Summary',
-    legal_basis: 'Legal basis',
     project_profile_patch: 'Proposed change to the project brief',
     memory_proposal: 'Proposed memory entry',
-    requirement_checklist: 'Requirement checklist',
-    comparison_table: 'Comparison',
     building_section: 'Building section',
     stair_diagram: 'Stair',
     dimension_diagram: 'Dimensions',
@@ -163,28 +155,10 @@ export const answerExport = {
     egress_diagram: 'Escape route',
     daylight_incidence: 'Daylight',
     guardrail_check: 'Guardrail',
-    density_check: 'Site density',
     fire_access_plan: 'Fire-brigade access',
-    acoustic_check: 'Sound insulation',
-    fire_compartment: 'Fire compartments',
-    thermal_envelope: 'Thermal envelope',
-    energy_performance: 'Energy performance',
-    elevator_requirement: 'Elevator',
-    parking_requirement: 'Parking provision',
     document_grid: 'Documents',
-    verdict_header: 'Verdict',
-    condition_tree: 'Decision tree',
-    typed_table: 'Table',
-    norm_chain: 'Chain of norms',
-    key_takeaways: 'Key takeaways',
-    callout: 'Note',
     calculation: 'Calculation',
-    process_map: 'Procedure',
-    document_checklist: 'Required documents',
-    deadline_timeline: 'Deadlines',
-    diagram: 'Diagram',
     surface: 'Composition',
-    change_impact: 'Impact of the change',
     ifc_viewer: 'Model view',
     ifc_compliance: 'Model compliance',
     ifc_schedule: 'Room schedule',
@@ -194,11 +168,9 @@ export const answerExport = {
   /**
    * `values.<field>.<member>` — the closed vocabularies, in words.
    *
-   * A card payload states `direction: 'tightens'`, `rank: 'verordnung'`,
-   * `operation: 'sum'`. Those are wire values: the app spells every one of them
-   * out on screen (`chat.cards.changeImpact.direction`,
-   * `chat.cards.normChain.rank`), and a document that printed the wire value
-   * instead would have dropped the part of the card that carried the finding.
+   * A card payload states `operation: 'sum'`, `shape: 'ramp'`. Those are wire
+   * values: the app spells every one of them out on screen, and a document that
+   * printed the wire value instead would have dropped the part of the card that carried the finding.
    * The card charter forbids exactly that (§D5, "no meaning that lives only in
    * the pixels").
    *
@@ -210,14 +182,12 @@ export const answerExport = {
    * German Bauakt.
    */
   values: {
-    /** `DimStatus` on a checked value, and `DocumentStatus` on an Unterlage. */
+    /** `DimStatus` on a checked value. */
     status: {
       pass: 'Meets requirement',
       fail: 'Does not meet requirement',
       warning: 'Check',
       needs_input: 'Input required',
-      present: 'on hand',
-      missing: 'missing',
     },
     /** `Provenance` — who is making the claim about a measured value. */
     provenance: {
@@ -236,12 +206,6 @@ export const answerExport = {
       '>=': 'at least',
       between: 'between',
     },
-    /** `verdict_header.confidence` — how sure the answer is of its verdict. */
-    confidence: {
-      low: 'low',
-      medium: 'medium',
-      high: 'high',
-    },
     /** `guardrail_check.context` — where the railing sits. */
     context: {
       balkon: 'Balkon',
@@ -250,48 +214,11 @@ export const answerExport = {
       fenster: 'Fenster',
       dachterrasse: 'Dachterrasse',
     },
-    /** `change_impact` — which way the change moves the requirement. */
-    direction: {
-      tightens: 'tightens',
-      relaxes: 'relaxes',
-      unchanged: 'unchanged',
-    },
-    /**
-     * `kind`, on three different cards — a callout's register, a section
-     * marker's role, a thermal component's place in the envelope. One entry per
-     * member because no two of the three spell a member the same way.
-     */
+    /** `building_section.markers.kind` — a section marker's role. */
     kind: {
-      hinweis: 'Note',
-      achtung: 'Caution',
-      frist: 'Deadline',
-      tipp: 'Tip',
       fluchtniveau: 'Fluchtniveau',
       threshold: 'Threshold',
       reference: 'Reference line',
-      wall: 'External wall',
-      roof: 'Roof',
-      floor: 'Floor',
-      window: 'Window',
-      door: 'Door',
-    },
-    /** `legal_basis.lane` — which body publishes the source. */
-    lane: {
-      baurecht_oib: 'OIB',
-      baurecht_ris: 'RIS',
-    },
-    /**
-     * `acoustic_check` — which sound-insulation quantity is checked.
-     *
-     * The word AND the norm's own designation, the way the card draws it
-     * (`AcousticCheckCard.tsx` heads the gauge „DnT,w“ over „Luftschall“).
-     * Dropping the designation would leave a Bauphysiker with a German noun
-     * and nothing to look up.
-     */
-    metric: {
-      DnTw: 'Airborne (DnT,w)',
-      LnTw: 'Impact (LnT,w)',
-      Rw_res: 'Airborne, resulting (Rw,res)',
     },
     /** `CalculationOperation` — the five shapes a Rechenweg step may take. */
     operation: {
@@ -301,28 +228,6 @@ export const answerExport = {
       percent_of: 'Percent of',
       percent_ratio: 'Percentage ratio',
     },
-    /**
-     * `norm_chain` — the link's rank, WITH whether it binds.
-     *
-     * The card draws the binding/interpretive split as a stepped terrace, and
-     * the charter (§D5) claims that split survives export. It does so here: the
-     * rank names of the Austrian legal order stay German in both locales — they
-     * are the instruments' names, not descriptions — and the parenthesis is the
-     * part that says what the terrace said.
-     */
-    rank: {
-      bundesgesetz: 'Bundesgesetz (binding)',
-      landesgesetz: 'Landesgesetz (binding)',
-      verordnung: 'Verordnung (binding)',
-      oib_richtlinie: 'OIB-Richtlinie (binding where declared)',
-      oenorm: 'ÖNORM (interpretive)',
-      leitfaden: 'Leitfaden (interpretive)',
-    },
-    /** `DocumentRequirement` — always needed, or only in certain Vorhaben. */
-    requirement: {
-      required: 'required',
-      conditional: 'conditional',
-    },
     /** `dimension_diagram.shape` — what is being measured. */
     shape: {
       door: 'Door',
@@ -331,6 +236,7 @@ export const answerExport = {
       turning_circle: 'Turning circle',
       threshold: 'Threshold',
       parking_space: 'Parking space',
+      lift_cabin: 'Lift cabin',
     },
     /** `setback_plan` — which edge of the parcel. */
     side: {
@@ -360,9 +266,7 @@ export const answerExport = {
    * The exceptions to the flat `fields` map, keyed by PAYLOAD PATH.
    *
    * A deliberate departure from the one-entry-per-name rule above, for the
-   * names that mean two things. `items` is the requirement list's requirements,
-   * the Einreichliste's documents AND the key takeaways; `CalculationLimit`'s
-   * `value` is not a measured value at all but the bound it is held against, so
+   * names that mean two things. `CalculationLimit`'s `value` is not a measured value at all but the bound it is held against, so
    * the flat map's „Ist" printed the limit under the label of the measurement —
    * a wrong number in a Bauakt, which is the worst artefact this product makes.
    *
@@ -385,12 +289,6 @@ export const answerExport = {
         'value?comparator=between': 'Lower bound',
       },
     },
-    document_checklist: {
-      items: 'Documents',
-    },
-    key_takeaways: {
-      items: 'Key takeaways',
-    },
   },
   fields: {
     // Shared across most cards
@@ -399,7 +297,6 @@ export const answerExport = {
     reference: 'Source',
     label: 'Item',
     status: 'Verdict',
-    detail: 'Detail',
     summary: 'Summary',
     content: 'Content',
     kind: 'Type',
@@ -418,22 +315,6 @@ export const answerExport = {
     section: 'Clause',
     edition: 'Edition',
     excerpt: 'Quotation',
-    // SummaryCard
-    key_points: 'Key points',
-    // LegalBasisCard
-    law: 'Law / directive',
-    article: 'Article',
-    original_text: 'Original wording',
-    /** Which tier of Baurecht the citation is (OIB directive vs RIS statute). */
-    lane: 'Source of law',
-    // RequirementChecklistCard
-    items: 'Requirements',
-    // ComparisonTableCard
-    options: 'Options',
-    rows: 'Criteria',
-    values: 'Values',
-    highlight_index: 'Favoured option',
-    recommendation: 'Recommendation',
     // ProjectProfilePatchCard
     rationale: 'Reason',
     patch: 'Changes',
@@ -496,36 +377,8 @@ export const answerExport = {
     gate_clearance_height: 'Gateway clear height',
     aufstellflaeche: 'Standing area',
     gebaeudeklasse: 'Building class',
-    // AcousticCheckCard
-    checks: 'Checks',
-    check: 'Check',
-    metric: 'Metric',
-    path_label: 'Separated parts',
-    sound_class: 'Sound class',
-    // FireCompartmentCard
-    compartments: 'Compartments',
-    storey_label: 'Storey',
-    area: 'Area',
-    use: 'Use',
     // ThermalEnvelopeCard
     components: 'Components',
-    u_value: 'U-value',
-    // EnergyPerformanceCard
-    hwb: 'Heating demand',
-    fgee: 'Overall energy-efficiency factor',
-    energy_class: 'Energy class',
-    // ElevatorRequirementCard
-    storeys_served: 'Levels served',
-    entrance_level_index: 'Entrance level',
-    is_required: 'Required',
-    requirement_note: 'Why',
-    cabin_width: 'Cabin width',
-    cabin_depth: 'Cabin depth',
-    door_width: 'Clear door width',
-    // ParkingRequirementCard
-    car_spaces: 'Car parking spaces',
-    bicycle_spaces: 'Bicycle spaces',
-    basis: 'Basis',
     // DocumentGridCard
     documents: 'Documents',
     file_name: 'File',
@@ -534,24 +387,6 @@ export const answerExport = {
     /** Which corpus the hit came from — the project's files or the Büroarchiv. */
     source: 'Origin',
     score: 'Relevance',
-    // VerdictHeaderCard
-    subject: 'Subject',
-    verdict: 'Verdict',
-    confidence_reason: 'Reason for the confidence',
-    // ConditionTreeCard — `question` is the FACTOR the answer forks on
-    // ("Gebäudeklasse"), not a question the reader is being asked.
-    question: 'Depends on',
-    branches: 'Cases',
-    condition: 'Condition',
-    outcome: 'Outcome',
-    active: 'Applies here',
-    // TypedTableCard
-    columns: 'Columns',
-    // NormChainCard
-    links: 'Chain of norms',
-    rank: 'Rank',
-    // KeyTakeawaysCard, CalloutCard
-    text: 'Statement',
     // CalculationCard
     steps: 'Steps',
     limit: 'Limit',
@@ -562,28 +397,8 @@ export const answerExport = {
     factor: 'Factor',
     /** An operand that is an earlier step's result rather than a figure. */
     step: 'From step',
-    // ProcessMapCard
-    current_step: 'Stage reached',
-    actor: 'Responsible',
-    duration: 'Time limit',
-    requires: 'Prerequisites',
-    produces: 'Result',
-    // DocumentChecklistCard
-    issuer: 'Issued by',
-    requirement: 'Requirement',
-    // DeadlineTimelineCard
-    deadlines: 'Deadlines',
-    period: 'Period',
-    starts_from: 'Clock starts',
-    consequence: 'If missed',
-    // ChangeImpactCard
-    consequences: 'Consequences',
-    aspect: 'Affects',
     before: 'Before',
     after: 'After',
-    direction: 'Effect',
-    from_value: 'Value before',
-    to_value: 'Value after',
     // AufstellflaechePlan
     length: 'Length',
     distance_to_facade: 'Distance to the facade',

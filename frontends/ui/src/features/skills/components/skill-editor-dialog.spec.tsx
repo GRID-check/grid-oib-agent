@@ -303,12 +303,12 @@ describe('SkillEditorDialog — create', () => {
     ).toBeInTheDocument()
 
     const search = screen.getByLabelText('Search cards, e.g. comparison or escape route')
-    fireEvent.change(search, { target: { value: 'comparison' } })
-    fireEvent.click(screen.getByRole('button', { name: /^comparison_table/ }))
+    fireEvent.change(search, { target: { value: 'staircase' } })
+    fireEvent.click(screen.getByRole('button', { name: /^stair_diagram/ }))
 
     // The preview is the author's proof that the choice is stored.
     await waitFor(() =>
-      expect(screen.getByText(/grid-cards: comparison_table/)).toBeInTheDocument(),
+      expect(screen.getByText(/grid-cards: stair_diagram/)).toBeInTheDocument(),
     )
 
     await reachTheSave()
@@ -318,7 +318,7 @@ describe('SkillEditorDialog — create', () => {
 
     await waitFor(() => expect(createSkillMock).toHaveBeenCalledTimes(1))
     expect(createSkillMock.mock.calls[0][0].metadata).toEqual({
-      'grid-cards': 'comparison_table',
+      'grid-cards': 'stair_diagram',
     })
   })
 
@@ -517,15 +517,15 @@ describe('SkillEditorDialog — edit', () => {
     render(
       <SkillEditorDialog
         {...dialogProps}
-        skill={{ ...orgSkill, metadata: { ...orgSkill.metadata, 'grid-cards': 'condition_tree' } }}
+        skill={{ ...orgSkill, metadata: { ...orgSkill.metadata, 'grid-cards': 'calculation' } }}
       />,
     )
 
     openAdvanced()
-    expect(screen.getByText(/Bedingungsbaum/)).toBeInTheDocument()
+    expect(screen.getByText(/Rechenweg/)).toBeInTheDocument()
 
     fireEvent.click(
-      screen.getByRole('button', { name: 'Remove card type “condition_tree” from the preference' }),
+      screen.getByRole('button', { name: 'Remove card type “calculation” from the preference' }),
     )
 
     await reachTheSave()
@@ -556,7 +556,7 @@ describe('SkillEditorDialog — edit', () => {
           'description: A pasted description that says when to use it.',
           'metadata:',
           '  grid-execution: chat',
-          '  grid-cards: condition_tree',
+          '  grid-cards: calculation',
           '---',
           '',
           '# Pasted',
@@ -580,7 +580,7 @@ describe('SkillEditorDialog — edit', () => {
     openAdvanced()
     expect(screen.getByRole('checkbox', { name: /Chat agent/ })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: /Deep research agent/ })).toBeChecked()
-    expect(screen.getByText(/Bedingungsbaum/)).toBeInTheDocument()
+    expect(screen.getByText(/Rechenweg/)).toBeInTheDocument()
 
     await reachTheSave()
     const saveButton = screen.getByRole('button', { name: 'Save skill' })
@@ -590,7 +590,7 @@ describe('SkillEditorDialog — edit', () => {
     await waitFor(() => expect(updateSkillMock).toHaveBeenCalledTimes(1))
     expect(updateSkillMock.mock.calls[0][1].metadata).toEqual({
       'grid-execution': 'chat',
-      'grid-cards': 'condition_tree',
+      'grid-cards': 'calculation',
     })
   })
 

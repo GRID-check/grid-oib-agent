@@ -11,6 +11,8 @@ import { CardSlot, CardSlotLiveProvider } from './CardSlotArrival'
 import { useDrawnReporter } from '@/features/a2ui/catalog'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { ChatStoreWithHydration } from '../store'
+import type { GridCard } from '@/shared/cards/schemas'
+import { CARD_PREVIEW_FIXTURES } from '@/features/grid-cards/preview-fixtures'
 
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
@@ -55,7 +57,7 @@ describe('a placed card while the answer streams', () => {
 
   test('once its card is written, it fills the place and is not drawn again below the prose', () => {
     const cards = [
-      { type: 'summary' as const, title: 'Platzierte Karte', content: 'Inhalt', key_points: null },
+      { ...CARD_PREVIEW_FIXTURES.calculation!, title: 'Platzierte Karte' } as GridCard,
     ]
     render(<AgentResponse content={PROSE} cards={cards} isStreaming />)
 

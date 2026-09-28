@@ -21,7 +21,6 @@ import {
   type CitationTarget,
   type StoredDocumentRef,
 } from './index'
-import type { GridCard } from '@/shared/cards/schemas'
 import type { CitationSource } from '../../types'
 
 const citation = (overrides: Partial<CitationSource>): CitationSource => ({
@@ -550,8 +549,8 @@ describe('resolveCitationTarget', () => {
  * The canonical OIB key is a MERGE HINT, not an identity.
  *
  * It deliberately discards edition, revision and everything after the number,
- * which is right for the one thing it is for — joining a `legal_basis` card
- * that knows only „OIB-Richtlinie 2" to the citation of that Richtlinie — and
+ * which is right for the one thing it is for — joining a bare name that knows
+ * only „OIB-Richtlinie 2" to the citation of that Richtlinie — and
  * catastrophic as an identity: every document whose name merely mentions OIB or
  * "Richtlinie" was identified by its number alone.
  */
@@ -608,21 +607,19 @@ describe('two documents are not one because their names share a Richtlinie', () 
     expect(docs.map((doc) => doc.shelf).sort()).toEqual(['base', 'project'])
   })
 
-  test('the merge the key IS for still happens: a card joins its Richtlinie', () => {
-    const card = { type: 'legal_basis', law: 'OIB-Richtlinie 6' } as unknown as GridCard
+  test('the merge the key IS for still happens: a bare name joins its Richtlinie', () => {
     const docs = buildCitationModel({
       citations: [corpusHit('oib-rl_6_ausgabe_mai_2023.pdf', 2)],
-      cards: [card],
+      entries: [{ number: 1, markdown: 'OIB-Richtlinie 6', sourceKind: 'kb' }],
     })
 
     expect(docs).toHaveLength(1)
     expect(docs[0]!.fileName).toBe('oib-rl_6_ausgabe_mai_2023.pdf')
   })
 
-  test('but a card never attaches itself to a non-base document', () => {
-    // A Richtlinie is base law. A card naming one must not bind to a project
+  test('but a bare name never attaches itself to a non-base document', () => {
+    // A Richtlinie is base law. A name for one must not bind to a project
     // upload or a private attachment that merely mentions it.
-    const card = { type: 'legal_basis', law: 'OIB-Richtlinie 6' } as unknown as GridCard
     const docs = buildCitationModel({
       citations: [
         citation({
@@ -636,7 +633,7 @@ describe('two documents are not one because their names share a Richtlinie', () 
           isCited: true,
         }),
       ],
-      cards: [card],
+      entries: [{ number: 1, markdown: 'OIB-Richtlinie 6', sourceKind: 'kb' }],
     })
 
     expect(docs).toHaveLength(2)

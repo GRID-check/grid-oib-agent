@@ -14,8 +14,8 @@ from aiq_agent.cards.catalog import _CARD_TRIGGERS
 from aiq_agent.cards.catalog import _MODEL_PICKER_NOTE
 from aiq_agent.cards.catalog import _MODEL_PICKER_ROW
 from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
-from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
 from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
+from aiq_agent.cards.catalog import RETIRED_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import _interactive_note
 from aiq_agent.cards.catalog import model_facing_card_types
@@ -44,17 +44,12 @@ _EXAMPLE_EXEMPT = {
     "ifc_schedule",
     "ifc_element",
     "ifc_diff",
-    "summary",
     "stair_diagram",
     "dimension_diagram",
     "setback_plan",
     "egress_diagram",
     "guardrail_check",
-    "density_check",
     "fire_access_plan",
-    "acoustic_check",
-    "energy_performance",
-    "elevator_requirement",
     # System-emitted (by the remember tool); never advertised to the model, so it
     # ships without a worked example on purpose.
     "memory_proposal",
@@ -93,14 +88,12 @@ class TestWorkedExamples:
 
 
 class TestModelFacingCardTypes:
-    def test_is_the_union_minus_system_and_envelope_cards(self):
+    def test_is_the_union_minus_system_cards(self):
         # The one answer to "may this card be asked for by name?" — used by the
         # tool description here and by the skills substrate's `grid-cards`
-        # validation, so the two can never disagree about a new card type. The
-        # envelope types are out too: on the answering surface they travel in
-        # the answer_meta trailer, never through a tool call.
-        assert model_facing_card_types() == set(_CARD_TYPES) - SYSTEM_CARD_TYPES - ENVELOPE_CARD_TYPES
-        assert model_facing_card_types().isdisjoint(SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES)
+        # validation, so the two can never disagree about a new card type.
+        assert model_facing_card_types() == set(_CARD_TYPES) - SYSTEM_CARD_TYPES
+        assert model_facing_card_types().isdisjoint(SYSTEM_CARD_TYPES | RETIRED_CARD_TYPES)
 
 
 class TestToolDescription:
@@ -122,7 +115,7 @@ class TestToolDescription:
     def test_lists_every_card_type(self):
         desc = _build_tool_description()
         for card_type in _CARD_TYPES:
-            if card_type in SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | CHAT_ONLY_CARD_TYPES:
+            if card_type in SYSTEM_CARD_TYPES | CHAT_ONLY_CARD_TYPES:
                 continue
             assert f'"{card_type}"' in desc
 
@@ -159,7 +152,7 @@ class TestToolDescription:
         assert "Worked examples" not in desc
 
     def test_says_the_fields_are_plain_text_wherever_the_shapes_are_shown(self):
-        # A shipped `legal_basis` card wrote a markdown link into a text field
+        # A shipped card wrote a markdown link into a text field
         # and the card printed the brackets. `CardModel` strips them, so this
         # rule is not what makes the card correct — it is what keeps the field
         # holding what the model meant instead of the wreckage of a link.
@@ -168,7 +161,7 @@ class TestToolDescription:
         # the measured-numbers rule does: the doctrine is paid on every turn
         # whether or not a card is emitted, and a model that has just been handed
         # the shapes is the one about to write these strings.
-        for shown in (render_card_details(["legal_basis"]), render_card_catalog()):
+        for shown in (render_card_details(["calculation"]), render_card_catalog()):
             assert "Every text field is PLAIN TEXT" in shown
             assert "no [text](url) links" in shown
         assert "PLAIN TEXT" not in render_card_doctrine()
@@ -183,25 +176,6 @@ class TestToolDescription:
         for card_type in INTERACTIVE_CARD_TYPES - SYSTEM_CARD_TYPES:
             assert f'"{card_type}"' in desc
         assert "At most one per turn" in desc
-
-    def test_a_diagram_is_not_advertised_as_a_consent_prompt(self):
-        """A drawing puts no question to anybody, and must not be framed as one.
-
-        Telling the model that a `diagram` "asks the user to authorize a real,
-        persisted change" and must never be emitted speculatively would suppress
-        the card on exactly the answers it exists for: the cost of a drawing is
-        screen space, not consent.
-
-        This asserted the same thing about a `CONSENT_CARD_TYPES` that no longer
-        exists. The card ships PRESENTATIONAL — it renders a Verfahren and
-        commits nothing, and filing one into the project stays on the mermaid
-        fence — so "must the frontend persist an answer?" and "does emitting it
-        ask something of the reader?" name one set again, and the guard is that
-        `diagram` is in neither.
-        """
-        assert "diagram" not in INTERACTIVE_CARD_TYPES
-        consent_block = _build_tool_description().split("Cards that ask the user to CONFIRM something")[1]
-        assert '"diagram"' not in consent_block.split("\n\n")[0]
 
 
 class TestTheDoctrineStaysCalibrated:
@@ -266,6 +240,8 @@ class TestTheDoctrineStaysCalibrated:
         picker_invitation = _MODEL_PICKER_NOTE.split("It renders")[0]
 
         invitation = count(head) + count(picker_invitation)
+        # MARKDOWN FIRST is not counted: it redirects the retired cards'
+        # content to the prose, and says nothing about the cards that remain.
         restraint = count(_CARD_RESTRAINT) + count(_interactive_note())
         return invitation, restraint
 
@@ -288,7 +264,6 @@ class TestTheDoctrineStaysCalibrated:
         doctrine = render_card_doctrine()
         # A reason to reach for the card...
         assert "is a reason to" in doctrine
-        assert "rather than mere permission" in doctrine
         # ...and the restatement test sits INSIDE the invitation, so the
         # invitation is self-limiting rather than leaning on WHEN NOT TO alone.
         assert "carries more than the sentence beside it" in doctrine
@@ -314,18 +289,16 @@ class TestTheDoctrineStaysCalibrated:
         # which the sibling test below re-asserts.
         assert "not a second judgement" in doctrine
 
-    def test_the_restatement_veto_discriminates_form_from_facts(self):
-        # The veto is real and stays: a card that repeats the prose beside it
-        # cannot be made good, only bigger (anti-goal D.8). What it lacked was a
-        # SCOPE. "Says what the prose says" reads on any answer whose prose
-        # already enumerates its cases — which is both observed transcripts —
-        # and cuts exactly the card that helps most. A table of three Lagen with
-        # their Anforderung and Fundstelle is not three sentences said again.
-        assert "about FORM, not" in _CARD_RESTRAINT
-        assert "is not a restatement of three" in _CARD_RESTRAINT
-        assert "Shared facts alone never cut a card" in _CARD_RESTRAINT
-        # The veto itself is untouched: same words, same shape still loses.
-        assert "says in the same words" in _CARD_RESTRAINT
+    def test_markdown_carries_what_the_retired_cards_carried(self):
+        # Tables, lists, flowchart fences and verified quotes carry the content
+        # the retired cards (RETIRED_CARD_TYPES) did; the doctrine says so
+        # before any trigger is read, on every surface.
+        doctrine = render_card_doctrine()
+        assert doctrine.startswith("MARKDOWN FIRST.")
+        assert "trifft zu" in doctrine and "> „…“ [N]" in doctrine
+        assert render_card_doctrine(include_ifc_triggers=False, include_craft=False).startswith("MARKDOWN FIRST.")
+        # The restatement veto stays, as a veto against the prose beside it.
+        assert "is a restatement: keep the prose" in _CARD_RESTRAINT
 
     def test_every_craft_row_names_its_card_and_says_it_once(self):
         # The consolidation's invariant: a card type with craft has ONE craft
@@ -351,9 +324,7 @@ class TestTheDoctrineStaysCalibrated:
         # The generic shapes are the ones that needed it: the same content fits
         # three of them and only one takes work off the reader.
         crafted_types = {card for card, _ in crafted}
-        for card in ("condition_tree", "typed_table", "comparison_table", "calculation", "process_map"):
-            assert card in crafted_types, card
-        for card in ("document_checklist", "deadline_timeline", "change_impact", "norm_chain", "legal_basis"):
+        for card in ("calculation", "setback_plan", "dimension_diagram"):
             assert card in crafted_types, card
 
     def test_the_craft_comes_off_when_the_surface_cannot_act_on_it(self):
@@ -361,17 +332,15 @@ class TestTheDoctrineStaysCalibrated:
         # only where the conversation established it" is an instruction about an
         # answer still being written.
         rows_only = render_card_doctrine(include_craft=False)
-        assert "-> process_map" in rows_only
-        assert "Stations must CARRY something" not in rows_only
-        assert "Stations must CARRY something" in render_card_doctrine()
+        assert "-> calculation" in rows_only
+        assert "there is no result field" not in rows_only
+        assert "there is no result field" in render_card_doctrine()
 
     def test_the_default_is_not_scoped_to_one_class_of_card(self):
         # The original defect, and the one thing the rewrite must not give back:
-        # a default naming only measurements left `process_map` matching its
-        # trigger word for word and still coming back as prose.
+        # a default naming only one class of card as the default.
         doctrine = render_card_doctrine()
         assert "An answer that turns on a dimension gets its card by default" not in doctrine
-        assert "This table maps content to card" in doctrine
 
     def test_the_specific_cards_keep_their_own_imperative_in_the_always_on_index(self):
         # What actually carries the two observed misses, now that the head is a
@@ -379,19 +348,9 @@ class TestTheDoctrineStaysCalibrated:
         # on every turn already, and push per CARD instead of across the table —
         # which is the difference between fixing a miss and raising the rate.
         index = render_card_index()
-        assert '"process_map": Emit for' in index
         assert '"calculation": Emit for' in index
-        # The rhetorical pair left the tool surface for the answer_meta trailer;
-        # what the index owes the model now is the redirect, not the imperative.
-        assert '"key_takeaways"' not in index
-        assert '"callout"' not in index
-        # Added with 0061: `typed_table` is where BOTH the doctrine's
-        # "rows that are all true at once" row and `condition_tree`'s own
-        # docstring redirect, and its L1 line was pure description — "A generic
-        # table whose columns declare their type so cells render right" — while
-        # every card around it said "Emit for". A redirect does not land if the
-        # destination never asks to be emitted.
-        assert '"typed_table": Emit for' in index
+        for card_type in RETIRED_CARD_TYPES:
+            assert f'"{card_type}"' not in index
 
     def test_the_anti_fabrication_rule_stands_apart_and_outranks_the_triggers(self):
         # The one rule that must NOT be softened to get more cards. It was a
@@ -415,11 +374,7 @@ class TestTheDoctrineStaysCalibrated:
         assert "ceiling" in _CARD_RESTRAINT
         assert "there to be SPENT" not in _CARD_RESTRAINT
         assert "budget" not in _CARD_RESTRAINT
-        # What the same pass added and this keeps: the two cases where none is
-        # right. The `follow_ups` exemption that used to sit here went with the
-        # retired card — see TestTheFollowUpsCardIsRetired.
-        assert "only repeats the sentence above it" in _CARD_RESTRAINT
-        assert "says in the same words" in _CARD_RESTRAINT
+        assert "none the normal case" in _CARD_RESTRAINT
 
     def test_looking_a_shape_up_is_not_framed_as_a_cost(self):
         # Cause two, addressed for 20 tokens instead of the ~693 it costs to
@@ -471,7 +426,7 @@ class TestShapeHint:
     def test_unknown_type_returns_none(self):
         assert _shape_hint_for("not_a_real_card") is None
 
-    @pytest.mark.parametrize("card_type", sorted(SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES))
+    @pytest.mark.parametrize("card_type", sorted(SYSTEM_CARD_TYPES | RETIRED_CARD_TYPES))
     def test_a_card_the_model_may_not_emit_is_taught_no_shape(self, card_type):
         # The retry hint is teaching material, and teaching one of these would
         # be teaching a card the very next check refuses. `_emit` names the right

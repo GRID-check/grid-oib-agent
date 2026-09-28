@@ -1320,6 +1320,8 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           showAnswerFeedback={showAnswerFeedback}
           isStreaming={message.isStreaming}
           routingDecision={message.routingDecision}
+          retrievalLedger={message.retrievalLedger}
+          quoteStamps={message.quoteStamps}
         />
       )
       // A message that carries a run ledger IS a run (ADR-0062): the block

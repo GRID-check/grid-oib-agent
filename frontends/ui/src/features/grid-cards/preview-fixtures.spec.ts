@@ -47,10 +47,9 @@ describe('card preview fixtures', () => {
   it('parsing fills the schema defaults an authored fixture omits', () => {
     // The fixtures are written in input shape; the map holds parsed cards, so
     // a renderer reading `note` gets null rather than undefined.
-    const summary = previewFixtureFor('summary')
-    expect(summary).toMatchObject({ type: 'summary' })
-    const checklist = previewFixtureFor('requirement_checklist')
-    expect(checklist).toHaveProperty('note', null)
+    const calculation = previewFixtureFor('calculation')
+    expect(calculation).toMatchObject({ type: 'calculation' })
+    expect(calculation).toHaveProperty('note', null)
   })
 
   it('returns undefined for a type it cannot preview', () => {

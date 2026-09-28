@@ -3086,6 +3086,17 @@ def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
     return best
 
 
+def quote_coverage(quote: str, passage: str) -> float:
+    """How much of ``quote`` one contiguous run of ``passage`` holds (0-1): the verifier's own test.
+
+    :func:`_quote_coverage` on raw text. A quote at or above
+    ``QUOTE_MATCH_THRESHOLD`` is one the prose may keep between quote marks,
+    and the same bar is what stamps a quote line „Wortlaut belegt"
+    (``common/quote_stamps.py``).
+    """
+    return _quote_coverage(_normalize_for_quote_match(quote), _normalize_for_quote_match(passage))
+
+
 def closeness(quote: str, passage: str) -> float:
     """How closely ``quote`` matches the most similar stretch of ``passage`` (0-1).
 
@@ -3736,8 +3747,11 @@ _BODY_URL_RE = re.compile(r"\w+://[^\s<>\"'\]]+")
 # preceded it stranded in front of the punctuation that followed, so
 # "eine jaehrliche Begehung [3]." reaches the reader as "Begehung .". Spaces and
 # tabs only, never a newline, so punctuation is never pulled up onto the
-# previous line.
-_SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"[ \t]+(?=[.,;:!?])")
+# previous line, and never a line's leading indentation. A colon glued to a
+# letter or another colon is not punctuation: it opens a Markdown directive
+# (`:energy-class[B]`, `:current`, an indented `:::details`), and pulling the space
+# out of „Klasse :energy-class[B]" welds the marker onto the word before it.
+_SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"(?<=\S)[ \t]+(?=[.,;!?]|:(?![^\W\d_]|:))")
 
 
 @dataclass
@@ -3835,7 +3849,9 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
         segment = _BODY_URL_RE.sub(_replace_body_url, segment)
         # Clean up leftover empty parentheses and extra spaces
         segment = re.sub(r"\(\s*\)", "", segment)
-        segment = re.sub(r"  +", " ", segment)
+        # Runs inside a line only: leading indentation nests a list item or a
+        # directive block (`   :::details`) under the one above it.
+        segment = re.sub(r"(?<=\S)  +", " ", segment)
         return _SPACE_BEFORE_PUNCTUATION_RE.sub("", segment)
 
     # Prose only — every rule here is about how a SENTENCE should read, and none

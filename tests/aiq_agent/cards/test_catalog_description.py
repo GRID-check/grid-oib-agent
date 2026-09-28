@@ -42,8 +42,8 @@ def test_flags_the_cards_that_ask_the_user_to_decide():
 
 
 def test_field_specs_carry_type_requiredness_and_description():
-    summary = next(c for c in describe_card_catalog()["cards"] if c["type"] == "summary")
-    fields = {field["name"]: field for field in summary["fields"]}
+    picker = next(c for c in describe_card_catalog()["cards"] if c["type"] == "ifc_model_picker")
+    fields = {field["name"]: field for field in picker["fields"]}
 
     # `type` is the discriminator, not a value anyone can request — it is the
     # card's identity and would only be noise in a catalog keyed by it.
@@ -52,11 +52,11 @@ def test_field_specs_carry_type_requiredness_and_description():
         "name": "title",
         "type": "string",
         "required": True,
-        "description": "Short title for the summary card",
+        "description": "Short heading, e.g. 'Welches Modell möchten Sie öffnen?'",
         "constraints": ["non-empty"],
     }
-    assert fields["key_points"]["type"] == "[string]"
-    assert fields["key_points"]["required"] is False
+    assert fields["note"]["type"] == "string"
+    assert fields["note"]["required"] is False
 
 
 def test_nested_shapes_are_defined_once_as_building_blocks():
@@ -64,23 +64,24 @@ def test_nested_shapes_are_defined_once_as_building_blocks():
     catalog = describe_card_catalog()
     blocks = catalog["buildingBlocks"]
 
-    checklist = next(c for c in catalog["cards"] if c["type"] == "requirement_checklist")
-    items = next(f for f in checklist["fields"] if f["name"] == "items")
-    assert items["type"] == "[ChecklistItem]"
-    assert "ChecklistItem" in blocks
+    calculation = next(c for c in catalog["cards"] if c["type"] == "calculation")
+    steps = next(f for f in calculation["fields"] if f["name"] == "steps")
+    assert steps["type"] == "[CalculationStep]"
+    assert "CalculationStep" in blocks
 
-    # A block may name further blocks (ChecklistItem -> NormReference). Those are
-    # collected transitively, so the catalog never dead-ends on a shape it names.
-    reference = next(f for f in blocks["ChecklistItem"] if f["name"] == "reference")
-    assert reference["type"] == "NormReference"
-    assert "NormReference" in blocks
+    # A block may name further blocks (CalculationStep -> CalculationOperand).
+    # Those are collected transitively, so the catalog never dead-ends on a
+    # shape it names.
+    operands = next(f for f in blocks["CalculationStep"] if f["name"] == "operands")
+    assert operands["type"] == "[CalculationOperand]"
+    assert "CalculationOperand" in blocks
 
 
 def test_examples_come_from_the_shared_worked_examples():
     cards = {card["type"]: card for card in describe_card_catalog()["cards"]}
     assert cards["ifc_compliance"]["example"]["model_file"] == "haus-a.ifc"
     # Cards without a worked example say so explicitly rather than omitting the key.
-    assert cards["summary"]["example"] is None
+    assert cards["stair_diagram"]["example"] is None
 
 
 def test_summary_is_the_first_docstring_paragraph_only():

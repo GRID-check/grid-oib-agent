@@ -47,11 +47,11 @@ const HARNESS_STORAGE_KEY = 'aiq-chat-store:stream-socket'
 const CONVERSATION_ID = 'stream-socket'
 
 /**
- * The first card on screen. An unplaced `legal_basis` (the `oib2` answer's
- * card) draws as `EvidenceBlock`, a section labelled with the card name; A2UI
- * and grid cards mark themselves.
+ * The first card on screen; A2UI and grid cards mark themselves. The recorded
+ * `oib2` answer carries no card since its `legal_basis` was retired
+ * (ADR-0069), so on it `firstCardAt` stays 0.
  */
-const CARD_SELECTOR = 'section[aria-label="Rechtsgrundlage"], [data-a2ui-root], [data-a2ui-surface]'
+const CARD_SELECTOR = '[data-a2ui-root], [data-a2ui-surface]'
 
 interface StreamSocketProbe {
   done: boolean

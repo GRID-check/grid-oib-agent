@@ -23,6 +23,7 @@ import { reconcileCardInteractions } from '@/features/grid-cards/card-decision'
 import { validateGridCards, type GridCard } from '@/shared/cards/schemas'
 import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { sanitizeRetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
+import { sanitizeQuoteStamps } from '@/lib/conversations/message-quote-stamps'
 import {
   sanitizeFollowUpsStage,
   sanitizeMemoryReflectionStage,
@@ -90,6 +91,7 @@ const resultFields = (view: TurnView): Partial<ChatMessage> => {
     skillsActivated: nonEmpty(result.skills_activated),
     skillsHidden: nonEmpty(result.skills_hidden),
     retrievalLedger: sanitizeRetrievalLedger(result.retrieval_ledger) ?? undefined,
+    quoteStamps: sanitizeQuoteStamps(result.quote_stamps) ?? undefined,
   }
   return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined))
 }

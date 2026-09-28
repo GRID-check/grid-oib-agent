@@ -4,7 +4,7 @@ description: >
   Treppe, Geländer, Türbreite. Die Zahl gehört gezeichnet.
 metadata:
   grid-agents: researcher,deep_researcher
-  grid-cards: stair_diagram,guardrail_check,dimension_diagram,elevator_requirement,legal_basis
+  grid-cards: stair_diagram,guardrail_check,dimension_diagram
 ---
 
 # Eine Frage zu Nutzungssicherheit oder Barrierefreiheit beantworten
@@ -21,7 +21,8 @@ Absturzhöhe, Geländerhöhe, Öffnungsweite, der Spalt darunter →
 in die Karte.
 Lichte Breite, Rampe, Wendekreis, Bewegungsfläche, Stellplatz →
 `dimension_diagram`, `shape` passend zum Gegenstand.
-Aufzugspflicht und Kabinenmaße → `elevator_requirement`.
+Kabinenmaße eines Aufzugs → `dimension_diagram` mit `shape` `lift_cabin`; ob
+ein Aufzug nötig ist, ist ein Satz mit Fundstelle.
 
 ## Herkunft der Zahl
 

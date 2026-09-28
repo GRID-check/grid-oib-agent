@@ -287,16 +287,10 @@ Three states:
   line when there is no view, and (only where the surface supplied a filing
   target, i.e. inside a project) „Im Projekt ablegen".
 
-The `diagram` CARD (`features/grid-cards/components/DiagramCard.tsx`) draws the
-same sources through the same renderer — `useRenderedDiagram` is the one place
-either surface drives it — and `useDiagramModel` for the views. It shows the
-„Schematisch" line only under mermaid's SVG, as the fence does, and the same
-source-in-a-code-block fallback. It files too: „Im Projekt ablegen" sits under
-the drawing through the same `useDiagramFiling` and `DiagramFilingControls` the
-fence uses, because which of the two surfaces a reader gets is whichever shape
-the model emitted, not a property of the drawing. The card stays
-`presentational` (docs/architecture/cards.md §"The `diagram` card"): filing is
-idempotent on the server rather than a decision persisted on the message.
+The `diagram` CARD that once drew the same sources through the same renderer
+was deleted in 2026-09 with the other retired card types
+([cards.md](cards.md#retiring-a-card-type)): the fence is the one way in, and a
+model that still names the card is told to write a fence instead.
 
 `securityLevel: 'strict'` and `htmlLabels: false` everywhere: the source is
 model-authored text, mermaid has a history of label-based XSS, and
@@ -321,7 +315,11 @@ A mermaid SVG on screen sits in a `HorizontalScroll`
 scroller becomes a named, focusable region only when it overflows, which is
 why its `aria-label` is required.
 
-### Two ways in: the fence, and the `diagram` card
+### Two ways in: the fence, and the `diagram` card (history)
+
+The card is gone (`catalog.RETIRED_CARD_TYPES`); this section records why it
+existed, because the argument for a catalog entry is the argument for the
+prompt's drawing rule.
 
 The fence above is the *rendering* path and it has always worked. What it never
 had was a way for the model to learn it existed: a fence has no catalog entry,
@@ -329,8 +327,7 @@ so telling the model it may draw meant prompt text competing for attention on
 every turn, and for a long time nobody wrote that text at all — `grep -rn
 mermaid src/` returned nothing, and the capability shipped unreachable.
 
-The `diagram` **card** is that entry (`cards/models.py`,
-[cards.md](cards.md#the-diagram-card-the-one-drawing-whose-renderer-cannot-check-it)).
+The `diagram` **card** was that entry (`cards/models.py`, until it was deleted).
 It carries the same mermaid source and renders through the same component, and
 it adds the three things a fence cannot have:
 
@@ -360,7 +357,7 @@ refuses, and every diagram already stored in a thread is one.
 
 The chat prompt now teaches the fence as THE way to draw
 (`piloti_static.md` <formatting>), and the chat envelope no longer teaches the
-`diagram` card (`catalog.MARKDOWN_CARD_TYPES`). Each of the card's three
+`diagram` card (it left the union later that month, `catalog.RETIRED_CARD_TYPES`). Each of the card's three
 arguments above was re-checked against the fence:
 
 - **The catalog entry** is the prompt's own list: which shape of answer takes
@@ -377,9 +374,8 @@ arguments above was re-checked against the fence:
 - **Filing across a reload** is idempotent on (answer, source hash, producer)
   — `use-diagram-filing.ts` — so a fence filed twice finds the same document.
 
-The card stays valid and rendered for stored messages and for surfaces with
-no answer to hold a fence (deep research's `emit_card`). Its grammar set and
-the prompt's are the same six.
+The card is deleted since (`catalog.RETIRED_CARD_TYPES`); deep research draws
+with a fence too.
 
 ### Drawn by this product, parsed by mermaid
 

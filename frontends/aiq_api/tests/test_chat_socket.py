@@ -908,6 +908,27 @@ def test_the_row_is_the_typed_result_in_wire_spelling():
     }
 
 
+def test_the_quote_stamps_are_kept_on_the_row_in_wire_spelling():
+    # ``agent-answer-metadata.ts`` reads them back as ``quote_stamps``; an
+    # unchecked stamp carries its status and wording alone.
+    finished = RunFinishedBody(
+        outcome="answered",
+        result=_result(
+            quote_stamps=[
+                {"text": "Wortlaut der Stelle", "status": "verbatim", "number": 1, "file_name": "rl2.pdf", "page": 3},
+                {"text": "GK 4", "status": "unchecked"},
+            ]
+        ),
+    )
+
+    assert turn_row_metadata(finished) == {
+        "quote_stamps": [
+            {"text": "Wortlaut der Stelle", "status": "verbatim", "number": 1, "file_name": "rl2.pdf", "page": 3},
+            {"text": "GK 4", "status": "unchecked"},
+        ]
+    }
+
+
 @pytest.mark.parametrize(
     "result",
     [

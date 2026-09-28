@@ -298,8 +298,8 @@ class JobReportResponse(BaseModel):
 
     ## Why ``cards`` rides on the report response
 
-    ``lib/pdf/legal-basis.ts`` renders a „Rechtsgrundlagen" section into the
-    filed report PDF out of the answer's ``legal_basis`` cards, and
+    The filed report PDF (``frontends/ui/src/lib/pdf/report-document.ts``) is
+    built from the report and the run's cards, and
     ``fileResearchReport`` (``frontends/ui/src/lib/documents/research-report.ts``)
     takes them as an optional argument its only caller could not fill: the BFF
     files the report at the moment it reads it off THIS route, and this route
@@ -327,9 +327,11 @@ class JobReportResponse(BaseModel):
     ``legalBasisSection``'s own narrowing) — not a third time in between, where
     the only new behaviour available to it is failure.
 
-    ## Why every card type and not only ``legal_basis``
+    ## Why every card type
 
-    The PDF reads ``legal_basis`` today, but the same run's cards already reach
+    The „Rechtsgrundlagen" section now reads the report's own quote lines
+    (``frontends/ui/src/lib/answer-export/excerpts.ts``), not a card; the
+    retired ``legal_basis`` card no longer exists. The run's cards already reach
     the client whole by two other paths — over the socket as the answer streams,
     and on the conversation message row ``write_job_turn`` writes
     (``metadata["cards"]``). A report response carrying a filtered subset would

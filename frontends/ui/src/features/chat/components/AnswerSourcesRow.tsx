@@ -15,8 +15,8 @@
  * belonged.
  *
  * Nothing is fabricated: the row renders only sources the message already
- * carries (structured citations, the answer's own written sources section,
- * `legal_basis` cards). Colour comes from the canonical wire `kind` (ADR-0026)
+ * carries (structured citations, the answer's own written sources section).
+ * Colour comes from the canonical wire `kind` (ADR-0026)
  * refined by the lane, with an OIB/RIS/ÖNORM authority badge on top; every chip
  * carries icon + label + colour together, so colour is never the only carrier.
  */

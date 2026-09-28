@@ -57,12 +57,24 @@ const stripTrailingMarks = (text: string): string => {
  * sentence mark dropped so the template's own punctuation does not land on top
  * of it („… modellieren.. Wie kann ich" was the first version).
  */
-const tidy = (text: string | null | undefined): string =>
-  stripTrailingMarks(
+const tidy = (text: string | null | undefined, max: number): string => {
+  const flat = stripTrailingMarks(
     (text ?? '')
+      // eslint-disable-next-line no-control-regex -- control and bidi characters are what is removed
+      .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
   ).trim()
+  return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat
+}
+
+/**
+ * A row's subject and detail are capped before they reach the composer: a row
+ * names a thing, and text the reader did not read closely must not become a
+ * long message sent in their name.
+ */
+const MAX_SUBJECT = 120
+const MAX_MISSING = 240
 
 /** Below this a fragment names nothing — „?", „m", „n/a" — and makes no question. */
 const MIN_MEANINGFUL = 3
@@ -79,8 +91,8 @@ export const AskAboutChip: FC<AskAboutChipProps> = ({ subject, missing, classNam
   const t = useTranslations('chat')
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
 
-  const cleanSubject = tidy(subject)
-  const cleanMissing = tidy(missing)
+  const cleanSubject = tidy(subject, MAX_SUBJECT)
+  const cleanMissing = tidy(missing, MAX_MISSING)
 
   // No subject, no question. Rendering a chip here would offer „Bei „“ fehlt
   // eine Angabe …" — a template with the placeholder showing through.

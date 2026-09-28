@@ -385,12 +385,21 @@ def test_a_table_or_a_drawing_in_a_card_counts(tmp_path):
     table = {"expect": {"shape": "table"}}
     in_text = {"cards": [{"type": "surface", "components": [{"component": "Text", "text": "| Wand | REI 60 |"}]}]}
     assert suite.check(table, run, in_text)["shape:table"] is True
-    for card_type in ("typed_table", "comparison_table"):
-        assert suite.check(table, run, {"cards": [{"type": card_type, "rows": []}]})["shape:table"] is True
-    assert suite.check(table, run, {"cards": [{"type": "callout", "text": "keine"}]})["shape:table"] is False
+    assert suite.check(table, run, {"cards": [{"type": "calculation", "title": "keine"}]})["shape:table"] is False
     drawing = {"expect": {"shape": "diagram"}}
-    assert suite.check(drawing, run, {"cards": [{"type": "diagram", "mermaid": "flowchart LR"}]})["shape:diagram"]
+    fence = {"cards": [{"type": "surface", "components": [{"component": "Text", "text": "```mermaid\nflowchart TD"}]}]}
+    assert suite.check(drawing, run, fence)["shape:diagram"]
     assert suite.check(drawing, run, {"cards": []})["shape:diagram"] is False
+
+
+def test_a_dialect_block_counts_as_its_shape_and_plain_means_none(tmp_path):
+    check_answer = ":::check\n| A | Status |\n|---|---|\n| x | offen |\n:::"
+    run = suite.Run(question_id="q", run=1, answer=check_answer)
+    assert suite.check({"expect": {"shape": "check"}}, run, {"cards": []})["shape:check"] is True
+    assert suite.check({"expect": {"shape": "plain"}}, run, {"cards": []})["shape:plain"] is False
+    in_code = suite.Run(question_id="q", run=1, answer="```text\n:::check\n```\nKurz: **REI 60** [1].")
+    assert suite.check({"expect": {"shape": "plain"}}, in_code, {"cards": []})["shape:plain"] is True
+    assert suite.check({"expect": {"shape": "check"}}, in_code, {"cards": []})["shape:check"] is False
 
 
 def test_a_repair_after_the_answer_is_neither_the_final_call_nor_a_research_round(tmp_path):
@@ -625,3 +634,9 @@ def test_a_summary_db_given_as_a_path_is_refused_before_any_run(monkeypatch, tmp
 
     assert suite._preflight(tmp_path, ingest=False) == 2
     assert "not a database URL" in capsys.readouterr().err
+
+
+def test_the_suite_reads_the_dialect_the_validator_holds():
+    from aiq_agent.common.answer_dialect import DIRECTIVE_BLOCKS
+
+    assert suite._DIALECT_BLOCKS == frozenset(DIRECTIVE_BLOCKS)
