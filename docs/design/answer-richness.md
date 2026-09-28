@@ -15,6 +15,10 @@ the synthesis follows below them.
   binding first, then `:::massnahmen` and `:::fehlanzeige`.
 - **Guardrails 1, 5, 7 and 11 are acceptance criteria**, not aspirations: a
   block that breaks one does not merge.
+- **Deep research waits for the PDF.** A report is filed as a PDF, and the
+  PDF pipeline prints a `:::` line as text. The deep writer is taught the
+  dialect in Phase B, together with the PDF renderer that draws the blocks;
+  until then reports stay plain GFM with mermaid.
 - **Measured, not asserted:** every wave reruns the before/after probe on the
   real static prompt: rich blocks per answer up, duplicate forms at zero, and
   a negative set of short factual questions answered with no block at all.

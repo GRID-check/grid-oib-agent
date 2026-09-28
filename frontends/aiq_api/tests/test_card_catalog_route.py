@@ -39,17 +39,16 @@ async def test_lists_every_card_type_with_a_count(catalog):
 
 
 async def test_each_card_carries_what_it_shows(catalog):
-    checklist = next(c for c in catalog["cards"] if c["type"] == "requirement_checklist")
-    assert checklist["summary"]
-    assert checklist["emittedBy"] == "agent"
-    assert checklist["interaction"] == "presentational"
+    calculation = next(c for c in catalog["cards"] if c["type"] == "calculation")
+    assert calculation["summary"]
+    assert calculation["emittedBy"] == "agent"
+    assert calculation["interaction"] == "presentational"
 
-    fields = {field["name"]: field for field in checklist["fields"]}
-    assert fields["title"]["required"] is True
-    assert fields["items"]["type"] == "[ChecklistItem]"
+    fields = {field["name"]: field for field in calculation["fields"]}
+    assert fields["steps"]["type"] == "[CalculationStep]"
     # The shape a field names must be resolvable from the same response, or the
     # catalog answers "what can it show?" with a name and nothing behind it.
-    assert "ChecklistItem" in catalog["buildingBlocks"]
+    assert "CalculationStep" in catalog["buildingBlocks"]
 
 
 async def test_points_at_the_github_feature_request_form(catalog):
