@@ -13,8 +13,40 @@
  * numbering, the export walker, or persistence.
  */
 
-import type { GridCard } from '@/shared/cards/schemas'
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
+import type { CalloutKind, KeyTakeawayData, NormReferenceData } from '@/features/grid-cards/schematics/types'
+
+/**
+ * The anatomy's own shapes. They were the `verdict_header`, `callout` and
+ * `key_takeaways` card shapes until those types left the card union (answers
+ * are Markdown; the anatomy stays an envelope field). The names and fields are
+ * kept, so the flat renderers read them unchanged.
+ */
+export interface AnatomyVerdict {
+  type: 'verdict_header'
+  verdict: string
+  subject: string
+  reference: NormReferenceData | null
+  confidence: 'low' | 'medium' | 'high' | null
+  confidence_reason: string | null
+}
+
+export interface AnatomyCallout {
+  type: 'callout'
+  kind: CalloutKind
+  text: string
+  title: string | null
+  detail: string | null
+}
+
+export interface AnatomyTakeaways {
+  type: 'key_takeaways'
+  title: string | null
+  items: KeyTakeawayData[]
+}
+
+/** One after-prose anatomy block. */
+export type AnatomyShape = AnatomyCallout | AnatomyTakeaways
 
 export interface AnswerAnatomy {
   /** The masthead's standfirst — the whole answer in 1–2 sentences. */
@@ -28,19 +60,19 @@ export interface AnswerAnatomy {
   /** The masthead's situating line under the title — plain, like the topic. */
   context?: string
   /** Rendered ABOVE the prose — the masthead's earned value. */
-  verdict?: GridCard
+  verdict?: AnatomyVerdict
   /** The one aside — spliced at its `[[callout]]` marker, else into `below`. */
-  callout?: GridCard
+  callout?: AnatomyCallout
   /** The closing block, always after the prose. */
-  takeaways?: GridCard
+  takeaways?: AnatomyTakeaways
   /**
    * The fixed after-prose order: the callout (when the prose did not claim it
    * with a marker), then the takeaways. Callers that placed the callout
    * inline render `below` without it.
    */
-  below: GridCard[]
+  below: AnatomyShape[]
   /** Every anatomy shape, for cross-card coordination (`CardSetProvider`). */
-  all: GridCard[]
+  all: (AnatomyVerdict | AnatomyShape)[]
 }
 
 /** Map a sanitized `answerMeta` onto the card shapes, or null when absent. */
@@ -48,7 +80,7 @@ export function answerMetaToAnatomy(meta: AnswerMeta | undefined): AnswerAnatomy
   if (!meta) return null
 
   // The generated card shapes spell absence as `null`, so the mapping does too.
-  const verdict: GridCard | undefined = meta.verdict
+  const verdict: AnatomyVerdict | undefined = meta.verdict
     ? {
         type: 'verdict_header',
         verdict: meta.verdict.value,
@@ -66,7 +98,7 @@ export function answerMetaToAnatomy(meta: AnswerMeta | undefined): AnswerAnatomy
       }
     : undefined
 
-  const callout: GridCard | undefined = meta.callout
+  const callout: AnatomyCallout | undefined = meta.callout
     ? {
         type: 'callout',
         kind: meta.callout.kind,
@@ -76,7 +108,7 @@ export function answerMetaToAnatomy(meta: AnswerMeta | undefined): AnswerAnatomy
       }
     : undefined
 
-  const takeaways: GridCard | undefined =
+  const takeaways: AnatomyTakeaways | undefined =
     meta.takeaways && meta.takeaways.length >= 2
       ? {
           type: 'key_takeaways',
@@ -91,10 +123,10 @@ export function answerMetaToAnatomy(meta: AnswerMeta | undefined): AnswerAnatomy
 
   if (!summary && !topic && !context && !verdict && !callout && !takeaways) return null
 
-  const below: GridCard[] = []
+  const below: AnatomyShape[] = []
   if (callout) below.push(callout)
   if (takeaways) below.push(takeaways)
-  const all: GridCard[] = verdict ? [verdict, ...below] : [...below]
+  const all: (AnatomyVerdict | AnatomyShape)[] = verdict ? [verdict, ...below] : [...below]
   return { summary, topic, context, verdict, callout, takeaways, below, all }
 }
 

@@ -409,7 +409,7 @@ class GateContext:
 SUMMARY_RESTATES_OVERLAP = 0.4
 
 _CONTENT_WORD = re.compile(r"[a-zäöüß0-9]{4,}")
-_NOT_PROSE_BLOCK = ("|", "```", "[[", "#", "- ", "* ", "> ", "$$")
+_NOT_PROSE_BLOCK = ("|", "```", "[[", "#", "- ", "* ", "> ", "$$", ":::")
 
 
 def _content_words(text: str) -> set[str]:

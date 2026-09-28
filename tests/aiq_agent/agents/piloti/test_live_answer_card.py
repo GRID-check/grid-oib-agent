@@ -11,7 +11,7 @@ from aiq_agent.cards.registry import set_card_registry
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 
-_BASIS = {"id": "a", "component": "legal_basis", "law": "OIB-Richtlinie 2", "article": "3.1", "summary": "GK 4."}
+_BASIS = {"id": "a", "component": "ifc_model_picker", "title": "Haus A", "note": "GK 4."}
 
 
 def _registry() -> SourceRegistry:
@@ -103,8 +103,8 @@ async def test_the_live_positions_are_the_terminals():
 
     prose = "Die Tabelle:\n\n[[card:1]]\n\nDie Karte:\n\n[[card:2]]"
     envelope = [
-        {"type": "legal_basis", "law": "OIB-Richtlinie 2", "article": "3.1", "summary": "GK 4."},
-        {"type": "legal_basis", "law": "OIB-Richtlinie 2", "article": "5.1", "summary": "Fluchtweg."},
+        {"type": "ifc_model_picker", "title": "Haus A", "note": "GK 4."},
+        {"type": "ifc_model_picker", "title": "Haus B", "note": "Fluchtweg."},
     ]
     cards, token = _with_tool_cards({"type": "document_draft", "path": "a.md"})
     try:

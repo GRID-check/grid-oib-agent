@@ -893,16 +893,6 @@ _CARD_SUPPRESS_MIN_PROSE_CHARS = 400
 #: suppressed so the reader never meets a marker with nothing behind it.
 _CARD_MARKER_RE = re.compile(r"\[\[card:\d+\]\]")
 
-#: The one model-emitted card suppression must never eat. ``legal_basis`` is
-#: not a system card — the model emits it through ``emit_card`` like any other
-#: content card, so ``SYSTEM_CARD_TYPES`` cannot cover it — but it is the
-#: answer's PROOF, not its trailer: the Fundstelle margin the reader checks the
-#: verdict against. Clearing the registry under it would keep the headline
-#: number and delete what makes it checkable, so any ``legal_basis`` card in
-#: the registry snapshot vetoes the whole suppression, exactly like a system
-#: card does.
-_LEGAL_BASIS_CARD_TYPE = "legal_basis"
-
 
 def _should_suppress_meta_cards(content: str, gated_meta: dict[str, Any] | None) -> bool:
     """Whether a short overview's trailer cards should be dropped.
@@ -943,15 +933,16 @@ def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[st
     a warning or Frist the reader must see whatever the prose length — and to
     nothing when there is no callout either.
 
-    Two vetoes, both read off the registry snapshot before anything is
-    cleared. System cards are the product, not the trailer: ``document_draft``
+    One veto, read off the registry snapshot before anything is cleared.
+    System cards are the product, not the trailer: ``document_draft``
     (and every other ``SYSTEM_CARD_TYPES`` member) is pushed by the tool that
     did the work, and a short drafting answer (kind=direct, <400 chars, no
     verdict) matches the suppression floor exactly. Clearing the registry
     there would eat the announcement of the work just done, so any system
     card in the registry vetoes the whole suppression — cards, markers and
-    meta all stay. ``legal_basis`` vetoes the same way (see
-    ``_LEGAL_BASIS_CARD_TYPE``): it is the proof the verdict rests on.
+    meta all stay. The answer's proof needs no veto: the Fundstelle the verdict
+    rests on is a cited blockquote in the prose (the retired ``legal_basis``
+    card's content), and suppression never touches the prose.
     """
     if not _should_suppress_meta_cards(content, gated_meta):
         return content, gated_meta, False
@@ -959,9 +950,10 @@ def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[st
         from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
         from aiq_agent.cards.registry import get_card_registry as _get_registry_for_guard
 
-        _veto_types = SYSTEM_CARD_TYPES | {_LEGAL_BASIS_CARD_TYPE}
         _guard_registry = _get_registry_for_guard()
-        if _guard_registry is not None and any(card.get("type") in _veto_types for card in _guard_registry.snapshot()):
+        if _guard_registry is not None and any(
+            card.get("type") in SYSTEM_CARD_TYPES for card in _guard_registry.snapshot()
+        ):
             logger.info("Piloti: answer cards suppressed: veto card present, keeping cards and meta")
             return content, gated_meta, False
     except Exception:

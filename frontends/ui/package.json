@@ -106,6 +106,7 @@
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^4.12.3",
     "rehype-katex": "^7.0.1",
+    "remark-directive": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "roughjs": "^4.6.6",

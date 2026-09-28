@@ -5,7 +5,7 @@ description: >
   Nicht die Bauklasse der Bauordnung.
 metadata:
   grid-agents: researcher,deep_researcher
-  grid-cards: condition_tree,building_section,legal_basis
+  grid-cards: building_section
 ---
 
 # Gebäudeklasse feststellen, bevor eine Zahl fällt
@@ -40,10 +40,10 @@ dem Gedächtnis.
 
 ## 4. Zeigen
 
-Die Antwort gabelt sich an der Klasse → `condition_tree`, der aktive Ast ist
-dieser Fall.
+Die Antwort gabelt sich an der Klasse → als `:::faelle`, die Zeile dieses
+Projekts mit Status `trifft zu`, sobald seine Klasse bekannt ist.
 Höhe und Fluchtniveau sind der Gegenstand → `building_section`.
-Die Bestimmung selbst → `legal_basis`.
+Die Stelle, an deren Wortlaut die Antwort hängt → als Zitatzeile `> „…“ [N]`.
 
 ## Done
 

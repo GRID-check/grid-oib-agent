@@ -3736,8 +3736,11 @@ _BODY_URL_RE = re.compile(r"\w+://[^\s<>\"'\]]+")
 # preceded it stranded in front of the punctuation that followed, so
 # "eine jaehrliche Begehung [3]." reaches the reader as "Begehung .". Spaces and
 # tabs only, never a newline, so punctuation is never pulled up onto the
-# previous line.
-_SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"[ \t]+(?=[.,;:!?])")
+# previous line, and never a line's leading indentation. A colon glued to a
+# letter or another colon is not punctuation: it opens a Markdown directive
+# (`:klasse[B]`, `:aktuell`, an indented `:::details`), and pulling the space
+# out of „Klasse :klasse[B]" welds the marker onto the word before it.
+_SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"(?<=\S)[ \t]+(?=[.,;!?]|:(?![^\W\d_]|:))")
 
 
 @dataclass
@@ -3835,7 +3838,9 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
         segment = _BODY_URL_RE.sub(_replace_body_url, segment)
         # Clean up leftover empty parentheses and extra spaces
         segment = re.sub(r"\(\s*\)", "", segment)
-        segment = re.sub(r"  +", " ", segment)
+        # Runs inside a line only: leading indentation nests a list item or a
+        # directive block (`   :::details`) under the one above it.
+        segment = re.sub(r"(?<=\S)  +", " ", segment)
         return _SPACE_BEFORE_PUNCTUATION_RE.sub("", segment)
 
     # Prose only — every rule here is about how a SENTENCE should read, and none

@@ -5,7 +5,6 @@ description: >
 metadata:
   grid-catalog: curated
   grid-agents: researcher,deep_researcher
-  grid-cards: process_map,requirement_checklist,legal_basis
 ---
 
 # Vollständigkeit der Einreichung, nicht die Qualität des Entwurfs
@@ -47,10 +46,10 @@ Lageplan.
 
 ## 4. Zeigen
 
-Der Weg Einreichung → Verhandlung → Bewilligung → Fertigstellung →
-`process_map`, der aktuelle Schritt markiert.
-Das Paket selbst → als Prüftabelle (Status-Spalte), eine Zeile je Unterlage.
-Die Bestimmung, die das Paket trägt → `legal_basis`.
+Der Weg Einreichung → Verhandlung → Bewilligung → Fertigstellung → als
+`:::verfahren`, der aktuelle Schritt markiert, sobald das Gespräch ihn kennt.
+Das Paket selbst → als Prüftabelle (`:::pruefung`, Status-Spalte), eine Zeile je Unterlage.
+Die Stelle, an deren Wortlaut die Antwort hängt → als Zitatzeile `> „…“ [N]`.
 
 ## Done
 

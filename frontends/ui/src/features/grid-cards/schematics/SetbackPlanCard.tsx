@@ -8,6 +8,12 @@
  * dimension arrow at its midpoint; a failing side turns its envelope edge red
  * as well, so the violated line is unmissable. A street band anchors "front"
  * at the bottom and a north arrow orients the plan.
+ *
+ * Under the plan, where `coverage` or `density` is given, a readout of
+ * Bebauungsgrad (built area / parcel) and GFZ (BGF / parcel) against the
+ * Bebauungsplan's limits: the retired `density_check` card's job. The ratios
+ * are COMPUTED here from the areas ({@link densityReadout}); the model supplies
+ * areas and limits only, and a ratio it did state is shown as stated.
  */
 
 import { type FC } from 'react'
@@ -36,6 +42,43 @@ interface SetbackPlanCardProps {
   building_depth_m: number
   sides: SetbackSideData[]
   reference?: NormReferenceData | null
+  parcel_area_m2?: number | null
+  footprint_area_m2?: number | null
+  gross_floor_area_m2?: number | null
+  coverage?: DimensionCheckData | null
+  density?: DimensionCheckData | null
+}
+
+/** A ratio's check with its value derived from two areas when the model left it null. */
+function derivedRatio(check: DimensionCheckData, numerator: number | null, denominator: number): DimensionCheckData {
+  if (check.value != null) return check
+  if (numerator == null || !(denominator > 0)) return { ...check, status: 'needs_input' }
+  const ratio = numerator / denominator
+  const value = Math.round((check.unit === '%' ? ratio * 100 : ratio) * 100) / 100
+  if (check.required == null) return { ...check, value }
+  // A density limit is a ceiling unless the Bebauungsplan says otherwise.
+  const pass = check.comparator === '>=' ? value >= check.required : value <= check.required
+  return { ...check, value, status: pass ? 'pass' : 'fail' }
+}
+
+/** Bebauungsgrad and GFZ, derived where the model gave only areas. */
+export function densityReadout({
+  parcelArea,
+  footprintArea,
+  grossFloorArea,
+  coverage,
+  density,
+}: {
+  parcelArea: number
+  footprintArea: number
+  grossFloorArea: number | null
+  coverage?: DimensionCheckData | null
+  density?: DimensionCheckData | null
+}): DimensionCheckData[] {
+  return [
+    ...(coverage ? [derivedRatio(coverage, footprintArea, parcelArea)] : []),
+    ...(density ? [derivedRatio(density, grossFloorArea, parcelArea)] : []),
+  ]
 }
 
 const sideName = (side: SetbackSideData['side'], t: Translator): string => {
@@ -59,8 +102,20 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
   building_depth_m: buildingD,
   sides,
   reference,
+  parcel_area_m2: parcelArea,
+  footprint_area_m2: footprintArea,
+  gross_floor_area_m2: grossFloorArea,
+  coverage,
+  density,
 }) => {
   const t = useTranslations('chat')
+  const readout = densityReadout({
+    parcelArea: parcelArea ?? parcelW * parcelD,
+    footprintArea: footprintArea ?? buildingW * buildingD,
+    grossFloorArea: grossFloorArea ?? null,
+    coverage,
+    density,
+  })
   const side = (name: SetbackSideData['side']): SetbackSideData | undefined =>
     sides.find((s) => s.side === name)
   const left = side('left')
@@ -247,6 +302,7 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
       </SchematicCanvas>
 
       <DimChecksList checks={checks} />
+      {readout.length > 0 && <DimChecksList checks={readout} className="border-t pt-2" />}
 
       {sides.some((s) => s.status === 'fail') && (
         <p className="text-xs font-medium" style={{ color: statusColor('fail') }}>

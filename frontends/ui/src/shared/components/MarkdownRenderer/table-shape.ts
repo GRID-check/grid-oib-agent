@@ -18,6 +18,13 @@
  *  - **A citation said twice in a row.** A row whose Fundstelle cell carries
  *    `[2]` does not also need `[2]` at the end of its Geltungsbereich; the
  *    trailing copy is dropped (live answers wrote both on every row).
+ *  - **The row that holds.** A row whose Status cell says „trifft zu" or
+ *    „aktuell" is the case that applies or the step the project is at; it
+ *    carries `data-active` and is tinted, as `condition_tree`'s active branch
+ *    and `process_map`'s current step were.
+ *  - **A column of values.** When every cell of a column is a number with a
+ *    unit („1.200 m²", „3,5 %") or a limit („≥ 55 dB"), the column carries
+ *    `data-numeric` and is set right-aligned, so the digits line up.
  *  - **The label of every cell.** On a phone a four-column table does not fit;
  *    below a container width each row stacks, and a cell names its column from
  *    `data-label`, the way a form does. A table whose cells hold sentences
@@ -30,17 +37,18 @@
 
 import type { Element, ElementContent, Root, RootContent } from 'hast'
 
-import { statusTone } from './status-marks'
+import { isPlaceholder, parseLimit, parseQuantity } from './quantities'
+import { isActiveStatus, statusTone } from './status-marks'
 
 /** Headers a Fundstelle column goes by. */
 const SOURCE_HEADERS = new Set(['fundstelle', 'quelle', 'grundlage', 'source', 'reference', 'references'])
 /** Headers a status column goes by. */
 const STATUS_HEADERS = new Set(['status', 'erfüllt', 'ergebnis', 'bewertung', 'result'])
 
-const isElement = (node: RootContent | ElementContent | Root): node is Element =>
+export const isElement = (node: RootContent | ElementContent | Root): node is Element =>
   (node as Element).type === 'element'
 
-const elements = (node: Element | Root, tag: string): Element[] =>
+export const elements = (node: Element | Root, tag: string): Element[] =>
   (node.children as (RootContent | ElementContent)[]).filter(
     (child): child is Element => isElement(child) && child.tagName === tag
   )
@@ -51,22 +59,22 @@ export function textOf(node: ElementContent | RootContent): string {
   return ''
 }
 
-const cellText = (cell: Element) => textOf(cell).trim().replace(/\s+/g, ' ')
+export const cellText = (cell: Element) => textOf(cell).trim().replace(/\s+/g, ' ')
 const key = (text: string) => text.toLocaleLowerCase('de')
 
 /** A body row and its cells, the row kept so a cell is removed from it without a search. */
-interface Row {
+export interface Row {
   row: Element
   cells: Element[]
 }
 
-const cellsOf = (row: Element) =>
+export const cellsOf = (row: Element) =>
   (row.children as ElementContent[]).filter(
     (child): child is Element => isElement(child) && (child.tagName === 'td' || child.tagName === 'th')
   )
 
 /** The table's header row and body rows, or null for a table without both. */
-function tableParts(table: Element): { head: Row; rows: Row[] } | null {
+export function tableParts(table: Element): { head: Row; rows: Row[] } | null {
   const thead = elements(table, 'thead')[0]
   const tbody = elements(table, 'tbody')[0]
   const headRow = thead && elements(thead, 'tr')[0]
@@ -78,7 +86,7 @@ function tableParts(table: Element): { head: Row; rows: Row[] } | null {
 }
 
 /** Every row's cell in `column`, or null when a row is short of it. */
-const columnCells = (rows: Row[], column: number): Element[] | null => {
+export const columnCells = (rows: Row[], column: number): Element[] | null => {
   const cells = rows.map((row) => row.cells[column])
   return cells.every(Boolean) ? cells : null
 }
@@ -174,6 +182,45 @@ function dropRepeatedCitations(column: number, rows: Row[]): void {
   }
 }
 
+/** A cell's text without the citations it ends with, for reading its value. */
+export const valueText = (text: string): string => {
+  // By hand, as `withoutTrailingCitations`: an anchored `(?:\s*\[\d+\])+\s*$`
+  // rescans a long run of citations once per start position.
+  let rest = text.trimEnd()
+  for (let citation = lastCitation(rest); citation; citation = lastCitation(rest)) {
+    rest = rest.slice(0, citation.start).trimEnd()
+  }
+  return rest.trim()
+}
+
+/** Every row whose status cell names it the one that holds carries `data-active`. */
+function markActiveRows(rows: Row[], column: number, text: (cell: Element) => string): void {
+  for (const { row, cells } of rows) {
+    const cell = cells[column]
+    if (cell && isActiveStatus(text(cell))) row.properties = { ...row.properties, dataActive: 'true' }
+  }
+}
+
+/**
+ * Every column whose cells are all values or limits (a dash for a missing one
+ * allowed, at least one real value) carries `data-numeric`, header included.
+ */
+function markNumericColumns(head: Row, rows: Row[], text: (cell: Element) => string): void {
+  head.cells.forEach((headCell, column) => {
+    const cells = columnCells(rows, column)
+    if (!cells || cells.length === 0) return
+    let values = 0
+    for (const cell of cells) {
+      const value = valueText(text(cell))
+      if (isPlaceholder(value)) continue
+      if (!parseQuantity(value) && !parseLimit(value)) return
+      values += 1
+    }
+    if (values === 0) return
+    for (const cell of [headCell, ...cells]) cell.properties = { ...cell.properties, dataNumeric: 'true' }
+  })
+}
+
 /** A cell holding a sentence rather than a value or a phrase. */
 const PROSE_CELL_CHARS = 140
 /** A column name too long to sit beside its value in a stacked row. */
@@ -184,7 +231,7 @@ const LONG_LABEL_CHARS = 16
  * none worth counting. Counted by the word, not its spelling: „Erfüllt" and
  * „erfüllt" are one outcome, shown as it was first written.
  */
-function statusTally(cells: Element[] | null, text: (cell: Element) => string): string | null {
+export function statusTally(cells: Element[] | null, text: (cell: Element) => string): string | null {
   if (!cells || cells.length < 3) return null
   const counts = new Map<string, { word: string; count: number }>()
   for (const cell of cells) {
@@ -198,7 +245,7 @@ function statusTally(cells: Element[] | null, text: (cell: Element) => string): 
 }
 
 /** Every cell of a Status column that holds a status word carries its tone, for the renderer's mark. */
-function markStatusCells(cells: Element[], text: (cell: Element) => string): void {
+export function markStatusCells(cells: Element[], text: (cell: Element) => string): void {
   for (const cell of cells) {
     const tone = statusTone(text(cell))
     if (tone) cell.properties = { ...cell.properties, dataStatus: tone }
@@ -228,8 +275,10 @@ function shapeTable(table: Element): void {
     const tally = statusTally(cells, text)
     if (tally) table.properties = { ...table.properties, dataTally: tally }
     markStatusCells(rows.flatMap((row) => row.cells[statusColumn] ?? []), text)
+    markActiveRows(rows, statusColumn, text)
   }
   const lifted = liftSharedSource(table, sourceColumn, head, rows, text) ? sourceColumn : -1
+  markNumericColumns(head, rows, text)
   // Labels AFTER the lift, so a cell names the column it still sits in.
   const kept = <T>(items: T[]) => items.filter((_, index) => index !== lifted)
   const labels = kept(head.cells).map(text)

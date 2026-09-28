@@ -22,6 +22,7 @@
  * re-derived, which is the rule the citation feature exists to enforce.
  */
 
+import { stripDirectives } from '@/lib/text/answer-directives'
 import {
   answerDocuments,
   bibliographyRows,
@@ -144,9 +145,10 @@ export const hasCopyableSources = (documents: CitedDocument[]): boolean =>
 
 /**
  * The answer exactly as it was written — its own sources section included,
- * minus the placement markers.
+ * minus the placement markers and the dialect's fences (`stripDirectives`):
+ * a pasted check is still its table, a `details` block is printed open.
  */
-export const answerMarkdown = (content: string): string => stripCardMarkers(content)
+export const answerMarkdown = (content: string): string => stripDirectives(stripCardMarkers(content))
 
 /**
  * The answer's prose under a written-out sources list.
@@ -160,7 +162,7 @@ export const answerMarkdownWithSources = (
   documents: CitedDocument[],
   labels: AnswerSourceLabels
 ): string => {
-  const prose = stripCardMarkers(body)
+  const prose = stripDirectives(stripCardMarkers(body))
   const sources = sourcesMarkdown(documents, labels)
   if (!sources) return prose
   return prose ? `${prose}\n\n${sources}` : sources

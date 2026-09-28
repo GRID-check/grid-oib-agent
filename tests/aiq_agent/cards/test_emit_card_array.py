@@ -14,22 +14,16 @@ rather than re-sending the whole array over cards that already registered.
 import json
 from unittest.mock import MagicMock
 
+from aiq_agent.cards.catalog import CARD_EXAMPLES
 from aiq_agent.cards.register import EmitCardConfig
 from aiq_agent.cards.register import emit_card
 from aiq_agent.cards.registry import CardRegistry
 from aiq_agent.cards.registry import reset_card_registry
 from aiq_agent.cards.registry import set_card_registry
 
-#: Two cards the model may emit, filled the way it would fill them. `summary`
-#: is deliberately not one of them: it travels in the answer envelope, and the
-#: refusal that says so is one of the paths an array element must still meet.
+#: Two cards the model may emit, filled the way it would fill them.
 PICKER = {"type": "ifc_model_picker", "title": "Treppe"}
-BASIS = {
-    "type": "legal_basis",
-    "law": "OIB-Richtlinie 2",
-    "article": "3.1.1",
-    "summary": "Brandabschnitte in GK 4 fassen höchstens 1.200 m².",
-}
+BASIS = CARD_EXAMPLES["calculation"]
 
 
 async def _emit(registry: CardRegistry, payload) -> str:
@@ -48,7 +42,7 @@ class TestAnArrayRegistersEveryCard:
 
         message = await _emit(registry, [PICKER, BASIS])
 
-        assert [card["type"] for card in registry.snapshot()] == ["ifc_model_picker", "legal_basis"]
+        assert [card["type"] for card in registry.snapshot()] == ["ifc_model_picker", "calculation"]
         assert "[[card:1]]" in message
         assert "[[card:2]]" in message
         # The markers are in emission order, which is the order the frontend
@@ -82,14 +76,14 @@ class TestARefusedElementNamesItself:
     async def test_the_valid_card_registers_and_the_refusal_carries_index_and_type(self):
         registry = CardRegistry()
 
-        message = await _emit(registry, [PICKER, {"type": "process_map", "title": "Bauverfahren"}])
+        message = await _emit(registry, [PICKER, {"type": "stair_diagram", "title": "Treppe"}])
 
         assert [card["type"] for card in registry.snapshot()] == ["ifc_model_picker"]
         assert "[[card:1]]" in message
         # Index and type, because the model wrote the whole array in one call:
         # without them it cannot tell which object to fix, and the card that
         # did register is already in the registry, so re-sending both duplicates it.
-        assert "Card at index 1 (type 'process_map')" in message
+        assert "Card at index 1 (type 'stair_diagram')" in message
         assert "failed validation" in message
 
     async def test_a_system_card_in_an_array_is_refused_like_one_on_its_own(self):
@@ -100,14 +94,14 @@ class TestARefusedElementNamesItself:
             [{"type": "memory_proposal", "title": "X", "content": "Y", "kind": "preference"}, BASIS],
         )
 
-        assert [card["type"] for card in registry.snapshot()] == ["legal_basis"]
+        assert [card["type"] for card in registry.snapshot()] == ["calculation"]
         assert "Card at index 0 (type 'memory_proposal')" in message
         assert "system-emitted" in message
 
     async def test_an_element_that_is_not_an_object_is_named_by_its_index(self):
         registry = CardRegistry()
 
-        message = await _emit(registry, [PICKER, "legal_basis"])
+        message = await _emit(registry, [PICKER, "calculation"])
 
         assert len(registry) == 1
         assert "Card at index 1 (type 'str')" in message
@@ -115,10 +109,10 @@ class TestARefusedElementNamesItself:
     async def test_every_element_refused_comes_back_as_refusals_alone(self):
         registry = CardRegistry()
 
-        message = await _emit(registry, [{"type": "process_map"}, {"type": "calculation"}])
+        message = await _emit(registry, [{"type": "stair_diagram"}, {"type": "calculation"}])
 
         assert registry.snapshot() == []
-        assert "Card at index 0 (type 'process_map')" in message
+        assert "Card at index 0 (type 'stair_diagram')" in message
         assert "Card at index 1 (type 'calculation')" in message
         assert "[[card:" not in message
 
@@ -148,8 +142,8 @@ class TestTheSingleObjectPathIsUnchanged:
     async def test_a_bare_object_that_fails_validation_still_names_its_type_alone(self):
         registry = CardRegistry()
 
-        message = await _emit(registry, {"type": "process_map", "title": "Bauverfahren"})
+        message = await _emit(registry, {"type": "stair_diagram", "title": "Treppe"})
 
-        assert message.startswith("Error: card of type 'process_map' failed validation:")
+        assert message.startswith("Error: card of type 'stair_diagram' failed validation:")
         # No index prefix: there is no array to point into.
         assert "Card at index" not in message

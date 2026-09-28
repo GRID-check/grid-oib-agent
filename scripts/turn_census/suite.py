@@ -288,18 +288,13 @@ def _card_strings(value: Any) -> list[str]:
     return []
 
 
-#: Card types that are a table to the reader, whatever their cells hold.
-_TABLE_CARDS = frozenset({"typed_table", "comparison_table"})
-
-
 def _has_shape(shape: str, prose: str, cards: list[Any]) -> bool:
     """Whether the delivered answer has this shape: variant tabs, a table, a drawing.
 
     Read off the prose AND the cards, as the reader sees them: a Markdown table
-    inside a surface's `Text`, a typed table, a `diagram` card all count.
+    or a ```mermaid fence inside a surface's `Text` counts like one in the prose.
     """
     cards = [card for card in cards if isinstance(card, dict)]
-    types = {card.get("type") for card in cards}
     text = "\n".join([prose, *_card_strings(cards)])
     if shape == "tabs":
         return any(
@@ -307,9 +302,9 @@ def _has_shape(shape: str, prose: str, cards: list[Any]) -> bool:
             for card in cards
         )
     if shape == "table":
-        return bool(types & _TABLE_CARDS) or bool(re.search(r"^\s*\|.*\|\s*$", text, re.MULTILINE))
+        return bool(re.search(r"^\s*\|.*\|\s*$", text, re.MULTILINE))
     if shape == "diagram":
-        return "diagram" in types or "```mermaid" in text
+        return "```mermaid" in text
     return False
 
 

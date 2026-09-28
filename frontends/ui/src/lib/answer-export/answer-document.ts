@@ -19,6 +19,7 @@
 import type { Translator } from '@/i18n/translate'
 import type { Locale } from '@/i18n/config'
 import { compact, labelled, type DocBlock, type DocRun } from './blocks'
+import { legalBasisBlocks } from './excerpts'
 import { cardsBlocks } from './cards'
 import { findingsBlocks } from './findings'
 import { referencesFromStored, splitProse, type ReferenceEntry } from './citations'
@@ -247,6 +248,9 @@ export function buildAnswerSections(
 
   const confidence = input.confidence ? confidenceBlocks(input.confidence, t) : []
 
+  // The passages the answer quoted, under their verified sources (`excerpts.ts`).
+  const legalBasis = legalBasisBlocks(body, references, t)
+
   const findings = findingsBlocks(input.findings, t)
   const cards = cardsBlocks(input.cards, t, { diagramPlaceholder: input.diagramPlaceholder })
   const cardSection: DocBlock[] =
@@ -265,6 +269,7 @@ export function buildAnswerSections(
       ...questionSection,
       ...answerSection,
       ...confidence,
+      ...legalBasis,
       ...findings,
       ...cardSection,
       ...sourceSection,

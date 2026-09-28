@@ -400,6 +400,11 @@ export const GridCardView: FC<GridCardViewProps> = ({
           building_depth_m={card.building_depth_m}
           sides={card.sides ?? []}
           reference={card.reference}
+          parcel_area_m2={card.parcel_area_m2}
+          footprint_area_m2={card.footprint_area_m2}
+          gross_floor_area_m2={card.gross_floor_area_m2}
+          coverage={card.coverage}
+          density={card.density}
         />
       </FadeIn>
     )

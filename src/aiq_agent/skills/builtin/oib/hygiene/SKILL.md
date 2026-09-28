@@ -4,7 +4,7 @@ description: >
   Ob dieser Raum ein Aufenthaltsraum ist, und was OIB 3 dann verlangt.
 metadata:
   grid-agents: researcher,deep_researcher
-  grid-cards: daylight_incidence,requirement_checklist,legal_basis
+  grid-cards: daylight_incidence
 ---
 
 # Zuerst den Raum einordnen, dann die Anforderung holen
@@ -31,8 +31,8 @@ Die Bestimmung liefert den Grenzwert. Eine Zahl ohne Herkunft ist behauptet.
 ## 3. Zeigen
 
 Belichtung mit Prisma und Glasanteil → `daylight_incidence`.
-Mehrere Anforderungen nebeneinander → als Prüftabelle (Status-Spalte).
-Die Klausel → `legal_basis`.
+Mehrere Anforderungen nebeneinander → als Prüftabelle (`:::pruefung`, Status-Spalte).
+Die Stelle, an deren Wortlaut die Antwort hängt → als Zitatzeile `> „…“ [N]`.
 
 ## Was schiefläuft
 

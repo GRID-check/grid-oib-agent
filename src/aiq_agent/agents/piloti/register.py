@@ -310,7 +310,6 @@ def _skills_block(runtime: SkillRuntime) -> str:
 def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> TurnFacts:
     """What the decider is shown, from the state the gather already filled."""
     from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
-    from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
     from aiq_agent.cards.catalog import card_index_entries
     from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
     from aiq_agent.common.applicability import facts_from_project_context
@@ -341,9 +340,7 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
         # `surface`'s shape IS the compose rule the envelope contract already
         # carries: attached, it would ride twice and take a shape slot.
         card_types=[
-            entry
-            for entry in card_index_entries(exclude=MARKDOWN_CARD_TYPES | CHAT_ONLY_CARD_TYPES)
-            if entry[0] not in ENVELOPE_SHAPE_TYPES
+            entry for entry in card_index_entries(exclude=CHAT_ONLY_CARD_TYPES) if entry[0] not in ENVELOPE_SHAPE_TYPES
         ],
     )
 
@@ -433,19 +430,17 @@ def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtim
 
     The chosen skill rides this turn's prompt in full (``inline_also``), the
     one method the question is the subject of; the shapes are its preferred
-    cards beyond the three shapes the envelope teaches, the Markdown-written
-    types and ``surface`` — what ``use_skill`` hands over with the body — then
-    the turn decision's card picks, capped (``attached_card_types``). The
-    Markdown types are left out because the answer writes them as Markdown,
-    not as a card, and ``surface`` because its shape is the envelope's
-    compose rule, already in the prompt. Still offers: the model decides.
+    cards beyond the shapes the envelope teaches and ``surface`` — what
+    ``use_skill`` hands over with the body — then the turn decision's card
+    picks, capped (``attached_card_types``). ``surface`` is left out because
+    its shape is the envelope's compose rule, already in the prompt. Still
+    offers: the model decides.
     """
     from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
-    from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
     from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
     from aiq_agent.skills.models import preferred_cards
 
-    withheld_shapes = {*ENVELOPE_SHAPE_TYPES, *MARKDOWN_CARD_TYPES, *CHAT_ONLY_CARD_TYPES}
+    withheld_shapes = {*ENVELOPE_SHAPE_TYPES, *CHAT_ONLY_CARD_TYPES}
 
     if runtime is not None and decisions.chosen_skill:
         runtime.inline_also((decisions.chosen_skill,))

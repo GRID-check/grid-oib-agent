@@ -63,3 +63,26 @@ describe('markdownToBlocks — diagram fences', () => {
     expect(blocks).toHaveLength(1)
   })
 })
+
+describe('markdownToBlocks — the answer dialect', () => {
+  it('prints a check as its table, a details block open, and an energy class as its letter', () => {
+    const blocks = markdownToBlocks(
+      [
+        ':::pruefung',
+        '| Anforderung | Ist | Soll |',
+        '|---|---|---|',
+        '| Trittschall | 57 dB | ≥ 55 dB |',
+        ':::',
+        '',
+        ':::details[Herleitung]',
+        'Klasse :klasse[B] laut Energieausweis.',
+        ':::',
+      ].join('\n')
+    )
+    expect(blocks[0]).toMatchObject({ kind: 'table', head: ['Anforderung', 'Ist', 'Soll'] })
+    const text = blocks.map((block) => (block.kind === 'paragraph' ? block.runs.map((run) => run.text).join('') : '')).join('\n')
+    expect(text).toContain('Herleitung')
+    expect(text).toContain('Klasse B laut Energieausweis.')
+    expect(text).not.toContain(':::')
+  })
+})

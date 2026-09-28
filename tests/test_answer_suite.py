@@ -385,11 +385,10 @@ def test_a_table_or_a_drawing_in_a_card_counts(tmp_path):
     table = {"expect": {"shape": "table"}}
     in_text = {"cards": [{"type": "surface", "components": [{"component": "Text", "text": "| Wand | REI 60 |"}]}]}
     assert suite.check(table, run, in_text)["shape:table"] is True
-    for card_type in ("typed_table", "comparison_table"):
-        assert suite.check(table, run, {"cards": [{"type": card_type, "rows": []}]})["shape:table"] is True
-    assert suite.check(table, run, {"cards": [{"type": "callout", "text": "keine"}]})["shape:table"] is False
+    assert suite.check(table, run, {"cards": [{"type": "calculation", "title": "keine"}]})["shape:table"] is False
     drawing = {"expect": {"shape": "diagram"}}
-    assert suite.check(drawing, run, {"cards": [{"type": "diagram", "mermaid": "flowchart LR"}]})["shape:diagram"]
+    fence = {"cards": [{"type": "surface", "components": [{"component": "Text", "text": "```mermaid\nflowchart TD"}]}]}
+    assert suite.check(drawing, run, fence)["shape:diagram"]
     assert suite.check(drawing, run, {"cards": []})["shape:diagram"] is False
 
 

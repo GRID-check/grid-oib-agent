@@ -22,6 +22,9 @@
  *   a blank line and still belong to the block above it, so neither needs a
  *   rule: a line that turns the paragraph above into a heading or a table
  *   changes that block's own source, and the block is parsed again.
+ * - A directive block (`:::pruefung` … `:::`) is one construct however many
+ *   blank lines it holds, so no cut is made while one is open; an unclosed
+ *   one (a streamed answer) runs to the end, as `remark-directive` runs it.
  * - Some constructs reach across blocks: a link reference definition
  *   (`[x]: url`) resolves `[x]` anywhere in the document, a footnote (`[^1]`)
  *   collects its definitions into a section at the end, and an HTML block
@@ -36,6 +39,7 @@
  */
 
 import type { Root as HastRoot } from 'hast'
+import { directiveDepths } from '@/lib/text/answer-directives'
 
 /** One top-level run of a markdown document. */
 export interface MarkdownBlock {
@@ -128,11 +132,18 @@ export function splitMarkdownBlocks(markdown: string, minChars: number = MIN_BLO
   let gap = false
   let holdsList = false
   let fence: Fence | null = null
+  // Blocks open before each line, from the dialect's one fence scanner: a
+  // line inside a `:::pruefung` is never a place to cut.
+  const depths = directiveDepths(lines)
 
   lines.forEach((line, index) => {
     size += line.length + 1
     if (fence) {
       if (closesFence(line, fence)) fence = null
+      end = index + 1
+      return
+    }
+    if (depths[index] > 0) {
       end = index + 1
       return
     }

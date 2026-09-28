@@ -25,6 +25,14 @@ import { useEffect, useRef, useSyncExternalStore, type FC, type ReactNode } from
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { InPageAnchorProvider } from '@/shared/components/MarkdownRenderer/anchor-context'
+import {
+  ExcerptSourceProvider,
+  MarkdownRowActionProvider,
+  type ExcerptSourceRenderer,
+  type RowActionRenderer,
+} from '@/shared/components/MarkdownRenderer/answer-block-context'
+import { AskAboutChip } from '@/features/grid-cards/components/AskAboutChip'
+import { CitationExcerptSource } from './CitationExcerptSource'
 import { InternalLinkProvider } from '@/shared/components/MarkdownRenderer/internal-link-context'
 import { IfcElementChip } from '@/features/bim/components/ifc-element-chip'
 import { parseElementLink } from '@/features/bim/lib/element-question'
@@ -45,6 +53,17 @@ import {
 import { SourceDocumentDialog } from './SourcePreview'
 
 const NO_FILE_REFERENCES: FileReferenceResolver = () => null
+
+/** An excerpt's margin: the source its `[N]` resolves to (`CitationExcerptSource`). */
+const renderExcerptSource: ExcerptSourceRenderer = (props) => <CitationExcerptSource {...props} />
+
+/**
+ * „Dazu fragen" on an open row of a check: the row's own words become a
+ * question in the composer, as `requirement_checklist`'s undecided rows did.
+ */
+const renderRowAction: RowActionRenderer = ({ subject, detail }) => (
+  <AskAboutChip subject={subject} missing={detail} />
+)
 
 export const AnswerCitations: FC<{
   documents: CitedDocument[]
@@ -90,6 +109,8 @@ export const AnswerCitations: FC<{
           element chip — the answer names a wall and the reader can open it —
           and every other in-app link at least stops opening a second tab.
         */}
+        <ExcerptSourceProvider render={renderExcerptSource}>
+        <MarkdownRowActionProvider render={renderRowAction}>
         <InternalLinkProvider
           render={({ href, children: label }) => {
             const element = parseElementLink(href)
@@ -122,6 +143,8 @@ export const AnswerCitations: FC<{
         >
           {children}
         </InternalLinkProvider>
+        </MarkdownRowActionProvider>
+        </ExcerptSourceProvider>
       </InPageAnchorProvider>
       </FileReferenceProvider>
       {linked.ref && (

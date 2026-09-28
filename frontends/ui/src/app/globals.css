@@ -1284,3 +1284,25 @@ table[data-stack="always"] > tbody > tr > td:first-child::before {
 table[data-stack="always"] > caption {
   display: block;
 }
+
+/* =============================================================================
+   THE ANSWER AS A PAGE (MarkdownRenderer).
+   One rhythm for every block an answer holds: prose at a reading measure
+   (`max-w-[72ch]`, `mb-4`), section headings with air above them (`mt-8` /
+   `mt-6`) and none below the block they introduce, and every designed block
+   (a table, a check, a procedure, figures, an excerpt, a details row) on the
+   same `my-5` beat, so the page reads as one composed document rather than
+   paragraphs with boxes dropped between them.
+   Unlayered on purpose, like the phone tables above: it must outrank the
+   blocks' own margin utilities.
+   ============================================================================= */
+.markdown-content > :is(h1, h2, h3, h4, h5, h6) + * {
+  margin-top: 0;
+}
+.markdown-content > :is([data-block], figure, [data-variant]) {
+  margin-top: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+.markdown-content > :first-child {
+  margin-top: 0;
+}

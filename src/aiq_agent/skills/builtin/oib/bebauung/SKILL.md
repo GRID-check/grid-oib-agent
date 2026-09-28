@@ -5,7 +5,7 @@ description: >
   Stellplätze. Land und Gemeinde, nicht OIB.
 metadata:
   grid-agents: researcher,deep_researcher
-  grid-cards: setback_plan,density_check,building_section,parking_requirement,legal_basis
+  grid-cards: setback_plan,building_section,calculation
 ---
 
 # Eine Frage zum Grundstück beantworten
@@ -36,10 +36,12 @@ diesem Genre die Information.
 ## Welches Bild
 
 Grundstück, Fußabdruck, Abstände je Seite → `setback_plan`.
-Bebauungsgrad, GFZ, Flächen gegen die Grenze → `density_check`.
+Bebauungsgrad, GFZ, Flächen gegen die Grenze → `setback_plan` mit `coverage`
+und `density`; die Karte rechnet die Quote aus den Flächen.
 Eine Höhenprüfung über die Geschoße, Fluchtniveau → `building_section`.
-Stellplätze gefordert gegen vorhanden → `parking_requirement`, mit der
-Bemessungsgrundlage im Feld `basis`: ohne sie ist die Zahl nicht prüfbar.
+Stellplätze gefordert gegen vorhanden → als `:::kennzahlen`, mit der
+Bemessungsgrundlage in der Prosa: ohne sie ist die Zahl nicht prüfbar. Eine
+errechnete Stellplatzzahl → `calculation`.
 
 ## Done
 

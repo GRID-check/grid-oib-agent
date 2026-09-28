@@ -158,3 +158,12 @@ describe('answerMarkdownWithSources', () => {
     expect(answerMarkdownWithSources('Nur Prosa.', [], labels)).toBe('Nur Prosa.')
   })
 })
+
+describe('answerMarkdown and the answer dialect', () => {
+  it('copies the Markdown a directive wraps, never the fences', () => {
+    const copied = answerMarkdown(':::verfahren\n1. Einreichung :aktuell\n2. Bescheid\n:::\n\n[[card:1]]')
+    expect(copied).toContain('1. Einreichung (aktuell)')
+    expect(copied).not.toContain(':::')
+    expect(copied).not.toContain('[[card:')
+  })
+})

@@ -385,18 +385,23 @@ def _with_cards(value: str) -> str:
 
 
 def test_grid_cards_accepts_known_card_types() -> None:
-    skill = parse_skill_md(_with_cards("legal_basis, comparison_table"))
-    assert preferred_cards(skill.metadata) == ("legal_basis", "comparison_table")
+    skill = parse_skill_md(_with_cards("calculation, stair_diagram"))
+    assert preferred_cards(skill.metadata) == ("calculation", "stair_diagram")
 
 
 def test_grid_cards_deduplicates_and_keeps_author_order() -> None:
-    skill = parse_skill_md(_with_cards("comparison_table,legal_basis,comparison_table"))
-    assert preferred_cards(skill.metadata) == ("comparison_table", "legal_basis")
+    skill = parse_skill_md(_with_cards("stair_diagram,calculation,stair_diagram"))
+    assert preferred_cards(skill.metadata) == ("stair_diagram", "calculation")
 
 
 def test_unknown_card_type_is_a_strict_error_for_a_file_skill() -> None:
     with pytest.raises(SkillValidationError, match="grid-cards"):
-        parse_skill_md(_with_cards("legal_basis, gibt_es_nicht"))
+        parse_skill_md(_with_cards("calculation, gibt_es_nicht"))
+
+
+def test_a_retired_card_type_is_a_strict_error_for_a_file_skill() -> None:
+    with pytest.raises(SkillValidationError, match="grid-cards"):
+        parse_skill_md(_with_cards("calculation, legal_basis"))
 
 
 def test_system_card_type_is_rejected_even_though_it_is_a_real_card() -> None:
@@ -413,11 +418,11 @@ def test_org_row_drops_unknown_card_types_instead_of_dying() -> None:
             "name": "org-skill",
             "description": "Ein Org-Skill.",
             "body": "Body",
-            "metadata": {"grid-cards": "legal_basis, memory_proposal, gibt_es_nicht"},
+            "metadata": {"grid-cards": "calculation, memory_proposal, gibt_es_nicht, legal_basis"},
         },
         origin="org",
     )
-    assert skill.metadata["grid-cards"] == "legal_basis"
+    assert skill.metadata["grid-cards"] == "calculation"
 
 
 def test_org_row_with_only_unknown_card_types_drops_the_key() -> None:

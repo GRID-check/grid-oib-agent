@@ -43,8 +43,8 @@ export function useCardSet(): CardSet {
 }
 
 export const CardSetProvider: FC<{
-  /** The answer's WHOLE card array, not the subset being drawn here. */
-  cards: readonly (GridCard | undefined)[]
+  /** The answer's WHOLE card array (and its anatomy's shapes), not the subset being drawn here. */
+  cards: readonly (Pick<GridCard, 'type'> | { type: string } | undefined)[]
   children: ReactNode
 }> = ({ cards, children }) => {
   const value = useMemo<CardSet>(
