@@ -144,7 +144,6 @@ const PHASES = new Set<StepPhase>(['none', 'done', 'current', 'upcoming'])
 
 /** One step of a `:::procedure`: its line, and what opens beneath it. */
 export function StepItem({ node, children }: NodeProps) {
-  const t = useTranslations('common')
   const [open, setOpen] = useState(false)
   const phaseValue = prop(node, 'dataPhase') as StepPhase | undefined
   const phase: StepPhase = phaseValue && PHASES.has(phaseValue) ? phaseValue : 'none'
@@ -153,17 +152,16 @@ export function StepItem({ node, children }: NodeProps) {
   const head = parts.get('answer-step-head')
   const due = parts.get('answer-step-due')
   const detail = parts.get('answer-step-detail')
-  const headNode = node?.children.find((child) => child.type === 'element' && child.tagName === 'answer-step-head')
-  const label = headNode ? textOf(headNode).trim() : ''
   const current = phase === 'current'
-  const line = <StepLine phase={phase} title={head} due={due} open={open} expandable={Boolean(detail)} />
+  // No aria-label: the trigger's own text (number, step, Frist, „hier stehen
+  // Sie") is its name, and a label would replace all of it.
+  const line = <StepLine phase={phase} number={number} title={head} due={due} open={open} expandable={Boolean(detail)} />
   return (
     <StepStation phase={phase} number={number} last={prop(node, 'dataLast') === 'true'}>
       {detail ? (
         <Collapsible open={open} onOpenChange={setOpen}>
           <CollapsibleTrigger
             aria-current={current ? 'step' : undefined}
-            aria-label={t('markdown.stepAria', { step: number, label })}
             className={disclosureRowClass({ current, open })}
           >
             {line}
@@ -250,7 +248,8 @@ export function AnswerBlockquote({ node, children }: React.ComponentPropsWithout
   // The server's check of this line, matched by its wording; `unchecked` draws nothing.
   const stamp = element ? stampForQuote(quoteStamps, textOf(element), Number(number)) : null
   const checked = stamp && stamp.status !== 'unchecked' ? stamp : null
-  const locus = checked?.status === 'verbatim' ? stampLocus(checked) : undefined
+  // Where it stands, under the stamp only when no margin names the source already.
+  const locus = checked?.status === 'verbatim' && !renderSource ? stampLocus(checked) : undefined
   return (
     <ExcerptFigure
       number={number}

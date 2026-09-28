@@ -1314,6 +1314,17 @@ table[data-stack="always"] > caption {
   margin-top: 1.25rem;
   margin-bottom: 1.25rem;
 }
+/* Math is the model's text: it may not paint outside its own box (a
+   `\rule` or a negative `\kern` laid over the answer), and a wide display
+   formula scrolls instead of widening the page. Sizes are also capped at the
+   source (`maxSize` in MarkdownRenderer). */
+.markdown-content .katex {
+  contain: paint;
+}
+.markdown-content .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
 .markdown-content > :first-child {
   margin-top: 0;
 }

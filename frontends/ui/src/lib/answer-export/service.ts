@@ -28,6 +28,7 @@ import { getLocale, getTranslations } from '@/i18n/server'
 import { stripCardMarkers } from '@/features/chat/lib/answer-markdown'
 import { buildAnswerDocument, type AnswerConfidence } from './answer-document'
 import { DOCX_MEDIA_TYPE, renderDocx } from './docx'
+import { sanitizeQuoteStamps } from '@/lib/conversations/message-quote-stamps'
 
 export interface ExportedAnswer {
   /** File name including the extension, already header-safe. */
@@ -47,6 +48,12 @@ const CAPPED_REASONS = new Set(['ungrounded', 'quote_unverified'])
  * of the three is not a level — it is absent, and the document then carries no
  * confidence section at all rather than an unreadable one.
  */
+function readQuoteStamps(metadata: Record<string, unknown>) {
+  const provenance = metadata.provenance
+  if (typeof provenance !== 'object' || provenance === null || Array.isArray(provenance)) return []
+  return sanitizeQuoteStamps((provenance as Record<string, unknown>).quoteStamps) ?? []
+}
+
 function readConfidence(metadata: Record<string, unknown>): AnswerConfidence | null {
   const provenance = metadata.provenance
   if (typeof provenance !== 'object' || provenance === null || Array.isArray(provenance))
@@ -163,6 +170,9 @@ export async function exportAnswerDocument(
       citations: metadata.citations,
       cards: metadata.cards,
       findings: metadata.findings,
+      // A chat answer's quote lines were checked by the server: only a verbatim
+      // one is promoted to „Rechtsgrundlagen" (`excerpts.ts`).
+      quoteStamps: readQuoteStamps(metadata),
       confidence: readConfidence(metadata),
     },
     t,

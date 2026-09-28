@@ -21,7 +21,7 @@
 
 'use client'
 
-import { useEffect, useRef, useSyncExternalStore, type FC, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useSyncExternalStore, type FC, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { InPageAnchorProvider } from '@/shared/components/MarkdownRenderer/anchor-context'
@@ -39,6 +39,7 @@ import { parseElementLink } from '@/features/bim/lib/element-question'
 import {
   CITATION_PARAM,
   parseCitationLink,
+  referencesByNumber,
   resolveCitationLink,
   type CitationRef,
   type CitedDocument,
@@ -54,8 +55,18 @@ import { SourceDocumentDialog } from './SourcePreview'
 
 const NO_FILE_REFERENCES: FileReferenceResolver = () => null
 
-/** An excerpt's margin: the source its `[N]` resolves to (`CitationExcerptSource`). */
-const renderExcerptSource: ExcerptSourceRenderer = (props) => <CitationExcerptSource {...props} />
+/**
+ * An excerpt's margin: the source its `[N]` resolves to (`CitationExcerptSource`),
+ * or nothing at all for a number that resolves to no document, so the excerpt
+ * does not hold an empty margin column open.
+ */
+const excerptSourceRenderer = (documents: CitedDocument[]): ExcerptSourceRenderer => {
+  const byNumber = referencesByNumber(documents)
+  return (props) =>
+    byNumber.has(props.stamp?.number ?? props.number) || byNumber.has(props.number) ? (
+      <CitationExcerptSource {...props} />
+    ) : null
+}
 
 /**
  * „Dazu fragen" on an open row of a check: the row's own words become a
@@ -77,6 +88,7 @@ export const AnswerCitations: FC<{
   children: ReactNode
 }> = ({ documents, anchorPrefix, resolveFileReference, children }) => {
   const linked = useLinkedCitation(documents)
+  const renderExcerptSource = useMemo(() => excerptSourceRenderer(documents), [documents])
 
   return (
     <CitationScope documents={documents} anchorPrefix={anchorPrefix}>

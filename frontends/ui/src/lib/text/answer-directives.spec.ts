@@ -58,6 +58,49 @@ describe('normalizeDirectiveFences: nesting without counting colons', () => {
   })
 })
 
+describe('normalizeDirectiveFences: repairs, so no `:::` reaches the page', () => {
+  it('outlasts a line of colons inside a code block the block holds', () => {
+    const text = ':::check\n```text\n:::\n```\n| A | Status |\n|---|---|\n| x | offen |\n:::\n\nDanach.'
+    expect(normalizeDirectiveFences(text)).toBe(
+      '::::check\n```text\n:::\n```\n| A | Status |\n|---|---|\n| x | offen |\n::::\n\nDanach.'
+    )
+  })
+
+  it('repairs a space after the colons and free words after the name', () => {
+    expect(normalizeDirectiveFences('::: check\n| a |\n:::')).toBe(':::check\n| a |\n:::')
+    expect(normalizeDirectiveFences(':::check Brandschutz\n| a |\n:::')).toBe(':::check[Brandschutz]\n| a |\n:::')
+  })
+
+  it('drops a closer with nothing open, which after a table became a row', () => {
+    expect(normalizeDirectiveFences('| a |\n|---|\n| b |\n:::')).toBe('| a |\n|---|\n| b |\n')
+  })
+
+  it('unwraps blocks nested past the depth bound, keeping their content', () => {
+    const depth = 8
+    const lines = [
+      ...Array.from({ length: depth }, (_, at) => `${' '.repeat(at)}:::details[x${at}]`),
+      'Inhalt',
+      ...Array.from({ length: depth }, (_, at) => `${' '.repeat(depth - 1 - at)}:::`),
+    ]
+    const out = normalizeDirectiveFences(lines.join('\n')).split('\n')
+    expect(out.filter((line) => /^\s*:{3,}details/.test(line))).toHaveLength(4)
+    expect(out).toContain('Inhalt')
+    expect(Math.max(...out.map((line) => /^\s*(:+)/.exec(line)?.[1].length ?? 0))).toBe(6)
+  })
+
+  it('reads a backtick line with a backtick after it as inline code, not a fence', () => {
+    const text = '```a``` inline\n\n:::check\n| a |\n:::'
+    expect(directiveDepths(text.split('\n'))).toEqual([0, 0, 0, 1, 1])
+    expect(stripDirectives(text)).not.toContain(':::')
+  })
+})
+
+describe('stripDirectives: a slipped opener', () => {
+  it('prints free words after the name as the label', () => {
+    expect(stripDirectives(':::check Brandschutz\n| a |\n:::')).toBe('**Brandschutz**\n\n| a |')
+  })
+})
+
 describe('directiveDepths', () => {
   it('counts the blocks open before each line; a stray closer closes nothing', () => {
     expect(directiveDepths([':::', ':::check', '| a |', ':::', 'x'])).toEqual([0, 0, 1, 1, 0])

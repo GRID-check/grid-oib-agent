@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { meetsLimit, parseLimit, parseNumber, parseQuantity } from './quantities'
+import { meetsLimit, parseLimit, parseNumber, parseQuantity, trailingLimit } from './quantities'
 
 describe('parseNumber', () => {
   it('reads German and English separators', () => {
@@ -43,5 +43,24 @@ describe('parseLimit and meetsLimit', () => {
 
   it('refuses to compare different units', () => {
     expect(meetsLimit({ value: 110, unit: 'cm' }, parseLimit('≥ 1,00 m')!)).toBeNull()
+  })
+
+  it('reads a range as no value, and a unit-less limit as no comparison for a value with a unit', () => {
+    expect(parseQuantity('2-3')).toBeNull()
+    expect(parseQuantity('4–5 m')).toBeNull()
+    expect(meetsLimit({ value: 45, unit: 'm' }, parseLimit('≤ 40')!)).toBeNull()
+    expect(meetsLimit({ value: 4, unit: '' }, parseLimit('max. 4')!)).toBe(true)
+  })
+})
+
+describe('trailingLimit', () => {
+  it('reads a limit written at the end of a label', () => {
+    expect(trailingLimit('Luftschalldämmung ≥ 55 dB')).toMatchObject({ text: '≥ 55 dB', limit: { bound: 'min', value: 55, unit: 'dB' } })
+    expect(trailingLimit('Fluchtweglänge max. 40 m')).toMatchObject({ limit: { bound: 'max', value: 40, unit: 'm' } })
+  })
+
+  it('reads nothing from a label without one, or with words after it', () => {
+    expect(trailingLimit('Luftschalldämmung')).toBeNull()
+    expect(trailingLimit('≥ 55 dB je Wohnung')).toBeNull()
   })
 })

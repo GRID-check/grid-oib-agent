@@ -37,11 +37,12 @@
 import type { Element, ElementContent, Root, RootContent } from 'hast'
 
 import { ANSWER_BLOCK_LABEL_TAG, ANSWER_BLOCK_TAG, ANSWER_MARKER_TAG } from './directives'
-import { isPlaceholder, meetsLimit, parseLimit, parseQuantity, type Limit, type Quantity } from './quantities'
+import { isPlaceholder, meetsLimit, parseLimit, parseQuantity, trailingLimit, type Limit, type Quantity } from './quantities'
 import { isActiveStatus, isOpenStatus, statusTone, trailingStatus } from './status-marks'
 import { caseKindFor, parseCases, type CaseDescriptor } from './cases'
 import { isProjectKey, type ProjectKey } from '@/lib/text/answer-directives'
 import {
+  capText,
   cellText,
   columnCells,
   elements,
@@ -50,6 +51,7 @@ import {
   tableParts,
   textOf,
   valueText,
+  visibleText,
   type Row,
 } from './table-shape'
 
@@ -152,12 +154,39 @@ function statusColumnByContent(head: Row, rows: Row[], text: (cell: Element) => 
   return -1
 }
 
-/** A row's value and limit: the first limit cell, and the nearest value before it. */
-function valueAndLimit(cells: Element[], text: (cell: Element) => string): { value: number; limit: Limit; quantity: Quantity } | null {
-  const limitAt = cells.findIndex((cell, index) => index > 0 && parseLimit(valueText(text(cell))))
-  if (limitAt < 0) return null
-  const limit = parseLimit(valueText(text(cells[limitAt]))) as Limit
-  for (let at = limitAt - 1; at > 0; at--) {
+/** Where a row states its limit: a cell of its own, or the end of the label („Luftschalldämmung ≥ 55 dB"). */
+interface RowLimit {
+  limit: Limit
+  /** The cell the limit stands in (0 for the label). */
+  at: number
+  /** The limit as written, for the bar's label. */
+  text: string
+}
+
+function rowLimit(cells: Element[], text: (cell: Element) => string): RowLimit | null {
+  for (let at = 1; at < cells.length; at++) {
+    const written = valueText(text(cells[at]))
+    const limit = parseLimit(written)
+    if (limit) return { limit, at, text: written }
+  }
+  const embedded = cells[0] ? trailingLimit(valueText(text(cells[0]))) : null
+  return embedded ? { limit: embedded.limit, at: 0, text: embedded.text } : null
+}
+
+/**
+ * A row's value and limit. The limit is the first limit cell, or one written
+ * at the end of the label; the value is the nearest quantity to it, before it
+ * first (`Ist | Soll`), then after it (`Soll | Ist`). Column order is the
+ * model's to choose; the reading of it is not.
+ */
+function valueAndLimit(cells: Element[], text: (cell: Element) => string): { value: number; limit: RowLimit; quantity: Quantity } | null {
+  const limit = rowLimit(cells, text)
+  if (!limit) return null
+  const order = [
+    ...Array.from({ length: Math.max(0, limit.at - 1) }, (_, index) => limit.at - 1 - index),
+    ...Array.from({ length: Math.max(0, cells.length - limit.at - 1) }, (_, index) => limit.at + 1 + index),
+  ]
+  for (const at of order) {
     const quantity = parseQuantity(valueText(text(cells[at])))
     if (quantity) return { value: at, limit, quantity }
   }
@@ -176,24 +205,41 @@ export const OUTCOME_CONFLICT = '@conflict'
 /**
  * A check row's outcome. When the row holds a value and a limit, the renderer
  * computes it, and the computation wins over the word the model wrote: a
- * status that agrees is kept as written, one that is not a verdict („offen")
- * is replaced by the computed one, and one that CONTRADICTS it („erfüllt"
- * beside 52 dB against ≥ 55 dB) is a Widerspruch the reader must check, never
- * silently either.
+ * status that agrees is kept as written; an open word („offen", „zu prüfen")
+ * or none is replaced by the computed one; a verdict that CONTRADICTS it
+ * („erfüllt" beside 52 dB against ≥ 55 dB, or „teilweise" beside a value that
+ * plainly holds) is a Widerspruch the reader must check, never silently
+ * either. A word that is no verdict on the value („nicht anwendbar",
+ * „ausstehend") stands as written.
  */
 function rowOutcome(written: string, computed: boolean | null): { word: string; replaced: boolean } | null {
   const tone = statusTone(written)
   if (computed === null) return tone ? { word: written, replaced: false } : null
   const expected = computed ? 'success' : 'destructive'
   if (tone === expected) return { word: written, replaced: false }
-  if (tone === 'success' || tone === 'destructive') return { word: OUTCOME_CONFLICT, replaced: true }
-  return { word: computed ? OUTCOME_PASS : OUTCOME_FAIL, replaced: true }
+  if (tone === 'muted') return { word: written, replaced: false }
+  if (!tone || isOpenStatus(written)) return { word: computed ? OUTCOME_PASS : OUTCOME_FAIL, replaced: true }
+  return { word: OUTCOME_CONFLICT, replaced: true }
+}
+
+/**
+ * The tally key of an outcome: a written word whose tone is a plain pass or
+ * fail counts with the renderer's own, so „erfüllt" and a computed pass land
+ * in one bucket and one chip.
+ */
+function tallyWord(word: string): string {
+  if (word === OUTCOME_PASS || word === OUTCOME_FAIL || word === OUTCOME_CONFLICT) return word
+  const tone = statusTone(word)
+  if (tone === 'success' && !isActiveStatus(word)) return OUTCOME_PASS
+  if (tone === 'destructive' && !isOpenStatus(word)) return OUTCOME_FAIL
+  return word
 }
 
 /** `word:count,…` in first-seen order, counted as `statusTally` counts. */
 function tallyOf(words: string[]): string | null {
   const counts = new Map<string, { word: string; count: number }>()
-  for (const word of words) {
+  for (const written of words) {
+    const word = tallyWord(written)
     const key = word.toLocaleLowerCase('de')
     const entry = counts.get(key) ?? { word, count: 0 }
     entry.count += 1
@@ -205,7 +251,20 @@ function tallyOf(words: string[]): string | null {
 const outcomeTone = (word: string) =>
   word === OUTCOME_PASS ? 'success' : word === OUTCOME_FAIL ? 'destructive' : word === OUTCOME_CONFLICT ? 'warning' : statusTone(word)
 
-function shapeCheckTable(table: Element): void {
+/** What a row action puts in the composer is capped: a row names a subject, it is not a message. */
+const ASK_SUBJECT_CHARS = 120
+const ASK_DETAIL_CHARS = 240
+
+/**
+ * `shapeCheckTable`'s options. `openTail`: the table may still be arriving, so
+ * its last row is not held to its limit (a half-written „≤ 4" would draw a
+ * bar that flips a token later) and no tally is drawn until it closes.
+ */
+interface CheckOptions {
+  openTail: boolean
+}
+
+function shapeCheckTable(table: Element, { openTail }: CheckOptions): void {
   const parts = tableParts(table)
   if (!parts) return
   const { head, rows } = parts
@@ -214,37 +273,40 @@ function shapeCheckTable(table: Element): void {
   const statusColumn = statusColumnByContent(head, rows, text)
   if (statusColumn >= 0) markStatusCells(rows.flatMap((row) => row.cells[statusColumn] ?? []), (cell) => valueText(text(cell)))
   const outcomes: string[] = []
-  for (const { row, cells } of rows) {
-    const pair = valueAndLimit(cells, text)
-    const limitAt = cells.findIndex((cell, index) => index > 0 && parseLimit(valueText(text(cell))))
-    const computed = pair ? meetsLimit(pair.quantity, pair.limit) : null
+  rows.forEach(({ row, cells }, index) => {
+    const arriving = openTail && index === rows.length - 1
+    const pair = arriving ? null : valueAndLimit(cells, text)
+    const computed = pair ? meetsLimit(pair.quantity, pair.limit.limit) : null
     if (pair && computed !== null) {
       setProps(cells[pair.value], {
-        dataBarLimitText: valueText(text(cells[limitAt])),
+        dataBarLimitText: pair.limit.text,
         dataBarValue: String(pair.quantity.value),
-        dataBarLimit: String(pair.limit.value),
-        dataBarBound: pair.limit.bound,
+        dataBarLimit: String(pair.limit.limit.value),
+        dataBarBound: pair.limit.limit.bound,
         dataBarPass: computed ? 'true' : 'false',
       })
     }
     const status = statusColumn >= 0 ? cells[statusColumn] : undefined
-    const outcome = rowOutcome(status ? valueText(text(status)) : '', computed)
+    const outcome = arriving ? null : rowOutcome(status ? valueText(text(status)) : '', computed)
     if (outcome) outcomes.push(outcome.word)
     if (status && outcome?.replaced) setProps(status, { dataOutcome: outcome.word, dataStatus: outcomeTone(outcome.word) })
     if (outcome?.word === OUTCOME_CONFLICT) setProps(row, { dataConflict: 'true' })
     // „Dazu fragen": a row the check leaves open, in the model's words or the renderer's.
     const open = outcome ? outcome.word === OUTCOME_CONFLICT || isOpenStatus(outcome.word) : false
-    if (!status || !open) continue
-    const skip = new Set([0, statusColumn, pair?.value ?? -1, limitAt])
+    if (!status || !open) return
+    const skip = new Set([0, statusColumn, pair?.value ?? -1, pair?.limit.at ?? -1])
     const detail = cells
-      .filter((_, index) => !skip.has(index))
-      .map((cell) => valueText(text(cell)))
+      .filter((_, at) => !skip.has(at))
+      .map((cell) => valueText(visibleText(cell)))
       .filter((value) => !isPlaceholder(value))
       .join(' · ')
-    setProps(status, { dataAsk: cells[0] ? valueText(text(cells[0])) : '', dataAskDetail: detail })
-  }
+    setProps(status, {
+      dataAsk: cells[0] ? capText(valueText(visibleText(cells[0])), ASK_SUBJECT_CHARS) : '',
+      dataAskDetail: capText(detail, ASK_DETAIL_CHARS),
+    })
+  })
   const tally = rows.length >= 2 && outcomes.length === rows.length ? tallyOf(outcomes) : null
-  setProps(table, { dataTally: tally ?? table.properties?.dataTally })
+  setProps(table, { dataTally: openTail ? undefined : (tally ?? table.properties?.dataTally) })
   // A check every row of which passes says so in one line; the rows stay one click away.
   if (tally && outcomes.every((word) => outcomeTone(word) === 'success')) {
     setProps(table, { dataCollapsed: 'true', dataPassCount: String(outcomes.length) })
@@ -377,7 +439,9 @@ function shapeActions(block: Element): void {
     if (!parts) continue
     setProps(table, { dataVariant: 'actions' })
     const columns = actionColumns(parts.head)
-    const at = (cells: Element[], column: number) => (column >= 0 && cells[column] ? valueText(cellText(cells[column])) : '')
+    // What goes into the composer is what the reader sees in the cell, capped.
+    const at = (cells: Element[], column: number) =>
+      column >= 0 && cells[column] ? capText(valueText(visibleText(cells[column])), ASK_DETAIL_CHARS) : ''
     // The trailing column „Als Aufgabe" sits in: a header only a screen reader reads.
     parts.head.row.children.push(el('th', { dataTaskHead: 'true' }, []))
     for (const { row, cells } of parts.rows) {
@@ -565,11 +629,36 @@ function splitAt(nodes: ElementContent[], mark: RegExp): [ElementContent[], Elem
   return null
 }
 
+/**
+ * A label set in bold or italics, its colon inside (`**Dichte:** 0,8`) or
+ * right after it (`**Dichte**: 0,8`): the colon is in no top-level text node.
+ */
+function boldLabel(nodes: ElementContent[]): [ElementContent[], ElementContent[]] | null {
+  const at = nodes.findIndex((node) => !(node.type === 'text' && !node.value.trim()))
+  const lead = nodes[at]
+  if (!lead || !isElement(lead) || (lead.tagName !== 'strong' && lead.tagName !== 'em')) return null
+  const rest = nodes.slice(at + 1)
+  const label = textOf(lead)
+  if (/:\s*$/.test(label)) {
+    return [[{ type: 'text', value: label.replace(/\s*:\s*$/, '') }], trimLeadingSpace(rest)]
+  }
+  const next = rest[0]
+  if (next?.type === 'text' && /^\s*:/.test(next.value)) {
+    return [[lead], trimLeadingSpace([{ type: 'text', value: next.value.replace(/^\s*:/, '') }, ...rest.slice(1)])]
+  }
+  return null
+}
+
+const trimLeadingSpace = (nodes: ElementContent[]): ElementContent[] => {
+  const first = nodes[0]
+  return first?.type === 'text' ? [{ type: 'text', value: first.value.trimStart() }, ...nodes.slice(1)] : nodes
+}
+
 /** `Label: Wert (≤ Grenze)`, one list item. */
 function figureFromItem(item: Element): Figure | null {
   const first = item.children.find((child) => isElement(child) && child.tagName === 'p') as Element | undefined
   const inline = first ? first.children : item.children
-  const parts = splitAt(inline, /:\s*/)
+  const parts = boldLabel(inline) ?? splitAt(inline, /:\s*/)
   if (!parts) return null
   const [label, rest] = parts
   const limitSplit = splitAt(rest, /\s*\((?=[^)]*\)\s*$)/)
@@ -627,7 +716,14 @@ function shapeComparison(block: Element): void {
       if (column === recommended) setProps(cell, { dataRecommended: 'true' })
     })
   }
-  const clone = (nodes: ElementContent[]): ElementContent[] => structuredClone(nodes)
+  // A copy per variant, without ids: a footnote reference's id would be
+  // duplicated, and a back-link could land on the hidden copy.
+  const withoutIds = (node: ElementContent): ElementContent => {
+    if (node.type !== 'element') return node
+    const { id: _id, ...properties } = node.properties ?? {}
+    return { ...node, properties, children: node.children.map(withoutIds) }
+  }
+  const clone = (nodes: ElementContent[]): ElementContent[] => structuredClone(nodes).map(withoutIds)
   const variants = head.cells.slice(1).map((headCell, offset) => {
     const column = offset + 1
     return el(COMPARE_VARIANT_TAG, { dataRecommended: column === recommended ? 'true' : undefined }, [
@@ -683,17 +779,30 @@ function excerptCitation(quote: Element): { number: string; href: string } | nul
 
 // ---------------------------------------------------------------------------
 
-function shapeBlocks(node: Element | Root): void {
+interface ShapeOptions {
+  /** The text is still arriving and this tree is its last block. */
+  openTail: boolean
+  /** The last table of the tree, which is the one an open tail may still be writing. */
+  lastTable: Element | null
+}
+
+function shapeBlocks(node: Element | Root, options: ShapeOptions): void {
+  const isLastTable = (table: Element) => table === options.lastTable
   for (const child of node.children as (RootContent | ElementContent)[]) {
     if (!isElement(child)) continue
-    shapeBlocks(child)
+    shapeBlocks(child, options)
     if (child.tagName === 'blockquote') {
       const citation = excerptCitation(child)
       if (citation) setProps(child, { dataExcerpt: citation.number, dataExcerptHref: citation.href || undefined })
       continue
     }
     const name = blockName(child)
-    if (name === 'check') descendants(child, 'table').forEach(shapeCheckTable)
+    // A check is its first table: a block left unclosed runs to the end of the
+    // text, and a later, unrelated table is not a check.
+    if (name === 'check') {
+      const table = descendants(child, 'table')[0]
+      if (table) shapeCheckTable(table, { openTail: options.openTail && isLastTable(table) })
+    }
     else if (name === 'cases') shapeCases(child)
     else if (name === 'procedure') shapeSteps(child)
     else if (name === 'metrics') shapeFigures(child)
@@ -705,10 +814,27 @@ function shapeBlocks(node: Element | Root): void {
   }
 }
 
+/** The last `table` element in document order, or null. */
+function lastTableIn(node: Element | Root): Element | null {
+  let last: Element | null = null
+  for (const child of node.children as (RootContent | ElementContent)[]) {
+    if (!isElement(child)) continue
+    if (child.tagName === 'table') last = child
+    last = lastTableIn(child) ?? last
+  }
+  return last
+}
+
+export interface DirectiveShapeOptions {
+  /** The text is still arriving and this is its last block: its last table row may be half-written. */
+  openTail?: boolean
+}
+
 /** The rehype plugin; run it after `rehypeTableShape`. */
-export function rehypeDirectiveShape() {
+export function rehypeDirectiveShape(options: DirectiveShapeOptions = {}) {
   return (tree: Root) => {
     consumeMarkers(tree, [])
-    shapeBlocks(tree)
+    const openTail = options.openTail === true
+    shapeBlocks(tree, { openTail, lastTable: openTail ? lastTableIn(tree) : null })
   }
 }

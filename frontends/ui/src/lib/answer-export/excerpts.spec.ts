@@ -39,4 +39,19 @@ describe('legalBasisBlocks', () => {
   it('prints no section without a resolved quote', () => {
     expect(legalBasisBlocks('> Ein Zitat.', [{ number: 1, label: 'X' }], t)).toEqual([])
   })
+
+  it('promotes only a quote the server found verbatim, where it checked', () => {
+    const references = [
+      { number: 1, label: 'OIB-RL 2.1' },
+      { number: 7, label: 'OIB-RL 4' },
+    ]
+    const stamps = [
+      { text: 'Garagen sind mechanisch zu entlüften.', status: 'verbatim' as const, number: 1 },
+      { text: 'Nicht belegt.', status: 'not_found' as const },
+    ]
+    const blocks = legalBasisBlocks(ANSWER, references, t, stamps)
+    expect(blocks).toHaveLength(3)
+    expect(blocks[1]).toMatchObject({ runs: [{ text: '[1] ' }, { text: 'OIB-RL 2.1' }] })
+    expect(legalBasisBlocks(ANSWER, references, t, [])).toEqual([])
+  })
 })

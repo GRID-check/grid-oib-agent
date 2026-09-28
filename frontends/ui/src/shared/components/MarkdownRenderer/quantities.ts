@@ -26,8 +26,11 @@ export interface Limit extends Quantity {
 
 /** Digits with the separators a German or English number may carry. */
 const NUMBER = '[+\\-\u2212]?\\d(?:[\\d.,\'\u2019\\u00a0\\u202f ]*\\d)?'
-/** A unit: one run of letters and symbols after the number, never a second number. */
-const UNIT = String.raw`[^\d\s|][^\s|]{0,11}`
+/**
+ * A unit: one run of letters and symbols after the number, never a second
+ * number. A dash followed by a digit is a range („4-5", „2–3 m"), not a unit.
+ */
+const UNIT = String.raw`(?![-\u2013\u2212]\d)[^\d\s|][^\s|]{0,11}`
 const QUANTITY = new RegExp(String.raw`^(?:ca\.\s*|~\s*|≈\s*)?(${NUMBER})\s*(${UNIT})?$`)
 
 /** Longer than any value or limit a cell states; the patterns never see more. */
@@ -92,9 +95,41 @@ export function parseLimit(text: string): Limit | null {
   return null
 }
 
+/**
+ * The tokens a limit may open with when it is written at the end of a label
+ * („Luftschalldämmung ≥ 55 dB"). Each must stand after a space.
+ */
+const EMBEDDED_LIMIT_TOKENS = ['≥', '>=', '≤', '<=', 'max.', 'mind.', 'min.', 'mindestens', 'höchstens', 'maximal', 'minimal']
+
+/** Longer than any label with a limit at its end; a sentence is not scanned. */
+const MAX_LABEL_CHARS = 120
+
+/**
+ * A limit written at the end of a label cell: „Luftschalldämmung ≥ 55 dB",
+ * „Fluchtweglänge max. 40 m". Only the tail after the last limit token is
+ * read, and only when all of it is one limit.
+ */
+export function trailingLimit(text: string): { limit: Limit; text: string } | null {
+  const trimmed = text.trim()
+  if (trimmed.length > MAX_LABEL_CHARS) return null
+  const lower = trimmed.toLocaleLowerCase('de')
+  let at = -1
+  for (const token of EMBEDDED_LIMIT_TOKENS) {
+    const index = lower.lastIndexOf(` ${token}`)
+    if (index > at) at = index
+  }
+  if (at < 0) return null
+  const tail = trimmed.slice(at + 1)
+  const limit = parseLimit(tail)
+  return limit ? { limit, text: tail } : null
+}
+
 /** Whether `value` keeps `limit`, or null when the units say they are not comparable. */
 export function meetsLimit(value: Quantity, limit: Limit): boolean | null {
   if (value.unit && limit.unit && value.unit !== limit.unit) return null
+  // A value with a unit held to a bare number („45 m" against „≤ 40", a limit
+  // still arriving or written without its unit) is not a comparison.
+  if (value.unit && !limit.unit) return null
   if (limit.bound === 'min') return limit.strict ? value.value > limit.value : value.value >= limit.value
   return limit.strict ? value.value < limit.value : value.value <= limit.value
 }

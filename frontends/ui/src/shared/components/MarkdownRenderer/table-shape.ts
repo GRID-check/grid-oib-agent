@@ -60,6 +60,36 @@ export function textOf(node: ElementContent | RootContent): string {
 }
 
 export const cellText = (cell: Element) => textOf(cell).trim().replace(/\s+/g, ' ')
+
+const MATH_CLASSES = new Set(['katex', 'katex-display'])
+const isMath = (node: Element): boolean => {
+  const classes = node.properties?.className
+  return Array.isArray(classes) && classes.some((name) => MATH_CLASSES.has(String(name)))
+}
+
+/** Control, zero-width and bidi-override characters: nothing a reader sees. */
+// eslint-disable-next-line no-control-regex -- matching control characters is the point
+const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g
+
+/**
+ * The text a reader SEES in a node, for anything that leaves the page as the
+ * reader's own words (a question put in the composer). Math is left out: its
+ * hidden MathML and TeX annotation are not what the cell shows, and
+ * `\phantom{…}` or `\color{transparent}{…}` would otherwise carry text the
+ * reader never saw into a user turn.
+ */
+export function visibleText(node: ElementContent | RootContent): string {
+  const raw = (function walk(current: ElementContent | RootContent): string {
+    if (current.type === 'text') return current.value
+    if (current.type !== 'element' || isMath(current)) return ''
+    return current.children.map(walk).join('')
+  })(node)
+  return raw.replace(INVISIBLE, ' ').replace(/\s+/g, ' ').trim()
+}
+
+/** `text` cut to `max` characters, the cut marked. */
+export const capText = (text: string, max: number): string =>
+  text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text
 const key = (text: string) => text.toLocaleLowerCase('de')
 
 /** A body row and its cells, the row kept so a cell is removed from it without a search. */

@@ -165,8 +165,17 @@ export const StepStation: FC<{ phase: StepPhase; number: string; last: boolean; 
 )
 
 /** The step's own line: its name, its Frist, and whether the project is at it. */
-export const StepLine: FC<{ phase: StepPhase; title: ReactNode; due?: ReactNode; open?: boolean; expandable: boolean }> = ({
+export const StepLine: FC<{
+  phase: StepPhase
+  /** The step's number, spoken: the rail's node that shows it is decoration. */
+  number?: string
+  title: ReactNode
+  due?: ReactNode
+  open?: boolean
+  expandable: boolean
+}> = ({
   phase,
+  number,
   title,
   due,
   open,
@@ -183,9 +192,12 @@ export const StepLine: FC<{ phase: StepPhase; title: ReactNode; due?: ReactNode;
             phase === 'done' && 'text-muted-foreground'
           )}
         >
+          {number && <span className="sr-only">{t('markdown.stepAria', { step: number, label: '' }).trim()} </span>}
           {title}
         </span>
         <span className="flex min-w-0 flex-wrap items-start gap-2">
+          {/* A done step's check mark and muted text are colour and shape; its word is for everyone else. */}
+          {phase === 'done' && <span className="sr-only">{t('markdown.stepDone')}</span>}
           {due && <span className="card-meta mt-0.5 rounded bg-muted px-1.5 py-0.5 text-muted-foreground">{due}</span>}
           {phase === 'current' && (
             <span className="card-meta mt-0.5 rounded-full bg-success-subtle px-2 py-0.5 text-success">

@@ -18,6 +18,8 @@
  * degrades to its content, never to nothing and never to `:::` on the page.
  */
 
+import { closesCodeFence, openingCodeFence, type CodeFence } from './code-fence'
+
 /**
  * Blocks, written `:::name` … `:::` around the Markdown they describe. Mirrors
  * `DIRECTIVE_BLOCKS` in `src/aiq_agent/common/answer_dialect.py`; the parity
@@ -91,43 +93,66 @@ export const isDirectiveBlock = (name: string): name is DirectiveBlock =>
 export const isDirectiveMarker = (name: string): name is DirectiveMarker =>
   Object.prototype.hasOwnProperty.call(DIRECTIVE_MARKERS, name)
 
-/** A code fence opener or closer, at most three spaces in (also inside a list item). */
-const FENCE = /^\s*(`{3,}|~{3,})/
-/** A container opener: `:::name`, optionally `[label]` and `{attributes}`. */
-const OPENER = /^(\s*)(:{3,})([A-Za-z][\w-]*)(.*)$/
+/**
+ * A container opener: `:::name`, optionally `[label]` and `{attributes}`. A
+ * space after the colons (`::: check`) is a slip the renderer repairs, not
+ * prose: no answer starts a line with three colons and a word otherwise.
+ */
+const OPENER = /^([ \t]*)(:{3,})[ \t]*([A-Za-z][\w-]*)(.*)$/
 /** A container closer: colons alone on the line. */
-const CLOSER = /^(\s*)(:{3,})\s*$/
-
-/** What a line is to the dialect's block structure. */
-export type FenceEvent = 'open' | 'close' | null
+const CLOSER = /^([ \t]*)(:{3,})[ \t]*$/
+/** A line of colons only, inside code: the parser would read it as a closer of the block around the code. */
+const COLON_LINE = /^[ \t]*(:{3,})[ \t]*$/
 
 /**
- * Each line's part in the block structure: an opener, a closer that closes an
- * open block, or neither. Code is skipped (`:::` in a fence is code), and a
- * closer with nothing open is not one. The one scanner every reader of the
- * structure uses: {@link normalizeDirectiveFences}, and the renderer's block
- * splitter, which must never cut inside an open block.
+ * How deep blocks nest, and how many one answer opens. The dialect needs two
+ * or three levels (a procedure, a step's details); every level past that
+ * lengthens every fence around it, and the parser's work grows with depth
+ * times colons, on every streamed token. Past either bound an opener is
+ * unwrapped: its fences go, its content stays.
+ */
+export const MAX_DIRECTIVE_DEPTH = 4
+export const MAX_DIRECTIVE_BLOCKS = 64
+
+/**
+ * What a line is to the dialect's block structure: an opener, a closer that
+ * closes an open block, a line of code, a closer with nothing open (`stray`),
+ * an opener or closer past the bounds (`unwrapped`), or none of these.
+ */
+export type FenceEvent = 'open' | 'close' | 'code' | 'stray' | 'unwrapped' | null
+
+/**
+ * Each line's part in the block structure. Code is skipped (`:::` in a fence
+ * is code). The one scanner every reader of the structure uses:
+ * {@link normalizeDirectiveFences}, and the renderer's block splitter, which
+ * must never cut inside an open block. `common/answer_dialect.py` ports it.
  */
 export function scanDirectiveFences(lines: readonly string[]): FenceEvent[] {
-  let fence: string | null = null
-  let open = 0
+  let fence: CodeFence | null = null
+  /** Open blocks, each `true` when it was unwrapped for the bounds. */
+  const stack: boolean[] = []
+  let opened = 0
   return lines.map((line): FenceEvent => {
-    const fenceMatch = FENCE.exec(line)
     if (fence) {
-      if (fenceMatch && fenceMatch[1][0] === fence[0] && fenceMatch[1].length >= fence.length) fence = null
-      return null
+      if (closesCodeFence(line, fence)) fence = null
+      return 'code'
     }
-    if (fenceMatch) {
-      fence = fenceMatch[1]
-      return null
+    const codeFence = openingCodeFence(line)
+    if (codeFence) {
+      fence = codeFence
+      return 'code'
     }
     if (OPENER.test(line)) {
-      open += 1
+      const kept = stack.filter((unwrapped) => !unwrapped).length
+      const unwrapped = kept >= MAX_DIRECTIVE_DEPTH || opened >= MAX_DIRECTIVE_BLOCKS
+      stack.push(unwrapped)
+      if (unwrapped) return 'unwrapped'
+      opened += 1
       return 'open'
     }
-    if (CLOSER.test(line) && open > 0) {
-      open -= 1
-      return 'close'
+    if (CLOSER.test(line)) {
+      if (stack.length === 0) return 'stray'
+      return stack.pop() ? 'unwrapped' : 'close'
     }
     return null
   })
@@ -147,8 +172,17 @@ export function directiveDepths(lines: readonly string[]): number[] {
 interface OpenContainer {
   /** Line index of the opener. */
   line: number
-  /** How many containers are open inside it at most, below it. */
-  height: number
+  /** The colons its fences need: more than any fence or colon line inside it. */
+  colons: number
+}
+
+/** An opener written canonically: no space after the colons, free words as the `[label]`. */
+function canonicalOpener(line: string, colons: string): string {
+  return line.replace(OPENER, (_m, indent: string, _c, name: string, rest: string) => {
+    const trimmed = rest.trim()
+    const words = trimmed && !/^[[{]/.test(trimmed) && /^\s/.test(rest) ? `[${trimmed.replace(/[[\]]/g, '')}]` : rest
+    return `${indent}${colons}${name}${words}`
+  })
 }
 
 /**
@@ -160,51 +194,82 @@ interface OpenContainer {
  * cut in two. The outer fence has to be longer (`::::procedure`), which is a
  * rule a writer (a model, a person) gets wrong. So the renderer does not ask:
  * a bare `:::` closes the innermost open block, and each fence is rewritten to
- * `3 + the depth nested inside it` colons. An unclosed block (a streamed one)
- * stays open and runs to the end of the text, as `remark-directive` runs it.
+ * one colon more than any fence nested inside it, and more than any line of
+ * colons in a code block it holds (the parser closes a container at such a
+ * line, fence or not). An unclosed block (a streamed one) stays open and runs
+ * to the end of the text, as `remark-directive` runs it.
  *
- * Code fences are skipped: `:::` inside a code block is code.
+ * Repairs on the way, so no `:::` reaches the page:
+ * - `::: check` and `:::check Brandschutz` become `:::check` and
+ *   `:::check[Brandschutz]`;
+ * - a closer with nothing open is dropped (after a table it became a row);
+ * - an opener past {@link MAX_DIRECTIVE_DEPTH} or {@link MAX_DIRECTIVE_BLOCKS}
+ *   loses its fences and keeps its content.
  */
 export function normalizeDirectiveFences(markdown: string): string {
   if (!markdown.includes(':::')) return markdown
   const lines = markdown.split('\n')
   const stack: OpenContainer[] = []
-  const pairs: { open: number; close: number | null; height: number }[] = []
-  scanDirectiveFences(lines).forEach((event, index) => {
+  const pairs: { open: number; close: number | null; colons: number }[] = []
+  const dropped: number[] = []
+  const events = scanDirectiveFences(lines)
+  events.forEach((event, index) => {
     if (event === 'open') {
-      stack.push({ line: index, height: 0 })
+      stack.push({ line: index, colons: 3 })
+      return
+    }
+    if (event === 'stray' || event === 'unwrapped') {
+      dropped.push(index)
+      return
+    }
+    if (event === 'code') {
+      const run = COLON_LINE.exec(lines[index])
+      const inner = stack[stack.length - 1]
+      if (run && inner) inner.colons = Math.max(inner.colons, run[1].length + 1)
       return
     }
     if (event !== 'close') return
     const closed = stack.pop() as OpenContainer
-    pairs.push({ open: closed.line, close: index, height: closed.height })
+    pairs.push({ open: closed.line, close: index, colons: closed.colons })
     const parent = stack[stack.length - 1]
-    if (parent) parent.height = Math.max(parent.height, closed.height + 1)
+    if (parent) parent.colons = Math.max(parent.colons, closed.colons + 1)
   })
   // Still open at the end of the text: the stream has not closed them yet.
   for (let at = stack.length - 1; at >= 0; at--) {
     const open = stack[at]
-    pairs.push({ open: open.line, close: null, height: open.height })
+    pairs.push({ open: open.line, close: null, colons: open.colons })
     const parent = stack[at - 1]
-    if (parent) parent.height = Math.max(parent.height, open.height + 1)
+    if (parent) parent.colons = Math.max(parent.colons, open.colons + 1)
   }
-  if (pairs.every(({ height }) => height === 0)) return markdown
-  for (const { open, close, height } of pairs) {
-    const colons = ':'.repeat(3 + height)
-    lines[open] = lines[open].replace(OPENER, (_m, indent: string, _c, name: string, rest: string) => `${indent}${colons}${name}${rest}`)
-    if (close !== null) lines[close] = lines[close].replace(CLOSER, (_m, indent: string) => `${indent}${colons}`)
+  let changed = dropped.length > 0
+  for (const { open, close, colons } of pairs) {
+    const fence = ':'.repeat(colons)
+    const opener = canonicalOpener(lines[open], fence)
+    const closer = close === null ? null : lines[close].replace(CLOSER, (_m, indent: string) => `${indent}${fence}`)
+    if (opener !== lines[open] || (close !== null && closer !== lines[close])) changed = true
+    lines[open] = opener
+    if (close !== null && closer !== null) lines[close] = closer
   }
+  if (!changed) return markdown
+  for (const index of dropped) lines[index] = ''
   return lines.join('\n')
 }
 
 /** `[label]` of an opener, unescaped enough to print. */
 const openerLabel = (rest: string): string => {
-  const match = /^\[([^\]]*)\]/.exec(rest.trim())
-  return match ? match[1].trim() : ''
+  const trimmed = rest.trim()
+  const match = /^\[([^\]]*)\]/.exec(trimmed)
+  if (match) return match[1].trim()
+  // Free words after the name (`:::check Brandschutz`) are the label the renderer draws.
+  return trimmed && !trimmed.startsWith('{') && /^\s/.test(rest) ? trimmed : ''
 }
 
-/** A text directive: `:name`, `:name[label]`, either with `{attributes}`. */
-const TEXT_DIRECTIVE = /(^|[^\w:\\])(:)([A-Za-z][\w-]*)(?:\[([^\]\n]*)\])?(?:\{[^}\n]*\})?/g
+/**
+ * A text directive: `:name`, `:name[label]`, either with `{attributes}`. The
+ * label and attributes are bounded: an unclosed `[` over a long line would
+ * otherwise be rescanned from every `:name` on it.
+ */
+const TEXT_DIRECTIVE = /(^|[^\w:\\])(:)([A-Za-z][\w-]{0,63})(?:\[([^\]\n]{0,200})\])?(?:\{[^}\n]{0,200}\})?/g
 
 /** `by=building_class` out of an opener's `{attributes}`, when it names a project key. */
 export function casesBy(attributes: string): ProjectKey | null {
@@ -223,17 +288,14 @@ export function projectKeysIn(markdown: string): ProjectKey[] {
   const add = (key: string | null) => {
     if (key && isProjectKey(key) && !found.includes(key)) found.push(key)
   }
-  let fence: string | null = null
+  let fence: CodeFence | null = null
   for (const line of markdown.split('\n')) {
-    const fenceMatch = FENCE.exec(line)
     if (fence) {
-      if (fenceMatch && fenceMatch[1][0] === fence[0] && fenceMatch[1].length >= fence.length) fence = null
+      if (closesCodeFence(line, fence)) fence = null
       continue
     }
-    if (fenceMatch) {
-      fence = fenceMatch[1]
-      continue
-    }
+    fence = openingCodeFence(line)
+    if (fence) continue
     const opener = OPENER.exec(line)
     if (opener) {
       if (opener[3] === 'cases') add(casesBy(opener[4]))
@@ -275,17 +337,16 @@ export interface StripOptions {
  */
 export function stripDirectives(markdown: string, options: StripOptions = {}): string {
   if (!markdown.includes(':')) return markdown
-  let fence: string | null = null
+  let fence: CodeFence | null = null
   const out: string[] = []
   for (const line of markdown.split('\n')) {
-    const fenceMatch = FENCE.exec(line)
     if (fence) {
-      if (fenceMatch && fenceMatch[1][0] === fence[0] && fenceMatch[1].length >= fence.length) fence = null
+      if (closesCodeFence(line, fence)) fence = null
       out.push(line)
       continue
     }
-    if (fenceMatch) {
-      fence = fenceMatch[1]
+    fence = openingCodeFence(line)
+    if (fence) {
       out.push(line)
       continue
     }

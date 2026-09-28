@@ -53,8 +53,22 @@ describe('a long :::check', () => {
       previous = rows
     }
     rerender(<MarkdownRenderer content={LONG_CHECK} />)
-    // All passing: collapsed to its tally; the rows are all still in the page.
-    expect(container.textContent).toContain(`${ROWS} of ${ROWS} met`)
+    // All passing, but the reader was reading it: the table stays open when
+    // the stream ends, so the page does not shrink under them.
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(ROWS)
+    expect(container.textContent).not.toContain(`${ROWS} of ${ROWS} met`)
+    // Loaded as final, it collapses to its tally.
+    const { container: loaded } = render(<MarkdownRenderer content={LONG_CHECK} />)
+    expect(loaded.textContent).toContain(`${ROWS} of ${ROWS} met`)
+  })
+
+  it('does not hold a half-written last row to its limit, nor tally, while it streams', () => {
+    const table = [':::check', '| Anforderung | Ist | Soll | Stand |', '|---|---|---|---|', '| A | 57 dB | ≥ 55 dB | erfüllt |']
+    const { container } = render(<MarkdownRenderer content={[...table, '| B | 38 m | ≤ 4'].join('\n')} isStreaming />)
+    const rows = container.querySelectorAll('tbody tr')
+    expect(rows).toHaveLength(2)
+    expect(rows[1].textContent).not.toContain('not met')
+    expect(container.querySelector('[data-testid="status-tally"]')).toBeNull()
   })
 })
 
@@ -63,11 +77,14 @@ describe('holdHalfDirective', () => {
     expect(holdHalfDirective('Text\n::')).toBe('Text\n')
     expect(holdHalfDirective('Text\n:::details[Was es br')).toBe('Text\n')
     expect(holdHalfDirective('Klasse :energy-class[A')).toBe('Klasse ')
+    expect(holdHalfDirective('Text\n:::cases{by=escape_le')).toBe('Text\n')
+    expect(holdHalfDirective('In :project[building_cl')).toBe('In ')
   })
 
   it('keeps a closer of an open block, a complete opener, and plain text', () => {
     expect(holdHalfDirective(':::check\n| a |\n:::')).toBe(':::check\n| a |\n:::')
     expect(holdHalfDirective('Text\n:::check')).toBe('Text\n:::check')
+    expect(holdHalfDirective('Text\n:::cases{by=escape_level_m}')).toBe('Text\n:::cases{by=escape_level_m}')
     expect(holdHalfDirective('Um 10:30')).toBe('Um 10:30')
   })
 })

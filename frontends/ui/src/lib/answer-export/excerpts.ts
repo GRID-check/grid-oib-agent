@@ -10,6 +10,13 @@
  * Rechtsgrundlage; one whose number resolves to nothing is left in the prose
  * and not promoted, because a section under that heading claims its sources
  * were checked.
+ *
+ * Where the server checked the quote lines (a chat answer's `quote_stamps`,
+ * `message-quote-stamps.ts`), only a line it found VERBATIM in a retrieved
+ * passage is promoted: a model can end any sentence in `[N]`, and the section
+ * would otherwise print a sentence the Richtlinie never says under its name.
+ * A surface without stamps (a deep research report, until Phase B checks its
+ * quotes) passes none and keeps the resolved-number rule.
  */
 
 import { marked, type Tokens } from 'marked'
@@ -17,6 +24,7 @@ import type { Translator } from '@/i18n/translate'
 import { stripDirectives } from '@/lib/text/answer-directives'
 import type { DocBlock } from './blocks'
 import type { ReferenceEntry } from './citations'
+import { stampForQuote, type QuoteStamp } from '@/lib/conversations/message-quote-stamps'
 
 /** One quoted passage and the citation it ends in. */
 export interface QuotedPassage {
@@ -40,12 +48,19 @@ export function quotedPassages(markdown: string): QuotedPassage[] {
 }
 
 /** The „Rechtsgrundlagen" section, or nothing when no quote resolves to a stored reference. */
-export function legalBasisBlocks(markdown: string, references: ReferenceEntry[], t: Translator): DocBlock[] {
+export function legalBasisBlocks(
+  markdown: string,
+  references: ReferenceEntry[],
+  t: Translator,
+  /** The server's check of the quote lines; `undefined` where no check ran. */
+  stamps?: readonly QuoteStamp[]
+): DocBlock[] {
   const byNumber = new Map(references.map((reference) => [reference.number, reference]))
   const blocks: DocBlock[] = []
   for (const passage of quotedPassages(markdown)) {
     const reference = byNumber.get(passage.number)
     if (!reference || !passage.text) continue
+    if (stamps && stampForQuote(stamps, passage.text, passage.number)?.status !== 'verbatim') continue
     const locator = [reference.label, reference.page].filter(Boolean).join(', ')
     blocks.push(
       { kind: 'paragraph', runs: [{ text: `[${passage.number}] `, bold: true }, { text: locator, bold: true }] },

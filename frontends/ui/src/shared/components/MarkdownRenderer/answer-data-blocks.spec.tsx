@@ -238,6 +238,7 @@ describe('quote stamps', () => {
     const stamp = screen.getByTestId('quote-stamp')
     expect(stamp).toHaveAttribute('data-status', 'verbatim')
     expect(stamp).toHaveTextContent('Wording verified [1]')
+    // No margin here, so the stamp itself says where the wording stands.
     expect(stamp).toHaveTextContent('Pkt. 3.1 · S. 4')
   })
 
