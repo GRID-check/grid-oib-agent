@@ -19,6 +19,16 @@
  */
 
 import { closesCodeFence, openingCodeFence, type CodeFence } from './code-fence'
+import {
+  OUTCOME_FAIL,
+  OUTCOME_PASS,
+  figureOutcome,
+  rowOutcome,
+  statusColumnOf,
+  valueAndLimit,
+} from '@/shared/components/MarkdownRenderer/check-rows'
+import { meetsLimit } from '@/shared/components/MarkdownRenderer/quantities'
+import { valueText } from '@/shared/components/MarkdownRenderer/table-shape'
 
 /**
  * Blocks, written `:::name` … `:::` around the Markdown they describe. Mirrors
@@ -315,6 +325,71 @@ export function projectKeysIn(markdown: string): ProjectKey[] {
 export interface StripOptions {
   /** A project fact as text („GK 4", „10,8 m"), or null when the profile lacks it. */
   projectValue?: (key: ProjectKey) => string | null
+  /** The renderer's outcome words in the reader's language; German by default, as the answer is. */
+  outcomeWords?: OutcomeWords
+}
+
+/** The words a reconciled check row prints (`markdown.limitKept`, `limitMissed`, `outcomeConflict`). */
+export interface OutcomeWords {
+  pass: string
+  fail: string
+  conflict: string
+}
+
+const GERMAN_OUTCOMES: OutcomeWords = { pass: 'erfüllt', fail: 'nicht erfüllt', conflict: 'Widerspruch – prüfen' }
+
+/** A GFM table row's cells, split at unescaped pipes, or null for a line that is not a row. */
+function rowCells(line: string): { indent: string; cells: string[] } | null {
+  const match = /^([ \t]*)\|(.*)$/.exec(line)
+  if (!match) return null
+  const cells = match[2].split(/(?<!\\)\|/)
+  if (cells.length > 0 && cells[cells.length - 1].trim() === '') cells.pop()
+  return { indent: match[1], cells: cells.map((cell) => cell.trim()) }
+}
+
+const DELIMITER_ROW = /^[ \t]*\|?[ \t]*:?-{1,}:?[ \t]*(\|[ \t]*:?-{1,}:?[ \t]*)*\|?[ \t]*$/
+
+/**
+ * A `:::check` or `:::metrics` table with each row's Status cell as the page
+ * draws it: the computed outcome where the row holds a value and a limit
+ * (`check-rows.ts`), a contradiction spelled out with the word the answer
+ * wrote. The page says „Widerspruch – prüfen"; the copy and the filed
+ * document say it too, never the model's „erfüllt" beside it.
+ */
+function reconcileTable(lines: string[], block: 'check' | 'metrics', words: OutcomeWords): string[] {
+  const parsed = lines.map(rowCells)
+  if (parsed.length < 3 || parsed.some((row) => row === null) || !DELIMITER_ROW.test(lines[1])) return lines
+  const body = (parsed.slice(2) as { indent: string; cells: string[] }[]).map((row) => ({
+    ...row,
+    texts: row.cells.map((cell) => valueText(cell)),
+  }))
+  const statusColumn = block === 'check' ? statusColumnOf(body.map((row) => row.texts), (parsed[0] as { cells: string[] }).cells.length) : -1
+  const printed = (word: string, written: string) =>
+    word === OUTCOME_PASS ? words.pass : word === OUTCOME_FAIL ? words.fail : `${words.conflict} (${written})`
+  return [
+    lines[0],
+    lines[1],
+    ...body.map((row, index) => {
+      const line = lines[index + 2]
+      let at = statusColumn
+      let outcome: ReturnType<typeof rowOutcome> = null
+      if (block === 'check') {
+        if (at < 0) return line
+        const measure = valueAndLimit(row.texts)
+        const computed = measure ? meetsLimit(measure.quantity, measure.limit.limit) : null
+        outcome = rowOutcome(row.texts[at] ?? '', computed)
+      } else {
+        const figure = figureOutcome(row.texts)
+        at = figure.statusAt
+        outcome = figure.outcome
+      }
+      if (at < 0 || !outcome?.replaced) return line
+      const cells = [...row.cells]
+      const citation = cells[at].slice(valueText(cells[at]).length)
+      cells[at] = `${printed(outcome.word, row.texts[at])}${citation}`
+      return `${row.indent}| ${cells.join(' | ')} |`
+    }),
+  ]
 }
 
 /**
@@ -337,9 +412,27 @@ export interface StripOptions {
  */
 export function stripDirectives(markdown: string, options: StripOptions = {}): string {
   if (!markdown.includes(':')) return markdown
+  const words = options.outcomeWords ?? GERMAN_OUTCOMES
   let fence: CodeFence | null = null
   const out: string[] = []
+  /** The names of the blocks open around the line. */
+  const open: string[] = []
+  /** The table lines of the check or metrics block being read, held until the table ends. */
+  let table: string[] = []
+  let tableBlock: 'check' | 'metrics' | null = null
+  const flush = () => {
+    if (table.length > 0 && tableBlock) out.push(...reconcileTable(table, tableBlock, words).map((line) => stripTextDirectives(line, options)))
+    table = []
+    tableBlock = null
+  }
   for (const line of markdown.split('\n')) {
+    const inner = open[open.length - 1]
+    if (!fence && (inner === 'check' || inner === 'metrics') && /^[ \t]*\|/.test(line)) {
+      tableBlock = inner
+      table.push(line)
+      continue
+    }
+    flush()
     if (fence) {
       if (closesCodeFence(line, fence)) fence = null
       out.push(line)
@@ -352,13 +445,18 @@ export function stripDirectives(markdown: string, options: StripOptions = {}): s
     }
     const opener = OPENER.exec(line)
     if (opener) {
+      open.push(opener[3])
       const label = openerLabel(opener[4])
       if (label) out.push(`${opener[1]}**${label}**`, '')
       continue
     }
-    if (CLOSER.test(line)) continue
+    if (CLOSER.test(line)) {
+      open.pop()
+      continue
+    }
     out.push(stripTextDirectives(line, options))
   }
+  flush()
   return out.join('\n').replace(/\n{3,}/g, '\n\n')
 }
 

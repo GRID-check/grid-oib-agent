@@ -95,6 +95,34 @@ describe('normalizeDirectiveFences: repairs, so no `:::` reaches the page', () =
   })
 })
 
+describe('stripDirectives: the status a check prints is the one the page draws', () => {
+  it('prints the computed outcome over an open word, and a contradiction with the word written', () => {
+    const check = [
+      ':::check',
+      '| Anforderung | Ist | Soll | Status |',
+      '|---|---|---|---|',
+      '| Brandabschnitt | 1.380 m² | max. 1.200 m² | erfüllt [2] |',
+      '| Trittschall | 57 dB | ≥ 55 dB | offen |',
+      '| Aufzug | — | — | nicht anwendbar |',
+      ':::',
+    ].join('\n')
+    expect(stripDirectives(check).split('\n')).toEqual([
+      '| Anforderung | Ist | Soll | Status |',
+      '|---|---|---|---|',
+      '| Brandabschnitt | 1.380 m² | max. 1.200 m² | Widerspruch – prüfen (erfüllt) [2] |',
+      '| Trittschall | 57 dB | ≥ 55 dB | erfüllt |',
+      '| Aufzug | — | — | nicht anwendbar |',
+    ])
+  })
+
+  it('reconciles a metrics table, and leaves a plain table outside a block alone', () => {
+    const metrics = ':::metrics\n| Kennzahl | Wert | Grenzwert | Status |\n|---|---|---|---|\n| Stellplätze | 12 | mind. 14 | erfüllt |\n:::'
+    expect(stripDirectives(metrics)).toContain('| Stellplätze | 12 | mind. 14 | Widerspruch – prüfen (erfüllt) |')
+    const plain = '| A | Ist | Soll | Status |\n|---|---|---|---|\n| x | 1 m | ≥ 2 m | erfüllt |'
+    expect(stripDirectives(plain)).toBe(plain)
+  })
+})
+
 describe('stripDirectives: a slipped opener', () => {
   it('prints free words after the name as the label', () => {
     expect(stripDirectives(':::check Brandschutz\n| a |\n:::')).toBe('**Brandschutz**\n\n| a |')
