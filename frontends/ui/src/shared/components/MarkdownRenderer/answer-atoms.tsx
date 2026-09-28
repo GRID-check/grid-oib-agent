@@ -12,7 +12,7 @@
  */
 
 import { useState, type FC, type ReactNode } from 'react'
-import { Check, ChevronDown, CircleCheck } from 'lucide-react'
+import { ArrowDown, Check, ChevronDown, CircleCheck, ExternalLink, ListPlus, PencilLine } from 'lucide-react'
 import { Chip } from '@/components/ui/chip'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -20,6 +20,8 @@ import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { ENERGY_CLASSES } from '@/lib/text/answer-directives'
 import type { StatusTone } from './status-marks'
+import type { BoundFactState } from '@/lib/project-profile/answer-bindings'
+import type { Ruler } from './cases'
 
 // ---------------------------------------------------------------------------
 // Value against limit
@@ -64,6 +66,10 @@ export const ValueBar: FC<ValueBarProps> = ({ value, limit, bound, pass, valueTe
         style={{ width: `${fill}%` }}
       />
       <span className="absolute -inset-y-0.5 w-0.5 rounded-full bg-foreground/70" style={{ left: `calc(${tick}% - 1px)` }} />
+      {/* On paper the bar keeps its numbers: a drawn value always exists as text (guardrail 4). */}
+      <span className="card-meta absolute left-0 top-2 hidden whitespace-nowrap text-muted-foreground print:block">
+        {valueText} / {limitText}
+      </span>
     </span>
   )
 }
@@ -192,7 +198,7 @@ export const StepLine: FC<{ phase: StepPhase; title: ReactNode; due?: ReactNode;
         <ChevronDown
           aria-hidden="true"
           className={cn(
-            'mt-1 size-4 shrink-0 text-muted-foreground transition-transform duration-quick ease-out motion-reduce:transition-none',
+            'mt-1 size-4 shrink-0 text-muted-foreground transition-transform duration-quick ease-out motion-reduce:transition-none print:hidden',
             open && 'rotate-180'
           )}
         />
@@ -200,6 +206,13 @@ export const StepLine: FC<{ phase: StepPhase; title: ReactNode; due?: ReactNode;
     </>
   )
 }
+
+/**
+ * A disclosure's content, kept in the page while closed so paper shows it
+ * open: hidden on screen until opened, always printed (a `details` block, a
+ * step's detail, the rows of an all-clear check).
+ */
+export const PRINT_OPEN_CONTENT = 'data-[state=closed]:hidden print:data-[state=closed]:block'
 
 /** The row a step or a `details` block opens from. */
 export const disclosureRowClass = ({ current, open }: { current: boolean; open: boolean }): string =>
@@ -239,7 +252,7 @@ export const DetailsSummary: FC<{ children: ReactNode; open: boolean }> = ({ chi
     <ChevronDown
       aria-hidden="true"
       className={cn(
-        'mt-1 size-4 shrink-0 text-muted-foreground transition-transform duration-quick ease-out motion-reduce:transition-none',
+        'mt-1 size-4 shrink-0 text-muted-foreground transition-transform duration-quick ease-out motion-reduce:transition-none print:hidden',
         open && 'rotate-180'
       )}
     />
@@ -271,10 +284,24 @@ const FIGURE_SWATCH: Record<FigureTone, string> = {
   none: '',
 }
 
-/** The tiles, two a row on a phone and up to four where there is room. */
+/**
+ * The tiles, laid out so none sits alone on a row: one or two side by side,
+ * three in one row (stacked where three do not fit), four as two by two, and
+ * in one row where there is room.
+ */
 export const FigureGrid: FC<{ count: number; children: ReactNode }> = ({ count, children }) => (
-  <div className="my-4 @container">
-    <div className={cn('grid grid-cols-2 gap-2', count >= 3 && '@[36rem]:grid-cols-3', count >= 4 && '@[44rem]:grid-cols-4')}>
+  <div className="my-4 @container break-inside-avoid">
+    <div
+      data-testid="figure-grid"
+      data-count={count}
+      className={cn(
+        'grid gap-2',
+        count <= 1 && 'grid-cols-1 @[28rem]:max-w-[50%]',
+        count === 2 && 'grid-cols-2',
+        count === 3 && 'grid-cols-1 @[26rem]:grid-cols-3',
+        count >= 4 && 'grid-cols-2 @[44rem]:grid-cols-4'
+      )}
+    >
       {children}
     </div>
   </div>
@@ -347,12 +374,28 @@ export const EnergyClassChip: FC<{ rating: string }> = ({ rating }) => {
  * there is not. `LegalBasisCard`'s blockquote, with the Fundstelle moved from
  * the card's header to where a commentary sets it.
  */
-export const ExcerptFigure: FC<{ number: string; source: ReactNode; children: ReactNode }> = ({ number, source, children }) => (
-  <figure className="my-5 @container" data-excerpt={number}>
+export const ExcerptFigure: FC<{
+  number: string
+  source: ReactNode
+  /** The server's stamp under the quote („Wortlaut belegt [3]"), when it checked it. */
+  stamp?: ReactNode
+  /** The server found no passage holding the wording: set as a paraphrase, not as a quotation. */
+  paraphrase?: boolean
+  children: ReactNode
+}> = ({ number, source, stamp, paraphrase = false, children }) => (
+  <figure className="my-5 @container break-inside-avoid" data-excerpt={number} data-paraphrase={paraphrase ? 'true' : undefined}>
     <div className={cn('grid gap-2', source && '@[36rem]:grid-cols-[minmax(0,1fr)_12rem] @[36rem]:gap-6')}>
-      <blockquote className="max-w-prose border-l-2 border-l-source-law/40 pl-4 italic leading-relaxed text-default [&_p]:mb-2 [&_p:last-child]:mb-0">
-        {children}
-      </blockquote>
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <blockquote
+          className={cn(
+            'max-w-prose border-l-2 pl-4 leading-relaxed [&_p]:mb-2 [&_p:last-child]:mb-0',
+            paraphrase ? 'border-dashed border-l-warning not-italic text-muted-foreground' : 'border-l-source-law/40 italic text-default'
+          )}
+        >
+          {children}
+        </blockquote>
+        {stamp}
+      </div>
       {source && <figcaption className="min-w-0 pl-4 @[36rem]:pl-0 @[36rem]:pt-0.5">{source}</figcaption>}
     </div>
   </figure>
@@ -421,14 +464,17 @@ export const CompareVariantValue: FC<{ children: ReactNode }> = ({ children }) =
 // Tables
 // ---------------------------------------------------------------------------
 
-export type TableVariant = 'plain' | 'check' | 'cases' | 'compare'
+export type TableVariant = 'plain' | 'check' | 'cases' | 'compare' | 'actions'
 
 export const tableVariant = (value: unknown): TableVariant =>
-  value === 'check' || value === 'cases' || value === 'compare' ? value : 'plain'
+  value === 'check' || value === 'cases' || value === 'compare' || value === 'actions' ? value : 'plain'
 
 /** The frame around a table and its tally. A comparison gives way to its per-variant blocks on a phone. */
 export const tableFrameClass = (variant: TableVariant): string =>
-  cn('my-4 flex flex-col gap-2 [container:answer-table/inline-size]', variant === 'compare' && '@max-[30rem]/compare:hidden')
+  cn(
+    'my-4 flex flex-col gap-2 [container:answer-table/inline-size] break-inside-avoid',
+    variant === 'compare' && '@max-[30rem]/compare:hidden'
+  )
 
 /**
  * Zebra rows and tabular figures. A row that holds keeps its tint over the
@@ -438,6 +484,9 @@ export const tableFrameClass = (variant: TableVariant): string =>
 export const tableClass = (variant: TableVariant): string =>
   cn(
     'min-w-full caption-bottom tabular-nums [&>tbody>tr:nth-child(even):not([data-active]):not([data-conflict])]:bg-muted/30',
+    // Every cell on the first line of its row, so a status pill in one sits
+    // level with the words in the next instead of floating to the middle.
+    (variant === 'compare' || variant === 'actions' || variant === 'cases') && '[&_td]:align-top [&_th]:align-bottom',
     variant === 'compare' &&
       '[&_tr>*:first-child]:sticky [&_tr>*:first-child]:left-0 [&_tr>*:first-child]:z-10 [&_td:first-child]:bg-card [&_th:first-child]:bg-muted'
   )
@@ -487,12 +536,373 @@ export const PassedCheck: FC<{ passed: number; children: ReactNode }> = ({ passe
         <ChevronDown
           aria-hidden="true"
           className={cn(
-            'mt-1 size-4 shrink-0 text-muted-foreground transition-transform duration-quick ease-out motion-reduce:transition-none',
+            'mt-1 size-4 shrink-0 text-muted-foreground transition-transform duration-quick ease-out motion-reduce:transition-none print:hidden',
             open && 'rotate-180'
           )}
         />
       </CollapsibleTrigger>
-      <CollapsibleContent>{children}</CollapsibleContent>
+      <CollapsibleContent forceMount className={PRINT_OPEN_CONTENT}>
+        {children}
+      </CollapsibleContent>
     </Collapsible>
+  )
+}
+
+/** A status pill set inside a table cell: its box no taller than the line, so the row keeps its rhythm. */
+export const cellChipClass = '-my-0.5 align-[1px]'
+
+// ---------------------------------------------------------------------------
+// Project binding
+// ---------------------------------------------------------------------------
+
+/**
+ * A project fact as the answer binds it (`:project[key]`): the value from the
+ * profile, never the model's. Solid when confirmed, dashed with „Annahme"
+ * when the agent assumed it, hatched amber „fehlt · ergänzen" when the
+ * profile lacks it, which fills the composer with a request to set it.
+ */
+export const ProjectValueChip: FC<{
+  state: BoundFactState
+  /** The value, or the fact's name when it is missing. */
+  children: ReactNode
+  /** The fact's name, for the accessible name and the tooltip. */
+  label: string
+  /** Why the agent assumed it. */
+  reason?: string
+  /** Fill the composer with a request to set the fact; absent where there is no composer. */
+  onFill?: () => void
+}> = ({ state, children, label, reason, onFill }) => {
+  const t = useTranslations('common')
+  const base = 'mx-0.5 inline-flex h-[1.375rem] max-w-full items-center gap-1 rounded-md border px-1.5 align-[1px] text-[0.8125rem] font-medium leading-none tabular-nums'
+  if (state === 'missing') {
+    const body = (
+      <>
+        <span className="truncate">{label}</span>
+        <span className="text-warning">{t('markdown.project.missing')}</span>
+        {onFill && <PencilLine aria-hidden="true" className="size-3 shrink-0 print:hidden" />}
+      </>
+    )
+    const className = cn(base, 'bg-hatch-warning border-warning border-dashed text-foreground')
+    return onFill ? (
+      <button
+        type="button"
+        data-testid="project-value"
+        data-state="missing"
+        onClick={onFill}
+        title={t('markdown.project.fillTitle', { label })}
+        className={cn(className, 'cursor-pointer touch-target hover:border-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60')}
+      >
+        {body}
+      </button>
+    ) : (
+      <span data-testid="project-value" data-state="missing" className={className}>
+        {body}
+      </span>
+    )
+  }
+  return (
+    <span
+      data-testid="project-value"
+      data-state={state}
+      title={state === 'assumed' && reason ? `${label}: ${t('markdown.project.assumed')} – ${reason}` : label}
+      className={cn(
+        base,
+        state === 'confirmed' ? 'border-transparent bg-muted text-foreground' : 'border-dashed border-border bg-card text-foreground'
+      )}
+    >
+      <span className="truncate">{children}</span>
+      {state === 'assumed' && <span className="card-meta font-normal text-muted-foreground">{t('markdown.project.assumed')}</span>}
+    </span>
+  )
+}
+
+/**
+ * The Projektbezug strip under the masthead: the project facts the answer
+ * reads, in the chips they read as in the prose („Wien · GK 4 · Fluchtniveau
+ * 10,8 m · Wohnen").
+ */
+export const ProjectStrip: FC<{ children: ReactNode }> = ({ children }) => {
+  const t = useTranslations('common')
+  return (
+    <div data-testid="project-strip" className="flex flex-wrap items-center gap-x-1 gap-y-1.5 border-b border-base pb-2.5">
+      <SectionLabel as="span" className="mr-1">
+        {t('markdown.project.strip')}
+      </SectionLabel>
+      {children}
+    </div>
+  )
+}
+
+/** The dot between two strip facts. */
+export const StripSeparator: FC = () => (
+  <span aria-hidden="true" className="text-muted-foreground">
+    ·
+  </span>
+)
+
+/** „Ihr Projekt: GK 4" over a cases block, the value the renderer marks the case from. */
+export const CaseProjectLine: FC<{ children: ReactNode }> = ({ children }) => {
+  const t = useTranslations('common')
+  return (
+    <p data-testid="case-project" className="card-caption flex flex-wrap items-center gap-1 text-muted-foreground">
+      {t('markdown.project.yours')}
+      {children}
+    </p>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Threshold ruler
+// ---------------------------------------------------------------------------
+
+/**
+ * A scale of consecutive cases (Fluchtniveau bis 7 m, bis 11 m, bis 22 m):
+ * a tick at every threshold, the case the project is in tinted, and a pin at
+ * the project's value with how far the next threshold is („0,2 m unter GK 5").
+ * Drawn only when every case is a range the value can be held against.
+ */
+export const ThresholdRuler: FC<{
+  ruler: Ruler
+  /** The project's value as the profile shows it („10,8 m"). */
+  valueText: string
+  /** A threshold as text, in the value's unit. */
+  format: (value: number) => string
+  /** The fact's name, for the accessible name. */
+  label: string
+}> = ({ ruler, valueText, format, label }) => {
+  const t = useTranslations('common')
+  const nearest = ruler.nearest
+  const note = nearest
+    ? t(nearest.direction === 'below' ? 'markdown.ruler.below' : 'markdown.ruler.above', {
+        delta: format(nearest.delta),
+        label: nearest.label,
+      })
+    : null
+  const holds = ruler.segments.find((segment) => segment.holds)
+  return (
+    <figure
+      data-testid="threshold-ruler"
+      className="my-1 flex flex-col gap-1 break-inside-avoid"
+      aria-label={t('markdown.ruler.aria', { label, value: valueText, case: holds?.label ?? '–', note: note ?? '' })}
+      role="img"
+    >
+      <div className="relative mx-2 mt-6 h-2">
+        {ruler.segments.map((segment) => (
+          <span
+            key={`${segment.from}-${segment.to}`}
+            data-holds={segment.holds ? 'true' : undefined}
+            className={cn(
+              'absolute inset-y-0 border-x border-background first:rounded-l-full last:rounded-r-full',
+              segment.holds ? 'bg-success' : 'bg-muted'
+            )}
+            style={{ left: `${segment.from}%`, width: `${Math.max(0, segment.to - segment.from)}%` }}
+          />
+        ))}
+        {ruler.ticks.map((tick) => (
+          <span
+            key={tick.value}
+            aria-hidden="true"
+            className="absolute -bottom-4 -translate-x-1/2 font-mono text-[10px] tabular-nums text-muted-foreground"
+            style={{ left: `${tick.at}%` }}
+          >
+            {format(tick.value)}
+          </span>
+        ))}
+        <span
+          data-testid="ruler-pin"
+          aria-hidden="true"
+          className="absolute -top-6 flex -translate-x-1/2 flex-col items-center"
+          style={{ left: `${Math.min(100, Math.max(0, ruler.pin))}%` }}
+        >
+          <span className="card-meta whitespace-nowrap rounded bg-foreground px-1 font-semibold text-background tabular-nums">{valueText}</span>
+          <span className="h-4 w-0.5 bg-foreground" />
+        </span>
+      </div>
+      <div aria-hidden="true" className="relative mx-2 mt-4 h-4">
+        {ruler.segments.map((segment) => (
+          <span
+            key={`${segment.from}-${segment.label}`}
+            className={cn(
+              'card-meta absolute truncate text-center',
+              segment.holds ? 'font-semibold text-success' : 'text-muted-foreground'
+            )}
+            style={{ left: `${segment.from}%`, width: `${Math.max(0, segment.to - segment.from)}%` }}
+          >
+            {segment.label}
+          </span>
+        ))}
+      </div>
+      {note && <figcaption className="card-caption text-foreground">{note}</figcaption>}
+    </figure>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Row actions that fill the composer
+// ---------------------------------------------------------------------------
+
+/**
+ * „Als Aufgabe": puts the row into the composer as a request to create the
+ * task. It creates nothing: the agent's `create_task` does, once the reader
+ * sends (guardrail 11). Never printed.
+ */
+export const PrefillButton: FC<{ label: string; title: string; onClick: () => void; ariaLabel?: string }> = ({
+  label,
+  title,
+  onClick,
+  ariaLabel,
+}) => (
+  <button
+    type="button"
+    data-testid="prefill-button"
+    title={title}
+    aria-label={ariaLabel}
+    onClick={onClick}
+    className={cn(
+      'inline-flex h-6 shrink-0 items-center gap-1 rounded-md border bg-card px-2 text-[11px] font-medium text-muted-foreground shadow-xs',
+      'transition-colors duration-quick ease-out motion-reduce:transition-none hover:bg-accent hover:text-foreground',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:h-11 pointer-coarse:px-3 print:hidden'
+    )}
+  >
+    <ListPlus aria-hidden="true" className="size-3 shrink-0" />
+    <span className="whitespace-nowrap">{label}</span>
+  </button>
+)
+
+/** Who acts, in an actions row: a role, set as a quiet chip. */
+export const RoleChip: FC<{ children: ReactNode }> = ({ children }) => (
+  <Chip size="sm" variant="secondary" className={cellChipClass}>
+    {children}
+  </Chip>
+)
+
+// ---------------------------------------------------------------------------
+// A documented negative
+// ---------------------------------------------------------------------------
+
+/** `:::not-found`: where it was looked for, the closest rule, who decides. */
+export const NotFoundFrame: FC<{ children: ReactNode }> = ({ children }) => (
+  <div data-testid="not-found" className="my-4 @container break-inside-avoid">
+    <div className="grid gap-2 @[40rem]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)_minmax(0,0.9fr)]">{children}</div>
+  </div>
+)
+
+export const NotFoundPane: FC<{ label: string; pane: string; children: ReactNode }> = ({ label, pane, children }) => (
+  <section
+    data-pane={pane}
+    className={cn(
+      'flex min-w-0 flex-col gap-1.5 rounded-lg px-3.5 py-3 text-sm [&_figure]:my-0 [&_p:last-child]:mb-0',
+      pane === 'rule' ? 'bg-card ring-1 ring-border' : 'bg-muted/40'
+    )}
+  >
+    <SectionLabel as="h4">{label}</SectionLabel>
+    {children}
+  </section>
+)
+
+/** The documents „Gesucht in" lists, from the turn's own retrieval record. */
+export const SearchedList: FC<{ items: readonly { title: string; detail?: string }[]; more: number }> = ({ items, more }) => {
+  const t = useTranslations('common')
+  if (items.length === 0) return <p className="card-caption text-muted-foreground">{t('markdown.notFound.nothingRecorded')}</p>
+  return (
+    <ul className="flex list-none flex-col gap-1 pl-0" data-testid="searched-list">
+      {items.map((item) => (
+        <li key={`${item.title}-${item.detail ?? ''}`} className="card-caption min-w-0 break-words text-foreground">
+          {item.title}
+          {item.detail && <span className="text-muted-foreground"> · {item.detail}</span>}
+        </li>
+      ))}
+      {more > 0 && <li className="card-meta text-muted-foreground">{t('markdown.notFound.more', { count: more })}</li>}
+    </ul>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Subsumption
+// ---------------------------------------------------------------------------
+
+/** `:::subsumption`: the legal argument, Norm → Sachverhalt → Ergebnis, down a rail. */
+export const SubsumptionFrame: FC<{ children: ReactNode }> = ({ children }) => (
+  <ol data-testid="subsumption" className="my-4 flex list-none flex-col pl-0 break-inside-avoid">
+    {children}
+  </ol>
+)
+
+export const SubsumptionStep: FC<{
+  label: string
+  part: string
+  tone?: StatusTone
+  statusWord?: string
+  last: boolean
+  children: ReactNode
+}> = ({ label, part, tone, statusWord, last, children }) => (
+  <li data-part={part} className="grid grid-cols-[minmax(0,1fr)] gap-1 @container">
+    <div className="grid gap-1 @[34rem]:grid-cols-[8rem_minmax(0,1fr)] @[34rem]:gap-4">
+      <span className="flex items-center gap-2 @[34rem]:items-start @[34rem]:pt-1">
+        <SectionLabel as="span">{label}</SectionLabel>
+        {tone && statusWord && (
+          <Chip size="sm" variant={tone} data-testid="subsumption-status">
+            {statusWord}
+          </Chip>
+        )}
+      </span>
+      <div
+        className={cn(
+          'min-w-0 text-[15px] leading-relaxed [&_figure]:my-0 [&_p:last-child]:mb-0 [&_ul]:mb-0',
+          part === 'result' && 'font-medium text-foreground'
+        )}
+      >
+        {children}
+      </div>
+    </div>
+    {!last && <ArrowDown aria-hidden="true" className="my-1 size-3.5 text-muted-foreground @[34rem]:ml-[8.5rem]" />}
+  </li>
+)
+
+// ---------------------------------------------------------------------------
+// Quote stamp
+// ---------------------------------------------------------------------------
+
+/**
+ * The server's word on a quote line: „Wortlaut belegt [N]" when a retrieved
+ * passage holds the wording, „Wortlaut nicht belegt" when none does. Nothing
+ * for a quote it could not check. Never the model's own claim.
+ */
+export const QuoteStampLine: FC<{ verbatim: boolean; number?: number; locus?: string; action?: ReactNode }> = ({
+  verbatim,
+  number,
+  locus,
+  action,
+}) => {
+  const t = useTranslations('common')
+  return (
+    <p data-testid="quote-stamp" data-status={verbatim ? 'verbatim' : 'not_found'} className="flex flex-wrap items-center gap-1.5 pl-4">
+      <Chip size="sm" variant={verbatim ? 'success' : 'warning'}>
+        {verbatim ? <CircleCheck aria-hidden="true" /> : null}
+        {verbatim
+          ? number !== undefined
+            ? t('markdown.stamp.verbatimNumbered', { n: number })
+            : t('markdown.stamp.verbatim')
+          : t('markdown.stamp.notFound')}
+      </Chip>
+      {locus && <span className="card-meta text-muted-foreground">{locus}</span>}
+      {action}
+    </p>
+  )
+}
+
+/** „Stelle öffnen": the passage, with the quoted sentence marked. */
+export const OpenPassageButton: FC<{ onOpen: () => void }> = ({ onOpen }) => {
+  const t = useTranslations('common')
+  return (
+    <button
+      type="button"
+      data-testid="open-passage"
+      onClick={onOpen}
+      className="card-meta inline-flex items-center gap-1 rounded text-brand underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 touch-target print:hidden"
+    >
+      <ExternalLink aria-hidden="true" className="size-3" />
+      {t('markdown.stamp.open')}
+    </button>
   )
 }

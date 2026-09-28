@@ -883,6 +883,105 @@
       "title": "OptionAnswer",
       "type": "object"
     },
+    "QuoteStamp": {
+      "additionalProperties": false,
+      "description": "The server's check of one quote line ``> „…“ [N]`` (``common/quote_stamps.py``), in document order.\n\n``verbatim`` names the passage that holds the wording and the ``[N]`` it\ncarries (absent for a passage read but not cited); ``not_found`` means no\nretrieved passage holds it; ``unchecked`` means there was nothing to check\nagainst, or the span is too short to mean anything.",
+      "properties": {
+        "file_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File Name"
+        },
+        "number": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Number"
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Page"
+        },
+        "punkt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Punkt"
+        },
+        "status": {
+          "enum": [
+            "verbatim",
+            "not_found",
+            "unchecked"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "text": {
+          "description": "The wording between the quote marks, as the final text writes it.",
+          "title": "Text",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        }
+      },
+      "required": [
+        "text",
+        "status"
+      ],
+      "title": "QuoteStamp",
+      "type": "object"
+    },
     "Rejected": {
       "additionalProperties": false,
       "properties": {
@@ -2309,6 +2408,13 @@
           "minLength": 1,
           "title": "Message Id",
           "type": "string"
+        },
+        "quote_stamps": {
+          "items": {
+            "$ref": "#/$defs/QuoteStamp"
+          },
+          "title": "Quote Stamps",
+          "type": "array"
         },
         "read_sources": {
           "items": {

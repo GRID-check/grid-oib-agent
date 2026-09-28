@@ -31,16 +31,27 @@ import {
   FigureGrid,
   FigureTile,
   InlineDetailsLabel,
+  PRINT_OPEN_CONTENT,
+  cellChipClass,
   MarkChip,
+  NotFoundFrame,
+  NotFoundPane,
+  PrefillButton,
+  QuoteStampLine,
+  SearchedList,
   StepLine,
+  SubsumptionFrame,
+  SubsumptionStep,
   StepStation,
   disclosureRowClass,
   useOutcomeLabel,
   type FigureTone,
   type StepPhase,
 } from './answer-atoms'
-import { useExcerptSourceRenderer } from './answer-block-context'
+import { useAnswerData, useExcerptSourceRenderer } from './answer-block-context'
+import { useCasesDecision } from './project-binding'
 import { isStatusTone } from './status-marks'
+import { stampForQuote } from '@/lib/conversations/message-quote-stamps'
 import { textOf } from './table-shape'
 
 type NodeProps = { node?: Element; children?: ReactNode }
@@ -89,7 +100,7 @@ function DetailsBlock({ node, children }: NodeProps) {
           <CollapsibleTrigger className={disclosureRowClass({ current: false, open })}>
             <DetailsSummary open={open}>{label ?? <DefaultSummary />}</DetailsSummary>
           </CollapsibleTrigger>
-          <CollapsibleContent>
+          <CollapsibleContent forceMount className={PRINT_OPEN_CONTENT}>
             <DisclosurePanel>{body}</DisclosurePanel>
           </CollapsibleContent>
         </Collapsible>
@@ -157,7 +168,7 @@ export function StepItem({ node, children }: NodeProps) {
           >
             {line}
           </CollapsibleTrigger>
-          <CollapsibleContent>
+          <CollapsibleContent forceMount className={PRINT_OPEN_CONTENT}>
             <DisclosurePanel current={current}>{detail}</DisclosurePanel>
           </CollapsibleContent>
         </Collapsible>
@@ -209,7 +220,10 @@ export function Figure({ node, children }: NodeProps) {
 /** A marker no list item, row or header took: its word, so nothing is lost. */
 export function AnswerMarker({ node }: NodeProps) {
   const t = useTranslations('common')
+  const cases = useCasesDecision()
   const marker = prop(node, 'dataMarker')
+  // In a `by=` cases block the renderer marks the case; the model's own mark is overruled.
+  if (marker === 'applies' && cases) return null
   if (marker === 'current') return <MarkChip>{t('markdown.stepCurrent')}</MarkChip>
   if (marker === 'applies') return <MarkChip>{t('markdown.caseApplies')}</MarkChip>
   if (marker === 'recommended') return <MarkChip>{t('markdown.recommended')}</MarkChip>
@@ -224,17 +238,138 @@ export function AnswerEnergy({ node, children }: NodeProps) {
 /** A blockquote; one ending in a citation is a Fundstelle excerpt with its source in the margin. */
 export function AnswerBlockquote({ node, children }: React.ComponentPropsWithoutRef<'blockquote'> & ExtraProps) {
   const renderSource = useExcerptSourceRenderer()
-  const number = prop(node as Element | undefined, 'dataExcerpt')
+  const { quoteStamps } = useAnswerData()
+  const element = node as Element | undefined
+  const number = prop(element, 'dataExcerpt')
   if (!number) {
     return (
       <blockquote className="border-base text-subtle my-3 border-l-2 pl-4 italic leading-relaxed">{children}</blockquote>
     )
   }
-  const href = prop(node as Element | undefined, 'dataExcerptHref') ?? null
+  const href = prop(element, 'dataExcerptHref') ?? null
+  // The server's check of this line, matched by its wording; `unchecked` draws nothing.
+  const stamp = element ? stampForQuote(quoteStamps, textOf(element), Number(number)) : null
+  const checked = stamp && stamp.status !== 'unchecked' ? stamp : null
+  const locus = checked?.status === 'verbatim' ? stampLocus(checked) : undefined
   return (
-    <ExcerptFigure number={number} source={renderSource?.({ number: Number(number), href })}>
+    <ExcerptFigure
+      number={number}
+      paraphrase={checked?.status === 'not_found'}
+      stamp={
+        checked ? (
+          <QuoteStampLine verbatim={checked.status === 'verbatim'} number={checked.number ?? Number(number)} locus={locus} />
+        ) : undefined
+      }
+      source={renderSource?.({ number: Number(number), href, stamp: checked })}
+    >
       {children}
     </ExcerptFigure>
+  )
+}
+
+/** Where a verified quote stands: „S. 12 · Pkt. 3.5.2". */
+function stampLocus(stamp: { page?: number; punkt?: string }): string | undefined {
+  const parts = [stamp.punkt ? `Pkt. ${stamp.punkt}` : null, stamp.page ? `S. ${stamp.page}` : null].filter(Boolean)
+  return parts.length > 0 ? parts.join(' · ') : undefined
+}
+
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
+/** The trailing cell of an actions row: „Als Aufgabe", which only fills the composer. */
+export function TaskCellContent({ node }: NodeProps) {
+  const t = useTranslations('common')
+  const { prefill } = useAnswerData()
+  const what = prop(node, 'dataTaskWhat') ?? ''
+  if (!prefill || what.trim().length < 3) return null
+  const who = prop(node, 'dataTaskWho') ?? ''
+  const by = prop(node, 'dataTaskBy') ?? ''
+  const source = prop(node, 'dataTaskSource') ?? ''
+  const request = [
+    t('markdown.actions.request', { what: what.replace(/[.\s]+$/, '') }),
+    who ? t('markdown.actions.requestWho', { who }) : '',
+    by ? t('markdown.actions.requestBy', { by }) : '',
+    source ? t('markdown.actions.requestSource', { source }) : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+  return (
+    <PrefillButton
+      label={t('markdown.actions.asTask')}
+      title={request}
+      ariaLabel={t('markdown.actions.asTaskAria', { what })}
+      onClick={() => prefill(request)}
+    />
+  )
+}
+
+// ---------------------------------------------------------------------------
+// A documented negative
+// ---------------------------------------------------------------------------
+
+/** How many searched documents „Gesucht in" names before „+N weitere". */
+const SEARCHED_SHOWN = 6
+
+export function NotFound({ children }: NodeProps) {
+  const { notRegulated } = useAnswerData()
+  // An answer whose masthead does not say „Nicht geregelt" has no documented
+  // negative to draw: its closest rule and who decides read as plain content.
+  if (notRegulated === false) return <div data-block-plain="not-found">{children}</div>
+  return <NotFoundFrame>{children}</NotFoundFrame>
+}
+
+export function Pane({ node, children }: NodeProps) {
+  const t = useTranslations('common')
+  const { notRegulated, searched } = useAnswerData()
+  const pane = prop(node, 'dataPane') ?? ''
+  if (notRegulated === false) return pane === 'searched' ? null : <>{children}</>
+  if (pane === 'searched') {
+    const items = searched ?? []
+    return (
+      <NotFoundPane pane="searched" label={t('markdown.notFound.searched')}>
+        <SearchedList items={items.slice(0, SEARCHED_SHOWN)} more={Math.max(0, items.length - SEARCHED_SHOWN)} />
+      </NotFoundPane>
+    )
+  }
+  const label = pane === 'rule' ? t('markdown.notFound.closest') : t('markdown.notFound.decides')
+  return (
+    <NotFoundPane pane={pane} label={label}>
+      {children}
+    </NotFoundPane>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Subsumption
+// ---------------------------------------------------------------------------
+
+export function Subsumption({ node, children }: NodeProps) {
+  const t = useTranslations('common')
+  const parts = (node?.children ?? []).filter((child): child is Element => child.type === 'element')
+  const rendered = Children.toArray(children)
+  const present = parts
+    .map((part, index) => ({ part, content: rendered[index] }))
+    .filter(({ part }) => part.children.length > 0)
+  return (
+    <SubsumptionFrame>
+      {present.map(({ part, content }, index) => {
+        const name = prop(part, 'dataPart') ?? ''
+        const tone = prop(part, 'dataTone')
+        return (
+          <SubsumptionStep
+            key={name}
+            part={name}
+            label={t(`markdown.subsumption.${name === 'norm' ? 'norm' : name === 'facts' ? 'facts' : 'result'}`)}
+            tone={isStatusTone(tone) ? tone : undefined}
+            statusWord={prop(part, 'dataStatusWord')}
+            last={index === present.length - 1}
+          >
+            {content}
+          </SubsumptionStep>
+        )
+      })}
+    </SubsumptionFrame>
   )
 }
 
@@ -270,7 +405,7 @@ export function CompareValue({ node, children }: NodeProps) {
   return (
     <CompareVariantValue>
       {isStatusTone(tone) ? (
-        <Chip size="sm" variant={tone} data-testid="status-mark" data-tone={tone}>
+        <Chip size="sm" variant={tone} data-testid="status-mark" data-tone={tone} className={cellChipClass}>
           {children}
         </Chip>
       ) : (

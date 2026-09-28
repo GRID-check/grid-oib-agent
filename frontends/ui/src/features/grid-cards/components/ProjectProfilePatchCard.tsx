@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
 import { useCardDecision } from '../hooks/use-card-decision'
+import { invalidateProjectFacts } from '@/features/chat/hooks/use-project-facts'
 import { ProposalShell } from './ProposalShell'
 import { buildPatchPreviewRows } from '@/lib/project-profile/patch-preview'
 import type { ProjectProfile, ProjectProfilePatchOperation } from '@/lib/project-profile/types'
@@ -96,6 +97,9 @@ export function ProjectProfilePatchCard({
         throw new Error(body.error || `${t('profilePatchCard.applyFailed')} (${res.status})`)
       }
       setIsSubmitting(false)
+      // Every answer in the thread binds the profile (`:project[key]`): the
+      // value it asked for appears in each of them now, not on a reload.
+      invalidateProjectFacts(projectId)
       decide('accepted')
     } catch (e) {
       setIsSubmitting(false)

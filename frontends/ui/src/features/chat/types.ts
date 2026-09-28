@@ -14,6 +14,7 @@ import type {
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import type { Findings } from '@/lib/conversations/message-findings'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
+import type { QuoteStamp } from '@/lib/conversations/message-quote-stamps'
 import type { RunLedger } from '@/lib/runs/run-ledger-types'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { StoredPromptOption } from '@/lib/conversations/message-prompt'
@@ -347,6 +348,12 @@ export interface ChatMessage {
    * it; persisted with the message so reloads draw the same one.
    */
   retrievalLedger?: RetrievalLedger
+  /**
+   * The server's check of each quote line `> „…" [N]` against the passages the
+   * turn retrieved (`TurnResult.quote_stamps`). The excerpt draws „Wortlaut
+   * belegt [N]" from it; same sanitize contract as `retrievalLedger`.
+   */
+  quoteStamps?: QuoteStamp[]
   /**
    * The account of the RUN this message is (ADR-0062): the phases it walked,
    * the steps it took and what it left behind.

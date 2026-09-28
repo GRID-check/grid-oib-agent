@@ -95,3 +95,21 @@ const TONE_NAMES: ReadonlySet<string> = new Set(STATUS_WORDS.map(([, tone]) => t
 export function isStatusTone(value: unknown): value is StatusTone {
   return typeof value === 'string' && TONE_NAMES.has(value)
 }
+
+/** The status words, longest first, so „nicht erfüllt" is found before „erfüllt". */
+const BY_LENGTH: readonly string[] = [...BY_WORD.keys()].sort((a, b) => b.length - a.length)
+
+/**
+ * The status word a sentence ends on („… ist damit erfüllt."), with its tone,
+ * or null. The Ergebnis of a `:::subsumption` is one sentence ending in one.
+ */
+export function trailingStatus(sentence: string): { word: string; tone: StatusTone } | null {
+  const text = normal(sentence.replace(/\[\d+\]/g, '')).replace(/[\s.!…;:,)\]]+$/, '')
+  for (const word of BY_LENGTH) {
+    if (text === word || text.endsWith(` ${word}`)) {
+      const entry = BY_WORD.get(word)
+      if (entry) return { word, tone: entry.tone }
+    }
+  }
+  return null
+}

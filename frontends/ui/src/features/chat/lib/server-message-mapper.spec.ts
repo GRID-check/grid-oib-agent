@@ -391,6 +391,22 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     expect(bad!.retrievalLedger).toBeUndefined()
   })
 
+  it('restores the quote stamps from either spelling, bounded again', () => {
+    const stamp = { text: 'Wände sind in REI 90 auszuführen.', status: 'verbatim', number: 1, file_name: 'oib.pdf', page: 4 }
+    const fromProvenance = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance: { ...provenance, quoteStamps: [stamp] } } }),
+    )
+    expect(fromProvenance!.quoteStamps).toEqual([
+      { text: 'Wände sind in REI 90 auszuführen.', status: 'verbatim', number: 1, fileName: 'oib.pdf', page: 4 },
+    ])
+    const fromWire = mapServerMessageToChatMessage(serverMessage({ role: 'assistant', metadata: { quote_stamps: [stamp] } }))
+    expect(fromWire!.quoteStamps?.[0].status).toBe('verbatim')
+    const bad = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance: { quoteStamps: [{ text: 'x', status: 'sure' }] } } }),
+    )
+    expect(bad!.quoteStamps).toBeUndefined()
+  })
+
   it('restores the run ledger on a run’s own message, bounded again on the way out', () => {
     // The one payload on a message that this tier did not write: the Python
     // fold produces it, so „written by another build" is the ordinary case

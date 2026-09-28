@@ -3086,6 +3086,17 @@ def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
     return best
 
 
+def quote_coverage(quote: str, passage: str) -> float:
+    """How much of ``quote`` one contiguous run of ``passage`` holds (0-1): the verifier's own test.
+
+    :func:`_quote_coverage` on raw text. A quote at or above
+    ``QUOTE_MATCH_THRESHOLD`` is one the prose may keep between quote marks,
+    and the same bar is what stamps a quote line „Wortlaut belegt"
+    (``common/quote_stamps.py``).
+    """
+    return _quote_coverage(_normalize_for_quote_match(quote), _normalize_for_quote_match(passage))
+
+
 def closeness(quote: str, passage: str) -> float:
     """How closely ``quote`` matches the most similar stretch of ``passage`` (0-1).
 

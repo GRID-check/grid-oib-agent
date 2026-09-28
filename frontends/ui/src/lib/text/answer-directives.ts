@@ -18,8 +18,22 @@
  * degrades to its content, never to nothing and never to `:::` on the page.
  */
 
-/** Blocks, written `:::name` … `:::` around the Markdown they describe. */
-export const DIRECTIVE_BLOCKS = ['check', 'procedure', 'cases', 'metrics', 'compare', 'details'] as const
+/**
+ * Blocks, written `:::name` … `:::` around the Markdown they describe. Mirrors
+ * `DIRECTIVE_BLOCKS` in `src/aiq_agent/common/answer_dialect.py`; the parity
+ * test (`tests/aiq_agent/common/test_answer_dialect_parity.py`) reads this list.
+ */
+export const DIRECTIVE_BLOCKS = [
+  'check',
+  'procedure',
+  'cases',
+  'metrics',
+  'compare',
+  'details',
+  'actions',
+  'not-found',
+  'subsumption',
+] as const
 export type DirectiveBlock = (typeof DIRECTIVE_BLOCKS)[number]
 
 /**
@@ -36,6 +50,28 @@ export const DIRECTIVE_MARKERS = {
   recommended: 'empfohlen',
 } as const
 export type DirectiveMarker = keyof typeof DIRECTIVE_MARKERS
+
+/** The inline project binding, `:project[building_class]`: the model names a key, the renderer prints the value. */
+export const PROJECT_DIRECTIVE = 'project'
+
+/**
+ * The keys `:project[…]` accepts, each with the project-profile fact it reads
+ * (`lib/project-profile/intake-definition.ts` writes them). Mirrors
+ * `PROJECT_KEYS` in `src/aiq_agent/common/answer_dialect.py`. There is no
+ * `parcel_area_m2`: the profile records no Grundstücksfläche.
+ */
+export const PROJECT_KEYS = {
+  building_class: 'gebaeudeklasse',
+  escape_level_m: 'fluchtniveau_m',
+  use: 'nutzungen',
+  state: 'bundesland',
+  storeys: 'geschosse_oberirdisch',
+  gross_floor_area_m2: 'bgf_oberirdisch',
+} as const
+export type ProjectKey = keyof typeof PROJECT_KEYS
+
+export const isProjectKey = (key: string): key is ProjectKey =>
+  Object.prototype.hasOwnProperty.call(PROJECT_KEYS, key)
 
 /** The inline directive for an energy performance class, `:energy-class[B]`. */
 export const ENERGY_CLASS_DIRECTIVE = 'energy-class'
@@ -170,6 +206,55 @@ const openerLabel = (rest: string): string => {
 /** A text directive: `:name`, `:name[label]`, either with `{attributes}`. */
 const TEXT_DIRECTIVE = /(^|[^\w:\\])(:)([A-Za-z][\w-]*)(?:\[([^\]\n]*)\])?(?:\{[^}\n]*\})?/g
 
+/** `by=building_class` out of an opener's `{attributes}`, when it names a project key. */
+export function casesBy(attributes: string): ProjectKey | null {
+  const match = /(?:^|[\s{])by=["']?([A-Za-z][\w-]*)/.exec(attributes)
+  return match && isProjectKey(match[1]) ? match[1] : null
+}
+
+/**
+ * The project keys an answer reads, in the order it first reads them: every
+ * `:project[key]`, and the `by=` of every `:::cases`. What the Projektbezug
+ * strip under the masthead lists. Code is skipped.
+ */
+export function projectKeysIn(markdown: string): ProjectKey[] {
+  if (!markdown.includes(':')) return []
+  const found: ProjectKey[] = []
+  const add = (key: string | null) => {
+    if (key && isProjectKey(key) && !found.includes(key)) found.push(key)
+  }
+  let fence: string | null = null
+  for (const line of markdown.split('\n')) {
+    const fenceMatch = FENCE.exec(line)
+    if (fence) {
+      if (fenceMatch && fenceMatch[1][0] === fence[0] && fenceMatch[1].length >= fence.length) fence = null
+      continue
+    }
+    if (fenceMatch) {
+      fence = fenceMatch[1]
+      continue
+    }
+    const opener = OPENER.exec(line)
+    if (opener) {
+      if (opener[3] === 'cases') add(casesBy(opener[4]))
+      continue
+    }
+    for (const [index, part] of line.split(/(`[^`]*`)/).entries()) {
+      if (index % 2 === 1) continue
+      for (const match of part.matchAll(TEXT_DIRECTIVE)) {
+        if (match[3] === PROJECT_DIRECTIVE && match[4] !== undefined) add(match[4].trim())
+      }
+    }
+  }
+  return found
+}
+
+/** How {@link stripDirectives} prints what only the surface knows. */
+export interface StripOptions {
+  /** A project fact as text („GK 4", „10,8 m"), or null when the profile lacks it. */
+  projectValue?: (key: ProjectKey) => string | null
+}
+
 /**
  * The Markdown with the dialect taken out, for everything that leaves the app
  * as text: the copy button, the Word and PDF export.
@@ -180,12 +265,15 @@ const TEXT_DIRECTIVE = /(^|[^\w:\\])(:)([A-Za-z][\w-]*)(?:\[([^\]\n]*)\])?(?:\{[
  * - A marker becomes its word in brackets (`:current` → „(aktuell)"), because
  *   it is information: the step the project is at.
  * - `:energy-class[B]` becomes „B".
+ * - `:project[key]` becomes the project's value where the surface knows it
+ *   ({@link StripOptions.projectValue}), else the key as written: a handle
+ *   never reaches paper, and a value the profile lacks is never invented.
  * - Anything else that merely looks like a directive (`10:30`, `Hinweis:Text`)
  *   is left exactly as written, which is also how the renderer shows it.
  *
  * Code is left alone.
  */
-export function stripDirectives(markdown: string): string {
+export function stripDirectives(markdown: string, options: StripOptions = {}): string {
   if (!markdown.includes(':')) return markdown
   let fence: string | null = null
   const out: string[] = []
@@ -208,13 +296,13 @@ export function stripDirectives(markdown: string): string {
       continue
     }
     if (CLOSER.test(line)) continue
-    out.push(stripTextDirectives(line))
+    out.push(stripTextDirectives(line, options))
   }
   return out.join('\n').replace(/\n{3,}/g, '\n\n')
 }
 
 /** One line's text directives, as {@link stripDirectives} prints them. */
-function stripTextDirectives(line: string): string {
+function stripTextDirectives(line: string, options: StripOptions): string {
   if (!line.includes(':')) return line
   // Inline code spans are split out first and left alone.
   return line
@@ -225,6 +313,10 @@ function stripTextDirectives(line: string): string {
         : part.replace(TEXT_DIRECTIVE, (whole, before: string, _colon, name: string, label?: string) => {
             if (name === ENERGY_CLASS_DIRECTIVE && label !== undefined && energyClass(label)) return `${before}${energyClass(label)}`
             if (isDirectiveMarker(name) && label === undefined) return `${before}(${DIRECTIVE_MARKERS[name]})`
+            if (name === PROJECT_DIRECTIVE && label !== undefined) {
+              const key = label.trim()
+              return `${before}${(isProjectKey(key) && options.projectValue?.(key)) || key}`
+            }
             return whole
           })
     )

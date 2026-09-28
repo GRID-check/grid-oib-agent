@@ -1228,6 +1228,9 @@ export const createSessionsSlice: StateCreator<
       if (assistantMessage.retrievalLedger && assistantMessage.retrievalLedger.length > 0) {
         provenance.retrievalLedger = assistantMessage.retrievalLedger
       }
+      if (assistantMessage.quoteStamps && assistantMessage.quoteStamps.length > 0) {
+        provenance.quoteStamps = assistantMessage.quoteStamps
+      }
 
       if (Object.keys(provenance).length > 0) targets.push([assistantMessage.id, provenance])
     }

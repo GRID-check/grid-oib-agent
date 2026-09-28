@@ -78,6 +78,13 @@ import { ConfidenceChip, type AnswerConfidence } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
 import { AnswerActions } from './AnswerActions'
 import { CardSlot, CardSlotLiveProvider } from './CardSlotArrival'
+import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
+import type { QuoteStamp } from '@/lib/conversations/message-quote-stamps'
+import { projectKeysIn } from '@/lib/text/answer-directives'
+import { AnswerDataProvider, type AnswerData } from '@/shared/components/MarkdownRenderer/answer-block-context'
+import { AnswerProjectStrip } from '@/shared/components/MarkdownRenderer/project-binding'
+import { useProjectFacts } from '../hooks/use-project-facts'
+import { isNotRegulated, searchedSources } from '../lib/answer-data'
 
 /**
  * The first paragraph of a long answer, typeset as a lede.
@@ -319,6 +326,20 @@ export interface AgentResponseProps {
    * one, which carries its own. A file the answer names still links.
    */
   readOnly?: boolean
+  /**
+   * The backend's account of the turn's retrieval rounds. Read here for the
+   * „Gesucht in" pane of a `:::not-found`, which lists what the turn searched
+   * from this record and never from the model's words.
+   */
+  retrievalLedger?: RetrievalLedger
+  /** The server's check of each quote line (`TurnResult.quote_stamps`), for „Wortlaut belegt [N]". */
+  quoteStamps?: QuoteStamp[]
+  /**
+   * The project profile `:project[key]` binds, when the caller has it (a
+   * preview, a spec). Omitted, the open project's profile is fetched once for
+   * the thread (`useProjectFacts`).
+   */
+  projectProfile?: unknown
 }
 
 /** Role-tab label for the default answer card. Envelope `kind` wins. */
@@ -824,6 +845,9 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   isStreaming = false,
   routingDecision,
   readOnly = false,
+  retrievalLedger,
+  quoteStamps,
+  projectProfile,
 }) => {
   const t = useTranslations('chat')
   const storeProjectId = useChatStore((s) => s.projectId)
@@ -833,6 +857,22 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // message id). Reading stays: a named file still links.
   const projectId = readOnly ? null : storeProjectId
   const cardMessageId = readOnly ? undefined : messageId
+  // What the answer's blocks read from the record rather than the prose: the
+  // project's values, where the turn searched, the server's quote checks.
+  // „ergänzen" and „Als Aufgabe" only fill the composer, and not in somebody
+  // else's turn (readOnly).
+  const projectFacts = useProjectFacts(storeProjectId, projectProfile)
+  const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
+  const answerData = useMemo(
+    (): AnswerData => ({
+      project: projectFacts ?? undefined,
+      prefill: readOnly ? undefined : setComposerPrefill,
+      searched: searchedSources(retrievalLedger),
+      quoteStamps,
+      notRegulated: isNotRegulated(answerMeta),
+    }),
+    [projectFacts, readOnly, setComposerPrefill, retrievalLedger, quoteStamps, answerMeta]
+  )
   // An answer that ends in a written "## Quellen" list used to state its sources
   // TWICE — that list AND the "Belegt durch" chips, each holding half the truth
   // (numbers/titles/pages vs. provenance color, authority and click-through).
@@ -915,6 +955,9 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         : anatomy?.summary,
     [anatomy, body]
   )
+  // The Projektbezug strip: the project facts the answer binds, drawn from the
+  // profile under the masthead, only where the answer binds one.
+  const stripKeys = useMemo(() => (body.includes(':project[') ? projectKeysIn(body) : []), [body])
   const ledeClass = opensWithLede(body) && !effectiveSummary && !anatomy?.topic ? LEDE_CLASS : ''
   // The files this answer NAMES, as opposed to the ones it cites. A sentence
   // like „Beginnen Sie mit pd8280-2.pdf" is pointing at a document the reader
@@ -1148,7 +1191,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Inline variant - no box styling (for use inside containers like thinking process)
   if (variant === 'inline') {
     return (
-      <DiagramFilingProvider target={diagramFilingTarget}>
+      <AnswerDataProvider value={answerData}>
+    <DiagramFilingProvider target={diagramFilingTarget}>
         <NestedMarkdownPluginsProvider plugins={nestedPlugins}>
           <AnswerCitations
             documents={documents}
@@ -1168,6 +1212,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   confidenceReason={answerConfidenceReason}
                 />
               )}
+              <AnswerProjectStrip keys={stripKeys} />
               {findings && (
                 <FindingsMatrix
                   findings={findings}
@@ -1277,6 +1322,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           </AnswerCitations>
         </NestedMarkdownPluginsProvider>
       </DiagramFilingProvider>
+    </AnswerDataProvider>
     )
   }
 
@@ -1298,6 +1344,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         ? t('roles.answer')
         : t('roles.result')
   return (
+    <AnswerDataProvider value={answerData}>
     <DiagramFilingProvider target={diagramFilingTarget}>
       <NestedMarkdownPluginsProvider plugins={nestedPlugins}>
         <AnswerCitations
@@ -1358,6 +1405,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                     confidenceReason={answerConfidenceReason}
                   />
                 )}
+                <AnswerProjectStrip keys={stripKeys} />
                 {findings && (
                   <FindingsMatrix
                     findings={findings}
@@ -1474,6 +1522,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         </AnswerCitations>
       </NestedMarkdownPluginsProvider>
     </DiagramFilingProvider>
+    </AnswerDataProvider>
   )
 }
 

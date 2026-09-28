@@ -11,6 +11,10 @@
  *  - a marker (`:current`, `:applies`, `:recommended`) becomes an empty
  *    `answer-marker`, read by the shaping pass and never drawn as text;
  *  - `:energy-class[B]` becomes an `answer-energy` element;
+ *  - `:project[key]` with a key of the dialect becomes an `answer-project`
+ *    element the surface fills with the project's value; with any other key it
+ *    is the key's text, never the directive (guardrail 7);
+ *  - a block's `{by=…}` naming a project key is carried as `data-by`;
  *  - anything else is put back exactly as it was written. `remark-directive`
  *    also reads „10:30" and „Hinweis:Achtung" as directives, so an unknown
  *    inline or leaf directive is restored from the source text, and an unknown
@@ -24,7 +28,14 @@
 import type { Properties } from 'hast'
 import type { Data, Parent, Root, RootContent, Text } from 'mdast'
 import type { ContainerDirective, LeafDirective, TextDirective } from 'mdast-util-directive'
-import { ENERGY_CLASS_DIRECTIVE, energyClass, isDirectiveBlock, isDirectiveMarker } from '@/lib/text/answer-directives'
+import {
+  ENERGY_CLASS_DIRECTIVE,
+  PROJECT_DIRECTIVE,
+  energyClass,
+  isDirectiveBlock,
+  isDirectiveMarker,
+  isProjectKey,
+} from '@/lib/text/answer-directives'
 
 type Directive = ContainerDirective | LeafDirective | TextDirective
 
@@ -37,6 +48,7 @@ export const ANSWER_BLOCK_TAG = 'answer-block'
 export const ANSWER_BLOCK_LABEL_TAG = 'answer-block-label'
 export const ANSWER_MARKER_TAG = 'answer-marker'
 export const ANSWER_ENERGY_TAG = 'answer-energy'
+export const ANSWER_PROJECT_TAG = 'answer-project'
 
 const isDirective = (node: RootContent): node is Directive =>
   node.type === 'containerDirective' || node.type === 'leafDirective' || node.type === 'textDirective'
@@ -62,6 +74,13 @@ function transform(node: Directive, source: string): RootContent[] {
       return [node]
     }
     const label = node.children.map((child) => ('value' in child ? String(child.value) : '')).join('')
+    if (node.name === PROJECT_DIRECTIVE && label.trim()) {
+      const key = label.trim()
+      if (!isProjectKey(key)) return [{ type: 'text', value: key } satisfies Text]
+      setElement(node, ANSWER_PROJECT_TAG, { dataKey: key })
+      node.children = [{ type: 'text', value: key }]
+      return [node]
+    }
     const rating = node.name === ENERGY_CLASS_DIRECTIVE ? energyClass(label) : null
     if (rating) {
       setElement(node, ANSWER_ENERGY_TAG, { dataClass: rating })
@@ -78,7 +97,8 @@ function transform(node: Directive, source: string): RootContent[] {
     // paragraph is content too.
     return node.children as RootContent[]
   }
-  setElement(node, ANSWER_BLOCK_TAG, { dataBlock: node.name })
+  const by = node.attributes?.by
+  setElement(node, ANSWER_BLOCK_TAG, { dataBlock: node.name, dataBy: by && isProjectKey(by) ? by : undefined })
   const first = node.children[0]
   if (first && first.type === 'paragraph' && (first.data as { directiveLabel?: boolean } | undefined)?.directiveLabel) {
     setElement(first, ANSWER_BLOCK_LABEL_TAG, {})

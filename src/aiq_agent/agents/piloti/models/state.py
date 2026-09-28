@@ -237,6 +237,10 @@ class ResearchAgentState(BaseModel):
     # None when no round was announced — a direct reply has no retrieval to
     # account for, and the wire field stays absent rather than null.
     retrieval_ledger: list[dict[str, Any]] | None = None
+    # One stamp per quote line ``> „…“ [N]`` of the final answer, in document
+    # order (``common/quote_stamps.py``): verbatim with the passage that holds
+    # it, not_found, or unchecked. None when the answer quotes nothing.
+    quote_stamps: list[dict[str, Any]] | None = None
     # Pre-rendered skills section for the system prompt (guarded in the
     # template): the progressive-disclosure catalog the model picks from. Set
     # by the register layer before ``run()`` when skills are enabled; None

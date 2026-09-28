@@ -47,7 +47,7 @@
  * along.
  */
 
-import { useCallback, useState, type FC } from 'react'
+import { useCallback, useMemo, useState, type FC } from 'react'
 import { BookMarked, Check, Copy, FileDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { AnimatePresence, motion, springSnap } from '@/components/motion'
@@ -57,6 +57,8 @@ import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { copyMarkdownToClipboard } from '@/shared/utils/clipboard-rich'
 import { startBrowserDownload } from '@/lib/browser-download'
+import { useAnswerData } from '@/shared/components/MarkdownRenderer/answer-block-context'
+import type { StripOptions } from '@/lib/text/answer-directives'
 import {
   answerMarkdown,
   answerMarkdownWithSources,
@@ -119,6 +121,12 @@ export const AnswerActions: FC<AnswerActionsProps> = ({
 }) => {
   const t = useTranslations('chat')
   const [copied, setCopied] = useState<Copied>(null)
+  // A pasted answer carries the project's values, never the `:project[…]` handle.
+  const { project } = useAnswerData()
+  const strip = useMemo(
+    (): StripOptions => ({ projectValue: (key) => (project ? project(key).text : null) }),
+    [project]
+  )
   const [exporting, setExporting] = useState(false)
 
   const copy = useCallback(
@@ -172,8 +180,8 @@ export const AnswerActions: FC<AnswerActionsProps> = ({
   }, [conversationId, messageId, exporting, t])
 
   const handleCopyAnswer = useCallback((): void => {
-    void copy(answerMarkdown(content), 'plain')
-  }, [copy, content])
+    void copy(answerMarkdown(content, strip), 'plain')
+  }, [copy, content, strip])
 
   const handleCopyWithSources = useCallback((): void => {
     void copy(
@@ -182,10 +190,10 @@ export const AnswerActions: FC<AnswerActionsProps> = ({
         page: (page) => t('answerSources.page', { page }),
         pages: (pages) => t('answerSources.pages', { pages: pages.join(', ') }),
         untitled: t('answerActions.untitledSource'),
-      }),
+      }, strip),
       'withSources'
     )
-  }, [copy, body, documents, t])
+  }, [copy, body, documents, t, strip])
 
   const withSources = hasCopyableSources(documents)
   const canExport = Boolean(conversationId && messageId)

@@ -21,6 +21,7 @@ from typing import Any
 
 from aiq_agent.common.canned_replies import NO_RESPONSE_TEXT
 from aiq_agent.common.wire_v2 import KeyedCard
+from aiq_agent.common.wire_v2 import QuoteStamp
 from aiq_agent.common.wire_v2 import RunFinishedBody
 from aiq_agent.common.wire_v2 import RunHandoff
 from aiq_agent.common.wire_v2 import TurnResult
@@ -81,6 +82,7 @@ def build_result(state: ConversationState, cards: list[dict[str, Any]], message_
         skills_activated=skills_activated,
         skills_hidden=list(state.skills_hidden or []) if skills_activated else [],
         retrieval_ledger=list(state.retrieval_ledger or []),
+        quote_stamps=[QuoteStamp.model_validate(stamp) for stamp in state.quote_stamps or []],
         run=_run_handoff(state),
     )
 

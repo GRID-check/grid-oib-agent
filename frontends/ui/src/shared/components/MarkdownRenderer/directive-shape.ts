@@ -12,7 +12,9 @@
  *    („57 dB" beside „≥ 55 dB") draws the one against the other; an open row
  *    can be asked about;
  *  - **`:::cases`**: once a row or item is marked as the case that applies,
- *    the others are muted but stay readable;
+ *    the others are muted but stay readable. With `{by=key}` the cases are
+ *    parsed (`cases.ts`) and carried on the table, so the component marks the
+ *    project's case from the profile and overrules a mark that disagrees;
  *  - **`:::procedure`**: each item of the list is a step; its first line is
  *    the row, a bold phrase in it the Frist, everything after it (a
  *    `:::details`, a nested list) the detail that opens on click;
@@ -20,6 +22,12 @@
  *  - **`:::compare`**: a column marked `:recommended` is highlighted, status
  *    words become marks in every cell, and a copy per variant is built for a
  *    phone, where columns do not fit;
+ *  - **`:::actions`**: a `Wer | Was | bis | Fundstelle` table; each row gets a
+ *    trailing cell for „Als Aufgabe", which only fills the composer;
+ *  - **`:::not-found`**: three panes, „Gesucht in" (filled by the surface from
+ *    the retrieval ledger), the closest rule (the quote line) and who decides;
+ *  - **`:::subsumption`**: Norm (the quote line) → Sachverhalt (the list) →
+ *    Ergebnis (the closing sentence, its trailing status word as a tone);
  *  - **a blockquote ending in a citation** is an excerpt, drawn with its
  *    source in the margin.
  *
@@ -30,7 +38,9 @@ import type { Element, ElementContent, Root, RootContent } from 'hast'
 
 import { ANSWER_BLOCK_LABEL_TAG, ANSWER_BLOCK_TAG, ANSWER_MARKER_TAG } from './directives'
 import { isPlaceholder, meetsLimit, parseLimit, parseQuantity, type Limit, type Quantity } from './quantities'
-import { isActiveStatus, isOpenStatus, statusTone } from './status-marks'
+import { isActiveStatus, isOpenStatus, statusTone, trailingStatus } from './status-marks'
+import { caseKindFor, parseCases, type CaseDescriptor } from './cases'
+import { isProjectKey, type ProjectKey } from '@/lib/text/answer-directives'
 import {
   cellText,
   columnCells,
@@ -58,6 +68,10 @@ export const COMPARE_TITLE_TAG = 'answer-compare-title'
 export const COMPARE_ROW_TAG = 'answer-compare-row'
 export const COMPARE_LABEL_TAG = 'answer-compare-label'
 export const COMPARE_VALUE_TAG = 'answer-compare-value'
+export const NOT_FOUND_TAG = 'answer-not-found'
+export const PANE_TAG = 'answer-pane'
+export const SUBSUMPTION_TAG = 'answer-subsumption'
+export const SUBSUMPTION_PART_TAG = 'answer-subsumption-part'
 
 const el = (tagName: string, properties: Element['properties'], children: ElementContent[]): Element => ({
   type: 'element',
@@ -241,7 +255,64 @@ function shapeCheckTable(table: Element): void {
 // :::cases
 // ---------------------------------------------------------------------------
 
+/** The texts of one column of `rows`, or null when a row lacks the cell. */
+const columnTexts = (rows: Row[], column: number): string[] | null => {
+  const cells = columnCells(rows, column)
+  return cells ? cells.map((cell) => valueText(cellText(cell))) : null
+}
+
+/**
+ * The column of a cases table the project's value is held against, and the
+ * cases it states. A class case is searched in every column, a range or a text
+ * in the first one that parses.
+ */
+function caseColumn(by: ProjectKey, head: Row, rows: Row[], skip: number): { column: number; cases: CaseDescriptor[] } | null {
+  const kind = caseKindFor(by)
+  for (let column = 0; column < head.cells.length; column++) {
+    if (column === skip) continue
+    const texts = columnTexts(rows, column)
+    const cases = texts ? parseCases(kind, texts) : null
+    if (cases) return { column, cases }
+  }
+  return null
+}
+
+/** Settle a `by=` table's cases on it, for the component that matches the project's value. */
+function shapeCasesBy(table: Element, by: ProjectKey, head: Row, rows: Row[], statusColumn: number): void {
+  const found = caseColumn(by, head, rows, statusColumn)
+  if (!found) return
+  // Each case's name on the ruler: the first other column that is not the status („GK 4").
+  const labelColumn = head.cells.findIndex((_, column) => column !== found.column && column !== statusColumn)
+  const labels = rows.map(({ cells }) => valueText(cellText(cells[labelColumn >= 0 ? labelColumn : found.column] ?? cells[0])))
+  setProps(table, {
+    dataBy: by,
+    dataCases: JSON.stringify(found.cases),
+    dataCaseLabels: JSON.stringify(labels),
+  })
+  rows.forEach(({ row, cells }, index) => {
+    setProps(row, { dataCaseIndex: String(index) })
+    if (cells[0]) setProps(cells[0], { dataCaseIndex: String(index), dataCaseLead: statusColumn < 0 ? 'true' : undefined })
+    const status = statusColumn >= 0 ? cells[statusColumn] : undefined
+    if (!status) return
+    setProps(status, {
+      dataCaseIndex: String(index),
+      dataCaseStatus: 'true',
+      dataCaseClaim: isActiveStatus(valueText(cellText(status))) ? 'true' : undefined,
+    })
+  })
+}
+
+/** The case text of a list item: what it says before its colon („Fluchtniveau bis 7 m: GK 3"). */
+function itemCaseText(item: Element, kind: CaseDescriptor['kind']): string {
+  const text = textOf(item).replace(/\s+/g, ' ').trim()
+  if (kind === 'class') return text
+  const colon = text.indexOf(':')
+  return colon > 0 ? text.slice(0, colon) : text
+}
+
 function shapeCases(block: Element): void {
+  const byValue = String(block.properties?.dataBy ?? '')
+  const by = isProjectKey(byValue) ? byValue : null
   for (const table of descendants(block, 'table')) {
     const parts = tableParts(table)
     if (!parts) continue
@@ -251,6 +322,7 @@ function shapeCases(block: Element): void {
       const status = cells[statusColumn]
       if (status && isActiveStatus(valueText(cellText(status)))) setProps(row, { dataActive: 'true' })
     }
+    if (by) shapeCasesBy(table, by, parts.head, parts.rows, statusColumn)
     const rows = parts.rows.map(({ row }) => row)
     if (!rows.some((row) => row.properties?.dataActive)) continue
     for (const row of rows) if (!row.properties?.dataActive) setProps(row, { dataMuted: 'true' })
@@ -258,9 +330,132 @@ function shapeCases(block: Element): void {
   for (const list of [...descendants(block, 'ul'), ...descendants(block, 'ol')]) {
     const items = elements(list, 'li')
     setProps(list, { dataVariant: 'cases' })
+    if (by) {
+      const kind = caseKindFor(by)
+      const cases = parseCases(kind, items.map((item) => itemCaseText(item, kind)))
+      if (cases) {
+        const labels = items.map((item) => {
+          const text = textOf(item).replace(/\s+/g, ' ').trim()
+          const colon = text.indexOf(':')
+          return colon > 0 ? text.slice(colon + 1).trim() : text
+        })
+        setProps(list, { dataBy: by, dataCases: JSON.stringify(cases), dataCaseLabels: JSON.stringify(labels) })
+        items.forEach((item, index) => setProps(item, { dataCaseIndex: String(index) }))
+      }
+    }
     if (!items.some((item) => item.properties?.dataActive)) continue
     for (const item of items) if (!item.properties?.dataActive) setProps(item, { dataMuted: 'true' })
   }
+}
+
+// ---------------------------------------------------------------------------
+// :::actions
+// ---------------------------------------------------------------------------
+
+const ACTION_HEADERS: Record<'who' | 'what' | 'by' | 'source', ReadonlySet<string>> = {
+  who: new Set(['wer', 'who', 'rolle', 'role', 'zuständig', 'zustaendig', 'owner']),
+  what: new Set(['was', 'what', 'maßnahme', 'massnahme', 'aufgabe', 'task', 'action']),
+  by: new Set(['bis', 'by', 'frist', 'termin', 'wann', 'when', 'due']),
+  source: new Set(['fundstelle', 'quelle', 'grundlage', 'source', 'reference']),
+}
+
+/** Each role's column, by its header, else by its place in `Wer | Was | bis | Fundstelle`. */
+function actionColumns(head: Row): Record<keyof typeof ACTION_HEADERS, number> {
+  const headers = head.cells.map((cell) => cellText(cell).toLocaleLowerCase('de'))
+  const find = (role: keyof typeof ACTION_HEADERS, fallback: number) => {
+    const at = headers.findIndex((header) => ACTION_HEADERS[role].has(header))
+    return at >= 0 ? at : fallback < headers.length ? fallback : -1
+  }
+  return { who: find('who', 0), what: find('what', 1), by: find('by', 2), source: find('source', 3) }
+}
+
+export const TASK_CELL = 'task'
+
+function shapeActions(block: Element): void {
+  for (const table of descendants(block, 'table')) {
+    const parts = tableParts(table)
+    if (!parts) continue
+    setProps(table, { dataVariant: 'actions' })
+    const columns = actionColumns(parts.head)
+    const at = (cells: Element[], column: number) => (column >= 0 && cells[column] ? valueText(cellText(cells[column])) : '')
+    // The trailing column „Als Aufgabe" sits in: a header only a screen reader reads.
+    parts.head.row.children.push(el('th', { dataTaskHead: 'true' }, []))
+    for (const { row, cells } of parts.rows) {
+      if (columns.who >= 0 && cells[columns.who]) setProps(cells[columns.who], { dataRole: 'true' })
+      const what = at(cells, columns.what)
+      row.children.push(
+        el(
+          'td',
+          {
+            dataCell: TASK_CELL,
+            dataTaskWho: at(cells, columns.who),
+            dataTaskWhat: what,
+            dataTaskBy: isPlaceholder(at(cells, columns.by)) ? '' : at(cells, columns.by),
+            dataTaskSource: at(cells, columns.source),
+          },
+          []
+        )
+      )
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// :::not-found
+// ---------------------------------------------------------------------------
+
+const DECIDES_LEAD = /^\s*(?:entscheidet|zuständig|zustaendig|decides|decided by)\s*:\s*/i
+
+/** „Entscheidet: die Baubehörde …" without the lead the pane's own label says. */
+function dropDecidesLead(nodes: ElementContent[]): ElementContent[] {
+  const first = nodes.find((node) => isElement(node) && node.tagName === 'p') as Element | undefined
+  if (!first) return nodes
+  const lead = first.children[0]
+  if (lead?.type === 'text' && DECIDES_LEAD.test(lead.value)) {
+    lead.value = lead.value.replace(DECIDES_LEAD, '')
+  } else if (lead && isElement(lead) && lead.tagName === 'strong' && DECIDES_LEAD.test(`${textOf(lead)} `)) {
+    first.children = first.children.slice(1)
+    const next = first.children[0]
+    if (next?.type === 'text') next.value = next.value.replace(/^\s*:?\s*/, '')
+  }
+  return nodes
+}
+
+const contentOf = (block: Element): ElementContent[] =>
+  block.children.filter((child) => !(child.type === 'text' && !child.value.trim()))
+
+function shapeNotFound(block: Element): void {
+  const children = contentOf(block)
+  const rule = children.filter((child) => isElement(child) && child.tagName === 'blockquote')
+  const rest = children.filter((child) => !rule.includes(child))
+  block.children = [
+    el(NOT_FOUND_TAG, {}, [
+      el(PANE_TAG, { dataPane: 'searched' }, []),
+      el(PANE_TAG, { dataPane: 'rule' }, rule),
+      el(PANE_TAG, { dataPane: 'decides' }, dropDecidesLead(rest)),
+    ]),
+  ]
+}
+
+// ---------------------------------------------------------------------------
+// :::subsumption
+// ---------------------------------------------------------------------------
+
+function shapeSubsumption(block: Element): void {
+  const children = contentOf(block)
+  const listAt = children.findIndex((child) => isElement(child) && (child.tagName === 'ul' || child.tagName === 'ol'))
+  const lastList = children.reduce((last, child, index) => (isElement(child) && (child.tagName === 'ul' || child.tagName === 'ol') ? index : last), -1)
+  const norm = listAt < 0 ? children.filter((child) => isElement(child) && child.tagName === 'blockquote') : children.slice(0, listAt)
+  const facts = listAt < 0 ? [] : children.slice(listAt, lastList + 1)
+  const result = listAt < 0 ? children.filter((child) => !norm.includes(child)) : children.slice(lastList + 1)
+  const outcome = trailingStatus(result.map((node) => textOf(node)).join(' '))
+  block.children = [
+    el(SUBSUMPTION_TAG, {}, [
+      el(SUBSUMPTION_PART_TAG, { dataPart: 'norm' }, norm),
+      el(SUBSUMPTION_PART_TAG, { dataPart: 'facts' }, facts),
+      el(SUBSUMPTION_PART_TAG, { dataPart: 'result', dataTone: outcome?.tone, dataStatusWord: outcome?.word }, result),
+    ]),
+  ]
 }
 
 // ---------------------------------------------------------------------------
@@ -504,6 +699,9 @@ function shapeBlocks(node: Element | Root): void {
     else if (name === 'metrics') shapeFigures(child)
     else if (name === 'compare') shapeComparison(child)
     else if (name === 'details') shapeDetails(child)
+    else if (name === 'actions') shapeActions(child)
+    else if (name === 'not-found') shapeNotFound(child)
+    else if (name === 'subsumption') shapeSubsumption(child)
   }
 }
 

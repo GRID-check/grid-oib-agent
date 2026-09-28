@@ -3,13 +3,14 @@
 Stages over ``(messages, registry)``, in this order: DSML strip, envelope
 split, grouped-citation expansion and control-marker extraction
 (``_extract``), envelope card registration, citation and quote verification
-with the turn's ONE repair, the single-source fallback citation,
-sanitisation, the restated-mindmap drop, re-citing the composed cards, the
-``answer_meta`` gates, card suppression, callout resolution and the
-normative-claim brake. Not all pure: card registration, re-citing and
-suppression write the turn's card registry. :func:`finalize_answer` runs them and returns a
-:class:`FinalAnswer`; the agent copies its signal fields onto the state
-(``ledger.assemble_result``).
+with the turn's ONE repair, the single-source fallback citation, the dialect
+validator (``common/answer_dialect``), sanitisation, the restated-mindmap
+drop, re-citing the composed cards, the ``answer_meta`` gates, card
+suppression, callout resolution, the normative-claim brake, and last the
+quote-line stamps (``common/quote_stamps``). Not all pure: card registration,
+re-citing and suppression write the turn's card registry.
+:func:`finalize_answer` runs them and returns a :class:`FinalAnswer`; the
+agent copies its signal fields onto the state (``ledger.assemble_result``).
 """
 
 from __future__ import annotations
@@ -36,6 +37,8 @@ from pydantic import ValidationError
 from aiq_agent.common import citation_events
 from aiq_agent.common import content_to_text
 from aiq_agent.common import get_source_id_for_tool
+from aiq_agent.common.answer_dialect import DialectResult
+from aiq_agent.common.answer_dialect import validate_dialect
 from aiq_agent.common.answer_envelope import TAKEAWAYS_MIN_PROSE_CHARS
 from aiq_agent.common.answer_envelope import AnswerMeta
 from aiq_agent.common.answer_envelope import extract_answer_envelope
@@ -55,9 +58,11 @@ from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
+from aiq_agent.common.quote_stamps import stamp_quote_lines
 from aiq_agent.common.tool_validation import validate_tool_availability
 from aiq_agent.common.turn_status import emit_answer_repair
 from aiq_agent.common.turn_status import emit_citation_check
+from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
 
 from .answer_shape import drop_restated_mindmaps
 from .dsml import strip_and_salvage_dsml_tool_calls
@@ -127,6 +132,10 @@ class FinalAnswer:
     skills_applied: tuple[str, ...] = ()
     cited: tuple[CitedSource, ...] = ()
     removed_citations: tuple[dict[str, Any], ...] = ()
+    #: One stamp per quote line of ``content``, in document order (``common/quote_stamps.py``).
+    quote_stamps: tuple[dict[str, Any], ...] = ()
+    #: What the dialect validator repaired (``common/answer_dialect.py``), one entry per repair.
+    dialect_repairs: tuple[dict[str, str], ...] = ()
 
 
 # --------------------------------------------------------------------------
@@ -644,7 +653,12 @@ def _recite_surface_cards(
 
 
 def settle_streamed_citations(
-    prose: str, sources_text: str, registry: SourceRegistry, *, lookup_attempted: bool = True
+    prose: str,
+    sources_text: str,
+    registry: SourceRegistry,
+    *,
+    lookup_attempted: bool = True,
+    kind: str | None = None,
 ) -> SettledStream | None:
     """The streamed prose with its ``[N]`` markers settled, and the sources they name.
 
@@ -657,8 +671,9 @@ def settle_streamed_citations(
     is before the cards and the pipeline: the pending markers on screen become
     the answer's own citations, numbered as the terminal frame will number
     them (ADR-0066). ``lookup_attempted`` is the terminal's own gate on the
-    fallback (a data-source tool ran this turn). ``None`` when there is
-    nothing to settle.
+    fallback (a data-source tool ran this turn). ``kind`` is the envelope's,
+    for the dialect's budget, which the terminal applies too. ``None`` when
+    there is nothing to settle.
     """
     from .ledger import wire_sources  # ledger imports this module
 
@@ -671,7 +686,9 @@ def settle_streamed_citations(
     # when the marker arrived. The single-source fallback likewise: without it
     # the reader saw an empty source heading the terminal then replaced.
     grounding = _ground(verified, registry, lookup_attempted=lookup_attempted)
-    sanitized = sanitize_report(grounding.content)
+    # The dialect held as the terminal holds it, so a block unwrapped there is
+    # not drawn here first.
+    sanitized = sanitize_report(validate_dialect(grounding.content, kind).text)
     # And the shape pass the terminal runs next: a mindmap that only redraws a
     # table in the answer goes here, where it went seconds later before.
     content, _ = drop_restated_mindmaps(sanitized.sanitized_report)
@@ -761,7 +778,11 @@ class LiveAnswer:
 
     def settle(self, prose: str, sources_text: str, fields: dict[str, Any] | None) -> SettledStream | None:
         settled = settle_streamed_citations(
-            prose, sources_text, self._registry, lookup_attempted=self._lookup_attempted
+            prose,
+            sources_text,
+            self._registry,
+            lookup_attempted=self._lookup_attempted,
+            kind=(fields or {}).get("kind"),
         )
         if settled is None:
             return None
@@ -999,6 +1020,14 @@ def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[st
     return content, (kept if "callout" in kept else None), True
 
 
+def _held_to_dialect(content: str, meta: AnswerMeta | None) -> DialectResult:
+    """The answer held to the dialect and its kind's budget, the census on the trace (``common/answer_dialect``)."""
+    dialect = validate_dialect(content, meta.kind if meta is not None else None)
+    if dialect.census or dialect.repairs:
+        record_trace_metadata(answer_dialect=dialect.as_trace())
+    return dialect
+
+
 def _trailer_captures(turn_sources: Sequence[SourceEntry] | None) -> list[SourceEntry]:
     """The capture log the trailer-value gate reads: this turn's reads.
 
@@ -1051,7 +1080,8 @@ async def finalize_answer(
         _require_retrieval(lookup_attempted, tools)
         grounding = _Grounding(extracted.content)
 
-    sanitized = sanitize_report(grounding.content)
+    dialect = _held_to_dialect(grounding.content, extracted.meta)
+    sanitized = sanitize_report(dialect.text)
     content, _ = drop_restated_mindmaps(sanitized.sanitized_report)
     cited = _renumbered(grounding.cited, sanitized.renumber_map)
     _recite_surface_cards(sanitized.renumber_map, cited, grounding.removed_citations)
@@ -1063,6 +1093,10 @@ async def finalize_answer(
     )
     content, meta, _cards_suppressed = _suppress_cards(content, meta)
     content = resolve_callout_marker(content, has_callout=bool(meta and "callout" in meta))
+    # Stamped on the text the reader gets, with the [N] it shows. Off the loop,
+    # like the quote check it repeats: each line reads the registry's passages.
+    pairs = [(source.entry, source.number) for source in cited]
+    stamps = await asyncio.to_thread(stamp_quote_lines, content, pairs, registry.all_sources())
     final_messages = list(messages)
     final_messages[index] = messages[index].model_copy(update={"content": content})
     return FinalAnswer(
@@ -1084,4 +1118,6 @@ async def finalize_answer(
         skills_applied=_skills_applied(extracted.meta),
         cited=cited,
         removed_citations=grounding.removed_citations,
+        quote_stamps=tuple(stamps),
+        dialect_repairs=tuple(dialect.repairs),
     )

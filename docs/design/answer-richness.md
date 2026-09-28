@@ -219,14 +219,16 @@ A second block of the same type gets merged.
   - It includes the adversarial cases (`10:30`, `Hinweis:Achtung`, `:::` inside code) and every streaming prefix of every fixture.
   - First fix: `splitMarkdownBlocks` must never cut inside an open container. The architecture lens confirmed that a 25-row `:::check` gets split and its tail rows are lost. The fix reuses the depth tracking in `normalizeDirectiveFences` instead of adding another scanner.
 - **Server validator.**
-  - Runs after `verify_citations` and before `sanitize_report`, parsing with markdown-it-py and the `container` and `attrs` plugins from mdit-py-plugins.
+  - Runs after `verify_citations` and before `sanitize_report` (`common/answer_dialect.py`, Phase A), and in the live settle with the same kind, so the stream never draws a block the terminal unwraps. It scans with a port of the frontend's `scanDirectiveFences`, not markdown-it-py containers: the renderer closes the innermost block at a bare `:::`, which CommonMark containers do not, and the server must see the blocks the reader sees.
+  - Phase A does: unknown-name unwrap (a `[label]` becomes a bold line), the budget per kind (the excess unwrapped, never merged; a second diagram only logged), markers outside their block stripped, `:current` kept and logged, an unknown `:project[key]` turned into its text, an unknown `cases{by=…}` key logged. The census (`answer_dialect` in trace metadata) and `FinalAnswer.dialect_repairs` record it.
   - It unwraps unknown names and never deletes content.
   - It checks each body against its contract, and checks that every `[N]` inside a block resolves.
   - It strips markers without provenance and applies the budget.
   - It mirrors `meetsLimit` to catch pill-versus-bar contradictions.
   - It adds `drop_restated_blocks`, the sibling of `drop_restated_mindmaps`.
   - It rewrites fences canonically.
-  - Repairs go into `ReportSanitizationResult`; the census goes to trace metadata.
+  - Repairs go on `FinalAnswer.dialect_repairs` (not `ReportSanitizationResult`, which is the hygiene pass's own); the census goes to trace metadata.
+- **Quote stamps.** `common/quote_stamps.py` checks every quote line with the prose's coverage test, the passage its own `[N]` names first, and sends `TurnResult.quote_stamps` (document order; persisted under the same key).
 - **Streaming.**
   - The tally and the bars wait for the closing fence, and their space is held from the start.
   - A spec renders every prefix and asserts the block's height never shrinks.

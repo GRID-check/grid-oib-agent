@@ -390,6 +390,17 @@ body {
   background-color: var(--text-color-feedback-warning);
 }
 
+/* A fact the answer needs and the profile lacks (`:project[key]`): hatched in
+   the warning ink over its tint, so it reads as a gap and never as a value. */
+@utility bg-hatch-warning {
+  background-color: var(--background-color-feedback-warning-subtle);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--text-color-feedback-warning) 22%, transparent) 0 1.5px,
+    transparent 1.5px 6px
+  );
+}
+
 @utility bg-info {
   background-color: var(--text-color-feedback-info);
 }
@@ -1305,4 +1316,25 @@ table[data-stack="always"] > caption {
 }
 .markdown-content > :first-child {
   margin-top: 0;
+}
+
+/* An answer on paper (answer-richness: print/export parity). Disclosures print
+   open (`PRINT_OPEN_CONTENT`), controls carry `print:hidden`; here, what only
+   print needs: a designed block is never split across a page, and a tint
+   survives the browser's default of dropping backgrounds. */
+@media print {
+  .markdown-content [data-block],
+  .markdown-content figure,
+  .markdown-content table,
+  .markdown-content [data-testid='figure-tile'] {
+    break-inside: avoid;
+  }
+  .markdown-content h2,
+  .markdown-content h3 {
+    break-after: avoid;
+  }
+  .markdown-content {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
 }

@@ -33,6 +33,7 @@ import type { SourceSignal } from '@/features/layout/lib/source-presets'
 import type { Shelf, SourceKind } from '@/features/chat/lib/source-kinds'
 import type { RetrievalLedger } from './message-retrieval-ledger'
 import { sanitizeRetrievalLedger } from './message-retrieval-ledger'
+import { sanitizeQuoteStamps, type QuoteStamp } from './message-quote-stamps'
 
 /** The kinds of Herleitung step, one per wire v2 `Step` (`wire_v2.py`). */
 export const STEP_KINDS = [
@@ -236,6 +237,11 @@ export interface MessageProvenance {
    * thread disagree about what a restored thread looks like.
    */
   retrievalLedger?: RetrievalLedger
+  /**
+   * The server's check of each quote line (`message-quote-stamps.ts`). Stored
+   * so a reload still says „Wortlaut belegt [N]" where the live answer did.
+   */
+  quoteStamps?: QuoteStamp[]
 }
 
 /** One answer's Herleitung is tens of steps; a thousand is a runaway client. */
@@ -513,6 +519,9 @@ export function sanitizeProvenance(input: unknown): MessageProvenance | null {
   // the wire boundary uses: one bound in one place instead of two that drift.
   const ledger = sanitizeRetrievalLedger(input.retrievalLedger)
   if (ledger) out.retrievalLedger = ledger
+
+  const stamps = sanitizeQuoteStamps(input.quoteStamps)
+  if (stamps) out.quoteStamps = stamps
 
   return Object.keys(out).length > 0 ? out : null
 }

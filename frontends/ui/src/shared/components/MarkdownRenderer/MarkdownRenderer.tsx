@@ -34,6 +34,7 @@ import {
   ANSWER_BLOCK_TAG,
   ANSWER_ENERGY_TAG,
   ANSWER_MARKER_TAG,
+  ANSWER_PROJECT_TAG,
   remarkAnswerDirectives,
 } from './directives'
 import {
@@ -49,9 +50,14 @@ import {
   FIGURE_TAG,
   FIGURE_VALUE_TAG,
   FIGURES_TAG,
+  NOT_FOUND_TAG,
+  PANE_TAG,
   STEP_DETAIL_TAG,
   STEP_DUE_TAG,
   STEP_HEAD_TAG,
+  SUBSUMPTION_PART_TAG,
+  SUBSUMPTION_TAG,
+  TASK_CELL,
   rehypeDirectiveShape,
 } from './directive-shape'
 import {
@@ -68,13 +74,20 @@ import {
   CompareVariant,
   Figure,
   Figures,
+  NotFound,
+  Pane,
   StepItem,
   StepPart,
+  Subsumption,
+  TaskCellContent,
 } from './directive-blocks'
+import { AnswerProject, CasesScope, hasCases, useCasesDecision } from './project-binding'
 import {
   ListCase,
   MarkChip,
   PassedCheck,
+  RoleChip,
+  cellChipClass,
   useOutcomeLabel,
   StepList,
   ValueBar,
@@ -469,14 +482,16 @@ function MarkdownParagraph({ children }: React.ComponentPropsWithoutRef<'p'>) {
 // point at; without it every footnote link scrolled nowhere.
 function MarkdownListItem({ children, id, node }: React.ComponentPropsWithoutRef<'li'> & ExtraProps) {
   const { compact } = useMarkdownRenderState()
+  const { active, muted } = useCaseMarks(node?.properties)
+  const t = useTranslations('common')
+  const decided = useCasesDecision() !== null && node?.properties?.dataCaseIndex !== undefined
   // A step of a `:::procedure` (`directive-shape.ts`).
   if (node?.properties?.dataPhase) return <StepItem node={node}>{children}</StepItem>
-  const active = Boolean(node?.properties?.dataActive)
-  const muted = Boolean(node?.properties?.dataMuted)
   if (active || muted) {
     return (
       <ListCase id={id} active={active} muted={muted} compact={compact}>
         {children}
+        {active && decided && <MarkChip>{t('markdown.caseApplies')}</MarkChip>}
       </ListCase>
     )
   }
@@ -485,6 +500,21 @@ function MarkdownListItem({ children, id, node }: React.ComponentPropsWithoutRef
       {children}
     </li>
   )
+}
+
+/**
+ * Whether a row or item is the case that holds, and whether it is muted: the
+ * renderer's decision in a `by=` cases block ({@link useCasesDecision}), the
+ * marks the answer wrote everywhere else.
+ */
+function useCaseMarks(properties: Record<string, unknown> | undefined): { active: boolean; muted: boolean } {
+  const cases = useCasesDecision()
+  const index = properties?.dataCaseIndex
+  if (cases && index !== undefined) {
+    const active = Number(index) === cases.match
+    return { active, muted: cases.match >= 0 && !active }
+  }
+  return { active: Boolean(properties?.dataActive), muted: Boolean(properties?.dataMuted) }
 }
 
 // The task-list checkbox, drawn as a status mark rather than a form
@@ -610,7 +640,8 @@ function MarkdownTable({ children, node }: React.ComponentPropsWithoutRef<'table
       </HorizontalScroll>
     </div>
   )
-  return passed > 0 ? <PassedCheck passed={passed}>{frame}</PassedCheck> : frame
+  if (passed > 0) return <PassedCheck passed={passed}>{frame}</PassedCheck>
+  return hasCases(node) ? <CasesScope node={node}>{frame}</CasesScope> : frame
 }
 
 /** A tally word's tone: the renderer's own outcomes, else the status word's. */
@@ -629,14 +660,14 @@ function MarkdownCaption({ children, node }: React.ComponentPropsWithoutRef<'cap
 // A row that holds (`trifft zu`, `aktuell`, a `:applies` marker) is tinted;
 // in a `:::cases` the others are muted once one holds (`directive-shape.ts`).
 function MarkdownRow({ children, node }: React.ComponentPropsWithoutRef<'tr'> & ExtraProps) {
-  const active = Boolean(node?.properties?.dataActive)
+  const { active, muted } = useCaseMarks(node?.properties)
   const conflict = Boolean(node?.properties?.dataConflict)
   return (
     <tr
       data-active={active ? 'true' : undefined}
       data-conflict={conflict ? 'true' : undefined}
       aria-current={active ? 'true' : undefined}
-      className={tableRowClass({ active, muted: Boolean(node?.properties?.dataMuted), conflict })}
+      className={tableRowClass({ active, muted, conflict })}
     >
       {children}
     </tr>
@@ -646,6 +677,13 @@ function MarkdownRow({ children, node }: React.ComponentPropsWithoutRef<'tr'> & 
 function MarkdownHeaderCell({ children, align, style, node }: React.ComponentPropsWithoutRef<'th'> & ExtraProps) {
   const t = useTranslations('common')
   const recommended = Boolean(node?.properties?.dataRecommended)
+  if (node?.properties?.dataTaskHead) {
+    return (
+      <th className="w-0 px-2 py-2 print:hidden">
+        <span className="sr-only">{t('markdown.actions.column')}</span>
+      </th>
+    )
+  }
   return (
     <th
       data-recommended={recommended ? 'true' : undefined}
@@ -665,6 +703,8 @@ function MarkdownCell({ children, align, style, node }: React.ComponentPropsWith
   // column's word is a mark. Read off the cell's text alone, „open" in a
   // Bemerkung column became a chip.
   const properties = node?.properties ?? {}
+  const t = useTranslations('common')
+  const cases = useCasesDecision()
   const status = properties.dataStatus
   const tone = isStatusTone(status) ? status : null
   const label = properties.dataLabel
@@ -673,6 +713,61 @@ function MarkdownCell({ children, align, style, node }: React.ComponentPropsWith
   const ask = typeof properties.dataAsk === 'string' ? properties.dataAsk : null
   const outcome = typeof properties.dataOutcome === 'string' ? properties.dataOutcome : null
   const outcomeLabel = useOutcomeLabel()
+  if (properties.dataCell === TASK_CELL) {
+    return (
+      <td className="w-0 whitespace-nowrap px-2 py-1.5 align-top print:hidden" data-cell={TASK_CELL}>
+        <TaskCellContent node={node as never} />
+      </td>
+    )
+  }
+  const caseIndex = properties.dataCaseIndex
+  const decided = cases !== null && caseIndex !== undefined
+  const holds = decided && Number(caseIndex) === cases.match
+  let content: ReactNode = children
+  if (decided && properties.dataCaseStatus) {
+    // The renderer's case, not the model's word: the matched row says „trifft
+    // zu", a row the model claimed and the profile refutes is overruled.
+    const claimed = Boolean(properties.dataCaseClaim)
+    content = holds ? (
+      <Chip size="sm" variant="success" data-testid="status-mark" data-tone="success" data-case="holds" className={cellChipClass}>
+        {t('markdown.caseApplies')}
+      </Chip>
+    ) : claimed ? (
+      <Chip
+        size="sm"
+        variant="muted"
+        data-testid="status-mark"
+        data-tone="muted"
+        data-case="overruled"
+        title={t('markdown.caseOverruled', { word: getTextFromChildren(children) })}
+        className={cellChipClass}
+      >
+        {t('markdown.caseNotApplies')}
+      </Chip>
+    ) : tone ? (
+      <Chip size="sm" variant="muted" data-testid="status-mark" data-tone="muted" className={cellChipClass}>
+        {children}
+      </Chip>
+    ) : (
+      children
+    )
+  } else if (tone) {
+    content = (
+      <Chip
+        size="sm"
+        variant={tone}
+        data-testid="status-mark"
+        data-tone={tone}
+        data-outcome={outcome ?? undefined}
+        title={outcome ? getTextFromChildren(children) : undefined}
+        className={cellChipClass}
+      >
+        {outcome ? outcomeLabel(outcome, 'cell') : children}
+      </Chip>
+    )
+  } else if (properties.dataRole) {
+    content = <RoleChip>{children}</RoleChip>
+  }
   return (
     <td
       data-label={typeof label === 'string' ? label : undefined}
@@ -682,23 +777,11 @@ function MarkdownCell({ children, align, style, node }: React.ComponentPropsWith
         recommended: Boolean(properties.dataRecommended),
       })}
     >
-      {tone ? (
-        <Chip
-          size="sm"
-          variant={tone}
-          data-testid="status-mark"
-          data-tone={tone}
-          data-outcome={outcome ?? undefined}
-          title={outcome ? getTextFromChildren(children) : undefined}
-        >
-          {outcome ? outcomeLabel(outcome, 'cell') : children}
-        </Chip>
-      ) : (
-        children
-      )}
+      {content}
+      {holds && properties.dataCaseLead && <MarkChip>{t('markdown.caseApplies')}</MarkChip>}
       {bar && <ValueBar {...bar} valueText={getTextFromChildren(children)} />}
       {ask !== null && renderRowAction && (
-        <span className="ml-1.5 inline-flex align-middle">
+        <span className="ml-1.5 inline-flex align-middle print:hidden">
           {renderRowAction({ subject: ask, detail: String(properties.dataAskDetail ?? '') })}
         </span>
       )}
@@ -714,6 +797,28 @@ function valueBarOf(properties: Record<string, unknown>) {
   const bound: 'min' | 'max' = properties.dataBarBound === 'min' ? 'min' : 'max'
   const limitText = typeof properties.dataBarLimitText === 'string' ? properties.dataBarLimitText : String(limit)
   return { value, limit, bound, pass: properties.dataBarPass === 'true', limitText }
+}
+
+function MarkdownUnorderedList({ children, className: listClassName, node }: React.ComponentPropsWithoutRef<'ul'> & ExtraProps) {
+  if (node?.properties?.dataVariant === 'steps') return <StepList ordered={false}>{children}</StepList>
+  const list = (
+    <ul
+      className={
+        listClassName?.includes('contains-task-list')
+          ? 'text-foreground mb-3 list-none space-y-1 pl-1'
+          : 'text-foreground mb-3 list-outside list-disc space-y-1 pl-5'
+      }
+    >
+      {children}
+    </ul>
+  )
+  return hasCases(node) ? <CasesScope node={node}>{list}</CasesScope> : list
+}
+
+function MarkdownOrderedList({ children, node }: React.ComponentPropsWithoutRef<'ol'> & ExtraProps) {
+  if (node?.properties?.dataVariant === 'steps') return <StepList ordered>{children}</StepList>
+  const list = <ol className="text-foreground mb-3 list-outside list-decimal space-y-1 pl-5">{children}</ol>
+  return hasCases(node) ? <CasesScope node={node}>{list}</CasesScope> : list
 }
 
 /**
@@ -738,26 +843,8 @@ const MARKDOWN_COMPONENTS = {
   // Lists. GFM task lists arrive with `contains-task-list` /
   // `task-list-item` classes; forcing `list-disc` on them drew a bullet
   // NEXT TO each checkbox, so a checklist read as two markers per row.
-  ul: ({ children, className: listClassName, node }: React.ComponentPropsWithoutRef<'ul'> & ExtraProps) =>
-    node?.properties?.dataVariant === 'steps' ? (
-      <StepList ordered={false}>{children}</StepList>
-    ) : (
-    <ul
-      className={
-        listClassName?.includes('contains-task-list')
-          ? 'text-foreground mb-3 list-none space-y-1 pl-1'
-          : 'text-foreground mb-3 list-outside list-disc space-y-1 pl-5'
-      }
-    >
-      {children}
-    </ul>
-  ),
-  ol: ({ children, node }: React.ComponentPropsWithoutRef<'ol'> & ExtraProps) =>
-    node?.properties?.dataVariant === 'steps' ? (
-      <StepList ordered>{children}</StepList>
-    ) : (
-      <ol className="text-foreground mb-3 list-outside list-decimal space-y-1 pl-5">{children}</ol>
-    ),
+  ul: MarkdownUnorderedList,
+  ol: MarkdownOrderedList,
   li: MarkdownListItem,
   input: MarkdownTaskMark,
   a: MarkdownLink,
@@ -783,6 +870,11 @@ const MARKDOWN_COMPONENTS = {
   [BLOCK_BODY_TAG]: AnswerBlockBody,
   [ANSWER_MARKER_TAG]: AnswerMarker,
   [ANSWER_ENERGY_TAG]: AnswerEnergy,
+  [ANSWER_PROJECT_TAG]: AnswerProject,
+  [NOT_FOUND_TAG]: NotFound,
+  [PANE_TAG]: Pane,
+  [SUBSUMPTION_TAG]: Subsumption,
+  [SUBSUMPTION_PART_TAG]: StepPart,
   [STEP_HEAD_TAG]: StepPart,
   [STEP_DUE_TAG]: StepPart,
   [STEP_DETAIL_TAG]: StepPart,

@@ -3,7 +3,16 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { directiveDepths, energyClass, normalizeDirectiveFences, stripDirectives } from './answer-directives'
+import {
+  PROJECT_KEYS,
+  casesBy,
+  directiveDepths,
+  energyClass,
+  isDirectiveBlock,
+  normalizeDirectiveFences,
+  projectKeysIn,
+  stripDirectives,
+} from './answer-directives'
 
 describe('stripDirectives: the answer as plain Markdown, for copy and export', () => {
   it('keeps a check as the table it wraps', () => {
@@ -60,5 +69,40 @@ describe('energyClass', () => {
     expect(energyClass(' a+ ')).toBe('A+')
     expect(energyClass('G')).toBe('G')
     expect(energyClass('H')).toBeNull()
+  })
+})
+
+describe('project bindings', () => {
+  it('lists the keys an answer binds, in order, with the by= of a cases block', () => {
+    const answer = [
+      'In :project[state] mit :project[escape_level_m].',
+      ':::cases{by=building_class}',
+      '| GK | Stand |',
+      ':::',
+      'Wieder :project[state], unbekannt :project[parcel_area_m2], `:project[use]` ist Code.',
+      '```',
+      ':project[storeys]',
+      '```',
+    ].join('\n')
+    expect(projectKeysIn(answer)).toEqual(['state', 'escape_level_m', 'building_class'])
+  })
+
+  it('reads by= only when it names a key', () => {
+    expect(casesBy('{by=escape_level_m}')).toBe('escape_level_m')
+    expect(casesBy('{by="building_class"}')).toBe('building_class')
+    expect(casesBy('{by=lage}')).toBeNull()
+  })
+
+  it('prints a binding as the value the surface resolves, else as its key', () => {
+    const text = 'GK :project[building_class], FN :project[escape_level_m], X :project[nope].'
+    expect(stripDirectives(text, { projectValue: (key) => (key === 'building_class' ? 'GK 4' : null) })).toBe(
+      'GK GK 4, FN escape_level_m, X nope.'
+    )
+  })
+
+  it('knows the new blocks, and strips their fences', () => {
+    for (const name of ['actions', 'not-found', 'subsumption']) expect(isDirectiveBlock(name)).toBe(true)
+    expect(stripDirectives(':::not-found\n> „x" [1]\n:::')).toBe('> „x" [1]')
+    expect(Object.keys(PROJECT_KEYS)).toEqual(['building_class', 'escape_level_m', 'use', 'state', 'storeys', 'gross_floor_area_m2'])
   })
 })

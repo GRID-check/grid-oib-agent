@@ -32,6 +32,15 @@ const PASSING = [
   ':::',
 ].join('\n')
 
+
+/**
+ * Whether the disclosure holding `element` is open. A closed disclosure stays
+ * in the page (it prints open, `PRINT_OPEN_CONTENT`) and is hidden by its
+ * `data-state`, which jsdom does not apply as CSS.
+ */
+const panelState = (element: HTMLElement): string | null =>
+  element.closest('[data-slot="collapsible-content"]')?.getAttribute('data-state') ?? null
+
 describe('text that only looks like a directive', () => {
   it('keeps „10:30" and „Hinweis:Achtung" exactly as written', () => {
     const { container } = render(<MarkdownRenderer content={'Termin 10:30 Uhr, Hinweis:Achtung und :unbekannt[x].'} />)
@@ -73,9 +82,10 @@ describe(':::check', () => {
   it('collapses a check that passes everywhere to one line', () => {
     render(<MarkdownRenderer content={PASSING} />)
     expect(screen.getByTestId('check-passed')).toHaveTextContent('4 of 4 met')
-    expect(screen.queryByRole('table')).toBeNull()
+    // Kept in the page so it prints, but closed on screen.
+    expect(panelState(screen.getByRole('table'))).toBe('closed')
     fireEvent.click(screen.getByTestId('check-passed'))
-    expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(panelState(screen.getByRole('table'))).toBe('open')
   })
 
   it('offers „Dazu fragen" on an open row only where the surface supplies it', () => {
@@ -129,9 +139,9 @@ describe(':::procedure', () => {
 
   it('opens a step to what it needs', () => {
     render(<MarkdownRenderer content={STEPS} />)
-    expect(screen.queryByText(/Einreichpläne/)).toBeNull()
+    expect(panelState(screen.getByText(/Einreichpläne/))).toBe('closed')
     fireEvent.click(screen.getByRole('button', { name: /Step 2/ }))
-    expect(screen.getByText(/Einreichpläne/)).toBeInTheDocument()
+    expect(panelState(screen.getByText(/Einreichpläne/))).toBe('open')
     expect(screen.getByText('Was es braucht')).toBeInTheDocument()
   })
 })
@@ -168,9 +178,9 @@ describe(':::cases', () => {
 describe(':::details', () => {
   it('opens on click and starts closed', () => {
     render(<MarkdownRenderer content={':::details[Herleitung]\nDer Wert folgt aus Tabelle 2.\n:::'} />)
-    expect(screen.queryByText('Der Wert folgt aus Tabelle 2.')).toBeNull()
+    expect(panelState(screen.getByText('Der Wert folgt aus Tabelle 2.'))).toBe('closed')
     fireEvent.click(screen.getByRole('button', { name: /Herleitung/ }))
-    expect(screen.getByText('Der Wert folgt aus Tabelle 2.')).toBeInTheDocument()
+    expect(panelState(screen.getByText('Der Wert folgt aus Tabelle 2.'))).toBe('open')
   })
 })
 

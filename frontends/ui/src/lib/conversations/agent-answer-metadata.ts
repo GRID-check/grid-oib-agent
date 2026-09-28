@@ -95,6 +95,9 @@ const BACKEND_ANSWER_KEYS = [
   // in the row forever and a later tightening of this list would delete the
   // ledger for exactly the turns it was added for.
   'retrieval_ledger',
+  // The server's check of each quote line (`quote_stamps`), same landing as the
+  // ledger: bounded into `provenance.quoteStamps`.
+  'quote_stamps',
   // Written by the same socket-persistence path when the client had gone:
   // the routing (a `meta` turn must not reload as a researched answer with
   // the "Ohne Quellenbeleg" gap row), the ask that sent a turn to deep
@@ -421,6 +424,7 @@ export function provenanceFromBackendMetadata(
   // `sanitizeProvenance` like everything else here, which re-derives the
   // tallies rather than trusting them.
   candidate.retrievalLedger = metadata.retrieval_ledger
+  candidate.quoteStamps = metadata.quote_stamps
 
   // The enums are re-checked there, not here: `sanitizeProvenance` is the single
   // gate on this column and a second copy of the value lists would drift.

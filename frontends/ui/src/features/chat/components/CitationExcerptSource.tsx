@@ -16,7 +16,7 @@
  */
 
 import { useState, type FC } from 'react'
-import { ExcerptMargin } from '@/shared/components/MarkdownRenderer/answer-atoms'
+import { ExcerptMargin, OpenPassageButton } from '@/shared/components/MarkdownRenderer/answer-atoms'
 import type { ExcerptSourceProps } from '@/shared/components/MarkdownRenderer/answer-block-context'
 import type { CitationRef } from '../lib/citations'
 import { resolveCitationTarget } from '../lib/citations/target'
@@ -25,14 +25,35 @@ import { CitationOpenButton, LocusLine } from './CitationPeek'
 import { useCitationScope } from './CitationScope'
 import { SourceDocumentDialog, useSourcePreviewIndex } from './SourcePreview'
 
-export const CitationExcerptSource: FC<ExcerptSourceProps> = ({ number }) => {
+export const CitationExcerptSource: FC<ExcerptSourceProps> = ({ number, stamp }) => {
   const scope = useCitationScope()
-  const ref = scope?.referenceFor(number)
+  const ref = scope?.referenceFor(stamp?.number ?? number) ?? scope?.referenceFor(number)
   if (!ref) return null
-  return <ResolvedExcerptSource citation={ref} />
+  return <ResolvedExcerptSource citation={atQuote(ref, stamp)} verified={stamp?.status === 'verbatim'} />
 }
 
-const ResolvedExcerptSource: FC<{ citation: CitationRef }> = ({ citation }) => {
+/**
+ * The citation opened at the quoted sentence: where the server found the
+ * wording (its page), with the wording itself as the passage the viewer marks.
+ * Only for a quote the server verified; any other opens at the citation's own
+ * locus, as the chip does.
+ */
+function atQuote(citation: CitationRef, stamp: ExcerptSourceProps['stamp']): CitationRef {
+  if (!stamp || stamp.status !== 'verbatim') return citation
+  const base = citation.locus ?? { key: `quote:${stamp.page ?? ''}`, isCited: true }
+  return {
+    document: citation.document,
+    locus: {
+      ...base,
+      key: `${base.key}#quote`,
+      page: stamp.page ?? base.page,
+      punkt: stamp.punkt ?? base.punkt,
+      snippet: stamp.text,
+    },
+  }
+}
+
+const ResolvedExcerptSource: FC<{ citation: CitationRef; verified: boolean }> = ({ citation, verified }) => {
   const [open, setOpen] = useState(false)
   const projectId = useChatStore((s) => s.projectId)
   const conversationId = useChatStore((s) => s.currentConversation?.id ?? null)
@@ -49,7 +70,13 @@ const ResolvedExcerptSource: FC<{ citation: CitationRef }> = ({ citation }) => {
       <ExcerptMargin
         title={citation.document.title}
         locus={<LocusLine citation={citation} />}
-        action={openable ? <CitationOpenButton tint={citation.document.tint} onOpen={() => setOpen(true)} /> : undefined}
+        action={
+          !openable ? undefined : verified ? (
+            <OpenPassageButton onOpen={() => setOpen(true)} />
+          ) : (
+            <CitationOpenButton tint={citation.document.tint} onOpen={() => setOpen(true)} />
+          )
+        }
       />
       {open && <SourceDocumentDialog citation={citation} onClose={() => setOpen(false)} />}
     </>
