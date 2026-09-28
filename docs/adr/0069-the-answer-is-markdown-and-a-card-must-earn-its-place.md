@@ -6,7 +6,7 @@ consulted:
 informed: everyone working in this repo
 ---
 
-# The answer is Markdown, and a card must carry what Markdown cannot
+# The answer is Markdown, drawn richly, and a card must carry what Markdown cannot
 
 ## Context and Problem Statement
 
@@ -76,29 +76,42 @@ the anatomy cards already superseded by the masthead (`summary`,
 `acoustic_check`, `parking_requirement`, `density_check`,
 `elevator_requirement`). A refusal names the Markdown that replaces it.
 
-**What replaces them is Markdown the renderer draws well**, each a plain
-Markdown construct that degrades to itself in copy and export:
+**What replaces them is a small Markdown dialect the renderer draws richly.**
+Richness is declared, not guessed: a guessed table (a renderer reading header
+words) loses its drawing to a synonym or a typo. The dialect is GFM + math +
+mermaid + a handful of `remark-directive` blocks (the generic-directive
+syntax Docusaurus and others use), each a container around ordinary Markdown:
 
-- A **row mark**: a table row whose Status cell says `trifft zu` or `aktuell`
-  is tinted. It is the marked branch of `condition_tree` and the "hier stehen
-  Sie" of `process_map`, in a table that also carries `[N]`.
-- **Numeric columns** right-aligned in tabular figures.
-- A **Fundstelle excerpt**: a blockquote ending in `[N]` is drawn as an
-  excerpt with its source in the margin, and is verified like every quote in
-  the prose. It is `legal_basis`, checked.
-- A Verfahren is a numbered list or a table; one that forks or returns is a
-  `flowchart TD` fence.
+- `:::pruefung`: a check table; status pills, a value-vs-limit bar per row,
+  „Dazu fragen" on an open row.
+- `:::verfahren`: a straight Verfahren as a step rail; the step the project
+  stands at marked, a step's documents in a nested `:::details`.
+- `:::faelle`: cases (Gebäudeklasse, Lage), this project's marked `trifft zu`.
+- `:::kennzahlen`: two to four key numbers as tiles.
+- `:::vergleich`: variants as columns, the recommended one marked.
+- `:::details[…]`: anything that is detail, not answer.
+- `:klasse[B]`: an Energieeffizienzklasse as its colour chip.
+- `> „…" [N]`: the wording that decides the answer, verified like every quote.
 
-**Stored messages are never rewritten.** Retired types stay in the union,
-render-only, and the front end degrades any type it no longer knows to a
-Markdown table through the export walker instead of a hole. Only then are
-models and renderers deleted, in a later change.
+A Verfahren that forks or returns is a `flowchart TD` fence. Every block keeps
+its `[N]` chips inside it, streams as it is written, and strips to plain
+Markdown for copy and export. The bar is that the answer ends up **richer**
+than the card catalogue made it, not equal: blocks that cost the model a line
+of syntax appear wherever the content has the shape, where a card cost a
+schema and appeared rarely. The answer is composed as a page (masthead, then
+designed blocks in one typographic system), not text in a bubble.
+
+**Pre-launch, retired types are deleted outright**: models, schemas,
+renderers, fixtures and tests. No stored conversation has to survive, so no
+render-only layer is kept. After launch, retiring a type needs a read-time
+degrader instead.
 
 **Direction beyond this change.** Collapse the surviving types into a few
 versioned primitives (a `figure` over the schematic kinds, a `model_viewer`,
 a `proposal`, `surface`), each carrying a Markdown fallback that copy,
-export, filing and other clients use. A new card type needs the Apps SDK
-test above and an answer-suite result, not a trigger row.
+export, filing and other clients use. A new block is a directive before it
+is a card; a new card needs the Apps SDK test above and an answer-suite
+result, not a trigger row.
 
 ## Consequences
 
@@ -108,19 +121,19 @@ test above and an answer-suite result, not a trigger row.
 - Good: a new content shape becomes a Markdown convention with a renderer
   treatment, not a model, a schema, a renderer, an export mapping, an
   interactivity entry and a trigger row.
-- Bad: the interactive affordances of `process_map` (a step's requirements on
-  click) and `condition_tree` (other cases on click) are gone; a table shows
-  them all at once. Accepted: those were rarely populated (`current_step`
-  only "where the conversation established it").
-- Bad: until the later phase deletes them, ~20 render-only models and
-  renderers remain in the tree.
+- Good: `process_map`'s click-to-reveal and `condition_tree`'s marked branch
+  survive as `:::details` and `trifft zu`, now with citations inside them.
+- Bad: a renderer dialect is ours to keep: every directive needs a renderer,
+  a copy/export stripping rule and a prompt line, and an unknown directive
+  must degrade to its content.
 - Neutral: A2UI (ADR-0065) stays the draw layer; its catalogue gets smaller.
 
 ### Confirmation
 
-- Every retired type is refused on every emission channel
-  (`tests/aiq_agent/cards`); a stored card of an unknown type renders its
-  content (`retired-cards.spec.tsx`).
-- Before and after with the real static prompt: cards per answer, duplicate
-  forms per answer (quote card beside a chip, table beside a drawing, list
-  beside a card), and `task be:eval:answer-suite` once the corpus is at hand.
+- The retired types no longer exist in the union, and a model that names one
+  is refused with the Markdown that replaces it (`tests/aiq_agent/cards`).
+- Every directive renders, streams, and strips to plain Markdown
+  (MarkdownRenderer specs).
+- Before and after with the real static prompt: rich blocks per answer (up),
+  duplicate forms per answer (zero), and `task be:eval:answer-suite` once the
+  corpus is at hand.
