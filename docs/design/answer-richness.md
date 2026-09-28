@@ -19,6 +19,13 @@ the synthesis follows below them.
   PDF pipeline prints a `:::` line as text. The deep writer is taught the
   dialect in Phase B, together with the PDF renderer that draws the blocks;
   until then reports stay plain GFM with mermaid.
+- **From `claude/relaxed-rubin-pvwcsn` (not merged; it deepened the retired
+  `legal_basis` card):** two of its ideas join Phase A. `:::subsumtion` lays a
+  ruling out as Norm (the verified quote line) → Sachverhalt (`:projekt[…]`
+  facts, their origin shown by the chip) → Ergebnis (a status). And every
+  quote line `> „…" [N]` gets a server-side location stamp (its
+  `cards/legal_proof.py` `verification_for`, reused): „Wortlaut belegt [N]"
+  and „Stelle öffnen" with the sentence marked, never on the model's word.
 - **Measured, not asserted:** every wave reruns the before/after probe on the
   real static prompt: rich blocks per answer up, duplicate forms at zero, and
   a negative set of short factual questions answered with no block at all.
