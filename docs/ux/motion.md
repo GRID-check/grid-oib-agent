@@ -68,7 +68,7 @@ Each entry is the one thing the section does, and what it explains.
 | Hero (lg) | Closing line, buttons and stage note fade over the first 25% of a screen; the headline over 20–50%. Opacity only | Nothing prints through the logo under the transparent bar | scrubbed |
 | Story (lg) | Pinned, scrubbed: fragments drift in, the problem gives way to the answer, the net pulls them in and wires them, then holds. 240vh (the ring around the hub) or 200vh (the portrait net) | Scattered knowledge becoming one structure: the section's argument | scrubbed |
 | Story (phone) | The hub grid's nodes and hub fade in, then the wires draw, once | The nodes are wired to one hub | slow, settle, draft |
-| Nutzung, desktop chain | Plays once when in view; pause/resume while it runs, replay after | How an answer is derived: question, sources, decision, steps | slow, draft |
+| Nutzung, desktop chain | A wired graph, left to right, in the phone stories' surfaces. Plays once when in view: the question rises; the stem and all three sources arrive together (Piloti consults them at once); the merge wires draw into the decision; B is ringed in lime, the wires that carry it darken and the reasons replace the descriptions; B's wire draws down to the steps, which tick. A lime dot beside the stage's count is where the chain is, and it waits there while the next stage is below the fold. Pause/resume while it runs, replay after. No camera: the board is laid out at its true size and the wires are re-derived from the cards when it changes size | How an answer is derived, and that the sources are consulted at the same time | slow, base, quick, settle, draft, row, sm |
 | Quellen und Daten (Prüfblatt) | The four ticks draw in order, 60ms apart, once | Each claim is checked, one by one | base, draft, row |
 | Wertrechner | When a slider moves, only the digits that changed turn on their wheels | Which part of the figure your office moved | quick, settle |
 | A riso plate (TapedPrint) | Ink pass: each ink 2–3px out of register settles into it, ~600ms in all, once | The print is a print: inks laid one after another | slow, settle, hair, row |
@@ -148,7 +148,7 @@ one:
 - no page transitions (the `@view-transition` rule sits inside a
   `no-preference` query);
 - no pin and no runway: the story is its resolved hub on one screen;
-- the chain board is replaced by the finished column list;
+- the desktop chain is its finished board, and its pill stays hidden;
 - reveals, ticks and the ink pass are armed only under
   `no-preference`, so their elements are in their final state from the start;
 - the calculator sets its figure instead of turning it;
