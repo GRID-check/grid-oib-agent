@@ -486,3 +486,22 @@ def _usage_response(*, prompt: int, completion: int, cost: float):
             "model_name": "openai/gpt-5.6-luna",
         },
     )
+
+
+class TestStageSpendNamesTheAnswer:
+    """A post-answer stage's spend is billed to the answer it follows."""
+
+    def test_the_answer_id_is_derived_from_the_turn(self):
+        from aiq_agent.stages.runner import _answer_message_id
+        from aiq_agent.stages.spec import TurnFacts
+        from aiq_agent.turn.response import answer_message_id
+
+        facts = TurnFacts(conversation_id="conv_1", ws_parent_id="question_1")
+
+        assert _answer_message_id(facts) == answer_message_id("conv_1", "question_1")
+
+    def test_off_the_websocket_path_there_is_no_answer_to_name(self):
+        from aiq_agent.stages.runner import _answer_message_id
+        from aiq_agent.stages.spec import TurnFacts
+
+        assert _answer_message_id(TurnFacts(conversation_id="conv_1")) is None

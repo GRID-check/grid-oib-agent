@@ -678,6 +678,9 @@ export const chat = {
     triggerAria: 'Show details for this answer',
     // How long the turn took, question sent to answer final.
     duration: 'Answered in {duration}',
+    costCredits: '{value} credits',
+    costTokens: '{value} tokens',
+    costBreakdown: 'Input {prompt} · output {completion} · of which thinking {reasoning} tokens',
     // Retrieved-but-uncited documents: what the turn read beyond what the
     // answer claims. Document chips only — no passages, no new claims.
     readSources: {

@@ -295,6 +295,7 @@ class GridCostTracker(BaseCallbackHandler):
         project_id: str | None = None,
         conversation_id: str | None = None,
         job_id: str | None = None,
+        message_id: str | None = None,
         budget: BudgetSnapshot | None = None,
     ) -> None:
         self.organization_id = organization_id
@@ -302,6 +303,10 @@ class GridCostTracker(BaseCallbackHandler):
         self.project_id = project_id
         self.conversation_id = conversation_id
         self.job_id = job_id
+        #: The answer this spend belongs to (``turn.response.answer_message_id``),
+        #: so the answer's details can show what it cost in the tenant's unit.
+        #: ``None`` off the chat path (jobs, the CLI).
+        self.message_id = message_id
         self.budget = budget
         self._lock = Lock()
         self._pending: list[UsageEvent] = []
@@ -500,6 +505,7 @@ class GridCostTracker(BaseCallbackHandler):
             "projectId": self.project_id,
             "conversationId": self.conversation_id,
             "jobId": self.job_id,
+            "messageId": self.message_id,
             "events": [event.to_payload() for event in batch],
         }
         if wait:
@@ -699,6 +705,7 @@ def track_llm_costs(
             project_id=resolved_identity.get("project_id"),
             conversation_id=resolved_identity.get("conversation_id"),
             job_id=job_id,
+            message_id=resolved_identity.get("message_id"),
             budget=resolved_budget,
         )
         token = grid_cost_tracker_var.set(tracker)

@@ -29,6 +29,7 @@ import { Chip } from '@/components/ui/chip'
 import { SectionLabel } from '@/components/ui/section-label'
 import type { PluggableList } from 'unified'
 import { useLocale, useTranslations } from '@/i18n'
+import { AnswerCost } from './AnswerCost'
 import type { Translator } from '@/i18n'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { remarkCitationMarkers } from '@/features/layout/lib/citation-markers'
@@ -707,6 +708,8 @@ const AnswerDetails = memo(function AnswerDetails({
   hasAnswerSources,
   timestamp,
   answerDurationMs,
+  conversationId,
+  messageId,
   before,
   after,
 }: {
@@ -726,6 +729,9 @@ const AnswerDetails = memo(function AnswerDetails({
   hasAnswerSources: boolean
   timestamp?: Date | string
   answerDurationMs?: number
+  /** Both needed for the answer's cost line; without either it is omitted. */
+  conversationId?: string | null
+  messageId?: string
   /** Set on the trigger's own line: the footer's copy actions before it, feedback after. */
   before?: ReactNode
   after?: ReactNode
@@ -805,6 +811,7 @@ const AnswerDetails = memo(function AnswerDetails({
                 : null}
             </span>
           )}
+          {conversationId && messageId ? <AnswerCost conversationId={conversationId} messageId={messageId} /> : null}
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -1295,6 +1302,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 >
                   {hasDetailsContent && (
                     <AnswerDetails
+                      conversationId={conversationId}
+                      messageId={messageId}
                       hasConfidence={hasConfidence}
                       answerConfidence={answerConfidence}
                       answerConfidenceCappedReason={answerConfidenceCappedReason}
@@ -1488,6 +1497,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   disclosure takes the next one full-width. */}
                     {hasDetailsContent ? (
                       <AnswerDetails
+                        conversationId={conversationId}
+                        messageId={messageId}
                         hasConfidence={hasConfidence}
                         answerConfidence={answerConfidence}
                         answerConfidenceCappedReason={answerConfidenceCappedReason}

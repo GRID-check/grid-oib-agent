@@ -669,6 +669,11 @@ export const chat: typeof en.chat = {
     triggerAria: 'Details zu dieser Antwort anzeigen',
     // How long the turn took, question sent to answer final.
     duration: 'Antwort nach {duration}',
+    // What the answer cost in the organization's unit: the credits billed for
+    // it, or tokens on the organization's own provider key.
+    costCredits: '{value} Punkte',
+    costTokens: '{value} Tokens',
+    costBreakdown: 'Eingabe {prompt} · Ausgabe {completion} · davon Nachdenken {reasoning} Tokens',
     // Gelesen, aber nicht zitiert: was die Recherche sonst noch gelesen hat.
     // Nur Dokument-Chips — keine Stellen, keine neuen Aussagen.
     readSources: {
