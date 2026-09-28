@@ -47,7 +47,27 @@ catalogue to "Basic" because front ends "already have a design system".
 No public study compares cards with Markdown for cited professional answers;
 the positions above are practice, not measurement.
 
-## Decision
+## Considered Options
+
+1. **Keep the catalogue, fix the prompt.** One card per content shape, with
+   sharper triggers.
+2. **Plain Markdown, richness inferred.** Tables and lists only; the renderer
+   reads header words („Ist/Soll", „Status") to decide how to draw them.
+3. **Markdown with a small directive dialect.** The model declares the
+   block (`:::pruefung`, `:::verfahren`, …) around ordinary Markdown; the
+   renderer draws it; copy and export strip it.
+4. **Model-generated pages.** The model writes HTML or a bespoke layout per
+   answer (Gemini's dynamic view, Claude's inline visuals).
+
+## Decision Outcome
+
+Chosen: **option 3**. Option 1 keeps every failure measured above: the cost
+of a card is a schema, so the model either skips it or pairs it with the
+prose that already says the same. Option 2 is the right substrate but loses
+its drawing to a synonym or a typo, and cannot say "this is the project's
+case". Option 4 is what consumer products are exploring; it takes a minute
+per answer, has no verification story for a cited legal claim, and cannot
+be checked server-side.
 
 **The answer is Markdown. A card is emitted only when it carries one of:**
 
@@ -113,7 +133,7 @@ export, filing and other clients use. A new block is a directive before it
 is a card; a new card needs the Apps SDK test above and an answer-suite
 result, not a trigger row.
 
-## Consequences
+### Consequences
 
 - Good: one form per fact; the quote the reader trusts is the verified one;
   the model-facing contract shrinks by ~20 types; an answer copied, filed or
