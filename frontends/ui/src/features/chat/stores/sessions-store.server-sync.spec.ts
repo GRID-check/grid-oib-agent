@@ -445,19 +445,18 @@ describe('loadServerConversations merge', () => {
   })
 })
 
+const message = (id: string): ChatMessage => ({
+  id,
+  role: 'user',
+  content: `msg ${id}`,
+  timestamp: new Date(),
+  messageType: 'user',
+})
+
 describe('_appendMessage conversation ensure', () => {
   it('creates the server conversation only once for concurrent appends', async () => {
     const conv = makeConversation({ title: 'Race chat' })
     useChatStore.setState({ conversations: [conv], currentConversation: conv })
-    mockConversationsClient.list.mockResolvedValue([])
-
-    const message = (id: string): ChatMessage => ({
-      id,
-      role: 'user',
-      content: `msg ${id}`,
-      timestamp: new Date(),
-      messageType: 'user',
-    })
 
     await Promise.all([
       useChatStore.getState()._appendMessage(message('m1')),
@@ -466,6 +465,36 @@ describe('_appendMessage conversation ensure', () => {
 
     expect(mockConversationsClient.create).toHaveBeenCalledTimes(1)
     expect(mockConversationsClient.createMessage).toHaveBeenCalledTimes(2)
+  })
+
+  it('creates without listing first: the create is the idempotent check', async () => {
+    // The list was capped at 200 rows and a failure unrelated to this chat (a 429
+    // on the list) meant the message was never stored.
+    mockConversationsClient.list.mockRejectedValue(new Error('429'))
+    const conv = makeConversation({ title: 'Direct chat', projectId: 'p1' })
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+
+    await useChatStore.getState()._appendMessage(message('m1'))
+
+    expect(mockConversationsClient.list).not.toHaveBeenCalled()
+    expect(mockConversationsClient.create).toHaveBeenCalledWith(conv.id, 'Direct chat', 'p1', null)
+    expect(mockConversationsClient.createMessage).toHaveBeenCalledWith(
+      conv.id,
+      expect.objectContaining({ id: 'm1' })
+    )
+  })
+
+  it('retries the create on the next append when it failed', async () => {
+    const conv = makeConversation()
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+    mockConversationsClient.create.mockRejectedValueOnce(new Error('503'))
+
+    await useChatStore.getState()._appendMessage(message('m1'))
+    expect(mockConversationsClient.createMessage).not.toHaveBeenCalled()
+
+    await useChatStore.getState()._appendMessage(message('m2'))
+    expect(mockConversationsClient.create).toHaveBeenCalledTimes(2)
+    expect(mockConversationsClient.createMessage).toHaveBeenCalledTimes(1)
   })
 })
 
