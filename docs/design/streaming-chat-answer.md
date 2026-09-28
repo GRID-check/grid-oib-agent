@@ -129,8 +129,13 @@ call that put nothing on the wire is not retracted.
 The settle runs the terminal's shape pass as well. A mindmap whose words are
 at least 70% a table's in the same answer (`drop_restated_mindmaps`,
 `agents/piloti/answer_shape.py`, `MINDMAP_TABLE_COVERAGE`) goes when the prose
-settles rather than at the terminal; the reader may still see it while the
-prose streams.
+settles rather than at the terminal. The relay does not stream it either:
+`MindmapHold` (`turn/answer_stream.py`) holds a ```` ```mermaid ```` fence whose
+first line is `mindmap` until it closes and asks `Live.restates` against the
+prose already sent, so a drawing the settle would remove never appears and then
+vanishes. Any other diagram is released at its first line and draws its
+skeleton while it streams. Only a table written *after* the mindmap is left to
+the settle, and the reader may still see that drawing until the prose settles.
 
 ### Frontend (`turn-fold.ts` / `use-websocket-chat.ts` / `messages-store.ts`)
 
