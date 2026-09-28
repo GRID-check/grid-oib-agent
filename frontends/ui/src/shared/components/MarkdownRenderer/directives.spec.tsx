@@ -121,7 +121,7 @@ describe(':::check', () => {
   })
 
   it('reads the value after the limit in a Soll | Ist order', () => {
-    const SOLL_IST = [
+    const LIMIT_BEFORE_VALUE = [
       ':::check',
       '| Anforderung | Soll | Ist | Status |',
       '|---|---|---|---|',
@@ -129,7 +129,7 @@ describe(':::check', () => {
       '| Geländer | ≥ 1,00 m | 1,10 m | erfüllt |',
       ':::',
     ].join('\n')
-    const { container } = render(<MarkdownRenderer content={SOLL_IST} />)
+    const { container } = render(<MarkdownRenderer content={LIMIT_BEFORE_VALUE} />)
     expect(container.querySelector('tbody tr')).toHaveAttribute('data-conflict', 'true')
   })
 

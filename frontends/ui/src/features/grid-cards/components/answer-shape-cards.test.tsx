@@ -91,4 +91,3 @@ const render = (ui: ReactElement) =>
       {ui}
     </I18nProvider>,
   )
-

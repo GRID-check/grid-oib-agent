@@ -772,10 +772,9 @@ user to authorize a write (`propose, never auto-apply` —
 `project-memory-design.md` §11.7), which makes the user's click the only place
 that outcome exists.
 
-`diagram` was briefly a third and is deliberately not one — see
-[the card's own section](#the-diagram-card-the-one-drawing-whose-renderer-cannot-check-it)
-for why the drawing ships without a filing button and what would have to change
-first. A `CONSENT_CARD_TYPES` was split out of `INTERACTIVE_CARD_TYPES` at the
+`diagram` was briefly a third and was never made one; the card has since been
+retired for a ```` ```mermaid ```` fence (see
+[Markdown carries the rest](#markdown-carries-the-rest)). A `CONSENT_CARD_TYPES` was split out of `INTERACTIVE_CARD_TYPES` at the
 same time, to keep the model from being told a drawing "asks the user to
 authorize a real, persisted change" — true then, and it would have suppressed the
 card on exactly the answers it exists for. It left with the button: "must the

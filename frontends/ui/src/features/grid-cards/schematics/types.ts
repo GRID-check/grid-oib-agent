@@ -173,4 +173,3 @@ export interface CalculationLimitData {
   label?: string | null
   reference?: NormReferenceData | null
 }
-

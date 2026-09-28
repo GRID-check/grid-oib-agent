@@ -20,4 +20,3 @@
  * exactly once.
  */
 export const CARD_SHELL = 'border-transparent bg-muted/40 shadow-none'
-
