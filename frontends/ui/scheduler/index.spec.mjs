@@ -188,7 +188,7 @@ describe('reconcileRuns (the run reconciler’s clock)', () => {
   it('reports a sweep that only healed blocks, so the backlog clearing is visible in the log', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const healing = { ...counts, closed: 0, healed: 7 }
-    await reconcileRuns(config, vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(healing) }))
+    await reconcileRuns(config, vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(healing) }), streak())
     expect(log).toHaveBeenCalledWith(expect.stringContaining('healed 7'))
   })
 
