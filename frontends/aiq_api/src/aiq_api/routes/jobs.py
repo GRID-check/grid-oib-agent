@@ -1163,6 +1163,7 @@ async def _stop_interrupted_job(db_url: str, scheduler_address: str | None, job_
 
 def _find_active_job_ids(db_url: str, statuses: tuple[str, ...], limit: int) -> list[str]:
     """Every job in one of ``statuses``, oldest first. Sync; run it in an executor."""
+    from sqlalchemy import bindparam
     from sqlalchemy import inspect
     from sqlalchemy import text
 
@@ -1171,16 +1172,12 @@ def _find_active_job_ids(db_url: str, statuses: tuple[str, ...], limit: int) -> 
     engine = EventStore._get_or_create_sync_engine(db_url)
     if not inspect(engine).has_table("job_info"):
         return []
-    placeholders = ", ".join(f":s{i}" for i in range(len(statuses)))
-    params: dict[str, Any] = {f"s{i}": status for i, status in enumerate(statuses)}
+    # A literal statement with an expanding bind: no SQL is built from strings.
+    query = text(
+        "SELECT job_id FROM job_info WHERE status IN :statuses ORDER BY created_at, job_id LIMIT :limit"
+    ).bindparams(bindparam("statuses", expanding=True))
     with engine.connect() as conn:
-        rows = conn.execute(
-            text(
-                f"SELECT job_id FROM job_info WHERE status IN ({placeholders}) "  # nosec B608 - placeholders only
-                "ORDER BY created_at, job_id LIMIT :limit"
-            ),
-            {**params, "limit": limit},
-        )
+        rows = conn.execute(query, {"statuses": list(statuses), "limit": limit})
         return [row[0] for row in rows]
 
 
