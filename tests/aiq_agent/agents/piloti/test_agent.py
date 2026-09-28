@@ -3248,30 +3248,6 @@ class TestTruncationIsObservable:
             sanitize.side_effect = lambda content: MagicMock(sanitized_report=content)
             yield
 
-    @pytest.fixture
-    def steps(self):
-        """Every custom step pushed during the test, as parsed payloads."""
-        import json
-
-        from nat.builder.context import ContextState
-        from nat.utils.reactive.subject import Subject
-
-        state = ContextState.get()
-        state.active_span_id_stack.set(["root"])
-        state._event_stream.set(Subject())
-        seen: list[dict] = []
-
-        def _on_next(step) -> None:
-            payload = step.payload
-            body = getattr(payload.data, "input", None)
-            if isinstance(body, str) and str(payload.event_type).endswith("START"):
-                seen.append({"step": payload.name, **json.loads(body)})
-
-        state.event_stream.get().subscribe(_on_next)
-        yield seen
-        state.active_span_id_stack.set(["root"])
-        state._event_stream.set(Subject())
-
     async def _truncated_run(self):
         llm = MagicMock()
         llm.bind_tools = MagicMock(return_value=llm)
@@ -3330,31 +3306,31 @@ class TestTruncationIsObservable:
         assert "Lichteinfall" not in line
 
     @pytest.mark.asyncio
-    async def test_the_turn_records_the_truncation_as_telemetry(self, steps):
+    async def test_the_turn_records_the_truncation_as_telemetry(self, emitted):
         await self._truncated_run()
 
-        records = [step for step in steps if step.get("slot") == "budget"]
+        records = [step for step in emitted.steps if step.id == "status:budget"]
         assert records, (
             "evidence-gathering was cut off and the turn emitted no truncation telemetry — "
-            f"nothing here can answer how often it happens; steps were {[s.get('step') for s in steps]}"
+            f"nothing here can answer how often it happens; steps were {[step.id for step in emitted.steps]}"
         )
         record = records[0]
-        assert record["truncated"] is True
-        assert (record["ceiling"], record["research_budget"]) == (5, 5)
-        # Nothing was reserved, so the record carries no such field to read.
-        assert "reserved" not in record
         # `spent` and `rounds` are the same number now: the budget is one unit
         # per ROUND, so a greedy parallel batch cannot outspend its own round.
-        # Both stay on the payload so a record counted across the change reads
-        # the same way.
-        assert record["spent"] == 5
-        assert record["rounds"] == 5
-        assert record["tools"][:2] == ["use_skill", "use_skill"]
+        # Both stay on the record so one counted across the change reads the
+        # same way. Nothing was reserved, so there is no such field to read.
+        assert record.detail == {
+            "truncated": True,
+            "ceiling": 5,
+            "research_budget": 5,
+            "spent": 5,
+            "rounds": 5,
+            "tools": ["use_skill", "use_skill", "knowledge_search", "find_elements", "light_incidence"],
+        }
         # Technical channel, and therefore no `key`: whether the READER is told
         # the answer stopped early is a product decision, and a live key would
         # make it silently.
-        assert record["channel"] == "technical"
-        assert "key" not in record
+        assert (record.channel, record.key) == ("technical", None)
 
     @pytest.mark.asyncio
     async def test_the_answer_carries_the_fact_out_of_the_graph(self):
@@ -3390,7 +3366,7 @@ class TestTruncationIsObservable:
         assert finished.research_truncated is None
 
     @pytest.mark.asyncio
-    async def test_a_turn_that_finishes_inside_its_budget_records_nothing(self, steps):
+    async def test_a_turn_that_finishes_inside_its_budget_records_nothing(self, emitted):
         llm = MagicMock()
         llm.bind_tools = MagicMock(return_value=llm)
         llm.bind = MagicMock(return_value=llm)
@@ -3401,7 +3377,7 @@ class TestTruncationIsObservable:
 
         await agent.run(ResearchAgentState(messages=[HumanMessage(content="Kurz gefragt")]))
 
-        assert [s for s in steps if s.get("slot") == "budget"] == []
+        assert [step for step in emitted.steps if step.id == "status:budget"] == []
 
 
 class TestAssistantCheckpoint:
@@ -3719,7 +3695,7 @@ def _bind_signed_turn(monkeypatch, *, conversation_id: str) -> None:
     import json
     from types import SimpleNamespace
 
-    import nat.builder.context as nat_context
+    from nat.plugin_api import Context
 
     secret = "graph-turn-secret"  # noqa: S105 - test fixture value  # pragma: allowlist secret
     payload = json.dumps(
@@ -3746,7 +3722,7 @@ def _bind_signed_turn(monkeypatch, *, conversation_id: str) -> None:
         conversation_id = None
 
     _Ctx.conversation_id = conversation_id
-    monkeypatch.setattr(nat_context.Context, "get", staticmethod(lambda: _Ctx()))
+    monkeypatch.setattr(Context, "get", staticmethod(lambda: _Ctx()))
 
 
 class TestATurnThatWritesADraft:

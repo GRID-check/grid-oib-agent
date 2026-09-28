@@ -1,42 +1,41 @@
 """Dragonfly (Redis) pub/sub conversation event bus — the stateless-agent target.
 
-Today a chat conversation is pinned to one aiq-agent replica because three
-pieces of live state live in process memory: the WebSocket handle, the HITL
-response ``Future``, and the running LangGraph ``Task`` (see
-``websocket_reconnect.WebSocketSessionRegistry``). Conversation affinity
-(ADR-0028) hashes each conversation to a fixed replica so reconnect/HITL land
-where that state is.
+A running turn holds loop-bound state in one process: its task, its pending HITL
+future, its sequencer (``chat_socket.RunningTurn``). The socket that watches it
+may sit on another replica, so the bus decouples two roles (ADR-0028):
 
-This bus removes the pin by decoupling two roles:
+* **owner** — the replica running the turn. It appends every stamped v2 frame
+  to the conversation's stream and publishes it.
+* **relay** — a replica holding a socket for the conversation. It subscribes
+  and writes frames to its socket, and hands ``interaction_response`` and
+  ``cancel_turn`` to the owner on the input channel, with who sent them, so the
+  owner authorises them itself.
 
-* **owner** — the replica running the turn; it holds the loop-bound ``Future``
-  and ``Task`` and *publishes* every outbound frame + HITL prompt.
-* **relay** — the replica holding the client's socket; it *subscribes* and
-  writes frames to the socket, and *publishes* HITL answers / cancels back.
-
-So any replica can serve any conversation's socket → the tier is stateless.
+Spectators (ADR-0039) are one more subscriber of the events channel (the BFF's
+``/live`` route), and ``attach`` reads a turn back from the stream by its own
+``(turn_id, seq)``.
 
 **Fail-open.** With no ``REDIS_URL`` (dev / single node / tests) the bus uses an
-in-process transport: publish delivers to same-process subscribers only, which
-is exactly the pre-bus single-replica behavior. Nothing here is the source of
-truth — the Postgres LangGraph checkpoint is; the Redis stream buffer used for
-reconnect replay is best-effort (Dragonfly is cache-only, ADR-0020).
+in-process transport: publish delivers to same-process subscribers only, and
+the stream is a bounded in-process buffer, which is still enough for ``attach``
+on the replica that ran the turn. Nothing here is the source of truth — the
+persisted answer is; the stream is best-effort (Dragonfly is cache-only,
+ADR-0020).
 
-The transport is injectable so the whole protocol (fan-out ordering, HITL
-round-trip, supersede/cancel, reconnect replay, owner election) is unit-testable
-over the in-memory transport with two ``ConversationBus`` instances standing in
-for two replicas — no live cluster, no fakeredis dependency.
+The transport is injectable so the whole protocol is unit-testable over the
+in-memory transport with two ``ConversationBus`` instances standing in for two
+replicas — no live cluster, no fakeredis dependency.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import dataclasses
 import json
 import logging
 import os
 import uuid
+from collections import OrderedDict
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -45,76 +44,41 @@ from typing import Protocol
 logger = logging.getLogger(__name__)
 
 # Message types on the envelope (see Envelope.type).
-FRAME = "frame"  # owner -> relays: an outbound WS frame (payload = the WS message dict)
-HITL_ANSWER = "hitl_answer"  # relay -> owner: a human-in-the-loop answer (payload = TextContent dict)
-CANCEL = "cancel"  # relay -> owner: cancel the running turn
-SUPERSEDE = "supersede"  # relay -> owner: a newer turn is starting; drop the old one
-RECONNECT = "reconnect"  # relay -> owner: a socket reattached; re-emit any pending HITL prompt
-TURN_END = "turn_end"  # owner -> relays: the turn produced its terminal frame
+FRAME = "frame"  # owner -> relays: a stamped chat wire v2 event (payload = the frame)
+HITL_ANSWER = "hitl_answer"  # relay -> owner: an interaction_response, with who sent it
+CANCEL = "cancel"  # relay -> owner: a cancel_turn, with who sent it
 
 # Per-conversation channel / key names. Mirrors ADR-0020's ``citations:{id}`` style.
-_EVENTS = "conv:{id}:events"  # owner publishes, relays subscribe
+_EVENTS = "conv:{id}:events"  # owner publishes, relays and spectators subscribe
 _INPUT = "conv:{id}:input"  # relays publish, owner subscribes
-_OWNER = "conv:{id}:owner"  # SET NX EX — which replica runs the turn
-_STREAM = "conv:{id}:stream"  # Redis stream: replayable copy of events for reconnect
+_STREAM = "conv:{id}:stream"  # Redis stream: replayable copy of every frame, read by `attach`
 
-# Every frame of a turn lands here, and a client that lost its socket reads back
-# what it missed (`GET /api/conversations/:id/frames?after=<entry id>`). A long
-# turn is a few hundred frames (deltas, steps, heartbeats), so the cap holds a
-# few turns; the TTL bounds a conversation nobody comes back to.
+# Every frame of a turn lands here, and a socket that `attach`es reads back what
+# it missed by `(turn_id, seq)`. A v2 turn is a few dozen frames, so the cap
+# holds many turns; the TTL bounds a conversation nobody comes back to.
 _STREAM_MAXLEN = int(os.environ.get("GRID_CONV_STREAM_MAXLEN", "2000") or "2000")
 _STREAM_TTL_SECONDS = int(os.environ.get("GRID_CONV_STREAM_TTL_SECONDS", "3600") or "3600")
-_OWNER_TTL_SECONDS = int(os.environ.get("GRID_CONV_OWNER_TTL_SECONDS", "15") or "15")
 
 
 @dataclass(frozen=True)
 class Envelope:
-    """A bus message. ``seq`` is monotonic per conversation from the owner, used
-    to order live frames and to dedupe a replay/live splice on reconnect."""
+    """A bus message. The frame it carries names its own turn and ``seq``; the
+    envelope only routes it (``origin`` lets a replica skip what it published)."""
 
     conv: str
     type: str
     payload: Any
-    seq: int = 0
     origin: str = ""
-    v: int = 1
-    # The frame's entry in the replay stream, once it has one. The cursor a
-    # client resumes from: monotonic across replicas and restarts, unlike `seq`.
-    entry_id: str | None = None
 
     def encode(self) -> str:
-        body: dict[str, Any] = {
-            "v": self.v,
-            "conv": self.conv,
-            "seq": self.seq,
-            "origin": self.origin,
-            "type": self.type,
-            "payload": self.payload,
-        }
-        if self.entry_id:
-            body["entry_id"] = self.entry_id
-        return json.dumps(body)
+        return json.dumps({"conv": self.conv, "origin": self.origin, "type": self.type, "payload": self.payload})
 
     @staticmethod
     def decode(raw: str) -> Envelope:
         d = json.loads(raw)
         return Envelope(
-            conv=d.get("conv", ""),
-            type=d.get("type", ""),
-            payload=d.get("payload"),
-            seq=int(d.get("seq", 0) or 0),
-            origin=d.get("origin", ""),
-            v=int(d.get("v", 1) or 1),
-            entry_id=d.get("entry_id") or None,
+            conv=d.get("conv", ""), type=d.get("type", ""), payload=d.get("payload"), origin=d.get("origin", "")
         )
-
-
-@dataclass(frozen=True)
-class PublishedFrame:
-    """What `publish_frame` assigned: the owner's `seq`, and the frame's replay entry id."""
-
-    seq: int
-    entry_id: str | None
 
 
 class BusTransport(Protocol):
@@ -122,13 +86,15 @@ class BusTransport(Protocol):
 
     async def publish(self, channel: str, data: str) -> None: ...
     def subscribe(self, channel: str) -> AsyncIterator[str]: ...
-    async def xadd(self, stream: str, data: str, maxlen: int, ttl: int) -> str | None: ...
+    async def xadd(self, stream: str, data: str, maxlen: int, ttl: int) -> None: ...
     async def xrange(self, stream: str) -> list[str]: ...
-    async def set_nx_ex(self, key: str, value: str, ttl: int) -> bool: ...
-    async def renew(self, key: str, value: str, ttl: int) -> bool: ...
-    async def get(self, key: str) -> str | None: ...
-    async def delete_if(self, key: str, value: str) -> None: ...
     async def close(self) -> None: ...
+
+
+#: How many conversations' streams the in-process transport keeps. It has no
+#: TTL, so without a cap a long-lived single-node process would keep every
+#: conversation it ever served; the oldest-written stream is dropped first.
+_IN_MEMORY_STREAMS = 256
 
 
 class InMemoryTransport:
@@ -138,10 +104,7 @@ class InMemoryTransport:
 
     def __init__(self) -> None:
         self._subs: dict[str, list[asyncio.Queue[str]]] = {}
-        self._streams: dict[str, list[str]] = {}
-        self._keys: dict[str, str] = {}
-        self._lock = asyncio.Lock()
-        self._entry_counter = 0
+        self._streams: OrderedDict[str, list[str]] = OrderedDict()
 
     async def publish(self, channel: str, data: str) -> None:
         for q in list(self._subs.get(channel, ())):
@@ -158,40 +121,16 @@ class InMemoryTransport:
             if subs and q in subs:
                 subs.remove(q)
 
-    async def xadd(self, stream: str, data: str, maxlen: int, ttl: int) -> str | None:
+    async def xadd(self, stream: str, data: str, maxlen: int, ttl: int) -> None:
         buf = self._streams.setdefault(stream, [])
+        self._streams.move_to_end(stream)
         buf.append(data)
-        if len(buf) > maxlen:
-            del buf[: len(buf) - maxlen]
-        self._entry_counter += 1
-        return f"{self._entry_counter}-0"
+        del buf[: max(0, len(buf) - maxlen)]
+        while len(self._streams) > _IN_MEMORY_STREAMS:
+            self._streams.popitem(last=False)
 
     async def xrange(self, stream: str) -> list[str]:
         return list(self._streams.get(stream, ()))
-
-    async def set_nx_ex(self, key: str, value: str, ttl: int) -> bool:
-        async with self._lock:
-            if key in self._keys:
-                return False
-            self._keys[key] = value
-            return True
-
-    async def renew(self, key: str, value: str, ttl: int) -> bool:
-        async with self._lock:
-            if self._keys.get(key) == value:
-                return True
-            if key not in self._keys:
-                self._keys[key] = value
-                return True
-            return False
-
-    async def get(self, key: str) -> str | None:
-        return self._keys.get(key)
-
-    async def delete_if(self, key: str, value: str) -> None:
-        async with self._lock:
-            if self._keys.get(key) == value:
-                self._keys.pop(key, None)
 
     async def close(self) -> None:
         return None
@@ -213,8 +152,8 @@ class RedisTransport:
         else:
             from redis.asyncio import Redis
 
-            # Command client: a short read timeout so publish/set/get/xadd fail
-            # fast (and the bus fails open) instead of hanging the request path.
+            # Command client: a short read timeout so publish/xadd fail fast
+            # (and the bus fails open) instead of hanging the request path.
             self._redis = Redis.from_url(url, decode_responses=True, socket_timeout=1.0, socket_connect_timeout=1.0)
             # Pub/sub client: subscribe reads BLOCK waiting for the next message,
             # so they must NOT inherit the 1s command timeout — that raised
@@ -245,38 +184,16 @@ class RedisTransport:
                 await pubsub.unsubscribe(channel)
                 await pubsub.aclose()
 
-    async def xadd(self, stream: str, data: str, maxlen: int, ttl: int) -> str | None:
-        # One round trip for both: this runs for every streamed delta.
+    async def xadd(self, stream: str, data: str, maxlen: int, ttl: int) -> None:
+        # One round trip for both: this runs for every frame.
         async with self._redis.pipeline(transaction=False) as pipe:
             pipe.xadd(stream, {"d": data}, maxlen=maxlen, approximate=True)
             pipe.expire(stream, ttl)
-            entry_id, _ = await pipe.execute()
-        return entry_id
+            await pipe.execute()
 
     async def xrange(self, stream: str) -> list[str]:
         entries = await self._redis.xrange(stream)
         return [fields["d"] for _id, fields in entries if "d" in fields]
-
-    async def set_nx_ex(self, key: str, value: str, ttl: int) -> bool:
-        return bool(await self._redis.set(key, value, nx=True, ex=ttl))
-
-    async def renew(self, key: str, value: str, ttl: int) -> bool:
-        # Renew only if we still own it (or claim if vacant). Best-effort.
-        current = await self._redis.get(key)
-        if current is None:
-            return bool(await self._redis.set(key, value, nx=True, ex=ttl))
-        if current == value:
-            await self._redis.expire(key, ttl)
-            return True
-        return False
-
-    async def get(self, key: str) -> str | None:
-        return await self._redis.get(key)
-
-    async def delete_if(self, key: str, value: str) -> None:
-        current = await self._redis.get(key)
-        if current == value:
-            await self._redis.delete(key)
 
     async def close(self) -> None:
         with contextlib.suppress(Exception):
@@ -292,34 +209,13 @@ class ConversationBus:
     def __init__(self, transport: BusTransport, replica_id: str | None = None) -> None:
         self._t = transport
         self.replica_id = replica_id or f"{os.environ.get('HOSTNAME', 'local')}:{uuid.uuid4().hex[:8]}"
-        self._seq: dict[str, int] = {}
-
-    # ---- owner election -------------------------------------------------
-    async def claim_owner(self, conv: str) -> bool:
-        """Try to become the turn owner for ``conv`` (SET NX EX). True on success."""
-        return await self._t.set_nx_ex(_OWNER.format(id=conv), self.replica_id, _OWNER_TTL_SECONDS)
-
-    async def renew_owner(self, conv: str) -> bool:
-        return await self._t.renew(_OWNER.format(id=conv), self.replica_id, _OWNER_TTL_SECONDS)
-
-    async def get_owner(self, conv: str) -> str | None:
-        return await self._t.get(_OWNER.format(id=conv))
-
-    async def release_owner(self, conv: str) -> None:
-        await self._t.delete_if(_OWNER.format(id=conv), self.replica_id)
-        self._seq.pop(conv, None)
 
     # ---- owner -> relays (outbound frames) ------------------------------
-    async def publish_frame(self, conv: str, frame: dict, *, terminal: bool = False) -> PublishedFrame:
-        """Append an outbound WS frame to the replay stream, then publish it with
-        its entry id. Called from the emit choke point on the owner."""
-        seq = self._seq.get(conv, 0) + 1
-        self._seq[conv] = seq
-        env = Envelope(conv=conv, type=TURN_END if terminal else FRAME, payload=frame, seq=seq, origin=self.replica_id)
-        entry_id = await self._t.xadd(_STREAM.format(id=conv), env.encode(), _STREAM_MAXLEN, _STREAM_TTL_SECONDS)
-        published = dataclasses.replace(env, entry_id=entry_id) if entry_id else env
-        await self._t.publish(_EVENTS.format(id=conv), published.encode())
-        return PublishedFrame(seq=seq, entry_id=entry_id)
+    async def publish_frame(self, conv: str, frame: dict[str, Any]) -> None:
+        """Append a stamped v2 frame to the replay stream, then publish it to relays and spectators."""
+        env = Envelope(conv=conv, type=FRAME, payload=frame, origin=self.replica_id).encode()
+        await self._t.xadd(_STREAM.format(id=conv), env, _STREAM_MAXLEN, _STREAM_TTL_SECONDS)
+        await self._t.publish(_EVENTS.format(id=conv), env)
 
     async def subscribe_frames(self, conv: str) -> AsyncIterator[Envelope]:
         """Relay side: yield outbound frames as they are published by the owner.
@@ -331,24 +227,21 @@ class ConversationBus:
                 continue
             yield env
 
-    async def replay_frames(self, conv: str, after_seq: int = 0) -> list[Envelope]:
-        """Reconnect: frames buffered in the stream with seq > after_seq, ordered."""
-        out = [Envelope.decode(raw) for raw in await self._t.xrange(_STREAM.format(id=conv))]
-        return [e for e in out if e.seq > after_seq]
+    async def replay_turn(self, conv: str, turn_id: str) -> list[dict[str, Any]]:
+        """`attach`: every frame of one turn the stream still holds, in ``seq`` order.
+
+        The cursor is the frame's own ``(turn_id, seq)``, so the stream entry id
+        never reaches a client and a turn is read back the same from any replica.
+        """
+        frames = [Envelope.decode(raw).payload for raw in await self._t.xrange(_STREAM.format(id=conv))]
+        mine = [frame for frame in frames if isinstance(frame, dict) and frame.get("turn_id") == turn_id]
+        return sorted(mine, key=lambda frame: frame["seq"])
 
     # ---- relays -> owner (answers / control) ----------------------------
-    async def publish_answer(self, conv: str, text_content: dict) -> None:
-        await self._t.publish(
-            _INPUT.format(id=conv),
-            Envelope(conv=conv, type=HITL_ANSWER, payload=text_content, origin=self.replica_id).encode(),
-        )
-
-    async def publish_control(self, conv: str, control_type: str) -> None:
-        """control_type in {CANCEL, SUPERSEDE, RECONNECT}."""
-        await self._t.publish(
-            _INPUT.format(id=conv),
-            Envelope(conv=conv, type=control_type, payload=None, origin=self.replica_id).encode(),
-        )
+    async def publish_input(self, conv: str, input_type: str, payload: dict[str, Any]) -> None:
+        """A relay hands a client message to the owner: ``HITL_ANSWER`` or ``CANCEL``."""
+        env = Envelope(conv=conv, type=input_type, payload=payload, origin=self.replica_id)
+        await self._t.publish(_INPUT.format(id=conv), env.encode())
 
     async def subscribe_input(self, conv: str) -> AsyncIterator[Envelope]:
         """Owner side: yield answers + control messages from relays."""

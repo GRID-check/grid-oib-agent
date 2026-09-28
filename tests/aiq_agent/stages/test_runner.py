@@ -12,6 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from aiq_agent.common.model_overrides import AgentGroup
+from aiq_agent.common.wire_v2 import StageValue
 from aiq_agent.stages import registry
 from aiq_agent.stages import runner
 from aiq_agent.stages.spec import GateDecision
@@ -343,46 +344,40 @@ class TestBackpressureAndIdempotency:
 
 class TestFrameDelivery:
     @pytest.mark.asyncio
-    async def test_a_frame_stage_hands_its_payload_to_the_registered_sink(self):
+    async def test_a_frame_stage_hands_its_value_to_the_registered_sink_for_its_turn(self):
         sent = []
 
-        async def _sink(conversation_id, frame):
-            sent.append((conversation_id, frame))
+        async def _sink(conversation_id, turn_id, value):
+            sent.append((conversation_id, turn_id, value))
             return True
 
         from aiq_agent.stages import delivery
 
         delivery.register_stage_frame_sink(_sink)
         try:
-            _spec(lambda ctx: _returns({"items": []}), delivery="frame")
-            await _run_all(_facts())
+            _spec(lambda ctx: _returns({"items": []}), stage_id="follow_ups", delivery="frame")
+            await _run_all(_facts(enabled_stages=frozenset({"follow_ups"})))
         finally:
             delivery.register_stage_frame_sink(None)
 
-        assert len(sent) == 1
-        conversation_id, frame = sent[0]
-        assert conversation_id == "conv_1"
-        assert frame["type"] == "grid_stage_message"
-        assert frame["v"] == 1
-        assert frame["stage"] == "probe"
-        assert frame["status"] == "ready"
-        assert frame["parent_id"] == "msg_1755600000000_3"
-        assert frame["payload"] == {"items": []}
+        assert sent == [
+            ("conv_1", "msg_1755600000000_3", StageValue(stage="follow_ups", status="ready", payload={"items": []}))
+        ]
 
     @pytest.mark.asyncio
     async def test_a_sink_that_raises_cannot_take_the_stage_down(self):
-        async def _sink(conversation_id, frame):
+        async def _sink(conversation_id, turn_id, value):
             raise RuntimeError("socket gone")
 
         from aiq_agent.stages import delivery
 
         delivery.register_stage_frame_sink(_sink)
         try:
-            _spec(lambda ctx: _returns({"items": []}), delivery="frame")
-            outcomes = await _run_all(_facts())
+            _spec(lambda ctx: _returns({"items": []}), stage_id="follow_ups", delivery="frame")
+            outcomes = await _run_all(_facts(enabled_stages=frozenset({"follow_ups"})))
         finally:
             delivery.register_stage_frame_sink(None)
-        assert outcomes["probe"].status == "ready"
+        assert outcomes["follow_ups"].status == "ready"
 
     @pytest.mark.asyncio
     async def test_wiring_the_delivery_changes_nothing_that_lands_in_the_spans(self):
@@ -398,14 +393,14 @@ class TestFrameDelivery:
         """
         from aiq_agent.stages import delivery
 
-        async def _sink(conversation_id, frame):
+        async def _sink(conversation_id, turn_id, value):
             return True
 
         def _metadata_for(mode):
             registry._STAGES.clear()
             runner._claimed_keys.clear()
-            _spec(lambda ctx: _returns(StageEmpty("model_declined")), delivery=mode)
-            return _facts()
+            _spec(lambda ctx: _returns(StageEmpty("model_declined")), stage_id="follow_ups", delivery=mode)
+            return _facts(enabled_stages=frozenset({"follow_ups"}))
 
         spans = {}
         delivery.register_stage_frame_sink(_sink)
@@ -414,7 +409,7 @@ class TestFrameDelivery:
                 facts = _metadata_for(mode)
                 with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
                     await _run_all(facts)
-                spans[mode] = next(s for s in _spans(post) if s["name"] == "stage:probe")["metadata"]
+                spans[mode] = next(s for s in _spans(post) if s["name"] == "stage:follow_ups")["metadata"]
         finally:
             delivery.register_stage_frame_sink(None)
 
@@ -430,8 +425,8 @@ class TestFrameDelivery:
     async def test_a_silent_stage_never_touches_the_sink(self):
         sent = []
 
-        async def _sink(conversation_id, frame):
-            sent.append(frame)
+        async def _sink(conversation_id, turn_id, value):
+            sent.append(value)
             return True
 
         from aiq_agent.stages import delivery

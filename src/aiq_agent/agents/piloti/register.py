@@ -25,7 +25,6 @@ from pydantic import Field
 from aiq_agent.common import AgentGroup
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import VerboseTraceCallback
-from aiq_agent.common import _create_chat_response
 from aiq_agent.common import format_user_facing_tool_error
 from aiq_agent.common import get_all_tool_refs
 from aiq_agent.common import get_langchain_llm
@@ -47,15 +46,14 @@ from aiq_agent.skills import SkillResolver
 from aiq_agent.skills import SkillRuntime
 from aiq_agent.skills.events import emit_skills_offered
 from aiq_agent.tools.documents.tools import draft_tools_for_turn
-from nat.builder.builder import Builder
-from nat.builder.framework_enum import LLMFrameworkEnum
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.api_server import ChatResponse
-from nat.data_models.component_ref import FunctionGroupRef
-from nat.data_models.component_ref import FunctionRef
-from nat.data_models.component_ref import LLMRef
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionGroupRef
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import FunctionRef
+from nat.plugin_api import LLMFrameworkEnum
+from nat.plugin_api import LLMRef
+from nat.plugin_api import register_function
 
 # Importing this module runs its ``@register_function`` so NAT discovers the
 # ``ask_user`` tool through the same ``aiq_researcher`` entry point
@@ -635,14 +633,12 @@ class ResearchWorkflowConfig(FunctionBaseConfig, name="research_workflow"):
 async def research_workflow(config: ResearchWorkflowConfig, builder: Builder):
     """Wrapper workflow that accepts string queries for evaluation."""
     research_agent_fn = await builder.get_function("shallow_research_agent")
-    workflow_id = config.name or config.type
 
-    async def _run(query: str, project_context: str | None = None) -> ChatResponse:
+    async def _run(query: str, project_context: str | None = None) -> str:
         """Run research on a query string."""
         result = await research_agent_fn.ainvoke(
             ResearchAgentState(messages=[HumanMessage(content=query)], project_context=project_context)
         )
-        response_content = result.messages[-1].content
-        return _create_chat_response(response_content, response_id="research_response", model=workflow_id)
+        return str(result.messages[-1].content)
 
     yield FunctionInfo.from_fn(_run, description="Research workflow for evaluation (accepts string query).")

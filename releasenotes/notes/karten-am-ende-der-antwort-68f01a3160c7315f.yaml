@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    A card in a streamed answer now grows into its place in one smooth movement,
+    without blinking or pushing the text twice. The answer also settles sooner
+    at the end, because saving waits until it is on screen.

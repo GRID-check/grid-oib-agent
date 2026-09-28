@@ -26,11 +26,11 @@ from ris_adapter.lookup.telemetry import emit_lookup_span
 from ris_adapter.lookup.trace import LookupTrace
 from ris_adapter.register import _make_planner
 
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.component_ref import LLMRef
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import LLMRef
+from nat.plugin_api import register_function
 
 logger = logging.getLogger(__name__)
 

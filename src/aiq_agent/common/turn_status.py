@@ -75,48 +75,82 @@ live line. Two further rules follow from that:
 How it reaches the user
 -----------------------
 
-**It is a custom step, on the same wire.** No new frame type, no schema
-change: :func:`push_custom_step` pushes an ordinary
-``IntermediateStepPayload`` through the run's ``IntermediateStepManager``,
-which the step adaptor already forwards. Two constraints shape how:
+**Each event is a typed step on the chat wire** (``common/wire_v2.py``,
+``docs/design/chat-wire-v2.md`` §b). :func:`emit_step` writes it to the running
+graph's custom stream through LangGraph's own ``get_stream_writer()``, and the
+chat socket stamps and sends it. Outside a graph run there is no stream, so a
+producer that runs there (the setup phase in ``_run``) builds its step with a
+``*_step`` builder and ``_run`` yields it. Under ``ainvoke`` (a deep-research
+job worker) the writer is a no-op.
 
-1. The adaptor's DEFAULT mode (this repo sets no ``step_adaptor:`` block, so
-   DEFAULT is what runs) forwards only LLM, TOOL and FUNCTION categories —
-   ``CUSTOM_*`` events are dropped before they reach a socket. So a
-   transparency step is a FUNCTION step, and its name is what the frontend
-   reads as the function name.
-2. A START event pushes a frame onto the run's ``active_span_id_stack`` that
-   only the matching END pops. Pushing a lone START would leak a frame and
-   corrupt the *next* legitimate close — the exact fault
-   ``common.nat_step_repair`` exists to repair. So every step here is pushed
-   as a balanced START/END pair with one shared UUID, and the stack is
-   restored before the function returns.
-
-**The step NAME is load-bearing.** The frontend dedupes thinking steps on the
-parsed function name, so two statuses sharing a name collapse into one step
-instead of appearing as two. Each status therefore gets its own ``status:``
-slot, and the skills substrate (``skills.events``) names its steps per skill
-for the same reason.
-
-**It never fails a turn.** A transparency event is worth strictly less than
-the answer it describes. Every push is wrapped and logged at debug: if the
-context is missing, the manager is unhappy, or a payload will not serialise,
-the turn proceeds in silence exactly as it did before this module existed.
+**The step id is load-bearing.** The same id again replaces the row, so each
+status gets its own ``status:<slot>`` id and the skills substrate
+(``skills.events``) one per skill.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import uuid
 from collections.abc import Iterator
 from collections.abc import Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from contextvars import Token
 from typing import Any
+from typing import Literal
+from uuid import UUID
+
+from langchain_core.callbacks import AsyncCallbackHandler
+from langgraph.config import get_stream_writer
+
+from aiq_agent.common.wire_v2 import Channel
+from aiq_agent.common.wire_v2 import EventBody
+from aiq_agent.common.wire_v2 import RetrievalStep
+from aiq_agent.common.wire_v2 import Scalar
+from aiq_agent.common.wire_v2 import Scope
+from aiq_agent.common.wire_v2 import StatusStep
+from aiq_agent.common.wire_v2 import Step
+from aiq_agent.common.wire_v2 import StepFinishedBody
+from aiq_agent.common.wire_v2 import StepStartedBody
+from aiq_agent.common.wire_v2 import ToolStep
 
 logger = logging.getLogger(__name__)
+
+
+def emit(body: EventBody) -> None:
+    """Write one wire body to the running graph's custom stream. Outside a graph run, nothing."""
+    try:
+        writer = get_stream_writer()
+    except (RuntimeError, KeyError):  # no graph run: outside any runnable, or in a runnable outside a graph
+        return
+    writer(body)
+
+
+#: Which agent is taking the steps emitted in this context. The deep researcher
+#: binds ``deep`` around its run (:func:`step_scope`), so every step its nodes,
+#: tools and callbacks emit is drawn as deep research's, with no producer
+#: having to know which agent called it.
+_step_scope: ContextVar[Scope] = ContextVar("grid_step_scope", default="chat")
+
+
+@contextmanager
+def step_scope(scope: Scope) -> Iterator[None]:
+    """Stamp every step emitted inside this block with ``scope``."""
+    token = _step_scope.set(scope)
+    try:
+        yield
+    finally:
+        _step_scope.reset(token)
+
+
+def emit_step(step: Step, *, started: bool = False) -> None:
+    """Emit one Herleitung row: STEP_STARTED for a step with a duration, else STEP_FINISHED."""
+    scope = _step_scope.get()
+    if scope != step.scope:
+        step = step.model_copy(update={"scope": scope})
+    emit(StepStartedBody(step=step) if started else StepFinishedBody(step=step))
+
 
 #: Which retrieval round the agent is in RIGHT NOW — the slot ``emit_retrieval``
 #: just announced. Knowledge-layer Trace-Lanes read this so a hit is stamped
@@ -266,19 +300,19 @@ def get_lane_captures() -> list[dict[str, Any]]:
     return list(_lane_captured_hits.get() or [])
 
 
-#: Step-name prefix for the status one-liners in this module. The suffix is the
-#: SLOT (``status:context``, ``status:routing``, …) — one step per slot, so the
-#: frontend's name-based dedupe keeps them apart instead of merging them.
+#: Step-id prefix for the status rows in this module. The suffix is the SLOT
+#: (``status:context``, ``status:routing``, …): the same id replaces the row,
+#: so one slot is one row.
 STATUS_STEP_PREFIX = "status:"
 
-#: ``channel`` on the payload. ``live`` may be shown as the single running
+#: ``channel`` on the step. ``live`` may be shown as the single running
 #: one-liner; ``technical`` is for the opt-in details panel ONLY. The
 #: distinction is the difference between what the reader is told and what an
 #: operator can go look up, and the frontend must not blur it: this product
 #: already shipped a phantom "web search" line because an availability signal
 #: was rendered as activity.
-CHANNEL_LIVE = "live"
-CHANNEL_TECHNICAL = "technical"
+CHANNEL_LIVE: Channel = "live"
+CHANNEL_TECHNICAL: Channel = "technical"
 
 #: Room for the quoted retrieval query inside a status line, after the label
 #: and the punctuation around it. Budgeted here rather than in the frontend
@@ -419,87 +453,82 @@ def clip(text: str, limit: int) -> str:
     return text[: max(1, limit - 1)].rstrip() + "…"
 
 
-def push_custom_step(step_name: str, payload: dict[str, Any]) -> None:
-    """Push ONE balanced custom FUNCTION step named ``step_name``.
+def status_step(
+    slot: str,
+    key: str | None = None,
+    *,
+    values: dict[str, Any] | None = None,
+    channel: Channel = CHANNEL_LIVE,
+    **detail: Scalar | list[str] | None,
+) -> StatusStep:
+    """One status row, id ``status:<slot>``.
 
-    ``payload`` is serialised to compact JSON and carried as the step's
-    ``data.input``/``data.output``, which is what the step adaptor renders into
-    the frame's payload string. JSON rather than prose because every consumer
-    then parses one shape, and adding a field later cannot break a reader that
-    does not know about it.
-
-    Fail-open by contract — see the module docstring. Never raises.
+    Args:
+        slot: The status slot (``context``, ``routing``, …). Also the step id's
+            suffix, so a second event in the same slot replaces the first.
+        key: The stable dotted id the frontend resolves to a sentence. NOT copy
+            (see the module docstring), and absent on a technical record.
+        values: Interpolation data ONLY, stringified. Empty values are dropped
+            so a template placeholder is either filled or visibly not.
+        channel: :data:`CHANNEL_LIVE` or :data:`CHANNEL_TECHNICAL`.
+        detail: Structured detail that is NOT part of the sentence (a count, a
+            reason, a token). ``None`` is omitted, so absent stays absent.
     """
-    try:
-        from nat.builder.context import Context
-        from nat.data_models.intermediate_step import IntermediateStepPayload
-        from nat.data_models.intermediate_step import IntermediateStepType
-        from nat.data_models.intermediate_step import StreamEventData
-
-        body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-        step_id = str(uuid.uuid4())
-        manager = Context.get().intermediate_step_manager
-        manager.push_intermediate_step(
-            IntermediateStepPayload(
-                UUID=step_id,
-                event_type=IntermediateStepType.FUNCTION_START,
-                name=step_name,
-                data=StreamEventData(input=body),
-            )
-        )
-        # Same UUID, immediately: closes the span this call opened so the next
-        # real END still pops exactly one frame (see the module docstring).
-        manager.push_intermediate_step(
-            IntermediateStepPayload(
-                UUID=step_id,
-                event_type=IntermediateStepType.FUNCTION_END,
-                name=step_name,
-                data=StreamEventData(input=body, output=body),
-            )
-        )
-    except Exception:  # noqa: BLE001 — transparency must never take a turn down
-        logger.debug("Transparency step %r not emitted", step_name, exc_info=True)
+    clean = {name: str(value).strip() for name, value in (values or {}).items() if value is not None}
+    return StatusStep(
+        id=f"{STATUS_STEP_PREFIX}{slot}",
+        slot=slot,
+        key=key,
+        values={name: text for name, text in clean.items() if text},
+        channel=channel,
+        detail={name: value for name, value in detail.items() if value is not None},
+    )
 
 
 def emit_status(
     slot: str,
-    key: str,
+    key: str | None = None,
     *,
     values: dict[str, Any] | None = None,
-    channel: str = CHANNEL_LIVE,
-    **extra: Any,
+    channel: Channel = CHANNEL_LIVE,
+    **detail: Scalar | list[str] | None,
 ) -> None:
-    """Emit one status event into the run's step stream.
+    """Emit one :func:`status_step`."""
+    emit_step(status_step(slot, key, values=values, channel=channel, **detail))
 
-    Args:
-        slot: The status slot (``context``, ``routing``, …). Becomes the step
-            name, so it is also the frontend's dedupe key.
-        key: The stable dotted id the frontend resolves to a sentence. NOT
-            copy — see the module docstring.
-        values: Interpolation data ONLY, stringified. Empty values are dropped
-            so a template placeholder is either filled or the frontend can see
-            that it was not.
-        channel: :data:`CHANNEL_LIVE` or :data:`CHANNEL_TECHNICAL`.
-        extra: Structured detail that is NOT part of the sentence (the intent,
-            the depth, the classifier's reason, a source count). ``None``
-            values are omitted so an absent detail is absent rather than null.
+
+def emit_technical(slot: str, **detail: Scalar | list[str] | None) -> None:
+    """Emit one technical record: no key, no values, only detail an operator counts."""
+    emit_status(slot, channel=CHANNEL_TECHNICAL, **detail)
+
+
+class ToolStepCallback(AsyncCallbackHandler):
+    """Every tool call of a graph run as a ``tool`` step: its basename and outcome, never its I/O.
+
+    Added once to the conversation graph's run config. NAT's profiler still
+    bills and traces tools through its own handler; this one only tells the
+    reader a tool ran. One instance per run: it remembers each running call's
+    name until the call ends.
     """
-    clean: dict[str, str] = {}
-    for name, value in (values or {}).items():
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            clean[name] = text
-    payload: dict[str, Any] = {
-        "kind": "status",
-        "channel": channel,
-        "slot": slot,
-        "key": key,
-        "values": clean,
-    }
-    payload.update({name: value for name, value in extra.items() if value is not None})
-    push_custom_step(f"{STATUS_STEP_PREFIX}{slot}", payload)
+
+    def __init__(self) -> None:
+        self._running: dict[UUID, str] = {}
+
+    async def on_tool_start(self, serialized: dict[str, Any], input_str: str, *, run_id: UUID, **kwargs: Any) -> None:
+        tool = tool_basename(str(serialized.get("name") or kwargs.get("name") or "")) or "tool"
+        self._running[run_id] = tool
+        emit_step(ToolStep(id=f"tool:{run_id}", tool=tool), started=True)
+
+    async def on_tool_end(self, output: Any, *, run_id: UUID, **kwargs: Any) -> None:
+        self._finish(run_id, "ok")
+
+    async def on_tool_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None:
+        self._finish(run_id, "error")
+
+    def _finish(self, run_id: UUID, status: Literal["ok", "error"]) -> None:
+        tool = self._running.pop(run_id, None)
+        if tool is not None:
+            emit_step(ToolStep(id=f"tool:{run_id}", tool=tool, status=status))
 
 
 # --- What each moment is called ---------------------------------------------
@@ -869,8 +898,11 @@ _SHELF_IDS = {
 _SHELF_SEVERAL = "several"
 
 
-def emit_documents_loading(shelves: list[str] | None = None) -> None:
+def documents_loading_step(shelves: list[str] | None = None) -> StatusStep | None:
     """The pre-graph I/O phase — but ONLY when the reader's own files are in it.
+
+    Returned, not emitted: it runs in the setup phase, before any graph, and
+    ``_run`` yields it.
 
     The first hole in the turn, and until now a total one: no frame of any kind
     existed before the intent classifier's LLM call, so the user watched a
@@ -887,19 +919,14 @@ def emit_documents_loading(shelves: list[str] | None = None) -> None:
         if shelf_id and shelf_id not in named:
             named.append(shelf_id)
     if not named:
-        return
+        return None
     where = named[0] if len(named) == 1 else _SHELF_SEVERAL
-    emit_status(
-        "documents",
-        f"{KEY_DOCUMENTS_PREFIX}{where}",
-        shelves=list(shelves or ()),
-    )
+    return status_step("documents", f"{KEY_DOCUMENTS_PREFIX}{where}", shelves=[str(shelf) for shelf in shelves or ()])
 
 
 #: Slot for the subject-document read that runs before the graph starts. Its own
-#: slot rather than ``documents`` because the frontend dedupes thinking steps by
-#: step name, and this event would otherwise replace the shelf line the reader
-#: was just shown.
+#: slot rather than ``documents``, because the same step id replaces the row and
+#: this event would otherwise replace the shelf line the reader was just shown.
 SUBJECT_DOCUMENT_SLOT = "documents:subject"
 
 #: Why the subject version could not be read. Stable tokens, because the question
@@ -919,7 +946,7 @@ SUBJECT_NOT_STORED = "not_stored"
 SUBJECT_ABSENT = "absent"
 
 
-def emit_subject_document(
+def subject_document_step(
     *,
     loaded: bool,
     document_id: str | None = None,
@@ -928,8 +955,10 @@ def emit_subject_document(
     path: str | None = None,
     chars: int | None = None,
     reason: str | None = None,
-) -> None:
+) -> StatusStep:
     """Record that the turn's subject document was (or was not) read as bytes.
+
+    Returned, not emitted: the read runs in the setup phase and ``_run`` yields it.
 
     **Technical channel, and therefore no ``key``.** A live key is resolved
     against ``chat.thinking.turnStatus.*`` in the frontend dictionary, and every
@@ -952,23 +981,17 @@ def emit_subject_document(
             :data:`SUBJECT_ABSENT`, :data:`SUBJECT_EMPTY`,
             :data:`SUBJECT_NOT_STORED` — only on a miss.
     """
-    payload: dict[str, Any] = {
-        "kind": "status",
-        "channel": CHANNEL_TECHNICAL,
-        "slot": SUBJECT_DOCUMENT_SLOT,
-        "loaded": loaded,
-    }
-    for name, value in (
-        ("document_id", document_id),
-        ("version_id", version_id),
-        ("state", state),
-        ("path", path),
-        ("chars", chars),
-        ("reason", reason),
-    ):
-        if value is not None:
-            payload[name] = value
-    push_custom_step(f"{STATUS_STEP_PREFIX}{SUBJECT_DOCUMENT_SLOT}", payload)
+    return status_step(
+        SUBJECT_DOCUMENT_SLOT,
+        channel=CHANNEL_TECHNICAL,
+        loaded=loaded,
+        document_id=document_id,
+        version_id=version_id,
+        state=state,
+        path=path,
+        chars=chars,
+        reason=reason,
+    )
 
 
 #: (A `purpose` field once sat here and was removed before release: it was
@@ -1091,7 +1114,7 @@ def emit_retrieval(
     Aggregated per round rather than per call because the model emits its calls
     in parallel batches — three separate lines in the same instant would be a
     log stream, not a status. ``round_index`` keeps successive rounds from
-    collapsing into one step under the frontend's name dedupe.
+    collapsing into one row under one step id.
 
     ``conclusion`` is the model's own one-sentence Thought for this round —
     what it now knows and what it still needs. Same discipline as escalation
@@ -1131,12 +1154,15 @@ def emit_retrieval(
         # land later (and get merged onto one thinking step) still know which
         # fetch they belonged to.
         _retrieval_round.set(round_index)
-        emit_status(
-            f"retrieval:{round_index}",
-            key,
-            values=values,
-            tools=tools,
-            reason=reason,
+        emit_step(
+            RetrievalStep(
+                id=f"{STATUS_STEP_PREFIX}retrieval:{round_index}",
+                round=round_index,
+                key=key,
+                values=values,
+                tools=tools,
+                reason=reason,
+            )
         )
         # Emitted HERE rather than by the caller so the two can never disagree:
         # ``hasConclusion`` is exactly "this layer got a body", read off the same
@@ -1145,7 +1171,7 @@ def emit_retrieval(
         emit_checkpoint(round_index=round_index, has_conclusion=reason is not None, source=conclusion_source)
         return True
     # An action round is not a retrieval round. Putting one on
-    # ``status:retrieval:N`` stole the next search's slot under name-dedupe.
+    # ``status:retrieval:N`` stole the next search's row.
     # The slot is derived from the KEY rather than from the tool name, so the
     # two verbs that share :data:`KEY_ACTION_FILE_PROPOSAL` share one slot as
     # well: one key, one line, one step — which is what that key was for.
@@ -1155,8 +1181,8 @@ def emit_retrieval(
 
 
 #: Slot prefix for the Herleitung checkpoint record. The round is part of the
-#: STEP NAME, like ``status:retrieval:N`` and for the same reason: two steps
-#: sharing a name collapse into one under the frontend's dedupe, and a spine of
+#: STEP ID, like ``status:retrieval:N`` and for the same reason: two steps
+#: sharing an id collapse into one row, and a spine of
 #: three rounds that reports one checkpoint is not countable.
 CHECKPOINT_SLOT = "checkpoint"
 
@@ -1187,28 +1213,20 @@ def emit_checkpoint(*, round_index: int, has_conclusion: bool, source: str = CHE
     that bet's scoreboard, and without it a prompt edit could only be argued
     about.
     """
-    push_custom_step(
-        f"{STATUS_STEP_PREFIX}{CHECKPOINT_SLOT}:{round_index}",
-        {
-            "kind": "status",
-            "channel": CHANNEL_TECHNICAL,
-            "slot": f"{CHECKPOINT_SLOT}:{round_index}",
-            "round": round_index,
-            "hasConclusion": has_conclusion,
-            "source": source,
-        },
-    )
+    emit_technical(f"{CHECKPOINT_SLOT}:{round_index}", round=round_index, hasConclusion=has_conclusion, source=source)
 
 
-def emit_documents_waiting(*, file_count: int) -> None:
+def documents_waiting_step(*, file_count: int) -> StatusStep:
     """The turn holding for an upload that is still being indexed.
+
+    Returned, not emitted: the hold is in the setup phase and ``_run`` yields it.
 
     Rare by construction — most turns have nothing in flight — and the one
     honest account of a turn whose first byte is seconds later than usual:
     the question is about a file that does not exist to search yet, and the
     answer is worth more after it does.
     """
-    emit_status("documents:waiting", KEY_DOCUMENTS_WAITING, file_count=file_count)
+    return status_step("documents:waiting", KEY_DOCUMENTS_WAITING, file_count=file_count)
 
 
 def emit_retrieval_requery(*, query_count: int) -> None:
@@ -1242,8 +1260,8 @@ def emit_answer_repair(*, quotes: int) -> None:
     wording, in place, rather than shipped marked (ADR-0067).
 
     The count rides this step as technical detail rather than a second,
-    technical-channel step of its own: the frontend dedupes status steps by
-    name. The live line renders from ``key``; ``quotesFailed`` is what the
+    technical-channel step of its own: a second step in the same slot would
+    replace this one. The live line renders from ``key``; ``quotesFailed`` is what the
     opt-in Herleitung detail shows, a count rather than text for the same
     reason every other record here is: a quote is the model's words about the
     reader's document, and telemetry keeps neither.
@@ -1281,21 +1299,21 @@ def emit_synthesis() -> None:
 
 
 #: Slot for the budget-exhaustion record. Its own slot, so it never overwrites
-#: a retrieval line and the frontend's name dedupe keeps it apart.
+#: a retrieval line and its own step id keeps it apart.
 BUDGET_SLOT = "budget"
 
 #: Slot for the INPUT-TOKEN stop. Its own slot rather than :data:`BUDGET_SLOT`,
 #: for the reason ``budget:deep`` has one: two step records sharing a name
-#: collapse under the frontend's dedupe, and these two answer different
+#: collapse into one row, and these two answer different
 #: questions — "the investigation was cut off" against "the turn got
 #: expensive". Counting them together would make either unanswerable.
 INPUT_BUDGET_SLOT = "budget:input"
 
 
 #: Slot prefix for the family-coverage record. The family key is part of the
-#: STEP NAME, like ``status:checkpoint:N`` and for the same reason: a turn that
+#: STEP ID, like ``status:checkpoint:N`` and for the same reason: a turn that
 #: touched OIB-RL 2 and OIB-RL 4 must leave two countable records, and two steps
-#: sharing a name collapse into one under the frontend's dedupe.
+#: sharing an id collapse into one row.
 COVERAGE_SLOT = "coverage"
 
 
@@ -1319,24 +1337,13 @@ def emit_family_coverage(*, family: str, listed: int, opened: int) -> None:
         listed: Members the inventory named for this turn.
         opened: Members a retrieval actually returned a passage from.
     """
-    push_custom_step(
-        f"{STATUS_STEP_PREFIX}{COVERAGE_SLOT}:{family}",
-        {
-            "kind": "status",
-            "channel": CHANNEL_TECHNICAL,
-            "slot": f"{COVERAGE_SLOT}:{family}",
-            "family": family,
-            "listed": listed,
-            "opened": opened,
-        },
-    )
+    emit_technical(f"{COVERAGE_SLOT}:{family}", family=family, listed=listed, opened=opened)
 
 
 #: Slot prefix for the duplicate-fetch guard. The round is part of the STEP
-#: NAME, like ``status:checkpoint:N`` and for the same reason: a turn that
+#: ID, like ``status:checkpoint:N`` and for the same reason: a turn that
 #: re-asked for the same passage in three separate rounds must leave three
-#: countable records, and two steps sharing a name collapse into one under the
-#: frontend's dedupe.
+#: countable records, and two steps sharing an id collapse into one row.
 REPEAT_FETCH_SLOT = "repeat"
 
 
@@ -1354,16 +1361,7 @@ def emit_repeat_fetch(*, round_index: int, withheld: int) -> None:
         round_index: The fetch round the guard applied to.
         withheld: Calls answered with the explanation instead of being run.
     """
-    push_custom_step(
-        f"{STATUS_STEP_PREFIX}{REPEAT_FETCH_SLOT}:{round_index}",
-        {
-            "kind": "status",
-            "channel": CHANNEL_TECHNICAL,
-            "slot": f"{REPEAT_FETCH_SLOT}:{round_index}",
-            "round": round_index,
-            "withheld": withheld,
-        },
-    )
+    emit_technical(f"{REPEAT_FETCH_SLOT}:{round_index}", round=round_index, withheld=withheld)
 
 
 #: Slot prefix for the switched-off-source refusal. Per round, like
@@ -1386,16 +1384,7 @@ def emit_refused_source(*, round_index: int, withheld: int) -> None:
         round_index: The round the refusal applied to.
         withheld: Calls answered with the refusal instead of being run.
     """
-    push_custom_step(
-        f"{STATUS_STEP_PREFIX}{REFUSED_SOURCE_SLOT}:{round_index}",
-        {
-            "kind": "status",
-            "channel": CHANNEL_TECHNICAL,
-            "slot": f"{REFUSED_SOURCE_SLOT}:{round_index}",
-            "round": round_index,
-            "withheld": withheld,
-        },
-    )
+    emit_technical(f"{REFUSED_SOURCE_SLOT}:{round_index}", round=round_index, withheld=withheld)
 
 
 #: Slot prefix for the per-round WIDTH cap. Per round for the dedupe reason
@@ -1418,17 +1407,7 @@ def emit_width_cap(*, round_index: int, kept: int, withheld: int) -> None:
         kept: Calls handed to the tools, in the order the model emitted them.
         withheld: Calls answered with the cap notice instead of being run.
     """
-    push_custom_step(
-        f"{STATUS_STEP_PREFIX}{WIDTH_CAP_SLOT}:{round_index}",
-        {
-            "kind": "status",
-            "channel": CHANNEL_TECHNICAL,
-            "slot": f"{WIDTH_CAP_SLOT}:{round_index}",
-            "round": round_index,
-            "kept": kept,
-            "withheld": withheld,
-        },
-    )
+    emit_technical(f"{WIDTH_CAP_SLOT}:{round_index}", round=round_index, kept=kept, withheld=withheld)
 
 
 def emit_research_truncated(
@@ -1455,7 +1434,7 @@ def emit_research_truncated(
             counted record stays readable across the change.
         spent: Rounds charged when the ceiling was hit. Equal to ``rounds``
             since the budget became one unit per ROUND rather than per emitted
-            call; both stay on the payload so a record counted before and after
+            call; both stay on the record so a record counted before and after
             the change reads the same way, and a reader never has to know which
             release wrote it.
         rounds: LLM turns that asked for tools. Was the pair with ``spent``
@@ -1465,19 +1444,15 @@ def emit_research_truncated(
         shape: Ordered tool basenames of the run. Names only; a query string is
             the reader's own words and does not belong in telemetry.
     """
-    payload: dict[str, Any] = {
-        "kind": "status",
-        "channel": CHANNEL_TECHNICAL,
-        "slot": BUDGET_SLOT,
-        "truncated": True,
-        "ceiling": ceiling,
-        "research_budget": research_budget,
-        "spent": spent,
-        "rounds": rounds,
-    }
-    if shape:
-        payload["tools"] = list(shape)
-    push_custom_step(f"{STATUS_STEP_PREFIX}{BUDGET_SLOT}", payload)
+    emit_technical(
+        BUDGET_SLOT,
+        truncated=True,
+        ceiling=ceiling,
+        research_budget=research_budget,
+        spent=spent,
+        rounds=rounds,
+        tools=list(shape) if shape else None,
+    )
 
 
 def emit_input_budget_exhausted(
@@ -1506,24 +1481,15 @@ def emit_input_budget_exhausted(
         shape: Ordered tool basenames of the run. Names only; a query string is
             the reader's own words and does not belong in telemetry.
     """
-    payload: dict[str, Any] = {
-        "kind": "status",
-        "channel": CHANNEL_TECHNICAL,
-        "slot": INPUT_BUDGET_SLOT,
-        "truncated": True,
-        "limit": limit,
-        "spent": spent,
-        "rounds": rounds,
-    }
-    if shape:
-        payload["tools"] = list(shape)
-    push_custom_step(f"{STATUS_STEP_PREFIX}{INPUT_BUDGET_SLOT}", payload)
+    emit_technical(
+        INPUT_BUDGET_SLOT, truncated=True, limit=limit, spent=spent, rounds=rounds, tools=list(shape) if shape else None
+    )
 
 
 #: Slot for the DEEP researcher's own budget record. Its own slot rather than
 #: :data:`BUDGET_SLOT` because a deep run is cut off by different things — a
 #: wall clock and a graph step limit, not a tool-call ceiling — and collapsing
-#: the two under one step name would make the frontend's name dedupe drop one.
+#: the two under one step id would drop one.
 DEEP_BUDGET_SLOT = "budget:deep"
 
 #: Why a deep run stopped early. Stable tokens, not prose: they are counted.
@@ -1590,20 +1556,16 @@ def emit_deep_research_cutoff(
         report_chars: Length of the salvaged report; 0 when nothing survived.
         elapsed_seconds: Wall-clock the run had spent, when known.
     """
-    payload: dict[str, Any] = {
-        "kind": "status",
-        "channel": CHANNEL_TECHNICAL,
-        "slot": DEEP_BUDGET_SLOT,
-        "truncated": True,
-        "agent": "deep",
-        "reason": reason,
-        "salvaged": salvaged,
-        "source_count": source_count,
-        "report_chars": report_chars,
-    }
-    if elapsed_seconds is not None:
-        payload["elapsed_seconds"] = round(elapsed_seconds, 1)
-    push_custom_step(f"{STATUS_STEP_PREFIX}{DEEP_BUDGET_SLOT}", payload)
+    emit_technical(
+        DEEP_BUDGET_SLOT,
+        truncated=True,
+        agent="deep",
+        reason=reason,
+        salvaged=salvaged,
+        source_count=source_count,
+        report_chars=report_chars,
+        elapsed_seconds=round(elapsed_seconds, 1) if elapsed_seconds is not None else None,
+    )
 
 
 def emit_answer_degraded(*, agent: str, reasons: list[str]) -> None:
@@ -1621,21 +1583,11 @@ def emit_answer_degraded(*, agent: str, reasons: list[str]) -> None:
     """
     if not reasons:
         return
-    push_custom_step(
-        f"{STATUS_STEP_PREFIX}degraded",
-        {
-            "kind": "status",
-            "channel": CHANNEL_TECHNICAL,
-            "slot": "degraded",
-            "agent": agent,
-            "degraded": True,
-            "reasons": list(reasons),
-        },
-    )
+    emit_technical("degraded", agent=agent, degraded=True, reasons=list(reasons))
 
 
 #: Slot for a verdict the envelope gate refused. Its own slot so it never
-#: overwrites another status line, and the step name it produces is
+#: overwrites another status line, and the step id it produces is
 #: ``status:verdict:dropped``.
 VERDICT_DROPPED_SLOT = "verdict:dropped"
 
@@ -1677,15 +1629,7 @@ def emit_card_invalid(*, card_type: str, index: int, outcome: str) -> None:
         index: The card's position in the envelope's ``cards`` array, from 0.
         outcome: :data:`CARD_INVALID_REPAIRED` or :data:`CARD_INVALID_DROPPED`.
     """
-    push_custom_step(
-        f"{STATUS_STEP_PREFIX}{CARD_INVALID_SLOT}:{index}",
-        {
-            "kind": "status",
-            "channel": CHANNEL_TECHNICAL,
-            "slot": f"{CARD_INVALID_SLOT}:{index}",
-            "values": {"cardType": card_type, "outcome": outcome},
-        },
-    )
+    emit_technical(f"{CARD_INVALID_SLOT}:{index}", cardType=card_type, outcome=outcome)
 
 
 #: Slot for any other anatomy field the envelope gate refused (summary,
@@ -1704,15 +1648,7 @@ def emit_anatomy_dropped(*, field: str, reason: str) -> None:
         field: The envelope field, e.g. ``summary``.
         reason: A stable token, e.g. ``too_long``; counted, not read.
     """
-    push_custom_step(
-        f"{STATUS_STEP_PREFIX}{ANATOMY_DROPPED_SLOT}",
-        {
-            "kind": "status",
-            "channel": CHANNEL_TECHNICAL,
-            "slot": ANATOMY_DROPPED_SLOT,
-            "values": {"field": field, "reason": reason},
-        },
-    )
+    emit_technical(ANATOMY_DROPPED_SLOT, field=field, reason=reason)
 
 
 def emit_verdict_dropped(*, reason: str) -> None:
@@ -1729,12 +1665,4 @@ def emit_verdict_dropped(*, reason: str) -> None:
     Args:
         reason: A stable token, e.g. :data:`VERDICT_DROP_AGENT_AUTHORED`.
     """
-    push_custom_step(
-        f"{STATUS_STEP_PREFIX}{VERDICT_DROPPED_SLOT}",
-        {
-            "kind": "status",
-            "channel": CHANNEL_TECHNICAL,
-            "slot": VERDICT_DROPPED_SLOT,
-            "values": {"reason": reason},
-        },
-    )
+    emit_technical(VERDICT_DROPPED_SLOT, reason=reason)

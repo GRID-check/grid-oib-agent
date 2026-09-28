@@ -140,16 +140,6 @@ class TestActivation:
         assert runtime.activated == ("kurz",)
 
 
-class TestTheOfferedEvent:
-    def test_it_counts_the_inlined(self, monkeypatch):
-        from aiq_agent.skills import events
-
-        pushed: list = []
-        monkeypatch.setattr(events, "push_custom_step", lambda name, payload: pushed.append((name, payload)))
-        events.emit_skills_offered(_runtime(SHORT, LONG))
-        assert pushed and pushed[0][1]["offered_count"] == 2 and pushed[0][1]["inlined_count"] == 1
-
-
 class TestThePremiseIsMeasured:
     def test_the_chat_platform_methods_fit_the_default_budget_together(self):
         """ADR-0060 assumed a body is 'thousands of tokens'. The chat office's

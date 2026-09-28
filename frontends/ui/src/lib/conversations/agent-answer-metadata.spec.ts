@@ -216,6 +216,17 @@ describe('provenanceFromBackendMetadata', () => {
     ).toEqual({ truncationReason: 'wall_clock' })
   })
 
+  it('stores a stopped answer as stopped, and nothing else as one', () => {
+    // The agent tier persists a cancelled turn's partial prose with
+    // `stopped: true` (chat wire v2 §c). The mark moves into `provenance`, and
+    // the loose key leaves the row so the column holds one dialect.
+    const result =
+      normalizeAgentAnswerMetadata({ answer_confidence: 'medium', stopped: true }) ?? {}
+    expect(result).not.toHaveProperty('stopped')
+    expect((result.provenance as { stopped?: unknown }).stopped).toBe(true)
+    expect(provenanceFromBackendMetadata({ stopped: 'true' })).toBeNull()
+  })
+
   it('reads the cause even when the flag was lost, matching the backend extractor', () => {
     // `jobs/runner._extract_answer_transparency` reads the two independently: a
     // state that knows WHY it stopped still knows something true.

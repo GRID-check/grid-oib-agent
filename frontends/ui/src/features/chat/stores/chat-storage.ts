@@ -3,8 +3,8 @@
  * messages, and one small index key for everything else.
  *
  * ```
- * <name>:index           {version, state: {currentUserId, currentConversation (an id),
- *                          pendingInteraction, composerDrafts, conversations: [every field but messages],
+ * <name>:index           {version, shape, state: {currentUserId, currentConversation (an id),
+ *                          composerDrafts, conversations: [every field but messages],
  *                          awaitingServerMessages: [ids whose messages were never loaded]}}
  * <name>:messages:<id>   that conversation's messages, pruned (`pruneMessageForStorage`)
  * ```
@@ -24,9 +24,8 @@
  * decisions, prompt answers and post-answer stages are mirrored to the
  * message row, and a conversation whose messages are missing is fetched
  * again when it is opened (`hydrateConversationMessages`). What exists only
- * here lives in the index, which is never evicted: the drafts, the
- * conversation list with each one's title and data-source choice, the open
- * question.
+ * here lives in the index, which is never evicted: the drafts, and the
+ * conversation list with each one's title and data-source choice.
  *
  * The rules a write follows, kept from the single-key storage:
  * - a live turn's growth (the streaming answer, the question's reasoning
@@ -34,14 +33,15 @@
  *   so it would read back as the last write does;
  * - a composer draft is written 400 ms after the last keystroke and when the
  *   page hides;
- * - anything else (a deletion, a rename, a new session, a settled turn) is
- *   written at once;
+ * - a settled turn is written in the task after the one that shows it
+ *   (`deferChatStorageWrites`), and when the page hides;
+ * - anything else (a deletion, a rename, a new session) is written at once;
  * - a store update that leaves every persisted field the same object writes
  *   and serializes nothing.
  */
 
 import type { PersistStorage, StorageValue } from 'zustand/middleware'
-import type { ChatMessage, ChatState, Conversation } from '../types'
+import type { ChatMessage, ChatStore, Conversation } from '../types'
 import { pruneMessageForStorage } from '../lib/prune-message-for-storage'
 import { hasLiveRun } from '../lib/session-activity'
 import {
@@ -52,13 +52,10 @@ import {
   logStorageWrite,
 } from '../lib/storage-logger'
 
-export type PersistedChatState = {
-  currentUserId: ChatState['currentUserId']
-  conversations: ChatState['conversations']
-  currentConversation: ChatState['currentConversation']
-  pendingInteraction: ChatState['pendingInteraction']
-  composerDrafts: ChatState['composerDrafts']
-}
+export type PersistedChatState = Pick<
+  ChatStore,
+  'currentUserId' | 'conversations' | 'currentConversation' | 'composerDrafts'
+>
 
 type PersistedChatStorageValue = StorageValue<PersistedChatState>
 
@@ -67,16 +64,28 @@ type ConversationEntry = Omit<Conversation, 'messages'>
 
 type StoredIndex = {
   version?: number
+  /** {@link CHAT_MESSAGES_SHAPE} when the message keys were written. */
+  shape?: number
   state: {
     currentUserId: string | null
     currentConversation: string | null
-    pendingInteraction: PersistedChatState['pendingInteraction']
     composerDrafts: PersistedChatState['composerDrafts']
     conversations: ConversationEntry[]
     /** Conversations whose messages this browser never loaded (see below). */
     awaitingServerMessages?: string[]
   }
 }
+
+/**
+ * The shape of the stored messages. An index of any other shape (or the old
+ * single key) has every cached conversation's messages dropped and keeps
+ * itself: the drafts, the titles, the source choices. Messages are a cache of
+ * the server, which holds them in the current shape, and a conversation is
+ * read again when it is opened. There is no reader for an older shape.
+ *
+ * 2: the Herleitung is the wire v2 `StoredThinkingStep` (chat-wire-v2.md §e.4).
+ */
+export const CHAT_MESSAGES_SHAPE = 2
 
 /** The key of the small record that names every conversation. */
 export const chatIndexKey = (name: string): string => `${name}:index`
@@ -269,7 +278,6 @@ export const readStoredChat = (name: string): PersistedChatStorageValue | null =
       currentUserId: index.state.currentUserId ?? null,
       conversations: conversations as Conversation[],
       currentConversation: (index.state.currentConversation ?? null) as unknown as Conversation | null,
-      pendingInteraction: index.state.pendingInteraction ?? null,
       composerDrafts: index.state.composerDrafts ?? {},
     },
   }
@@ -396,10 +404,10 @@ class ChatStorageArea {
   private writeIndex(state: PersistedChatState, protectedIds: ReadonlySet<string>): void {
     const index: StoredIndex = {
       version: this.lastVersion,
+      shape: CHAT_MESSAGES_SHAPE,
       state: {
         currentUserId: state.currentUserId ?? null,
         currentConversation: state.currentConversation?.id ?? null,
-        pendingInteraction: state.pendingInteraction ?? null,
         composerDrafts: state.composerDrafts ?? {},
         conversations: (state.conversations ?? []).map(entryOf),
         awaitingServerMessages: (state.conversations ?? [])
@@ -540,56 +548,52 @@ const removeOrphanedMessageKeys = (name: string, ids: ReadonlySet<string>): void
 }
 
 /**
- * The single key the whole history used to live in, if it is still there.
- * Its presence means a write the new shape has not taken in: the first load
- * after the change, or a tab still running the old code.
+ * Keep the index, drop every cached message: storage holds an older shape.
+ * `from` is the old index, or the single key the whole history lived in before
+ * the index existed (its entries still carry their messages, and its open
+ * conversation may be the whole object). The message keys go first, which also
+ * frees the room the index needs; every conversation is then awaiting its
+ * messages from the server.
  */
-const readLegacy = (name: string): PersistedChatStorageValue | null => {
-  const raw = localStorage.getItem(name)
-  if (raw === null) return null
-  const parsed = asStoredIndex(parseJson(raw))
-  if (!parsed) {
-    // Nothing in it can be read, so nothing in it can be saved.
-    localStorage.removeItem(name)
-    return null
+const dropCachedMessages = (name: string, from: StoredIndex): void => {
+  const open = from.state.currentConversation as unknown
+  const entries = from.state.conversations.map((entry) => entryOf(entry as Conversation))
+  const index: StoredIndex = {
+    version: from.version,
+    shape: CHAT_MESSAGES_SHAPE,
+    state: {
+      currentUserId: from.state.currentUserId ?? null,
+      currentConversation: typeof open === 'string' ? open : ((open as { id?: string } | null)?.id ?? null),
+      composerDrafts: from.state.composerDrafts ?? {},
+      conversations: entries,
+      awaitingServerMessages: entries.map((entry) => entry.id),
+    },
   }
-  return parsed as unknown as PersistedChatStorageValue
-}
-
-/**
- * Move the single key into the new shape. The index goes first, while the old
- * key still stands: it is small, and it holds what exists nowhere else (the
- * drafts, the list, the titles). Should even that not fit beside the old key,
- * the old key goes first; its content is in memory and written in the same
- * task. Then the old key goes, and each conversation's messages follow,
- * newest first, so what the quota cannot take is the oldest, which the server
- * holds.
- */
-const migrate = (area: ChatStorageArea, legacy: PersistedChatStorageValue): void => {
-  const conversations = legacy.state.conversations ?? []
-  const openId = legacy.state.currentConversation as unknown as string | null
-  const state: PersistedChatState = {
-    ...legacy.state,
-    currentConversation: conversations.find((c) => c.id === openId) ?? null,
+  localStorage.removeItem(name)
+  removeOrphanedMessageKeys(name, new Set())
+  try {
+    localStorage.setItem(chatIndexKey(name), JSON.stringify(index))
+  } catch (error) {
+    logStorageFailure(chatIndexKey(name), 0, error)
   }
-  area.reset()
-  area.lastVersion = legacy.version
-  const indexKey = chatIndexKey(area.name)
-  area.write(state, { messages: false })
-  if (localStorage.getItem(indexKey) === null) {
-    localStorage.removeItem(area.name)
-    area.write(state, { messages: false })
-  }
-  // Not even the index fits: keep the old key rather than lose it.
-  if (localStorage.getItem(indexKey) === null) return
-  localStorage.removeItem(area.name)
-  area.write(state)
-  logStorageMigration(conversations.length)
+  logStorageMigration(entries.length)
 }
 
 // ---------------------------------------------------------------------------
 // The adapter
 // ---------------------------------------------------------------------------
+
+let deferring = false
+
+/** Run `update` with the write it causes held like a draft, for one task: out of the settle's frame. */
+export function deferChatStorageWrites(update: () => void): void {
+  deferring = true
+  try {
+    update()
+  } finally {
+    deferring = false
+  }
+}
 
 /**
  * The persisted chat store's localStorage adapter (see the file comment).
@@ -626,10 +630,10 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
     heldDraft = null
     if (held) areaFor(held.name).write(held.state)
   }
-  const holdDraft = (name: string, state: PersistedChatState): void => {
+  const holdDraft = (name: string, state: PersistedChatState, delayMs = DRAFT_WRITE_DELAY_MS): void => {
     heldDraft = { name, state }
     clearTimeout(heldDraftTimer)
-    heldDraftTimer = setTimeout(writeHeldDraft, DRAFT_WRITE_DELAY_MS)
+    heldDraftTimer = setTimeout(writeHeldDraft, delayMs)
   }
   if (typeof window !== 'undefined') {
     window.addEventListener('pagehide', writeHeldDraft)
@@ -640,15 +644,13 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
 
   const read = (name: string): PersistedChatStorageValue | null => {
     const area = areaFor(name)
-    const legacy = readLegacy(name)
-    if (legacy) {
-      const conversations = (legacy.state.conversations ?? []).map((c) => ({
-        ...c,
-        messages: restorableMessages(c.messages ?? []),
-      }))
-      migrate(area, { ...legacy, state: { ...legacy.state, conversations } })
-      return { ...legacy, state: { ...legacy.state, conversations } }
-    }
+    // The single key the history lived in before the index (a tab on old code
+    // may still write it), or an index of an older shape: keep what only it
+    // holds, drop the cached messages.
+    const legacy = asStoredIndex(parseJson(localStorage.getItem(name)))
+    const stored = legacy ?? asStoredIndex(parseJson(localStorage.getItem(chatIndexKey(name))))
+    if (stored && (legacy || stored.shape !== CHAT_MESSAGES_SHAPE)) dropCachedMessages(name, stored)
+    localStorage.removeItem(name)
 
     const indexRaw = localStorage.getItem(chatIndexKey(name))
     const index = asStoredIndex(parseJson(indexRaw))
@@ -680,7 +682,6 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
         currentUserId: index.state.currentUserId ?? null,
         conversations,
         currentConversation: index.state.currentConversation as unknown as Conversation | null,
-        pendingInteraction: index.state.pendingInteraction ?? null,
         composerDrafts: index.state.composerDrafts ?? {},
       },
     }
@@ -723,6 +724,7 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
         if (value.state.composerDrafts !== area.lastWritten?.composerDrafts) holdDraft(name, value.state)
         return
       }
+      if (deferring) return holdDraft(name, value.state, 0)
       // Anything else is written at once, and carries the drafts with it.
       if (heldDraft?.name === name) {
         heldDraft = null

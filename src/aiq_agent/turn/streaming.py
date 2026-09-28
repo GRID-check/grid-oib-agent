@@ -1,221 +1,86 @@
-"""Final-answer chunks: deltas plus one authoritative terminal chunk.
+"""A turn's wire bodies folded back into its text (chat wire v2 §b).
 
-The answer's prose streams live while the final call writes it
-(``turn/answer_stream.py``, ADR-0066); the terminal chunk then carries the
-verified, sanitized answer and REPLACES it. When nothing went out live (a
-buffered LLM, a reply that was not an envelope), ``response_to_chunks`` still
-cuts the finished text into deltas, as it did before prose streamed. See
-docs/design/streaming-chat-answer.md.
+Two readers need the text rather than the events. ``nat run``, ``nat eval``
+and single-shot HTTP take one value per call: :func:`fold_turn` is the
+workflow's ``Streaming(convert=...)``, and returns ``RUN_FINISHED``'s text.
+The chat socket needs the text so far when the asker presses Stop:
+:class:`TurnTextFold` holds it, folded as the client folds the same events.
+The workflow folds its own bodies too, to log when ``RUN_FINISHED`` replaced
+the settled text (:func:`note_settled_replaced`, counted by the answer suite).
 """
 
 # No `from __future__ import annotations` here: NAT resolves the converter's
-# type hints (``fold_chunks_to_response`` -> ChatResponse) against the WORKFLOW
-# module's globals, so they must already be objects, not strings.
+# return annotation (``fold_turn`` -> str) to build the workflow's single
+# output type, so it must already be an object, not a string.
+import logging
 import re
 
-from aiq_agent.common import _create_chat_response
-from nat.data_models.api_server import ChatResponse
-from nat.data_models.api_server import ChatResponseChunk
+from aiq_agent.common.wire_v2 import AnswerRetractedBody
+from aiq_agent.common.wire_v2 import EventBody
+from aiq_agent.common.wire_v2 import RunFinishedBody
+from aiq_agent.common.wire_v2 import StateSnapshotBody
+from aiq_agent.common.wire_v2 import TextMessageContentBody
 
-#: The Grid extras a terminal chunk carries beyond the answer text. Each is
-#: surfaced only when applicable — the frontend renders on PRESENCE.
-STREAM_EXTRA_FIELDS = (
-    "cards",
-    "run_id",
-    "run_message_id",
-    "answer_confidence",
-    "sources",
-    # Retrieved-but-uncited document identities (no prose) for the
-    # "Gelesen, nicht zitiert" disclosure — same lift as ``sources``.
-    "read_sources",
-    # Transparency extras (WP-A).
-    "routing_decision",
-    "escalation_reason",
-    "answer_confidence_capped_reason",
-    "answer_confidence_reason",
-    "citations_removed",
-    # The research turn ran out of budget before it ran out of question.
-    "research_truncated",
-    "job_admission_rejected",
-    "retry_after_seconds",
-    # The answer's structured anatomy (verdict / takeaways / callout), gated by
-    # Piloti — a native answer field, never a card.
-    "answer_meta",
-    # Agent Skills: which skills ran this turn, in the order their bodies were
-    # fetched, and the ``grid-hidden`` subset the disclosure mutes until the
-    # reader opens the reasoning view.
-    "skills_activated",
-    "skills_hidden",
-    # The backend's own account of this turn's retrieval rounds, carried for
-    # the Herleitung (no renderer yet — phase b).
-    "retrieval_ledger",
-)
+logger = logging.getLogger(__name__)
 
-# Each piece is a non-space run with its trailing whitespace, or a run of
-# whitespace — together they tile the string with no gaps or overlaps.
-_DELTA_PIECES = re.compile(r"\S+\s*|\s+")
+#: A citation marker the settle has not resolved yet: the streamed ``[N]``.
+_PENDING_MARKER = re.compile(r"\s*\[\d+\]")
+#: A card's place in the prose. A stopped turn carries no cards, so the place would never fill.
+_CARD_MARKER = re.compile(r"\s*\[\[card:\d+\]\]")
 
 
-def iter_answer_deltas(text: str, *, target_size: int = 24) -> list[str]:
-    """Split ``text`` into deltas whose concatenation is EXACTLY ``text``.
+class TurnTextFold:
+    """The answer's text so far: deltas append, a snapshot replaces, a retraction clears.
 
-    Splits on whitespace boundaries so words are not torn mid-token, coalescing
-    small tokens up to ``target_size`` chars per delta.
+    ``settled`` is the last snapshot's text, the one the reader was left
+    reading, or ``None`` once a retraction took it back.
     """
-    if not text:
-        return []
-    deltas: list[str] = []
-    buf = ""
-    for piece in _DELTA_PIECES.findall(text):
-        buf += piece
-        if len(buf) >= target_size:
-            deltas.append(buf)
-            buf = ""
-    if buf:
-        deltas.append(buf)
-    return deltas
+
+    def __init__(self) -> None:
+        self.text = ""
+        self.settled: str | None = None
+
+    def add(self, body: EventBody) -> None:
+        if isinstance(body, TextMessageContentBody):
+            self.text += body.delta
+        elif isinstance(body, StateSnapshotBody):
+            self.text = self.settled = body.snapshot.text
+        elif isinstance(body, AnswerRetractedBody):
+            self.text, self.settled = "", None
+        elif isinstance(body, RunFinishedBody):
+            self.text = body.result.text
+
+    def partial(self) -> str:
+        """What a stopped turn keeps: the settled text, or the streamed prose with its pending ``[N]`` removed.
+
+        Either way without ``[[card:N]]``: a stopped turn's result has no cards.
+        """
+        text = (
+            self.text if self.settled is not None and self.text == self.settled else _PENDING_MARKER.sub("", self.text)
+        )
+        return _CARD_MARKER.sub("", text)
 
 
-def live_chunk(
-    content: str,
-    *,
-    sources: list | None = None,
-    answer_meta: dict | None = None,
-    cards: list | None = None,
-) -> ChatResponseChunk:
-    """A chunk of the live answer (ADR-0066).
+def note_settled_replaced(settled: str | None, terminal: str) -> bool:
+    """Log, and say, whether ``RUN_FINISHED``'s text differs from the settled snapshot.
 
-    Plain ``content`` is a delta that appends. Given ``sources`` it is a
-    snapshot that REPLACES the bubble's text with the settled prose and names
-    the sources its markers now point at (``stream_replace``). ``answer_meta``
-    carries the masthead ahead of the prose, ``cards`` the cards written so
-    far: neither changes the text.
+    The reader has read the settled text by then (ADR-0066), so a difference is
+    the answer changing under them: a repair adopted, a quote marked late, a
+    card suppressed. Nothing else measures it; the answer suite counts the line.
     """
-    chunk = ChatResponseChunk.create_streaming_chunk(content, finish_reason=None)
-    if sources is not None:
-        chunk.sources = sources
-        chunk.stream_replace = True
-    if answer_meta is not None:
-        chunk.answer_meta = answer_meta
-    if cards is not None:
-        chunk.cards = cards
-    return chunk
-
-
-def chunk_content(chunk: ChatResponseChunk) -> str | None:
-    """The content delta carried by a chunk, or None."""
-    try:
-        return chunk.choices[0].delta.content
-    except (AttributeError, IndexError):
-        return None
-
-
-def chunk_finish_reason(chunk: ChatResponseChunk) -> str | None:
-    """The finish_reason carried by a chunk, or None."""
-    try:
-        return chunk.choices[0].finish_reason
-    except (AttributeError, IndexError):
-        return None
-
-
-def response_to_chunks(response: ChatResponse, *, stream: bool) -> list[ChatResponseChunk]:
-    """Turn a fully-built ChatResponse into the chunk sequence to yield.
-
-    - ``stream=False``: a single terminal chunk (``finish_reason="stop"``) with
-      the full content and the Grid extras.
-    - ``stream=True``: delta chunks (``finish_reason=None``, no extras) whose
-      contents concatenate to exactly the final text, then one terminal chunk
-      carrying the FULL content and the extras. The terminal is authoritative
-      for persistence and the single-consumer fold.
-
-    A job-admission rejection ("queue full") is NOT a research answer: the
-    frontend surfaces its prose as a warning banner, never an answer bubble, so
-    it gets ONLY the terminal chunk and no streaming bubble is ever opened.
-    """
-    try:
-        content = response.choices[0].message.content or ""
-    except (AttributeError, IndexError):
-        content = ""
-    model_name = getattr(response, "model", None)
-    response_id = getattr(response, "id", None)
-    extras = {field: value for field in STREAM_EXTRA_FIELDS if (value := getattr(response, field, None)) is not None}
-    job_admission_rejected = bool(getattr(response, "job_admission_rejected", None))
-
-    chunks: list[ChatResponseChunk] = []
-    if stream and content and not job_admission_rejected:
-        for delta in iter_answer_deltas(content):
-            chunks.append(
-                ChatResponseChunk.create_streaming_chunk(delta, id_=response_id, model=model_name, finish_reason=None)
-            )
-    terminal = ChatResponseChunk.create_streaming_chunk(
-        content, id_=response_id, model=model_name, finish_reason="stop"
+    if settled is None or terminal.rstrip() == settled.rstrip():
+        return False
+    logger.info(
+        "Piloti: the terminal frame replaced the settled answer (%d -> %d chars)",
+        len(settled),
+        len(terminal),
     )
-    for field, value in extras.items():
-        setattr(terminal, field, value)
-    chunks.append(terminal)
-    return chunks
+    return True
 
 
-def _chunk_extras(chunk: ChatResponseChunk) -> dict[str, object]:
-    model_extra = getattr(chunk, "model_extra", None) or {}
-    extras: dict[str, object] = {}
-    for field in STREAM_EXTRA_FIELDS:
-        value = getattr(chunk, field, None)
-        if value is None:
-            value = model_extra.get(field)
-        if value is not None:
-            extras[field] = value
-    return extras
-
-
-def fold_chunks_to_response(chunks: list[ChatResponseChunk]) -> ChatResponse:
-    """Collapse a streamed chunk sequence back into one ChatResponse for
-    non-streaming consumers (single-shot HTTP, the CLI).
-
-    The terminal chunk (``finish_reason="stop"``) is authoritative for the text
-    AND the Grid extras: the live chunks before it are provisional (ADR-0066),
-    so a live masthead or card the terminal gated out, or prose a snapshot
-    retracted, never reaches the folded answer, and an empty terminal stays
-    empty. Only without a terminal are the live chunks folded, a snapshot
-    (``stream_replace``) replacing the text before it rather than appending.
-    """
-    terminal = next((c for c in reversed(chunks) if chunk_finish_reason(c) == "stop"), None)
-    if terminal is not None:
-        content, extras = chunk_content(terminal) or "", _chunk_extras(terminal)
-    else:
-        content, extras = _fold_live(chunks)
-    # The terminal names the response: a live chunk before it carries a random
-    # id and a placeholder model (``live_chunk``), never the turn's own.
-    named = [terminal] if terminal is not None else chunks
-    model_name = next((m for c in named if (m := getattr(c, "model", None))), None)
-    response_id = next((i for c in named if (i := getattr(c, "id", None))), None)
-    response = _create_chat_response(content, response_id=response_id or "research_response", model=model_name)
-    for field, value in extras.items():
-        setattr(response, field, value)
-    return response
-
-
-def _fold_live(chunks: list[ChatResponseChunk]) -> tuple[str, dict[str, object]]:
-    """The text and extras of a chunk sequence that never reached its terminal.
-
-    Folded as the client folds them (``docs/design/streaming-chat-answer.md``,
-    live frames): a snapshot replaces the text and the masthead, and an empty
-    one, a retraction, takes back the cards as well.
-    """
-    parts: list[str] = []
-    extras: dict[str, object] = {}
-    for chunk in chunks:
-        content = chunk_content(chunk) or ""
-        if getattr(chunk, "stream_replace", None):
-            parts = []
-            extras.pop("answer_meta", None)
-        if _is_retraction(chunk, content):
-            extras.pop("cards", None)
-        parts.append(content)
-        extras.update(_chunk_extras(chunk))
-    return "".join(parts), extras
-
-
-def _is_retraction(chunk: ChatResponseChunk, content: str) -> bool:
-    """An empty snapshot: the prose, masthead and cards streamed so far are taken back."""
-    return bool(getattr(chunk, "stream_replace", None)) and not content and not getattr(chunk, "sources", None)
+def fold_turn(bodies: list[EventBody]) -> str:
+    """The finished turn's text, for a caller that takes one value (``nat run``, ``nat eval``, HTTP)."""
+    for body in reversed(bodies):
+        if isinstance(body, RunFinishedBody):
+            return body.result.text
+    raise ValueError("the turn's stream ended without RUN_FINISHED")

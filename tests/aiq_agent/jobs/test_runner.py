@@ -62,6 +62,8 @@ from aiq_api.jobs.callbacks import EventCategory
 from aiq_api.jobs.callbacks import EventData
 from aiq_api.jobs.callbacks import EventState
 from aiq_api.jobs.callbacks import IntermediateStepEvent
+from tests.conftest import NAT_LLM_CONFIG
+from tests.conftest import nat_langchain_client
 
 
 @pytest.fixture(name="event_store_cache_guard", autouse=True)
@@ -1544,9 +1546,9 @@ class TestAsyncJobRunnerAgentFactory:
         }
 
         async def get_llm(llm_ref, wrapper_type):
-            return llms[llm_ref]
+            return nat_langchain_client(llms[llm_ref])
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(side_effect=get_llm)
         fn_config = DeepResearchAgentConfig(
             orchestrator_llm="orchestrator",
@@ -1578,9 +1580,9 @@ class TestAsyncJobRunnerAgentFactory:
 
         async def get_llm(llm_ref, wrapper_type):
             assert llm_ref == "shared"
-            return shared_llm
+            return nat_langchain_client(shared_llm)
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(side_effect=get_llm)
         fn_config = SimpleNamespace(
             source_router_llm="shared",
@@ -1928,7 +1930,7 @@ class TestDeepResearchReflection:
 
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(return_value=MagicMock())
         report = "R" * 80
 
@@ -1970,7 +1972,7 @@ class TestDeepResearchReflection:
         """Feature flag off → no LLM built, no reflection."""
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock()
 
         with patch(
@@ -1998,7 +2000,7 @@ class TestDeepResearchReflection:
         """No reflection LLM configured → no-op."""
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock()
 
         with patch(
@@ -2026,7 +2028,7 @@ class TestDeepResearchReflection:
         """Org-only job (no project) → reflection has nothing it may write."""
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock()
 
         with patch(
@@ -2056,7 +2058,7 @@ class TestDeepResearchReflection:
 
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(return_value=MagicMock())
 
         with (
@@ -2093,7 +2095,7 @@ class TestDeepResearchReflection:
 
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(return_value=MagicMock())
         started = asyncio.Event()
 

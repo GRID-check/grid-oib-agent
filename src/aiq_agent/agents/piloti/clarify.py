@@ -14,8 +14,8 @@ questions (the model may search first, and may offer pickable options), then —
 when plan approval is on — show a research plan and take the user's verdict,
 revising it while the reply is feedback. The dialog is a loop rather than a
 LangGraph because that is all it ever was: no checkpoint, no persistence, no
-node name that reaches a reader. What the reader DOES see is one trace row, and
-:data:`TRACE_STEP_NAME` still emits it under the name the frontend already maps.
+node name that reaches a reader. What the reader DOES see is one trace row, a
+``clarification`` step.
 
 Nothing is rebuilt to serve a request. The models, tools and limits are
 resolved once at boot into a :class:`ClarifyDeps`; a request that varies
@@ -75,13 +75,14 @@ from aiq_agent.common.plan_documents import MAX_PLAN_DOCUMENTS
 from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.plan_documents import documents_from_plan
 from aiq_agent.common.request_llm_context import read_request_llm_context
-from aiq_agent.common.turn_status import push_custom_step
+from aiq_agent.common.turn_status import emit_step
+from aiq_agent.common.wire_v2 import ClarificationStep
 from aiq_agent.project_context import get_organization_id_from_context
-from nat.builder.builder import Builder
-from nat.builder.context import Context
-from nat.data_models.component_ref import FunctionGroupRef
-from nat.data_models.component_ref import FunctionRef
-from nat.data_models.component_ref import LLMRef
+from nat.plugin_api import Builder
+from nat.plugin_api import Context
+from nat.plugin_api import FunctionGroupRef
+from nat.plugin_api import FunctionRef
+from nat.plugin_api import LLMRef
 
 from .models.clarify import ClarificationResponse
 from .models.clarify import ClarifyRequest
@@ -101,17 +102,6 @@ CLARIFICATION_PROMPT = load_prompt(PROMPTS_DIR, "research_clarification")
 PLAN_GENERATION_PROMPT = load_prompt(PROMPTS_DIR, "plan_generation")
 """Read once, at import. A deployment that ships without a prompt file fails
 here, loudly, instead of running degraded on an inline stub nobody reviews."""
-
-TRACE_STEP_NAME = "clarifier_agent"
-"""The name this step announces itself under in the turn's step stream.
-
-It is the name the old NAT function emitted, and the frontend maps it to
-"Klärung" (``intermediate-step-parser.ts``). Kept verbatim on purpose: turns
-persisted before this change carry it in their stored steps, so the frontend
-has to keep the entry regardless — and a second name for the same moment would
-mean two dictionary entries and a trace that reads differently either side of a
-deploy.
-"""
 
 SKIP_COMMANDS = frozenset({"skip", "done", "exit", "quit", "proceed", "continue", "no", "n", ""})
 """Replies to a clarification QUESTION that mean "stop asking and get on with it"."""
@@ -672,8 +662,10 @@ async def clarify(request: ClarifyRequest, deps: ClarifyDeps) -> ClarifyResult:
     query = get_latest_user_query(list(request.messages))
     logger.info("User's query: %s...", str(query)[:100] if query else "")
     # The one row this step contributes to the reader's trace, emitted before
-    # the first question blocks the turn rather than after the dialog ends.
-    push_custom_step(TRACE_STEP_NAME, {"kind": "clarification", "max_turns": deps.max_turns})
+    # the first question blocks the turn rather than after the dialog ends. A
+    # clarifier configured to ask nothing has no question to announce.
+    if deps.max_turns:
+        emit_step(ClarificationStep(id="clarification", max_turns=deps.max_turns))
     log = await gather_clarification(request, deps)
     if not deps.enable_plan_approval:
         return ClarifyResult(research_context=log)

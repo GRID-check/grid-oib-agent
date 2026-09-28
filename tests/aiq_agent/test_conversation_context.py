@@ -8,8 +8,6 @@ addressed to it; a message that is not is ingested and answered with nothing.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from aiq_agent.conversation_context import MAX_CONTEXT_AUTHOR_CHARS
@@ -18,7 +16,6 @@ from aiq_agent.conversation_context import ContextOnlyMessage
 from aiq_agent.conversation_context import append_conversation_context
 from aiq_agent.conversation_context import format_context_turn
 from aiq_agent.conversation_context import get_context_appender
-from aiq_agent.conversation_context import parse_context_only_payload
 from aiq_agent.conversation_context import register_context_appender
 
 
@@ -28,56 +25,6 @@ def _clear_appender():
     register_context_appender(None)
     yield
     register_context_appender(None)
-
-
-def _payload(**fields) -> str:
-    base = {"query": "Das Atrium ist ein eigener Abschnitt.", "data_sources": []}
-    base.update(fields)
-    return json.dumps(base)
-
-
-class TestParseContextOnlyPayload:
-    """Detection: narrow, explicit, and absent by default."""
-
-    def test_reads_the_flag_and_the_author(self) -> None:
-        parsed = parse_context_only_payload(_payload(context_only=True, author_name="Anna Weber"))
-
-        assert parsed == ContextOnlyMessage(text="Das Atrium ist ein eigener Abschnitt.", author="Anna Weber")
-
-    def test_an_ordinary_message_is_not_context_only(self) -> None:
-        # THE compatibility guarantee in the "new backend, old client" direction:
-        # absence of the field must mean "behave exactly as before it existed".
-        assert parse_context_only_payload(_payload()) is None
-
-    def test_a_falsy_or_stringy_flag_is_not_a_directive(self) -> None:
-        # `is True`, not truthiness: suppressing the agent is consequential enough
-        # that only the exact wire value counts.
-        assert parse_context_only_payload(_payload(context_only=False)) is None
-        assert parse_context_only_payload(_payload(context_only="true")) is None
-        assert parse_context_only_payload(_payload(context_only=1)) is None
-
-    def test_non_json_and_empty_payloads_read_as_ordinary(self) -> None:
-        assert parse_context_only_payload("just a question") is None
-        assert parse_context_only_payload("{not json}") is None
-        assert parse_context_only_payload("") is None
-        assert parse_context_only_payload(None) is None
-
-    def test_a_flagged_but_empty_body_is_swallowed(self) -> None:
-        # Nothing to remember and nothing to answer.
-        assert parse_context_only_payload(json.dumps({"query": "   ", "context_only": True})) is None
-        assert parse_context_only_payload(json.dumps({"context_only": True})) is None
-
-    def test_the_text_alias_is_accepted(self) -> None:
-        parsed = parse_context_only_payload(json.dumps({"text": "eine Bemerkung", "context_only": True}))
-
-        assert parsed is not None
-        assert parsed.text == "eine Bemerkung"
-
-    def test_a_blank_author_name_is_dropped(self) -> None:
-        parsed = parse_context_only_payload(_payload(context_only=True, author_name="   "))
-
-        assert parsed is not None
-        assert parsed.author is None
 
 
 class TestFormatContextTurn:

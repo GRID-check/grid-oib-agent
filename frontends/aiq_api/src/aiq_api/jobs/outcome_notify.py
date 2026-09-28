@@ -27,9 +27,9 @@ from typing import Literal
 
 import httpx
 
+from ..internal_api import internal_base_url
+from ..internal_api import internal_headers
 from ..internal_retry import send_with_retry
-from ..websocket_reconnect import _internal_base_url
-from ..websocket_reconnect import _internal_persist_headers
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +65,8 @@ async def notify_job_outcome(
     yet" — the BFF writes the backend job id onto the row after the submit
     returns, and a quick run can finish first — and is retried like a 503.
     """
-    base_url = _internal_base_url()
-    headers = _internal_persist_headers()
+    base_url = internal_base_url()
+    headers = internal_headers()
     organization_id = _organization_id(usage_context)
     if not base_url or headers is None or not organization_id:
         logger.debug("Job %s: outcome not reported (internal BFF route not configured or no tenant)", job_id)

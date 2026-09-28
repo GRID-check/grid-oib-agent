@@ -97,20 +97,19 @@ import { UserMessage } from '@/features/chat/components/UserMessage'
 import { ChatThinking } from '@/features/chat/components/ChatThinking'
 import { AgentResponse } from '@/features/chat/components/AgentResponse'
 import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
-import type { ThinkingStep, CitationSource } from '@/features/chat/types'
+import type { CitationSource } from '@/features/chat/types'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 
-const step: ThinkingStep = {
+const step: StoredThinkingStep = {
   id: 'kb',
   userMessageId: 'msg-1',
-  category: 'tools',
-  functionName: 'knowledge_retrieval',
-  displayName: 'Knowledge Retrieval',
-  content: '',
+  kind: 'sources',
+  tool: 'knowledge_search',
   isComplete: true,
-  timestamp: new Date('2024-01-15T14:30:00'),
+  timestamp: '2024-01-15T14:30:00Z',
   traceLanes: [
     {
       key: 'baurecht_oib',

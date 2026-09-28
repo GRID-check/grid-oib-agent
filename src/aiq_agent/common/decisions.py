@@ -198,20 +198,23 @@ class Decision:
         value = answer.get("score")
         return float(value) if isinstance(value, (int, float)) and math.isfinite(float(value)) else None
 
-    def summary(self) -> dict[str, Any]:
-        """The answers as numbers only — what the technical record carries."""
-        out: dict[str, Any] = {}
+    def summary(self) -> dict[str, float | str | None]:
+        """The answers as flat scalars — what the technical record carries.
+
+        A choice is its winner under its own key and that winner's probability
+        under ``<key>.p``.
+        """
+        out: dict[str, float | str | None] = {}
         for key, answer in self.answers.items():
-            if not isinstance(answer, Mapping):
-                continue
-            kind = answer.get("type")
+            kind = answer.get("type") if isinstance(answer, Mapping) else None
             if kind == "noul":
                 out[key] = self.noul(key)
-            elif kind == "choice":
-                chosen, distribution = self.choice(key)
-                out[key] = {"choice": chosen, "p": round(distribution.get(chosen or "", 0.0), 3)}
             elif kind == "score":
                 out[key] = self.score(key)
+            elif kind == "choice":
+                chosen, distribution = self.choice(key)
+                out[key] = chosen
+                out[f"{key}.p"] = round(distribution.get(chosen or "", 0.0), 3)
         return out
 
 
@@ -471,18 +474,11 @@ def _record_cost(decision: Decision, *, byok: bool) -> None:
         logger.debug("Decision usage not recorded", exc_info=True)
 
 
-def _record(slot: str, values: dict[str, Any]) -> None:
+def _record(slot: str, detail: dict[str, Any]) -> None:
     """The technical record of a decision: numbers, never the reader's text."""
-    try:
-        from aiq_agent.common.turn_status import CHANNEL_TECHNICAL
-        from aiq_agent.common.turn_status import push_custom_step
+    from aiq_agent.common.turn_status import emit_technical
 
-        push_custom_step(
-            f"status:decision:{slot}",
-            {"kind": "status", "channel": CHANNEL_TECHNICAL, "slot": f"decision:{slot}", "values": values},
-        )
-    except Exception:  # noqa: BLE001
-        logger.debug("Decision record for %s not emitted", slot, exc_info=True)
+    emit_technical(f"decision:{slot}", **detail)
 
 
 def record_skipped(slot: str, reason: str, detail: str | None = None) -> None:
@@ -524,7 +520,7 @@ async def decide(
     decision = outcome.decision
     _record(
         slot,
-        {"answers": decision.summary(), "latencyMs": decision.latency_ms, "inputTokens": decision.input_tokens},
+        {**decision.summary(), "latencyMs": decision.latency_ms, "inputTokens": decision.input_tokens},
     )
     return decision
 

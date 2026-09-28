@@ -21,37 +21,30 @@
  *     a long question + many branch options exercise the measured, content-driven
  *     layout (tall nodes must not overlap).
  *   - live     → a turn mid-stream: completed steps + an in-progress web search,
- *     so the live activity phrase, the frontier's flowing dot, executed-step
- *     chips (with the running pulse) and the elapsed pill all render.
+ *     so the live activity phrase, the marching connectors into the newest row
+ *     (React Flow's `animated` edges), executed-step chips (with the running
+ *     pulse) and the elapsed pill all render.
  *   - spine    → TWO retrieval rounds: the fan becomes a spine of checkpoints,
  *     each owning the files that fetch returned. Both layers open, because
  *     folding half of a comparison hides the comparison.
  *   - spine-folded → THREE rounds, which is where the graph stops being a shape
  *     and becomes a scroll: the older two layers arrive folded to their counts
  *     and the newest is open. Neither folded caption names a query (PF-12).
- *   - stream   → the spine ARRIVING: a live turn replayed frame by frame (the
- *     checkpoint, then the files it returned, three rounds), so the streaming
- *     motion can be watched and measured. One instance, at the column width.
- *     `&every=<ms>` sets the pace (default 1400); `&every=0` waits for
- *     `window.__herleitung.next()`, which a headless capture calls per round.
- *     `&settle=1` lands the turn after the last frame; without it the turn
- *     stays live, which is the at-rest state worth measuring.
  */
 
 import { useEffect, useState } from 'react'
 import { notFound } from 'next/navigation'
 import { ChatThinking } from '@/features/chat/components/ChatThinking'
-import type { ThinkingStep, CitationSource } from '@/features/chat/types'
+import type { CitationSource } from '@/features/chat/types'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 
-const step: ThinkingStep = {
+const step: StoredThinkingStep = {
   id: 'kb',
   userMessageId: 'msg-1',
-  category: 'tools',
-  functionName: 'knowledge_retrieval',
-  displayName: 'Knowledge Retrieval',
-  content: '',
+  kind: 'sources',
+  tool: 'knowledge_search',
   isComplete: true,
-  timestamp: new Date('2024-01-15T14:30:00'),
+  timestamp: '2024-01-15T14:30:00Z',
   traceLanes: [
     {
       key: 'baurecht_oib',
@@ -143,7 +136,7 @@ const defaultCommon = {
 // across five lanes. This is the case the old layout got wrong: the single-row
 // fan needed ~1.4k px, did not fit the 680px thread column, and collapsed the
 // whole graph into one vertical list. It must now pack into stacked columns.
-const denseStep: ThinkingStep = {
+const denseStep: StoredThinkingStep = {
   ...step,
   id: 'kb-dense',
   traceLanes: [
@@ -206,51 +199,39 @@ const denseCommon = {
 // count, and a spine of three or more arrives with everything but the newest
 // layer folded (`SPINE_FOLD_THRESHOLD`).
 //
-// The step shapes here are the wire's, taken from
-// `tests/fixtures/herleitung/two_search_rounds_steps.json`: the round stamp on
-// each hit is what splits one merged `knowledge_search` completion across the
-// fetches, and the `reason` is the model's own conclusion — never the query
-// (PF-12), which is why every `query` below is a string the graph must not show.
+// The steps are stored v2 rows: the round stamp on each hit is what joins it
+// to its fetch, and the `reason` is the model's own conclusion — never the
+// query (PF-12), which is why every `query` below is a string the graph must
+// not show.
 
-/** One `status:retrieval:N` line: the checkpoint that caused fetch N. */
-const retrievalStep = (index: number, query: string, reason: string): ThinkingStep => ({
-  id: `retrieval-${index}`,
+/** One `retrieval` step: the checkpoint that caused fetch N. */
+const retrievalStep = (index: number, query: string, reason: string): StoredThinkingStep => ({
+  id: `status:retrieval:${index}`,
   userMessageId: 'msg-1',
-  category: 'agents',
-  functionName: `status:retrieval:${index}`,
-  displayName: `status:retrieval:${index}`,
-  content: JSON.stringify({
-    kind: 'status',
-    channel: 'live',
-    slot: `retrieval:${index}`,
+  kind: 'retrieval',
+  round: index,
+  turnEvent: {
     key: 'status.retrieval.withQuery',
     values: { corpus: 'knowledge', query },
     tools: ['knowledge_search'],
     reason,
-  }),
+  },
   isComplete: true,
-  timestamp: new Date('2024-01-15T14:30:00'),
+  timestamp: '2024-01-15T14:30:00Z',
 })
 
-/**
- * ONE `knowledge_search` completion carrying every round's hits, which is what
- * production actually delivers: the store merges completions by function name,
- * so stream order cannot tell two fetches apart and the `round` stamp is the
- * only join.
- */
+/** ONE `sources` row carrying every round's hits: the per-hit `round` stamp is the join. */
 const mergedHits = (
   rounds: ReadonlyArray<
     ReadonlyArray<{ name: string; detail: string; lane: 'law' | 'project' | 'office' }>
   >
-): ThinkingStep => ({
+): StoredThinkingStep => ({
   id: 'kb-spine',
   userMessageId: 'msg-1',
-  category: 'tools',
-  functionName: 'knowledge_search',
-  displayName: 'Knowledge Search',
-  content: '',
+  kind: 'sources',
+  tool: 'knowledge_search',
   isComplete: true,
-  timestamp: new Date('2024-01-15T14:30:02'),
+  timestamp: '2024-01-15T14:30:02Z',
   traceLanes: rounds.flatMap((hits, round) =>
     (['law', 'project', 'office'] as const).flatMap((signal) => {
       const laneHits = hits.filter((hit) => hit.lane === signal)
@@ -340,101 +321,26 @@ const branchesCommon = {
   },
 }
 
-// Live scenario: a turn mid-stream — the agent's own step still open, the KB
-// hit, and an in-progress web search. Exercises the live activity phrase (shown only
-// while the step actually runs), the frontier's flowing dot, the executed-step chips
+// Live scenario: a turn mid-stream — the KB hit and an in-progress web
+// search. Exercises the live activity phrase (shown only
+// while the step actually runs), the animated edges, the executed-step chips
 // with the running pulse, and the elapsed-time pill.
 const liveCommon = {
   steps: [
-    {
-      id: 'agent',
-      userMessageId: 'msg-1',
-      category: 'agents' as const,
-      functionName: 'shallow_research_agent',
-      displayName: 'Shallow Research Agent',
-      content: '',
-      isComplete: false,
-      timestamp: new Date('2024-01-15T14:30:00'),
-    },
     { ...step, id: 'kb' },
     {
-      id: 'web',
+      id: 'tool:web',
       userMessageId: 'msg-1',
-      category: 'tools' as const,
-      functionName: 'web_search_tool',
-      displayName: 'Web Search Tool',
-      content: '',
+      kind: 'tool' as const,
+      tool: 'web_search_tool',
       isComplete: false,
-      timestamp: new Date('2024-01-15T14:30:05'),
+      timestamp: '2024-01-15T14:30:05Z',
     },
   ],
   isThinking: true as const,
   defaultOpen: true,
   userQuestion: defaultCommon.userQuestion,
   enabledDataSources: defaultCommon.enabledDataSources,
-}
-
-// Stream scenario: the frames a live spine turn delivers, in wire order — the
-// runner's own step, then per round its `status:retrieval:N` checkpoint and,
-// when the tool returns, the merged `knowledge_search` completion growing by
-// that round's hits (the store merges completions by name, so it is ONE step
-// that grows, not one per round).
-const streamFrames = (): ThinkingStep[][] => {
-  const agent: ThinkingStep = { ...liveCommon.steps[0]! }
-  const frames: ThinkingStep[][] = [[agent]]
-  let steps: ThinkingStep[] = [agent]
-  SPINE_ROUNDS.forEach((round, i) => {
-    steps = [...steps, retrievalStep(i, round.query, round.reason)]
-    frames.push(steps)
-    const hits = mergedHits(SPINE_ROUNDS.slice(0, i + 1).map((r) => r.hits))
-    steps = [...steps.filter((s) => s.id !== 'kb-spine'), hits]
-    frames.push(steps)
-  })
-  return frames
-}
-
-declare global {
-  interface Window {
-    __herleitung?: { next: () => number; frames: number }
-  }
-}
-
-function StreamPreview({ every, settle }: { every: number; settle: boolean }) {
-  const [frames] = useState(streamFrames)
-  const [frame, setFrame] = useState(0)
-  const done = frame >= frames.length - 1
-  useEffect(() => {
-    window.__herleitung = {
-      frames: frames.length,
-      next: () => {
-        setFrame((f) => Math.min(f + 1, frames.length - 1))
-        return frames.length
-      },
-    }
-    return () => {
-      delete window.__herleitung
-    }
-  }, [frames])
-  useEffect(() => {
-    if (every <= 0 || done) return
-    const timer = setTimeout(() => setFrame((f) => f + 1), every)
-    return () => clearTimeout(timer)
-  }, [every, done, frame])
-  const [landed, setLanded] = useState(false)
-  useEffect(() => {
-    if (!settle || !done) return
-    const timer = setTimeout(() => setLanded(true), Math.max(every, 1400))
-    return () => clearTimeout(timer)
-  }, [settle, done, every])
-  return (
-    <ChatThinking
-      steps={frames[frame]!}
-      isThinking={!landed}
-      defaultOpen
-      userQuestion={spineCommon(3).userQuestion}
-      enabledDataSources={defaultCommon.enabledDataSources}
-    />
-  )
 }
 
 export default function HerleitungPreviewPage() {
@@ -445,28 +351,9 @@ export default function HerleitungPreviewPage() {
   // Read the requested variant after mount (not during render) so the fixture is
   // stable and screenshot-deterministic.
   const [variant, setVariant] = useState<string | null>(null)
-  const [stream, setStream] = useState({ every: 1400, settle: false })
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    setVariant(params.get('variant'))
-    const every = Number(params.get('every') ?? 1400)
-    setStream({ every: Number.isFinite(every) ? every : 1400, settle: params.get('settle') === '1' })
+    setVariant(new URLSearchParams(window.location.search).get('variant'))
   }, [])
-
-  if (variant === 'stream') {
-    return (
-      <main className="bg-background min-h-dvh px-4 py-10">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
-          <h1 className="text-muted-foreground font-mono text-xs" data-testid="herleitung-preview">
-            /dev/herleitung?variant=stream — a live spine turn, replayed frame by frame
-          </h1>
-          <div className="w-[680px] max-w-full">
-            <StreamPreview every={stream.every} settle={stream.settle} />
-          </div>
-        </div>
-      </main>
-    )
-  }
 
   const common =
     variant === 'branches'

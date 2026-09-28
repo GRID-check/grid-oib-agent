@@ -51,14 +51,16 @@ export const CardRendererProvider = CardRendererContext.Provider
 /**
  * Called once A2UI has drawn a real component. A layout effect, so it runs in
  * the commit that mounted the component, before the browser paints: the host
- * swaps its direct copy for A2UI's without a frame of either the placeholder
- * or both copies.
+ * takes its placeholder down and shows A2UI's drawing without a frame of
+ * A2UI's own "[Loading root...]". `A2uiCard` passes the same news to whatever
+ * holds the card's place above it (a streamed card's `CardSlot`).
  */
 const DrawnContext = createContext<(() => void) | null>(null)
 export const DrawnProvider = DrawnContext.Provider
+export const useDrawnReporter = () => useContext(DrawnContext)
 
 function useReportDrawn() {
-  const report = useContext(DrawnContext)
+  const report = useDrawnReporter()
   useLayoutEffect(() => report?.(), [report])
 }
 

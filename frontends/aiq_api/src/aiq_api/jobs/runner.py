@@ -1057,10 +1057,10 @@ async def run_agent_job(
 
     from aiq_agent.common import VerboseTraceCallback
     from aiq_agent.common import is_verbose
-    from nat.builder.framework_enum import LLMFrameworkEnum
     from nat.builder.workflow_builder import WorkflowBuilder
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
     from nat.front_ends.fastapi.async_jobs.job_store import JobStore
+    from nat.plugin_api import LLMFrameworkEnum
     from nat.runtime.loader import load_config
 
     if configure_logging:
@@ -1210,14 +1210,14 @@ async def run_agent_job(
 
             # Set up telemetry/observability for Phoenix and OpenTelemetry
             from aiq_agent.common.nat_step_repair import SpanClosingProfilerHandler
-            from nat.builder.context import Context
-            from nat.builder.context import ContextState
             from nat.data_models.intermediate_step import IntermediateStepPayload
             from nat.data_models.intermediate_step import IntermediateStepType
             from nat.data_models.intermediate_step import StreamEventData
             from nat.data_models.intermediate_step import TraceMetadata
             from nat.data_models.invocation_node import InvocationNode
             from nat.observability.exporter_manager import ExporterManager
+            from nat.plugin_api import Context
+            from nat.plugin_api import ContextState
             from nat.utils.reactive.subject import Subject
 
             telemetry_exporters = {
@@ -2390,7 +2390,7 @@ def _build_job_output(
     that field keeps on the chat path, so a client can key off existence.
 
     ``sources`` is spelled the way the backend spells it everywhere else on the
-    wire (``websocket_reconnect``'s terminal frame, the message metadata), so
+    wire (the socket's ``TurnResult``, the message metadata), so
     the live Report panel and a rehydrated thread read one contract rather than
     two dialects of the same list.
     """

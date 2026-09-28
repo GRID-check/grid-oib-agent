@@ -7,7 +7,7 @@
  * a spine of checkpoints when the turn searched more than once (each with the
  * tools it called and the files THAT fetch returned), the findings node, and
  * (when a live HITL choice exists) the next-steps branches, plus the technical
- * NAT-step tail.
+ * step tail.
  * Every node binds to real streamed data or is hidden; nothing is fabricated.
  */
 
@@ -22,13 +22,13 @@ import { motion, AnimatePresence, motionBase, motionQuick } from '@/components/m
 import { SectionLabel } from '@/components/ui/section-label'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
-import type { ThinkingStep, CitationSource } from '../types'
+import type { CitationSource } from '../types'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { deriveTraceLanes } from '../lib/trace-lanes'
 import { buildCitationModel } from '../lib/citations'
-import { deriveLiveActivity } from '../lib/live-activity'
+import { liveLine } from '../lib/turn-events'
 import { deriveExecutedSteps } from '../lib/executed-steps'
-import { isSkillStepName, isUseSkillStepName } from '@/features/skills/lib/skill-activity'
 import { useElapsedSeconds, formatElapsed } from '../hooks/use-elapsed-seconds'
 import { ReasoningFlow } from './reasoning/ReasoningFlow'
 import { type ChoicePrompt } from './reasoning'
@@ -36,7 +36,7 @@ import { buildFileChips } from './reasoning/context'
 
 export interface ChatThinkingProps {
   /** Array of thinking steps to display */
-  steps: ThinkingStep[]
+  steps: StoredThinkingStep[]
   /** Whether thinking is in progress (shows spinner when true, check when done) */
   isThinking?: boolean
   /** Whether the response was interrupted (page refresh / browser close mid-stream) */
@@ -60,8 +60,8 @@ export interface ChatThinkingProps {
    * phantom-web-search bug: every source is enabled by default, so the row
    * claimed `Websuche` on every turn, including greetings where the backend
    * had already dropped every data-source tool. What ran comes from
-   * `deriveExecutedSteps` (the `Ausgeführt:` row), which is built from real
-   * Function Start/Complete frames.
+   * `deriveExecutedSteps` (the `Ausgeführt:` row), which is built from the
+   * turn's `tool` and `skill` steps.
    */
   enabledDataSources?: string[]
   /** Files attached to THIS message — a per-turn fact, so these are shown. */
@@ -181,7 +181,7 @@ const ChatThinkingView: FC<ChatThinkingProps> = ({
   // Live status: what the assistant is doing right now (derived from the newest
   // streamed step) plus a seconds-elapsed cue, so a slow turn reads as active
   // work in progress rather than a frozen spinner.
-  const liveActivity = deriveLiveActivity(steps, t)
+  const liveActivity = liveLine(steps, t)
   const activityLabel = liveActivity ?? t('thinking.working')
   const elapsedSeconds = useElapsedSeconds(isThinking)
 
@@ -199,7 +199,7 @@ const ChatThinkingView: FC<ChatThinkingProps> = ({
   const executedSteps = useMemo(() => {
     const derived = deriveExecutedSteps(steps, t)
     if (isThinking) return derived
-    return derived.filter((s) => !isSkillStepName(s.key) && !isUseSkillStepName(s.key))
+    return derived.filter((s) => !s.skill)
   }, [steps, t, isThinking])
 
   // Availability alone must never conjure a Herleitung: `enabledDataSources` is
@@ -220,12 +220,10 @@ const ChatThinkingView: FC<ChatThinkingProps> = ({
 
   // The header line names the panel and, when there are any, counts sources.
   //
-  // It carries NO step count. `steps` is one entry per distinct NAT function
-  // name, so it counted the `status:<slot>` one-liners, skill bookkeeping and
-  // model sub-calls alongside the tools that ran, while merging repeat calls of
-  // one tool into a single entry. The number (19 on an ordinary answer) was
-  // neither turns, nor calls, nor anything the expanded panel shows, and read
-  // as "the agent took 19 turns". What ran is listed inside, as chips.
+  // It carries NO step count. `steps` counts status lines, skill bookkeeping
+  // and sources rows alongside the tools that ran, so the number is neither
+  // turns nor calls, and read as "the agent took 19 turns". What ran is listed
+  // inside, as chips.
   //
   // The source clause is ABSENT rather than „0 Quellen": an answer grounded in
   // a measurement of the model rightly has no citations, and zero reads as a

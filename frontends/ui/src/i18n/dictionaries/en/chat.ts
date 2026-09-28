@@ -835,10 +835,7 @@ export const chat = {
      */
     awaitingOther: 'Piloti is waiting for {name}',
     awaitingSomeone: 'Piloti is waiting for another participant',
-    approve: 'Approve',
-    reject: 'Reject',
     approvePlan: 'Approve plan',
-    rejectPlan: 'Reject plan',
     // The current three-way plan decision (start / answer briefly / cancel).
     startResearch: 'Start research',
     answerShallow: 'Answer briefly instead',
@@ -847,9 +844,6 @@ export const chat = {
     cancelResearchAria: 'Cancel the research',
     selectOption: 'Select option: {option}',
     yourResponse: 'Your response:',
-    // Localized replacement for the backend's English approval envelope
-    // sentence ("Reply approve to proceed, reject to cancel").
-    approvalInstruction: 'Choose "Approve" to start the research or "Reject" to cancel.',
     approvalInstructionThreeWay:
       'Start the research, have your question answered briefly instead, or cancel.',
     // Duration/cost expectation shown at the decision point, BEFORE approval.
@@ -864,7 +858,6 @@ export const chat = {
     responseApproved: 'Research started',
     responseShallow: 'Quick answer requested',
     responseCancelled: 'Research cancelled',
-    responseRejected: 'Plan rejected',
   },
   // The single disclosure in the answer footer that holds everything past the
   // sources row and the copy actions (confidence, memory note, skills used,
@@ -929,25 +922,6 @@ export const chat = {
     recoveringNotice: 'Piloti is still working — the answer appears here as soon as it is ready …',
     done: 'Done',
     elapsedAria: 'Elapsed: {seconds, plural, one {# second} other {# seconds}}',
-    // Live one-liners describing what the assistant is doing right now, chosen
-    // from the newest OPEN step that can be phrased for a reader. There is
-    // deliberately no "show the step's own name" entry: an internal identifier
-    // dressed up as a status is noise, so an unclassifiable step falls through
-    // to the previous meaningful phrase, or to `working` above.
-    activity: {
-      // The same words as the chips below (`stepName.*`, e.g.
-      // `stepName.corpus` = "Knowledge"): the reader should learn one
-      // vocabulary, not two for the same thing.
-      understanding: 'Classifying your question …',
-      planning: 'Choosing the research path …',
-      searchingWeb: 'Searching the web …',
-      searchingKnowledge: 'Searching knowledge …',
-      searchingRis: 'Searching RIS …',
-      searchingSources: 'Searching sources …',
-      researching: 'Researching …',
-      reading: 'Reading the results …',
-      composing: 'Composing the answer …',
-    },
     // ── Turn events: the words for what the backend REPORTED ──────────────
     //
     // The agent narrates itself with `status:<slot>` steps, and it narrates in
@@ -1061,7 +1035,6 @@ export const chat = {
       webSearch: 'Web search',
       ris: 'RIS',
       corpus: 'Knowledge',
-      assistant: 'Assistant',
       reading: 'Reading',
       /** The conversation's working directory: write, read, edit, list — one word. */
       draft: 'Draft',
@@ -1073,8 +1046,6 @@ export const chat = {
       // One chip per skill the turn actually applied. `{name}` is resolved by
       // the single label authority (features/skills/lib/skill-activity).
       skill: 'Skill: {name}',
-      // The bare `use_skill` frame with no identifiable skill behind it.
-      skillUnnamed: 'Skill',
       model: 'Building model',
       measure: 'Measurement',
       drawing: 'Drawing',
@@ -1083,33 +1054,11 @@ export const chat = {
       card: 'Card',
       compliance: 'Compliance check',
     },
-    // Reader-facing names for the nodes and tools the backend emits, used by
-    // the opt-in technical panel. The names on the wire are internal ids
-    // (`knowledge_search`) — and NAT also forwards LangChain span names, which
-    // are CamelCase class names — so the panel resolves every row through this
-    // map instead of title-casing whatever arrived. Entries that a chip already
-    // names reuse `stepName.*` above: one node, one wording, everywhere.
+    // The technical panel's names for the two step kinds that carry no tool or
+    // slot of their own. Tools reuse `stepName.*` above.
     nodeName: {
-      // The root frame that is open for the whole turn, not a step within it.
-      workflow: 'Whole exchange',
       clarification: 'Clarifying question',
-      deepResearch: 'Deep research',
-      dataSources: 'Data sources',
-      note: 'Note saved',
-      card: 'Result card',
-      documents: 'Document list',
-      askUser: 'Question to you',
-      model: 'Building model',
-      measure: 'Model measurement',
-      compliance: 'Compliance check',
       skillSelection: 'Skill selection',
-      // A node this build has no name for. It keeps its row — the panel counts
-      // its steps and each carries a timestamp, so dropping rows would make the
-      // list disagree with the count and hide that something ran — but it says
-      // only that something internal ran. The raw name is not a vocabulary a
-      // reader can learn (unlike a `status:` slot, which is one and stays
-      // verbatim on purpose); it is whatever the framework called that span.
-      internal: 'Internal step',
     },
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
@@ -1280,6 +1229,10 @@ export const chat = {
     connectionFailed: {
       title: 'Connection Failed',
       message: 'Unable to connect to the server. Please check your network connection.',
+    },
+    clientOutdated: {
+      title: 'Piloti was updated',
+      message: 'Reload the page to continue.',
     },
     connectionTimeout: {
       title: 'Request Timeout',

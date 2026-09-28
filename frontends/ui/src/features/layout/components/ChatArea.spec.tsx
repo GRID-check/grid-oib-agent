@@ -3,10 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { ChatArea } from './ChatArea'
 import type { ChatStoreWithHydration } from '@/features/chat/store'
-import type { ChatMessage, ThinkingStep } from '@/features/chat/types'
+import type { ChatMessage } from '@/features/chat/types'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { UseSpectatedTurnOptions } from '@/features/collaboration/hooks/use-spectated-turn'
-import type { SpectatedTurnState } from '@/features/collaboration/lib/spectator-frames'
+import { initialTurnView, type TurnView } from '@/features/chat/lib/turn-fold'
 import { useAnswerRevealStore } from '@/features/chat/stores/answer-reveal-store'
 
 /**
@@ -23,7 +24,6 @@ type MessageFixture = DeepPartial<ChatMessage>
 const mockRespondToPrompt = vi.fn()
 const mockDismissErrorCard = vi.fn()
 const mockSetComposerPrefill = vi.fn()
-const mockGetThinkingStepsForMessage = vi.fn((_messageId: string): ThinkingStep[] => [])
 const mockChatThinking = vi.fn((_props: unknown) => (
   <div data-testid="chat-thinking">Thinking...</div>
 ))
@@ -53,15 +53,13 @@ vi.mock('@/features/runs/components/RunBlock', () => ({
   ),
 }))
 
-/** A real `ThinkingStep`; the stubbed `ChatThinking` only reads how many there are. */
-const thinkingStep = (overrides: Partial<ThinkingStep> = {}): ThinkingStep => ({
+/** A real stored step; the stubbed `ChatThinking` only reads how many there are. */
+const thinkingStep = (overrides: Partial<StoredThinkingStep> = {}): StoredThinkingStep => ({
   id: 'step-1',
   userMessageId: 'user-1',
-  category: 'tools',
-  functionName: 'web_search_tool',
-  displayName: 'Step 1',
-  content: '',
-  timestamp: new Date('2026-07-29T08:00:00Z'),
+  kind: 'tool',
+  tool: 'web_search',
+  timestamp: '2026-07-29T08:00:00.000Z',
   isComplete: true,
   ...overrides,
 })
@@ -104,11 +102,9 @@ vi.mock('@/features/chat', () => ({
       isLoading: false,
       isStreaming: false,
       hasHydrated: true,
-      thinkingSteps: [],
       respondToPrompt: mockRespondToPrompt,
       dismissErrorCard: mockDismissErrorCard,
       setComposerPrefill: mockSetComposerPrefill,
-      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
     }
     return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
   }),
@@ -199,7 +195,7 @@ vi.mock('@/features/collaboration/hooks/use-shared-thread', () => ({
 // features/collaboration/hooks/use-spectated-turn.spec.ts; what nothing covered
 // until now is how ChatArea wires the RESULT back to the turn banner, which is
 // the last describe in this file.
-let mockSpectated: { turn: SpectatedTurnState | null; live: boolean } = { turn: null, live: false }
+let mockSpectated: { turn: TurnView | null; live: boolean } = { turn: null, live: false }
 /** The most recent options. `onFrame` is a wire, so it is asserted by calling it. */
 let mockSpectatedOptions: UseSpectatedTurnOptions | null = null
 
@@ -210,14 +206,9 @@ vi.mock('@/features/collaboration/hooks/use-spectated-turn', () => ({
   },
 }))
 
-/** A turn as the reducer would have folded it; only the terminal flags matter here. */
-const spectatedTurn = (overrides: Partial<SpectatedTurnState> = {}): SpectatedTurnState => ({
-  parentId: 'turn-1',
-  answer: '',
-  steps: [],
-  waitingOn: null,
-  done: false,
-  failed: false,
+/** A turn as the fold would have left it; only the phase and the text matter here. */
+const spectatedTurn = (overrides: Partial<TurnView> = {}): TurnView => ({
+  ...initialTurnView('turn-1', 'conv-1'),
   ...overrides,
 })
 
@@ -351,10 +342,8 @@ describe('ChatArea', () => {
           isLoading: false,
           hasHydrated: true,
           isStreaming: false,
-          thinkingSteps: [],
           respondToPrompt: mockRespondToPrompt,
           dismissErrorCard: mockDismissErrorCard,
-          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
         }
         return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
@@ -376,17 +365,14 @@ describe('ChatArea', () => {
                 role: 'assistant',
                 content: 'Processing...',
                 messageType: 'status',
-                statusType: 'thinking',
               },
             ],
           },
           isLoading: false,
           hasHydrated: true,
           isStreaming: false,
-          thinkingSteps: [],
           respondToPrompt: mockRespondToPrompt,
           dismissErrorCard: mockDismissErrorCard,
-          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
         }
         return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
@@ -409,7 +395,7 @@ describe('ChatArea', () => {
                 role: 'assistant',
                 content: 'Please provide more details',
                 messageType: 'prompt',
-                promptType: 'text-input',
+                promptInputType: 'text',
               },
             ],
           },
@@ -534,10 +520,8 @@ describe('ChatArea', () => {
           isLoading: false,
           hasHydrated: true,
           isStreaming: false,
-          thinkingSteps: [],
           respondToPrompt: mockRespondToPrompt,
           dismissErrorCard: mockDismissErrorCard,
-          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
         }
         return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
@@ -570,10 +554,8 @@ describe('ChatArea', () => {
           isLoading: false,
           hasHydrated: true,
           isStreaming: false,
-          thinkingSteps: [],
           respondToPrompt: mockRespondToPrompt,
           dismissErrorCard: mockDismissErrorCard,
-          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
         }
         return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
@@ -646,20 +628,26 @@ describe('ChatArea', () => {
   // there is no longer a render branch to exercise here.
 
   test('keeps earlier interrupted thinking state after a later completed turn', () => {
-    mockGetThinkingStepsForMessage.mockImplementation((messageId: string) => {
-      if (messageId === 'user-1') return [thinkingStep({ id: 'step-1', userMessageId: 'user-1' })]
-      if (messageId === 'user-2')
-        return [thinkingStep({ id: 'step-2', userMessageId: 'user-2', displayName: 'Step 2' })]
-      return []
-    })
 
     vi.mocked(useChatStore).mockImplementation(
       (selector?: StoreSelector<ChatStoreWithHydration>) => {
         const state: ChatStoreFixture = {
           currentConversation: {
             messages: [
-              { id: 'user-1', role: 'user', content: 'First question', messageType: 'user' },
-              { id: 'user-2', role: 'user', content: 'Second question', messageType: 'user' },
+              {
+                id: 'user-1',
+                role: 'user',
+                content: 'First question',
+                messageType: 'user',
+                thinkingSteps: [thinkingStep()],
+              },
+              {
+                id: 'user-2',
+                role: 'user',
+                content: 'Second question',
+                messageType: 'user',
+                thinkingSteps: [thinkingStep({ id: 'step-2', userMessageId: 'user-2' })],
+              },
               {
                 id: 'answer-2',
                 role: 'assistant',
@@ -671,10 +659,8 @@ describe('ChatArea', () => {
           isLoading: false,
           hasHydrated: true,
           isStreaming: false,
-          thinkingSteps: [],
           respondToPrompt: mockRespondToPrompt,
           dismissErrorCard: mockDismissErrorCard,
-          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
         }
         return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
@@ -717,13 +703,10 @@ describe('ChatArea', () => {
       isLoading: false,
       isStreaming: true,
       currentUserMessageId,
-      currentStatus: null,
       hasHydrated: true,
       isRecoveryPending: false,
-      thinkingSteps: [],
       respondToPrompt: mockRespondToPrompt,
       dismissErrorCard: mockDismissErrorCard,
-      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
       retryLastUserMessage: vi.fn(),
     })
 
@@ -790,13 +773,10 @@ describe('ChatArea', () => {
         isLoading: false,
         isStreaming,
         currentUserMessageId,
-        currentStatus: null,
         hasHydrated: true,
         isRecoveryPending: false,
-        thinkingSteps: [],
         respondToPrompt: mockRespondToPrompt,
         dismissErrorCard: mockDismissErrorCard,
-        getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
         retryLastUserMessage: vi.fn(),
       })
       const use = (state: ChatStoreFixture) =>
@@ -865,13 +845,10 @@ describe('ChatArea', () => {
       isLoading: false,
       isStreaming: true,
       currentUserMessageId,
-      currentStatus: null,
       hasHydrated: true,
       isRecoveryPending: false,
-      thinkingSteps: [],
       respondToPrompt: mockRespondToPrompt,
       dismissErrorCard: mockDismissErrorCard,
-      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
       retryLastUserMessage: vi.fn(),
     })
     const use = (state: ChatStoreFixture) =>
@@ -944,13 +921,10 @@ describe('ChatArea', () => {
       isLoading: false,
       isStreaming: true,
       currentUserMessageId: null,
-      currentStatus: null,
       hasHydrated: true,
       isRecoveryPending: false,
-      thinkingSteps: [],
       respondToPrompt: mockRespondToPrompt,
       dismissErrorCard: mockDismissErrorCard,
-      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
       retryLastUserMessage: vi.fn(),
     }
     vi.mocked(useChatStore).mockImplementation(
@@ -991,13 +965,10 @@ describe('ChatArea', () => {
       isLoading: false,
       isStreaming: true,
       currentUserMessageId: 'user-1',
-      currentStatus: null,
       hasHydrated: true,
       isRecoveryPending: false,
-      thinkingSteps: [],
       respondToPrompt: mockRespondToPrompt,
       dismissErrorCard: mockDismissErrorCard,
-      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
       retryLastUserMessage: vi.fn(),
     }
 
@@ -1018,30 +989,34 @@ describe('ChatArea', () => {
   })
 
   test('keeps earlier interrupted thinking state while a new message is actively streaming', () => {
-    mockGetThinkingStepsForMessage.mockImplementation((messageId: string) => {
-      if (messageId === 'user-1') return [thinkingStep({ id: 'step-1', userMessageId: 'user-1' })]
-      if (messageId === 'user-2')
-        return [thinkingStep({ id: 'step-2', userMessageId: 'user-2', displayName: 'Step 2' })]
-      return []
-    })
 
     vi.mocked(useChatStore).mockImplementation(
       (selector?: StoreSelector<ChatStoreWithHydration>) => {
         const state: ChatStoreFixture = {
           currentConversation: {
             messages: [
-              { id: 'user-1', role: 'user', content: 'First question', messageType: 'user' },
-              { id: 'user-2', role: 'user', content: 'Second question', messageType: 'user' },
+              {
+                id: 'user-1',
+                role: 'user',
+                content: 'First question',
+                messageType: 'user',
+                thinkingSteps: [thinkingStep()],
+              },
+              {
+                id: 'user-2',
+                role: 'user',
+                content: 'Second question',
+                messageType: 'user',
+                thinkingSteps: [thinkingStep({ id: 'step-2', userMessageId: 'user-2' })],
+              },
             ],
           },
           isLoading: true,
           isStreaming: true,
           hasHydrated: true,
           currentUserMessageId: 'user-2',
-          thinkingSteps: [],
           respondToPrompt: mockRespondToPrompt,
           dismissErrorCard: mockDismissErrorCard,
-          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
         }
         return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
@@ -1070,15 +1045,12 @@ describe('ChatArea', () => {
   })
 
   test('keeps the Herleitung live after the stream ends until the answer has settled on screen', () => {
-    mockGetThinkingStepsForMessage.mockImplementation((messageId: string) =>
-      messageId === 'user-1' ? [thinkingStep({ id: 'step-1', userMessageId: 'user-1' })] : []
-    )
     vi.mocked(useChatStore).mockImplementation(
       (selector?: StoreSelector<ChatStoreWithHydration>) => {
         const state: ChatStoreFixture = {
           currentConversation: {
             messages: [
-              { id: 'user-1', role: 'user', content: 'Frage', messageType: 'user' },
+              { id: 'user-1', role: 'user', content: 'Frage', messageType: 'user', thinkingSteps: [thinkingStep()] },
               { id: 'answer-1', role: 'assistant', content: 'Antwort', messageType: 'agent_response' },
             ],
           },
@@ -1087,10 +1059,8 @@ describe('ChatArea', () => {
           isStreaming: false,
           hasHydrated: true,
           currentUserMessageId: 'user-1',
-          thinkingSteps: [],
           respondToPrompt: mockRespondToPrompt,
           dismissErrorCard: mockDismissErrorCard,
-          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
         }
         return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
@@ -1128,12 +1098,9 @@ describe('ChatArea — a working cue after an answered HITL prompt', () => {
     isLoading: isStreaming,
     isStreaming,
     currentUserMessageId: 'user-1',
-    currentStatus: null,
     hasHydrated: true,
-    thinkingSteps: [],
     respondToPrompt: mockRespondToPrompt,
     dismissErrorCard: mockDismissErrorCard,
-    getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
   })
 
   const mount = (state: ChatStoreFixture) => {
@@ -1152,7 +1119,7 @@ describe('ChatArea — a working cue after an answered HITL prompt', () => {
           role: 'assistant',
           content: 'Welche Bauklasse?',
           messageType: 'prompt',
-          promptType: 'choice',
+          promptInputType: 'choice',
           isPromptResponded: true,
           promptResponse: 'Bauklasse 4',
         },
@@ -1161,7 +1128,7 @@ describe('ChatArea — a working cue after an answered HITL prompt', () => {
     )
 
     // English fallback without an i18n provider (see the AgentPrompt specs).
-    expect(screen.getByRole('status', { name: 'Piloti is responding …' })).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Thinking …' })).toBeInTheDocument()
   })
 
   test('shows nothing while the prompt is still unanswered — that state is the prompt bubble itself', () => {
@@ -1172,7 +1139,7 @@ describe('ChatArea — a working cue after an answered HITL prompt', () => {
           role: 'assistant',
           content: 'Welche Bauklasse?',
           messageType: 'prompt',
-          promptType: 'choice',
+          promptInputType: 'choice',
           isPromptResponded: false,
         },
         true
@@ -1182,7 +1149,7 @@ describe('ChatArea — a working cue after an answered HITL prompt', () => {
     // The stubbed AgentPrompt renders; the bottom "typing" cue must not also
     // appear for a question that has not been answered yet.
     expect(screen.getByTestId('agent-prompt')).toBeInTheDocument()
-    expect(screen.queryByRole('status', { name: 'Piloti is responding …' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'Thinking …' })).not.toBeInTheDocument()
   })
 
   test('shows nothing once the session has stopped streaming, even if the prompt is answered', () => {
@@ -1193,7 +1160,7 @@ describe('ChatArea — a working cue after an answered HITL prompt', () => {
           role: 'assistant',
           content: 'Welche Bauklasse?',
           messageType: 'prompt',
-          promptType: 'choice',
+          promptInputType: 'choice',
           isPromptResponded: true,
           promptResponse: 'Bauklasse 4',
         },
@@ -1201,7 +1168,7 @@ describe('ChatArea — a working cue after an answered HITL prompt', () => {
       )
     )
 
-    expect(screen.queryByRole('status', { name: 'Piloti is responding …' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'Thinking …' })).not.toBeInTheDocument()
   })
 
   test('an answer that has already arrived replaces the cue instead of stacking with it', () => {
@@ -1215,7 +1182,7 @@ describe('ChatArea — a working cue after an answered HITL prompt', () => {
             role: 'assistant',
             content: 'Welche Bauklasse?',
             messageType: 'prompt',
-            promptType: 'choice',
+            promptInputType: 'choice',
             isPromptResponded: true,
             promptResponse: 'Bauklasse 4',
           },
@@ -1230,16 +1197,13 @@ describe('ChatArea — a working cue after an answered HITL prompt', () => {
       isLoading: true,
       isStreaming: true,
       currentUserMessageId: 'user-1',
-      currentStatus: null,
       hasHydrated: true,
-      thinkingSteps: [],
       respondToPrompt: mockRespondToPrompt,
       dismissErrorCard: mockDismissErrorCard,
-      getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
     })
 
     expect(screen.getByTestId('agent-response')).toBeInTheDocument()
-    expect(screen.queryByRole('status', { name: 'Piloti is responding …' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'Thinking …' })).not.toBeInTheDocument()
   })
 })
 
@@ -1284,11 +1248,9 @@ describe('ChatArea — the follow-ups rail sits below the answer', () => {
     isLoading: false,
     hasHydrated: true,
     isStreaming: false,
-    thinkingSteps: [],
     respondToPrompt: mockRespondToPrompt,
     dismissErrorCard: mockDismissErrorCard,
     setComposerPrefill: mockSetComposerPrefill,
-    getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
   })
 
   const renderWith = (state: ChatStoreFixture) => {
@@ -1348,11 +1310,9 @@ describe('ChatArea — shared thread', () => {
           isLoading: false,
           isStreaming: false,
           hasHydrated: true,
-          thinkingSteps: [],
           respondToPrompt: mockRespondToPrompt,
           dismissErrorCard: mockDismissErrorCard,
           setComposerPrefill: mockSetComposerPrefill,
-          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
         }
         return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
@@ -1515,11 +1475,9 @@ describe('ChatArea — the awaiting banner is reachable', () => {
           isLoading: false,
           isStreaming: false,
           hasHydrated: true,
-          thinkingSteps: [],
           respondToPrompt: mockRespondToPrompt,
           dismissErrorCard: mockDismissErrorCard,
           setComposerPrefill: mockSetComposerPrefill,
-          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
         }
         return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
@@ -1635,11 +1593,9 @@ describe('ChatArea — the hand-back offer', () => {
           isLoading: false,
           isStreaming: false,
           hasHydrated: true,
-          thinkingSteps: [],
           respondToPrompt: mockRespondToPrompt,
           dismissErrorCard: mockDismissErrorCard,
           setComposerPrefill: mockSetComposerPrefill,
-          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
         }
         return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
@@ -1826,11 +1782,9 @@ describe('ChatArea — the engagement notice is reachable', () => {
           isLoading: false,
           isStreaming: false,
           hasHydrated: true,
-          thinkingSteps: [],
           respondToPrompt: mockRespondToPrompt,
           dismissErrorCard: mockDismissErrorCard,
           setComposerPrefill: mockSetComposerPrefill,
-          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
         }
         return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
@@ -1931,11 +1885,9 @@ describe('ChatArea — the spectated stream feeds the turn banner', () => {
           isLoading: false,
           isStreaming: false,
           hasHydrated: true,
-          thinkingSteps: [],
           respondToPrompt: mockRespondToPrompt,
           dismissErrorCard: mockDismissErrorCard,
           setComposerPrefill: mockSetComposerPrefill,
-          getThinkingStepsForMessage: mockGetThinkingStepsForMessage,
         }
         return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
       }
@@ -1965,7 +1917,7 @@ describe('ChatArea — the spectated stream feeds the turn banner', () => {
   })
 
   test('a failed turn clears the banner — nothing else ever will', () => {
-    mockSpectated = { turn: spectatedTurn({ failed: true, done: true }), live: true }
+    mockSpectated = { turn: spectatedTurn({ phase: 'failed' }), live: true }
 
     render(<ChatArea isAuthenticated canCollaborate />)
 
@@ -1978,7 +1930,7 @@ describe('ChatArea — the spectated stream feeds the turn banner', () => {
 
   test('a DONE turn keeps it, so the finished answer survives until the message lands', () => {
     mockSpectated = {
-      turn: spectatedTurn({ answer: 'Ja, ab drei Geschossen.', done: true }),
+      turn: spectatedTurn({ text: 'Ja, ab drei Geschossen.', phase: 'finished' }),
       live: true,
     }
 

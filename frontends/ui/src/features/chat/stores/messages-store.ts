@@ -5,102 +5,23 @@ import type {
   ChatMessage,
   ComposerPrefill,
   ComposerSubject,
-  ThinkingStep,
-  StatusType,
-  PromptType,
-  FileCardData,
   ErrorCode,
   Conversation,
-  CitationSource,
-  AnswerTransparency,
-  HumanPromptInputType,
-  ResumableTurn,
+  PendingInteraction,
 } from '../types'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
-import { turnAnswerId } from '@/lib/conversations/turn-answer-id'
-import type { GridCard } from '@/shared/cards/schemas'
+import type { WireEvent } from '@/adapters/api/wire-v2'
+import { deferChatStorageWrites } from './chat-storage'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
-import { reconcileCardInteractions } from '@/features/grid-cards/card-decision'
 import { errorConcernsTheThread, getErrorMeta } from '../lib/error-registry'
-import { mergeTraceLaneCards, parseTraceLanesBlock } from '../lib/trace-lanes'
+import { foldTurnEvents, initialTurnView, type TurnView } from '../lib/turn-fold'
+import { projectTurn } from '../lib/turn-projection'
 import { useLayoutStore } from '@/features/layout/store'
-import {
-  sanitizeFollowUpsStage,
-  sanitizeMemoryReflectionStage,
-  type MessageStages,
-} from '@/lib/conversations/message-stages'
-import type { StageId } from '@/adapters/api/schemas'
-import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
-
-/**
- * One post-answer stage frame, narrowed to what the store acts on
- * (`docs/architecture/post-answer-stages.md` §4.1). The wire envelope's own
- * naming stops at the adapter; the store speaks the store's language.
- */
-export interface StageFrame {
-  conversationId: string
-  /** The WS turn id — the only correlation key both halves share. */
-  parentId: string
-  stage: StageId
-  status: 'ready' | 'empty' | 'failed'
-  payload?: unknown
-}
-
-/**
- * Stages whose output is appended BELOW the answer, as its own block in the
- * thread column — and which therefore may only land where they cannot push
- * something the reader has already read (§8).
- *
- * `memory_reflection` is deliberately not one of them. Its chip goes INSIDE the
- * answer's footer meta row, which is rendered and reserved at `min-h-6` before
- * the stage even starts, so nothing below the answer moves when it arrives.
- * Holding it to §8's conditions would also make it lose to its own schedule:
- * reflection is scheduled BEFORE the answer's deltas are yielded, so on a long
- * answer its frame genuinely can arrive mid-stream, and „the reader started
- * typing" would suppress the only notice that something was written to their
- * project's durable memory. A suggestion may be withheld; a record of a write
- * may not.
- */
-const STAGES_THAT_GROW_THE_THREAD: ReadonlySet<StageId> = new Set(['follow_ups'])
-
-/**
- * The payload of one stage, reduced to what may be stored, or null when nothing
- * survives.
- *
- * One entry per stage this client renders, exhaustive over `StageId` so a stage
- * added to the wire schema without a renderer fails `tsc` here rather than
- * arriving at runtime and being silently ignored.
- */
-const STAGE_SANITISERS: {
-  [K in StageId]: (payload: unknown) => MessageStages[keyof MessageStages] | null
-} = {
-  follow_ups: sanitizeFollowUpsStage,
-  memory_reflection: sanitizeMemoryReflectionStage,
-}
-
-/** Which `MessageStages` key each stage's payload is stored under. */
-const STAGE_KEYS: { [K in StageId]: keyof MessageStages } = {
-  follow_ups: 'followUps',
-  memory_reflection: 'memoryReflection',
-}
 
 export type MessagesSlice = {
   isStreaming: boolean
   isLoading: boolean
   currentUserMessageId: string | null
-  /**
-   * The WS turn id (`parent_id`) of the turn in flight
-   * (`docs/architecture/post-answer-stages.md` §1.6).
-   *
-   * The twin of `currentUserMessageId` in the OTHER id space: that one names
-   * the row the browser owns, this one names the turn the agent tier owns. The
-   * answer bubble is stamped with it as it is built, so a post-answer stage
-   * frame — which knows only the turn — can find the message it belongs to.
-   *
-   * Set from the turn's own frames rather than at send time, so it can only
-   * ever hold an id the backend has actually used.
-   */
-  currentTurnWsParentId: string | null
   /**
    * When this browser sent the current turn's question (epoch ms), so the
    * answer can carry how long it took. This browser's clock at both ends:
@@ -108,10 +29,13 @@ export type MessagesSlice = {
    * difference between two clocks is not a duration.
    */
   currentTurnStartedAt: number | null
-  thinkingSteps: ThinkingStep[]
-  activeThinkingStepId: string | null
-  streamingAssistantMessageId: string | null
-  currentStatus: StatusType | null
+  /**
+   * Every turn this tab is folding, by turn id (the question's id): the ONE
+   * reading of the wire (`foldTurnEvent`, docs/design/chat-wire-v2.md §e.3).
+   * The messages are its projection. A finished turn stays while its stages
+   * may still arrive; never persisted.
+   */
+  turns: Record<string, TurnView>
   projectId: string | null
   /**
    * One-shot draft text destined for the chat composer (InputArea). Set by
@@ -129,13 +53,10 @@ export type MessagesSlice = {
   composerSubject: ComposerSubject | null
   /**
    * Per-session composer drafts keyed by conversation id: the user's own
-   * in-progress, unsent text. Unlike `composerPrefill` (one-shot, external),
-   * a draft is long-lived — it survives session switches and reloads because
-   * it is persisted in the chat store's localStorage index (`aiq-chat-store:index`,
-   * `stores/chat-storage.ts`), the part of storage that is never evicted. It is a plain serialisable map (SSR-safe) and is cleared
-   * only on successful send or when its session is deleted. Keyed by
-   * conversation id, so it is inherently project/user-scoped (a session id is
-   * already scoped to one project + user) and cannot leak across contexts.
+   * in-progress, unsent text. It survives session switches and reloads in the
+   * chat store's localStorage index (`stores/chat-storage.ts`), the part of
+   * storage that is never evicted, and is cleared only on successful send or
+   * when its session is deleted.
    */
   composerDrafts: Record<string, string>
   /**
@@ -147,39 +68,31 @@ export type MessagesSlice = {
    */
   chatSendFn: ((content: string) => void) | null
 
-  startAssistantMessage: () => ChatMessage
-  appendToAssistantMessage: (content: string) => void
-  completeAssistantMessage: () => void
-  setLoading: (isLoading: boolean) => void
-  setStreaming: (isStreaming: boolean) => void
   /**
-   * User-initiated cancel of the in-flight turn [C1]: flush any batched delta
-   * text, finalize/close the current streaming bubble (isStreaming -> false),
-   * clear isStreaming/isLoading/currentStatus, and trigger the websocket
-   * teardown registered by use-websocket-chat.
+   * Fold events into their turns and draw each changed turn into its
+   * conversation, in one `set()`. The terminal's result settles the answer:
+   * its storage write waits a task (`deferChatStorageWrites`), and the answer
+   * and the turn's provenance are mirrored to the server.
+   */
+  applyTurnEvents: (events: readonly WireEvent[]) => void
+  /**
+   * Start folding a turn: a question just sent, or one a reload interrupted
+   * and the socket is about to `attach` from its first event.
+   */
+  beginTurn: (conversationId: string, turnId: string) => void
+  /**
+   * Forget a turn this tab cannot continue (the stream no longer holds it),
+   * taking its unfinished answer with it: a fragment with a caret is worse
+   * than the server's finished answer or the banner that follows.
+   */
+  dropTurn: (turnId: string) => void
+  /**
+   * Stop the open conversation's running turn: `cancel_turn` goes to the
+   * server (the handler the socket hook registers), and the answer so far
+   * stays on screen, marked stopped. The server's `RUN_FINISHED` (outcome
+   * `cancelled`) then settles and persists it.
    */
   stopStreaming: () => void
-  addThinkingStep: (step: Omit<ThinkingStep, 'id' | 'timestamp' | 'userMessageId'>) => string
-  getThinkingStepsForMessage: (userMessageId: string) => ThinkingStep[]
-  appendToThinkingStep: (stepId: string, content: string) => void
-  completeThinkingStep: (stepId: string) => void
-  updateThinkingStepByFunctionName: (
-    functionName: string,
-    content: string,
-    isComplete: boolean
-  ) => void
-  findThinkingStepByFunctionName: (functionName: string) => ThinkingStep | undefined
-  clearThinkingSteps: () => void
-  setCurrentStatus: (status: StatusType | null) => void
-  addAgentPrompt: (
-    type: PromptType,
-    content: string,
-    options?: string[],
-    placeholder?: string,
-    promptId?: string,
-    parentId?: string,
-    inputType?: HumanPromptInputType
-  ) => void
   respondToPrompt: (messageId: string, response: string) => void
   addUserMessage: (
     content: string,
@@ -188,72 +101,6 @@ export type MessagesSlice = {
       messageFiles?: Array<{ id: string; fileName: string }>
     }
   ) => ChatMessage
-  addAgentResponse: (
-    content: string,
-    cards?: (GridCard | undefined)[],
-    answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[],
-    transparency?: AnswerTransparency
-  ) => void
-  appendAgentResponseDelta: (
-    content: string,
-    cards?: (GridCard | undefined)[],
-    answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[],
-    answerMeta?: AnswerMeta
-  ) => void
-  /**
-   * Replace the streaming bubble's text with a settled snapshot (ADR-0066):
-   * the prose so far with its `[N]` markers verified and renumbered, the
-   * sources they now point at, and the masthead re-gated against the prose.
-   * The bubble keeps streaming; the terminal frame still finalizes it.
-   */
-  replaceStreamingAgentResponse: (
-    content: string,
-    citations?: CitationSource[],
-    answerMeta?: AnswerMeta
-  ) => void
-  finalizeAgentResponse: (
-    content: string,
-    cards?: (GridCard | undefined)[],
-    answerConfidence?: 'low' | 'medium' | 'high',
-    citations?: CitationSource[],
-    transparency?: AnswerTransparency
-  ) => void
-  /**
-   * Record which WS turn the answer being built belongs to. Idempotent within a
-   * turn — every frame of a turn carries the same `parent_id`.
-   */
-  setTurnWsParentId: (wsParentId: string) => void
-  /** See `ChatActions.markTurnWsParentId`. */
-  markTurnWsParentId: (userMessageId: string, wsParentId: string) => void
-  /** See `ChatActions.resumeTurn`. */
-  resumeTurn: (conversationId: string) => ResumableTurn | null
-  /**
-   * Apply a post-answer stage frame to the turn it addresses
-   * (`docs/architecture/post-answer-stages.md` §4.3, §8).
-   *
-   * Returns the id of the message it landed on when something was stored, so
-   * the caller can mirror it to the server; null when the frame was declined —
-   * which is the common case and never an error.
-   */
-  applyStageFrame: (frame: StageFrame) => string | null
-  /**
-   * Drop the in-progress streaming assistant bubble of the current turn (the
-   * one referenced by `streamingAssistantMessageId`) entirely — message removed,
-   * not merely finalized — and clear `streamingAssistantMessageId`. Used when a
-   * turn resolves in a surface OTHER than an answer bubble (e.g. a job-admission
-   * rejection rendered as a banner), so any orphaned bubble opened by earlier
-   * deltas leaves no lingering caret. No-op when no streaming bubble is open.
-   * Also used when the reader leaves a conversation mid-turn: the bubble is
-   * dropped from the conversation that holds it, open or not.
-   */
-  discardStreamingAssistantMessage: () => void
-  addAgentResponseWithMeta: (
-    content: string,
-    meta: Partial<ChatMessage>,
-    cards?: (GridCard | undefined)[]
-  ) => string
   /**
    * Put a run's own message into the open thread, exactly as the server wrote
    * it (ADR-0062).
@@ -274,8 +121,6 @@ export type MessagesSlice = {
     patch: Partial<ChatMessage>
   ) => void
   setCardDecision: (messageId: string, cardKey: string, decision: CardDecision) => void
-  addFileCard: (data: FileCardData) => void
-  updateFileCard: (messageId: string, data: Partial<FileCardData>) => void
   addErrorCard: (code: ErrorCode, message?: string, details?: string) => void
   dismissErrorCard: (messageId: string) => void
   dismissConnectionErrors: () => void
@@ -308,8 +153,7 @@ export type MessagesSlice = {
    *      (ADR-0033 §5). Where both copies exist the LOCAL object wins, because it
    *      carries streaming/thinking state the server never stored — only the
    *      server's facts (position, author, mentions) are folded in.
-   *   2. **No turn state is touched.** `isStreaming`, `isLoading`,
-   *      `thinkingSteps`, `streamingAssistantMessageId` and
+   *   2. **No turn state is touched.** `turns`, `isStreaming`, `isLoading` and
    *      `currentUserMessageId` all belong to THIS client's turn. A colleague's
    *      message arriving must not disturb them.
    *   3. **No persist POST.** These messages came FROM the server; mirroring them
@@ -336,17 +180,14 @@ export type MessagesSlice = {
 }
 
 /**
- * Transient cancel handler for the in-flight streaming turn. Registered by
- * `use-websocket-chat` (which owns the socket ref) so the store's
- * `stopStreaming` action can tear the socket down without importing the hook.
- * Module-scoped rather than store state so it stays out of persistence and does
- * not need a `types.ts` declaration.
+ * Sends `cancel_turn` for a turn. Registered by `use-websocket-chat`, which
+ * owns the socket, so `stopStreaming` reaches it without importing the hook.
  */
-let stopStreamingHandler: (() => void) | null = null
+let stopTurnHandler: ((turnId: string) => void) | null = null
 
-/** Register (or clear, with `null`) the websocket teardown for `stopStreaming`. */
-export const registerStopStreamingHandler = (fn: (() => void) | null): void => {
-  stopStreamingHandler = fn
+/** Register (or clear, with `null`) the socket's `cancel_turn` sender. */
+export const registerStopStreamingHandler = (fn: ((turnId: string) => void) | null): void => {
+  stopTurnHandler = fn
 }
 
 const generateTitle = (content: string): string => {
@@ -471,34 +312,6 @@ export const mergeRemoteMessages = (
   return { messages: [...reconciled, ...keptLocalOnly].sort(compareThreadOrder), added }
 }
 
-/**
- * Apply a "Function Complete: X" payload to a step, carrying its retrieval over.
- *
- * The step is keyed by function name alone, so every call a ReAct-style agent
- * makes to the SAME tool within one turn lands on the same step and replaces its
- * `content` wholesale — which is correct for the visible step text (it shows the
- * latest output) but silently threw away what the earlier calls had retrieved:
- * the `## Trace-Lanes` block of call #1 was gone the moment call #2 completed,
- * and with it the source card the Herleitung had already rendered for it. So
- * before the overwrite we lift the lanes out of BOTH the outgoing and the
- * incoming payload and fold them into `traceLanes`, the step's cumulative record
- * of what the turn has read. `content` is still replaced exactly as before, and
- * lanes are only attached once there is something to attach, so a step whose
- * tool ships no structured block (web/RIS) keeps falling through to the URL scan
- * in `deriveTraceLanes`.
- */
-const withCompletedPayload = (
-  step: ThinkingStep,
-  content: string,
-  isComplete: boolean
-): ThinkingStep => {
-  const carried = mergeTraceLaneCards(step.traceLanes, parseTraceLanesBlock(step.content))
-  const merged = mergeTraceLaneCards(carried, parseTraceLanesBlock(content))
-  return merged.length > 0
-    ? { ...step, content, isComplete, traceLanes: merged }
-    : { ...step, content, isComplete }
-}
-
 const createNewConversation = (userId: string): Conversation => ({
   id: `s_${uuidv4().replace(/-/g, '_')}`,
   userId,
@@ -508,143 +321,56 @@ const createNewConversation = (userId: string): Conversation => ({
   updatedAt: new Date(),
 })
 
+/** The open conversation's running turn: at most one, because a turn locks the composer. */
+export const runningTurnIn = (
+  turns: Record<string, TurnView>,
+  conversationId: string | undefined
+): TurnView | undefined =>
+  conversationId
+    ? Object.values(turns).find((view) => view.conversationId === conversationId && view.phase === 'running')
+    : undefined
+
 /**
- * How often buffered answer deltas reach the store while an answer streams.
- * Each flush re-renders everything subscribed to the open conversation; once
- * per animation frame, that was a 50–70 ms task every few frames on a 4×
- * throttled CPU. What the reader sees is paced separately (`usePacedText`),
- * so the flush can be this coarse without the text arriving in steps.
+ * The turn state the composer and the thread read, derived from the views:
+ * streaming while the turn runs and asks nothing, loading until the server
+ * acknowledged the question (`RUN_STARTED`), and the open question.
  */
-export const DELTA_FLUSH_MS = 100
+export const turnStateFor = (
+  turns: Record<string, TurnView>,
+  conversationId: string | undefined
+): { isStreaming: boolean; isLoading: boolean; pendingInteraction: PendingInteraction | null } => {
+  const view = runningTurnIn(turns, conversationId)
+  const request = view?.interaction
+  return {
+    isStreaming: Boolean(view && !request),
+    isLoading: view?.lastSeq === 0,
+    pendingInteraction: view && request
+      ? { turnId: view.turnId, interactionId: request.interaction_id, input: request.input }
+      : null,
+  }
+}
+
+const groupByTurn = (events: readonly WireEvent[]): Map<string, WireEvent[]> => {
+  const byTurn = new Map<string, WireEvent[]>()
+  for (const event of events) {
+    const list = byTurn.get(event.turn_id)
+    if (list) list.push(event)
+    else byTurn.set(event.turn_id, [event])
+  }
+  return byTurn
+}
 
 export const initialMessagesState = {
   isStreaming: false,
   isLoading: false,
   currentUserMessageId: null as string | null,
-  currentTurnWsParentId: null as string | null,
   currentTurnStartedAt: null as number | null,
-  thinkingSteps: [] as ThinkingStep[],
-  activeThinkingStepId: null as string | null,
-  streamingAssistantMessageId: null as string | null,
-  currentStatus: null as StatusType | null,
+  turns: {} as Record<string, TurnView>,
   projectId: null as string | null,
   composerPrefill: null as ComposerPrefill | null,
   composerSubject: null,
   composerDrafts: {} as Record<string, string>,
   chatSendFn: null as ((content: string) => void) | null,
-}
-
-/**
- * Build an `agent_response` ChatMessage from what the store carries at emit
- * time. Shared by
- * `addAgentResponse` (one-shot bubble) and `appendAgentResponseDelta` (first
- * delta of a streamed answer) so a finalized streamed bubble is byte-identical
- * to today's single-shot response for the same store state — this is what
- * preserves backward compatibility.
- */
-/**
- * The id this turn's answer is created under: the one the backend would persist
- * it under, once the turn's WS id is known (see `turnAnswerId`), so an answer
- * written by both tiers is one row. A fresh uuid before that.
- */
-const answerIdFor = (state: ChatStore): string =>
-  state.currentConversation && state.currentTurnWsParentId
-    ? turnAnswerId(state.currentConversation.id, state.currentTurnWsParentId)
-    : uuidv4()
-
-/**
- * How long the current turn took, from the question being sent to now, or
- * undefined when this browser did not see the question go out.
- */
-const turnDurationMs = (state: ChatStore): number | undefined => {
-  if (state.currentTurnStartedAt === null) return undefined
-  const elapsed = Date.now() - state.currentTurnStartedAt
-  return elapsed > 0 ? elapsed : undefined
-}
-
-const buildAgentResponseMessage = (
-  state: ChatStore,
-  id: string,
-  content: string,
-  opts: {
-    cards?: (GridCard | undefined)[]
-    answerConfidence?: 'low' | 'medium' | 'high'
-    citations?: CitationSource[]
-    isStreaming?: boolean
-    transparency?: AnswerTransparency
-  }
-): ChatMessage => {
-  return {
-    id,
-    role: 'assistant',
-    content,
-    timestamp: new Date(),
-    messageType: 'agent_response',
-    cards: opts.cards,
-    answerConfidence: opts.answerConfidence,
-    citations: opts.citations && opts.citations.length > 0 ? opts.citations : undefined,
-    ...(opts.isStreaming ? { isStreaming: true } : {}),
-    // A streamed bubble is stamped when it finalizes; a one-shot one is final now.
-    ...(!opts.isStreaming && turnDurationMs(state) !== undefined
-      ? { answerDurationMs: turnDurationMs(state) }
-      : {}),
-    // Which WS turn this answer belongs to, so a stage frame that arrives
-    // seconds later can find it. Stamped as the bubble is built rather than
-    // patched on afterwards: the turn key is known before the first delta, and
-    // a message that exists for even one frame without it is a message a frame
-    // could miss.
-    ...(state.currentTurnWsParentId ? { wsParentId: state.currentTurnWsParentId } : {}),
-
-    // Transparency extras (WP-A). Spread only the fields that are present so a
-    // turn without them stays byte-identical to the pre-transparency message.
-    ...(opts.transparency?.routingDecision
-      ? { routingDecision: opts.transparency.routingDecision }
-      : {}),
-    ...(opts.transparency?.escalationReason
-      ? { escalationReason: opts.transparency.escalationReason }
-      : {}),
-    ...(opts.transparency?.answerConfidenceCappedReason
-      ? { answerConfidenceCappedReason: opts.transparency.answerConfidenceCappedReason }
-      : {}),
-    ...(opts.transparency?.answerConfidenceReason
-      ? { answerConfidenceReason: opts.transparency.answerConfidenceReason }
-      : {}),
-    ...(opts.transparency?.citationsRemoved
-      ? { citationsRemoved: opts.transparency.citationsRemoved }
-      : {}),
-    // Retrieved-but-uncited documents for the "Gelesen, nicht zitiert"
-    // disclosure. Absent when everything retrieved was cited.
-    ...(opts.transparency?.readSources && opts.transparency.readSources.length > 0
-      ? { readSources: opts.transparency.readSources }
-      : {}),
-    ...(opts.transparency?.researchTruncated ? { researchTruncated: true as const } : {}),
-    // The answer's structured anatomy — already sanitized at the wire boundary.
-    ...(opts.transparency?.answerMeta ? { answerMeta: opts.transparency.answerMeta } : {}),
-    // The backend's account of this turn's retrieval rounds — already
-    // sanitized at the wire boundary (which guarantees a non-empty array or
-    // nothing). Spread like every other extra so a turn without one stays
-    // byte-identical to a pre-ledger message.
-    ...(opts.transparency?.retrievalLedger
-      ? { retrievalLedger: opts.transparency.retrievalLedger }
-      : {}),
-    // The CAUSE and the degradations ride alongside the flag, and are copied
-    // independently of it: a run can be degraded without being truncated, and
-    // gating them on the flag drops exactly the case the reader most needs.
-    // Without these two lines the props ChatArea passes are always undefined,
-    // so the live turn says THAT research stopped and never why.
-    ...(opts.transparency?.truncationReason
-      ? { truncationReason: opts.transparency.truncationReason }
-      : {}),
-    ...(opts.transparency?.degradedReasons?.length
-      ? { degradedReasons: opts.transparency.degradedReasons }
-      : {}),
-    ...(opts.transparency?.skillsHidden && opts.transparency.skillsHidden.length > 0
-      ? { skillsHidden: opts.transparency.skillsHidden }
-      : {}),
-    ...(opts.transparency?.skillsActivated && opts.transparency.skillsActivated.length > 0
-      ? { skillsActivated: opts.transparency.skillsActivated }
-      : {}),
-  }
 }
 
 export const createMessagesSlice: StateCreator<
@@ -653,573 +379,142 @@ export const createMessagesSlice: StateCreator<
   [],
   MessagesSlice
 > = (set, get) => {
-  // --- Streamed-delta batching ------------------------------------------------
-  // Rather than rebuilding the whole conversation object on every token (one
-  // set() per delta), subsequent answer deltas accumulate in this buffer and
-  // flush to the store every `DELTA_FLUSH_MS`. Every flush re-renders what
-  // subscribes to the conversation, so it is coarse on purpose: the reader
-  // does not see the flush cadence, because the answer paces its own reveal
-  // (`usePacedText`). In non-DOM / test envs we flush synchronously so
-  // `append` then a synchronous read still observes the text.
-  let pendingDeltaText = ''
-  let pendingDeltaMeta: {
-    cards?: (GridCard | undefined)[]
-    answerConfidence?: 'low' | 'medium' | 'high'
-    citations?: CitationSource[]
-    answerMeta?: AnswerMeta
-  } = {}
-  // Whether the open bubble's cards or masthead came from a LIVE frame
-  // (ADR-0066) rather than the legacy single in_progress frame. Live ones are
-  // provisional: a terminal that carries none (the cards were suppressed, the
-  // masthead gated out) takes them away again.
-  let liveMetaShown = false
-  /**
-   * Is this in_progress frame one of the live frames that carry only what sits
-   * around the prose (the masthead ahead of it, the cards after it)? Those are
-   * written with no text of their own (`live_chunk("", …)` in
-   * `aiq_agent/turn/streaming.py`). A frame that carries text as well is the
-   * legacy shape, whose cards are final and must survive a terminal that omits
-   * them.
-   */
-  const isLiveExtrasFrame = (
-    content: string,
-    cards: (GridCard | undefined)[] | undefined,
-    answerMeta: AnswerMeta | undefined
-  ): boolean => !content && (Boolean(answerMeta) || (cards?.length ?? 0) > 0)
-  let deltaFlushTimer: ReturnType<typeof setTimeout> | null = null
-
-  const canBatchDeltas = (): boolean =>
-    typeof window !== 'undefined' &&
-    // Keep tests deterministic: they append then read synchronously, so never
-    // defer under vitest (NODE_ENV is statically 'production'/'development' in
-    // the browser bundle, so this branch tree-shakes out there).
-    process.env.NODE_ENV !== 'test'
-
-  const cancelScheduledFlush = (): void => {
-    if (deltaFlushTimer !== null) {
-      clearTimeout(deltaFlushTimer)
-      deltaFlushTimer = null
+  /** Put `conversation` in the list, and in `currentConversation` when it is the open one. */
+  const withConversation = (conversation: Conversation) => {
+    const { conversations, currentConversation } = get()
+    return {
+      conversations: updateConversationInList(conversations, conversation),
+      ...(currentConversation?.id === conversation.id && { currentConversation: conversation }),
     }
   }
 
-  const resetDeltaBuffer = (): void => {
-    cancelScheduledFlush()
-    pendingDeltaText = ''
-    pendingDeltaMeta = {}
+  /** The answer the terminal just settled, mirrored to the server with the turn's provenance. */
+  const persistSettled = (conversationId: string, answer: ChatMessage): void => {
+    if (get().currentConversation?.id !== conversationId) return
+    void get()._appendMessage(answer)
+    void get()._persistTurnProvenance()
+    get().maybeGenerateConversationName(conversationId)
   }
 
-  /** Apply any buffered delta text/meta to the open streaming bubble. */
-  const flushDeltaBuffer = (): void => {
-    cancelScheduledFlush()
-
-    const text = pendingDeltaText
-    const meta = pendingDeltaMeta
-    // Clear the buffer up front so stale text can never leak onto a later
-    // (different) bubble if the tracked id has since been released.
-    pendingDeltaText = ''
-    pendingDeltaMeta = {}
-
-    const hasMeta =
-      (meta.cards && meta.cards.length > 0) ||
-      !!meta.answerConfidence ||
-      !!meta.answerMeta ||
-      (meta.citations && meta.citations.length > 0)
-    if (text === '' && !hasMeta) return
-
-    const { currentConversation, conversations, streamingAssistantMessageId } = get()
-    if (!currentConversation || !streamingAssistantMessageId) return
-
-    const updatedMessages = currentConversation.messages.map((msg) =>
-      msg.id === streamingAssistantMessageId
-        ? {
-            ...msg,
-            content: msg.content + text,
-            // Replacing the card set can invalidate positional decision keys —
-            // re-anchor them (or drop them) rather than let one point at a
-            // different card. No-op in the common case (no cards, or the same
-            // set arriving again).
-            ...(meta.cards && meta.cards.length > 0
-              ? {
-                  cards: meta.cards,
-                  cardInteractions: reconcileCardInteractions(
-                    msg.cardInteractions,
-                    msg.cards,
-                    meta.cards
-                  ),
-                }
-              : {}),
-            ...(meta.answerConfidence ? { answerConfidence: meta.answerConfidence } : {}),
-            ...(meta.citations && meta.citations.length > 0 ? { citations: meta.citations } : {}),
-            ...(meta.answerMeta ? { answerMeta: meta.answerMeta } : {}),
-          }
-        : msg
-    )
-
-    // No `updatedAt` bump: the turn's start already set it and its settle sets
-    // it again. Stamping every flush made the conversation's sidebar row a new
-    // row ten times a second, re-sorting and re-rendering the whole list with it.
-    const updatedConversation: Conversation = {
-      ...currentConversation,
-      messages: updatedMessages,
+  /** Fold `events` into `turns` and draw every turn that moved; one `set()`. */
+  const commit = (turns: Record<string, TurnView>, moved: [TurnView, TurnView | undefined][]): void => {
+    const state = get()
+    const conversations = new Map(state.conversations.map((c) => [c.id, c]))
+    if (state.currentConversation) conversations.set(state.currentConversation.id, state.currentConversation)
+    const effects: (() => void)[] = []
+    let settled = false
+    for (const [view, previous] of moved) {
+      const conversation = conversations.get(view.conversationId)
+      if (!conversation) continue
+      const answerDurationMs =
+        state.currentUserMessageId === view.turnId && state.currentTurnStartedAt !== null
+          ? Math.max(1, Date.now() - state.currentTurnStartedAt)
+          : undefined
+      const projection = projectTurn(conversation.messages, view, previous, {
+        answerDurationMs,
+        draft: state.composerDrafts[conversation.id] ?? '',
+      })
+      if (projection.messages === conversation.messages) continue
+      // No `updatedAt` bump while the turn grows: stamping every flush re-sorted
+      // and re-rendered the whole sessions list ten times a second. The
+      // settle is the turn's one activity stamp.
+      conversations.set(conversation.id, {
+        ...conversation,
+        messages: projection.messages,
+        ...(projection.settled && { updatedAt: new Date() }),
+      })
+      const { settled: answer, prompt, stageWrites } = projection
+      if (answer) {
+        settled = true
+        effects.push(() => persistSettled(conversation.id, answer))
+      }
+      if (prompt) effects.push(() => void get()._appendMessage(prompt))
+      const answerId = view.messageId
+      if (answerId) for (const stages of stageWrites) effects.push(() => void get()._persistStageOutput(answerId, stages))
     }
-
-    set(
-      {
-        currentConversation: updatedConversation,
-        conversations: updateConversationInList(conversations, updatedConversation),
-      },
-      false,
-      'appendAgentResponseDelta:flush'
-    )
-  }
-
-  const scheduleDeltaFlush = (): void => {
-    if (deltaFlushTimer !== null) return
-    deltaFlushTimer = setTimeout(() => {
-      deltaFlushTimer = null
-      flushDeltaBuffer()
-    }, DELTA_FLUSH_MS)
+    const current = state.currentConversation ? conversations.get(state.currentConversation.id) ?? null : null
+    const update = () =>
+      set(
+        {
+          turns,
+          conversations: state.conversations.map((c) => conversations.get(c.id) ?? c),
+          currentConversation: current,
+          ...turnStateFor(turns, current?.id),
+        },
+        false,
+        'applyTurnEvents'
+      )
+    // The settle is the most expensive frame the chat draws; its browser copy
+    // is written after it.
+    if (settled) deferChatStorageWrites(update)
+    else update()
+    for (const effect of effects) effect()
   }
 
   return {
     ...initialMessagesState,
 
-    startAssistantMessage: () => {
-      const { currentConversation, conversations } = get()
-      if (!currentConversation) {
-        throw new Error('No active conversation')
+    applyTurnEvents: (events) => {
+      let turns = get().turns
+      const moved: [TurnView, TurnView | undefined][] = []
+      for (const [turnId, list] of groupByTurn(events)) {
+        const previous = turns[turnId]
+        const view = foldTurnEvents(previous, list)
+        if (!view || view === previous) continue
+        turns = { ...turns, [turnId]: view }
+        moved.push([view, previous])
       }
-
-      const newMessage: ChatMessage = {
-        id: uuidv4(),
-        role: 'assistant',
-        content: '',
-        timestamp: new Date(),
-        messageType: 'assistant',
-        isStreaming: true,
-      }
-
-      const updatedConversation: Conversation = {
-        ...currentConversation,
-        messages: [...currentConversation.messages, newMessage],
-        updatedAt: new Date(),
-      }
-
-      const updatedConversations = updateConversationInList(conversations, updatedConversation)
-
-      set(
-        {
-          currentConversation: updatedConversation,
-          conversations: updatedConversations,
-          isStreaming: true,
-          isLoading: false,
-        },
-        false,
-        'startAssistantMessage'
-      )
-
-      return newMessage
+      if (moved.length > 0) commit(turns, moved)
     },
 
-    appendToAssistantMessage: (content: string) => {
-      const { currentConversation, conversations } = get()
-      if (!currentConversation) return
-
-      const messages = currentConversation.messages
-      const lastMessage = messages[messages.length - 1]
-
-      if (!lastMessage || lastMessage.role !== 'assistant' || !lastMessage.isStreaming) {
-        return
-      }
-
-      const updatedMessage: ChatMessage = {
-        ...lastMessage,
-        content: lastMessage.content + content,
-      }
-
-      const updatedMessages = [...messages.slice(0, -1), updatedMessage]
-
-      const updatedConversation: Conversation = {
-        ...currentConversation,
-        messages: updatedMessages,
-        updatedAt: new Date(),
-      }
-
-      const updatedConversations = updateConversationInList(conversations, updatedConversation)
-
+    beginTurn: (conversationId, turnId) => {
+      const turns = { ...get().turns, [turnId]: initialTurnView(turnId, conversationId) }
       set(
         {
-          currentConversation: updatedConversation,
-          conversations: updatedConversations,
+          turns,
+          currentUserMessageId: turnId,
+          // A turn begun is a turn no longer waiting to be resumed.
+          ...(get().resumableTurn?.turnId === turnId && { resumableTurn: null }),
+          ...turnStateFor(turns, get().currentConversation?.id),
         },
         false,
-        'appendToAssistantMessage'
+        'beginTurn'
       )
     },
 
-    completeAssistantMessage: () => {
-      const { currentConversation, conversations } = get()
-      if (!currentConversation) return
-
-      const messages = currentConversation.messages
-      const lastMessage = messages[messages.length - 1]
-
-      if (!lastMessage || lastMessage.role !== 'assistant') {
-        set({ isStreaming: false }, false, 'completeAssistantMessage')
-        return
-      }
-
-      const updatedMessage: ChatMessage = {
-        ...lastMessage,
-        isStreaming: false,
-      }
-
-      const updatedMessages = [...messages.slice(0, -1), updatedMessage]
-
-      const updatedConversation: Conversation = {
-        ...currentConversation,
-        messages: updatedMessages,
-        updatedAt: new Date(),
-      }
-
-      const updatedConversations = updateConversationInList(conversations, updatedConversation)
-
+    dropTurn: (turnId) => {
+      const { turns, currentConversation, conversations } = get()
+      const view = turns[turnId]
+      if (!view) return
+      const { [turnId]: _dropped, ...rest } = turns
+      const owner =
+        currentConversation?.id === view.conversationId
+          ? currentConversation
+          : conversations.find((c) => c.id === view.conversationId)
+      const fragment = owner?.messages.find((m) => m.id === view.messageId && m.isStreaming)
       set(
         {
-          currentConversation: updatedConversation,
-          conversations: updatedConversations,
-          isStreaming: false,
+          turns: rest,
+          ...(owner && fragment && withConversation({ ...owner, messages: owner.messages.filter((m) => m !== fragment) })),
+          ...turnStateFor(rest, currentConversation?.id),
         },
         false,
-        'completeAssistantMessage'
+        'dropTurn'
       )
-
-      get()._appendMessage(updatedMessage)
-      // The turn has settled, so its provenance exists now and can be mirrored
-      // (ADR-0037). Fire-and-forget: the asker already sees the Herleitung from the
-      // store, and a failed mirror must not fail the turn.
-      void get()._persistTurnProvenance()
-    },
-
-    setLoading: (isLoading: boolean) => {
-      set({ isLoading }, false, 'setLoading')
-    },
-
-    setStreaming: (isStreaming: boolean) => {
-      set({ isStreaming }, false, 'setStreaming')
     },
 
     stopStreaming: () => {
-      // Flush any batched delta text first so the finalized bubble keeps
-      // everything received before the cancel.
-      flushDeltaBuffer()
-      resetDeltaBuffer()
-
-      const { currentConversation, conversations, streamingAssistantMessageId } = get()
-
-      // Close the open streaming bubble (mark it non-streaming) so the caret
-      // stops and it reads as a finished — if truncated — answer [C6].
-      if (currentConversation && streamingAssistantMessageId) {
-        const updatedMessages = currentConversation.messages.map((msg) =>
-          msg.id === streamingAssistantMessageId ? { ...msg, isStreaming: false } : msg
-        )
-        const updatedConversation: Conversation = {
-          ...currentConversation,
-          messages: updatedMessages,
-          updatedAt: new Date(),
-        }
-        set(
-          {
-            currentConversation: updatedConversation,
-            conversations: updateConversationInList(conversations, updatedConversation),
-            streamingAssistantMessageId: null,
-            isStreaming: false,
-            isLoading: false,
-            currentStatus: null,
-          },
-          false,
-          'stopStreaming'
-        )
-      } else {
-        set(
-          {
-            streamingAssistantMessageId: null,
-            isStreaming: false,
-            isLoading: false,
-            currentStatus: null,
-          },
-          false,
-          'stopStreaming'
-        )
-      }
-
-      // Tear down the in-flight socket (registered by use-websocket-chat).
-      stopStreamingHandler?.()
-    },
-
-    addThinkingStep: (step: Omit<ThinkingStep, 'id' | 'timestamp' | 'userMessageId'>) => {
-      const { currentUserMessageId, currentConversation, conversations } = get()
-      if (!currentUserMessageId) {
-        console.warn('addThinkingStep called without currentUserMessageId')
-        return ''
-      }
-
-      const stepId = uuidv4()
-      const newStep: ThinkingStep = {
-        ...step,
-        id: stepId,
-        userMessageId: currentUserMessageId,
-        timestamp: new Date(),
-      }
-
-      let updatedConversation = currentConversation
-      let updatedConversations = conversations
-
-      if (currentConversation) {
-        const updatedMessages = currentConversation.messages.map((msg) => {
-          if (msg.id === currentUserMessageId) {
-            return {
-              ...msg,
-              thinkingSteps: [...(msg.thinkingSteps || []), newStep],
-            }
-          }
-          return msg
-        })
-
-        updatedConversation = {
-          ...currentConversation,
-          messages: updatedMessages,
-        }
-
-        updatedConversations = updateConversationInList(conversations, updatedConversation)
-      }
-
-      set(
-        {
-          thinkingSteps: [...get().thinkingSteps, newStep],
-          activeThinkingStepId: stepId,
-          currentConversation: updatedConversation,
-          conversations: updatedConversations,
-        },
-        false,
-        'addThinkingStep'
-      )
-
-      return stepId
-    },
-
-    getThinkingStepsForMessage: (userMessageId: string) => {
-      const { thinkingSteps } = get()
-      return thinkingSteps.filter(
-        (step) => step.userMessageId === userMessageId && !step.isDeepResearch
-      )
-    },
-
-    appendToThinkingStep: (stepId: string, content: string) => {
-      const { currentConversation, conversations, thinkingSteps } = get()
-
-      const updatedThinkingSteps = thinkingSteps.map((step) =>
-        step.id === stepId ? { ...step, content: step.content + content } : step
-      )
-
-      const step = thinkingSteps.find((s) => s.id === stepId)
-      let updatedConversation = currentConversation
-      let updatedConversations = conversations
-
-      if (step && currentConversation) {
-        const updatedMessages = currentConversation.messages.map((msg) => {
-          if (msg.id === step.userMessageId && msg.thinkingSteps) {
-            return {
-              ...msg,
-              thinkingSteps: msg.thinkingSteps.map((s) =>
-                s.id === stepId ? { ...s, content: s.content + content } : s
-              ),
-            }
-          }
-          return msg
-        })
-
-        updatedConversation = {
-          ...currentConversation,
-          messages: updatedMessages,
-        }
-
-        updatedConversations = updateConversationInList(conversations, updatedConversation)
-      }
-
-      set(
-        {
-          thinkingSteps: updatedThinkingSteps,
-          currentConversation: updatedConversation,
-          conversations: updatedConversations,
-        },
-        false,
-        'appendToThinkingStep'
-      )
-    },
-
-    completeThinkingStep: (stepId: string) => {
-      const { currentConversation, conversations, thinkingSteps, activeThinkingStepId } = get()
-
-      const updatedThinkingSteps = thinkingSteps.map((step) =>
-        step.id === stepId ? { ...step, isComplete: true } : step
-      )
-
-      const step = thinkingSteps.find((s) => s.id === stepId)
-      let updatedConversation = currentConversation
-      let updatedConversations = conversations
-
-      if (step && currentConversation) {
-        const updatedMessages = currentConversation.messages.map((msg) => {
-          if (msg.id === step.userMessageId && msg.thinkingSteps) {
-            return {
-              ...msg,
-              thinkingSteps: msg.thinkingSteps.map((s) =>
-                s.id === stepId ? { ...s, isComplete: true } : s
-              ),
-            }
-          }
-          return msg
-        })
-
-        updatedConversation = {
-          ...currentConversation,
-          messages: updatedMessages,
-        }
-
-        updatedConversations = updateConversationInList(conversations, updatedConversation)
-      }
-
-      set(
-        {
-          thinkingSteps: updatedThinkingSteps,
-          activeThinkingStepId: activeThinkingStepId === stepId ? null : activeThinkingStepId,
-          currentConversation: updatedConversation,
-          conversations: updatedConversations,
-        },
-        false,
-        'completeThinkingStep'
-      )
-    },
-
-    updateThinkingStepByFunctionName: (
-      functionName: string,
-      content: string,
-      isComplete: boolean
-    ) => {
-      const { currentConversation, conversations, thinkingSteps, currentUserMessageId } = get()
-
-      const updatedThinkingSteps = thinkingSteps.map((step) =>
-        step.functionName === functionName && step.userMessageId === currentUserMessageId
-          ? withCompletedPayload(step, content, isComplete)
-          : step
-      )
-
-      const step = thinkingSteps.find(
-        (s) => s.functionName === functionName && s.userMessageId === currentUserMessageId
-      )
-      let updatedConversation = currentConversation
-      let updatedConversations = conversations
-
-      if (step && currentConversation) {
-        const updatedMessages = currentConversation.messages.map((msg) => {
-          if (msg.id === step.userMessageId && msg.thinkingSteps) {
-            return {
-              ...msg,
-              thinkingSteps: msg.thinkingSteps.map((s) =>
-                s.functionName === functionName ? withCompletedPayload(s, content, isComplete) : s
-              ),
-            }
-          }
-          return msg
-        })
-
-        updatedConversation = {
-          ...currentConversation,
-          messages: updatedMessages,
-        }
-
-        updatedConversations = updateConversationInList(conversations, updatedConversation)
-      }
-
-      set(
-        {
-          thinkingSteps: updatedThinkingSteps,
-          currentConversation: updatedConversation,
-          conversations: updatedConversations,
-        },
-        false,
-        'updateThinkingStepByFunctionName'
-      )
-    },
-
-    findThinkingStepByFunctionName: (functionName: string) => {
-      const { thinkingSteps, currentUserMessageId } = get()
-      if (!currentUserMessageId) return undefined
-      return thinkingSteps.find(
-        (step) => step.functionName === functionName && step.userMessageId === currentUserMessageId
-      )
-    },
-
-    clearThinkingSteps: () => {
-      set({ thinkingSteps: [], activeThinkingStepId: null }, false, 'clearThinkingSteps')
-    },
-
-    setCurrentStatus: (status: StatusType | null) => {
-      set({ currentStatus: status }, false, 'setCurrentStatus')
-    },
-
-    addAgentPrompt: (
-      type: PromptType,
-      content: string,
-      options?: string[],
-      placeholder?: string,
-      promptId?: string,
-      parentId?: string,
-      inputType?: HumanPromptInputType
-    ) => {
-      const { currentConversation, conversations } = get()
-      if (!currentConversation) return
-
-      const promptMessage: ChatMessage = {
-        id: uuidv4(),
-        role: 'assistant',
-        content,
-        timestamp: new Date(),
-        messageType: 'prompt',
-        promptType: type,
-        promptId,
-        promptParentId: parentId,
-        promptInputType: inputType,
-        promptOptions: options,
-        promptPlaceholder: placeholder,
-        isPromptResponded: false,
-      }
-
-      const updatedConversation: Conversation = {
-        ...currentConversation,
-        messages: [...currentConversation.messages, promptMessage],
-        updatedAt: new Date(),
-      }
-
-      const updatedConversations = updateConversationInList(conversations, updatedConversation)
-
-      set(
-        {
-          currentConversation: updatedConversation,
-          conversations: updatedConversations,
-          isLoading: false,
-          isStreaming: false,
-        },
-        false,
-        'addAgentPrompt'
-      )
-
-      // Persist it (ADR-0037). Without this the card lived only in the browser whose
-      // socket received the frame: an observer's server-authoritative load showed no
-      // card at all and the thread appeared to stop mid-question, and the asker's own
-      // reload lost it too.
-      void get()._appendMessage(promptMessage)
+      const running = runningTurnIn(get().turns, get().currentConversation?.id)
+      if (!running) return
+      // The handler folds what the socket still holds before it sends the cancel.
+      stopTurnHandler?.(running.turnId)
+      const view = get().turns[running.turnId] ?? running
+      if (view.phase !== 'running') return
+      // Stopped here and now, whatever the socket is doing: the answer so far
+      // stays, its caret goes, the composer is free. The server's cancelled
+      // terminal settles it when it arrives.
+      const stopped: TurnView = { ...view, phase: 'finished', outcome: 'cancelled', streaming: false, interaction: undefined }
+      commit({ ...get().turns, [view.turnId]: stopped }, [[stopped, view]])
     },
 
     respondToPrompt: (messageId: string, response: string) => {
@@ -1252,6 +547,7 @@ export const createMessagesSlice: StateCreator<
       // The transcript should say what was DECIDED, not only that something was asked.
       void get()._persistPromptState(messageId, response)
     },
+
 
     addUserMessage: (
       content: string,
@@ -1314,14 +610,6 @@ export const createMessagesSlice: StateCreator<
           isLoading: true,
           currentUserMessageId: newMessage.id,
           currentTurnStartedAt: Date.now(),
-          // A new turn is a new WS turn id; the old one must not leak onto the
-          // next answer, or a late stage frame from the previous turn would find
-          // two messages claiming to be its target.
-          currentTurnWsParentId: null,
-          activeThinkingStepId: null,
-          // A new turn starts a fresh answer bubble — never accumulate onto the
-          // previous turn's (already finalized) streaming bubble.
-          streamingAssistantMessageId: null,
         },
         false,
         'addUserMessage'
@@ -1329,547 +617,6 @@ export const createMessagesSlice: StateCreator<
 
       get()._appendMessage(newMessage)
       return newMessage
-    },
-
-    addAgentResponse: (
-      content: string,
-      cards?: (GridCard | undefined)[],
-      answerConfidence?: 'low' | 'medium' | 'high',
-      citations?: CitationSource[],
-      transparency?: AnswerTransparency
-    ) => {
-      const state = get()
-      const { currentConversation, conversations } = state
-      if (!currentConversation) return
-
-      const responseMessage = buildAgentResponseMessage(state, answerIdFor(state), content, {
-        cards,
-        answerConfidence,
-        citations,
-        transparency,
-      })
-
-      const updatedConversation: Conversation = {
-        ...currentConversation,
-        messages: [...currentConversation.messages, responseMessage],
-        updatedAt: new Date(),
-      }
-
-      const updatedConversations = updateConversationInList(conversations, updatedConversation)
-
-      set(
-        {
-          currentConversation: updatedConversation,
-          conversations: updatedConversations,
-        },
-        false,
-        'addAgentResponse'
-      )
-
-      get()._appendMessage(responseMessage)
-    },
-
-    appendAgentResponseDelta: (
-      content: string,
-      cards?: (GridCard | undefined)[],
-      answerConfidence?: 'low' | 'medium' | 'high',
-      citations?: CitationSource[],
-      answerMeta?: AnswerMeta
-    ) => {
-      const state = get()
-      const { currentConversation, conversations, streamingAssistantMessageId } = state
-      if (!currentConversation) return
-
-      // First delta of the turn: open a single streaming bubble synchronously so
-      // the caret appears immediately. Any meta present (the legacy backend
-      // attaches cards to its one and only in_progress frame) is captured here so
-      // it survives to the finalize step. Reset the batch buffer so no stale text
-      // from a prior turn can bleed into this fresh bubble.
-      if (!streamingAssistantMessageId) {
-        // Whitespace is text only BETWEEN words: a paragraph break the relay
-        // batched into a frame of its own keeps two paragraphs apart once the
-        // bubble is open, but as the turn's first frame it would open a bubble
-        // with nothing to draw, which takes the typing placeholder down and
-        // leaves the reader a blank until the first word. Mirrored by the
-        // observer's fold (spectator-frames.ts).
-        const nothingToDraw =
-          !content.trim() &&
-          !(cards && cards.length > 0) &&
-          !(citations && citations.length > 0) &&
-          !answerMeta
-        if (nothingToDraw) return
-        resetDeltaBuffer()
-        liveMetaShown = isLiveExtrasFrame(content, cards, answerMeta)
-
-        const id = answerIdFor(state)
-        const message = buildAgentResponseMessage(state, id, content, {
-          cards: cards && cards.length > 0 ? cards : undefined,
-          answerConfidence,
-          citations,
-          isStreaming: true,
-          // The masthead can open the bubble: it is written before the prose.
-          transparency: answerMeta ? { answerMeta } : undefined,
-        })
-
-        // No `updatedAt` bump: the send set it and the settle sets it again.
-        // A bump here made the opening a full write of the persisted history
-        // (1.97 MB and a 330 ms freeze with 40 conversations on a 4× throttled
-        // phone, the moment the first words appeared); the snapshot, the
-        // steps and the deltas leave it alone for the same reason.
-        const updatedConversation: Conversation = {
-          ...currentConversation,
-          messages: [...currentConversation.messages, message],
-        }
-
-        set(
-          {
-            currentConversation: updatedConversation,
-            conversations: updateConversationInList(conversations, updatedConversation),
-            streamingAssistantMessageId: id,
-          },
-          false,
-          'appendAgentResponseDelta:create'
-        )
-        return
-      }
-
-      // Subsequent delta: buffer the text (and merge any meta — deltas normally
-      // carry none) and flush to the store once per frame. In non-DOM / test
-      // envs we flush synchronously so a synchronous read after append still
-      // observes the accumulated text.
-      pendingDeltaText += content
-      if (cards && cards.length > 0) pendingDeltaMeta.cards = cards
-      if (answerConfidence) pendingDeltaMeta.answerConfidence = answerConfidence
-      if (citations && citations.length > 0) pendingDeltaMeta.citations = citations
-      if (answerMeta) pendingDeltaMeta.answerMeta = answerMeta
-      if (isLiveExtrasFrame(content, cards, answerMeta)) liveMetaShown = true
-
-      if (canBatchDeltas()) {
-        scheduleDeltaFlush()
-      } else {
-        flushDeltaBuffer()
-      }
-    },
-
-    // Mirrored by the observer's fold (collaboration/lib/spectator-frames.ts): change both.
-    replaceStreamingAgentResponse: (
-      content: string,
-      citations?: CitationSource[],
-      answerMeta?: AnswerMeta
-    ) => {
-      if (!get().currentConversation) return
-      // An empty snapshot naming no sources is the backend retracting a
-      // streamed round (AnswerStreamSink.retract).
-      const retraction = content === '' && !(citations && citations.length > 0)
-      // No bubble yet (a turn whose first live frame is the snapshot): open it,
-      // unless it is a retraction, which has nothing on screen to take back.
-      if (!get().streamingAssistantMessageId) {
-        if (retraction) return
-        get().appendAgentResponseDelta(content, undefined, undefined, citations, answerMeta)
-        // A snapshot is a live frame whatever text it carries: its masthead is
-        // as provisional as one that came ahead of the prose.
-        if (answerMeta) liveMetaShown = true
-        return
-      }
-      // Buffered delta text is part of what the snapshot replaces: the backend
-      // sends it only after every delta it settles. Buffered meta is not: live
-      // cards or confidence that arrived in the same frame land first.
-      pendingDeltaText = ''
-      flushDeltaBuffer()
-      const { currentConversation, conversations, streamingAssistantMessageId } = get()
-      if (!currentConversation || !streamingAssistantMessageId) return
-      if (answerMeta) liveMetaShown = true
-      // A retraction's cards go with its text, and the decisions keyed by
-      // their positions with them: otherwise the next round's [[card:0]]
-      // draws the dead round's card.
-      const updatedConversation: Conversation = {
-        ...currentConversation,
-        messages: currentConversation.messages.map((msg) =>
-          msg.id === streamingAssistantMessageId
-            ? {
-                ...msg,
-                ...(retraction ? { cards: undefined, cardInteractions: undefined } : {}),
-                content,
-                // A snapshot names the sources its text cites, all of them: an
-                // empty one (a streamed round retracted) cites nothing.
-                citations: citations && citations.length > 0 ? citations : undefined,
-                // The backend re-gates the masthead against the snapshot's
-                // prose, so a snapshot without one has gated it out: the
-                // masthead on screen goes, as the spectator's does.
-                answerMeta,
-              }
-            : msg
-        ),
-      }
-      set(
-        {
-          currentConversation: updatedConversation,
-          conversations: updateConversationInList(conversations, updatedConversation),
-        },
-        false,
-        'replaceStreamingAgentResponse'
-      )
-    },
-
-    finalizeAgentResponse: (
-      content: string,
-      cards?: (GridCard | undefined)[],
-      answerConfidence?: 'low' | 'medium' | 'high',
-      citations?: CitationSource[],
-      transparency?: AnswerTransparency
-    ) => {
-      // Flush any batched delta text onto the open bubble first so the terminal
-      // frame finalizes over the complete accumulation, then read fresh state.
-      flushDeltaBuffer()
-
-      const { currentConversation, conversations, streamingAssistantMessageId } = get()
-      if (!currentConversation) return
-      const answerDurationMs = turnDurationMs(get())
-
-      // No bubble was ever opened (no delta arrived) — e.g. a complete-only frame
-      // that carries the whole answer. Fall back to a one-shot response so there
-      // is still exactly one bubble, and skip entirely on the legacy empty
-      // synthetic complete when nothing preceded it.
-      if (!streamingAssistantMessageId) {
-        if ((content && content.trim()) || (cards && cards.length > 0)) {
-          get().addAgentResponse(content, cards, answerConfidence, citations, transparency)
-        }
-        return
-      }
-
-      // A terminal with the full text is authoritative for what the live
-      // frames showed ahead of it, absence included.
-      // Blank is not text: the spectator's fold uses the same test.
-      const authoritative = Boolean(content && content.trim())
-      const retractLive = liveMetaShown && authoritative
-      liveMetaShown = false
-      const updatedMessages = currentConversation.messages.map((msg) => {
-        if (msg.id !== streamingAssistantMessageId) return msg
-        return {
-          ...msg,
-          // The decisions are keyed by card position: they go with the cards
-          // (a terminal that re-sends cards reconciles them below instead).
-          ...(retractLive
-            ? { cards: undefined, cardInteractions: undefined, answerMeta: undefined }
-            : {}),
-          // Authoritative full text on the terminal frame equals the accumulation
-          // (idempotent replace). An EMPTY terminal — the legacy synthetic
-          // `complete` frame — must NOT wipe the accumulated bubble.
-          content: authoritative ? content : msg.content,
-          // Cards/sources/confidence ride the terminal frame when streaming; keep
-          // whatever the delta already attached when the terminal omits them (the
-          // legacy path attaches cards on the in_progress frame).
-          ...(cards && cards.length > 0
-            ? {
-                cards,
-                cardInteractions: reconcileCardInteractions(msg.cardInteractions, msg.cards, cards),
-              }
-            : {}),
-          ...(answerConfidence ? { answerConfidence } : {}),
-          // The citations are numbered against the text, so they go with it:
-          // a terminal with text and no sources cites nothing verified, and
-          // the snapshot's chips must not outlive the prose they belonged to.
-          // An empty terminal keeps them with the text it keeps.
-          ...(citations && citations.length > 0
-            ? { citations }
-            : authoritative
-              ? { citations: undefined }
-              : {}),
-          // Transparency extras ride the terminal frame; attach only what's present.
-          ...(transparency?.routingDecision
-            ? { routingDecision: transparency.routingDecision }
-            : {}),
-          ...(transparency?.escalationReason
-            ? { escalationReason: transparency.escalationReason }
-            : {}),
-          ...(transparency?.answerConfidenceCappedReason
-            ? { answerConfidenceCappedReason: transparency.answerConfidenceCappedReason }
-            : {}),
-          ...(transparency?.answerConfidenceReason
-            ? { answerConfidenceReason: transparency.answerConfidenceReason }
-            : {}),
-          ...(transparency?.citationsRemoved
-            ? { citationsRemoved: transparency.citationsRemoved }
-            : {}),
-          ...(transparency?.readSources && transparency.readSources.length > 0
-            ? { readSources: transparency.readSources }
-            : {}),
-          ...(transparency?.researchTruncated ? { researchTruncated: true as const } : {}),
-          ...(transparency?.answerMeta ? { answerMeta: transparency.answerMeta } : {}),
-          ...(transparency?.truncationReason
-            ? { truncationReason: transparency.truncationReason }
-            : {}),
-          ...(transparency?.degradedReasons?.length
-            ? { degradedReasons: transparency.degradedReasons }
-            : {}),
-          ...(transparency?.skillsHidden && transparency.skillsHidden.length > 0
-            ? { skillsHidden: transparency.skillsHidden }
-            : {}),
-          ...(transparency?.skillsActivated && transparency.skillsActivated.length > 0
-            ? { skillsActivated: transparency.skillsActivated }
-            : {}),
-          ...(answerDurationMs !== undefined ? { answerDurationMs } : {}),
-          isStreaming: false,
-        }
-      })
-
-      const finalizedMessage = updatedMessages.find((m) => m.id === streamingAssistantMessageId)
-
-      const updatedConversation: Conversation = {
-        ...currentConversation,
-        messages: updatedMessages,
-        updatedAt: new Date(),
-      }
-
-      set(
-        {
-          currentConversation: updatedConversation,
-          conversations: updateConversationInList(conversations, updatedConversation),
-          streamingAssistantMessageId: null,
-        },
-        false,
-        'finalizeAgentResponse'
-      )
-
-      // Mirror addAgentResponse's server persistence, but ONCE at finalize
-      // rather than per delta.
-      if (finalizedMessage) {
-        get()._appendMessage(finalizedMessage)
-        void get()._persistTurnProvenance()
-      }
-    },
-
-    setTurnWsParentId: (wsParentId: string) => {
-      if (!wsParentId) return
-      if (get().currentTurnWsParentId === wsParentId) return
-      set({ currentTurnWsParentId: wsParentId }, false, 'setTurnWsParentId')
-    },
-
-    markTurnWsParentId: (userMessageId: string, wsParentId: string) => {
-      const { currentConversation, conversations } = get()
-      if (!currentConversation || !wsParentId) return
-      const index = currentConversation.messages.findIndex((m) => m.id === userMessageId)
-      if (index < 0 || currentConversation.messages[index]?.wsParentId === wsParentId) return
-      const messages = [...currentConversation.messages]
-      messages[index] = { ...messages[index]!, wsParentId }
-      // No `updatedAt` bump: a local handle on the turn, not something said.
-      const updatedConversation: Conversation = { ...currentConversation, messages }
-      set(
-        {
-          currentConversation: updatedConversation,
-          conversations: updateConversationInList(conversations, updatedConversation),
-        },
-        false,
-        'markTurnWsParentId'
-      )
-    },
-
-    resumeTurn: (conversationId: string) => {
-      const {
-        resumableTurn: turn,
-        currentConversation,
-        conversations,
-        thinkingSteps,
-        isStreaming,
-      } = get()
-      if (!turn || turn.conversationId !== conversationId) return null
-      // Something newer owns the conversation: a question sent since, or a
-      // turn already streaming. The reload's turn is not the current one.
-      const last = currentConversation?.messages.findLast((m) => m.messageType === 'user')
-      if (isStreaming || !currentConversation || last?.id !== turn.userMessageId) {
-        set({ resumableTurn: null }, false, 'resumeTurn:stale')
-        return null
-      }
-      const messages = currentConversation.messages.map((m) =>
-        m.id === turn.userMessageId && m.thinkingSteps ? { ...m, thinkingSteps: undefined } : m
-      )
-      const updatedConversation: Conversation = { ...currentConversation, messages }
-      set(
-        {
-          resumableTurn: null,
-          currentUserMessageId: turn.userMessageId,
-          currentTurnWsParentId: turn.wsParentId,
-          // The question went out before the reload, from a page that is gone:
-          // no start this browser saw, so no duration rather than a wrong one.
-          currentTurnStartedAt: null,
-          streamingAssistantMessageId: null,
-          thinkingSteps: thinkingSteps.filter((s) => s.userMessageId !== turn.userMessageId),
-          activeThinkingStepId: null,
-          isStreaming: true,
-          isLoading: true,
-          currentConversation: updatedConversation,
-          conversations: updateConversationInList(conversations, updatedConversation),
-        },
-        false,
-        'resumeTurn'
-      )
-      return turn
-    },
-
-    applyStageFrame: (frame: StageFrame): string | null => {
-      const { currentConversation, conversations, composerDrafts } = get()
-      // A frame for a conversation this tab is not looking at is not this tab's
-      // business: the answer it addresses is not on screen and the store that
-      // owns it is not this one.
-      if (!currentConversation || currentConversation.id !== frame.conversationId) return null
-
-      // `empty` and `failed` are rendered identically — as nothing. There is no
-      // space to release, because none was ever reserved (§8), and nothing to
-      // persist, because "the stage produced nothing" is not a fact about the
-      // answer worth storing.
-      if (frame.status !== 'ready') return null
-
-      // Each stage's payload is validated by its OWN contract before anything is
-      // rendered or stored; the envelope schema deliberately keeps `payload`
-      // unknown, because one schema that knew every stage's shape would have to
-      // be edited by every future stage.
-      const payload = STAGE_SANITISERS[frame.stage](frame.payload)
-      // A payload its own contract rejects is dropped whole rather than rendered
-      // in part: half a set of chips is a worse offer than none.
-      if (!payload) return null
-
-      const messages = currentConversation.messages
-      const index = messages.findIndex(
-        (message) => message.role === 'assistant' && message.wsParentId === frame.parentId
-      )
-      // §4.1: a frame whose `parent_id` matches no message is dropped SILENTLY.
-      // It is the expected outcome for a tab that reloaded, or one that never
-      // asked this turn.
-      if (index === -1) return null
-
-      const target = messages[index]
-      const key = STAGE_KEYS[frame.stage]
-
-      // Mirrored to the server row BEFORE the render gate below, so what the
-      // stage produced survives a reload, a colleague's view and another device
-      // even when this tab refuses to show it: the refusals guard the reader's
-      // scroll position, not the record. Same best-effort mirror the provenance
-      // and the card decisions already use.
-      //
-      // For `memory_reflection` this mirror is what makes the frame safe to be
-      // the ONLY notice: the row it describes exists in `project_memory` either
-      // way, but the fact that THIS turn wrote it lives nowhere else, so a reload
-      // before this PATCH lands is the one case where the chip does not come back.
-      void get()._persistStageOutput(target.id, { [key]: payload })
-
-      if (STAGES_THAT_GROW_THE_THREAD.has(frame.stage)) {
-        // The three conditions that make "reserve nothing, append below, never
-        // reflow" safe (§8). Each is checked HERE, at arrival, rather than at
-        // render: a rail that is admitted and then hidden is a rail that pops in
-        // later, which is the defect being avoided.
-        //
-        // 1. Nothing may sit below the answer. The claim that a late rail moves
-        //    nothing already read holds only while the rail is the LAST thing in
-        //    the thread — a rail growing under message five pushes six, seven and
-        //    the reader's own question down the page.
-        if (index !== messages.length - 1) return null
-        // 2. The answer must be finished. Growing the column under text that is
-        //    still being written moves it mid-read.
-        if (target.isStreaming) return null
-        // 3. The reader must not have started typing. Offering four questions to
-        //    someone who is writing their own replaces their intention with a
-        //    suggestion.
-        if ((composerDrafts[currentConversation.id] ?? '').trim().length > 0) return null
-      }
-
-      const updatedMessages = messages.map((message) =>
-        message.id === target.id
-          ? { ...message, stages: { ...message.stages, [key]: payload } }
-          : message
-      )
-
-      // No `updatedAt` bump, unlike every other message mutation: a stage
-      // arriving is not the thread being worked on, and re-sorting the session
-      // list under the reader for a set of suggestion chips would be a bigger
-      // movement than the one §8 goes to such lengths to avoid.
-      const updatedConversation: Conversation = {
-        ...currentConversation,
-        messages: updatedMessages,
-      }
-
-      set(
-        {
-          currentConversation: updatedConversation,
-          conversations: updateConversationInList(conversations, updatedConversation),
-        },
-        false,
-        'applyStageFrame'
-      )
-
-      return target.id
-    },
-
-    discardStreamingAssistantMessage: () => {
-      // Any batched delta text is destined for the bubble we're about to drop —
-      // discard it so a later flush can't resurrect a stray bubble.
-      resetDeltaBuffer()
-
-      const { currentConversation, conversations, streamingAssistantMessageId } = get()
-      if (!streamingAssistantMessageId) return
-      // The bubble's own conversation, which after a switch is not the open one.
-      const holds = (c: Conversation) => c.messages.some((msg) => msg.id === streamingAssistantMessageId)
-      const owner =
-        (currentConversation && holds(currentConversation) ? currentConversation : undefined) ??
-        conversations.find(holds)
-      if (!owner) {
-        set({ streamingAssistantMessageId: null }, false, 'discardStreamingAssistantMessage')
-        return
-      }
-
-      const updatedConversation: Conversation = {
-        ...owner,
-        messages: owner.messages.filter((msg) => msg.id !== streamingAssistantMessageId),
-        updatedAt: new Date(),
-      }
-
-      set(
-        {
-          ...(currentConversation?.id === owner.id && { currentConversation: updatedConversation }),
-          conversations: updateConversationInList(conversations, updatedConversation),
-          streamingAssistantMessageId: null,
-        },
-        false,
-        'discardStreamingAssistantMessage'
-      )
-    },
-
-    addAgentResponseWithMeta: (
-      content: string,
-      meta: Partial<ChatMessage>,
-      cards?: (GridCard | undefined)[]
-    ): string => {
-      const { currentConversation, conversations } = get()
-      if (!currentConversation) return ''
-
-      const messageId = uuidv4()
-      const responseMessage: ChatMessage = {
-        id: messageId,
-        role: 'assistant',
-        content,
-        timestamp: new Date(),
-        messageType: 'agent_response',
-        cards,
-        ...meta,
-      }
-
-      const updatedConversation: Conversation = {
-        ...currentConversation,
-        messages: [...currentConversation.messages, responseMessage],
-        updatedAt: new Date(),
-      }
-
-      const updatedConversations = updateConversationInList(conversations, updatedConversation)
-
-      set(
-        {
-          currentConversation: updatedConversation,
-          conversations: updatedConversations,
-        },
-        false,
-        'addAgentResponseWithMeta'
-      )
-
-      return messageId
     },
 
     adoptRunMessage: (conversationId: string, message: ChatMessage) => {
@@ -1974,69 +721,6 @@ export const createMessagesSlice: StateCreator<
       )
 
       void get()._persistCardInteractions(targetConversation.id, messageId, cardInteractions)
-    },
-
-    addFileCard: (data: FileCardData) => {
-      const { currentConversation, conversations } = get()
-      if (!currentConversation) return
-
-      const fileMessage: ChatMessage = {
-        id: uuidv4(),
-        role: 'assistant',
-        content: data.fileName,
-        timestamp: new Date(),
-        messageType: 'file',
-        fileData: data,
-      }
-
-      const updatedConversation: Conversation = {
-        ...currentConversation,
-        messages: [...currentConversation.messages, fileMessage],
-        updatedAt: new Date(),
-      }
-
-      const updatedConversations = updateConversationInList(conversations, updatedConversation)
-
-      set(
-        {
-          currentConversation: updatedConversation,
-          conversations: updatedConversations,
-        },
-        false,
-        'addFileCard'
-      )
-    },
-
-    updateFileCard: (messageId: string, data: Partial<FileCardData>) => {
-      const { currentConversation, conversations } = get()
-      if (!currentConversation) return
-
-      const updatedMessages = currentConversation.messages.map((msg) =>
-        msg.id === messageId && msg.fileData
-          ? {
-              ...msg,
-              fileData: { ...msg.fileData, ...data },
-              content: data.fileName || msg.content,
-            }
-          : msg
-      )
-
-      const updatedConversation: Conversation = {
-        ...currentConversation,
-        messages: updatedMessages,
-        updatedAt: new Date(),
-      }
-
-      const updatedConversations = updateConversationInList(conversations, updatedConversation)
-
-      set(
-        {
-          currentConversation: updatedConversation,
-          conversations: updatedConversations,
-        },
-        false,
-        'updateFileCard'
-      )
     },
 
     addErrorCard: (code: ErrorCode, message?: string, details?: string) => {
@@ -2161,10 +845,6 @@ export const createMessagesSlice: StateCreator<
             isStreaming: false,
             isLoading: false,
             currentUserMessageId: null,
-            thinkingSteps: [],
-            activeThinkingStepId: null,
-            streamingAssistantMessageId: null,
-            currentStatus: null,
             pendingInteraction: null,
           },
           false,

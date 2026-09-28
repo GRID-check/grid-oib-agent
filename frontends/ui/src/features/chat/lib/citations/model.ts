@@ -12,7 +12,7 @@
  *    single deduplicated ref was consumed by `[1]` and `[2]`–`[4]` had nothing
  *    left to match;
  *  - the Herleitung fan-out grouped at the DOCUMENT level from a different
- *    input entirely (the `## Trace-Lanes` JSON), so it could show what was
+ *    input entirely (the trace-lane text block), so it could show what was
  *    searched but never which document became `[3]`;
  *  - the report bibliography re-parsed the LOCUS level back out of prose.
  *
@@ -602,7 +602,7 @@ const pagesOf = (loci: readonly CitationLocus[]): number[] =>
  *
  * `isCited` is the distinction this whole model exists to carry — "read" and
  * "used" are different claims — and this function used to ignore it. The
- * `## Trace-Lanes` fan-out contributes a locus per RETRIEVED page with
+ * trace-lane fan-out contributes a locus per RETRIEVED page with
  * `isCited: false`, so a document retrieved at pp. 5, 12 and 18 and cited only
  * at 5 rendered "S. 5, 12, 18" under the heading „Belegt durch". Worse, `refPage`
  * names a page only when there is exactly one, so the same document's copied
@@ -920,7 +920,7 @@ export class CitationAccumulator {
    *    ({@link identityMatches});
    *  - a LABEL-only key against a document with that name. A source with no
    *    filename and no URL is identified by its name and nothing else, which is
-   *    what a `## Trace-Lanes` hit for a RIS norm looks like ("Bauordnung für
+   *    what a trace-lane hit for a RIS norm looks like ("Bauordnung für
    *    Wien"); the answer's citation of the same norm arrives with a real RIS
    *    URL. Same document, two identities — and without this it rendered twice
    *    in the fan-out, once cited and once "abgerufen, nicht zitiert".

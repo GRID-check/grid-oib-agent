@@ -24,8 +24,10 @@ records, so ``citation_verification`` keeps its text parsers for them.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
+import uuid
 from collections import OrderedDict
 from collections.abc import Iterator
 from contextvars import ContextVar
@@ -38,6 +40,10 @@ from aiq_agent.common.provenance import AGENT_AUTHOR
 from aiq_agent.common.provenance import AgentProvenance
 from aiq_agent.common.provenance import provenance_label
 from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.common.turn_status import current_retrieval_round
+from aiq_agent.common.turn_status import emit_step
+from aiq_agent.common.wire_v2 import SourcesStep
+from aiq_agent.common.wire_v2 import TraceLane
 
 logger = logging.getLogger(__name__)
 
@@ -134,8 +140,13 @@ class GroundingBlock(BaseModel):
     #: block so the hash the reader looks up is the hash of the whole text.
     degraded_banner: str
     hits: tuple[GroundingHit, ...]
-    #: The ``## Trace-Lanes`` JSON, built by the producer from these same hits.
-    lanes: str
+    #: The fan-out, built by the producer from these same hits. The renderer
+    #: emits it as the tool's ``sources`` step and writes it as the
+    #: ``## Trace-Lanes`` line.
+    lanes: tuple[TraceLane, ...]
+    #: The basename of the tool that returned this block (``knowledge_search``,
+    #: ``read_passage``, ``ris_lookup``): the ``sources`` step names it.
+    tool: str
     #: What is rendered after the lanes and outside the grammar: ``read_passage``
     #: puts its ``## Gliederung`` index here, and the one line that replaces the
     #: index for a document with no Punkte. Empty when neither applies. It is
@@ -159,10 +170,9 @@ _TRACE_LANES_RE = re.compile(rf"\n*{re.escape(TRACE_LANES_MARKER)}\n[^\n]*\n*")
 def strip_trace_lanes(text: str) -> str:
     """The block without its ``## Trace-Lanes`` line: what the MODEL reads.
 
-    The lanes JSON is for the Herleitung — the frontend reads it off the tool
-    step NAT recorded when the tool returned — and for the citation registry,
-    which reads the records the renderer filed under the block's bytes before
-    anything strips them. The model reads neither; it reads the passages and
+    The lanes reach the Herleitung as the ``sources`` step the renderer emits,
+    and the citation registry reads the records the renderer filed under the
+    block's bytes before anything strips them. The Piloti model reads neither; it reads the passages and
     the ``Citation:`` keys. Yet the line travelled in every ``ToolMessage``, so
     a search with sixteen hits put ~1 000 tokens of ``{"lanes": …}`` into the
     transcript and re-sent them on every later call of the turn, and into the
@@ -178,22 +188,51 @@ def strip_trace_lanes(text: str) -> str:
 def render_grounding_block(block: GroundingBlock) -> str:
     """The block as the text a model reads, filed under the hash of that text.
 
-    The one place the grammar's line order and spacing live. Recording is done
-    HERE rather than by the callers, so a producer cannot emit a block and
-    forget to make it readable back.
+    The one place the grammar's line order and spacing live. Recording and the
+    ``sources`` step are done HERE rather than by the callers, so a producer
+    cannot emit a block and forget to make it readable back, or leave it out of
+    the Herleitung. That step is one producer site for every evidence tool, and
+    it is built from the records, never read back out of the text.
     """
     lines: list[str] = block.preamble.split("\n") if block.preamble else []
     lines.append("")
     for index, hit in enumerate(block.hits, 1):
         lines.extend(_hit_lines(index, hit))
     lines.append("## Trace-Lanes")
-    lines.append(block.lanes)
+    lines.append(_lanes_line(block.lanes))
     lines.append("")
     if block.trailer:
         lines.append(block.trailer)
     rendered = block.degraded_banner + "\n".join(lines)
     record_grounding_block(block, rendered)
+    if block.lanes:
+        round_index = current_retrieval_round()
+        step_id = f"sources:{round_index}:{block.tool}:{uuid.uuid4().hex[:8]}"
+        emit_step(SourcesStep(id=step_id, round=round_index, tool=block.tool, lanes=list(block.lanes)))
     return rendered
+
+
+def _lanes_line(lanes: tuple[TraceLane, ...]) -> str:
+    """The ``## Trace-Lanes`` JSON in the spelling the model has always read.
+
+    Deep research's model still reads this line (F2 in chat-wire-v2.md), so
+    its keys stay what they were until that change runs the answer suite.
+    """
+    return json.dumps(
+        {
+            "lanes": [
+                {
+                    "key": lane.key,
+                    "label": lane.label,
+                    "kind": lane.kind,
+                    "hitCount": lane.hit_count,
+                    "sources": [source.model_dump(exclude_none=True) for source in lane.sources],
+                }
+                for lane in lanes
+            ]
+        },
+        ensure_ascii=False,
+    )
 
 
 def _hit_lines(index: int, hit: GroundingHit) -> list[str]:

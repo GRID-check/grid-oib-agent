@@ -59,10 +59,9 @@ Browser WebSocket
     presents it neutrally as "Assistant" (getDisplayName in
     intermediate-step-parser.ts), not "Research Agent" — a greeting is
     not a research run.
-  → response streamed back through the MONKEYPATCHED WS handler
-      frontends/aiq_api/src/aiq_api/websocket_reconnect.py
-  → frontends/ui/src/adapters/api/websocket-client.ts  (parse system_response)
-  → frontends/ui/src/features/chat/hooks/use-websocket-chat.ts  (onResponse)
+  → the turn's wire bodies, stamped and sent by the chat socket (wire v2, ADR-0068)
+      frontends/aiq_api/src/aiq_api/chat_socket.py
+  → the UI's turn socket and fold (docs/api/websocket-protocol.md, "The client")
   → frontends/ui/src/features/layout/components/ChatArea.tsx → AgentResponse.tsx
 ```
 
@@ -70,33 +69,23 @@ Key files:
 - Graph build: `src/aiq_agent/agents/piloti/conversation.py` (`_build_graph`,
   nodes). The escalation edge and the conversation-scoped state belong to Piloti; the workflow only wires them up.
 - Workflow registration + response creation: `src/aiq_agent/agents/piloti/conversation_register.py`.
-- WS wire types (NAT, vendored): `.venv/Lib/site-packages/nat/data_models/api_server.py`
-  — `ChatResponse` and the WS message models are `extra="allow"`, so extra
-  fields (cards, run_id) survive serialization.
+- Wire types: `src/aiq_agent/common/wire_v2.py`, the contract both tiers are
+  generated from and tested against (`shared/wire/v2/`).
 
-### The monkeypatch (critical seam)
+### The terminal result (`TurnResult`)
 
-`websocket_reconnect.py:create_websocket_message` takes the workflow's
-`ChatResponse` (`data_model`) and builds the top-level `system_response` WS
-message. It **lifts extra fields off the response onto the top-level message**
-so the frontend can read them at `message.<field>` (not nested under
-`message.content`):
+The turn ends with `RUN_FINISHED`, whose `result` is a typed `TurnResult`
+(`wire_v2.py`): the text, the keyed cards, the verified sources, the
+confidence and its reason, and the run hand-off `run: {run_id, run_message_id}`
+(ADR-0062; the text is then empty, because the run's block is the narration).
+It is authoritative, and it is what the socket persists
+(`chat_socket.persist_turn_result`). No field is lifted by name any more.
 
-- `cards`  → `message.cards`  (rendered as Grid cards)
-- `run_id` / `run_message_id` → the run's block in the thread (ADR-0062); the
-  terminal frame carries no answer text when they are present
-- `answer_confidence` → `message.answer_confidence` (honest self-assessment chip)
-- `answer_confidence_reason` → `message.answer_confidence_reason` (the model's
-  own one-clause justification, shown verbatim in the chip tooltip)
-- `sources` → `message.sources` (verified citation sources)
-
-**Transparency extras (WP-A).** The same lift carries a family of optional,
-additive "why did the turn behave this way?" signals. Each rides
-`turn.streaming.STREAM_EXTRA_FIELDS` onto the terminal `ChatResponseChunk`
-(`response_to_chunks`), then `websocket_reconnect.py` lifts it onto the terminal
-`system_response` message via `_TRANSPARENCY_EXTRA_FIELDS` / `_pull_response_extra`.
-All are **absent unless applicable** (never null-spammed) and reset at the turn
-boundary in `ConversationGraph.run()`:
+**Transparency extras (WP-A).** A family of optional, additive "why did the turn
+behave this way?" signals are fields of the same `TurnResult`, which
+`turn.response.build_result` lifts off the finished state. A frame omits every
+field at its default, and each is reset at the turn boundary in
+`ConversationGraph.stream()`:
 
 - `routing_decision` (`meta`/`shallow`/`deep`/`error`) — which path the turn
   took, OBSERVED after the answer
@@ -277,16 +266,15 @@ and server-decided (the BFF's `addressees`, computed at persist time); only *del
 changed.
 
 ```
-client  user_message  content.text = {"query": …, "data_sources": […],
-                                      "context_only": true, "author_name": "Anna Weber"}
-  → websocket_reconnect.run()
-      1. per-message re-auth gate (unchanged; an expired token buys no write either)
-      2. context_only_directive(msg)  →  parse_context_only_payload()
-      3. _ingest_context_only_message()
+client  {"v": 2, "type": "user_message", "text": …, "context_only": true, "author_name": "Anna Weber"}
+  → chat_socket.ChatSocket
+      1. per-message re-auth gate (an expired token buys no write either)
+      2. the conversation binding
+      3. _ingest()
            • author = VERIFIED principal name, falling back to author_name
            • format_context_turn()  → "Anna Weber: <text>", capped at 4000 chars
            • append_conversation_context()  → the registered appender
-      4. continue  ← no process_workflow_request, no socket registration
+      4. nothing else: no workflow, no event, no socket registration
   → ConversationGraph.append_context_message()
       graph.aupdate_state({thread_id}, {"messages": [HumanMessage(...)]})
 ```
@@ -297,7 +285,7 @@ no `system_response_message`, no intermediate/status frame, and nothing to strea
 next real turn's `ainvoke` then reads the ingested turns as ordinary history.
 
 Key pieces:
-- Wire parse, char caps, appender registry: `src/aiq_agent/conversation_context.py`.
+- Char caps, appender registry: `src/aiq_agent/conversation_context.py`.
 - The appender is *published*, not imported: `aiq_api` owns the socket and
   `aiq_agent` owns the graph, so `piloti/conversation_register.py` calls
   `register_context_appender(agent.append_context_message)` where the compiled graph
@@ -311,64 +299,46 @@ Key pieces:
 ### 2c. Reconnect & resume semantics (socket drop mid-turn)
 
 A turn can outlive its socket: the browser tab sleeps, the network blips, or a
-token rotation forces a reconnect while a long deep-research answer is still
-generating. Four cooperating mechanisms make sure the finished answer is never
-lost. All backend pieces live in `websocket_reconnect.py`; the frontend pieces
-in `use-websocket-chat.ts` + the chat store.
+token rotation forces a reconnect while a long answer is still generating. The
+backend pieces live in `chat_socket.py` and `conversation_bus.py`; the design is
+`docs/design/chat-wire-v2.md` §c/§d.
 
-- **Live reattach.** NAT's base `WebSocketMessageHandler._restore_execution_state`
-  (vendored, run from `__aenter__` on every new socket) swaps a reconnected
-  socket into the still-running handler for the same conversation. It reads the
-  `conversation_id` query param; the frontend sends both `conversationId` (Grid
-  collection scoping) **and** `conversation_id` (so NAT's lookup matches).
-  `ReconnectableWebSocketMessageHandler._restore_execution_state` overrides the
-  base to (a) tolerate either key and (b) re-register the reconnected socket in
-  the registry (NAT's base only swaps the handler's `_socket` attribute). Without
-  the re-register, the running turn's frames would not reach the new socket.
-  Behind the BFF neither query key decides the reattach: the override reattaches
-  only to the conversation id signed into the envelope, because the snake_case
-  param never reaches the scope route that authorizes the camelCase one.
-- **One socket, one conversation.** Every `user_message` and `user_interaction`
-  frame carries its own `conversation_id`, and NAT copies it into the handler;
-  the registry, the task a new turn cancels, the pending HITL future and the
-  checkpoint (`thread_id_for_turn`) all key on it. So the handler binds the socket
-  at the handshake to the envelope's `conversationId` (the id the scope route ran
-  `authorizeConversationScope` on) and `_admit_conversation` refuses any frame
-  naming another, in the workflow, HITL and ingest-only branches alike, with an
-  `error_message` frame whose message is `conversation_mismatch`. A signed socket
-  without a conversation accepts only frames naming none. Off the BFF (internal
-  caller, anonymous mode, no envelope) the first id a frame names binds it.
-- **Registry.** `WebSocketSessionRegistry` (module-global `_registry`) maps
-  `conversation_id → socket` and holds pending HITL futures + the running
-  workflow task. `set_socket` on send/reconnect, `clear_socket` on disconnect.
-- **The server keeps every answer.** Every terminal `RESPONSE_MESSAGE`, sent or
-  not, goes through `_persist_terminal_message_in_background` → `persist_assistant_message`,
-  which POSTs the finished answer (text + cards/sources/confidence) to the BFF.
-  The write runs as a background task, its arguments read up front, so the
-  `COMPLETE` frame after it never waits on the BFF.
-  Until 2026-09 this ran only when no socket was attached ("the client owns the
-  write", the `has_socket` guard), so an answer delivered to a socket that died
-  before the browser saved it, a phone going to the background mid-frame, was
-  kept by nobody. The browser still writes the same answer under the same
-  deterministic id, and that write is the one that no-ops. Only the **terminal** frame persists (streamed deltas pass
-  `persist_on_drop=False`); a transient job-admission "queue full" notice is
-  dropped, never persisted. The id is deterministic per turn
-  (`deterministic_assistant_message_id`) so a double-write no-ops on the messages
-  primary key (`onConflictDoNothing`). This POST targets the **internal
-  token-guarded** route `POST /api/internal/conversations/{id}/messages` with
-  `X-Grid-Internal-Token` (org scoped via the `x-grid-organization-id` the WS
-  upgrade forwarded) — not the browser session cookie, which expires on long
-  turns and used to make the fail-soft POST silently 401 and drop the answer.
-- **Rehydrate.** The client re-surfaces a persisted answer two ways: on a fresh
-  mount, `sessions-store.restoreSessionState` refetches server history and, for a
-  turn that looks interrupted, calls `_recoverInterruptedAssistantMessage`; on a
-  same-mount reconnect, `use-websocket-chat.ts` `onConnectionChange('connected')`
-  re-runs the same recovery (skipping the first connect, debounced against
-  rotation storms). While that fetch is in flight the store's `isRecoveryPending`
-  flag renders a calm "reconnecting — checking for a finished answer" line
-  instead of racing straight to the "answer lost" notice; the lost/interrupted UI
-  and the `agent.response_interrupted` card only appear once recovery returns
-  with nothing found.
+- **One socket, one conversation.** Every client message names its
+  `conversation_id`, and the registry, the running turn, the pending HITL
+  question and the checkpoint all key on it. So the socket is bound at the
+  handshake to the envelope's `conversationId` (the id the scope route ran
+  `authorizeConversationScope` on), and a message naming another is refused with
+  `rejected{conversation_mismatch}`. A signed socket without a conversation
+  serves none. Off the BFF (internal caller, anonymous mode) the first id a
+  message names binds it.
+- **A dropped socket does not stop its turn.** The turn's task runs on; every
+  frame is stamped by the turn's sequencer (`TurnWire`) and appended to the
+  conversation's stream (`conv:<id>:stream`) whether or not a socket takes it.
+- **Resume is `attach{turn_id, after_seq}`** on the new socket. The registry holds
+  live frames for that socket, replays the turn from the stream
+  (`ConversationBus.replay_turn`), then flushes the held frames above the last
+  replayed `seq`, so no frame is sent twice or skipped. A turn the stream and the
+  registry know nothing of is `rejected{turn_not_found}`, and the client asks for
+  the persisted answer.
+- **Stop is `cancel_turn`,** authorised against the asker's verified subject
+  (`may_act_for`). It cancels the turn's task; the cancel unwinds the workflow
+  through `workflow_stream.stream_workflow`, so the graph run and its model call
+  stop. The prose so far is the `RUN_FINISHED{outcome: "cancelled"}` result,
+  persisted with `metadata.stopped`. On another replica the Stop goes to the
+  owner on the bus input channel, and the owner checks the subject again.
+- **The server keeps every answer.** Every `RUN_FINISHED`, sent or not, is
+  persisted in the background (`persist_turn_result`, a pure mapping from the
+  `TurnResult`) to the **internal token-guarded** route
+  `POST /api/internal/conversations/{id}/messages` with `X-Grid-Internal-Token`
+  (org scoped via the `x-grid-organization-id` the upgrade forwarded), not the
+  browser session cookie, which expires on long turns. The id is deterministic
+  per turn (`turn.response.answer_message_id`), so the browser's own write of
+  the same answer no-ops on the primary key (`onConflictDoNothing`). A
+  job-admission "queue full" notice and a run hand-off (no text, no cards) write
+  no row.
+- **Rehydrate.** A reload knows its turn and sends `attach{after_seq: 0}`; a turn
+  the stream no longer holds is read from the persisted row
+  (`sessions-store.restoreSessionState`).
 
 ## 3. The card pipeline
 
@@ -1014,6 +984,13 @@ renderer, `render_grounding_block`. Both producers build records and call it:
 shelf, Dokumentart and title from, so the header and the fan-out cannot
 disagree), and `ris_adapter.lookup.render.format_passages` turns `Passage`
 objects into the same records. Neither writes grammar text any more.
+
+The fan-out is typed too: `GroundingBlock.lanes` holds `TraceLane` models
+(`common/wire_v2.py`) and `GroundingBlock.tool` names the tool. The renderer
+emits them as the tool's one `sources` step on the chat wire, so the
+Herleitung never reads them back out of the text. It still writes them as the
+`## Trace-Lanes` line, because deep research's model reads that line
+(chat-wire-v2.md, F2).
 
 The renderer files each block under the SHA-256 of the exact bytes it returns,
 in a per-turn `ContextVar` that `PilotiAgent.run` opens beside

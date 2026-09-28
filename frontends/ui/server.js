@@ -200,36 +200,14 @@ function pickBackendWsTarget(conversationId) {
   return BACKEND_POD_WS_TEMPLATE.replace('{i}', String(hashToIndex(String(conversationId), BACKEND_REPLICAS)))
 }
 
-// ── Upstream reachability ──
-// Socket-level failures reaching the aiq-agent Service. Every one of these
-// means "the backend was not there for this attempt", which during a rolling
-// deploy, a node drain or a pod restart is the expected state for a few
-// seconds: the chat client reconnects and the next upgrade lands on a ready
-// pod. Recording them at ERROR files one GitHub issue per reconnect
-// (issues #270 ECONNREFUSED, #272 EPERM) for an outcome that is already
-// handled — the upgrade is refused with a 502 and the socket destroyed.
-//
-// So they are logged at WARN, which keeps them in the dashboard in full while
-// the err2issue exporter (ADR-0031) leaves them alone; volume is what
-// distinguishes a rollout from an outage, and the dashboard shows volume where
-// a per-occurrence severity cannot. Anything NOT on this list — an invalid
-// header, a protocol error, a bug in the proxy — stays ERROR.
-//
-// Classified on `err.code` rather than the message, because the code is the
-// structured field Node guarantees; message text is not.
-const TRANSIENT_UPSTREAM_CODES = new Set([
-  'ECONNREFUSED', // no ready endpoint behind the Service (rollout, restart)
-  'ECONNRESET', // the pod went away mid-handshake
-  'EPERM', // connect blocked locally (NetworkPolicy/CNI reject during churn)
-  'EHOSTUNREACH',
-  'ENETUNREACH',
-  'ENOTFOUND', // pod DNS not resolvable yet (StatefulSet scale-up)
-  'EAI_AGAIN', // cluster DNS temporarily unavailable (CoreDNS restart)
-  'ETIMEDOUT',
-  'EPIPE',
-])
-
-const isTransientUpstreamFailure = (err) => TRANSIENT_UPSTREAM_CODES.has(err?.code)
+// ── Upstream reachability and teardown ──
+// A backend that is not there for an upgrade (rollout, restart: issues #270,
+// #272) logs at WARN and is refused with a 502. A peer leaving an
+// already-spliced socket (EPIPE, ECONNRESET: #588, #775, #784) logs at WARN
+// with the side and the connection's age, and the first close names who
+// closed. Neither files an issue per reconnect (ADR-0031); anything else stays
+// ERROR. The codes, and why a spliced socket never gets a 502: ws-teardown.js.
+const { handleWsProxyError, watchSplicedSockets } = require('./src/lib/proxy/ws-teardown.js')
 
 // ── WebSocket rate limiting (ADR-0020, ADR-0040 layers L2 / L2b) ──
 //
@@ -427,21 +405,19 @@ backendProxy.on('error', (err, req, res) => {
   }
 })
 
-// WebSocket keep-alive for backend
-backendProxy.on('open', (proxySocket) => {
-  try {
-    proxySocket.setKeepAlive?.(true, 15000)
-    proxySocket.on('error', (e) =>
-      console.error('[WebSocket] upstream socket error:', e.message)
-    )
-  } catch {}
-})
-
-// Forward cookies for backend WebSocket
-backendProxy.on('proxyReqWs', (proxyReq, req) => {
+// Forward cookies for backend WebSocket, and watch the pair once it is spliced.
+// http-proxy emits 'proxyReqWs' before it registers its own 'upgrade' listener
+// on proxyReq (passes/ws-incoming.js), so the one added here runs first: our
+// error and close listeners are in place before the 101 is written and the
+// sockets are piped. 'open' fires later and carries only the upstream socket.
+backendProxy.on('proxyReqWs', (proxyReq, req, socket) => {
   if (req.headers.cookie) {
     proxyReq.setHeader('Cookie', req.headers.cookie)
   }
+  proxyReq.once('upgrade', (_proxyRes, proxySocket) => {
+    proxySocket.setKeepAlive?.(true, 15000)
+    watchSplicedSockets(socket, proxySocket)
+  })
 })
 
 const normalizeQueryParam = (value) => {
@@ -874,24 +850,10 @@ const startServer = async () => {
           // Conversation affinity: pin this conversation to its owning backend
           // replica so in-process WS/HITL/task state is always reachable.
           { target: pickBackendWsTarget(conversationId), changeOrigin: true },
+          // http-proxy also calls this AFTER the upgrade, for an upstream socket
+          // error; the handler never writes a 502 into a live WebSocket.
           (err) => {
-            if (err) {
-              // See TRANSIENT_UPSTREAM_CODES: backend-not-there is a WARN, so a
-              // rollout does not file an issue per reconnect. Everything else
-              // is still an ERROR.
-              if (isTransientUpstreamFailure(err)) {
-                console.warn(
-                  '[WS Proxy] Backend unreachable (%s), rejecting upgrade',
-                  err.code
-                )
-              } else {
-                console.error('[WS Proxy] Error:', err.message)
-              }
-              try {
-                socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n')
-              } catch {}
-              socket.destroy()
-            }
+            if (err) handleWsProxyError(err, socket)
           }
         )
       } catch (err) {

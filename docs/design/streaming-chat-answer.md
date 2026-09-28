@@ -2,19 +2,20 @@
 
 **Status:** Implemented (2026-07-18); orchestration amended by
 [ADR-0066](../adr/0066-the-answer-prose-streams-and-the-verified-frame-settles-it.md)
-(2026-09-24): the answer's prose now streams while the final call writes it,
-each `[N]` a pending citation until the text closes and a settled snapshot
-names its sources, and the terminal frame replaces it. The wire contract
-below still holds for the terminal frame and for a buffered turn; ADR-0066
-added three kinds of live `IN_PROGRESS` frame beside the plain delta
-([Live frames](#live-frames-adr-0066)). Streaming is the default delivery; there is
-no runtime flag — the backend and frontend ship together in this monorepo, so
-the change is atomic and needs no staged rollout toggle.
+(2026-09-24): the answer's prose streams while the final call writes it, each
+`[N]` a pending citation until the text closes and a settled snapshot names its
+sources, and the terminal replaces it. The wire was rebuilt as typed `v: 2`
+events by [chat wire v2](chat-wire-v2.md) (ADR-0068): the sections
+[Wire contract](#wire-contract) and [A dropped socket resumes](#a-dropped-socket-resumes)
+describe that wire. The settle and verify rules, the paced reveal and the
+storage rules are unchanged by it. Streaming is the default delivery; there is
+no runtime flag beyond the platform switch below.
 **Related:** the per-turn chat path (`agents/piloti/conversation_register.py`,
-with `_live_item_chunk` and `note_settled_replaced`), `websocket_reconnect.py`,
-the `frontends/ui` chat store. Live prose: `turn/answer_stream.py`,
-`common/answer_prose_stream.py`, and `agents/piloti/answer_pipeline.py`
-(`LiveAnswer`, `settle_streamed_citations`).
+`note_settled_replaced`), the chat socket (`frontends/aiq_api/src/aiq_api/chat_socket.py`),
+the turn fold (`frontends/ui/src/features/chat/lib/turn-fold.ts`) and the chat
+store. Live prose: `common/answer_prose_stream.py` and
+`agents/piloti/answer_pipeline.py` (`LiveAnswer`, `settle_streamed_citations`).
+The events themselves: [`websocket-protocol.md`](../api/websocket-protocol.md).
 
 ## Why this is cross-stack, not backend-only
 
@@ -40,18 +41,18 @@ WS handler's persistence gating, and the frontend accumulation logic.
 > markers rendered as PENDING pills (no source, no peek) and the sources
 > section withheld, so no unverified citation is ever shown as real. The
 > envelope writes its masthead (`kind`, `topic`, `context`, `verdict`,
-> `summary`) BEFORE `answer`, so a live frame carries it, gated, above the
-> first word; a `[[card:N]]` marker streams whole and holds its card's place
-> (`PendingCardSlot`) until the card, gated, arrives on a live `cards` frame
-> and grows into it (`CardArrival`). A live `cards` frame lists the cards in
-> the terminal's order: the ones tools registered this turn first (a draft, a
-> document grid), sent with the settled prose, then the envelope's as each
-> closes; each streamed `[[card:N]]` is moved behind the tools' cards as the
-> terminal moves it (`LiveAnswer.place`), so its numbers are the terminal's. The moment the
-> string closes, a `stream_replace` snapshot carries the verified, renumbered
-> text and its sources; the terminal frame, which the client already REPLACES
-> the bubble with, carries the finished answer. What remains true below: the
-> terminal is authoritative, and verification needs the whole answer. What
+> `summary`) BEFORE `answer`, so a `masthead` event carries it, gated, above
+> the first word; a `[[card:N]]` marker streams whole and holds its card's
+> place (`CardSlot`) until the card, gated, arrives as its own `card` event and
+> is drawn into it (see [card arrival](#card-arrival)). A card's `index` is its
+> place in the terminal's order: the ones tools registered this turn first (a
+> draft, a document grid), then the envelope's as each closes; each streamed
+> `[[card:N]]` is moved behind the tools' cards as the terminal moves it
+> (`LiveAnswer.place`), so its numbers are the terminal's. The moment the
+> string closes, a `STATE_SNAPSHOT` carries the verified, renumbered text and
+> its sources; `RUN_FINISHED`, which the client REPLACES the answer with,
+> carries the finished answer. What remains true below: the terminal is
+> authoritative, and verification needs the whole answer. What
 > changed: the first delta leaves while the model writes.
 
 `verify_citations` + `sanitize_report` rewrite the answer body — they delete
@@ -72,67 +73,58 @@ buffered LLM, a reply that was not an envelope).
 
 ## Wire contract
 
-Backend `_run` is an async generator yielding `ChatResponseChunk`s.
+A turn is a sequence of typed events, each one fact, stamped with
+`(turn_id, seq)` (the full table: [`websocket-protocol.md`](../api/websocket-protocol.md#events-server--client)).
+The producers inside the conversation graph write wire bodies through
+LangGraph's custom stream (`get_stream_writer()`), the setup phase in `_run`
+yields its own, and the chat socket stamps each one with the turn's sequencer.
+For the answer that means:
 
-- **Answer turns:** yield incremental **delta** chunks (`finish_reason=None`),
-  then one
-  **terminal** chunk — full content, `finish_reason="stop"`, extras
-  (`cards`/`sources`/`answer_confidence`/`run_id`) on
-  `model_extra`. The terminal is authoritative for persistence and for the
-  single-consumer fold. On a buffered turn the deltas carry no extras and
-  concatenate to *exactly* the final text (`response_to_chunks`). On a live
-  turn they are the model's prose as it is written, and they need not add up
-  to the final text: a snapshot replaces them, and the terminal replaces the
-  snapshot.
-- **Error / budget turns:** a single **terminal** chunk (short, fully known up
-  front — no point tokenizing). The WS handler renders a lone terminal chunk
-  with the pre-streaming frame pattern, so these are unaffected.
+- **`TEXT_MESSAGE_START` / `_CONTENT` / `_END`.** The prose as the final call
+  writes it. The token callback coalesces deltas to at most one per 50 ms
+  (`RELAY_WINDOW_S`), flushed before any other body and at the end of the call.
+  `_END` marks the envelope's `answer` string closed.
+- **`RUN_FINISHED{outcome, result: TurnResult}`.** The terminal, authoritative
+  for the reader and for persistence: text, keyed cards, sources, masthead and
+  every transparency field. A refusal is `outcome: "refused"`, a commissioned
+  run `handed_off` with `result.run`, the asker's Stop `cancelled`. The live
+  events need not add up to `result.text`: a snapshot replaces them and the
+  terminal replaces the snapshot.
+- **`RUN_ERROR`.** The turn failed and nothing was persisted.
 
-The delta/terminal distinction reaches the wire via WS message **status**:
-deltas ⇒ `IN_PROGRESS`, terminal ⇒ the completing frame. `response_to_chunks`
-(`turn/streaming.py`) takes a `stream` parameter, and
-`conversation_register.py::_answer_chunks` passes `stream=not live`: a buffered
-answer is cut into deltas, while a live answer, whose prose already went out,
-and a refusal get the terminal alone. There is no env/runtime gate; every
-answer turn streams one way or the other.
+No frame's size depends on the prompt's length: the recorded answered turn
+(`shared/wire/v2/turn-answered.jsonl`) is 22 events and 8.5 KB, the terminal
+its largest at about 2 KB.
 
 ### The platform switch
 
 Platform → Abruf carries one on/off setting, `chat.answer_streaming` (catalog:
 `frontends/ui/src/lib/retrieval-settings/catalog.ts`, on by default). The
 backend reads it once per turn through the retrieval-settings pull
-(`turn/answer_stream.py::answer_streaming_enabled`, TTL 60 s). Off, the turn
-binds no `AnswerStreamSink`, so `streaming_call` hands back the buffered call:
-no delta, snapshot, masthead or cards frame goes out, the reasoning steps still
-stream live, and the answer arrives whole with the terminal frame. The client
-needs no change for that; it is the turn as it was before ADR-0066.
+(`answer_streaming_enabled`, TTL 60 s). Off, the answering call is buffered: no
+prose, snapshot, masthead or card event goes out, the Herleitung steps still
+stream live, and the answer arrives whole with `RUN_FINISHED`. The client needs
+no change for that.
 
-### Live frames (ADR-0066)
+### Live events (ADR-0066)
 
-`turn/streaming.py::live_chunk` builds every live chunk; all are
-`finish_reason=None`, so all reach the wire as `IN_PROGRESS` and none is
-persist-eligible. Besides the plain delta, which appends, there are three:
+Besides the prose, four events shape the answer while it is written:
 
-| Frame | Carries | The client |
+| Event | Carries | The client |
 |---|---|---|
-| Snapshot | `content`, `sources`, `stream_replace: true`, and the re-gated `answer_meta` | REPLACES the bubble's text with the settled, renumbered prose; the pending `[N]` become citations against `sources`. It replaces the citations too (an empty `sources` clears them), and a snapshot without `answer_meta` removes the masthead: the re-gate dropped it |
-| Masthead | empty `content`, `answer_meta` | sets the masthead above the prose; the text is unchanged |
-| Cards | empty `content`, `cards` | fills the `[[card:N]]` placeholders; the text is unchanged. The whole list so far, in the terminal's order: the tools' cards, then the envelope's, `null` holding a refused one's place |
+| `STATE_SNAPSHOT` | `snapshot: {text, sources, answer_meta?}` | REPLACES the text with the settled, renumbered prose; the pending `[N]` become citations against `sources`. It replaces the citations too, and a snapshot without `answer_meta` removes the masthead: the re-gate dropped it. Cards are untouched |
+| `CUSTOM masthead` | `{answer_meta}` | sets the masthead above the prose; the text is unchanged |
+| `CUSTOM card` / `card_refused` | `{index, key, card}` / `{index}` | one card at `cards[index]` the moment its JSON closes (the tools' cards first, then the envelope's), or the refused index left empty. `key` is stable into the terminal, so the card keeps its node |
+| `CUSTOM answer_retracted` | `{}` | the streamed call carried tool calls: it was a round, not the answer. Its text, citations, masthead and cards are cleared |
 
 At most one snapshot is sent per answering call, when the envelope's `answer`
 string closes, and none when there is nothing to settle:
 `settle_streamed_citations` returns `None` for prose without a sources section
 or a turn whose source registry is empty, and the streamed prose then stands
 until the terminal. The terminal replaces the text once more and takes back
-what it omits (a suppressed card, a masthead gated out). One exception: a
-streamed call that turns out to carry tool calls was a round, not the answer,
-and is retracted with an EMPTY snapshot (`AnswerStreamSink.retract`), which
-clears its text, citations, masthead and cards. On the wire the retraction
-carries no `sources` field (`websocket_reconnect.py` attaches `sources` only
-when non-empty), and the client reads empty content with no sources as a
-retraction. A later call of the turn may stream again, and settle again, but
-need not. A call that put nothing on the wire is not retracted. The wire fields:
-[`websocket-protocol.md`](../api/websocket-protocol.md#live-frames-adr-0066).
+what it omits (a suppressed card, a masthead gated out). A later call of the
+turn may stream again after a retraction, and settle again, but need not. A
+call that put nothing on the wire is not retracted.
 
 The settle runs the terminal's shape pass as well. A mindmap whose words are
 at least 70% a table's in the same answer (`drop_restated_mindmaps`,
@@ -140,51 +132,33 @@ at least 70% a table's in the same answer (`drop_restated_mindmaps`,
 settles rather than at the terminal; the reader may still see it while the
 prose streams.
 
-### WS handler (`websocket_reconnect.py::_run_workflow`)
+### Frontend (`turn-fold.ts` / `use-websocket-chat.ts` / `messages-store.ts`)
 
-- A chunk with `finish_reason=None` (delta) ⇒ send `IN_PROGRESS`,
-  **not persist-eligible**.
-- A chunk with `finish_reason="stop"` (terminal) ⇒ the finalizing frame,
-  full content + extras, **persist-eligible** (fixes the partial-persist bug).
-- When only a terminal chunk is seen (error/budget turns, or any single-chunk
-  producer), the existing `IN_PROGRESS content` + synthetic `COMPLETE` behavior
-  is preserved.
-
-### Frontend (`use-websocket-chat.ts` / `messages-store.ts`)
-
-- Maintain one streaming bubble per turn (keyed by `parent_id`).
-- `IN_PROGRESS` content frame ⇒ **append** delta to the streaming bubble
-  (create it on the first delta with something to draw; a whitespace-only
-  first frame opens nothing); with `stream_replace` ⇒ **replace** it
-  (`replaceStreamingAgentResponse`), its citations and its masthead; with
-  `answer_meta` or `cards` ⇒ set them on the bubble.
-- What is provisional: only a masthead or cards that came on a text-less live
-  frame, or a masthead on a snapshot. A terminal WITH text takes back what it
-  omits. An empty terminal takes back nothing. Cards on a legacy
-  text-bearing `IN_PROGRESS` frame are final.
-- Completing frame with full content ⇒ **replace** the bubble content with the
-  authoritative full text (idempotent when equal to the accumulation), attach
-  `cards`/`sources`, finalize.
+- One pure fold, `foldTurnEvent(view, event)`, is the only interpretation of
+  the wire. The live socket, the replay after `attach` and the spectator
+  stream (`GET /api/conversations/{id}/live`) all use it, so the asker and an
+  observer cannot apply different rules.
+- A duplicate `seq` returns the same view (nothing re-renders); a gap sets
+  `gap` and the driver sends `attach`.
+- The driver projects the view onto the assistant `ChatMessage`: text,
+  `streaming`, sources, masthead, keyed cards, and the Herleitung steps in
+  their stored shape (`StoredThinkingStep`). At `RUN_FINISHED` it calls the
+  store's `settleTurn`.
 - Diagrams: only the fence the text still ends inside is streaming
   (`isOpenFence` in `MarkdownRenderer.tsx`), and it holds its place with a
   skeleton (`DrawingSkeleton`). Every closed fence is drawn while the answer
   streams.
-- Backward compatible: with the current backend (one content frame), "append the
-  only delta then finalize" yields the same single bubble as today.
-
-Two folds consume these frames: the asker's store (`messages-store.ts`) and
-the observer's (`spectator-frames.ts`, via `GET /api/conversations/{id}/live`).
-Both must apply the same rules.
 
 **What a delta may cost.** Deltas are buffered and applied to the store every
-`DELTA_FLUSH_MS` (100 ms, `messages-store.ts`), and each flush replaces the
+`DELTA_FLUSH_MS` (100 ms): a `TEXT_MESSAGE_CONTENT` waits for the next flush,
+anything else flushes at once, and each flush folds every buffered event in
+one `set()`. Each flush replaces the
 open conversation in the store, so every subscriber to `currentConversation`
 or `conversations` re-renders once per flush. The flush used to run once per
 animation frame; on a 4× throttled CPU that was a 50–70 ms task every few
 frames. It can be this coarse because the reader does not see it: the answer
 paces its own reveal ([The reveal is paced](#the-reveal-is-paced-not-typed)).
 Three rules keep the rest to the answer bubble:
-
 - The persisted store never writes a live turn's growth: the streaming
   answer, and the reasoning steps of the question it answers
   (`onlyTheLiveTurnGrewIn`, `stores/chat-storage.ts`), not even when a
@@ -196,7 +170,8 @@ Three rules keep the rest to the answer bubble:
   of them a full write. A composer draft is written 400 ms after the last
   keystroke and when the page is hidden, not with every key. Any other change
   while a turn works (a deletion, a rename, a new session) is written at once,
-  and the settled turn is written when it settles. A store update that leaves
+  and the settled turn is written one task after the one it settles in
+  (below). A store update that leaves
   every persisted field the same object (a loading flag) writes nothing and
   serializes nothing.
 - A write costs one conversation, not the history. Storage is one key per
@@ -271,23 +246,21 @@ ms heavier for a 2.6k-character answer, and no heavier for a 10k one.
 **A reload mid-answer.** Nothing streams in a page that is only now loading,
 so the storage drops a stored answer that still says `isStreaming` when it
 reads the store (`createResilientStorage`, `stores/chat-storage.ts`). The reattached turn opens a bubble
-of its own and its terminal frame carries the whole answer. The dropped
+of its own and its `RUN_FINISHED` carries the whole answer. The dropped
 fragment used to stay beside that bubble with a caret, and it hid the
 unanswered question from `restoreSessionState`'s recovery, which fetches a
 finished answer the server kept while the page was away. A reload mid-answer
 now takes the same path as a reload before the first word, and a turn still
-running is rebuilt from the replay stream
-([A dropped socket resumes](#a-dropped-socket-resumes)).
+running is folded again from its first event (`attach{after_seq: 0}`,
+[A dropped socket resumes](#a-dropped-socket-resumes)).
 
-`/dev/stream-chat?history=40` measures this: the real store and the real shell
-(`&shell=1`), fed a recorded answer at its recorded pace, with commits, storage
-writes and long tasks in `window.__streamChat`. `&extras=1` gives every seeded
-answer the sources, cards and masthead the recorded one settled with: bare,
-forty conversations are 1.4 M characters; with them 4.6 M, the weight real
-answers carry. Until 2026-09 it seeded a user
-id the chat resets on mount, so the open thread and the sidebar were empty
-whatever `history` said; the persisted size was real, the rendering was not
-(`docs/contributing/gotchas.md`).
+`/dev/stream-socket` measures what a whole turn costs the page, through the
+real socket client, hook, store and components
+([the socket-level streaming harness](../contributing/testing-and-verification.md#the-socket-level-streaming-harness)).
+The storage figures below were taken on `/dev/stream-chat`, which drove the
+pre-v2 store actions and was deleted with them in the chat wire v2 cut; it
+seeded `history=N` conversations of the recorded answer (`&extras=1` with its
+sources, cards and masthead), which `/dev/stream-socket` does not.
 
 ### Storage, measured
 
@@ -315,16 +288,42 @@ keep 26 with their messages: the 3 M-character budget leaves the rest of the
 origin room, and is the number to raise if refetching an older conversation
 on open turns out to cost more than the headroom saves.
 
+### The end of a turn
+
+The settle is the most expensive frame the chat draws: the whole answer
+re-renders with its footer, its citations and its cards. A production trace
+(2026-09) showed a 1018 ms task there, most of it the browser copy of the
+history (a prune, a `JSON.stringify` and a `localStorage.setItem`) written
+inside the settle, ahead of the render. The store's settle (`applyTurnEvents`,
+on the terminal) now holds that write for one task (`deferChatStorageWrites`), the way a composer draft is
+held, so it is still written at once when the page hides or a later update
+writes anyway.
+
+### Card arrival
+
+A placed card's place is one element from marker to card (`CardSlot`,
+`CardSlotArrival.tsx`), so the reader sees one frame change, never one box
+replaced by another. Pending, it is a card-shaped placeholder
+(`CardPlaceholder`, the framed register) 96 px tall. When the card exists it
+is mounted invisibly under the placeholder; when it reports itself drawn (the
+catalog's `DrawnProvider`, which `A2uiCard` passes on) the card fades in over
+the placeholder while the frame grows to the card's height, both in motion
+(`height: 'auto'`, `AnimatePresence` for the placeholder's exit). A card
+arrives once per page (`messageId:index`): a remounted slot (the Markdown
+renderer keys blocks by position) shows it at once, as do a reload, a finished
+answer and reduced motion. Whether the answer is live reaches the slot through
+context, so the settle does not hand every slot a new renderer; a card re-sent
+unchanged on a later frame keeps its object (TanStack Query's
+`replaceEqualDeep`), so nothing under it re-renders. `/dev/stream-socket`
+plays the recorded cards as their own `card` events and in the terminal.
+
 ### Single-consumer fold (`--input` CLI, single-shot HTTP)
 
-`fold_chunks_to_response` (`turn/streaming.py`) collapses the chunk stream to
-one `ChatResponse`: the terminal (`finish_reason="stop"`) content is
-authoritative; extras are copied from the terminal. Deltas are ignored when a
-terminal is present, so the folded content is never doubled. A stream that
-never reached its terminal is folded by `_fold_live` the way the client folds
-it: deltas append, a snapshot (`stream_replace`) replaces the text before it
-and drops the masthead, and an empty snapshot with no sources (a retraction)
-drops the cards as well.
+`_run` is annotated `Streaming(convert=fold_turn)`, so `nat run`, `nat eval`
+and single-shot HTTP still get one `ChatResponse`: `fold_turn`
+(`turn/streaming.py`) returns the `RUN_FINISHED` result's text. The answer
+suite reads that output, and it counts the `Piloti: the terminal frame replaced
+the settled answer` log line (`note_settled_replaced`).
 
 ## A dropped socket resumes
 
@@ -332,58 +331,43 @@ iOS closes a page's WebSocket the moment the app goes to the background, and a
 phone on the move loses it for a few seconds anyway. The answer must still
 arrive when the reader comes back (2026-09).
 
-Before, the first `onclose` ended the turn (`setStreaming(false)`), every later
-frame of it was dropped as stale, and the server, seeing a socket attached again,
-left persisting the answer to the client that had just thrown it away. The
-reader got „Verbindung kurz unterbrochen — Antwort ging verloren" for an answer
-that had finished.
+**The cursor is `(turn_id, seq)`.** Every event names its turn and carries a
+per-turn `seq` from 1, and `ConversationBus.publish_frame` appends every
+stamped event to the conversation's stream on Dragonfly (`conv:<id>:stream`,
+ADR-0028), also when no socket is attached. The fold drops an event with
+`seq ≤ lastSeq`, so an event that arrives both replayed and live counts once.
 
-**The cursor.** `ConversationBus.publish_frame` appends every outbound frame to
-the conversation's replay stream on Dragonfly (`conv:<id>:stream`, ADR-0028),
-also when no socket is attached, and the frame reaches the socket tagged with
-its stream entry id, `grid_frame_id` (`<ms>-<n>`, monotonic across replicas and
-restarts). The client keeps the id of the last frame it applied
-(`NATWebSocketClient.lastFrameId`) and drops a frame at or before it, so a
-frame that arrives both replayed and live counts once.
+**A reconnect.** The socket client reconnects with backoff and an auth refresh,
+and on open sends `attach{turn_id, after_seq: lastSeq}` for every turn still
+open. The server registers the socket, buffers live events for it, replays the
+turn from the stream after `after_seq`, then flushes the buffered events above
+the last replayed `seq`: no event missing, none twice. A gap noticed in the
+live stream (`seq > lastSeq + 1`) sends the same `attach`. There is no HTTP
+replay: the BFF's `/frames` route answers only the liveness peek below.
 
-**A reconnect.** While the client is reconnecting and has a cursor
-(`canResume()`), the turn stays open: the hook does not end it on
-`disconnected`, and the watchdog re-arms instead of calling the gone socket
-evidence. On the next open the client holds live frames, reads
-`GET /api/conversations/:id/frames?after=<cursor>`, applies what it missed
-through the same handler as live frames, then releases the held ones
-(`onResume`). `unavailable` (no shared cache, a failed read) ends the turn the
-way a dead socket always did: ask the server for a finished answer, and show
-the banner only if there is none.
+**A reload.** A page that reloads has lost its fold with its memory. The
+question's own id is the turn id (the `user_message`'s `message_id`), so
+`restoreSessionState` leaves the open question as the turn to resume, and the
+socket sends `attach{turn_id, after_seq: 0}` once it is up: the whole turn is
+folded again from its first event. `rejected{turn_not_found}`
+(the stream no longer holds the turn) ends it by asking for the persisted
+answer, and shows the banner only if there is none.
 
-**A reload.** A page that reloads has lost its cursor with its memory. The
-question is stamped with the id it went out under (`wsParentId`, persisted with
-the store); `restoreSessionState` first asks for the finished answer, and when
-there is none leaves `resumableTurn`. Once the socket is up the hook reopens the
-turn (`resumeTurn`), reads the newest frames the stream holds (backwards, then
-in order, since approximate trimming can leave more than one read returns) and
-applies them from the question's first frame on (`replayTurn`), so an older
-turn's frames never come back to life. A prompt of a later turn is dropped as
-stale like any other frame of another turn. The stream no longer holding the turn ends it with the
-banner.
+**A switch.** Opening another conversation mid-turn takes the socket with it,
+but not the turn: its view stays in the store (`turns`), and the partial answer
+stays in its thread. Coming back opens a socket that re-`attach`es the turn
+from the last `seq` its view folded, so it carries on where it was left. An event
+or error that lands after the switch belongs to the conversation it was fetched
+for: a commissioned run's message goes into that conversation
+(`adoptRunMessage(conversationId, …)`), and a connection error whose health
+check outlived the switch writes no card.
 
-**A switch.** Opening another conversation mid-turn takes the socket with it, so
-the open bubble can never finish. Leaving drops it as a reload does
-(`leaveOpenTurn` in `sessions-store.ts`, `discardStreamingAssistantMessage`,
-and the socket effect's cleanup for any other way out), and clears
-`streamingAssistantMessageId`. Kept and settled, it blinked forever and, being
-the last message, hid the open question from `restoreSessionState`; dropped,
-coming back runs the reload's recovery. A frame or error that lands after the
-switch belongs to the conversation it was fetched for: a commissioned run's
-message goes into that conversation (`adoptRunMessage(conversationId, …)`), and
-a connection error whose health check outlived the switch writes no card.
-
-**The server keeps every answer.** The backend persists every finished
-answer, whether or not a socket took the terminal frame
-(`_persist_terminal_message_in_background`). It used to persist only when no socket was
-attached, leaving the write to the browser; a socket that took the frame and
-died before the browser saved it lost the answer for good. Now the reader's
-connection decides only how soon the answer appears, never whether it exists.
+**The server keeps every answer.** The chat socket persists every finished
+turn from its `TurnResult` (`persist_turn_result`), whether or not a socket
+took `RUN_FINISHED`. The reader's connection decides only how soon the answer
+appears, never whether it exists. A turn the asker stopped is persisted too:
+its text is the prose streamed so far, and `metadata.stopped = true` (kept by
+the BFF as `provenance.stopped`) marks it as stopped on reload.
 
 **One answer, not two.** The browser still writes the answer it received.
 Both use `uuid5(grid:assistant:<conversation>:<turn>)`
@@ -393,15 +377,15 @@ collides on `messages.id` and no-ops, and the recovery dedupes by id.
 **Waiting, not accusing.** A page that lost its turn and finds no finished
 answer does not say "lost" at once: the turn may still be running.
 `_awaitServerAnswer` asks for the answer every 4 s for as long as the turn
-still produces frames. It peeks at the newest frame of the replay stream
-(`GET /api/conversations/:id/frames?peek=1`, one entry and the server's
-clock), and the backend's heartbeat every 20 s keeps that fresh while the turn
-runs, socket or not. Only a turn silent for 70 s (two minutes when there is no
+still produces events. It peeks at the newest entry of the stream
+(`GET /api/conversations/:id/frames?peek=1`, one entry id and the server's
+clock), and the heartbeat every 20 s keeps that fresh while the turn runs,
+socket or not. Only a turn silent for 70 s (two minutes when there is no
 stream to ask, 40 minutes at most) ends with the banner. The reader meanwhile
 sees „prüfe auf fertige Antwort".
 
-**Bounds.** `GRID_CONV_STREAM_MAXLEN` (2000 frames, a few turns) and
-`GRID_CONV_STREAM_TTL_SECONDS` (an hour since the last frame). A reader away
+**Bounds.** `GRID_CONV_STREAM_MAXLEN` (2000 events, many turns) and
+`GRID_CONV_STREAM_TTL_SECONDS` (an hour since the last event). A reader away
 longer than that gets the finished answer from Postgres, or the banner.
 
 ## The reveal is paced, not typed
@@ -506,7 +490,7 @@ This section is about a buffered turn.
 
 The delta sequence is a SHAPE, not a pace. `response_to_chunks` cuts a finished
 answer into ~24-character pieces (`iter_answer_deltas`) and yields them as fast
-as the socket takes them, so they reach `appendAgentResponseDelta` one or two
+as the socket takes them, so they reach the store one or two
 animation frames apart: the answer paints essentially at once, and `isStreaming`
 is a state the turn passes through in a frame or two.
 
@@ -525,20 +509,18 @@ answer, and the network re-clumps whatever the sleep spaced out.
 
 ## Tests
 
-- Backend: `stream=False` (error/budget) yields one terminal chunk equal to
-  today's response; `stream=True` (answers) yields deltas whose join equals the
-  verified text, extras only on the terminal; fold reproduces the single
-  response either way.
-- Handler: delta frames are IN_PROGRESS and not persisted; terminal frame is the
-  finalizing, persist-eligible frame with cards/sources.
-- Frontend: deltas accumulate into one bubble; terminal replaces + attaches
-  cards; single-frame backend still renders one bubble; the whole-answer
-  affordances (copy, unclaimed cards) wait for `isStreaming` to clear
-  (`AgentResponse.spec.tsx`, "a streaming answer").
-- Live turns (ADR-0066): `tests/aiq_agent/turn/test_answer_stream.py` (the
-  streamed call, the retraction of a tool round, the settle off the loop);
-  `frontends/ui/src/features/chat/store.spec.ts` and
-  `frontends/ui/src/features/collaboration/lib/spectator-frames.spec.ts` (the
-  two folds, case for case); `stable-overrides.spec.tsx` (a drawn diagram and
-  an arrived card survive the next token). ADR-0066's Confirmation lists the
-  rest.
+- Contract: every recorded turn in `shared/wire/v2/` is valid and is byte for
+  byte the frame the server writes (`tests/aiq_agent/common/test_wire_v2.py`,
+  `frontends/ui/src/adapters/api/wire-v2.spec.ts`).
+- Producers and handler: prose deltas are coalesced, the snapshot and the
+  retraction are emitted from the streamed call, `RUN_FINISHED` is persisted
+  from `TurnResult`, and a cancelled turn persists its partial marked stopped
+  (`tests/aiq_agent/turn/`, `frontends/aiq_api/tests/test_chat_socket.py`).
+- Fold: every fixture turn folds to the expected view; a duplicate `seq` keeps
+  identity and a gap is flagged; snapshot, retraction and terminal
+  replacement; a card before its marker; a spectator starting mid-turn
+  (`frontends/ui/src/features/chat/lib/turn-fold.spec.ts`).
+- Frontend: the whole-answer affordances (copy, unclaimed cards) wait for
+  `isStreaming` to clear (`AgentResponse.spec.tsx`, "a streaming answer");
+  `stable-overrides.spec.tsx` (a drawn diagram and an arrived card survive the
+  next token). ADR-0066's Confirmation lists the rest.

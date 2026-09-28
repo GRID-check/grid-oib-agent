@@ -1,4 +1,4 @@
-import { type FC, useId } from 'react'
+import { type FC, useCallback, useId } from 'react'
 import type { GridCard } from '@/shared/cards/schemas'
 import { cardKey } from '../card-decision'
 import { CardSetProvider } from '../card-set'
@@ -786,22 +786,23 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
   // The surface id must be unique within the page; an answer without a
   // message id (a preview, a streaming draft) takes one from React instead.
   const fallbackId = useId()
-  return (
-    <A2uiCard
-      card={card}
-      surfaceKey={`${messageId ?? fallbackId}:${index}`}
-      render={(leaf, leafId) => (
-        <GridCardView
-          card={leaf}
-          index={index}
-          projectId={projectId}
-          messageId={messageId}
-          decisionsMustPersist={decisionsMustPersist}
-          leafId={card.type === 'surface' ? leafId : undefined}
-        />
-      )}
-    />
+  // One renderer while its inputs hold: it is the value of A2UI's renderer
+  // context, and a new one re-renders every card component in the surface.
+  const isSurface = card.type === 'surface'
+  const render = useCallback(
+    (leaf: GridCard, leafId: string) => (
+      <GridCardView
+        card={leaf}
+        index={index}
+        projectId={projectId}
+        messageId={messageId}
+        decisionsMustPersist={decisionsMustPersist}
+        leafId={isSurface ? leafId : undefined}
+      />
+    ),
+    [index, projectId, messageId, decisionsMustPersist, isSurface]
   )
+  return <A2uiCard card={card} surfaceKey={`${messageId ?? fallbackId}:${index}`} render={render} />
 }
 
 /**

@@ -22,8 +22,8 @@ requests.
 
 For WebSocket upgrades, ``AuthMiddleware`` deliberately no-ops (see its
 module docstring) — the real handshake auth lives in
-``aiq_api.websocket_reconnect.authenticate_websocket_connection``, which this
-module does not import or modify (it is not owned by this change). Instead,
+``aiq_api.chat_socket.authenticate_websocket_connection``, which this module
+does not import. Instead,
 for the ``/websocket`` path this middleware independently re-runs the same
 ``resolve_request_user`` classification the WS handshake will *also* run,
 purely to decide whether an authenticated JWT caller is present and must
@@ -134,10 +134,8 @@ ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES: tuple[str, ...] = (
 # The chat socket is the only WebSocket, and it runs agent turns: no exemption.
 ENVELOPE_EXEMPT_WEBSOCKET_PATH_PREFIXES: tuple[str, ...] = ()
 
-# Same status code aiq_api.websocket_reconnect uses for a rejected handshake
-# (WS_POLICY_VIOLATION) — duplicated as a literal rather than imported so
-# this module never needs to import (and thus never risks coupling to
-# internal state in) websocket_reconnect.py, which this change does not own.
+# Same status code aiq_api.chat_socket uses for a rejected handshake
+# (WS_POLICY_VIOLATION), as a literal so this middleware never imports the socket.
 _WS_POLICY_VIOLATION = 1008
 
 _INTERNAL_TOKEN_HEADER_NAMES: tuple[bytes, ...] = (b"x-internal-token", b"x-grid-internal-token")

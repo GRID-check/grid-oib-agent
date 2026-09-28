@@ -37,10 +37,10 @@ from aiq_agent.cards.envelope import REFUSED_ENVELOPE_TYPE
 from aiq_agent.cards.envelope import REFUSED_SHAPE
 from aiq_agent.cards.envelope import REFUSED_SYSTEM_TYPE
 from aiq_agent.cards.envelope import validate_model_card
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import register_function
 
 logger = logging.getLogger(__name__)
 

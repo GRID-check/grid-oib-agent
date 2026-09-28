@@ -28,6 +28,10 @@
     "de": "Ein abgebrochener, abgestürzter oder nie gestarteter Lauf steht in der Aufgabenliste nicht mehr endlos auf „läuft“. Er schließt jetzt mit seinem tatsächlichen Ergebnis, und wer ihn angestoßen hat, erfährt davon."
   },
   {
+    "en": "A card in a streamed answer now grows into its place in one smooth movement, without blinking or pushing the text twice. The answer also settles sooner at the end, because saving waits until it is on screen.",
+    "de": "Eine Karte in einer gestreamten Antwort wächst jetzt in einer ruhigen Bewegung an ihren Platz, ohne zu flackern oder den Text zweimal zu verschieben. Die Antwort steht am Ende auch schneller, weil das Speichern wartet, bis sie zu sehen ist."
+  },
+  {
     "en": "A caveat now sits next to the paragraph it concerns instead of at the end of the answer.",
     "de": "Ein Hinweis steht jetzt beim Absatz, den er betrifft, statt am Ende der Antwort."
   },
@@ -1600,6 +1604,10 @@
     "de": "Die Zeile „Belegt durch“ zeigt ab acht Quellen „+N weitere“ und klappt auf Wunsch alle auf, und „Alle Quellen kopieren“ übernimmt stets jede Quelle."
   },
   {
+    "en": "The Herleitung builds up more calmly while Piloti works: new steps and sources simply appear, and only the lines into the step in progress move. A finished Herleitung does not move at all.",
+    "de": "Die Herleitung baut sich während der Arbeit ruhiger auf: Neue Schritte und Quellen erscheinen einfach, und nur die Linien in den gerade offenen Schritt bewegen sich. Eine abgeschlossene Herleitung bewegt sich gar nicht."
+  },
+  {
     "en": "The Herleitung names what was actually searched instead of calling every search OIB knowledge.",
     "de": "Die Herleitung benennt, wonach tatsächlich gesucht wurde, statt jede Suche als OIB-Wissen zu bezeichnen."
   },
@@ -2202,5 +2210,17 @@
   {
     "en": "„Zitierbar\" no longer appears on every file. A status shows only when it changes what you can do next — a document still being read, one that failed, or a report Piloti wrote and deliberately never indexed.",
     "de": "„Zitierbar“ erscheint nicht mehr bei jeder Datei. Ein Status wird nur angezeigt, wenn er beeinflusst, was Sie als Nächstes tun können – etwa bei einem Dokument, das noch gelesen wird, einem fehlgeschlagenen Dokument oder einem Bericht, den Piloti verfasst und bewusst nie indexiert hat."
+  },
+  {
+    "en": "Stop now ends the answer: Piloti stops working on it, and what you had already read stays in the conversation, marked as stopped.",
+    "de": "Stopp beendet die Antwort jetzt wirklich: Piloti arbeitet nicht weiter daran, und was Sie schon gelesen haben, bleibt im Gespräch, als abgebrochen markiert."
+  },
+  {
+    "en": "A long answer no longer freezes the page while it arrives, and its cards land when they are ready instead of long after the text.",
+    "de": "Eine lange Antwort friert die Seite beim Eintreffen nicht mehr ein, und ihre Karten erscheinen, sobald sie fertig sind, statt lange nach dem Text."
+  },
+  {
+    "en": "A browser tab that was open during the update shows a connection error until it is reloaded.",
+    "de": "Ein Browser-Tab, der während des Updates offen war, zeigt einen Verbindungsfehler, bis er neu geladen wird."
   }
 ]

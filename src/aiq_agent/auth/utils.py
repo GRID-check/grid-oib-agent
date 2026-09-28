@@ -159,7 +159,7 @@ def get_auth_token() -> str | None:
 
     # Default: Context cookies
     try:
-        from nat.builder.context import Context
+        from nat.plugin_api import Context
 
         context_metadata = Context.get().metadata
 

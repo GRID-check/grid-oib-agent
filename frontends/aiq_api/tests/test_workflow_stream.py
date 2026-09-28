@@ -6,7 +6,9 @@ ContextVar before its ``yield`` and resetting it in its ``finally``, and a step
 subject that publishes while the run tears down, as NAT's FUNCTION_END and
 WORKFLOW_END steps do. NAT's own ``generate_streaming_response`` is run through
 the same fixture as the oracle: it has to produce the production errors, or the
-fixture proves nothing about the fix.
+fixture proves nothing about the fix. Our stream subscribes to no steps (the
+chat wire carries only what the turn yields), so the step subject matters to
+the oracle alone.
 """
 
 from __future__ import annotations
@@ -21,21 +23,17 @@ from types import SimpleNamespace
 import pytest
 
 from aiq_api import workflow_stream
-from nat.data_models.api_server import ResponseSerializable
 from nat.front_ends.fastapi import intermediate_steps_subscriber
 from nat.front_ends.fastapi.response_helpers import generate_streaming_response
 
 _LEVEL = contextvars.ContextVar("level", default=None)
 
 
-class _Chunk(ResponseSerializable):
-    """A streamed item as NAT's helper expects one."""
+class _Chunk:
+    """A streamed item: the turn's own body, whatever it is."""
 
     def __init__(self, n: int) -> None:
         self.n = n
-
-    def get_stream_data(self) -> str:
-        return str(self.n)
 
 
 class _Steps:
@@ -111,8 +109,7 @@ class _Workflow:
 def workflow(monkeypatch):
     wf = _Workflow()
     context = SimpleNamespace(observability_trace_id=None, intermediate_step_manager=wf.steps)
-    for module in (workflow_stream, intermediate_steps_subscriber):
-        monkeypatch.setattr(module.Context, "get", staticmethod(lambda: context))
+    monkeypatch.setattr(intermediate_steps_subscriber.Context, "get", staticmethod(lambda: context))
     return wf
 
 
@@ -158,23 +155,9 @@ async def _read_then_stop(stream, count: int = 3) -> list:
     return got
 
 
-def _stream(open_stream, wf):
-    return open_stream({"q": 1}, session=wf, streaming=True, step_adaptor=_Adapter(), output_type=None)
-
-
-class _Step(ResponseSerializable):
-    """An intermediate step as a step adaptor hands it over."""
-
-    def __init__(self, name: str) -> None:
-        self.name = name
-
-    def get_stream_data(self) -> str:
-        return self.name
-
-
 class _Adapter:
     def process(self, step):
-        return _Step(step.name)
+        return step
 
 
 @pytest.mark.asyncio
@@ -185,7 +168,10 @@ async def test_nat_s_own_helper_reproduces_the_production_errors(workflow):
         def reported() -> str:
             return " ".join(f"{context.get('message')} {context.get('exception')!r}" for context in loop_errors)
 
-        await _read_then_stop(_stream(generate_streaming_response, workflow))
+        nat_stream = generate_streaming_response(
+            {"q": 1}, session=workflow, streaming=True, step_adaptor=_Adapter(), output_type=None
+        )
+        await _read_then_stop(nat_stream)
         await _settle(3, until=lambda: "different Context" in reported() and "QueueClosed" in reported())
 
         reported = reported()
@@ -200,16 +186,15 @@ async def test_stopping_early_tears_every_level_down_in_the_producer_task(workfl
     # scheduler is deterministic, so together they cover every place a
     # cancel can land.
     with _loop_errors() as loop_errors:
-        got = await _read_then_stop(_stream(workflow_stream.stream_workflow, workflow), count)
+        got = await _read_then_stop(workflow_stream.stream_workflow({"q": 1}, session=workflow), count)
         await _settle()
 
-        assert [chunk.n for chunk in got if isinstance(chunk, _Chunk)] == list(range(count))
+        assert [chunk.n for chunk in got] == list(range(count))
         assert loop_errors == []
         names = [name for name, _ in workflow.torn_down]
         assert names == ["leaf", "astream", "result_stream"]
         # One task for the whole chain, and it is the one that entered it.
         assert len({task for _, task in workflow.torn_down}) == 1
-        assert workflow.steps.observers == []
 
 
 @pytest.mark.asyncio
@@ -218,7 +203,7 @@ async def test_a_cancelled_consumer_stops_the_run_the_same_way(workflow):
         consumed = asyncio.Event()
 
         async def consume():
-            async with contextlib.aclosing(_stream(workflow_stream.stream_workflow, workflow)) as items:
+            async with contextlib.aclosing(workflow_stream.stream_workflow({"q": 1}, session=workflow)) as items:
                 async for _ in items:
                     consumed.set()
 
@@ -235,26 +220,23 @@ async def test_a_cancelled_consumer_stops_the_run_the_same_way(workflow):
 
 
 @pytest.mark.asyncio
-async def test_a_run_that_finishes_yields_everything_and_its_steps(monkeypatch):
+async def test_a_run_that_finishes_yields_everything_and_nothing_else():
     with _loop_errors() as loop_errors:
         wf = _Workflow(items=2)
-        context = SimpleNamespace(observability_trace_id=None, intermediate_step_manager=wf.steps)
-        monkeypatch.setattr(workflow_stream.Context, "get", staticmethod(lambda: context))
 
-        got = [item async for item in _stream(workflow_stream.stream_workflow, wf)]
+        got = [item async for item in workflow_stream.stream_workflow({"q": 1}, session=wf)]
         await _settle()
 
-        assert [item.n for item in got if isinstance(item, _Chunk)] == [0, 1]
-        assert [item.name for item in got if isinstance(item, _Step)] == ["FUNCTION_END"]
+        # Only what the turn yielded: no step, no observability trace.
+        assert [item.n for item in got] == [0, 1]
+        assert all(isinstance(item, _Chunk) for item in got)
         assert loop_errors == []
 
 
 @pytest.mark.asyncio
-async def test_a_failed_run_is_raised_to_the_consumer(monkeypatch):
+async def test_a_failed_run_is_raised_to_the_consumer():
     with _loop_errors() as loop_errors:
         wf = _Workflow(items=1)
-        context = SimpleNamespace(observability_trace_id=None, intermediate_step_manager=wf.steps)
-        monkeypatch.setattr(workflow_stream.Context, "get", staticmethod(lambda: context))
 
         @asynccontextmanager
         async def failing_run(payload):
@@ -267,7 +249,7 @@ async def test_a_failed_run_is_raised_to_the_consumer(monkeypatch):
         wf.run = failing_run
         got = []
         with pytest.raises(RuntimeError, match="model call failed"):
-            async for item in _stream(workflow_stream.stream_workflow, wf):
+            async for item in workflow_stream.stream_workflow({"q": 1}, session=wf):
                 got.append(item)
         await _settle()
 

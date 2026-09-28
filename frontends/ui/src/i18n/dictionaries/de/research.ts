@@ -15,14 +15,9 @@ export const research: typeof en.research = {
   chatArea: {
     ariaMessages: 'Chat-Nachrichten',
     loading: 'Unterhaltung wird geladen',
-    typing: 'Piloti antwortet …',
     scrollToLatest: 'Zum neuesten Beitrag springen',
     status: {
       thinking: 'Denkt nach …',
-      searching: 'Sucht …',
-      planning: 'Plant …',
-      researching: 'Recherchiert …',
-      writing: 'Schreibt …',
     },
     loggedOutTitle: 'Piloti wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:

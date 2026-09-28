@@ -69,7 +69,7 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
 ## C. Software supply chain
 
 - **Python:** uv workspace, `uv.lock` + `uv sync --frozen` in image (fully pinned).
-  Core: `nvidia-nat*==1.7.0`, `deepagents`, `langgraph-checkpoint-*`, `chromadb`,
+  Core: `nvidia-nat*==1.9.0`, `deepagents`, `langgraph-checkpoint-*`, `chromadb`,
   `llama-index`, `langchain-tavily`, `langchain-modal==0.0.5` (pre-alpha maturity).
   Deliberate CVE floors + `override-dependencies` block (`pyproject.toml:214-227`).
 - **Node:** `bun.lock` + `bun install --frozen-lockfile`; Next 16, `@workos-inc/*`,

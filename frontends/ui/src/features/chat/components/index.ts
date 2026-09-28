@@ -9,7 +9,7 @@ export { UserMessage } from './UserMessage'
 export type { UserMessageProps } from './UserMessage'
 
 export { AgentPrompt } from './AgentPrompt'
-export type { AgentPromptProps, PromptType } from './AgentPrompt'
+export type { AgentPromptProps } from './AgentPrompt'
 
 export { AgentResponse } from './AgentResponse'
 export type { AgentResponseProps } from './AgentResponse'

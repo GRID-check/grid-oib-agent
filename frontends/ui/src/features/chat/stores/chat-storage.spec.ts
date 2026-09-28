@@ -17,6 +17,7 @@ import {
   chatIndexKey,
   chatMessagesKey,
   createResilientStorage,
+  CHAT_MESSAGES_SHAPE,
   isAwaitingServerMessages,
   readStoredChat,
   type PersistedChatState,
@@ -53,7 +54,6 @@ const value = (
     currentUserId: 'u1',
     conversations,
     currentConversation: open,
-    pendingInteraction: null,
     composerDrafts: drafts,
   },
   version: 0,
@@ -234,7 +234,7 @@ describe('chat storage, one key per conversation', () => {
   })
 })
 
-describe('moving the single key into one key per conversation', () => {
+describe('an older stored shape: the index is kept, the cached messages are dropped', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     localStorage.clear()
@@ -244,66 +244,44 @@ describe('moving the single key into one key per conversation', () => {
     vi.useRealTimers()
   })
 
-  /** What the old storage wrote: the whole history under `KEY`, the open conversation as its id. */
+  /** What the single-key storage wrote: the whole history under `KEY`, the open conversation as its id. */
   const legacy = (conversations: Conversation[], openId: string | null) =>
     JSON.stringify({
-      state: {
-        currentUserId: 'u1',
-        conversations,
-        currentConversation: openId,
-        pendingInteraction: null,
-        composerDrafts: { b: 'halb geschrieben' },
-      },
+      state: { currentUserId: 'u1', conversations, currentConversation: openId, composerDrafts: { b: 'halb geschrieben' } },
       version: 0,
     })
 
-  test('reads the old key once, splits it, removes it, and loses nothing', async () => {
-    const a: Conversation = { ...conv('a', 2), enabledDataSourceIds: ['web_search'] }
-    const b: Conversation = {
-      ...conv('b', 1),
-      messages: [text('b-1', 'fertig'), text('b-2', 'Brucht', { isStreaming: true })],
-    }
-    localStorage.setItem(KEY, legacy([a, b], 'b'))
-
+  const expectIndexKeptAndMessagesDropped = async () => {
     const restored = await createResilientStorage()!.getItem(KEY)
-
-    // What the page gets is what the old storage would have given it.
     expect(restored?.state.conversations.map((c) => c.id)).toEqual(['a', 'b'])
+    expect(restored?.state.conversations[0]?.enabledDataSourceIds).toEqual(['web_search'])
     expect(restored?.state.currentConversation?.id).toBe('b')
     expect(restored?.state.composerDrafts).toEqual({ b: 'halb geschrieben' })
-    // The fragment of an interrupted answer is dropped, as a read always did.
-    expect(restored?.state.conversations[1]?.messages.map((m) => m.id)).toEqual(['b-1'])
-
-    // And storage now holds it in the new shape, without the old key.
+    // A cache of the server, read again when a conversation is opened.
+    expect(restored?.state.conversations.map((c) => c.messages)).toEqual([[], []])
+    expect(isAwaitingServerMessages('a') && isAwaitingServerMessages('b')).toBe(true)
     expect(localStorage.getItem(KEY)).toBeNull()
-    expect(messageKeys()).toEqual(['a', 'b'])
-    const again = await createResilientStorage()!.getItem(KEY)
-    expect(again?.state.conversations.map((c) => c.messages.length)).toEqual([1, 1])
-    expect(again?.state.conversations[0]?.enabledDataSourceIds).toEqual(['web_search'])
-    expect(again?.state.composerDrafts).toEqual({ b: 'halb geschrieben' })
-    expect(again?.state.currentConversation?.id).toBe('b')
+    expect(messageKeys()).toEqual([])
+    expect(JSON.parse(localStorage.getItem(chatIndexKey(KEY))!).shape).toBe(CHAT_MESSAGES_SHAPE)
+  }
+
+  test('the single key the history lived in before the index', async () => {
+    const a: Conversation = { ...conv('a', 2), enabledDataSourceIds: ['web_search'] }
+    localStorage.setItem(KEY, legacy([a, conv('b', 1)], 'b'))
+    await expectIndexKeptAndMessagesDropped()
   })
 
-  test('an old key at the quota moves too: the index first, then the newest conversations', async () => {
-    const conversations = [conv('new', 3, 2_000), conv('mid', 2, 2_000), conv('old', 1, 2_000)]
-    const raw = legacy(conversations, 'new')
-    localStorage.setItem(KEY, raw)
-    // Nothing fits beside the old key (already past this quota), and not all
-    // of it fits in the new shape.
-    withQuota(Math.floor(raw.length * 0.8))
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    const restored = await createResilientStorage()!.getItem(KEY)
-    // This page has everything in memory.
-    expect(restored?.state.conversations.map((c) => c.messages.length)).toEqual([1, 1, 1])
-    // Storage has the whole list and the drafts, and the newest messages.
-    expect(localStorage.getItem(KEY)).toBeNull()
-    const stored = readStoredChat(KEY)!.state
-    expect(stored.conversations.map((c) => c.id)).toEqual(['new', 'mid', 'old'])
-    expect(stored.composerDrafts).toEqual({ b: 'halb geschrieben' })
-    expect(messageKeys()).toContain('new')
-    expect(messageKeys()).not.toContain('old')
+  test('an index written before the Herleitung was the wire v2 step', async () => {
+    const a: Conversation = { ...conv('a', 2), enabledDataSourceIds: ['web_search'] }
+    const storage = createResilientStorage()!
+    storage.setItem(KEY, value([a, conv('b', 1)], null, { b: 'halb geschrieben' }))
+    const index = JSON.parse(localStorage.getItem(chatIndexKey(KEY))!)
+    localStorage.setItem(
+      chatIndexKey(KEY),
+      JSON.stringify({ ...index, shape: undefined, state: { ...index.state, currentConversation: 'b' } })
+    )
+    expect(messageKeys()).toEqual(['a', 'b'])
+    await expectIndexKeptAndMessagesDropped()
   })
 
   test('an old key that cannot be read is removed rather than read again on every load', async () => {

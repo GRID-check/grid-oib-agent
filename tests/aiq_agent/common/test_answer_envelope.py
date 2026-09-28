@@ -25,6 +25,7 @@ from aiq_agent.common.answer_envelope import gate_answer_meta
 from aiq_agent.common.answer_envelope import render_envelope_response_format
 from aiq_agent.common.answer_envelope import render_envelope_schema
 from aiq_agent.common.answer_envelope import resolve_callout_marker
+from aiq_agent.common.wire_v2 import StatusStep
 
 
 def _fenced(payload: dict) -> str:
@@ -334,14 +335,9 @@ class TestAVerdictNeverRestsOnADocumentPilotiWrote:
         same document — with the evidence that would have failed it left out."""
         assert self._gate(None) is None
 
-    def test_the_unreferenced_drop_is_counted_under_its_own_reason(self, monkeypatch):
-        pushed: list[tuple[str, dict]] = []
-        monkeypatch.setattr(
-            "aiq_agent.common.turn_status.push_custom_step",
-            lambda name, payload: pushed.append((name, payload)),
-        )
+    def test_the_unreferenced_drop_is_counted_under_its_own_reason(self, emitted):
         assert self._gate(None) is None
-        assert [payload["values"]["reason"] for _, payload in pushed] == ["unreferenced_with_agent_source"]
+        assert [step.detail["reason"] for step in emitted.steps] == ["unreferenced_with_agent_source"]
 
     def test_a_norm_reference_still_survives_a_turn_with_an_agent_document(self):
         """The three cases are distinct: a norm Fundstelle is kept even when the
@@ -368,35 +364,22 @@ class TestAVerdictNeverRestsOnADocumentPilotiWrote:
         payload = self._gate({"document": "B"}, documents=frozenset({"b"}))
         assert payload is not None
 
-    def test_the_drop_is_counted_as_a_technical_event(self, monkeypatch):
+    def test_the_drop_is_counted_as_a_technical_event(self, emitted):
         """A gate that drops silently makes „how often does this happen?"
         unanswerable, and that rate is what says whether the wording works."""
-        pushed: list[tuple[str, dict]] = []
-        monkeypatch.setattr(
-            "aiq_agent.common.turn_status.push_custom_step",
-            lambda name, payload: pushed.append((name, payload)),
-        )
         assert self._gate({"document": "Brandschutzkonzept Haus B"}) is None
-        assert pushed == [
-            (
-                "status:verdict:dropped",
-                {
-                    "kind": "status",
-                    "channel": "technical",
-                    "slot": "verdict:dropped",
-                    "values": {"reason": "agent_authored_reference"},
-                },
+        assert emitted.steps == [
+            StatusStep(
+                id="status:verdict:dropped",
+                slot="verdict:dropped",
+                channel="technical",
+                detail={"reason": "agent_authored_reference"},
             )
         ]
 
-    def test_a_surviving_verdict_emits_nothing(self, monkeypatch):
-        pushed: list[tuple[str, dict]] = []
-        monkeypatch.setattr(
-            "aiq_agent.common.turn_status.push_custom_step",
-            lambda name, payload: pushed.append((name, payload)),
-        )
+    def test_a_surviving_verdict_emits_nothing(self, emitted):
         assert self._gate({"document": "OIB-Richtlinie 2"}) is not None
-        assert pushed == []
+        assert emitted == []
 
 
 class TestControlFields:
@@ -589,18 +572,13 @@ class TestSummaryGate:
         assert payload is not None
         assert "summary" not in payload and payload["verdict"]["value"] == "REI 60"
 
-    def test_the_length_drop_is_counted_under_its_field_and_reason(self, monkeypatch):
+    def test_the_length_drop_is_counted_under_its_field_and_reason(self, emitted):
         """The reader keeps the prose; the operator gets the rate. A dropped
         summary is a standfirst nobody sees, and only a count says whether the
         limit or the prompt wording is wrong."""
-        pushed: list[tuple[str, dict]] = []
-        monkeypatch.setattr(
-            "aiq_agent.common.turn_status.push_custom_step",
-            lambda name, payload: pushed.append((name, payload)),
-        )
         meta = AnswerMeta.model_validate({"summary": "x" * (SUMMARY_MAX_CHARS + 1), "verdict": _VERDICT})
         gate_answer_meta(meta, prose_chars=100)
-        assert [(name, payload["values"]) for name, payload in pushed] == [
+        assert [(step.id, step.detail) for step in emitted.steps] == [
             ("status:anatomy:dropped", {"field": "summary", "reason": "too_long"})
         ]
 

@@ -66,7 +66,7 @@ export interface CardMarkerOptions {
   /**
    * Whether the answer is still arriving. A marker naming a card that has not
    * arrived yet then keeps its slot, so the surface can hold the card's place
-   * (`PendingCardSlot`) instead of letting the card shove the prose below it
+   * (`CardSlot`) instead of letting the card shove the prose below it
    * down when it lands (ADR-0066). Once the answer is final, such a marker
    * renders nothing, as before.
    */

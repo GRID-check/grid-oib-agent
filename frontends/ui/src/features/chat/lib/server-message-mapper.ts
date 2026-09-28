@@ -33,15 +33,16 @@
  */
 
 import type { Message } from '@/lib/db/schema'
-import { CAPPED_REASONS } from '@/lib/conversations/message-provenance'
+import { CAPPED_REASONS, sanitizeThinkingSteps } from '@/lib/conversations/message-provenance'
 import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { sanitizeFindings } from '@/lib/conversations/message-findings'
 import { sanitizeRetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { sanitizeStages } from '@/lib/conversations/message-stages'
+import { sanitizePromptOptions } from '@/lib/conversations/message-prompt'
 import { sanitizeRunLedger, sanitizeRunTitle } from '@/lib/runs/run-ledger'
 
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
-import type { ChatMessage, ErrorCardData, FileCardData, MessageType, ThinkingStep } from '../types'
+import type { ChatMessage, ErrorCardData, FileCardData, MessageType } from '../types'
 import { validateGridCards } from '@/shared/cards/schemas'
 import { sanitizeCardInteractions } from '@/features/grid-cards/card-decision'
 import { decodeCitations } from './citations'
@@ -215,17 +216,13 @@ const restorePrompt = (prompt: unknown, promptState: unknown): Partial<ChatMessa
 
   if (typeof prompt === 'object' && prompt !== null && !Array.isArray(prompt)) {
     const detail = prompt as Record<string, unknown>
-    if (isPromptType(detail.promptType)) out.promptType = detail.promptType
     if (typeof detail.promptId === 'string') out.promptId = detail.promptId
     if (typeof detail.promptParentId === 'string') out.promptParentId = detail.promptParentId
-    if (typeof detail.promptInputType === 'string') {
-      out.promptInputType = detail.promptInputType as ChatMessage['promptInputType']
+    if (detail.promptInputType === 'text' || detail.promptInputType === 'choice') {
+      out.promptInputType = detail.promptInputType
     }
-    if (Array.isArray(detail.promptOptions)) {
-      out.promptOptions = detail.promptOptions.filter(
-        (option): option is string => typeof option === 'string'
-      )
-    }
+    const options = sanitizePromptOptions(detail.promptOptions)
+    if (options) out.promptOptions = options
     if (typeof detail.promptPlaceholder === 'string') {
       out.promptPlaceholder = detail.promptPlaceholder
     }
@@ -246,18 +243,14 @@ const restorePrompt = (prompt: unknown, promptState: unknown): Partial<ChatMessa
   return out
 }
 
-const PROMPT_TYPES = ['clarification', 'approval', 'choice', 'text-input', 'plan_approval'] as const
-const isPromptType = (value: unknown): value is ChatMessage['promptType'] =>
-  typeof value === 'string' && (PROMPT_TYPES as readonly string[]).includes(value)
-
 /**
  * Unpack the stored provenance onto the message shape the renderers already read.
  *
  * Flattened rather than nested under a `provenance` key, because `ChatThinking`,
  * the confidence chip and the routing line each take their own prop and none of
  * them should have to know that this arrived from a server row rather than from a
- * live stream. Timestamps are revived to `Date`, which is what the step shape
- * declares and what the renderer sorts on.
+ * live stream. Steps are the stored v2 shape the turn fold also writes, so a
+ * restored step and a live one are the same object shape.
  *
  * Narrowed, not cast: the server bounds this on write (`sanitizeProvenance`), but
  * a row written by an older build is still whatever it was.
@@ -267,18 +260,11 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
   const provenance = value as Record<string, unknown>
   const out: Partial<ChatMessage> = {}
 
-  if (Array.isArray(provenance.thinkingSteps)) {
-    const steps = provenance.thinkingSteps
-      .filter((step): step is Record<string, unknown> => typeof step === 'object' && step !== null)
-      .map((step) => ({
-        ...(step as unknown as ThinkingStep),
-        timestamp: new Date(step.timestamp as string),
-        // The payload was dropped on write, exactly as the localStorage prune
-        // drops it; the renderer reads `displayName` and `traceLanes`.
-        content: '',
-      }))
-    if (steps.length > 0) out.thinkingSteps = steps
-  }
+  // The same gate the write ran (`sanitizeProvenance`): the v2 step shape only,
+  // bounded. Migration 0097 rewrote the rows written before it, so a step
+  // without a known `kind` is dropped here rather than interpreted.
+  const steps = sanitizeThinkingSteps(provenance.thinkingSteps)
+  if (steps) out.thinkingSteps = steps
 
   if (isConfidence(provenance.answerConfidence)) out.answerConfidence = provenance.answerConfidence
   if (typeof provenance.answerConfidenceReason === 'string') {
@@ -318,6 +304,7 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
   if (provenance.researchTruncated === true) {
     out.researchTruncated = true
   }
+  if (provenance.stopped === true) out.stopped = true
   // The cause and the degradations restore INDEPENDENTLY of the flag, the way
   // the backend extracts them: a run can be degraded without being truncated.
   if (typeof provenance.truncationReason === 'string' && provenance.truncationReason) {

@@ -24,6 +24,7 @@ from aiq_agent.agents.piloti.conversation import _finalize_answer
 from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.turn.commission import CommissionRefused
+from tests.aiq_agent.agents.piloti.conversation import turn
 
 
 async def _unused_research(_state):  # pragma: no cover - the commission path never reaches it
@@ -145,7 +146,7 @@ class TestEndToEnd:
             messages=[HumanMessage(content="Erstell mir einen Bericht.")],
             deep_research_allowed=allowed,
         )
-        return await graph.run(state, thread_id=thread_id)
+        return await turn(graph, state, thread_id=thread_id)
 
     @pytest.mark.asyncio
     async def test_no_flag_means_no_hand_off_and_an_answer_instead(self, deep_fn):

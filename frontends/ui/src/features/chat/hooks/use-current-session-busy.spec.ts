@@ -2,16 +2,16 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
-import type { ChatState, Conversation, PendingInteraction } from '../types'
+import type { ChatStore, Conversation, PendingInteraction } from '../types'
 import { emptyRunLedger, setRunStatus } from '@/lib/runs/run-ledger'
 
 /**
  * The slice of the chat store this hook actually selects from. Deriving it
- * from `ChatState` means a rename or a type change in the store surfaces here
+ * from `ChatStore` means a rename or a type change in the store surfaces here
  * as a compile error rather than as a test that silently stops exercising the
  * real shape.
  */
-type BusySlice = Pick<ChatState, 'isStreaming' | 'currentConversation' | 'pendingInteraction'>
+type BusySlice = Pick<ChatStore, 'isStreaming' | 'currentConversation' | 'pendingInteraction'>
 
 /** A zustand selector as the hook calls it, narrowed to the slice above. */
 type BusySelector = (state: BusySlice) => unknown
@@ -29,10 +29,9 @@ const makeConversation = (overrides: Partial<Conversation> = {}): Conversation =
 const makePendingInteraction = (
   overrides: Partial<PendingInteraction> = {}
 ): PendingInteraction => ({
-  id: 'interaction-1',
-  parentId: 'msg-1',
-  inputType: 'binary_choice',
-  text: 'Approve this plan?',
+  turnId: 'msg-1',
+  interactionId: 'interaction-1',
+  input: 'text',
   ...overrides,
 })
 

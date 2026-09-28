@@ -3,10 +3,12 @@
  * renderer: the place is a slot the card-marker plugin leaves in the parsed
  * document, so a stubbed renderer would only test the stub.
  */
-import { render, screen } from '@/test-utils'
-import { vi, describe, test, expect } from 'vitest'
+import { render, screen, waitFor } from '@/test-utils'
+import { useLayoutEffect, useState, type ReactNode } from 'react'
+import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { AgentResponse } from './AgentResponse'
-import { CardArrival, PENDING_CARD_HEIGHT } from './CardSlotArrival'
+import { CardSlot, CardSlotLiveProvider } from './CardSlotArrival'
+import { useDrawnReporter } from '@/features/a2ui/catalog'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { ChatStoreWithHydration } from '../store'
 
@@ -18,6 +20,12 @@ vi.mock('../store', () => ({
     }
     return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
   }),
+}))
+
+let reducedMotion = false
+vi.mock('motion/react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('motion/react')>()),
+  useReducedMotion: () => reducedMotion,
 }))
 
 vi.mock('@/adapters/api', () => ({
@@ -46,7 +54,9 @@ describe('a placed card while the answer streams', () => {
   })
 
   test('once its card is written, it fills the place and is not drawn again below the prose', () => {
-    const cards = [{ type: 'summary' as const, title: 'Platzierte Karte', content: 'Inhalt', key_points: null }]
+    const cards = [
+      { type: 'summary' as const, title: 'Platzierte Karte', content: 'Inhalt', key_points: null },
+    ]
     render(<AgentResponse content={PROSE} cards={cards} isStreaming />)
 
     expect(screen.queryByTestId('pending-card-slot')).not.toBeInTheDocument()
@@ -64,27 +74,114 @@ describe('a placed card while the answer streams', () => {
   })
 })
 
-describe('CardArrival', () => {
-  test('a card that arrives live grows from the placeholder, clipped only while it grows', () => {
-    const { container } = render(
-      <CardArrival live>
-        <div>Karte</div>
-      </CardArrival>
-    )
-    const wrapper = container.firstElementChild as HTMLElement
-    expect(wrapper.style.height).toBe(`${PENDING_CARD_HEIGHT}px`)
-    expect(wrapper.style.overflow).toBe('hidden')
+describe('CardSlot', () => {
+  let key = 0
+  // Every test is a card of its own: an arrival plays once per key and page.
+  const nextKey = () => `m1:${(key += 1)}`
+  beforeEach(() => {
+    reducedMotion = false
   })
 
-  test('a card that was already there is drawn at once', () => {
-    const { container } = render(
-      <CardArrival live={false}>
-        <div>Karte</div>
-      </CardArrival>
+  const live = (node: ReactNode) => <CardSlotLiveProvider value>{node}</CardSlotLiveProvider>
+  const placeholder = () => document.querySelector('[data-slot="card-placeholder"]')
+  /** The card is on screen: mounted, and not faded out behind the placeholder. */
+  const cardShown = () => screen.getByText('Karte').parentElement?.style.opacity !== '0'
+
+  /** A card that reports itself drawn when `drawn` says so, as `A2uiCard` does. */
+  function Card({ drawn = true }: { drawn?: boolean }) {
+    const report = useDrawnReporter()
+    useLayoutEffect(() => {
+      if (drawn) report?.()
+    }, [drawn, report])
+    return <div>Karte</div>
+  }
+
+  test('holds the place with a card-shaped placeholder while the card is pending', () => {
+    const { container } = render(live(<CardSlot arrivalKey={nextKey()} />))
+    expect(screen.getByTestId('pending-card-slot')).toBe(container.firstElementChild)
+    expect(screen.getByTestId('pending-card-slot')).toHaveAttribute('aria-busy', 'true')
+    expect(placeholder()).not.toBeNull()
+  })
+
+  test('the card arrives into the same frame, behind the placeholder until it has drawn', () => {
+    const arrivalKey = nextKey()
+    const { container, rerender } = render(live(<CardSlot arrivalKey={arrivalKey} />))
+    const frame = container.firstElementChild
+    rerender(
+      live(
+        <CardSlot arrivalKey={arrivalKey}>
+          <Card drawn={false} />
+        </CardSlot>
+      )
     )
-    const wrapper = container.firstElementChild as HTMLElement
-    expect(wrapper.style.height).not.toBe(`${PENDING_CARD_HEIGHT}px`)
-    expect(wrapper.style.overflow).toBe('')
-    expect(screen.getByText('Karte')).toBeInTheDocument()
+    // One element from marker to card: nothing is swapped for anything else.
+    expect(container.firstElementChild).toBe(frame)
+    expect(placeholder()).not.toBeNull()
+    expect(cardShown()).toBe(false)
+  })
+
+  test('once drawn, the card fades in over the placeholder, which then goes', async () => {
+    const arrivalKey = nextKey()
+    function Arriving() {
+      const [drawn, setDrawn] = useState(false)
+      return (
+        <>
+          <button onClick={() => setDrawn(true)}>draw</button>
+          <CardSlot arrivalKey={arrivalKey}>
+            <Card drawn={drawn} />
+          </CardSlot>
+        </>
+      )
+    }
+    render(live(<Arriving />))
+    expect(cardShown()).toBe(false)
+    screen.getByText('draw').click()
+    await waitFor(() => expect(placeholder()).toBeNull())
+    expect(cardShown()).toBe(true)
+    expect(screen.getByText('Karte').closest('[aria-busy]')).toBeNull()
+  })
+
+  test('a card that has already arrived does not arrive again when its slot remounts', async () => {
+    const arrivalKey = nextKey()
+    const slot = live(
+      <CardSlot arrivalKey={arrivalKey}>
+        <Card />
+      </CardSlot>
+    )
+    const first = render(slot)
+    await waitFor(() => expect(placeholder()).toBeNull())
+    first.unmount()
+
+    render(slot)
+    expect(placeholder()).toBeNull()
+    expect(cardShown()).toBe(true)
+  })
+
+  test('a card that was already there is shown at once', () => {
+    render(
+      <CardSlot arrivalKey={nextKey()}>
+        <Card drawn={false} />
+      </CardSlot>
+    )
+    expect(placeholder()).toBeNull()
+    expect(cardShown()).toBe(true)
+  })
+
+  test('with reduced motion, a card that arrives live is shown at once', () => {
+    reducedMotion = true
+    render(
+      live(
+        <CardSlot arrivalKey={nextKey()}>
+          <Card drawn={false} />
+        </CardSlot>
+      )
+    )
+    expect(placeholder()).toBeNull()
+    expect(cardShown()).toBe(true)
+  })
+
+  test('a finished answer holds no place for a card that never came', () => {
+    const { container } = render(<CardSlot arrivalKey={nextKey()} />)
+    expect(container.firstElementChild).toBeNull()
   })
 })

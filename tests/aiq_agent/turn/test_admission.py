@@ -1,4 +1,4 @@
-"""Admission, budget and profiling around the run; a refusal is a value."""
+"""Admission, budget and profiling around the run's stream; a refusal is a value."""
 
 from __future__ import annotations
 
@@ -6,23 +6,40 @@ import pytest
 
 from aiq_agent.common.cost_tracking import BudgetExceededError
 from aiq_agent.common.turn_admission import TurnAdmissionError
+from aiq_agent.common.wire_v2 import AnswerRetractedBody
+from aiq_agent.common.wire_v2 import EmptyValue
 from aiq_agent.turn import admission as admission_mod
+from aiq_agent.turn.admission import TurnLedgers
+from aiq_agent.turn.admission import TurnOutcome
 from aiq_agent.turn.admission import TurnRefusal
 from aiq_agent.turn.admission import answer_turn
-from aiq_agent.turn.admission import refusal_response
+from aiq_agent.turn.admission import refused
 from aiq_agent.turn.admission import spanned
+
+BODY = AnswerRetractedBody(value=EmptyValue())
 
 
 class _Agent:
+    """Streams one body, then its outcome (or raises it)."""
+
     def __init__(self, outcome):
         self.outcome = outcome
         self.calls: list[tuple[object, str | None]] = []
 
-    async def run(self, state, thread_id=None):
+    async def stream(self, state, thread_id=None):
         self.calls.append((state, thread_id))
+        yield BODY
         if isinstance(self.outcome, Exception):
             raise self.outcome
-        return self.outcome
+        yield self.outcome
+
+
+async def _answer(*args, **kwargs):
+    """The bodies the turn streamed, and its outcome."""
+    items = [item async for item in answer_turn(*args, **kwargs)]
+    *bodies, outcome = items
+    assert isinstance(outcome, TurnOutcome)
+    return bodies, outcome
 
 
 @pytest.fixture
@@ -45,9 +62,10 @@ def admitted(monkeypatch):
 
 
 class TestAnswerTurn:
-    async def test_runs_the_agent_inside_the_slot_and_returns_its_state(self, admitted):
+    async def test_streams_the_agent_inside_the_slot_then_its_state(self, admitted):
         agent = _Agent(outcome="STATE")
-        outcome = await answer_turn(agent, "IN", thread_id="t1", organization_id="org")
+        bodies, outcome = await _answer(agent, "IN", thread_id="t1", organization_id="org")
+        assert bodies == [BODY]
         assert outcome.state == "STATE"
         assert outcome.refusal is None
         assert agent.calls == [("IN", "t1")]
@@ -70,9 +88,10 @@ class TestAnswerTurn:
 
         monkeypatch.setattr(admission_mod, "track_llm_costs", _Tracker)
         identity = {"organization_id": "org", "user_id": "u", "project_id": "p", "conversation_id": "c"}
-        outcome = await answer_turn(_Agent("STATE"), "IN", thread_id="t", organization_id="org", identity=identity)
+        ledgers = TurnLedgers()
+        await _answer(_Agent("STATE"), "IN", thread_id="t", organization_id="org", identity=identity, ledgers=ledgers)
         assert seen == {"identity": identity, "inline_flush": False}
-        assert outcome.cost_tracker == "TRACKER"
+        assert ledgers.cost_tracker == "TRACKER"
 
     async def test_a_refused_slot_is_a_refusal_with_its_retry_hint(self, monkeypatch):
         class _Full:
@@ -88,22 +107,23 @@ class TestAnswerTurn:
         monkeypatch.setattr(admission_mod, "admit_turn_async", _Full)
         agent = _Agent(outcome="STATE")
         metadata: dict = {}
-        outcome = await answer_turn(agent, "IN", thread_id="t1", organization_id=None, metadata=metadata)
-        assert outcome.refusal == TurnRefusal("turn_admission", "Too many turns", 15, outcome="admission_refused")
+        bodies, outcome = await _answer(agent, "IN", thread_id="t1", organization_id=None, metadata=metadata)
+        assert bodies == []
+        assert outcome.refusal == TurnRefusal("Too many turns", 15, outcome="admission_refused")
         assert outcome.state is None
         assert metadata == {"outcome": "admission_refused"}
         assert agent.calls == [], "a refused turn starts nothing"
 
     async def test_a_blown_budget_is_a_refusal_without_a_retry_hint(self, admitted):
         metadata: dict = {}
-        outcome = await answer_turn(
+        bodies, outcome = await _answer(
             _Agent(BudgetExceededError("Budget exhausted")),
             "IN",
             thread_id="t",
             organization_id=None,
             metadata=metadata,
         )
-        assert outcome.refusal.response_id == "budget_exceeded"
+        assert bodies == [BODY], "what streamed before the budget stopped the turn stays streamed"
         assert outcome.refusal.outcome == "budget_exceeded"
         assert outcome.refusal.retry_after_seconds is None
         assert "Budget exhausted" in outcome.refusal.message
@@ -111,7 +131,7 @@ class TestAnswerTurn:
 
     async def test_any_other_failure_propagates(self, admitted):
         with pytest.raises(ValueError):
-            await answer_turn(_Agent(ValueError("bug")), "IN", thread_id="t", organization_id=None)
+            await _answer(_Agent(ValueError("bug")), "IN", thread_id="t", organization_id=None)
 
     async def test_spanned_returns_the_awaited_value(self):
         async def value():
@@ -120,14 +140,13 @@ class TestAnswerTurn:
         assert await spanned("setup.anything", value()) == 42
 
 
-class TestRefusalResponse:
+class TestRefused:
     def test_carries_the_message_and_the_retry_hint(self):
-        response = refusal_response(TurnRefusal("turn_admission", "busy", 15), workflow_id="wf")
-        assert response.choices[0].message.content == "busy"
-        assert response.id == "turn_admission"
-        assert response.model == "wf"
-        assert response.retry_after_seconds == 15
+        body = refused(TurnRefusal("busy", 15), message_id="m1")
+        assert body.outcome == "refused"
+        assert body.result.message_id == "m1"
+        assert body.result.text == "busy"
+        assert body.result.retry_after_seconds == 15
 
     def test_no_hint_means_no_field(self):
-        response = refusal_response(TurnRefusal("budget_exceeded", "spent"), workflow_id="wf")
-        assert getattr(response, "retry_after_seconds", None) is None
+        assert refused(TurnRefusal("spent"), message_id="m1").result.retry_after_seconds is None

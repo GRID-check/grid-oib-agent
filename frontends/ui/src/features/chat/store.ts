@@ -55,7 +55,6 @@ export const useChatStore = create<ChatStoreWithHydration>()(
           currentUserId: state.currentUserId,
           conversations: state.conversations,
           currentConversation: state.currentConversation,
-          pendingInteraction: state.pendingInteraction,
           composerDrafts: state.composerDrafts,
         }),
         onRehydrateStorage: () => (state) => {

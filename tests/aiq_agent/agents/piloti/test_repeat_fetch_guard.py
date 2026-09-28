@@ -31,7 +31,6 @@ want.
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -177,26 +176,9 @@ def scripted_agent():
 
 
 @pytest.fixture
-def steps():
-    """Every custom step pushed during the test, as parsed payloads."""
-    from nat.builder.context import ContextState
-    from nat.utils.reactive.subject import Subject
-
-    state = ContextState.get()
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
-    seen: list[dict] = []
-
-    def _on_next(step) -> None:
-        payload = step.payload
-        body = getattr(payload.data, "input", None)
-        if isinstance(body, str) and str(payload.event_type).endswith("START"):
-            seen.append({"step": payload.name, **json.loads(body)})
-
-    state.event_stream.get().subscribe(_on_next)
-    yield seen
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
+def steps(emitted):
+    """Every body the producers wrote during the test (``tests/conftest.py``)."""
+    return emitted
 
 
 def _call(name: str, call_id: str, **args) -> dict:
@@ -250,7 +232,7 @@ class TestTheSecondIdenticalFetch:
         # The call stays on the AIMessage: the transcript shows what was asked.
         assert _asked(result) == ["a", "b"]
         # And a round that fetched nothing is not a layer of the spine.
-        assert [step["slot"] for step in steps if str(step["slot"]).startswith("retrieval")] == ["retrieval:0"]
+        assert [step.id for step in steps.steps if step.id.startswith("status:retrieval")] == ["status:retrieval:0"]
 
     async def test_the_withheld_round_is_reported_as_its_own_technical_event(self, scripted_agent, steps):
         agent = scripted_agent(
@@ -261,10 +243,10 @@ class TestTheSecondIdenticalFetch:
 
         await _run(agent)
 
-        (record,) = [step for step in steps if str(step["slot"]).startswith("repeat")]
-        assert record["step"] == "status:repeat:1"
-        assert (record["round"], record["withheld"]) == (1, 1)
-        assert record["channel"] == turn_status.CHANNEL_TECHNICAL
+        (record,) = [step for step in steps.steps if step.id.startswith("status:repeat")]
+        assert record.id == "status:repeat:1"
+        assert (record.detail["round"], record.detail["withheld"]) == (1, 1)
+        assert record.channel == turn_status.CHANNEL_TECHNICAL
 
     async def test_two_identical_calls_in_ONE_batch_run_once(self, scripted_agent):
         """The first occurrence runs; the rest are the same guess said twice."""

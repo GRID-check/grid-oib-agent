@@ -83,7 +83,7 @@ def tolerate_blank_arguments(tool: Any) -> Any:
 
 async def load_agent_tools(builder: Any, tool_refs: Iterable[Any], exclude: Iterable[str] | None = None) -> list[Any]:
     """The LangChain tools for ``tool_refs``, minus ``exclude``, each tolerating blank arguments."""
-    from nat.builder.framework_enum import LLMFrameworkEnum
+    from nat.plugin_api import LLMFrameworkEnum
 
     tools = await builder.get_tools(tool_names=list(tool_refs), wrapper_type=LLMFrameworkEnum.LANGCHAIN)
     excluded = set(exclude or ())

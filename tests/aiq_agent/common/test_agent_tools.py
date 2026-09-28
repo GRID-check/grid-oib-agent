@@ -15,12 +15,12 @@ from pydantic import BaseModel
 import nat.plugins.langchain.tool_wrapper  # noqa: F401  registers the LangChain wrapper
 from aiq_agent.common.agent_tools import blank_is_omitted
 from aiq_agent.common.agent_tools import load_agent_tools
-from nat.builder.builder import Builder
-from nat.builder.framework_enum import LLMFrameworkEnum
-from nat.builder.function_info import FunctionInfo
 from nat.builder.workflow_builder import WorkflowBuilder
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import LLMFrameworkEnum
+from nat.plugin_api import register_function
 
 _SRC = Path(__file__).resolve().parents[3] / "src" / "aiq_agent"
 

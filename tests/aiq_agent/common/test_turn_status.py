@@ -7,22 +7,21 @@ German prose in a ``text`` field, the live line rendered it verbatim, and an
 English-locale reader read German. :class:`TestNothingEmittedIsLanguageSpecific`
 is the test that regression cannot get past.
 
-Exercised against the REAL NAT ``IntermediateStepManager``/``ContextState``
-(a process-wide singleton), following ``test_nat_step_repair.py``: half the
-contract here is that a status step leaves the span stack exactly as it found
-it, and a faked manager would assert nothing about that.
+Each emitter is exercised at LangGraph's writer seam (the ``emitted`` fixture
+in ``tests/conftest.py``) and asserted on the typed step it wrote. That the
+writer reaches the producers inside a graph run is
+``test_step_producers.py``.
 """
 
 from __future__ import annotations
 
-import json
 import re
 
 import pytest
 
 from aiq_agent.common import turn_status
+from aiq_agent.common.wire_v2 import StatusStep
 from aiq_agent.skills.events import ALL_SKILL_KEYS
-from nat.builder.context import ContextState
 
 
 @pytest.fixture(autouse=True)
@@ -33,106 +32,58 @@ def _reset_retrieval_round():
 
 
 @pytest.fixture
-def context_state():
-    """The singleton ContextState with a clean span stack and a private stream."""
-    from nat.utils.reactive.subject import Subject
-
-    state = ContextState.get()
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
-    yield state
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
+def steps(emitted):
+    """Every body the producers wrote during the test (``tests/conftest.py``)."""
+    return emitted
 
 
-@pytest.fixture
-def steps(context_state):
-    """Every step pushed during the test, as ``(name, parsed payload)`` pairs."""
-    seen: list[tuple[str, str, dict]] = []
+def _live(emitted) -> list:
+    """The steps addressed to the READER: a retrieval round, or a live status.
 
-    def _on_next(step) -> None:
-        payload = step.payload
-        body = getattr(payload.data, "input", None)
-        if isinstance(body, str):
-            seen.append((payload.name, str(payload.event_type), json.loads(body)))
-
-    context_state.event_stream.get().subscribe(_on_next)
-    return seen
-
-
-def _live(steps) -> list[dict]:
-    """The payloads addressed to the READER: live channel only.
-
-    It used to be every START payload, which was the same list until a live
-    emitter grew a technical sibling (``emit_retrieval`` → ``emit_checkpoint``).
     The language rules below are about what a reader can see, so a technical
-    record — no ``key``, no ``values``, counted and never rendered — is not
+    record (no ``key``, no ``values``, counted and never rendered) is not
     theirs to judge.
     """
-    return [
-        payload
-        for _name, event_type, payload in steps
-        if event_type.endswith("START") and payload.get("channel") == turn_status.CHANNEL_LIVE
-    ]
+    return [step for step in emitted.steps if step.kind == "retrieval" or getattr(step, "channel", None) == "live"]
 
 
-def _technical(steps) -> list[dict]:
-    return [
-        payload
-        for _name, event_type, payload in steps
-        if event_type.endswith("START") and payload.get("channel") == turn_status.CHANNEL_TECHNICAL
-    ]
+def _technical(emitted) -> list:
+    return [step for step in emitted.steps if step.kind == "status" and step.channel == turn_status.CHANNEL_TECHNICAL]
 
 
-def _started(steps, prefix: str) -> list[str]:
-    """Step NAMES that started, narrowed to one ``status:`` family."""
-    return [name for name, event_type, _ in steps if event_type.endswith("START") and name.startswith(prefix)]
+def _started(emitted, prefix: str) -> list[str]:
+    """Step IDS emitted, narrowed to one ``status:`` family."""
+    return [step.id for step in emitted.steps if step.id.startswith(prefix)]
 
 
-class TestSpanHygiene:
-    def test_a_step_is_a_balanced_pair(self, steps, context_state) -> None:
-        turn_status.emit_citation_check()
-
-        names_and_types = [(name, event_type) for name, event_type, _ in steps]
-        assert names_and_types == [
-            ("status:citations", "FUNCTION_START"),
-            ("status:citations", "FUNCTION_END"),
-        ]
-        # A leaked START frame corrupts the NEXT legitimate close, which is the
-        # fault common.nat_step_repair exists to repair. Never leak one here.
-        assert context_state.active_span_id_stack.get() == ["root"]
-
-    def test_emission_never_raises(self, monkeypatch) -> None:
-        """Transparency is worth strictly less than the answer it describes."""
-
-        def _boom():
-            raise RuntimeError("no context here")
-
-        monkeypatch.setattr("nat.builder.context.Context.get", staticmethod(_boom))
+class TestOutsideAGraph:
+    def test_emission_outside_a_graph_run_is_silent(self) -> None:
+        """No stream to write to (the setup phase): nothing, and no error."""
         turn_status.emit_citation_check()
         turn_status.emit_escalation("weil")
 
 
 class TestDocumentsLoading:
+    """A setup-phase line: RETURNED for ``_run`` to yield, never emitted."""
+
     def test_a_shelf_of_the_readers_own_is_named(self, steps) -> None:
-        turn_status.emit_documents_loading(["archiv"])
-        payload = _live(steps)[0]
+        step = turn_status.documents_loading_step(["archiv"])
         # The SHELF is in the key, not in the values: German needs the dative
         # ("aus dem Büroarchiv") and English needs no article at all, so a
         # shelf name cannot be interpolated into one shared template.
-        assert payload["key"] == "status.documents.archiv"
-        assert payload["values"] == {}
-
-    def test_several_shelves_collapse_into_one_line(self, steps) -> None:
-        turn_status.emit_documents_loading(["archiv", "project"])
-        assert _live(steps)[0]["key"] == "status.documents.several"
-
-    def test_the_base_corpus_alone_says_nothing(self, steps) -> None:
-        """It is read on every research turn — announcing it announces a constant."""
-        turn_status.emit_documents_loading(["base"])
-        turn_status.emit_documents_loading([])
-        turn_status.emit_documents_loading(None)
+        assert step == StatusStep(
+            id="status:documents", slot="documents", key="status.documents.archiv", detail={"shelves": ["archiv"]}
+        )
         assert steps == []
+
+    def test_several_shelves_collapse_into_one_line(self) -> None:
+        assert turn_status.documents_loading_step(["archiv", "project"]).key == "status.documents.several"
+
+    def test_the_base_corpus_alone_says_nothing(self) -> None:
+        """It is read on every research turn — announcing it announces a constant."""
+        assert turn_status.documents_loading_step(["base"]) is None
+        assert turn_status.documents_loading_step([]) is None
+        assert turn_status.documents_loading_step(None) is None
 
 
 class TestRetrieval:
@@ -142,30 +93,30 @@ class TestRetrieval:
             round_index=0,
         )
         payload = _live(steps)[0]
-        assert payload["key"] == "status.retrieval.withQuery"
+        assert payload.key == "status.retrieval.withQuery"
         # `knowledge`, not "im OIB-Wissen": the display name is product copy
         # with a German preposition welded on, and the frontend owns both.
-        assert payload["values"] == {"corpus": "knowledge", "query": "Fluchtweglänge GK4"}
+        assert payload.values == {"corpus": "knowledge", "query": "Fluchtweglänge GK4"}
 
     def test_a_group_qualified_tool_name_still_resolves(self, steps) -> None:
         turn_status.emit_retrieval(
             [{"name": "sources__ris_search_tool", "args": {"query": "OIB 2"}}],
             round_index=0,
         )
-        assert _live(steps)[0]["values"]["corpus"] == "ris"
+        assert _live(steps)[0].values["corpus"] == "ris"
 
     def test_a_search_with_no_query_uses_the_other_template(self, steps) -> None:
         turn_status.emit_retrieval([{"name": "web_search_tool", "args": {}}], round_index=0)
         payload = _live(steps)[0]
-        assert payload["key"] == "status.retrieval.plain"
-        assert payload["values"] == {"corpus": "web"}
+        assert payload.key == "status.retrieval.plain"
+        assert payload.values == {"corpus": "web"}
 
     def test_the_quoted_query_never_outgrows_its_slot(self, steps) -> None:
         turn_status.emit_retrieval(
             [{"name": "knowledge_search_tool", "args": {"query": "Frage " * 40}}],
             round_index=0,
         )
-        assert len(_live(steps)[0]["values"]["query"]) <= turn_status.MAX_QUERY_CHARS
+        assert len(_live(steps)[0].values["query"]) <= turn_status.MAX_QUERY_CHARS
 
     def test_a_parallel_batch_is_ONE_line(self, steps) -> None:
         """Three lines in the same instant is a log stream, not a status."""
@@ -180,7 +131,7 @@ class TestRetrieval:
         assert len(_live(steps)) == 1
         # An ID LIST, joined by a comma — never by a German "und". Which word
         # joins two corpus names is grammar, and grammar belongs to the reader.
-        assert _live(steps)[0]["values"]["corpus"] == "knowledge,ris,web"
+        assert _live(steps)[0].values["corpus"] == "knowledge,ris,web"
 
     def test_successive_rounds_do_not_collapse_into_one_step(self, steps) -> None:
         turn_status.emit_retrieval([{"name": "ris_search_tool", "args": {"query": "a"}}], round_index=0)
@@ -200,9 +151,9 @@ class TestRetrieval:
             round_index=1,
         )
         payload = _live(steps)[0]
-        assert payload["key"] == "status.retrieval.punkt"
-        assert payload["values"] == {"document": "OIB-Richtlinie 2", "punkt": "3.5.2"}
-        assert payload["tools"] == ["read_passage"]
+        assert payload.key == "status.retrieval.punkt"
+        assert payload.values == {"document": "OIB-Richtlinie 2", "punkt": "3.5.2"}
+        assert payload.tools == ["read_passage"]
 
     def test_a_page_locator_uses_its_own_key(self, steps) -> None:
         turn_status.emit_retrieval(
@@ -210,8 +161,8 @@ class TestRetrieval:
             round_index=1,
         )
         payload = _live(steps)[0]
-        assert payload["key"] == "status.retrieval.page"
-        assert payload["values"] == {"document": "Brandschutzkonzept.pdf", "page": "12"}
+        assert payload.key == "status.retrieval.page"
+        assert payload.values == {"document": "Brandschutzkonzept.pdf", "page": "12"}
 
     def test_the_locator_is_a_retrieval_round_of_the_spine(self, steps) -> None:
         """It reads evidence, so it is a layer — and it stamps the round."""
@@ -229,7 +180,7 @@ class TestRetrieval:
             [{"name": "read_passage", "args": {"document": "Sehr langer Dokumentname " * 6, "punkt": "1"}}],
             round_index=0,
         )
-        assert len(_live(steps)[0]["values"]["document"]) <= turn_status.MAX_DOCUMENT_CHARS
+        assert len(_live(steps)[0].values["document"]) <= turn_status.MAX_DOCUMENT_CHARS
 
     def test_a_round_that_also_searched_shows_the_search_query(self, steps) -> None:
         """The reader's own words beat an address they never typed.
@@ -245,16 +196,16 @@ class TestRetrieval:
             round_index=0,
         )
         payload = _live(steps)[0]
-        assert payload["key"] == "status.retrieval.withQuery"
-        assert payload["values"]["query"] == "Fluchtweglänge GK4"
+        assert payload.key == "status.retrieval.withQuery"
+        assert payload.values["query"] == "Fluchtweglänge GK4"
 
     def test_a_locator_call_naming_nothing_falls_back_to_the_plain_line(self, steps) -> None:
         """Never a template with a hole in it — and never the document name
         quoted as if it were the reader's search string."""
         turn_status.emit_retrieval([{"name": "read_passage", "args": {"document": "OIB 2"}}], round_index=0)
         payload = _live(steps)[0]
-        assert payload["key"] == "status.retrieval.plain"
-        assert payload["values"] == {"corpus": "knowledge"}
+        assert payload.key == "status.retrieval.plain"
+        assert payload.values == {"corpus": "knowledge"}
 
     def test_loading_a_skill_is_not_a_retrieval(self, steps) -> None:
         """The skills substrate narrates that itself, with the skill's human title."""
@@ -265,7 +216,7 @@ class TestRetrieval:
 
     def test_an_interaction_tool_says_what_it_does(self, steps) -> None:
         turn_status.emit_retrieval([{"name": "remember", "args": {"text": "Dachneigung 30°"}}], round_index=0)
-        assert _live(steps)[0]["key"] == "status.action.remember"
+        assert _live(steps)[0].key == "status.action.remember"
 
     def test_each_file_verb_says_which_one_it_was(self, steps) -> None:
         """One key per verb: „Entwurf wird geschrieben" is not „wird gelesen"."""
@@ -277,7 +228,7 @@ class TestRetrieval:
         }
         for index, (verb, key) in enumerate(verbs.items()):
             turn_status.emit_retrieval([{"name": verb, "args": {"file_path": "/entwuerfe/a.md"}}], round_index=index)
-        assert [payload["key"] for payload in _live(steps)] == list(verbs.values())
+        assert [payload.key for payload in _live(steps)] == list(verbs.values())
 
     def test_a_file_verb_is_an_action_and_never_a_retrieval(self, steps) -> None:
         """Nothing in the working directory is evidence, so nothing there is "searched".
@@ -290,8 +241,8 @@ class TestRetrieval:
             round_index=0,
         )
         payload = _live(steps)[0]
-        assert payload["key"] == "status.action.draftWrite"
-        assert payload["values"] == {}
+        assert payload.key == "status.action.draftWrite"
+        assert payload.values == {}
 
     def test_the_four_file_verbs_share_one_line(self, steps) -> None:
         """One key for all four, unlike the working directory's own four.
@@ -304,7 +255,7 @@ class TestRetrieval:
         verbs = ("move_document", "rename_document", "create_folder", "assign_document")
         for index, verb in enumerate(verbs):
             turn_status.emit_retrieval([{"name": verb, "args": {"document": "plan.pdf"}}], round_index=index)
-        keys = [payload["key"] for payload in _live(steps)]
+        keys = [payload.key for payload in _live(steps)]
         assert keys == ["status.action.fileProposal"] * len(verbs)
 
     def test_handing_the_work_over_says_so(self, steps) -> None:
@@ -318,8 +269,8 @@ class TestRetrieval:
             round_index=0,
         )
         payload = _live(steps)[0]
-        assert payload["key"] == "status.action.taskCreated"
-        assert payload["values"] == {}
+        assert payload.key == "status.action.taskCreated"
+        assert payload.values == {}
 
     def test_a_file_proposal_is_an_action_and_never_a_retrieval(self, steps) -> None:
         """Nothing is being read: the file name is a name the reader gave, not a query."""
@@ -328,8 +279,8 @@ class TestRetrieval:
             round_index=0,
         )
         payload = _live(steps)[0]
-        assert payload["key"] == "status.action.fileProposal"
-        assert payload["values"] == {}
+        assert payload.key == "status.action.fileProposal"
+        assert payload.values == {}
 
     def test_remember_does_not_steal_the_next_search_slot(self, steps) -> None:
         """``status:retrieval:N`` is the spine. remember used to occupy it."""
@@ -363,16 +314,16 @@ class TestRetrieval:
             conclusion="Fluchtweglänge hängt an Nutzung, GK und dem Treppenraum.",
         )
         payload = _live(steps)[0]
-        assert payload["reason"] == "Fluchtweglänge hängt an Nutzung, GK und dem Treppenraum."
-        assert "reason" not in payload["values"]
-        assert "text" not in payload
+        assert payload.reason == "Fluchtweglänge hängt an Nutzung, GK und dem Treppenraum."
+        assert "reason" not in payload.values
+        assert "text" not in payload.model_dump()
 
         turn_status.emit_retrieval(
             [{"name": "knowledge_search_tool", "args": {"query": "x"}}],
             round_index=1,
             conclusion="   ",
         )
-        assert "reason" not in _live(steps)[1]
+        assert _live(steps)[1].reason is None
 
     def test_a_tool_we_cannot_name_says_NOTHING(self, steps) -> None:
         """The only thing left to say about it is its internal name.
@@ -402,8 +353,8 @@ class TestCheckpointIsCountable:
             conclusion="Die Grundregel steht.",
         )
         (record,) = _technical(steps)
-        assert record["round"] == 0
-        assert record["hasConclusion"] is True
+        assert record.detail["round"] == 0
+        assert record.detail["hasConclusion"] is True
         assert _started(steps, "status:checkpoint") == ["status:checkpoint:0"]
 
     def test_a_round_the_model_wrote_no_thought_for_records_the_absence(self, steps) -> None:
@@ -413,7 +364,7 @@ class TestCheckpointIsCountable:
             round_index=2,
             conclusion="   ",
         )
-        assert [(r["round"], r["hasConclusion"]) for r in _technical(steps)] == [(1, False), (2, False)]
+        assert [(r.detail["round"], r.detail["hasConclusion"]) for r in _technical(steps)] == [(1, False), (2, False)]
 
     def test_it_counts_nothing_the_reader_wrote(self, steps) -> None:
         """A boolean and an index. Never the sentence, in any language."""
@@ -423,9 +374,9 @@ class TestCheckpointIsCountable:
             conclusion="Fluchtweglänge hängt an Nutzung und Geschoss.",
         )
         (record,) = _technical(steps)
-        assert set(record) == {"kind", "channel", "slot", "round", "hasConclusion", "source"}
-        assert record["channel"] == turn_status.CHANNEL_TECHNICAL
-        assert "Fluchtweg" not in json.dumps(record, ensure_ascii=False)
+        assert set(record.detail) == {"round", "hasConclusion", "source"}
+        assert record.channel == turn_status.CHANNEL_TECHNICAL
+        assert "Fluchtweg" not in record.model_dump_json()
 
     def test_the_argument_beats_the_prose(self, steps) -> None:
         """The whole point of the slot.
@@ -445,9 +396,9 @@ class TestCheckpointIsCountable:
             conclusion="Prosa, die das Modell nebenher geschrieben hat.",
         )
         (line,) = _live(steps)
-        assert line["reason"] == "Die Grundregel steht; offen ist der GK."
+        assert line.reason == "Die Grundregel steht; offen ist der GK."
         (record,) = _technical(steps)
-        assert (record["hasConclusion"], record["source"]) == (True, turn_status.CHECKPOINT_FROM_ARGUMENT)
+        assert (record.detail["hasConclusion"], record.detail["source"]) == (True, turn_status.CHECKPOINT_FROM_ARGUMENT)
 
     def test_prose_still_carries_a_round_that_filled_no_argument(self, steps) -> None:
         """The fallback is not decoration: a deployment pinned to an older
@@ -458,9 +409,9 @@ class TestCheckpointIsCountable:
             conclusion="Ich brauche zuerst die Grundregel.",
         )
         (line,) = _live(steps)
-        assert line["reason"] == "Ich brauche zuerst die Grundregel."
+        assert line.reason == "Ich brauche zuerst die Grundregel."
         (record,) = _technical(steps)
-        assert (record["hasConclusion"], record["source"]) == (True, turn_status.CHECKPOINT_FROM_PROSE)
+        assert (record.detail["hasConclusion"], record.detail["source"]) == (True, turn_status.CHECKPOINT_FROM_PROSE)
 
     def test_an_empty_first_call_is_recorded_as_no_body_at_all(self, steps) -> None:
         """What the prompt asks for on the FIRST call: nothing is known yet, so
@@ -470,9 +421,9 @@ class TestCheckpointIsCountable:
             round_index=0,
         )
         (line,) = _live(steps)
-        assert "reason" not in line
+        assert line.reason is None
         (record,) = _technical(steps)
-        assert (record["hasConclusion"], record["source"]) == (False, turn_status.CHECKPOINT_FROM_NONE)
+        assert (record.detail["hasConclusion"], record.detail["source"]) == (False, turn_status.CHECKPOINT_FROM_NONE)
 
     def test_a_parallel_batch_takes_the_first_conclusion_it_finds(self, steps) -> None:
         """One round is one checkpoint, however many calls it fans out into."""
@@ -484,7 +435,7 @@ class TestCheckpointIsCountable:
             round_index=0,
         )
         assert len(_technical(steps)) == 1
-        assert _live(steps)[0]["reason"] == "Beide Korpora, ein Schluss."
+        assert _live(steps)[0].reason == "Beide Korpora, ein Schluss."
 
     def test_the_conclusion_is_never_quoted_back_as_the_query(self, steps) -> None:
         """`_query_text` falls back to the first non-empty string argument, and
@@ -496,8 +447,8 @@ class TestCheckpointIsCountable:
             round_index=0,
         )
         payload = _live(steps)[0]
-        assert payload["key"] == "status.retrieval.plain"
-        assert "query" not in payload["values"]
+        assert payload.key == "status.retrieval.plain"
+        assert "query" not in payload.values
 
     def test_an_action_round_draws_no_checkpoint(self, steps) -> None:
         """``remember`` / ``emit_card`` are not layers of the spine."""
@@ -505,9 +456,9 @@ class TestCheckpointIsCountable:
         assert _technical(steps) == []
 
     def test_successive_rounds_each_leave_their_own_record(self, steps) -> None:
-        """One step name per round, like ``status:retrieval:N`` and for the same
-        reason: two steps sharing a name collapse into one under the frontend's
-        dedupe, and a three-round spine reporting one checkpoint is not a rate."""
+        """One step id per round, like ``status:retrieval:N`` and for the same
+        reason: two steps sharing an id collapse into one row, and a
+        three-round spine reporting one checkpoint is not a rate."""
         for index in (0, 1, 2):
             turn_status.emit_retrieval(
                 [{"name": "knowledge_search_tool", "args": {"query": "q"}}],
@@ -519,76 +470,75 @@ class TestCheckpointIsCountable:
             "status:checkpoint:1",
             "status:checkpoint:2",
         ]
-        assert [r["hasConclusion"] for r in _technical(steps)] == [False, True, False]
+        assert [r.detail["hasConclusion"] for r in _technical(steps)] == [False, True, False]
 
 
 class TestEscalation:
     def test_the_line_says_why_in_the_readers_terms(self, steps) -> None:
         turn_status.emit_escalation("Shallow agent emitted insufficiency marker")
         payload = _live(steps)[0]
-        assert payload["key"] == "status.escalation"
+        assert payload.key == "status.escalation"
         # The internal marker string is telemetry, never the sentence.
-        assert payload["values"] == {}
-        assert payload["reason"] == "Shallow agent emitted insufficiency marker"
+        assert payload.values == {}
+        assert payload.detail == {"reason": "Shallow agent emitted insufficiency marker"}
 
 
 class TestSynthesis:
     def test_the_line_marks_the_answer_being_written(self, steps) -> None:
         turn_status.emit_synthesis()
         payload = _live(steps)[0]
-        assert payload["key"] == "status.synthesis"
+        assert payload.key == "status.synthesis"
         # Value-less on purpose: what is being written is the reader's answer,
         # and quoting it back as a status would be the model narrating itself.
-        assert payload["values"] == {}
+        assert payload.values == {}
 
 
 class TestTheSubjectDocument:
     """Read as bytes because retrieval cannot see it — telemetry, not a line."""
 
-    def test_it_never_reaches_the_live_line(self, steps) -> None:
-        turn_status.emit_subject_document(
+    def test_it_is_a_technical_record_with_no_key(self) -> None:
+        step = turn_status.subject_document_step(
             loaded=True, document_id="doc-9", version_id="ver-9", state="draft", path="/entwuerfe/Befund.md", chars=42
         )
-        # `_live` is the reader's channel, and this event is not on it.
-        assert _live(steps) == []
-        payload = _technical(steps)[0]
-        assert payload["channel"] == turn_status.CHANNEL_TECHNICAL
         # No key, therefore no dictionary entry, therefore nothing rendered on
         # the live line: the reader is already looking at the file it names.
-        assert "key" not in payload
-        assert payload["loaded"] is True
-        assert payload["path"] == "/entwuerfe/Befund.md"
+        assert step == StatusStep(
+            id="status:documents:subject",
+            slot="documents:subject",
+            channel="technical",
+            detail={
+                "loaded": True,
+                "document_id": "doc-9",
+                "version_id": "ver-9",
+                "state": "draft",
+                "path": "/entwuerfe/Befund.md",
+                "chars": 42,
+            },
+        )
 
-    def test_a_miss_carries_a_stable_reason(self, steps) -> None:
-        turn_status.emit_subject_document(loaded=False, version_id="ver-9", reason=turn_status.SUBJECT_UNREACHABLE)
-        payload = _technical(steps)[0]
-        assert payload["loaded"] is False
-        assert payload["reason"] == "unreachable"
-        # Absent facts are ABSENT, never null: an operator counting misses by
-        # reason must not have to tell "no state" from "state: None".
-        assert "state" not in payload
-        assert "path" not in payload
+    def test_a_miss_carries_a_stable_reason_and_omits_what_is_absent(self) -> None:
+        """An operator counting misses by reason must not tell "no state" from "state: None"."""
+        step = turn_status.subject_document_step(
+            loaded=False, version_id="ver-9", reason=turn_status.SUBJECT_UNREACHABLE
+        )
+        assert step.detail == {"loaded": False, "version_id": "ver-9", "reason": "unreachable"}
 
-    def test_it_is_its_own_slot(self, steps) -> None:
-        # The frontend dedupes thinking steps by step name. Sharing `documents`
-        # would make this event replace the shelf line the reader was just shown.
-        turn_status.emit_subject_document(loaded=True)
-        assert steps[0][0] == "status:documents:subject"
+    def test_it_is_its_own_slot(self) -> None:
+        """Sharing ``documents`` would replace the shelf line the reader was just shown."""
+        assert turn_status.subject_document_step(loaded=True).id != turn_status.documents_loading_step(["project"]).id
 
 
 class TestChannels:
     def test_every_status_here_is_addressed_to_the_reader(self, steps) -> None:
-        turn_status.emit_documents_loading(["project"])
         turn_status.emit_retrieval([{"name": "knowledge_search_tool", "args": {"query": "q"}}], round_index=0)
         turn_status.emit_citation_check(source_count=3)
         turn_status.emit_escalation(None)
 
-        payloads = _live(steps)
-        assert len(payloads) == 4
+        payloads = [turn_status.documents_loading_step(["project"]), *_live(steps)]
+        assert [payload.kind for payload in payloads] == ["status", "retrieval", "status", "status"]
         for payload in payloads:
-            assert payload["kind"] == "status"
-            assert payload["channel"] == turn_status.CHANNEL_LIVE
-            assert payload["key"] in turn_status.ALL_STATUS_KEYS
+            assert getattr(payload, "channel", "live") == turn_status.CHANNEL_LIVE
+            assert payload.key in turn_status.ALL_STATUS_KEYS
 
 
 # --- The point of the change ------------------------------------------------
@@ -630,13 +580,15 @@ _GERMAN_WORDS = (
 )
 
 
-def _every_live_payload(steps) -> list[dict]:
-    """One emission of every live event this repo can produce."""
-    turn_status.emit_documents_loading(["archiv"])
-    turn_status.emit_documents_loading(["project"])
-    turn_status.emit_documents_loading(["session"])
-    turn_status.emit_documents_loading(["archiv", "project"])
-    turn_status.emit_documents_waiting(file_count=1)
+def _every_live_payload(steps) -> list:
+    """One of every live step this repo can produce, the setup phase's included."""
+    setup = [
+        turn_status.documents_loading_step(["archiv"]),
+        turn_status.documents_loading_step(["project"]),
+        turn_status.documents_loading_step(["session"]),
+        turn_status.documents_loading_step(["archiv", "project"]),
+        turn_status.documents_waiting_step(file_count=1),
+    ]
     turn_status.emit_retrieval(
         [
             {"name": "knowledge_search_tool", "args": {"query": "Fluchtweglänge GK4"}},
@@ -680,7 +632,7 @@ def _every_live_payload(steps) -> list[dict]:
     turn_status.emit_answer_repair(quotes=1)
     turn_status.emit_escalation("Shallow agent emitted insufficiency marker")
     turn_status.emit_synthesis()
-    return _live(steps)
+    return [*setup, *_live(steps)]
 
 
 class TestNothingEmittedIsLanguageSpecific:
@@ -698,8 +650,8 @@ class TestNothingEmittedIsLanguageSpecific:
 
     def test_every_product_authored_string_is_an_id(self, steps) -> None:
         for payload in _every_live_payload(steps):
-            assert _ID_RE.match(payload["key"]), payload["key"]
-            for name, value in payload["values"].items():
+            assert _ID_RE.match(payload.key), payload.key
+            for name, value in payload.values.items():
                 if name in _ECHOED_BACK:
                     continue
                 assert _ID_RE.match(value), f"{name}={value!r} in {payload['key']}"
@@ -712,9 +664,7 @@ class TestNothingEmittedIsLanguageSpecific:
         live line that speaks in the product's voice.
         """
         for payload in _every_live_payload(steps):
-            visible = " ".join(
-                [payload["key"], *(v for k, v in payload["values"].items() if k not in _ECHOED_BACK)]
-            ).lower()
+            visible = " ".join([payload.key, *(v for k, v in payload.values.items() if k not in _ECHOED_BACK)]).lower()
             for word in _GERMAN_WORDS:
                 assert word not in f" {visible} ", f"{word!r} leaked into {payload['key']}"
 
@@ -724,7 +674,7 @@ class TestNothingEmittedIsLanguageSpecific:
         A key emitted but not registered is a blank live line in production and
         nothing anywhere that says why.
         """
-        emitted = {payload["key"] for payload in _every_live_payload(steps)}
+        emitted = {payload.key for payload in _every_live_payload(steps)}
         assert emitted <= set(turn_status.ALL_STATUS_KEYS)
         # And the registry claims nothing it cannot produce: every id in it is
         # reachable from the calls above.
@@ -737,30 +687,28 @@ class TestNothingEmittedIsLanguageSpecific:
 class TestTheRepairRecordCarriesItsCounts:
     """`status:repair` is the reader's line AND the Herleitung's detail.
 
-    One step, because the frontend dedupes status steps by NAME: a second
+    One step, because the same id replaces the row: a second
     ``status:repair`` on the technical channel would cost one of the two — on
     exactly the turns that had a repair. So the counts ride the live record as
-    detail, which is what ``emit_status``'s ``extra`` is for.
+    detail, which is what ``emit_status``'s ``detail`` is for.
     """
 
     def test_one_step_named_status_repair(self, steps) -> None:
         turn_status.emit_answer_repair(quotes=1)
-        names = {name for name, event_type, _payload in steps if event_type.endswith("START")}
-        assert names == {"status:repair"}
+        assert {step.id for step in steps.steps} == {"status:repair"}
 
     def test_the_count_is_the_camel_case_the_detail_panel_reads(self, steps) -> None:
         turn_status.emit_answer_repair(quotes=1)
         payload = _live(steps)[0]
-        assert payload["quotesFailed"] == 1
         # A removed citation is no longer repaired, so it is no longer counted here.
-        assert "citationsRemoved" not in payload
+        assert payload.detail == {"quotesFailed": 1}
 
     def test_the_line_still_resolves_for_the_reader(self, steps) -> None:
         """The record is detail; the sentence is still a dictionary id."""
         turn_status.emit_answer_repair(quotes=1)
         payload = _live(steps)[0]
-        assert payload["key"] == turn_status.KEY_REPAIR
-        assert payload["values"] == {}
+        assert payload.key == turn_status.KEY_REPAIR
+        assert payload.values == {}
 
 
 def _search_calls():
@@ -823,7 +771,7 @@ class TestRoundAnnouncementMirrorsTheLiveFrame:
         assert record is not None
         assert record["reason"] == "Die Grundregel steht."
         turn_status.emit_retrieval(calls, round_index=0, conclusion="Prose beside the calls.")
-        assert _live(steps)[0]["reason"] == record["reason"]
+        assert _live(steps)[0].reason == record["reason"]
 
     def test_record_covers_exactly_the_batches_the_counter_skips(self) -> None:
         """Parity with the round counter: record None ⟺ emit False."""
@@ -994,7 +942,7 @@ class TestTheRepeatFetchRecord:
 
     Its own slot per round, like ``status:checkpoint:N``: a turn that re-asked
     in three rounds must leave three countable records, and two steps sharing a
-    name collapse into one under the frontend's dedupe. No ``key``, because
+    id collapse into one row. No ``key``, because
     whether the reader is told is a product decision and shipping a live key
     would make it silently.
     """
@@ -1003,9 +951,9 @@ class TestTheRepeatFetchRecord:
         turn_status.emit_repeat_fetch(round_index=1, withheld=2)
         assert _live(steps) == []
         (payload,) = _technical(steps)
-        assert payload["channel"] == turn_status.CHANNEL_TECHNICAL
-        assert "key" not in payload
-        assert (payload["round"], payload["withheld"]) == (1, 2)
+        assert payload.channel == turn_status.CHANNEL_TECHNICAL
+        assert payload.key is None
+        assert (payload.detail["round"], payload.detail["withheld"]) == (1, 2)
 
     def test_each_round_leaves_its_own_step(self, steps) -> None:
         turn_status.emit_repeat_fetch(round_index=0, withheld=1)

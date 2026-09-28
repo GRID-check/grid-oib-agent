@@ -60,10 +60,10 @@ In `src/register.py`, define a `FunctionBaseConfig` subclass with a stable
 import os
 
 from pydantic import Field, SecretStr
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import register_function
+from nat.plugin_api import FunctionBaseConfig
 
 
 class MyDataSourceConfig(FunctionBaseConfig, name="my_data_source"):

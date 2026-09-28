@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 from unittest.mock import AsyncMock
-from unittest.mock import patch
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -113,12 +112,11 @@ async def test_a_model_that_ignores_the_offset_is_read_by_array_number(card_regi
 
 
 @pytest.mark.asyncio
-async def test_a_shape_miss_is_repaired_once_on_the_small_model(card_registry):
+async def test_a_shape_miss_is_repaired_once_on_the_small_model(card_registry, emitted):
     repair = AsyncMock(return_value=TABLE_RIGHT)
-    with patch("aiq_agent.common.turn_status.push_custom_step") as steps:
-        final = await finalize_answer(
-            _messages([BASIS, TABLE_WRONG]), registry=_sources(), tools=[], repair=None, card_repair=repair
-        )
+    final = await finalize_answer(
+        _messages([BASIS, TABLE_WRONG]), registry=_sources(), tools=[], repair=None, card_repair=repair
+    )
 
     repair.assert_awaited_once()
     card, refusal, answer = repair.await_args.args
@@ -128,23 +126,22 @@ async def test_a_shape_miss_is_repaired_once_on_the_small_model(card_registry):
     assert answer.startswith("x" * 100)
     assert [card["type"] for card in card_registry.snapshot()] == ["legal_basis", "typed_table"]
     assert "[[card:2]]" in final.content
-    recorded = [call.args[1]["values"] for call in steps.call_args_list if "card:invalid" in call.args[0]]
+    recorded = [step.detail for step in emitted.steps if step.id.startswith("status:card:invalid")]
     assert recorded == [{"cardType": "typed_table", "outcome": "repaired"}]
 
 
 @pytest.mark.asyncio
-async def test_a_card_that_still_fails_is_dropped_recorded_and_its_marker_removed(card_registry):
+async def test_a_card_that_still_fails_is_dropped_recorded_and_its_marker_removed(card_registry, emitted):
     repair = AsyncMock(return_value=None)
-    with patch("aiq_agent.common.turn_status.push_custom_step") as steps:
-        final = await finalize_answer(
-            _messages([TABLE_WRONG, BASIS]), registry=_sources(), tools=[], repair=None, card_repair=repair
-        )
+    final = await finalize_answer(
+        _messages([TABLE_WRONG, BASIS]), registry=_sources(), tools=[], repair=None, card_repair=repair
+    )
 
     assert [card["type"] for card in card_registry.snapshot()] == ["legal_basis"]
     # The dropped card's marker is gone; the second card is now position 1.
     assert "[[card:2]]" not in final.content
     assert final.content.count("[[card:1]]") == 1
-    recorded = [call.args[1]["values"] for call in steps.call_args_list if "card:invalid" in call.args[0]]
+    recorded = [step.detail for step in emitted.steps if step.id.startswith("status:card:invalid")]
     assert recorded == [{"cardType": "typed_table", "outcome": "dropped"}]
 
 

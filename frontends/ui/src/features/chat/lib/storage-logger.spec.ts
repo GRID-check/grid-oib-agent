@@ -83,7 +83,7 @@ describe('storage-logger', () => {
       vi.stubEnv('NODE_ENV', 'development')
       logStorageMigration(3)
       expect(consoleDebugSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Moved 3 conversations'),
+        expect.stringContaining('Dropped the cached messages of 3 conversations'),
         expect.any(Object)
       )
     })

@@ -158,11 +158,11 @@ class ConversationState(BaseModel):
     # (marker absent/malformed, or an error/escalation turn) — nothing renders.
     answer_confidence: Literal["low", "medium", "high"] | None = None
     # Structured sources from Piloti's registry (wire dicts with
-    # file_name/page/collection/origin). Attached to ChatResponse as ``sources``.
+    # file_name/page/collection/origin). Attached to the TurnResult as ``sources``.
     verified_sources: list[dict[str, Any]] | None = None
     # Retrieved-but-uncited documents from Piloti's turn (wire dicts with
     # document key + lane/kind + page, no prose). Lifted unchanged onto the
-    # terminal ChatResponse as ``read_sources`` for the "Gelesen, nicht
+    # terminal TurnResult as ``read_sources`` for the "Gelesen, nicht
     # zitiert" disclosure. Plain dicts only, like ``verified_sources`` — a
     # new pydantic type here would also need the checkpointer serde
     # allowlist (``aiq_agent/common/__init__.py``).
@@ -188,9 +188,8 @@ class ConversationState(BaseModel):
     retrieval_ledger: list[dict[str, Any]] | None = None
     # --- Transparency extras (WP-A) -------------------------------------------
     # All optional/additive: absent means "unknown/not applicable". Lifted onto
-    # the terminal ChatResponseChunk (``turn.streaming.STREAM_EXTRA_FIELDS``) and onto
-    # the terminal system_response_message (websocket_reconnect), same path as
-    # ``answer_confidence``/``run_id``. Never null-spammed.
+    # ``RUN_FINISHED``'s ``TurnResult`` (``turn.response.build_result``), same
+    # path as ``answer_confidence``/``run_id``.
     #
     # Which path the turn took, OBSERVED after the answer rather than decided
     # before it: ``meta`` when the agent neither consulted a source nor graded
@@ -244,7 +243,7 @@ class ConversationState(BaseModel):
     answer_meta: dict[str, Any] | None = None
     # TRUE when the research turn was cut off at its tool-iteration ceiling and
     # forced into synthesis. Absent on every turn that finished inside its
-    # budget: presence is the fact. Lifted onto the terminal ChatResponse as
+    # budget: presence is the fact. Lifted onto the terminal TurnResult as
     # ``research_truncated`` so the answer can say that its evidence-gathering
     # stopped early — which is orthogonal to ``answer_confidence`` (that grades
     # whether the claims are sourced; a truncated answer can be perfectly
@@ -258,7 +257,7 @@ class ConversationState(BaseModel):
     # Ordered names of the skills whose BODY reached the model this turn, in
     # delivery order (``use_skill``), deduped — never a skill the catalog only
     # offered, which shaped nothing. Set on the success path of
-    # ``conversation._answer_update`` and lifted onto the terminal ChatResponse
+    # ``conversation._answer_update`` and lifted onto the terminal TurnResult
     # ONLY when present (escaped escalations and generation failures leave it
     # None), the ``skills_activated`` transparency extra.
     skills_activated: list[str] | None = None
@@ -267,7 +266,7 @@ class ConversationState(BaseModel):
     # reading as a topic. Carried for the same reason and by the same route as
     # ``skills_activated`` (set on the success path of
     # ``conversation._answer_update``, dropped on escalation, lifted onto the
-    # terminal ChatResponse only when non-empty): the disclosure NAMES these
+    # terminal TurnResult only when non-empty): the disclosure NAMES these
     # skills like any other — the transparency doctrine forbids an instruction
     # class the product declines to admit ran — and only DE-EMPHASISES them
     # until the reader turns the reasoning view on. Absent means "none hidden",

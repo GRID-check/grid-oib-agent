@@ -523,28 +523,14 @@ times stops being a physical cue and becomes texture.
   row by 350ms. Never on a list the reader opened to reach one specific row.
 - Height changes (accordions, thinking steps): CSS grid-rows or Radix
   Collapsible, `--motion-base`.
-- **The live Herleitung streams in** (`reasoning/reasoning-motion.tsx`,
-  preview `/dev/herleitung?variant=stream`). Every move is keyed on a node or
-  edge ID and happens once:
-  - a new node fades and rises in (6px, scale 0.985, `--motion-base`,
-    `--ease-entrance`). Source cards keep their own per-card cascade
-    (`enterOrder`), so a re-packed column never replays;
-  - a new connector draws itself from source to target, once
-    (`--motion-deliberate`, a dash offset over `pathLength="1"` that stops);
-  - the graph grows to its new height instead of jumping (a height transition
-    on the pane, growth only, the accordion exception above). React Flow inside
-    is sized to the final height at once;
-  - a node a new row pushes down jumps to its measured place, and its content
-    settles the last 12px or less on a transform, never further than the row
-    gap, so rows never overlap;
-  - the graph's one loop is a dot flowing along the connectors into the newest
-    row: an HTML element on a WAAPI `transform`/`opacity` animation, sampled
-    once per path shape. The framing card, alone at the start of a turn, gets
-    the dot dropping into it instead. The pending assessment's dot is still.
-
-  A finished turn, a Herleitung opened later and `prefers-reduced-motion` get
-  none of it. Nothing loops on an SVG path: a dash offset, `<animateMotion>`
-  and a CSS `offset-distance` all repaint on the main thread (see gotchas).
+- **The live Herleitung moves only its frontier edges.** While a turn is
+  live, the connectors into the newest row are React Flow's built-in
+  `animated` edges (the library's marching `dashdraw` dash); nothing else in the
+  graph moves. Nodes, source cards and connectors simply appear, and a settled
+  graph has no animated edge. The cost is accepted and bounded: one marching
+  edge measured ~245 ms of main thread per second on a 4x throttled phone, so
+  the flag is limited to the frontier edges and to live turns
+  (`renderedEdges` in `ReasoningFlow.tsx`, preview `/dev/herleitung?variant=live`).
 - Hover: `transition-colors` on interactive rows and links; never transform on
   hover for dense UI. The raised card's lift is the documented exception, and it
   is a tween.
