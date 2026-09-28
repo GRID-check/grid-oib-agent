@@ -93,3 +93,29 @@ async def test_attach_replay_via_real_xadd_xrange():
         await owner.publish_frame(CONV, {"v": 2, "turn_id": "t1", "seq": seq})  # XADD to conv:*:stream
     replayed = await relay.replay_turn(CONV, "t1")  # XRANGE
     assert [frame["seq"] for frame in replayed] == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_a_turn_id_is_claimed_once_over_real_set_nx():
+    owner, relay = _redis_replicas()
+
+    assert await owner.claim_turn(CONV, "t1")  # SET conv:*:turn:t1 NX EX
+    assert not await relay.claim_turn(CONV, "t1")
+
+
+@pytest.mark.asyncio
+async def test_ready_is_set_by_the_server_s_subscribe_confirmation():
+    owner, relay = _redis_replicas()
+    ready = asyncio.Event()
+    got: list = []
+
+    async def _collect():
+        async for env in relay.subscribe_frames(CONV, ready):
+            got.append(env)
+            return
+
+    task = asyncio.ensure_future(_collect())
+    await asyncio.wait_for(ready.wait(), 3.0)  # no sleep: the server's confirmation is the signal
+    await owner.publish_frame(CONV, {"i": 0})
+    await asyncio.wait_for(task, 3.0)
+    assert got[0].payload == {"i": 0}
