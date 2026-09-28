@@ -28,7 +28,7 @@ export const founders: Founder[] = [
   },
   {
     name: 'Matthias Bigl',
-    role: { de: 'CTO · Software und KI', en: 'CTO · Software and AI' },
+    role: { de: 'Software und KI', en: 'Software and AI' },
     photo: matthias,
   },
   {
