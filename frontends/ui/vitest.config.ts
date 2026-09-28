@@ -37,6 +37,7 @@ export default defineConfig({
       'purger/**/*.spec.mjs',
       'scheduler/**/*.spec.mjs',
       'observability/**/*.spec.mjs',
+      'workers/**/*.spec.mjs',
       'scripts/**/*.spec.mjs',
       'eslint-rules/**/*.spec.mjs',
     ],

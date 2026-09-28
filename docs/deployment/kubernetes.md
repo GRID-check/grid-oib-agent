@@ -101,10 +101,9 @@ Runbook: [row-level security](../database/row-level-security.md).
   whose files changed are rebuilt (per-service change detection; a blog-post
   commit rebuilds just `grid-web`), while `release/**` pushes, version tags and
   manual runs build all three. Deploys pin each rebuilt service to its commit-SHA
-  tag; services that were not rebuilt keep the image reference already stored in
-  the stack config (`grid-oib:backendImage` / `grid-oib:frontendImage` /
-  `grid-oib:webImage`, falling back to `grid-oib:imageTag`, then `latest`) — see
-  [cd.md](cd.md). The kubelet pulls **anonymously**: if the GHCR packages are *private*, set
+  tag; a service that was not rebuilt gets the newest develop commit's tag that
+  GHCR actually has, and a resolved image older than the deployed one fails the
+  deploy — see [cd.md](cd.md#partial-deploys-per-service-images). The kubelet pulls **anonymously**: if the GHCR packages are *private*, set
   `registryUsername` + `registryPassword` (a token with `read:packages`) so the
   program creates the `grid-registry-pull` imagePullSecret — otherwise every app
   pod lands in ImagePullBackOff.
@@ -1390,12 +1389,12 @@ the committed stack file is configured (see below), `tsc --noEmit` (typed
 manifests), and two checks on the *same commit* the apply runs —
 `scripts/validate-crs.mjs` (schema-validates every CustomResource against the
 real upstream CRD schemas) and the **CrossGuard policy pack** (§7c). The plan
-is previewed with the same image pins the apply deploys: the deploy asks the
-triggering Publish Images run which jobs it actually built (GitHub API, by job
-name) and pins **per service** — rebuilt services to the commit's
-`sha-<40-hex>` tag, the rest to the image reference already in the stack config
-(`grid-oib:backendImage` / `grid-oib:frontendImage` / `grid-oib:webImage`,
-falling back to the previously set `grid-oib:imageTag`, then `latest`). The
+is previewed with the same image pins the apply deploys, resolved **per
+service** by `deploy/pulumi/scripts/resolve-image-refs.sh`: services the
+triggering Publish Images run built get the commit's `sha-<40-hex>` tag, the
+rest the newest develop commit's tag that GHCR has, and a resolved image older
+than the stack output `deployedImages` fails the job
+([cd.md](cd.md#partial-deploys-per-service-images)). The
 apply then runs on the same runner (`pulumi up --yes`) — the policy pack does
 not re-run on the apply (accepted residual, see
 `docs/deployment/pulumi-cloud-feature-audit.md`). Because the

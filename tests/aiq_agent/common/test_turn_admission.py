@@ -279,3 +279,56 @@ def test_a_slot_taken_locally_is_returned_after_the_store_recovers(
     monkeypatch.setattr(turn_admission.cache, "eval_script", lambda *_a, **_k: None)
     with admit_turn("org_1"):
         pass
+
+
+@pytest.mark.asyncio
+async def test_a_turn_longer_than_the_lease_keeps_its_slot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A running turn renews its lease, so no turn is too long for it.
+
+    Taken once, a 900 s lease was reclaimed under a 40-minute deep-research
+    turn and the tenant's next turn was admitted past the limit.
+    """
+    _limits(monkeypatch, total=10, per_org=1)
+    monkeypatch.setattr(turn_admission, "TURN_LEASE_SECONDS", 0.3)
+
+    async with admit_turn_async("org_1"):
+        await asyncio.sleep(1.0)  # three leases, no activity but the renewal
+        with pytest.raises(TurnAdmissionError):
+            async with admit_turn_async("org_1"):
+                pass
+
+    async with admit_turn_async("org_1"):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_renewal_stops_when_the_turn_ends(monkeypatch: pytest.MonkeyPatch) -> None:
+    _limits(monkeypatch, total=10, per_org=1)
+    monkeypatch.setattr(turn_admission, "TURN_LEASE_SECONDS", 0.3)
+    renewals: list[list[str]] = []
+    monkeypatch.setattr(turn_admission, "_renew_all", lambda held, _member: renewals.append(held))
+
+    async with admit_turn_async("org_1"):
+        await asyncio.sleep(0.25)
+    seen = len(renewals)
+    await asyncio.sleep(0.4)
+
+    assert seen >= 1
+    assert len(renewals) == seen
+
+
+def test_a_reclaimed_slot_is_not_taken_back_by_its_renewal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Renewing a slot the lease already reclaimed would push the pool past its limit."""
+    _limits(monkeypatch, total=10, per_org=1)
+    monkeypatch.setattr(turn_admission.cache, "eval_script", lambda *_a, **_k: None)
+    member = "turn-a"
+    held, refusal = turn_admission._acquire_all("org_1", member)
+    assert refusal is None
+
+    turn_admission.reset_local_slots()  # the lease ran out and another turn's acquire dropped it
+    with admit_turn("org_1"):
+        turn_admission._renew_all(held, member)
+
+        holders = turn_admission._local_slots[turn_admission._org_key("org_1")]
+        assert member not in holders
+        assert len(holders) == 1

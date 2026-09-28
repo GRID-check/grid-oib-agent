@@ -10,6 +10,14 @@
  *   question's own id, which the server makes the turn id. It is resent on
  *   every reopen until its `RUN_STARTED` acknowledges it; a resend the server
  *   already holds is refused as `duplicate_turn` and attached instead.
+ * - **Every question ends.** The server answers a question within
+ *   {@link ACK_TIMEOUT_MS} (`RUN_STARTED`, a refusal, any frame of its turn),
+ *   or the open socket is dropped and reopened, which sends it again. A second
+ *   miss ends the turn with an error card and its Retry. A running turn the
+ *   watchdog finds silent on {@link SILENT_DROPS_BEFORE_GIVING_UP} sockets in
+ *   a row, with nothing folded in between, is ended too. Nothing waits on
+ *   silence: a spinner that cannot end is the one failure this file exists to
+ *   rule out.
  * - **Folding.** An answer delta waits for the next {@link DELTA_FLUSH_MS}
  *   flush; any other event flushes at once, so a step, a card or the terminal
  *   is never held behind prose.
@@ -19,8 +27,9 @@
  *   in a turn's seq is attached from the last seq folded.
  * - **Ending.** Stop is `cancel_turn`; the partial answer stays, marked
  *   stopped. A turn the stream no longer holds, or a socket that gave up, asks
- *   the server for the finished answer before any banner. Close code 4426 is
- *   a reload notice.
+ *   the server for the finished answer before any banner. Close code 4426, or
+ *   a frame this bundle cannot read, is a reload notice; a server that never
+ *   says hello is `connection.server_incompatible`.
  *
  * A deep-research run is a message in the thread (ADR-0062); its block follows
  * the run's own stream (`features/runs/hooks/use-run-ledger.ts`).
@@ -200,6 +209,32 @@ const MAX_CONSECUTIVE_AUTH_EXPIRED = 3
 /** Client messages that may wait for a socket; a burst of context lines is bounded, the oldest goes. */
 const MAX_WAITING = 8
 
+/**
+ * How long a question may go unanswered. The server sends `RUN_STARTED`
+ * before any setup I/O (`ChatSocket.on_user_message`), so on a socket that
+ * said hello the acknowledgement is one round trip away; fifteen seconds is
+ * room for a cold connect (auth refresh, the gateway's scope lookup, the
+ * hello) on a slow network, and short enough that a reader who sees nothing
+ * happen is told why within half a minute.
+ */
+export const ACK_TIMEOUT_MS = 15_000
+
+/**
+ * Deadlines a question may miss. The first reopens the socket, since a
+ * rolling deploy may have left it on a pod that is going away; the second
+ * ends the turn with an error the reader can retry.
+ */
+const ACK_MISSES_BEFORE_GIVING_UP = 2
+
+/**
+ * Sockets in a row the watchdog may drop for one running turn's silence, with
+ * nothing of that turn folded in between, before the turn is ended. A healthy
+ * turn beats every 20 s, so two is two minutes of a turn saying nothing across
+ * two connections: its owner is gone, and reopening again would only restart
+ * the wait.
+ */
+const SILENT_DROPS_BEFORE_GIVING_UP = 2
+
 /** A turn that failed, as the reader is told about it. */
 const RUN_ERROR_CODES: Record<NonNullable<TurnView['error']>['code'], ErrorCode> = {
   workflow_error: 'agent.workflow_error',
@@ -272,6 +307,11 @@ const endFailedTurn = (view: TurnView): void => {
 const createTurnDriver = (conversationId: string, projectId: string | undefined, hooks: DriverHooks): TurnDriver => {
   /** Questions not yet acknowledged by their `RUN_STARTED`, by turn id. */
   const unacknowledged = new Map<string, ClientMessage>()
+  /** Each unacknowledged question's deadline, and the deadlines it has missed. */
+  const ackDeadlines = new Map<string, ReturnType<typeof setTimeout>>()
+  const ackMisses = new Map<string, number>()
+  /** Per running turn, the sockets dropped in a row for its silence. */
+  const silentDrops = new Map<string, number>()
   /** The last answer, cancel or context line sent per turn and type, for a resend after `auth_expired`. */
   const sent = new Map<string, ClientMessage>()
   const waiting: ClientMessage[] = []
@@ -281,6 +321,7 @@ const createTurnDriver = (conversationId: string, projectId: string | undefined,
   let buffer: WireEvent[] = []
   let flushTimer: ReturnType<typeof setTimeout> | null = null
   let authExpired = 0
+  let socketOpen = false
 
   const keyOf = (message: ClientMessage): string =>
     `${message.type}:${'turn_id' in message ? message.turn_id : message.message_id}`
@@ -301,16 +342,61 @@ const createTurnDriver = (conversationId: string, projectId: string | undefined,
     })
   }
 
+  /** Stop waiting on a question: acknowledged, refused, stopped, or given up. It is not sent again. */
+  const forget = (turnId: string): void => {
+    unacknowledged.delete(turnId)
+    clearTimeout(ackDeadlines.get(turnId))
+    ackDeadlines.delete(turnId)
+    ackMisses.delete(turnId)
+  }
+
+  /** A fresh deadline for a question the server has not answered yet. */
+  const awaitAck = (turnId: string): void => {
+    clearTimeout(ackDeadlines.get(turnId))
+    ackDeadlines.set(turnId, setTimeout(() => missedAck(turnId), ACK_TIMEOUT_MS))
+  }
+
+  function missedAck(turnId: string): void {
+    ackDeadlines.delete(turnId)
+    if (!unacknowledged.has(turnId)) return
+    const misses = (ackMisses.get(turnId) ?? 0) + 1
+    if (misses >= ACK_MISSES_BEFORE_GIVING_UP) {
+      forget(turnId)
+      const view = store().turns[turnId]
+      if (view?.phase === 'running') endFailedTurn(view)
+      return
+    }
+    ackMisses.set(turnId, misses)
+    // An open socket that did not answer is reopened, and the question goes
+    // out again on the new one; a socket still connecting is left to its ladder.
+    if (socketOpen) socket.reconnect()
+    awaitAck(turnId)
+  }
+
+  /** The watchdog found these turns silent on this socket: one more strike each, and the last ends the turn. */
+  const silent = (turnIds: readonly string[]): void => {
+    for (const turnId of turnIds) {
+      const drops = (silentDrops.get(turnId) ?? 0) + 1
+      silentDrops.set(turnId, drops)
+      const view = store().turns[turnId]
+      if (drops < SILENT_DROPS_BEFORE_GIVING_UP || view?.phase !== 'running') continue
+      silentDrops.delete(turnId)
+      endInterruptedTurn(view)
+    }
+  }
+
   const socket = createTurnSocket({
     conversationId,
     projectId,
     openTurns,
     refreshAuth: hooks.refreshAuth,
     onEvent: (event) => receive(event),
+    onSilent: silent,
     onStatus: (status) => {
-      hooks.onConnected(status === 'open')
+      socketOpen = status === 'open'
+      hooks.onConnected(socketOpen)
       if (status === 'open') opened()
-      else if (status === 'failed' || status === 'outdated') gaveUp(status)
+      else if (status === 'failed' || status === 'incompatible' || status === 'outdated') gaveUp(status)
     },
   })
 
@@ -331,10 +417,11 @@ const createTurnDriver = (conversationId: string, projectId: string | undefined,
   const runningTurns = (): TurnView[] =>
     Object.values(store().turns).filter((view) => view.conversationId === conversationId && view.phase === 'running')
 
-  const gaveUp = (status: 'failed' | 'outdated'): void => {
-    unacknowledged.clear()
+  const gaveUp = (status: 'failed' | 'incompatible' | 'outdated'): void => {
+    for (const turnId of [...unacknowledged.keys()]) forget(turnId)
     waiting.length = 0
     if (status === 'outdated') store().addErrorCard('connection.client_outdated')
+    else if (status === 'incompatible') store().addErrorCard('connection.server_incompatible')
     else hooks.onGaveUp()
     for (const view of runningTurns()) endInterruptedTurn(view)
   }
@@ -372,6 +459,14 @@ const createTurnDriver = (conversationId: string, projectId: string | undefined,
     for (const turnId of new Set(events.map((event) => event.turn_id))) react(before[turnId], after[turnId])
   }
 
+  /** The stream holds nothing of this turn: ask the server for its answer, or forget a finished one. */
+  const lost = (turnId: string): void => {
+    forget(turnId)
+    const view = store().turns[turnId]
+    if (view?.phase === 'running') endInterruptedTurn(view)
+    else if (view) store().dropTurn(turnId)
+  }
+
   const rejected = ({ turn_id: turnId, value }: Rejection): void => {
     const view = store().turns[turnId]
     switch (value.code) {
@@ -380,7 +475,7 @@ const createTurnDriver = (conversationId: string, projectId: string | undefined,
         if (authExpired > MAX_CONSECUTIVE_AUTH_EXPIRED) {
           authExpired = 0
           store().addErrorCard('auth.session_expired')
-          unacknowledged.delete(turnId)
+          forget(turnId)
           if (view?.phase === 'running') store().dropTurn(turnId)
           return
         }
@@ -394,17 +489,18 @@ const createTurnDriver = (conversationId: string, projectId: string | undefined,
       }
       case 'duplicate_turn':
         // The server has the question already: follow it instead of asking again.
-        unacknowledged.delete(turnId)
+        forget(turnId)
         socket.send({ type: 'attach', conversation_id: conversationId, turn_id: turnId, after_seq: view?.lastSeq ?? 0 })
         return
       case 'turn_not_found':
-        if (view?.phase === 'running') endInterruptedTurn(view)
-        else if (view) store().dropTurn(turnId)
-        return
+        return lost(turnId)
       case 'conversation_mismatch':
       case 'invalid_message':
+        // A resume or a Stop the server could not take leaves the turn with
+        // nobody following it: the same as a turn the stream no longer holds.
+        if (value.of === 'attach' || value.of === 'cancel_turn') return lost(turnId)
         if (value.of !== 'user_message') return
-        unacknowledged.delete(turnId)
+        forget(turnId)
         store().dropTurn(turnId)
         store().addErrorCard('agent.response_failed', value.message ?? undefined)
         return
@@ -417,9 +513,15 @@ const createTurnDriver = (conversationId: string, projectId: string | undefined,
   }
 
   function receive(event: WireEvent): void {
+    // Anything the server says of a question is an answer: the socket works.
+    if (unacknowledged.has(event.turn_id)) {
+      ackMisses.delete(event.turn_id)
+      awaitAck(event.turn_id)
+    }
     if (event.type === 'CUSTOM' && event.name === 'rejected') return rejected(event)
+    silentDrops.delete(event.turn_id)
     if (event.type === 'RUN_STARTED') {
-      unacknowledged.delete(event.turn_id)
+      forget(event.turn_id)
       authExpired = 0
     }
     // This page's clock, like the TTL it is measured against: `ts` is the server's.
@@ -435,15 +537,20 @@ const createTurnDriver = (conversationId: string, projectId: string | undefined,
     connect: socket.connect,
     close: () => {
       flush()
+      for (const turnId of [...unacknowledged.keys()]) forget(turnId)
       socket.close()
     },
     ask: (message) => {
       unacknowledged.set(message.message_id, message)
-      socket.send(message)
+      awaitAck(message.message_id)
+      // No socket to take it: open one (a new ladder, if the last one gave up).
+      if (!socket.send(message)) void socket.connect()
     },
     deliver,
     cancel: (turnId) => {
       flush()
+      // A Stop before RUN_STARTED: the question is not asked again on a reopen.
+      forget(turnId)
       deliver({ type: 'cancel_turn', conversation_id: conversationId, turn_id: turnId })
     },
   }
@@ -728,16 +835,29 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   // One socket per conversation (and project scope): opened once the gate
   // allows it, closed when the conversation changes. A turn running in the
   // conversation left keeps its view, and coming back re-attaches it.
+  //
+  // "Closed when the conversation changes" is decided by the DRIVER's own
+  // conversation, never by the render's. The first question of a new chat
+  // creates its conversation inside `sendMessage`, and `ensureDriver` makes
+  // that conversation's driver in the same call, holding the question until
+  // its RUN_STARTED. A cleanup keyed on the previous render (no conversation
+  // yet) closed exactly that driver, and its successor, knowing nothing of the
+  // question, attached the turn instead of asking it: the first question was lost.
   useEffect(() => {
     if (currentConversationId && autoConnect && socketPermitted) ensureDriver(currentConversationId)
+    const driver = driverRef.current
+    if (driver && driver.conversationId !== currentConversationId) {
+      driver.close()
+      driverRef.current = null
+      setIsConnected(false)
+    }
   }, [currentConversationId, projectId, autoConnect, socketPermitted, ensureDriver])
   useEffect(
     () => () => {
       driverRef.current?.close()
       driverRef.current = null
-      setIsConnected(false)
     },
-    [currentConversationId]
+    []
   )
 
   // A turn a reload cut off: once there is a socket, fold it again from its

@@ -79,6 +79,10 @@ it replaced NAT's frames, is [`chat-wire-v2.md`](../design/chat-wire-v2.md).
 
 The client is `createTurnSocket` (`frontends/ui/src/adapters/api/turn-socket.ts`):
 
+- **Hello.** The socket is open, and sends, only once the server's first frame
+  is a v2 `hello`. Silence for 5 s, or any other first frame, fails the
+  attempt: the server behind the gateway does not speak this wire (an agent
+  rolled back to NAT's stock socket passes the upgrade and ignores `?v=2`).
 - **Reconnect.** A jittered ladder (`createRetryLadder`, 1 s doubling to 30 s,
   12 attempts), with the auth cookie refreshed before each attempt, since the
   handshake is the only point where the gateway reads it. A `rejected{auth_expired}`
@@ -87,8 +91,11 @@ The client is `createTurnSocket` (`frontends/ui/src/adapters/api/turn-socket.ts`
   re-`attach`ed from the last `seq` it folded; the agent tier replays the
   turn from its stream and continues live.
 - **Liveness.** While a turn runs the server sends `heartbeat{every_ms}`;
-  three beats of silence and the socket is dropped and reopened. Nothing is
-  watched before `RUN_STARTED` or after the terminal.
+  three beats of silence and the socket is dropped and reopened, and a turn
+  silent on two sockets in a row is ended. Nothing is watched after the
+  terminal. Before `RUN_STARTED` the driver (`use-websocket-chat.ts`) watches
+  instead: a question has 15 s to be answered before the socket is reopened,
+  and a second miss ends it with an error card.
 
 **`CUSTOM` `heartbeat`**: the running turn is still running (chat wire v2)
 

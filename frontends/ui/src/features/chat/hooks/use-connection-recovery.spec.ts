@@ -55,9 +55,12 @@ vi.mock('../store', () => {
     ),
     // Mirrors the production selector (store.ts) so the hook under test sees
     // the same predicate it will see at runtime.
-    selectHasConnectionError: (state: ChatStore): boolean =>
+    selectHasRecoverableConnectionError: (state: ChatStore): boolean =>
       state.currentConversation?.messages.some(
-        (m) => m.messageType === 'error' && m.errorData?.errorCode?.startsWith('connection.')
+        (m) =>
+          m.messageType === 'error' &&
+          m.errorData?.errorCode?.startsWith('connection.') &&
+          m.errorData.errorCode !== 'connection.server_incompatible'
       ) ?? false,
     __setHasError: (val: boolean) => {
       hasError = val

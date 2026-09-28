@@ -26,6 +26,7 @@ import {
 import { mapServerMessagesToChatMessages } from '../lib/server-message-mapper'
 import { mergeRemoteMessages, turnStateFor } from './messages-store'
 import { encodeCitations } from '../lib/citations'
+import { markConversationMinted, markConversationOnServer } from '../lib/conversation-on-server'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 
@@ -120,12 +121,19 @@ export type SessionsSlice = {
 
 // Helper functions
 
+/** An id minted here names nothing on the server until its first message is stored. */
+const mintConversationId = (): string => {
+  const id = `s_${uuidv4().replace(/-/g, '_')}`
+  markConversationMinted(id)
+  return id
+}
+
 const createNewConversation = (
   userId: string,
   projectId: string | null,
   subject?: { resourceType: 'document'; resourceId: string; title?: string | null } | null
 ): Conversation => ({
-  id: `s_${uuidv4().replace(/-/g, '_')}`,
+  id: mintConversationId(),
   userId,
   // Stamp the active project so the session stays scoped to it (UX-8);
   // null = created outside a project context (visible everywhere).
@@ -220,12 +228,21 @@ const getConversationsClient = () => {
 // prevents duplicate GETs when selection and boot-time hydration overlap.
 const hydratingConversationIds = new Set<string>()
 
-// Conversation ids already ensured (or being ensured) on the server. Two
-// rapid appends used to race list()+create and lose the second message when
-// the duplicate create rejected; sharing one in-flight promise serializes
-// the check per conversation.
+// Conversation ids already ensured (or being ensured) on the server, one
+// in-flight promise per conversation so two rapid appends share one create.
 const ensuredServerConversations = new Map<string, Promise<void>>()
 
+/**
+ * Make sure the server has this conversation before a message is stored in it.
+ *
+ * The create IS the check: `POST /api/conversations` answers an id that already
+ * exists with the existing row when the caller may contribute to it
+ * (`createConversation` in `lib/conversations/service.ts`). It used to look the
+ * id up in `list()` first, which added a failure that was not about this
+ * conversation at all — a 429 on the list and the message was never stored —
+ * and was capped at `CONVERSATION_LIST_LIMIT`, so past 200 conversations it
+ * answered "missing" for rows that were there.
+ */
 const ensureServerConversation = (
   conversation: Conversation,
   fallbackProjectId: string | null
@@ -235,8 +252,6 @@ const ensureServerConversation = (
 
   const promise = (async () => {
     const conversationsClient = await getConversationsClient()
-    const existing = await conversationsClient.list()
-    if (existing.some((c) => c.id === conversation.id)) return
     // Stamp the server row with the session's project so future
     // project-scoped lists stay accurate.
     await conversationsClient.create(
@@ -247,6 +262,8 @@ const ensureServerConversation = (
         ? { resourceType: 'document', resourceId: conversation.subjectResourceId }
         : null
     )
+    // The readers that were waiting for the row may ask about it now.
+    markConversationOnServer(conversation.id)
   })()
 
   // Drop the cached promise on failure so the next append retries the check.

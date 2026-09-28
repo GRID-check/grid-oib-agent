@@ -45,23 +45,24 @@ async function readFailure(response: Response): Promise<SharingFailure> {
 /**
  * Backoff ladder, in ms, for a load that came back empty-handed.
  *
- * The failure this exists for is not an error, it is a RACE. A brand-new thread
- * reaches the server only when its first message is persisted
- * (`ensureServerConversation` in the chat store — a list, then a create), while
- * the header starts asking who can read the thread the moment that message
- * appears locally. The sharing read therefore loses that race on the first turn
- * of every new conversation and is answered with the 404 that
- * `resolveResourceAccess` gives anything it cannot find.
+ * It was written for a RACE: a brand-new thread reaches the server only when its
+ * first message is persisted (`ensureServerConversation` in the chat store),
+ * while the header started asking who can read the thread the moment that
+ * message appeared locally, and lost on the first turn of every new
+ * conversation. The header now waits for the create itself
+ * (`useConversationOnServer` in `ChatToolbar`), so the race no longer reaches
+ * this hook from there; the ladder stays for the blip — a 502 from a rolling
+ * deploy, a 429 — and for any caller that has not been taught to wait.
  *
- * With a single attempt that 404 was permanent for the session: nothing re-reads
- * until the tab is refocused, or the disconnected poll comes round a minute
- * later (`useLiveEvents`), or the page is reloaded — so the thread you were
- * actually in was the one thread with no Share in its menu, which is exactly
- * when you want it.
+ * With a single attempt a failed read was permanent for the session: nothing
+ * re-reads until the tab is refocused, or the disconnected poll comes round a
+ * minute later (`useLiveEvents`), or the page is reloaded — so the thread you
+ * were actually in was the one thread with no Share in its menu, which is
+ * exactly when you want it.
  *
- * The ladder is short on purpose. It covers one create round-trip and then
- * stops: a resource that is genuinely gone must not be polled forever, and the
- * three existing triggers are still there for everything slower than this.
+ * The ladder is short on purpose. It covers a round-trip or two and then stops:
+ * a resource that is genuinely gone must not be polled forever, and the three
+ * existing triggers are still there for everything slower than this.
  */
 const RETRY_DELAYS_MS = [500, 1_000, 2_000, 4_000]
 

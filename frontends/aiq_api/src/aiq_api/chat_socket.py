@@ -13,6 +13,11 @@ here, by the turn's sequencer (:class:`TurnWire`), because only the socket owns
 ``seq``: the heartbeat, HITL, the stage events and the errors are its own, and
 they share the counter with everything the workflow yields.
 
+The first frame on every socket is ``hello`` (:class:`~aiq_agent.common.wire_v2.Hello`),
+sent once the version and the caller have passed; the client sends nothing
+before it. Every client message gets an answer or a turn: one this wire does not
+describe, unknown type or not JSON at all, is ``rejected{invalid_message}``.
+
 What a socket holds, in order of the checks on every client message:
 
 * **Who.** The handshake is authenticated like an HTTP request
@@ -29,6 +34,11 @@ A turn outlives its socket: a dropped socket does not cancel it, its frames keep
 going to the conversation's stream (``conversation_bus``), a reconnect reads
 them back with ``attach``, and the finished answer is persisted server-side with
 a deterministic id, so the browser's own write of it is a no-op.
+
+Every turn ends, because the heartbeat keeps the reader waiting for as long as
+it runs: exactly one terminal is guaranteed by ``run_turn``'s ``finally``, a
+deadline on the turn's own clock (:class:`TurnDeadline`) ends a turn that
+would never return, and a turn id runs on one replica (``claim_turn``).
 """
 
 from __future__ import annotations
@@ -38,6 +48,8 @@ import contextlib
 import logging
 import os
 import time
+from collections import deque
+from collections.abc import AsyncIterator
 from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Mapping
@@ -61,6 +73,8 @@ from aiq_agent.common.wire_v2 import CancelTurn
 from aiq_agent.common.wire_v2 import EventBody
 from aiq_agent.common.wire_v2 import HeartbeatBody
 from aiq_agent.common.wire_v2 import HeartbeatValue
+from aiq_agent.common.wire_v2 import Hello
+from aiq_agent.common.wire_v2 import HelloValue
 from aiq_agent.common.wire_v2 import InteractionRequestBody
 from aiq_agent.common.wire_v2 import InteractionResolvedBody
 from aiq_agent.common.wire_v2 import InteractionResolvedValue
@@ -95,10 +109,14 @@ from aiq_api.auth.request_trace import request_trace_tag_context
 from aiq_api.conversation_bus import CANCEL
 from aiq_api.conversation_bus import FRAME
 from aiq_api.conversation_bus import HITL_ANSWER
+from aiq_api.conversation_bus import SUPERSEDE
+from aiq_api.conversation_bus import BusUnavailable
 from aiq_api.conversation_bus import ConversationBus
+from aiq_api.conversation_bus import Envelope
 from aiq_api.conversation_bus import get_bus
 from aiq_api.conversation_bus import is_multi_replica_bus
 from aiq_api.internal_api import post_internal_conversation_message
+from aiq_api.startup_banner import deployed_sha
 from aiq_api.workflow_stream import stream_workflow
 from nat.plugin_api import HumanResponse
 from nat.plugin_api import InteractionPrompt
@@ -123,6 +141,32 @@ HITL_RESPONSE_TIMEOUT_SECONDS = float(os.getenv("GRID_HITL_RESPONSE_TIMEOUT_SECO
 #: How long a finished turn keeps its sequencer for the stage events that follow
 #: its terminal (``docs/architecture/post-answer-stages.md`` §4).
 STAGE_WIRE_TTL_S = 600.0
+
+#: The turn's deadline, in seconds of its own clock: from RUN_STARTED, minus the
+#: time spent waiting on a person (:class:`TurnDeadline`); 0 disables it. The
+#: longest legitimate chat turn is the in-process deep-research fallback, which
+#: its own clock ends at ``deep_researcher.agent.DEFAULT_MAX_RUN_SECONDS``
+#: (2400 s) with an answer; this sits above that so it never pre-empts a clean
+#: cut-off, and bounds everything else: a model call, tool or graph that never
+#: returns. How many turns run at once is not decided here: ADR-0040's
+#: admission (``GRID_MAX_ACTIVE_TURNS``) refuses a turn it has no slot for at
+#: once, and NAT's own semaphore, which queued it silently, is off
+#: (``plugin.AIQAPIWorker._create_chat_session_manager``).
+TURN_DEADLINE_SECONDS = float(os.getenv("GRID_CHAT_TURN_DEADLINE_SECONDS", "2700"))
+
+#: How many of its own frames a turn's sequencer keeps for ``attach``, so the
+#: replica running a turn can replay it without the bus. The bus stream keeps
+#: the same number per conversation (``GRID_CONV_STREAM_MAXLEN``'s default).
+LOCAL_REPLAY_FRAMES = 2000
+
+#: How soon a dead bus loop (a relay's frames, an owner's inputs) is restarted,
+#: doubling per failure up to the maximum.
+_LOOP_RESTART_MIN_S = 0.5
+_LOOP_RESTART_MAX_S = 30.0
+
+#: How long an ``attach`` waits for its relay's subscription before reading the
+#: stream anyway (the bus's own command bound).
+BUS_READY_TIMEOUT_S = 1.0
 
 _ORG_ID_HEADER = "x-grid-organization-id"
 _NOT_ASKER_STOP = "Only the person who asked can stop this turn."
@@ -326,6 +370,11 @@ class TurnWire:
         self._publish = publish
         self._lock = asyncio.Lock()
         self._held_stages: list[StageBody] = []
+        self._frames: deque[dict[str, Any]] = deque(maxlen=LOCAL_REPLAY_FRAMES)
+
+    def replay(self) -> list[dict[str, Any]]:
+        """Every frame this sequencer stamped (the last ``LOCAL_REPLAY_FRAMES``), in ``seq`` order."""
+        return list(self._frames)
 
     async def send(self, body: EventBody) -> bool:
         """Stamp ``body`` with the next ``seq`` and publish it. Whether a local socket took it.
@@ -351,11 +400,66 @@ class TurnWire:
     async def _stamp_and_publish(self, body: EventBody) -> bool:
         self.seq += 1
         event = stamp(body, conversation_id=self.conversation_id, turn_id=self.turn_id, seq=self.seq, ts=_now_ms())
-        return await self._publish(self.conversation_id, to_frame(event))
+        frame = to_frame(event)
+        self._frames.append(frame)
+        return await self._publish(self.conversation_id, frame)
 
 
 class InteractionExpired(TimeoutError):
     """Nobody answered the turn's question in time. A ``TimeoutError``, so ``ask_user`` recovers from it."""
+
+
+class TurnDeadlineExceeded(Exception):
+    """The turn used up its own clock (``TURN_DEADLINE_SECONDS``) without a result."""
+
+
+class TurnDeadline:
+    """A turn's clock: wall time from its start, except the time it waits on a person.
+
+    A model call, tool or graph that never returns ends the turn when the clock
+    runs out. A turn waiting on its asker's answer does not tick
+    (:meth:`pause` / :meth:`resume` around :meth:`RunningTurn.ask`): that wait
+    has its own bound (``HITL_RESPONSE_TIMEOUT_SECONDS``), and a person reading
+    a drawing is not a fault to cut short. Built on ``asyncio.timeout``, whose
+    ``reschedule`` is the pause; the timeout cancels the turn's own task, so the
+    cancel unwinds the workflow exactly as a Stop does.
+    """
+
+    def __init__(self, seconds: float | None = None) -> None:
+        self.seconds = TURN_DEADLINE_SECONDS if seconds is None else seconds
+        self._timeout: asyncio.Timeout | None = None
+        self._left: float | None = None
+
+    @contextlib.asynccontextmanager
+    async def running(self) -> AsyncIterator[None]:
+        """Run the body on the clock; running out is :class:`TurnDeadlineExceeded`, any other timeout passes."""
+        timeout = asyncio.timeout(self.seconds if self.seconds > 0 else None)
+        try:
+            async with timeout:
+                self._timeout = timeout
+                yield
+        except TimeoutError as exc:
+            if not timeout.expired():
+                raise  # the workflow's own, e.g. InteractionExpired
+            raise TurnDeadlineExceeded(f"no result within the turn's {self.seconds:.0f}s") from exc
+        finally:
+            self._timeout = None
+
+    def pause(self) -> None:
+        """Stop the clock, keeping what is left of it."""
+        timeout = self._timeout
+        if timeout is None or timeout.expired() or self._left is not None or timeout.when() is None:
+            return
+        self._left = max(0.0, timeout.when() - asyncio.get_running_loop().time())
+        timeout.reschedule(None)
+
+    def resume(self) -> None:
+        """Start the clock again with what was left when it stopped."""
+        timeout, left = self._timeout, self._left
+        self._left = None
+        if timeout is None or left is None or timeout.expired():
+            return
+        timeout.reschedule(asyncio.get_running_loop().time() + left)
 
 
 @dataclass
@@ -375,6 +479,7 @@ class RunningTurn:
     fold: TurnTextFold = field(default_factory=TurnTextFold)
     settled_sources: list[WireSource] = field(default_factory=list)
     pending: PendingInteraction | None = None
+    deadline: TurnDeadline = field(default_factory=TurnDeadline)
 
     @property
     def message_id(self) -> str:
@@ -404,7 +509,7 @@ class RunningTurn:
         self.pending = PendingInteraction(prompt=prompt, answer=asyncio.get_running_loop().create_future())
         await self.wire.send(InteractionRequestBody(value=interaction_request(prompt, expires_at=expires_at)))
         try:
-            response = await asyncio.wait_for(self.pending.answer, timeout=HITL_RESPONSE_TIMEOUT_SECONDS)
+            response = await self._wait_for_person(self.pending.answer)
         except TimeoutError:
             await self._resolved(prompt, "expired")
             raise InteractionExpired(f"interaction {prompt.id} expired unanswered") from None
@@ -415,6 +520,14 @@ class RunningTurn:
             self.pending = None
         await self._resolved(prompt, "answered")
         return response
+
+    async def _wait_for_person(self, answer: asyncio.Future[HumanResponse]) -> HumanResponse:
+        """Await the asker's answer with the turn's clock stopped: that wait has its own bound, and is not a fault."""
+        self.deadline.pause()
+        try:
+            return await asyncio.wait_for(answer, timeout=HITL_RESPONSE_TIMEOUT_SECONDS)
+        finally:
+            self.deadline.resume()
 
     async def _resolved(self, prompt: InteractionPrompt, outcome: str) -> None:
         value = InteractionResolvedValue(interaction_id=prompt.id, outcome=outcome)
@@ -485,6 +598,7 @@ class ChatRegistry:
     One socket per conversation (the latest). Between replicas (ADR-0028) the
     turn's owner publishes every frame and listens for answers and Stops that a
     relay replica received; the relay subscribes and writes frames to its socket.
+    A turn id is claimed on the bus before it runs, so it runs on one replica.
     """
 
     def __init__(self, bus: ConversationBus | None = None) -> None:
@@ -493,6 +607,7 @@ class ChatRegistry:
         self._turns: dict[str, RunningTurn] = {}
         self._finished: dict[tuple[str, str], tuple[TurnWire, float]] = {}
         self._relays: dict[str, asyncio.Task[None]] = {}
+        self._relay_ready: dict[str, asyncio.Event] = {}
         self._inputs: dict[str, asyncio.Task[None]] = {}
 
     def bus(self) -> ConversationBus:
@@ -507,7 +622,9 @@ class ChatRegistry:
         outlet = _Outlet(socket, holding=holding)
         self._outlets[conversation_id] = outlet
         if is_multi_replica_bus():
-            _restart(self._relays, conversation_id, self._relay(conversation_id))
+            ready = self._relay_ready[conversation_id] = asyncio.Event()
+            relay = _supervise("relay", conversation_id, lambda: self._relay(conversation_id, ready))
+            _restart(self._relays, conversation_id, relay)
         return outlet
 
     def clear_socket(self, conversation_id: str | None, socket: WebSocket) -> None:
@@ -515,14 +632,16 @@ class ChatRegistry:
         if outlet is None or outlet.socket is not socket:
             return
         del self._outlets[conversation_id]
+        self._relay_ready.pop(conversation_id, None)
         _stop(self._relays, conversation_id)
 
     async def publish(self, conversation_id: str, frame: dict[str, Any]) -> bool:
         """Append ``frame`` to the conversation's stream (relays, spectators, ``attach``), then write it here."""
         try:
             await self.bus().publish_frame(conversation_id, frame)
-        except Exception:  # noqa: BLE001 — fail-open: the local socket still gets the frame
-            logger.warning("Bus publish failed for conversation %s", conversation_id, exc_info=True)
+        except BusUnavailable:
+            # Fail-open: the local socket still gets the frame, and the bus has said it is down.
+            logger.debug("Bus publish skipped for conversation %s", conversation_id, exc_info=True)
         outlet = self._outlets.get(conversation_id)
         return await outlet.deliver(frame) if outlet is not None else False
 
@@ -531,21 +650,44 @@ class ChatRegistry:
 
         Live frames are held while the replay is read, then flushed above the
         last replayed ``seq``, so a frame that arrives both ways is sent once.
+        A turn this replica runs (or just ran) is replayed from its own
+        sequencer: complete, and needing no bus. Any other turn is read from
+        the bus once this socket's relay is subscribed, so a frame published
+        between the read and the subscription reaches it through the relay.
         """
         outlet = self.set_socket(conversation_id, socket, holding=True)
-        frames = await self.bus().replay_turn(conversation_id, turn_id)
+        wire = self.wire(conversation_id, turn_id)
+        frames = wire.replay() if wire is not None else await self._replay_from_bus(conversation_id, turn_id)
         last = after_seq
         for frame in (frame for frame in frames if frame["seq"] > after_seq):
             await _write(socket, frame)
             last = frame["seq"]
         await _flush(outlet, turn_id, last)
-        return bool(frames) or self.wire(conversation_id, turn_id) is not None
+        return bool(frames) or wire is not None
 
-    async def _relay(self, conversation_id: str) -> None:
-        async for envelope in self.bus().subscribe_frames(conversation_id):
-            outlet = self._outlets.get(conversation_id)
-            if envelope.type == FRAME and outlet is not None:
-                await outlet.deliver(envelope.payload)
+    async def _replay_from_bus(self, conversation_id: str, turn_id: str) -> list[dict[str, Any]]:
+        """The turn's frames from the stream; nothing, and so ``turn_not_found``, when the bus cannot be read."""
+        ready = self._relay_ready.get(conversation_id)
+        if ready is not None:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(ready.wait(), timeout=BUS_READY_TIMEOUT_S)
+        try:
+            return await self.bus().replay_turn(conversation_id, turn_id)
+        except BusUnavailable:
+            logger.warning("Could not replay turn %s of conversation %s from the bus", turn_id, conversation_id)
+            return []
+
+    async def _relay(self, conversation_id: str, ready: asyncio.Event) -> None:
+        try:
+            async for envelope in self.bus().subscribe_frames(conversation_id, ready):
+                await self._deliver_relayed(conversation_id, envelope)
+        finally:
+            ready.clear()  # until the restarted loop subscribes again
+
+    async def _deliver_relayed(self, conversation_id: str, envelope: Envelope) -> None:
+        outlet = self._outlets.get(conversation_id)
+        if envelope.type == FRAME and outlet is not None:
+            await outlet.deliver(envelope.payload)
 
     # ---- turns -----------------------------------------------------------
     def running(self, conversation_id: str, turn_id: str | None = None) -> RunningTurn | None:
@@ -554,16 +696,50 @@ class ChatRegistry:
             return None
         return turn
 
+    async def claim_turn(self, conversation_id: str, turn_id: str) -> bool:
+        """Whether ``turn_id`` may run here: nobody runs it locally, and no replica has claimed it.
+
+        The UI resends a question until its ``RUN_STARTED`` arrives, and the
+        resend may reach another replica; checking only this process ran the
+        turn twice there, interleaving two ``seq`` streams of one turn and
+        paying for the answer twice. With the bus down, the claim fails open to
+        the local check: a second replica cannot be asked, and the turn must run.
+        """
+        if self.running(conversation_id, turn_id) is not None:
+            return False
+        try:
+            return await self.bus().claim_turn(conversation_id, turn_id)
+        except BusUnavailable:
+            logger.warning("Turn %s runs unclaimed: the bus is down", turn_id)
+            return True
+
+    async def supersede_elsewhere(self, conversation_id: str, newer_turn_id: str) -> None:
+        """Ask the replica running a stale turn of the conversation to stop it, as :meth:`start_turn` does here.
+
+        Two turns of one conversation on two replicas would write one
+        LangGraph thread at once. Best-effort: with the bus down there is no
+        other replica to reach.
+        """
+        if not is_multi_replica_bus():
+            return
+        with contextlib.suppress(BusUnavailable):
+            await self.bus().publish_input(conversation_id, SUPERSEDE, {"turn_id": newer_turn_id})
+
+    def _supersede_local(self, conversation_id: str, newer_turn_id: str) -> None:
+        stale = self._turns.get(conversation_id)
+        if stale is None or stale.wire.turn_id == newer_turn_id or stale.task is None or stale.task.done():
+            return
+        logger.info("Superseding turn %s in conversation %s", stale.wire.turn_id, conversation_id)
+        stale.task.cancel()
+
     def start_turn(self, turn: RunningTurn) -> None:
         """Register ``turn`` as the conversation's running turn; a stale one is superseded and stopped."""
         conversation_id = turn.wire.conversation_id
-        stale = self._turns.get(conversation_id)
-        if stale is not None and stale.task is not None and not stale.task.done():
-            logger.info("Superseding turn %s in conversation %s", stale.wire.turn_id, conversation_id)
-            stale.task.cancel()
+        self._supersede_local(conversation_id, turn.wire.turn_id)
         self._turns[conversation_id] = turn
         if is_multi_replica_bus():
-            _restart(self._inputs, conversation_id, self._owner_input(conversation_id))
+            owner_input = _supervise("owner input", conversation_id, lambda: self._owner_input(conversation_id))
+            _restart(self._inputs, conversation_id, owner_input)
 
     def finish_turn(self, turn: RunningTurn) -> None:
         """The turn ended: keep its sequencer for the stage events until ``STAGE_WIRE_TTL_S``."""
@@ -592,8 +768,13 @@ class ChatRegistry:
     async def _owner_input(self, conversation_id: str) -> None:
         """While a turn runs here, take the answers and Stops a relay replica received for it."""
         async for envelope in self.bus().subscribe_input(conversation_id):
-            if envelope.type in {HITL_ANSWER, CANCEL}:
-                self.relayed(envelope.payload)
+            self._take_input(conversation_id, envelope)
+
+    def _take_input(self, conversation_id: str, envelope: Envelope) -> None:
+        if envelope.type in {HITL_ANSWER, CANCEL}:
+            self.relayed(envelope.payload)
+        elif envelope.type == SUPERSEDE and envelope.origin != self.bus().replica_id:
+            self._supersede_local(conversation_id, str((envelope.payload or {}).get("turn_id")))
 
     def relayed(self, payload: dict[str, Any]) -> None:
         """A relay's message for a turn running here, authorised here: the relay does not know the asker."""
@@ -624,9 +805,49 @@ async def _flush(outlet: _Outlet, turn_id: str, last: int) -> None:
     outlet.held = None
 
 
+def _log_unexpected_end(task: asyncio.Task[Any]) -> None:
+    """A background task's done-callback: read how it ended, and say so loudly when it failed.
+
+    Without it a failure is only asyncio's "Task exception was never
+    retrieved", at garbage collection, with no turn or conversation named.
+    """
+    if task.cancelled() or task.exception() is None:
+        return
+    logger.error("Task %s ended with an unexpected error", task.get_name(), exc_info=task.exception())
+
+
+async def _supervise(what: str, conversation_id: str, loop: Callable[[], Awaitable[None]]) -> None:
+    """Keep a bus loop running for as long as it is wanted: one that dies is logged and started again.
+
+    A dead relay loop left its socket silent about turns running on other
+    replicas, and a dead owner loop left their Stops and answers unheard. What
+    was published while it was down is not lost to the reader: the client
+    ``attach``es on a ``seq`` gap, or when its heartbeat watchdog gives up, and
+    the stream replays it.
+    """
+    delay = _LOOP_RESTART_MIN_S
+    while True:
+        started = time.monotonic()
+        await _run_loop_once(what, conversation_id, loop)
+        if time.monotonic() - started > _LOOP_RESTART_MAX_S:
+            delay = _LOOP_RESTART_MIN_S  # it ran healthy for a while: a new outage starts the backoff over
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, _LOOP_RESTART_MAX_S)
+
+
+async def _run_loop_once(what: str, conversation_id: str, loop: Callable[[], Awaitable[None]]) -> None:
+    try:
+        await loop()
+    except Exception:
+        logger.warning("The %s loop of conversation %s failed; restarting it", what, conversation_id, exc_info=True)
+        return
+    logger.warning("The %s loop of conversation %s ended; restarting it", what, conversation_id)
+
+
 def _restart(tasks: dict[str, asyncio.Task[None]], key: str, loop: Awaitable[None]) -> None:
     _stop(tasks, key)
-    tasks[key] = asyncio.ensure_future(loop)
+    task = tasks[key] = asyncio.ensure_future(loop)
+    task.add_done_callback(_log_unexpected_end)
 
 
 def _stop(tasks: dict[str, asyncio.Task[None]], key: str) -> None:
@@ -686,11 +907,22 @@ async def _drive(
             await _relay_workflow(turn, request, session)
 
 
+#: ``RUN_ERROR.details`` of a turn its deadline ended, so a log line or a client
+#: can tell it from a workflow fault without a new wire code.
+DEADLINE_DETAILS = "turn_deadline_exceeded"
+
+
 def _error_for(exc: Exception) -> RunErrorBody:
     if isinstance(exc, InteractionExpired):
         return RunErrorBody(code="interaction_expired", message="The question was not answered in time.")
     if isinstance(exc, AuthError):
         return RunErrorBody(code="auth_error", message=exc.error_code, details=str(exc))
+    if isinstance(exc, TurnDeadlineExceeded):
+        return RunErrorBody(
+            code="workflow_error",
+            message="The answer took too long and was stopped. Please ask again, perhaps more narrowly.",
+            details=f"{DEADLINE_DETAILS}: {exc}",
+        )
     return RunErrorBody(
         code="workflow_error",
         message="The assistant hit an unexpected error while handling your request. Please try again.",
@@ -704,12 +936,29 @@ async def run_turn(turn: RunningTurn, request: UserMessage, *, registry: ChatReg
     A Stop (or a superseding question) cancels this task: the cancel unwinds
     the workflow through ``aclosing`` in ``stream_workflow``, so the graph run is
     cancelled and no LLM call follows, and the prose so far is the result.
+
+    The terminal is guaranteed by the ``finally``, not by the ``except``
+    clauses: whatever escapes :func:`_end_turn` (a ``BaseExceptionGroup`` from a
+    task group, anything else no clause names) still leaves the reader a
+    ``RUN_ERROR`` before it propagates to the task's done-callback, which logs
+    it. A turn with no terminal is a spinner that never stops.
     """
     heartbeat = asyncio.create_task(_beat(turn.wire))
     try:
-        await _drive(turn, request, **drive)
-        if not turn.wire.finished:
-            await turn.wire.send(RunErrorBody(code="workflow_error", message="The turn ended without a result."))
+        await _end_turn(turn, request, **drive)
+    finally:
+        heartbeat.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat
+        await _ensure_terminal(turn)
+        registry.finish_turn(turn)
+
+
+async def _end_turn(turn: RunningTurn, request: UserMessage, **drive: Any) -> None:
+    """Run the turn on its clock, and send the terminal every expected ending owes."""
+    try:
+        async with turn.deadline.running():
+            await _drive(turn, request, **drive)
     except asyncio.CancelledError:
         # Taken, not re-raised: the cancel was ours (Stop, or a newer question),
         # and the turn still owes its reader a terminal.
@@ -718,11 +967,13 @@ async def run_turn(turn: RunningTurn, request: UserMessage, *, registry: ChatReg
     except Exception as exc:  # noqa: BLE001 — every failure ends the turn with a RUN_ERROR the client can act on
         logger.warning("Turn %s failed", turn.wire.turn_id, exc_info=True)
         await turn.wire.send(_error_for(exc))
-    finally:
-        heartbeat.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await heartbeat
-        registry.finish_turn(turn)
+
+
+async def _ensure_terminal(turn: RunningTurn) -> None:
+    """The last line of the one-terminal rule: a turn that has none yet gets a RUN_ERROR."""
+    if turn.wire.finished:
+        return
+    await turn.wire.send(RunErrorBody(code="workflow_error", message="The turn ended without a result."))
 
 
 # ---------------------------------------------------------------------------
@@ -754,7 +1005,13 @@ class ChatSocket:
         return self.caller.get("type") == "internal"
 
     async def serve(self) -> None:
-        """Accept, gate on the version and the caller, then serve messages until the socket closes."""
+        """Accept, gate on the version and the caller, say hello, then serve messages until the socket closes.
+
+        The hello is the server's half of the version gate. ``4426`` tells an
+        old page it is old; the hello tells a current page the server is
+        current, because a server that predates this wire accepts the upgrade,
+        ignores ``?v=2`` and would otherwise leave the page waiting on silence.
+        """
         await self.socket.accept()
         if self.socket.query_params.get("v") != str(WIRE_VERSION):
             await self.socket.close(code=CLOSE_CLIENT_OUTDATED)
@@ -765,6 +1022,7 @@ class ChatSocket:
             return
         self.caller = user
         try:
+            await self.socket.send_json(to_frame(Hello(ts=_now_ms(), value=HelloValue(build=deployed_sha()))))
             await self._serve_messages()
         except WebSocketDisconnect:
             logger.debug("Chat socket closed for conversation %s", self.bound)
@@ -777,14 +1035,16 @@ class ChatSocket:
             try:
                 raw = await self.socket.receive_json()
             except ValueError:
-                logger.warning("Dropping a non-JSON frame on conversation %s", self.bound)
+                await self._reject(None, "unknown", "invalid_message", "Not a JSON message.")
                 continue
             await self._receive(raw)
 
     async def _receive(self, raw: object) -> None:
         kind = _client_type(raw)
         if kind is None:
-            logger.warning("Dropping a client message of unknown type on conversation %s", self.bound)
+            # Answered, never dropped: a client that sent something this wire
+            # does not have must hear so, or it waits on silence.
+            await self._reject(raw, "unknown", "invalid_message", "Unknown message type.")
             return
         try:
             message = CLIENT_MESSAGE.validate_python(raw)
@@ -836,7 +1096,8 @@ class ChatSocket:
             await self._ingest(message)
             return
         conversation_id = message.conversation_id
-        if self.registry.running(conversation_id, message.message_id) is not None:
+        if not await self.registry.claim_turn(conversation_id, message.message_id):
+            # Running or ran, here or on another replica: the client attaches instead.
             await self._reject(message.model_dump(), "user_message", "duplicate_turn")
             return
         self.registry.set_socket(conversation_id, self.socket)
@@ -851,9 +1112,12 @@ class ChatSocket:
                 session_manager=self.session_manager,
                 socket=self.socket,
                 caller=self.caller,
-            )
+            ),
+            name=f"chat turn {message.message_id} of {conversation_id}",
         )
+        turn.task.add_done_callback(_log_unexpected_end)
         self.registry.start_turn(turn)
+        await self.registry.supersede_elsewhere(conversation_id, message.message_id)
 
     async def on_interaction_response(self, message: InteractionResponse) -> None:
         self.registry.set_socket(message.conversation_id, self.socket)
@@ -882,13 +1146,23 @@ class ChatSocket:
             await self._reject(message.model_dump(), "attach", "turn_not_found")
 
     async def _to_owner(self, input_type: str, message: InteractionResponse | CancelTurn) -> None:
-        """A message for a turn this replica is not running: the owner authorises it, or nobody runs it."""
+        """A message for a turn this replica is not running: the owner authorises it, or nobody runs it.
+
+        When the bus cannot carry it, the turn is as good as not found from
+        here, and the client is told so rather than left waiting: it ends the
+        turn and asks the server for the finished answer, which the owner
+        still persists.
+        """
         of = message.type
         if not is_multi_replica_bus():
             await self._reject(message.model_dump(), of, "turn_not_found")
             return
         payload = {"message": message.model_dump(mode="json"), "subject": self.subject, "internal": self.internal}
-        await self.registry.bus().publish_input(message.conversation_id, input_type, payload)
+        try:
+            await self.registry.bus().publish_input(message.conversation_id, input_type, payload)
+        except BusUnavailable:
+            unreachable = "The replica running this turn cannot be reached right now."
+            await self._reject(message.model_dump(), of, "turn_not_found", unreachable)
 
     async def _ingest(self, message: UserMessage) -> None:
         """Put a colleague's line into the agent's history and generate NOTHING (ADR-0034 addendum).

@@ -9,7 +9,7 @@ import type { ClientMessage, WireEvent } from '@/adapters/api/wire-v2'
 import type { TurnSocketOptions, TurnSocketStatus } from '@/adapters/api/turn-socket'
 import { eventOf, wireEvents } from '@/test-utils/wire-v2-fixtures'
 
-const sockets = vi.hoisted(() => [] as Array<{ options: TurnSocketOptions; sent: unknown[]; open: boolean; connect: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }>)
+const sockets = vi.hoisted(() => [] as Array<{ options: TurnSocketOptions; sent: unknown[]; open: boolean; connect: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; reconnect: ReturnType<typeof vi.fn> }>)
 vi.mock('@/adapters/api/turn-socket', () => ({
   createTurnSocket: (options: TurnSocketOptions) => {
     const socket = {
@@ -18,11 +18,13 @@ vi.mock('@/adapters/api/turn-socket', () => ({
       open: false,
       connect: vi.fn(async () => {}),
       close: vi.fn(),
+      reconnect: vi.fn(),
     }
     sockets.push(socket)
     return {
       connect: socket.connect,
       close: socket.close,
+      reconnect: socket.reconnect,
       send: (message: unknown) => {
         if (!socket.open) return false
         socket.sent.push(message)
@@ -71,7 +73,7 @@ const client = vi.hoisted(() => ({
 vi.mock('@/adapters/api/conversations-client', () => ({ conversationsClient: client }))
 
 import { useChatStore } from '../store'
-import { DELTA_FLUSH_MS, useWebSocketChat } from './use-websocket-chat'
+import { ACK_TIMEOUT_MS, DELTA_FLUSH_MS, useWebSocketChat } from './use-websocket-chat'
 import type { ChatMessage, Conversation } from '../types'
 
 const conversationOf = (id: string, messages: ChatMessage[] = []): Conversation => ({
@@ -384,5 +386,141 @@ describe('the socket', () => {
     await vi.waitFor(() =>
       expect(messages().at(-1)).toMatchObject({ messageType: 'error', errorData: { errorCode: 'agent.workflow_error' } })
     )
+  })
+})
+
+describe('nothing waits on silence', () => {
+  const TURN = answered[0]!.turn_id
+  const rejection = (turnId: string, of: string, code: string) =>
+    eventOf({ v: 2, type: 'CUSTOM', name: 'rejected', conversation_id: CONVERSATION, turn_id: turnId, seq: 0, ts: 1, value: { of, code } })
+  const lastError = () => messages().filter((message) => message.messageType === 'error').at(-1)
+
+  it('ends a question the server never answers with an error the reader can retry, not a spinner', async () => {
+    vi.useFakeTimers()
+    const { result } = open(conversationOf(CONVERSATION))
+    act(() => void result.current.sendMessage('Wie lang darf der Fluchtweg sein?'))
+    expect(useChatStore.getState().isLoading).toBe(true)
+
+    // First miss: the socket that did not answer is reopened, and the question goes out again.
+    act(() => void vi.advanceTimersByTime(ACK_TIMEOUT_MS))
+    expect(socket().reconnect).toHaveBeenCalledOnce()
+    status('reconnecting')
+    status('open')
+    expect(sentOf('user_message')).toHaveLength(2)
+
+    // Second miss: the turn ends, visibly.
+    act(() => void vi.advanceTimersByTime(ACK_TIMEOUT_MS))
+    expect(useChatStore.getState()).toMatchObject({ isLoading: false, isStreaming: false })
+    await vi.waitFor(() => expect(lastError()).toMatchObject({ errorData: { errorCode: 'agent.response_failed' } }))
+
+    // And it is not asked again behind the reader's back.
+    status('reconnecting')
+    status('open')
+    expect(sentOf('user_message')).toHaveLength(2)
+  })
+
+  it('reopens nothing for a question the server acknowledged', () => {
+    vi.useFakeTimers()
+    const { result } = open(conversationOf(CONVERSATION))
+    act(() => void result.current.sendMessage('Frage'))
+    const id = messages()[0]!.id
+    deliver(retarget(answered, CONVERSATION, id).slice(0, 1))
+
+    act(() => void vi.advanceTimersByTime(10 * ACK_TIMEOUT_MS))
+
+    expect(socket().reconnect).not.toHaveBeenCalled()
+    expect(useChatStore.getState().isStreaming).toBe(true)
+    expect(lastError()).toBeUndefined()
+  })
+
+  it('takes any answer as a sign the socket works: a refusal restarts the deadline', () => {
+    vi.useFakeTimers()
+    const { result } = open(conversationOf(CONVERSATION))
+    act(() => void result.current.sendMessage('Frage'))
+    const id = messages()[0]!.id
+
+    act(() => void vi.advanceTimersByTime(ACK_TIMEOUT_MS - 1))
+    deliver([rejection(id, 'user_message', 'auth_expired')])
+    act(() => void vi.advanceTimersByTime(ACK_TIMEOUT_MS - 1))
+
+    expect(socket().reconnect).not.toHaveBeenCalled()
+  })
+
+  it('opens a new socket for a question asked after the last one gave up', async () => {
+    const { result } = open(conversationOf(CONVERSATION))
+    status('failed')
+    // The explanation is asynchronous; let it land here, not in the next test's thread.
+    await vi.waitFor(() => expect(lastError()).toMatchObject({ errorData: { errorCode: 'connection.failed' } }))
+    const connects = socket().connect.mock.calls.length
+
+    act(() => void result.current.sendMessage('Noch einmal'))
+
+    expect(socket().connect.mock.calls.length).toBe(connects + 1)
+  })
+
+  it('asks the first question of a new chat, and does not attach it instead', () => {
+    useChatStore.setState({ conversations: [], currentConversation: null })
+    const { result, rerender } = renderHook(() => useWebSocketChat())
+
+    act(() => void result.current.sendMessage('Was weißt du über die OIB 2?'))
+    rerender()
+    const question = messages().find((message) => message.messageType === 'user')!
+
+    expect(sockets).toHaveLength(1)
+    expect(socket().close).not.toHaveBeenCalled()
+    status('open')
+    expect(sentOf('user_message')).toEqual([expect.objectContaining({ message_id: question.id })])
+    expect(sentOf('attach')).toEqual([])
+  })
+
+  it('does not ask a question again that was stopped before the server acknowledged it', () => {
+    const { result } = open(conversationOf(CONVERSATION))
+    act(() => void result.current.sendMessage('Frage'))
+
+    act(() => useChatStore.getState().stopStreaming())
+    status('reconnecting')
+    status('open')
+
+    expect(sentOf('user_message')).toHaveLength(1)
+    expect(sentOf('cancel_turn')).toHaveLength(1)
+  })
+
+  it('ends a running turn found silent on two sockets in a row, and asks the server first', async () => {
+    openTurn(answered)
+    deliver(answered.filter((event) => event.seq <= 3))
+
+    act(() => socket().options.onSilent?.([TURN]))
+    // Something of the turn in between: it lives, and the count starts over.
+    deliver(answered.filter((event) => event.seq === 4))
+    act(() => socket().options.onSilent?.([TURN]))
+    expect(useChatStore.getState().isStreaming).toBe(true)
+
+    act(() => socket().options.onSilent?.([TURN]))
+    expect(useChatStore.getState().isStreaming).toBe(false)
+    await vi.waitFor(() => expect(lastError()).toMatchObject({ errorData: { errorCode: 'agent.response_interrupted' } }))
+  })
+
+  it('ends a turn whose resume the server refused as invalid, like one it no longer holds', async () => {
+    const conversation = conversationOf(CONVERSATION, [questionOf(TURN)])
+    useChatStore.setState({ conversations: [conversation], currentConversation: conversation })
+    useChatStore.getState().restoreSessionState(conversation)
+    renderHook(() => useWebSocketChat())
+    status('open')
+
+    deliver([rejection(TURN, 'attach', 'invalid_message')])
+
+    expect(useChatStore.getState().isStreaming).toBe(false)
+    await vi.waitFor(() => expect(lastError()).toMatchObject({ errorData: { errorCode: 'agent.response_interrupted' } }))
+  })
+
+  it('says the server is incompatible, not the network, and ends the turn that was waiting', async () => {
+    const { result } = open(conversationOf(CONVERSATION))
+    act(() => void result.current.sendMessage('Frage'))
+
+    status('incompatible')
+
+    expect(messages().some((message) => message.errorData?.errorCode === 'connection.server_incompatible')).toBe(true)
+    expect(messages().some((message) => message.errorData?.errorCode === 'connection.failed')).toBe(false)
+    expect(useChatStore.getState().isStreaming).toBe(false)
   })
 })

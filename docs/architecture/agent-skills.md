@@ -1116,6 +1116,22 @@ next interval:
    something. See the run section of
    [`backend-deep-dive.md`](backend-deep-dive.md) and ADR-0062.
 
+**What the worker logs at ERROR.** ERROR is what err2issue files as a GitHub
+issue (ADR-0031), so a failure that heals itself on the next tick is a WARN.
+A claim or prune the database refuses because it is unreachable
+(`workers/database-unavailable.js`, the code set the BFF uses too), and a
+reconcile POST that fails in transport or gets a 404, 502, 503 or 504 (an old
+frontend pod mid-rollout, the BFF answering a database outage), each log a
+WARN per tick. When the same failure has lasted about five minutes (10 ticks
+at the 30 s default, `escalationTicks` in `workers/failure-streak.js`) it logs
+one fixed ERROR line, `… still failing after 10 consecutive ticks: <kind>`,
+and the first good tick after it logs `… recovered after <n> failed ticks`.
+No line carries an HTML body: a Next.js error page holds per-build asset
+hashes, which gave every deploy a new issue fingerprint (#785, #793). A failed
+fire (step 2), a 401 or 500 from the reconcile POST, and any claim error that
+is not an outage stay ERROR at once: a missed fire is not brought back by a
+later tick.
+
 Claiming advances the job **before** firing, which is what makes a run
 at-most-once per occurrence across replicas and crashes.
 

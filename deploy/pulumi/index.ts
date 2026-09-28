@@ -17,7 +17,7 @@
  */
 import * as pulumi from "@pulumi/pulumi";
 
-import { loadConfig } from "./src/config";
+import { backendImage, frontendImage, loadConfig, webImage } from "./src/config";
 import { makeProvider } from "./src/platform/providers";
 import { makeAppNamespace } from "./src/platform/namespaces";
 import { installCertManager } from "./src/platform/cert-manager";
@@ -348,6 +348,16 @@ export const errorIssueRepo = cfg.err2issue.enabled
 export const dnsRecords = dns
   ? pulumi.all(managedRecordNames(dns)).apply((names) => names.join(", "))
   : pulumi.output("(none: dnsEnabled=false — records are maintained by hand)");
+// The image refs this update deployed. `deploy.yml` reads them back before the
+// next staging deploy and refuses one that would move a service to an older
+// commit (`scripts/resolve-image-refs.sh`). The stack file cannot answer that:
+// CI's `pulumi config set` never reaches git, so the committed file still says
+// `imageTag: latest` whatever is running. Rename this and the guard goes blind.
+export const deployedImages = {
+  backend: backendImage(cfg),
+  frontend: frontendImage(cfg),
+  web: webImage(cfg),
+};
 export const agentWorkerDeployment = agentWorker
   ? agentWorker.deployment.metadata.name
   : pulumi.output("(none: dask mode)");

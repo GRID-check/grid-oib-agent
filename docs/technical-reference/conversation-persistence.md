@@ -139,24 +139,13 @@ Messages are persisted to the BFF as they are created, not batched:
 | `completeAssistantMessage()` | `_appendMessage()` → `POST /api/conversations/[id]/messages` (completed message) |
 | `addAgentResponse()` | `_appendMessage()` → `POST /api/conversations/[id]/messages` |
 
-The `_appendMessage()` method (`store.ts:981`):
-1. Checks if the conversation exists on the server via `conversationsClient.list()`
-2. Creates it via `POST /api/conversations` if it doesn't exist (`_ensureConversationExists()` called separately, or inline in `_appendMessage`)
-3. Appends the message via `POST /api/conversations/[id]/messages`
+The `_appendMessage()` method (`features/chat/stores/sessions-store.ts`):
+1. Creates the conversation via `POST /api/conversations`, once per conversation per page life (`ensureServerConversation`; `_ensureConversationExists()` calls the same). The create is idempotent: an id that already exists is answered with the existing row when the caller may contribute to it, so there is no existence check first
+2. Appends the message via `POST /api/conversations/[id]/messages`
 
 ## Lazy conversation creation
 
-The conversation DB row is created lazily — `_ensureConversationExists()` (`store.ts:964`) runs on the first message append. This prevents empty conversations from creating database rows:
-
-```typescript
-_ensureConversationExists: async () => {
-  const existing = await conversationsClient.list()
-  const exists = existing.some((c) => c.id === conv.id)
-  if (!exists) {
-    await conversationsClient.create(conv.id, conv.title || undefined)
-  }
-}
-```
+The conversation DB row is created lazily, on the first message append, so an empty chat creates no database row. Until then the id exists only in this page: `features/chat/lib/conversation-on-server.ts` records the ids the page minted until their create succeeds, and the reads that would otherwise 404 (`useSharedThread`'s access read, the header's sharing read) wait for it. Any id the page did not mint (the server list, a shared link, an inbox item) is read at once.
 
 ## localStorage persistence
 

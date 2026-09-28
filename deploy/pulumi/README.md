@@ -338,6 +338,9 @@ src/data/                postgres (CNPG), dragonfly, seaweedfs
 src/app/                 config (Secret + env), migrations Job,
                          audit-schemas Job, backend, frontend (+HPA),
                          workers, httproutes
+scripts/                 deploy.yml's helpers: GHCR tag lookup, the staging
+                         image resolver + downgrade guard (reads the
+                         `deployedImages` output), CR schema validation
 ```
 
 ## Notes

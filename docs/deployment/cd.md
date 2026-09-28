@@ -125,15 +125,29 @@ depends on changed (backend / frontend / web filters; blog content lives under
 rebuilds only `grid-web`). `release/**` pushes, version tags and manual
 `workflow_dispatch` always build all three.
 
-On a `workflow_run` deploy, `deploy.yml` asks the triggering Publish Images run
-which jobs it actually built (GitHub API, by job name) and pins **per service**:
+`deploy.yml` pins **per service**
+([`resolve-image-refs.sh`](../../deploy/pulumi/scripts/resolve-image-refs.sh)):
 
-- rebuilt services are pinned to the commit's `sha-<40-hex>` tag;
-- services that were **not** rebuilt keep the image reference already stored in
-  the stack config — `grid-oib:backendImage` / `grid-oib:frontendImage` /
-  `grid-oib:webImage`, falling back to the previously set `grid-oib:imageTag`,
-  then `latest` (a first partial deploy after this change therefore still
-  serves the last globally pinned image).
+- a service the triggering Publish Images run built (its `Build & push <service>
+  image` job succeeded) is pinned to the commit's `sha-<40-hex>` tag;
+- a service it did **not** build is pinned to the newest commit on develop's
+  first-parent line, at or before the deployed one, whose `sha-<commit>` tag
+  GHCR actually has (a manifest `HEAD` per commit, up to 200 commits back). A
+  commit whose publish failed has no tag and is stepped over. A bare dispatch
+  (no `imageTag`) resolves all three this way.
+
+Then the **downgrade guard**: each resolved commit must be the deployed commit
+or a descendant of it, where "deployed" is the stack output `deployedImages`
+that every `pulumi up` records. A resolved image older than the running one
+fails the job with both refs named; only an operator rollback may go
+backwards, and it logs a warning. A deployed ref that is not a `sha-` tag, or a
+commit the checkout does not know, is a warning, not a failure. Each service's
+move is logged as `<service>: <deployed ref> -> <resolved ref>`.
+
+The committed stack file cannot say what is deployed: CI's `pulumi config set`
+never reaches git, so `pulumi config get grid-oib:backendImage` on a fresh
+checkout is empty and `imageTag` reads `latest` whatever is running. That is why
+the guard reads the stack output.
 
 The gates are unchanged — CI + Security green, tag-shape validation, preflight,
 plan validation and the policy pack all still run for every deploy. Manual
@@ -142,9 +156,10 @@ services to that tag, after the workflow verifies the tag is published for
 every image — see "Rolling back".
 
 ## Rolling back
-Deploys pin rebuilt services to immutable `sha-<40-hex>` image tags (non-rebuilt
-services keep their current image), so a rollback is a deploy of an older tag —
-not a revert:
+Deploys pin every service to an immutable `sha-<40-hex>` image tag, so a
+rollback is a deploy of an older tag — not a revert. It is also the only way a
+service moves to an older commit: an automatic deploy that resolves one fails
+the downgrade guard.
 
 1. Actions → **Deploy (staging)** → *Run workflow*.
 2. Set **`imageTag`** to the previous good build's tag (`sha-` + the full commit
@@ -188,9 +203,16 @@ avoids them looks odd without the reason, so don't "simplify" it back.
 - **There is no `/repos/{owner}/{repo}/packages/...` REST endpoint.** It 404s.
   Packages live under `/orgs/{org}/...` or `/users/{user}/...`, which differ by
   owner type and need pagination over every sha ever published. The rollback
-  check asks GHCR itself instead — a manifest `HEAD` with a scoped pull token,
+  check and the image resolver ask GHCR itself instead
+  (`find-published-tag.sh`) — a manifest `HEAD` with a scoped pull token,
   the same lookup the kubelet performs. It needs `packages: read` on the job
   token, which `deploy.yml` declares.
+- **The Actions run list is not a record of what was built.** Its filters
+  (`?branch=develop&status=success`) are served from a search index with
+  limits, and on 09-28 it twice returned a list without the newest backend
+  build: the deploy pinned a 09-11 backend, the UI spoke wire v2 to it, and
+  every chat hung. Resolve images from git history and the registry, which is
+  what `resolve-image-refs.sh` does, and never from that list.
 - **GHCR repository paths are lowercase; `$GITHUB_REPOSITORY_OWNER` is not.**
   The owner login is `GRID-check`, `docker/metadata-action` lowercases the image
   name on push, and containerd rejects a mixed-case reference outright

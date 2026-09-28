@@ -1,10 +1,15 @@
-import { render, screen } from '@/test-utils'
+import { act, render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import type { ResourceSharingState } from '@/lib/sharing/types'
 import { ChatToolbar } from './ChatToolbar'
 import type { ChatMessage } from '@/features/chat/types'
 import { emptyRunLedger, setRunStatus } from '@/lib/runs/run-ledger'
+import {
+  markConversationMinted,
+  markConversationOnServer,
+  resetConversationsOnServer,
+} from '@/features/chat/lib/conversation-on-server'
 
 // Sharing data hooks are stubbed: this spec is about what the toolbar shows and
 // gates, not about the (separately tested) fetching. The default state is "nothing
@@ -439,6 +444,21 @@ describe('ChatToolbar — sharing surfaces', () => {
     render(<ChatToolbar sessionTitle="My Session" isCollaborationEnabled conversationId="session-1" />)
 
     expect(mockUseSharing).toHaveBeenCalledWith('conversation', 'session-1', true)
+  })
+
+  test('a chat minted here is not asked about until the server has created it', () => {
+    // The header appears with the first message, and the server row with that
+    // message's store: asking in between was a 404 on every new chat.
+    resetConversationsOnServer()
+    markConversationMinted('session-new')
+    const { rerender } = render(
+      <ChatToolbar sessionTitle="Neu" isCollaborationEnabled conversationId="session-new" />
+    )
+    expect(mockUseSharing).toHaveBeenLastCalledWith('conversation', 'session-new', false)
+
+    act(() => markConversationOnServer('session-new'))
+    rerender(<ChatToolbar sessionTitle="Neu" isCollaborationEnabled conversationId="session-new" />)
+    expect(mockUseSharing).toHaveBeenLastCalledWith('conversation', 'session-new', true)
   })
 
   test('states who-can-see-this ONCE — the faces, not the faces plus a chip saying the same', () => {

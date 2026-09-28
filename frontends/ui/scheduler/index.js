@@ -32,9 +32,14 @@
 const { createSql, claimDue, pruneOldRuns } = require('./db')
 const { nextOccurrence } = require('./cron')
 const { initOtelLogs } = require('../observability/otel-logs')
-
-// No-op without OTEL_EXPORTER_OTLP_ENDPOINT (ADR-0029 capability gate).
-initOtelLogs()
+const {
+  createFailureStreak,
+  databaseOutage,
+  describeFailedResponse,
+  describeTransportError,
+  escalationTicks,
+  isTransientStatus,
+} = require('../workers/failure-streak')
 
 const LOG = '[job-scheduler]'
 
@@ -42,7 +47,6 @@ const LOG = '[job-scheduler]'
 // `internalApiRoute` factory guarding /api/internal/skills/fire expects.
 const INTERNAL_TOKEN_HEADER = 'x-grid-internal-token'
 const FIRE_TIMEOUT_MS = 30000
-const FIRE_BODY_SNIPPET = 500
 // One sweep claims at most 25 runs and asks the backend about 5 at a time, each
 // with a 10 s timeout: about a minute in the worst case. The reentrancy guard in
 // main() keeps a slow sweep from overlapping the next tick.
@@ -79,6 +83,20 @@ function readConfig(env) {
 }
 
 /**
+ * The streaks the tick loop keeps between ticks (`workers/failure-streak.js`):
+ * the reconcile POST, and the database work behind firing (claim and prune).
+ * A transient failure of either is a WARN until it has lasted about five
+ * minutes, which logs one ERROR, and the first success after logs a recovery.
+ */
+function createStreaks(config) {
+  const escalateAfter = escalationTicks(config.pollMs)
+  return {
+    reconcile: createFailureStreak({ label: `${LOG} run reconcile`, escalateAfter }),
+    database: createFailureStreak({ label: `${LOG} schedule claim`, escalateAfter }),
+  }
+}
+
+/**
  * One run-reconciler sweep: POST {frontendUrl}/api/internal/runs/reconcile.
  *
  * The BFF does the work — it owns the run lifecycle, and closing a run through
@@ -87,8 +105,13 @@ function readConfig(env) {
  * replica-safe on the BFF side (the claim stamps each run it takes), so running
  * this from every scheduler replica is fine. Logs only when it changed
  * something or failed; never throws. Returns the sweep's counts, or null.
+ *
+ * A transport error, or a 404/502/503/504 (a rollout's old frontend pod, the
+ * BFF answering a database outage), goes to `streak` as transient. Any other
+ * status is a real fault and logs at ERROR at once. No failure logs an HTML
+ * body (`describeFailedResponse`).
  */
-async function reconcileRuns(config, fetchImpl = fetch) {
+async function reconcileRuns(config, fetchImpl, streak) {
   const url = `${config.frontendUrl}/api/internal/runs/reconcile`
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), RECONCILE_TIMEOUT_MS)
@@ -99,15 +122,15 @@ async function reconcileRuns(config, fetchImpl = fetch) {
       signal: controller.signal,
     })
     if (!res.ok) {
-      let body = ''
-      try {
-        body = (await res.text()).slice(0, FIRE_BODY_SNIPPET)
-      } catch {
-        /* body unreadable — status is enough to act on */
+      const failure = await describeFailedResponse(res)
+      if (isTransientStatus(res.status)) {
+        streak.failed(failure)
+      } else {
+        console.error(`${LOG} run reconcile failed: ${failure.detail}`)
       }
-      console.error(`${LOG} run reconcile failed: HTTP ${res.status} ${body}`)
       return null
     }
+    streak.succeeded()
     let counts = null
     try {
       counts = await res.json()
@@ -123,7 +146,7 @@ async function reconcileRuns(config, fetchImpl = fetch) {
     }
     return counts
   } catch (error) {
-    console.error(`${LOG} run reconcile request errored:`, error && error.message ? error.message : error)
+    streak.failed(describeTransportError(error))
     return null
   } finally {
     clearTimeout(timer)
@@ -137,9 +160,12 @@ async function reconcileRuns(config, fetchImpl = fetch) {
  * It names a `task_definitions.id`; the id space is the same one jobs used,
  * because 0086 reuses job ids for their definitions. Non-2xx and transport
  * errors are logged loudly and swallowed (returns false) — a fire failure must
- * never throw out of the tick loop. The BFF records run rows; if the BFF itself
- * was unreachable the occurrence is missed-once and the next occurrence heals
- * it (ADR-0023 risks). A ~30s AbortController timeout bounds each request.
+ * never throw out of the tick loop. They stay ERROR even when transient, unlike
+ * the reconcile POST's: a failed fire is an occurrence somebody scheduled that
+ * did not run, and no later tick brings it back. The BFF records run rows; if
+ * the BFF itself was unreachable the occurrence is missed-once and the next
+ * occurrence heals it (ADR-0023 risks). A ~30s AbortController timeout bounds
+ * each request. No failure logs an HTML body (`describeFailedResponse`).
  */
 async function fireOne(config, scheduleId, fetchImpl = fetch) {
   const url = `${config.frontendUrl}/api/internal/skills/fire`
@@ -156,13 +182,8 @@ async function fireOne(config, scheduleId, fetchImpl = fetch) {
       signal: controller.signal,
     })
     if (!res.ok) {
-      let body = ''
-      try {
-        body = (await res.text()).slice(0, FIRE_BODY_SNIPPET)
-      } catch {
-        /* body unreadable — status is enough to act on */
-      }
-      console.error(`${LOG} fire failed for job ${scheduleId}: HTTP ${res.status} ${body}`)
+      const { detail } = await describeFailedResponse(res)
+      console.error(`${LOG} fire failed for job ${scheduleId}: ${detail}`)
       return false
     }
     // A 200 is not always a fire: the BFF returns {fired:false, reason} for
@@ -193,11 +214,12 @@ async function fireOne(config, scheduleId, fetchImpl = fetch) {
 /**
  * One scheduler tick: the schedules (when their gate is on), then the run
  * reconciler (always). Neither can throw out of the tick. Returns the count
- * fired (for logs).
+ * fired (for logs). `streaks` must outlive the tick (`createStreaks`): a fresh
+ * one per tick would never reach its escalation.
  */
-async function tick(sql, config, fetchImpl = fetch) {
-  const fired = config.schedulesEnabled ? await fireDue(sql, config) : 0
-  await reconcileRuns(config, fetchImpl)
+async function tick(sql, config, fetchImpl, streaks) {
+  const fired = config.schedulesEnabled ? await fireDue(sql, config, streaks.database) : 0
+  await reconcileRuns(config, fetchImpl, streaks.reconcile)
   return fired
 }
 
@@ -206,13 +228,20 @@ async function tick(sql, config, fetchImpl = fetch) {
  * (batch <= 20), then prune. Every stage is defended so nothing throws — a
  * failed claim skips this tick's fires, a failed fire is logged, a failed prune
  * is logged. Returns the count fired.
+ *
+ * The claim is one transaction, so a claim that fails with the database
+ * unavailable has claimed nothing and advanced nothing: the rows are still due
+ * and the next tick fires them. That is a transient failure for `streak`. Any
+ * other claim or prune error is a real fault, logged at ERROR.
  */
-async function fireDue(sql, config) {
+async function fireDue(sql, config, streak) {
   let claimed = []
   try {
     claimed = await claimDue(sql, config.batch, (cron, tz) => nextOccurrence(cron, tz, new Date()))
   } catch (error) {
-    console.error(`${LOG} claim transaction failed — skipping fires this tick:`, error)
+    const outage = databaseOutage(error)
+    if (outage) streak.failed(outage)
+    else console.error(`${LOG} claim transaction failed — skipping fires this tick:`, error)
     return 0
   }
 
@@ -228,16 +257,23 @@ async function fireDue(sql, config) {
     if (pruned > 0) {
       console.log(`${LOG} pruned ${pruned} task_runs older than ${config.retentionDays} days`)
     }
+    streak.succeeded()
   } catch (error) {
-    console.error(`${LOG} run-history prune failed:`, error)
+    // Retention is idempotent: an outage here only defers it to a later tick.
+    const outage = databaseOutage(error)
+    if (outage) streak.failed(outage)
+    else console.error(`${LOG} run-history prune failed:`, error)
   }
 
   return fired
 }
 
 function main() {
+  // No-op without OTEL_EXPORTER_OTLP_ENDPOINT (ADR-0029 capability gate).
+  initOtelLogs()
   const config = readConfig(process.env)
   const sql = createSql()
+  const streaks = createStreaks(config)
 
   // Reentrancy guard, exactly like purger/index.js: a slow tick (many fires,
   // a slow prune) must never overlap the next interval firing.
@@ -246,7 +282,7 @@ function main() {
     if (running) return
     running = true
     try {
-      await tick(sql, config)
+      await tick(sql, config, fetch, streaks)
     } catch (error) {
       console.error(`${LOG} unexpected tick error:`, error)
     } finally {
@@ -278,6 +314,7 @@ module.exports = {
   schedulesEnabled,
   readConfig,
   toPositiveInt,
+  createStreaks,
   fireOne,
   reconcileRuns,
   tick,
