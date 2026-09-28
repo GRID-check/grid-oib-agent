@@ -448,6 +448,7 @@ function Composed({ content = COMPOSED, meta = answerMeta }: { content?: string;
     <AgentResponse
       content={lines.slice(0, shown).join('\n')}
       messageId="dialect-preview"
+      conversationId="dialect-preview-conversation"
       citations={citations}
       routingDecision="deep"
       answerMeta={meta}

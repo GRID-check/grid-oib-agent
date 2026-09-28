@@ -57,3 +57,20 @@ describe('reasoning effort catalog', () => {
     expect([...REASONING_EFFORTS]).toEqual(catalogFixture)
   })
 })
+
+describe('chat effort dial', () => {
+  it('offers every unified level but none, cheapest first', async () => {
+    const { CHAT_EFFORTS } = await import('./catalog')
+    // The dial renders its stops in this order, left to right.
+    expect(CHAT_EFFORTS).toEqual(REASONING_EFFORTS.filter((effort) => effort !== 'none'))
+  })
+
+  it('reads the organization default and falls back on a stale value', async () => {
+    const { chatEffortFromSettings } = await import('./catalog')
+    expect(chatEffortFromSettings({ chatReasoningEffort: 'high' })).toBe('high')
+    expect(chatEffortFromSettings({ chatReasoningEffort: 'none' })).toBe('medium')
+    expect(chatEffortFromSettings({ chatReasoningEffort: 'max' })).toBe('medium')
+    expect(chatEffortFromSettings({})).toBe('medium')
+    expect(chatEffortFromSettings(null)).toBe('medium')
+  })
+})

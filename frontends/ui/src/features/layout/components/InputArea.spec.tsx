@@ -430,7 +430,7 @@ describe('InputArea', () => {
     await user.tab()
     expect(input).toHaveFocus()
 
-    // Order per the click-dummy composer: scope, then attach + send (the files
+    // Order per the click-dummy composer: scope, the effort dial, then attach + send (the files
     // counter appears only once files are attached, so it is absent here). The
     // Datengrundlage trigger is withheld with the picker — see the
     // commented-out block in InputArea. Nothing offers to choose deep research:
@@ -438,6 +438,10 @@ describe('InputArea', () => {
     await user.type(input, 'Hello')
     await user.tab()
     expect(screen.getByRole('button', { name: /search scope/i })).toHaveFocus()
+
+    // The Aufwand dial: how hard Piloti thinks, for this chat.
+    await user.tab()
+    expect(screen.getByRole('button', { name: /effort: medium/i })).toHaveFocus()
 
     await user.tab()
     expect(screen.getByRole('button', { name: /attach files/i })).toHaveFocus()

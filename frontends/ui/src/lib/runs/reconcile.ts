@@ -68,7 +68,7 @@ export const RECONCILE_BATCH = 25
 /**
  * How many closed runs one sweep heals. Larger than the reconcile batch: a heal
  * asks no backend, it is one locked read of a message, and the first sweeps
- * after 0098 work through every closed run in the retention window.
+ * after 0099 work through every closed run in the retention window.
  */
 export const HEAL_BATCH = 100
 /** How many of them are asked about at once; each probe has its own 10 s timeout. */

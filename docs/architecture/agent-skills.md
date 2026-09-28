@@ -1110,7 +1110,7 @@ next interval:
    store cannot find, or a run that never got a backend job id, is closed as
    failed once it is older than `GRID_RUN_RECONCILE_UNKNOWN_GRACE_MINUTES`
    (default 120). The same sweep then heals up to 100 CLOSED runs nothing has
-   looked at since they ended (`claimClosedRunsToHeal`, migration 0098): a block
+   looked at since they ended (`claimClosedRunsToHeal`, migration 0099): a block
    still reading „läuft" takes the ending its row records (`settleRunLedger`).
    The container logs a sweep only when it closed, healed or failed
    something. See the run section of

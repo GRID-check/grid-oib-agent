@@ -439,7 +439,7 @@ export async function claimRunsToReconcile(
  * a path that never settled its ledger (before `recordRunOutcome` did, or any
  * path that closes a row some other way). This hands each closed run with a
  * block to the heal exactly once after it ended: the stamp moves it past its
- * own `finished_at`, out of `idx_task_runs_ledger_heal_due` (migration 0098),
+ * own `finished_at`, out of `idx_task_runs_ledger_heal_due` (migration 0099),
  * whose predicate this WHERE repeats so the scan stays on it.
  *
  * NOT tenant-filtered, like {@link claimRunsToReconcile}: the caller runs this

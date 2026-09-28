@@ -8,7 +8,7 @@
  * checked within the window, stamps them in the same statement so a second
  * sweep — or a second replica sweeping at the same moment — never takes one
  * run twice, and that the conditional close lets exactly one closer win. And
- * the ledger heal (migration 0098): a run whose row closed by a path that never
+ * the ledger heal (migration 0099): a run whose row closed by a path that never
  * reached its block is claimed once, and its block — a real message, written
  * through the lock-held merge — ends.
  *

@@ -15,6 +15,7 @@ from aiq_agent.common import parse_data_sources
 from aiq_agent.common.focus_file import get_focused_file_name
 from aiq_agent.common.focus_file import get_focused_shelf
 from aiq_agent.common.focus_file import set_turn_intent
+from aiq_agent.common.reasoning_settings import set_turn_reasoning_effort
 from aiq_agent.common.wire_v2 import UserMessage
 
 
@@ -89,10 +90,12 @@ def extract_turn_inputs(request: UserMessage | str) -> TurnInputs:
     """
     if isinstance(request, str):
         set_turn_intent()
+        set_turn_reasoning_effort(None)
         return TurnInputs(request.strip(), None, None, None)
     if not isinstance(request, UserMessage):
         raise TypeError(f"A turn is asked with a v2 user_message or a plain question, not a {type(request).__name__}")
     set_turn_intent(file_name=request.focus_file_name, shelf=request.focus_shelf, source_preset=request.source_preset)
+    set_turn_reasoning_effort(request.reasoning_effort)
     subject = SubjectVersion(request.focus_document_id, request.focus_version_id, request.focus_version_state)
     return TurnInputs(
         request.text.strip(),

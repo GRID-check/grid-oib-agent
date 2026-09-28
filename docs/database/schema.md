@@ -604,7 +604,7 @@ trigger (`once`, no due date), which is what lets chat say „jeden Montag".
   started_at, created_at)` is **partial**, `WHERE status IN ('queued',
   'running')`, and lives only in the migration (an expression index Drizzle
   cannot express).
-  The ledger heal reuses the column for CLOSED runs (migration `0098`): a closed
+  The ledger heal reuses the column for CLOSED runs (migration `0099`): a closed
   run with a `run_message_id` whose `reconcile_checked_at` is NULL or before
   `COALESCE(finished_at, updated_at)` has not been looked at since it ended, and
   `claimClosedRunsToHeal` stamps it as it hands it to `settleRunLedger`, so each
@@ -835,9 +835,13 @@ LLM budgets and the usage ledger (ADR-0015).
   conversation/job attribution, `agent_group` (reserved), `requested_model`
   vs served `model`, OpenRouter `generation_id`, token counts (incl. cached +
   reasoning), `cost_usd numeric(14,8)` exactly as OpenRouter reported,
-  `cost_source`, `is_byok`. Append-only; written only via
+  `cost_source`, `is_byok`, and `message_id` (migration 0098): the chat
+  answer the generation belongs to, including its post-answer stages; NULL
+  for jobs and rows before 0098. Append-only; written only via
   `POST /api/internal/usage`. Indexes on (org,time), (org,user,time),
-  (org,project,time), (org,model,time). Schema:
+  (org,project,time), (org,model,time), (org,message). An answer's cost line
+  (`GET /api/conversations/:id/messages/:messageId/usage`) sums its frozen
+  `credits`. Schema:
   `frontends/ui/src/lib/db/schema/budgets.ts`.
 - `llm_usage_rollups` (migration 0015, ADR-0019): write-through daily spend
   aggregate — one row per (org, UTC day, user, project; empty string = none),

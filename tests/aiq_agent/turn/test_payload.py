@@ -115,3 +115,33 @@ class TestTheSubjectVersion:
         extract_turn_inputs(_message(focus_document_id="d", focus_version_id="v", focus_version_state="draft"))
 
         assert not extract_turn_inputs(_message("und jetzt?")).subject.is_open
+
+
+class TestTurnReasoningEffort:
+    """The composer's Aufwand dial reaches the turn through the same lift."""
+
+    def test_the_stated_level_is_the_turns(self):
+        from aiq_agent.common.reasoning_settings import get_turn_reasoning_effort
+
+        extract_turn_inputs(_message(reasoning_effort="high"))
+
+        assert get_turn_reasoning_effort() == "high"
+
+    def test_a_turn_without_one_clears_the_previous_turns(self):
+        from aiq_agent.common.reasoning_settings import get_turn_reasoning_effort
+
+        extract_turn_inputs(_message(reasoning_effort="xhigh"))
+        extract_turn_inputs(_message())
+        assert get_turn_reasoning_effort() is None
+
+        extract_turn_inputs(_message(reasoning_effort="low"))
+        extract_turn_inputs("plain question")
+        assert get_turn_reasoning_effort() is None
+
+    def test_the_wire_refuses_a_level_the_dial_does_not_offer(self):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            _message(reasoning_effort="none")
+        with pytest.raises(ValidationError):
+            _message(reasoning_effort="max")

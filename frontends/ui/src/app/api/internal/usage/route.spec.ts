@@ -82,6 +82,18 @@ describe('POST /api/internal/usage', () => {
     })
   })
 
+  it('stamps every row with the answer the batch paid for', async () => {
+    await POST(request({ organizationId: 'org_1', conversationId: 'conv-1', messageId: 'answer-1', events: [VALID_EVENT] }))
+    const rows = vi.mocked(recordUsageEvents).mock.calls[0][0]
+    expect(rows[0]).toMatchObject({ conversationId: 'conv-1', messageId: 'answer-1' })
+  })
+
+  it('records a batch with no answer (a job) with no message id', async () => {
+    await POST(request({ organizationId: 'org_1', jobId: 'job-1', events: [VALID_EVENT] }))
+    const rows = vi.mocked(recordUsageEvents).mock.calls[0][0]
+    expect(rows[0]).toMatchObject({ jobId: 'job-1', messageId: null })
+  })
+
   it('skips events without an organization (anonymous mode)', async () => {
     const res = await POST(request({ organizationId: null, events: [VALID_EVENT] }))
     expect(res.status).toBe(202)
