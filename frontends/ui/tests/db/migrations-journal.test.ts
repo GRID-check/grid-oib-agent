@@ -57,6 +57,19 @@ describe('drizzle migration journal', () => {
     expect(dangling).toEqual([])
   })
 
+  /**
+   * Two branches that each add the next migration both pick the same number.
+   * When the journal merges without a textual conflict, both files land with
+   * one `idx`, every check above still passes, and the order they apply in is
+   * whatever `when` happens to say. One number per migration, no gaps.
+   */
+  it('numbers migrations uniquely and without gaps', () => {
+    const prefixes = migrationFiles.map((tag) => tag.slice(0, 4))
+    const shared = prefixes.filter((prefix, index) => prefixes.indexOf(prefix) !== index)
+    expect(shared).toEqual([])
+    expect(journal.entries.map((entry) => entry.idx)).toEqual(journal.entries.map((_, index) => index))
+  })
+
   it('orders entries by idx, matching the numeric file prefix', () => {
     const indexes = journal.entries.map((entry) => entry.idx)
     expect(indexes).toEqual([...indexes].sort((a, b) => a - b))

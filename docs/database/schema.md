@@ -604,6 +604,12 @@ trigger (`once`, no due date), which is what lets chat say „jeden Montag".
   started_at, created_at)` is **partial**, `WHERE status IN ('queued',
   'running')`, and lives only in the migration (an expression index Drizzle
   cannot express).
+  The ledger heal reuses the column for CLOSED runs (migration `0099`): a closed
+  run with a `run_message_id` whose `reconcile_checked_at` is NULL or before
+  `COALESCE(finished_at, updated_at)` has not been looked at since it ended, and
+  `claimClosedRunsToHeal` stamps it as it hands it to `settleRunLedger`, so each
+  ending is looked at once. Partial index `idx_task_runs_ledger_heal_due` on
+  `COALESCE(finished_at, updated_at)` repeats that predicate.
 
 ---
 

@@ -1104,12 +1104,15 @@ next interval:
    stamping `reconcile_checked_at` in the same statement (`FOR UPDATE SKIP
    LOCKED`, migration 0096), asks the job store for each job's real verdict
    (`GET /v1/internal/jobs/{id}/outcome`, service token), and for a finished job
-   fills an empty run message (`writeRunReport`), settles a live ledger
-   (`applyRunLedgerOp`) and closes the row (`recordRunOutcome` with
-   `onlyIfActive`) — the same functions the worker's own writes reach. A job the
+   fills an empty run message (`writeRunReport`) and closes the row and settles
+   its block's ledger (`recordRunOutcome` with `onlyIfActive`) — the same
+   functions the worker's own writes reach. A job the
    store cannot find, or a run that never got a backend job id, is closed as
    failed once it is older than `GRID_RUN_RECONCILE_UNKNOWN_GRACE_MINUTES`
-   (default 120). The container logs a sweep only when it closed or failed
+   (default 120). The same sweep then heals up to 100 CLOSED runs nothing has
+   looked at since they ended (`claimClosedRunsToHeal`, migration 0099): a block
+   still reading „läuft" takes the ending its row records (`settleRunLedger`).
+   The container logs a sweep only when it closed, healed or failed
    something. See the run section of
    [`backend-deep-dive.md`](backend-deep-dive.md) and ADR-0062.
 
