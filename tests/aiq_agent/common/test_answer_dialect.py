@@ -201,3 +201,27 @@ def test_it_never_deletes_content(kind):
     again = validate_dialect(result.text, kind)
     assert again.text == result.text
     assert all(repair["repair"] == "current_unverified" for repair in again.repairs)
+
+
+class TestTheScannerReadsWhatTheRendererReads:
+    """The fence and opener rules of ``lib/text/answer-directives.ts`` and ``code-fence.ts``."""
+
+    def test_a_backtick_line_with_a_backtick_after_it_is_inline_code_not_a_fence(self):
+        result = validate_dialect("```a``` inline\n\n:::sonstwas\nInhalt\n:::", "walkthrough")
+        assert ":::" not in result.text
+        assert "Inhalt" in result.text
+
+    def test_a_space_after_the_colons_and_free_words_are_repaired_to_the_canonical_opener(self):
+        result = validate_dialect("::: check Brandschutz\n| a | offen |\n:::", "walkthrough")
+        assert result.text.splitlines()[0] == ":::check[Brandschutz]"
+        assert {"repair": "opener_canonical", "name": "check"} in result.repairs
+
+    def test_blocks_past_the_depth_bound_are_unwrapped_with_their_content_kept(self):
+        depth = 6
+        text = "\n".join(
+            [*(f":::details[x{at}]" for at in range(depth)), "Inhalt", *(":::" for _ in range(depth))]
+        )
+        result = validate_dialect(text, None)
+        assert sum(1 for line in result.text.splitlines() if line.startswith(":::details")) == 4
+        assert "Inhalt" in result.text
+        assert sum(1 for repair in result.repairs if repair["repair"] == "unwrap_too_deep") == 2

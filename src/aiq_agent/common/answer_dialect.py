@@ -92,12 +92,21 @@ BUDGET: dict[str, tuple[int, int]] = {
     "walkthrough": (2, 1),
 }
 
-#: A code fence opener or closer (``FENCE`` in the frontend).
-_FENCE = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
+#: How deep blocks nest and how many one answer opens (``MAX_DIRECTIVE_DEPTH`` /
+#: ``MAX_DIRECTIVE_BLOCKS`` in the frontend). Past either bound an opener is
+#: unwrapped: the renderer drops its fences, and so does the server.
+MAX_DIRECTIVE_DEPTH = 4
+MAX_DIRECTIVE_BLOCKS = 64
+
+#: A code fence opener and closer (``lib/text/code-fence.ts``): a backtick
+#: opener's info string holds no backtick, and a closer is bare.
+_FENCE_OPEN = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
+_FENCE_CLOSE = re.compile(r"^[ \t]*(`{3,}|~{3,})[ \t]*$")
 #: A container opener: ``:::name``, optionally ``[label]`` and ``{attributes}``.
-_OPENER = re.compile(r"^(\s*)(:{3,})([A-Za-z][\w-]*)(.*)$", re.ASCII)
+#: A space after the colons (``::: check``) is a slip both readers repair.
+_OPENER = re.compile(r"^([ \t]*)(:{3,})[ \t]*([A-Za-z][\w-]*)(.*)$", re.ASCII)
 #: A container closer: colons alone on the line.
-_CLOSER = re.compile(r"^(\s*)(:{3,})\s*$")
+_CLOSER = re.compile(r"^([ \t]*)(:{3,})[ \t]*$")
 #: A text directive (``TEXT_DIRECTIVE``). ASCII ``\w`` as in JavaScript.
 _TEXT_DIRECTIVE = re.compile(r"(^|[^\w:\\])(:)([A-Za-z][\w-]*)(?:\[([^\]\n]*)\])?(?:\{[^}\n]*\})?", re.ASCII)
 _LABEL = re.compile(r"^\[([^\]]*)\]")
@@ -113,6 +122,33 @@ class _Block:
     label: str
     attrs: str
     parent: int | None
+    #: Past :data:`MAX_DIRECTIVE_DEPTH` or :data:`MAX_DIRECTIVE_BLOCKS`: unwrapped whatever its name.
+    bounded: bool = False
+
+
+def _code_fence(line: str) -> str | None:
+    """The fence ``line`` opens, or ``None`` (``openingCodeFence``)."""
+    match = _FENCE_OPEN.match(line)
+    if not match:
+        return None
+    marker = match.group(1)
+    if marker[0] == "`" and "`" in match.group(2):
+        return None
+    return marker
+
+
+def _closes(line: str, fence: str) -> bool:
+    match = _FENCE_CLOSE.match(line)
+    return bool(match) and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence)
+
+
+def _label(rest: str) -> str:
+    """The opener's ``[label]``, or the free words after its name (``:::check Brandschutz``)."""
+    stripped = rest.strip()
+    label = _LABEL.match(stripped)
+    if label:
+        return label.group(1).strip()
+    return stripped if stripped and stripped[0] not in "{[" and rest[:1].isspace() else ""
 
 
 @dataclass
@@ -141,30 +177,32 @@ def _scan(lines: Sequence[str]) -> tuple[list[_Block], list[bool], int]:
     fence: str | None = None
     diagrams = 0
     for index, line in enumerate(lines):
-        fence_match = _FENCE.match(line)
         if fence is not None:
             code[index] = True
-            if fence_match and fence_match.group(1)[0] == fence[0] and len(fence_match.group(1)) >= len(fence):
+            if _closes(line, fence):
                 fence = None
             continue
-        if fence_match:
-            fence = fence_match.group(1)
+        opened = _code_fence(line)
+        if opened:
+            fence = opened
             code[index] = True
-            diagrams += fence_match.group(2).strip().lower().startswith("mermaid")
+            diagrams += _FENCE_OPEN.match(line).group(2).strip().lower().startswith("mermaid")  # type: ignore[union-attr]
             continue
         opener = _OPENER.match(line)
         if opener:
-            rest = opener.group(4).strip()
-            label = _LABEL.match(rest)
+            rest = opener.group(4)
             attrs = _ATTRS.search(rest)
+            kept = sum(1 for at in stack if not blocks[at].bounded)
+            bounded = kept >= MAX_DIRECTIVE_DEPTH or sum(1 for block in blocks if not block.bounded) >= MAX_DIRECTIVE_BLOCKS
             blocks.append(
                 _Block(
                     name=opener.group(3),
                     open=index,
                     close=None,
-                    label=label.group(1).strip() if label else "",
+                    label=_label(rest),
                     attrs=attrs.group(1) if attrs else "",
                     parent=stack[-1] if stack else None,
+                    bounded=bounded,
                 )
             )
             stack.append(len(blocks) - 1)
@@ -178,7 +216,10 @@ def _unwrap_set(blocks: Sequence[_Block], kind: str | None, repairs: list[dict[s
     """The blocks that lose their fences: unknown names, then whatever is over the kind's budget."""
     unwrap: set[int] = set()
     for index, block in enumerate(blocks):
-        if block.name not in DIRECTIVE_BLOCKS:
+        if block.bounded:
+            unwrap.add(index)
+            repairs.append({"repair": "unwrap_too_deep", "name": block.name})
+        elif block.name not in DIRECTIVE_BLOCKS:
             unwrap.add(index)
             repairs.append({"repair": "unwrap_unknown", "name": block.name})
     budget = BUDGET.get(kind or "")
@@ -265,6 +306,13 @@ def validate_dialect(text: str, kind: str | None) -> DialectResult:
     _cases_keys(blocks, unwrap, repairs)
     around = _enclosing(blocks, unwrap, len(lines))
     replaced: dict[int, list[str]] = {}
+    for index, block in enumerate(blocks):
+        if index in unwrap:
+            continue
+        canonical = _canonical_opener(lines[block.open], block)
+        if canonical != lines[block.open]:
+            replaced[block.open] = [canonical]
+            repairs.append({"repair": "opener_canonical", "name": block.name})
     for index in unwrap:
         block = blocks[index]
         indent = _OPENER.match(lines[block.open]).group(1)  # type: ignore[union-attr]
@@ -288,6 +336,18 @@ def validate_dialect(text: str, kind: str | None) -> DialectResult:
     if repairs:
         logger.info("Answer dialect: %d repair(s) %s; blocks %s", len(repairs), _summary(repairs), census)
     return DialectResult(result, census, repairs)
+
+
+def _canonical_opener(line: str, block: _Block) -> str:
+    """``::: check`` as ``:::check``, and free words after the name as its ``[label]``."""
+    opener = _OPENER.match(line)
+    if opener is None:
+        return line
+    rest = opener.group(4)
+    stripped = rest.strip()
+    if stripped and stripped[0] not in "{[" and rest[:1].isspace():
+        rest = f"[{block.label.replace('[', '').replace(']', '')}]"
+    return f"{opener.group(1)}{opener.group(2)}{block.name}{rest}"
 
 
 def _summary(repairs: Sequence[Mapping[str, str]]) -> str:

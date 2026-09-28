@@ -182,3 +182,23 @@ async def test_a_marker_a_tool_handed_out_last_turn_is_not_taken_this_turn(card_
 
     assert [card["type"] for card in card_registry.snapshot()] == ["ifc_model_picker"]
     assert "[[card:1]]" in final.content
+
+
+@pytest.mark.asyncio
+async def test_a_retired_card_is_laid_out_as_markdown_at_its_marker_not_dropped(card_registry):
+    """Guardrail 8: a model that reached for a retired type out of habit put
+    content in it that may be nowhere else. The card cannot register, so its
+    content lands at its marker as Markdown, and no later card slides onto its
+    place."""
+    retired = {
+        "type": "typed_table",
+        "title": "Mindestmaße",
+        "columns": [{"label": "Bauteil", "type": "text"}, {"label": "Maß", "type": "mass"}],
+        "rows": [["Tür", "90 cm"]],
+    }
+    final = await finalize_answer(_messages([retired, BASIS]), registry=_sources(), tools=[], repair=None)
+
+    assert [card["type"] for card in card_registry.snapshot()] == ["ifc_model_picker"]
+    assert "**Mindestmaße**" in final.content
+    assert "| Tür | 90 cm |" in final.content
+    assert final.content.index("Mindestmaße") < final.content.index("Weiter.") < final.content.index("[[card:1]]")

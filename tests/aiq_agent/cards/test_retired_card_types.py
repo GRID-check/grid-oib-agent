@@ -152,3 +152,40 @@ class TestEveryChannelRefusesIt:
             render_envelope_cards_contract(),
         ):
             assert not offered.search(surface)
+
+
+class TestRetiredContentIsKept:
+    """A retired card's content, laid out as Markdown (``retired_card_markdown``)."""
+
+    def test_a_legal_basis_becomes_its_title_and_a_quote_line(self):
+        from aiq_agent.cards.catalog import retired_card_markdown
+
+        markdown = retired_card_markdown(
+            {"type": "legal_basis", "law": "OIB-RL 2", "article": "3.1", "original_text": "Fluchtwege führen ins Freie."}
+        )
+        assert markdown == "**OIB-RL 2** · 3.1\n\n> „Fluchtwege führen ins Freie.“"
+
+    def test_a_list_of_records_becomes_a_table_with_pipes_escaped(self):
+        from aiq_agent.cards.catalog import retired_card_markdown
+
+        markdown = retired_card_markdown({"type": "process_map", "steps": [{"name": "A|B"}, {"name": "C"}]})
+        assert markdown == "| name |\n|---|\n| A\\|B |\n| C |"
+
+    def test_a_live_type_or_an_empty_card_yields_nothing(self):
+        from aiq_agent.cards.catalog import retired_card_markdown
+
+        assert retired_card_markdown({"type": "stair_diagram", "title": "x"}) is None
+        assert retired_card_markdown({"type": "typed_table"}) is None
+
+
+def test_the_refusals_teach_no_dialect_block():
+    """They reach deep research and the repair model, whose PDF prints `:::` as text."""
+    for replacement in RETIRED_CARD_REPLACEMENTS.values():
+        assert ":::" not in replacement and ":energy-class" not in replacement
+
+
+def test_markdown_first_names_the_blocks_on_chat_and_plain_gfm_elsewhere():
+    assert ":::check" in render_card_doctrine(chat=True) and "surface" in render_card_doctrine(chat=True)
+    assert ":::" not in render_card_doctrine()
+    assert "(surface)" not in render_card_doctrine()
+    assert ":::check" in render_envelope_cards_contract()
