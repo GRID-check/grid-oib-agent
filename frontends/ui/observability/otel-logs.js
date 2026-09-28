@@ -28,6 +28,8 @@
  */
 
 const util = require('node:util')
+// The same code set `lib/db/errors.ts` and the workers classify an outage by.
+const { UNAVAILABLE_CODE_PATTERN } = require('../workers/database-unavailable')
 
 let initialized = false
 
@@ -120,10 +122,13 @@ const NOT_AN_ERROR = [
     // rendered during it, each with its own query text, which is how one
     // restart became #734 and #737-#739 beside the API's own. Matched on the
     // driver's cause code as Node's inspect prints it, and only under a
-    // `Failed query` that Next logged, so a bad query stays an ERROR.
+    // `Failed query` that Next logged, so a bad query stays an ERROR. The code
+    // set is `workers/database-unavailable.js`, never a copy: the copy this
+    // regex used to carry had already lost `EPIPE`.
     reason: 'database-unavailable-render',
-    match:
-      /^⨯ Error: Failed query:[\s\S]*\[cause\]:[\s\S]*code: '(08[0-9A-Z]{3}|57P0[123]|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|CONNECTION_CLOSED|CONNECTION_ENDED|CONNECTION_DESTROYED|CONNECT_TIMEOUT)'/,
+    match: new RegExp(
+      `^⨯ Error: Failed query:[\\s\\S]*\\[cause\\]:[\\s\\S]*code: '(${UNAVAILABLE_CODE_PATTERN})'`,
+    ),
   },
 ]
 
