@@ -634,3 +634,9 @@ def test_a_summary_db_given_as_a_path_is_refused_before_any_run(monkeypatch, tmp
 
     assert suite._preflight(tmp_path, ingest=False) == 2
     assert "not a database URL" in capsys.readouterr().err
+
+
+def test_the_suite_reads_the_dialect_the_validator_holds():
+    from aiq_agent.common.answer_dialect import DIRECTIVE_BLOCKS
+
+    assert suite._DIALECT_BLOCKS == frozenset(DIRECTIVE_BLOCKS)
