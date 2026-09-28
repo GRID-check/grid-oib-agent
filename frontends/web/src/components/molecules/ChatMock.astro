@@ -1,18 +1,20 @@
 ---
 /**
- * The decision chain from `lg` up: the phone's four story frames
- * (ChainStories) laid out as one chain down a spine. Question, sources,
- * decision, steps, each on the sheet it has on the phone: the dark panel, the
- * drawing grid, the panel again, sage. The three sources hang off one branch,
- * because Piloti consults them at the same time, not one after another.
+ * The decision chain from `lg` up: a wired graph read left to right, dressed
+ * as the phone's stories (ChainStories).
  *
- * Everything is in the markup in its finished state, which is what a reader
- * without script or with reduced motion sees. scripts/chain.ts (initChain)
- * only adds the arrival: the stages light down the spine once, as the board
- * comes into view, and the pill holds and replays it (WCAG 2.2.2).
+ * The geometry is the original board's. The question sits top left and the
+ * three sources hang below it off one stem, each a chip and a card on a
+ * short stub. Curved wires run from the sources into the decision on the
+ * right, and from the chosen way a wire runs on down to the steps. The
+ * surfaces are the phone's: the question and the decision on the dark panel,
+ * the sources as index cards on the drawing grid, the steps on sage, the
+ * serif voice, the mono labels, B ringed in lime, each way's reason.
  *
- * The look is ChainStories' (sizes one step down, since four frames share one
- * column here). Change a colour there, change it here: the two are one family.
+ * No camera: the board is laid out at its true size by CSS grid, and
+ * scripts/chain.ts draws the wires from the measured boxes (so they follow
+ * the layout at every width) and adds the arrival. Everything else is in the
+ * markup in its finished state, which is what reduced motion shows.
  */
 import { ui, type Locale } from '../../i18n/ui'
 
@@ -25,9 +27,9 @@ const s = t.stories
 const total = s.frames.length
 
 const sources = [
-  { chip: 'OIB-RL 2', law: true, title: t.chat.oibTitle, sub: t.chat.oibSub, r: -1.2 },
-  { chip: 'BO Wien', law: true, title: t.chat.boTitle, sub: t.chat.boSub, r: 0.9 },
-  { chip: t.chat.projTag, law: false, title: 'Einreichplan_EG.pdf', sub: t.chat.projSub, r: -0.5 },
+  { chip: 'OIB-RL 2', law: true, title: t.chat.oibTitle, sub: t.chat.oibSub },
+  { chip: 'BO Wien', law: true, title: t.chat.boTitle, sub: t.chat.boSub },
+  { chip: t.chat.projTag, law: false, title: 'Einreichplan_EG.pdf', sub: t.chat.projSub },
 ]
 const options = [
   { key: 'A', title: t.chat.optATitle, sub: t.chat.optASub, why: s.why[0], chosen: false },
@@ -35,8 +37,7 @@ const options = [
   { key: 'C', title: t.chat.optCTitle, sub: t.chat.optCSub, why: s.why[2], chosen: false },
 ]
 const pad = (i: number) => String(i + 1).padStart(2, '0')
-const meta = (name: string, i: number) => ({ name, count: `${i + 1}/${total}` })
-const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2), meta(t.chat.impl, 3)]
+const count = (i: number) => `${i + 1}/${total}`
 ---
 
 <div data-chain-board class="board" role="group" aria-label={s.region}>
@@ -55,142 +56,121 @@ const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2)
     >
   </div>
 
-  <ol class="chain m-0 list-none p-0">
-    <!-- 1 · Frage -->
-    <li class="stage" data-stage>
-      <span class="node" aria-hidden="true"><span class="node-done" data-node-done></span><span class="node-now" data-node-now></span></span>
-      <span class="seg" aria-hidden="true"><span class="seg-fill" data-seg></span></span>
-      <div class="sheet sheet--dark" data-sheet>
-        <p class="meta"><span>{stages[0].name}</span><span aria-hidden="true">{stages[0].count}</span></p>
-        <p class="q m-0">{t.chat.question}</p>
-        <dl class="facts m-0" data-facts>
-          {
-            s.context.map(([k, v]) => (
-              <div class="fact">
-                <dt>{k}</dt>
-                <dd class="m-0">{v}</dd>
-              </div>
-            ))
-          }
-        </dl>
-      </div>
-    </li>
+  <div class="stage" data-chain-stage>
+    <!-- Empty by design: every wire is generated from the measured boxes of
+         the cards it joins (scripts/chain.ts), so a card that moves takes its
+         wires with it. -->
+    <svg data-wires class="wires" aria-hidden="true"></svg>
 
-    <!-- 2 · Quellen: one branch off the spine, three sources at once. -->
-    <li class="stage stage--fan" data-stage>
-      <span class="node" aria-hidden="true"><span class="node-done" data-node-done></span><span class="node-now" data-node-now></span></span>
-      <span class="seg" aria-hidden="true"><span class="seg-fill" data-seg></span></span>
-      <span class="branch" data-branch aria-hidden="true"></span>
-      <div class="sheet sheet--paper" data-sheet>
-        <p class="meta"><span>{stages[1].name}</span><span aria-hidden="true">{stages[1].count}</span></p>
-        <ul class="deck m-0 list-none p-0">
-          {
-            sources.map((src) => (
-              <li class="src" style={`--r:${src.r}deg`}>
-                <span class="bus" data-bus aria-hidden="true" />
-                <span class="tick" data-tick aria-hidden="true" />
-                <span class="card" data-src>
-                  <span class="card-head">
-                    <span
-                      class={`chip ${src.law ? 'bg-chip-law text-chip-law-ink' : 'bg-chip-project text-chip-project-ink'}`}
-                    >
-                      {src.chip}
-                    </span>
-                    <span class="card-title">{src.title}</span>
-                  </span>
-                  <span class="card-sub">{src.sub}</span>
-                </span>
-              </li>
-            ))
-          }
-        </ul>
-      </div>
-    </li>
+    <!-- 1 · Frage -->
+    <div class="node node--q sheet sheet--dark" data-node="q">
+      <p class="meta"><span>{s.frames[0]}</span><span class="meta-count" aria-hidden="true"><span class="here" data-here></span>{count(0)}</span></p>
+      <p class="q m-0">{t.chat.question}</p>
+      <!-- The project facts as one line: the same facts the phone lists. -->
+      <p class="facts m-0">
+        {
+          s.context.map(([k, v], i) => (
+            <>
+              {i > 0 && <span class="facts-sep" aria-hidden="true"> · </span>}
+              <span class="sr-only">{k}: </span>
+              {v}
+            </>
+          ))
+        }
+      </p>
+    </div>
+
+    <!-- 2 · Quellen: one stem, three sources at once. -->
+    <div class="node node--srcs" data-node="srcs">
+      <p class="meta meta--srcs"><span>{s.frames[1]}</span><span class="meta-count" aria-hidden="true"><span class="here" data-here></span>{count(1)}</span></p>
+      <ul class="rows m-0 list-none p-0">
+        {
+          sources.map((src) => (
+            <li class="row" data-row>
+              <span
+                data-chip
+                class={`chip ${src.law ? 'bg-chip-law text-chip-law-ink' : 'bg-chip-project text-chip-project-ink'}`}
+              >
+                {src.chip}
+              </span>
+              <span class="card" data-card>
+                <span class="card-title">{src.title}</span>
+                <span class="card-sub">{src.sub}</span>
+              </span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
 
     <!-- 3 · Entscheidung: three ways, B ringed in lime, each with its reason. -->
-    <li class="stage" data-stage>
-      <span class="node" aria-hidden="true"><span class="node-done" data-node-done></span><span class="node-now" data-node-now></span></span>
-      <span class="seg" aria-hidden="true"><span class="seg-fill" data-seg></span></span>
-      <div class="sheet sheet--dark" data-sheet>
-        <p class="meta"><span>{stages[2].name}</span><span aria-hidden="true">{stages[2].count}</span></p>
-        <p class="intro m-0">{t.chat.decisionIntro}</p>
-        <ul class="opts m-0 list-none p-0">
-          {
-            options.map((o) => (
-              <li class:list={['opt', { 'is-chosen': o.chosen }]} data-opt>
-                {o.chosen && <span class="opt-field" data-opt-field aria-hidden="true" />}
-                <span class="opt-key">
-                  {o.key}
-                  {o.chosen && (
-                    <svg class="ink" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
-                      <path
-                        data-opt-ink
-                        pathLength="1"
-                        d="M31 6.5C20 3 7.5 9 5.8 21.5 4.3 33 13 42.5 25 41.8 36.5 41 43.6 32 42.2 21 41 12 33 6.2 23.5 7.2"
-                      />
-                    </svg>
-                  )}
+    <div class="node node--dec sheet sheet--dark" data-node="dec">
+      <p class="meta"><span>{s.frames[2]}</span><span class="meta-count" aria-hidden="true"><span class="here" data-here></span>{count(2)}</span></p>
+      <p class="intro m-0">{t.chat.decisionIntro}</p>
+      <ul class="opts m-0 list-none p-0" data-port="in">
+        {
+          options.map((o) => (
+            <li class:list={['opt', { 'is-chosen': o.chosen }]} data-opt data-port={o.chosen ? 'out' : undefined}>
+              {o.chosen && <span class="opt-field" data-opt-field aria-hidden="true" />}
+              <span class="opt-key">
+                {o.key}
+                {o.chosen && (
+                  <svg class="ink" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+                    <path
+                      data-opt-ink
+                      pathLength="1"
+                      d="M31 6.5C20 3 7.5 9 5.8 21.5 4.3 33 13 42.5 25 41.8 36.5 41 43.6 32 42.2 21 41 12 33 6.2 23.5 7.2"
+                    />
+                  </svg>
+                )}
+              </span>
+              <span class="opt-text">
+                <span class="opt-title">{o.title}</span>
+                {/* The description gives way to the reason once the choice is
+                    made; both sit in one cell, so nothing reflows. */}
+                <span class="opt-swap">
+                  <span class="opt-sub" data-opt-sub aria-hidden="true">{o.sub}</span>
+                  <span class="opt-why" data-opt-why>{o.why}</span>
                 </span>
-                <span class="opt-text">
-                  <span class="opt-title">{o.title}</span>
-                  {/* The description gives way to the reason once the choice is
-                      made; both sit in one cell, so nothing reflows. */}
-                  <span class="opt-swap">
-                    <span class="opt-sub" data-opt-sub aria-hidden="true">{o.sub}</span>
-                    <span class="opt-why" data-opt-why>{o.why}</span>
-                  </span>
-                </span>
-              </li>
-            ))
-          }
-        </ul>
-      </div>
-    </li>
+              </span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
 
-    <!-- 4 · Umsetzung – B: the steps tick off and the chain closes. -->
-    <li class="stage" data-stage>
-      <span class="node" aria-hidden="true"><span class="node-done" data-node-done></span><span class="node-now" data-node-now></span></span>
-      <div class="sheet sheet--sage" data-sheet>
-        <p class="meta"><span>{stages[3].name}</span><span aria-hidden="true">{stages[3].count}</span></p>
-        <ol class="steps m-0 list-none p-0">
-          {
-            t.chat.steps.map((step, k) => (
-              <li class="step" data-step>
-                <svg class="box" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <rect x="2.5" y="2.5" width="19" height="19" rx="4" />
-                  <path data-step-check pathLength="1" d="M7 12.4l3.4 3.4L17.4 8.2" />
-                </svg>
-                <span class="step-text">
-                  <span class="step-no" aria-hidden="true">{pad(k)}</span> {step}
-                </span>
-              </li>
-            ))
-          }
-        </ol>
-        <div class="done" data-done>
-          <p class="done-line m-0">{s.complete} <span aria-hidden="true">✓</span></p>
-          <p class="cost m-0">{s.cost}</p>
-        </div>
+    <!-- 4 · Umsetzung – B -->
+    <div class="node node--impl sheet sheet--sage" data-node="impl">
+      <p class="meta"><span>{t.chat.impl}</span><span class="meta-count" aria-hidden="true"><span class="here" data-here></span>{count(3)}</span></p>
+      <ol class="steps m-0 list-none p-0">
+        {
+          t.chat.steps.map((step, k) => (
+            <li class="step" data-step>
+              <svg class="box" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <rect x="2.5" y="2.5" width="19" height="19" rx="4" />
+                <path data-step-check pathLength="1" d="M7 12.4l3.4 3.4L17.4 8.2" />
+              </svg>
+              <span class="step-text">
+                <span class="step-no" aria-hidden="true">{pad(k)}</span> {step}
+              </span>
+            </li>
+          ))
+        }
+      </ol>
+      <div class="done" data-done>
+        <p class="done-line m-0">{s.complete} <span aria-hidden="true">✓</span></p>
+        <p class="cost m-0">{s.cost}</p>
       </div>
-    </li>
-  </ol>
+    </div>
+  </div>
 </div>
 
 <style>
   /* ── The board ─────────────────────────────────────────────────────────────
-     No window around it: the sheets lie on the section's panel, as the phone's
-     frames lie on the page. */
+     The phone's stage, widened: the drawing grid on paper, the same radius
+     and shadow, and the four stages laid on it as one wired graph. */
   .board {
-    --gutter: 2.25rem;
-    --spine-x: 1.125rem;
-    --pad-top: 1rem;
-    --pad-x: 1.25rem;
-    --meta-h: 1.25rem;
-    --gap: 0.75rem;
-    --stage-gap: 0.75rem;
-    --line: 2px;
-    --path: var(--color-accent-900);
-    --track: rgb(42 48 31 / 0.18);
+    container-type: inline-size;
   }
   .board-head {
     display: flex;
@@ -199,7 +179,7 @@ const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2)
     gap: 1rem;
     min-height: 2.25rem;
     margin-bottom: 0.625rem;
-    padding-left: var(--gutter);
+    padding: 0 0.25rem;
   }
   .caption,
   .pill {
@@ -241,109 +221,21 @@ const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2)
     display: none;
   }
 
-  /* ── The spine ─────────────────────────────────────────────────────────────
-     Each stage carries its own node, level with its sheet's label, and the
-     length of spine down to the next node. Nothing is measured: the segment
-     runs from the node to the stage's bottom plus the gap and the next
-     node's offset, so a stage that grows takes its spine with it. */
+  /* Two columns and a wire gutter between them: the question over its
+     sources on the left, the decision over its steps on the right. The
+     decision starts a little down, level with the sources that feed it. */
   .stage {
     position: relative;
-    padding-left: var(--gutter);
-  }
-  .stage + .stage {
-    margin-top: var(--stage-gap);
-  }
-  .node {
-    position: absolute;
-    z-index: 2;
-    top: calc(var(--pad-top) + var(--meta-h) / 2 - 0.375rem);
-    left: calc(var(--spine-x) - 0.375rem);
-    width: 0.75rem;
-    height: 0.75rem;
-    border-radius: 999px;
-    background: var(--color-surface-dim);
-    box-shadow: inset 0 0 0 1.5px rgb(42 48 31 / 0.35);
-  }
-  .node-done,
-  .node-now {
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-  }
-  .node-done {
-    background: var(--path);
-  }
-  /* You are here: the phone's lime, with a halo. At rest it sits on the last
-     stage, where the chain ends. */
-  .node-now {
-    background: var(--color-accent-400);
-    box-shadow:
-      0 0 0 1.5px var(--path),
-      0 0 0 5px rgb(164 208 106 / 0.35);
-    opacity: 0;
-  }
-  .stage:last-child .node-now {
-    opacity: 1;
-  }
-  .seg {
-    position: absolute;
-    top: calc(var(--pad-top) + var(--meta-h) / 2);
-    bottom: calc(-1 * (var(--stage-gap) + var(--pad-top) + var(--meta-h) / 2));
-    left: calc(var(--spine-x) - 0.5px);
-    width: 1px;
-    background: var(--track);
-  }
-  .seg-fill {
-    position: absolute;
-    inset: 0 auto 0 calc(0.5px - var(--line) / 2);
-    width: var(--line);
-    background: var(--path);
-    transform-origin: 50% 0;
-  }
-  /* The fan-out: one branch leaves the spine and meets the bus the three
-     sources hang from. Its node sits where the branch leaves, not level with
-     the label, so the sources visibly come out of that dot: the node, its
-     segment and the segment arriving from the question all move down to the
-     branch's height. */
-  .stage--fan {
-    --node-y: calc(var(--pad-top) + var(--meta-h) + var(--gap));
-  }
-  .stage--fan .node {
-    top: calc(var(--node-y) - 0.375rem);
-  }
-  .stage--fan .seg {
-    top: var(--node-y);
-  }
-  .stage:has(+ .stage--fan) .seg {
-    bottom: calc(-1 * (var(--stage-gap) + var(--pad-top) + var(--meta-h) + var(--gap)));
-  }
-  .branch {
-    position: absolute;
-    z-index: 1;
-    top: calc(var(--pad-top) + var(--meta-h) + var(--gap) - var(--line) / 2);
-    left: var(--spine-x);
-    width: calc(var(--gutter) - var(--spine-x) + var(--pad-x));
-    height: var(--line);
-    background: var(--path);
-    transform-origin: 0 50%;
-  }
-
-  /* ── Sheets: the phone's frames ────────────────────────────────────────── */
-  .sheet {
-    container-type: inline-size;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: var(--gap);
-    border-radius: 1rem;
-    padding: var(--pad-top) var(--pad-x) 1rem;
-    box-shadow: var(--shadow-card);
-  }
-  .sheet--dark {
-    background: var(--color-panel);
-    color: var(--color-on-dark-strong);
-  }
-  .sheet--paper {
+    display: grid;
+    grid-template-columns: minmax(0, 0.92fr) 3.25rem minmax(0, 1.08fr);
+    grid-template-areas:
+      'q    . dec'
+      'srcs . dec'
+      'srcs . impl';
+    grid-template-rows: auto auto 1fr;
+    gap: 0.875rem 0;
+    border-radius: 1.25rem;
+    padding: 1.125rem;
     background-color: var(--color-paper);
     background-image:
       linear-gradient(rgb(42 48 31 / 0.05) 1px, transparent 1px),
@@ -352,26 +244,69 @@ const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2)
     background-position: -1px -1px;
     box-shadow:
       0 0 0 1px var(--color-hairline),
-      var(--shadow-card);
+      var(--shadow-mock);
     color: var(--color-ink);
+  }
+  .wires {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+  }
+  .node {
+    position: relative;
+    z-index: 1;
+    min-width: 0;
+  }
+  .node--q {
+    grid-area: q;
+  }
+  .node--srcs {
+    grid-area: srcs;
+  }
+  /* The gap on the right leaves room for B's wire to run out past the card
+     and turn down onto the steps. */
+  .node--dec {
+    grid-area: dec;
+    align-self: start;
+    margin: 1rem 0.875rem 0 0;
+  }
+  .node--impl {
+    grid-area: impl;
+    align-self: start;
+  }
+
+  /* ── Sheets: the phone's frames ────────────────────────────────────────── */
+  .sheet {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    border-radius: 0.875rem;
+    padding: 0.8125rem 0.9375rem 0.9375rem;
+    box-shadow: var(--shadow-card);
+  }
+  .sheet--dark {
+    background: var(--color-panel);
+    color: var(--color-on-dark-strong);
   }
   .sheet--sage {
     background: var(--color-surface);
     box-shadow:
-      0 0 0 1px rgb(42 48 31 / 0.08),
+      0 0 0 1px rgb(42 48 31 / 0.1),
       var(--shadow-card);
-    color: var(--color-ink);
   }
   .meta {
     display: flex;
     margin: 0;
-    height: var(--meta-h);
     align-items: center;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.75rem;
     font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    line-height: 1;
+    font-size: 0.75rem;
+    line-height: 1.25rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-ink-mute);
@@ -382,163 +317,114 @@ const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2)
   .sheet--sage .meta {
     color: var(--color-accent-600);
   }
+  .meta-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  /* You are here: the phone's lime, with a halo, beside the stage the chain
+     has reached. At rest it marks the last one. */
+  .here {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--color-accent-400);
+    box-shadow: 0 0 0 3px rgb(164 208 106 / 0.3);
+    opacity: 0;
+  }
+  .node--impl .here {
+    opacity: 1;
+  }
 
   /* 1 · Frage */
   .q {
     font-family: var(--font-voice);
-    font-size: clamp(1.3125rem, 0.875rem + 1.8cqi, 1.5625rem);
-    line-height: 1.14;
-    letter-spacing: -0.004em;
+    font-size: clamp(1.0625rem, 0.5rem + 1.9cqi, 1.3125rem);
+    line-height: 1.15;
     text-wrap: pretty;
   }
   .facts {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0 1rem;
-    margin-top: 0.25rem;
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    line-height: 1.35;
-  }
-  .fact {
     border-top: 1px solid rgb(238 242 228 / 0.14);
     padding-top: 0.5rem;
-  }
-  .fact dt {
-    color: var(--color-on-dark-tag);
-  }
-  .fact dd {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.4;
     color: var(--color-on-dark-strong);
   }
+  .facts-sep {
+    color: var(--color-on-dark-tag);
+  }
 
-  /* 2 · Quellen. Narrow: three rows off a vertical bus. Wide: three index
-     cards side by side under a horizontal one, as the phone deals them. */
-  .deck {
+  /* 2 · Quellen: the stem runs down the left edge (drawn by the script);
+     each row is a stub, a chip, a stub and an index card. */
+  .meta--srcs {
+    padding-left: 1.75rem;
+  }
+  .rows {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    padding-left: 1rem;
+    margin-top: 0.375rem;
+    padding-left: 1.75rem;
   }
-  .src {
-    position: relative;
-  }
-  .bus,
-  .tick {
-    position: absolute;
-    background: var(--path);
-    transform-origin: 0 0;
-  }
-  .bus {
-    top: 0;
-    left: calc(-1rem - var(--line) / 2);
-    width: var(--line);
-    height: calc(100% + 0.5rem);
-  }
-  .src:last-child .bus {
-    height: 50%;
-  }
-  .tick {
-    top: calc(50% - var(--line) / 2);
-    left: -1rem;
-    width: 1rem;
-    height: var(--line);
-  }
-  .card {
+  .row {
     display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    border-radius: 0.75rem;
-    padding: 0.625rem 0.75rem 0.6875rem;
-    background: #fff;
-    box-shadow:
-      0 0 0 1px var(--color-hairline),
-      var(--shadow-card);
-  }
-  .card-head {
-    display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 0.25rem 0.625rem;
-    min-width: 0;
+    gap: 0.75rem;
   }
   .chip {
     display: inline-flex;
     flex-shrink: 0;
     align-items: center;
-    height: 1.375rem;
+    justify-content: center;
+    width: 4.5rem;
+    height: 1.5rem;
     border-radius: 0.375rem;
-    padding: 0 0.4375rem;
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     font-weight: 600;
   }
-  .card-title {
+  .card {
+    display: flex;
     min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.125rem;
+    border-radius: 0.75rem;
+    padding: 0.5rem 0.6875rem 0.5625rem;
+    background: #fff;
+    box-shadow:
+      0 0 0 1px var(--color-hairline),
+      var(--shadow-card);
+  }
+  .card-title {
     font-family: var(--font-voice);
-    font-size: 1.1875rem;
-    line-height: 1.1;
+    font-size: 1.0625rem;
+    line-height: 1.15;
   }
   .card-sub {
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     line-height: 1.35;
     color: var(--color-ink-mute);
-  }
-  @container (min-width: 32rem) {
-    .deck {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 0.75rem;
-      padding-top: 0.875rem;
-      padding-left: 0;
-    }
-    .bus {
-      top: calc(-0.875rem - var(--line) / 2);
-      left: 0;
-      width: calc(100% + 0.75rem);
-      height: var(--line);
-    }
-    .src:first-child .bus {
-      left: calc(-1 * var(--line));
-      width: calc(100% + 0.75rem + var(--line));
-    }
-    .src:last-child .bus {
-      width: calc(50% + var(--line) / 2);
-      height: var(--line);
-    }
-    .tick {
-      top: -0.875rem;
-      left: calc(50% - var(--line) / 2);
-      width: var(--line);
-      height: 0.875rem;
-    }
-    .card {
-      height: 100%;
-      rotate: var(--r);
-    }
-    .card-head {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 0.375rem;
-    }
   }
 
   /* 3 · Entscheidung */
   .intro {
-    font-size: 0.9375rem;
+    font-size: 0.8125rem;
     line-height: 1.4;
     color: var(--color-on-dark);
   }
   .opts {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: 0.3125rem;
   }
   .opt {
     position: relative;
     display: flex;
     align-items: flex-start;
-    gap: 0.875rem;
-    border-radius: 0.875rem;
-    padding: 0.5rem 0.75rem;
+    gap: 0.625rem;
+    border-radius: 0.75rem;
+    padding: 0.4375rem 0.625rem 0.5rem;
     box-shadow: inset 0 0 0 1px rgb(238 242 228 / 0.1);
     color: var(--color-on-dark);
   }
@@ -559,10 +445,10 @@ const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2)
     display: grid;
     flex-shrink: 0;
     place-items: center;
-    width: 1.75rem;
-    height: 1.75rem;
+    width: 1.5rem;
+    height: 1.5rem;
     font-family: var(--font-voice);
-    font-size: 1.3125rem;
+    font-size: 1.125rem;
     line-height: 1;
     color: var(--color-on-dark-tag);
   }
@@ -571,9 +457,9 @@ const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2)
   }
   .ink {
     position: absolute;
-    inset: -0.3125rem;
-    width: calc(100% + 0.625rem);
-    height: calc(100% + 0.625rem);
+    inset: -0.25rem;
+    width: calc(100% + 0.5rem);
+    height: calc(100% + 0.5rem);
     overflow: visible;
     pointer-events: none;
   }
@@ -590,13 +476,12 @@ const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2)
     display: flex;
     min-width: 0;
     flex-direction: column;
-    gap: 0.125rem;
-    padding-top: 0.125rem;
+    gap: 0.0625rem;
   }
   .opt-title {
     font-family: var(--font-voice);
-    font-size: 1.1875rem;
-    line-height: 1.15;
+    font-size: 1.0625rem;
+    line-height: 1.2;
   }
   .opt-swap {
     display: grid;
@@ -604,7 +489,7 @@ const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2)
   .opt-sub,
   .opt-why {
     grid-area: 1 / 1;
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     line-height: 1.35;
   }
   .opt-sub {
@@ -618,38 +503,21 @@ const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2)
     color: var(--color-on-dark-strong);
   }
 
-  /* Wide: the three ways side by side, under the three sources. */
-  @container (min-width: 32rem) {
-    .opts {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 0.5rem;
-    }
-    .opt {
-      flex-direction: column;
-      gap: 0.375rem;
-      padding: 0.625rem 0.75rem 0.75rem;
-    }
-    .opt-text {
-      padding-top: 0;
-    }
-  }
-
   /* 4 · Umsetzung */
   .steps {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.375rem;
   }
   .step {
     display: flex;
     align-items: flex-start;
-    gap: 0.75rem;
+    gap: 0.5rem;
   }
   .box {
     flex-shrink: 0;
-    width: 1.375rem;
-    height: 1.375rem;
+    width: 1.125rem;
+    height: 1.125rem;
   }
   .box rect {
     fill: #fff;
@@ -659,19 +527,19 @@ const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2)
   .box path {
     fill: none;
     stroke: var(--color-accent-900);
-    stroke-width: 2.2;
+    stroke-width: 2.4;
     stroke-linecap: round;
     stroke-linejoin: round;
     stroke-dasharray: 1;
     stroke-dashoffset: 0;
   }
   .step-text {
-    font-size: 0.875rem;
-    line-height: 1.4;
+    font-size: 0.8125rem;
+    line-height: 1.35;
   }
   .step-no {
     font-family: var(--font-mono);
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     color: var(--color-accent-600);
   }
   .done {
@@ -679,22 +547,48 @@ const stages = [meta(s.frames[0], 0), meta(s.frames[1], 1), meta(s.frames[2], 2)
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 0.625rem 1rem;
+    gap: 0.5rem 0.75rem;
     border-top: 1px solid rgb(42 48 31 / 0.14);
-    padding-top: 0.75rem;
+    padding-top: 0.625rem;
   }
   .done-line {
     font-family: var(--font-voice);
-    font-size: 1.5rem;
+    font-size: 1.3125rem;
     line-height: 1.05;
     color: var(--color-accent-900);
   }
   .cost {
     border-radius: 0.5rem;
-    padding: 0.3125rem 0.625rem;
+    padding: 0.25rem 0.5rem;
     background: var(--color-accent-400);
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     font-weight: 600;
     color: var(--color-accent-900);
+  }
+
+  /* Narrow (the 440px column at 1024): the question spans the top and the
+     steps the foot, and the sources and the decision keep their two columns
+     between them, still wired left to right. The chip sits over its card. */
+  @container (max-width: 34rem) {
+    .stage {
+      grid-template-columns: minmax(0, 1fr) 2.25rem minmax(0, 1.05fr);
+      grid-template-areas:
+        'q    q q'
+        'srcs . dec'
+        'impl impl impl';
+      grid-template-rows: auto auto auto;
+      padding: 0.875rem;
+    }
+    .node--dec {
+      margin-top: 1.75rem;
+    }
+    .row {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.3125rem;
+    }
+    .card {
+      align-self: stretch;
+    }
   }
 </style>
