@@ -14,6 +14,7 @@
  * at all, only a pointer at who can change the rest, rather than a blank page.
  */
 
+import { chatEffortFromSettings } from '@/lib/reasoning-settings/catalog'
 import type { JSX } from 'react'
 import { Building2, Globe, Mail, MessageSquareText, ShieldAlert, Users } from 'lucide-react'
 import { withPageSession } from '@/lib/auth/require-auth'
@@ -182,6 +183,7 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
                   initialDisplayName={settings.displayName}
                   initialDefaultLocale={settings.defaultLocale}
                   initialWebSearchEnabled={settings.settings.webSearchEnabled !== false}
+                  initialChatEffort={chatEffortFromSettings(settings.settings)}
                 />
               ) : (
                 <EmptyState variant="bare" title={t('settings.loadError')} />

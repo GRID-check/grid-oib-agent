@@ -1,0 +1,7 @@
+---
+features:
+  - >
+    A dial beside the send button sets how long Piloti thinks before it
+    answers, from faster to smarter, and each chat keeps its own setting.
+    Administrators choose where a new chat starts under Organisation →
+    Einstellungen.

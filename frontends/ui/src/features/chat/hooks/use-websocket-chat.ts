@@ -42,6 +42,7 @@ import { useChatStore } from '../store'
 import { isFilePeekVisible, useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 import { registerStopStreamingHandler, runningTurnIn } from '../stores/messages-store'
 import { useConnectionRecovery } from './use-connection-recovery'
+import { useEffortStore } from '../stores/effort-store'
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
 import { fetchRunMessage } from '../lib/commissioned-run'
@@ -874,6 +875,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         focus_version_id: subject?.versionId ?? null,
         focus_version_state: openVersionState(subject?.versionState),
         source_preset: useLayoutStore.getState().activeSourcePreset ?? null,
+        // The composer's Aufwand dial. Always stated, so the level the chat
+        // shows is the level the turn runs at (`effort-store.ts`).
+        reasoning_effort: useEffortStore.getState().levelForSend(conversationId),
       })
       return true
     },
