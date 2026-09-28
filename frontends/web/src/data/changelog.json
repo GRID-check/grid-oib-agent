@@ -40,11 +40,20 @@
       "summary": null,
       "sections": [
         {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Chat answers can now lay out requirement checks, procedure steps, option comparisons and key figures as dedicated blocks, with each check row showing whether the value meets its limit. Copying or exporting an answer keeps the status the page shows.",
+              "de": "Chat-Antworten können Anforderungsprüfungen, Verfahrensschritte, Variantenvergleiche und Kennzahlen jetzt als eigene Blöcke darstellen. Jede Prüfzeile zeigt dabei, ob der Wert den Grenzwert einhält. Beim Kopieren oder Exportieren einer Antwort bleibt der auf der Seite angezeigte Status erhalten."
+            }
+          ]
+        },
+        {
           "key": "fixes",
           "notes": [
             {
-              "en": "An overview now shows its parts as a table or as a mindmap rather than both. A mindmap that only repeats the table is now rare, so an overview seldom draws one and then removes it when the answer finishes.",
-              "de": "Eine Übersicht zeigt ihre Bestandteile jetzt entweder als Tabelle oder als Mindmap, nicht mehr als beides. Da Mindmaps, die nur die Tabelle wiederholen, jetzt selten sind, erstellt eine Übersicht nur noch selten eine und entfernt sie anschließend, sobald die Antwort fertig ist."
+              "en": "An overview now shows its parts either as a table or as a mindmap, never both. The duplicate drawing used to appear while the answer arrived and then vanish when it finished.",
+              "de": "Eine Übersicht zeigt ihre Bestandteile jetzt entweder als Tabelle oder als Mindmap, nie beides. Die doppelte Darstellung erscheint während der Antwort und verschwindet nach deren Abschluss."
             },
             {
               "en": "Uploading a large folder to the Archiv or to a project no longer stops the chat from saving answers for the next minute. A big upload now slows down when it reaches the limit instead of failing files, and \"Retry all\" sends the failed files a few at a time instead of all at once.",
