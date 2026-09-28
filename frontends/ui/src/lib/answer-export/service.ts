@@ -48,10 +48,19 @@ const CAPPED_REASONS = new Set(['ungrounded', 'quote_unverified'])
  * of the three is not a level — it is absent, and the document then carries no
  * confidence section at all rather than an unreadable one.
  */
+/**
+ * The server's quote checks, where either writer put them: `provenance.quoteStamps`
+ * (the browser's persist, and the agent tier's through `agent-answer-metadata`),
+ * or the wire spelling `quote_stamps` a row may have kept (`server-message-mapper`
+ * reads both). An answer with neither gets an empty list: nothing is verified.
+ */
 function readQuoteStamps(metadata: Record<string, unknown>) {
   const provenance = metadata.provenance
-  if (typeof provenance !== 'object' || provenance === null || Array.isArray(provenance)) return []
-  return sanitizeQuoteStamps((provenance as Record<string, unknown>).quoteStamps) ?? []
+  const stored =
+    typeof provenance === 'object' && provenance !== null && !Array.isArray(provenance)
+      ? sanitizeQuoteStamps((provenance as Record<string, unknown>).quoteStamps)
+      : null
+  return stored ?? sanitizeQuoteStamps(metadata.quote_stamps) ?? []
 }
 
 function readConfidence(metadata: Record<string, unknown>): AnswerConfidence | null {
