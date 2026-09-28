@@ -1,6 +1,6 @@
 ---
 fixes:
   - >
-    An overview now shows its parts either as a table or as a mindmap,
-    never both. The duplicate drawing used to appear while the answer
-    arrived and then vanish when it finished.
+    An overview now shows its parts as a table or as a mindmap rather than
+    both. A mindmap that only repeats the table is now rare, so an overview
+    seldom draws one and then removes it when the answer finishes.
