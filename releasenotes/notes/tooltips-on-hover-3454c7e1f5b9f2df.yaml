@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Opening a menu or panel with a click no longer pops up the hint of its
+    first help icon, as the Aufwand dial and the project choice in the chat
+    input did. Hints now appear on hover, and when you reach them with the Tab
+    key.
