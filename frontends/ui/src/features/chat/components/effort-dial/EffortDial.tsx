@@ -156,8 +156,9 @@ const TRAIL: CSSProperties = {
  * the glide is the reader's own input carried through. Both move by
  * `transform`, a share of a box exactly as wide as the travel, so the global
  * `<MotionConfig reducedMotion="user">` drops the glide for readers who asked
- * for less motion. They are two elements so the stops can sit between them:
- * over the trail, under the thumb.
+ * for less motion. A stop the trail has reached fades out, since a grey dot
+ * inside the trail reads as a blemish rather than a stop, and the stops sit
+ * under both.
  */
 const EffortSlider: FC<EffortSliderProps> = ({ label, index, valueText, onChoose }) => {
   const sliderId = useId()
@@ -166,19 +167,23 @@ const EffortSlider: FC<EffortSliderProps> = ({ label, index, valueText, onChoose
 
   return (
     <div className="group bg-muted relative mt-2 h-10 overflow-hidden rounded-xl pointer-coarse:h-11">
-      <motion.div className="pointer-events-none absolute inset-y-1" style={TRAVEL} aria-hidden="true" {...glide}>
-        <span className="text-foreground/70 absolute inset-y-0" style={TRAIL} />
-      </motion.div>
       <div className="pointer-events-none absolute inset-y-0" style={RAIL} aria-hidden="true">
         {CHAT_EFFORTS.map((level, position) => (
           <span
             key={level}
             data-testid="effort-dial-stop"
-            className="bg-muted-foreground/35 absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+            data-passed={position <= index}
+            className={cn(
+              'bg-muted-foreground/35 duration-quick absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition-opacity ease-out',
+              position <= index && 'opacity-0'
+            )}
             style={{ left: `${(position / (CHAT_EFFORTS.length - 1)) * 100}%` }}
           />
         ))}
       </div>
+      <motion.div className="pointer-events-none absolute inset-y-1" style={TRAVEL} aria-hidden="true" {...glide}>
+        <span className="text-foreground/70 absolute inset-y-0" style={TRAIL} />
+      </motion.div>
       <motion.div
         className="pointer-events-none absolute inset-y-1"
         style={TRAVEL}
