@@ -52,6 +52,7 @@ import { AnimatePresence, motion, motionQuick, motionEntrance, springPress } fro
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
 import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
+import { EffortDial } from '@/features/chat/components/effort-dial'
 import { useLayoutStore } from '../store'
 import { computePresetSourceIds } from '../lib/source-presets'
 // Withheld with the Datenbasis picker below — restore together.
@@ -1930,6 +1931,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   tabIndex={-1}
                   onChange={handleFileChange}
                 />
+
+                {/* How hard Piloti thinks, for this chat. A HITL response is
+                    not a question, so the dial has nothing to say there. */}
+                {!isResponseMode && (
+                  <EffortDial conversationId={currentConversationId} disabled={cannotContribute} />
+                )}
 
                 {/* Attach files */}
                 <Button

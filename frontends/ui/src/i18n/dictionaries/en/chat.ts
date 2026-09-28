@@ -3,6 +3,21 @@ export const chat = {
   actions: {
     dismiss: 'Dismiss',
   },
+  effortDial: {
+    title: 'Effort',
+    trigger: 'Effort: {level}',
+    faster: 'Faster',
+    smarter: 'Smarter',
+    help: 'How long Piloti thinks before it answers. More effort helps with tricky questions but costs time and tokens. Applies to this chat.',
+    levels: {
+      minimal: 'Minimal',
+      low: 'Low',
+      medium: 'Medium',
+      high: 'High',
+      xhigh: 'Maximum',
+    },
+  },
+
   // Source preview (WS-9, FB-4): citation chips open a preview of the source.
   sourcePreview: {
     chipAria: 'Preview source: {label}',
@@ -663,6 +678,9 @@ export const chat = {
     triggerAria: 'Show details for this answer',
     // How long the turn took, question sent to answer final.
     duration: 'Answered in {duration}',
+    costCredits: '{value} credits',
+    costTokens: '{value} tokens',
+    costBreakdown: 'Input {prompt} · output {completion} · of which thinking {reasoning} tokens',
     // Retrieved-but-uncited documents: what the turn read beyond what the
     // answer claims. Document chips only — no passages, no new claims.
     readSources: {

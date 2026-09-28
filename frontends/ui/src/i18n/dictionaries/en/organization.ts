@@ -122,6 +122,9 @@ export const organization = {
     displayNamePlaceholder: 'e.g. Acme Architektur GmbH',
     defaultLocale: 'Default language for new members',
     defaultLocaleHint: 'New members start in this language until they choose their own.',
+    chatEffort: 'Default effort for new chats',
+    chatEffortHint:
+      'How long Piloti thinks in a new chat. Every member can change the effort in the chat itself; this is only where it starts.',
     webSearch: 'Web search',
     webSearchHint:
       'Allow agents to search the public web. When off, web-search tools disappear from the picker and are blocked server-side for every member.',

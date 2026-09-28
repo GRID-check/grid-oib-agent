@@ -2630,6 +2630,26 @@
           "title": "Message Id",
           "type": "string"
         },
+        "reasoning_effort": {
+          "anyOf": [
+            {
+              "enum": [
+                "minimal",
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The composer's Aufwand dial for this turn; absent keeps the platform level.",
+          "title": "Reasoning Effort"
+        },
         "source_preset": {
           "anyOf": [
             {

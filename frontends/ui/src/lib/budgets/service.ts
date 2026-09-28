@@ -50,6 +50,7 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import { BadRequestError, ForbiddenError, UnprocessableError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { isOrgOnOwnKey } from '@/lib/llm-credentials/service'
+import { requireResourceAccess } from '@/lib/sharing/access'
 import {
   creditsToCostUsd,
   getEffectivePricing,
@@ -59,6 +60,7 @@ import {
 } from '@/lib/pricing/service'
 import * as repository from './repository'
 import type {
+  AnswerUsageRow,
   DailySpendRow,
   MemberSpend,
   ModelSpend,
@@ -808,3 +810,27 @@ export async function getUsageOverview(
 
 /** Re-exported so platform surfaces can convert cost with the active rate. */
 export type { EffectivePricing }
+
+
+/** What an answer cost, in the unit this organization sees (`getOrgBudgetUnit`). */
+export interface AnswerUsage extends AnswerUsageRow {
+  unit: BudgetUnit
+}
+
+/**
+ * The cost of one answer for its details line: the credits billed for it, or
+ * on the organization's own key the tokens (the platform bills nothing there).
+ * Readable by anyone who may read the conversation.
+ */
+export async function getAnswerUsage(
+  session: AuthorizedSession,
+  conversationId: string,
+  messageId: string,
+): Promise<AnswerUsage | null> {
+  await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
+  const [row, unit] = await Promise.all([
+    repository.sumAnswerUsage(session.organizationId, conversationId, messageId),
+    getOrgBudgetUnit(session.organizationId),
+  ])
+  return row ? { ...row, unit } : null
+}

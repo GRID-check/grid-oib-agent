@@ -232,6 +232,33 @@ class TestGridCostTracker:
         assert payload["events"][0]["requestedModel"] == "vendor/override-model"
         assert payload["events"][0]["generationId"] == "gen-01HXYZOPENROUTER"
 
+    def test_the_batch_names_the_answer_it_paid_for(self):
+        from aiq_agent.common.cost_tracking import track_llm_costs
+
+        identity = {"organization_id": "org_1", "conversation_id": "conv_1", "message_id": "answer_1"}
+        with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:
+            with track_llm_costs(identity=identity, budget=BudgetSnapshot()) as tracker:
+                tracker.on_llm_end(_openrouter_result())
+        payload = post.call_args.args[0]
+        # The batch keys the internal endpoint declares (`app/api/internal/usage/route.ts`).
+        assert set(payload) == {
+            "organizationId",
+            "userId",
+            "projectId",
+            "conversationId",
+            "jobId",
+            "messageId",
+            "events",
+        }
+        assert payload["messageId"] == "answer_1"
+
+    def test_a_tracker_off_the_chat_path_names_no_answer(self):
+        tracker = self._tracker()
+        tracker.on_llm_end(_openrouter_result())
+        with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:
+            tracker.flush(wait=True)
+        assert post.call_args.args[0]["messageId"] is None
+
     def test_flush_is_idempotent_when_empty(self):
         tracker = self._tracker()
         with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:

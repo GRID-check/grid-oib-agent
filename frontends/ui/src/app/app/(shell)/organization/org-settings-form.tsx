@@ -3,7 +3,8 @@
 /**
  * Editable Grid-side organization settings (admin only): a display-name
  * override, the default interface language for new members, and the
- * org-level web-search toggle (ADR-0022). Persists to
+ * org-level web-search toggle (ADR-0022), and where a new chat's Aufwand dial
+ * starts. Persists to
  * `/api/organization/settings` (PUT), which enforces the admin check server-side.
  */
 
@@ -22,23 +23,29 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { useTranslations, locales, localeNames, type Locale } from '@/i18n'
+import { CHAT_EFFORT_SETTING, CHAT_EFFORTS, type ChatEffort } from '@/lib/reasoning-settings/catalog'
 
 interface OrgSettingsFormProps {
   initialDisplayName: string | null
   initialDefaultLocale: Locale
   initialWebSearchEnabled: boolean
+  /** Where a new chat's Aufwand dial starts (`settings.chatReasoningEffort`). */
+  initialChatEffort: ChatEffort
 }
 
 export const OrgSettingsForm: FC<OrgSettingsFormProps> = ({
   initialDisplayName,
   initialDefaultLocale,
   initialWebSearchEnabled,
+  initialChatEffort,
 }) => {
   const t = useTranslations('organization')
+  const tChat = useTranslations('chat')
 
   const [displayName, setDisplayName] = useState(initialDisplayName ?? '')
   const [defaultLocaleValue, setDefaultLocaleValue] = useState<Locale>(initialDefaultLocale)
   const [webSearchEnabled, setWebSearchEnabled] = useState(initialWebSearchEnabled)
+  const [chatEffort, setChatEffort] = useState<ChatEffort>(initialChatEffort)
   const [saving, setSaving] = useState(false)
   // The saved baseline — Save stays disabled until a field actually differs, and
   // resets here after a successful save so the button re-disables (no needless
@@ -47,12 +54,14 @@ export const OrgSettingsForm: FC<OrgSettingsFormProps> = ({
     displayName: (initialDisplayName ?? '').trim(),
     defaultLocale: initialDefaultLocale,
     webSearchEnabled: initialWebSearchEnabled,
+    chatEffort: initialChatEffort,
   })
 
   const isDirty =
     displayName.trim() !== baseline.displayName ||
     defaultLocaleValue !== baseline.defaultLocale ||
-    webSearchEnabled !== baseline.webSearchEnabled
+    webSearchEnabled !== baseline.webSearchEnabled ||
+    chatEffort !== baseline.chatEffort
 
   const handleSave = useCallback(async () => {
     setSaving(true)
@@ -63,18 +72,23 @@ export const OrgSettingsForm: FC<OrgSettingsFormProps> = ({
         body: JSON.stringify({
           displayName: displayName.trim() === '' ? null : displayName.trim(),
           defaultLocale: defaultLocaleValue,
-          settings: { webSearchEnabled },
+          settings: { webSearchEnabled, [CHAT_EFFORT_SETTING]: chatEffort },
         }),
       })
       if (!res.ok) throw new Error(`Save failed (${res.status})`)
-      setBaseline({ displayName: displayName.trim(), defaultLocale: defaultLocaleValue, webSearchEnabled })
+      setBaseline({
+        displayName: displayName.trim(),
+        defaultLocale: defaultLocaleValue,
+        webSearchEnabled,
+        chatEffort,
+      })
       toast.success(t('settings.saved'))
     } catch {
       toast.error(t('settings.saveError'))
     } finally {
       setSaving(false)
     }
-  }, [displayName, defaultLocaleValue, webSearchEnabled, t])
+  }, [displayName, defaultLocaleValue, webSearchEnabled, chatEffort, t])
 
   return (
     <FieldGroup>
@@ -104,6 +118,23 @@ export const OrgSettingsForm: FC<OrgSettingsFormProps> = ({
           </SelectContent>
         </Select>
         <FieldDescription>{t('settings.defaultLocaleHint')}</FieldDescription>
+      </Field>
+
+      <Field className="sm:max-w-md">
+        <FieldLabel>{t('settings.chatEffort')}</FieldLabel>
+        <Select value={chatEffort} onValueChange={(v) => setChatEffort(v as ChatEffort)}>
+          <SelectTrigger className="w-full" aria-label={t('settings.chatEffort')}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {CHAT_EFFORTS.map((level) => (
+              <SelectItem key={level} value={level}>
+                {tChat(`effortDial.levels.${level}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <FieldDescription>{t('settings.chatEffortHint')}</FieldDescription>
       </Field>
 
       <Field orientation="horizontal" className="sm:max-w-md">

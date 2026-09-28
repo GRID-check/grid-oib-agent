@@ -5,6 +5,20 @@ export const chat: typeof en.chat = {
   actions: {
     dismiss: 'Schließen',
   },
+  effortDial: {
+    title: 'Aufwand',
+    trigger: 'Aufwand: {level}',
+    faster: 'Schneller',
+    smarter: 'Intelligenter',
+    help: 'Wie lange Piloti nachdenkt, bevor es antwortet. Mehr Aufwand hilft bei verzwickten Fragen, kostet aber Zeit und Tokens. Gilt für diesen Chat.',
+    levels: {
+      minimal: 'Minimal',
+      low: 'Niedrig',
+      medium: 'Mittel',
+      high: 'Hoch',
+      xhigh: 'Maximal',
+    },
+  },
   sourcePreview: {
     chipAria: 'Quelle ansehen: {label}',
     view: 'Ansehen',
@@ -655,6 +669,11 @@ export const chat: typeof en.chat = {
     triggerAria: 'Details zu dieser Antwort anzeigen',
     // How long the turn took, question sent to answer final.
     duration: 'Antwort nach {duration}',
+    // What the answer cost in the organization's unit: the credits billed for
+    // it, or tokens on the organization's own provider key.
+    costCredits: '{value} Punkte',
+    costTokens: '{value} Tokens',
+    costBreakdown: 'Eingabe {prompt} · Ausgabe {completion} · davon Nachdenken {reasoning} Tokens',
     // Gelesen, aber nicht zitiert: was die Recherche sonst noch gelesen hat.
     // Nur Dokument-Chips — keine Stellen, keine neuen Aussagen.
     readSources: {

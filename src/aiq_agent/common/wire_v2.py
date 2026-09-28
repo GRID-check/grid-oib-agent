@@ -727,6 +727,10 @@ class UserMessage(_ClientBase):
     focus_document_id: str | None = None
     focus_version_id: str | None = None
     focus_version_state: Literal["draft", "in_review", "changes_requested"] | None = None
+    reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh"] | None = Field(
+        default=None,
+        description="The composer's Aufwand dial for this turn; absent keeps the platform level.",
+    )
 
 
 class InteractionResponse(_ClientBase):
