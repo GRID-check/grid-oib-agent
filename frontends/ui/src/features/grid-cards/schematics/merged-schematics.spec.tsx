@@ -66,6 +66,35 @@ describe('SetbackPlanCard readout', () => {
   })
 })
 
+describe('SetbackPlanCard: the computation wins', () => {
+  it('computes the ratio over a stated one that disagrees, and names the stated one', () => {
+    const [coverage] = densityReadout({
+      parcelArea: 1000,
+      footprintArea: 420,
+      grossFloorArea: null,
+      coverage: { label: 'Bebauungsgrad', value: 30, required: 40, unit: '%', comparator: '<=', status: 'pass' },
+      stated: (value) => `angegeben: ${value}`,
+    })
+    expect(coverage).toMatchObject({ value: 42, status: 'fail', label: 'Bebauungsgrad (angegeben: 30)' })
+  })
+
+  it('draws no plan for a pure density question, and its verdict is the readout', () => {
+    const { container } = render(
+      <SetbackPlanCard
+        title="Dichte"
+        sides={[]}
+        reference={REF}
+        parcel_area_m2={800}
+        gross_floor_area_m2={1450}
+        density={{ label: 'GFZ', value: null, required: 1.5, unit: '', comparator: '<=', status: 'needs_input' }}
+      />
+    )
+    expect(container.querySelector('svg[role="img"], svg rect')).toBeNull()
+    expect(screen.getByText('GFZ')).toBeInTheDocument()
+    expect(screen.getByText(/1,81/)).toBeInTheDocument()
+  })
+})
+
 describe('DimensionDiagramCard lift_cabin', () => {
   it('draws the cabin and keeps the door apart from the cabin width', () => {
     const { container } = render(
