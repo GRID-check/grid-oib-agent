@@ -37,8 +37,18 @@
 import type { Element, ElementContent, Root, RootContent } from 'hast'
 
 import { ANSWER_BLOCK_LABEL_TAG, ANSWER_BLOCK_TAG, ANSWER_MARKER_TAG } from './directives'
-import { isPlaceholder, meetsLimit, parseLimit, parseQuantity, trailingLimit, type Limit, type Quantity } from './quantities'
+import { isPlaceholder, meetsLimit, parseLimit, parseQuantity } from './quantities'
 import { isActiveStatus, isOpenStatus, statusTone, trailingStatus } from './status-marks'
+import {
+  OUTCOME_CONFLICT,
+  OUTCOME_FAIL,
+  OUTCOME_PASS,
+  figureOutcome,
+  rowOutcome,
+  statusColumnOf,
+  tallyWord,
+  valueAndLimit,
+} from './check-rows'
 import { caseKindFor, parseCases, type CaseDescriptor } from './cases'
 import { isProjectKey, type ProjectKey } from '@/lib/text/answer-directives'
 import {
@@ -145,94 +155,10 @@ function consumeMarkers(node: Element | Root, hosts: Element[]): void {
 
 /** The last column every one of whose (non-empty) cells is a status word, or -1. */
 function statusColumnByContent(head: Row, rows: Row[], text: (cell: Element) => string): number {
-  for (let column = head.cells.length - 1; column >= 0; column--) {
-    const cells = columnCells(rows, column)
-    if (!cells || cells.length === 0) continue
-    const words = cells.map((cell) => valueText(text(cell))).filter((word) => !isPlaceholder(word))
-    if (words.length > 0 && words.every((word) => statusTone(word))) return column
-  }
-  return -1
-}
-
-/** Where a row states its limit: a cell of its own, or the end of the label („Luftschalldämmung ≥ 55 dB"). */
-interface RowLimit {
-  limit: Limit
-  /** The cell the limit stands in (0 for the label). */
-  at: number
-  /** The limit as written, for the bar's label. */
-  text: string
-}
-
-function rowLimit(cells: Element[], text: (cell: Element) => string): RowLimit | null {
-  for (let at = 1; at < cells.length; at++) {
-    const written = valueText(text(cells[at]))
-    const limit = parseLimit(written)
-    if (limit) return { limit, at, text: written }
-  }
-  const embedded = cells[0] ? trailingLimit(valueText(text(cells[0]))) : null
-  return embedded ? { limit: embedded.limit, at: 0, text: embedded.text } : null
-}
-
-/**
- * A row's value and limit. The limit is the first limit cell, or one written
- * at the end of the label; the value is the nearest quantity to it, before it
- * first (`Ist | Soll`), then after it (`Soll | Ist`). Column order is the
- * model's to choose; the reading of it is not.
- */
-function valueAndLimit(cells: Element[], text: (cell: Element) => string): { value: number; limit: RowLimit; quantity: Quantity } | null {
-  const limit = rowLimit(cells, text)
-  if (!limit) return null
-  const order = [
-    ...Array.from({ length: Math.max(0, limit.at - 1) }, (_, index) => limit.at - 1 - index),
-    ...Array.from({ length: Math.max(0, cells.length - limit.at - 1) }, (_, index) => limit.at + 1 + index),
-  ]
-  for (const at of order) {
-    const quantity = parseQuantity(valueText(text(cells[at])))
-    if (quantity) return { value: at, limit, quantity }
-  }
-  return null
-}
-
-/**
- * The outcome a check row states, as a tally word: the model's own status
- * word, or one of the renderer's (`OUTCOME_*`), which the table draws in the
- * reader's language.
- */
-export const OUTCOME_PASS = '@pass'
-export const OUTCOME_FAIL = '@fail'
-export const OUTCOME_CONFLICT = '@conflict'
-
-/**
- * A check row's outcome. When the row holds a value and a limit, the renderer
- * computes it, and the computation wins over the word the model wrote: a
- * status that agrees is kept as written; an open word („offen", „zu prüfen")
- * or none is replaced by the computed one; a verdict that CONTRADICTS it
- * („erfüllt" beside 52 dB against ≥ 55 dB, or „teilweise" beside a value that
- * plainly holds) is a Widerspruch the reader must check, never silently
- * either. A word that is no verdict on the value („nicht anwendbar",
- * „ausstehend") stands as written.
- */
-function rowOutcome(written: string, computed: boolean | null): { word: string; replaced: boolean } | null {
-  const tone = statusTone(written)
-  if (computed === null) return tone ? { word: written, replaced: false } : null
-  const expected = computed ? 'success' : 'destructive'
-  if (tone === expected) return { word: written, replaced: false }
-  if (tone === 'muted') return { word: written, replaced: false }
-  if (!tone || isOpenStatus(written)) return { word: computed ? OUTCOME_PASS : OUTCOME_FAIL, replaced: true }
-  return { word: OUTCOME_CONFLICT, replaced: true }
-}
-
-/**
- * The tally key of an outcome: a written word whose tone is a plain pass or
- * fail counts with the renderer's own, so „erfüllt" and a computed pass land
- * in one bucket and one chip.
- */
-function tallyWord(word: string): string {
-  if (word === OUTCOME_PASS || word === OUTCOME_FAIL || word === OUTCOME_CONFLICT) return word
-  const tone = statusTone(word)
-  if (tone === 'success' && !isActiveStatus(word)) return OUTCOME_PASS
-  if (tone === 'destructive' && !isOpenStatus(word)) return OUTCOME_FAIL
-  return word
+  return statusColumnOf(
+    rows.map(({ cells }) => cells.map((cell) => valueText(text(cell)))),
+    head.cells.length
+  )
 }
 
 /** `word:count,…` in first-seen order, counted as `statusTally` counts. */
@@ -275,7 +201,7 @@ function shapeCheckTable(table: Element, { openTail }: CheckOptions): void {
   const outcomes: string[] = []
   rows.forEach(({ row, cells }, index) => {
     const arriving = openTail && index === rows.length - 1
-    const pair = arriving ? null : valueAndLimit(cells, text)
+    const pair = arriving ? null : valueAndLimit(cells.map((cell) => valueText(text(cell))))
     const computed = pair ? meetsLimit(pair.quantity, pair.limit.limit) : null
     if (pair && computed !== null) {
       setProps(cells[pair.value], {
@@ -594,10 +520,11 @@ function figureVerdict(valueText_: string, limitText: string, statusText: string
   const quantity = parseQuantity(valueText_)
   const limit = parseLimit(limitText)
   const pass = quantity && limit ? meetsLimit(quantity, limit) : null
-  const outcome = rowOutcome(statusText, pass)
-  if (!outcome) return { tone: 'none', verdict: '' }
-  return { tone: outcomeTone(outcome.word) ?? 'none', verdict: outcome.word }
+  return verdictOf(rowOutcome(statusText, pass))
 }
+
+const verdictOf = (outcome: ReturnType<typeof rowOutcome>): { tone: string; verdict: string } =>
+  outcome ? { tone: outcomeTone(outcome.word) ?? 'none', verdict: outcome.word } : { tone: 'none', verdict: '' }
 
 function figuresFromTable(table: Element): Figure[] {
   const parts = tableParts(table)
@@ -605,12 +532,11 @@ function figuresFromTable(table: Element): Figure[] {
   return parts.rows.map(({ cells }) => {
     const texts = cells.map((cell) => valueText(cellText(cell)))
     const limitAt = texts.findIndex((value, index) => index > 1 && parseLimit(value))
-    const statusAt = texts.findIndex((value, index) => index > 1 && statusTone(value))
     return {
       label: cells[0]?.children ?? [],
       value: cells[1]?.children ?? [],
       limit: limitAt >= 0 ? cells[limitAt].children : [],
-      ...figureVerdict(texts[1] ?? '', limitAt >= 0 ? texts[limitAt] : '', statusAt >= 0 ? texts[statusAt] : ''),
+      ...verdictOf(figureOutcome(texts).outcome),
     }
   })
 }
