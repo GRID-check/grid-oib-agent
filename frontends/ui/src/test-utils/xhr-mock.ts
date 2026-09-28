@@ -19,6 +19,7 @@ export class FakeXhrRequest {
   timeout = 0
   status = 0
   responseText = ''
+  responseHeaders: Record<string, string> = {}
   sent = false
   aborted = false
 
@@ -44,6 +45,11 @@ export class FakeXhrRequest {
     this.add(this.listeners, type, listener)
   }
 
+  getResponseHeader(name: string): string | null {
+    const key = Object.keys(this.responseHeaders).find((header) => header.toLowerCase() === name.toLowerCase())
+    return key === undefined ? null : this.responseHeaders[key]!
+  }
+
   send(body: unknown): void {
     this.body = body
     this.sent = true
@@ -61,10 +67,11 @@ export class FakeXhrRequest {
     this.dispatch(this.uploadListeners, 'progress', { lengthComputable: true, loaded, total })
   }
 
-  /** Complete the request with a status and body. */
-  respond(status: number, responseText = ''): void {
+  /** Complete the request with a status, body and response headers. */
+  respond(status: number, responseText = '', headers: Record<string, string> = {}): void {
     this.status = status
     this.responseText = responseText
+    this.responseHeaders = headers
     this.dispatch(this.listeners, 'load', {})
   }
 

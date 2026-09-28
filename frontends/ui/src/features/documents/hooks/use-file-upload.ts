@@ -21,7 +21,7 @@ import { useLayoutStore } from '@/features/layout/store'
 import type { TrackedFile } from '../types'
 import { mapUploadResponseStatus } from '../utils'
 import { shouldEmitProgress } from '../lib/upload-progress'
-import { runWithConcurrency, UPLOAD_CONCURRENCY } from '../lib/upload-queue'
+import { runWithConcurrency, sendWaitingOutRateLimit, UPLOAD_CONCURRENCY } from '../lib/upload-queue'
 import { validateFileUpload, type ValidationContext } from '../validation'
 import { summarizeValidation } from '../lib/validation-messages'
 import { UploadOrchestrator } from '../orchestrator'
@@ -390,19 +390,24 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
 
           let lastEmitted = 0
           try {
-            const responseText = await xhrUpload({
-              url: uploadUrl,
-              body: formData,
-              signal: controller.signal,
-              onProgress: (loaded, total) => {
-                // `total` counts multipart framing too; scale back to the
-                // file's own bytes so the row's percentage is the file's.
-                const bytes = total > 0 ? Math.min(file.size, Math.round((loaded / total) * file.size)) : 0
-                if (!shouldEmitProgress(lastEmitted, bytes, file.size)) return
-                lastEmitted = bytes
-                setUploadProgress(tracked.id, bytes)
-              },
-            })
+            const responseText = await sendWaitingOutRateLimit(
+              () =>
+                xhrUpload({
+                  url: uploadUrl,
+                  body: formData,
+                  signal: controller.signal,
+                  onProgress: (loaded, total) => {
+                    // `total` counts multipart framing too; scale back to the
+                    // file's own bytes so the row's percentage is the file's.
+                    const bytes = total > 0 ? Math.min(file.size, Math.round((loaded / total) * file.size)) : 0
+                    if (!shouldEmitProgress(lastEmitted, bytes, file.size)) return
+                    lastEmitted = bytes
+                    setUploadProgress(tracked.id, bytes)
+                  },
+                }),
+              (error) => (error instanceof XhrUploadError && error.status === 429 ? error.retryAfterSeconds ?? 1 : null),
+              controller.signal
+            )
 
             const result = JSON.parse(responseText) as UploadDocumentResponse
             // A re-upload replaces a document in place, under the same id: a
@@ -597,6 +602,11 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
     [shelf, trackedFiles, addTrackedFile, removeTrackedFile, unmarkRecentlyDeleted, setError]
   )
 
+  // Retries asked for in the same tick ("Retry all" calls this once per
+  // failed row) go out as ONE batch, so they share the batch's concurrency
+  // cap. One batch per row put every failed file in flight at once, straight
+  // into the rate limit that had failed most of them.
+  const pendingRetriesRef = useRef<{ files: File[]; done: Promise<void> } | null>(null)
   const retryFile = useCallback(
     async (fileId: string) => {
       const file = trackedFiles.find((f) => f.id === fileId)
@@ -608,7 +618,18 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       }
 
       removeTrackedFile(fileId)
-      await uploadFiles([file.file])
+      const pending = pendingRetriesRef.current
+      if (pending) {
+        pending.files.push(file.file)
+        return pending.done
+      }
+      const files = [file.file]
+      const done = Promise.resolve().then(() => {
+        pendingRetriesRef.current = null
+        return uploadFiles(files)
+      })
+      pendingRetriesRef.current = { files, done }
+      await done
     },
     [trackedFiles, removeTrackedFile, uploadFiles, setError, t]
   )

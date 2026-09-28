@@ -209,6 +209,33 @@ const RIS_DOCUMENT_LIMIT = {
 }
 
 /**
+ * Document uploads (`POST /api/archiv/documents/upload`, `/api/documents/upload`,
+ * `/api/session/documents/upload`), one request per file.
+ *
+ * Its own bucket for the same reason `bim-query` has one: on the shared
+ * `api-mutation` budget, dropping a folder of a few hundred files into the
+ * Archiv spent the member's whole minute, and the chat opened next could not
+ * save its answer, create its conversation or name it — every one a 429.
+ * Uploading must not break chatting, and chatting must not refuse an upload.
+ *
+ * Sized for a folder upload at the client's three-at-a-time concurrency: small
+ * files turn around in ~100 ms, so an honest batch peaks near thirty a second,
+ * and the burst clause sits above that. The sustained clause is what a person
+ * does in a minute with a large Einreichung, and the client waits out
+ * `Retry-After` on a refusal rather than failing the file, so a folder bigger
+ * than the minute's budget slows down instead of breaking. What the files cost
+ * to store is the quota's business; what fits in the ingest queue is admission
+ * control's.
+ * @type {LimitRule}
+ */
+const DOCUMENT_UPLOAD_LIMIT = {
+  name: 'document-upload',
+  limit: 600,
+  windowMs: 60 * 1000,
+  burst: { limit: 80, windowMs: 2 * 1000 },
+}
+
+/**
  * The default budget for a mutating API route that has not declared one.
  *
  * `apiRoute` applies this to every POST/PUT/PATCH/DELETE unless the route says
@@ -233,6 +260,7 @@ module.exports = {
   BIM_QUERY_LIMIT,
   BIM_EXPORT_LIMIT,
   RIS_DOCUMENT_LIMIT,
+  DOCUMENT_UPLOAD_LIMIT,
   SHARE_LIMIT,
   TYPING_LIMIT,
   MENTION_LIMIT,
