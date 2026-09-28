@@ -66,18 +66,16 @@ const count = (i: number) => `${i + 1}/${total}`
     <div class="node node--q sheet sheet--dark" data-node="q">
       <p class="meta"><span>{s.frames[0]}</span><span class="meta-count" aria-hidden="true"><span class="here" data-here></span>{count(0)}</span></p>
       <p class="q m-0">{t.chat.question}</p>
-      <!-- The project facts as one line: the same facts the phone lists. -->
-      <p class="facts m-0">
+      <dl class="facts m-0">
         {
-          s.context.map(([k, v], i) => (
-            <>
-              {i > 0 && <span class="facts-sep" aria-hidden="true"> · </span>}
-              <span class="sr-only">{k}: </span>
-              {v}
-            </>
+          s.context.map(([k, v]) => (
+            <div class="fact">
+              <dt>{k}</dt>
+              <dd class="m-0">{v}</dd>
+            </div>
           ))
         }
-      </p>
+      </dl>
     </div>
 
     <!-- 2 · Quellen: one stem, three sources at once. -->
@@ -222,12 +220,12 @@ const count = (i: number) => `${i + 1}/${total}`
   }
 
   /* Two columns and a wire gutter between them: the question over its
-     sources on the left, the decision over its steps on the right. The
-     decision starts a little down, level with the sources that feed it. */
+     sources on the left, the decision over its steps on the right, the steps
+     directly under the decision so B's wire drops straight onto them. */
   .stage {
     position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 0.92fr) 3.25rem minmax(0, 1.08fr);
+    grid-template-columns: minmax(0, 1.08fr) 4.5rem minmax(0, 1fr);
     grid-template-areas:
       'q    . dec'
       'srcs . dec'
@@ -235,7 +233,7 @@ const count = (i: number) => `${i + 1}/${total}`
     grid-template-rows: auto auto 1fr;
     gap: 0.875rem 0;
     border-radius: 1.25rem;
-    padding: 1.125rem;
+    padding: 1.25rem;
     background-color: var(--color-paper);
     background-image:
       linear-gradient(rgb(42 48 31 / 0.05) 1px, transparent 1px),
@@ -267,16 +265,17 @@ const count = (i: number) => `${i + 1}/${total}`
   .node--srcs {
     grid-area: srcs;
   }
-  /* The gap on the right leaves room for B's wire to run out past the card
-     and turn down onto the steps. */
+  /* The decision starts a little down, towards the sources that feed it. */
   .node--dec {
     grid-area: dec;
     align-self: start;
-    margin: 1rem 0.875rem 0 0;
+    margin-top: 2.5rem;
   }
+  /* Air under the decision for B's wire to be seen dropping. */
   .node--impl {
     grid-area: impl;
     align-self: start;
+    margin-top: 0.875rem;
   }
 
   /* ── Sheets: the phone's frames ────────────────────────────────────────── */
@@ -339,20 +338,32 @@ const count = (i: number) => `${i + 1}/${total}`
   /* 1 · Frage */
   .q {
     font-family: var(--font-voice);
-    font-size: clamp(1.0625rem, 0.5rem + 1.9cqi, 1.3125rem);
+    font-size: clamp(1.0625rem, 0.625rem + 1.6cqi, 1.375rem);
     line-height: 1.15;
     text-wrap: pretty;
   }
+  /* The phone's project facts, a label and a value per row. */
   .facts {
-    border-top: 1px solid rgb(238 242 228 / 0.14);
-    padding-top: 0.5rem;
     font-family: var(--font-mono);
     font-size: 0.75rem;
-    line-height: 1.4;
-    color: var(--color-on-dark-strong);
+    line-height: 1.35;
   }
-  .facts-sep {
+  .fact {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-top: 1px solid rgb(238 242 228 / 0.14);
+    padding: 0.3125rem 0;
+  }
+  .fact:last-child {
+    padding-bottom: 0;
+  }
+  .fact dt {
     color: var(--color-on-dark-tag);
+  }
+  .fact dd {
+    text-align: right;
+    color: var(--color-on-dark-strong);
   }
 
   /* 2 · Quellen: the stem runs down the left edge (drawn by the script);

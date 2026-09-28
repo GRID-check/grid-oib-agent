@@ -33,8 +33,6 @@ gsap.registerPlugin(DrawSVGPlugin, ScrollTrigger)
 const SUPPORTS_CHOICE = [0, 2]
 /** Where the stem runs, inside the sources' left padding. */
 const STEM_INSET = 16
-/** How far B's wire runs out beside the decision before it turns down. */
-const ELBOW = 10
 /** How long each stage holds before the chain moves on, in seconds. */
 const READ = [1.2, 1.0, 0.7, 0.9]
 
@@ -145,12 +143,14 @@ export function initChain() {
     const merges = r.map((row, i) => wire(`merge-${i}`, merge(row), FAINT))
     const chosen = SUPPORTS_CHOICE.map((i) => wire(`chosen-${i}`, merge(r[i]), PATH, 2))
 
+    // B's wire drops straight from the decision onto the steps directly
+    // below it, under B's ringed letter.
     const d = b(dec)
     const i = b(impl)
-    const y = outPort ? b(outPort).cy : d.cy
-    const x = Math.min(d.right + ELBOW, i.right - 6)
-    const turn = Math.max(0, Math.min(8, x - d.right))
-    const toImpl = wire('to-impl', `M${d.right},${y} L${x - turn},${y} Q${x},${y} ${x},${y + turn} L${x},${i.y}`, PATH, 2)
+    const key = outPort?.querySelector<HTMLElement>('.opt-key')
+    const kx = key ? b(key).cx : d.cx
+    const x = Math.max(i.x + 12, Math.min(i.right - 12, kx))
+    const toImpl = wire('to-impl', `M${x},${d.bottom} L${x},${i.y}`, PATH, 2)
     return { stem, stubs, dots, merges, chosen, toImpl }
   }
 
