@@ -29,14 +29,22 @@ cannot block scheduled research. It is the same idea as
 Fairness levels — reserve for the latency-sensitive work rather than hoping it
 wins the race.
 
-## Leases, not counters
+## Leases, renewed while the turn runs
 
-Slots are held in a sorted set scored by acquisition time, and a slot older than
-``GRID_TURN_LEASE_SECONDS`` is dropped on the next acquire. A plain
-increment/decrement pair leaks a slot forever whenever a replica is OOM-killed
-mid-turn, and the pool shrinks silently until nobody can chat. A lease
-self-heals: the worst case is that a genuinely long turn's slot is reclaimed
-early, which over-admits by one rather than under-admitting forever.
+Slots are held in a sorted set scored by when the holder last vouched for them,
+and a slot older than ``GRID_TURN_LEASE_SECONDS`` is dropped on the next
+acquire. A plain increment/decrement pair leaks a slot forever whenever a
+replica is OOM-killed mid-turn, and the pool shrinks silently until nobody can
+chat. A lease self-heals.
+
+The lease is RENEWED, every third of it, for as long as the turn runs
+(:func:`admit_turn_async`). It used to be taken once, which made the lease carry
+two jobs that pull opposite ways: it had to outlast the longest turn (a deep
+research fallback runs 40 minutes, the chat deadline is 45) or a live turn's
+slot was reclaimed and the pool over-admitted, and it had to be short so a
+killed replica's slots came back soon. 900 s did neither. Renewed, the lease
+only has to outlast a few missed renewals, so it is short, and no turn is too
+long for it.
 
 Fails OPEN, like every other layer except the budget: a cache outage must never
 be the reason chat stops.
@@ -45,6 +53,7 @@ be the reason chat stops.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import threading
@@ -81,12 +90,18 @@ MAX_ACTIVE_TURNS_PER_ORG = int(os.environ.get("GRID_MAX_ACTIVE_TURNS_PER_ORG", "
 # @environment_variable GRID_TURN_LEASE_SECONDS
 # @category Server
 # @type int
-# @default 900
+# @default 120
 # @required false
-# How long a turn may hold its admission slot before the slot is reclaimed as
-# stale. Must exceed the longest plausible chat turn: too low over-admits, too
-# high leaves slots stranded after a replica is killed mid-turn.
-TURN_LEASE_SECONDS = int(os.environ.get("GRID_TURN_LEASE_SECONDS", "900"))
+# How long an admission slot survives without its turn renewing it. A running
+# turn renews every third of this, so it bounds only how long a replica killed
+# mid-turn keeps its slots, not how long a turn may run.
+TURN_LEASE_SECONDS = int(os.environ.get("GRID_TURN_LEASE_SECONDS", "120"))
+
+
+def _renew_interval() -> float:
+    """Renew three times per lease, so two missed renewals still hold the slot."""
+    return max(TURN_LEASE_SECONDS / 3, 0.01)
+
 
 _GLOBAL_KEY = "turns:active:_global"
 
@@ -130,6 +145,23 @@ return 1
 
 _RELEASE_LUA = "return redis.call('ZREM', KEYS[1], ARGV[1])"
 
+# Re-stamp a slot this turn still holds. A slot that was already reclaimed
+# stays gone: adding it back could take the pool past its limit, which is the
+# over-admission a renewal exists to prevent. Returns 1 when renewed.
+_RENEW_LUA = """
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local lease = tonumber(ARGV[2])
+local member = ARGV[3]
+
+if not redis.call('ZSCORE', key, member) then
+  return 0
+end
+redis.call('ZADD', key, now, member)
+redis.call('EXPIRE', key, lease)
+return 1
+"""
+
 # Per-process fallback, used only when there is no shared store (local dev, a
 # single-replica compose stack, tests). It bounds this replica honestly and says
 # nothing about the fleet — with N replicas the effective ceiling is N x the
@@ -150,6 +182,15 @@ def _local_acquire(key: str, limit: int, member: str, now: float) -> bool:
         for stale in [m for m, at in held.items() if at <= now - TURN_LEASE_SECONDS]:
             held.pop(stale, None)
         if len(held) >= limit:
+            return False
+        held[member] = now
+        return True
+
+
+def _local_renew(key: str, member: str, now: float) -> bool:
+    with _local_lock:
+        held = _local_slots.get(key)
+        if held is None or member not in held:
             return False
         held[member] = now
         return True
@@ -197,6 +238,35 @@ def _release(key: str, member: str) -> None:
     """
     cache.eval_script(_RELEASE_LUA, [key], [member])
     _local_release(key, member)
+
+
+def _renew_all(held: list[str], member: str) -> None:
+    """Re-stamp every slot this turn holds, in the store and the local table.
+
+    Both, for the reason `_release` runs both: the store may have come or gone
+    since the acquire. A slot that is no longer there was reclaimed, which means
+    renewals stopped for a whole lease; that is logged, never re-taken.
+    """
+    now = time.time()
+    for key in held:
+        try:
+            renewed = cache.eval_script(_RENEW_LUA, [key], [now, TURN_LEASE_SECONDS, member])
+        except Exception:  # pragma: no cover - renewal must never break the turn
+            logger.warning("Failed to renew turn slot on %s", key, exc_info=True)
+            continue
+        local = _local_renew(key, member, now)
+        if renewed is not None and int(renewed) == 0 and not local:
+            logger.warning("Turn slot on %s was reclaimed while the turn still ran", key)
+
+
+async def _keep_renewing(held: list[str], member: str) -> None:
+    """Renew the turn's slots until cancelled. A failed round is logged, not fatal."""
+    while True:
+        await asyncio.sleep(_renew_interval())
+        try:
+            await asyncio.to_thread(_renew_all, held, member)
+        except Exception:  # pragma: no cover - _renew_all already contains its errors
+            logger.warning("Turn slot renewal failed", exc_info=True)
 
 
 # The two pools a turn is admitted against, in acquisition order. Global first,
@@ -285,7 +355,8 @@ def admit_turn(organization_id: str | None) -> Iterator[None]:
     """Hold an interactive-turn slot for the duration of the block.
 
     Raises `TurnAdmissionError` when the global or the organization's pool is
-    full. Synchronous — callers on an event loop want `admit_turn_async`.
+    full. Synchronous, and it does not renew the lease, so it suits only a block
+    shorter than `GRID_TURN_LEASE_SECONDS`. A chat turn wants `admit_turn_async`.
     """
     member = uuid.uuid4().hex
     held, refusal = _acquire_all(organization_id, member)
@@ -315,8 +386,7 @@ async def admit_turn_async(organization_id: str | None) -> AsyncIterator[None]:
     `asyncio.to_thread` cannot cancel the worker. A client that hangs up
     mid-acquire cancels this coroutine while the thread runs on and quite
     possibly takes the slot — which would then be held by a turn that never
-    runs, until the lease expires 15 minutes later. A few of those and the pool
-    is gone.
+    runs, until the lease expires. A few of those at once and the pool is gone.
 
     Two things prevent that. Acquisition is ONE thread hop (`_acquire_all`), so
     there is no half-acquired state for a cancellation to land in. And the task
@@ -338,7 +408,12 @@ async def admit_turn_async(organization_id: str | None) -> AsyncIterator[None]:
         raise
     if refusal is not None:
         raise TurnAdmissionError(refusal)
+    renewing = asyncio.create_task(_keep_renewing(held, member)) if held else None
     try:
         yield
     finally:
+        if renewing is not None:
+            renewing.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await renewing
         await asyncio.to_thread(_release_all, held, member)
