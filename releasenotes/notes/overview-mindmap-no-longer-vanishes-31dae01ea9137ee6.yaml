@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    An overview now shows its parts either as a table or as a mindmap, never
+    both. The mindmap that repeated the table no longer appears while the
+    answer arrives and then disappears.
