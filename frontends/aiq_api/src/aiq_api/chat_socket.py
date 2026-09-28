@@ -13,6 +13,11 @@ here, by the turn's sequencer (:class:`TurnWire`), because only the socket owns
 ``seq``: the heartbeat, HITL, the stage events and the errors are its own, and
 they share the counter with everything the workflow yields.
 
+The first frame on every socket is ``hello`` (:class:`~aiq_agent.common.wire_v2.Hello`),
+sent once the version and the caller have passed; the client sends nothing
+before it. Every client message gets an answer or a turn: one this wire does not
+describe, unknown type or not JSON at all, is ``rejected{invalid_message}``.
+
 What a socket holds, in order of the checks on every client message:
 
 * **Who.** The handshake is authenticated like an HTTP request
@@ -61,6 +66,8 @@ from aiq_agent.common.wire_v2 import CancelTurn
 from aiq_agent.common.wire_v2 import EventBody
 from aiq_agent.common.wire_v2 import HeartbeatBody
 from aiq_agent.common.wire_v2 import HeartbeatValue
+from aiq_agent.common.wire_v2 import Hello
+from aiq_agent.common.wire_v2 import HelloValue
 from aiq_agent.common.wire_v2 import InteractionRequestBody
 from aiq_agent.common.wire_v2 import InteractionResolvedBody
 from aiq_agent.common.wire_v2 import InteractionResolvedValue
@@ -99,6 +106,7 @@ from aiq_api.conversation_bus import ConversationBus
 from aiq_api.conversation_bus import get_bus
 from aiq_api.conversation_bus import is_multi_replica_bus
 from aiq_api.internal_api import post_internal_conversation_message
+from aiq_api.startup_banner import deployed_sha
 from aiq_api.workflow_stream import stream_workflow
 from nat.plugin_api import HumanResponse
 from nat.plugin_api import InteractionPrompt
@@ -754,7 +762,13 @@ class ChatSocket:
         return self.caller.get("type") == "internal"
 
     async def serve(self) -> None:
-        """Accept, gate on the version and the caller, then serve messages until the socket closes."""
+        """Accept, gate on the version and the caller, say hello, then serve messages until the socket closes.
+
+        The hello is the server's half of the version gate. ``4426`` tells an
+        old page it is old; the hello tells a current page the server is
+        current, because a server that predates this wire accepts the upgrade,
+        ignores ``?v=2`` and would otherwise leave the page waiting on silence.
+        """
         await self.socket.accept()
         if self.socket.query_params.get("v") != str(WIRE_VERSION):
             await self.socket.close(code=CLOSE_CLIENT_OUTDATED)
@@ -765,6 +779,7 @@ class ChatSocket:
             return
         self.caller = user
         try:
+            await self.socket.send_json(to_frame(Hello(ts=_now_ms(), value=HelloValue(build=deployed_sha()))))
             await self._serve_messages()
         except WebSocketDisconnect:
             logger.debug("Chat socket closed for conversation %s", self.bound)
@@ -777,14 +792,16 @@ class ChatSocket:
             try:
                 raw = await self.socket.receive_json()
             except ValueError:
-                logger.warning("Dropping a non-JSON frame on conversation %s", self.bound)
+                await self._reject(None, "unknown", "invalid_message", "Not a JSON message.")
                 continue
             await self._receive(raw)
 
     async def _receive(self, raw: object) -> None:
         kind = _client_type(raw)
         if kind is None:
-            logger.warning("Dropping a client message of unknown type on conversation %s", self.bound)
+            # Answered, never dropped: a client that sent something this wire
+            # does not have must hear so, or it waits on silence.
+            await self._reject(raw, "unknown", "invalid_message", "Unknown message type.")
             return
         try:
             message = CLIENT_MESSAGE.validate_python(raw)

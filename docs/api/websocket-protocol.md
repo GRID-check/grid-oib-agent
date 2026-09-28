@@ -31,6 +31,17 @@ ws://<host>/websocket?v=2&projectId=<uuid>&conversationId=<session_id>
   (`CLOSE_CLIENT_OUTDATED`); the client turns that into "Piloti was updated,
   reload". An older bundle gets its ordinary connection-failed banner: nothing
   is said to it in its own dialect.
+- **The server speaks first: `hello`.** Once the version and the caller have
+  passed, the first frame on every socket is
+  `{"v":2,"type":"CUSTOM","name":"hello","ts":…,"value":{"build":"<sha>"}}`
+  (`build` is `GRID_GIT_SHA`, or `unknown`, as `/health` has it). It is the
+  other half of the version gate: `4426` tells an old page it is old, `hello`
+  tells a current page the server is current. A server that predates this wire
+  (NAT's stock socket) accepts the upgrade, ignores `?v=2` and never closes
+  with `4426`, so without a hello the page cannot tell it from a server that is
+  thinking. The client sends nothing until the hello arrives (see
+  [The client](#the-client)). It is a connection frame, not a turn's: no
+  `conversation_id`, `turn_id` or `seq`, never on the stream, never replayed.
 - **A socket serves one conversation**, the one the scope route authorized and
   signed into the context envelope. A client message naming another
   conversation is refused with `rejected{conversation_mismatch}`; the socket
@@ -154,7 +165,7 @@ defaults. No field is ever `null`.
 | `CUSTOM` `stage` | `{stage, status: ready \| empty \| failed, payload?}` | A post-answer stage ([`post-answer-stages.md`](../architecture/post-answer-stages.md) §4). The only events after `RUN_FINISHED`, on the same `seq`. |
 | `CUSTOM` `interaction_request` | `{interaction_id, input: text \| choice, text, options[{id,label}], placeholder?, expires_at}` | The turn waits for its asker. Only the asker is offered the controls. |
 | `CUSTOM` `interaction_resolved` | `{interaction_id, outcome: answered \| expired \| cancelled}` | Close the prompt, in every tab and for spectators. |
-| `CUSTOM` `rejected` | `{of, code, message?}`, `seq: 0` | A client message was refused (`auth_expired`, `conversation_mismatch`, `duplicate_turn`, `not_asker`, `no_pending_interaction`, `turn_not_found`, `invalid_message`). Out of band: never replayed, never ends a turn. |
+| `CUSTOM` `rejected` | `{of, code, message?}`, `seq: 0` | A client message was refused (`auth_expired`, `conversation_mismatch`, `duplicate_turn`, `not_asker`, `no_pending_interaction`, `turn_not_found`, `invalid_message`). Out of band: never replayed, never ends a turn. `of` is the refused message's `type`, or `unknown` for a frame that is not JSON or names a type this wire does not have: every client message gets an answer, never silence. |
 
 **Not events, on purpose:** there is no status event (a status line is a
 `status` step, persisted as one), no run hand-off event
@@ -250,7 +261,8 @@ stopped.
 ## Client → server
 
 Four messages, each with `v: 2` and `conversation_id`. Unknown fields are
-refused (`rejected{invalid_message}`).
+refused (`rejected{invalid_message}`), and so is an unknown `type`
+(`rejected{of: unknown, code: invalid_message}`).
 
 | `type` | Fields | Notes |
 |---|---|---|

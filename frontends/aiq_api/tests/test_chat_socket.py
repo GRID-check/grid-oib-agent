@@ -3,7 +3,8 @@
 Driven through ``ChatSocket.serve`` over an in-memory socket, with NAT's session
 API stood in by a fake whose run yields what a turn's ``_run`` yields: wire
 bodies. Every frame the socket writes is checked against the contract
-(``WIRE_EVENT``), so a frame the reader could not parse fails here.
+(``HELLO`` for the first, ``WIRE_EVENT`` for the rest), so a frame the reader
+could not parse fails here.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from aiq_agent.common.human_prompt import build_human_prompt
 from aiq_agent.common.human_prompt import extract_user_response
+from aiq_agent.common.wire_v2 import HELLO
 from aiq_agent.common.wire_v2 import WIRE_EVENT
 from aiq_agent.common.wire_v2 import AnswerSnapshot
 from aiq_agent.common.wire_v2 import KeyedCard
@@ -58,6 +60,7 @@ from nat.plugin_api import InteractionPrompt
 CONV = "conv-1"
 _SECRET = "test-envelope-secret"  # pragma: allowlist secret (test signing key)
 _DISCONNECT = object()
+_NOT_JSON = object()
 USERS = {"tok-asker": {"sub": "user_asker", "name": "Anna Asker"}, "tok-colleague": {"sub": "user_colleague"}}
 
 
@@ -85,6 +88,9 @@ class FakeSocket:
         self.scope = {"type": "websocket", "path": "/websocket", "headers": raw, "client": ("127.0.0.1", 1)}
         self.query_params = QueryParams(query)
         self.inbox: asyncio.Queue[Any] = asyncio.Queue()
+        #: Every frame written, in order, the hello included.
+        self.frames: list[dict] = []
+        #: The turn events among them: everything but the hello.
         self.sent: list[dict] = []
         self.accepted = False
         self.closed_with: int | None = None
@@ -99,9 +105,15 @@ class FakeSocket:
         item = await self.inbox.get()
         if item is _DISCONNECT:
             raise WebSocketDisconnect(1000)
+        if item is _NOT_JSON:
+            raise json.JSONDecodeError("Expecting value", "<frame>", 0)
         return item
 
     async def send_json(self, frame: dict) -> None:
+        self.frames.append(frame)
+        if frame.get("name") == "hello":
+            HELLO.validate_python(frame)
+            return
         WIRE_EVENT.validate_python(frame)
         self.sent.append(frame)
 
@@ -315,7 +327,41 @@ async def test_any_other_wire_version_is_closed_4426(harness, query):
 
     assert sock.accepted  # accepted first, or the browser sees 1006 instead of the code
     assert sock.closed_with == 4426
+    assert sock.frames == []  # no hello: the page is told it is old, not that the server is current
+
+
+async def test_the_first_frame_is_hello_before_any_client_message(harness, monkeypatch):
+    monkeypatch.setenv("GRID_GIT_SHA", "abc1234")
+    sock = harness().connect()
+    await until(lambda: sock.frames)
+
+    [hello] = sock.frames
+    assert hello["v"] == 2
+    assert hello["type"] == "CUSTOM"
+    assert hello["name"] == "hello"
+    assert hello["value"] == {"build": "abc1234"}
+    # A connection frame, not a turn's: nothing a fold or a cursor could key on.
+    assert not {"conversation_id", "turn_id", "seq"} & hello.keys()
     assert sock.sent == []
+
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: sock.events())
+    assert sock.frames[0] is hello  # and it stays the first
+
+
+async def test_a_build_without_a_sha_says_unknown_like_health(harness, monkeypatch):
+    monkeypatch.delenv("GRID_GIT_SHA", raising=False)
+    sock = harness().connect()
+    await until(lambda: sock.frames)
+
+    assert sock.frames[0]["value"] == {"build": "unknown"}
+
+
+async def test_an_unauthenticated_socket_gets_no_hello(harness):
+    sock = harness().connect(token="tok-forged", headers=[(b"host", b"public.test")])
+    await until(lambda: sock.closed_with is not None)
+
+    assert sock.frames == []
 
 
 async def test_an_external_caller_without_a_valid_token_is_closed_1008(harness):
@@ -392,17 +438,35 @@ async def test_an_expired_token_runs_nothing_and_says_so(harness):
     assert h.sessions.opened == []
 
 
-async def test_a_malformed_message_is_refused_and_an_unknown_one_dropped(harness):
+async def test_a_malformed_message_is_refused(harness):
     h = harness()
     sock = h.connect()
 
-    sock.client(type="dance")
-    sock.inbox.put_nowait("not an object")
     sock.client(type="user_message", message_id="t1", text="?", include_shelves=["archiv"])
     await until(lambda: sock.rejected())
 
     assert sock.rejected() == [{"of": "user_message", "code": "invalid_message"}]
     assert h.sessions.opened == []
+
+
+async def test_a_message_this_wire_does_not_have_is_answered_never_dropped(harness):
+    """NAT's stock socket met a type it did not know with a frame the page could not read; silence is no better."""
+    h = harness()
+    sock = h.connect()
+
+    sock.client(type="dance", turn_id="t9")
+    sock.inbox.put_nowait("not an object")
+    sock.inbox.put_nowait(_NOT_JSON)
+    await until(lambda: len(sock.rejected()) == 3)
+
+    assert [value["of"] for value in sock.rejected()] == ["unknown"] * 3
+    assert {value["code"] for value in sock.rejected()} == {"invalid_message"}
+    # The refusal names the turn the message named, so a client can tell which of its messages it was.
+    assert sock.sent[0]["turn_id"] == "t9"
+    assert h.sessions.opened == []
+
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: sock.events())  # the socket serves on
 
 
 # ---------------------------------------------------------------------------

@@ -13,11 +13,12 @@
  */
 
 import type { z } from 'zod'
-import { clientMessageSchema, wireEventSchema } from './wire-v2.generated'
+import { clientMessageSchema, helloSchema, wireEventSchema } from './wire-v2.generated'
 
 export {
   answerSnapshotSchema,
   clientMessageSchema,
+  helloSchema,
   keyedCardSchema,
   traceLaneSchema,
   turnResultSchema,
@@ -32,6 +33,8 @@ export const CLOSE_CLIENT_OUTDATED = 4426
 
 /** Every server-to-client event, after parsing (defaults applied). */
 export type WireEvent = z.infer<typeof wireEventSchema>
+/** The server's first frame on a socket: it speaks this wire. A connection frame, not a turn's. */
+export type Hello = z.infer<typeof helloSchema>
 /** Every client-to-server message, as the client builds it. */
 export type ClientMessage = z.input<typeof clientMessageSchema>
 
@@ -52,5 +55,14 @@ export type TurnResult = Extract<WireEvent, { type: 'RUN_FINISHED' }>['result']
  */
 export const parseWireEvent = (raw: unknown): WireEvent | null => {
   const parsed = wireEventSchema.safeParse(raw)
+  return parsed.success ? parsed.data : null
+}
+
+/**
+ * The socket's first frame, or `null` when it is anything else: a server that
+ * opens with something other than a v2 hello does not speak this wire.
+ */
+export const parseHello = (raw: unknown): Hello | null => {
+  const parsed = helloSchema.safeParse(raw)
   return parsed.success ? parsed.data : null
 }

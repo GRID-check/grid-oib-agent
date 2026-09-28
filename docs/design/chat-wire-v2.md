@@ -238,7 +238,20 @@ are the models. What follows is the decision, per event.
 | `CUSTOM` `stage` | `{stage, status: ready \| empty \| failed, payload?}` | The post-answer stages. They are the only events after `RUN_FINISHED`, on the same `seq` |
 | `CUSTOM` `interaction_request` | `{interaction_id, input: text \| choice, text, options[{id,label}], placeholder?, expires_at}` | HITL, over NAT's `prompt_user_input` (below). Only the two shapes a producer builds exist. The legacy `approval` and `multiple_choice`, and the never-produced checkbox, dropdown, notification and oauth inputs, are gone |
 | `CUSTOM` `interaction_resolved` | `{interaction_id, outcome: answered \| expired \| cancelled}` | Closes the prompt in every tab and for spectators, who used to learn it only from the next frame |
-| `CUSTOM` `rejected` | `{of, code, message?}`, with `seq: 0` | A client message was refused (`auth_expired`, `conversation_mismatch`, `duplicate_turn`, `not_asker`, `no_pending_interaction`, `turn_not_found`, `invalid_message`). It is out of band and never ends a turn. That is why an unauthorised Stop is not a `RUN_ERROR` |
+| `CUSTOM` `rejected` | `{of, code, message?}`, with `seq: 0` | A client message was refused (`auth_expired`, `conversation_mismatch`, `duplicate_turn`, `not_asker`, `no_pending_interaction`, `turn_not_found`, `invalid_message`). It is out of band and never ends a turn. That is why an unauthorised Stop is not a `RUN_ERROR`. `of: unknown` answers a frame with no type this wire has, which used to be dropped: a client never waits on silence |
+
+**One frame is not a turn's: `hello`.** `{v: 2, type: CUSTOM, name: hello, ts,
+value: {build}}` is the server's first frame on every socket, sent once the
+version and the caller have passed (`ChatSocket.serve`). It is not in the
+`WireEvent` union and carries no `conversation_id`, `turn_id` or `seq`, because
+nothing about it belongs to a turn: the fold never sees it, the stream never
+holds it. It closes the other half of the version gate. `4426` lets a new
+server refuse an old page; nothing let a new page refuse an old server, and a
+dev deploy that rolled the agent back to NAT's stock socket proved it: that
+server accepted the upgrade, ignored `?v=2`, answered `user_message` with a
+frame the page could not read, and the page showed „Denkt nach…" forever. The
+client now sends nothing before the hello, and treats a socket that stays
+silent, or opens with anything else, as a failed attempt (§e.2).
 
 **Not in the set, on purpose.** There is no `run_handoff` event, because the
 commission is the turn's last act and `RUN_FINISHED.result.run` carries it
