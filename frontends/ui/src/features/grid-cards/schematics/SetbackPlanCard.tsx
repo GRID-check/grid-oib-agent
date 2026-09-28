@@ -12,8 +12,11 @@
  * Under the plan, where `coverage` or `density` is given, a readout of
  * Bebauungsgrad (built area / parcel) and GFZ (BGF / parcel) against the
  * Bebauungsplan's limits: the retired `density_check` card's job. The ratios
- * are COMPUTED here from the areas ({@link densityReadout}); the model supplies
- * areas and limits only, and a ratio it did state is shown as stated.
+ * are COMPUTED here from the areas ({@link densityReadout}) and the computation
+ * wins: a ratio the model stated is shown only where no areas give one, and a
+ * stated ratio that disagrees with the areas is named beside the computed one.
+ * A pure density question (no parcel geometry, `sides` empty) draws the
+ * readout and no plan: a parcel nobody gave is never drawn to scale.
  */
 
 import { type FC } from 'react'
@@ -36,10 +39,10 @@ import type { DimensionCheckData, NormReferenceData, SetbackSideData } from './t
 
 interface SetbackPlanCardProps {
   title: string
-  parcel_width_m: number
-  parcel_depth_m: number
-  building_width_m: number
-  building_depth_m: number
+  parcel_width_m?: number | null
+  parcel_depth_m?: number | null
+  building_width_m?: number | null
+  building_depth_m?: number | null
   sides: SetbackSideData[]
   reference?: NormReferenceData | null
   parcel_area_m2?: number | null
@@ -49,37 +52,59 @@ interface SetbackPlanCardProps {
   density?: DimensionCheckData | null
 }
 
-/** A ratio's check with its value derived from two areas when the model left it null. */
-function derivedRatio(check: DimensionCheckData, numerator: number | null, denominator: number): DimensionCheckData {
-  if (check.value != null) return check
-  if (numerator == null || !(denominator > 0)) return { ...check, status: 'needs_input' }
+/** How far a stated ratio may sit from the computed one and still be the same figure (rounding). */
+const RATIO_TOLERANCE = 0.01
+
+/**
+ * A ratio's check with its value derived from two areas. Where the areas give
+ * one, the computation wins over a value the model typed (guardrail 1): an
+ * agreeing value is kept, a disagreeing one is named in the label
+ * (`stated`) beside the computed value and status.
+ */
+function derivedRatio(
+  check: DimensionCheckData,
+  numerator: number | null,
+  denominator: number | null,
+  stated: (value: number) => string
+): DimensionCheckData {
+  if (numerator == null || denominator == null || !(denominator > 0)) {
+    return check.value != null ? check : { ...check, status: 'needs_input' }
+  }
   const ratio = numerator / denominator
   const value = Math.round((check.unit === '%' ? ratio * 100 : ratio) * 100) / 100
-  if (check.required == null) return { ...check, value }
+  const disagrees = check.value != null && Math.abs(check.value - value) > Math.max(RATIO_TOLERANCE, Math.abs(value) * RATIO_TOLERANCE)
+  const label = disagrees && check.value != null ? `${check.label} (${stated(check.value)})` : check.label
+  if (check.required == null) return { ...check, label, value }
   // A density limit is a ceiling unless the Bebauungsplan says otherwise.
   const pass = check.comparator === '>=' ? value >= check.required : value <= check.required
-  return { ...check, value, status: pass ? 'pass' : 'fail' }
+  return { ...check, label, value, status: pass ? 'pass' : 'fail' }
 }
 
-/** Bebauungsgrad and GFZ, derived where the model gave only areas. */
+/** Bebauungsgrad and GFZ, derived from the areas wherever they are given. */
 export function densityReadout({
   parcelArea,
   footprintArea,
   grossFloorArea,
   coverage,
   density,
+  stated = (value) => String(value),
 }: {
-  parcelArea: number
-  footprintArea: number
+  parcelArea: number | null
+  footprintArea: number | null
   grossFloorArea: number | null
   coverage?: DimensionCheckData | null
   density?: DimensionCheckData | null
+  /** A stated ratio that disagrees with the areas, as the label names it. */
+  stated?: (value: number) => string
 }): DimensionCheckData[] {
   return [
-    ...(coverage ? [derivedRatio(coverage, footprintArea, parcelArea)] : []),
-    ...(density ? [derivedRatio(density, grossFloorArea, parcelArea)] : []),
+    ...(coverage ? [derivedRatio(coverage, footprintArea, parcelArea, stated)] : []),
+    ...(density ? [derivedRatio(density, grossFloorArea, parcelArea, stated)] : []),
   ]
 }
+
+const product = (a: number | null | undefined, b: number | null | undefined): number | null =>
+  a != null && b != null ? a * b : null
 
 const sideName = (side: SetbackSideData['side'], t: Translator): string => {
   switch (side) {
@@ -94,28 +119,53 @@ const sideName = (side: SetbackSideData['side'], t: Translator): string => {
   }
 }
 
-export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
-  title,
-  parcel_width_m: parcelW,
-  parcel_depth_m: parcelD,
-  building_width_m: buildingW,
-  building_depth_m: buildingD,
-  sides,
-  reference,
-  parcel_area_m2: parcelArea,
-  footprint_area_m2: footprintArea,
-  gross_floor_area_m2: grossFloorArea,
-  coverage,
-  density,
-}) => {
+export const SetbackPlanCard: FC<SetbackPlanCardProps> = (props) => {
+  const { title, sides, reference, coverage, density } = props
   const t = useTranslations('chat')
   const readout = densityReadout({
-    parcelArea: parcelArea ?? parcelW * parcelD,
-    footprintArea: footprintArea ?? buildingW * buildingD,
-    grossFloorArea: grossFloorArea ?? null,
+    parcelArea: props.parcel_area_m2 ?? product(props.parcel_width_m, props.parcel_depth_m),
+    footprintArea: props.footprint_area_m2 ?? product(props.building_width_m, props.building_depth_m),
+    grossFloorArea: props.gross_floor_area_m2 ?? null,
     coverage,
     density,
+    stated: (value) => t('cards.schematics.setback.stated', { value: fmtNum(value) }),
   })
+  // The card's verdict is every check it draws, the density readout included.
+  const verdict = worstStatus([...sides.map((s) => s.status), ...readout.map((check) => check.status)])
+  const { parcel_width_m: parcelW, parcel_depth_m: parcelD, building_width_m: buildingW, building_depth_m: buildingD } = props
+  const drawable = parcelW != null && parcelD != null && buildingW != null && buildingD != null
+  return (
+    <SchematicCard icon={LandPlot} title={title} verdict={verdict} reference={reference}>
+      {drawable && (
+        <SetbackPlanDrawing
+          title={title}
+          sides={sides}
+          parcelW={parcelW}
+          parcelD={parcelD}
+          buildingW={buildingW}
+          buildingD={buildingD}
+        />
+      )}
+      {readout.length > 0 && <DimChecksList checks={readout} className={drawable ? 'border-t pt-2' : undefined} />}
+      {sides.some((s) => s.status === 'fail') && (
+        <p className="text-xs font-medium" style={{ color: statusColor('fail') }}>
+          {t('cards.schematics.setback.tooClose')}
+        </p>
+      )}
+    </SchematicCard>
+  )
+}
+
+/** The plan to scale, and the setback checks under it. */
+const SetbackPlanDrawing: FC<{
+  title: string
+  sides: SetbackSideData[]
+  parcelW: number
+  parcelD: number
+  buildingW: number
+  buildingD: number
+}> = ({ title, sides, parcelW, parcelD, buildingW, buildingD }) => {
+  const t = useTranslations('chat')
   const side = (name: SetbackSideData['side']): SetbackSideData | undefined =>
     sides.find((s) => s.side === name)
   const left = side('left')
@@ -170,12 +220,7 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
   }))
 
   return (
-    <SchematicCard
-      icon={LandPlot}
-      title={title}
-      verdict={worstStatus(sides.map((s) => s.status))}
-      reference={reference}
-    >
+    <>
       <SchematicCanvas viewW={viewW} viewH={viewH} label={title}>
         {/* parcel */}
         {sketchRect(px, py, PW, PD, 'parcel', { strokeWidth: 1.5 })}
@@ -302,13 +347,6 @@ export const SetbackPlanCard: FC<SetbackPlanCardProps> = ({
       </SchematicCanvas>
 
       <DimChecksList checks={checks} />
-      {readout.length > 0 && <DimChecksList checks={readout} className="border-t pt-2" />}
-
-      {sides.some((s) => s.status === 'fail') && (
-        <p className="text-xs font-medium" style={{ color: statusColor('fail') }}>
-          {t('cards.schematics.setback.tooClose')}
-        </p>
-      )}
-    </SchematicCard>
+    </>
   )
 }

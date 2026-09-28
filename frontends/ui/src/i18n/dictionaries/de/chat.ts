@@ -579,6 +579,7 @@ export const chat: typeof en.chat = {
         building: 'Gebäude',
         street: 'STRASSE',
         tooClose: 'Mindestens ein Abstand unterschreitet das geforderte Maß.',
+        stated: 'angegeben: {value}',
       },
       stair: {
         section: 'SCHNITT',

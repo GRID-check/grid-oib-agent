@@ -580,6 +580,7 @@ export const chat = {
         building: 'Building',
         street: 'STREET',
         tooClose: 'At least one setback falls short of the required distance.',
+        stated: 'stated: {value}',
       },
       stair: {
         section: 'SECTION',
