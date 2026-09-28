@@ -289,7 +289,7 @@ def _card_strings(value: Any) -> list[str]:
 
 
 def _has_shape(shape: str, prose: str, cards: list[Any]) -> bool:
-    """Whether the delivered answer has this shape: variant tabs, a table, a drawing.
+    """Whether the delivered answer has this shape: variant tabs, a table, a drawing, a dialect block, or none.
 
     Read off the prose AND the cards, as the reader sees them: a Markdown table
     or a ```mermaid fence inside a surface's `Text` counts like one in the prose.
@@ -305,7 +305,28 @@ def _has_shape(shape: str, prose: str, cards: list[Any]) -> bool:
         return bool(re.search(r"^\s*\|.*\|\s*$", text, re.MULTILINE))
     if shape == "diagram":
         return "```mermaid" in text
+    blocks = _directive_blocks(text)
+    if shape == "plain":
+        # The negative set: a short factual question answered with no block at all.
+        return not blocks
+    if shape in _DIALECT_BLOCKS:
+        return shape in blocks
     return False
+
+
+#: The answer dialect's block names (``common/answer_dialect.DIRECTIVE_BLOCKS``),
+#: spelled out so the suite reads the renderer's vocabulary without importing
+#: the agent into the harness process.
+_DIALECT_BLOCKS = frozenset(
+    {"check", "procedure", "cases", "metrics", "compare", "details", "actions", "not-found", "subsumption"}
+)
+_DIRECTIVE_OPENER = re.compile(r"^[ \t]*:{3,}[ \t]*([A-Za-z][\w-]*)", re.MULTILINE)
+
+
+def _directive_blocks(text: str) -> set[str]:
+    """The dialect's block names an answer opens, outside code fences."""
+    outside = re.sub(r"^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[ \t]*$", "", text, flags=re.MULTILINE | re.DOTALL)
+    return {name for name in _DIRECTIVE_OPENER.findall(outside) if name in _DIALECT_BLOCKS}
 
 
 def check(question: dict, run: Run, envelope: dict | None) -> dict[str, bool]:

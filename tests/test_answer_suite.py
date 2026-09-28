@@ -392,6 +392,16 @@ def test_a_table_or_a_drawing_in_a_card_counts(tmp_path):
     assert suite.check(drawing, run, {"cards": []})["shape:diagram"] is False
 
 
+def test_a_dialect_block_counts_as_its_shape_and_plain_means_none(tmp_path):
+    check_answer = ":::check\n| A | Status |\n|---|---|\n| x | offen |\n:::"
+    run = suite.Run(question_id="q", run=1, answer=check_answer)
+    assert suite.check({"expect": {"shape": "check"}}, run, {"cards": []})["shape:check"] is True
+    assert suite.check({"expect": {"shape": "plain"}}, run, {"cards": []})["shape:plain"] is False
+    in_code = suite.Run(question_id="q", run=1, answer="```text\n:::check\n```\nKurz: **REI 60** [1].")
+    assert suite.check({"expect": {"shape": "plain"}}, in_code, {"cards": []})["shape:plain"] is True
+    assert suite.check({"expect": {"shape": "check"}}, in_code, {"cards": []})["shape:check"] is False
+
+
 def test_a_repair_after_the_answer_is_neither_the_final_call_nor_a_research_round(tmp_path):
     record, log = _recorded_turn(tmp_path)
     rows = [json.loads(line) for line in record.read_text().splitlines()]
