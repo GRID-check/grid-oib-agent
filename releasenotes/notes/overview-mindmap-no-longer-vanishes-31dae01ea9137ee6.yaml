@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    An overview no longer draws a mindmap of the same parts its table
+    already lists. That drawing used to appear while the answer arrived
+    and then disappear when it finished. An overview now shows the parts
+    either as a table or as a mindmap, never both.
