@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    Questions on fire safety for garages, covered parking and parking decks are
+    now answered from OIB-Richtlinie 2.2 and its explanatory notes. The search
+    used to miss this Richtlinie and return excerpts from its list of changes.

@@ -1,8 +1,8 @@
 # Chat
 
-The chat interface supports two communication modes: SSE (Server-Sent Events) streaming for simple conversations, and WebSocket for real-time interaction with full HITL (human-in-the-loop) support.
+The chat talks to the agent over a WebSocket, for real-time interaction with full HITL (human-in-the-loop) support.
 
-On small screens (below the `md` breakpoint) the chat is mobile-first: the sessions and data-sources panels open as full-width overlays capped at their desktop width, the research panel takes over the whole viewport while open, and the project sidebar is replaced by a top bar with a navigation drawer.
+On small screens (below the `md` breakpoint) the chat is mobile-first: the sessions and data-sources panels open as full-width overlays capped at their desktop width, and the project sidebar is replaced by a top bar with a navigation drawer.
 
 ## Starting a conversation
 
@@ -22,7 +22,7 @@ Before the line is *status*, and none of it is clickable. Who can read the chat 
 - **shared with the whole project or organization** → an **access chip** (`Projekt`, `Organisation`) and *no* faces. That audience is a rule, not a list — it changes as people join the project — so avatars would show a handful of people and imply only they can read it.
 - **private, just you** → neither. There is nothing to report.
 
-Alongside it, while deep research is running, a spinner — so the "still working" signal survives scrolling past the thread's own progress banner.
+Alongside it, while deep research is running, a spinner — so the "still working" signal survives scrolling past the run block in the thread.
 
 Either way the full picture (the rule *and* anyone individually invited) is in the sharing surface, one click away in the menu. On small screens the faces and the access chip are hidden below the `sm` breakpoint, so the same picture also lives at the top of the **…** menu, where it is never further than one tap away.
 
@@ -32,11 +32,10 @@ After the line is *action*. **New chat** is the only one kept in the open. The r
 |---|---|
 | **Rename chat** | there is a chat to rename — it opens the same in-place editor a click on the title opens (the menu entry is how you find it; the click is the shortcut). Enter or clicking away commits, Escape cancels — the same rename action as the chat-history panel |
 | **Share** | collaboration is enabled and this thread is reachable — the one door to the sharing surface, for every participant, not only owners. On a brand-new chat the thread only reaches the server with its first message, so this entry arrives a moment after you send it rather than being there from the first keystroke |
-| **Research report** | this thread already has a report, one is running, or the panel is open |
 
 Everything in this pill comes and goes during a conversation — the participants resolve a moment after the chat opens, research starts and finishes, the menu appears with the first thing worth listing — so arrivals animate: the pill grows into its new width and the buttons slide rather than jumping. If your system is set to reduce motion, they simply appear.
 
-If none of them applies, there is no menu button either. The main way into a report is still the "view report" action on the answer that produced it — the menu entry is for coming back after you have closed the panel and scrolled on — and the panel closes with its own ✕ or Escape.
+If none of them applies, there is no menu button either. There is no report entry here: a research report is read in the run block of the thread that commissioned it (see [Deep research vs simple chat](#deep-research-vs-simple-chat) below).
 
 The whole header is hidden on an empty chat that has not started yet, apart from the sessions and navigation doors.
 
@@ -104,7 +103,7 @@ When collaboration is enabled (ADR-0032…0036), a chat can have a named audienc
 
 **Waiting for a person.** A message that addresses a person by name hands the thread over to them: the agent deliberately stays silent until they answer, and a banner says who is being waited for — with, per person, the question they were asked and who asked it, so a thread waiting on two colleagues still shows both. The banner always offers an escape — **Continue without waiting**, **Ask Piloti instead** (pre-fills an agent mention), or **Ask {name} back** (re-mentions the asker) — and those offers really route as mentions, so the agent is asked rather than the text sitting in the chat. When the awaited person answers, a transient offer appears — "{name} replied — let Piloti carry on?" — which pre-fills the composer with an agent mention so Piloti actually picks the thread back up. In a thread with several people talking, a plain message is a remark for everyone, and the addressee line says so; an offer can switch the thread to *answer only when mentioned* mode.
 
-**Watching a colleague's turn.** When somebody else in a shared chat asks Piloti a question, you do not wait at a spinner: the answer streams in as it is written and the *Herleitung* builds alongside it, the same reasoning chain the person who asked is looking at. If Piloti puts a question back to them, you are told that the chat is waiting on an answer — the question is theirs to answer, so no control appears for you. The live view is a preview, not the record: the finished answer replaces it a moment later, with its sources, confidence and feedback controls. Where live delivery is not available in your deployment, this falls back to a short "Piloti is answering {name}'s question" strip and the finished answer, exactly as before.
+**Watching a colleague's turn.** When somebody else in a shared chat asks Piloti a question, you do not wait at a spinner: the answer streams in as it is written and the *Herleitung* builds alongside it, the same reasoning chain the person who asked is looking at. If Piloti puts a question back to them, you are told that the chat is waiting on an answer — the question is theirs to answer, so no control appears for you. You see the asker's own answer as it is written: its title, its sources and its cards, in the same layout they get. Only the feedback, copy and card-decision controls are theirs, so those do not appear for you. Where live delivery is not available in your deployment, this falls back to a short "Piloti is answering {name}'s question" strip and the finished answer, exactly as before.
 
 **Who is writing.** While one or more colleagues are composing, their names and three dots appear at the foot of the chat — deliberately a different shape from Piloti's own status, so a pause is legible at a glance as a person thinking rather than the assistant working. It survives a pause mid-sentence on purpose, rather than blinking off the moment someone stops to think or to check a document; it disappears when they send, clear the box or switch chats, and otherwise after about 45 seconds without a keystroke. A closed tab or a dropped connection takes a few seconds longer, because nothing can announce that on the way out — the claim simply expires. Nothing about it is stored.
 
@@ -136,62 +135,51 @@ Switching chats is blocked during shallow thinking (WebSocket stream) or a HITL 
 
 ## Communication modes
 
-### SSE streaming (/api/chat)
-
-POST `/api/chat` proxies to the backend's `/chat/stream` endpoint. The response is an SSE stream of text chunks. The frontend appends chunks to the last assistant message until the stream completes.
-
-### SSE streaming (/api/generate)
-
-POST `/api/generate` proxies to `/generate/stream`. This endpoint emits richer typed SSE events:
-
-| Event type | Purpose |
-|---|---|
-| `thinking` | Intermediate thoughts displayed in the Thinking tab |
-| `complete` | End of stream marker |
-| `error` | Error during generation |
-| `prompt` | Agent asking for user input (HITL) |
-| `intermediate` | Partial content for the Details Panel |
-
 ### WebSocket
 
-A persistent WebSocket connection to `ws://<host>/websocket` enables real-time bidirectional communication. The `NATWebSocketClient` connects automatically when the user sends a message. Messages follow the NAT protocol:
+A persistent WebSocket connection to `ws://<host>/websocket?v=2` carries the
+chat, opened when the user sends a message (or focuses the composer in a shared
+thread). It speaks chat wire v2 ([`websocket-protocol.md`](../api/websocket-protocol.md)):
+the question goes out as one `user_message`, and the answer comes back as typed
+events, the reasoning steps, the prose, its cards and sources, and a final
+result that is what gets saved. **Stop** cancels the turn on the server and
+keeps the answer so far, marked as stopped.
 
-| NAT type | Purpose |
-|---|---|
-| `system_response` | Final or streaming response content |
-| `system_intermediate` | Thinking steps and tool calls |
-| `system_interaction` | Human prompt requiring user response |
-| `error` | Error with auth or processing |
-
-The WebSocket supports auto-reconnection with exponential backoff (3 attempts, 1s delay) and an `onBeforeReconnect` callback to refresh auth cookies before the upgrade handshake.
+A dropped connection reopens on its own (jittered backoff, the sign-in cookie
+refreshed first) and picks the running answer up where it left off; a reload
+does the same from the answer's start. After a Piloti update the page asks to
+be reloaded.
 
 ## Deep research vs simple chat
 
-Simple chat sends a single message through the SSE or WebSocket path and streams the assistant response back.
+Simple chat sends a single message over the WebSocket and streams the assistant response back.
 
-Deep research submits a job to the backend and receives progress via SSE events through the `/generate/stream` endpoint. The `DeepResearchBanner` component shows submission, success, failure, cancellation, and expiry states. Users can navigate away and reconnect to an active job on return. The Research Panel displays:
+Deep research commissions a run, and the run is one block in the thread that
+asked for it: a stand naming where the run is (Planen · Recherchieren · Prüfen
+· Schreiben · Abgelegt), the findings each round produced, „Jetzt schreiben" and
+„Abbrechen" while it goes, and the report with its findings matrix once it is
+written ([the run block](../design/run-block.md), ADR-0062). You can navigate
+away and come back: the block picks the run's stream up again, and a reload
+shows the same account from the server. There is no side panel — anything that
+needs more room than a message, a document or an answer's sources, opens as a
+dialog over the thread.
 
-- **Report tab**: Final report content
-- **Sources tab**: Citations collected during research
-- **Thought Traces tab**: LLM reasoning steps
-- **Agents tab**: Sub-agent execution traces
-- **Tool Calls tab**: Tool invocations with inputs/outputs
-- **Files tab**: Generated files
-- **Tasks tab**: Progress checklist
+**You choose what the run reads.** The Rechercheplan card before a deep
+research lists the sections and, under „Unterlagen", lets you pick documents
+from the project and the office archive: „Lesen" means read in full whatever
+else the research finds, „Ausschließen" means never used, not even when a
+search returns it. The chips under „Rahmen" show which data sources the
+research will search. Once the run goes, „Dokument hinzufügen" on its block
+adds one more document, and the block's receipt shows for every named document
+whether it was read and where. A report that never reached one says so under
+„Nicht gelesene Unterlagen".
 
-**After a run finishes, the composer follows the LATEST run.** A run that
-delivered a report locks the composer — the report defines the session's
-context, so the composer offers *Neue Sitzung starten* and follow-up questions
-belong in a fresh session. A run that failed or was interrupted produced no
-report to protect, so the composer stays usable and invites a follow-up or a
-retry in place.
-
-Only the most recent run counts, in both directions. Retrying after a failure
-and succeeding locks the chat, as a completed session should. Running research
-again after a successful one and having it fail leaves the chat usable, so the
-retry is possible — previously an earlier success kept the composer locked for
-good, telling the user research had completed over a session whose report never
-arrived.
+**The composer stays open throughout.** A run is a message beside which you keep
+asking, and a follow-up runs in the same thread: „Bericht fortschreiben" on a
+finished block commissions the next run with the last report's findings as its
+brief, and „Klären" on a single finding commissions a run about that one point.
+The thread's history row shows a run going or a report ready; stopping a run is
+done from its block, or from the run's row in the history.
 
 ## Herleitung: folding a search step
 
@@ -244,11 +232,44 @@ The empty chat in a project says the same thing in one sentence, because
 otherwise the only people who find out that Piloti writes are the ones who
 happen to phrase a request as a commission.
 
+## How an answer arrives
+
+Piloti writes the answer on screen while the model writes it. Nothing waits for
+the end.
+
+- **Text streams.** Each paragraph appears as it is written.
+- **Citations settle while you read.** An inline `[N]` first shows as pending
+  (read out as „Quelle N — wird geprüft"). It becomes a source once it is
+  checked, still during the stream.
+- **Things above and beside the text keep their place.** The title block and
+  every card reserve their space before the text moves past them, so the line
+  you are reading does not jump.
+- **The finished answer stays**, except that a corrected quotation takes the
+  source's wording (see below). It is not otherwise replaced when the stream
+  ends.
+- **Text written before a lookup can be withdrawn.** When Piloti starts writing
+  and then decides to look something up, that first text goes and the answer
+  continues from the lookup.
+- **Quotes are checked against the source.** A slightly misquoted passage is
+  corrected to the source's own wording. A quote that cannot be corrected is
+  marked `[nicht wörtlich in der Quelle belegt]`.
+- **Answers are Markdown.** Tables state their result, a check against
+  criteria is a table with a status column, what you still have to hand in is
+  a task list, and variants sit in tabs.
+- **Relations are drawn.** A process or decision path, a tree or outline of a
+  Regelwerk, a handoff between parties, a schedule of dated phases, and the
+  shares of one whole each become a diagram.
+- **Your question stays at the top.** A sent question is anchored near the top
+  of the view and the answer grows below it. A short answer does not drop when
+  it finishes.
+- **Wide content scrolls sideways.** A wide table or diagram scrolls inside
+  its own frame. The frame can take keyboard focus, so arrow keys scroll it.
+
 ## Answer sources ("Belegt durch")
 
 Answers that already carry source data show a provenance block: structured citations from shallow/deep research (`origin` plus optional `file_name`/`page`/`number`, with `[KB]`/`[RIS]`/`[Web]` tokens and URL heuristics as fallback) and the laws named by `legal_basis` cards. Sources are tinted by origin (law / project / web) and always pair icon + label with the color; web and RIS sources link out. Answers without source data show no block — sources are never fabricated.
 
-**One row, not a row plus a written list.** A verified answer ends in a written sources section (`## Quellen` / `**References:**`, produced by the backend's citation verification). That section is *not* rendered a second time under the answer: it is lifted out of the answer body and folded into the chip row. The chip keeps its compact shape and gains the citation's `[N]`; everything else the written list said — the untruncated title, the cited page or host, and a copyable citation — sits **one click away**, in the chip's existing preview popover or document dialog. Each chip is also the anchor its inline `[N]` marker scrolls to. The `[N]` → source binding comes from the backend (`sources[].number`, resolved by `verify_citations`); when it is absent (legacy messages, deep-research SSE) the frontend falls back to matching on document identity, and an answer whose sources were never numbered simply shows no indices.
+**One row, not a row plus a written list.** A verified answer ends in a written sources section (`## Quellen` / `**References:**`, produced by the backend's citation verification). Its sources settle during the stream, so the chips are there before the answer ends. That section is *not* rendered a second time under the answer: it is lifted out of the answer body and folded into the chip row. The chip keeps its compact shape and gains the citation's `[N]`; everything else the written list said — the untruncated title, the cited page or host, and a copyable citation — sits **one click away**, in the chip's existing preview popover or document dialog. Each chip is also the anchor its inline `[N]` marker scrolls to. The `[N]` → source binding comes from the backend (`sources[].number`, resolved by `verify_citations`); when it is absent (legacy messages, deep-research SSE) the frontend falls back to matching on document identity, and an answer whose sources were never numbered simply shows no indices.
 
 ### Citing a source elsewhere
 
@@ -297,8 +318,7 @@ of the page.
 Whichever way you put it away, a **tab stays on the edge it went out through** —
 click it and the document comes back at the width you had chosen. Nothing here
 is one-way: **Show file** in the composer does the same from the other side of
-the screen (and with the research panel across that half of the row, the panel
-steps aside, since the request was to see the file), and the **×** on the
+the screen and the **×** on the
 *Asking about …* bar — the one control that ends the question as well as the
 viewer — offers **Undo** in the confirmation that follows it.
 
@@ -338,8 +358,6 @@ Clicking a source chip opens a preview of the source instead of doing nothing:
 - **The cited passage is marked in the document itself.** When the citation carries passage text, the viewer finds that passage in the page's text layer, scrolls to it, and lights it up — a short pulse on arrival that settles into a highlighter mark in the source's own tint. A **Zur Fundstelle / Go to passage** button in the viewer toolbar brings you back to it after scrolling away or after jumping to another Fundstelle on the rail. Matching is deliberately conservative: it tolerates line-break hyphenation, ligatures, punctuation and German inflection, but when a page offers two passages that fit equally well it marks neither and simply opens at the page — a mark on the wrong sentence is worse than no mark. When the cited page does not hold the passage at all, the page either side is searched as well, because the page number counts sheets and a document with a cover page numbers itself differently; when those come up empty too, one more page out in each direction, for a title sheet plus a table of contents. Further than that is a different passage that happens to read alike, and is not looked at. Scanned pages with no text layer open at the page without a mark. Whenever the search comes up empty on every page it could have looked at, the viewer says so in the toolbar rather than leaving you to guess whether the passage is missing, the page is wrong, or the feature is broken.
 - **Anything unresolvable** (unknown document, non-previewable file type) shows a light popover with the source's origin, title, and passage instead — never a broken viewer. Chips with nothing beyond their label stay plain.
 
-The same affordance appears in the deep-research report's sources list: `[KB]` entries that resolve to an openable document get a small **View / Ansehen** button next to the entry.
-
 ## Human-in-the-loop (HITL)
 
 When the agent needs input — clarification, approval, or a choice — it sends a prompt message. The chat switches to a waiting state with input controls matching the prompt type:
@@ -375,11 +393,13 @@ Drag and drop or select files to attach them to the current session. Uploaded fi
 
 ## Session persistence
 
-Conversations persist to `localStorage` via the Zustand `persist` middleware with the key `aiq-chat-store`. The storage layer:
+Conversations persist to `localStorage` via the Zustand `persist` middleware (`features/chat/stores/chat-storage.ts`), one key per conversation's messages (`aiq-chat-store:messages:<id>`) and a small index (`aiq-chat-store:index`) for the conversation list, the open conversation's id, the composer drafts and the open question. The storage layer:
 
-- Prunes message content to stay within quota limits
-- Strips connection error messages on hydration (transient errors should not survive reloads)
-- Reconstructs the current conversation from its ID to avoid double-serialization
-- Falls back to clearing all sessions if `QuotaExceededError` is hit
+- Writes only what changed: a send or a settled answer writes that conversation and the index, a switch or a draft the index alone
+- Prunes message content (thinking-step payloads, long citation text) before writing
+- Strips interrupted streaming answers and connection error messages on hydration (transient state should not survive reloads)
+- Reconstructs the current conversation from its ID
+- Past its budget or on a `QuotaExceededError`, evicts the messages of the least recently updated conversations (the server holds them, and opening the conversation fetches them); the index, and with it the list, the titles and the drafts, is never evicted
+- Moves the old single key `aiq-chat-store` into this shape on the first load after the change
 
 On page load, `loadServerConversations()` fetches conversations from the BFF and merges server metadata (title, dates) with local messages. Deep research job statuses are refreshed via `refreshDeepResearchSessionStatuses()` after rehydration.

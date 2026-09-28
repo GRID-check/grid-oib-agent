@@ -1,0 +1,32 @@
+{
+  "work": "collateral",
+  "id": "collateral/kaffee/postcard",
+  "file": "piloti-kaffee-a6-1240x1748.jpg",
+  "width": 1240,
+  "height": 1748,
+  "dpi": 300,
+  "pitch": 5,
+  "inks": [
+    {
+      "order": 1,
+      "ink": "mist",
+      "drum": "Mist",
+      "hex": "#D5E4C0",
+      "file": "piloti-kaffee-a6-1240x1748-sep-1-mist.png"
+    },
+    {
+      "order": 2,
+      "ink": "moss",
+      "drum": "Moss",
+      "hex": "#68724D",
+      "file": "piloti-kaffee-a6-1240x1748-sep-2-moss.png"
+    },
+    {
+      "order": 3,
+      "ink": "hunter",
+      "drum": "Hunter Green",
+      "hex": "#407060",
+      "file": "piloti-kaffee-a6-1240x1748-sep-3-hunter.png"
+    }
+  ]
+}

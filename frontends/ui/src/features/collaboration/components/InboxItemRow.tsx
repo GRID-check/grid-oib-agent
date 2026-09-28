@@ -32,6 +32,7 @@
  *     link's accessible name include the button's.
  */
 
+import type { JSX } from 'react'
 import { forwardRef, useEffect, useState } from 'react'
 import Link from 'next/link'
 import {

@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from ris_adapter.lookup.address import Address
 from ris_adapter.lookup.candidates import Candidate
 from ris_adapter.lookup.extract import Selection
+from ris_adapter.lookup.grammar import PASSAGE_MAX_CHARS
+from ris_adapter.lookup.grammar import SECTION_MAX_CHARS
 from ris_adapter.lookup.grammar import absatz_body
 from ris_adapter.lookup.grammar import cut_on_absatz
 from ris_adapter.register import _RIS_TITLE_FASSUNG_RE
@@ -52,11 +54,13 @@ class Passage:
 
 def build_passages(selections: list[Selection], address: Address) -> list[Passage]:
     """Render every selected section into a citable passage."""
-    return [passage for selection in selections for passage in _passages_for(selection, address)]
+    # The list budget is per call, so it divides by the picks of EVERY document.
+    limit = _passage_limit(address, sum(len(selection.picks) for selection in selections))
+    return [passage for selection in selections for passage in _passages_for(selection, address, limit)]
 
 
-def _passages_for(selection: Selection, address: Address) -> list[Passage]:
-    """The passages of ONE document."""
+def _passages_for(selection: Selection, address: Address, limit: int) -> list[Passage]:
+    """The passages of ONE document, each cut to ``limit`` characters."""
     candidate = selection.fetched.candidate
     document = selection.fetched.document
     title = document_title(candidate, document)
@@ -64,7 +68,7 @@ def _passages_for(selection: Selection, address: Address) -> list[Passage]:
     collection = collection_for(candidate)
     out: list[Passage] = []
     for rank, (section, absatz) in enumerate(selection.picks):
-        body, resolved = absatz_body(section, absatz or address.absatz)
+        body, resolved = absatz_body(section, absatz)
         label = f"{section.label} Abs {resolved}" if resolved else section.label
         out.append(
             Passage(
@@ -73,12 +77,28 @@ def _passages_for(selection: Selection, address: Address) -> list[Passage]:
                 collection=collection,
                 punkt_label=label,
                 citation=citation_for(title, label, candidate.version_date),
-                body=cut_on_absatz(body),
+                body=cut_on_absatz(body, limit),
                 score=score_for(rank, address.has_section),
                 status_note=status_note,
             )
         )
     return out
+
+
+#: What a LIST of named §§ may return in one call, all passages together. One
+#: named § gets SECTION_MAX_CHARS; six of them at that size were ~48k
+#: characters in one tool result, re-sent with every later call of the turn.
+LIST_MAX_CHARS = 2 * SECTION_MAX_CHARS
+
+
+def _passage_limit(address: Address, picks: int) -> int:
+    """Characters per passage: a named § whole, a list sharing one budget, a ranked hit a chunk."""
+    if not address.has_section:
+        return PASSAGE_MAX_CHARS
+    if len(address.sections) <= 1:
+        return SECTION_MAX_CHARS
+    # Never more than a single named § gets: a list whose other §§ the law lacks is one §.
+    return min(SECTION_MAX_CHARS, max(PASSAGE_MAX_CHARS, LIST_MAX_CHARS // max(picks, 1)))
 
 
 def collection_for(candidate: Candidate) -> str:

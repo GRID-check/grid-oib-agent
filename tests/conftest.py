@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -15,8 +16,20 @@ from langchain_core.outputs import ChatResult
 from pydantic import Field
 
 from aiq_agent.common.llm_factory import enforce_chat_request_contract
+from nat.llm.openai_llm import OpenAIModelConfig
 
 logger = logging.getLogger(__name__)
+
+
+def nat_langchain_client(model: Any) -> Any:
+    """What NAT 1.9's ``builder.get_llm(ref, wrapper_type=LANGCHAIN)`` returns:
+    the chat model inside its ``RunnableConfigurableFields``, which
+    ``get_langchain_llm`` takes it out of. A fake builder returns this, and
+    answers ``get_llm_config`` with :data:`NAT_LLM_CONFIG`."""
+    return SimpleNamespace(default=model)
+
+
+NAT_LLM_CONFIG = OpenAIModelConfig(model_name="test-model")
 
 try:  # pragma: no cover - import guard, not behaviour
     from aiq_agent.common.cache import reset_local_store
@@ -150,3 +163,69 @@ def strict_provider_llm():
         return enforce_chat_request_contract(model) if with_contract else model
 
     return _make
+
+
+@pytest.fixture(autouse=True)
+def _no_live_decisions(monkeypatch):
+    """The decision model (ADR-0064) is off unless a test turns it on.
+
+    Ingestion tags, memory reflection, the turn start and every search now ask
+    it, and its key is the OpenRouter key a developer's shell already holds:
+    without this a test that never mentions decisions calls the live endpoint,
+    passes or fails on its latency, and spends money. A test of a decision
+    deletes the variable and stubs the endpoint (``test_decisions.py``).
+    """
+    monkeypatch.setenv("GRID_DECISIONS_ENABLED", "false")
+
+
+class Emitted(list):
+    """Every wire body a producer wrote, in order, and the steps among them."""
+
+    @property
+    def steps(self) -> list[Any]:
+        return [body.step for body in self if getattr(body, "type", "").startswith("STEP_")]
+
+    def step(self, step_id: str) -> Any:
+        """The newest step with this id: what the reader's row shows."""
+        matches = [step for step in self.steps if step.id == step_id]
+        assert matches, f"no step {step_id!r} in {[step.id for step in self.steps]}"
+        return matches[-1]
+
+
+@pytest.fixture
+def emitted(monkeypatch) -> Emitted:
+    """What producers write through ``turn_status.emit``, captured at LangGraph's writer seam.
+
+    For a unit test of one producer. A test that the writer REACHES a producer
+    runs it in a compiled graph instead (:func:`stream_custom`).
+    """
+    bodies = Emitted()
+    monkeypatch.setattr("aiq_agent.common.turn_status.get_stream_writer", lambda: bodies.append)
+    return bodies
+
+
+async def stream_custom(work: Any) -> Emitted:
+    """Await ``work()`` as the one node of a compiled graph under ``astream(stream_mode=["custom"])``.
+
+    Returns every body the node wrote, exactly as the chat socket's stream would
+    carry them.
+    """
+    from typing import TypedDict
+
+    from langgraph.graph import END
+    from langgraph.graph import START
+    from langgraph.graph import StateGraph
+
+    class _State(TypedDict, total=False):
+        done: bool
+
+    async def node(_state: _State) -> _State:
+        await work()
+        return {"done": True}
+
+    builder = StateGraph(_State)
+    builder.add_node("producer", node)
+    builder.add_edge(START, "producer")
+    builder.add_edge("producer", END)
+    graph = builder.compile()
+    return Emitted([chunk async for _mode, chunk in graph.astream({}, stream_mode=["custom"])])

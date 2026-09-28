@@ -9,30 +9,36 @@ the CALLER's (it opens before the setup I/O so the context loads, the ingest
 hold and the admission wait all have a row); this module only adds the spans
 and hands the cost tracker back for the deferred flush.
 
-A refusal is a VALUE, not an exception that escapes: the caller streams it as
-a short response and stops, the same contract as every other refusal in the
-system — say WHEN to come back, not just no.
+The run is a STREAM (chat wire v2 §b): :func:`answer_turn` yields the wire
+bodies the graph writes while it runs, then one :class:`TurnOutcome`. A
+refusal is a VALUE, not an exception that escapes: the outcome carries it, and
+the caller delivers it as a refused ``RUN_FINISHED`` and stops, the same
+contract as every other refusal in the system — say WHEN to come back, not
+just no.
 """
 
 from __future__ import annotations
 
 import contextlib
 import logging
+from collections.abc import AsyncIterator
 from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Any
 from typing import Generic
 from typing import Protocol
 from typing import TypeVar
+from typing import get_args
 
-from aiq_agent.common import _create_chat_response
 from aiq_agent.common.cost_tracking import BudgetExceededError
 from aiq_agent.common.cost_tracking import track_llm_costs
 from aiq_agent.common.profiler import annotate_current_span
 from aiq_agent.common.profiler import profiled_span
 from aiq_agent.common.turn_admission import TurnAdmissionError
 from aiq_agent.common.turn_admission import admit_turn_async
-from nat.data_models.api_server import ChatResponse
+from aiq_agent.common.wire_v2 import EventBody
+from aiq_agent.common.wire_v2 import RunFinishedBody
+from aiq_agent.common.wire_v2 import TurnResult
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +54,12 @@ StateT = TypeVar("StateT")
 T = TypeVar("T")
 
 
+#: Every wire body type: what the agent's stream yields before its final state.
+_BODIES = get_args(EventBody)
+
+
 class AnsweringAgent(Protocol[StateT]):
-    def run(self, state: StateT, thread_id: str | None = None) -> Awaitable[StateT]: ...
+    def stream(self, state: StateT, thread_id: str | None = None) -> AsyncIterator[EventBody | StateT]: ...
 
 
 async def spanned(name: str, awaitable: Awaitable[T]) -> T:
@@ -64,7 +74,6 @@ async def spanned(name: str, awaitable: Awaitable[T]) -> T:
 class TurnRefusal:
     """A turn that started nothing: capacity or budget said no."""
 
-    response_id: str
     message: str
     retry_after_seconds: int | None = None
     #: The profiler's word for how the turn ended.
@@ -73,12 +82,10 @@ class TurnRefusal:
 
 @dataclass(frozen=True)
 class TurnOutcome(Generic[StateT]):
-    """What ``answer_turn`` produced: a finished state or a refusal, and the
-    cost ledger to flush once the reader has been served."""
+    """What ``answer_turn`` produced: a finished state or a refusal."""
 
     state: StateT | None
     refusal: TurnRefusal | None
-    cost_tracker: Any = None
 
 
 @dataclass
@@ -114,32 +121,6 @@ async def _enter_admission_slot(
     return None
 
 
-async def run_admitted(
-    agent: AnsweringAgent[StateT],
-    state: StateT,
-    *,
-    thread_id: str,
-    organization_id: str | None,
-    identity: dict[str, str | None] | None = None,
-    ledgers: TurnLedgers | None = None,
-) -> tuple[StateT, Any]:
-    """Run the agent inside the admission slot and the cost tracker; return both results.
-
-    The wait for a slot gets its own span: queued time is the one cost a busy
-    replica adds that no LLM or tool row would ever explain. ``inline_flush``
-    is off: the final usage batch is posted by the caller after the answer is
-    on the wire, never between the finished answer and its first delta.
-    """
-    published = ledgers if ledgers is not None else TurnLedgers()
-    async with contextlib.AsyncExitStack() as admission:
-        refusal = await _enter_admission_slot(admission, organization_id)
-        if refusal is not None:
-            raise refusal
-        with track_llm_costs(identity=identity, inline_flush=False) as cost_tracker:
-            published.cost_tracker = cost_tracker
-            return await agent.run(state, thread_id=thread_id), cost_tracker
-
-
 async def answer_turn(
     agent: AnsweringAgent[StateT],
     state: StateT,
@@ -149,8 +130,14 @@ async def answer_turn(
     identity: dict[str, str | None] | None = None,
     metadata: dict[str, Any] | None = None,
     ledgers: TurnLedgers | None = None,
-) -> TurnOutcome[StateT]:
-    """The finished graph state, or the refusal that stopped the turn.
+) -> AsyncIterator[EventBody | TurnOutcome[StateT]]:
+    """The graph's wire bodies as it runs, then the finished state or the refusal that stopped the turn.
+
+    The concurrency slot and the cost tracker are held around the whole stream.
+    The wait for a slot gets its own span: queued time is the one cost a busy
+    replica adds that no LLM or tool row would ever explain. ``inline_flush``
+    is off: the final usage batch is posted by the caller after the answer is
+    on the wire.
 
     ``identity`` is who the ledgers bill and attribute the turn to (the parsed
     request, so they need not parse it again); ``metadata`` is the profiler's
@@ -158,26 +145,37 @@ async def answer_turn(
     ``ledgers`` is the caller's holder for the cost tracker, filled as soon as
     it exists so a turn that raises still has its usage posted.
     """
+    published = ledgers if ledgers is not None else TurnLedgers()
+    refusal: TurnRefusal | None = None
+    final: StateT | None = None
     try:
-        result, cost_tracker = await run_admitted(
-            agent, state, thread_id=thread_id, organization_id=organization_id, identity=identity, ledgers=ledgers
-        )
+        async with contextlib.AsyncExitStack() as admission:
+            refused = await _enter_admission_slot(admission, organization_id)
+            if refused is not None:
+                raise refused
+            with track_llm_costs(identity=identity, inline_flush=False) as cost_tracker:
+                published.cost_tracker = cost_tracker
+                async with contextlib.aclosing(agent.stream(state, thread_id=thread_id)) as items:
+                    async for item in items:
+                        if isinstance(item, _BODIES):
+                            yield item
+                        else:
+                            final = item
     except TurnAdmissionError as error:
         logger.warning("Turn refused by admission control: %s", error)
-        refusal = TurnRefusal("turn_admission", str(error), error.retry_after_seconds, outcome="admission_refused")
+        refusal = TurnRefusal(str(error), error.retry_after_seconds, outcome="admission_refused")
     except BudgetExceededError as error:
         logger.warning("Turn stopped by budget enforcement: %s", error)
-        refusal = TurnRefusal("budget_exceeded", str(error), outcome="budget_exceeded")
-    else:
-        return TurnOutcome(state=result, refusal=None, cost_tracker=cost_tracker)
+        refusal = TurnRefusal(str(error), outcome="budget_exceeded")
+    if refusal is None:
+        yield TurnOutcome(state=final, refusal=None)
+        return
     if metadata is not None:
         metadata["outcome"] = refusal.outcome
-    return TurnOutcome(state=None, refusal=refusal)
+    yield TurnOutcome(state=None, refusal=refusal)
 
 
-def refusal_response(refusal: TurnRefusal, *, workflow_id: str) -> ChatResponse:
-    """The short response a refused turn delivers, with its retry hint when it has one."""
-    response = _create_chat_response(refusal.message, response_id=refusal.response_id, model=workflow_id)
-    if refusal.retry_after_seconds is not None:
-        response.retry_after_seconds = refusal.retry_after_seconds
-    return response
+def refused(refusal: TurnRefusal, *, message_id: str) -> RunFinishedBody:
+    """The terminal a refused turn delivers: its message, and its retry hint when it has one."""
+    result = TurnResult(message_id=message_id, text=refusal.message, retry_after_seconds=refusal.retry_after_seconds)
+    return RunFinishedBody(outcome="refused", result=result)

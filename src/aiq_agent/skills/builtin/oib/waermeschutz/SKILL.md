@@ -35,7 +35,7 @@ wird, die sich dann als die falsche erweist.
 U-Werte je Bauteil der Hülle → `thermal_envelope`, eine Zeile je Bauteil.
 HWB und Energieklasse → `energy_performance`.
 Schallschutz je Bauteilpaarung → `acoustic_check`, die Paarung im Label.
-Mehrere Anforderungen nebeneinander → `requirement_checklist`.
+Mehrere Anforderungen nebeneinander → als Prüftabelle (Status-Spalte).
 
 ## Done
 

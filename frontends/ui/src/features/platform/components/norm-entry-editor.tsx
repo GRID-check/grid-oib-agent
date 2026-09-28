@@ -24,6 +24,7 @@
  * @see src/aiq_agent/common/norm_registry.py — how entries are consumed
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'

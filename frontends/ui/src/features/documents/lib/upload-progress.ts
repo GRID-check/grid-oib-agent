@@ -190,27 +190,6 @@ export function shouldEmitProgress(previous: number, next: number, total: number
 }
 
 /**
- * Split one multi-file request's progress across its files.
- *
- * A multipart body sends its parts in order, so `loaded` fills file 1, then
- * file 2, and so on — attributing it that way is not an approximation, it is
- * what is actually on the wire. `total` exceeds the payload by the multipart
- * framing, so the raw count is scaled back to payload bytes; without that,
- * every file reads a percent or two ahead of the truth.
- */
-export function distributeBatchBytes(loaded: number, total: number, sizes: readonly number[]): number[] {
-  const payload = sizes.reduce((sum, size) => sum + size, 0)
-  if (payload <= 0) return sizes.map(() => 0)
-  const scaled = total > 0 ? Math.min(payload, (Math.max(0, loaded) * payload) / total) : 0
-  let remaining = scaled
-  return sizes.map((size) => {
-    const take = Math.min(size, remaining)
-    remaining -= take
-    return Math.round(take)
-  })
-}
-
-/**
  * Transfer-rate estimate over a sliding window.
  *
  * Windowed rather than cumulative: an average since the first byte keeps

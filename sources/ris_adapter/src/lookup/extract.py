@@ -2,9 +2,10 @@
 
 Two paths, and the first one is free:
 
-* **Deterministic** — the caller named a § or Artikel, so ``grammar`` finds it
-  by number and returns it with its Absätze. No LLM call at all, which is the
-  whole reason ``address.py`` runs first.
+* **Deterministic** — the caller named a § or Artikel, or a list of §§, so
+  ``grammar`` finds each by number and returns it with its Absätze, all from
+  the one document already fetched. No LLM call at all, which is the whole
+  reason ``address.py`` runs first.
 * **Ranked** — nobody named one, so ONE call to the picker model reads the
   law's § HEADINGS (never a body: that is what keeps this call's input bounded
   by the table of contents rather than by the length of the law) and returns up
@@ -24,7 +25,9 @@ from dataclasses import dataclass
 from ris_adapter.lookup.address import Address
 from ris_adapter.lookup.address import section_in
 from ris_adapter.lookup.fetch import FetchedDocument
+from ris_adapter.lookup.grammar import SECTION_MAX_CHARS
 from ris_adapter.lookup.grammar import Section
+from ris_adapter.lookup.grammar import absatz_body
 from ris_adapter.lookup.grammar import headings_index
 from ris_adapter.lookup.grammar import split_sections
 from ris_adapter.lookup.trace import LookupTrace
@@ -71,14 +74,33 @@ async def _pick(picker, question, address: Address, sections, fetched) -> list[t
     if not sections:
         return _whole_document(fetched)
     if address.has_section:
-        return [(section, address.absatz) for section in sections if _is_addressed(section, address)]
+        return [
+            pick for section in sections if _is_addressed(section, address) for pick in _addressed(section, address)
+        ]
     if picker is None:
         return []
     return await _picker_picks(picker, question, sections)
 
 
+def _addressed(section: Section, address: Address) -> list[tuple[Section, str]]:
+    """The named Absatz first, and the whole § beside it when the § fits.
+
+    "Abs 2 means Abs 2" keeps the citation precise, but read alone it was a
+    keyhole: asked for § 2 Abs 2 of the Salzburger Baupolizeigesetz, the agent
+    came back for Abs 4, 5 and 3 one lookup at a time (answer suite, 92 s). The
+    § under its own key costs one passage and ends that.
+    """
+    if not address.absatz or len(section.body) > SECTION_MAX_CHARS:
+        return [(section, address.absatz)]
+    # An Absatz the § does not carry resolves to the whole § already: a second
+    # pick would be the same passage under the same citation key.
+    if not absatz_body(section, address.absatz)[1]:
+        return [(section, address.absatz)]
+    return [(section, address.absatz), (section, "")]
+
+
 def _is_addressed(section: Section, address: Address) -> bool:
-    return section.kind == address.kind and section.number.lower() == address.number.lower()
+    return section.kind == address.kind and section.number.lower() in {n.lower() for n in address.sections}
 
 
 def _whole_document(fetched: FetchedDocument) -> list[tuple[Section, str]]:

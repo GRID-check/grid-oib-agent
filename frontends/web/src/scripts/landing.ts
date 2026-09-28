@@ -1,7 +1,8 @@
-import { gsap } from 'gsap'
 import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import { landingScript } from '../i18n/ui'
+import { MQ, TRAVEL, sec, staggerFor } from '../lib/motion'
+import { gsap } from './motion-gsap'
 
 gsap.registerPlugin(DrawSVGPlugin, ScrollTrigger)
 import { initReveals } from './reveal'
@@ -12,32 +13,58 @@ import { initSheetIndex } from './sheet-index'
 const L = document.documentElement.lang.startsWith('en') ? landingScript.en : landingScript.de
 
 
-const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+const reduced = window.matchMedia(MQ.reduced).matches
 
+/**
+ * The breakpoint at which the landing page becomes a sequence of full screens
+ * with a pinned, scrubbed story. Below it every section has its natural height
+ * and nothing holds the scroll: on a phone a pin is a page that stops
+ * answering the thumb, and a scrubbed runway is a screen of scrolling past a
+ * still image. Mirrors Tailwind's `lg`.
+ */
+const STAGED = MQ.staged
+const MOTION = MQ.motion
+const REDUCED = MQ.reduced
+
+/**
+ * The hero's lockup yields as the page moves on: the closing line, its
+ * buttons and the stage note over the first quarter screen, the headline a
+ * little later. Opacity only, scrubbed to the hero's own scroll-out. Without
+ * it they print through the logo on the way up, while the bar over the hero
+ * is still transparent (nav.ts condenses it at 60% of the hero).
+ *
+ * There is no runway. The hero used to sit in a 200vh wrapper so the closing
+ * line could fade while the photograph held still: a screen of scrolling in
+ * which nothing happened. Below lg, or without motion, the hero is a plain
+ * screen that scrolls away.
+ */
 function initHeroCta() {
   const cta = document.querySelector<HTMLElement>('[data-hero-cta]')
-  if (!cta) return
-  const wrap = document.querySelector<HTMLElement>('[data-hero-wrap]')
-  // Without motion the hero is a single screen and the closing line simply
-  // stays put: the yield below is scrubbed against scroll position, which is
-  // the kind of scroll-linked movement `prefers-reduced-motion` asks us to drop.
-  if (reduced) return
-  if (wrap) wrap.style.height = '200vh'
-  // The closing line and its buttons yield as soon as the page starts moving —
-  // scrubbed, so it tracks the scroll rather than snapping at a threshold.
-  gsap.to(cta, {
-    opacity: 0,
-    y: -10,
-    ease: 'none',
-    scrollTrigger: {
-      trigger: wrap ?? cta,
-      start: 'top top',
-      end: () => `+=${window.innerHeight * 0.12}`,
-      scrub: true,
-      onUpdate: (self) => {
-        cta.style.pointerEvents = self.progress > 0.6 ? 'none' : 'auto'
-      },
-    },
+  const hero = document.querySelector<HTMLElement>('[data-hero]')
+  if (!cta || !hero) return
+  const stage = hero.querySelector<HTMLElement>('[data-hero-stage]')
+  const title = hero.querySelector<HTMLElement>('[data-hero-title]')
+  gsap.matchMedia().add(`${STAGED} and ${MOTION}`, () => {
+    const vh = () => window.innerHeight
+    const fade = (targets: (HTMLElement | null)[], from: number, to: number, onUpdate?: (p: number) => void) =>
+      gsap.to(targets.filter(Boolean), {
+        opacity: 0,
+        ease: 'none',
+        scrollTrigger: {
+          trigger: hero,
+          start: () => `top+=${vh() * from} top`,
+          end: () => `top+=${vh() * to} top`,
+          scrub: true,
+          onUpdate: onUpdate && ((self) => onUpdate(self.progress)),
+        },
+      })
+    fade([cta, stage], 0, 0.25, (p) => {
+      cta.style.pointerEvents = p > 0.6 ? 'none' : ''
+    })
+    fade([title], 0.2, 0.5)
+    return () => {
+      cta.style.pointerEvents = ''
+    }
   })
 }
 
@@ -49,9 +76,43 @@ function initAura() {
   let w = 0
   let h = 0
   const dpr = Math.min(window.devicePixelRatio || 1, 2)
-  const IW = 1376
-  const IH = 768
-  const HEAD: [number, number] = [700, 196]
+  /**
+   * The two photographs the hero can show, in their own pixel coordinates:
+   * where her head is, where the beams land on the plan, and how far out the
+   * orbit runs (`R`, a multiplier on the authored radii). The portrait frame
+   * is shot from higher, so the same figure is smaller in it and the orbit
+   * reaches further out to fill the floor around her.
+   */
+  const PHOTOS = {
+    landscape: {
+      IW: 1376,
+      IH: 768,
+      HEAD: [700, 196] as [number, number],
+      R: 1,
+      BEAMS: [
+        [600, 330],
+        [792, 318],
+        [648, 424],
+        [742, 400],
+        [700, 372],
+      ] as [number, number][],
+    },
+    portrait: {
+      IW: 3840,
+      IH: 6480,
+      HEAD: [1941, 2613] as [number, number],
+      R: 6.5,
+      BEAMS: [
+        [1650, 3050],
+        [2250, 3000],
+        [1800, 3350],
+        [2150, 3300],
+        [1950, 3200],
+      ] as [number, number][],
+    },
+  }
+  const portraitQuery = cv.dataset.portraitMedia ? window.matchMedia(cv.dataset.portraitMedia) : null
+  let photo = PHOTOS.landscape
   /** How far out of the halo a line has to start before it is drawn at all. */
   const BEAM_START = 0.2
   let sc = 1
@@ -62,16 +123,18 @@ function initAura() {
     w = r.width || cv.offsetWidth
     h = r.height || cv.offsetHeight
     if (!w || !h) return false
+    photo = portraitQuery?.matches ? PHOTOS.portrait : PHOTOS.landscape
     cv.width = Math.round(w * dpr)
     cv.height = Math.round(h * dpr)
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    sc = Math.max(w / IW, h / IH)
-    ox = (w - IW * sc) / 2
-    oy = (h - IH * sc) / 2
+    sc = Math.max(w / photo.IW, h / photo.IH)
+    ox = (w - photo.IW * sc) / 2
+    oy = (h - photo.IH * sc) / 2
     return true
   }
   resize()
   window.addEventListener('resize', resize)
+  portraitQuery?.addEventListener('change', resize)
   const P = (ix: number, iy: number): [number, number] => [ox + ix * sc, oy + iy * sc]
 
   const NODES = [
@@ -88,13 +151,6 @@ function initAura() {
     { r: 214, a: 3.2, v: 0.024 },
     { r: 166, a: 6.0, v: -0.036 },
   ].map((n, i) => ({ ...n, label: L.aura[i] }))
-  const BEAMS: [number, number][] = [
-    [600, 330],
-    [792, 318],
-    [648, 424],
-    [742, 400],
-    [700, 372],
-  ]
 
   const draw = (t: number) => {
     if (!cv.isConnected) return
@@ -104,7 +160,9 @@ function initAura() {
     if (!w || !h) return
 
     ctx.clearRect(0, 0, w, h)
-    const [hx, hy] = P(HEAD[0], HEAD[1])
+    const [hx, hy] = P(photo.HEAD[0], photo.HEAD[1])
+    // Orbit scale: the authored radii times the photograph's own multiplier.
+    const os = sc * photo.R
     const ts = t / 1000
     const TOP = 74
     ctx.save()
@@ -112,13 +170,13 @@ function initAura() {
     ctx.rect(0, TOP, w, Math.max(0, h - TOP))
     ctx.clip()
 
-    const halo = ctx.createRadialGradient(hx, hy, 0, hx, hy, 250 * sc)
+    const halo = ctx.createRadialGradient(hx, hy, 0, hx, hy, 250 * os)
     const pulse = 0.1 + 0.03 * Math.sin(ts * 0.7)
     halo.addColorStop(0, `rgba(120,140,88,${pulse.toFixed(3)})`)
     halo.addColorStop(1, 'rgba(120,140,88,0)')
     ctx.fillStyle = halo
     ctx.beginPath()
-    ctx.arc(hx, hy, 250 * sc, 0, Math.PI * 2)
+    ctx.arc(hx, hy, 250 * os, 0, Math.PI * 2)
     ctx.fill()
 
     ctx.lineWidth = 1
@@ -133,20 +191,21 @@ function initAura() {
       ctx.translate(hx, hy)
       ctx.rotate(ts * spd + i)
       ctx.strokeStyle = `rgba(94,110,70,${al})`
-      ctx.setLineDash([13 * sc, 11 * sc])
+      ctx.setLineDash([13 * Math.max(sc, 0.6), 11 * Math.max(sc, 0.6)])
       ctx.beginPath()
-      ctx.arc(0, 0, r * sc, 0, Math.PI * 2)
+      ctx.arc(0, 0, r * os, 0, Math.PI * 2)
       ctx.stroke()
       ctx.restore()
     })
     ctx.setLineDash([])
 
-    ctx.font = `${(9.5 * Math.max(1, sc * 0.75)).toFixed(1)}px 'IBM Plex Mono', monospace`
+    // 11px is the floor for any text on the site, the canvas included.
+    ctx.font = `${(11 * Math.max(1, sc * 0.75)).toFixed(1)}px 'IBM Plex Mono', monospace`
     ctx.letterSpacing = '0.08em'
     NODES.forEach((n, i) => {
       const ang = n.a + ts * n.v
-      const nx = hx + Math.cos(ang) * n.r * sc
-      const ny = hy + Math.sin(ang) * n.r * sc * 0.86
+      const nx = hx + Math.cos(ang) * n.r * os
+      const ny = hy + Math.sin(ang) * n.r * os * 0.86
       const glow = 0.5 + 0.5 * Math.sin(ts * 1.1 + i)
       // A leader line is drawn to the nodes that say something, and only
       // suggested for the rest, so the eye follows the labels.
@@ -187,13 +246,19 @@ function initAura() {
       // the canvas and were read as a column of broken words down the edge.
       const EDGE = 12
       if (n.label && nx > EDGE && nx < w - EDGE) {
-        const lines = Array.isArray(n.label) ? n.label : [n.label]
-        const lh = 11.5 * Math.max(1, sc * 0.75)
+        // A phone has no room for the three-line archive cards; the project
+        // name alone says the same thing.
+        const lines = Array.isArray(n.label)
+          ? photo === PHOTOS.portrait
+            ? [n.label[1]]
+            : n.label
+          : [n.label]
+        const lh = 13 * Math.max(1, sc * 0.75)
         const textW = Math.max(...lines.map((ln) => ctx.measureText(ln).width))
-        const right = nx + 7 * sc
-        const flip = right + textW > w - EDGE && nx - 7 * sc - textW > EDGE
+        const right = nx + 7 * Math.max(1, sc)
+        const flip = right + textW > w - EDGE && nx - 7 * Math.max(1, sc) - textW > EDGE
         ctx.textAlign = flip ? 'right' : 'left'
-        const lx = flip ? nx - 7 * sc : Math.min(right, Math.max(EDGE, w - EDGE - textW))
+        const lx = flip ? nx - 7 * Math.max(1, sc) : Math.min(right, Math.max(EDGE, w - EDGE - textW))
         // A halo in the paper's own colour, not a shadow: the labels cross hair,
         // sleeve and drawing in one pass, and this is what keeps 9px mono legible
         // over all three without putting a box behind it.
@@ -202,17 +267,17 @@ function initAura() {
         ctx.shadowBlur = 7 * Math.max(1, sc * 0.7)
         lines.forEach((ln, li) => {
           ctx.fillStyle = `rgba(78,92,56,${((li === 0 ? 0.44 : 0.3) + 0.3 * glow).toFixed(3)})`
-          ctx.fillText(ln, lx, ny - 5 * sc + li * lh)
-          ctx.fillText(ln, lx, ny - 5 * sc + li * lh)
+          ctx.fillText(ln, lx, ny - 5 * Math.max(1, sc) + li * lh)
+          ctx.fillText(ln, lx, ny - 5 * Math.max(1, sc) + li * lh)
         })
         ctx.restore()
         ctx.textAlign = 'left'
       }
     })
 
-    BEAMS.forEach((b, i) => {
+    photo.BEAMS.forEach((b, i) => {
       const [bx, by] = P(b[0], b[1])
-      const cyc = (ts * 0.42 + i / BEAMS.length) % 1
+      const cyc = (ts * 0.42 + i / photo.BEAMS.length) % 1
       const grow = Math.min(1, cyc / 0.55)
       const fade = cyc > 0.78 ? 1 - (cyc - 0.78) / 0.22 : 1
       if (fade <= 0) return
@@ -270,13 +335,22 @@ function initAura() {
   })
 }
 
+/**
+ * Where a node rests around the hub, in -1..1 of the room on either side of
+ * it: `u` across (1 is the panel's edge), `v` down (-1 is just under the
+ * headline, 1 the foot of the ring).
+ */
+interface At {
+  u: number
+  v: number
+}
+
 interface Frag {
   el: HTMLElement
   /** Entrance offset, in the direction the fragment drifts in from. */
   dx: number
   dy: number
-  /** Authored direction away from the hub, as an angle in radians. */
-  ang: number
+  at: At
   /** Measured size and resting (CSS) centre inside the panel. */
   w: number
   h: number
@@ -286,7 +360,7 @@ interface Frag {
   sx: number
   sy: number
   rot: number
-  /** Solved slot: translation from the resting centre, and whether it fits. */
+  /** Solved place: translation from the resting centre, and whether it fits. */
   tx: number
   ty: number
   fits: boolean
@@ -309,82 +383,104 @@ const overlaps = (a: Rect, b: Rect, gap = 0) =>
   Math.abs(a.x - b.x) * 2 < a.w + b.w + gap * 2 &&
   Math.abs(a.y - b.y) * 2 < a.h + b.h + gap * 2
 
+/** Where a ray from a rect's centre, along (dx, dy), leaves the rect. */
+const rim = (r: Rect, dx: number, dy: number) => {
+  const t = Math.min(dx ? r.w / 2 / Math.abs(dx) : Infinity, dy ? r.h / 2 / Math.abs(dy) : Infinity)
+  return { x: r.x + dx * t, y: r.y + dy * t }
+}
+
+/** A centred rect: `x`/`y` is the centre, as everywhere in the story solver. */
+interface StoryLayout {
+  mode: 'ring' | 'net'
+  hub: Rect
+  /** Top edge of the solution headline, in panel pixels. */
+  headTop: number
+  /** One SVG path per fragment, hub edge to node edge; '' for one left out. */
+  wires: string[]
+  /** Where each wire lands on its node: the port drawn there. */
+  ends: ({ x: number; y: number } | null)[]
+}
+
+/**
+ * The finished hub on a landscape panel: the headline on top, and under it
+ * the hub card with the nodes exploded around it, each on a straight wire.
+ *
+ * The ring lives entirely below the headline, so no wire passes under the
+ * words or stops short of anything. Each wire runs along the line between the
+ * two centres, from where it leaves the hub card's edge to where it meets the
+ * node's, so the wires converge on the card without entering it. The ring's
+ * height follows the panel's up to a ceiling, and the whole composition is
+ * centred in the panel. Returns null when the nodes would touch each other or
+ * the card (a panel too small for the ring).
+ */
+function solveRing(frags: Frag[], W: number, H: number, card: { w: number; h: number }, headH: number) {
+  const PAD_X = 24
+  const PAD_Y = 40
+  const HEAD_GAP = 48
+  const RX_MAX = 500
+  const SPAN_MAX = 560
+  const UP_SHARE = 0.4
+  const GAP = 12
+
+  const nodeH = Math.max(0, ...frags.map((f) => f.h))
+  const span = Math.min(SPAN_MAX, H - PAD_Y * 2 - headH - HEAD_GAP - nodeH)
+  if (span <= card.h) return null
+  const up = span * UP_SHARE
+  const down = span - up
+  const headTop = (H - (headH + HEAD_GAP + nodeH + span)) / 2
+  const hub = { x: W / 2, y: headTop + headH + HEAD_GAP + nodeH / 2 + up, w: card.w, h: card.h }
+
+  const rects = frags.map((f) => {
+    const reach = Math.min(RX_MAX, W / 2 - PAD_X - f.w / 2)
+    return { x: hub.x + f.at.u * reach, y: hub.y + f.at.v * (f.at.v < 0 ? up : down), w: f.w, h: f.h }
+  })
+  const clash = rects.some(
+    (r, i) => overlaps(r, hub, GAP * 2) || rects.some((s, j) => j > i && overlaps(r, s, GAP))
+  )
+  if (clash) return null
+
+  const ends: { x: number; y: number }[] = []
+  const wires = rects.map((r, i) => {
+    const f = frags[i]
+    f.tx = r.x - f.hx
+    f.ty = r.y - f.hy
+    f.sx = 0
+    f.sy = 0
+    f.rot = (noise(i + 1) - 0.5) * 7
+    f.fits = true
+    const len = Math.hypot(r.x - hub.x, r.y - hub.y) || 1
+    const dx = (r.x - hub.x) / len
+    const dy = (r.y - hub.y) / len
+    const a = rim(hub, dx, dy)
+    const b = rim(r, -dx, -dy)
+    ends.push(b)
+    return `M${a.x},${a.y}L${b.x},${b.y}`
+  })
+  return { mode: 'ring' as const, hub, headTop, wires, ends }
+}
+
 /**
  * Places the knowledge fragments around the hub card.
  *
  * The arrangement is solved from measurements rather than chosen by a
- * breakpoint: each fragment keeps its authored *direction* from the hub, and
- * the radius along that direction is whatever the panel actually affords once
- * the hub card, the headline and the panel edges are accounted for.
- *
- * A narrow or portrait panel cannot hold a ring — the fragments are wider than
- * the space beside the hub — so it falls back to a `net`: the same fragments
- * spread as a jittered constellation below the hub. Both arrangements are wired
- * to the hub by the same connecting lines, because that is the point being
- * made; only the shape of the net changes with the space available.
+ * breakpoint. A landscape panel holds the ring (solveRing). One that cannot —
+ * the nodes would touch each other or the card —
+ * falls back to a `net`: the same fragments spread as a jittered
+ * constellation below the hub. Both are wired to the hub, because that is the
+ * point being made; only the shape of the net changes with the space.
  */
 function solveStoryLayout(
   frags: Frag[],
   panel: Rect,
-  hub: Rect,
-  headline: Rect,
-  gridHub: Rect
-) {
+  card: { w: number; h: number },
+  headH: number
+): StoryLayout {
+  const ring = solveRing(frags, panel.w, panel.h, card, headH)
+  if (ring) return ring
+
   const PAD = 20
   const GAP = 18
-
-  const ring = frags.map((f) => {
-    const ux = Math.cos(f.ang)
-    const uy = Math.sin(f.ang)
-    // Furthest the fragment can travel along its direction and stay inside.
-    const limit = (u: number, half: number, from: number, extent: number) =>
-      u === 0
-        ? Infinity
-        : u > 0
-          ? (extent - PAD - half - from) / u
-          : (PAD + half - from) / u
-    const rMax = Math.min(
-      limit(ux, f.w / 2, hub.x, panel.w),
-      limit(uy, f.h / 2, hub.y, panel.h)
-    )
-    // Nearest it may sit without touching the hub card.
-    const clear = (u: number, span: number) => (u === 0 ? Infinity : span / Math.abs(u))
-    const rMin = Math.min(
-      clear(ux, (hub.w + f.w) / 2 + GAP),
-      clear(uy, (hub.h + f.h) / 2 + GAP)
-    )
-    return { f, ux, uy, rMin, rMax }
-  })
-
-  const slots = ring.map(({ f, ux, uy, rMin, rMax }) => {
-    // Walk inward from the outermost radius until the fragment clears the
-    // headline too; the headline sits above the hub, so the fragments that
-    // travel upwards are the ones that have to give way.
-    for (let s = 0; s <= 6; s++) {
-      const r = rMax - ((rMax - rMin) * s) / 6
-      if (r < rMin - 0.5) break
-      const rect = { x: hub.x + ux * r, y: hub.y + uy * r, w: f.w, h: f.h }
-      if (!overlaps(rect, headline, 12)) return { f, rect, ok: rMax >= rMin }
-    }
-    return { f, rect: { x: hub.x + ux * rMax, y: hub.y + uy * rMax, w: f.w, h: f.h }, ok: false }
-  })
-
-  const fits =
-    slots.every((s) => s.ok) &&
-    slots.every((a, i) => slots.every((b, j) => i >= j || !overlaps(a.rect, b.rect, 10)))
-
-  if (fits) {
-    slots.forEach(({ f, rect }, i) => {
-      f.tx = rect.x - f.hx
-      f.ty = rect.y - f.hy
-      // The authored CSS positions are already the scattered beat here.
-      f.sx = 0
-      f.sy = 0
-      f.rot = (noise(i + 1) - 0.5) * 7
-      f.fits = true
-    })
-    return 'ring' as const
-  }
+  const gridHub = { x: panel.w / 2, y: panel.h * 0.4, w: card.w, h: card.h }
 
   // Portrait net. Columns give the constellation its underlying order (nothing
   // overlaps, nothing is cropped) and a deterministic jitter within each cell
@@ -472,7 +568,12 @@ function solveStoryLayout(
     })
     if (ri < shown) top += rowH[ri] + COL
   })
-  return 'net' as const
+
+  // Straight wires from the hub's foot to the top edge of each node.
+  const foot = gridHub.y + gridHub.h / 2
+  const ends = frags.map((f) => (f.fits ? { x: f.hx + f.tx, y: f.hy + f.ty - f.h / 2 } : null))
+  const wires = ends.map((e) => (e ? `M${gridHub.x},${foot}L${e.x},${e.y}` : ''))
+  return { mode: 'net', hub: gridHub, headTop: panel.h * 0.11, wires, ends }
 }
 
 function initPins() {
@@ -487,47 +588,40 @@ function initPins() {
   const solutionCard = wrap.querySelector<HTMLElement>('[data-solution-card]')
   const linksSvg = wrap.querySelector<SVGSVGElement>('[data-links]')
 
-  // Authored fractions describe the composition on a landscape panel; only the
-  // direction they imply is kept, and the solver decides the distance.
-  const DESIGN_W = 16
-  const DESIGN_H = 9
-
   const fragEls: Frag[] = Array.from(wrap.querySelectorAll<HTMLElement>('[data-frag]')).map(
     (el) => {
       const [dx, dy] = (el.getAttribute('data-frag') ?? '0,0').split(',').map(Number)
-      const [fx, fy] = (el.getAttribute('data-target') ?? '0.5,0.5').split(',').map(Number)
+      const [u, v] = (el.getAttribute('data-at') ?? '0,1').split(',').map(Number)
       el.style.willChange = 'transform, opacity'
       el.style.opacity = '0'
-      const ang = Math.atan2((fy - 0.57) * DESIGN_H, (fx - 0.5) * DESIGN_W)
       return {
-        el, dx, dy, ang,
+        el, dx, dy, at: { u, v },
         w: 0, h: 0, hx: 0, hy: 0,
         sx: 0, sy: 0, rot: 0,
         tx: 0, ty: 0, fits: true,
       }
     }
   )
+  // The wires draw in mirrored pairs from the top of the ring to its foot:
+  // the structure grows symmetrically out of the hub.
+  const drawOrder = fragEls
+    .map((f, i) => ({ i, rank: f.at.v * 10 + (f.at.u > 0 ? 1 : 0) }))
+    .sort((a, b) => a.rank - b.rank)
+    .map(({ i }) => i)
 
-  let lineEls: SVGLineElement[] | null = null
-  let mode: 'ring' | 'net' = 'ring'
+  let wireEls: SVGPathElement[] | null = null
+  let portEls: SVGCircleElement[] | null = null
+  let mode: StoryLayout['mode'] = 'ring'
 
   const measureStory = () => {
     const W = panel.clientWidth
     const H = panel.clientHeight
     if (!W || !H) return
 
-    const cardW = solutionCard?.offsetWidth ?? 0
-    const cardH = solutionCard?.offsetHeight ?? 0
-    const hlW = hSolution?.offsetWidth ?? 0
-    const hlH = hSolution?.offsetHeight ?? 0
-    // A ring keeps the hub optically centred inside the fan; a portrait net
-    // stacks headline → hub → fragments, so both move up to make room.
-    const HUB_Y = { ring: 0.57, net: 0.4 }
-    const HEAD_Y = { ring: 0.21, net: 0.11 }
-    const hubAt = (f: number) => ({ x: 0.5 * W, y: f * H, w: cardW, h: cardH })
-    const headAt = (f: number) => ({ x: 0.5 * W, y: f * H + hlH / 2, w: hlW, h: hlH })
+    const card = { w: solutionCard?.offsetWidth ?? 0, h: solutionCard?.offsetHeight ?? 0 }
+    const headH = hSolution?.offsetHeight ?? 0
 
-    // Back to intrinsic size before measuring — grid mode stretches the
+    // Back to intrinsic size before measuring — net mode stretches the
     // fragments to a shared column width, which would otherwise be measured as
     // if it were their natural width on the next pass.
     fragEls.forEach((f) => {
@@ -541,40 +635,41 @@ function initPins() {
       f.hy = f.el.offsetTop + f.h / 2
     })
 
-    mode = solveStoryLayout(
-      fragEls,
-      { x: 0, y: 0, w: W, h: H },
-      hubAt(HUB_Y.ring),
-      headAt(HEAD_Y.ring),
-      hubAt(HUB_Y.net)
-    )
-    const hub = hubAt(HUB_Y[mode])
-    if (solutionCard) solutionCard.style.top = `${HUB_Y[mode] * 100}%`
-    if (hSolution) hSolution.style.top = `${HEAD_Y[mode] * 100}%`
+    const layout = solveStoryLayout(fragEls, { x: 0, y: 0, w: W, h: H }, card, headH)
+    mode = layout.mode
+    if (solutionCard) solutionCard.style.top = `${layout.hub.y}px`
+    if (hSolution) hSolution.style.top = `${layout.headTop}px`
     fragEls.forEach((f) => {
       if (!f.fits) f.el.style.display = 'none'
     })
 
-    if (linksSvg && !lineEls) {
+    if (linksSvg && !wireEls) {
       const NS = 'http://www.w3.org/2000/svg'
-      lineEls = fragEls.map(() => {
-        const l = document.createElementNS(NS, 'line')
-        l.setAttribute('stroke', '#a4b47a')
-        l.setAttribute('stroke-width', '1.5')
-        linksSvg.appendChild(l)
-        return l
+      wireEls = fragEls.map(() => {
+        const p = document.createElementNS(NS, 'path')
+        p.setAttribute('fill', 'none')
+        p.setAttribute('stroke', '#6e7d52')
+        p.setAttribute('stroke-width', '1.25')
+        p.setAttribute('stroke-linejoin', 'round')
+        linksSvg.appendChild(p)
+        return p
+      })
+      portEls = fragEls.map(() => {
+        const c = document.createElementNS(NS, 'circle')
+        c.setAttribute('r', '2.5')
+        c.setAttribute('fill', '#a4b47a')
+        linksSvg.appendChild(c)
+        return c
       })
     }
     if (linksSvg) linksSvg.setAttribute('viewBox', `0 0 ${W} ${H}`)
-    lineEls?.forEach((l, i) => {
-      const f = fragEls[i]
-      // Fragments that were left out get a zero-length line, which draws nothing.
-      const x = f.fits ? f.hx + f.tx : hub.x
-      const y = f.fits ? f.hy + f.ty : hub.y
-      l.setAttribute('x1', String(hub.x))
-      l.setAttribute('y1', String(hub.y))
-      l.setAttribute('x2', String(x))
-      l.setAttribute('y2', String(y))
+    // A fragment left out gets an empty path and no port, which draw nothing.
+    wireEls?.forEach((p, i) => p.setAttribute('d', layout.wires[i]))
+    portEls?.forEach((c, i) => {
+      const e = layout.ends[i]
+      c.setAttribute('cx', String(e?.x ?? -10))
+      c.setAttribute('cy', String(e?.y ?? -10))
+      c.setAttribute('r', e ? '2.5' : '0')
     })
   }
 
@@ -596,7 +691,7 @@ function initPins() {
   const setNavHidden = (hide: boolean) => {
     if (!nav || hide === navHidden) return
     navHidden = hide
-    gsap.to(nav, { y: hide ? '-110%' : '0%', opacity: hide ? 0 : 1, duration: 0.5, ease: 'power2.out' })
+    gsap.to(nav, { y: hide ? '-110%' : '0%', opacity: hide ? 0 : 1, duration: sec('base'), ease: 'settle' })
     nav.toggleAttribute('inert', hide)
     if (hide) nav.setAttribute('aria-hidden', 'true')
     else nav.removeAttribute('aria-hidden')
@@ -619,23 +714,35 @@ function initPins() {
       sticky.style.overflow = 'hidden'
     }
     measureStory()
-    // The scroll runway is the beat list's length: the ring adds the fan-out
-    // and the connecting lines, the grid does not, so it needs less scrolling.
-    wrap.style.height = runway ? (mode === 'ring' ? '440vh' : '300vh') : ''
+    // The scroll runway is the beat list's length: the ring adds the pull-in
+    // and the wiring, the net does not, so it needs less scrolling.
+    // It was 440vh and 300vh, with a static screen at either end; the beats
+    // below now fill the range, so the story takes about one screen of
+    // scrolling per idea.
+    wrap.style.height = runway ? (mode === 'ring' ? '240vh' : '200vh') : ''
+  }
+  /** Back to a plain block: what the section is below lg. */
+  const unpin = () => {
+    for (const p of ['position', 'top', 'boxSizing', 'height', 'overflow'] as const) sticky.style[p] = ''
+    wrap.style.height = ''
   }
 
+  // Below lg none of this runs: the stage is not displayed, and the section is
+  // the static hub grid that initHubGrid wires up.
   const mm = gsap.matchMedia()
 
-  mm.add('(prefers-reduced-motion: reduce)', () => {
+  mm.add(`${STAGED} and ${REDUCED}`, () => {
     sizePins(false)
-    fragEls.forEach((f) => gsap.set(f.el, { opacity: 1, x: f.tx, y: f.ty, rotation: 0, scale: 0.84 }))
-    if (lineEls) gsap.set(lineEls, { opacity: 0.45, drawSVG: '100%' })
+    fragEls.forEach((f) => gsap.set(f.el, { opacity: 1, x: f.tx, y: f.ty, rotation: 0, scale: 1 }))
+    if (wireEls) gsap.set(wireEls, { drawSVG: '100%' })
+    if (portEls) gsap.set(portEls, { opacity: 1 })
     gsap.set([hProblem].filter(Boolean), { opacity: 0 })
     gsap.set([hSolution].filter(Boolean), { opacity: 1, xPercent: -50, y: 0 })
     gsap.set([solutionCard].filter(Boolean), { opacity: 1, xPercent: -50, yPercent: -50, scale: 1 })
+    return unpin
   })
 
-  mm.add('(prefers-reduced-motion: no-preference)', () => {
+  mm.add(`${STAGED} and ${MOTION}`, () => {
     let ctx: gsap.Context | null = null
 
     const build = () => {
@@ -644,7 +751,7 @@ function initPins() {
         sizePins()
         const n = fragEls.length || 1
         const tl = gsap.timeline({
-          defaults: { ease: 'power2.out' },
+          defaults: { ease: 'settle' },
           scrollTrigger: {
             trigger: wrap,
             start: 'top top',
@@ -654,47 +761,54 @@ function initPins() {
           },
         })
 
+        // The score, in fractions of the runway. Every stretch of scrolling
+        // moves something: the fragments drift in (0–0.35), the problem gives
+        // way (0.30–0.40) to the answer (0.38–0.50), the hub pulls the
+        // fragments into place (0.40–0.70) and wires them (0.60–0.85), and the
+        // finished hub holds for the last 0.15 so it can be read.
         fragEls.forEach((f, i) => {
           if (!f.fits) return
-          // Drift in from where it was scattered, lie there a while, then get
-          // pulled onto the net.
           tl.fromTo(
             f.el,
             { opacity: 0, x: f.sx + f.dx * 4, y: f.sy + f.dy * 4, rotation: f.rot, scale: 0.85 },
-            { opacity: 1, x: f.sx, y: f.sy, scale: 1, duration: 0.16 },
-            0.03 + (i / n) * 0.27
+            { opacity: 1, x: f.sx, y: f.sy, scale: 1, duration: 0.15 },
+            (i / n) * 0.2
           ).to(
             f.el,
-            { x: f.tx, y: f.ty, rotation: 0, scale: 0.84, duration: 0.24 },
-            0.5 + (i / n) * 0.16
+            { x: f.tx, y: f.ty, rotation: 0, duration: 0.18, ease: 'draft' },
+            0.4 + (i / n) * 0.12
           )
         })
 
-        if (hProblem) tl.to(hProblem, { opacity: 0, y: -26, duration: 0.1 }, 0.42)
+        if (hProblem) tl.to(hProblem, { opacity: 0, y: -TRAVEL.md, duration: 0.1 }, 0.3)
         if (hSolution) {
           tl.fromTo(
             hSolution,
-            { opacity: 0, xPercent: -50, y: 18 },
+            { opacity: 0, xPercent: -50, y: TRAVEL.md },
             { opacity: 1, y: 0, duration: 0.1 },
-            0.52
+            0.38
           )
         }
         if (solutionCard) {
           tl.fromTo(
             solutionCard,
             { opacity: 0, xPercent: -50, yPercent: -50, scale: 0.8 },
-            { opacity: 1, scale: 1, duration: 0.14 },
-            0.56
+            { opacity: 1, scale: 1, duration: 0.1 },
+            0.4
           )
         }
-        if (lineEls?.length) {
-          tl.fromTo(
-            lineEls,
-            { drawSVG: 0, opacity: 0 },
-            { drawSVG: '100%', opacity: 0.45, duration: 0.26, stagger: 0.045 },
-            0.68
-          )
+        const allWires = wireEls
+        const allPorts = portEls
+        if (allWires?.length && allPorts) {
+          // Each wire draws out of the hub and its port lands as it arrives.
+          const wires = drawOrder.map((i) => allWires[i])
+          const ports = drawOrder.map((i) => allPorts[i])
+          const stagger = wires.length > 1 ? 0.13 / (wires.length - 1) : 0
+          tl.fromTo(wires, { drawSVG: 0 }, { drawSVG: '100%', duration: 0.12, ease: 'draft', stagger }, 0.6)
+          tl.fromTo(ports, { opacity: 0 }, { opacity: 1, duration: 0.02, stagger }, 0.7)
         }
+        // The hold: nothing moves, the runway just ends.
+        tl.to({}, { duration: 0.15 }, 0.85)
       }, wrap)
     }
 
@@ -719,6 +833,7 @@ function initPins() {
       window.removeEventListener('resize', onResize)
       ctx?.revert()
       ctx = null
+      unpin()
       // The transform and the opacity belong to GSAP and come back with the
       // revert; `inert` and `aria-hidden` were set by hand and do not. Turning
       // on reduced motion while the story held the navigation hidden used to
@@ -734,9 +849,79 @@ function initPins() {
   })
 }
 
+/**
+ * The phone and tablet hub: the story's nodes as a grid around one card, wired
+ * to it.
+ *
+ * The wires are laid from the measured cells, like the desktop ring's, so a
+ * cell that wraps to another row takes its wire with it. Each one leaves the
+ * edge of its node that faces the hub and lands on the hub's facing edge,
+ * pulled in towards its centre so the lines converge. Cells are opaque and sit
+ * over the wires, so a wire from an outer row reads as running under the cells
+ * between — a net, not a tangle.
+ *
+ * It plays once, as it comes into view: nodes arrive, the hub settles, then the
+ * wires draw in. Nothing is scrubbed and nothing holds the scroll.
+ */
+function initHubGrid() {
+  const hub = document.querySelector<HTMLElement>('[data-hub]')
+  const core = hub?.querySelector<HTMLElement>('[data-hub-core]')
+  const svg = hub?.querySelector<SVGSVGElement>('[data-hub-links]')
+  if (!hub || !core || !svg) return
+  const nodes = Array.from(hub.querySelectorAll<HTMLElement>('[data-hub-node]'))
+  const NS = 'http://www.w3.org/2000/svg'
+  const paths = nodes.map(() => {
+    const p = document.createElementNS(NS, 'path')
+    p.setAttribute('fill', 'none')
+    p.setAttribute('stroke', '#a4b47a')
+    p.setAttribute('stroke-width', '1.2')
+    p.setAttribute('stroke-opacity', '0.5')
+    svg.appendChild(p)
+    return p
+  })
+
+  const lay = () => {
+    const hb = hub.getBoundingClientRect()
+    if (!hb.width) return
+    const cb = core.getBoundingClientRect()
+    const cx = cb.left + cb.width / 2 - hb.left
+    svg.setAttribute('viewBox', `0 0 ${hb.width} ${hb.height}`)
+    nodes.forEach((n, i) => {
+      const r = n.getBoundingClientRect()
+      const nx = r.left + r.width / 2 - hb.left
+      const above = r.bottom <= cb.top
+      const ny = (above ? r.bottom : r.top) - hb.top
+      const ty = (above ? cb.top : cb.bottom) - hb.top
+      const tx = cx + (nx - cx) * 0.45
+      const my = (ny + ty) / 2
+      paths[i].setAttribute('d', `M${nx},${ny} C${nx},${my} ${tx},${my} ${tx},${ty}`)
+    })
+  }
+  lay()
+  if ('ResizeObserver' in window) new ResizeObserver(lay).observe(hub)
+  document.fonts?.ready.then(lay)
+
+  gsap.matchMedia().add(`(max-width: 1023.98px) and ${MOTION}`, () => {
+    // Already on screen at load: leave it be rather than blank it and replay.
+    if (hub.getBoundingClientRect().top < window.innerHeight * 0.85) return
+    gsap.set(nodes, { autoAlpha: 0, y: TRAVEL.sm })
+    gsap.set(core, { autoAlpha: 0 })
+    gsap.set(paths, { drawSVG: 0 })
+    gsap
+      .timeline({
+        defaults: { ease: 'settle' },
+        scrollTrigger: { trigger: hub, start: 'top 80%', once: true },
+      })
+      .to(nodes, { autoAlpha: 1, y: 0, duration: sec('slow'), stagger: staggerFor(nodes.length) / 1000 })
+      .to(core, { autoAlpha: 1, duration: sec('slow') }, '-=0.3')
+      .to(paths, { drawSVG: '100%', duration: sec('slow'), ease: 'draft' }, '-=0.2')
+  })
+}
+
 initHeroCta()
 initAura()
 initPins()
+initHubGrid()
 initReveals()
 initSheetIndex()
 initChain()

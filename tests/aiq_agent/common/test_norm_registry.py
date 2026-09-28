@@ -555,11 +555,22 @@ class TestGuessDocClass:
 # ---------------------------------------------------------------------------
 
 
-def test_repo_registry_has_23_entries():
+def test_repo_registry_has_24_entries():
     registry = nr.load_registry(str(REPO_ROOT / "configs" / "norms"))
 
     assert registry is not None
-    assert len(registry.entries) == 23
+    assert len(registry.entries) == 24
+
+
+def test_salzburg_permit_questions_reach_the_baupolizeigesetz():
+    """Salzburg keeps its permit procedure out of the Bautechnikgesetz; the
+    catalog pointed "bewilligungsfrei" at the technical act and the lookup never
+    found the law the question was about (answer suite, 2026-09-24)."""
+    registry = nr.load_registry(str(REPO_ROOT / "configs" / "norms"))
+    permits = {
+        entry.id for entry in registry.entries if entry.bundesland == "Salzburg" and "baubewilligung" in entry.topics
+    }
+    assert permits == {"baupolg-sbg"}
 
 
 class TestNonRisEntries:
@@ -917,6 +928,23 @@ class TestFamilyQueryNumber:
 
         assert family_query_number("OIB 2 und OIB 3") is None
 
+    @pytest.mark.parametrize(
+        "query", ["OIB 2 und 4", "OIB 2 und 4.", "OIB 2, 4", "OIB 2 oder 4", "OIB-RL 2/4", "OIB 2 und 4 Überblick"]
+    )
+    def test_a_second_key_chained_without_its_anchor_is_still_a_second_family(self, query):
+        """The bare ``4`` in "OIB 2 und 4" used to fall into the leftover, where
+        a number passes as a printing year, and the turn prefetched family 2
+        alone while suppressing family 4's overview."""
+        from aiq_agent.common.norm_registry import family_query_number
+
+        assert family_query_number(query) is None
+
+    @pytest.mark.parametrize("query", ["OIB 2 2023", "OIB-Richtlinie 2 Ausgabe 2023", "OIB 2, 2023", "OIB 2 und 2.1"])
+    def test_a_year_or_a_part_of_the_same_family_is_not_a_second_family(self, query):
+        from aiq_agent.common.norm_registry import family_query_number
+
+        assert family_query_number(query) == "2"
+
     def test_the_detected_number_is_the_key_oib_families_groups_by(self):
         """The contract between detection and resolution: what this returns is
         what `oib_families` keys a family by, or the branch resolves nothing."""
@@ -926,3 +954,172 @@ class TestFamilyQueryNumber:
         families = oib_families(["oib-rl_2_ausgabe_mai_2023.pdf", "oib-rl_2.3_ausgabe_mai_2023.pdf"])
 
         assert [family.key for family in families] == [family_query_number("was weißt du über die OIB 2")]
+
+
+# ---------------------------------------------------------------------------
+# The names oib.or.at actually publishes. Most parts use `oib-rl_`, but OIB-RL
+# 2.2 ships as `oib-richtlinie_2.2_…`, `erlaeuterungen-zu-oib-richtlinie_2.2_…`
+# and `aenderungen_oib-richtlinie_2.2_…`. Before these were pinned, the 2.2
+# Richtlinie dropped out of the OIB 2 family, its Erläuterungen were
+# unclassified, and its Änderungen slipped past the retrieval exclusion list.
+# ---------------------------------------------------------------------------
+
+#: (published filename, oib_doc_class, oib_family_member, guess_display_title)
+PUBLISHED_OIB_2023 = [
+    ("oib-rl_2_ausgabe_mai_2023.pdf", "richtlinie", "2", "OIB-Richtlinie 2, Ausgabe Mai 2023"),
+    ("oib-rl_2.1_ausgabe_mai_2023.pdf", "richtlinie", "2.1", "OIB-Richtlinie 2.1, Ausgabe Mai 2023"),
+    ("oib-richtlinie_2.2_ausgabe_mai_2023.pdf", "richtlinie", "2.2", "OIB-Richtlinie 2.2, Ausgabe Mai 2023"),
+    ("oib-rl_2.3_ausgabe_mai_2023.pdf", "richtlinie", "2.3", "OIB-Richtlinie 2.3, Ausgabe Mai 2023"),
+    ("oib-rl_3_ausgabe_mai_2023.pdf", "richtlinie", "3", "OIB-Richtlinie 3, Ausgabe Mai 2023"),
+    ("oib-rl_4_ausgabe_mai_2023.pdf", "richtlinie", "4", "OIB-Richtlinie 4, Ausgabe Mai 2023"),
+    ("oib-rl_6_ausgabe_mai_2023.pdf", "richtlinie", "6", "OIB-Richtlinie 6, Ausgabe Mai 2023"),
+    (
+        "oib-rl_2_leitfaden_ausgabe_mai_2023.pdf",
+        "leitfaden",
+        None,
+        "OIB-Richtlinie 2 – Leitfaden, Ausgabe Mai 2023",
+    ),
+    (
+        "erlaeuterungen_oib-rl_2_ausgabe_mai_2023.pdf",
+        "erlaeuterungen",
+        None,
+        "Erläuterungen zu OIB-Richtlinie 2, Ausgabe Mai 2023",
+    ),
+    (
+        "erlaeuterungen_oib-rl_2.1_ausgabe_mai_2023.pdf",
+        "erlaeuterungen",
+        None,
+        "Erläuterungen zu OIB-Richtlinie 2.1, Ausgabe Mai 2023",
+    ),
+    (
+        "erlaeuterungen-zu-oib-richtlinie_2.2_ausgabe_mai_2023.pdf",
+        "erlaeuterungen",
+        None,
+        "Erläuterungen zu OIB-Richtlinie 2.2, Ausgabe Mai 2023",
+    ),
+    (
+        "erlaeuterungen_oib-rl_2.3_ausgabe_mai_2023.pdf",
+        "erlaeuterungen",
+        None,
+        "Erläuterungen zu OIB-Richtlinie 2.3, Ausgabe Mai 2023",
+    ),
+    (
+        "erlaeuterungen_oib-rl_3_ausgabe_mai_2023.pdf",
+        "erlaeuterungen",
+        None,
+        "Erläuterungen zu OIB-Richtlinie 3, Ausgabe Mai 2023",
+    ),
+    (
+        "erlaeuterungen_oib-rl_4_ausgabe_mai_2023.pdf",
+        "erlaeuterungen",
+        None,
+        "Erläuterungen zu OIB-Richtlinie 4, Ausgabe Mai 2023",
+    ),
+    (
+        "erlaeuterungen_oib-rl_6_ausgabe_mai_2023.pdf",
+        "erlaeuterungen",
+        None,
+        "Erläuterungen zu OIB-Richtlinie 6, Ausgabe Mai 2023",
+    ),
+    (
+        "aenderungen_oib-rl_2_ausgabe_mai_2023.pdf",
+        "aenderungen",
+        None,
+        "Änderungen zu OIB-Richtlinie 2, Ausgabe Mai 2023",
+    ),
+    (
+        "aenderungen_oib-rl_2_leitfaden_ausgabe_mai_2023.pdf",
+        "aenderungen",
+        None,
+        "Änderungen zu OIB-Richtlinie 2 – Leitfaden, Ausgabe Mai 2023",
+    ),
+    (
+        "aenderungen_oib-rl_2.1_ausgabe_mai_2023.pdf",
+        "aenderungen",
+        None,
+        "Änderungen zu OIB-Richtlinie 2.1, Ausgabe Mai 2023",
+    ),
+    (
+        "aenderungen_oib-richtlinie_2.2_ausgabe_mai_2023.pdf",
+        "aenderungen",
+        None,
+        "Änderungen zu OIB-Richtlinie 2.2, Ausgabe Mai 2023",
+    ),
+    (
+        "aenderungen_oib-rl_2.3_ausgabe_mai_2023.pdf",
+        "aenderungen",
+        None,
+        "Änderungen zu OIB-Richtlinie 2.3, Ausgabe Mai 2023",
+    ),
+    (
+        "aenderungen_oib-rl_3_ausgabe_mai_2023.pdf",
+        "aenderungen",
+        None,
+        "Änderungen zu OIB-Richtlinie 3, Ausgabe Mai 2023",
+    ),
+    (
+        "aenderungen_oib-rl_4_ausgabe_mai_2023.pdf",
+        "aenderungen",
+        None,
+        "Änderungen zu OIB-Richtlinie 4, Ausgabe Mai 2023",
+    ),
+    (
+        "aenderungen_oib-rl_6_ausgabe_mai_2023.pdf",
+        "aenderungen",
+        None,
+        "Änderungen zu OIB-Richtlinie 6, Ausgabe Mai 2023",
+    ),
+]
+
+
+class TestPublishedOibFilenames:
+    @pytest.mark.parametrize(("file_name", "doc_class", "member", "title"), PUBLISHED_OIB_2023)
+    def test_each_published_name_parses(self, file_name, doc_class, member, title):
+        assert nr.oib_doc_class(file_name) == doc_class
+        assert nr.oib_family_member(file_name) == member
+        assert nr.guess_display_title(file_name) == title
+
+    def test_oib_2_family_holds_all_four_parts_under_published_names(self):
+        families = nr.oib_families(name for name, *_ in PUBLISHED_OIB_2023)
+        oib_2 = next(family for family in families if family.key == "2")
+        assert oib_2.members == ("2", "2.1", "2.2", "2.3")
+        assert "oib-richtlinie_2.2_ausgabe_mai_2023.pdf" in oib_2.files
+
+    @pytest.mark.parametrize(
+        ("published", "canonical"),
+        [
+            ("oib-richtlinie_2.2_ausgabe_mai_2023.pdf", "oib-rl_2.2_ausgabe_mai_2023.pdf"),
+            (
+                "erlaeuterungen-zu-oib-richtlinie_2.2_ausgabe_mai_2023.pdf",
+                "erlaeuterungen_oib-rl_2.2_ausgabe_mai_2023.pdf",
+            ),
+            (
+                "aenderungen_oib-richtlinie_2.2_ausgabe_mai_2023.pdf",
+                "aenderungen_oib-rl_2.2_ausgabe_mai_2023.pdf",
+            ),
+            ("OIB-RL_3_ausgabe_mai_2023.pdf", "oib-rl_3_ausgabe_mai_2023.pdf"),
+        ],
+    )
+    def test_published_spelling_canonicalises(self, published, canonical):
+        assert nr.canonical_oib_file_name(published) == canonical
+
+    @pytest.mark.parametrize(
+        "file_name",
+        [
+            "richtlinie_2.2_garagen.pdf",  # no oib- stem
+            "meine-oib-richtlinie_2.2_notizen.pdf",  # not anchored at the start
+            "erlaeuterungen-zu-bauordnung.pdf",  # a role prefix without an OIB stem
+            "oib-richtlinien-uebersicht.pdf",  # no separator after the stem
+            "zu-oib-richtlinie_2.2.pdf",
+        ],
+    )
+    def test_near_misses_stay_unrecognised(self, file_name):
+        assert nr.oib_doc_class(file_name) is None
+        assert nr.oib_family_member(file_name) is None
+        assert nr.guess_display_title(file_name) is None
+
+    def test_every_published_aenderungen_file_is_excluded_from_retrieval(self):
+        config = yaml.safe_load((REPO_ROOT / "configs" / "config_oib_openrouter.yml").read_text(encoding="utf-8"))
+        excluded = set(config["functions"]["knowledge_search"]["exclude_file_names"])
+        published_diffs = {name for name, doc_class, *_ in PUBLISHED_OIB_2023 if doc_class == "aenderungen"}
+        assert published_diffs - excluded == set()

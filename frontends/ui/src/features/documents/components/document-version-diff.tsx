@@ -43,6 +43,7 @@
  * more width than they buy.
  */
 
+import type { JSX } from 'react'
 import { useMemo } from 'react'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations, type Translator } from '@/i18n'

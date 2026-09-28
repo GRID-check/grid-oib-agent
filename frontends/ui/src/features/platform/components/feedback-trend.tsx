@@ -33,6 +33,7 @@
  * would eventually disagree on one screen.
  */
 
+import type { JSX } from 'react'
 import { useId, useMemo, useState } from 'react'
 
 import { useLocale, useTranslations } from '@/i18n'

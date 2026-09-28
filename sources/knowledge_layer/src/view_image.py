@@ -44,10 +44,10 @@ from pydantic import Field
 
 from aiq_agent.common.image_view_budget import MAX_IMAGE_VIEWS_PER_TURN
 from aiq_agent.common.image_view_budget import try_consume_image_view
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import register_function
 
 logger = logging.getLogger(__name__)
 

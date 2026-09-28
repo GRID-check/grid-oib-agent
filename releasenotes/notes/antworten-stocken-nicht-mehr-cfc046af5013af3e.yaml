@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    An answer being written no longer stalls while someone in the office loads
+    the document list, deletes files or starts a research with a follow-up
+    question.

@@ -10,10 +10,10 @@
  * not erased the document.
  *
  * Shared by every shelf. The session cleanup (`session-documents/cleanup.ts`)
- * was where this first became a reported result rather than a swallowed error,
- * and it lives here now because the replace-on-re-upload path of all three
- * shelves needs the same three deletes: a superseded row's derivatives are
- * stale the moment new bytes land, whether or not the file itself moved.
+ * was where this first became a reported result rather than a swallowed error;
+ * the project and Archiv deletes go through {@link eraseDocumentObjectsOrKeepRow}
+ * here too, so all three shelves erase the same objects and keep the row on the
+ * same failure.
  */
 
 import 'server-only'
@@ -22,6 +22,8 @@ import { s3Client, buildImageDerivedPrefix, buildThumbnailStorageKey } from '@/l
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import { deleteBimDerivedObjects } from '@/lib/bim/service'
 import type { Document } from '@/lib/db/schema'
+import { UpstreamError } from '@/lib/api/errors'
+import { listDocumentVersionObjects } from './version-repository'
 
 /**
  * The outcome of erasing one piece of a document's EXTERNAL state.
@@ -110,11 +112,13 @@ function resolveBucket(doc: StoredObjectRef): { bucket: string } | { failure: Ex
  * the `_img/` rasters and the `_bim/` derivatives — and leave the file itself
  * in place.
  *
- * The replace path's half of the erasure. A re-upload under the same name
- * keeps the id, so the new bytes usually land on the old key, and the file
- * needs no delete; but the thumbnail and the parsed building beside it still
- * describe the OLD bytes. Until the new ingest overwrites them they are shown
- * as if current, and if that ingest fails they are shown that way for good.
+ * Written for the replace path, which no longer needs it: since ADR-0054 a
+ * re-upload lands under its own `v<n>/` key (`versionWriteKey`), and every
+ * derivative is keyed off the file's directory, so the new version's thumbnail,
+ * rasters and building are written fresh beside it and the old version's stay
+ * with the old version — history, erased when the document is. It remains the
+ * second half of {@link deleteDocumentObjects}. Do not wire it into a
+ * re-upload: it would erase the PREVIOUS version's derivatives.
  */
 export async function deleteDerivedObjects(doc: StoredObjectRef): Promise<ExternalCleanupResult> {
   const storageKey = doc.storageKey
@@ -177,4 +181,36 @@ export async function deleteDocumentObjects(doc: StoredObjectRef): Promise<Exter
   if (!object.ok) return object
 
   return deleteDerivedObjects(doc)
+}
+
+/**
+ * Erase every stored object of a document — each version's file, `_thumb.jpg`,
+ * `_img/` rasters and `_bim/` derivatives — or throw and leave the row.
+ *
+ * Shared by the project and the Archiv delete, which used to delete the live
+ * object by hand: the file, the thumbnail and `_bim/`, but never the `_img/`
+ * rasters (up to 64 per document), with every failure swallowed and the row
+ * deleted regardless. The row is the only handle a retry has
+ * (`./object-cleanup`), so a swallowed failure was a private file nothing
+ * lists, nothing can delete, and that presigning its key reads back. This is
+ * the session delete's rule (`deleteSessionDocument`): the live object must go,
+ * or the delete answers 502 and the document stays.
+ *
+ * A SUPERSEDED version's leftover stays best-effort, as it is there: the row
+ * that guards access is the live one, and a version object that survives is an
+ * orphan for the project purge's prefix sweep, not a document still reachable.
+ */
+export async function eraseDocumentObjectsOrKeepRow(
+  doc: Pick<Document, 'id' | 'storageKey' | 'storageBucket'>,
+  organizationId: string
+): Promise<void> {
+  for (const version of await listDocumentVersionObjects(doc.id, organizationId)) {
+    if (version.storageKey === doc.storageKey) continue
+    await deleteDocumentObjects(version).catch(() => undefined)
+  }
+  const objects = await deleteDocumentObjects(doc)
+  if (objects.ok) return
+  // The reason carries bucket names and upstream text: the log, not the client.
+  console.error('[documents] delete aborted, row retained for retry:', doc.id, objects.reason)
+  throw new UpstreamError('Deleting the document failed; nothing was removed. Please try again.')
 }

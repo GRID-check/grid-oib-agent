@@ -48,7 +48,8 @@ outside NAT):
   inferred from the base URL (``OPENROUTER_API_KEY`` for the default
   openrouter.ai base URL).
 * ``BACKFILL_SUMMARY_BASE_URL`` — default ``https://openrouter.ai/api/v1``.
-* ``BACKFILL_SUMMARY_MODEL`` — default ``nvidia/nemotron-mini-4b-instruct``.
+* ``BACKFILL_SUMMARY_MODEL`` — default ``GRID_DEFAULT_MODEL``, then
+  ``openai/gpt-6-luna``.
 
 STORE ACCESS
 ------------
@@ -137,7 +138,7 @@ def build_summary_llm() -> _OpenAICompatLLM:
     cred = resolve_llm_credential(
         primary_env="BACKFILL_SUMMARY_API_KEY",
         default_base_url="https://openrouter.ai/api/v1",
-        default_model=os.environ.get("GRID_DEFAULT_MODEL", "openai/gpt-5.6-luna"),
+        default_model=os.environ.get("GRID_DEFAULT_MODEL", "openai/gpt-6-luna"),
         base_url_env="BACKFILL_SUMMARY_BASE_URL",
         model_env="BACKFILL_SUMMARY_MODEL",
         organization_id=None,

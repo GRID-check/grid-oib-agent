@@ -1,12 +1,11 @@
 /**
- * Piloti product logo — inline SVG mark plus optional wordmark.
- * The mark is the abstract four-square glyph (kept from the GRID era — it does
- * not render any letterforms); only the wordmark text carries the brand name.
- * Token-driven (text-primary / brand accent), so it adapts to light/dark.
+ * Piloti product logo: the column mark plus an optional wordmark.
+ * The mark is the master's path (`BRAND_MARK`, from `shared/brand/piloti-mark.svg`)
+ * cropped to the column, drawn in `currentColor` so it follows light and dark.
  */
 
 import { type FC } from 'react'
-import { PRODUCT_NAME } from '@/lib/brand'
+import { BRAND_MARK, PRODUCT_NAME } from '@/lib/brand'
 import { cn } from '@/lib/utils'
 
 interface LogoProps {
@@ -16,10 +15,11 @@ interface LogoProps {
   className?: string
 }
 
+/** Mark heights; the width follows the column's 5:6. */
 const markSize: Record<NonNullable<LogoProps['size']>, string> = {
-  small: 'size-5',
-  medium: 'size-7',
-  large: 'size-10',
+  small: 'h-5',
+  medium: 'h-7',
+  large: 'h-10',
 }
 
 const wordmarkSize: Record<NonNullable<LogoProps['size']>, string> = {
@@ -33,12 +33,12 @@ export const Logo: FC<LogoProps> = ({ kind = 'horizontal', size = 'medium', clas
     <span className={cn('inline-flex items-center gap-2', className)} role="img" aria-label={PRODUCT_NAME}>
       <svg
         xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
+        viewBox={BRAND_MARK.viewBox}
         fill="currentColor"
-        className={cn('shrink-0 text-primary', markSize[size])}
+        className={cn('aspect-[5/6] w-auto shrink-0 text-primary', markSize[size])}
         aria-hidden="true"
       >
-        <path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z" />
+        <path d={BRAND_MARK.path} />
       </svg>
       {kind === 'horizontal' && (
         <span className={cn('font-semibold tracking-tight text-foreground', wordmarkSize[size])}>{PRODUCT_NAME}</span>

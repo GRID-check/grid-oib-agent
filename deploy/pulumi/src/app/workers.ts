@@ -151,7 +151,7 @@ export function installWorkers(
   dependsOn: pulumi.Resource[],
 ): {
   purger: k8s.apps.v1.Deployment;
-  scheduler?: k8s.apps.v1.Deployment;
+  scheduler: k8s.apps.v1.Deployment;
   storageAlerts?: k8s.batch.v1.CronJob;
   vectorReconcile?: k8s.batch.v1.CronJob;
 } {
@@ -199,12 +199,13 @@ export function installWorkers(
     { provider: w.provider, dependsOn: [secrets.secret, ...dependsOn] },
   );
 
-  // The scheduler container exits 0 immediately when Agent Skills are off (its
-  // own runtime gate) — under a Deployment that means a permanent
-  // CrashLoopBackOff. So only create it when the feature is actually enabled;
-  // flipping skillsEnabled + re-running `pulumi up` adds it later.
-  const scheduler = cfg.skills.enabled
-    ? new k8s.apps.v1.Deployment(
+  // Created whatever `skillsEnabled` says. The container used to exit 0 when
+  // Agent Skills were off, which under a Deployment is a permanent
+  // CrashLoopBackOff, so it was only created with the feature on. It now also
+  // drives the run reconciler (`frontends/ui/src/lib/runs/reconcile.ts`), and
+  // runs exist without Agent Skills (an escalated chat question), so with the
+  // feature off it stays up as a reconcile-only worker and fires no schedules.
+  const scheduler = new k8s.apps.v1.Deployment(
         "skill-scheduler",
         {
           metadata: {
@@ -243,8 +244,7 @@ export function installWorkers(
           },
         },
         { provider: w.provider, dependsOn: [secrets.secret, ...dependsOn] },
-      )
-    : undefined;
+      );
 
   /**
    * Storage-quota alerting (ADR-0042). A 10-minute ceiling: the sweep is one

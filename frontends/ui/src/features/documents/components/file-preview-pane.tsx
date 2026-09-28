@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import { INLINE_PREVIEW_CONTENT_TYPES } from '@/lib/documents/preview-types'
 
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
@@ -43,6 +44,7 @@ import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dial
 import { DocumentActionsMenu, useDocumentActions, type DocumentScope } from './document-actions'
 import {
   DocumentStatusBadge,
+  failedWithPreviousVersion,
   fileTypeIcon,
   isCitable,
   isNeverIndexed,
@@ -1237,6 +1239,16 @@ export function FilePreviewPane({
                     <p className="text-muted-foreground break-words text-xs">
                       {file.errorMessage || t('preview.ingestionFailedGeneric')}
                     </p>
+                    {/* A failed NEW version: the row already points at its
+                      bytes, while the ingestor kept the previous version's
+                      passages. Without this the two surfaces disagree
+                      silently — the download is the new file, the answers
+                      quote the old one. */}
+                    {failedWithPreviousVersion(file) && (
+                      <p className="text-muted-foreground break-words text-xs">
+                        {t('preview.ingestionFailedPreviousVersionKept')}
+                      </p>
+                    )}
                   </div>
                 </div>
                 {canManage && (

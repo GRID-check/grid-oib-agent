@@ -118,6 +118,12 @@ class TestShouldSkipJudge:
         chunks = [_scored(0.5), _scored(0.4), _scored(0.3)]
         assert should_skip_judge("OIB-RL 2 Pkt 5.1", chunks) == (True, "known_entity")
 
+    def test_the_stem_oib_publishes_2_2_under_is_a_known_entity(self):
+        # OIB-RL 2.2 is the one part oib.or.at names ``oib-richtlinie_``, and a
+        # caller may name it without the extension.
+        chunks = [_scored(0.5), _scored(0.4), _scored(0.3)]
+        assert should_skip_judge("oib-richtlinie_2.2_ausgabe_mai_2023", chunks) == (True, "known_entity")
+
     def test_plain_topic_with_weak_pool_judges(self):
         chunks = [_scored(0.5), _scored(0.4), _scored(0.3)]
         assert should_skip_judge("Wie lang darf der Fluchtweg sein?", chunks) == (False, "")

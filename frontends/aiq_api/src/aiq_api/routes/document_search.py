@@ -6,6 +6,7 @@ hits; this route aggregates them into a document-centric result — one hit per
 file (its best-scoring chunk), sorted by score descending.
 """
 
+import asyncio
 import logging
 import os
 
@@ -92,11 +93,11 @@ def _authorize_collection(http_request: Request, collection_name: str) -> None:
       is no tenant boundary to enforce (parity with the pre-envelope behavior and
       the envelope-enforcement middleware, which also no-ops when auth is off).
 
-    RESIDUAL TRUST BOUNDARY: this route is deliberately NOT on the
-    ``GridContextEnvelopeMiddleware`` enforced-path allowlist (its BFF caller is a
-    server-side service fetch carrying no WorkOS bearer token, so the middleware
-    would classify it as non-jwt and never enforce). The check here is that
-    allowlist's equivalent for this specific read route.
+    RESIDUAL TRUST BOUNDARY: ``GridContextEnvelopeMiddleware`` exempts
+    ``/v1/collections`` from its deny-by-default envelope rule, and this route's
+    BFF caller is a server-side service fetch carrying no WorkOS bearer token
+    anyway, so the middleware would classify it as non-jwt and never enforce.
+    The check here is the envelope's equivalent for this specific read route.
     """
     scope = _verified_collection_scope(http_request)
     if scope is not None:
@@ -176,7 +177,7 @@ def add_document_search_routes(router: APIRouter):
         _authorize_collection(http_request, collection_name)
 
         # Verify collection exists (same 404 contract as the document routes).
-        collection = ingestor.get_collection(collection_name)
+        collection = await asyncio.to_thread(ingestor.get_collection, collection_name)
         if collection is None:
             raise HTTPException(status_code=404, detail=f"Collection '{collection_name}' not found")
 

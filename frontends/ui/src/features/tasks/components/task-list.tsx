@@ -22,6 +22,7 @@
  * never closes — and its count is the number a person should want at zero.
  */
 
+import type { JSX } from 'react'
 import { CircleDashed, Inbox } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'

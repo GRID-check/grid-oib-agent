@@ -26,6 +26,7 @@ import signal
 import socket
 
 from . import queue
+from .outcome_notify import notify_job_outcome_from_access
 from .runner import _purge_deep_checkpoint
 from .runner import _update_status_if_not_terminal
 from .runner import run_agent_job
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 # The full exception stays server-side in the logs; clients get this string via
 # job_info.error and the job.error event (same surfaces as runner failures).
 POISON_PAYLOAD_ERROR = "The job payload could not be decrypted or parsed and was quarantined."
+RETRIES_EXHAUSTED_ERROR = "research worker retries exhausted"
 
 
 def _int_env(name: str, default: int) -> int:
@@ -155,8 +157,10 @@ class ResearchWorker:
         so a concurrent cancel/reaper verdict wins) and emits the ``job.error``
         event both surfaces stream. Best-effort throughout: a poison verdict
         must never itself kill the poll loop. There is no conversation notice
-        or outcome notify here — the payload was undecryptable, so the run's
-        conversation/usage context is unrecoverable by construction.
+        here — the payload was undecryptable, so the run's conversation/usage
+        context is unrecoverable by construction. The outcome IS reported: its
+        tenant is on the ``job_access`` row, not in the payload, and without the
+        report the BFF's run row stays ``running`` forever.
         """
         job_id = claim["job_id"]
         logger.error(
@@ -172,6 +176,9 @@ class ResearchWorker:
             written = await _update_status_if_not_terminal(store, job_id, JobStatus.FAILURE, error=POISON_PAYLOAD_ERROR)
             if written:
                 logger.error("Job %s marked FAILURE after payload quarantine", job_id)
+                await notify_job_outcome_from_access(
+                    job_id=job_id, db_url=self.db_url, status="failure", error=POISON_PAYLOAD_ERROR
+                )
             else:
                 logger.info("Job %s already terminal; leaving the existing verdict", job_id)
         except Exception:
@@ -209,10 +216,15 @@ class ResearchWorker:
                 # ("failure"), so the old uppercase string raised ValueError
                 # and these jobs were never actually marked.
                 written = await _update_status_if_not_terminal(
-                    store, job_id, JobStatus.FAILURE, error="research worker retries exhausted"
+                    store, job_id, JobStatus.FAILURE, error=RETRIES_EXHAUSTED_ERROR
                 )
                 if written:
                     logger.error("Job %s marked FAILURE after retry exhaustion", job_id)
+                    # No run is left to report it: the BFF's run row closes here
+                    # or never.
+                    await notify_job_outcome_from_access(
+                        job_id=job_id, db_url=self.db_url, status="failure", error=RETRIES_EXHAUSTED_ERROR
+                    )
                 else:
                     logger.info("Job %s already terminal; leaving the existing verdict", job_id)
             except Exception:

@@ -69,6 +69,11 @@ def build_run_commissioner(config: DispatchSettings) -> RunCommissioner | None:
     async def _commission(state: ConversationState) -> CommissionedRun:
         # What the clarifier settled travels with the question: the run starts
         # where the conversation got to, instead of asking it all again.
-        return await commission_research_run(job_query(state), context=state.clarifier_result)
+        return await commission_research_run(
+            job_query(state),
+            context=state.clarifier_result,
+            data_sources=state.data_sources,
+            documents=state.plan_documents,
+        )
 
     return _commission

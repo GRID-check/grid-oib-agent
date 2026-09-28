@@ -14,6 +14,7 @@
  * quota belongs to the platform operator (ADR-0042).
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { HardDrive } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'

@@ -21,8 +21,10 @@
  * screen, "continue where you left off" is not the question being asked.
  */
 
+import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
-import { FolderOpen, Search } from 'lucide-react'
+import { Search } from 'lucide-react'
+import { RisoPrint } from '@/components/brand/riso-print'
 import { Button } from '@/components/ui/button'
 import { CountPill } from '@/components/ui/count-pill'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -32,6 +34,7 @@ import { SectionLabel } from '@/components/ui/section-label'
 import { splitForResume } from '@/features/projects/lib/resume-selection'
 import type { Project } from '@/lib/db/schema'
 import { useTranslations } from '@/i18n'
+import { TOUR_ANCHORS } from '@/features/onboarding/lib/product-tour'
 import { CreateProjectDialog } from './create-project-dialog'
 import { ProjectCard } from './project-card'
 import { ProjectListRow } from './project-list-row'
@@ -126,7 +129,7 @@ export function ProjectsGrid({
               />
             )}
             {/* Primary near-black action — Button default variant consumes --primary. */}
-            <CreateProjectDialog defaultOpen={autoOpenCreate} />
+            <CreateProjectDialog defaultOpen={autoOpenCreate} tourAnchor={TOUR_ANCHORS.createProject} />
           </div>
         }
       />
@@ -134,7 +137,7 @@ export function ProjectsGrid({
       <div className="mt-7">
         {!hasProjects ? (
           <EmptyState
-            icon={FolderOpen}
+            art={<RisoPrint id="vignetten/abstecken/empty" />}
             title={t('list.empty.title')}
             description={t('list.empty.description')}
             action={<CreateProjectDialog label={t('list.empty.action')} />}

@@ -51,9 +51,15 @@ function assertOnePublished(documentId: string): void {
   if (published.length > 1) throw new PublishedPerDocumentViolation(documentId)
 }
 
-function materialize(values: NewDocumentVersion): DocumentVersion {
+/**
+ * A row as the repository would write it. The number is ALLOCATED here, as the
+ * real inserts allocate it inside their transaction (`allocateVersionNumber`):
+ * callers no longer hand one in.
+ */
+function materialize(values: Omit<NewDocumentVersion, 'versionNumber'>): DocumentVersion {
   return {
     id: `ver_${rows.length + 1}`,
+    versionNumber: rows.filter((row) => row.documentId === values.documentId).length + 1,
     storageBucket: null,
     contentType: null,
     fileSize: null,
@@ -85,13 +91,13 @@ vi.mock('./version-repository', () => ({
    * The pre-fix path: insert, then supersede. Kept callable so the revert check
    * is a one-line edit in `lifecycle.ts` rather than a rewrite of this fake.
    */
-  insertDocumentVersion: vi.fn(async (values: NewDocumentVersion) => {
+  insertDocumentVersion: vi.fn(async (values: Omit<NewDocumentVersion, 'versionNumber'>) => {
     const row = materialize(values)
     rows.push(row)
     assertOnePublished(row.documentId)
     return row
   }),
-  insertPublishedVersion: vi.fn(async (values: NewDocumentVersion) => {
+  insertPublishedVersion: vi.fn(async (values: Omit<NewDocumentVersion, 'versionNumber'>) => {
     // Supersede FIRST, inside the transaction, exactly as the real one does.
     const superseded = rows.filter(
       (row) => row.documentId === values.documentId && row.state === 'published',
@@ -137,12 +143,9 @@ vi.mock('./reviewers', () => ({
 }))
 vi.mock('./version-content', () => ({
   BACKEND_PURGE_TIMEOUT_MS: 10_000,
-  admitVersionBytes: vi.fn(),
   readVersionContent: vi.fn().mockResolvedValue(''),
   renderVersionBytes: vi.fn(),
-  resolveVersionBucket: vi.fn().mockResolvedValue('grid-org-1'),
-  storeVersionBytes: vi.fn(),
-  versionStorageKey: (doc: { storageKey: string }) => doc.storageKey,
+  writeVersionContent: vi.fn(),
 }))
 vi.mock('./service', () => ({
   dispatchDocument: vi.fn(),

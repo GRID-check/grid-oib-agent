@@ -18,6 +18,7 @@
  * on its own, exactly as the prose did.
  */
 
+import type { JSX } from 'react'
 import { useMemo } from 'react'
 import Link from 'next/link'
 import { ArrowRight, Boxes } from 'lucide-react'

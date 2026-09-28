@@ -17,52 +17,38 @@ import { fireEvent, render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { describe, test, expect } from 'vitest'
 import { ReasoningFlow } from './ReasoningFlow'
-import type { ThinkingStep } from '../../types'
+import { storedSteps } from '@/test-utils/wire-v2-steps'
 
 /** `n` retrieval rounds, each concluding something and returning one file. */
-const spineSteps = (n: number): ThinkingStep[] => {
-  const steps: ThinkingStep[] = []
-  for (let i = 0; i < n; i++) {
-    steps.push({
-      id: `r${i}`,
-      userMessageId: 'u1',
-      category: 'agents',
-      functionName: `status:retrieval:${i}`,
-      displayName: `status:retrieval:${i}`,
-      content: JSON.stringify({
-        kind: 'status',
-        channel: 'live',
-        slot: `retrieval:${i}`,
+const spineSteps = (n: number) =>
+  storedSteps(
+    Array.from({ length: n }, (_, i) => [
+      {
+        id: `status:retrieval:${i}`,
+        kind: 'retrieval',
+        round: i,
         key: 'status.retrieval.withQuery',
         values: { corpus: 'knowledge', query: `Suchbegriff ${i}` },
         tools: ['knowledge_search'],
         reason: `Folgerung ${i}.`,
-      }),
-      timestamp: new Date(),
-      isComplete: true,
-    })
-    steps.push({
-      id: `t${i}`,
-      userMessageId: 'u1',
-      category: 'tools',
-      functionName: 'knowledge_search',
-      displayName: 'knowledge_search',
-      content: '',
-      timestamp: new Date(),
-      isComplete: true,
-      traceLanes: [
-        {
-          key: 'baurecht_oib',
-          label: 'OIB-Richtlinie',
-          hitCount: 1,
-          signal: 'law',
-          sources: [{ name: `Quelle_${i}.pdf`, round: i }],
-        },
-      ],
-    })
-  }
-  return steps
-}
+      },
+      {
+        id: `sources:${i}`,
+        kind: 'sources',
+        round: i,
+        tool: 'knowledge_search',
+        lanes: [
+          {
+            key: 'baurecht_oib',
+            label: 'OIB-Richtlinie',
+            kind: 'baurecht',
+            hit_count: 1,
+            sources: [{ name: `Quelle_${i}.pdf` }],
+          },
+        ],
+      },
+    ]).flat()
+  )
 
 const toggles = () => screen.queryAllByTestId('reasoning-round-toggle')
 const cards = () => document.querySelectorAll('[data-source-card]').length
@@ -114,11 +100,7 @@ describe('the fold control', () => {
 
   test('three rounds arrive expanded — evidence hidden by default reads as no evidence', () => {
     render(<ReasoningFlow steps={spineSteps(3)} userQuestion="Frage?" answerConfidence="high" />)
-    expect(toggles().map((c) => c.getAttribute('aria-expanded'))).toEqual([
-      'true',
-      'true',
-      'true',
-    ])
+    expect(toggles().map((c) => c.getAttribute('aria-expanded'))).toEqual(['true', 'true', 'true'])
     // Every layer's file is on screen.
     expect(cards()).toBe(3)
   })

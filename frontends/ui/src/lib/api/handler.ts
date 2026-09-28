@@ -71,6 +71,12 @@ import {
 } from './errors'
 import { requestBodyLimitBytes } from '@/shared/config/request-body-limit'
 import { REQUEST_ID_HEADER, resolveRequestId } from './request-id'
+import { databaseUnavailableCode } from '@/lib/db/errors'
+import {
+  LEGAL_HOLD_MESSAGE,
+  LEGAL_HOLD_REASON,
+  LEGAL_HOLD_SQLSTATE,
+} from '@/lib/compliance/legal-hold-codes'
 
 /** Context passed to session-authenticated handlers. */
 export interface ApiContext<TParams = Record<string, never>> {
@@ -258,6 +264,9 @@ function errorPayload(
   )
 }
 
+/** Seconds a client should wait before retrying a request the database outage refused. */
+const DATABASE_RETRY_AFTER_S = 5
+
 export function errorResponse(error: unknown, request: Request): Response {
   if (isNextControlFlowError(error)) throw error
   const requestId = resolveRequestId(request)
@@ -277,9 +286,33 @@ export function errorResponse(error: unknown, request: Request): Response {
   if (isAuthzError(error)) {
     return errorPayload({ error: 'Forbidden', code: 'FORBIDDEN' }, 403, requestId)
   }
+  // The database's delete trigger refused a row a legal hold covers (migration
+  // 0093). The service check normally answers first with the same 409; this is
+  // the path that forgot to ask, and it must still read as a hold, not a 500.
+  if (findPostgresCode(error) === LEGAL_HOLD_SQLSTATE) {
+    return errorPayload(
+      { error: LEGAL_HOLD_MESSAGE, code: 'CONFLICT', details: { reason: LEGAL_HOLD_REASON } },
+      409,
+      requestId,
+    )
+  }
   // Binding a filename to a uuid column is not an internal failure (#572).
   if (isInvalidUuidQueryError(error)) {
     return errorPayload({ error: 'Not found', code: 'NOT_FOUND' }, 404, requestId)
+  }
+  // The database being unreachable is an outage, not this route's bug: one
+  // fixed line per failure, so an outage files one issue with a count rather
+  // than one per path that happened to hit it (#733-#741), and a 503 that
+  // tells the client when to come back.
+  const unavailable = databaseUnavailableCode(error)
+  if (unavailable) {
+    console.error(`[db] database unavailable (${unavailable}) requestId=${requestId}`)
+    return errorPayload(
+      { error: 'The database is not reachable right now. Try again shortly.', code: 'DATABASE_UNAVAILABLE' },
+      503,
+      requestId,
+      { 'Retry-After': String(DATABASE_RETRY_AFTER_S) },
+    )
   }
   const url = new URL(request.url)
   const pgCode = findPostgresCode(error)

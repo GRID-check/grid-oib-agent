@@ -37,7 +37,28 @@ type ThumbState = 'loading' | 'ready' | 'none' | 'error'
  * resolved "no thumbnail" (null url) stays cached — unless the document was
  * still being read when we asked (see {@link loadThumbnail}).
  */
-const thumbnailCache = new Map<string, Promise<string | null>>()
+const thumbnailCache = new Map<string, { url: Promise<string | null>; expiresAtMs?: number }>()
+
+/**
+ * How long before a signed url's `exp` it stops being handed out: a card that
+ * mounts must still be able to fetch it.
+ */
+const EXPIRY_MARGIN_MS = 60_000
+
+/**
+ * When a signed image url stops working, from its `exp` (seconds), or
+ * undefined for a url that carries none (a presigned object-store fallback).
+ *
+ * The cache used to keep a resolved url for the page's lifetime, but a signed
+ * url lives an hour or two. A tab left open replayed urls that had expired days
+ * earlier (#366: `exp` of Sep 8, requested Sep 18). The route answered 403
+ * with a JSON body, and Next's image optimizer, which never looks at the
+ * status, logged "isn't a valid image" for it.
+ */
+export function signedUrlExpiresAtMs(url: string): number | undefined {
+  const exp = Number(new URL(url, 'http://relative.invalid').searchParams.get('exp'))
+  return Number.isFinite(exp) && exp > 0 ? exp * 1000 : undefined
+}
 
 /** Test hook — clears the module cache between specs. */
 export const resetThumbnailCache = (): void => {
@@ -59,7 +80,10 @@ export const resetThumbnailCache = (): void => {
  */
 function loadThumbnail(fileId: string, provisional = false): Promise<string | null> {
   const existing = thumbnailCache.get(fileId)
-  if (existing) return existing
+  if (existing && !(existing.expiresAtMs !== undefined && Date.now() >= existing.expiresAtMs - EXPIRY_MARGIN_MS)) {
+    return existing.url
+  }
+  const entry: { url: Promise<string | null>; expiresAtMs?: number } = { url: Promise.resolve(null) }
   const promise = fetch(`/api/documents/${fileId}/thumbnail`)
     .then((r) => {
       if (!r.ok) {
@@ -71,11 +95,14 @@ function loadThumbnail(fileId: string, provisional = false): Promise<string | nu
     .then((data) => (data && typeof data.url === 'string' ? data.url : null))
     .then((url) => {
       if (url === null && provisional) thumbnailCache.delete(fileId)
+      if (url) entry.expiresAtMs = signedUrlExpiresAtMs(url)
       return url
     })
-  // Evict a rejected resolution so a later mount can retry (successes stay cached).
+  // Evict a rejected resolution so a later mount can retry (a success stays
+  // cached until its signature expires).
   promise.catch(() => thumbnailCache.delete(fileId))
-  thumbnailCache.set(fileId, promise)
+  entry.url = promise
+  thumbnailCache.set(fileId, entry)
   return promise
 }
 

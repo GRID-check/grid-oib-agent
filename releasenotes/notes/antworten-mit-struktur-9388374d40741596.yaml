@@ -1,0 +1,14 @@
+---
+features:
+  - >
+    Answers are structured instead of running prose: the first line answers with
+    the value in bold, checks by building class appear as tables with
+    references, procedures as numbered steps and outstanding items as a task
+    list.
+  - >
+    Piloti draws on its own where text carries a form badly, such as a branching
+    procedure, who hands what to whom, or a construction schedule from the
+    project documents. The drawing can be filed in the project.
+fixes:
+  - >
+    An answer containing a drawing or code block no longer shows up as raw text.

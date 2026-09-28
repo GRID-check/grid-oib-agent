@@ -47,6 +47,7 @@
  * ingestion runs after it.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { FileBrowserPane, type FolderNavigation } from '@/features/documents/components/file-browser-pane'

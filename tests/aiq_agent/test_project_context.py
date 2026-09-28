@@ -43,9 +43,9 @@ class TestUserMessageId:
             self.user_message_id = user_message_id
 
     def _patch(self, monkeypatch, value):
-        import nat.builder.context as nat_context
+        from nat.plugin_api import Context
 
-        monkeypatch.setattr(nat_context.Context, "get", classmethod(lambda cls: self._Ctx(value)))
+        monkeypatch.setattr(Context, "get", classmethod(lambda cls: self._Ctx(value)))
 
     def test_reads_the_ws_parent_id(self, monkeypatch):
         self._patch(monkeypatch, "msg_1755600000000_3")

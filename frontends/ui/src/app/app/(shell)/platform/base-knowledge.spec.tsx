@@ -34,6 +34,7 @@ function file(overrides: Partial<KnowledgeBaseStatus['files'][number]>): Knowled
     ingestedAt: null,
     summary: null,
     docClass: 'sonstiges',
+    docClassSuggestion: null,
     displayTitle: null,
     ...overrides,
   }
@@ -172,6 +173,45 @@ describe('BaseKnowledge', () => {
         (init as RequestInit | undefined)?.method === 'PATCH',
     )
     expect(JSON.parse((patchCall![1] as RequestInit).body as string)).toEqual({ doc_class: 'gesetz' })
+  })
+
+  test('a Dokumentart read from the text is offered, and accepting it is the same PATCH', async () => {
+    const suggested = file({ fileName: 'BO_Wien_konsolidiert.pdf', docClass: 'sonstiges', docClassSuggestion: 'gesetz' })
+    const fetchSpy = vi.fn().mockResolvedValue(jsonResponse({ ...STATUS, files: [...STATUS.files, suggested] }))
+    vi.stubGlobal('fetch', fetchSpy)
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    const sheet = await openDetail(user, 'BO_Wien_konsolidiert.pdf')
+
+    // Offered beside the picker, never applied: the picker still shows the stored class.
+    expect(within(sheet).getByText('Read from the text: Gesetz / Bauordnung')).toBeInTheDocument()
+    expect(within(sheet).getByRole('combobox', { name: /Document type for BO_Wien/i })).toHaveTextContent(
+      'Sonstiges Basisdokument',
+    )
+    expect(fetchSpy.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')).toBe(false)
+
+    await user.click(within(sheet).getByRole('button', { name: 'Accept' }))
+
+    await waitFor(() => {
+      const patch = fetchSpy.mock.calls.find(
+        ([url, init]) =>
+          typeof url === 'string' &&
+          url.includes('/BO_Wien_konsolidiert.pdf/doc-class') &&
+          (init as RequestInit | undefined)?.method === 'PATCH',
+      )
+      expect(patch && JSON.parse((patch[1] as RequestInit).body as string)).toEqual({ doc_class: 'gesetz' })
+    })
+  })
+
+  test('a suggestion equal to the stored class offers nothing', async () => {
+    const same = file({ fileName: 'b1600.pdf', docClass: 'norm_extern', docClassSuggestion: 'norm_extern' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ ...STATUS, files: [...STATUS.files, same] })))
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    const sheet = await openDetail(user, 'b1600.pdf')
+    expect(within(sheet).queryByRole('button', { name: 'Accept' })).not.toBeInTheDocument()
   })
 
   test('renaming from the detail sheet PATCHes the display-title endpoint with the new name', async () => {

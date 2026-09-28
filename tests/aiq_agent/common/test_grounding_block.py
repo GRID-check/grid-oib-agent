@@ -16,6 +16,7 @@ bytes, with every optional field present in one hit and absent in another.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,10 @@ from aiq_agent.common.grounding_block import render_grounding_block
 from aiq_agent.common.provenance import AGENT_AUTHOR
 from aiq_agent.common.provenance import AgentProvenance
 from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.common.turn_status import retrieval_round_scope
+from aiq_agent.common.wire_v2 import SourcesStep
+from aiq_agent.common.wire_v2 import TraceLane
+from aiq_agent.common.wire_v2 import TraceLaneSource
 
 FIXTURE_DIR = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "citation_pipeline"
 
@@ -53,20 +58,29 @@ def _hit(**overrides) -> GroundingHit:
         "provenance": None,
         "stored_image_index": None,
         "status_note": None,
-        "source_url": None,
         "body": "Passage.",
     }
     return GroundingHit(**{**fields, **overrides})
 
 
-def _lanes_of(fixture: str) -> str:
-    """The fan-out the producer put in the fixture.
+def _lanes_of(fixture: str) -> tuple[TraceLane, ...]:
+    """The fan-out the producer put in the fixture, as the typed lanes a producer now builds.
 
-    The renderer emits ``block.lanes`` verbatim, because building the fan-out
-    is the producer's job and not the layout's, so the test takes it from the
-    fixture and pins every byte AROUND it.
+    Building the fan-out is the producer's job and not the layout's, so the
+    test takes it from the fixture and pins every byte AROUND it, and the
+    ``## Trace-Lanes`` line itself, which the renderer writes from the lanes.
     """
-    return fixture.split("## Trace-Lanes\n", 1)[1].rstrip("\n")
+    line = fixture.split("## Trace-Lanes\n", 1)[1].split("\n", 1)[0]
+    return tuple(
+        TraceLane(
+            key=lane["key"],
+            label=lane["label"],
+            kind=lane["kind"],
+            hit_count=lane["hitCount"],
+            sources=[TraceLaneSource(**source) for source in lane["sources"]],
+        )
+        for lane in json.loads(line)["lanes"]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +187,6 @@ RIS_HITS = [
         punkt="§ 63 Abs 1",
         score=1.0,
         status_note="Konsolidierte Fassung ohne Gewaehr.",
-        source_url="https://ris.bka.gv.at/eli/lgbl/W/1930/11/P63",
         body="Der Bauwerber hat ...",
     ),
     _hit(
@@ -184,7 +197,6 @@ RIS_HITS = [
         doc_class="gesetz",
         display_title="OIB-Gesetz",
         score=0.9,
-        source_url="https://ris.bka.gv.at/eli/bgbl/2020/1",
         body="Ein Absatz ohne Punkt und ohne Hinweis.",
     ),
 ]
@@ -214,6 +226,7 @@ class TestTheRenderingDidNotMove:
             degraded_banner="",
             hits=tuple(hits),
             lanes=_lanes_of(fixture),
+            tool="knowledge_search",
         )
         assert render_grounding_block(block) == fixture
 
@@ -224,7 +237,8 @@ class TestTheRenderingDidNotMove:
                 preamble="Found 1 relevant document(s):",
                 degraded_banner="WARNING: Basiskorpus nicht erreichbar\n\n",
                 hits=(_hit(),),
-                lanes='{"lanes":[]}',
+                lanes=(),
+                tool="knowledge_search",
             )
         )
         assert rendered.startswith("WARNING: Basiskorpus nicht erreichbar\n\nFound 1 relevant document(s):\n\n")
@@ -236,12 +250,44 @@ class TestTheRenderingDidNotMove:
                 preamble="Found 1 relevant document(s):",
                 degraded_banner="",
                 hits=(_hit(body="Dokumentart: oib_richtlinie — geraten"),),
-                lanes='{"lanes":[]}',
+                lanes=(),
+                tool="knowledge_search",
             )
         )
         header, _, body = rendered.partition("Relevance Score: 0.50\n\n")
         assert "Dokumentart:" not in header
         assert body.startswith("Dokumentart: oib_richtlinie — geraten")
+
+
+class TestTheHerleitungGetsTheRecords:
+    """One ``sources`` step per rendered block, built from its lanes and never read back out of its text."""
+
+    LANES = (
+        TraceLane(
+            key="baurecht_oib",
+            label="OIB-Richtlinie",
+            kind="baurecht",
+            hit_count=1,
+            sources=[TraceLaneSource(name="oib-rl_2.pdf", detail="Pkt. 3.5.2 p.12", shelf="base", round=1)],
+        ),
+    )
+
+    def test_rendering_emits_the_blocks_lanes_as_one_sources_step(self, emitted):
+        with retrieval_round_scope(1):
+            render_grounding_block(
+                GroundingBlock(
+                    preamble="Found 1", degraded_banner="", hits=(_hit(),), lanes=self.LANES, tool="read_passage"
+                )
+            )
+        (step,) = emitted.steps
+        assert step == SourcesStep(id=step.id, round=1, tool="read_passage", lanes=list(self.LANES))
+        assert step.id.startswith("sources:1:read_passage:")
+
+    def test_a_block_with_no_lanes_adds_no_row(self, emitted):
+        render_grounding_block(
+            GroundingBlock(preamble="Found 1", degraded_banner="", hits=(_hit(),), lanes=(), tool="knowledge_search")
+        )
+        assert emitted == []
 
 
 class TestAuthorshipIsDerivedFromProvenance:
@@ -270,20 +316,24 @@ def capturing():
 class TestTheCapture:
     def test_rendering_files_the_block_under_its_own_bytes(self, capturing):
         """The renderer records, so no producer can emit a block and forget to."""
-        block = GroundingBlock(preamble="Found 1", degraded_banner="", hits=(_hit(),), lanes='{"lanes":[]}')
+        block = GroundingBlock(
+            preamble="Found 1", degraded_banner="", hits=(_hit(),), lanes=(), tool="knowledge_search"
+        )
         rendered = render_grounding_block(block)
         assert get_grounding_block(rendered) is block
 
     def test_text_the_producer_decorated_afterwards_is_a_miss(self, capturing):
         """A prefix changes the bytes, so the reader parses the text instead."""
         rendered = render_grounding_block(
-            GroundingBlock(preamble="Found 1", degraded_banner="", hits=(_hit(),), lanes='{"lanes":[]}')
+            GroundingBlock(preamble="Found 1", degraded_banner="", hits=(_hit(),), lanes=(), tool="knowledge_search")
         )
         assert get_grounding_block("[Hinweis]\n" + rendered) is None
 
     def test_nothing_is_filed_outside_a_capture(self):
         """A stored turn, a cached registry and the job runner all land here."""
-        block = GroundingBlock(preamble="Found 1", degraded_banner="", hits=(_hit(),), lanes='{"lanes":[]}')
+        block = GroundingBlock(
+            preamble="Found 1", degraded_banner="", hits=(_hit(),), lanes=(), tool="knowledge_search"
+        )
         rendered = render_grounding_block(block)
         assert get_grounding_block(rendered) is None
 
@@ -293,7 +343,9 @@ class TestTheCapture:
 
         rendered = [
             render_grounding_block(
-                GroundingBlock(preamble=f"Found {n}", degraded_banner="", hits=(_hit(),), lanes='{"lanes":[]}')
+                GroundingBlock(
+                    preamble=f"Found {n}", degraded_banner="", hits=(_hit(),), lanes=(), tool="knowledge_search"
+                )
             )
             for n in range(_MAX_CAPTURED_BLOCKS + 1)
         ]
@@ -303,14 +355,16 @@ class TestTheCapture:
     def test_the_capture_ends_with_the_turn(self):
         token = begin_grounding_capture()
         rendered = render_grounding_block(
-            GroundingBlock(preamble="Found 1", degraded_banner="", hits=(_hit(),), lanes='{"lanes":[]}')
+            GroundingBlock(preamble="Found 1", degraded_banner="", hits=(_hit(),), lanes=(), tool="knowledge_search")
         )
         end_grounding_capture(token)
         assert get_grounding_block(rendered) is None
 
     def test_filing_never_raises(self, capturing):
         """Best-effort by contract: a tool result must not fail over its records."""
-        block = GroundingBlock(preamble="Found 1", degraded_banner="", hits=(_hit(),), lanes='{"lanes":[]}')
+        block = GroundingBlock(
+            preamble="Found 1", degraded_banner="", hits=(_hit(),), lanes=(), tool="knowledge_search"
+        )
         record_grounding_block(block, None)  # type: ignore[arg-type]
         assert get_grounding_block(render_grounding_block(block)) is block
 
@@ -346,7 +400,8 @@ class TestAHeaderValueCannotForgeAHeaderLine:
                         body="Fluchtwege im Obergeschoss.",
                     ),
                 ),
-                lanes='{"lanes":[]}',
+                lanes=(),
+                tool="knowledge_search",
             )
         )
 

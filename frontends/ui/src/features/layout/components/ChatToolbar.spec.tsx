@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import type { ResourceSharingState } from '@/lib/sharing/types'
 import { ChatToolbar } from './ChatToolbar'
+import type { ChatMessage } from '@/features/chat/types'
+import { emptyRunLedger, setRunStatus } from '@/lib/runs/run-ledger'
 
 // Sharing data hooks are stubbed: this spec is about what the toolbar shows and
 // gates, not about the (separately tested) fetching. The default state is "nothing
@@ -74,14 +76,29 @@ const mockUpdateConversationTitle = vi.fn()
 vi.mock('@/features/chat', () => ({
   useChatStore: (
     selector: (state: {
-      isDeepResearchStreaming: boolean
-      currentConversation: { id: string } | null
+      currentConversation: { id: string; messages: ChatMessage[] } | null
       updateConversationTitle: (id: string, title: string) => void
     }) => unknown
   ) =>
     selector({
-      isDeepResearchStreaming: mockIsDeepResearchStreaming,
-      currentConversation: mockCurrentSessionId ? { id: mockCurrentSessionId } : null,
+      // A run going in the thread is a message whose stored ledger says so.
+      currentConversation: mockCurrentSessionId
+        ? {
+            id: mockCurrentSessionId,
+            messages: mockIsDeepResearchStreaming
+              ? [
+                  {
+                    id: 'run-1',
+                    role: 'assistant',
+                    content: '',
+                    messageType: 'agent_response',
+                    timestamp: new Date('2026-01-01T00:00:00Z'),
+                    runLedger: setRunStatus(emptyRunLedger('run-1'), 'laeuft'),
+                  },
+                ]
+              : [],
+          }
+        : null,
       updateConversationTitle: mockUpdateConversationTitle,
     }),
 }))

@@ -18,6 +18,12 @@ vi.mock('@/adapters/api', () => ({
   createDocumentsClient: () => mockClient,
 }))
 
+// A chat's attachments are listed first-party, never through the proxy client.
+const mockListSessionDocuments = vi.fn()
+vi.mock('@/adapters/api/session-documents-client', () => ({
+  listSessionDocuments: (...args: unknown[]) => mockListSessionDocuments(...args),
+}))
+
 // Mock the stores
 const mockDocumentsStore = {
   clearFilesForCollection: vi.fn(),
@@ -44,7 +50,6 @@ vi.mock('./store', () => ({
 }))
 
 const mockLayoutStore = {
-  openRightPanel: vi.fn(),
   setDataSourcesPanelTab: vi.fn(),
   knowledgeLayerAvailable: true,
 }
@@ -77,6 +82,7 @@ vi.mock('./persistence', () => ({
   sessionHasKnownCollection: (id: string) => mockSessionHasKnownCollection(id),
   markSessionHasCollection: (id: string) => mockMarkSessionHasCollection(id),
   unmarkSessionCollection: (id: string) => mockUnmarkSessionCollection(id),
+  removePersistedJobForCollection: vi.fn(),
 }))
 
 describe('UploadOrchestrator', () => {
@@ -510,6 +516,106 @@ describe('UploadOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(5000)
 
       expect(mockDocumentsStore.setError).not.toHaveBeenCalled()
+    })
+  })
+
+  /**
+   * A chat's attachments are document rows (ADR-0047 Phase 2). They are read
+   * through `GET /api/session/documents`, and polled by re-listing, because
+   * that listing reconciles every in-flight row. Nothing goes through the proxy.
+   */
+  describe('the session shelf', () => {
+    const CHAT = 's_11111111_2222_4333_8444_555555555555'
+    const row = (status: 'ingesting' | 'success') => ({
+      file_id: 'doc-1',
+      file_name: 'plan.pdf',
+      collection_name: CHAT,
+      status,
+      chunk_count: 0,
+      metadata: {},
+    })
+
+    test('lists a chat through the session documents route, not the proxy', async () => {
+      mockSessionHasKnownCollection.mockReturnValue(true)
+      mockListSessionDocuments.mockResolvedValue([row('success')])
+
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+
+      expect(mockListSessionDocuments).toHaveBeenCalledWith(CHAT)
+      expect(mockClient.getCollection).not.toHaveBeenCalled()
+      expect(mockClient.listFiles).not.toHaveBeenCalled()
+      expect(mockDocumentsStore.setFilesFromServer).toHaveBeenCalledWith(CHAT, [row('success')])
+    })
+
+    test('does not resume a proxy job persisted for a chat', async () => {
+      mockSessionHasKnownCollection.mockReturnValue(true)
+      mockGetPersistedJobForCollection.mockReturnValue({
+        jobId: 'job-legacy',
+        collectionName: CHAT,
+        files: [],
+        timestamp: Date.now(),
+      } as never)
+      mockListSessionDocuments.mockResolvedValue([])
+
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+
+      expect(mockClient.getJobStatus).not.toHaveBeenCalled()
+      expect(mockListSessionDocuments).toHaveBeenCalledWith(CHAT)
+    })
+
+    test('forgets the marker when the conversation is not on the server', async () => {
+      mockSessionHasKnownCollection.mockReturnValue(true)
+      mockListSessionDocuments.mockResolvedValue(null)
+
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+
+      expect(mockUnmarkSessionCollection).toHaveBeenCalledWith(CHAT)
+    })
+
+    test('polls by re-listing until nothing is in flight', async () => {
+      mockListSessionDocuments
+        .mockResolvedValueOnce([row('ingesting')])
+        .mockResolvedValueOnce([row('success')])
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+
+      UploadOrchestrator.pollSessionDocuments(CHAT)
+      expect(mockDocumentsStore.setPolling).toHaveBeenLastCalledWith(true)
+
+      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(mockListSessionDocuments).toHaveBeenCalledTimes(2)
+      expect(mockListSessionDocuments).toHaveBeenCalledWith(CHAT, expect.any(AbortSignal))
+      expect(mockDocumentsStore.setFilesFromServer).toHaveBeenLastCalledWith(CHAT, [row('success')])
+      expect(mockDocumentsStore.setPolling).toHaveBeenLastCalledWith(false)
+      expect(mockClient.getJobStatus).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(mockListSessionDocuments).toHaveBeenCalledTimes(2)
+    })
+
+    test('a reload with an attachment still being read resumes polling on its own', async () => {
+      mockSessionHasKnownCollection.mockReturnValue(true)
+      mockListSessionDocuments
+        .mockResolvedValueOnce([row('ingesting')])
+        .mockResolvedValueOnce([row('success')])
+
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(mockListSessionDocuments).toHaveBeenCalledTimes(2)
+      expect(mockDocumentsStore.setFilesFromServer).toHaveBeenLastCalledWith(CHAT, [row('success')])
+    })
+
+    test('switching chats stops the poll', async () => {
+      mockListSessionDocuments.mockResolvedValue([row('ingesting')])
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+      UploadOrchestrator.pollSessionDocuments(CHAT)
+
+      await UploadOrchestrator.handleSessionChange('s_other', 'session')
+      await vi.advanceTimersByTimeAsync(10000)
+
+      expect(mockListSessionDocuments).not.toHaveBeenCalledWith(CHAT, expect.any(AbortSignal))
     })
   })
 })

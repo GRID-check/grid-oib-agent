@@ -429,12 +429,11 @@ async function renderAndFileReport(
       //      `fileReportIfCommissioned`, so the report response carries
       //      `filingFailed: true` — the promise the starting banner made
       //      („wird abgelegt") was made and broken, and that is the one case
-      //      that key exists for. The whole chain is named here because a key
-      //      nobody reads is the same as no key at all, which is what this one
-      //      was for a while: `deep-research-client.ts` carries it across the
-      //      boundary, `use-deep-research` / `use-load-job-data` record it on
-      //      the run's success banner, and `DeepResearchBanner` prints
-      //      `deepResearch.success.filingFailedLine`. No reason travels with
+      //      that key exists for. A key nobody reads is the same as no key
+      //      at all, and that is what this one is again: `deep-research-client.ts`
+      //      (`getJobReport`) carries it across the boundary, but its reader,
+      //      the research side panel's success banner, was retired with that
+      //      panel and the run block does not read it yet. No reason travels with
       //      it, deliberately: a quota refusal, a revoked permission and a
       //      report too long to render are one fact to an architect — the
       //      document is not there. The length and the limit are on the error,

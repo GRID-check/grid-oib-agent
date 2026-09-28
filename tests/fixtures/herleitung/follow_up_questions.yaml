@@ -1,0 +1,51 @@
+# Follow-ups: the message that names its subject in the previous exchange.
+#
+# The loop-eval set is 27 standalone questions, which is the shape a decision
+# about "can this be searched on its own" (`self_contained`, ADR-0064) never
+# gets to say "no" on. These rows are the other half: each is a message a
+# Wiener Planungsbüro sends AFTER the question in `previous`, and the answer
+# it wants is about the previous subject. `family` and `punkt` follow the
+# same discipline as `loop_eval_questions.yaml` (read off the committed
+# index, never remembered).
+#
+# Read by `scripts/decision_eval.py` (`--follow-ups`), which reports how many
+# of these the decision holds back from a search of the fragment; the loop
+# eval does not run them, because it sends single questions.
+
+questions:
+  - id: fu-und-in-gk4
+    previous: >-
+      Welchen Feuerwiderstand brauchen die tragenden Wände in einem Gebäude
+      der Gebäudeklasse 5?
+    question: Und in Gebäudeklasse 4?
+    family: OIB-RL 2
+    punkt: "2.2"
+  - id: fu-und-im-bestand
+    previous: Müssen wir in jeder Wohnung Rauchwarnmelder vorsehen?
+    question: Und im Bestand, wenn wir nur die Küche umbauen?
+    family: OIB-RL 2
+    punkt: "3.11"
+  - id: fu-genauer
+    previous: >-
+      Wir planen ein Wohnhaus in Gebäudeklasse 4. Wie lang darf der Fluchtweg
+      vom Wohnungseingang bis ins Freie sein?
+    question: Genauer bitte, mit der Fundstelle.
+    family: OIB-RL 2
+    punkt: "5.1"
+  - id: fu-was-gilt-dort
+    previous: Wie hoch muss das Geländer bei einer Absturzhöhe von 4 m sein?
+    question: Was gilt dort für die Öffnungsweite?
+    family: OIB-RL 4
+    punkt: null
+  - id: fu-warum
+    previous: Welchen U-Wert braucht die Außenwand bei einem Neubau?
+    question: Warum?
+    family: OIB-RL 6
+    punkt: null
+  - id: fu-und-das-zweite
+    previous: >-
+      Wir bauen eine Produktionshalle mit rund 1.800 m² Grundfläche. Welche
+      Brandschutzanforderungen kommen da auf uns zu?
+    question: Und das zweite, die Brandabschnitte?
+    family: OIB-RL 2.1
+    punkt: null

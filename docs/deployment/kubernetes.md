@@ -21,7 +21,7 @@ their own namespaces.
 | `aiq-agent` (agent web tier) | **StatefulSet** | 1 (dask) / N (db, default 2) | RWO PVC `/app/data` per replica | dask mode: vertically (singleton). db mode (both shipped templates): horizontally + PDB/spread — §6.4 |
 | `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | 2→6 | — | Horizontally (CPU HPA) |
 | `purger` | Deployment | 1 | — | n/a (SKIP LOCKED-safe) |
-| `skill-scheduler` | Deployment (only when `skillsEnabled`) | 1 | — | n/a (DB-claimed ticks) |
+| `skill-scheduler` | Deployment (always; fires schedules only when `skillsEnabled`, drives the run reconciler either way) | 1 | — | n/a (DB-claimed ticks) |
 | `postgres` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) | CloudNativePG `Cluster` | 1 (→3 HA) | RWO PVC | Add replicas |
 | `dragonfly` (Redis-proto cache) | Deployment | 1 | — (cache) | — |
 | `seaweedfs` (filer + S3 gateway) | StatefulSet | 1 (`single`) / N (`split`) | RWO PVC `/data` (unused under the Postgres filer store) | See §4 |
@@ -1113,6 +1113,27 @@ see §10.
   `xffNumTrustedHops` defaults to 0 — correct only if the managed LoadBalancer
   preserves the source IP. If it SNATs instead, every caller is bucketed as the
   LB and a per-client limit silently becomes a per-product one.
+- **Edge compression, landing site only.** `grid-web-timeouts` (the web
+  route's `BackendTrafficPolicy`) carries `compressor: [Brotli, Gzip]`, Brotli
+  winning the tie when a browser weighs both equally. Envoy's default
+  content-type list applies, so HTML, CSS, JS, JSON, SVG and text are
+  compressed and WebP and WOFF2 pass through. `compressor` is the Envoy Gateway
+  v1.6+ field (`compression` is its deprecated predecessor); `gateway-helm` is
+  unpinned, and an older controller prunes the unknown field without an error,
+  so check the live site rather than the plan:
+  `curl -sI -H 'Accept-Encoding: br, gzip' https://<webDomain>/ | grep -i content-encoding`
+  must print `br`. The app route has no compressor on purpose: it streams chat
+  through the BFF, and nobody has measured what a compressor does to that
+  stream. The S3 route serves presigned PDFs and images, which do not shrink.
+- **Static caching is the web image's job, not Envoy's.** The container runs
+  `frontends/web/runtime/server.mjs`, which sets `Cache-Control` on files that
+  exist: `/_astro/*` `public, max-age=31536000, immutable`, `/fonts/*` and
+  `/art/*` `public, max-age=604800, stale-while-revalidate=86400`, HTML left at
+  `public, max-age=0` with an ETag so every view revalidates. An HTTPRoute
+  `ResponseHeaderModifier` would stamp the same header on a 404, and during a
+  surge rollout a new page can request an asset from an old pod that does not
+  have it yet. The Deployment sets no `command`; the image's `CMD` is the one
+  place the entry file is named.
 
 ## 7b. Rolling updates — how a deploy actually lands
 
@@ -1191,11 +1212,13 @@ when it finally exits, every socket it terminated goes with it. Nothing in
 Kubernetes or Envoy can migrate an established TCP connection to another pod. So
 a chat socket is re-established once per deploy, by design. The question is only
 whether the user notices, and that is a client-side budget: the reconnect curve
-in `frontends/ui/src/adapters/api/websocket-client.ts` used to allow 3 attempts,
-i.e. it surrendered ~4–7 seconds after the drop and put "Unable to connect to
-the server" in front of every open chat on every deploy. It is now sized to
-outlast a roll of both tiers (12 attempts ≈ 2–4 min, jittered). Anything longer
-than that is a genuinely wedged rollout and should still surface as an error.
+of the chat socket used to allow 3 attempts, i.e. it surrendered ~4–7 seconds
+after the drop and put "Unable to connect to the server" in front of every open
+chat on every deploy. It is now sized to outlast a roll of both tiers
+(`frontends/ui/src/adapters/api/turn-socket.ts`: 12 attempts ≈ 2–4 min,
+jittered), and the reopened socket re-attaches a running turn from its last
+`seq`. Anything longer than that is a genuinely wedged rollout and should still
+surface as an error.
 
 **And the agent tier is not interchangeable.** `aiq-agent` keeps per-conversation
 WS delivery, human-in-the-loop futures and the running LangGraph task *in
@@ -1725,7 +1748,7 @@ depends on §9, whose guard already refuses `networkPolicies=false`.
 - **Web and worker images must be the same Langfuse version.** They are two
   config keys because upstream publishes two images; digests are opaque, so
   nothing can verify it for you. Both defaults are pinned from the same tag
-  (3.225.1). Bump them together.
+  (3.225.11). Bump them together.
 - **ClickHouse must run UTC.** On any other server timezone Langfuse's queries
   return empty or shifted results — a dashboard reporting "no data" for a system
   that is plainly running. `TZ=UTC` is pinned on the container; do not override.

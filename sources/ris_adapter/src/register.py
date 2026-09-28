@@ -44,11 +44,11 @@ from ris_adapter.client import RisError
 from ris_adapter.client import RisHit
 from ris_adapter.client import build_document_url
 
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.component_ref import LLMRef
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import LLMRef
+from nat.plugin_api import register_function
 
 try:
     from aiq_agent.common.norm_registry import NormEntry
@@ -855,7 +855,7 @@ def _safe_document_name(reference: str, title: str) -> str:
 def _resolve_session_collection() -> str | None:
     """Return the per-session knowledge collection name, or None outside a session."""
     from aiq_agent.knowledge.base import SESSION_COLLECTION_PREFIX
-    from nat.builder.context import Context
+    from nat.plugin_api import Context
 
     try:
         ctx = Context.get()

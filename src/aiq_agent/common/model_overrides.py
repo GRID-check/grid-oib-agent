@@ -14,11 +14,13 @@ nothing about those two layers: one map arrives, it is applied.
 
 The backend treats the header as advisory *model selection only*: every other
 generation parameter (max_tokens, reasoning_effort, base_url, api_key) still
-comes from the workflow YAML, so an override can never re-point traffic at a
-different provider or credential. Unknown groups and malformed ids are
-dropped; a missing/broken header means "use the YAML models" (fail-open to the
-config's boot fallback, never an error — model selection must not take chat
-down).
+comes from the workflow YAML (the platform owner's per-group reasoning level
+arrives separately, from ``platform_reasoning_efforts`` through
+``reasoning_settings``; the YAML value is its fallback), so an override can
+never re-point traffic at a different provider or credential. Unknown groups
+and malformed ids are dropped; a missing/broken header means "use the YAML
+models" (fail-open to the config's boot fallback, never an error — model
+selection must not take chat down).
 """
 
 import base64
@@ -149,10 +151,6 @@ class AgentGroup(StrEnum):
     # (`requiresImageInput` in agent-groups.ts); the picker save path validates
     # against that same gate.
     INGEST_VLM = "ingest_vlm"
-    # Staged OIB Soll-Ist pipeline (compliance_checker). Its own group so
-    # unsetting deep_research's model does not also silence a check, and so the
-    # llms map can point compliance_llm independently.
-    COMPLIANCE_CHECK = "compliance_check"
 
 
 def parse_model_overrides(raw: str | None) -> dict[str, str]:
@@ -398,8 +396,20 @@ def get_model_overrides_from_context() -> dict[str, str]:
 
     Returns ``{}`` when no overrides apply — callers then use the
     YAML-configured models unchanged.
+
+    When the signed envelope arrived, its ``modelOverrides`` is the only source:
+    the raw header is unsigned, and a client that set it could run any agent
+    group on any model at the organization's expense. Only a request with no
+    envelope (the job worker, which injects the header itself; the CLI) reads it.
     """
     from aiq_agent.project_context import _read_header
+    from aiq_agent.project_context import get_signed_request_context
+
+    envelope = get_signed_request_context()
+    if envelope is not None:
+        if envelope.model_overrides is not None:
+            return sanitize_model_overrides(envelope.model_overrides)
+        return resolve_org_model_overrides(envelope.organization_id)
 
     raw = _read_header(MODEL_OVERRIDES_HEADER)
     if raw:

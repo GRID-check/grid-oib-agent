@@ -1,12 +1,9 @@
 ---
 improvements:
   - >
-    Beim Rechercheplan gibt es jetzt einen Mittelweg: Neben „Recherche starten"
-    und „Abbrechen" können Sie mit „Kurz beantworten" Ihre Frage sofort und
-    ohne den mehrminütigen Recherchelauf beantworten lassen. „Abbrechen"
-    beendet den Vorgang mit einer klaren Bestätigung statt kommentarlos.
+    The research plan now offers a middle way: besides Recherche starten and
+    Abbrechen, Kurz beantworten answers your question at once without the
+    research run of several minutes.
   - >
-    Die Plan-Vorschau spricht jetzt Ihre Sprache: Überschriften wie „Research
-    Plan Preview" und die englische Antwort-Anweisung sind lokalisiert, und
-    nach einem Klick zeigt die Karte Ihre Entscheidung in Worten („Kurze
-    Antwort angefordert") statt des technischen Schlüsselworts.
+    The plan preview is in your language, and after a click the card states your
+    decision in words rather than as a technical keyword.

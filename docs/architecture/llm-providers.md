@@ -32,7 +32,7 @@ llms:
   research_llm:
     _type: openai
     base_url: "https://openrouter.ai/api/v1"
-    model_name: openai/gpt-5.6-luna
+    model_name: openai/gpt-6-luna
     api_key: ${OPENROUTER_API_KEY}
     # max_tokens / max_retries / reasoning_effort tuned per role
 ```

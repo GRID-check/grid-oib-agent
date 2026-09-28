@@ -56,7 +56,7 @@ that closes a loop is named where it ran.
 | fix | A deep run whose post-hoc cards could not be produced records `cards_generation_failed` as a degraded reason, worded under the answer and in the Herleitung graph, instead of looking like a run that had nothing to propose | `cards/generate.py`, `jobs/runner.py`, `turn-events.ts`, `message-provenance.ts` |
 | fix | The Report tab's source list carries the `[N]` the report cites by: the report route returns the persisted numbered sources, and both load paths merge them into the citation list | `routes/jobs.py`, `deep-research-client.ts`, `use-deep-research.ts`, `use-load-job-data.ts` |
 | fix | The OIB display title reads any edition off the filename, not only "Mai 2023"; the three document-metadata resolvers log a failed store read instead of silently falling back | `common/norm_registry.py`, `sources/knowledge_layer/src/register.py` |
-| D · L0 | The turn's one repair: a failed citation or quote triggers one retrieval aimed at the failing text and one rewrite, re-verified, the better answer ships (`repair_pass`, `status.repair`) | `piloti/agent.py` |
+| D · L0 | The turn's one repair: a failed citation or quote triggers one retrieval aimed at the failing text and one rewrite, re-verified, the better answer ships (`repair_pass`, `status.repair`). (Superseded by ADR-0067: a misremembered quote is corrected in place, quote_patch.py; repair_pass is the off switch.) | `piloti/agent.py` |
 | D · L1 | The retrieval loop: a sufficiency judge beside the reranker, alternative formulations retrieved from every collection and fused into the same RRF, a second rerank; `status.retrieval.requery` on the live line and `requery_queries` in the trace | `knowledge_layer/requery.py`, `register.py`, `config_oib_openrouter.yml` |
 | D · L5 | The turn holds for an attachment still being indexed (`GRID_INGEST_WAIT_SECONDS`, `status.documents.waiting`), re-reads the inventory when it finishes; the in-flight filter that never fired is fixed | `piloti/conversation_register.py`, `knowledge/ingest_status_store.py` |
 | fix | Deep research no longer dies of one slow source: a tool's own timeout is a tool error the model routes around; the writer's call bound matches its output (600 s, one retry); a budget exhaustion keeps its actionable message; the banner names the real cause | `deep_researcher/tools/source_tool_batching.py`, `deep_researcher/agent.py`, `jobs/runner.py`, `config_oib_openrouter.yml` |
@@ -121,7 +121,9 @@ Three consequences follow, and the rest of this document is those three:
    to it. Every part exists; the row that joins them does not (§6).
 3. **Every loop must close on a measurement, not a person.** The repo's own
    doctrine ("ratchet every correction") applied to the runtime: an answer
-   that fails verification gets one repair pass, not a marker; a retrieval
+   that fails verification gets one repair pass, not a marker (superseded by
+   ADR-0067: a misremembered quote is corrected in place, `quote_patch.py`;
+   `repair_pass` is the off switch); a retrieval
    change is gated by the eval harness in CI, not by argument; a memory that
    was never used decays because use was measured, not injection (§7).
 
@@ -373,7 +375,7 @@ closed. A loop with no measurement is a hope.
 
 | # | Loop | Runs today | Does not | Closed when |
 |---|---|---|---|---|
-| L0 | **Turn**: generate → verify → repair → ship | generate, verify (subtractive), ship | repair. A failed quote or a removed citation yields a marker, never a re-search or a rewrite | One bounded repair pass (one extra tool call, one rewrite) on `citations_removed > 0`, an unverified quote, or a capped confidence; measured by the `oib_compliance` suite's citation-validity rate before and after |
+| L0 | **Turn**: generate → verify → repair → ship | generate, verify (subtractive), ship | repair. A failed quote or a removed citation yields a marker, never a re-search or a rewrite | One bounded repair pass (one extra tool call, one rewrite) on `citations_removed > 0`, an unverified quote, or a capped confidence; measured by the `oib_compliance` suite's citation-validity rate before and after. (Superseded by ADR-0067: a misremembered quote is corrected in place, quote_patch.py; repair_pass is the off switch.) |
 | L1 | **Retrieval**: retrieve → judge sufficiency → re-query | retrieve, fuse, rerank | judge, re-query, multi-query. Nothing inside `knowledge_search` improves a weak query | recall@10 and nDCG@10 on the golden set, run in CI against a committed baseline, with the structural arm as the merge gate |
 | L2 | **Task**: plan → approve → run → verify → review → accept | run (deep research, compliance check) | everything durable around it: the plan is a socket future, the artifact expires, nobody is told, nobody reviews, the decision never returns | Time from "task created" to "task accepted" is a measured number per kind, and a rejected task's reason reaches the next run's prompt |
 | L3 | **Memory**: capture → consolidate → recall → measure use → decay | all five, on the chat path | capture and recall on the job path; closing an open question; use vs injection | Reinforcement fires only on the query-ranked build; `open_question` rows have a resolved rate; a memory holdout like the lessons' `holdout_pct` |
@@ -539,7 +541,7 @@ The loops that make the agent trustworthy unattended.
 
 | Change | Module |
 |---|---|
-| One bounded repair pass in the turn: on `citations_removed > 0`, an unverified quote or a capped confidence, one more retrieval and one rewrite, then ship with the marker if it still fails | `piloti/agent.py:1150-1400`, `deep_researcher/agent.py:1049-1160` |
+| One bounded repair pass in the turn: on `citations_removed > 0`, an unverified quote or a capped confidence, one more retrieval and one rewrite, then ship with the marker if it still fails. (Superseded by ADR-0067: a misremembered quote is corrected in place, quote_patch.py; repair_pass is the off switch.) | `piloti/agent.py:1150-1400`, `deep_researcher/agent.py:1049-1160` |
 | Retrieve → judge → re-query inside `knowledge_search`: a sufficiency judgement over the fused pool, one paraphrase fan-out merged by the existing RRF | `sources/knowledge_layer/src/register.py:1312`, `hybrid.py:29` |
 | A checker step on every task kind: the compliance matrix is re-read against its own citations before filing | `agents/compliance_checker/agent.py:503`, task runner |
 | The event seam with three consumers: ingest terminal state (hold the turn, tell the agent), `oib_status` STALE (re-check affected projects), a watched folder | `knowledge/ingest_status_store.py`, `oib_status.py:31-55`, `lib/tasks/triggers/` |

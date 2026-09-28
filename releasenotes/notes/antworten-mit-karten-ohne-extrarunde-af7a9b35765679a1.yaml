@@ -1,0 +1,8 @@
+---
+features:
+  - >
+    Answers with cards (a legal basis, a table, a checklist, a process) arrive
+    in one pass. The assistant now writes its cards together with the answer
+    instead of in a separate step before it, so a card no longer adds a wait
+    of its own, and a card whose details came out wrong is fixed quietly in
+    the background rather than costing another pass.

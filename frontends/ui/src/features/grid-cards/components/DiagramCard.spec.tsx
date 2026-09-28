@@ -24,6 +24,7 @@ vi.mock('@/features/diagrams/render-diagram', () => ({
 
 import { DiagramCard } from './DiagramCard'
 import { DiagramFilingProvider, diagramRunId } from '@/features/diagrams/diagram-filing-context'
+import { clearDiagramModelCache } from '@/features/diagrams/use-diagram-model'
 
 const SOURCE = 'sequenceDiagram\n  BW->>BB: Einreichunterlagen'
 const DRAWN =
@@ -58,7 +59,9 @@ describe('when it draws', () => {
     await waitFor(() =>
       expect(screen.getByTestId('diagram-card')).toHaveAttribute('data-state', 'drawn')
     )
-    expect(screen.getByTestId('diagram-card').querySelector('svg')).not.toBeNull()
+    // This product's own view when the parser reads a model, mermaid's SVG
+    // when it does not: either way, a drawing and not the source.
+    expect(screen.getByTestId('diagram-card').querySelector('[data-view], svg')).not.toBeNull()
     expect(screen.getByText(/no dimensions are claimed/i)).toBeInTheDocument()
   })
 
@@ -232,5 +235,19 @@ describe('before mermaid has laid the graph out', () => {
     expect(screen.getByTestId('diagram-card')).toHaveAttribute('data-state', 'drawing')
     expect(screen.queryByText(/sequenceDiagram/)).toBeNull()
     expect(screen.getByTestId('diagram-card').querySelectorAll('[data-slot="skeleton"]')).toHaveLength(3)
+  })
+})
+
+describe('before its source is parsed', () => {
+  it('holds a placeholder and claims nothing about a drawing it has not chosen yet', () => {
+    // Mermaid's frame and its „Schematisch" line flashed here before this
+    // product's view replaced them.
+    clearDiagramModelCache()
+    render(<DiagramCard {...CARD} source={'sequenceDiagram\n  A->>B: noch nicht gelesen'} />)
+    const card = screen.getByTestId('diagram-card')
+    expect(card).toHaveAttribute('data-state', 'drawing')
+    expect(card.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/no dimensions are claimed/i)).not.toBeInTheDocument()
+    expect(screen.getByText(CARD.caption)).toBeInTheDocument()
   })
 })

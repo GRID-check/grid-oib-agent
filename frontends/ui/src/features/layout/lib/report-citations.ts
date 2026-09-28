@@ -1,5 +1,6 @@
 /**
- * Report citation helpers (ReportTab).
+ * Report citation helpers: the sources section at the foot of a written
+ * answer or report (`citations/views.ts`, `lib/answer-export/citations.ts`).
  *
  * Deep-research reports cite sources with inline `[N]` markers and usually end
  * with a numbered sources section (`## Sources` / `## Quellen`).
@@ -15,7 +16,7 @@
  * which is a different problem from finding a bracket in running prose.
  */
 
-/** DOM id prefix for source entries rendered by ReportTab. */
+/** DOM id prefix the inline `[N]` markers link to by default (`citation-markers.ts`). */
 export const REPORT_SOURCE_ANCHOR_PREFIX = 'report-source-'
 
 /**

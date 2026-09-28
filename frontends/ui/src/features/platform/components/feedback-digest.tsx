@@ -24,6 +24,7 @@
  * confident paragraph about nine votes.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { RefreshCw, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react'
 
@@ -43,6 +44,8 @@ export interface FeedbackDigestPayload {
   generatedAt: string
   windowDays: number
   votes: number
+  /** Sampled unhelpful votes by decided cause; absent on a digest cached before causes existed. */
+  causes?: { cause: string; count: number }[]
 }
 
 interface DigestResponse {
@@ -201,6 +204,15 @@ export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.
             {t('answerFeedback.digest.nextStep')}
           </span>{' '}
           {digest.recommendation}
+        </p>
+      )}
+
+      {digest.causes && digest.causes.length > 0 && (
+        <p className="text-xs leading-relaxed text-muted-foreground" data-testid="feedback-digest-causes">
+          <span className="font-medium text-foreground">{t('answerFeedback.digest.causes')}</span>{' '}
+          {digest.causes
+            .map(({ cause, count }) => `${t(`answerFeedback.digest.cause.${cause}`)} ${count}`)
+            .join(' · ')}
         </p>
       )}
 

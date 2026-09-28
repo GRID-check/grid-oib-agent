@@ -9,8 +9,11 @@ than in a package of its own.
 """
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncGenerator
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Annotated
 from typing import Any
 
@@ -28,11 +31,17 @@ from aiq_agent.common import get_all_tool_refs
 from aiq_agent.common import get_checkpointer
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import validate_tool_availability
-from aiq_agent.common.nat_converters import ensure_registered as ensure_nat_converters_registered
+from aiq_agent.common.agent_tools import load_agent_tools
 from aiq_agent.common.profiler import flush_after_answer
 from aiq_agent.common.profiler import track_agent_profile
-from aiq_agent.common.turn_status import emit_documents_loading
+from aiq_agent.common.turn_status import documents_loading_step
+from aiq_agent.common.wire_v2 import EventBody
+from aiq_agent.common.wire_v2 import RunFinishedBody
+from aiq_agent.common.wire_v2 import StatusStep
+from aiq_agent.common.wire_v2 import StepFinishedBody
 from aiq_agent.conversation_context import register_context_appender
+from aiq_agent.knowledge.inventory import set_inventory_drops
+from aiq_agent.knowledge.inventory import set_norm_families
 from aiq_agent.knowledge.inventory import set_turn_documents
 from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
 from aiq_agent.project_context import GridRequestContext
@@ -41,8 +50,10 @@ from aiq_agent.turn.admission import PROFILE_AGENT_NAME
 from aiq_agent.turn.admission import TurnLedgers
 from aiq_agent.turn.admission import TurnOutcome
 from aiq_agent.turn.admission import answer_turn
-from aiq_agent.turn.admission import refusal_response
+from aiq_agent.turn.admission import refused
 from aiq_agent.turn.admission import spanned
+from aiq_agent.turn.answer_stream import answer_streaming_enabled
+from aiq_agent.turn.answer_stream import bound_live_prose
 from aiq_agent.turn.api_seam import skip_clarifier_requested
 from aiq_agent.turn.context import TurnContext
 from aiq_agent.turn.context import load_turn_context
@@ -52,27 +63,31 @@ from aiq_agent.turn.context import user_info_from_principal
 from aiq_agent.turn.dispatch import build_run_commissioner
 from aiq_agent.turn.inventory import Inventory
 from aiq_agent.turn.inventory import load_inventory
+from aiq_agent.turn.inventory import pending_uploads
 from aiq_agent.turn.inventory import resolve_scope
 from aiq_agent.turn.inventory import shelves_in_scope
+from aiq_agent.turn.inventory import wait_for_uploads
 from aiq_agent.turn.payload import TurnInputs
 from aiq_agent.turn.payload import extract_turn_inputs
 from aiq_agent.turn.registries import TurnRegistries
 from aiq_agent.turn.registries import load_session_registry
 from aiq_agent.turn.registries import turn_registries
-from aiq_agent.turn.response import build_response
+from aiq_agent.turn.response import answer_message_id
+from aiq_agent.turn.response import build_result
+from aiq_agent.turn.response import finished
 from aiq_agent.turn.response import post_answer_turn_facts
-from aiq_agent.turn.streaming import fold_chunks_to_response
-from aiq_agent.turn.streaming import response_to_chunks
+from aiq_agent.turn.streaming import TurnTextFold
+from aiq_agent.turn.streaming import fold_turn
+from aiq_agent.turn.streaming import note_settled_replaced
 from aiq_agent.turn.subject_document import load_subject_document
-from nat.builder.builder import Builder
-from nat.builder.context import Context
-from nat.builder.framework_enum import LLMFrameworkEnum
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.api_server import ChatResponseChunk
-from nat.data_models.component_ref import LLMRef
-from nat.data_models.function import FunctionBaseConfig
 from nat.data_models.streaming import Streaming
+from nat.plugin_api import Builder
+from nat.plugin_api import Context
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import LLMFrameworkEnum
+from nat.plugin_api import LLMRef
+from nat.plugin_api import register_function
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +104,10 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
             "Tokens of chat history kept before the agent runs (`history.trim_message_history`). "
             "The CONVERSATION is the one thing in the context nobody else can reconstruct: the "
             "system prompt is rendered from the template, the tool schemas come from the binding, "
-            'the retrieved passages are in the index and the „Bereits gelesen" digest carries what '
-            "was READ — but not what was SAID, and not the correction the reader made two turns "
-            "ago. The old 8 000 predates the context sizes this surface runs on: one call here "
+            "the retrieved passages are in the index (the PREVIOUS turn's ride along in full, so a "
+            'follow-up needs no fetch; older turns keep what was said) and the „Bereits gelesen" '
+            "digest carries what was READ — but not what was SAID, and not the correction the reader "
+            "made two turns ago. The old 8 000 predates the context sizes this surface runs on: one call here "
             "carries 37-84k input tokens with ~14k of static prompt in it, so the window that got "
             "cut was the only irreplaceable one, and `<project_brief>` and PROJECT_MEMORY exist "
             "partly to carry facts across the gap it created. 40 000 is a floor chosen against "
@@ -145,9 +161,7 @@ async def _deep_research_tools(builder: Builder) -> list:
     before it hands over to the clarifier."""
     deep_config = builder.get_function_config("deep_research_agent")
     tool_refs = deep_config.tools or get_all_tool_refs()
-    tools = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-    excluded = set(deep_config.exclude_tools or ())
-    return [tool for tool in tools if getattr(tool, "name", "") not in excluded]
+    return await load_agent_tools(builder, tool_refs, deep_config.exclude_tools)
 
 
 def _tool_validator(deep_research_tools: list):
@@ -242,47 +256,45 @@ def _turn_state(
     )
 
 
-def _answer_chunks(
+def _finished(
     outcome: TurnOutcome[ConversationState],
     registries: TurnRegistries,
     context: TurnContext,
     inputs: TurnInputs,
     *,
-    workflow_id: str,
+    message_id: str,
     stage_llms: dict,
-) -> list[ChatResponseChunk]:
-    """The chunks a finished turn delivers, with its post-answer stages scheduled.
+) -> RunFinishedBody:
+    """The terminal a finished turn delivers, with its post-answer stages scheduled.
 
     ONE call site for every stage, fire-and-forget: which stages exist and
     what gates them is declared in `aiq_agent/stages/`. Every fact a gate may
     read is captured here, while the request context is still live.
     """
     if outcome.refusal is not None:
-        return response_to_chunks(refusal_response(outcome.refusal, workflow_id=workflow_id), stream=False)
+        return refused(outcome.refusal, message_id=message_id)
     assert outcome.state is not None
     cards = registries.cards.snapshot()
-    response = build_response(outcome.state, cards=cards, workflow_id=workflow_id)
     facts = post_answer_turn_facts(
         context.stage_facts,
         state=outcome.state,
-        response=response,
         query_text=inputs.query_text,
         cards=cards,
         remembered_this_turn=registries.memory_writes,
     )
     schedule_post_answer_stages(facts, llms=stage_llms)
-    return response_to_chunks(response, stream=True)
+    return finished(build_result(outcome.state, cards, message_id))
 
 
 async def _load_setup(
     request: GridRequestContext,
     inputs: TurnInputs,
-    header_scope,
+    scope: list,
     *,
     conversation_id: str | None,
     thread_id: str,
     resolve_stages: bool,
-):
+) -> tuple[TurnContext, Inventory, Any, StatusStep | None]:
     """The four independent setup I/O paths, overlapped.
 
     Each fails open on its own (:mod:`aiq_agent.turn.context`,
@@ -293,18 +305,18 @@ async def _load_setup(
     The subject read is a member and not a step in front of the gather for the
     same reason the others are: it is one HTTP round trip on the
     time-to-first-byte path, it is independent of every other branch, and a
-    subject that cannot be fetched costs the model one file. Its result is
-    deliberately not returned — the file it writes IS the result, and the model
-    finds it with `ls` exactly as it finds a draft it wrote itself.
+    subject that cannot be fetched costs the model one file. What it returns is
+    the step that says whether it did — the file it writes IS the result, and
+    the model finds it with `ls` exactly as it finds a draft it wrote itself.
     """
-    context, inventory, session_registry, _subject = await asyncio.gather(
+    context, inventory, session_registry, subject_step = await asyncio.gather(
         spanned(
             "setup.project_context",
             load_turn_context(
                 request, conversation_id=thread_id, query_text=inputs.query_text, resolve_stages=resolve_stages
             ),
         ),
-        load_inventory(resolve_scope(header_scope, conversation_id)),
+        load_inventory(scope),
         spanned("setup.session_registry", load_session_registry(thread_id)),
         spanned(
             "setup.subject_document",
@@ -318,45 +330,117 @@ async def _load_setup(
             ),
         ),
     )
-    return context, inventory, session_registry
+    return context, inventory, session_registry, subject_step
 
 
-async def _answer_in_registries(
+@dataclass(frozen=True)
+class _TurnRuntime:
+    """The turn's identity and its ledgers, fixed before any setup I/O."""
+
+    thread_id: str
+    identity: dict[str, str | None]
+    metadata: dict[str, Any]
+    ledgers: TurnLedgers
+    stage_llms: dict
+
+
+@dataclass(frozen=True)
+class _Turn:
+    """What one turn's answering task needs, gathered before it starts."""
+
+    agent: ConversationGraph
+    state: ConversationState
+    session_registry: Any
+    context: TurnContext
+    inputs: TurnInputs
+    request: GridRequestContext
+    runtime: _TurnRuntime
+
+
+async def _prepare_turn(
     agent: ConversationGraph,
-    state: ConversationState,
-    session_registry,
+    request: GridRequestContext,
+    inputs: TurnInputs,
+    header_scope,
     *,
-    thread_id: str,
-    organization_id: str | None,
-    identity: dict[str, str | None],
-    metadata: dict[str, Any],
-    ledgers: TurnLedgers,
-) -> tuple[TurnOutcome[ConversationState], TurnRegistries]:
-    """Answer with the four per-turn registries bound, and hand both back.
+    conversation_id: str | None,
+    enable_clarifier: bool,
+    resolve_stages: bool,
+    runtime: _TurnRuntime,
+) -> AsyncIterator[StepFinishedBody | _Turn]:
+    """The setup I/O and the steps it reports, then the turn: documents bound, the graph's input state built.
 
-    The registries are unbound and the turn's citations persisted as this
-    returns, so ``registries.memory_writes`` is what the turn actually wrote.
+    The setup phase runs before the graph, where no writer exists, so it yields
+    its steps itself (chat wire v2 §b). A hold for uploads still being indexed
+    is announced before it is waited out.
     """
-    async with turn_registries(thread_id, session_registry) as registries:
-        outcome = await answer_turn(
-            agent,
-            state,
-            thread_id=thread_id,
-            organization_id=organization_id,
-            identity=identity,
-            metadata=metadata,
-            ledgers=ledgers,
+    scope = resolve_scope(header_scope, conversation_id)
+    context, inventory, session_registry, subject_step = await _load_setup(
+        request,
+        inputs,
+        scope,
+        conversation_id=conversation_id,
+        thread_id=runtime.thread_id,
+        resolve_stages=resolve_stages,
+    )
+    if subject_step is not None:
+        yield StepFinishedBody(step=subject_step)
+    if (waiting := pending_uploads(inventory)) is not None:
+        yield StepFinishedBody(step=waiting)
+        inventory = await wait_for_uploads(scope, inventory)
+    skip_clarifier = not enable_clarifier or skip_clarifier_requested()
+    # The inventory reaches the PROMPT as the rendered block and the TOOLS as
+    # rows. The write-side workspace tools resolve a file name against these
+    # rows, and there is no argument that could carry them: a LangGraph run and
+    # a tool node sit between here and the call. Bound before the graph starts,
+    # so the child contexts copy it; called on every turn, including with None,
+    # which is what stops one turn resolving against the last one's.
+    set_turn_documents(inventory.available_documents)
+    set_norm_families(inventory.norm_families)
+    set_inventory_drops(inventory.inventory_drops)
+    state = _turn_state(inputs, context, inventory, header_scope, skip_clarifier=skip_clarifier)
+    yield _Turn(agent, state, session_registry, context, inputs, request, runtime)
+
+
+async def _answer(turn: _Turn, *, message_id: str, stream: bool) -> AsyncIterator[EventBody]:
+    """The answer's bodies as the graph writes them, then its ``RUN_FINISHED``.
+
+    The four registries and, when the platform lets the answer stream
+    (ADR-0066), the live prose are bound for the whole run; the terminal is
+    built once they are unbound, so ``registries.memory_writes`` is what the
+    turn actually wrote.
+    """
+    runtime = turn.runtime
+    outcome: TurnOutcome[ConversationState] | None = None
+    async with turn_registries(runtime.thread_id, turn.session_registry) as registries:
+        answering = answer_turn(
+            turn.agent,
+            turn.state,
+            thread_id=runtime.thread_id,
+            organization_id=turn.request.organization_id,
+            identity=runtime.identity,
+            metadata=runtime.metadata,
+            ledgers=runtime.ledgers,
         )
-    return outcome, registries
+        live = bound_live_prose(message_id) if stream else contextlib.nullcontext()
+        with live:
+            async with contextlib.aclosing(answering) as items:
+                async for item in items:
+                    if isinstance(item, TurnOutcome):
+                        outcome = item
+                    else:
+                        yield item
+    assert outcome is not None
+    yield _finished(
+        outcome, registries, turn.context, turn.inputs, message_id=message_id, stage_llms=runtime.stage_llms
+    )
 
 
-def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, stage_llms: dict, workflow_id: str):
+def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, stage_llms: dict):
     """The per-turn entry point NAT calls, composed from ``aiq_agent.turn``."""
     any_stage_llm = any(llm is not None for llm in stage_llms.values())
 
-    async def _run(
-        query: object,
-    ) -> Annotated[AsyncGenerator[ChatResponseChunk, None], Streaming(convert=fold_chunks_to_response)]:
+    async def _run(query: object) -> Annotated[AsyncGenerator[EventBody, None], Streaming(convert=fold_turn)]:
         conversation_id = Context.get().conversation_id
         thread_id = thread_id_for_turn(conversation_id)
         # The signed request-context envelope, parsed ONCE per turn (base64 +
@@ -368,56 +452,57 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
         header_scope = get_scoped_collections_from_context()
         # Say what is happening in the FIRST hole of the turn — only when one
         # of the reader's OWN shelves is in scope; the base corpus is a constant.
-        emit_documents_loading(shelves_in_scope(header_scope or ()))
+        if (loading := documents_loading_step(shelves_in_scope(header_scope or ()))) is not None:
+            yield StepFinishedBody(step=loading)
         turn_metadata: dict[str, Any] = {}
         identity = turn_identity(request, conversation_id)
         profiler = None
         # ONE `finally` posts the ledgers for every exit of the turn — happy,
-        # refused, or raising — from OUTSIDE the profiled block, so the root
-        # span has closed by the time its batch goes; a flush from inside would
-        # post first and strand it. The cost tracker is held here rather than
-        # read off the outcome, because a turn that RAISES has no outcome.
+        # refused, raising or cancelled — from OUTSIDE the profiled block, so
+        # the root span has closed by the time its batch goes; a flush from
+        # inside would post first and strand it. The cost tracker is held here,
+        # filled the moment it exists, because a turn that RAISES has no outcome.
         ledgers = TurnLedgers()
+        fold = TurnTextFold()
+        terminal: RunFinishedBody | None = None
         try:
             # The profiler root opens BEFORE the setup I/O so every setup step has a
             # row; `inline_flush=False` posts its final batch after the answer is out.
             with track_agent_profile(
                 agent_name=PROFILE_AGENT_NAME, identity=identity, metadata=turn_metadata, inline_flush=False
             ) as profiler:
-                context, inventory, session_registry = await _load_setup(
+                setup = _prepare_turn(
+                    agent,
                     request,
                     inputs,
                     header_scope,
                     conversation_id=conversation_id,
-                    thread_id=thread_id,
+                    enable_clarifier=config.enable_clarifier,
                     resolve_stages=any_stage_llm,
+                    runtime=_TurnRuntime(thread_id, identity, turn_metadata, ledgers, stage_llms),
                 )
-                skip_clarifier = not config.enable_clarifier or skip_clarifier_requested()
-                # The inventory reaches the PROMPT as the rendered block and the
-                # TOOLS as rows. The write-side workspace tools resolve a file
-                # name against these rows, and there is no argument that could
-                # carry them: a LangGraph run and a tool node sit between here
-                # and the call. Bound before the graph starts, so the child
-                # contexts copy it; called on every turn, including with None,
-                # which is what stops one turn resolving against the last one's.
-                set_turn_documents(inventory.available_documents)
-                state = _turn_state(inputs, context, inventory, header_scope, skip_clarifier=skip_clarifier)
-                outcome, registries = await _answer_in_registries(
-                    agent,
-                    state,
-                    session_registry,
-                    thread_id=thread_id,
-                    organization_id=request.organization_id,
-                    identity=identity,
-                    metadata=turn_metadata,
-                    ledgers=ledgers,
-                )
-            # A refused turn still owes the reader its answer, delivered as one
-            # terminal chunk; it is yielded here, outside the profiled block.
-            for chunk in _answer_chunks(
-                outcome, registries, context, inputs, workflow_id=workflow_id, stage_llms=stage_llms
-            ):
-                yield chunk
+                async with contextlib.aclosing(setup) as items:
+                    async for item in items:
+                        if isinstance(item, _Turn):
+                            turn = item
+                        else:
+                            yield item
+                message_id = answer_message_id(conversation_id, turn.context.stage_facts.ws_parent_id)
+                stream = await asyncio.to_thread(answer_streaming_enabled)
+                # `aclosing` at every level, because `async for` never closes
+                # what it iterates: a consumer that walks away would reach the
+                # flush below with the graph still suspended mid-run.
+                async with contextlib.aclosing(_answer(turn, message_id=message_id, stream=stream)) as bodies:
+                    async for body in bodies:
+                        if isinstance(body, RunFinishedBody):
+                            terminal = body
+                            continue
+                        fold.add(body)
+                        yield body
+            # The terminal goes out after the profiled block has closed.
+            assert terminal is not None
+            note_settled_replaced(fold.settled, terminal.result.text)
+            yield terminal
         finally:
             # Two BFF round-trips, posted AFTER the reader has the answer; in the
             # `finally` so a consumer that closes the stream early still posts.
@@ -429,11 +514,6 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
 @register_function(config_type=ChatDeepResearcherConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
 async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: Builder):
     """Chat deep researcher orchestrator agent."""
-    # Grid cards ride the response as an extra field; without the direct
-    # ChatResponse -> ChatResponseChunk converter NAT's lossy str conversion
-    # drops them. Idempotent, registered by the workflow that streams them.
-    ensure_nat_converters_registered()
-    workflow_id = config.name or config.type
     # The models the post-answer stages run on, keyed by agent group so the
     # runner applies the org's override and BYOK credential per group. A group
     # with no model is the capability bit: its stages are a no-op.
@@ -446,5 +526,5 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
     # this conversation's checkpoint without a turn. Published rather than
     # imported because the socket is the front end's and the graph is ours.
     register_context_appender(agent.append_context_message)
-    run = _turn_runner(agent, config, stage_llms, workflow_id)
+    run = _turn_runner(agent, config, stage_llms)
     yield FunctionInfo.from_fn(run, description="Piloti: one answering agent, escalation to deep research.")

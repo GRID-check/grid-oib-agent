@@ -1,25 +1,22 @@
 #!/usr/bin/env python3
 
-"""Refresh the bundled fallback prompt from the version Langfuse is serving.
+"""Bring a Langfuse version of the platform prompt into review.
 
 Why this exists
 ---------------
 
-The platform prompt — the static half of Piloti's system prompt — is authored
-and versioned in **Langfuse**. The fleet pulls it at render time through
-``src/aiq_agent/common/prompt_store.py``; nothing in this repository pushes to
-it, and a prompt change is a change made in Langfuse, not a commit.
+The platform prompt — the static half of Piloti's system prompt — has git as
+its source of truth (ADR-0060 (a)):
+``src/aiq_agent/agents/piloti/prompts/piloti_static.md`` is what review reads,
+what a process renders when prompt management is off or Langfuse unreachable,
+and what ``scripts/prompts_push.py`` publishes to Langfuse. Labels there carry
+experiments, and the fleet reads the label it is configured for through
+``src/aiq_agent/common/prompt_store.py``.
 
-``src/aiq_agent/agents/piloti/prompts/piloti_static.md`` is the **bundled
-fallback**: what a process renders when prompt management is off, when the
-credentials are absent, when Langfuse is unreachable, or when it has no such
-prompt. It is allowed to lag the live version, and it is expected to — an image
-that has been running for a month has a month-old fallback in it.
-
-This script is how a maintainer stops it lagging too far: it writes the current
-production version into that file so the change can be committed as a fresh
-fallback. There is no check, no gate and no CI job. A file that differs from
-Langfuse is not a failure; it is what a fallback is.
+An edit made in Langfuse is therefore not yet part of the prompt. This script
+writes the version under a label into the committed file, so the edit becomes
+a diff somebody reviews and commits; ``prompts_push.py`` refuses to publish
+over such an edit until it has.
 
 Usage
 -----
@@ -54,31 +51,36 @@ EXIT_UNCONFIGURED = 2
 
 
 class PromptApi(Protocol):
-    """The one SDK method this script uses, so a test fake is four lines."""
+    """The one SDK method the pull and the push read with, so a test fake is four lines."""
 
     def get_prompt(self, name: str, *, label: str, cache_ttl_seconds: int, type: str) -> Any: ...
 
 
-def fetch_text(client: PromptApi, *, name: str = PROMPT_NAME, label: str = "production") -> str | None:
-    """The text of the labelled version, or None when Langfuse has no such prompt.
+def fetch_version(client: PromptApi, *, name: str = PROMPT_NAME, label: str = "production") -> Any | None:
+    """The labelled version as Langfuse returns it, or None when Langfuse has no such prompt.
 
-    ``cache_ttl_seconds=0`` because this is a one-shot CLI: a cached answer
-    would write a version the store happened to fetch a minute ago. A missing
-    prompt is None; anything else propagates, because "could not reach
-    Langfuse" must not be written into the fallback as if it were content.
+    ``cache_ttl_seconds=0`` because both callers are one-shot CLIs: a cached
+    answer would be a version the store happened to fetch a minute ago. A
+    missing prompt is None; anything else propagates, because "could not reach
+    Langfuse" must not be written into the prompt file, or read by the push as
+    "no version yet", as if it were an answer.
     """
     from langfuse.api import NotFoundError
 
     try:
-        prompt = client.get_prompt(name, label=label, cache_ttl_seconds=0, type="text")
+        return client.get_prompt(name, label=label, cache_ttl_seconds=0, type="text")
     except NotFoundError:
         return None
-    text = getattr(prompt, "prompt", None)
+
+
+def fetch_text(client: PromptApi, *, name: str = PROMPT_NAME, label: str = "production") -> str | None:
+    """The text of the labelled version, or None when Langfuse has no such prompt."""
+    text = getattr(fetch_version(client, name=name, label=label), "prompt", None)
     return text if isinstance(text, str) else None
 
 
 def write_fallback(text: str, path: Path | None = None) -> bool:
-    """Write the fallback file, and say whether it changed.
+    """Write the prompt file, and say whether it changed.
 
     Exactly one trailing newline, because every text file here ends with one
     and the store strips trailing newlines at the render seam anyway — so this
@@ -122,7 +124,7 @@ def build_client() -> PromptApi | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Pull one prompt into the fallback file and print what happened."""
+    """Pull one prompt version into the committed prompt file and print what happened."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--label", default="production", help="the Langfuse label to pull (default: production)")
     parser.add_argument("--name", default=PROMPT_NAME, help="the Langfuse prompt name")
@@ -131,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     client = build_client()
     if client is None:
         print(
-            "prompts_pull: LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY are not set; the fallback was not touched.",
+            "prompts_pull: LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY are not set; the prompt file was not touched.",
             file=sys.stderr,
         )
         return EXIT_UNCONFIGURED

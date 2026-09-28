@@ -12,6 +12,7 @@ from aiq_agent.agents.piloti import register
 from aiq_agent.common import AgentGroup
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
+from aiq_agent.common import request_llm_context
 
 
 class _ChatModel(BaseModel):
@@ -27,12 +28,12 @@ def _boot_provider() -> LLMProvider:
 
 @pytest.fixture
 def readers(monkeypatch):
-    """The four per-turn lookups, answered without a BFF."""
+    """The four per-turn lookups, answered without a BFF (read in ``common/request_llm_context.py``)."""
     values = {"overrides": {}, "efforts": {}, "credential": None, "zdr": False}
-    monkeypatch.setattr(register, "get_model_overrides_from_context", lambda: values["overrides"])
-    monkeypatch.setattr(register, "get_reasoning_efforts", lambda: values["efforts"])
-    monkeypatch.setattr(register, "get_org_llm_credential_from_context", lambda: values["credential"])
-    monkeypatch.setattr(register, "get_zdr_only_from_context", lambda: values["zdr"])
+    monkeypatch.setattr(request_llm_context, "get_model_overrides_from_context", lambda: values["overrides"])
+    monkeypatch.setattr(request_llm_context, "get_reasoning_efforts", lambda: values["efforts"])
+    monkeypatch.setattr(request_llm_context, "get_org_llm_credential_from_context", lambda: values["credential"])
+    monkeypatch.setattr(request_llm_context, "get_zdr_only_from_context", lambda: values["zdr"])
     return values
 
 
@@ -59,7 +60,7 @@ class TestATurnCarriesBothDials:
         def boom():
             raise RuntimeError("bff down")
 
-        monkeypatch.setattr(register, "get_reasoning_efforts", boom)
+        monkeypatch.setattr(request_llm_context, "get_reasoning_efforts", boom)
         readers["overrides"] = {"shallow_research": "vendor/fast"}
         llm = (await register._active_provider(_boot_provider())).get(LLMRole.RESEARCHER)
         assert (llm.model_name, llm.reasoning_effort) == ("vendor/fast", "medium")

@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    A cancelled, crashed or never-started run no longer shows as running forever
+    in the task list. It now closes with its real outcome, and whoever started
+    it is told.

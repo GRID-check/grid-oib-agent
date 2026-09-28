@@ -106,7 +106,7 @@ Consequences, where a reader looks for them.
 | [0044](0044-langfuse-durable-llm-observability.md) | Langfuse as the durable LLM-observability backend | Proposed |
 | [0045](0045-ifc-models-as-a-queryable-building-not-a-document.md) | IFC models are a queryable building, not another document | Accepted |
 | [0046](0046-agent-skills.md) | Agent skills — user-selected, progressive-disclosure instruction packages | Proposed |
-| [0047](0047-document-shelf-travels-as-data.md) | A document's shelf travels as data, not as a name or a label | Proposed |
+| [0047](0047-document-shelf-travels-as-data.md) | A document's shelf travels as data, not as a name or a label | Accepted |
 | [0048](0048-tool-schemas-stay-with-the-provider.md) | Tool schemas stay with the provider, and a namespace is what makes that true | Proposed |
 | [0049](0049-folders-travel-as-a-materialised-path.md) | Folders reach the backend as a materialised path, mirrored on move | Proposed |
 | [0050](0050-scoped-agent-onboarding-guides.md) | Agent onboarding guides are scoped per service and bridged into Claude Code by import | Accepted |
@@ -122,6 +122,12 @@ Consequences, where a reader looks for them.
 | [0060](0060-three-instruction-layers-and-tools-that-answer.md) | Instructions live in three layers, and a tool delivers an answer | Accepted |
 | [0061](0061-a-grounding-hit-is-a-record-and-the-text-is-its-rendering.md) | A grounding hit is a record, and the text a tool returns is its rendering | Proposed |
 | [0062](0062-a-run-is-a-message-in-the-thread-that-commissioned-it.md) | A run is one message in the thread that commissioned it, and its ledger is what the reader sees | Proposed |
+| [0063](0063-short-skill-bodies-ride-the-prompt.md) | A short skill body rides the prompt; the catalog line is for the long ones | Proposed |
+| [0064](0064-a-decision-model-decides-and-never-withholds.md) | A decision model decides before the answer, and may only add to the turn | Proposed |
+| [0065](0065-a2ui-renders-every-card.md) | A2UI renders every card, and an answer may compose them | Accepted |
+| [0066](0066-the-answer-prose-streams-and-the-verified-frame-settles-it.md) | The answer's prose streams as it is written, and the verified frame settles it | Accepted |
+| [0067](0067-the-repair-corrects-a-misremembered-quote-in-place.md) | The repair corrects a misremembered quote in place, and nothing else | Accepted |
+| [0068](0068-use-nemo-agent-toolkit-as-designed.md) | Use the NeMo Agent Toolkit as designed: NAT runs the workflow, LangGraph streams natively, and the chat wire is ours | Accepted |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off

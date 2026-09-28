@@ -11,7 +11,7 @@ import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import type { Node, Parent } from 'unist'
-import { remarkCitationMarkers } from './citation-markers'
+import { PENDING_CITATION_ANCHOR_PREFIX, remarkCitationMarkers } from './citation-markers'
 import { REPORT_SOURCE_ANCHOR_PREFIX } from './report-citations'
 
 interface LinkNode extends Parent {
@@ -170,5 +170,25 @@ describe('remarkCitationMarkers', () => {
 
   test('links the marker inside a doubled bracket', () => {
     expect(links(parse('Beleg [[1]].', [1]))).toEqual([['[1]', `#${REPORT_SOURCE_ANCHOR_PREFIX}1`]])
+  })
+})
+
+describe('a streaming answer (ADR-0066)', () => {
+  const parsePending = (markdown: string, numbers: number[]): Node =>
+    unified()
+      .use(remarkParse)
+      .use(remarkGfm)
+      .use(remarkCitationMarkers, { numbers: new Set(numbers), pending: true })
+      .runSync(unified().use(remarkParse).use(remarkGfm).parse(markdown))
+
+  test('a marker with no source yet is a pending citation, not a stray bracket', () => {
+    expect(links(parsePending('R 90 gilt [1], R 60 oben [2].', [1]))).toEqual([
+      ['[1]', `#${REPORT_SOURCE_ANCHOR_PREFIX}1`],
+      ['[2]', `#${PENDING_CITATION_ANCHOR_PREFIX}2`],
+    ])
+  })
+
+  test('a finished answer never shows a pending one', () => {
+    expect(links(parse('R 60 oben [2].', [1]))).toEqual([])
   })
 })

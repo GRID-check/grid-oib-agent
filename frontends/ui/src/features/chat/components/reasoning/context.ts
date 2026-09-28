@@ -8,8 +8,8 @@
  * row claimed `Websuche` on every turn — including a bare greeting, where the
  * backend drops all data-source tools before the model sees them. The protocol
  * rule is "availability is the constant, activation is the event", and a
- * per-turn record must carry events. What actually ran is derived from real
- * Function Start/Complete frames by `deriveExecutedSteps` and shown as the
+ * per-turn record must carry events. What actually ran is derived from the
+ * turn's `tool` and `skill` steps by `deriveExecutedSteps` and shown as the
  * `Ausgeführt:` row; availability is already visible where it is actionable —
  * on the composer's own toggles — and is not restated here.
  *

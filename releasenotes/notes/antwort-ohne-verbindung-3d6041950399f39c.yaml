@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    An answer is no longer lost because your device lost its connection: Piloti
+    saves every finished answer itself and shows „Piloti arbeitet weiter“ until
+    it is there.

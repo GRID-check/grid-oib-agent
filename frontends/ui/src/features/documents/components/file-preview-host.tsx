@@ -8,6 +8,7 @@
  * the Files modal still use the same pane as a dialog.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 import { usePanelRef } from 'react-resizable-panels'
@@ -19,10 +20,9 @@ import { cn } from '@/lib/utils'
 import { FOCUS_RING } from '@/components/ui/focus-ring'
 import { Spinner } from '@/components/ui/spinner'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
-import { useLayoutStore } from '@/features/layout/store'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { useDocumentActions, type DocumentScope } from './document-actions'
-import { isCitableStatus, isFailedStatus } from './document-status'
+import { failedWithPreviousVersion, isCitableStatus, isFailedStatus } from './document-status'
 import { FilePreviewPane } from './file-preview-pane'
 import type { FileItem } from './project-file-workspace'
 import {
@@ -60,7 +60,6 @@ export function FilePreviewHost({
     () => (fileId ? [{ status: fileStatus }] : []),
     [fileId, fileStatus],
   )
-  const researchOpen = useLayoutStore((state) => state.rightPanel === 'research')
   const panelRef = useRef<HTMLDivElement>(null)
   const openerRef = useRef<HTMLElement | null>(null)
   /**
@@ -89,7 +88,7 @@ export function FilePreviewHost({
   const carrying = handoff && !onChat
   const overlay = mode === 'modal' || (mode === 'expanded' && onChat && !hidden) || carrying
   const peeking =
-    inSplit || (mode === 'peek' && onChat && !hidden && !researchOpen && !isMobile)
+    inSplit || (mode === 'peek' && onChat && !hidden && !isMobile)
   const chromeVisible = file !== null && (overlay || peeking)
   // Keep the pane mounted across Files → Chat so an IFC viewport is not remounted
   // (and its camera reset) when Ask flips mode to peek while still on /files.
@@ -198,11 +197,17 @@ export function FilePreviewHost({
       const res = await fetch(`/api/documents/${id}/status`)
       if (!res.ok) return
       const data: unknown = await res.json()
-      const status = (data as { status?: unknown } | null)?.status
+      const body = data as { status?: unknown; versionCount?: unknown } | null
+      const status = body?.status
       // Guard the id: a slow answer for the PREVIOUS document must not land on
       // the one the reader has since opened.
       if (typeof status === 'string' && useFilePreviewStore.getState().file?.id === id) {
-        patchFile({ status })
+        // The count rides along because a re-upload is exactly what puts a
+        // peek back into this poll: the snapshot was taken while the document
+        // had one version, and the failure that follows is only explained
+        // correctly ("still citing the previous version") with the new count.
+        const versionCount = body?.versionCount
+        patchFile(typeof versionCount === 'number' ? { status, versionCount } : { status })
       }
     } catch {
       // Offline or a hiccup — the poll's next tick asks again.
@@ -358,21 +363,19 @@ export function FilePreviewHost({
  *                must: a dismissal that cannot be undone from where it happened
  *                is a door that only opens one way.
  * `away`       — no file, or the reader is somewhere the peek does not belong
- *                (Files, a phone, the research panel across the same half of
- *                the row, the enlarged view already covering the page).
+ *                (Files, a phone, the enlarged view already covering the page).
  */
 export type FilePeekPlacement = 'beside' | 'dismissed' | 'away'
 
 export function useFilePeekPlacement(): FilePeekPlacement {
   const pathname = usePathname()
   const isMobile = useIsMobile()
-  const researchOpen = useLayoutStore((state) => state.rightPanel === 'research')
   const file = useFilePreviewStore((state) => state.file)
   const mode = useFilePreviewStore((state) => state.mode)
   const hidden = useFilePreviewStore((state) => state.hidden)
 
   const roomForIt =
-    file !== null && mode === 'peek' && Boolean(pathname?.includes('/chat')) && !isMobile && !researchOpen
+    file !== null && mode === 'peek' && Boolean(pathname?.includes('/chat')) && !isMobile
   if (!roomForIt) return 'away'
   return hidden ? 'dismissed' : 'beside'
 }
@@ -747,9 +750,15 @@ function PeekToolbar({
           <Spinner size="xs" aria-hidden className="text-muted-foreground mt-0.5 shrink-0" />
         )}
         <p className="text-muted-foreground min-w-0 flex-1 text-pretty leading-snug">
-          {isFailedStatus(file.status)
-            ? t('preview.peekFailedHint')
-            : t('preview.peekIndexingHint')}
+          {/* A failed NEW version is not a file Piloti cannot cite: the
+              previous version's passages stay in the index, so the sentence
+              that says "cannot cite" would be wrong about the one thing the
+              strip exists to say. Same rule as the pane's failure panel. */}
+          {failedWithPreviousVersion(file)
+            ? t('preview.peekFailedPreviousVersionHint')
+            : isFailedStatus(file.status)
+              ? t('preview.peekFailedHint')
+              : t('preview.peekIndexingHint')}
         </p>
         {/* NO DEAD ENDS. "Piloti cannot cite this file" was a statement with
             nothing after it — the worst kind of message, because it tells the

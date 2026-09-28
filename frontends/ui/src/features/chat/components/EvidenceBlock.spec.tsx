@@ -28,13 +28,8 @@ import { EvidenceBlock } from './EvidenceBlock'
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
     const state: DeepPartial<ChatStoreWithHydration> = {
-      reportContent: '',
-      deepResearchJobId: null,
-      isDeepResearchStreaming: false,
-      deepResearchStreamLoaded: false,
       currentConversation: null,
       patchConversationMessage: vi.fn(),
-      reconnectToActiveJob: vi.fn(),
     }
     return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
   }),
@@ -182,7 +177,7 @@ describe('AgentResponse evidence wiring', () => {
 
   afterEach(() => vi.unstubAllGlobals())
 
-  test('an unplaced legal_basis renders flat above the prose, never in the fallback grid', () => {
+  test('an unplaced legal_basis renders flat after the prose, never in the fallback grid', () => {
     const { container } = renderDe(
       <AgentResponse
         content="Die Antwort steht in der Richtlinie."
@@ -190,9 +185,9 @@ describe('AgentResponse evidence wiring', () => {
       />
     )
     const text = container.textContent ?? ''
-    // The flat block, above the prose …
+    // The flat block, right after the prose: the answer first, then its Fundstelle …
     expect(text).toContain('Rechtsgrundlage')
-    expect(text.indexOf('Rechtsgrundlage')).toBeLessThan(
+    expect(text.indexOf('Rechtsgrundlage')).toBeGreaterThan(
       text.indexOf('Die Antwort steht in der Richtlinie.')
     )
     expect(screen.getByText(EVIDENCE_DE)).toBeInTheDocument()
@@ -234,7 +229,13 @@ describe('AgentResponse evidence wiring', () => {
     expect(container.textContent).not.toContain('Rechtsgrundlage')
   })
 
-  test('the evidence block waits for the stream like unclaimed cards do', () => {
+  test('the evidence block lands with the unclaimed cards, once the streamed prose is complete', () => {
+    // A live frame carries cards only once the `answer` string has closed, so
+    // a streaming answer that holds a card has all of its prose.
+    const streaming = renderDe(<AgentResponse content="Die Antwort steht in der Richtlinie." isStreaming />)
+    expect(streaming.container.textContent).not.toContain('Rechtsgrundlage')
+    streaming.unmount()
+
     const { container } = renderDe(
       <AgentResponse
         content="Die Antwort steht in der Richtlinie."
@@ -242,7 +243,7 @@ describe('AgentResponse evidence wiring', () => {
         isStreaming
       />
     )
-    expect(container.textContent).not.toContain('Rechtsgrundlage')
+    expect(container.textContent).toContain('Rechtsgrundlage')
   })
 
   test('a topic masthead passes through: eyebrow, title, context, summary, then prose', () => {

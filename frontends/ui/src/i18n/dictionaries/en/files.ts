@@ -195,6 +195,8 @@ export const files = {
     downloadFailed: "The download couldn't be started. Please try again.",
     ingestionFailed: 'Ingestion failed',
     ingestionFailedGeneric: "This document couldn't be processed for search.",
+    ingestionFailedPreviousVersionKept:
+      'Search and Piloti still use the previous version. The download serves the new file.',
     retryIngestion: 'Retry ingestion',
     retryingIngestion: 'Retrying…',
     retryIngestionError: "Ingestion couldn't be restarted. Please try again.",
@@ -214,6 +216,13 @@ export const files = {
      */
     peekIndexingHint: 'Piloti cannot cite this file until it is indexed.',
     peekFailedHint: 'Indexing failed — Piloti cannot cite this file.',
+    /**
+     * The same failure on a document with an earlier version: the index keeps
+     * that version's passages, so the file is still citable, just not the new
+     * bytes. Mirrors `ingestionFailedPreviousVersionKept` in the pane.
+     */
+    peekFailedPreviousVersionHint:
+      'The new file could not be read — Piloti is still citing the previous version.',
     /** The way out of that: the enlarged view carries the error and the retry. */
     peekFailedAction: 'Details',
   },
@@ -362,6 +371,7 @@ export const files = {
     deleting: 'Deleting…',
     success: '“{name}” was removed from the project',
     error: 'The document could not be deleted',
+    legalHold: 'The document is under a legal hold and cannot be deleted',
   },
   /**
    * The folder-upload plan — the dialog a dropped directory tree opens before

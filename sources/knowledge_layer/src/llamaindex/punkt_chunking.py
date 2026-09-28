@@ -110,7 +110,9 @@ _MAX_FIRST_ID = 1
 #: Metadata that exists for citation ranges, diagnostics or filtering and carries no
 #: retrieval signal, so it must not be prepended to the text the embedder sees. Extends
 #: the adapter's ``EMBED_EXCLUDED_METADATA_KEYS`` rather than replacing it.
-PUNKT_EMBED_EXCLUDED_METADATA_KEYS = ("page_end", "punkt_depth", "chunking")
+#: ``table_part`` orders a table's row groups for ``read_passage``; embedded, it read
+#: ``table_part: 1`` to the embedder and the model alike.
+PUNKT_EMBED_EXCLUDED_METADATA_KEYS = ("page_end", "punkt_depth", "chunking", "table_part")
 
 #: Separator for the ancestor breadcrumb. A guillemet reads as hierarchy to the embedder
 #: without colliding with the ">" that appears in the corpus' own comparison operators.
@@ -565,13 +567,14 @@ def richtlinie_key(file_name: str) -> str:
     The edition suffix is dropped, matched generically (any month, any year) — the
     same shape ``guess_display_title`` reads it with, so the key and the title agree
     on what an edition looks like. A document whose stem carries no Richtlinie
-    number keeps its stem.
+    number keeps its stem. The stem is read in both spellings the OIB publishes:
+    ``oib-rl_`` and, for 2.2, ``oib-richtlinie_``.
     """
     stem = file_name
     for suffix in (".pdf", ".PDF"):
         if stem.endswith(suffix):
             stem = stem[: -len(suffix)]
-    stem = re.sub(r"^(oib-rl|oib_rl)[_-]", "", stem)
+    stem = re.sub(r"^(oib-rl|oib_rl|oib-richtlinie)[_-]", "", stem)
     stem = re.sub(r"[_-]ausgabe[_-][^_-]+[_-]\d{4}.*$", "", stem, flags=re.IGNORECASE)
     return stem.replace("_", "-") or file_name
 
@@ -671,9 +674,54 @@ def punkt_documents(text_pages: list[dict[str, Any]], file_name: str, file_size:
             )
         )
 
+    documents.extend(_table_documents(text_pages, heading, base_metadata, richtlinie))
+
     for document in documents:
         _apply_exclusions(document)
 
+    return documents
+
+
+def _table_documents(
+    text_pages: list[dict[str, Any]], heading: str, base_metadata: dict[str, Any], richtlinie: str
+) -> list[Document]:
+    """One Document per row group of every captioned table (``captioned_tables``).
+
+    Addressed like a Punkt (``punkt_id = "Tabelle 3"``), so ``read_passage``
+    fetches it by name and a citation names it; no ``punkt_depth``, so the
+    Gliederung stays the document's own outline.
+    """
+    from knowledge_layer.llamaindex.captioned_tables import join_fragments
+    from knowledge_layer.llamaindex.captioned_tables import markdown_chunks
+    from llama_index.core import Document
+
+    fragments = [table for page in text_pages for table in page.get("tables") or []]
+    documents: list[Document] = []
+    for table in join_fragments(fragments):
+        punkt_id = f"Tabelle {table.table_id}"
+        caption = f"{punkt_id}: {table.title}" if table.title else punkt_id
+        chunks = markdown_chunks(table)
+        for index, chunk in enumerate(chunks, start=1):
+            part = f" (Teil {index} von {len(chunks)})" if len(chunks) > 1 else ""
+            documents.append(
+                Document(
+                    text=f"{heading}\n{caption}{part}\n\n{chunk}",
+                    metadata={
+                        **base_metadata,
+                        "page_label": str(table.page_start),
+                        "page_end": str(table.page_end),
+                        "content_type": "table",
+                        "chunking": "table",
+                        "punkt_id": punkt_id,
+                        "punkt_title": table.title,
+                        "punkt_path": caption,
+                        "richtlinie": richtlinie,
+                        # Every row group shares page and punkt_id; this is
+                        # what ``read_passage`` orders them by.
+                        "table_part": index,
+                    },
+                )
+            )
     return documents
 
 

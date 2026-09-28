@@ -24,8 +24,10 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { SectionCard } from '@/features/platform/components/section-card'
 import { useTranslations } from '@/i18n'
+import { isSwitchSetting } from '@/lib/retrieval-settings/catalog'
 
 interface DefinitionDto {
   key: string
@@ -182,7 +184,14 @@ export const PlatformRetrievalSettings: FC = () => {
                     {t('retrieval.defaultBadge')}
                   </Badge>
                 )}
-                {definition.allowedValues ? (
+                {isSwitchSetting(definition) ? (
+                  <Switch
+                    disabled={saving}
+                    aria-label={definition.label}
+                    checked={(value ?? definition.defaultValue) === 1}
+                    onCheckedChange={(on) => setDraft((prev) => ({ ...prev, [definition.key]: on ? 1 : 0 }))}
+                  />
+                ) : definition.allowedValues ? (
                   <Select
                     disabled={saving}
                     value={String(value ?? definition.defaultValue)}

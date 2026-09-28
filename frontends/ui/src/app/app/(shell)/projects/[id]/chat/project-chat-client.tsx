@@ -4,7 +4,7 @@ import { type ReactNode, Suspense, useEffect, useRef } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/adapters/auth'
 import { MainLayout } from '@/features/layout'
-import { useChatStore, useDeepResearchTitle } from '@/features/chat'
+import { useChatStore } from '@/features/chat'
 import { conversationMatchesProject } from '@/features/chat/lib/project-scope'
 import { newChatDropsFilePreview } from '@/features/documents/lib/ask-arrival'
 import { fileItemFromStatus } from '@/features/documents/lib/document-question'
@@ -22,8 +22,6 @@ export interface ProjectChatClientProps {
   canCollaborate?: boolean
   /** Whether the reader holds `project:chat` on this project. */
   canChatInProject?: boolean
-  /** Whether report source lines show origin badges (WorkOS `source-origin-badges`). */
-  showSourceBadges: boolean
   /** Whether shallow answers show the confidence chip (WorkOS `chat-confidence-chip`). */
   showConfidenceChip: boolean
   /** Whether answers show the per-answer thumbs row (WorkOS `answer-feedback`, WS-7). */
@@ -41,7 +39,6 @@ export interface ProjectChatClientProps {
 
 const ProjectChatContent = ({
   projectId,
-  showSourceBadges,
   showConfidenceChip,
   showAnswerFeedback,
   showResearchInHistory,
@@ -71,11 +68,6 @@ const ProjectChatContent = ({
   const router = useRouter()
   const pathname = usePathname()
 
-  // While a deep-research job streams, reflect its progress in the tab title.
-  // The base "<Project> · Chat — Piloti" title comes from route metadata
-  // (chat/layout + the project layout template); this override cleanly hands
-  // that title back when the job completes or the page unmounts.
-  useDeepResearchTitle()
 
   // Deep link from Overview's "Ask Piloti" actions: /projects/:id/chat?ask=<question>.
   // Seed the store-backed composer prefill (consumed once by InputArea) and then
@@ -293,7 +285,6 @@ const ProjectChatContent = ({
     <MainLayout
       isAuthenticated={isAuthenticated}
       onSignIn={signIn}
-      showSourceBadges={showSourceBadges}
       showConfidenceChip={showConfidenceChip}
       showAnswerFeedback={showAnswerFeedback}
       showResearchInHistory={showResearchInHistory}
@@ -306,10 +297,10 @@ const ProjectChatContent = ({
 }
 
 /**
- * Client half of the project chat route. The server page computes the two
- * chat feature flags and passes them here; they are prop-drilled to the
- * feature-flagged surfaces (ReportTab badges, AgentResponse confidence chip)
- * via MainLayout.
+ * Client half of the project chat route. The server page computes the chat
+ * feature flags and passes them here; they are prop-drilled to the
+ * feature-flagged surfaces (AgentResponse confidence chip and feedback row,
+ * the sessions panel's research section) via MainLayout.
  */
 export const ProjectChatClient = (props: ProjectChatClientProps): ReactNode => {
   return (

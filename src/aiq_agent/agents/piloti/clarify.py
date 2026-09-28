@@ -14,8 +14,8 @@ questions (the model may search first, and may offer pickable options), then —
 when plan approval is on — show a research plan and take the user's verdict,
 revising it while the reply is feedback. The dialog is a loop rather than a
 LangGraph because that is all it ever was: no checkpoint, no persistence, no
-node name that reaches a reader. What the reader DOES see is one trace row, and
-:data:`TRACE_STEP_NAME` still emits it under the name the frontend already maps.
+node name that reaches a reader. What the reader DOES see is one trace row, a
+``clarification`` step.
 
 Nothing is rebuilt to serve a request. The models, tools and limits are
 resolved once at boot into a :class:`ClarifyDeps`; a request that varies
@@ -66,21 +66,23 @@ from aiq_agent.common import filter_tools_by_sources
 from aiq_agent.common import get_all_tool_refs
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_latest_user_query
-from aiq_agent.common import get_model_overrides_from_context
-from aiq_agent.common import get_org_llm_credential_from_context
-from aiq_agent.common import get_reasoning_efforts
-from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common import strict_json_response_format
-from aiq_agent.common.turn_status import push_custom_step
-from nat.builder.builder import Builder
-from nat.builder.context import Context
-from nat.builder.framework_enum import LLMFrameworkEnum
-from nat.data_models.component_ref import FunctionGroupRef
-from nat.data_models.component_ref import FunctionRef
-from nat.data_models.component_ref import LLMRef
+from aiq_agent.common.agent_tools import load_agent_tools
+from aiq_agent.common.plan_documents import MAX_PLAN_DOCUMENTS
+from aiq_agent.common.plan_documents import PlanDocuments
+from aiq_agent.common.plan_documents import documents_from_plan
+from aiq_agent.common.request_llm_context import read_request_llm_context
+from aiq_agent.common.turn_status import emit_step
+from aiq_agent.common.wire_v2 import ClarificationStep
+from aiq_agent.project_context import get_organization_id_from_context
+from nat.plugin_api import Builder
+from nat.plugin_api import Context
+from nat.plugin_api import FunctionGroupRef
+from nat.plugin_api import FunctionRef
+from nat.plugin_api import LLMRef
 
 from .models.clarify import ClarificationResponse
 from .models.clarify import ClarifyRequest
@@ -88,6 +90,8 @@ from .models.clarify import ClarifyResult
 from .models.clarify import PlanDecision
 from .models.clarify import PlanOutcome
 from .models.clarify import PlanResponse
+from .plan_decisions import PlanShape
+from .plan_decisions import decide_plan_shape
 
 logger = logging.getLogger(__name__)
 
@@ -98,17 +102,6 @@ CLARIFICATION_PROMPT = load_prompt(PROMPTS_DIR, "research_clarification")
 PLAN_GENERATION_PROMPT = load_prompt(PROMPTS_DIR, "plan_generation")
 """Read once, at import. A deployment that ships without a prompt file fails
 here, loudly, instead of running degraded on an inline stub nobody reviews."""
-
-TRACE_STEP_NAME = "clarifier_agent"
-"""The name this step announces itself under in the turn's step stream.
-
-It is the name the old NAT function emitted, and the frontend maps it to
-"Klärung" (``intermediate-step-parser.ts``). Kept verbatim on purpose: turns
-persisted before this change carry it in their stored steps, so the frontend
-has to keep the entry regardless — and a second name for the same moment would
-mean two dictionary entries and a trace that reads differently either side of a
-deploy.
-"""
 
 SKIP_COMMANDS = frozenset({"skip", "done", "exit", "quit", "proceed", "continue", "no", "n", ""})
 """Replies to a clarification QUESTION that mean "stop asking and get on with it"."""
@@ -268,28 +261,132 @@ def parse_plan_reply(reply: str) -> tuple[PlanDecision, str]:
 
     Returns:
         ``("approved", "")`` run deep research on this plan;
+        ``("approved", json)`` run it on the plan as the reader EDITED it on
+        the plan card — the sections, the genre, the depth — as a JSON object
+        after the keyword (:func:`apply_plan_edits`);
         ``("shallow", "")`` answer now without the plan;
         ``("cancelled", "")`` stop the turn, no answer wanted;
         ``("feedback", text)`` revise the plan with this text.
     """
     text = unwrap_query(reply).strip()
     decision = PLAN_REPLIES.get(text.lower())
-    if decision is None:
-        return "feedback", text
-    return decision, ""
+    if decision is not None:
+        return decision, ""
+    head, _, rest = text.partition(" ")
+    if head.lower() == "approve" and rest.strip().startswith("{"):
+        return "approved", rest.strip()
+    return "feedback", text
 
 
-def format_plan_for_user(plan: PlanResponse) -> str:
+MAX_PLAN_SECTIONS = 12
+
+
+def _parse_edits(edits_json: str) -> dict[str, Any] | None:
+    try:
+        edits = json.loads(edits_json)
+    except ValueError:
+        logger.warning("Plan edits did not parse; running the plan as shown")
+        return None
+    return edits if isinstance(edits, dict) else None
+
+
+def _names(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [v.strip() for v in value if isinstance(v, str) and v.strip()][:MAX_PLAN_DOCUMENTS]
+
+
+def apply_plan_edits(plan: PlanResponse, edits_json: str) -> PlanResponse:
+    """The plan as the reader left it on the card; the original on anything unreadable.
+
+    The Unterlagen lists are taken as named; :func:`plan_documents` resolves
+    them against the inventory, which is where a name nobody can find falls out.
+    """
+    edits = _parse_edits(edits_json)
+    if edits is None:
+        return plan
+    data = plan.model_dump()
+    sections = edits.get("sections")
+    if isinstance(sections, list):
+        kept = [s.strip()[:200] for s in sections if isinstance(s, str) and s.strip()][:MAX_PLAN_SECTIONS]
+        if kept:
+            data["sections"] = kept
+    for key in ("genre", "depth"):
+        if isinstance(edits.get(key), str):
+            data[key] = edits[key]
+    for key in ("grundlage", "ausgeschlossen"):
+        if isinstance(edits.get(key), list):
+            data[key] = _names(edits[key])
+    try:
+        return PlanResponse.model_validate(data)
+    except ValidationError as exc:
+        logger.warning("Plan edits did not validate (%s); running the plan as shown", exc)
+        return plan
+
+
+def plan_data_sources(edits_json: str) -> list[str] | None:
+    """The Rahmen the reply carries: the composer's Datengrundlage at approval.
+
+    ``None`` when the reply names none — an older client — so the turn's own
+    sources stay. An empty list is a statement (no sources) and is kept.
+    """
+    edits = _parse_edits(edits_json) if edits_json else None
+    if edits is None or not isinstance(edits.get("data_sources"), list):
+        return None
+    return [s.strip() for s in edits["data_sources"] if isinstance(s, str) and s.strip()]
+
+
+def plan_documents(plan: PlanResponse, inventory: list[dict[str, Any]] | None) -> PlanDocuments | None:
+    """The plan's Unterlagen, resolved against what this turn can actually read."""
+    return documents_from_plan(plan.grundlage, plan.ausgeschlossen, inventory)
+
+
+def _inventory_rows(inventory: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """The turn's documents as the plan card lists them: name, title, shelf."""
+    rows: list[dict[str, Any]] = []
+    for row in inventory or []:
+        if not isinstance(row, dict) or not isinstance(row.get("file_name"), str):
+            continue
+        entry: dict[str, Any] = {"name": row["file_name"]}
+        if isinstance(row.get("display_title"), str) and row["display_title"].strip():
+            entry["title"] = row["display_title"].strip()
+        if isinstance(row.get("shelf"), str) and row["shelf"]:
+            entry["shelf"] = row["shelf"]
+        rows.append(entry)
+        if len(rows) >= MAX_PLAN_INVENTORY_ROWS:
+            break
+    return rows
+
+
+#: The plan card lists what the run can read. Two hundred rows is more than a
+#: card can show and more than a project usually holds; beyond it the picker
+#: still resolves a typed name against the full inventory server-side.
+MAX_PLAN_INVENTORY_ROWS = 200
+
+
+def format_plan_for_user(plan: PlanResponse, inventory: list[dict[str, Any]] | None = None) -> str:
     """Render the plan preview the user replies to."""
     sections_text = "\n".join(f"  {i + 1}. {s}" for i, s in enumerate(plan.sections))
     # The footer sentence is a byte-stable envelope: the UI detects it,
     # strips it, and renders localized action buttons in its place
     # (frontends/ui .../AgentPrompt.tsx). Changing a byte here requires
     # changing the regexes there in the same commit.
+    # The same plan as data, for the plan card: the client strips the fence
+    # and renders the sections, the genre and the depth as controls; a client
+    # that does not know the fence shows the list above and the fence stays
+    # readable. The envelope sentence below it is untouched.
+    payload: dict[str, Any] = plan.model_dump()
+    rows = _inventory_rows(inventory)
+    if rows:
+        # What the run can read, so the card's picker needs no second fetch
+        # and can only ever name a document this turn could find.
+        payload["unterlagen"] = rows
+    plan_json = json.dumps(payload, ensure_ascii=False)
     return (
         f"**Research Plan Preview**\n\n"
         f"**Title:** {plan.title}\n\n"
         f"**Sections:**\n{sections_text}\n\n"
+        f"```plan_json\n{plan_json}\n```\n\n"
         f"---\n"
         f"Reply **approve** to proceed, **shallow** for a quick answer instead, "
         f"**cancel** to dismiss, or provide feedback to revise the plan."
@@ -334,10 +431,39 @@ def question_for(response: ClarificationResponse | None, messages: Sequence[Base
     return fallback_clarification(get_latest_user_query(list(messages)))
 
 
-def approved_plan_context(plan: PlanResponse) -> str:
-    """The approved plan as deep research reads it (``orchestrator.j2``)."""
+def _document_lines(docs: list[Any]) -> str:
+    lines = []
+    for doc in docs:
+        where = f" [{doc.shelf}]" if doc.shelf else ""
+        title = f"{doc.title} — " if doc.title and doc.title != doc.name else ""
+        lines.append(f"- {title}{doc.name}{where}")
+    return "\n".join(lines)
+
+
+def approved_plan_context(plan: PlanResponse, documents: PlanDocuments | None = None) -> str:
+    """The approved plan as deep research reads it.
+
+    The orchestrator, the planner and the writer all receive it
+    (``factory.py`` ``prompt_values``): the sections become the required
+    components in this order, the genre the answer type, the depth the length,
+    and the Unterlagen what must be read and what may not be used.
+    """
     sections_text = "\n".join(f"- {s}" for s in plan.sections)
-    return f"**Approved Research Plan**\n\nTitle: {plan.title}\n\nSections:\n{sections_text}"
+    text = (
+        f"**Approved Research Plan**\n\nTitle: {plan.title}\nGenre: {plan.genre}\nDepth: {plan.depth}\n\n"
+        f"Sections (required components, in this order):\n{sections_text}"
+    )
+    if documents and documents.grundlage:
+        text += (
+            "\n\nGrundlage (documents to read in full, each through its own research query; "
+            f"a report that could not reach one names it as unread):\n{_document_lines(documents.grundlage)}"
+        )
+    if documents and documents.ausgeschlossen:
+        text += (
+            "\n\nAusgeschlossen (documents that may not be used: never searched, never cited):\n"
+            f"{_document_lines(documents.ausgeschlossen)}"
+        )
+    return text
 
 
 def _fallback_plan() -> PlanResponse:
@@ -443,11 +569,15 @@ async def generate_plan(
     topic still present in the history (an aborted research the user has moved
     on from), producing plans unrelated to what was just asked.
     """
+    query = get_latest_user_query(list(request.messages)) or ""
+    shape = await decide_plan_shape(query, request.project_context, organization_id=get_organization_id_from_context())
     system_prompt = render_prompt_template(
         PLAN_GENERATION_PROMPT,
         project_context=request.project_context,
         clarifier_context=log,
         feedback_history=feedback_history or None,
+        preselected=_preselection_text(shape),
+        available_documents=request.available_documents or [],
     )
     anchor = HumanMessage(
         content=(
@@ -466,11 +596,33 @@ async def generate_plan(
     return plan
 
 
-def _outcome(log: str, plan: PlanResponse, outcome: PlanOutcome) -> ClarifyResult:
+def _preselection_text(shape: PlanShape) -> str | None:
+    lines = []
+    if shape.genre:
+        lines.append(f"genre: {shape.genre}")
+    if shape.depth:
+        lines.append(f"depth: {shape.depth}")
+    return "\n".join(lines) or None
+
+
+def _outcome(
+    log: str,
+    plan: PlanResponse,
+    outcome: PlanOutcome,
+    *,
+    inventory: list[dict[str, Any]] | None = None,
+    data_sources: list[str] | None = None,
+) -> ClarifyResult:
     """One finished plan preview, as the conversation graph reads it."""
     if outcome != "approved":
         return ClarifyResult(research_context=log, outcome=outcome)
-    return ClarifyResult(research_context=f"{log}\n\n{approved_plan_context(plan)}", outcome="approved")
+    documents = plan_documents(plan, inventory)
+    return ClarifyResult(
+        research_context=f"{log}\n\n{approved_plan_context(plan, documents)}",
+        outcome="approved",
+        data_sources=data_sources,
+        documents=documents,
+    )
 
 
 async def preview_plan(request: ClarifyRequest, deps: ClarifyDeps, log: str) -> ClarifyResult:
@@ -480,15 +632,20 @@ async def preview_plan(request: ClarifyRequest, deps: ClarifyDeps, log: str) -> 
 
     for _ in range(deps.max_plan_iterations):
         plan = await generate_plan(request, deps, log, feedback_history)
-        decision, feedback = parse_plan_reply(await deps.ask_user(format_plan_for_user(plan), ()))
+        shown = format_plan_for_user(plan, request.available_documents)
+        decision, feedback = parse_plan_reply(await deps.ask_user(shown, ()))
         if decision != "feedback":
+            data_sources = None
+            if decision == "approved" and feedback:
+                plan = apply_plan_edits(plan, feedback)
+                data_sources = plan_data_sources(feedback)
             logger.info("Clarifier: plan %s by user", decision)
-            return _outcome(log, plan, decision)
+            return _outcome(log, plan, decision, inventory=request.available_documents, data_sources=data_sources)
         logger.info("Clarifier: User provided feedback, regenerating plan")
         feedback_history.append(feedback)
 
     logger.warning("Clarifier: Max plan iterations reached, auto-approving")
-    return _outcome(log, plan, "approved")
+    return _outcome(log, plan, "approved", inventory=request.available_documents)
 
 
 async def clarify(request: ClarifyRequest, deps: ClarifyDeps) -> ClarifyResult:
@@ -505,8 +662,10 @@ async def clarify(request: ClarifyRequest, deps: ClarifyDeps) -> ClarifyResult:
     query = get_latest_user_query(list(request.messages))
     logger.info("User's query: %s...", str(query)[:100] if query else "")
     # The one row this step contributes to the reader's trace, emitted before
-    # the first question blocks the turn rather than after the dialog ends.
-    push_custom_step(TRACE_STEP_NAME, {"kind": "clarification", "max_turns": deps.max_turns})
+    # the first question blocks the turn rather than after the dialog ends. A
+    # clarifier configured to ask nothing has no question to announce.
+    if deps.max_turns:
+        emit_step(ClarificationStep(id="clarification", max_turns=deps.max_turns))
     log = await gather_clarification(request, deps)
     if not deps.enable_plan_approval:
         return ClarifyResult(research_context=log)
@@ -539,14 +698,7 @@ async def ask_through_nat(question: str, options: Sequence[str] = ()) -> str:
 
 async def resolve_tools(settings: ClarifierSettings, builder: Builder) -> list[BaseTool]:
     """The tool set the step boots with: the configured refs, else the whole registry."""
-    tools = await builder.get_tools(
-        tool_names=settings.tools or get_all_tool_refs(),
-        wrapper_type=LLMFrameworkEnum.LANGCHAIN,
-    )
-    if not settings.exclude_tools:
-        return list(tools)
-    excluded = set(settings.exclude_tools)
-    return [t for t in tools if getattr(t, "name", "") not in excluded]
+    return await load_agent_tools(builder, settings.tools or get_all_tool_refs(), settings.exclude_tools)
 
 
 def _clarifier_llm(llm: BaseChatModel, tools: Sequence[BaseTool]) -> Any:
@@ -641,7 +793,7 @@ class Clarifier:
             boot=build_deps(provider, tools, planner_llm, settings, ask_user, callbacks),
         )
 
-    def deps_for(self, request: ClarifyRequest) -> ClarifyDeps:
+    async def deps_for(self, request: ClarifyRequest) -> ClarifyDeps:
         """What this request varies from the boot deps, or the boot deps themselves.
 
         Two sources of variation, both per-org: the runtime model override
@@ -654,21 +806,16 @@ class Clarifier:
         selected = filter_tools_by_sources(list(self.tools), request.data_sources)
         if all_mapped_tools_filtered_out(list(self.tools), selected, request.data_sources):
             logger.warning("Clarifier received data_sources with no matching tools")
-        overrides = get_model_overrides_from_context()
-        credential = get_org_llm_credential_from_context()
-        active = (
-            self.provider.with_model_overrides(overrides)
-            .with_reasoning_efforts(get_reasoning_efforts())
-            .with_credential(credential)
-            .with_zdr(get_zdr_only_from_context())
-        )
+        # Off the loop: each dial can fall back to a blocking BFF call.
+        context = await read_request_llm_context()
+        active = context.apply(self.provider)
         if active is self.provider and selected == list(self.tools):
             return self.boot
-        planner = _request_planner(self.planner_llm, overrides, credential)
+        planner = _request_planner(self.planner_llm, context.model_overrides, context.credential)
         return build_deps(active, selected, planner, self.settings, self.ask_user, self.callbacks)
 
     async def __call__(self, request: ClarifyRequest) -> ClarifyResult:
-        return await clarify(request, self.deps_for(request))
+        return await clarify(request, await self.deps_for(request))
 
 
 async def build_clarifier(settings: ClarifierSettings, builder: Builder) -> ClarifyFn:

@@ -231,7 +231,8 @@ def render_already_read_block(digest: Sequence[str] | None) -> str:
         [
             DIGEST_HEADING,
             "Dokumente, die in DIESER Unterhaltung bereits geöffnet wurden — ein Index, KEIN Beleg: "
-            "Eine Zeile beweist, dass das Dokument geöffnet wurde, nicht dass sein Wortlaut jetzt vorliegt. "
+            "Eine Zeile beweist, dass das Dokument geöffnet wurde, nicht dass sein Wortlaut jetzt vorliegt "
+            "(die Passagen des VORIGEN Zuges stehen noch im Verlauf; ältere nicht). "
             "Zitieren oder wörtlich anführen erst nach erneutem Öffnen mit `read_passage` und dem exakten "
             "Namen aus der Zeile; die Digest-Zeile selbst wird nie zitiert.",
             f"Begrenzt auf höchstens {MAX_DIGEST_DOCS} Dokumente / ca. {MAX_DIGEST_TOKENS} Tokens — "

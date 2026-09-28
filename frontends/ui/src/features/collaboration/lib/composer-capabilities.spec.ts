@@ -17,7 +17,6 @@ const PERMITTED: ComposerCapabilityInput = {
   myRole: null,
   isBusy: false,
   isResponseMode: false,
-  researchLocked: false,
   otherPersonsTurn: false,
 }
 
@@ -99,7 +98,6 @@ describe('composerCapabilities', () => {
   describe('composing is narrower than contributing', () => {
     for (const [label, patch] of [
       ['a turn is running', { isBusy: true }],
-      ['research finished', { researchLocked: true }],
       ["somebody else's turn", { otherPersonsTurn: true }],
     ] as const) {
       test(`${label}: may still contribute, may not compose`, () => {
@@ -172,7 +170,6 @@ describe('project chat permission', () => {
     myRole: null,
     isBusy: false,
     isResponseMode: false,
-    researchLocked: false,
     otherPersonsTurn: false,
   }
 

@@ -29,6 +29,11 @@ export interface KnowledgeFile {
   ingestedAt: string | null
   summary: string | null
   docClass: string | null
+  /**
+   * A Dokumentart the decision model read from the text when the file name gave
+   * no hint (ADR-0064, use 8). Offered, never applied; cleared once a person sets one.
+   */
+  docClassSuggestion: string | null
   /** Effective user-facing name: stored admin override, else derived default. */
   displayTitle: string | null
 }
@@ -65,6 +70,7 @@ interface BackendFileEntry {
   ingested_at?: unknown
   summary?: unknown
   doc_class?: unknown
+  doc_class_suggestion?: unknown
   display_title?: unknown
 }
 
@@ -97,6 +103,7 @@ function mapFile(entry: BackendFileEntry): KnowledgeFile {
     ingestedAt: asString(entry.ingested_at),
     summary: asString(entry.summary),
     docClass: asString(entry.doc_class),
+    docClassSuggestion: asString(entry.doc_class_suggestion),
     displayTitle: asString(entry.display_title),
   }
 }

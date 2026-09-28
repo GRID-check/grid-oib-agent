@@ -196,7 +196,7 @@ class TestARefusedCardIsVisibleAfterTheTurn:
     async def test_a_validation_failure_logs_the_type_the_model_reached_for(self, caplog):
         reg = get_or_create_card_registry("conv-refusal-1")
         reg.clear()
-        with caplog.at_level(logging.WARNING, logger="aiq_agent.cards.register"):
+        with caplog.at_level(logging.WARNING, logger="aiq_agent.cards"):
             msg = await self._emit_real(reg, {"type": "process_map", "title": "Bauverfahren"})
 
         assert msg.startswith("Error")
@@ -229,7 +229,7 @@ class TestARefusedCardIsVisibleAfterTheTurn:
     async def test_unparseable_json_logs_too(self, caplog):
         reg = get_or_create_card_registry("conv-refusal-2")
         reg.clear()
-        with caplog.at_level(logging.WARNING, logger="aiq_agent.cards.register"):
+        with caplog.at_level(logging.WARNING, logger="aiq_agent.cards"):
             msg = await self._emit_real(reg, "{not json")
 
         assert msg.startswith("Error")
@@ -239,7 +239,7 @@ class TestARefusedCardIsVisibleAfterTheTurn:
     async def test_a_system_card_refusal_logs_too(self, caplog):
         reg = get_or_create_card_registry("conv-refusal-3")
         reg.clear()
-        with caplog.at_level(logging.WARNING, logger="aiq_agent.cards.register"):
+        with caplog.at_level(logging.WARNING, logger="aiq_agent.cards"):
             msg = await self._emit_real(
                 reg, {"type": "memory_proposal", "title": "X", "content": "Y", "scope": "project"}
             )

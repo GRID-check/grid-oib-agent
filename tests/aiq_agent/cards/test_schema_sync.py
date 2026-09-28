@@ -37,3 +37,19 @@ def test_committed_schema_matches_models():
         "shared/cards/schemas.json is out of sync with the Pydantic models. "
         "Run `uv run python scripts/generate_card_schema.py` and commit the result."
     )
+
+
+def test_the_generator_explains_itself_rather_than_writing(monkeypatch, capsys):
+    """``--help`` prints help and an unknown argument is refused; neither writes the tracked file."""
+    import pytest
+
+    generator = _load_generator()
+    writes: list[object] = []
+    monkeypatch.setattr(generator, "write", lambda *args, **kwargs: writes.append(args))
+    with pytest.raises(SystemExit) as helped:
+        generator.main(["--help"])
+    assert helped.value.code == 0 and "usage" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as refused:
+        generator.main(["--out", "x.json"])
+    assert refused.value.code == 2
+    assert writes == []

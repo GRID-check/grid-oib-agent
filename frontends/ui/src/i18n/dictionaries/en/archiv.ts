@@ -104,5 +104,6 @@ export const archiv = {
     deleting: 'Deleting…',
     success: '“{name}” was removed from the Archiv',
     error: 'The document could not be deleted',
+    legalHold: 'The document is under a legal hold and cannot be deleted',
   },
 }

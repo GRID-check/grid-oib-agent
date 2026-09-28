@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'

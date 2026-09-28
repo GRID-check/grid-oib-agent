@@ -1,6 +1,13 @@
 /**
- * Tear down documents state and delete the backend collection for a chat session id.
+ * Tear down the browser's documents state for a chat session id.
  * Used when abandoning upload-only sessions (no user chat messages).
+ *
+ * Client state only. The server side — the attachment rows, their objects and
+ * chunks, and the chat's `s_` collection — is erased by the conversation delete
+ * the caller issues next (`DELETE /api/conversations/[id]`), which owns that
+ * erasure. This used to delete the collection itself, concurrently with the
+ * conversation delete: when the row went first, the collection delete was
+ * refused (it authorizes on the row) and the collection was orphaned.
  */
 
 import { removePersistedJobForCollection, unmarkSessionCollection } from './persistence'
@@ -18,12 +25,4 @@ export const discardSessionDocumentsResources = (sessionId: string): void => {
     docs.setCurrentCollection(null)
     docs.setCollectionInfo(null)
   }
-
-  // Use the orchestrator's authenticated client: a token-less client 401s in
-  // auth-required deployments and the orphaned collection persists forever.
-  void UploadOrchestrator.getAuthenticatedClient()
-    .deleteCollection(sessionId)
-    .catch((err) => {
-      console.warn('Failed to delete documents collection for discarded session:', sessionId, err)
-    })
 }

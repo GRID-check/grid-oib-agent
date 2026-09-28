@@ -233,6 +233,8 @@ export interface FeedbackTurn {
   messageId: string
   verdict: AnswerFeedbackVerdict
   reason: AnswerFeedbackReason | null
+  /** The down-vote's free text, when the voter wrote one. */
+  comment: string | null
   createdAt: Date
   /** The answer that was voted on, when its message row exists. */
   answer: string | null
@@ -517,6 +519,7 @@ export async function listFeedbackTurns(
       f.message_id,
       f.verdict,
       f.reason,
+      f.comment,
       f.created_at,
       m.content    as answer,
       q.content    as question,
@@ -557,6 +560,7 @@ export async function listFeedbackTurns(
     messageId: String(row.message_id),
     verdict: row.verdict as AnswerFeedbackVerdict,
     reason: (row.reason as AnswerFeedbackReason | null) ?? null,
+    comment: typeof row.comment === 'string' && row.comment.trim() ? row.comment : null,
     // Raw `sql` results are not runtime-validated — coerce at this boundary.
     createdAt: new Date(row.created_at as string),
     answer: (row.answer as string | null) ?? null,

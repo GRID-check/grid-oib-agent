@@ -121,7 +121,14 @@ write a third would have been wrong.
 3. **What the provider accepted** — `verify_deferred_tool_loading` issues one
    canary request at **workflow build time** and reads the `tools` OpenRouter
    echoes back. If the namespace returns without `defer_loading`, the build
-   **raises**.
+   **raises**. It then repeats the request with one extra deferred function of
+   ~4 000 tokens and compares `usage.input_tokens`: growth above 200 tokens
+   means the provider accepted the flag and billed the schema anyway. That
+   model is recorded as not deferring (full schemas, overriding `allow`) and
+   the build logs a WARNING with the measured growth instead of raising.
+   *Amended 2026-09-23:* the echo alone passed `openai/gpt-5.6-luna` while a
+   replayed 19-function research call billed 40 154 input tokens with
+   `defer_loading` true and false alike.
 
 Build time is the only place raising is free: no user turn exists yet, and an
 operator who wrote `enabled: true` under a Chat-Completions LLM finds out at
@@ -162,7 +169,10 @@ across all 411 models that vocabulary contains no `tool_search`, no
 Verification means the provider **echoed `defer_loading` back on every
 function**, not merely that it returned HTTP 200. A provider that accepts the
 request and normalizes the deferral away is precisely the silent failure this
-ADR exists to prevent, so a bare 200 must never seed the allowlist.
+ADR exists to prevent, so a bare 200 must never seed the allowlist. Nor does
+the echo prove the saving (see check 3): the allowlist says the shape will not
+be rejected, and the probe still measures the saving once per model, allowlisted
+or not.
 
 **Some models have no stable per-model answer at all.** `meta-llama/llama-3.3-70b-instruct`
 returned 200-and-defers on 5 of 6 identical requests and 422 on the sixth;
@@ -258,6 +268,13 @@ Stated the way it should be read: this does not make the expensive turn cheaper,
 it makes the cheap turns cheap. A deployment whose questions all hit
 `ifc_measure` on turn 1 and stop should not enable it.
 
+**This table no longer holds (2026-09-23).** Re-measured against the same
+model, a replayed 19-function research call billed 40 154 input tokens with
+`defer_loading` true and false alike, although OpenRouter echoed the flag on
+every function. The table above records what deferral saved when it was
+honoured; whether it is honoured now is what the build-time probe measures
+(check 3), and it currently answers no for every model measured.
+
 ### What we accept
 
 - **A second search surface.** The namespace `description` is now the only tool
@@ -289,7 +306,10 @@ it makes the cheap turns cheap. A deployment whose questions all hit
   gate; but only `openai/gpt-5.6-{luna,sol,terra}`, `anthropic/claude-opus-4.8`,
   `anthropic/claude-sonnet-4.6` and `anthropic/claude-fable-5` were additionally
   seen emitting a `function_call` end to end. Stated precisely so nobody reads
-  the list as stronger evidence than it is.
+  the list as stronger evidence than it is. On 2026-09-23 luna, sol,
+  `anthropic/claude-sonnet-5` and `google/gemini-3.7-flash` all echoed the flag
+  and billed a deferred ballast function in full (+3 913, +3 913, +5 187,
+  +4 897 input tokens), which is why the probe measures the saving.
 
 ## Alternatives considered
 

@@ -1,13 +1,9 @@
 ---
 features:
   - >
-    Eine IFC-Datei verhält sich jetzt überall gleich. Ein Klick öffnet die
-    Vorschau mit dem Gebäude darin, und darunter führt eine Schaltfläche in den
-    Modellbereich. Bisher sprang ein Klick in den Projektdateien direkt in die
-    Vollbildansicht, während dieselbe Datei im Büroarchiv eine Vorschau ohne
-    Ausgang zeigte.
+    An IFC file now behaves the same everywhere: a click opens a preview with
+    the building in it, and a button below leads into the model area.
   - >
-    Der Modellbereich ist jetzt auch aus dem Büroarchiv erreichbar. Struktur,
-    Mengen und Revisionen stehen dort vollständig zur Verfügung; das Prüfbuch
-    braucht weiterhin ein Projekt, weil es gegen Gebäudeklasse und Hauptnutzung
-    prüft, und sagt das an Ort und Stelle.
+    The model area is now reachable from the office archive, with structure,
+    quantities and revisions. The Prüfbuch still needs a project, because it
+    checks against building class and main use.

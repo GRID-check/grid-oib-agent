@@ -84,6 +84,13 @@ class OibFileEntry(BaseModel):
     doc_class: str | None = Field(
         None, description="Explicit per-document classification ('Dokumentart'), if one was set/guessed."
     )
+    doc_class_suggestion: str | None = Field(
+        None,
+        description=(
+            "A Dokumentart the decision model read from the text when the file name gave no hint "
+            "(ADR-0064, use 8). Offered to the platform owner; never applied on its own."
+        ),
+    )
     display_title: str | None = Field(
         None,
         description=(
@@ -135,6 +142,17 @@ def _cached_file_hash(path: Path) -> str:
     with _HASH_CACHE_LOCK:
         _HASH_CACHE[key] = (stat.st_size, stat.st_mtime_ns, digest)
     return digest
+
+
+def _load_suggestions(collection_name: str, file_names: list[str]) -> dict[str, str]:
+    """Best-effort batch read of the Dokumentart suggestions; empty on any store hiccup."""
+    try:
+        from aiq_agent.knowledge.factory import get_document_doc_class_suggestions
+
+        return get_document_doc_class_suggestions(collection_name, file_names)
+    except Exception as e:
+        logger.debug("Dokumentart suggestions unavailable for %s: %s", collection_name, e)
+        return {}
 
 
 def _load_summaries(collection_name: str) -> dict[str, tuple[str | None, str | None, str | None]]:
@@ -280,10 +298,12 @@ def get_status(ingestor=None) -> OibKnowledgeStatus:
     from aiq_agent.common.norm_registry import guess_display_title
 
     summaries = _load_summaries(collection_name)
+    suggestions = _load_suggestions(collection_name, [entry.file_name for entry in entries])
     for entry in entries:
         summary, doc_class, stored_title = summaries.get(entry.file_name, (None, None, None))
         entry.summary = summary
         entry.doc_class = doc_class
+        entry.doc_class_suggestion = suggestions.get(entry.file_name)
         # Effective name: the admin override wins, else the derived default so the
         # admin UI always shows a real name (never a raw filename) to rename from.
         entry.display_title = stored_title or guess_display_title(entry.file_name)

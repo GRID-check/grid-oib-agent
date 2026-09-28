@@ -19,8 +19,10 @@
  *   consumer re-derives it from a name prefix (ADR-0047). The value is built
  *   whole by `buildCollectionScopeFromRequest`, which is where the shelves are
  *   known; this route only forwards it.
+ * - Forwards only the requests a product client makes
+ *   (`@/lib/proxy/v1-allowlist`); everything else is a 404.
  * - Validates collection_name for collection-scoped routes (e.g. uploads)
- *   via `@/lib/proxy/collection-authz`.
+ *   via `@/lib/proxy/collection-authz`, per method.
  *
  * This route stays a transport pass-through (see the BFF architecture doc):
  * no repository/service layer, but authz and scope resolution go through the
@@ -44,6 +46,7 @@ import {
   validateCollectionName,
 } from '@/lib/proxy/collection-authz'
 import { buildProxyUrl } from '@/lib/proxy/proxy-request'
+import { isForwardableV1Request } from '@/lib/proxy/v1-allowlist'
 import { isWebSearchEnabledForOrg } from '@/lib/organizations/service'
 
 /**
@@ -91,28 +94,21 @@ const isRedirectError = (error: unknown): boolean => {
 }
 
 /**
- * Backend control-plane path prefixes that must NEVER be reachable through the
- * public BFF proxy.
+ * Forward only what a product client asks for (`@/lib/proxy/v1-allowlist`).
  *
  * The proxy forwards to `aiq-agent:8000` over the internal network, so the
  * backend's `AuthMiddleware` classifies these requests as *internal* and skips
- * its `EXTERNAL_ALLOWED_PATHS` filter. Without this guard an anonymous visitor
- * on the public frontend could reach:
- *   - `/v1/admin/*`       — GRID_ADMIN_TOKEN-gated OIB re-ingestion (fail-OPEN
- *                           when the token is unset), and
- *   - `/v1/maintenance/*` — internal-token-gated project purge.
- * Neither prefix appears in the backend's `EXTERNAL_ALLOWED_PATHS`, so the
- * proxy's forwardable set is kept no wider than what an external caller may
- * reach. Legitimate v1 paths (collections, documents, data_sources, jobs,
- * config) are unaffected. Rejected before any upstream fetch.
+ * its `EXTERNAL_ALLOWED_PATHS` filter. A denylist of the two control-plane
+ * prefixes (`admin`, `maintenance`) was therefore the only thing between a
+ * browser cookie and the agent service's whole surface, NAT's agent-turn
+ * endpoints (`/v1/chat/completions`, `/v1/workflow`) included — which ran
+ * outside the signed context envelope, so with no organization, budget or
+ * source policy. An allowlist closes those and whatever is mounted next.
+ * Rejected before any upstream fetch, with the same 404 for every shape.
  */
-const BLOCKED_PROXY_PREFIXES = new Set(['admin', 'maintenance'])
-
-const rejectBlockedPath = (path: string[]): NextResponse | null => {
-  if (path.length > 0 && BLOCKED_PROXY_PREFIXES.has(path[0])) {
-    return errorEnvelope(404, 'NOT_FOUND', 'Not found')
-  }
-  return null
+const rejectUnlistedPath = (method: string, path: string[]): NextResponse | null => {
+  if (isForwardableV1Request(method, path)) return null
+  return errorEnvelope(404, 'NOT_FOUND', 'Not found')
 }
 
 export const GET = tenantSlotRoute(async function GET(
@@ -121,7 +117,7 @@ export const GET = tenantSlotRoute(async function GET(
 ): Promise<Response> {
   try {
     const { path } = await params
-    const blocked = rejectBlockedPath(path)
+    const blocked = rejectUnlistedPath(req.method, path)
     if (blocked) {
       return blocked
     }
@@ -129,7 +125,9 @@ export const GET = tenantSlotRoute(async function GET(
     const session = await resolveOptionalSession()
     const context = parseQueryContext(searchParams)
 
-    const validationError = await validateCollectionName(path, session, context)
+    const validationError = await validateCollectionName(path, session, context, {
+      method: req.method,
+    })
     if (validationError) {
       return validationError
     }
@@ -173,7 +171,7 @@ export const POST = tenantSlotRoute(async function POST(
 ): Promise<Response> {
   try {
     const { path } = await params
-    const blocked = rejectBlockedPath(path)
+    const blocked = rejectUnlistedPath(req.method, path)
     if (blocked) {
       return blocked
     }
@@ -202,7 +200,9 @@ export const POST = tenantSlotRoute(async function POST(
 
     const context = resolveRequestContext(searchParams, parsedBody)
 
-    const validationError = await validateCollectionName(path, session, context)
+    const validationError = await validateCollectionName(path, session, context, {
+      method: req.method,
+    })
     if (validationError) {
       return validationError
     }
@@ -247,7 +247,7 @@ export const DELETE = tenantSlotRoute(async function DELETE(
 ): Promise<Response> {
   try {
     const { path } = await params
-    const blocked = rejectBlockedPath(path)
+    const blocked = rejectUnlistedPath(req.method, path)
     if (blocked) {
       return blocked
     }
@@ -255,7 +255,9 @@ export const DELETE = tenantSlotRoute(async function DELETE(
     const session = await resolveOptionalSession()
     const context = parseQueryContext(searchParams)
 
-    const validationError = await validateCollectionName(path, session, context)
+    const validationError = await validateCollectionName(path, session, context, {
+      method: req.method,
+    })
     if (validationError) {
       return validationError
     }

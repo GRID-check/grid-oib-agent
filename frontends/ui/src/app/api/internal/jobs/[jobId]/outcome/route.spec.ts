@@ -80,7 +80,7 @@ describe('POST /api/internal/jobs/[jobId]/outcome', () => {
   it('records the outcome for the run the backend id names', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
     vi.mocked(loadRunForOutcome).mockResolvedValue(run)
-    vi.mocked(recordRunOutcome).mockResolvedValue({ notified: true, filed: null })
+    vi.mocked(recordRunOutcome).mockResolvedValue({ notified: true, filed: null, closed: true })
 
     const response = await POST(
       makeRequest({ organizationId: 'org-1', status: 'failure', error: 'Budget exhausted' }, REAL_TOKEN),
@@ -98,7 +98,7 @@ describe('POST /api/internal/jobs/[jobId]/outcome', () => {
       report: null,
       cards: null,
     })
-    expect(await response.json()).toEqual({ notified: true, filed: null })
+    expect(await response.json()).toEqual({ notified: true, filed: null, closed: true })
   })
 
   it('is a 404 for a backend id the BFF has no run for', async () => {
@@ -134,7 +134,7 @@ describe('POST /api/internal/jobs/[jobId]/outcome', () => {
   it('carries the report through for the filing arm', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
     vi.mocked(loadRunForOutcome).mockResolvedValue(run)
-    vi.mocked(recordRunOutcome).mockResolvedValue({ notified: true, filed: { documentId: 'doc-1', filename: 'a.pdf' } })
+    vi.mocked(recordRunOutcome).mockResolvedValue({ notified: true, filed: { documentId: 'doc-1', filename: 'a.pdf' }, closed: true })
 
     const response = await POST(
       makeRequest({ organizationId: 'org-1', status: 'success', report: '# Ergebnis' }, REAL_TOKEN),

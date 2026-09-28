@@ -1,8 +1,6 @@
 ---
 features:
   - >
-    In der Aufträge-Liste öffnet ein Klick auf eine Zeile jetzt den Lauf
-    selbst: dieselben Runden, Quellen und Fundstellen wie im Verlauf, statt
-    einer zweiten Beschreibung derselben Zeile. Darunter steht weiterhin das
-    Ergebnis — und daneben neu der Weg in den Verlauf, wo ein laufender
-    Auftrag verfolgt und eine Rückfrage beantwortet wird.
+    Clicking a row in the task list now opens the run itself, with the same
+    rounds, sources and references as in the conversation, and a link to that
+    conversation.

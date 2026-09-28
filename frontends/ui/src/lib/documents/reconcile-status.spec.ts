@@ -148,6 +148,32 @@ describe('reconcileDocumentStatuses', () => {
     expect(result.errorMessage).toBe('unparseable PDF')
   })
 
+  /**
+   * A re-upload that fails to index keeps the previous version's chunks under
+   * the same filename, so the collection file list still reports that name as
+   * `success`. The job is what knows the NEW bytes failed, and it must win:
+   * reading the list here would turn a failed re-upload green.
+   */
+  it('marks a failed re-upload failed although the previous version still lists as indexed', async () => {
+    const db = makeDbMock()
+    mockFetch.mockImplementation(async (url: string) =>
+      url.includes('/v1/documents/status/batch')
+        ? batchResponse({
+            'job-1': {
+              status: 'failed',
+              error_message: '1/1 file(s) failed',
+              file_details: [{ status: 'failed', error_message: 'PDF is encrypted' }],
+            },
+          })
+        : collectionResponse([{ file_name: 'plan.pdf', status: 'success', chunk_count: 12 }])
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow()], 'org-1')
+
+    expect(result.status).toBe('failed')
+    expect(db.set).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' }))
+  })
+
   it('leaves a row pending while the job is still in progress', async () => {
     const db = makeDbMock()
     mockFetch.mockResolvedValue(batchResponse({ 'job-1': { status: 'processing', file_details: [] } }))

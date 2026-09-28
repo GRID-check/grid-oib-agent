@@ -4,7 +4,10 @@
  * Combined Zustand store composed from 3 slices:
  * - Messages slice (streaming, thinking, file cards)
  * - Sessions slice (conversations CRUD, persistence)
- * - Deep Research slice (SSE streaming, HITL, jobs)
+ * - Interaction slice (the open HITL prompt and its send path)
+ *
+ * A deep-research run keeps no state here: it is a message in the thread
+ * (ADR-0062) and its block subscribes to its own stream (`features/runs`).
  */
 
 import { create } from 'zustand'
@@ -24,13 +27,15 @@ export type ChatStoreWithHydration = ChatStore & {
 import {
   createMessagesSlice,
   createSessionsSlice,
-  createDeepResearchSlice,
+  createInteractionSlice,
 } from './stores'
-import { createResilientStorage } from './stores/sessions-store'
+import { chatIndexKey, createResilientStorage } from './stores/chat-storage'
 import {
   logStoreHydration,
   logExternalStorageEvent,
 } from './lib/storage-logger'
+
+const CHAT_STORE_NAME = 'aiq-chat-store'
 
 export const useChatStore = create<ChatStoreWithHydration>()(
   devtools(
@@ -38,20 +43,19 @@ export const useChatStore = create<ChatStoreWithHydration>()(
       (set, get, store) => ({
         ...createMessagesSlice(set, get, store),
         ...createSessionsSlice(set, get, store),
-        ...createDeepResearchSlice(set, get, store),
+        ...createInteractionSlice(set, get, store),
         // Client-only hydration flag (C5); flipped true in onRehydrateStorage.
         hasHydrated: false,
       }),
       {
-        name: 'aiq-chat-store',
+        // The prefix of every key the chat store writes (`stores/chat-storage.ts`).
+        name: CHAT_STORE_NAME,
         storage: typeof window === 'undefined' ? undefined : createResilientStorage(),
         partialize: (state) => ({
           currentUserId: state.currentUserId,
           conversations: state.conversations,
           currentConversation: state.currentConversation,
-          pendingInteraction: state.pendingInteraction,
           composerDrafts: state.composerDrafts,
-          resolvedDeepResearchJobs: state.resolvedDeepResearchJobs,
         }),
         onRehydrateStorage: () => (state) => {
           // Mark hydration settled regardless of whether persisted data existed
@@ -65,7 +69,6 @@ export const useChatStore = create<ChatStoreWithHydration>()(
             // projectId; re-apply it so setProjectId's guard clears a
             // persisted currentConversation from another project (UX-8).
             if (store.projectId) store.setProjectId(store.projectId)
-            void store.refreshDeepResearchSessionStatuses()
           })
         },
       }
@@ -92,7 +95,7 @@ if (typeof window !== 'undefined') {
   logStoreHydration(true, initialState.conversations?.length ?? 0, initialState.currentUserId)
 
   window.addEventListener('storage', (event) => {
-    if (event.key === 'aiq-chat-store') {
+    if (event.key === chatIndexKey(CHAT_STORE_NAME)) {
       logExternalStorageEvent(event.key, event.oldValue, event.newValue)
 
       if (event.oldValue !== null && event.newValue === null) {

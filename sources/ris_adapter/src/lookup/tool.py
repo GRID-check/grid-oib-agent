@@ -26,11 +26,11 @@ from ris_adapter.lookup.telemetry import emit_lookup_span
 from ris_adapter.lookup.trace import LookupTrace
 from ris_adapter.register import _make_planner
 
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.component_ref import LLMRef
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import LLMRef
+from nat.plugin_api import register_function
 
 logger = logging.getLogger(__name__)
 
@@ -64,13 +64,16 @@ named one; otherwise it is taken from the instrument, the question, then the \
 project brief, and the answer states which.
     instrument (str): An address when you have one: "Bauordnung für Wien", \
 "§ 63 BO Wien", a RIS document number, or a ris.bka.gv.at URL. Naming a § makes \
-the lookup deterministic — no model reads the law, the paragraph is cut out by its number.
+the lookup deterministic — no model reads the law, the paragraph is cut out by its number. \
+Name every § you already know you need in ONE call ("§§ 75 und 81 BO Wien", \
+"§§ 2 bis 4 Baupolizeigesetz Salzburg", up to six; past six it names those it did not read): \
+each is cut out of the same law, where a call per § is a round per §.
     application (str): Only for the non-statute corpora: "Vfgh", "Vwgh", "Justiz", \
 "Bvwg", "Lvwg" for case law, "BgblAuth"/"LgblAuth" for the authentic gazettes, \
 "Begut"/"RegV" for drafts. Leave empty for statute law — it is decided internally.
 
 Returns:
-    str: Numbered passages, each with Source, Source URL, Dokumentart, Punkt, a \
+    str: Numbered passages, each with Source, Dokumentart, Punkt, a \
 Citation key to copy verbatim, and the paragraph text. A miss says what was \
 searched, which Bundesland was assumed and where that came from, what matched but \
 was not read, and one concrete retry — never an empty result, and never a reason \

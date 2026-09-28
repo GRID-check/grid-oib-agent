@@ -1,41 +1,30 @@
 import { v4 as uuidv4 } from 'uuid'
-import { toast } from 'sonner'
-import { getStoreTranslator, getActiveLocale } from '@/i18n'
-import { createJSONStorage, type StorageValue, type PersistStorage } from 'zustand/middleware'
+import { getActiveLocale } from '@/i18n'
 import type { StateCreator } from 'zustand'
 import type {
   ChatStore,
-  ChatState,
   Conversation,
   ChatMessage,
-  PendingInteraction,
   RecoveryOutcome,
+  ResumableTurn,
 } from '../types'
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
 import { discardSessionDocumentsResources } from '@/features/documents/discard-session-resources'
 import {
-  pruneMessageForStorage,
-  stripThinkingStepsForStorage,
-} from '../lib/prune-message-for-storage'
-import {
-  logStorageWrite,
-  logQuotaExceededPruning,
-  logCriticalSessionsClear,
-  logStorageAvailability,
-} from '../lib/storage-logger'
-import { ensureStorageCapacity } from '../lib/storage-manager'
-import {
-  clearAllDeepResearchSessions,
-  clearDeepResearchSession,
-} from '../lib/deep-research-session-storage'
-import { hasActiveDeepResearchJob, hasNoUserChatMessages } from '../lib/session-activity'
+  clearAwaitingServerMessages,
+  isAwaitingServerMessages,
+  markAwaitingServerMessages,
+} from './chat-storage'
+import { hasLiveRun, hasNoUserChatMessages, liveRunMessages } from '../lib/session-activity'
+import { cancelRun } from '@/lib/runs/run-view-client'
 import {
   conversationMatchesProject,
   isHiddenJobConversation,
   isJobConversation,
 } from '../lib/project-scope'
 import { mapServerMessagesToChatMessages } from '../lib/server-message-mapper'
+import { mergeRemoteMessages, turnStateFor } from './messages-store'
 import { encodeCitations } from '../lib/citations'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import type { MessageStages } from '@/lib/conversations/message-stages'
@@ -54,6 +43,12 @@ export type SessionsSlice = {
    * settles back to false with nothing recovered.
    */
   isRecoveryPending: boolean
+  /**
+   * A turn a reload (or a dead page) left open in this conversation, waiting
+   * for a socket to `attach` it from its first event. Taken by the socket hook
+   * once it is connected (`beginTurn`); never persisted.
+   */
+  resumableTurn: ResumableTurn | null
 
   /**
    * Whether the server conversation list has been ASKED for at least once
@@ -83,8 +78,15 @@ export type SessionsSlice = {
   restoreSessionState: (conversation: Conversation) => void
   _recoverInterruptedAssistantMessage: (
     conversationId: string,
-    afterUserMessageId: string
+    afterUserMessageId: string,
+    options?: { quiet?: boolean }
   ) => Promise<RecoveryOutcome>
+  /**
+   * Wait for the server's finished answer to a turn this page lost track of,
+   * for as long as the turn is still producing frames (its heartbeat), then
+   * look once more. `nothing` only when the turn has ended without one.
+   */
+  _awaitServerAnswer: (conversationId: string, afterUserMessageId: string) => Promise<RecoveryOutcome>
   isSessionBusy: (conversationId: string) => boolean
   hasAnyBusySession: () => boolean
   _ensureConversationExists: () => Promise<void>
@@ -116,144 +118,12 @@ export type SessionsSlice = {
   _persistStageOutput: (messageId: string, stages: MessageStages) => Promise<void>
 }
 
-// Persistence helpers
-
-const isQuotaExceededError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  if (error.name === 'QuotaExceededError') return true
-  return /quota|exceeded|storage/i.test(error.message)
-}
-
-type PersistedChatState = {
-  currentUserId: ChatState['currentUserId']
-  conversations: ChatState['conversations']
-  currentConversation: ChatState['currentConversation']
-  pendingInteraction: ChatState['pendingInteraction']
-  composerDrafts: ChatState['composerDrafts']
-  resolvedDeepResearchJobs: ChatState['resolvedDeepResearchJobs']
-}
-
-type PersistedChatStorageValue = StorageValue<PersistedChatState>
-
-const prunePersistedChatState = (value: PersistedChatStorageValue): PersistedChatStorageValue => {
-  const state = value.state
-
-  const conversations: Conversation[] = (state.conversations ?? []).map((conv) => ({
-    ...conv,
-    messages: (conv.messages ?? []).map(pruneMessageForStorage),
-  }))
-
-  const currentConversationId = state.currentConversation?.id ?? null
-
-  return {
-    ...value,
-    state: {
-      currentUserId: state.currentUserId ?? null,
-      conversations,
-      currentConversation: currentConversationId as unknown as Conversation | null,
-      pendingInteraction: state.pendingInteraction ?? null,
-      composerDrafts: state.composerDrafts ?? {},
-      // The settled-jobs record is what keeps a dismissed run dismissed
-      // across reloads; dropping it here would resurrect every purge.
-      resolvedDeepResearchJobs: state.resolvedDeepResearchJobs ?? {},
-    },
-  }
-}
-
-export const createResilientStorage = (): PersistStorage<PersistedChatState> | undefined => {
-  const base = createJSONStorage<PersistedChatState>(() => localStorage)
-  if (!base) {
-    logStorageAvailability(false)
-    return undefined
-  }
-
-  return {
-    getItem: async (name: string): Promise<PersistedChatStorageValue | null> => {
-      const raw = await base.getItem(name)
-      if (!raw) return null
-
-      const stripConnectionErrors = (conversations: Conversation[]) =>
-        conversations.map((c) => ({
-          ...c,
-          messages: c.messages.filter(
-            (m) => !(m.messageType === 'error' && m.errorData?.errorCode?.startsWith('connection.'))
-          ),
-        }))
-
-      if (raw.state.conversations) {
-        raw.state.conversations = stripConnectionErrors(raw.state.conversations)
-      }
-
-      const storedId = raw.state.currentConversation as unknown as string | null
-      if (storedId) {
-        const conversations = raw.state.conversations ?? []
-        raw.state.currentConversation = conversations.find((c) => c.id === storedId) ?? null
-      }
-
-      return raw
-    },
-    removeItem: base.removeItem,
-    setItem: (name: string, value: PersistedChatStorageValue) => {
-      const prunedValue = prunePersistedChatState(value)
-      const serializedValue = JSON.stringify(prunedValue)
-
-      try {
-        if (localStorage.getItem(name) === serializedValue) return
-
-        localStorage.setItem(name, serializedValue)
-        logStorageWrite(
-          prunedValue.state.conversations ?? [],
-          prunedValue.state.currentUserId ?? null
-        )
-      } catch (error) {
-        if (!isQuotaExceededError(error)) {
-          throw error
-        }
-
-        const beforeConversations = prunedValue.state.conversations ?? []
-        const beforeCount = beforeConversations.length
-        const beforeSizeKB = Math.round((JSON.stringify(beforeConversations).length * 2) / 1024)
-
-        logQuotaExceededPruning(beforeCount, beforeCount, beforeSizeKB, beforeSizeKB)
-
-        try {
-          const lostSessionIds = beforeConversations.map((c) => c.id)
-
-          base.removeItem(name)
-          base.setItem(name, {
-            ...value,
-            state: {
-              currentUserId: value.state.currentUserId ?? null,
-              conversations: [],
-              currentConversation: null,
-              pendingInteraction: null,
-              // Sessions were just wiped to recover from quota — drop their
-              // drafts too so no orphaned draft outlives its conversation.
-              composerDrafts: {},
-              // The settled-jobs record references threads that no longer
-              // exist; keeping it would only suppress future polls for
-              // recycled job ids.
-              resolvedDeepResearchJobs: {},
-            },
-          })
-
-          logCriticalSessionsClear(value.state.currentUserId ?? null, lostSessionIds, error)
-        } catch (finalError) {
-          console.error('[SessionsStore] ❌ CATASTROPHIC: Failed to clear sessions', {
-            error: finalError instanceof Error ? finalError.message : String(finalError),
-          })
-        }
-      }
-    },
-  }
-}
-
 // Helper functions
 
 const createNewConversation = (
   userId: string,
   projectId: string | null,
-  subject?: { resourceType: 'document'; resourceId: string; title?: string | null } | null,
+  subject?: { resourceType: 'document'; resourceId: string; title?: string | null } | null
 ): Conversation => ({
   id: `s_${uuidv4().replace(/-/g, '_')}`,
   userId,
@@ -312,7 +182,35 @@ const restoreConversationDataSources = (conversation: Conversation): void => {
 // Single memoized dynamic import: the conversations client is loaded lazily
 // (it is browser-only), but exactly once — concurrent first loads must share
 // one promise.
-let conversationsClientModule: Promise<typeof import('@/adapters/api/conversations-client')> | null = null
+let conversationsClientModule: Promise<
+  typeof import('@/adapters/api/conversations-client')
+> | null = null
+/**
+ * How long a turn may go without a frame before it counts as ended: the
+ * backend beats every 20 s for as long as a turn runs, socket or not
+ * (`TURN_HEARTBEAT_SECONDS`), so three missed beats and a margin.
+ */
+const TURN_SILENCE_MS = 70_000
+/** How often a reader waiting on the server's answer asks again. */
+const AWAIT_ANSWER_POLL_MS = 4_000
+/** With no replay stream to tell a live turn from a dead one, how long to keep asking. */
+const AWAIT_ANSWER_BLIND_MS = 120_000
+/** The longest any wait lasts, whatever the stream says: the run budget of a turn. */
+const AWAIT_ANSWER_CEILING_MS = 40 * 60_000
+
+/**
+ * The server-answer waits in flight, one per conversation. Mount, reconnect
+ * and the silence timer can each start one for the same turn; a second caller
+ * gets `superseded`, so exactly one of them may accuse.
+ */
+const serverAnswerWaits = new Map<string, Promise<RecoveryOutcome>>()
+
+/**
+ * How many recoveries hold `isRecoveryPending`. A flag set and cleared by each
+ * one would let the first to finish clear it under another still waiting.
+ */
+let recoveryHolds = 0
+
 const getConversationsClient = () => {
   conversationsClientModule ??= import('@/adapters/api/conversations-client')
   return conversationsClientModule.then((m) => m.conversationsClient)
@@ -328,7 +226,10 @@ const hydratingConversationIds = new Set<string>()
 // the check per conversation.
 const ensuredServerConversations = new Map<string, Promise<void>>()
 
-const ensureServerConversation = (conversation: Conversation, fallbackProjectId: string | null): Promise<void> => {
+const ensureServerConversation = (
+  conversation: Conversation,
+  fallbackProjectId: string | null
+): Promise<void> => {
   const inFlight = ensuredServerConversations.get(conversation.id)
   if (inFlight) return inFlight
 
@@ -344,7 +245,7 @@ const ensureServerConversation = (conversation: Conversation, fallbackProjectId:
       conversation.projectId ?? fallbackProjectId,
       conversation.subjectResourceId
         ? { resourceType: 'document', resourceId: conversation.subjectResourceId }
-        : null,
+        : null
     )
   })()
 
@@ -369,6 +270,31 @@ const namedConversations = new Set<string>()
 /** Extract the plain text of a chat message, ignoring cards/markup. */
 const messagePlainText = (message: ChatMessage): string => (message.content ?? '').trim()
 
+/**
+ * Stop the runs still going in threads that are about to be deleted, best
+ * effort: the worker would otherwise keep researching for a message nobody
+ * can read any more. A refused cancel is logged and the delete goes ahead —
+ * the run ends on its own terms and files its report against the project.
+ * A run belongs to the project its thread is stamped with; the active project
+ * is the fallback for a legacy thread that carries none.
+ */
+const cancelLiveRuns = (
+  conversations: Conversation[],
+  activeProjectId: string | null
+): void => {
+  for (const conversation of conversations) {
+    const projectId = conversation.projectId ?? activeProjectId
+    if (!projectId) continue
+    for (const message of liveRunMessages(conversation.messages)) {
+      const runId = message.runLedger?.runId
+      if (!runId) continue
+      cancelRun(projectId, runId).catch((err) => {
+        console.warn('[deleteConversation] Failed to stop a live run:', runId, err)
+      })
+    }
+  }
+}
+
 const maybeDiscardAbandonedUploadOnlySession = (
   get: () => ChatStore,
   sessionId: string | null | undefined
@@ -380,8 +306,13 @@ const maybeDiscardAbandonedUploadOnlySession = (
 
   const conv = conversations.find((c) => c.id === sessionId && c.userId === currentUserId)
   if (!conv) return
+  // No messages HERE is not no messages: the server holds a conversation whose
+  // messages storage evicted or this page never fetched, and discarding it
+  // deleted it on the server.
+  // A fetch in flight is not an answer yet either.
+  if (isAwaitingServerMessages(conv.id) || hydratingConversationIds.has(conv.id)) return
   if (!hasNoUserChatMessages(conv.messages)) return
-  if (hasActiveDeepResearchJob(conv.messages)) return
+  if (hasLiveRun(conv.messages)) return
 
   const docsInFlight = useDocumentsStore
     .getState()
@@ -400,10 +331,16 @@ export const initialSessionsState = {
   currentConversation: null as Conversation | null,
   conversations: [] as Conversation[],
   isRecoveryPending: false,
+  resumableTurn: null as ResumableTurn | null,
   serverConversationsLoaded: false,
 }
 
-export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], SessionsSlice> = (set, get) => ({
+export const createSessionsSlice: StateCreator<
+  ChatStore,
+  [['zustand/devtools', never]],
+  [],
+  SessionsSlice
+> = (set, get) => ({
   ...initialSessionsState,
 
   loadServerConversations: async (projectId?: string) => {
@@ -456,7 +393,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           subjectResourceType:
             serverConv.subjectResourceType === 'document'
               ? 'document'
-              : (idx >= 0 ? merged[idx].subjectResourceType : null) ?? null,
+              : ((idx >= 0 ? merged[idx].subjectResourceType : null) ?? null),
           subjectResourceId:
             serverConv.subjectResourceId ??
             (idx >= 0 ? merged[idx].subjectResourceId : null) ??
@@ -465,6 +402,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         if (idx >= 0) {
           merged[idx] = local
         } else {
+          markAwaitingServerMessages(local.id)
           merged.push(local)
         }
       }
@@ -474,7 +412,11 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       // If the restored current session lost its messages locally (storage
       // cleanup, new device), repopulate them from the server right away.
       const { currentConversation } = get()
-      if (currentConversation && currentConversation.messages.length === 0) {
+      if (
+        currentConversation &&
+        (currentConversation.messages.length === 0 ||
+          isAwaitingServerMessages(currentConversation.id))
+      ) {
         void get().hydrateConversationMessages(currentConversation.id)
       }
     } catch (err) {
@@ -488,7 +430,10 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
   hydrateConversationMessages: async (conversationId: string) => {
     const conversation = get().conversations.find((c) => c.id === conversationId)
-    if (!conversation || conversation.messages.length > 0) return
+    if (!conversation) return
+    // Messages here are the whole thread unless the server's were never loaded:
+    // a follow-up sent before the history arrived is only the tail of it.
+    if (conversation.messages.length > 0 && !isAwaitingServerMessages(conversationId)) return
     if (hydratingConversationIds.has(conversationId)) return
     hydratingConversationIds.add(conversationId)
 
@@ -496,17 +441,24 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       const conversationsClient = await getConversationsClient()
       const serverMessages = await conversationsClient.listMessages(conversationId)
       const messages = mapServerMessagesToChatMessages(serverMessages)
-      if (messages.length === 0) return
 
       const { conversations, currentConversation, isStreaming, isLoading } = get()
       const target = conversations.find((c) => c.id === conversationId)
-      // The session may have been deleted or received live messages while the
-      // fetch was in flight — never overwrite newer local state.
-      if (!target || target.messages.length > 0) return
+      if (!target) return
+      if (messages.length === 0) {
+        // The server confirms the thread is empty: now it is known, not missing.
+        if (target.messages.length === 0) clearAwaitingServerMessages(conversationId)
+        return
+      }
 
-      const hydrated: Conversation = { ...target, messages }
+      // Messages that arrived while the fetch was in flight stay, and the
+      // server's history goes under them. Replacing either with the other
+      // hid the history for good: the awaiting flag was cleared regardless.
+      const { messages: merged } = mergeRemoteMessages(target.messages, messages, false)
+      const hydrated: Conversation = { ...target, messages: merged }
       const isCurrent = currentConversation?.id === conversationId
 
+      clearAwaitingServerMessages(conversationId)
       set(
         {
           conversations: updateConversationInList(conversations, hydrated),
@@ -563,25 +515,6 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     } else {
       set(
         {
-          thinkingSteps: [],
-          activeThinkingStepId: null,
-          reportContent: '',
-          reportContentCategory: null,
-          currentStatus: null,
-          planMessages: [],
-          deepResearchCitations: [],
-          deepResearchTodos: [],
-          deepResearchLLMSteps: [],
-          deepResearchAgents: [],
-          deepResearchToolCalls: [],
-          deepResearchFiles: [],
-          deepResearchStreamLoaded: false,
-          deepResearchJobId: null,
-          deepResearchLastEventId: null,
-          isDeepResearchStreaming: false,
-          deepResearchStatus: null,
-          deepResearchOwnerConversationId: null,
-          activeDeepResearchMessageId: null,
           pendingInteraction: null,
         },
         false,
@@ -625,25 +558,6 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       (state) => ({
         conversations: [newConversation, ...state.conversations],
         currentConversation: newConversation,
-        thinkingSteps: [],
-        activeThinkingStepId: null,
-        reportContent: '',
-        reportContentCategory: null,
-        currentStatus: null,
-        planMessages: [],
-        deepResearchCitations: [],
-        deepResearchTodos: [],
-        deepResearchLLMSteps: [],
-        deepResearchAgents: [],
-        deepResearchToolCalls: [],
-        deepResearchFiles: [],
-        deepResearchStreamLoaded: false,
-        deepResearchJobId: null,
-        deepResearchLastEventId: null,
-        isDeepResearchStreaming: false,
-        deepResearchStatus: null,
-        deepResearchOwnerConversationId: null,
-        activeDeepResearchMessageId: null,
         pendingInteraction: null,
       }),
       false,
@@ -671,25 +585,6 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         isStreaming: false,
         isLoading: false,
         currentUserMessageId: null,
-        thinkingSteps: [],
-        activeThinkingStepId: null,
-        reportContent: '',
-        reportContentCategory: null,
-        currentStatus: null,
-        planMessages: [],
-        deepResearchCitations: [],
-        deepResearchTodos: [],
-        deepResearchLLMSteps: [],
-        deepResearchAgents: [],
-        deepResearchToolCalls: [],
-        deepResearchFiles: [],
-        deepResearchStreamLoaded: false,
-        deepResearchJobId: null,
-        deepResearchLastEventId: null,
-        isDeepResearchStreaming: false,
-        deepResearchStatus: null,
-        deepResearchOwnerConversationId: null,
-        activeDeepResearchMessageId: null,
         pendingInteraction: null,
       },
       false,
@@ -707,18 +602,6 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       return undefined
     }
 
-    const cleanedUpIds = ensureStorageCapacity(currentConversation?.id ?? null, currentUserId)
-    if (cleanedUpIds.length > 0) {
-      // Cleanup only edits localStorage; prune in-memory state too or the
-      // next persist write resurrects every deleted session.
-      const deleted = new Set(cleanedUpIds)
-      set(
-        (state) => ({ conversations: state.conversations.filter((c) => !deleted.has(c.id)) }),
-        false,
-        'storageCleanupPrune'
-      )
-    }
-
     const layoutState = useLayoutStore.getState()
     const defaultEnabledDataSourceIds = getDefaultEnabledDataSourceIds()
     layoutState.setEnabledDataSources(defaultEnabledDataSourceIds)
@@ -730,25 +613,6 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       (state) => ({
         conversations: [newConversation, ...state.conversations],
         currentConversation: newConversation,
-        thinkingSteps: [],
-        activeThinkingStepId: null,
-        reportContent: '',
-        reportContentCategory: null,
-        currentStatus: null,
-        planMessages: [],
-        deepResearchCitations: [],
-        deepResearchTodos: [],
-        deepResearchLLMSteps: [],
-        deepResearchAgents: [],
-        deepResearchToolCalls: [],
-        deepResearchFiles: [],
-        deepResearchStreamLoaded: false,
-        deepResearchJobId: null,
-        deepResearchLastEventId: null,
-        isDeepResearchStreaming: false,
-        deepResearchStatus: null,
-        deepResearchOwnerConversationId: null,
-        activeDeepResearchMessageId: null,
         pendingInteraction: null,
       }),
       false,
@@ -760,66 +624,24 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   selectConversation: (conversationId: string) => {
     const beforeLeave = get()
     const leavingId =
-      beforeLeave.currentConversation?.id &&
-      beforeLeave.currentConversation.id !== conversationId
+      beforeLeave.currentConversation?.id && beforeLeave.currentConversation.id !== conversationId
         ? beforeLeave.currentConversation.id
         : undefined
-
-    if (leavingId) {
-      maybeDiscardAbandonedUploadOnlySession(get, leavingId)
-    }
-
-    const {
-      conversations,
-      currentUserId,
-      currentConversation,
-      projectId,
-      isDeepResearchStreaming,
-      deepResearchOwnerConversationId,
-      activeDeepResearchMessageId,
-      deepResearchLastEventId,
-    } = get()
-
-    if (currentConversation?.id !== conversationId) {
-      const cleanedUpIds = ensureStorageCapacity(conversationId, currentUserId)
-      if (cleanedUpIds.length > 0) {
-        // Keep in-memory state in sync or persist resurrects the sessions.
-        const deleted = new Set(cleanedUpIds)
-        set(
-          (state) => ({ conversations: state.conversations.filter((c) => !deleted.has(c.id)) }),
-          false,
-          'storageCleanupPrune'
-        )
-      }
-    }
-
-    const conversation = conversations.find((c) => c.id === conversationId)
 
     // Ownership AND project-context guard: a stale URL or persisted state
     // must never activate another project's session under this project's
     // WebSocket projectId (cross-project retrieval bleed, UX-8).
-    if (
-      conversation &&
-      conversation.userId === currentUserId &&
-      conversationMatchesProject(conversation, projectId)
-    ) {
-      if (
-        currentConversation &&
-        currentConversation.id !== conversationId &&
-        isDeepResearchStreaming &&
-        deepResearchOwnerConversationId === currentConversation.id &&
-        activeDeepResearchMessageId
-      ) {
-        get().patchConversationMessage(
-          deepResearchOwnerConversationId,
-          activeDeepResearchMessageId,
-          { deepResearchLastEventId: deepResearchLastEventId || undefined }
-        )
-        get().persistDeepResearchToSession()
-      }
+    const canOpen = (candidate: Conversation | undefined): candidate is Conversation =>
+      candidate !== undefined &&
+      candidate.userId === get().currentUserId &&
+      conversationMatchesProject(candidate, get().projectId)
 
-      useLayoutStore.getState().closeRightPanel()
+    // A turn running in the conversation left keeps its view: its socket goes
+    // with the conversation, and coming back attaches from the view's last seq.
+    if (leavingId) maybeDiscardAbandonedUploadOnlySession(get, leavingId)
 
+    const conversation = get().conversations.find((c) => c.id === conversationId)
+    if (canOpen(conversation)) {
       set(
         {
           currentConversation: conversation,
@@ -836,21 +658,6 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
                 title: null,
               }
             : null,
-          deepResearchJobId: null,
-          deepResearchLastEventId: null,
-          isDeepResearchStreaming: false,
-          deepResearchStatus: null,
-          deepResearchOwnerConversationId: null,
-          activeDeepResearchMessageId: null,
-          deepResearchCitations: [],
-          deepResearchTodos: [],
-          deepResearchLLMSteps: [],
-          deepResearchAgents: [],
-          deepResearchToolCalls: [],
-          deepResearchFiles: [],
-          deepResearchStreamLoaded: false,
-          reportContent: '',
-          reportContentCategory: null,
         },
         false,
         'selectConversation'
@@ -861,57 +668,17 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
       // Past chats whose messages were pruned from localStorage (or that came
       // from another device) repopulate from the server-persisted history.
-      if (conversation.messages.length === 0) {
+      if (conversation.messages.length === 0 || isAwaitingServerMessages(conversation.id)) {
         void get().hydrateConversationMessages(conversation.id)
       }
     }
   },
 
   deleteConversation: (conversationId: string) => {
-    const {
-      currentConversation,
-      conversations,
-      deepResearchJobId,
-      isDeepResearchStreaming,
-      composerDrafts,
-    } = get()
+    const { currentConversation, conversations, composerDrafts } = get()
 
     const conversationToDelete = conversations.find((c) => c.id === conversationId)
-
-    let jobIdToCancel: string | null = null
-
-    if (
-      currentConversation?.id === conversationId &&
-      isDeepResearchStreaming &&
-      deepResearchJobId
-    ) {
-      jobIdToCancel = deepResearchJobId
-    } else if (conversationToDelete) {
-      const lastAgentResponse = [...conversationToDelete.messages]
-        .reverse()
-        .find((m) => m.messageType === 'agent_response' && m.deepResearchJobId)
-
-      if (
-        lastAgentResponse?.deepResearchJobId &&
-        lastAgentResponse.deepResearchJobStatus !== 'success' &&
-        lastAgentResponse.deepResearchJobStatus !== 'failure' &&
-        lastAgentResponse.deepResearchJobStatus !== 'interrupted'
-      ) {
-        jobIdToCancel = lastAgentResponse.deepResearchJobId
-      }
-    }
-
-    if (jobIdToCancel) {
-      import('@/adapters/api/deep-research-client').then(({ cancelJob }) => {
-        cancelJob(jobIdToCancel!).catch((err) => {
-          console.warn('Failed to cancel deep research job on session delete:', err)
-          const t = getStoreTranslator('chat')
-          toast.error(t('sessionActions.researchMayStillRunTitle'), {
-            description: t('sessionActions.researchMayStillRunDescription'),
-          })
-        })
-      })
-    }
+    if (conversationToDelete) cancelLiveRuns([conversationToDelete], get().projectId)
 
     const updatedConversations = conversations.filter((c) => c.id !== conversationId)
 
@@ -922,9 +689,6 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       nextComposerDrafts = { ...composerDrafts }
       delete nextComposerDrafts[conversationId]
     }
-
-    const isCurrentWithActiveResearch =
-      currentConversation?.id === conversationId && isDeepResearchStreaming
 
     // Delete the server-persisted row too — otherwise the next
     // loadServerConversations resurrects the session as an empty ghost.
@@ -941,23 +705,6 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         composerDrafts: nextComposerDrafts,
         currentConversation:
           currentConversation?.id === conversationId ? null : currentConversation,
-        ...(isCurrentWithActiveResearch && {
-          deepResearchJobId: null,
-          deepResearchLastEventId: null,
-          isDeepResearchStreaming: false,
-          deepResearchStatus: null,
-          deepResearchOwnerConversationId: null,
-          activeDeepResearchMessageId: null,
-          deepResearchCitations: [],
-          deepResearchTodos: [],
-          deepResearchLLMSteps: [],
-          deepResearchAgents: [],
-          deepResearchToolCalls: [],
-          deepResearchFiles: [],
-          deepResearchStreamLoaded: false,
-          reportContent: '',
-          reportContentCategory: null,
-        }),
       },
       false,
       'deleteConversation'
@@ -965,15 +712,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   },
 
   deleteAllConversations: () => {
-    const {
-      conversations,
-      currentUserId,
-      currentConversation,
-      projectId,
-      isDeepResearchStreaming,
-      deepResearchJobId,
-      composerDrafts,
-    } = get()
+    const { conversations, currentUserId, currentConversation, projectId, composerDrafts } = get()
 
     if (!currentUserId) return
 
@@ -995,76 +734,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       !isJobConversation(c)
 
     const userConversations = conversations.filter(isInScope)
-
-    const jobIdsToCancel: string[] = []
-
-    if (isDeepResearchStreaming && deepResearchJobId) {
-      jobIdsToCancel.push(deepResearchJobId)
-    }
-
-    for (const conv of userConversations) {
-      const lastAgentResponse = [...conv.messages]
-        .reverse()
-        .find((m) => m.messageType === 'agent_response' && m.deepResearchJobId)
-
-      if (
-        lastAgentResponse?.deepResearchJobId &&
-        lastAgentResponse.deepResearchJobStatus !== 'success' &&
-        lastAgentResponse.deepResearchJobStatus !== 'failure' &&
-        lastAgentResponse.deepResearchJobStatus !== 'interrupted' &&
-        !jobIdsToCancel.includes(lastAgentResponse.deepResearchJobId)
-      ) {
-        jobIdsToCancel.push(lastAgentResponse.deepResearchJobId)
-      }
-    }
-
-    if (jobIdsToCancel.length > 0) {
-      import('@/adapters/api/deep-research-client').then(async ({ cancelJob }) => {
-        const results = await Promise.allSettled(
-          jobIdsToCancel.map((jobId) => cancelJob(jobId))
-        )
-
-        const failedCount = results.filter((result) => result.status === 'rejected').length
-        results.forEach((result, index) => {
-          if (result.status === 'fulfilled') return
-          console.warn(
-            'Failed to cancel deep research job on delete all sessions:',
-            jobIdsToCancel[index],
-            result.reason
-          )
-        })
-        if (failedCount > 0) {
-          const t = getStoreTranslator('chat')
-          toast.error(
-            t('sessionActions.researchRunsMayStillRunTitle', {
-              count: failedCount,
-              runLabel:
-                failedCount === 1
-                  ? t('sessionActions.runSingular')
-                  : t('sessionActions.runPlural'),
-            }),
-            {
-              description: t('sessionActions.researchRunsMayStillRunDescription'),
-            }
-          )
-        }
-      })
-    }
-
-    if (projectId) {
-      // Project-scoped delete: only clear cached deep-research streams that
-      // belong to the sessions being deleted; other projects' cached
-      // streams stay intact.
-      const jobIdsToClear = new Set<string>()
-      for (const conv of userConversations) {
-        for (const message of conv.messages) {
-          if (message.deepResearchJobId) jobIdsToClear.add(message.deepResearchJobId)
-        }
-      }
-      jobIdsToClear.forEach((jobId) => clearDeepResearchSession(jobId))
-    } else {
-      clearAllDeepResearchSessions()
-    }
+    cancelLiveRuns(userConversations, projectId)
 
     // Delete the server-persisted rows too — otherwise the next
     // loadServerConversations resurrects every session as an empty ghost.
@@ -1100,25 +770,6 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         conversations: remainingConversations,
         composerDrafts: nextComposerDrafts,
         currentConversation: shouldClearCurrent ? null : currentConversation,
-        deepResearchJobId: null,
-        deepResearchLastEventId: null,
-        isDeepResearchStreaming: false,
-        deepResearchStatus: null,
-        deepResearchOwnerConversationId: null,
-        activeDeepResearchMessageId: null,
-        deepResearchCitations: [],
-        deepResearchTodos: [],
-        deepResearchLLMSteps: [],
-        deepResearchAgents: [],
-        deepResearchToolCalls: [],
-        deepResearchFiles: [],
-        deepResearchStreamLoaded: false,
-        thinkingSteps: [],
-        activeThinkingStepId: null,
-        reportContent: '',
-        reportContentCategory: null,
-        currentStatus: null,
-        planMessages: [],
         pendingInteraction: null,
       },
       false,
@@ -1173,12 +824,10 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     const conversation = conversations.find((c) => c.id === conversationId)
     if (!conversation) return
 
-    // Deep-research conversations already derive a report title from their
-    // plan (see use-websocket-chat onPlan); don't override it with a chat name.
-    const isDeepResearch = conversation.messages.some(
-      (m) => m.messageType === 'deep_research_banner' || Boolean(m.deepResearchJobId),
-    )
-    if (isDeepResearch) return
+    // A thread that commissioned a run is named by the run's own title
+    // (`runTitle`, written by the worker); don't override it with a chat name.
+    const hasRun = conversation.messages.some((m) => Boolean(m.runLedger || m.deepResearchJobId))
+    if (hasRun) return
 
     const userMessages = conversation.messages.filter((m) => m.messageType === 'user')
     // Only name the opening exchange — one user question, now answered.
@@ -1188,7 +837,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     if (!firstQuestion) return
 
     const firstAnswer = conversation.messages.find(
-      (m) => m.messageType === 'agent_response' && messagePlainText(m).length > 0,
+      (m) => m.messageType === 'agent_response' && messagePlainText(m).length > 0
     )
     if (!firstAnswer) return
 
@@ -1202,7 +851,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
 
     getConversationsClient()
       .then((conversationsClient) =>
-        conversationsClient.generateTitle(conversationId, payload, getActiveLocale()),
+        conversationsClient.generateTitle(conversationId, payload, getActiveLocale())
       )
       .then((result) => {
         const title = result.title.trim()
@@ -1249,113 +898,87 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   },
 
   restoreSessionState: (conversation: Conversation) => {
-    const allSteps = conversation.messages
-      .filter((m) => m.thinkingSteps && m.thinkingSteps.length > 0)
-      .flatMap((m) => m.thinkingSteps!)
+    // Turn state is the views' (a turn still running here, left and come back
+    // to, carries on from its view), never the messages'.
+    const turnState = turnStateFor(get().turns, conversation.id)
+    set(turnState, false, 'restoreSessionState')
+    if (turnState.isStreaming || turnState.pendingInteraction) return
 
-    const lastAgentResponse = [...conversation.messages]
-      .reverse()
-      .find((m) => m.messageType === 'agent_response')
+    // The newest thing in the thread is an open turn of mine: my question with
+    // no answer after it, or a prompt of my turn. A reload cut it off, or the
+    // page died before its answer. Its turn id is the question's own id, so
+    // the socket re-attaches it from its first event (`resumableTurn`); a
+    // stream that no longer holds it sends the reader to the server's copy.
+    const meaningfulTypes = new Set(['user', 'assistant', 'agent_response', 'error', 'prompt'])
+    const last = conversation.messages.findLast((m) => meaningfulTypes.has(m.messageType ?? ''))
+    const mine = !last?.authorUserId || last.authorUserId === get().currentUserId
+    const turnId =
+      last?.messageType === 'user' && mine
+        ? last.id
+        : last?.messageType === 'prompt'
+          ? last.promptParentId
+          : undefined
+    if (turnId) set({ resumableTurn: { conversationId: conversation.id, turnId } }, false, 'restoreSessionState:resumable')
+  },
 
-    const unrespondedPrompt = [...conversation.messages]
-      .reverse()
-      .find((m) => m.messageType === 'prompt' && !m.isPromptResponded)
-
-    let restoredPendingInteraction: PendingInteraction | null = null
-    if (
-      unrespondedPrompt?.promptId &&
-      unrespondedPrompt?.promptParentId &&
-      unrespondedPrompt?.promptInputType
-    ) {
-      restoredPendingInteraction = {
-        id: unrespondedPrompt.promptId,
-        parentId: unrespondedPrompt.promptParentId,
-        inputType: unrespondedPrompt.promptInputType,
-        text: unrespondedPrompt.content,
-        options: unrespondedPrompt.promptOptions,
-      }
-    }
-
-    const restoredPlanMessages =
-      unrespondedPrompt?.planMessages || lastAgentResponse?.planMessages || []
-
-    const restoredDeepResearchTodos = lastAgentResponse?.deepResearchTodos || []
-
-    set(
-      {
-        thinkingSteps: allSteps,
-        activeThinkingStepId: null,
-        reportContent: '',
-        reportContentCategory: null,
-        deepResearchCitations: [],
-        deepResearchTodos: restoredDeepResearchTodos,
-        deepResearchLLMSteps: [],
-        deepResearchAgents: [],
-        deepResearchToolCalls: [],
-        deepResearchFiles: [],
-        planMessages: restoredPlanMessages,
-        isStreaming: false,
-        isLoading: false,
-        currentStatus: null,
-        pendingInteraction: restoredPendingInteraction,
-        deepResearchJobId: lastAgentResponse?.deepResearchJobId || null,
-        deepResearchLastEventId: null,
-        isDeepResearchStreaming: false,
-        deepResearchStatus: null,
-        activeDeepResearchMessageId: lastAgentResponse?.id || null,
-        deepResearchOwnerConversationId: conversation.id,
-        deepResearchStreamLoaded: false,
-      },
-      false,
-      'restoreSessionState'
-    )
-
-    if (!restoredPendingInteraction) {
-      const meaningfulTypes = new Set([
-        'user',
-        'assistant',
-        'agent_response',
-        'error',
-        'prompt',
-      ])
-      const lastMeaningful = [...conversation.messages]
-        .reverse()
-        .find((m) => meaningfulTypes.has(m.messageType ?? ''))
-
-      if (lastMeaningful?.messageType === 'user' && lastMeaningful.thinkingSteps?.length) {
-        // The turn LOOKS interrupted (last meaningful local message is the user
-        // turn, with thinking steps but no assistant reply). But the client may
-        // simply have been disconnected when the terminal frame was sent — the
-        // backend finishes the turn and persists the response server-side in
-        // that case. Refetch server history first: if the finished assistant
-        // message is there, render it and skip the banner. Only when the
-        // refetch yields nothing do we fall back to today's interrupted banner.
-        const interruptedUserId = lastMeaningful.id
-        void (async () => {
+  _awaitServerAnswer: (conversationId: string, afterUserMessageId: string): Promise<RecoveryOutcome> => {
+    if (serverAnswerWaits.has(conversationId)) return Promise.resolve('superseded')
+    const wait = (async (): Promise<RecoveryOutcome> => {
+      // The calm "checking for a finished answer" line for the whole wait, not
+      // per fetch: the reader is told the answer is lost only when it is.
+      recoveryHolds += 1
+      set({ isRecoveryPending: true }, false, 'awaitServerAnswer:start')
+      try {
+        const conversationsClient = await getConversationsClient()
+        const started = Date.now()
+        for (;;) {
           const outcome = await get()._recoverInterruptedAssistantMessage(
-            conversation.id,
-            interruptedUserId
+            conversationId,
+            afterUserMessageId,
+            { quiet: true }
           )
-          if (outcome === 'nothing') {
-            // No explicit message: ErrorBanner localizes the registry default
-            // via `agent.response_interrupted`'s messageKey.
-            get().addErrorCard('agent.response_interrupted')
+          if (outcome !== 'nothing') return outcome
+          const elapsed = Date.now() - started
+          if (elapsed >= AWAIT_ANSWER_CEILING_MS) return 'nothing'
+          // Is the turn still producing frames (a heartbeat every 20 s)? With no
+          // stream to ask, wait a short while for the server's write instead.
+          const age = await conversationsClient.newestFrameAge(conversationId)
+          const alive =
+            age === undefined ? elapsed < AWAIT_ANSWER_BLIND_MS : age !== null && age < TURN_SILENCE_MS
+          if (!alive) {
+            // One last look: the answer may have been written just as the turn
+            // went quiet.
+            return get()._recoverInterruptedAssistantMessage(conversationId, afterUserMessageId, {
+              quiet: true,
+            })
           }
-        })()
+          await new Promise((resolve) => setTimeout(resolve, AWAIT_ANSWER_POLL_MS))
+        }
+      } finally {
+        recoveryHolds -= 1
+        if (recoveryHolds === 0) set({ isRecoveryPending: false }, false, 'awaitServerAnswer:end')
       }
-    }
+    })().finally(() => {
+      serverAnswerWaits.delete(conversationId)
+    })
+    serverAnswerWaits.set(conversationId, wait)
+    return wait
   },
 
   _recoverInterruptedAssistantMessage: async (
     conversationId: string,
-    afterUserMessageId: string
+    afterUserMessageId: string,
+    { quiet = false }: { quiet?: boolean } = {}
   ): Promise<RecoveryOutcome> => {
     // Signal the "checking for a finished answer" UI (FIX 3) for the duration
-    // of the fetch. Both callers (restoreSessionState on mount, and the
-    // reconnect handler in use-websocket-chat) go through here, so the calmer
-    // recovery-pending copy shows on every recovery attempt and the
-    // lost/interrupted UI only appears after this settles to false.
-    set({ isRecoveryPending: true }, false, 'recoveryPending:start')
+    // of the fetch, so the calmer recovery-pending copy shows on every
+    // recovery attempt and the lost/interrupted UI only appears after this
+    // settles to false. `quiet` when a caller holds the flag for longer
+    // (`_awaitServerAnswer`).
+    if (!quiet) {
+      recoveryHolds += 1
+      set({ isRecoveryPending: true }, false, 'recoveryPending:start')
+    }
     try {
       const conversationsClient = await getConversationsClient()
       const serverMessages = await conversationsClient.listMessages(conversationId)
@@ -1403,30 +1026,19 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       // a fourth outcome nobody would branch on.
       return 'nothing'
     } finally {
-      set({ isRecoveryPending: false }, false, 'recoveryPending:end')
+      if (!quiet) {
+        recoveryHolds -= 1
+        if (recoveryHolds === 0) set({ isRecoveryPending: false }, false, 'recoveryPending:end')
+      }
     }
   },
 
+  // A live run does not make its thread busy: the run is a message that
+  // carries its own stop control, and the person keeps chatting beside it
+  // (ADR-0062). Busy is the socket mid-turn, and nothing else.
   isSessionBusy: (conversationId: string) => {
     const state = get()
-
-    if (state.currentConversation?.id === conversationId && state.isStreaming) {
-      return true
-    }
-
-    if (
-      state.deepResearchOwnerConversationId === conversationId &&
-      state.isDeepResearchStreaming
-    ) {
-      return true
-    }
-
-    const conversation = state.conversations.find((c) => c.id === conversationId)
-    if (conversation && hasActiveDeepResearchJob(conversation.messages)) {
-      return true
-    }
-
-    return false
+    return state.currentConversation?.id === conversationId && state.isStreaming
   },
 
   hasAnyBusySession: () => {
@@ -1478,7 +1090,6 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           ...(message.messageType === 'prompt'
             ? {
                 prompt: {
-                  ...(message.promptType && { promptType: message.promptType }),
                   ...(message.promptId && { promptId: message.promptId }),
                   ...(message.promptParentId && { promptParentId: message.promptParentId }),
                   ...(message.promptInputType && { promptInputType: message.promptInputType }),
@@ -1505,9 +1116,10 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
             return readSources ? { readSources } : {}
           })(),
         },
-        createdAt: message.timestamp instanceof Date
-          ? message.timestamp.toISOString()
-          : String(message.timestamp),
+        createdAt:
+          message.timestamp instanceof Date
+            ? message.timestamp.toISOString()
+            : String(message.timestamp),
       })
     } catch (err) {
       console.warn('[appendMessage] Failed:', err)
@@ -1519,7 +1131,9 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     if (!currentConversation) return
     try {
       const conversationsClient = await getConversationsClient()
-      await conversationsClient.updateMessagePromptState(currentConversation.id, messageId, { response })
+      await conversationsClient.updateMessagePromptState(currentConversation.id, messageId, {
+        response,
+      })
     } catch (err) {
       // Best-effort, like the other mirrors: the answer already reached the agent
       // over the socket and is rendered from the store. Losing this costs the
@@ -1533,7 +1147,9 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     if (!currentConversation) return
     try {
       const conversationsClient = await getConversationsClient()
-      await conversationsClient.updateMessageStages(currentConversation.id, messageId, { ...stages })
+      await conversationsClient.updateMessageStages(currentConversation.id, messageId, {
+        ...stages,
+      })
     } catch (err) {
       // Never surfaced, like the other mirrors: the chips are already on screen,
       // rendered from the store. Losing this costs a colleague's view and the
@@ -1554,20 +1170,14 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     const userMessage = currentUserMessageId
       ? messages.find((message) => message.id === currentUserMessageId)
       : undefined
-    const assistantMessage = [...messages]
-      .reverse()
-      .find((message) => message.role === 'assistant')
+    const assistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
 
     const targets: Array<[string, Record<string, unknown>]> = []
 
     if (userMessage?.thinkingSteps?.length) {
-      // The COMPACT form — the same one localStorage keeps, so a thread restored
-      // from the server and one restored from the browser look identical rather
-      // than differing in ways nobody would predict.
-      targets.push([
-        userMessage.id,
-        { thinkingSteps: stripThinkingStepsForStorage(userMessage.thinkingSteps) },
-      ])
+      // The stored shape is what the fold writes, so the server row, the
+      // browser's copy and the live turn cannot disagree.
+      targets.push([userMessage.id, { thinkingSteps: userMessage.thinkingSteps }])
     }
 
     if (assistantMessage) {
@@ -1587,8 +1197,17 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       if (assistantMessage.escalationReason) {
         provenance.escalationReason = assistantMessage.escalationReason
       }
+      if (assistantMessage.answerDurationMs) {
+        provenance.answerDurationMs = assistantMessage.answerDurationMs
+      }
       if (assistantMessage.citationsRemoved) {
         provenance.citationsRemoved = assistantMessage.citationsRemoved
+      }
+      if (assistantMessage.skillsActivated?.length) {
+        provenance.skillsActivated = assistantMessage.skillsActivated
+      }
+      if (assistantMessage.skillsHidden?.length) {
+        provenance.skillsHidden = assistantMessage.skillsHidden
       }
       if (assistantMessage.researchTruncated) provenance.researchTruncated = true
       // Mirrored so a reload of a LIVE turn shows what the turn showed. The
@@ -1604,7 +1223,6 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       if (assistantMessage.deepResearchJobId) {
         provenance.deepResearchJobId = assistantMessage.deepResearchJobId
       }
-      if (assistantMessage.showViewReport) provenance.showViewReport = true
       // The backend's account of the turn's rounds, already bounded at the
       // wire boundary; the sanitizer re-bounds it on write.
       if (assistantMessage.retrievalLedger && assistantMessage.retrievalLedger.length > 0) {

@@ -23,12 +23,12 @@ from pathlib import Path
 
 from pydantic import Field
 
-from nat.builder.builder import EvalBuilder
-from nat.builder.evaluator import EvaluatorInfo
-from nat.cli.register_workflow import register_evaluator
-from nat.data_models.evaluator import EvalInput
-from nat.data_models.evaluator import EvalInputItem
-from nat.data_models.evaluator import EvaluatorBaseConfig
+from nat.data_models.evaluator import EvalInput  # noqa: TID251
+from nat.data_models.evaluator import EvalInputItem  # noqa: TID251
+from nat.plugin_api import EvalBuilder
+from nat.plugin_api import EvaluatorBaseConfig
+from nat.plugin_api import EvaluatorInfo
+from nat.plugin_api import register_evaluator
 from nat.plugins.eval.data_models.evaluator_io import EvalOutput
 from nat.plugins.eval.data_models.evaluator_io import EvalOutputItem
 from nat.plugins.eval.evaluator.base_evaluator import BaseEvaluator

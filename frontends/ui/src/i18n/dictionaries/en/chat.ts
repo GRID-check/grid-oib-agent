@@ -112,6 +112,21 @@ export const chat = {
     sourcesActiveMobile: '{count, plural, one {# source} other {# sources}} active',
   },
   // Source-preset shortcut chips under the composer (empty thread).
+  // A source card's provenance tab in the Herleitung: the coarse stratum when
+  // the backend named no fine lane, and the shelf the wire stated.
+  sourceTabs: {
+    law: 'Building law',
+    project: 'Project knowledge',
+    office: 'Office archive',
+    auto: 'Web',
+    model: 'Model measurement',
+    shelves: {
+      archiv: 'Office archive',
+      project: 'Project knowledge',
+      session: 'Private session',
+      base: 'Base knowledge',
+    },
+  },
   shortcuts: {
     label: 'Shortcuts',
     presetAria: 'Source preset: {label}',
@@ -148,6 +163,35 @@ export const chat = {
     answer: 'Answer',
   },
   // "Belegt durch" provenance chip row under answers that carry source data.
+  // The findings matrix over a report: one row per requirement the report
+  // read against the project.
+  findings: {
+    label: 'Findings',
+    page: 'p. {page}',
+    /** The same table when the report states rows without judging them. */
+    labelResults: 'Results',
+    columns: {
+      requirement: 'Requirement',
+      value: 'Value',
+      reference: 'Reference',
+      status: 'Status',
+      note: 'Note',
+    },
+    status: {
+      erfuellt: 'met',
+      nicht_erfuellt: 'not met',
+      offen: 'open',
+      nicht_anwendbar: 'not applicable',
+    },
+    grounding: { belegt: 'sourced', abgeleitet: 'derived', offen: 'unsourced' },
+    clarify: 'Clarify',
+    commissioned: 'Run commissioned',
+    change: {
+      new: 'new',
+      changed: 'changed',
+      dropped: '{count, plural, one {# finding dropped:} other {# findings dropped:}}',
+    },
+  },
   answerSources: {
     label: 'Sources',
     ariaLabel: 'Sources this answer is backed by',
@@ -161,6 +205,10 @@ export const chat = {
     sourceNumber: 'Source {number}',
     page: 'p. {page}',
     pages: 'pp. {pages}',
+    // Sources past the eight chips fold behind the same control the read
+    // sources use: the count first, every name on expand.
+    more: '+{count} more',
+    less: 'Show fewer',
     punkt: 'Pkt. {punkt}',
     punktPage: 'Pkt. {punkt} · p. {page}',
     // Citations the user can actually paste somewhere — per source (Fachtext)
@@ -209,6 +257,7 @@ export const chat = {
       // two are only counted apart internally.
       upstream_timeout: 'time limit reached',
       step_limit: 'step limit reached',
+      user_requested: 'stopped at your request',
     },
     // Ways a salvaged answer is weaker than one from a finished run. Same
     // register as the lines above — muted, factual, about the EVIDENCE — but
@@ -220,6 +269,8 @@ export const chat = {
         'No citation survived verification — please check the figures yourself before relying on them',
       cards_generation_failed:
         'The report is complete, but the proposals derived from it could not be produced',
+      grundlage_unread:
+        'Not every document named as the basis was read — the end of the report lists which',
     },
     // The verification's own reasons for dropping a citation, in the reader's
     // words. The backend states them as tokens (`url_not_in_registry`, …) and
@@ -263,6 +314,7 @@ export const chat = {
     copyLink: 'Copy link',
     copyLinkAria: 'Copy a link to this passage: {label}',
     markerAria: 'Source {number}: {label} — open preview',
+    pendingAria: 'Source {number} — being checked',
     lociLabel: '{count, plural, one {# passage} other {# passages}}',
     lociAria: 'Passages in this document',
     lociPosition: '{index}/{count}',
@@ -287,7 +339,8 @@ export const chat = {
     // The muted line under an UNPLACED legal basis surfaced flat above the
     // prose (`EvidenceBlock`): the quote is model-generated, like the framed
     // card's — shorter here, because the block beside it is spare already.
-    evidenceQuoteDisclaimer: 'AI-generated citation — check the excerpt against the primary source.',
+    evidenceQuoteDisclaimer:
+      'AI-generated citation — check the excerpt against the primary source.',
     conditionTree: {
       eyebrow: 'Condition tree',
       dependsOn: 'Depends on',
@@ -321,6 +374,8 @@ export const chat = {
     // appears on every one of them: verdict, missing figure, provenance.
     kit: {
       eyebrow: 'Sketch',
+      // A card whose figure is a scale or a set of bars, not a drawing.
+      eyebrowCheck: 'Check',
       status: {
         pass: 'met',
         fail: 'not met',
@@ -497,8 +552,7 @@ export const chat = {
       // reads; the control does not appear, and this says why rather than
       // failing on click.
       unavailable: {
-        noProject:
-          'This chat is not attached to a project, so there is no file store to change.',
+        noProject: 'This chat is not attached to a project, so there is no file store to change.',
       },
     },
     processMap: {
@@ -743,6 +797,34 @@ export const chat = {
     },
   },
   agentPrompt: {
+    plan: {
+      points: 'Sections',
+      addPoint: 'Add a section',
+      addPlaceholder: 'Add another section …',
+      removePoint: 'Remove section: {point}',
+      genre: 'Kind of report',
+      genres: {
+        pruefbericht: 'Compliance review',
+        aktenvermerk: 'Memo',
+        vergleich: 'Comparison',
+        checkliste: 'Checklist',
+        bericht: 'Report',
+      },
+      depth: 'Depth',
+      depths: { kurzpruefung: 'Short review', gutachten: 'Full opinion' },
+      /** The documents the reader names for the run, and the sources it may use. */
+      unterlagen: {
+        label: 'Documents',
+        grundlage: 'Read in full:',
+        ausgeschlossen: 'Excluded:',
+        none: 'No documents named — the research reads what it finds.',
+        choose: 'Choose documents',
+        removeRead: 'No longer read in full: {name}',
+        removeExcluded: 'No longer excluded: {name}',
+      },
+      rahmen: 'Sources',
+      rahmenNote: 'The sources selected in the composer. Change them there before approving.',
+    },
     needsInput: 'Piloti needs your input',
     receivedInput: 'Piloti received your input',
     /**
@@ -753,10 +835,7 @@ export const chat = {
      */
     awaitingOther: 'Piloti is waiting for {name}',
     awaitingSomeone: 'Piloti is waiting for another participant',
-    approve: 'Approve',
-    reject: 'Reject',
     approvePlan: 'Approve plan',
-    rejectPlan: 'Reject plan',
     // The current three-way plan decision (start / answer briefly / cancel).
     startResearch: 'Start research',
     answerShallow: 'Answer briefly instead',
@@ -765,9 +844,6 @@ export const chat = {
     cancelResearchAria: 'Cancel the research',
     selectOption: 'Select option: {option}',
     yourResponse: 'Your response:',
-    // Localized replacement for the backend's English approval envelope
-    // sentence ("Reply approve to proceed, reject to cancel").
-    approvalInstruction: 'Choose "Approve" to start the research or "Reject" to cancel.',
     approvalInstructionThreeWay:
       'Start the research, have your question answered briefly instead, or cancel.',
     // Duration/cost expectation shown at the decision point, BEFORE approval.
@@ -782,7 +858,6 @@ export const chat = {
     responseApproved: 'Research started',
     responseShallow: 'Quick answer requested',
     responseCancelled: 'Research cancelled',
-    responseRejected: 'Plan rejected',
   },
   // The single disclosure in the answer footer that holds everything past the
   // sources row and the copy actions (confidence, memory note, skills used,
@@ -790,6 +865,8 @@ export const chat = {
   answerDetails: {
     trigger: 'Answer details',
     triggerAria: 'Show details for this answer',
+    // How long the turn took, question sent to answer final.
+    duration: 'Answered in {duration}',
     // Retrieved-but-uncited documents: what the turn read beyond what the
     // answer claims. Document chips only — no passages, no new claims.
     readSources: {
@@ -841,29 +918,10 @@ export const chat = {
     // Transient "checking" state (FIX 3): shown while the reconnect recovery
     // fetch is in flight, so a turn that only LOOKS interrupted does not flash
     // the "lost" copy before we have confirmed the answer is really gone.
-    recovering: 'Reconnecting',
-    recoveringNotice: 'Reconnecting — checking for a finished answer …',
+    recovering: 'Fetching the answer',
+    recoveringNotice: 'Piloti is still working — the answer appears here as soon as it is ready …',
     done: 'Done',
     elapsedAria: 'Elapsed: {seconds, plural, one {# second} other {# seconds}}',
-    // Live one-liners describing what the assistant is doing right now, chosen
-    // from the newest OPEN step that can be phrased for a reader. There is
-    // deliberately no "show the step's own name" entry: an internal identifier
-    // dressed up as a status is noise, so an unclassifiable step falls through
-    // to the previous meaningful phrase, or to `working` above.
-    activity: {
-      // The same words as the chips below (`stepName.*`, e.g.
-      // `stepName.corpus` = "Knowledge"): the reader should learn one
-      // vocabulary, not two for the same thing.
-      understanding: 'Classifying your question …',
-      planning: 'Choosing the research path …',
-      searchingWeb: 'Searching the web …',
-      searchingKnowledge: 'Searching knowledge …',
-      searchingRis: 'Searching RIS …',
-      searchingSources: 'Searching sources …',
-      researching: 'Researching …',
-      reading: 'Reading the results …',
-      composing: 'Composing the answer …',
-    },
     // ── Turn events: the words for what the backend REPORTED ──────────────
     //
     // The agent narrates itself with `status:<slot>` steps, and it narrates in
@@ -956,9 +1014,10 @@ export const chat = {
         // "the citations" in the abstract but every one of them, against what
         // was actually retrieved.
         citations: 'Checking every citation against the sources …',
-        // A citation or a quote failed verification; one more search and one
-        // rewrite are tried before the answer ships with its markers.
-        repair: 'A citation did not hold up — searching again …',
+        // A quotation no passage holds verbatim is corrected in place to the
+        // cited passage's own wording (ADR-0067). No search, no rewrite; a quote
+        // it cannot correct keeps its marker.
+        repair: 'A quotation differs from the source’s wording — correcting it against the original …',
         escalation: 'A quick lookup is not enough — starting deep research',
       },
     },
@@ -976,7 +1035,6 @@ export const chat = {
       webSearch: 'Web search',
       ris: 'RIS',
       corpus: 'Knowledge',
-      assistant: 'Assistant',
       reading: 'Reading',
       /** The conversation's working directory: write, read, edit, list — one word. */
       draft: 'Draft',
@@ -988,8 +1046,6 @@ export const chat = {
       // One chip per skill the turn actually applied. `{name}` is resolved by
       // the single label authority (features/skills/lib/skill-activity).
       skill: 'Skill: {name}',
-      // The bare `use_skill` frame with no identifiable skill behind it.
-      skillUnnamed: 'Skill',
       model: 'Building model',
       measure: 'Measurement',
       drawing: 'Drawing',
@@ -998,46 +1054,20 @@ export const chat = {
       card: 'Card',
       compliance: 'Compliance check',
     },
-    // Reader-facing names for the nodes and tools the backend emits, used by
-    // the opt-in technical panel. The names on the wire are internal ids
-    // (`knowledge_search`) — and NAT also forwards LangChain span names, which
-    // are CamelCase class names — so the panel resolves every row through this
-    // map instead of title-casing whatever arrived. Entries that a chip already
-    // names reuse `stepName.*` above: one node, one wording, everywhere.
+    // The technical panel's names for the two step kinds that carry no tool or
+    // slot of their own. Tools reuse `stepName.*` above.
     nodeName: {
-      // The root frame that is open for the whole turn, not a step within it.
-      workflow: 'Whole exchange',
       clarification: 'Clarifying question',
-      deepResearch: 'Deep research',
-      dataSources: 'Data sources',
-      note: 'Note saved',
-      card: 'Result card',
-      documents: 'Document list',
-      askUser: 'Question to you',
-      model: 'Building model',
-      measure: 'Model measurement',
-      compliance: 'Compliance check',
       skillSelection: 'Skill selection',
-      // A node this build has no name for. It keeps its row — the panel counts
-      // its steps and each carries a timestamp, so dropping rows would make the
-      // list disagree with the count and hide that something ran — but it says
-      // only that something internal ran. The raw name is not a vocabulary a
-      // reader can learn (unlike a `status:` slot, which is one and stays
-      // verbatim on purpose); it is whatever the framework called that span.
-      internal: 'Internal step',
     },
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
-    // The trace's header line, built from two clauses. The sources clause is
-    // ABSENT when there are none: "0 sources" is a true number that reads as a
-    // failure, and an answer grounded in a measurement of the model rightly has
-    // no citations. The line counts what is there and says nothing about what
-    // is not.
-    herleitungSummary: 'Trace · {count, plural, one {# step} other {# steps}}',
-    herleitungSummaryWithSources: '{summary} · {count, plural, one {# source} other {# sources}}',
-    // The turn has reported no step yet, so the line says what it is instead of
-    // counting to zero.
-    herleitungSummaryNoSteps: 'Trace',
+    // The trace's header line. No step count: it counted raw NAT event names,
+    // not turns or calls (see ChatThinking). The sources clause is ABSENT when
+    // there are none: "0 sources" is a true number that reads as a failure, and
+    // an answer grounded in a measurement of the model rightly has no citations.
+    herleitungSummary: 'Trace',
+    herleitungSummaryWithSources: 'Trace · {count, plural, one {# source} other {# sources}}',
     // aria-label naming the reasoning graph as one region for screen readers.
     reasoningGraphLabel: 'Reasoning trace',
     stepsLabel: 'Thinking steps',
@@ -1076,6 +1106,10 @@ export const chat = {
       stepKindRead: 'Reading',
       stepKindFinding: 'Finding',
       stepKindConclusion: 'Conclusion',
+      // A fetch the backend saw return nothing. Not `Search`: a layer with no
+      // fan read as one that found nothing, and was often one whose hits the
+      // old wire never stamped. Only the ledger can tell the two apart.
+      stepKindNoHits: 'No hits',
       // A layer that only opened passages of files the turn already had: it
       // searched for nothing. Telling that round apart from a fresh fetch is
       // the whole reason the word exists.
@@ -1164,76 +1198,15 @@ export const chat = {
             'No research report was filed — the answer exists only here in the conversation.',
           noCitations:
             'No citation held up under checking. Please verify the figures yourself before using them.',
-          noCards: 'The report is complete, but the proposals derived from it could not be produced.',
+          noCards:
+            'The report is complete, but the proposals derived from it could not be produced.',
+          grundlageUnread:
+            'Not every document named as the basis could be read; the answer does not reflect its contents. The end of the report lists which.',
         },
       },
       branchesTab: 'Next steps',
       branchesSub: 'Pick one option — the answer is assembled for your choice.',
     },
-  },
-  deepResearch: {
-    stats: {
-      toolCalls: '{count, plural, one {# tool call} other {# tool calls}}',
-    },
-    success: {
-      heading: 'Report Completed!{stats}',
-      subheading: 'Research has finished and a report is ready to view in the research panel.',
-      // Rendered ONLY when the report really was filed and has a document id.
-      // Absent with nothing having been promised — no project, a run older than
-      // the feature — the banner says nothing rather than claiming a file that
-      // does not exist.
-      filedLine: 'Filed in the project: {filename}',
-      // The retraction of `starting.filingDisclosure`, and only that: the
-      // starting banner promised „wird abgelegt", the server attempted the
-      // filing (there was a project) and it did not land. A reader who saw the
-      // promise otherwise walks to Berichte, finds nothing, and the only record
-      // is a server log they cannot read. No reason travels — a refused quota,
-      // a revoked `project:documents:write` and a report too long to render are
-      // one fact here: the document is not there. Same quiet line as the
-      // promise, no red and no error state: the research itself succeeded. The
-      // folder is named in German because that is what the folder is called.
-      filingFailedLine: 'The report could not be filed under “Berichte”.',
-    },
-    failure: {
-      heading: 'Report Failed to Complete',
-      subheading:
-        'Something prevented the research report from completing. Check the thinking for details.',
-    },
-    cancelled: {
-      heading: 'Research Cancelled',
-      subheading:
-        'Research was stopped by user. You can view any partial progress in the research panel.',
-    },
-    expired: {
-      heading: 'Report Expired',
-      subheading: 'The report has expired and is no longer available.',
-    },
-    starting: {
-      heading: 'Starting Deep Research',
-      subheading:
-        'Chat is paused while the report is created to prevent generating multiple reports. You can click away while this runs — it may take several minutes.',
-      // The disclosure that makes the authorization real. It sits on the
-      // STARTING banner rather than the outcome: deep research escalates out of
-      // a chat turn (there is no submit form), and a run can begin because the
-      // agent itself escalated rather than because anybody ordered a report. The
-      // moment the run can still be stopped is therefore the only moment at
-      // which naming the destination is worth anything. No dialog and no
-      // confirmation: a modal asked after the fact is only ever answered yes,
-      // which makes it a ritual rather than a decision. Shown inside a project
-      // only — outside one nothing is filed. The folder is named in German
-      // because that is literally what the folder in the file tree is called.
-      filingDisclosure: 'The finished report will be filed in this project under “Berichte”.',
-    },
-    viewReport: 'View Report',
-    // The success banner's second action, when something was filed. Worded
-    // apart from "View Report" on purpose: that opens the research panel, this
-    // opens the file in the project — two places, two words.
-    openInProject: 'Open in project',
-    viewThinking: 'View Thinking',
-    viewProgress: 'View Progress',
-    // One-liner above the "Starting Deep Research" banner when the turn
-    // escalated from shallow to deep research (WP-A `escalation_reason`).
-    escalationNarration: 'Escalated to deep research: {reason}',
   },
   error: {
     showDetails: 'Show details',
@@ -1256,6 +1229,10 @@ export const chat = {
     connectionFailed: {
       title: 'Connection Failed',
       message: 'Unable to connect to the server. Please check your network connection.',
+    },
+    clientOutdated: {
+      title: 'Piloti was updated',
+      message: 'Reload the page to continue.',
     },
     connectionTimeout: {
       title: 'Request Timeout',
@@ -1282,14 +1259,6 @@ export const chat = {
       message:
         'The assistant hit an unexpected error while handling your request. Please try again.',
     },
-    deepResearchFailed: {
-      title: 'Deep Research Failed',
-      message: 'The deep research process encountered an error.',
-    },
-    deepResearchLoadFailed: {
-      title: 'Research Data Unavailable',
-      message: 'Unable to load research data. The job may have expired or been deleted.',
-    },
     unknown: {
       title: 'Something Went Wrong',
       message: 'An unexpected error occurred. Please try again.',
@@ -1301,26 +1270,6 @@ export const chat = {
       message: 'The research queue is currently full. Please resend your request in a moment.',
       retryHint: 'Please try again in about {seconds, plural, one {# second} other {# seconds}}.',
     },
-  },
-  // User-facing deep-research error copy raised from the SSE hook and the
-  // job-data loading hook (use-load-job-data.ts).
-  deepResearchErrors: {
-    interrupted: 'Research was interrupted before completion.',
-    reportUnavailable: 'This research report is no longer available.',
-    serviceUnreachable: 'The service is currently unreachable. Please try again later.',
-    loadFailed: 'Research data could not be loaded.',
-  },
-  // Toasts fired when a session is deleted but its deep-research job could not
-  // be cancelled on the server.
-  sessionActions: {
-    researchMayStillRunTitle: 'Research run may still be running',
-    researchMayStillRunDescription:
-      'The session was deleted, but its deep-research job could not be stopped on the server.',
-    researchRunsMayStillRunTitle: '{count} research {runLabel} may still be running',
-    researchRunsMayStillRunDescription:
-      'Sessions were deleted, but some deep-research jobs could not be stopped on the server.',
-    runSingular: 'run',
-    runPlural: 'runs',
   },
   budgetExhausted: {
     title: 'Budget exhausted',
@@ -1382,7 +1331,8 @@ export const chat = {
     // capped, keyed by `answer_confidence_capped_reason` (WP-A, PB-9).
     cappedReasons: {
       ungrounded: 'Low confidence: answer not backed by sources.',
-      quoteUnverified: 'A quote could not be verified verbatim against the source; the assessment is capped accordingly.',
+      quoteUnverified:
+        'A quote could not be verified verbatim against the source; the assessment is capped accordingly.',
       // The measurement backs the number, not the legal statement beside it —
       // so the mixed answer stays at "low" and the tooltip says why.
       normativeClaimUncited:

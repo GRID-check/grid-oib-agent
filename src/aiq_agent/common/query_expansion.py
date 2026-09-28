@@ -186,7 +186,7 @@ def expansion_terms(query: str | None) -> list[str]:
     return terms
 
 
-def augmented_query(query: str | None) -> str:
+def augmented_query(query: str | None, *, log_miss: bool = True) -> str:
     """``query`` with its German equivalents prepended, or unchanged.
 
     Prepended rather than appended because retrieval encoders weight early tokens
@@ -196,6 +196,10 @@ def augmented_query(query: str | None) -> str:
 
     A German or unrecognised query is returned untouched, so this is a no-op for the
     language the corpus is already written in.
+
+    ``log_miss=False`` for a caller that expands a query the search will
+    expand again (the turn-start warm-up): the miss line is a per-query
+    coverage metric, and counting one query twice skews its rate.
     """
     if not query or not query.strip():
         return query or ""
@@ -210,7 +214,7 @@ def augmented_query(query: str | None) -> str:
         # English question never reached the German index. Every line here names a concept
         # worth counting in the corpus and adding, and the rate is the honest measure of
         # how far from parity this approach actually is.
-        if detect_language(query) == "en":
+        if log_miss and detect_language(query) == "en":
             logger.info("Query expansion found no glossary concept for English query: %r", query[:120])
         return query
     return f"{' '.join(terms)} {query}"

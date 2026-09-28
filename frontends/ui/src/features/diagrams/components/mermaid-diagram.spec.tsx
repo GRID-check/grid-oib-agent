@@ -23,6 +23,7 @@ vi.mock('@/features/documents/lib/open-filed-document', () => ({
 
 import { MermaidDiagram } from './mermaid-diagram'
 import { DiagramFilingProvider, diagramRunId } from '../diagram-filing-context'
+import { clearDiagramModelCache } from '../use-diagram-model'
 
 const SOURCE = 'graph TD\n  A --> B'
 const DRAWN =
@@ -38,14 +39,17 @@ afterEach(() => {
 })
 
 describe('while the answer is still arriving', () => {
-  it('shows the source and does not try to draw it', async () => {
-    // The stabiliser in `MarkdownRenderer` appends a synthetic closing fence to
-    // half-arrived markdown, so an in-flight mermaid block LOOKS complete on
-    // every token. Handing that to mermaid renders a parse error per token.
+  it('holds the drawing\'s place and does not try to draw it', async () => {
+    // CommonMark runs an unclosed fence to the end of the text, so an
+    // in-flight mermaid block LOOKS complete on every token. Handing that to
+    // mermaid renders a parse error per token.
     render(<MermaidDiagram source={SOURCE} isStreaming />)
     expect(screen.getByTestId('mermaid-diagram')).toHaveAttribute('data-state', 'streaming')
     expect(renderer).not.toHaveBeenCalled()
-    expect(screen.getByText(/graph TD/)).toBeInTheDocument()
+    // Not the source: a code block turning into a picture when its fence
+    // closed was the largest jump a streamed answer made (ADR-0066).
+    expect(screen.queryByText(/graph TD/)).not.toBeInTheDocument()
+    expect(screen.getByTestId('mermaid-diagram')).toHaveAttribute('aria-busy', 'true')
   })
 
   it('draws it once the answer is finished', async () => {
@@ -55,6 +59,22 @@ describe('while the answer is still arriving', () => {
     await waitFor(() =>
       expect(screen.getByTestId('mermaid-diagram')).toHaveAttribute('data-state', 'drawn')
     )
+  })
+})
+
+describe('while its source is being parsed', () => {
+  it('holds a placeholder and claims nothing about a drawing it has not chosen yet', () => {
+    // Which picture it becomes, this product's view or mermaid's SVG, is not
+    // known until the parse settles; mermaid's frame and its „Schematisch"
+    // line flashed here before the view replaced them.
+    clearDiagramModelCache()
+    render(<MermaidDiagram source={'graph LR\n  Parse --> Pending'} />)
+    const figure = screen.getByTestId('mermaid-diagram')
+    expect(figure).toHaveAttribute('data-state', 'drawing')
+    expect(figure).toHaveAttribute('aria-busy', 'true')
+    expect(figure.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/no dimensions are claimed/i)).not.toBeInTheDocument()
+    expect(figure.querySelector('figcaption')).toBeNull()
   })
 })
 
@@ -88,8 +108,15 @@ describe('when it draws', () => {
     // compute their geometry so they cannot disagree with their own numbers; a
     // model-authored diagram has no such guarantee, so it says so.
     render(<MermaidDiagram source={SOURCE} />)
-    await waitFor(() => expect(screen.getByText(/no dimensions are claimed/i)).toBeInTheDocument())
-    expect(screen.getByTestId('mermaid-diagram').querySelector('svg')).not.toBeNull()
+    await waitFor(
+      () => expect(screen.getByTestId('mermaid-diagram')).toHaveAttribute('data-state', 'drawn'),
+      { timeout: 8000 }
+    )
+    expect(screen.getByText(/no dimensions are claimed/i)).toBeInTheDocument()
+    // This product's own view when the parser reads a model, mermaid's SVG
+    // otherwise: either way, a drawing and not the source.
+    const figure = screen.getByTestId('mermaid-diagram')
+    expect(figure.hasAttribute('data-view') || figure.querySelector('svg') !== null).toBe(true)
   })
 
   it('offers no filing action outside a project', async () => {

@@ -37,11 +37,11 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import Field
 
-from nat.builder.function import FunctionGroup
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.component_ref import FunctionRef
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionGroup
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import FunctionRef
+from nat.plugin_api import register_function
 
 _GROUP_SEPARATORS = (FunctionGroup.SEPARATOR, FunctionGroup.LEGACY_SEPARATOR)
 

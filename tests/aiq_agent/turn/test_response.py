@@ -1,17 +1,22 @@
-"""The crossing from finished graph state to the wire response and the stage facts."""
+"""The crossing from finished graph state to the turn's result and the stage facts."""
+
+import uuid
 
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
 from aiq_agent.agents.piloti.models import ConversationState
-from aiq_agent.common import _create_chat_response
+from aiq_agent.common.canned_replies import NO_RESPONSE_TEXT
+from aiq_agent.common.wire_v2 import RunHandoff
+from aiq_agent.common.wire_v2 import card_key
+from aiq_agent.common.wire_v2 import stamp
+from aiq_agent.common.wire_v2 import to_frame
 from aiq_agent.stages import TurnFacts
-from aiq_agent.turn.response import RESPONSE_LIFTS
+from aiq_agent.turn.response import answer_message_id
 from aiq_agent.turn.response import answer_text
-from aiq_agent.turn.response import apply_state_extras
-from aiq_agent.turn.response import build_response
+from aiq_agent.turn.response import build_result
+from aiq_agent.turn.response import finished
 from aiq_agent.turn.response import post_answer_turn_facts
-from aiq_agent.turn.streaming import STREAM_EXTRA_FIELDS
 
 
 def _state(**fields) -> ConversationState:
@@ -19,118 +24,93 @@ def _state(**fields) -> ConversationState:
     return ConversationState(**fields)
 
 
-def _response():
-    return _create_chat_response("answer", response_id="r", model="m")
+def _result(cards=(), **fields):
+    return build_result(_state(**fields), list(cards), "m1")
 
 
-class TestResponseLifts:
-    """One table drives every lift; the frontend renders on presence."""
+class TestBuildResult:
+    """Every field of the result is lifted off the state; the frame omits what is at its default."""
 
-    def test_every_lifted_attribute_rides_the_terminal_chunk(self):
-        """A lift onto an attribute the streamer does not carry reaches nobody."""
-        assert {attribute for _field, attribute, _requires in RESPONSE_LIFTS} <= set(STREAM_EXTRA_FIELDS)
-
-    def test_every_lift_reads_a_state_field(self):
-        for field, _attribute, requires in RESPONSE_LIFTS:
-            assert field in ConversationState.model_fields
-            assert requires is None or requires in ConversationState.model_fields
-
-    def test_present_values_are_lifted_and_absent_ones_are_not_set(self):
-        response = _response()
-        apply_state_extras(
-            response,
-            _state(routing_decision="shallow", answer_confidence="high", verified_sources=[{"file_name": "a.pdf"}]),
-        )
-        assert response.routing_decision == "shallow"
-        assert response.answer_confidence == "high"
-        assert response.sources == [{"file_name": "a.pdf"}]
-        assert getattr(response, "escalation_reason", None) is None
-        assert getattr(response, "citations_removed", None) is None
-
-    def test_a_retry_hint_only_rides_with_its_rejection(self):
-        response = _response()
-        apply_state_extras(response, _state(retry_after_seconds=42))
-        assert getattr(response, "retry_after_seconds", None) is None
-
-        response = _response()
-        apply_state_extras(response, _state(job_admission_rejected=True, retry_after_seconds=42))
-        assert response.job_admission_rejected is True
-        assert response.retry_after_seconds == 42
-
-    def test_a_retry_hint_is_never_zero_seconds(self):
-        """The one place the table's truthiness rule could drop a real value.
-
-        ``apply_state_extras`` lifts on truthiness — one rule for every row, which is
-        what lets the table be data — so a ``retry_after_seconds`` of 0 would be
-        indistinguishable from absent and the client would get a rejection with no
-        retry hint. Both producers default well clear of it, so the case is
-        unreachable; this pins that, because it is a property of two unrelated
-        constructors rather than of this module, and lowering either to 0 is the
-        edit that would make the divergence real.
-        """
-        from aiq_agent.common.job_admission import JobAdmissionError
-        from aiq_agent.common.turn_admission import TurnAdmissionError
-
-        assert JobAdmissionError("refused").retry_after_seconds > 0
-        assert TurnAdmissionError("refused").retry_after_seconds > 0
-
-        response = _response()
-        apply_state_extras(response, _state(job_admission_rejected=True, retry_after_seconds=0))
-        assert getattr(response, "retry_after_seconds", None) is None  # documents the cost
-
-    def test_a_mute_list_only_rides_with_the_list_it_mutes(self):
-        response = _response()
-        apply_state_extras(response, _state(skills_hidden=["voice"]))
-        assert getattr(response, "skills_hidden", None) is None
-
-        response = _response()
-        apply_state_extras(response, _state(skills_activated=["voice", "x"], skills_hidden=["voice"]))
-        assert response.skills_activated == ["voice", "x"]
-        assert response.skills_hidden == ["voice"]
-
-    def test_empty_containers_are_absent(self):
-        response = _response()
-        apply_state_extras(response, _state(skills_activated=[], answer_meta={}, citations_removed={}))
-        for name in ("skills_activated", "answer_meta", "citations_removed"):
-            assert getattr(response, name, None) is None
-
-    def test_read_sources_ride_only_when_present(self):
-        response = _response()
-        apply_state_extras(response, _state())
-        assert getattr(response, "read_sources", None) is None
-
-        read = [{"document_id": "doc:oib_knowledge:oib-rl_2.pdf", "file_name": "oib-rl_2.pdf"}]
-        response = _response()
-        apply_state_extras(response, _state(read_sources=read))
-        assert response.read_sources == read
-
-    def test_the_retrieval_ledger_rides_when_present_and_stays_absent_otherwise(self):
-        """The ledger rides the response when present and stays absent otherwise."""
-        ledger = [{"index": 0, "docs": [], "new_docs": []}]
-        response = _response()
-        apply_state_extras(response, _state(retrieval_ledger=ledger))
-        assert response.retrieval_ledger == ledger
-
-        response = _response()
-        apply_state_extras(response, _state())
-        assert getattr(response, "retrieval_ledger", None) is None
-
-
-class TestBuildResponse:
-    def test_the_last_message_is_the_answer_and_cards_attach(self):
-        response = build_response(_state(), cards=[{"type": "checklist"}], workflow_id="wf")
-        assert response.choices[0].message.content == "Mindestens 100 cm."
-        assert response.model == "wf"
-        assert response.cards == [{"type": "checklist"}]
+    def test_the_last_message_is_the_answer_and_cards_are_keyed(self):
+        card = {"type": "checklist", "items": []}
+        result = _result(cards=[card])
+        assert result.message_id == "m1"
+        assert result.text == "Mindestens 100 cm."
+        assert [(c.key, c.card) for c in result.cards] == [(card_key(card), card)]
 
     def test_no_messages_is_said_so(self):
-        response = build_response(_state(messages=[]), cards=None, workflow_id="wf")
-        assert response.choices[0].message.content == "No response generated."
-        assert getattr(response, "cards", None) is None
+        assert build_result(_state(messages=[]), [], "m1").text == NO_RESPONSE_TEXT
 
     def test_non_string_content_is_stringified(self):
         state = _state(messages=[AIMessage(content=[{"type": "text", "text": "x"}])])
         assert answer_text(state) == str([{"type": "text", "text": "x"}])
+
+    def test_every_state_field_reaches_the_result(self):
+        ledger = [{"index": 0, "docs": [], "new_docs": []}]
+        read = [{"document_id": "doc:oib_knowledge:oib-rl_2.pdf", "file_name": "oib-rl_2.pdf"}]
+        result = _result(
+            routing_decision="shallow",
+            answer_confidence="low",
+            answer_confidence_reason="weil",
+            answer_confidence_capped_reason="ungrounded",
+            verified_sources=[{"content": "[OIB] a.pdf", "number": 1, "file_name": "a.pdf"}],
+            read_sources=read,
+            escalation_reason="zu breit",
+            citations_removed={"count": 1, "reasons": ["no_passage"]},
+            research_truncated=True,
+            answer_meta={"kind": "ruling", "verdict": "40 m"},
+            retrieval_ledger=ledger,
+        )
+        assert result.routing_decision == "shallow"
+        assert result.answer_confidence == "low"
+        assert result.answer_confidence_reason == "weil"
+        assert result.answer_confidence_capped_reason == "ungrounded"
+        assert result.sources[0].file_name == "a.pdf"
+        assert result.read_sources == read
+        assert result.escalation_reason == "zu breit"
+        assert result.citations_removed.count == 1
+        assert result.research_truncated is True
+        assert result.answer_meta == {"kind": "ruling", "verdict": "40 m"}
+        assert result.retrieval_ledger == ledger
+
+    def test_absent_and_empty_values_are_absent_from_the_frame(self):
+        result = _result(skills_activated=[], answer_meta={}, citations_removed={})
+        assert result.model_dump(exclude_defaults=True) == {"message_id": "m1", "text": "Mindestens 100 cm."}
+
+    def test_a_retry_hint_only_rides_with_its_rejection(self):
+        assert _result(retry_after_seconds=42).retry_after_seconds is None
+        result = _result(job_admission_rejected=True, retry_after_seconds=42)
+        assert result.job_admission_rejected is True
+        assert result.retry_after_seconds == 42
+
+    def test_a_mute_list_only_rides_with_the_list_it_mutes(self):
+        assert _result(skills_hidden=["voice"]).skills_hidden == []
+        result = _result(skills_activated=["voice", "x"], skills_hidden=["voice"])
+        assert result.skills_activated == ["voice", "x"]
+        assert result.skills_hidden == ["voice"]
+
+    def test_the_run_hand_off_is_both_ids_or_neither(self):
+        assert _result(run_id="run_1").run is None
+        assert _result(run_id="run_1", run_message_id="msg_9").run == RunHandoff(run_id="run_1", run_message_id="msg_9")
+
+
+class TestFinished:
+    def test_an_answer_a_hand_off_and_a_queue_refusal(self):
+        assert finished(_result()).outcome == "answered"
+        assert finished(_result(run_id="r", run_message_id="m")).outcome == "handed_off"
+        assert finished(_result(job_admission_rejected=True)).outcome == "refused"
+
+    def test_the_terminal_frame_carries_the_result(self):
+        frame = to_frame(stamp(finished(_result()), conversation_id="c", turn_id="t", seq=1, ts=0))
+        assert frame["result"] == {"message_id": "m1", "text": "Mindestens 100 cm."}
+
+
+class TestAnswerMessageId:
+    def test_it_is_the_persisted_rows_id(self):
+        """The same uuid5 the messages route has always been given (``ON CONFLICT DO NOTHING``)."""
+        expected = str(uuid.uuid5(uuid.NAMESPACE_URL, "grid:assistant:conv:turn"))
+        assert answer_message_id("conv", "turn") == expected
+        assert answer_message_id("conv", None) == str(uuid.uuid5(uuid.NAMESPACE_URL, "grid:assistant:conv:default"))
 
 
 class TestPostAnswerTurnFacts:
@@ -141,10 +121,9 @@ class TestPostAnswerTurnFacts:
     own rule — which is exactly what happened to `research_truncated`.
     """
 
-    def _facts(self, state, response=None, **overrides):
+    def _facts(self, state, **overrides):
         kwargs = {
             "state": state,
-            "response": response or _response(),
             "query_text": "Wie hoch darf die Brüstung sein?",
             "cards": None,
         }
@@ -161,10 +140,8 @@ class TestPostAnswerTurnFacts:
         assert self._facts(_state(research_truncated=True)).research_truncated is True
         assert self._facts(_state()).research_truncated is False
 
-    def test_routing_decision_crosses_off_the_answer(self):
-        response = _response()
-        response.routing_decision = "deep"
-        assert self._facts(_state(), response=response).routing_decision == "deep"
+    def test_routing_decision_crosses(self):
+        assert self._facts(_state(routing_decision="deep")).routing_decision == "deep"
 
     def test_emitted_card_types_cross(self):
         facts = self._facts(_state(), cards=[{"type": "follow_ups"}, {"type": "checklist"}, {}, "junk"])

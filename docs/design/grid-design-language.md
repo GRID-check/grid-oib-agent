@@ -241,6 +241,7 @@ trapping, Escape and scroll locking are identical; what differs is intent.
 | `Sheet` (side) | The DETAIL of a row the reader just selected. The list stays put behind it and keeps updating. | `task-detail.tsx`, `schedule-detail.tsx`, `skill-detail.tsx` |
 | `PageSheet` | A whole PLACE, independent of wherever the reader is standing. Route-backed, reached from the org nav. | Postfach, Archiv, chat history |
 | `Popover` | A transient choice attached to the control that opened it. Never a panel with its own header and scroll region. | the `/` command picker, filter menus |
+| `HoverPeekPanel` | A glance at what a reference in running text stands for: hover or focus to see, click or tap to pin, Escape or an outside click to close (`useHoverPopover`). Mounted on first engagement and BESIDE its trigger, never around it, so a page of references costs nothing until one is looked at and the trigger never remounts. | citation chips, `[N]` markers, Herleitung source cards, file references, @-mentions |
 | `Collapsible` | More of THIS row, in place. No scrim, nothing dimmed. | the wizard's „Erweitert", the document lifecycle panel |
 | No overlay | A multi-step flow that owns its section, or a second pane you read the first pane AGAINST. | `ScheduleWizard` inline in Tasks, the file peek |
 
@@ -438,7 +439,7 @@ transitions on layout-triggering properties.
 |---|---|---|---|---|
 | `springPress` | 600 / 38 / 0.6 | 1.00 | **0%** | Press and release, tap scale, checkbox. Chosen for interruptibility and velocity carry-over, not bounce — a tween cannot resolve a press interrupted mid-flight. |
 | `springSnap` | 520 / 30 / 1 | 0.658 | **6.4%** | **Travel ≤ 24px only.** Toggle thumb, segmented indicator, icon swap, landing file, snap-back. |
-| `springDrawer` | 260 / 26 / 1 | 0.806 | **1.4%** | **Travel ≤ ~145px.** Large but BOUNDED surfaces: research panel, wizard step, a card settling. |
+| `springDrawer` | 260 / 26 / 1 | 0.806 | **1.4%** | **Travel ≤ ~145px.** Large but BOUNDED surfaces: a dialog, wizard step, a card settling. |
 | `springGlide` | 260 / 29 / 1 | 0.899 | **0.157%** | **Unbounded travel.** The distance is not knowable when the transition is written: shared-layout chips, anything whose travel is the reader's route history. |
 
 `springSnapLinear` / `springDrawerLinear` are CSS `linear()` equivalents for
@@ -509,7 +510,7 @@ times stops being a physical cue and becomes texture.
 - **Chat turn entrance** — every block arriving in the transcript uses the same
   fade-and-rise: `animate-in fade-in-0 slide-in-from-bottom-1 duration-base
   ease-entrance motion-reduce:animate-none`. That includes `AgentPrompt` and the
-  `DeepResearchBanner` / `ErrorBanner` / `NoSourcesBanner` notices — a banner
+  `ErrorBanner` / `NoSourcesBanner` notices — a banner
   that pops in unanimated reads as a different class of object than the answer
   beside it.
 - **State changes inside an arrived turn are transitions, not entrances**:
@@ -522,6 +523,14 @@ times stops being a physical cue and becomes texture.
   row by 350ms. Never on a list the reader opened to reach one specific row.
 - Height changes (accordions, thinking steps): CSS grid-rows or Radix
   Collapsible, `--motion-base`.
+- **The live Herleitung moves only its frontier edges.** While a turn is
+  live, the connectors into the newest row are React Flow's built-in
+  `animated` edges (the library's marching `dashdraw` dash); nothing else in the
+  graph moves. Nodes, source cards and connectors simply appear, and a settled
+  graph has no animated edge. The cost is accepted and bounded: one marching
+  edge measured ~245 ms of main thread per second on a 4x throttled phone, so
+  the flag is limited to the frontier edges and to live turns
+  (`renderedEdges` in `ReasoningFlow.tsx`, preview `/dev/herleitung?variant=live`).
 - Hover: `transition-colors` on interactive rows and links; never transform on
   hover for dense UI. The raised card's lift is the documented exception, and it
   is a tween.

@@ -1,0 +1,9 @@
+---
+features:
+  - >
+    The research plan is now a checklist: you can remove and add sections and
+    choose the kind of report, such as Prüfbericht, Aktenvermerk or Vergleich,
+    and its depth.
+  - >
+    The plan you approve binds the research: its sections become the report's
+    sections in that order.

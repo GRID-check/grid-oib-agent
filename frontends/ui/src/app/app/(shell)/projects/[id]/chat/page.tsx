@@ -20,7 +20,6 @@ interface ProjectChatPageProps {
  * chat-surface WorkOS feature flags with the session — the same
  * server-computes-`isFeatureEnabled`-then-prop-drills pattern the /app layout
  * uses for `keyboard-shortcuts` — and hand the booleans to the client tree:
- *   - `source-origin-badges`    → ReportTab origin badges
  *   - `chat-confidence-chip`     → AgentResponse confidence chip
  *   - `research-in-chat-history` → SessionsPanel Deep Research section (FB-10)
  *   - `answer-feedback`          → AgentResponse per-answer thumbs row (WS-7)
@@ -32,7 +31,6 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
   return runWithTenantSlot(async () => {
     const { id } = await params
 
-    let showSourceBadges = true
     let showConfidenceChip = true
     let showResearchInHistory = true
     let showAnswerFeedback = true
@@ -69,7 +67,6 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
       const session = await getGridSession()
       if (session) {
         organizationId = session.organizationId
-        showSourceBadges = isFeatureEnabled(session, FEATURE_FLAGS.sourceOriginBadges)
         showConfidenceChip = isFeatureEnabled(session, FEATURE_FLAGS.chatConfidenceChip)
         showResearchInHistory = isFeatureEnabled(session, FEATURE_FLAGS.researchInChatHistory)
         showAnswerFeedback = isFeatureEnabled(session, FEATURE_FLAGS.answerFeedback)
@@ -109,7 +106,6 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
     return (
       <ProjectChatClient
         projectId={id}
-        showSourceBadges={showSourceBadges}
         showConfidenceChip={showConfidenceChip}
         showAnswerFeedback={showAnswerFeedback}
         showResearchInHistory={showResearchInHistory}

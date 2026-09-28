@@ -190,10 +190,11 @@ does not outlive the passages it described.
 
 ### Corrections after review
 
-The build was reviewed against the code and nine things in this record were
-either wrong or not true of what shipped. They are listed here rather than
-silently edited above, because a record that quietly agrees with itself teaches
-nobody what it cost to find them.
+The build was reviewed against the code, in several rounds, and each item below
+is something in this record that was wrong or not true of what shipped. The
+first review found nine; the later rounds added the rest. They are listed here
+rather than silently edited above, because a record that quietly agrees with
+itself teaches nobody what it cost to find them.
 
 1. **A re-upload could not work at all.** "A re-upload writes version N+1 and
    leaves N standing" was the whole point of the table, and the code inserted
@@ -286,6 +287,216 @@ nobody what it cost to find them.
    sits at the bottom of the opened body, set apart, behind a confirm that
    states all four of its consequences including the two nobody guesses: that
    Piloti stops citing the file, and that nothing in the product brings it back.
+
+10. **Two overlapping re-uploads were the same version.** The version number
+    was `max + 1` read outside any transaction, and the upload paths read it
+    before the bytes moved to build the `v<n>/` key, so two re-uploads of one
+    filename both got N, both PUT the same object key (the second replacing the
+    first's bytes) and both recorded „Version N". Nothing refused either:
+    `(document_id, version_number)` had an index and no uniqueness. Migration
+    `0092` makes it `UNIQUE`; both inserts allocate the number inside their own
+    transaction under a per-document advisory lock; every write gets its own
+    object key (`v<n>/<write id>/`); and an upload records its version with the
+    columns its own request stored rather than re-reading the item row.
+
+11. **The loser of a concurrent publish got a 500.** `promoteVersionToPublished`
+    called `tx.rollback()` and then `return null`, and drizzle's `rollback()`
+    throws, so the null — the 409 — was unreachable. A sentinel is thrown and
+    caught outside the transaction; a lint rule refuses the call.
+
+12. **`If-Match` did not stop a lost update.** The digest was compared with a
+    row read at the start, and the compare-and-swap filtered on `state` alone —
+    and `update` goes draft → draft, so two writers holding the same digest
+    both won and both wrote the version's one key. The swap now also asserts
+    the storage key and `content_hash` it read, and each write stores its
+    bytes under a fresh key BEFORE the swap, so a row only ever names an object
+    that is already stored in full and the loser's object is deleted. "Steps 3
+    and 4 in that order" in the old `replaceVersionContent` header had traded
+    this for a different failure; writing to a unique key removes the trade.
+
+13. **The quota still undercharged, in both admissions.** Correction 3 made the
+    ledger count superseded versions, and the two admitting paths kept an
+    argument from before this record: that a replacement frees what it
+    replaces. A re-upload excluded the replaced row from the usage, although
+    the row's bytes now stay as the superseded version; a draft rewrite
+    charged `incoming − fileSize` outside any lock, and a fresh fork's
+    `fileSize` is the published file's, so fork, write, reject, fork again was
+    never checked. A re-upload now charges its full size, and a content write
+    is admitted inside its swap transaction under the per-organization quota
+    lock, by measuring the usage it is about to commit.
+
+14. **Two races on the two partial unique indexes still answered 500.** Both
+    indexes were described as closing a race the probe cannot, and both did —
+    by refusing the second insert with a raw 23505 that no layer mapped.
+
+    *Two first uploads of one filename.* Both probes miss, both PUT under a
+    fresh id, and `uniq_documents_live_name_per_collection` refuses the second
+    insert after its bytes have landed. The loser now becomes a NEW VERSION of
+    the winner's document, because that is what the same two drops one after
+    the other produce under this record, and an outcome that depended on
+    milliseconds would be two products. It is safe because nothing of the
+    first attempt survives it: the refused insert rolled back (no row, no
+    quota charge) and `admitOrDiscard` deletes the object on any admission
+    failure. `insertDocumentWithinQuota` maps the refusal — by constraint name,
+    in `lib/documents/unique-conflicts.ts` — to `LiveFilenameTakenError`, and
+    the project and Archiv uploads run their probe-store-admit step once more
+    (`retryRacedUpload`, named `retryLostFirstUpload` until correction 16), which finds the winner and takes the re-upload
+    path, charged in full for the object it keeps. The session shelf does not
+    retry; there the mapped error is a `409`, object discarded.
+
+    That retry exposed a second hole. A re-upload's key used the version-1
+    shortcut whenever `nextVersionNumber` read 1, and it reads 1 for a row
+    with no version yet — the winner, between its insert and its version — so
+    the retry would have PUT over the winner's own object. A re-upload now
+    always takes the `v<n>/<write id>/` segment.
+
+    *Two forks of one document.* Both see no open version, and
+    `uniq_document_versions_open_per_document` refuses the second insert. The
+    route's contract already said what the loser is owed: „a second attempt is
+    a 409 naming the draft that exists". `insertDocumentVersion` maps the
+    refusal to `OpenVersionExistsError`, and `forkDraftVersion` re-reads the
+    winner and throws the SAME 409, `{ versionId, state }`, its probe throws.
+    The typed client and the Python filing tool are unchanged: the client
+    already parses that 409 into `DocumentLifecycleError`, and the agent's
+    internal route has no fork op. `openDraftForRevision` — whose question is
+    "which version do the revised bytes go into", not "may I open one" — joins
+    the winner's draft instead of failing the revision task.
+
+    Only these two constraints are mapped. A 23505 on the version-number key
+    means a path skipped the per-document lock, and one on the published index
+    means a published row was inserted outside `insertPublishedVersion`; both
+    are bugs and stay 500s.
+
+15. **No race backstop that read `error.code === '23505'` ever ran.** Finding
+    the two above turned up why the pattern was trusted: drizzle 0.45 wraps
+    every failed query in `DrizzleQueryError`, whose own `code` is undefined —
+    the driver's error, with `code` and `constraint_name`, is its `cause`. So
+    the recovery in `fileGeneratedDocument` (two tabs filing one report), in
+    the folder service (a duplicate folder name, the `Berichte` get-or-create),
+    in project memory and in platform lessons matched nothing in production,
+    and each loser got a 500. In the folder service it was not only a race:
+    creating a folder under a name a sibling already has runs no probe, so it
+    answered 500 every time. Their unit specs threw a flat `{ code: '23505' }`
+    and passed. `isUniqueViolation(error, constraint?)` in `lib/db/errors.ts`
+    walks the cause chain, every site uses it, the filing path names its index,
+    and `no-restricted-syntax` refuses the literal `'23505'` outside specs.
+
+16. **A re-upload of a document deleted underneath it orphaned its object.**
+    `replaceDocumentWithinQuota` filtered its UPDATE on the id the upload had
+    probed and never looked at how many rows it changed. A delete committing
+    between the probe and the update left it changing none and answering
+    „admitted": the new object was named by no row, invisible to the UI and to
+    the quota ledger, and the upload went on to record a version for a
+    document that no longer existed. Both an ordinary re-upload and the retry
+    of correction 14 reach that update. It now reads what it matched
+    (`RETURNING id`) and throws `ReplacedDocumentGoneError` on none, which
+    rolls the admission back and lets `admitReplacementOrDiscard` delete the
+    object.
+
+    The project and Archiv uploads answer it the way correction 14 answers a
+    lost first upload: `retryRacedUpload` runs the attempt once more, the
+    probe now misses, and the bytes are filed as a FIRST upload under a new
+    id. Not a 409, for the same reason the other way round: a delete followed
+    by a drop of the same name is a first upload, the overlap of the two is
+    that sequence, and there is no history left to attach to — the delete took
+    every version with it. The session shelf does not retry; the error is a
+    `ConflictError`, so it answers 409 with the object discarded.
+
+17. **A delete after the upload's own write still let the upload finish.** The
+    last window: the row is written and points at the upload's bytes, and a
+    delete commits before `recordUploadedVersion` runs. The lookup missed and
+    the function returned `null`, which no caller read, so the upload
+    dispatched the deleted document for ingest, wrote „document.uploaded" to
+    the trail and answered 200. The project and Archiv uploads now record
+    through `recordUploadedVersionOrDiscard`, which turns that `null` into
+    `DocumentDeletedError` (a 409, `reason: 'deleted_during_upload'`) after
+    discarding the object it was handed, and the upload stops: no version, no
+    ingest, no audit line. The
+    same error covers a delete landing between that lookup and the insert,
+    where the version's foreign key refuses the insert.
+
+    Not retried as a first upload, unlike correction 16, and for the same
+    reason read in the other direction: order by commit. In 16 the delete
+    committed before the upload wrote anything, so the sequence is „delete,
+    then upload" and the upload is a first one. Here the upload's write
+    committed first, so the sequence is „upload, then delete" — the file being
+    gone is the delete's outcome, and re-filing it would undo a decision
+    somebody else made a moment later. The 409 tells the uploader exactly
+    that.
+
+    Closing it found the foreign key missing on two shelves. The only key from
+    a version to its document was 0082's composite `(document_id,
+    project_id)`, which is MATCH SIMPLE: with `project_id` NULL — every Archiv
+    and chat-attachment version — it checks nothing and cascades nothing. So
+    deleting an Archiv document left its version rows behind (correction 16's
+    „the delete took every version with it" was true of the objects, not the
+    rows), and an Archiv upload racing a delete recorded a published version,
+    naming its own object, for a document that was already gone. Migration
+    `0094` adds `document_versions_document_id_fkey`, `document_id →
+    documents (id) ON DELETE CASCADE`, after deleting the orphan rows that
+    already exist; the insert maps a 23503 on either key to the same
+    `DocumentDeletedError`. The session shelf records through the same
+    `recordUploadedVersionOrDiscard` as the project and Archiv shelves, so a
+    chat attachment (or its chat) deleted before its version is recorded is
+    discarded and answered 409 too, with its ingest dispatch moved after the
+    version for the same reason.
+
+    One window stays open and is stated rather than hidden: a delete landing
+    after the version is recorded and before the ingest dispatch. The delete
+    then sees every row and object, so nothing is orphaned in Postgres or the
+    bucket, but a dispatch already in flight can index a document that no
+    longer exists. Closing it needs the dispatch to be conditional on the row,
+    which is the ingest pipeline's contract, not this upload's. Correction 18
+    closes it there.
+
+18. **An ingest indexed a document deleted while it ran.** Two windows, one
+    cause: the ingest never learned about the delete. The window correction 17
+    left open is one. The other is a delete on one replica during a same-name
+    re-ingest on another: `delete_file` does not take the per-name
+    `keyed_lock` the ingestor holds, so it removed the chunks that were there
+    and the ingest inserted the rest after it. Both left chunks retrievable
+    with no row behind them.
+
+    One mechanism closes both, in the pipeline. Once a file is indexed and
+    before its predecessor is retired, the ingestor asks the BFF whether the
+    document it was dispatched for still exists (`GET
+    /api/internal/document-exists`, service token, by the `document_id` and
+    collection `/v1/ingest` already carried). Python never reads the BFF's
+    Postgres, so this is an internal route rather than a query. On `exists:
+    false` the attempt discards exactly the chunks it inserted
+    (`_discard_partial_version`), retires nothing and writes no metadata row.
+    Retiring would be wrong: after a delete and a new upload of the same name
+    (correction 16's first upload under a new id), the predecessor this
+    attempt found under the lock is the NEW document's version.
+
+    Fail-open, and only on a definite answer. The route answers 200 with a
+    boolean, and 404 is not "gone": it is also what a BFF without the route
+    answers. A timeout, a non-200 or an unreadable body keeps the chunks,
+    because an unreachable BFF deleting a live document's chunks is worse than
+    the window it failed to close.
+
+    Taking the lock in `delete_file` was the other option and was rejected:
+    the ingestor holds it for a whole file, embedding included, so a delete
+    would wait minutes and outlast the BFF's request timeout.
+
+    The BFF's delete purges chunks first and deletes the row last, so an
+    ingest whose check lands between those two steps still saw the row. Every
+    immediate delete now purges once more after the row is gone, which closes
+    it: the project and Archiv deletes (`deleteDocument`,
+    `deleteArchivDocument`), the single chat-attachment delete
+    (`deleteSessionDocument`) and a whole chat's attachment purge
+    (`purgeSessionDocuments`, `lib/session-documents/cleanup.ts`, for the rows
+    that pass erased). An ingest that asked before the row went has indexed by
+    then, and one that asks after reads "gone". A failure of that second purge
+    is logged and not surfaced, since the row is gone and the orphaned-vector
+    sweep is the net.
+
+    Pinned against a real Chroma collection in
+    `tests/knowledge_layer_tests/test_reingest_replaces_versions.py` (a delete
+    between two inserts leaves no chunk and no row; a stale attempt does not
+    retire a new document's version; an unreachable BFF keeps the new
+    version), the client's answers in `test_document_presence.py`, and the
+    route in `src/app/api/internal/document-exists/route.spec.ts`.
 
 ### What this amends in ADR-0047
 

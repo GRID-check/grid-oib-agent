@@ -1,0 +1,41 @@
+---
+features:
+  - >
+    Answers now appear while they are written: each reference takes its place at
+    once, marked as being checked, and becomes a clickable source as soon as it
+    is verified.
+  - >
+    Title and summary stand above the answer before its first word, and a card
+    keeps its place in the text instead of pushing down what you are reading. A
+    colleague reading along sees the same answer with title, sources and cards.
+  - >
+    Variants you compare, such as two design options, two provinces or existing
+    and converted, appear as tabs, each with its own table; the Word export
+    lists them one after another.
+  - >
+    Check tables show their result up front, such as „2 erfüllt · 1 offen“, and
+    on a phone wide tables stack row by row instead of scrolling sideways.
+  - >
+    Diagrams are redesigned: processes as cards with labelled arrows, a body of
+    rules as a tree, hand-overs as columns per party and dates as bars on a
+    timeline.
+improvements:
+  - >
+    Answers repeat themselves less: a lead that only restates the first
+    paragraph is dropped, as is a mind map that only redraws the table beside
+    it.
+fixes:
+  - >
+    Values from the tables of the OIB-Richtlinien, such as table 3 on
+    stairwells, are now read correctly and cited with the table's page; the
+    search used to mix up the columns for building classes.
+  - >
+    Answers on the Bauordnung keep their RIS references and are faster, because
+    a cited paragraph now arrives whole instead of in several pieces.
+  - >
+    Questions on permit-free and notifiable building work in Salzburg are
+    answered from the Baupolizeigesetz, and the Tiroler Bauordnung is read by
+    paragraph.
+  - >
+    Sketches are legible on a phone, and diagrams stay dark in dark mode instead
+    of switching to the light palette from the third one on.

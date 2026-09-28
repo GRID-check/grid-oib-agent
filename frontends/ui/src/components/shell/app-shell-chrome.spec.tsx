@@ -16,6 +16,9 @@ vi.mock('./app-sidebar', () => ({
 vi.mock('./org-header', () => ({
   OrgHeader: () => <div data-testid="org-header" />,
 }))
+vi.mock('@/features/onboarding/components/product-tour', () => ({
+  ProductTour: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}))
 
 const baseProps = {
   projects: [],
@@ -27,6 +30,7 @@ const baseProps = {
   canAccessInbox: true,
   showSkills: false,
   showModels: false,
+  tours: { welcome: false, project: false },
   overlay: null,
 }
 

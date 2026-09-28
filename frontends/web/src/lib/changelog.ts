@@ -26,11 +26,15 @@ export interface ChangelogSection {
 }
 
 export interface ChangelogRelease {
-  /** A tag (`v1.2.0`) or, while nothing is tagged, the day the notes shipped. */
+  /** A tag (`1.2.0`) or, while nothing is tagged, the ISO week the notes shipped in (`2026-W39`). */
   id: string
-  kind: 'version' | 'date'
+  kind: 'version' | 'week'
   version: string | null
+  /** A week's Monday, or a version's ship date. */
   date: string | null
+  /** A week's Sunday; null for a version. */
+  dateEnd: string | null
+  /** The editorial summary of the week (releasenotes/summaries.yaml), shown above its notes. */
   summary: Bilingual | null
   sections: ChangelogSection[]
 }
@@ -50,9 +54,10 @@ export function sectionTitle(key: string, locale: Locale): string {
 
 /**
  * The heading for one release: its version if the repo tagged one, otherwise the
- * date the notes shipped. A release with neither is still uncommitted — it can
- * only appear in a local preview — so the caller passes the localized
- * "coming up" label for it.
+ * week the notes shipped in, as a date range ("21.–27. September 2026",
+ * "31. August – 6. September 2026"). A release with no date is still
+ * uncommitted — it can only appear in a local preview — so the caller passes the
+ * localized "coming up" label for it.
  */
 export function releaseTitle(
   release: ChangelogRelease,
@@ -61,11 +66,55 @@ export function releaseTitle(
 ): string {
   if (release.kind === 'version' && release.version) return release.version
   if (!release.date) return unreleasedLabel
-  return new Date(`${release.date}T00:00:00Z`).toLocaleDateString(
-    locale === 'en' ? 'en-GB' : 'de-AT',
-    { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }
-  )
+  const format = new Intl.DateTimeFormat(locale === 'en' ? 'en-GB' : 'de-AT', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+  })
+  const start = new Date(`${release.date}T00:00:00Z`)
+  if (!release.dateEnd) return format.format(start)
+  return format.formatRange(start, new Date(`${release.dateEnd}T00:00:00Z`))
 }
+
+/** How many of the newest releases (weeks) the changelog shows open. */
+export const OPEN_RELEASES = 2
+
+export interface ChangelogMonth {
+  /** `2026-08`, also the anchor of the month's group. */
+  key: string
+  /** `August 2026` in the page's language (`Jänner` in German, as Austria writes it). */
+  label: string
+  releases: ChangelogRelease[]
+}
+
+/**
+ * The releases older than the open ones, one group per calendar month, newest
+ * first. The page was a single wall of every release (56,000px on a desktop);
+ * the months fold, and each release keeps its own anchor inside its month.
+ */
+export function olderByMonth(locale: Locale): ChangelogMonth[] {
+  const months = new Map<string, ChangelogRelease[]>()
+  for (const release of releases.slice(OPEN_RELEASES)) {
+    const key = release.date ? release.date.slice(0, 7) : 'undated'
+    months.set(key, [...(months.get(key) ?? []), release])
+  }
+  return [...months].map(([key, list]) => ({
+    key,
+    label:
+      key === 'undated'
+        ? key
+        : new Date(`${key}-01T00:00:00Z`).toLocaleDateString(locale === 'en' ? 'en-GB' : 'de-AT', {
+            year: 'numeric',
+            month: 'long',
+            timeZone: 'UTC',
+          }),
+    releases: list,
+  }))
+}
+
+/** The anchor a release is linked by: `#r-2026-08-27`. */
+export const releaseAnchor = (release: ChangelogRelease) => `r-${release.id}`
 
 /** `datetime` attribute for the release heading, when there is a real date. */
 export function releaseDateTime(release: ChangelogRelease): string | undefined {

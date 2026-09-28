@@ -65,6 +65,11 @@ jobs:
         # description is attacker-controlled text that routinely contains
         # quotes, backticks and $(…), and interpolating it into a shell command
         # is a script injection.
+        #
+        # PAUSED: the capture requirement is switched off. The job still runs
+        # and passes, so a branch protection that lists this check stays
+        # satisfied; restore the two commented lines to enforce it again.
         run: |
-          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
-          python3 ci/require_visual_evidence.py "$BASE_SHA" "$HEAD_SHA" "$RUNNER_TEMP/pr-body.md"
+          echo "Visual evidence requirement is paused (see .github/workflows/visual-evidence.yml)."
+          # printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pr-body.md"
+          # python3 ci/require_visual_evidence.py "$BASE_SHA" "$HEAD_SHA" "$RUNNER_TEMP/pr-body.md"

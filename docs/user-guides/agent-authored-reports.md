@@ -12,63 +12,48 @@ different is what it *says about itself*, and this guide is about that.
 
 ---
 
-## Where the report goes, and when you are told
+## Where the report goes, and how you are told
 
-You are told **before** it exists, not after.
-
-While a deep-research run is starting, the banner in the chat carries one quiet
-line under the usual "this may take several minutes":
-
-> Der fertige Bericht wird in diesem Projekt unter „Berichte“ abgelegt.
-
-That line is on the *starting* banner deliberately. It is the moment the run can
-still be stopped, which is the only moment at which knowing the destination is
-worth anything. There is no dialog and no "are you sure": a confirmation asked
-after a twenty-minute run is only ever answered yes, so it would be a receipt
-rather than a decision.
+A deep-research run is one block in the chat that commissioned it. While it
+goes, the block names where the run stands (Planen · Recherchieren · Prüfen ·
+Schreiben · Abgelegt) and, under **Abgelegt**, where the report will land: in
+this project, under **Berichte**. That is the moment the run can still be
+stopped, which is the only moment at which knowing the destination is worth
+anything. There is no dialog and no "are you sure": a confirmation asked after
+a twenty-minute run is only ever answered yes, so it would be a receipt rather
+than a decision.
 
 It matters more than it looks, because a deep-research run does not always begin
 because you asked for one. Piloti escalates a question to deep research by
-itself when a short answer would not hold, and when it does it says so on the
-line above the banner ("Eskaliert zur Tiefenrecherche: …"). In that case nobody
-ordered a report — so the destination line is the whole of what you were told,
-and it is there in both cases.
+itself when a short answer would not hold, and when it does the Herleitung of
+that turn says so ("Eskaliert zur Tiefenrecherche: …"). In that case nobody
+ordered a report — so the block is the whole of what you were told, and it is
+there in both cases.
 
-When the run finishes, the success banner names the file and offers a second
-action:
+When the run finishes, the block's one line says what became of the report:
 
-> Im Projekt abgelegt: fluchtweglangen-gk-4-2026-08-20.pdf
->
-> **Bericht anzeigen** · **Im Projekt öffnen**
+> Fertig · Bericht abgelegt in Projekt › Berichte — **Im Projekt anzeigen**
 
-Two actions, two places: *Bericht anzeigen* opens the research panel beside the
-chat, *Im Projekt öffnen* opens the file in the project's Dateien.
+The report itself is read in the block, in the thread; *Im Projekt anzeigen*
+opens the filed document in the project's Dateien.
 
-**If nothing was filed and nothing was promised, the banner says nothing about a
-file.** A chat that is not inside a project never gets the destination line in
-the first place, and nothing is filed from one — so there is nothing to report
-either way. The banner does not claim a file that does not exist.
+**If nothing was filed, the block says so instead of naming a file:**
 
-**If the filing was promised and then failed, the banner says so:**
+> Fertig · Der Bericht liegt hier im Verlauf
 
-> Der Bericht konnte nicht unter „Berichte“ abgelegt werden.
-
-One quiet line, the same size and colour as the promise it takes back. It
-appears only when you were told the report would be filed — that is, only inside
-a project — because that is the only case in which anything needs correcting.
-
-It does not say why, and that is deliberate. A full storage quota, an
-organization that has not given your role the right to let Piloti file (a
-separate right from your own right to upload files — your administrator can
-withhold one and keep the other), and a report too long to render are the same
-fact from where you are sitting: the document is not there. The difference between them is something your administrator can act on,
-not you, and it is recorded in the server log for exactly that reason. What the
-line spares you is walking to *Berichte* to look for a file that was never
-written.
+A chat that is not inside a project never files anything, and a filing can fail
+inside one — a full storage quota, an organization that has not given your role
+the right to let Piloti file (a separate right from your own right to upload
+files — your administrator can withhold one and keep the other), or a report too
+long to render. From where you are sitting these are the same fact: the
+document is not there, and the block does not claim one. The difference between
+them is something your administrator can act on, not you, and it is recorded
+in the server log for exactly that reason.
 
 **The report itself is never at risk.** In none of these cases is it lost — it
-is in the research panel either way, and you can export it from there. Filing is
-the second thing that happens to a report, never a condition of getting it.
+is on the run's message in the thread either way, and you can export it from
+there. Filing is the second thing that happens to a report, never a condition of
+getting it.
 
 ---
 
@@ -302,5 +287,5 @@ way rather than discovered to be so.
 ## Related
 
 - [Documents](documents.md) — uploading, ingestion, the Files workspace
-- [Chat](chat.md) — the research panel and the deep-research banners
+- [Chat](chat.md) — the run block in the thread
 - [Projects](projects.md) — project access and membership

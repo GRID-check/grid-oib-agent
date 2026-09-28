@@ -6,6 +6,8 @@ import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils
 import type { ChatStoreWithHydration } from '../store'
 import type { SourcePreviewChipProps } from './SourcePreview'
 import type { MessageStages } from '@/lib/conversations/message-stages'
+import type { GridCard } from '@/shared/cards/schemas'
+import { useAnswerFileReferences } from '../hooks/use-answer-file-references'
 
 /**
  * A turn the post-answer reflection stage recorded something for. No hook is
@@ -19,11 +21,15 @@ const NOTED: MessageStages = {
   },
 }
 
+// The project the READER has open; null unless a test sets it.
+const storeFixture = vi.hoisted(() => ({ projectId: null as string | null }))
+
 // Mock the chat store
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
     const state: DeepPartial<ChatStoreWithHydration> = {
       currentConversation: null,
+      projectId: storeFixture.projectId,
       patchConversationMessage: vi.fn(),
     }
     return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
@@ -59,6 +65,12 @@ vi.mock('./SourcePreview', async (importOriginal) => {
   }
 })
 
+// The real hook, observed: a read-only answer must still resolve the files it names.
+vi.mock('../hooks/use-answer-file-references', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../hooks/use-answer-file-references')>()
+  return { ...actual, useAnswerFileReferences: vi.fn(actual.useAnswerFileReferences) }
+})
+
 // Mock MarkdownRenderer to render content as plain text for testing
 vi.mock('@/shared/components/MarkdownRenderer', () => ({
   MarkdownRenderer: ({ content }: { content: string }) => <span>{content}</span>,
@@ -67,6 +79,45 @@ vi.mock('@/shared/components/MarkdownRenderer', () => ({
 describe('AgentResponse', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    storeFixture.projectId = null
+  })
+
+  describe('a read-only answer (somebody else\'s turn)', () => {
+    const proposal = {
+      type: 'memory_proposal',
+      title: 'Merken?',
+      content: 'Fluchtweg über den Innenhof',
+      kind: 'decision',
+      confidence: 'medium',
+    } as unknown as GridCard
+
+    test('offers no feedback even when it is handed a message id', () => {
+      render(<AgentResponse content="Answer" messageId="m1" readOnly />)
+      expect(
+        screen.queryByRole('button', { name: 'Mark this answer as helpful' })
+      ).not.toBeInTheDocument()
+    })
+
+    test('draws no card that can decide, even when it is handed a message id', () => {
+      render(<AgentResponse content="Answer" messageId="m1" cards={[proposal]} readOnly />)
+      expect(screen.getByText('Fluchtweg über den Innenhof')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Yes, remember org-wide' })).not.toBeInTheDocument()
+    })
+
+    test('still resolves the files it names in the reader\'s project', () => {
+      storeFixture.projectId = 'p1'
+      // Answered here, not by the network: the real hook would fetch the
+      // project's files and outlive this test.
+      const hook = vi.mocked(useAnswerFileReferences)
+      const real = hook.getMockImplementation()
+      hook.mockImplementation(() => ({ fileNames: [], resolve: () => null }))
+      try {
+        render(<AgentResponse content="Siehe plan.pdf" readOnly />)
+        expect(hook).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'p1' }))
+      } finally {
+        if (real) hook.mockImplementation(real)
+      }
+    })
   })
 
   test('renders response content', () => {
@@ -96,6 +147,12 @@ describe('AgentResponse', () => {
     render(<AgentResponse content="Response" timestamp={timestamp} />)
     await user.click(screen.getByTestId('answer-details-trigger'))
 
+    expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
+  })
+
+  test('the details open on their own when the research was cut off', () => {
+    // A warning behind a closed trigger is a warning nobody read.
+    render(<AgentResponse content="Response" timestamp="2024-01-15T14:30:00Z" researchTruncated />)
     expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
   })
 
@@ -171,7 +228,12 @@ describe('AgentResponse', () => {
 
   test('hides the confidence chip when the flag is off (inline variant)', () => {
     render(
-      <AgentResponse content="Answer" variant="inline" answerConfidence="low" showConfidenceChip={false} />
+      <AgentResponse
+        content="Answer"
+        variant="inline"
+        answerConfidence="low"
+        showConfidenceChip={false}
+      />
     )
     expect(screen.queryByText(/Confidence:/)).not.toBeInTheDocument()
     expect(screen.getByText('Answer')).toBeInTheDocument()
@@ -203,14 +265,14 @@ describe('AgentResponse', () => {
     expect(screen.getByText('Summary content')).toBeInTheDocument()
     expect(screen.getByText('Point one')).toBeInTheDocument()
     // An unplaced legal_basis is not a fallback-grid item: it renders flat
-    // above the prose (`EvidenceBlock`) — eyebrow, one Fundstelle line, quote
+    // right after the prose (`EvidenceBlock`) — eyebrow, one Fundstelle line, quote
     // and disclaimer, but never the framed card's plain-language summary.
     expect(screen.getByText('Legal basis')).toBeInTheDocument()
     expect(screen.getByText('GDPR · 5 · 1')).toBeInTheDocument()
     expect(screen.getByText('Original legal text')).toBeInTheDocument()
     expect(screen.queryByText('Summary of the legal basis')).not.toBeInTheDocument()
     const text = container.textContent ?? ''
-    expect(text.indexOf('Legal basis')).toBeLessThan(text.indexOf('Response with cards'))
+    expect(text.indexOf('Legal basis')).toBeGreaterThan(text.indexOf('Response with cards'))
   })
 
   // Cards used to open the answer, which is the one place they cannot help: two
@@ -229,7 +291,7 @@ describe('AgentResponse', () => {
 
     const { container } = render(<AgentResponse content="Die Antwort." cards={cards} />)
 
-    const body = (container.textContent ?? '')
+    const body = container.textContent ?? ''
     expect(body.indexOf('Die Antwort.')).toBeGreaterThanOrEqual(0)
     expect(body.indexOf('Nachgestellte Karte')).toBeGreaterThan(body.indexOf('Die Antwort.'))
   })
@@ -249,6 +311,17 @@ describe('AgentResponse', () => {
     render(<AgentResponse content={'Die Antwort.\n\n[[card:1]]'} cards={cards} />)
 
     expect(screen.queryByText('Platzierte Karte')).not.toBeInTheDocument()
+  })
+
+  test('shows the masthead of a streaming answer before its first word', () => {
+    render(
+      <AgentResponse
+        content=""
+        isStreaming
+        answerMeta={{ v: 1, kind: 'walkthrough', topic: 'Zweiter Fluchtweg in GK 4' }}
+      />
+    )
+    expect(screen.getByText('Zweiter Fluchtweg in GK 4')).toBeInTheDocument()
   })
 
   describe('"Belegt durch" answer sources row (WS-3)', () => {
@@ -358,7 +431,9 @@ describe('AgentResponse', () => {
     })
 
     test('renders no meta row when it would hold nothing at all', () => {
-      render(<AgentResponse content="Answer" showConfidenceChip={false} showAnswerFeedback={false} />)
+      render(
+        <AgentResponse content="Answer" showConfidenceChip={false} showAnswerFeedback={false} />
+      )
 
       expect(screen.queryByText('Piloti noted')).not.toBeInTheDocument()
       expect(screen.queryByText(/\d{1,2}:\d{2}/)).not.toBeInTheDocument()
@@ -433,7 +508,7 @@ describe('AgentResponse', () => {
       expect(screen.getByText(/^\d{1,2}:\d{2}/)).toBeInTheDocument()
     })
 
-    test('a down-vote opens its disclosure as the meta row\'s own next line', async () => {
+    test("a down-vote opens its disclosure as the meta row's own next line", async () => {
       // The layout defect this holds: the row is `items-center`, so one box
       // holding both the thumbs and their open form made the row as tall as the
       // form and centred the copy actions against it — two icons floating in
@@ -679,9 +754,7 @@ describe('AgentResponse', () => {
     })
 
     test('the two kinds render visibly different role tabs for the same content', () => {
-      const { unmount } = render(
-        <AgentResponse content="Same text" routingDecision="deep" />
-      )
+      const { unmount } = render(<AgentResponse content="Same text" routingDecision="deep" />)
       expect(screen.getByText('Result')).toBeInTheDocument()
       unmount()
 
@@ -698,7 +771,7 @@ describe('AgentResponse', () => {
       expect(screen.queryByText('Note')).not.toBeInTheDocument()
     })
 
-    test("fallback: an 'error' routing keeps the default \"Result\" treatment", () => {
+    test('fallback: an \'error\' routing keeps the default "Result" treatment', () => {
       render(<AgentResponse content="Something went wrong" routingDecision="error" />)
 
       expect(screen.getByText('Result')).toBeInTheDocument()
@@ -794,10 +867,19 @@ describe('AgentResponse', () => {
       expect(hasLede(container)).toBe(false)
     })
 
-    test('a streaming answer gets no lede — the opening is still arriving', () => {
-      const { container } = render(<AgentResponse content={longAnswer} isStreaming />)
-
+    test('a streaming answer takes its lede once it has earned it (ADR-0066)', () => {
+      // Decided at the end, the lede reflowed the top of an answer the reader
+      // was already halfway down; decided as it streams, it only ever grows.
+      const { container, rerender } = render(
+        <AgentResponse content={longAnswer.slice(0, 200)} isStreaming />
+      )
       expect(hasLede(container)).toBe(false)
+
+      rerender(<AgentResponse content={longAnswer} isStreaming />)
+      expect(hasLede(container)).toBe(true)
+
+      rerender(<AgentResponse content={longAnswer} />)
+      expect(hasLede(container)).toBe(true)
     })
   })
   // Getting the answer OUT: the copy actions live in the merged footer's meta
@@ -863,7 +945,10 @@ describe('AgentResponse', () => {
 
     test('renders the masthead above the prose and the rest after it', () => {
       const { container } = render(
-        <AgentResponse content="REI 60 gilt, und maßgeblich ist das Fluchtniveau." answerMeta={answerMeta} />
+        <AgentResponse
+          content="REI 60 gilt, und maßgeblich ist das Fluchtniveau."
+          answerMeta={answerMeta}
+        />
       )
       const text = container.textContent ?? ''
       expect(text).toContain('REI 60')
@@ -874,7 +959,9 @@ describe('AgentResponse', () => {
       expect(text.indexOf('REI 60')).toBeLessThan(text.indexOf('In GK 4 gilt REI 60'))
       expect(text.indexOf('In GK 4 gilt REI 60')).toBeLessThan(text.indexOf('REI 60 gilt,'))
       expect(text.indexOf('REI 60 gilt,')).toBeLessThan(text.indexOf('Binnen sechs Wochen'))
-      expect(text.indexOf('Binnen sechs Wochen')).toBeLessThan(text.indexOf('Maßgeblich ist das Fluchtniveau'))
+      expect(text.indexOf('Binnen sechs Wochen')).toBeLessThan(
+        text.indexOf('Maßgeblich ist das Fluchtniveau')
+      )
     })
 
     test('a summary holds the lede emphasis alone — the first paragraph stays body-sized', () => {
@@ -978,7 +1065,10 @@ describe('AgentResponse', () => {
 
     test('a genuinely different summary still headlines the answer', () => {
       const { container } = render(
-        <AgentResponse content="REI 60 gilt, und maßgeblich ist das Fluchtniveau." answerMeta={answerMeta} />
+        <AgentResponse
+          content="REI 60 gilt, und maßgeblich ist das Fluchtniveau."
+          answerMeta={answerMeta}
+        />
       )
       expect(container.querySelector('header')?.textContent).toContain('In GK 4 gilt REI 60')
     })
@@ -1094,10 +1184,11 @@ describe('AgentResponse', () => {
       expect(screen.queryByRole('button', { name: 'Copy answer' })).not.toBeInTheDocument()
     })
 
-    test('a card no marker claimed waits for the stream to finish', () => {
-      // "Unplaced" is read off the body SO FAR. A card whose `[[card:N]]` has
-      // not arrived yet looks unplaced, and drawing it mid-stream would put it
-      // below the prose for a second and then jump it up the answer.
+    test('a card no marker claimed lands as soon as the streamed prose is complete', () => {
+      // A live frame carries cards only once the envelope's `answer` string
+      // closed (ADR-0066), so a streaming answer that holds cards has all of
+      // its prose: nothing can claim the card any more, and waiting for the
+      // terminal held it back until verification and the pipeline were done.
       const cards = [
         {
           type: 'summary' as const,
@@ -1107,9 +1198,13 @@ describe('AgentResponse', () => {
         },
       ]
 
-      const midStream = render(<AgentResponse content="Die " cards={cards} isStreaming />)
-      expect(midStream.container.textContent).not.toContain('Nachgestellte Karte')
-      midStream.unmount()
+      const prose = render(<AgentResponse content="Die " isStreaming />)
+      expect(prose.container.textContent).not.toContain('Nachgestellte Karte')
+      prose.unmount()
+
+      const cardsWritten = render(<AgentResponse content="Die Antwort." cards={cards} isStreaming />)
+      expect(cardsWritten.container.textContent).toContain('Nachgestellte Karte')
+      cardsWritten.unmount()
 
       const finished = render(<AgentResponse content="Die Antwort." cards={cards} />)
       expect(finished.container.textContent).toContain('Nachgestellte Karte')

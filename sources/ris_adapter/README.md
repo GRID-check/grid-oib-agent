@@ -32,7 +32,7 @@ the same path internally, with its own bounds, one module per stage under
 | address parse (§/Art/Abs, named law, Bundesland) | `address.py` | — deterministic, no LLM |
 | candidates (norm registry, else a planned live search) | `candidates.py` | 3 |
 | fetch, in parallel, through the shared cache | `fetch.py` | 2 |
-| the paragraph grammar | `grammar.py` | passage ≤ the knowledge layer's `_CHUNK_TRUNCATE_CHARS`, cut on an Absatz boundary |
+| the paragraph grammar | `grammar.py`, `passages.py` | a named § ≤ 8000 chars (`grammar.SECTION_MAX_CHARS`); a list shares 16000 (`passages.LIST_MAX_CHARS`), at least the knowledge layer's `_CHUNK_TRUNCATE_CHARS` each; a ranked pick ≤ `_CHUNK_TRUNCATE_CHARS`; always cut on an Absatz boundary |
 | § selection — deterministic, else ONE call over § headings | `extract.py`, `picker.py` | 6 passages, 2 documents |
 | the grounding block / the miss | `passages.py`, `render.py`, `miss.py` | — |
 | session-collection ingest (so `read_passage` reopens the law) | `ingest.py` | — |
@@ -42,6 +42,22 @@ Best case — a named §, a catalog hit, a warm cache — is one charged call an
 one charged call. A miss is never empty: it states the terms actually searched,
 the Bundesland it assumed **and where that came from**, what matched but was not
 read (including the catalog's "Not in RIS" cases), and one concrete retry.
+
+**A list of §§ is one call.** A list or range of §§ or Artikel (`§§ 75 und 81`,
+`§§ 2 bis 4`, `§ 7a bis 9`) takes the deterministic path. The first six
+(`MAX_ADDRESSED_SECTIONS`) are cut out of the fetched law. The rest are named in
+a preamble line, consecutive runs with "bis" and the others comma-separated:
+
+```text
+[Only the first 6 of the listed sections were addressed; not read: § 9 bis § 12, § 15a. Ask for them in a second call.]
+```
+
+With a list, a named Absatz is ignored. A single § with a named Absatz returns
+that Absatz and the whole § beside it, but only when the Absatz exists and the §
+is ≤ 8000 chars. RIS repeats § headers and tables of contents in one document;
+the grammar keeps one copy of each §: the one whose marker is written `§ 8.`,
+else the longest. A § heading may sit on the
+line under its marker, and the grammar reads it there too.
 
 Deep research keeps the three tools until its own consolidation: it plans
 retrieval across up to six researchers and has a different budget shape, and
@@ -57,10 +73,12 @@ store, which seeds itself from this YAML) is a **flat catalog** of verified RIS
 pointers — application, document number, citation URL,
 entire-consolidated-law URL — plus curated prose legal notes (`binding_note`,
 e.g. how the WBTV makes the OIB-Richtlinien binding in Vienna). Austria ships
-22 entries: the nine state building codes (Bauordnungen / Baugesetze /
-Bautechnikgesetze), Wiener Garagengesetz, WBTV, Kleingartengesetz, and the
-adjacent federal acts (ASchG, AStV, BKAG, ZTG, WGG, DMSG, UVP-G, WRG, ForstG,
-GewO). It is a **pointer index only**: full texts are still fetched live with
+the nine state building codes (Bauordnungen / Baugesetze /
+Bautechnikgesetze), Salzburg's Baupolizeigesetz (`baupolg-sbg`, the permit
+procedure; the Bautechnikgesetz keeps the technical rules), Wiener
+Garagengesetz, WBTV, Kleingartengesetz, and the adjacent federal acts (ASchG,
+AStV, BKAG, ZTG, WGG, DMSG, UVP-G, WRG, ForstG, GewO). `registry.yml` is the
+list; count it there rather than here. It is a **pointer index only**: full texts are still fetched live with
 `ris_fetch_document`. The OIB corpus itself lives in the knowledge base, not
 in the catalog (ADR-0025 v2).
 
@@ -105,8 +123,10 @@ uv run --no-project --with httpx --with pydantic --with beautifulsoup4 \
 
 1. Serves it from the **shared cache** when possible: the fetched full text is
    stored in the agent's fail-open Dragonfly/Redis cache
-   (`aiq_agent.common.cache`, ADR-0020), keyed by the document URL, for
-   `GRID_RIS_CACHE_TTL_DAYS` (default 7). A repeat of the same fetch — later in
+   (`aiq_agent.common.cache`, ADR-0020), keyed by the document URL and
+   `DOC_TEXT_VERSION` (bump it with any change to what `html_to_text` keeps),
+   for `GRID_RIS_CACHE_TTL_DAYS` (default 7). URLs OGD-RIS states on its
+   `ogd.ris.bka.gv.at` host are rewritten to `www.ris.bka.gv.at` first. A repeat of the same fetch — later in
    the conversation, on another replica, after a restart — is served without the
    HTTP download. It is cache-only: on a miss, a cache error, or when the agent
    package is absent (adapter used standalone), the tool simply performs the live

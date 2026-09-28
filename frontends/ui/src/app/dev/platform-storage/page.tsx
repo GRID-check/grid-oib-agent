@@ -10,6 +10,7 @@
  * name so the id fallback is visible.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { HardDrive } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'

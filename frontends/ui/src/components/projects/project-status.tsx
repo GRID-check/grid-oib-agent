@@ -12,6 +12,7 @@
  * only once the data model grows a real completion/archive concept.
  */
 
+import type { JSX } from 'react'
 import type { CSSProperties } from 'react'
 import { Activity } from 'lucide-react'
 import { Chip } from '@/components/ui/chip'

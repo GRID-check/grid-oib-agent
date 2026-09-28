@@ -17,6 +17,7 @@
  * Not linked from anywhere and 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
 import { notFound } from 'next/navigation'
 import { IfcCompliancePanel } from '@/features/bim/components/ifc-compliance-panel'

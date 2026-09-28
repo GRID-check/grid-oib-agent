@@ -17,9 +17,12 @@ turn carries out is a field of Piloti's own finished state, lifted by
 :data:`ANSWER_LIFTS` rather than recomputed here.
 """
 
+import contextlib
 import logging
+from collections.abc import AsyncIterator
 from collections.abc import Awaitable
 from collections.abc import Callable
+from collections.abc import Sequence
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -34,12 +37,17 @@ from langgraph.types import Command
 
 from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
 from aiq_agent.common import get_latest_user_query
+from aiq_agent.common.canned_replies import GENERIC_ERROR_MESSAGE
+from aiq_agent.common.canned_replies import NO_SOURCES_MESSAGE
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.job_admission import JobAdmissionError
+from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.common.profiler import profiled_node
 from aiq_agent.common.tool_validation import format_user_facing_tool_error
+from aiq_agent.common.turn_status import ToolStepCallback
 from aiq_agent.common.turn_status import emit_escalation
+from aiq_agent.common.wire_v2 import EventBody
 from aiq_agent.knowledge.inventory import set_listing_shelf
 from aiq_agent.knowledge.inventory import shelf_hint_from_query
 from aiq_agent.turn.api_seam import AuthError
@@ -47,6 +55,8 @@ from aiq_agent.turn.commission import CommissionedRun
 from aiq_agent.turn.commission import CommissionRefused
 
 from .clarify import ClarifyFn
+from .history import compact_tool_results
+from .history import prune_tool_results
 from .history import trim_message_history
 from .markers import detect_and_strip_confidence_marker
 from .markers import detect_and_strip_escalation_marker
@@ -72,12 +82,6 @@ after all. The second half is literally true: the cancellation sets
 routes straight to Piloti instead of producing plan number two.
 """
 
-GENERIC_ERROR_MESSAGE = "An error occurred while researching your question. Please try again."
-NO_SOURCES_MESSAGE = (
-    "I searched the available sources but couldn't retrieve anything usable "
-    "to ground an answer to this question. This may be a temporary issue — "
-    "please try again, or rephrase the question."
-)
 # Reader-facing text, and therefore left verbatim by the rename: it is what
 # `escalation_reason` carries onto the wire when the model asked to escalate
 # without saying why, so it is already stored in turns from before this commit.
@@ -172,10 +176,29 @@ def _escalation_update(message: BaseMessage, result: ResearchAgentState) -> dict
     }
 
 
-def _answer_update(message: BaseMessage, result: ResearchAgentState) -> dict[str, Any]:
-    """A finished answer with everything Piloti decided about it."""
+def _answer_update(
+    message: BaseMessage, result: ResearchAgentState, turn_messages: Sequence[BaseMessage] = ()
+) -> dict[str, Any]:
+    """A finished answer with everything Piloti decided about it.
+
+    The WHOLE turn is written back — the tool calls, their results, then the
+    answer — not the answer alone: the passages this answer was written from
+    are the context the next turn's follow-up needs, and re-fetching what the
+    transcript just held was the round every follow-up paid. The results are
+    cut to the passages the answer CITED (``history.compact_tool_results``);
+    an uncited passage keeps its header so the next turn knows it exists.
+    Older turns are pruned to what was said when the next turn's history is
+    built (``history.prune_tool_results``), so the budget holds answers, plus
+    one turn of cited evidence.
+    """
     update: dict[str, Any] = {field: getattr(result, source) for source, field in ANSWER_LIFTS}
-    update["messages"] = [message]
+    cited = {
+        str(source.get("citation_key"))
+        for source in (result.verified_sources or [])
+        if isinstance(source, dict) and source.get("citation_key")
+    }
+    kept = compact_tool_results([m for m in turn_messages if m is not message], cited)
+    update["messages"] = [*kept, message]
     update["escalate_to_deep"] = False
     # Presence is the fact: True or absent, never False.
     update["research_truncated"] = True if result.research_truncated else None
@@ -195,7 +218,11 @@ def _stripped(content: str) -> str:
 
 
 def _finalize_answer(
-    message: BaseMessage, result: ResearchAgentState, *, deep_research_allowed: bool = True
+    message: BaseMessage,
+    result: ResearchAgentState,
+    *,
+    deep_research_allowed: bool = True,
+    turn_messages: Sequence[BaseMessage] = (),
 ) -> dict[str, Any]:
     """The node update for a finished research turn, from its answer message and
     the structured signals Piloti extracted in its own ``run()``.
@@ -242,7 +269,7 @@ def _finalize_answer(
     updated = message.model_copy(update={"content": clean_content}) if clean_content != content else message
     if escalating:
         return _escalation_update(updated, result)
-    return _answer_update(updated, result)
+    return _answer_update(updated, result, [m for m in turn_messages if m is not message])
 
 
 def _answer_only(text: str) -> dict[str, Any]:
@@ -269,7 +296,12 @@ def _answer_message(new_messages: list[BaseMessage]) -> BaseMessage | None:
 
 
 def _deep_handoff(
-    original_query: str | None, escalation_reason: str | None, clarifier_result: str | None = None
+    original_query: str | None,
+    escalation_reason: str | None,
+    clarifier_result: str | None = None,
+    *,
+    data_sources: list[str] | None = None,
+    plan_documents: PlanDocuments | None = None,
 ) -> Command:
     update: dict[str, Any] = {
         "original_query": original_query,
@@ -278,6 +310,12 @@ def _deep_handoff(
     }
     if clarifier_result is not None:
         update["clarifier_result"] = clarifier_result
+    # The Rahmen the reader approved the plan under replaces the turn's own
+    # sources: it IS the composer's Datengrundlage at the moment of approval.
+    if data_sources is not None:
+        update["data_sources"] = data_sources
+    if plan_documents is not None:
+        update["plan_documents"] = plan_documents
     return Command(goto="deep_research", update=update)
 
 
@@ -359,7 +397,9 @@ class ConversationGraph:
         self._graph = self._build_graph()
 
     def _trimmed(self, state: ConversationState) -> list[BaseMessage]:
-        return trim_message_history(state.messages, self.max_history_tokens)
+        # The previous turn's tool results stay (a follow-up answers from
+        # them); older turns keep what was said. Then the token budget.
+        return trim_message_history(prune_tool_results(state.messages), self.max_history_tokens)
 
     async def _clarifier_node(self, state: ConversationState) -> Command:
         original_query = get_latest_user_query(state.messages)
@@ -386,7 +426,13 @@ class ConversationGraph:
             return _plan_cancelled(original_query)
         if result.outcome == "shallow":
             return _plan_rejected(original_query)
-        return _deep_handoff(original_query, escalation_reason, result.research_context)
+        return _deep_handoff(
+            original_query,
+            escalation_reason,
+            result.research_context,
+            data_sources=result.data_sources,
+            plan_documents=result.documents,
+        )
 
     def _research_input(self, state: ConversationState, trimmed: list[BaseMessage]) -> ResearchAgentState:
         return ResearchAgentState(
@@ -436,10 +482,13 @@ class ConversationGraph:
         if not result.messages:
             logger.error("Piloti returned no messages")
             return _error_update(GENERIC_ERROR_MESSAGE)
-        message = _answer_message(result.messages[len(trimmed) :])
+        new_messages = result.messages[len(trimmed) :]
+        message = _answer_message(new_messages)
         if message is None:
             return {"messages": []}
-        update = _finalize_answer(message, result, deep_research_allowed=state.deep_research_allowed)
+        update = _finalize_answer(
+            message, result, deep_research_allowed=state.deep_research_allowed, turn_messages=new_messages
+        )
         if isinstance(result, ResearchAgentState) and not update.get("already_read_digest"):
             # A result that carries no digest (a mocked research_fn, an older
             # caller) must not wipe the checkpointed lines: the digest only
@@ -510,6 +559,7 @@ class ConversationGraph:
             messages=self._trimmed(state) + [HumanMessage(content=research_query)],
             data_sources=state.data_sources,
             clarifier_result=state.clarifier_result,
+            plan_documents=state.plan_documents,
             available_documents=state.available_documents,
             user_info=state.user_info,
             project_context=state.project_context,
@@ -562,7 +612,7 @@ class ConversationGraph:
         # Transparency must never take a turn down, and the stakes went UP when this
         # moved into a conditional edge: a raise inside a routing function does not
         # degrade the turn, it ends it with no answer at all. Nothing in
-        # ``emit_escalation`` can raise today (``push_custom_step`` swallows, and
+        # ``emit_escalation`` can raise today (``turn_status.emit`` swallows, and
         # ``clip``/``str.split`` are total on ``str | None``), which is exactly why the
         # guard has to be here rather than trusted to stay true one refactor from now.
         try:
@@ -618,8 +668,16 @@ class ConversationGraph:
             return None
         return list(dict.fromkeys([*checkpoint, *caller]))
 
-    async def run(self, state: ConversationState, thread_id: str | None = None) -> ConversationState:
-        """Execute one turn on ``thread_id``'s conversation and return the final state.
+    async def stream(
+        self, state: ConversationState, thread_id: str | None = None
+    ) -> AsyncIterator[EventBody | ConversationState]:
+        """Run one turn on ``thread_id``'s conversation: the wire bodies as it runs, then the final state.
+
+        The graph runs under ``astream`` (chat wire v2 §b): every producer
+        inside it, Piloti's inner graph behind its NAT function included,
+        writes its bodies through ``get_stream_writer()``, and they come out
+        here in order. Only the ROOT graph's values are the turn's state; a
+        subgraph's are its own.
 
         The graph input is every turn-scoped field of the fresh ``state`` plus
         its new messages: a field listed is overwritten with this turn's value
@@ -638,9 +696,19 @@ class ConversationGraph:
             input_state["already_read_digest"] = merged_digest
         if state.messages:
             logger.info("Query: %s...", str(state.messages[-1].content)[:100])
-        result = await self._graph.ainvoke(input_state, config=graph_config)
+        # One tool-step callback per run: every tool call of the turn, inner
+        # graphs included, becomes a `tool` step on the same stream.
+        run_config: RunnableConfig = {**graph_config, "callbacks": [ToolStepCallback()]}
+        final: dict[str, Any] | None = None
+        run = self._graph.astream(input_state, config=run_config, stream_mode=["custom", "values"], subgraphs=True)
+        async with contextlib.aclosing(run) as chunks:
+            async for namespace, mode, chunk in chunks:
+                if mode == "custom":
+                    yield chunk
+                elif not namespace:
+                    final = chunk
         logger.info("Conversation: Turn complete")
-        return ConversationState.model_validate(result)
+        yield ConversationState.model_validate(final)
 
     async def append_context_message(self, thread_id: str, text: str) -> None:
         """Append a human turn to *thread_id*'s history WITHOUT running the graph.

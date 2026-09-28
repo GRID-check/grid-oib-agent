@@ -1,32 +1,34 @@
 /**
  * ChatThinking — collapsible Herleitung panel (click-dummy overhaul).
  *
- * Collapsed: status + "Herleitung · n Schritte", plus "· m Quellen" when the
- * answer actually rests on any.
+ * Collapsed: status + "Herleitung", plus "· m Quellen" when the answer actually
+ * rests on any. No step count: see the header-line comment below.
  * Expanded: the connected reasoning-chain (`ReasoningChain`) — the framing node,
  * a spine of checkpoints when the turn searched more than once (each with the
  * tools it called and the files THAT fetch returned), the findings node, and
  * (when a live HITL choice exists) the next-steps branches, plus the technical
- * NAT-step tail.
+ * step tail.
  * Every node binds to real streamed data or is hidden; nothing is fabricated.
  */
 
 'use client'
 
-import { type FC, useMemo, useState, useEffect, useRef } from 'react'
+import { type FC, memo, useMemo, useState, useEffect, useRef, useTransition } from 'react'
+import { ShimmerText } from '@/components/ui/shimmer-text'
+import { cn } from '@/lib/utils'
 import { ChevronDown, CheckCircle2, AlertTriangle, Clock } from 'lucide-react'
 import { Collapsible, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { motion, AnimatePresence, motionBase, motionQuick } from '@/components/motion'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
-import type { ThinkingStep, CitationSource } from '../types'
+import type { CitationSource } from '../types'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { deriveTraceLanes } from '../lib/trace-lanes'
 import { buildCitationModel } from '../lib/citations'
-import { deriveLiveActivity } from '../lib/live-activity'
+import { liveLine } from '../lib/turn-events'
 import { deriveExecutedSteps } from '../lib/executed-steps'
-import { isSkillStepName, isUseSkillStepName } from '@/features/skills/lib/skill-activity'
 import { useElapsedSeconds, formatElapsed } from '../hooks/use-elapsed-seconds'
 import { ReasoningFlow } from './reasoning/ReasoningFlow'
 import { type ChoicePrompt } from './reasoning'
@@ -34,7 +36,7 @@ import { buildFileChips } from './reasoning/context'
 
 export interface ChatThinkingProps {
   /** Array of thinking steps to display */
-  steps: ThinkingStep[]
+  steps: StoredThinkingStep[]
   /** Whether thinking is in progress (shows spinner when true, check when done) */
   isThinking?: boolean
   /** Whether the response was interrupted (page refresh / browser close mid-stream) */
@@ -58,8 +60,8 @@ export interface ChatThinkingProps {
    * phantom-web-search bug: every source is enabled by default, so the row
    * claimed `Websuche` on every turn, including greetings where the backend
    * had already dropped every data-source tool. What ran comes from
-   * `deriveExecutedSteps` (the `Ausgeführt:` row), which is built from real
-   * Function Start/Complete frames.
+   * `deriveExecutedSteps` (the `Ausgeführt:` row), which is built from the
+   * turn's `tool` and `skill` steps.
    */
   enabledDataSources?: string[]
   /** Files attached to THIS message — a per-turn fact, so these are shown. */
@@ -95,7 +97,7 @@ export interface ChatThinkingProps {
   autoOpen?: boolean
 }
 
-export const ChatThinking: FC<ChatThinkingProps> = ({
+const ChatThinkingView: FC<ChatThinkingProps> = ({
   steps,
   isThinking = true,
   isInterrupted = false,
@@ -153,9 +155,16 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
     if (waitingStarted || interruptedStarted) setOpen(true)
   }, [isWaiting, isInterrupted])
 
+  // Opening a settled Herleitung mounts its whole graph: a 190–250 ms task on
+  // a 4× throttled phone, and frame gaps of 300–417 ms while the panel grew
+  // (Herleitung audit, 2026-09). As a transition the mount is rendered in
+  // slices the browser can paint between; the header shows the new state at
+  // once through `opening`.
+  const [opening, startOpening] = useTransition()
   const handleOpenChange = (next: boolean) => {
     userToggledRef.current = true
-    setOpen(next)
+    if (next && !isThinking) startOpening(() => setOpen(true))
+    else setOpen(next)
   }
 
   const sourceCards = useMemo(
@@ -172,7 +181,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   // Live status: what the assistant is doing right now (derived from the newest
   // streamed step) plus a seconds-elapsed cue, so a slow turn reads as active
   // work in progress rather than a frozen spinner.
-  const liveActivity = deriveLiveActivity(steps, t)
+  const liveActivity = liveLine(steps, t)
   const activityLabel = liveActivity ?? t('thinking.working')
   const elapsedSeconds = useElapsedSeconds(isThinking)
 
@@ -190,7 +199,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   const executedSteps = useMemo(() => {
     const derived = deriveExecutedSteps(steps, t)
     if (isThinking) return derived
-    return derived.filter((s) => !isSkillStepName(s.key) && !isUseSkillStepName(s.key))
+    return derived.filter((s) => !s.skill)
   }, [steps, t, isThinking])
 
   // Availability alone must never conjure a Herleitung: `enabledDataSources` is
@@ -209,24 +218,24 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
     return null
   }
 
-  // The header line, assembled from clauses rather than from one template with
-  // two slots. The step count has to pluralise — one step read „1 Schritte" —
-  // and the source count has to be able to say NOTHING, because an answer
-  // grounded in a measurement of the model rather than in a citation has no
-  // sources, and „0 Quellen" is a true number that reads as a failure. A turn
-  // that has not reported a step yet gets the bare name for the same reason.
-  const stepsLabel =
-    steps.length > 0
-      ? t('thinking.herleitungSummary', { count: steps.length })
-      : t('thinking.herleitungSummaryNoSteps')
+  // The header line names the panel and, when there are any, counts sources.
+  //
+  // It carries NO step count. `steps` counts status lines, skill bookkeeping
+  // and sources rows alongside the tools that ran, so the number is neither
+  // turns nor calls, and read as "the agent took 19 turns". What ran is listed
+  // inside, as chips.
+  //
+  // The source clause is ABSENT rather than „0 Quellen": an answer grounded in
+  // a measurement of the model rightly has no citations, and zero reads as a
+  // failure to find anything.
   const summaryLabel =
     sourceCount > 0
-      ? t('thinking.herleitungSummaryWithSources', { summary: stepsLabel, count: sourceCount })
-      : stepsLabel
+      ? t('thinking.herleitungSummaryWithSources', { count: sourceCount })
+      : t('thinking.herleitungSummary')
 
   return (
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 w-full rounded-2xl bg-muted shadow-xs duration-base ease-entrance motion-reduce:animate-none">
-      <Collapsible open={open} onOpenChange={handleOpenChange}>
+      <Collapsible open={open || opening} onOpenChange={handleOpenChange}>
         <CollapsibleTrigger asChild>
           {/* No aria-label on the trigger: it would OVERRIDE the visible
               content, hiding exactly what a non-sighted reader needs — the
@@ -260,17 +269,20 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   </span>
                   {/* The live activity phrase cross-fades as each new step
                       arrives, and shimmers while it holds — a quiet cue that
-                      work is actively moving during a long wait. */}
+                      work is actively moving during a long wait. The shimmer
+                      is an inner element that moves by transform only: the
+                      cross-fade owns this span's opacity, and a second
+                      animation of it made the label flicker at every step. */}
                   <AnimatePresence mode="wait" initial={false}>
                     <motion.span
                       key={activityLabel}
-                      className="animate-text-shimmer truncate text-sm font-semibold motion-reduce:animate-none"
+                      className="min-w-0 text-sm font-semibold"
                       initial={{ opacity: 0, y: 4 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -4 }}
                       transition={motionQuick}
                     >
-                      {activityLabel}
+                      <ShimmerText className="block">{activityLabel}</ShimmerText>
                     </motion.span>
                   </AnimatePresence>
                 </>
@@ -322,7 +334,15 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   {formatElapsed(elapsedSeconds)}
                 </span>
               )}
-              <span className="text-xs text-muted-foreground">{summaryLabel}</span>
+              {/* Below `sm` a live turn's summary gives its room to the label:
+                  beside it, at 390 px, the label read only „Such…"
+                  (Herleitung audit, 2026-09). The summary returns once the
+                  turn ends, and the timer stays. */}
+              <span
+                className={cn('text-xs text-muted-foreground', isThinking && 'hidden sm:inline')}
+              >
+                {summaryLabel}
+              </span>
               <ChevronDown className="size-4 text-muted-foreground transition-transform duration-quick ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none" />
             </span>
 
@@ -339,21 +359,23 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
           </button>
         </CollapsibleTrigger>
 
-        {/* Expanded content — height 0↔auto plus opacity, so the panel grows
-            out of the header instead of fading in over a height cliff (the
-            reserved min-h-12 header is the chrome; the body mounts/unmounts).
-            Base duration in, one step shorter out, `overflow-hidden` so the
-            collapse clips; `initial={false}` so a panel that mounts already
-            open does not animate. A user-initiated expand, so height motion is
-            the honest instrument here. The basis footer lives INSIDE here so
-            the collapsed turn is just the one-line summary and never bulks the
-            thread before the answer. */}
+        {/* Expanded content — it fades in, and collapses back into the header
+            (height auto↔0 plus opacity, one step shorter out, `overflow-hidden`
+            so the collapse clips). The entrance used to grow its height too,
+            which reads nicely but lays the page out on every frame while the
+            graph inside is still mounting and measuring itself: on a phone the
+            expand stuttered with 300–417 ms frame gaps (Herleitung audit,
+            2026-09). The collapse measured fine and keeps its motion.
+            `initial={false}` so a panel that mounts already open does not
+            animate. The basis footer lives INSIDE here so the collapsed turn is
+            just the one-line summary and never bulks the thread before the
+            answer. */}
         <AnimatePresence initial={false}>
           {open && (
             <motion.div
               key="herleitung-content"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1, transition: motionBase }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1, transition: motionBase }}
               exit={{ height: 0, opacity: 0, transition: motionQuick }}
               className="overflow-hidden"
             >
@@ -368,6 +390,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   escalationReason={escalationReason}
                   retrievalLedger={retrievalLedger}
                   live={isThinking}
+                  sourceCards={sourceCards}
                 />
               </div>
 
@@ -458,3 +481,12 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
     </div>
   )
 }
+
+/**
+ * Memoised: the thread renders one per turn, and the list re-renders on every
+ * delta flush of the live answer. Unmemoised, every earlier turn's Herleitung
+ * re-rendered per flush (723 renders in one answer of a 40-message thread,
+ * React performance audit 2026-09). ChatArea keeps `steps` and `choicePrompt`
+ * referentially stable for that reason.
+ */
+export const ChatThinking = memo(ChatThinkingView)

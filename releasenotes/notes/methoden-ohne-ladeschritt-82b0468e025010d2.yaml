@@ -1,0 +1,9 @@
+---
+features:
+  - >
+    Questions that follow one of the office's working methods (Gebäudeklasse,
+    Brandschutz, Einreichcheck, Bestand and the others) answer faster: a
+    fast decision model recognises which method a question is the subject
+    of and puts that one in front of the assistant from the start, instead
+    of the assistant loading it in a separate step; the "Skills used"
+    disclosure still names the ones it followed.

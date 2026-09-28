@@ -327,6 +327,17 @@ class TestDocumentMetadataStore:
         assert store.set_doc_class("coll", "missing.pdf", "gesetz") is False
         assert store.get_doc_class("coll", "missing.pdf") is None
 
+    def test_a_doc_class_suggestion_is_stored_beside_the_class_never_as_it(self, store):
+        """ADR-0064 use 8: the decided Dokumentart waits for a person."""
+        store.register("coll", "doc.pdf", "A summary.")
+        store.set_doc_class("coll", "doc.pdf", "sonstiges")
+        assert store.set_doc_class_suggestion("coll", "doc.pdf", "gesetz") is True
+        assert store.get_doc_class("coll", "doc.pdf") == "sonstiges"
+        assert store.get_doc_class_suggestions_batch("coll", ["doc.pdf", "other.pdf"]) == {"doc.pdf": "gesetz"}
+        assert store.set_doc_class_suggestion("coll", "doc.pdf", None) is True
+        assert store.get_doc_class_suggestions_batch("coll", ["doc.pdf"]) == {}
+        assert store.set_doc_class_suggestion("coll", "missing.pdf", "gesetz") is False
+
     def test_set_doc_class_clear(self, store):
         """A None value clears the stored doc_class back to null."""
         store.register("coll", "doc.pdf", "A summary.")

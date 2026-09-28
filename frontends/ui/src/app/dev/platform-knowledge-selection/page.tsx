@@ -18,6 +18,7 @@
  * crashed preview quietly commits.
  */
 
+import type { JSX } from 'react'
 import { useEffect } from 'react'
 import { BaseKnowledge } from '@/app/app/(shell)/platform/base-knowledge'
 

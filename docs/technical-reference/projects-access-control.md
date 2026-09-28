@@ -63,7 +63,7 @@ If the FGA check fails, the function throws `"Not found"` (not `"Forbidden"`) to
 | List members | `GET /api/projects/[id]/members` | `project:manage` |
 | Add member | `POST /api/projects/[id]/members` | `project:manage` |
 | Remove member | `DELETE /api/projects/[id]/members/[id]` | `project:manage` |
-| V1 collection access | `validateCollectionName()` in `[...path]/route.ts` | `project:edit` (for `proj_*` collections) |
+| V1 collection access | `validateCollectionName()` (`lib/proxy/collection-authz.ts`), per method | `project:documents:write` or `project:edit` (for `proj_*` collections); raw uploads and whole-collection deletes refused |
 | WebSocket scope | `GET /api/auth/websocket-scope` | `project:view` |
 
 ## Owner assignment

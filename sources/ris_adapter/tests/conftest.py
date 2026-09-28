@@ -8,8 +8,8 @@ import pytest
 from ris_adapter.client import RisDocument
 from ris_adapter.client import RisSearchResult
 
-from nat.builder.function import LambdaFunction
-from nat.data_models.function import FunctionBaseConfig
+from nat.builder.function import LambdaFunction  # noqa: TID251
+from nat.plugin_api import FunctionBaseConfig
 
 
 @pytest.fixture(autouse=True)

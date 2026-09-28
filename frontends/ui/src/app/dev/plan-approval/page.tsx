@@ -8,10 +8,7 @@
  *      actions — Abbrechen, Kurz beantworten, Recherche starten,
  *   2. answered with „Kurz beantworten" — the echo says what the click meant,
  *      never the wire keyword (`shallow`),
- *   3. answered with „Abbrechen" — the cancellation receipt state,
- *   4. a LEGACY prompt restored from before the middle option existed — it
- *      keeps its two buttons, because sending `shallow` to the backend that
- *      wrote that envelope would be read as plan feedback.
+ *   3. answered with „Abbrechen" — the cancellation receipt state.
  *
  * Fetch-free: the content strings are byte-for-byte what the clarification
  * step's `format_plan_for_user` writes (`researcher/clarify.py`), and
@@ -47,10 +44,6 @@ const THREE_WAY_CONTENT =
   PLAN_BODY +
   'Reply **approve** to proceed, **shallow** for a quick answer instead, ' +
   '**cancel** to dismiss, or provide feedback to revise the plan.'
-
-/** The envelope persisted threads carry from before the middle option. */
-const LEGACY_CONTENT =
-  PLAN_BODY + 'Reply **approve** to proceed, **reject** to cancel, or provide feedback to revise the plan.'
 
 const timestamp = new Date('2026-07-29T10:00:00Z')
 
@@ -94,8 +87,6 @@ export default function PlanApprovalPreviewPage() {
 
         <Section label="Die Entscheidung — drei Wege">
           <AgentPrompt
-            id="preview-live"
-            type="approval"
             content={THREE_WAY_CONTENT}
             isResponded={liveResponse !== null}
             response={liveResponse ?? undefined}
@@ -105,8 +96,6 @@ export default function PlanApprovalPreviewPage() {
 
         <Section label="Beantwortet: kurze Antwort angefordert">
           <AgentPrompt
-            id="preview-shallow"
-            type="approval"
             content={THREE_WAY_CONTENT}
             isResponded
             response="shallow"
@@ -116,8 +105,6 @@ export default function PlanApprovalPreviewPage() {
 
         <Section label="Beantwortet: abgebrochen">
           <AgentPrompt
-            id="preview-cancel"
-            type="approval"
             content={THREE_WAY_CONTENT}
             isResponded
             response="cancel"
@@ -125,14 +112,6 @@ export default function PlanApprovalPreviewPage() {
           />
         </Section>
 
-        <Section label="Alter Plan aus einem gespeicherten Verlauf (zwei Aktionen)">
-          <AgentPrompt
-            id="preview-legacy"
-            type="approval"
-            content={LEGACY_CONTENT}
-            timestamp={timestamp}
-          />
-        </Section>
       </main>
     </I18nProvider>
   )

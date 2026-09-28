@@ -1,8 +1,8 @@
 """The conversation bus over REAL Redis semantics (fakeredis), not the in-memory
-double. Validates the RedisTransport wrapper — pub/sub, XADD/XRANGE replay, and
-SET NX EX owner election — the exact redis.asyncio calls the stateless chat tier
-makes in production. Two RedisTransports over one shared FakeServer stand in for
-two replicas on one Dragonfly.
+double. Validates the RedisTransport wrapper — pub/sub and XADD/XRANGE replay —
+the exact redis.asyncio calls the stateless chat tier makes in production. Two
+RedisTransports over one shared FakeServer stand in for two replicas on one
+Dragonfly.
 
 fakeredis is a test-only dep; skipped where it is not installed.
 """
@@ -65,7 +65,6 @@ async def test_frames_fan_out_over_real_pubsub():
         await owner.publish_frame(CONV, {"i": i})
     await asyncio.wait_for(task, 3.0)
     assert [e.payload["i"] for e in got] == [0, 1, 2]
-    assert [e.seq for e in got] == [1, 2, 3]
     assert all(e.type == FRAME for e in got)
 
 
@@ -81,26 +80,16 @@ async def test_hitl_answer_over_real_pubsub():
 
     task = asyncio.ensure_future(_collect())
     await asyncio.sleep(0.1)
-    await relay.publish_answer(CONV, {"type": "text", "text": "go ahead"})
+    await relay.publish_input(CONV, HITL_ANSWER, {"message": {"type": "interaction_response"}, "subject": "u1"})
     await asyncio.wait_for(task, 3.0)
     assert inbox[0].type == HITL_ANSWER
-    assert inbox[0].payload["text"] == "go ahead"
+    assert inbox[0].payload["subject"] == "u1"
 
 
 @pytest.mark.asyncio
-async def test_reconnect_replay_via_real_xadd_xrange():
+async def test_attach_replay_via_real_xadd_xrange():
     owner, relay = _redis_replicas()
-    for i in range(4):
-        await owner.publish_frame(CONV, {"i": i})  # XADD to conv:*:stream
-    missed = await relay.replay_frames(CONV, after_seq=1)  # XRANGE
-    assert [e.seq for e in missed] == [2, 3, 4]
-
-
-@pytest.mark.asyncio
-async def test_owner_election_via_real_set_nx_ex():
-    owner, other = _redis_replicas()
-    assert await owner.claim_owner(CONV) is True
-    assert await other.claim_owner(CONV) is False  # SET NX fails — already owned
-    assert await owner.renew_owner(CONV) is True  # owner renews (EXPIRE)
-    await owner.release_owner(CONV)
-    assert await other.claim_owner(CONV) is True  # free after DELETE
+    for seq in (1, 2, 3):
+        await owner.publish_frame(CONV, {"v": 2, "turn_id": "t1", "seq": seq})  # XADD to conv:*:stream
+    replayed = await relay.replay_turn(CONV, "t1")  # XRANGE
+    assert [frame["seq"] for frame in replayed] == [1, 2, 3]

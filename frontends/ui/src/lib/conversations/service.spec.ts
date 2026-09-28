@@ -44,6 +44,7 @@ vi.mock('@/lib/conversations/repository', () => ({
   listMessagesForConversation: vi.fn(),
   listVisibleConversations: vi.fn(),
   markConversationDeleting: vi.fn(),
+  recordConversationErased: vi.fn(),
   mergeMessageMetadata: vi.fn(),
   updateConversationMetaInOrg: vi.fn(),
   updateConversationTitleInOrg: vi.fn(),
@@ -60,7 +61,13 @@ vi.mock('@/lib/sharing/service', () => ({ resolveParticipants: vi.fn() }))
 // touches a row (ADR-0047 Phase 2). Mocked at the boundary so this suite can
 // state what the service does with each outcome; the erasure itself is tested
 // in `session-documents/cleanup.spec.ts`.
-vi.mock('@/lib/session-documents/cleanup', () => ({ purgeSessionDocuments: vi.fn() }))
+vi.mock('@/lib/session-documents/cleanup', () => ({
+  purgeSessionDocuments: vi.fn(),
+  deleteSessionCollection: vi.fn(),
+}))
+vi.mock('@/lib/compliance/repository', () => ({
+  isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
+}))
 vi.mock('./working-directory', () => ({ discardConversationDrafts: vi.fn() }))
 vi.mock('@/lib/collaboration/cleanup', () => ({ purgeConversationCollaboration: vi.fn() }))
 vi.mock('@/lib/events/bus', () => ({ publishToUsers: vi.fn() }))
@@ -83,7 +90,9 @@ vi.mock('./engagement', () => ({
   setEngagement: vi.fn(),
 }))
 
-import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
+import { purgeConversationCollaboration } from '@/lib/collaboration/cleanup'
+import { isCoveredByActiveHold } from '@/lib/compliance/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess, type ProjectRole } from '@/lib/authz/projects'
 import { threadIsAwaitingHuman } from '@/lib/mentions/service'
@@ -94,7 +103,7 @@ import { emitInboxItems, markResourceItemsReadFor } from '@/lib/inbox/service'
 import { applyMessageMentions, resolveRequestsOnReply } from '@/lib/mentions/service'
 import { countGrantsForResource, findGrantForSubject } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
-import { purgeSessionDocuments } from '@/lib/session-documents/cleanup'
+import { deleteSessionCollection, purgeSessionDocuments } from '@/lib/session-documents/cleanup'
 import { discardConversationDrafts } from './working-directory'
 import { resolveEngagement, resolveEngagementFor, setEngagement } from './engagement'
 import {
@@ -109,6 +118,7 @@ import {
   listVisibleConversations,
   markConversationDeleting,
   mergeMessageMetadata,
+  recordConversationErased,
   updateConversationMetaInOrg,
   updateConversationTitleInOrg,
   upsertConversationRead,
@@ -123,6 +133,7 @@ import {
   listConversations,
   markConversationRead,
   persistInternalConversationMessages,
+  retryConversationErasure,
   updateConversationTitle,
   updateMessageDetail,
 } from './service'
@@ -404,6 +415,7 @@ describe('discarding a chat that holds attachments', () => {
       retained: 0,
       failures: [],
     })
+    vi.mocked(deleteSessionCollection).mockResolvedValue({ ok: true })
   })
 
   it('marks the conversation as deleting BEFORE it erases anything', async () => {
@@ -416,6 +428,10 @@ describe('discarding a chat that holds attachments', () => {
       order.push('purge')
       return { ok: true, purged: 0, retained: 0, failures: [] }
     })
+    vi.mocked(deleteSessionCollection).mockImplementation(async () => {
+      order.push('collection')
+      return { ok: true }
+    })
     vi.mocked(deleteConversationInOrg).mockImplementation(async () => {
       order.push('delete')
     })
@@ -425,7 +441,46 @@ describe('discarding a chat that holds attachments', () => {
     // Marked first, so an upload arriving at any point during the purge has
     // something to refuse on — without it, one landing between the purge and
     // the row delete lost its row to the cascade and left its bytes behind.
-    expect(order).toEqual(['mark', 'purge', 'delete'])
+    // The collection goes after the rows' own erasure and before the row: once
+    // the conversation row is gone, nothing could authorize erasing it.
+    expect(order).toEqual(['mark', 'purge', 'collection', 'delete'])
+  })
+
+  it('erases the chat’s own s_ collection, which no attachment row names', async () => {
+    await deleteConversation(session, CONVERSATION_ID)
+
+    // A chat with no rows still had its collection left behind: attachments
+    // from before session rows existed, and the collection's summaries.
+    expect(deleteSessionCollection).toHaveBeenCalledWith(`s_${CONVERSATION_ID}`)
+    expect(deleteConversationInOrg).toHaveBeenCalled()
+  })
+
+  it('KEEPS the conversation when its collection could not be erased', async () => {
+    vi.mocked(deleteSessionCollection).mockResolvedValue({ ok: false, reason: 'answered 500' })
+
+    await expect(deleteConversation(session, CONVERSATION_ID)).rejects.toThrow(/attachments failed/)
+
+    // The row is what authorizes the retry; deleting it would orphan the collection.
+    expect(deleteConversationInOrg).not.toHaveBeenCalled()
+  })
+
+  it('refuses a held chat with a 409 before it is even marked deleting', async () => {
+    vi.mocked(isCoveredByActiveHold).mockResolvedValueOnce(true)
+
+    const error = await deleteConversation(session, CONVERSATION_ID).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect((error as ConflictError).details).toEqual({
+      reason: 'legal_hold',
+      entityType: 'conversation',
+    })
+    expect(isCoveredByActiveHold).toHaveBeenCalledWith('org_1', 'conversation', CONVERSATION_ID)
+    // The chat stays visible and whole: not marked, not purged, not deleted.
+    expect(markConversationDeleting).not.toHaveBeenCalled()
+    expect(purgeSessionDocuments).not.toHaveBeenCalled()
+    expect(deleteSessionCollection).not.toHaveBeenCalled()
+    expect(deleteConversationInOrg).not.toHaveBeenCalled()
+    expect(discardConversationDrafts).not.toHaveBeenCalled()
   })
 
   it('KEEPS the conversation when the external cleanup could not finish', async () => {
@@ -441,6 +496,138 @@ describe('discarding a chat that holds attachments', () => {
     // Deleting it would cascade away the retained document rows, and those rows
     // are the only handle on the object and chunks still sitting in the stores.
     expect(deleteConversationInOrg).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * A delete whose erase failed (the agent service was down) used to leave the
+ * chat hidden and marked deleting until somebody deleted it again. The mark now
+ * queues the erasure, the purger retries it through `retryConversationErasure`,
+ * and both reach the same steps.
+ */
+describe('a chat erasure the request could not finish is retried', () => {
+  const erased = { ok: true, purged: 0, retained: 0, failures: [] }
+
+  beforeEach(() => {
+    stubConversation({ createdBy: 'user_me' })
+    vi.mocked(markConversationDeleting).mockResolvedValue({ id: CONVERSATION_ID } as never)
+    vi.mocked(purgeSessionDocuments).mockResolvedValue(erased)
+    vi.mocked(deleteSessionCollection).mockResolvedValue({ ok: true })
+    vi.mocked(recordConversationErased).mockResolvedValue(1)
+  })
+
+  it('queues the retry with the mark, in the requester’s name', async () => {
+    await deleteConversation(session, CONVERSATION_ID)
+
+    expect(markConversationDeleting).toHaveBeenCalledWith(CONVERSATION_ID, 'org_1', 'user_me')
+  })
+
+  it('closes the queued retry only once the rows and the collaboration rows are gone', async () => {
+    const order: string[] = []
+    vi.mocked(deleteConversationInOrg).mockImplementation(async () => {
+      order.push('delete')
+    })
+    vi.mocked(purgeConversationCollaboration).mockImplementation(async () => {
+      order.push('collaboration')
+      return { grants: 0, requests: 0, inboxItems: 0 }
+    })
+    vi.mocked(recordConversationErased).mockImplementation(async () => {
+      order.push('record')
+      return 1
+    })
+
+    await deleteConversation(session, CONVERSATION_ID)
+
+    expect(order).toEqual(['delete', 'collaboration', 'record'])
+    expect(recordConversationErased).toHaveBeenCalledWith(CONVERSATION_ID, 'org_1')
+  })
+
+  it('leaves the queued retry open when the agent service is down', async () => {
+    vi.mocked(deleteSessionCollection).mockResolvedValue({ ok: false, reason: 'fetch failed' })
+
+    await expect(deleteConversation(session, CONVERSATION_ID)).rejects.toBeInstanceOf(UpstreamError)
+
+    expect(recordConversationErased).not.toHaveBeenCalled()
+    expect(deleteConversationInOrg).not.toHaveBeenCalled()
+  })
+
+  it('the retry runs the same erasure on a chat marked deleting', async () => {
+    stubConversation({ createdBy: 'user_me', deletedAt: new Date('2026-09-01T10:00:00Z') })
+
+    await expect(retryConversationErasure('org_1', CONVERSATION_ID)).resolves.toEqual({
+      outcome: 'erased',
+    })
+
+    expect(purgeSessionDocuments).toHaveBeenCalledWith(CONVERSATION_ID, 'org_1')
+    expect(deleteSessionCollection).toHaveBeenCalledWith(`s_${CONVERSATION_ID}`)
+    expect(deleteConversationInOrg).toHaveBeenCalledWith(CONVERSATION_ID, 'org_1')
+    expect(purgeConversationCollaboration).toHaveBeenCalledWith(CONVERSATION_ID)
+    expect(recordConversationErased).toHaveBeenCalledWith(CONVERSATION_ID, 'org_1')
+    expect(discardConversationDrafts).toHaveBeenCalledWith(CONVERSATION_ID)
+    // The retry never re-marks: the mark is what it resumes from.
+    expect(markConversationDeleting).not.toHaveBeenCalled()
+  })
+
+  it('the retry still fails, and keeps the chat, while the stores fail', async () => {
+    stubConversation({ deletedAt: new Date('2026-09-01T10:00:00Z') })
+    vi.mocked(purgeSessionDocuments).mockResolvedValue({
+      ok: false,
+      purged: 0,
+      retained: 1,
+      failures: ['doc-1: chunk purge failed'],
+    })
+
+    await expect(retryConversationErasure('org_1', CONVERSATION_ID)).rejects.toBeInstanceOf(
+      UpstreamError
+    )
+    expect(deleteConversationInOrg).not.toHaveBeenCalled()
+    expect(recordConversationErased).not.toHaveBeenCalled()
+  })
+
+  it('a hold placed after the mark defers the retry: 409, nothing erased, the chat stays marked', async () => {
+    stubConversation({ deletedAt: new Date('2026-09-01T10:00:00Z') })
+    vi.mocked(isCoveredByActiveHold).mockResolvedValueOnce(true)
+
+    const error = await retryConversationErasure('org_1', CONVERSATION_ID).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect((error as ConflictError).details).toMatchObject({ reason: 'legal_hold' })
+    expect(purgeSessionDocuments).not.toHaveBeenCalled()
+    expect(deleteSessionCollection).not.toHaveBeenCalled()
+    expect(deleteConversationInOrg).not.toHaveBeenCalled()
+    expect(recordConversationErased).not.toHaveBeenCalled()
+  })
+
+  it('refuses to erase a chat that is not marked deleting', async () => {
+    stubConversation({ deletedAt: null })
+
+    const error = await retryConversationErasure('org_1', CONVERSATION_ID).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect((error as ConflictError).details).toEqual({ reason: 'not_deleting' })
+    expect(purgeSessionDocuments).not.toHaveBeenCalled()
+    expect(deleteConversationInOrg).not.toHaveBeenCalled()
+  })
+
+  it('refuses a chat of another organization', async () => {
+    stubConversation({ organizationId: 'org_other', deletedAt: new Date() })
+
+    await expect(retryConversationErasure('org_1', CONVERSATION_ID)).rejects.toBeInstanceOf(
+      NotFoundError
+    )
+    expect(deleteSessionCollection).not.toHaveBeenCalled()
+  })
+
+  it('finishes a chat whose row is already gone instead of failing on it', async () => {
+    vi.mocked(findConversationTenancy).mockResolvedValue(null)
+
+    await expect(retryConversationErasure('org_1', CONVERSATION_ID)).resolves.toEqual({
+      outcome: 'already-gone',
+    })
+    // The tail still runs: a project purge or a request that died after the row
+    // delete leaves the collaboration rows, the drafts and the queue row.
+    expect(purgeConversationCollaboration).toHaveBeenCalledWith(CONVERSATION_ID)
+    expect(recordConversationErased).toHaveBeenCalledWith(CONVERSATION_ID, 'org_1')
   })
 })
 

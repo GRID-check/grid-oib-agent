@@ -262,23 +262,25 @@ class TestCitedIsClaimedOnlyForTheVerifiedReport:
     def test_a_document_verification_stripped_is_absent_from_the_final_cited_set(self):
         """The real verifier decides; the stream only reports its verdict.
 
-        The draft hangs a source URL the run never retrieved off a line that
-        names a REAL retrieved document. ``verify_citations`` reads the URL
-        first and drops the whole line, so the finished report no longer claims
-        that document at all — while the draft's source section still names it,
-        and a cited-set built from the draft would announce it.
+        The draft cites a document the run never retrieved, with a link to it.
+        ``verify_citations`` drops the whole line, so the finished report no
+        longer claims that document at all — while the draft's source section
+        still names it, and a cited-set built from the draft would announce it.
+        (A link off a line that names a RETRIEVED document no longer strips it:
+        the key decides, since a key-cited source verifies by its key.)
         """
+        never_retrieved = "oib-rl_3_ausgabe_mai_2023.pdf, p.4"
         registry = _run_registry()
         draft = (
             "Brandabschnitte sind auf 1.200 m2 zu begrenzen [1]. Fluchtwege duerfen "
             "40 m nicht ueberschreiten [2]. Die Rauchableitung ist nachzuweisen [1].\n\n"
             "## Quellen\n"
             f"- [1] [Web] Zusammenfassung: {REAL_URL}\n"
-            f"- [2] {OIB_KEY} - https://oib.example.org/rl2-nie-abgerufen\n"
+            f"- [2] {never_retrieved} - https://oib.example.org/rl3-nie-abgerufen\n"
         )
         verification = verify_citations(draft, registry)
         assert verification.removed_citations, "fixture no longer exercises a stripped citation"
-        assert OIB_KEY not in verification.verified_report
+        assert never_retrieved not in verification.verified_report
 
         callback = AgentEventCallback(source_registry=registry)
         emitted, patcher = _capture(callback)
@@ -371,3 +373,21 @@ class TestCitedIsClaimedOnlyForTheVerifiedReport:
             callback.emit_final_report(FINAL_REPORT)
 
         assert [item["type"] for item in emitted] == [ArtifactType.OUTPUT]
+
+
+class TestAnExcludedDocumentIsNeverAnnounced:
+    """The reader's Ausgeschlossen stay out of the live ``citation_source`` stream too."""
+
+    def test_the_runs_exclusion_drops_the_source_before_it_is_emitted(self):
+        callback = AgentEventCallback()
+        callback.set_source_exclusion(lambda entry: (entry.citation_key or "").startswith("alt.pdf"))
+        emitted, patcher = _capture(callback)
+        output = (
+            "--- Result 1 ---\nSource: alt.pdf\nPage: 5\nCitation: alt.pdf, p.5\nContent Type: pdf\n\nText.\n"
+            "--- Result 2 ---\nSource: neu.pdf\nPage: 2\nCitation: neu.pdf, p.2\nContent Type: pdf\n\nText."
+        )
+        with patcher:
+            callback._emit_structured_citation_sources("knowledge_search", output, agent_id=None, workflow=None)
+
+        keys = [item.get("citation_key") for item in emitted if item["type"] == ArtifactType.CITATION_SOURCE]
+        assert keys == ["neu.pdf, p.2"]

@@ -1,0 +1,16 @@
+---
+features:
+  - >
+    Piloti starts reading before it starts thinking: for a question about a
+    regulation or a project file, it fetches the likely passages first, so most
+    questions are answered one step sooner. The Herleitung shows this as the
+    first search step.
+  - >
+    Searches judge their own results faster: whether the first hits already
+    answer the question is decided by the same fast decision model instead of a
+    full language-model call, and only a search that came up short still asks
+    for other wordings.
+  - >
+    Follow-up questions such as „und in Gebäudeklasse 4?“ are answered from the
+    passages the previous answer already read, so a follow-up takes one step
+    instead of a new search.

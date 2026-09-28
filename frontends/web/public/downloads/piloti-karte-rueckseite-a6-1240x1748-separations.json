@@ -1,0 +1,18 @@
+{
+  "work": "collateral",
+  "id": "collateral/rueckseite/postcard",
+  "file": "piloti-karte-rueckseite-a6-1240x1748.jpg",
+  "width": 1240,
+  "height": 1748,
+  "dpi": 300,
+  "pitch": 5,
+  "inks": [
+    {
+      "order": 1,
+      "ink": "hunter",
+      "drum": "Hunter Green",
+      "hex": "#407060",
+      "file": "piloti-karte-rueckseite-a6-1240x1748-sep-1-hunter.png"
+    }
+  ]
+}

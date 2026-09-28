@@ -1,12 +1,9 @@
 ---
 improvements:
   - >
-    Eine Frage nach einer ganzen Richtlinie („Was weißt du über die OIB 2?“)
-    beantwortet Piloti jetzt in einem Suchlauf mit allen Teilen, die im Bestand
-    sind: je Teil der Geltungsbereich als zitierfähige Passage und darunter
-    dessen Gliederung. Bisher zeigte die Suche zwei Dokumente, und die übrigen
-    Teile wurden einzeln nachgeladen.
+    A question about a whole Richtlinie, such as „Was weißt du über die OIB 2?“,
+    is now answered from one search covering every part on file: the scope of
+    each part as a citable passage, with its outline beneath.
   - >
-    In der Herleitung steht bei einer punktgenau gelesenen Stelle jetzt der
-    Punkt („Pkt. 3.5.2“) vor der Seite. In einer Richtlinie ist die Nummer die
-    Fundstelle, nach der gesucht wird.
+    In the Herleitung a passage read by point now shows the point, such as „Pkt.
+    3.5.2“, before the page.

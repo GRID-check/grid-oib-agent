@@ -26,13 +26,15 @@
  */
 
 import { render, screen } from '@/test-utils'
-import userEvent from '@testing-library/user-event'
 import { de, en } from '@/i18n/dictionaries'
 import { createTranslator } from '@/i18n/translate'
 import { vi, describe, test, expect } from 'vitest'
 import { AgentResponse } from './AgentResponse'
 import { normalizeAgentAnswerMetadata } from '@/lib/conversations/agent-answer-metadata'
-import type { MessageProvenance } from '@/lib/conversations/message-provenance'
+import {
+  ANSWER_DEGRADED_REASONS,
+  type MessageProvenance,
+} from '@/lib/conversations/message-provenance'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { ChatStoreWithHydration } from '../store'
 
@@ -43,13 +45,8 @@ vi.mock('../hooks/use-conversation-memory', () => ({
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
     const state: DeepPartial<ChatStoreWithHydration> = {
-      reportContent: '',
-      deepResearchJobId: null,
-      isDeepResearchStreaming: false,
-      deepResearchStreamLoaded: false,
       currentConversation: null,
       patchConversationMessage: vi.fn(),
-      reconnectToActiveJob: vi.fn(),
     }
     return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
   }),
@@ -87,18 +84,24 @@ const footerNotes = (): string[] =>
   )
 
 /**
- * The transparency lines live behind the answer-details disclosure — open it
- * before asserting on note content. Absence assertions need no opening: a
- * note that renders null is absent open or closed.
+ * The transparency lines live in the answer-details disclosure, which opens
+ * ITSELF for a cut-off or degraded turn — so there is nothing to click before
+ * asserting on note content, and a test that clicked would close it. Kept as
+ * a named step so each test still says where the line lives.
  */
 const openAnswerDetails = async (): Promise<void> => {
-  await userEvent.setup().click(screen.getByTestId('answer-details-trigger'))
+  expect(screen.getByTestId('answer-details-trigger')).toHaveAttribute('aria-expanded', 'true')
 }
 
 describe.each(['default', 'inline'] as const)('the %s answer variant', (variant) => {
   test('names WHY the search stopped, on the line that says it stopped', async () => {
     render(
-      <AgentResponse content={CITED} variant={variant} researchTruncated truncationReason="wall_clock" />
+      <AgentResponse
+        content={CITED}
+        variant={variant}
+        researchTruncated
+        truncationReason="wall_clock"
+      />
     )
     await openAnswerDetails()
 
@@ -111,7 +114,12 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
 
   test('the step ceiling and the clock are told apart', async () => {
     render(
-      <AgentResponse content={CITED} variant={variant} researchTruncated truncationReason="step_limit" />
+      <AgentResponse
+        content={CITED}
+        variant={variant}
+        researchTruncated
+        truncationReason="step_limit"
+      />
     )
     await openAnswerDetails()
 
@@ -124,7 +132,12 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
     // not reach the reader as an identifier, and must not cost them the fact
     // that the search stopped early — which is the part they can act on.
     render(
-      <AgentResponse content={CITED} variant={variant} researchTruncated truncationReason="tool_budget" />
+      <AgentResponse
+        content={CITED}
+        variant={variant}
+        researchTruncated
+        truncationReason="tool_budget"
+      />
     )
     await openAnswerDetails()
 
@@ -222,7 +235,10 @@ describe('the citation-verification reasons reach the reader as words', () => {
 
   test('when no reason can be worded, the count still stands — without a tooltip to open', async () => {
     render(
-      <AgentResponse content={CITED} citationsRemoved={{ count: 2, reasons: ['brand_new_reason'] }} />
+      <AgentResponse
+        content={CITED}
+        citationsRemoved={{ count: 2, reasons: ['brand_new_reason'] }}
+      />
     )
     await openAnswerDetails()
 
@@ -238,7 +254,9 @@ describe('every token this build accepts has words in BOTH locales', () => {
   // the reader when an entry is missing. This is that guard, for these groups.
   test.each([
     ['truncationReason', ['wall_clock', 'step_limit']],
-    ['degradedReason', ['no_report_file', 'no_valid_citations', 'cards_generation_failed']],
+    // Read off the closed list itself, so a token added there without words
+    // fails here instead of being silently dropped from the reader's view.
+    ['degradedReason', ANSWER_DEGRADED_REASONS],
     [
       'citationsRemovedReason',
       [
@@ -266,6 +284,30 @@ describe('every token this build accepts has words in BOTH locales', () => {
         expect(text).not.toContain(token)
       }
     }
+  })
+})
+
+describe('an unread Grundlage is named as such, not as a generic check', () => {
+  test('its line says a named document went unread, in both locales', () => {
+    for (const dictionary of [de, en]) {
+      const line = dictionary.chat.answerSources.degradedReason.grundlage_unread
+      const limit = dictionary.chat.thinking.node.limits.degraded.grundlageUnread
+      for (const text of [line, limit]) {
+        expect(text).not.toBe(dictionary.chat.answerSources.degradedReason.no_valid_citations)
+      }
+    }
+    expect(de.chat.answerSources.degradedReason.grundlage_unread).toMatch(/Grundlage/)
+    expect(de.chat.thinking.node.limits.degraded.grundlageUnread).toMatch(/Grundlage/)
+    expect(en.chat.answerSources.degradedReason.grundlage_unread).toMatch(/basis/)
+  })
+
+  test('it reaches the reader as its own line under the answer', async () => {
+    render(<AgentResponse content={CITED} degradedReasons={['grundlage_unread']} />)
+    await openAnswerDetails()
+
+    expect(
+      screen.getByText(en.chat.answerSources.degradedReason.grundlage_unread)
+    ).toHaveAttribute('role', 'note')
   })
 })
 

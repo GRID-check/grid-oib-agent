@@ -10,6 +10,7 @@
  * Environment:
  *   GRID_APP_DATABASE_URL   - grid_app Postgres DSN
  *   BACKEND_URL             - aiq-agent base URL (Python-side purge endpoint)
+ *   FRONTEND_INTERNAL_URL   - BFF base URL (chat erasure retries; default http://frontend:3000)
  *   GRID_INTERNAL_API_TOKEN - shared token for the internal endpoint
  *   SEAWEED_ENDPOINT / SEAWEED_ACCESS_KEY / SEAWEED_SECRET_KEY / SEAWEED_BUCKET
  *   WORKOS_API_KEY          - WorkOS API key (FGA resource cleanup)
@@ -28,6 +29,7 @@ const {
 } = require('./db')
 const { createS3Client, deleteStoragePrefix } = require('./storage')
 const { LEGAL_HOLD_CODE, purgeProject } = require('./purge-project')
+const { PERMANENT_FAILURE_CODE, purgeConversation } = require('./purge-conversation')
 const { initOtelLogs } = require('../observability/otel-logs')
 // The deletion queue spans every organization, so the purger's transactions
 // step up to the BYPASSRLS role (ADR-0041).
@@ -46,6 +48,9 @@ const sharedBucket = process.env.SEAWEED_BUCKET || 'grid-documents'
 
 const deps = {
   backendUrl: (process.env.BACKEND_URL || 'http://aiq-agent:8000').replace(/\/$/, ''),
+  // A chat's erasure runs in the BFF; the purger only retries it
+  // (`purge-conversation.js`).
+  frontendUrl: (process.env.FRONTEND_INTERNAL_URL || 'http://frontend:3000').replace(/\/$/, ''),
   internalToken: process.env.GRID_INTERNAL_API_TOKEN || '',
   // The deployment's shared bucket. Every OTHER bucket a purge has to sweep is
   // read from the document rows themselves (ADR-0043) rather than derived from
@@ -59,7 +64,9 @@ const deps = {
 
 const purgers = {
   project: purgeProject,
-  // document / conversation / organization / user: later phases
+  // The retry of a chat erasure its delete request could not finish.
+  conversation: purgeConversation,
+  // document / organization / user: later phases
 }
 
 async function processOne() {
@@ -104,6 +111,15 @@ async function processOne() {
       )
       return true
     }
+    if (failure?.code === PERMANENT_FAILURE_CODE) {
+      // A refusal no retry can change (a chat erasure queued for a live chat):
+      // fail it now instead of spending MAX_ATTEMPTS on the same answer.
+      console.error(`[purger] ${failure.message} (queue row ${claimed.id}) — marking failed, no retry`)
+      await markFailedPermanent(sql, claimed.id, failure.message).catch((e) =>
+        console.error('[purger] failed to record error:', e),
+      )
+      return true
+    }
     console.error('[purger] purge failed:', error)
     await markFailed(sql, claimed.id, failure?.message ?? error).catch((e) =>
       console.error('[purger] failed to record error:', e),
@@ -129,9 +145,16 @@ async function tick() {
       )
     }
     // Drain everything due, one at a time.
+    //
+    // A claim that throws (the database is down, or a migration this image
+    // needs — 0093's `grid_legal_hold_blocks` — has not run yet) is logged and
+    // retried on the next tick. Unhandled, it was a rejected `void tick()`,
+    // which ends the Node process instead of waiting for the database.
     while (await processOne()) {
       /* keep going */
     }
+  } catch (error) {
+    console.error('[purger] tick failed, retrying on the next poll:', error)
   } finally {
     running = false
   }

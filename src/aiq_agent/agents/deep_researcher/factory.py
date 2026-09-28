@@ -157,8 +157,20 @@ class DeepResearchGraphContext:
             norm_doctrine=doctrine_for(self.project_context),
             jurisdiction_grounding=JURISDICTION_GROUNDING,
             parcel_note=parcel_note(self.available_documents),
+            grundlage=self.grundlage,
+            ausgeschlossen=self.ausgeschlossen,
             **values,
         )
+
+    @property
+    def grundlage(self) -> list[dict[str, Any]]:
+        docs = self.state.plan_documents
+        return [doc.model_dump() for doc in docs.grundlage] if docs else []
+
+    @property
+    def ausgeschlossen(self) -> list[dict[str, Any]]:
+        docs = self.state.plan_documents
+        return [doc.model_dump() for doc in docs.ausgeschlossen] if docs else []
 
     def middleware(self, base: Sequence[Any]) -> list[Any]:
         return [*base, *self.visibility_middleware]
@@ -493,6 +505,9 @@ def build_deep_research_subagents(context: DeepResearchGraphContext) -> list[dic
                 "tools": context.tool_set.tools_info,
                 "enable_source_router": context.enable_source_router,
                 "max_research_concurrency": context.max_research_concurrency,
+                # The plan the reader approved binds the planner: its
+                # sections are the required components, in that order.
+                "approved_plan": context.state.clarifier_result,
             },
         )
     )
@@ -508,7 +523,7 @@ def build_deep_research_subagents(context: DeepResearchGraphContext) -> list[dic
             role=LLMRole.REPORT_WRITER,
             tools=context.tool_set.writer_tools,
             middleware=context.middleware_set.writer,
-            prompt_values={"skills_block": context.skills_block},
+            prompt_values={"skills_block": context.skills_block, "approved_plan": context.state.clarifier_result},
             skills=context.skill_sources(WRITER_AGENT),
         ),
     )

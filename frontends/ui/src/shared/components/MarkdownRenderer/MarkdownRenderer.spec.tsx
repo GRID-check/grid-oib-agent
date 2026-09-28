@@ -1,7 +1,10 @@
 import { render, screen, fireEvent } from '@/test-utils'
+import { elapsedMs, growthRatio, LINEAR_BOUND } from '@/test-utils/growth'
 import { describe, test, expect, vi } from 'vitest'
 import { MarkdownRenderer, stabilizeStreamingMarkdown } from './MarkdownRenderer'
 import { InternalLinkProvider } from './internal-link-context'
+import { I18nProvider } from '@/i18n'
+import { de } from '@/i18n/dictionaries'
 
 describe('MarkdownRenderer', () => {
   describe('basic rendering', () => {
@@ -18,11 +21,28 @@ describe('MarkdownRenderer', () => {
     })
 
     test('applies custom className', () => {
-      const { container } = render(
-        <MarkdownRenderer content="Test" className="custom-class" />
-      )
+      const { container } = render(<MarkdownRenderer content="Test" className="custom-class" />)
 
       expect(container.querySelector('.custom-class')).toBeInTheDocument()
+    })
+  })
+
+  describe('footnotes', () => {
+    test("the footnote chrome is in the reader's language and its anchors resolve", () => {
+      const { container } = render(
+        <I18nProvider initialLocale="de" fixedLocale>
+          <MarkdownRenderer content={'Satz[^1].\n\n[^1]: Die Fußnote.'} />
+        </I18nProvider>
+      )
+      // The converter's own heading stays out of the page but keeps its name.
+      const label = container.querySelector('h2#footnote-label')
+      expect(label).not.toBeNull()
+      expect(label?.className).toContain('sr-only')
+      expect(label?.textContent).toBe(de.common.markdown.footnotes)
+      // The list item keeps the id the `[^1]` link points at.
+      expect(container.querySelector('li[id$="fn-1"]')).not.toBeNull()
+      const back = container.querySelector('[data-footnote-backref]')
+      expect(back?.getAttribute('aria-label')).toBe('Zurück zu Verweis 1')
     })
   })
 
@@ -52,11 +72,7 @@ describe('MarkdownRenderer', () => {
     })
 
     test('headings have slugified id attributes for anchor navigation', () => {
-      render(
-        <MarkdownRenderer
-          content={`# Introduction\n\n## Key Findings\n\n### Next Steps`}
-        />
-      )
+      render(<MarkdownRenderer content={`# Introduction\n\n## Key Findings\n\n### Next Steps`} />)
 
       expect(screen.getByRole('heading', { level: 1 })).toHaveAttribute('id', 'introduction')
       expect(screen.getByRole('heading', { level: 2 })).toHaveAttribute('id', 'key-findings')
@@ -150,9 +166,13 @@ describe('MarkdownRenderer', () => {
     })
 
     test('renders multiple paragraphs', () => {
-      render(<MarkdownRenderer content={`Paragraph 1.
+      render(
+        <MarkdownRenderer
+          content={`Paragraph 1.
 
-Paragraph 2.`} />)
+Paragraph 2.`}
+        />
+      )
 
       expect(screen.getByText('Paragraph 1.')).toBeInTheDocument()
       expect(screen.getByText('Paragraph 2.')).toBeInTheDocument()
@@ -161,9 +181,13 @@ Paragraph 2.`} />)
 
   describe('lists', () => {
     test('renders unordered list', () => {
-      render(<MarkdownRenderer content={`- Item 1
+      render(
+        <MarkdownRenderer
+          content={`- Item 1
 - Item 2
-- Item 3`} />)
+- Item 3`}
+        />
+      )
 
       expect(screen.getByText('Item 1')).toBeInTheDocument()
       expect(screen.getByText('Item 2')).toBeInTheDocument()
@@ -171,9 +195,13 @@ Paragraph 2.`} />)
     })
 
     test('renders ordered list', () => {
-      render(<MarkdownRenderer content={`1. First
+      render(
+        <MarkdownRenderer
+          content={`1. First
 2. Second
-3. Third`} />)
+3. Third`}
+        />
+      )
 
       expect(screen.getByText('First')).toBeInTheDocument()
       expect(screen.getByText('Second')).toBeInTheDocument()
@@ -268,10 +296,7 @@ Paragraph 2.`} />)
     test('gives a heading with ß an id that survives it', () => {
       render(<MarkdownRenderer content={'## Außenwand'} />)
 
-      expect(screen.getByRole('heading', { name: 'Außenwand' })).toHaveAttribute(
-        'id',
-        'aussenwand'
-      )
+      expect(screen.getByRole('heading', { name: 'Außenwand' })).toHaveAttribute('id', 'aussenwand')
     })
 
     /*
@@ -362,11 +387,15 @@ Paragraph 2.`} />)
 
   describe('horizontal rules', () => {
     test('renders horizontal rule', () => {
-      const { container } = render(<MarkdownRenderer content={`Above
+      const { container } = render(
+        <MarkdownRenderer
+          content={`Above
 
 ---
 
-Below`} />)
+Below`}
+        />
+      )
 
       expect(container.querySelector('hr')).toBeInTheDocument()
     })
@@ -409,12 +438,26 @@ Below`} />)
         <MarkdownRenderer content={'- [x] Nachweis erbracht\n- [ ] Nachweis offen'} />
       )
 
-      const checkboxes = container.querySelectorAll('input[type="checkbox"]')
-      expect(checkboxes).toHaveLength(2)
-      expect((checkboxes[0] as HTMLInputElement).checked).toBe(true)
-      expect((checkboxes[1] as HTMLInputElement).checked).toBe(false)
-      // The list must not ALSO draw disc bullets beside the checkboxes.
+      // Status marks, not form controls: a disabled checkbox reads as a
+      // broken form, and the list states what is done and what is owed.
+      expect(container.querySelectorAll('input')).toHaveLength(0)
+      const marks = container.querySelectorAll('[data-testid="task-mark"]')
+      expect(marks).toHaveLength(2)
+      expect(marks[0]).toHaveAttribute('data-done', 'true')
+      expect(marks[1]).toHaveAttribute('data-done', 'false')
+      // The list must not ALSO draw disc bullets beside the marks.
       expect(container.querySelector('ul')?.className).toContain('list-none')
+    })
+
+    test('a screen reader hears the state as a word, not a glyph', () => {
+      const { container } = render(
+        <I18nProvider initialLocale="de" fixedLocale>
+          <MarkdownRenderer content={'- [x] Nachweis erbracht\n- [ ] Nachweis offen'} />
+        </I18nProvider>
+      )
+      const marks = container.querySelectorAll('[data-testid="task-mark"]')
+      expect(marks[0]).toHaveTextContent(de.common.markdown.taskDone)
+      expect(marks[1]).toHaveTextContent(de.common.markdown.taskOpen)
     })
   })
 
@@ -556,6 +599,24 @@ Visit [our site](https://example.com) for more.
     })
   })
 
+  describe('the streaming stabilizer closes a bold phrase the last line has opened', () => {
+    test('closes it at the last word', () => {
+      expect(stabilizeStreamingMarkdown('**Die Außentreppe ist ')).toBe('**Die Außentreppe ist**')
+    })
+
+    test('leaves a closed phrase, a code span, an open fence and a table row alone', () => {
+      expect(stabilizeStreamingMarkdown('**fertig** und ')).toBe('**fertig** und ')
+      expect(stabilizeStreamingMarkdown('Code `**x ')).toBe('Code `**x ')
+      expect(stabilizeStreamingMarkdown('```\n**x ')).toBe('```\n**x ')
+      const row = '| a | b |\n| --- | --- |\n| **x | '
+      expect(stabilizeStreamingMarkdown(row)).toBe(row)
+    })
+
+    test('leaves a phrase with nothing in it yet', () => {
+      expect(stabilizeStreamingMarkdown('Text **')).toBe('Text **')
+    })
+  })
+
   describe('the streaming stabilizer is linear in the length of a line', () => {
     /**
      * The delimiter-row test used to read `/^\s*\|?\s*:?-{1,}/`, putting two
@@ -594,10 +655,76 @@ Visit [our site](https://example.com) for more.
       expect(stabilizeStreamingMarkdown(table)).toBe(table)
     })
 
+    test('a data row of negative numbers is not mistaken for a delimiter row', () => {
+      const partial = '| Differenz |\n| -3 |'
+
+      expect(stabilizeStreamingMarkdown(partial)).toBe('\\| Differenz \\|\n\\| -3 \\|')
+    })
+
+    test('a half-arrived fence is left for the parser, which already runs it to the end', () => {
+      const partial = 'Vorher\n\n```mermaid\ngraph TD\n  A -->'
+
+      expect(stabilizeStreamingMarkdown(partial)).toBe(partial)
+    })
+
     test('a header-only table is still deferred until its delimiter row arrives', () => {
       const partial = '| Bauteil | REI |'
 
       expect(stabilizeStreamingMarkdown(partial)).toBe('\\| Bauteil \\| REI \\|')
     })
+  })
+
+  describe('tables as checklists', () => {
+    test('a status word outside a Status column stays text', () => {
+      const table = [
+        '| Punkt | Status | Bemerkung |',
+        '|---|---|---|',
+        '| Fluchtweg | erfüllt | open |',
+        '| Rauchabzug | offen | required |',
+      ].join('\n')
+      render(<MarkdownRenderer content={table} />)
+      expect(screen.getAllByTestId('status-mark').map((m) => m.textContent)).toEqual([
+        'erfüllt',
+        'offen',
+      ])
+    })
+
+    test('a Status cell renders as a mark with its word; other cells stay text', () => {
+      const table = [
+        '| Kriterium | Status | Grund |',
+        '|---|---|---|',
+        '| Fluchtweglänge | erfüllt | 38 m ≤ 40 m |',
+        '| Zweiter Fluchtweg | offen | noch nicht geplant, offen bis zur Einreichung |',
+      ].join('\n')
+      render(<MarkdownRenderer content={table} />)
+      const marks = screen.getAllByTestId('status-mark')
+      expect(marks.map((m) => [m.textContent, m.getAttribute('data-tone')])).toEqual([
+        ['erfüllt', 'success'],
+        ['offen', 'warning'],
+      ])
+      expect(
+        screen
+          .getByText('noch nicht geplant, offen bis zur Einreichung')
+          .closest('[data-testid="status-mark"]')
+      ).toBeNull()
+    })
+  })
+})
+
+describe('a streamed answer', () => {
+  test('is rendered in time linear in a long run of whitespace inside it', () => {
+    // Every token renders the answer again; a `/\s+$/` over it backtracked from
+    // every space in a run that text follows, quadratic in the run.
+    const content = (spaces: number) => `a${' '.repeat(spaces)}x`
+    const renderTime = (spaces: number) => {
+      let unmount = () => {}
+      const elapsed = elapsedMs(() => {
+        unmount = render(<MarkdownRenderer content={content(spaces)} isStreaming />).unmount
+      })
+      unmount()
+      return elapsed
+    }
+    // Quadratic, 8 times the run took ~64 times as long; linear, ~8 times.
+    expect(growthRatio(renderTime, { size: 5_000, floorMs: 1 })).toBeLessThan(LINEAR_BOUND)
   })
 })

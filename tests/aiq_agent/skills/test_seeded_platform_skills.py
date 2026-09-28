@@ -335,7 +335,11 @@ def test_the_prompt_carries_the_voice_craft_the_retired_seed_taught():
     # The warmth rule, with its one forbidden placement.
     assert "nie als Polster vor einem Widerspruch" in section
     # The smallest form, and the heading rules.
-    assert "kleinste Form" in section
+    # The size rule survives the move to structured answers (2026-09-24): the
+    # form follows the content, and structure is never a licence for length.
+    assert "Die Form, die der Inhalt hat" in section
+    assert "Struktur ist kein Umfang" in section
+    assert "Eine lange Antwort auf eine kurze Frage ist kein Service" in section
     assert "nie als erste Zeile" in section
     assert "nie ersatzweise aus einem anderen Regelwerk beantwortet" in section
 

@@ -18,8 +18,6 @@ describe('useLayoutStore', () => {
     // Reset store to initial state before each test (matches store.ts initialState)
     useLayoutStore.setState({
       isSessionsPanelOpen: false,
-      rightPanel: null,
-      researchPanelTab: 'tasks',
       dataSourcesPanelTab: 'connections',
       enabledDataSourceIds: [],
       theme: 'system',
@@ -36,8 +34,6 @@ describe('useLayoutStore', () => {
       const state = useLayoutStore.getState()
 
       expect(state.isSessionsPanelOpen).toBe(false)
-      expect(state.rightPanel).toBeNull()
-      expect(state.researchPanelTab).toBe('tasks')
       expect(state.dataSourcesPanelTab).toBe('connections')
     })
   })
@@ -84,56 +80,6 @@ describe('useLayoutStore', () => {
       useLayoutStore.getState().setSessionsPanelOpen(false)
 
       expect(useLayoutStore.getState().isSessionsPanelOpen).toBe(false)
-    })
-  })
-
-  describe('openRightPanel', () => {
-    test('opens research panel', () => {
-      useLayoutStore.getState().openRightPanel('research')
-
-      expect(useLayoutStore.getState().rightPanel).toBe('research')
-    })
-
-    test('closing clears the panel', () => {
-      useLayoutStore.setState({ rightPanel: 'research' })
-
-      useLayoutStore.getState().closeRightPanel()
-
-      expect(useLayoutStore.getState().rightPanel).toBeNull()
-    })
-  })
-
-  describe('closeRightPanel', () => {
-    test('closes open panel', () => {
-      useLayoutStore.setState({ rightPanel: 'research' })
-
-      useLayoutStore.getState().closeRightPanel()
-
-      expect(useLayoutStore.getState().rightPanel).toBeNull()
-    })
-
-    test('handles closing when already closed', () => {
-      useLayoutStore.setState({ rightPanel: null })
-
-      useLayoutStore.getState().closeRightPanel()
-
-      expect(useLayoutStore.getState().rightPanel).toBeNull()
-    })
-  })
-
-  describe('setResearchPanelTab', () => {
-    test('sets thinking tab', () => {
-      useLayoutStore.getState().setResearchPanelTab('thinking')
-
-      expect(useLayoutStore.getState().researchPanelTab).toBe('thinking')
-    })
-
-    test('sets report tab', () => {
-      useLayoutStore.setState({ researchPanelTab: 'thinking' })
-
-      useLayoutStore.getState().setResearchPanelTab('report')
-
-      expect(useLayoutStore.getState().researchPanelTab).toBe('report')
     })
   })
 

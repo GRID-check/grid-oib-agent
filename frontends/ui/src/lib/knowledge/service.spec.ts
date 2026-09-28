@@ -45,6 +45,7 @@ const backendPayload = {
       ingested_at: '2026-06-30T12:00:00Z',
       summary: 'Brandschutz.',
       display_title: 'OIB-Richtlinie 1, Ausgabe Mai 2023',
+      doc_class_suggestion: 'oib_richtlinie',
     },
     {
       file_name: 'new.pdf',
@@ -99,6 +100,7 @@ describe('getKnowledgeBaseStatus', () => {
       ingestedAt: '2026-06-30T12:00:00Z',
       summary: 'Brandschutz.',
       docClass: null,
+      docClassSuggestion: 'oib_richtlinie',
       displayTitle: 'OIB-Richtlinie 1, Ausgabe Mai 2023',
     })
     expect(status.files[1].state).toBe('pending')

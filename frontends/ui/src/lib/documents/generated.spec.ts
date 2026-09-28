@@ -807,12 +807,18 @@ describe('fileGeneratedDocument', () => {
         // back, then re-throw. The key is this caller's own, so the winner's
         // object is untouched.
         await s3Send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
-        throw Object.assign(
-          new Error(
-            'duplicate key value violates unique constraint "uniq_documents_authored_ref_producer_per_project"',
+        // The shape drizzle really throws: a `Failed query` wrapper with NO code
+        // of its own, the driver's error on `cause`. A flat `{ code }` here is
+        // how the catch's `error.code` check passed its spec and never matched
+        // in production.
+        throw new Error('Failed query: insert into "documents" …', {
+          cause: Object.assign(
+            new Error(
+              'duplicate key value violates unique constraint "uniq_documents_authored_ref_producer_per_project"',
+            ),
+            { code: '23505', constraint_name: 'uniq_documents_authored_ref_producer_per_project' },
           ),
-          { code: '23505' },
-        )
+        })
       })
 
       const [first, second] = await Promise.all([file(), file()])

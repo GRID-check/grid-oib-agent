@@ -58,14 +58,14 @@ import { collectionFileRef, purgeIngestedChunks } from './collection-file-ref'
 import { documentDisplayName } from './display-name'
 import { findDocumentInOrg, findFolderPathInProject } from './repository'
 import { listReviewCandidates, resolveReviewers } from './reviewers'
+import { DocumentDeletedError, OpenVersionExistsError } from './unique-conflicts'
+import { discardObject } from '@/lib/storage/discard'
+import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import {
-  admitVersionBytes,
   BACKEND_PURGE_TIMEOUT_MS,
   readVersionContent,
   renderVersionBytes,
-  resolveVersionBucket,
-  storeVersionBytes,
-  versionStorageKey,
+  writeVersionContent,
 } from './version-content'
 import type { AgentDocumentProvenance } from './service'
 import {
@@ -436,7 +436,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
     }
 
     // Cycle-broken on purpose: `documents/service.ts` imports this module for
-    // `recordUploadedVersion` and `versionedStorageKey`, so a static import
+    // `recordUploadedVersion`, so a static import
     // back would be a load-order cycle. Same device, same reason, as
     // `sharing/service.ts` reaching the mentions service.
     const { dispatchDocument, AgentAuthoredDocumentNotIndexableError } = await import('./service')
@@ -893,7 +893,6 @@ export async function createDocumentVersion(
     organizationId: session.organizationId,
     documentId: input.document.id,
     projectId: input.document.projectId,
-    versionNumber: await nextVersionNumber(input.document.id, session.organizationId),
     storageKey: input.storageKey,
     storageBucket: input.storageBucket,
     contentType: input.contentType,
@@ -937,6 +936,17 @@ export async function createDocumentVersion(
 }
 
 /**
+ * „There is already a draft", naming it — the fork's one 409, whether the probe
+ * saw the open version or the index refused a concurrent second insert.
+ */
+function openVersionConflict(open: DocumentVersion): ConflictError {
+  return new ConflictError('This document already has an open version', {
+    versionId: open.id,
+    state: open.state,
+  })
+}
+
+/**
  * Start a new draft from the published version.
  *
  * The draft SHARES the published version's storage key until its content is
@@ -948,7 +958,9 @@ export async function createDocumentVersion(
  *
  * One open version per document is the database's rule (a partial unique
  * index); this reports it as a 409 with the existing draft named, because "there
- * is already a draft" is something the caller can act on.
+ * is already a draft" is something the caller can act on. The probe answers the
+ * sequential case; the index answers two forks at once, and its refusal is
+ * mapped to the same 409 (ADR-0054 correction 14) instead of escaping as a 500.
  */
 export async function forkDraftVersion(
   session: AuthorizedSession,
@@ -957,12 +969,7 @@ export async function forkDraftVersion(
 ): Promise<DocumentVersion> {
   const document = await getAccessibleDocument(session, documentId, 'write')
   const open = await findOpenVersion(documentId, session.organizationId)
-  if (open) {
-    throw new ConflictError('This document already has an open version', {
-      versionId: open.id,
-      state: open.state,
-    })
-  }
+  if (open) throw openVersionConflict(open)
   const published = await findPublishedVersion(documentId, session.organizationId)
   const source = published ?? {
     storageKey: document.storageKey,
@@ -980,7 +987,6 @@ export async function forkDraftVersion(
     organizationId: session.organizationId,
     documentId,
     projectId: document.projectId,
-    versionNumber: await nextVersionNumber(documentId, session.organizationId),
     state: 'draft',
     storageKey: source.storageKey,
     storageBucket: source.storageBucket,
@@ -988,6 +994,14 @@ export async function forkDraftVersion(
     fileSize: source.fileSize,
     contentHash: source.contentHash,
     createdBy: session.userId,
+  }).catch(async (error: unknown) => {
+    // Two forks both passed the probe above, and the index refused the second
+    // insert. The loser gets the SAME 409 the probe gives — the contract names
+    // the draft that exists, so the caller can open it — rather than a 500. If
+    // the winner is already gone again, the mapped error is itself a 409.
+    if (!(error instanceof OpenVersionExistsError)) throw error
+    const winner = await findOpenVersion(documentId, session.organizationId)
+    throw winner ? openVersionConflict(winner) : error
   })
 
   await runEffects({
@@ -1011,28 +1025,42 @@ export async function forkDraftVersion(
  * would re-derive the uniqueness check, the newline hints and six error strings
  * on the wrong side of the boundary.
  *
- * The new bytes go to the version's OWN key. A draft forked from a published
- * version starts out sharing that version's key (see {@link forkDraftVersion}),
- * so the first replace moves it to `v<n>/…` and the published bytes are never
- * written over. A second replace overwrites the draft's own object in place —
- * a draft is not history and its intermediate bytes belong to no version.
+ * ## Two writers holding the same `If-Match`
  *
- * ## The order, which is four steps and not two
+ * `If-Match` is checked against the row read at the start ({@link assertGuards}),
+ * and that read is stale by the time anything is written. The swap used to
+ * filter on `state = 'draft'` alone, and `update` goes draft → draft, so two
+ * writers holding the same digest BOTH won, both wrote the same object key, and
+ * an interleaving could leave the row's hash and size describing one writer's
+ * bytes while the object held the other's.
+ *
+ * Two changes close it, and they only work together:
+ *
+ *   - **the swap asserts what was read**: `state`, `content_hash` and
+ *     `storage_key` all have to still be what this request read, so the second
+ *     of two writers matches no row and gets the 409 `If-Match` promised;
+ *   - **every write gets its own object** (`v<n>/<write id>/…`,
+ *     `writeVersionContent`), written BEFORE the swap. A loser's bytes land
+ *     under a key no row will ever name and are deleted; the winner's row can
+ *     only ever name bytes that are already stored in full. Writing to a shared
+ *     key after the swap — the previous order — left a window in which the row
+ *     named a hash the object did not yet hold, and a failed PUT left it that
+ *     way.
+ *
+ * The draft's previous object is deleted once nothing names it: a draft is not
+ * history. A draft forked from the published version shares that version's key
+ * until its first replace, and that object is left alone — the published row
+ * still names it.
+ *
+ * ## The order
  *
  *   1. **render**, through the producer's own renderer, and re-check that the
  *      AI marking is in the bytes. The caller sends the model's raw Markdown;
  *      the branding and the marking belong to the file, not to the request.
- *   2. **admit** the byte delta against the organization's quota, before
- *      anything is written or swapped.
- *   3. **compare and swap** the row, with the new storage columns on it.
- *   4. **write the object**, and mirror it onto the item when this version is
- *      the item's own bytes.
- *
- * Steps 3 and 4 are in that order deliberately. Writing first meant a caller
- * that LOST the race had already overwritten the winner's object, because both
- * were aiming at the same key — a lost update dressed as a 409. The cost is the
- * opposite failure, a row naming bytes the object store refused, and that one
- * is fixed by writing again.
+ *   2. **write and swap** (`writeVersionContent`): the quota courtesy check,
+ *      the object under a fresh key, then one transaction that swaps the row
+ *      and mirrors the item.
+ *   3. **effects**, for the winner only.
  */
 export async function replaceVersionContent(
   session: AuthorizedSession,
@@ -1060,26 +1088,13 @@ export async function replaceVersionContent(
   await requireTransitionPermission(session, document, transition)
 
   const rendered = await renderVersionBytes(document, version, content)
-  await admitVersionBytes(session.organizationId, version, rendered.bytes.byteLength)
-
-  const storageBucket = await resolveVersionBucket(session.organizationId)
-  const storageKey = versionStorageKey(document, version.versionNumber)
-  const swapped = await compareAndSwapVersionState(
-    versionId,
-    session.organizationId,
-    version.state,
-    {
-      ...stampFor(transition.to, session, {}, new Date()),
-      storageKey,
-      storageBucket,
-      contentType: rendered.contentType,
-      fileSize: rendered.bytes.byteLength,
-      contentHash: rendered.contentHash,
-    },
-  )
-  if (!swapped) throw new ConflictError('The version changed while you were writing')
-
-  await storeVersionBytes(session.organizationId, document, swapped, rendered)
+  const swapped = await writeVersionContent({
+    organizationId: session.organizationId,
+    document,
+    version,
+    rendered,
+    stamp: stampFor(transition.to, session, {}, new Date()),
+  })
 
   await runEffects({
     session,
@@ -1095,35 +1110,90 @@ export async function replaceVersionContent(
 /**
  * Record the version a human upload just stored.
  *
- * Called by all three upload shelves AFTER the bytes are admitted, so the row it
- * reads already carries the storage columns it should mirror. The quota is not
- * charged again here: `admitOrDiscard` / `admitReplacementOrDiscard` is the one
- * admitting path and this is bookkeeping on top of it.
+ * Called by all three upload shelves AFTER the bytes are admitted. The quota is
+ * not charged again here: `admitOrDiscard` / `admitReplacementOrDiscard` is the
+ * one admitting path and this is bookkeeping on top of it.
+ *
+ * `stored` is what THIS upload wrote. It used to be read back off the item row,
+ * which is right only while nobody else writes that row: two overlapping
+ * re-uploads of one filename each rewrite it, and the one that recorded its
+ * version second could read the OTHER upload's key — two versions over one
+ * object, and its own object named by nothing. Passing it in makes each version
+ * describe the bytes its own request stored. Omitted only by callers that have
+ * no bytes of their own in flight.
  *
  * A re-upload's previous version is superseded by the same transaction and
  * KEEPS ITS OBJECT — which is why the callers no longer call
  * `discardSupersededObjects`. That was correct while a document had one set of
  * bytes; with a history it deletes the object a row still names.
+ *
+ * ## A delete that lands after the upload's write
+ *
+ * The row was written a moment ago, and somebody can delete it before this
+ * runs: the lookup below misses, or — between the lookup and the insert — the
+ * version's foreign key refuses the insert (`DocumentDeletedError` from the
+ * repository). Either way this returns `null` and records nothing. A caller
+ * that has bytes in flight must not carry on as if a version existed: use
+ * {@link recordUploadedVersionOrDiscard}, which turns the `null` into a 409.
  */
 export async function recordUploadedVersion(
   session: AuthorizedSession,
   documentId: string,
   request?: Request,
+  stored?: UploadedBytes,
 ): Promise<DocumentVersion | null> {
   const document = await findDocumentInOrg(documentId, session.organizationId)
-  // The upload wrote the row a moment ago; a miss means somebody deleted it in
-  // between, and inventing a version for a document that is gone helps nobody.
   if (!document) return null
-  return createDocumentVersion(session, {
-    document,
-    op: 'upload',
-    storageKey: document.storageKey,
-    storageBucket: document.storageBucket,
-    contentType: document.contentType,
-    fileSize: document.fileSize,
-    contentHash: document.contentHash,
-    request,
-  })
+  const bytes = stored ?? document
+  try {
+    return await createDocumentVersion(session, {
+      document,
+      op: 'upload',
+      storageKey: bytes.storageKey,
+      storageBucket: bytes.storageBucket,
+      contentType: bytes.contentType,
+      fileSize: bytes.fileSize,
+      contentHash: bytes.contentHash,
+      request,
+    })
+  } catch (error) {
+    if (error instanceof DocumentDeletedError) return null
+    throw error
+  }
+}
+
+/** The columns an upload stored, which its version must describe. */
+type UploadedBytes = Pick<
+  DocumentVersion,
+  'storageKey' | 'storageBucket' | 'contentType' | 'fileSize' | 'contentHash'
+>
+
+/**
+ * {@link recordUploadedVersion}, for an upload that must stop when its document
+ * is gone — the project and Archiv shelves.
+ *
+ * A `null` there used to be read by nobody: the upload dispatched the deleted
+ * document for ingest, wrote „document.uploaded" and answered 200. Here it
+ * discards `stored`'s object and throws `DocumentDeletedError` (a 409,
+ * `deleted_during_upload`), so nothing downstream runs (ADR-0054 correction
+ * 17). The delete usually took the object already — it ran after this upload
+ * pointed the row at it — but not when it read the row before the upload's
+ * write committed, and then nothing else will ever name these bytes. Deleting a
+ * missing key is a no-op.
+ *
+ * Not a retry: the upload's write committed before the delete, so in commit
+ * order the file being gone is the delete's outcome.
+ */
+export async function recordUploadedVersionOrDiscard(
+  session: AuthorizedSession,
+  documentId: string,
+  request: Request | undefined,
+  stored: UploadedBytes,
+): Promise<DocumentVersion> {
+  const version = await recordUploadedVersion(session, documentId, request, stored)
+  if (version) return version
+  await discardObject(resolveDocumentBucket(stored.storageBucket), stored.storageKey)
+  throw new DocumentDeletedError(documentId)
 }
 
 /** The version number the next upload of this document will be. */

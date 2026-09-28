@@ -39,7 +39,7 @@ Ein Fluchtweg aus Segmenten, deren Summe geprüft wird → `egress_diagram`. Die
 Segmente einzeln, nie nur die Summe: die Frage ist fast immer, *welches*
 Segment zu lang ist.
 Zufahrt, Durchfahrt, Aufstellfläche → `fire_access_plan`.
-Mehrere Anforderungen, jede mit eigenem Urteil → `requirement_checklist`.
+Mehrere Anforderungen, jede mit eigenem Urteil → als Prüftabelle (Status-Spalte).
 Die Bestimmung selbst → `legal_basis`.
 
 ## Done

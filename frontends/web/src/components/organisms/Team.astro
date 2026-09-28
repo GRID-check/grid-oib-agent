@@ -1,0 +1,103 @@
+---
+import { Image } from 'astro:assets'
+import TapedPrint from '../craft/TapedPrint.astro'
+import { TRAGWERK } from '../craft/plates'
+import { founders } from '../../data/founders'
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = ui[locale]
+
+// Each founder is a plain photograph in the site's duotone (see
+// scripts/build-team-photos.mjs): no tape and no card, so the taped Tragwerk II
+// sheet stays the section's one object (craft/README.md, "taped, at most one
+// per page"). A founder without a photo is drawn the way a drawing set marks a
+// detail instead — a circle split by a rule, the initials above it and the
+// number below.
+const people = founders.map((f, i) => {
+  const words = f.name.split(' ')
+  return {
+    name: f.name,
+    role: f.role[locale],
+    photo: f.photo,
+    initials: `${words[0][0]}${words[words.length - 1][0]}`,
+    no: String(i + 1).padStart(2, '0'),
+  }
+})
+---
+
+<section
+  id="team"
+  data-screen-label={t.sheets.team}
+  class="frame section-y overflow-x-clip"
+>
+  <!-- Phone: intro, plate, founders (the heading comes first). From lg the
+       plate hangs beside the intro (three columns, three founders) and the
+       founders run as one row beneath both, their names on one line. -->
+  <div class="grid grid-cols-1 items-start gap-y-10 lg:grid-cols-[7fr_5fr] lg:gap-x-16 lg:gap-y-14">
+    <div data-reveal class="lg:col-start-1 lg:row-start-1">
+      <h2 class="m-0 mb-5 font-voice text-v2 text-panel sm:mb-6" style="text-wrap: balance">
+        {t.team.title}
+      </h2>
+      <p class="m-0 max-w-[34rem] text-base leading-relaxed text-ink-soft sm:text-lg" style="text-wrap: pretty">
+        {t.team.body}
+      </p>
+    </div>
+
+    <TapedPrint
+      name={TRAGWERK.II}
+      locale={locale}
+      size="half"
+      phone="third"
+      class="lg:col-start-2 lg:row-start-1 lg:justify-self-end"
+    />
+
+    <!-- Ruled rows on a phone; from `sm` the same rows side by side, three
+         columns under one rule each. -->
+    <ul
+      aria-label={t.team.listLabel}
+      class="m-0 grid list-none grid-cols-1 p-0 sm:grid-cols-3 sm:gap-x-8 lg:col-span-2 lg:gap-x-10"
+    >
+      {
+        people.map((p) => (
+          <li
+            data-reveal
+            class="flex items-center gap-4 border-t border-ink/12 py-4 last:border-b sm:flex-col sm:items-start sm:gap-5 sm:pb-0 sm:pt-6 sm:last:border-b-0"
+          >
+            {p.photo ? (
+              <Image
+                src={p.photo}
+                alt={p.name}
+                widths={[80, 104, 160, 208]}
+                sizes="(min-width: 640px) 104px, 80px"
+                class="size-20 shrink-0 rounded-sm object-cover sm:size-26"
+              />
+            ) : (
+              <span
+                class="relative grid size-14 shrink-0 grid-rows-2 place-items-center rounded-full border border-panel/40 bg-paper sm:size-20"
+                aria-hidden="true"
+              >
+                <span class="absolute inset-x-0 top-1/2 h-px bg-panel/40" />
+                <span class="self-end pb-0.5 font-voice text-xl leading-none text-panel sm:pb-1 sm:text-3xl">
+                  {p.initials}
+                </span>
+                <span class="self-start pt-1 font-mono text-2xs leading-none text-ink-faint sm:pt-1.5">
+                  {p.no}
+                </span>
+              </span>
+            )}
+            <div class="min-w-0">
+              <p class="m-0 text-lg font-semibold leading-snug text-panel">
+                {p.name}
+              </p>
+              <p class="m-0 mt-1 text-base leading-snug text-ink-soft sm:text-sm">{p.role}</p>
+            </div>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>

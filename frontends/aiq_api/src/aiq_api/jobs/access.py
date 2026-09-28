@@ -27,7 +27,8 @@ _JOB_ACCESS_PROJECT_INDEX_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_job_access_owner_project ON job_access(owner_subject, project_collection)"
 )
 _JOB_ACCESS_SELECT_SQL = text(
-    "SELECT job_id, owner_auth_type, owner_subject, owner_email, conversation_id, project_collection, created_at "
+    "SELECT job_id, owner_auth_type, owner_subject, owner_email, conversation_id, project_collection, "
+    "organization_id, created_at "
     "FROM job_access WHERE job_id = :job_id"
 )
 _JOB_ACCESS_DELETE_SQL = text("DELETE FROM job_access WHERE job_id = :job_id")

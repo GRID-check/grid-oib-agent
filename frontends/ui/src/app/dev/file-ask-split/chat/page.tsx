@@ -55,6 +55,10 @@
  *                  and offers the only move left.
  *   - `failed`   — indexing failed. The one state on this surface that does not
  *                  resolve itself, so it is the one that carries a way out.
+ *   - `failed-reupload` — the same failure on a NEW version of a document
+ *                  that already had one. The index kept the previous version,
+ *                  so the strip says Piloti still cites that one rather than
+ *                  "cannot cite this file".
  *   - `wide`     — the peek at a width the reader dragged it to and the split
  *                  remembered. Until the seam was fixed this state was
  *                  unreachable: the drag fought back after ~20px and the old
@@ -63,6 +67,7 @@
  *                  at that ratio needs evidence.
  */
 
+import type { JSX } from 'react'
 import { useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
@@ -152,8 +157,10 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
         seed === 'indexing'
           ? { ...FILE, status: 'processing' }
           : seed === 'failed'
-            ? { ...FILE, status: 'failed', errorMessage: 'Seite 3: Text-Layer konnte nicht gelesen werden.' }
-            : FILE,
+            ? { ...FILE, status: 'failed', errorMessage: 'Seite 3: Text-Layer konnte nicht gelesen werden.', versionCount: 1 }
+            : seed === 'failed-reupload'
+              ? { ...FILE, status: 'failed', errorMessage: 'Seite 3: Text-Layer konnte nicht gelesen werden.', versionCount: 2 }
+              : FILE,
       mode: 'peek',
       hidden: seed === 'hidden',
       context: CONTEXT,

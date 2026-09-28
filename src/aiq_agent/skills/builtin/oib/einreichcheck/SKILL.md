@@ -49,7 +49,7 @@ Lageplan.
 
 Der Weg Einreichung → Verhandlung → Bewilligung → Fertigstellung →
 `process_map`, der aktuelle Schritt markiert.
-Das Paket selbst → `requirement_checklist`, eine Zeile je Unterlage.
+Das Paket selbst → als Prüftabelle (Status-Spalte), eine Zeile je Unterlage.
 Die Bestimmung, die das Paket trägt → `legal_basis`.
 
 ## Done

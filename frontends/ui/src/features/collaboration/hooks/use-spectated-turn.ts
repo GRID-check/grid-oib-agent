@@ -25,11 +25,9 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createRetryLadder } from '@/shared/utils/backoff'
-import {
-  EMPTY_SPECTATED_TURN,
-  reduceSpectatedFrame,
-  type SpectatedTurnState,
-} from '../lib/spectator-frames'
+import { parseWireEvent } from '@/adapters/api/wire-v2'
+import type { TurnView } from '@/features/chat/lib/turn-fold'
+import { foldSpectatedEvent, hasSomethingToShow } from '../lib/spectator-frames'
 
 export interface UseSpectatedTurnOptions {
   conversationId: string | null
@@ -42,11 +40,9 @@ export interface UseSpectatedTurnOptions {
   /**
    * Called once per frame delivered, as evidence that the turn is still alive.
    *
-   * Deliberately NOT derived from `turn`: `applyNamedStep` merges a repeated
-   * frame into the step it already has, so a single long-running tool call moves
-   * neither `steps.length` nor `answer.length` for minutes at a time. A caller
-   * watching those two numbers therefore concludes a working turn has gone
-   * silent — which is the commonest deep-research shape, not an edge case.
+   * Deliberately NOT derived from `turn`: a heartbeat or a step replaced by id
+   * moves neither the step count nor the text for minutes at a time, and a
+   * caller watching those would conclude a working turn has gone silent.
    *
    * Called for the frame, not for the connection: a keepalive proves the socket
    * is up, which is a different fact. Kept in a ref, so passing an unstable
@@ -57,7 +53,7 @@ export interface UseSpectatedTurnOptions {
 
 export interface UseSpectatedTurnResult {
   /** The turn so far, or null when nothing is being watched. */
-  turn: SpectatedTurnState | null
+  turn: TurnView | null
   /** True once frames are actually flowing — the caller swaps the banner for this. */
   live: boolean
 }
@@ -76,15 +72,12 @@ const RECONNECT_BASE_MS = 2_000
 const RECONNECT_MAX_MS = 20_000
 const MAX_RECONNECTS = 4
 
-/** What the SSE route sends. Anything else is ignored. */
-type LiveEvent =
-  | { kind: 'frame'; seq?: number; payload?: unknown }
-  | { kind: 'unsupported' }
-  | { kind: 'revoked' }
+/** What the SSE route sends: a v2 frame verbatim, or why nothing more is coming. */
+type LiveEvent = { kind: 'frame'; payload?: unknown } | { kind: 'unsupported' } | { kind: 'revoked' }
 
 export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectatedTurnResult {
   const { conversationId, enabled, onFrame } = options
-  const [turn, setTurn] = useState<SpectatedTurnState | null>(null)
+  const [turn, setTurn] = useState<TurnView | null>(null)
   const [live, setLive] = useState(false)
 
   // Latest callback without it being an effect dependency: a caller that passes
@@ -92,21 +85,12 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
   const onFrameRef = useRef(onFrame)
   onFrameRef.current = onFrame
 
-  /**
-   * Frames the server has already sent us, so a reconnect that re-delivers one
-   * cannot append the same tokens twice. Sequence numbers are monotonic per
-   * conversation and assigned by the turn's owner, which is exactly what they are
-   * there for.
-   */
-  const lastSeqRef = useRef(0)
-
   useEffect(() => {
     if (!enabled || !conversationId) {
       // Clear on the way out rather than on the way in: a stale half-written
       // answer must not be on screen when the next turn starts.
       setTurn(null)
       setLive(false)
-      lastSeqRef.current = 0
       return
     }
 
@@ -130,8 +114,7 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
       maxMs: RECONNECT_MAX_MS,
       budget: MAX_RECONNECTS,
     })
-    lastSeqRef.current = 0
-    setTurn({ ...EMPTY_SPECTATED_TURN })
+    setTurn(null)
     setLive(false)
 
     const close = (): void => {
@@ -175,21 +158,16 @@ export function useSpectatedTurn(options: UseSpectatedTurnOptions): UseSpectated
         }
 
         if (parsed.kind !== 'frame') return
-        // Before the dedupe, and before the reducer: a frame the reducer folds
-        // into an existing step, or drops as a replay, is still proof the turn
+        // Before the fold: a duplicate the fold drops is still proof the turn
         // is producing output.
         onFrameRef.current?.()
-        const seq = typeof parsed.seq === 'number' ? parsed.seq : 0
-        // seq 0 means the publisher did not number this frame; take it rather than
-        // dropping it, since the dedupe is an optimisation and a lost token is not.
-        if (seq > 0 && seq <= lastSeqRef.current) return
-        if (seq > 0) lastSeqRef.current = seq
-
+        const wire = parseWireEvent(parsed.payload)
+        if (!wire) return
+        // The fold drops a seq it has seen, so a reconnect that re-delivers
+        // frames cannot append the same tokens twice.
         setTurn((previous) => {
-          const next = reduceSpectatedFrame(previous ?? EMPTY_SPECTATED_TURN, parsed.payload)
-          // "Live" the moment there is something to show, not merely on connect:
-          // an empty bubble replacing the banner reads as a stall.
-          if (next.answer || next.steps.length > 0 || next.waitingOn) setLive(true)
+          const next = foldSpectatedEvent(previous, wire)
+          if (next && hasSomethingToShow(next)) setLive(true)
           return next
         })
       }

@@ -10,12 +10,6 @@ import type { DataSourceFromAPI } from '@/adapters/api'
 /** Theme mode options */
 export type ThemeMode = 'light' | 'dark' | 'system'
 
-/** Panels that can be opened on the right side */
-export type RightPanelType = 'research' | null
-
-/** Tabs within the Research panel */
-export type ResearchPanelTab = 'tasks' | 'thinking' | 'report'
-
 /** Tabs within the DataSources panel */
 export type DataSourcesPanelTab = 'connections' | 'files'
 
@@ -36,10 +30,6 @@ export interface LayoutState {
    * where the chat route hides the standalone global top bar to reclaim space.
    */
   isMobileNavOpen: boolean
-  /** Currently open right panel (null = closed) */
-  rightPanel: RightPanelType
-  /** Active tab in the research panel */
-  researchPanelTab: ResearchPanelTab
   /** Active tab in the data sources panel */
   dataSourcesPanelTab: DataSourcesPanelTab
   /** IDs of enabled data sources (array for zustand serialization) */
@@ -74,10 +64,6 @@ export interface LayoutState {
    */
   activeSourcePreset: SourcePresetId | null
   /**
-   * @deprecated Use researchPanelTab instead
-   */
-  detailsPanelTab: ResearchPanelTab
-  /**
    * @deprecated Use dataSourcesPanelTab instead
    */
   dataSourcePanelTab: DataSourcesPanelTab
@@ -91,12 +77,6 @@ export interface LayoutActions {
   setSessionsPanelOpen: (open: boolean) => void
   /** Open/close the global mobile navigation drawer */
   setMobileNavOpen: (open: boolean) => void
-  /** Open a specific right panel (closes any existing) */
-  openRightPanel: (panel: RightPanelType) => void
-  /** Close the right panel */
-  closeRightPanel: () => void
-  /** Set the active research panel tab */
-  setResearchPanelTab: (tab: ResearchPanelTab) => void
   /** Set the active data sources panel tab */
   setDataSourcesPanelTab: (tab: DataSourcesPanelTab) => void
   /** Toggle a data source enabled/disabled by ID */
@@ -125,10 +105,6 @@ export interface LayoutActions {
   setKnowledgeLayerAvailable: (available: boolean) => void
   /** Set VLM (vision model) capability availability */
   setVlmAvailable: (available: boolean) => void
-  /**
-   * @deprecated Use setResearchPanelTab instead
-   */
-  setDetailsPanelTab: (tab: ResearchPanelTab) => void
   /**
    * @deprecated Use setDataSourcesPanelTab instead
    */

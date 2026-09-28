@@ -18,6 +18,7 @@
  * Not linked from anywhere and 404s outside development (see ../layout.tsx).
  */
 
+import type { JSX } from 'react'
 import { I18nProvider } from '@/i18n'
 import { OrgInstructionsForm } from '@/app/app/(shell)/organization/org-instructions-form'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'

@@ -23,6 +23,8 @@ from aiq_agent.agents.piloti.markers import answer_confidence_capped_reason
 from aiq_agent.agents.piloti.markers import surface_answer_confidence
 from aiq_agent.common import citation_events
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
+from aiq_agent.common.citation_verification import expand_grouped_citations
+from aiq_agent.common.citation_verification import lost_citations
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.citation_verification import source_label
@@ -33,7 +35,9 @@ from aiq_agent.common.retrieval_ledger import build_retrieval_ledger
 from aiq_agent.common.turn_status import CUTOFF_RUN_BUDGET
 from aiq_agent.common.turn_status import CUTOFF_STEP_LIMIT
 from aiq_agent.common.turn_status import CUTOFF_UPSTREAM_TIMEOUT
+from aiq_agent.common.turn_status import CUTOFF_USER_REQUESTED
 from aiq_agent.common.turn_status import CUTOFF_WALL_CLOCK
+from aiq_agent.common.turn_status import DEGRADED_GRUNDLAGE_UNREAD
 from aiq_agent.common.turn_status import DEGRADED_NO_VALID_CITATIONS
 from aiq_agent.common.turn_status import DEGRADED_UNVERIFIED_QUOTES
 from aiq_agent.common.turn_status import emit_answer_degraded
@@ -75,6 +79,18 @@ _CUTOFF_CAUSE_CLAUSES = {
     CUTOFF_STEP_LIMIT: "wegen des erreichten Schritt-Limits",
     CUTOFF_UPSTREAM_TIMEOUT: "weil eine angefragte Quelle nicht rechtzeitig geantwortet hat",
     CUTOFF_RUN_BUDGET: "wegen des erreichten Recherche-Budgets",
+    CUTOFF_USER_REQUESTED: "auf Ihren Wunsch",
+}
+#: The same clauses for a report the writer wrote in English: the banner
+#: follows the report's language, detected off the report itself, so an
+#: English report is not opened by a German sentence.
+_HONESTY_BANNER_PREFIX_EN = "> **Note:**"
+_CUTOFF_CAUSE_CLAUSES_EN = {
+    CUTOFF_WALL_CLOCK: "at the time limit",
+    CUTOFF_STEP_LIMIT: "at the step limit",
+    CUTOFF_UPSTREAM_TIMEOUT: "because a requested source did not answer in time",
+    CUTOFF_RUN_BUDGET: "at the research budget",
+    CUTOFF_USER_REQUESTED: "at your request",
 }
 
 _OUTPUT_PATHS = ("/shared/output.md", "/output.md")
@@ -167,25 +183,37 @@ def _prepend_honesty_banner(
 ) -> str:
     """Put the answer's own limitations at the top of the answer.
 
-    German, like every other line this product writes to a reader, and in the
-    register of the job runner's ``FAILURE_NOTICE``: factual, short, Sie-form,
+    In the report's language (German by default, English for an English
+    report), in the register of the job runner's ``FAILURE_NOTICE``: factual, short, Sie-form,
     no invented error taxonomy. It rides the REPORT rather than only the state
     flags because the report is what travels furthest — into the conversation,
     the job output, the exported PDF — and someone reading only that must still
     be able to tell that it is partial.
     """
+    from aiq_agent.common.query_expansion import detect_language
+
+    english = detect_language(report[:4000]) == "en"
     sentences: list[str] = []
     if cutoff_reason is not None:
-        cause = _CUTOFF_CAUSE_CLAUSES.get(cutoff_reason)
+        cause = (_CUTOFF_CAUSE_CLAUSES_EN if english else _CUTOFF_CAUSE_CLAUSES).get(cutoff_reason)
         cause_clause = f" {cause}" if cause else ""
         sentences.append(
-            f"Diese Recherche wurde{cause_clause} vorzeitig beendet, der folgende Bericht ist daher unvollständig."
+            f"This research was stopped{cause_clause} before it was finished, so the report below is incomplete."
+            if english
+            else f"Diese Recherche wurde{cause_clause} vorzeitig beendet, der folgende Bericht ist daher unvollständig."
         )
-    if degraded_reasons:
-        sentences.append("Die Angaben konnten nicht vollständig geprüft werden und sind nur eingeschränkt belastbar.")
+    # An unread Grundlage is said by its own section at the foot of the report
+    # (`_append_unread_grundlage`); it is not a verification failure.
+    if any(reason != DEGRADED_GRUNDLAGE_UNREAD for reason in degraded_reasons or ()):
+        sentences.append(
+            "The statements could not be fully verified and are only partly reliable."
+            if english
+            else "Die Angaben konnten nicht vollständig geprüft werden und sind nur eingeschränkt belastbar."
+        )
     if not sentences:
         return report
-    return f"{_HONESTY_BANNER_PREFIX} {' '.join(sentences)}\n\n{report.lstrip()}"
+    prefix = _HONESTY_BANNER_PREFIX_EN if english else _HONESTY_BANNER_PREFIX
+    return f"{prefix} {' '.join(sentences)}\n\n{report.lstrip()}"
 
 
 def _salvaged_report_length(text: str) -> int:
@@ -211,6 +239,9 @@ def _summarize_removed_citations(removed_citations: list[dict[str, Any]]) -> dic
     ``None`` so the ``citations_removed`` field stays absent. Shape matches the
     chat researcher's ``_normalize_citations_removed`` reader.
     """
+    # A merged duplicate cost the reader nothing (its [N] now points at the
+    # line it duplicated), so it is not reported as a removal.
+    removed_citations = lost_citations(removed_citations)
     if not removed_citations:
         return None
     reasons: list[str] = []
@@ -394,7 +425,11 @@ def verify_report(report: str, registry: Any, reference_sources: list[Any]) -> V
     checking each quoted span against the retrieved passage text. Quotes are
     annotated inline, never stripped, and an annotated quote ships MARKED so a
     salvaged report can never read exactly like a verified one.
+
+    A range (``[1–3]``) is expanded first: the verifier reads ``[N]`` only, so
+    a range whose source 3 it removed would ship ``[1–3]`` still naming it.
     """
+    report = expand_grouped_citations(report)
     verification = verify_citations(report, registry, reference_sources=reference_sources)
     if verification.removed_citations:
         logger.info(
@@ -404,7 +439,8 @@ def verify_report(report: str, registry: Any, reference_sources: list[Any]) -> V
         )
     report = verification.verified_report
     degraded_reasons: list[str] = []
-    unverified_quotes = verify_quoted_spans(report, registry)
+    # Deep research annotates and never patches, so it asks for no nearest passage.
+    unverified_quotes = verify_quoted_spans(report, registry, with_nearest=False)
     if unverified_quotes:
         report = annotate_unverified_quotes(report, unverified_quotes)
         logger.info(
@@ -489,6 +525,35 @@ class FinalizedReport:
     confidence: ConfidenceLevel | None
     confidence_reason: str | None
     confidence_capped_reason: str | None
+    #: The Grundlage the run did not reach, by file name. Empty when every
+    #: named document has a passage in the registry, or none was named.
+    grundlage_unread: list[str] = field(default_factory=list)
+
+
+def _append_unread_grundlage(report: str, unread: Sequence[str]) -> str:
+    """Name, at the end of the report, the Grundlage the run never reached.
+
+    At the END, as its own section, in the report's language: the banner at
+    the top says the report is weaker, this says exactly which document the
+    reader still has to read themselves. Never silent — a Grundlage is a
+    promise the reader made the run keep, and a report that dropped it would
+    read as if the document said nothing.
+    """
+    if not unread:
+        return report
+    from aiq_agent.common.query_expansion import detect_language
+
+    english = detect_language(report[:4000]) == "en"
+    heading = "## Documents not read" if english else "## Nicht gelesene Unterlagen"
+    lead = (
+        "These documents were named as the basis of this research and could not be read; "
+        "their contents are not reflected above:"
+        if english
+        else "Diese Unterlagen waren als Grundlage benannt und konnten nicht gelesen werden; "
+        "ihr Inhalt ist oben nicht berücksichtigt:"
+    )
+    lines = "\n".join(f"- {name}" for name in unread)
+    return f"{report.rstrip()}\n\n{heading}\n\n{lead}\n\n{lines}\n"
 
 
 def finalize_report(
@@ -498,6 +563,7 @@ def finalize_report(
     self_confidence_reason: str | None,
     degraded_reasons: list[str],
     cutoff_reason: str | None,
+    grundlage_unread: Sequence[str] = (),
 ) -> FinalizedReport:
     """Sanitise, renumber, banner and grade the verified report.
 
@@ -508,6 +574,8 @@ def finalize_report(
     ceiling cap it.
     """
     degraded = [*degraded_reasons, *verification.degraded_reasons]
+    if grundlage_unread:
+        degraded.append(DEGRADED_GRUNDLAGE_UNREAD)
     sanitization = sanitize_report(verification.report)
     wire_sources = _apply_renumbering(
         verification.wire_sources,
@@ -515,7 +583,9 @@ def finalize_report(
         getattr(sanitization, "removed_citation_numbers", None),
     )
     report = _prepend_honesty_banner(
-        sanitization.sanitized_report, cutoff_reason=cutoff_reason, degraded_reasons=degraded
+        _append_unread_grundlage(sanitization.sanitized_report, grundlage_unread),
+        cutoff_reason=cutoff_reason,
+        degraded_reasons=degraded,
     )
     grounded, quotes_ok = verification.citation_grounded, verification.quotes_verified
     confidence = _cap_for_incomplete_evidence(
@@ -533,6 +603,7 @@ def finalize_report(
         confidence=confidence,
         confidence_reason=self_confidence_reason if confidence is not None else None,
         confidence_capped_reason=capped_reason if confidence is not None else None,
+        grundlage_unread=list(grundlage_unread),
     )
 
 
@@ -571,6 +642,8 @@ def annotate_state(result: Any, finalized: FinalizedReport, skill_runtime: Skill
     if finalized.degraded_reasons:
         set_state_field(result, "degraded_reasons", list(finalized.degraded_reasons))
         emit_answer_degraded(agent="deep", reasons=finalized.degraded_reasons)
+    if finalized.grundlage_unread:
+        set_state_field(result, "grundlage_unread", list(finalized.grundlage_unread))
     if finalized.confidence is None:
         return
     set_state_field(result, "answer_confidence", finalized.confidence)

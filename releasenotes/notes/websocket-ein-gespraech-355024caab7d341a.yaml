@@ -1,0 +1,5 @@
+---
+security:
+  - >
+    A chat connection now only works for the conversation it was opened for.
+    Messages naming another conversation are refused.

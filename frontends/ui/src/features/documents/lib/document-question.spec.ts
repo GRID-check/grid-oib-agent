@@ -57,5 +57,17 @@ describe('fileItemFromStatus', () => {
     expect(file.filename).toBe('plan.pdf')
     expect(file.displayName).toBeNull()
     expect(file.folderId).toBeNull()
+    expect(file.versionCount).toBeNull()
+  })
+
+  it('carries the version count the chat peek reads for a failed re-upload', () => {
+    const file = fileItemFromStatus({
+      id: 'doc-1',
+      filename: 'plan.pdf',
+      status: 'failed',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      versionCount: 2,
+    })
+    expect(file.versionCount).toBe(2)
   })
 })

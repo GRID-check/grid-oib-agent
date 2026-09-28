@@ -1,0 +1,10 @@
+---
+fixes:
+  - >
+    Your organization's model choice can be saved again; saving failed while a
+    setting for a retired task was still stored.
+operators:
+  - >
+    Saving under Platform → Models works again: settings for tasks that no
+    longer exist are skipped and removed on the next save, and the retired OIB
+    compliance check row is gone from the list.

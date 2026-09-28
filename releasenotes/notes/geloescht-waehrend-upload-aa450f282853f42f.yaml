@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    If a file is deleted right after someone uploaded it to a project or the
+    Archiv, the upload now says so instead of reporting success.
+  - >
+    Deleting an Archiv document or a chat attachment now also removes its
+    version history.

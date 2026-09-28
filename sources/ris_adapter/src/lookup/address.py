@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from ris_adapter.client import ALLOWED_DOCUMENT_HOSTS
+from ris_adapter.client import public_host
 from ris_adapter.register import _CATALOG_AVAILABLE
 from ris_adapter.register import extract_bundesland
 
@@ -27,6 +28,57 @@ logger = logging.getLogger(__name__)
 PARAGRAPH_RE = re.compile(r"§+\s*(\d+[a-z]?)")
 ARTIKEL_RE = re.compile(r"\bArt(?:ikel)?\.?\s*(\d+[a-z]?)\b", re.IGNORECASE)
 ABSATZ_RE = re.compile(r"\bAbs(?:atz|\.)?\s*(\d+[a-z]?)\b", re.IGNORECASE)
+
+#: A LIST of §§ or Artikel: "§§ 75 und 81", "§§ 2, 3", "§§ 63 bis 65",
+#: "§ 5 und § 7", "§ 5 Abs 2 und § 7", "Art. 5 und 7". Every one it names is
+#: addressed. Read as one it dropped all but the first and left "und 81" in the
+#: law's name, and the agent spent a round fetching the § it had already asked
+#: for. Read by a cursor from the first § the caller named (:func:`_list_from`),
+#: not by one regex: whether "und 3" continues the §§ or the Absatz before it
+#: depends on what came just before.
+_SIGNED = {
+    "§": re.compile(r"\s*§+\s*(\d+)([a-z]?)\b", re.IGNORECASE),
+    "Art": re.compile(r"\s*\bArt(?:ikel)?\.?\s*(\d+)([a-z]?)\b", re.IGNORECASE),
+}
+#: An item with no sign of its own: at most three digits (a year is not a §).
+_BARE = re.compile(r"\s*(\d{1,3})([a-z]?)\b", re.IGNORECASE)
+#: After a comma, "2. Satz" is an ordinal, not § 2.
+_ORDINAL_AHEAD = re.compile(r"\.\s*\w")
+_JOIN_RE = re.compile(r"\s*(,|\bund\b|\bsowie\b|\bu\.|\bbis\b|–|-)", re.IGNORECASE)
+_RANGE_JOINS = frozenset({"bis", "–", "-"})
+#: What narrows one § ("Abs 2", "Abs. 2 und 3", "Z 4 und Z 6", "lit. b und c",
+#: ", 2. Satz"). The items joined after it are more of the same qualifier, signed
+#: again or not, never more §§: read as a § list, "und c" and "und Abs 3" were
+#: left in the law's name. A litera continues with a lower-case letter, the
+#: others with a number; neither takes a "§", so "und § 7" stays the list's.
+_QUALIFIER_JOIN = r"\s*(?:,|\bund\b|\bbis\b|–|-)\s*"
+_QUALIFIER_RE = re.compile(
+    r"\s*(?:"
+    r"(?:Abs(?:atz|\.)?|Z(?:iffer|\.)?)\s*\d+[a-z]?\b"
+    rf"(?:{_QUALIFIER_JOIN}(?:(?:Abs(?:atz|\.)?|Z(?:iffer|\.)?)\s*)?\d+[a-z]?\b(?!\.\s*\w))*"
+    r"|lit\.?\s*(?-i:[a-z])\b"
+    rf"(?:{_QUALIFIER_JOIN}(?:lit\.?\s*)?(?-i:[a-z])\b(?!\.\s*\w))*"
+    r"|,?\s*\d+\.\s*Satz\b)",
+    re.IGNORECASE,
+)
+#: An Absatz with a list after it, where no § stands before it: taken out of
+#: the law's name whole, so no "und 3" is left to be read as the law.
+_ABSATZ_LIST_RE = re.compile(r"\bAbs(?:atz|\.)?\s*\d+[a-z]?(?:\s*(?:,|und|bis|–|-)\s*\d+[a-z]?)*", re.IGNORECASE)
+
+#: The word that introduced a later § reference ("§ 3 BO Wien, siehe §§ 75 und
+#: 81"), left dangling once that list is cut out. The law name is the live RIS
+#: search's title, and "BO Wien, siehe" matches no law. The space before a
+#: closing parenthesis is taken only WITH the parenthesis: a bare ``\s*\)?``
+#: lets two repetitions share the same spaces, which backtracks exponentially
+#: on "(s. (s. (s. …" (CodeQL py/redos).
+_TRAILING_REFERENCE_RE = re.compile(
+    r"(?:[\s,;]+(?:siehe|vgl\.?|s\.)|\s*\(\s*(?:siehe|vgl\.?|s\.)(?:\s*\))?)+$", re.IGNORECASE
+)
+
+#: How many §§ one list may address: the tool's own passage budget
+#: (``extract.MAX_PASSAGES``). A longer list or range addresses its first six,
+#: and the result says which it did not read (``Address.unread``).
+MAX_ADDRESSED_SECTIONS = 6
 
 #: A bare RIS document number as an ``instrument=`` argument ("NOR40217157",
 #: "JWT_2020130074_20210415J00"). The four-digit lookahead is load-bearing:
@@ -52,6 +104,10 @@ class Address:
 
     kind: str = ""  # "§" | "Art" | ""
     number: str = ""
+    #: Every § the caller named, ``number`` first; one entry for a single §.
+    numbers: tuple[str, ...] = ()
+    #: The §§ a list named past :data:`MAX_ADDRESSED_SECTIONS`, not read.
+    unread: tuple[str, ...] = ()
     absatz: str = ""
     law: str = ""
     url: str = ""
@@ -64,14 +120,90 @@ class Address:
         """Whether a § or Artikel was named — the deterministic path's trigger."""
         return bool(self.kind and self.number)
 
+    @property
+    def sections(self) -> tuple[str, ...]:
+        """Every addressed number: the list when one was named, else the one §."""
+        return self.numbers or ((self.number,) if self.number else ())
+
+
+#: A range is expanded in full, so every § past the first six is named as not
+#: read. This bounds only nonsense input ("§§ 1 bis 999999"): past it the range
+#: ends here, which no law reaches.
+_MAX_RANGE_SPAN = 1000
+
+
+def _first_section(text: str) -> tuple[str, str, int]:
+    """``(kind, number, where)`` of the first § (or else Artikel) in ``text``; ``("", "", -1)`` without one."""
+    paragraph = PARAGRAPH_RE.search(text)
+    if paragraph:
+        return "§", paragraph.group(1), paragraph.start()
+    artikel = ARTIKEL_RE.search(text)
+    return ("Art", artikel.group(1), artikel.start()) if artikel else ("", "", -1)
+
+
+def _list_from(text: str, kind: str, start: int) -> tuple[tuple[str, ...], int]:
+    """Every § (or Artikel) a list starting at ``start`` names, and where the list ends.
+
+    Ranges expanded (:func:`_extend`); an Absatz, Ziffer or litera after an
+    item is part of it; after one, only a SIGNED item continues the list. Not
+    capped: :func:`parse_address` addresses the first
+    :data:`MAX_ADDRESSED_SECTIONS` and reports the rest as unread.
+    """
+    first = _SIGNED[kind].match(text, start)
+    if first is None:
+        return (), start
+    items, end = [first.group(1) + first.group(2).lower()], first.end()
+    while True:
+        qualified = False
+        # "Abs 1 Z 2 lit. a" is three qualifiers on one item; each is consumed.
+        while qualifier := _QUALIFIER_RE.match(text, end):
+            qualified, end = True, qualifier.end()
+        join = _JOIN_RE.match(text, end)
+        item = join and _next_item(text, kind, join, qualified=qualified)
+        if not item:
+            return tuple(dict.fromkeys(items)), end
+        _extend(items, item.group(1), item.group(2).lower(), ranged=join.group(1).lower() in _RANGE_JOINS)
+        end = item.end()
+
+
+def _next_item(text: str, kind: str, join: re.Match[str], *, qualified: bool) -> re.Match[str] | None:
+    """The item after ``join``: signed always; bare only after an unqualified item, and not an ordinal."""
+    signed = _SIGNED[kind].match(text, join.end())
+    if signed or qualified:
+        return signed
+    bare = _BARE.match(text, join.end())
+    if bare and join.group(1) == "," and _ORDINAL_AHEAD.match(text, bare.end()):
+        return None
+    return bare
+
+
+def _extend(items: list[str], digits: str, letter: str, *, ranged: bool) -> None:
+    """Add one item, or the range from the last one to it ("7a bis 9" → 8, 9; "5a-5c" → 5b, 5c).
+
+    A range that does not ascend ("§ 12 bis 3") names nothing anyone meant,
+    and adds nothing.
+    """
+    if not ranged:
+        items.append(digits + letter)
+        return
+    previous = re.match(r"(\d+)([a-z]?)", items[-1])
+    start, start_letter, end = int(previous.group(1)), previous.group(2), int(digits)
+    if end == start and letter and letter > start_letter:
+        first = chr(ord(start_letter) + 1) if start_letter else "a"
+        items.extend(f"{end}{chr(code)}" for code in range(ord(first), ord(letter) + 1))
+        return
+    if end <= start:
+        return
+    last = min(end, start + _MAX_RANGE_SPAN)
+    items.extend(str(value) for value in range(start + 1, last + 1))
+    if letter and last == end:
+        items.append(f"{end}{letter}")
+
 
 def section_in(text: str) -> tuple[str, str]:
     """The first ``(kind, number)`` a text names, or ``("", "")``."""
-    paragraph = PARAGRAPH_RE.search(text)
-    if paragraph:
-        return "§", paragraph.group(1)
-    artikel = ARTIKEL_RE.search(text)
-    return ("Art", artikel.group(1)) if artikel else ("", "")
+    kind, number, _where = _first_section(text)
+    return kind, number
 
 
 def is_ris_url(value: str) -> bool:
@@ -91,17 +223,27 @@ def parse_address(question: str, instrument: str, jurisdiction: str) -> Address:
     is what the caller chose to state as an address, while the question is
     prose that may mention a § in passing.
     """
-    instrument = (instrument or "").strip()
+    # A URL a search stated on the OGD host (cached text keeps it for days)
+    # addresses the same document as its public-host twin.
+    instrument = public_host((instrument or "").strip())
     url = instrument if is_ris_url(instrument) else ""
     number = instrument if not url and _DOCUMENT_NUMBER_RE.match(instrument) else ""
-    kind, section = section_in(instrument) if instrument and not url and not number else ("", "")
+    source = instrument if instrument and not url and not number else ""
+    kind, section, where = _first_section(source)
     if not section:
-        kind, section = section_in(question or "")
-    absatz = ABSATZ_RE.search(instrument) or ABSATZ_RE.search(question or "")
+        source = question or ""
+        kind, section, where = _first_section(source)
+    items = _list_from(source, kind, where)[0] if kind else ()
+    listed = items if len(items) > 1 else ()
+    # An Absatz narrows ONE §; with a list it would narrow all of them to the
+    # same number, which is never what "§ 5 Abs 2 und § 7" means.
+    absatz = None if listed else (ABSATZ_RE.search(instrument) or ABSATZ_RE.search(question or ""))
     land, land_source = resolve_land(jurisdiction, instrument, question or "")
     return Address(
         kind=kind,
         number=section,
+        numbers=listed[:MAX_ADDRESSED_SECTIONS],
+        unread=listed[MAX_ADDRESSED_SECTIONS:],
         absatz=absatz.group(1) if absatz else "",
         law=_law_name(instrument, url, number),
         url=url,
@@ -115,7 +257,18 @@ def _law_name(instrument: str, url: str, number: str) -> str:
     """The named law inside ``instrument``, with the § and Absatz taken out."""
     if url or number:
         return ""
-    return PARAGRAPH_RE.sub("", ABSATZ_RE.sub("", instrument)).strip(" ,.;")
+    rest = instrument
+    # Every § or Artikel list goes, with its Absätze: the first is the
+    # address, any later one a reference the law's name does not contain.
+    for _ in range(8):
+        kind, _number, where = _first_section(rest)
+        if not kind:
+            break
+        _items, end = _list_from(rest, kind, where)
+        rest = f"{rest[:where]} {rest[max(end, where + 1) :]}"
+    rest = _ABSATZ_LIST_RE.sub("", rest)
+    rest = _TRAILING_REFERENCE_RE.sub("", re.sub(r"\s{2,}", " ", rest).strip(" ,;-–"))
+    return rest.strip(" ,.;-–")
 
 
 def resolve_land(jurisdiction: str, instrument: str, question: str) -> tuple[str, str]:

@@ -16,6 +16,7 @@ from aiq_agent.agents.piloti.markers import detect_and_strip_confidence_marker
 from aiq_agent.common.answer_envelope import ANATOMY_FIELDS
 from aiq_agent.common.answer_envelope import CONTEXT_MAX_CHARS
 from aiq_agent.common.answer_envelope import ENVELOPE_VERSION
+from aiq_agent.common.answer_envelope import MASTHEAD_FIELDS
 from aiq_agent.common.answer_envelope import SUMMARY_MAX_CHARS
 from aiq_agent.common.answer_envelope import TOPIC_MAX_CHARS
 from aiq_agent.common.answer_envelope import AnswerMeta
@@ -24,6 +25,7 @@ from aiq_agent.common.answer_envelope import gate_answer_meta
 from aiq_agent.common.answer_envelope import render_envelope_response_format
 from aiq_agent.common.answer_envelope import render_envelope_schema
 from aiq_agent.common.answer_envelope import resolve_callout_marker
+from aiq_agent.common.wire_v2 import StatusStep
 
 
 def _fenced(payload: dict) -> str:
@@ -86,6 +88,26 @@ class TestExtraction:
         assert prose == content
         assert meta is None
 
+    def test_a_break_after_the_answer_keeps_the_answer_and_drops_the_rest(self):
+        # The recorded failure: a surface card closed one brace too many, after
+        # the prose had closed whole and settled on screen.
+        content = (
+            '```answer_json\n{"kind":"ruling","answer":"Die Außentreppe ist in A2 auszuführen [2].\\n\\n'
+            '[[card:1]]","cards":[{"type":"surface","components":[{"id":"t","component":"Text",'
+            '"text":"Tabelle [2]."}}},{"type":"legal_basis","law":"OIB-Richtlinie 2"}]}\n```'
+        )
+        prose, meta = extract_answer_envelope(content)
+        assert prose == "Die Außentreppe ist in A2 auszuführen [2].\n\n[[card:1]]"
+        assert meta is None
+
+    def test_a_break_inside_the_answer_recovers_nothing(self):
+        content = '```answer_json\n{"kind":"direct","answer":"Die Höhe gilt \\q nach Tabelle."}}\n```'
+        assert extract_answer_envelope(content) == (content, None)
+
+    def test_an_unclosed_answer_recovers_nothing(self):
+        content = '```answer_json\n{"kind":"direct","answer":"Die Höhe gilt nach Tab\n```'
+        assert extract_answer_envelope(content) == (content, None)
+
     def test_trailing_junk_after_the_object_is_tolerated(self):
         content = "```answer_json\n" + json.dumps({"answer": _PROSE}) + "\nDone.\n```"
         prose, meta = extract_answer_envelope(content)
@@ -106,6 +128,39 @@ class TestExtraction:
     def test_an_envelope_with_only_an_answer_yields_no_anatomy(self):
         prose, meta = extract_answer_envelope(_fenced({"answer": _PROSE}))
         assert prose == _PROSE
+        assert meta is None
+
+    def test_a_fence_inside_the_answer_does_not_end_the_envelope(self):
+        # The answer is Markdown, and Markdown carries fences: a ```mermaid
+        # drawing, a listing. The envelope used to end at the FIRST ``` after
+        # it, which is that inner fence, so the object was cut mid-string and
+        # the reader got raw JSON. It ends where its JSON object ends.
+        answer = 'Der Ablauf [1].\n\n```mermaid\nflowchart TD\n  A["Einreichung"] --> B\n```\n\nDanach [1].'
+        prose, meta = extract_answer_envelope(_fenced({"answer": answer, "verdict": _VERDICT}))
+        assert prose == answer
+        assert meta is not None and meta.verdict is not None
+
+    def test_a_fence_written_with_raw_newlines_does_not_end_it_either(self):
+        # `strict=False` exists because models write raw newlines inside JSON
+        # strings, so the inner fence can sit at the start of a real line.
+        content = (
+            '```answer_json\n{"answer": "Der Ablauf.\n\n```mermaid\nflowchart TD\n  A --> B\n```\n\nEnde.", '
+            '"verdict": {"value": "REI 60", "subject": "Feuerwiderstand"}}\n```'
+        )
+        prose, meta = extract_answer_envelope(content)
+        assert prose == "Der Ablauf.\n\n```mermaid\nflowchart TD\n  A --> B\n```\n\nEnde."
+        assert meta is not None and meta.verdict is not None
+
+    def test_the_trailer_form_keeps_a_fenced_drawing_in_the_outside_prose(self):
+        outside = "Der Ablauf.\n\n```mermaid\nflowchart TD\n  A --> B\n```"
+        prose, meta = extract_answer_envelope(outside + "\n\n" + _fenced({"verdict": _VERDICT}))
+        assert prose == outside
+        assert meta is not None and meta.verdict is not None
+
+    def test_an_empty_fence_does_not_take_a_brace_from_the_prose_after_it(self):
+        content = 'Loose prose\n```answer_json\n\n```\nlater {"a":1}'
+        prose, meta = extract_answer_envelope(content)
+        assert "later" in prose
         assert meta is None
 
     def test_non_string_content_passes_through(self):
@@ -280,14 +335,9 @@ class TestAVerdictNeverRestsOnADocumentPilotiWrote:
         same document — with the evidence that would have failed it left out."""
         assert self._gate(None) is None
 
-    def test_the_unreferenced_drop_is_counted_under_its_own_reason(self, monkeypatch):
-        pushed: list[tuple[str, dict]] = []
-        monkeypatch.setattr(
-            "aiq_agent.common.turn_status.push_custom_step",
-            lambda name, payload: pushed.append((name, payload)),
-        )
+    def test_the_unreferenced_drop_is_counted_under_its_own_reason(self, emitted):
         assert self._gate(None) is None
-        assert [payload["values"]["reason"] for _, payload in pushed] == ["unreferenced_with_agent_source"]
+        assert [step.detail["reason"] for step in emitted.steps] == ["unreferenced_with_agent_source"]
 
     def test_a_norm_reference_still_survives_a_turn_with_an_agent_document(self):
         """The three cases are distinct: a norm Fundstelle is kept even when the
@@ -314,35 +364,22 @@ class TestAVerdictNeverRestsOnADocumentPilotiWrote:
         payload = self._gate({"document": "B"}, documents=frozenset({"b"}))
         assert payload is not None
 
-    def test_the_drop_is_counted_as_a_technical_event(self, monkeypatch):
+    def test_the_drop_is_counted_as_a_technical_event(self, emitted):
         """A gate that drops silently makes „how often does this happen?"
         unanswerable, and that rate is what says whether the wording works."""
-        pushed: list[tuple[str, dict]] = []
-        monkeypatch.setattr(
-            "aiq_agent.common.turn_status.push_custom_step",
-            lambda name, payload: pushed.append((name, payload)),
-        )
         assert self._gate({"document": "Brandschutzkonzept Haus B"}) is None
-        assert pushed == [
-            (
-                "status:verdict:dropped",
-                {
-                    "kind": "status",
-                    "channel": "technical",
-                    "slot": "verdict:dropped",
-                    "values": {"reason": "agent_authored_reference"},
-                },
+        assert emitted.steps == [
+            StatusStep(
+                id="status:verdict:dropped",
+                slot="verdict:dropped",
+                channel="technical",
+                detail={"reason": "agent_authored_reference"},
             )
         ]
 
-    def test_a_surviving_verdict_emits_nothing(self, monkeypatch):
-        pushed: list[tuple[str, dict]] = []
-        monkeypatch.setattr(
-            "aiq_agent.common.turn_status.push_custom_step",
-            lambda name, payload: pushed.append((name, payload)),
-        )
+    def test_a_surviving_verdict_emits_nothing(self, emitted):
         assert self._gate({"document": "OIB-Richtlinie 2"}) is not None
-        assert pushed == []
+        assert emitted == []
 
 
 class TestControlFields:
@@ -457,9 +494,12 @@ class TestStrictResponseFormat:
 
         walk(render_envelope_response_format()["json_schema"]["schema"])
 
-    def test_answer_leads_and_the_enums_survive(self):
+    def test_the_masthead_leads_then_the_answer_and_the_enums_survive(self):
+        # The masthead is written first so it stands above the prose before
+        # its first word streams (ADR-0066); everything else follows the prose.
         schema = render_envelope_response_format()["json_schema"]["schema"]
-        assert next(iter(schema["properties"])) == "answer"
+        order = list(schema["properties"])
+        assert order[: len(MASTHEAD_FIELDS) + 1] == [*MASTHEAD_FIELDS, "answer"]
         assert schema["properties"]["answer"]["type"] == "string"
         callout = schema["properties"]["callout"]["anyOf"][0]
         assert callout["properties"]["kind"]["enum"] == ["hinweis", "achtung", "frist", "tipp"]
@@ -531,6 +571,16 @@ class TestSummaryGate:
         payload = gate_answer_meta(meta, prose_chars=100)
         assert payload is not None
         assert "summary" not in payload and payload["verdict"]["value"] == "REI 60"
+
+    def test_the_length_drop_is_counted_under_its_field_and_reason(self, emitted):
+        """The reader keeps the prose; the operator gets the rate. A dropped
+        summary is a standfirst nobody sees, and only a count says whether the
+        limit or the prompt wording is wrong."""
+        meta = AnswerMeta.model_validate({"summary": "x" * (SUMMARY_MAX_CHARS + 1), "verdict": _VERDICT})
+        gate_answer_meta(meta, prose_chars=100)
+        assert [(step.id, step.detail) for step in emitted.steps] == [
+            ("status:anatomy:dropped", {"field": "summary", "reason": "too_long"})
+        ]
 
     def test_blank_is_absent_not_empty(self):
         meta = AnswerMeta.model_validate({"summary": "   ", "verdict": _VERDICT})
@@ -641,3 +691,64 @@ class TestTopicContextRegistry:
         assert payload is not None
         assert payload["topic"] == "Brandschutz"
         assert payload["context"] == "OIB-RL 2, Ausgabe Mai 2023 · Wien"
+
+
+class TestSkillsApplied:
+    """A CONTROL field (ADR-0063): taught, enforced, never on the reader's wire."""
+
+    def test_it_parses_and_never_reaches_the_wire(self):
+        from aiq_agent.common.answer_envelope import gate_answer_meta
+
+        _content, meta = extract_answer_envelope(
+            _fenced({"answer": _PROSE, "kind": "walkthrough", "skills_applied": ["brandschutz"]})
+        )
+        assert meta is not None and meta.skills_applied == ["brandschutz"]
+        gated = gate_answer_meta(meta, prose_chars=len(_PROSE)) or {}
+        assert "skills_applied" not in json.dumps(gated)
+
+    def test_it_is_taught_and_enforced_as_an_array_of_strings(self):
+        assert "skills_applied: [string]" in render_envelope_schema()
+        prop = render_envelope_response_format()["json_schema"]["schema"]["properties"]["skills_applied"]
+        assert prop["items"] == {"type": "string"}
+
+
+class TestHeadlessSalvage:
+    """An envelope whose opening never arrived is salvaged; one that has its opening is not."""
+
+    def test_a_reply_that_lost_its_opening_is_salvaged(self):
+        content = 'Die Höhe beträgt 2,10 m [1].", "kind": "ruling"}\n```'
+        prose, meta = extract_answer_envelope(content)
+        assert prose == "Die Höhe beträgt 2,10 m [1]."
+        assert meta is not None and meta.kind == "ruling"
+
+    def test_a_headless_tail_is_cut_at_its_own_kind_not_a_nested_cards(self):
+        content = (
+            'Die Antwort.", "kind":"ruling", "cards":[{"type":"callout", "kind":"hinweis", "text":"Achtung"}]}\n```'
+        )
+        prose, meta = extract_answer_envelope(content)
+        assert prose == "Die Antwort."
+        assert meta is not None and meta.kind == "ruling"
+
+    def test_a_headless_tail_whose_only_kind_is_a_nested_cards_is_not_salvaged(self):
+        # The last `", "kind":` is the callout's: cutting there shipped a JSON
+        # fragment as prose under an invented kind.
+        content = 'Mehr Text hier.", "cards":[{"type":"callout", "kind":"hinweis", "text":"Achtung"}]}\n```'
+        prose, meta = extract_answer_envelope(content)
+        assert meta is None
+        assert "callout" in prose
+
+    def test_an_unparseable_object_with_its_opening_is_not_cut_at_a_nested_kind(self):
+        # Not JSON (``\q``), and the callout's own "kind" looks like a headless
+        # tail: salvage would ship a JSON fragment as prose under an invented kind.
+        content = (
+            '{"kind":"direct","answer":"Die Höhe gilt \\q nach Tabelle.", '
+            '"callout":{"title":"T", "kind":"achtung", "text":"x"}}'
+        )
+        assert extract_answer_envelope(content) == (content, None)
+
+    def test_an_unparseable_fenced_object_is_not_salvaged_either(self):
+        content = (
+            '```answer_json\n{"kind":"direct","answer":"Die Höhe gilt \\q nach Tabelle.", '
+            '"callout":{"title":"T", "kind":"achtung", "text":"x"}}\n```'
+        )
+        assert extract_answer_envelope(content) == (content, None)

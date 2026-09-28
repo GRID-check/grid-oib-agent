@@ -1111,9 +1111,9 @@ export interface GridConfig {
      */
     enabled: boolean;
     /**
-     * Image reference. Upstream publishes no version tags yet, so this
-     * defaults to a MOVING `:latest` (pulled Always — see err2issue.ts).
-     * Digest-pin it before enabling in prod.
+     * Image reference, digest-pinned (v0.5.1 by default). Upstream tags each
+     * build `:sha-<commit>` and `:latest`; bump the digest deliberately, it is
+     * scanned by the trivy job in .github/workflows/security.yml.
      */
     image: string;
     /** Fallback destination repo (`owner/repo`) for unrouted services. */
@@ -1138,6 +1138,21 @@ export interface GridConfig {
     maxNewFingerprintsPerDay: number;
     /** Drop errors from services the route map does not match. */
     dropUnrouted: boolean;
+    /**
+     * Link each issue's trace id to the Aspire dashboard's trace view
+     * (`E2I_TRACE_URL_TEMPLATE`, err2issue >= 0.5). Empty when the
+     * observability tier is off: there is nothing to link to.
+     */
+    traceUrlTemplate: string;
+    /**
+     * Reopen an issue a human closed as *not planned* or *duplicate* when its
+     * error recurs (`E2I_REOPEN_NOT_PLANNED`). Off, as upstream: closing one of
+     * those is a decision about the error, and a recurrence only raises its
+     * count. Issues closed as *completed* reopen either way.
+     */
+    reopenNotPlanned: boolean;
+    /** GitHub logins assigned to new issues (`E2I_ISSUE_ASSIGNEES`, max 10). Empty leaves them unassigned. */
+    issueAssignees: string;
   };
 }
 
@@ -2311,7 +2326,7 @@ export function loadConfig(): GridConfig {
       tavilyApiKey: cfg.requireSecret("tavilyApiKey"),
       embedModel: cfg.get("embedModel") ?? "openai/text-embedding-3-large",
       embedBaseUrl: cfg.get("embedBaseUrl") ?? "https://openrouter.ai/api/v1",
-      vlmModel: cfg.get("vlmModel") ?? "openai/gpt-5.6-luna",
+      vlmModel: cfg.get("vlmModel") ?? "openai/gpt-6-luna",
       vlmBaseUrl: cfg.get("vlmBaseUrl") ?? "https://openrouter.ai/api/v1",
     },
 
@@ -2401,15 +2416,15 @@ export function loadConfig(): GridConfig {
       enabled: langfuseEnabled,
       domain: langfuseDomain,
       // Digest-pinned on the same terms as the ADR-0029 images, and scanned by
-      // the same trivy gate: langfuse 3.225.1 (web + worker, which MUST be the
+      // the same trivy gate: langfuse 3.225.11 (web + worker, which MUST be the
       // same version) and ClickHouse 25.8 LTS. `3` and `25.8` are moving tags
       // upstream; these are the digests they resolved to when pinned.
       webImage:
         cfg.get("langfuseWebImage") ??
-        "ghcr.io/langfuse/langfuse@sha256:c782c55ab8fef96fac5ce85c57d8eacfd74b5e2549d01504ed3281e183d853ba",
+        "ghcr.io/langfuse/langfuse@sha256:a343f64e035eb01aeea358703a0428945d909d01e19452509a5a830862dda878",
       workerImage:
         cfg.get("langfuseWorkerImage") ??
-        "ghcr.io/langfuse/langfuse-worker@sha256:77da511ae0a29dee83e728049b5015ac73efac2315155910a282f20f1309c5a9",
+        "ghcr.io/langfuse/langfuse-worker@sha256:8a28c946bb5401eef488153fa294db5a79bd99dd5c90db8e4d39559374c9ebd3",
       clickhouseImage:
         cfg.get("clickhouseImage") ??
         "clickhouse/clickhouse-server@sha256:aec6fb9892becb6a20eb8d57708b8cf9c777b2ad1f4eb70bbece7a70eaed9fd0",
@@ -2445,10 +2460,12 @@ export function loadConfig(): GridConfig {
 
     err2issue: {
       enabled: err2issueEnabled,
-      // NOT digest-pinned, unlike every other image here: upstream publishes
-      // no tags or releases yet, so `:latest` is the only reference that
-      // exists. Pin this before prod — see the dev/prod stack notes.
-      image: cfg.get("err2issueImage") ?? "ghcr.io/matthiasbigl/err2issue:latest",
+      // Digest-pinned: v0.5.1, published as `:sha-b7ec93fb291214171638a169975fd5129dc77a6b`.
+      // Upstream cuts no release tags, so the digest is the version; the
+      // CHANGELOG names the commit. Scanned by the trivy job in security.yml.
+      image:
+        cfg.get("err2issueImage") ??
+        "ghcr.io/matthiasbigl/err2issue@sha256:25254f2b26ef7ff38801aa66747f98b2fc57738f5e0cf2d32bd02130f277c952",
       githubRepo: err2issueGithubRepo,
       githubToken: err2issueGithubToken ?? pulumi.output(""),
       routeMap: cfg.get("err2issueRouteMap") ?? "",
@@ -2461,6 +2478,12 @@ export function loadConfig(): GridConfig {
       // once the steady-state volume is known.
       maxNewFingerprintsPerDay: num(cfg, "err2issueMaxNewFingerprintsPerDay", 20),
       dropUnrouted: bool(cfg, "err2issueDropUnrouted", true),
+      // The Aspire dashboard's trace view. It holds traces in memory, so a link
+      // on an old issue can outlive the trace it names; the id in the issue
+      // stays the thing to search by.
+      traceUrlTemplate: observabilityEnabled ? `https://${otelDomain}/traces/detail/{trace_id}` : "",
+      reopenNotPlanned: bool(cfg, "err2issueReopenNotPlanned", false),
+      issueAssignees: cfg.get("err2issueIssueAssignees") ?? "",
     },
   };
 }

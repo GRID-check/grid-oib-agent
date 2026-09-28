@@ -18,7 +18,9 @@ All offline: no PDFs, no ChromaDB, no embeddings, no network.
 
 from __future__ import annotations
 
+import pytest
 from knowledge_layer.llamaindex.punkt_chunking import punkt_documents
+from knowledge_layer.llamaindex.punkt_chunking import richtlinie_key
 
 
 def _pages(*texts: str) -> list[dict]:
@@ -366,3 +368,16 @@ def test_the_chunker_works_under_the_deployed_import_path() -> None:
         cwd=str(__import__("pathlib").Path(__file__).resolve().parents[2]),
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    ("file_name", "key"),
+    [
+        ("oib-rl_2.1_ausgabe_mai_2023.pdf", "2.1"),
+        ("oib-rl_2_leitfaden_ausgabe_mai_2023.pdf", "2-leitfaden"),
+        # OIB-RL 2.2 is the one part oib.or.at publishes as `oib-richtlinie_`.
+        ("oib-richtlinie_2.2_ausgabe_mai_2023.pdf", "2.2"),
+    ],
+)
+def test_the_richtlinie_key_reads_every_published_spelling(file_name: str, key: str) -> None:
+    assert richtlinie_key(file_name) == key

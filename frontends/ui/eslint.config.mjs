@@ -110,6 +110,34 @@ export default [
     rules: { 'grid/card-type-scale': 'error' },
   },
   {
+    // drizzle's `tx.rollback()` THROWS `TransactionRollbackError`; it does not
+    // return. `promoteVersionToPublished` called it and then `return null`, the
+    // null was unreachable, and a lost publish race answered 500 instead of 409.
+    // Throw a sentinel of your own inside the transaction and catch it outside
+    // (`LostCompareAndSwap` in lib/documents/version-repository.ts).
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.spec.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.property.name='rollback'][arguments.length=0]",
+          message:
+            "drizzle's tx.rollback() throws TransactionRollbackError, so nothing after it runs. Throw a sentinel inside the transaction and catch it outside (see LostCompareAndSwap).",
+        },
+        {
+          // Every `error.code === '23505'` in this tree compared against
+          // drizzle's `Failed query` wrapper, whose code is undefined — the
+          // driver's error is its `cause` — so each race backstop behind one was
+          // dead in production and its loser got a 500.
+          selector: "Literal[value='23505']",
+          message:
+            "drizzle wraps the driver error: `error.code` is undefined and the SQLSTATE is on `cause`. Use isUniqueViolation(error, '<constraint>') from @/lib/db/errors.",
+        },
+      ],
+    },
+  },
+  {
     files: ['src/**/*.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-unused-vars': [

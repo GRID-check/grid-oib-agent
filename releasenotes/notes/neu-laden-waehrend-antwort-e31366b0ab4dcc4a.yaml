@@ -1,0 +1,5 @@
+---
+fixes:
+  - >
+    Reloading the page while Piloti is still answering now shows the answer
+    once, instead of leaving the unfinished start above the complete answer.

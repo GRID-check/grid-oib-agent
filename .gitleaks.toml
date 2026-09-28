@@ -24,6 +24,12 @@ paths = [
   # (a URL-safe ClickHouse password) failed the scan on a file whose whole
   # purpose is non-credentials.
   '''(^|/)test-support/''',
+  # The chat wire v2 contract fixtures (docs/design/chat-wire-v2.md): recorded
+  # frames validated by both the pydantic and the zod side. Every card carries
+  # its `key`, a hash of the card's canonical JSON, which `generic-api-key`
+  # reads as a credential. A path rule because the scan walks full history and
+  # the fixtures are re-recorded as the contract moves.
+  '''(^|/)shared/wire/v2/.*\.jsonl$''',
   '''(^|/)__mocks__/''',
   '''(^|/)mocks/''',
   '''\.spec\.tsx?$''',

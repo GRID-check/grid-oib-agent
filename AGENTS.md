@@ -103,6 +103,7 @@ asked for it in this session:
 | `task fe:provision:authz` and its siblings, which check | the same task with `-- --apply`, which writes the catalog into WorkOS |
 | `npm run preview` in `deploy/pulumi` | `npm run up`, which mutates the cluster, and `npm run destroy`, which deletes it |
 | writing a migration file | `bun run db:migrate` or `migrate:storage` against a database you did not create |
+| `task prompts:push`, which checks | the same task with `-- --apply`, which publishes the platform prompt to Langfuse |
 | a commit, a branch, a push to your own branch | a force-push, or any history rewrite on a branch someone else may have checked out |
 
 The rest of the work in this repo is reversible and gets no checkpoint. That is
@@ -133,9 +134,10 @@ ones that will fail your PR.
 | Write a commit, or open **or rename** a PR | Conventional Commits — `feat` `fix` `docs` `refactor` `perf` `test` `ci` `build` `chore` `revert`. The **PR title** most of all: the repo squash-merges it, so the title is the commit that lands on `develop`. [`CONTRIBUTING.md`](CONTRIBUTING.md#commits-and-pr-titles) | The **Conventional PR title** job blocks the PR. A prose title is the one that keeps slipping through, because nothing local checks it |
 | Add an environment variable | Add its row to [`docs/deployment/environment-variables.md`](docs/deployment/environment-variables.md) in the same change | Review |
 | Change what a customer can notice | `task release:note -- <slug>` | The **Release note** CI job |
-| Change what a customer can **see** | Capture it and attach it to the PR — `agent-browser` to shoot, `before-and-after` to publish. Commit no image files. [`docs/ux/visual-screenshots.md`](docs/ux/visual-screenshots.md) | The **Visual evidence** workflow. Escape hatch: the `no-visual-evidence` label, or `<!-- no-visual-evidence: why -->` in the PR body (the reason is required) |
+| Change what a customer can **see** | Capture it and attach it to the PR — `agent-browser` to shoot, `before-and-after` to publish. Commit no image files. [`docs/ux/visual-screenshots.md`](docs/ux/visual-screenshots.md) | Review. The **Visual evidence** workflow is paused: its check is commented out in `.github/workflows/visual-evidence.yml`, so the capture is asked for, not enforced |
 | Edit anything under `skills/` | Commit the re-locked `apm.lock.yaml` with it — `task agents:audit` rewrites it for you. The deployment is gitignored, so nothing else in your diff shows the lockfile went stale | `task lint:repo` and CI's **repo-lint** job |
 | Change behaviour a doc describes | Update the doc in the same commit | Review. Stale docs are a bug, because an agent acts on them |
+| Change what shapes an answer: the prompt, the card or envelope contract, retrieval, ingestion, the answer pipeline, a model or effort default | Run `task be:eval:answer-suite` before and after, and put the report with its baseline deltas in the PR. [The answer suite](docs/contributing/testing-and-verification.md#the-answer-suite) | Review. Nothing else sees seconds, reasoning spikes or a wrong value in a real answer |
 | Learn something the repo could have told you | Write it down where the next agent will already be looking, before you carry on | Nothing, once. Then everyone re-earns it. [The ratchet](docs/contributing/correction-ratchet.md#human-intervention-is-a-failure-signal) |
 
 `task verify` is the local gate: host-native, defined once in `Taskfile.yml`. CI

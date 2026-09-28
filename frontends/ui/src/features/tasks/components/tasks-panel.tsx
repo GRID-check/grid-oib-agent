@@ -26,6 +26,7 @@
  * mounted panels would fight over.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, CalendarRange, ListChecks, MessageSquare, Plus } from 'lucide-react'

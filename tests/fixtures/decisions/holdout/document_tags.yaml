@@ -1,0 +1,295 @@
+# Held-out set, written blind to the classifier wording (2026-09-26). Do not tune on it.
+- file_name: EA_Wohnhausanlage_Gumpendorfer_Str_2026-03.pdf
+  text: |
+    ENERGIEAUSWEIS für Wohngebäude
+    gemäß OIB-Richtlinie 6, Ausgabe Mai 2023
+    Gebäude: Wohnhausanlage mit 38 Wohneinheiten, Gumpendorfer Straße, 1060 Wien
+    Gebäudeteil: Neubau, Baujahr 2027 (geplant)
+    Standortklima: HWB Ref,SK 18,4 kWh/m²a | PEB SK 71 kWh/m²a | CO2eq SK 9,2 kg/m²a | fGEE,SK 0,68
+    Bruttogrundfläche 4.126 m², Bezugsfläche 3.300 m², konditioniertes Brutto-Volumen 13.870 m³,
+    charakteristische Länge lc 2,41 m. Wärmebereitstellung: Fernwärme, Verteilung über Fußbodenheizung,
+    Warmwasser zentral. Lüftung: Wohnraumlüftung mit Wärmerückgewinnung, η = 82 %.
+    Ermittelt von: DI Karin Steindl, Ingenieurkonsulentin für Bauphysik.
+  type: Gutachten
+  disciplines: [Energieeinsparung/Wärmeschutz]
+
+- file_name: BSK_Buero_Linz_Hafen_v3.pdf
+  text: |
+    Brandschutzkonzept – Bürogebäude "Hafenkante", Linz
+    Revision 3, Stand 14.07.2026
+    1. Gegenstand
+    Das vorliegende Brandschutzkonzept beschreibt die baulichen, anlagentechnischen und organisatorischen
+    Maßnahmen für den Neubau eines sechsgeschoßigen Bürogebäudes (Gebäudeklasse 5, Fluchtniveau 19,80 m).
+    Abweichend von OIB-RL 2 Tab. 1b wird für die Tragkonstruktion der obersten zwei Geschoße eine
+    Holz-Beton-Verbunddecke in REI 60 vorgesehen; als Kompensation dient eine flächendeckende
+    Brandmeldeanlage Schutzumfang Vollschutz sowie eine zweite Fluchtmöglichkeit über ein Sicherheitstreppenhaus.
+    Brandabschnittsgrößen bis max. 1.200 m² je Geschoß.
+  type: Gutachten
+  disciplines: [Brandschutz]
+
+- file_name: Statik_Vorbemessung_Aufstockung_Graz.pdf
+  text: |
+    STATISCHE VORBEMESSUNG
+    Projekt: Dachgeschoßaufstockung Wohnhaus Annenstraße 42, 8020 Graz
+    Verfasser: Tragwerksplanung Hofer ZT GmbH
+    Die bestehenden Dippelbaumdecken des Gründerzeitbestandes sind für die Zusatzlasten aus der Aufstockung
+    nicht ausreichend. Vorgesehen ist ein eigenständiges Stahltragwerk, das die Lasten über neue Stützen
+    in den Mittelmauern bis ins Fundament abträgt. Nutzlasten gem. ÖNORM EN 1991-1-1 Kat. A: 2,0 kN/m²,
+    Schneelast Graz sk = 1,39 kN/m². Die Fundamente der Mittelmauer sind mittels Kernbohrung zu erkunden;
+    bis dahin gilt die Bemessung als vorläufig.
+  type: Gutachten
+  disciplines: [Standsicherheit]
+
+- file_name: Scan_20260812_0931.pdf
+  text: |
+    MAGISTRAT DER STADT WIEN
+    Magistratsabteilung 37 – Baupolizei, Gebietsgruppe Süd
+    Zahl: MA37/123456-2026-1                                        Wien, 8. August 2026
+    BESCHEID
+    Spruch: Gemäß § 70 in Verbindung mit § 71 der Bauordnung für Wien wird nach Maßgabe der mit dem
+    amtlichen Sichtvermerk versehenen Pläne die Bewilligung erteilt, auf der Liegenschaft EZ 1204,
+    KG Favoriten, einen Zubau im Hof sowie den Ausbau des Dachgeschoßes herzustellen.
+    Vorschreibungen: 1. Vor Baubeginn ist ein Prüfingenieur namhaft zu machen. 2. Die Fertigstellung ist
+    anzuzeigen. Begründung: ... Rechtsmittelbelehrung: Gegen diesen Bescheid kann binnen vier Wochen Beschwerde erhoben werden.
+  type: Bescheid
+  disciplines: []
+
+- file_name: A-EP-101_EG.pdf
+  text: |
+    EINREICHPLAN   GRUNDRISS ERDGESCHOSS   M 1:100
+    Bauvorhaben: Neubau Einfamilienhaus mit Carport, Gst. Nr. 812/3, KG Hart bei Graz
+    Bauwerber: Fam. Pichler
+    Planverfasser: Architekturbüro Lenz & Partner
+    Raumbezeichnungen: Windfang 4,12 m² | Garderobe 3,80 m² | WC 2,05 m² | Wohnen/Essen/Kochen 48,60 m² |
+    Speis 3,10 m² | Technik 6,25 m² | Zimmer 12,40 m²
+    RH 2,60 m  FOK ±0,00 = 352,40 müA  Parapethöhe 0,90
+    Legende: Stahlbeton, Ziegel 25 cm, WDVS EPS 20 cm
+    Index b – Treppe gedreht, 21.05.2026
+  type: Grundriss
+  disciplines: []
+
+- file_name: Plan_S2_final_final.pdf
+  text: |
+    SCHNITT B-B   1:50
+    Wohnanlage Hallein Süd, Haus 2
+    OK Attika +12,85 | OK FFB 3.OG +8,64 | OK FFB 2.OG +5,76 | OK FFB 1.OG +2,88 | ±0,00 = OK FFB EG
+    UK Fundamentplatte -0,55, gewachsenes Terrain -0,20
+    Deckenaufbau Regelgeschoß: Parkett 1,5 cm, Estrich 6 cm, TSD 3 cm, Schüttung 5 cm, STB 22 cm
+    Lichte Raumhöhe 2,50 m, Treppe 17 Stg. 16,9/28
+    Planstand 03.09.2026, gez. MK
+  type: Schnitt
+  disciplines: []
+
+- file_name: Fassade_Nordost_Einreichung.pdf
+  text: |
+    ANSICHT NORD-OST   M 1:100
+    Bauvorhaben Reihenhausanlage "Am Mühlbach", St. Pölten
+    Geländeverlauf Bestand strichliert, Geländeverlauf neu durchgezogen
+    Traufenhöhe +6,45 über Gehsteigniveau, Firsthöhe +9,10
+    Fassade: Putz weiß gerieben, Sockel Faserzementplatten anthrazit, Fenster Holz-Alu RAL 7016
+    Dachneigung 35°, Deckung Tondachziegel naturrot
+    Anmerkung Gemeinde: Gebäudehöhe lt. Bebauungsplan max. 7,00 m eingehalten
+  type: Ansicht
+  disciplines: []
+
+- file_name: D-17_Deckendurchfuehrung_Haustechnik.pdf
+  text: |
+    DETAIL 17 – Abschottung Leitungsdurchführung Geschoßdecke, M 1:5
+    Brandabschnittsbildende Decke REI 90, STB 20 cm.
+    Kombiabschottung System XY-Mörtel mit Brandschutzmanschette für brennbare Rohre bis Ø 110 mm,
+    Abschottung EI 90 gemäß ETA-17/0123, Ringspalt vollständig mit Mineralwolle (Schmelzpunkt ≥ 1000 °C)
+    verfüllt. Mindestabstand zwischen zwei Abschottungen 100 mm. Kennzeichnungsschild dauerhaft neben der
+    Durchführung anbringen. Verfüllung nur durch geschultes Personal, Dokumentation für die Abnahme durch die
+    Brandschutzbeauftragte.
+  type: Detail
+  disciplines: [Brandschutz]
+
+- file_name: PD_8123_Plandokument.pdf
+  text: |
+    Plandokument 8123
+    Festsetzung des Flächenwidmungsplanes und des Bebauungsplanes – Beschluss des Gemeinderates vom 22.04.2025
+    Textliche Bestimmungen: Für die mit BB1 bezeichneten Flächen wird bestimmt: Die Dächer von Gebäuden sind
+    bis zu einer Neigung von 15° zu begrünen. Die bebaute Fläche darf höchstens 50 v.H. des Bauplatzes betragen.
+    Für die mit BB2 bezeichnete Fläche ist die Errichtung von Stellplätzen unzulässig. Die Gebäudehöhe darf an
+    der Baulinie 16 m nicht überschreiten, Bauklasse III, geschlossene Bauweise.
+  type: Bebauungsplan
+  disciplines: []
+
+- file_name: FWP_Auszug_Gmd_Wals.pdf
+  text: |
+    Auszug aus dem Flächenwidmungsplan der Gemeinde Wals-Siezenheim
+    3. Änderung, rechtswirksam seit 01.02.2024
+    Grundstück 455/12, KG Siezenheim: Bauland – Erweitertes Wohngebiet (EW), teilweise Grünland – Ländliches
+    Gebiet. Kenntlichmachungen: Gefahrenzone Wildbach gelb, 110-kV-Leitung mit Schutzstreifen 2x 20 m.
+    Aufschließungskennzeichnung: keine. Maßstab 1:5000. Dieser Auszug ist kein Rechtsdokument; maßgeblich ist
+    der beim Gemeindeamt aufliegende Plan.
+  type: Flächenwidmungsplan
+  disciplines: []
+
+- file_name: B8115-2_2021.pdf
+  text: |
+    ÖNORM B 8115-2
+    Ausgabe: 2021-11-15
+    Schallschutz und Raumakustik im Hochbau – Teil 2: Anforderungen an den Schallschutz
+    1 Anwendungsbereich
+    Diese ÖNORM legt Mindestanforderungen an den Luftschallschutz zwischen Räumen, an den Trittschallschutz
+    und an den Schallschutz gegen Außenlärm sowie gegen Geräusche haustechnischer Anlagen fest. Sie gilt für
+    Neubauten sowie für Zu- und Umbauten. Die Anforderungen werden durch die bewertete Standard-Schallpegeldifferenz
+    DnT,w und den bewerteten Standard-Trittschallpegel L'nT,w ausgedrückt.
+  type: Norm/Richtlinie
+  disciplines: [Schallschutz]
+
+- file_name: rl4_2023.pdf
+  text: |
+    Österreichisches Institut für Bautechnik
+    OIB-Richtlinie 4 – Nutzungssicherheit und Barrierefreiheit
+    Ausgabe: Mai 2023
+    0 Vorbemerkungen
+    Die zitierten Normen und sonstigen technischen Regelwerke gelten in der im Dokument OIB-RL
+    "Zitierte Normen und sonstige technische Regelwerke" angeführten Fassung.
+    1 Begriffsbestimmungen
+    Es gelten die Begriffsbestimmungen des Dokumentes "OIB-Richtlinien – Begriffsbestimmungen".
+    2 Erschließung
+    2.1 Allgemeine Anforderungen: Stufen und Treppen müssen ...
+  type: Norm/Richtlinie
+  disciplines: [Nutzungssicherheit/Barrierefreiheit]
+
+- file_name: WV_Baumeister_Los2_unterfertigt.pdf
+  text: |
+    WERKVERTRAG
+    abgeschlossen zwischen der Wohnbaugenossenschaft Alpenland reg. Gen.m.b.H. (Auftraggeberin) und der
+    Mayrhofer Bau GmbH (Auftragnehmerin) über die Baumeisterarbeiten Los 2 für das Bauvorhaben Wohnanlage
+    Wörgl-West.
+    § 1 Vertragsbestandteile: Leistungsverzeichnis vom 12.02.2026, ÖNORM B 2110 in der geltenden Fassung,
+    Terminplan Rev. C. § 2 Pauschalpreis EUR 3.418.000,- netto. § 3 Vertragsstrafe 0,2 % je Kalendertag,
+    max. 5 %. § 4 Haftrücklass 3 % für die Dauer der Gewährleistung. Die Einhaltung der Brandschutzauflagen
+    ist Sache der Auftragnehmerin.
+  type: Vertrag
+  disciplines: []
+
+- file_name: GPV_Umbau_Villa_Baden.docx
+  text: |
+    Generalplanervertrag
+    zwischen Dr. Elisabeth Wagner, Baden (im Folgenden "Bauherrin") und ARGE Planung Kurpark (im Folgenden
+    "GP")
+    1. Leistungsumfang: Entwurfs-, Einreich- und Ausführungsplanung für die Sanierung und den Umbau der Villa
+    Weilburgstraße 7; Koordination der Fachplaner für Statik, HKLS, Bauphysik inkl. Erstellung Energieausweis.
+    2. Honorar: 11,5 % der anrechenbaren Herstellungskosten, Nebenkosten pauschal 4 %.
+    3. Termine: Einreichung bis 30.11.2026. 4. Haftpflichtversicherung Deckungssumme EUR 2 Mio.
+  type: Vertrag
+  disciplines: []
+
+- file_name: IMG_20260904_101522.jpg
+  text: |
+    [Bildbeschreibung / EXIF]
+    Aufgenommen: 04.09.2026 10:15, Apple iPhone 15
+    GPS: 47.8095 N, 13.0550 E
+    Kommentar Bauleitung: Baustelle Haus B, Blick von Süden. Rohbau 3.OG fertig, Kran wird nächste Woche
+    abgebaut. Gerüst Ostseite steht, Fenster Stockrahmen im 1.OG versetzt. Wetter bewölkt.
+  type: Foto
+  disciplines: []
+
+- file_name: Protokoll_JF_07_2026-09-17.docx
+  text: |
+    Besprechungsprotokoll Jour fixe Nr. 7
+    Projekt: Kindergarten Gänserndorf, Ort: Baubüro, Datum: 17.09.2026, 09:00–10:40
+    Anwesend: Hr. Berger (AG), Fr. Novak (Arch.), Hr. Stadler (ÖBA), Hr. Kern (HKLS)
+    TOP 1 Terminplan: Estrich im OG verzögert sich um 1 Woche. TOP 2 Mehrkostenforderung Elektro wird geprüft.
+    TOP 3 Brandschutz: Brandschutzplan wird bis zur nächsten Sitzung von Fr. Novak aktualisiert.
+    TOP 4 Farbkonzept Gruppenräume: Bemusterung am 24.09. TOP 5 Allfälliges: Parkplatzsituation Baustelle.
+    Nächster Termin: 01.10.2026. Verteiler: alle Anwesenden
+  type: Sonstiges
+  disciplines: []
+
+- file_name: AW_Terminverschiebung_Baubesprechung.eml
+  text: |
+    Von: Thomas Leitner <t.leitner@leitner-immo.at>
+    An: office@architektur-rainer.at
+    Betreff: AW: Terminverschiebung Baubesprechung
+    Servus Frau Rainer,
+    danke für die Info. Der Donnerstag geht sich bei mir leider nicht aus, ich bin bis Freitag in Kitzbühel.
+    Könnten wir auf Montag 14 Uhr gehen? Den Grundriss mit der geänderten Küche hab ich mir angeschaut,
+    passt für mich so. Wegen der Wärmepumpe meld ich mich noch.
+    Lg Thomas Leitner
+  type: Sonstiges
+  disciplines: []
+
+- file_name: SSN_Reihenhaeuser_Haus1-6.pdf
+  text: |
+    Schallschutznachweis gemäß OIB-Richtlinie 5 und ÖNORM B 8115-2
+    Objekt: 6 Reihenhäuser, Kirchenweg, 4600 Wels
+    Nachweis der Luftschalldämmung der Haustrennwände: zweischalige Ziegelwand 2x 17 cm mit durchgehender
+    Trennfuge 4 cm Mineralwolle, R'w = 67 dB, rechnerisch DnT,w ≥ 60 dB → Anforderung erfüllt.
+    Außenbauteile: maßgeblicher Außenlärmpegel LA,eq,d = 58 dB (Straßenverkehr); erforderliches R'res,w = 33 dB,
+    vorhanden 38 dB. Haustechnische Anlagen: Außeneinheit der Luft-Wasser-Wärmepumpe mit Abstand 3,5 m zur
+    Grundgrenze, LAF,max am Nachbarfenster < 35 dB nachts.
+  type: Gutachten
+  disciplines: [Schallschutz]
+
+- file_name: Rauchabzug_TG_Konzept_Rev1.pdf
+  text: |
+    Entrauchungskonzept Tiefgarage – Wohnprojekt "Seeblick", Bregenz
+    Die zweigeschoßige Tiefgarage (ca. 3.100 m², 118 Stellplätze) wird als Großgarage im Sinne der
+    OIB-RL 2.2 eingestuft. Die Rauchableitung erfolgt über eine mechanische Rauch- und Wärmeabzugsanlage mit
+    Strahlventilatoren, Auslegung 10-facher Luftwechsel, Nachströmung über das Einfahrtstor. Die Rauchabschnitte
+    sind durch Rauchschürzen mit 0,5 m Unterzugshöhe gegliedert. Der Nachweis der Rauchfreihaltung der Fluchtwege
+    wurde mittels CFD-Simulation geführt (Anhang C). Ansteuerung über die Brandmeldeanlage.
+  type: Gutachten
+  disciplines: [Brandschutz]
+
+- file_name: Geotechnik_Bericht_Baugrube_Innsbruck.pdf
+  text: |
+    GEOTECHNISCHES GUTACHTEN
+    Baugrunderkundung und Gründungsempfehlung, Wohn- und Geschäftshaus Museumstraße, Innsbruck
+    Es wurden 4 Kernbohrungen bis 18 m u. GOK sowie 3 schwere Rammsondierungen abgeteuft. Unter einer 2,5 m
+    mächtigen Anschüttung folgen dicht gelagerte sandige Kiese (Inn-Schotter). Grundwasser wurde bei 6,2 m u. GOK
+    angetroffen, Bemessungswasserspiegel HGW100 bei 4,8 m. Empfohlen wird eine Flachgründung auf elastisch
+    gebetteter Bodenplatte, zulässiger Sohldruck 350 kN/m², Baugrubensicherung mittels rückverankerter Bohrpfahlwand.
+  type: Gutachten
+  disciplines: [Standsicherheit]
+
+- file_name: Stellungnahme_BF_Gemeindezentrum.pdf
+  text: |
+    Stellungnahme zur barrierefreien Gestaltung
+    Gemeindezentrum Pfarrwerfen – Einreichplanung Stand 06/2026
+    Geprüft wurden Zugänge, Rampen, Aufzug, Sanitärräume und Orientierungssysteme nach OIB-RL 4 und ÖNORM B 1600.
+    Befund: Die Rampe zum Nebeneingang weist mit 8,2 % eine zu große Neigung auf (zul. 6 %). Das barrierefreie
+    WC im OG hat keinen seitlichen Bewegungsraum von 90 cm neben dem WC-Sitz. Ein taktiles Leitsystem vom Gehsteig
+    zum Haupteingang fehlt. Die Aufzugskabine 1,10 x 1,40 m entspricht den Anforderungen.
+  type: Gutachten
+  disciplines: [Nutzungssicherheit/Barrierefreiheit]
+
+- file_name: Raumluft_Schimmel_Befund_Top14.pdf
+  text: |
+    Befund und Gutachten über Schimmelbefall in der Wohnung Top 14, Hütteldorfer Str. 211, 1140 Wien
+    Im Auftrag der Hausverwaltung Kraus wurde am 02.06.2026 eine Ortsbesichtigung durchgeführt. In Schlafzimmer
+    und Bad wurde großflächiger Befall (ca. 2,5 m²) an den Außenwandecken festgestellt. Die Luftkeimmessung ergab
+    erhöhte Konzentrationen von Aspergillus und Penicillium gegenüber der Außenluft. Oberflächentemperaturen in den
+    Ecken 11,8 °C bei 20 °C Raumluft; relative Luftfeuchte über mehrere Tage 68–74 %. Ursache: unzureichende
+    Lüftung in Kombination mit einer geometrischen Wärmebrücke.
+  type: Gutachten
+  disciplines: [Hygiene/Gesundheit/Umweltschutz]
+
+- file_name: Bauphysik_Gutachten_Schule_Leoben.pdf
+  text: |
+    Bauphysikalisches Gutachten – Neubau Mittelschule Leoben
+    Teil A Wärmeschutz: Die Außenwände (Stahlbeton 25 cm + Mineralwolle 24 cm) erreichen U = 0,14 W/m²K,
+    das Flachdach U = 0,11 W/m²K, Fenster Uw = 0,85 W/m²K. Der Nachweis des sommerlichen Wärmeschutzes nach
+    ÖNORM B 8110-3 für die südorientierten Klassen ist mit außenliegendem Sonnenschutz erfüllt.
+    Teil B Schallschutz: Klassenzimmertrennwände DnT,w ≥ 55 dB, Nachhallzeit in den Klassen T = 0,6 s
+    durch Akustikdecken; Turnsaal mit Prallwandverkleidung als Absorber.
+  type: Gutachten
+  disciplines: [Energieeinsparung/Wärmeschutz, Schallschutz]
+
+- file_name: BH_Kufstein_Ausnahme_2026.pdf
+  text: |
+    STADTGEMEINDE KUFSTEIN
+    Der Bürgermeister als Baubehörde I. Instanz
+    Geschäftszahl: KU-BAU/2026/0417                                     Kufstein, 19.05.2026
+    Bescheid
+    Die Behörde gestattet gemäß § 42 TBO 2022 die Abweichung von den Anforderungen der OIB-RL 2 hinsichtlich
+    der Ausführung des zweiten Fluchtweges im Beherbergungsbetrieb "Alpenrose" unter folgenden Auflagen:
+    1. Einbau einer automatischen Brandmeldeanlage im gesamten Gebäude. 2. Rauchdichte, selbstschließende Türen
+    zu allen Gästezimmern (E 30-C Sm). 3. Jährliche Räumungsübung mit Protokoll.
+  type: Bescheid
+  disciplines: [Brandschutz]

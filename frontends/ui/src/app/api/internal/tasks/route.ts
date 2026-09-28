@@ -97,6 +97,8 @@ export const POST = internalApiRoute(
           conversationId,
           question: body.question,
           context: body.context ?? null,
+          dataSources: body.dataSources ?? null,
+          documents: body.documents ?? null,
         }),
       )
     }

@@ -69,115 +69,43 @@ Called internally (no external route) by `server.js` during WebSocket upgrade. R
 | `X-Grid-User-Id` | Session `userId` | Caller identity |
 | `Authorization` | `Bearer <accessToken>` | JWT for backend validation |
 
-## NAT protocol
+## The chat wire
 
-The `NATWebSocketClient` (`frontends/ui/src/adapters/api/websocket-client.ts`) sends and receives JSON messages typed by a `"type"` field.
+The socket speaks chat wire v2: the upgrade asks for `?v=2`, and any other
+version is closed with `4426`. The event set, the four client messages and
+the rejection codes are the contract in
+[`websocket-protocol.md`](../api/websocket-protocol.md); the design, and why
+it replaced NAT's frames, is [`chat-wire-v2.md`](../design/chat-wire-v2.md).
 
-### Outgoing messages
+The client is `createTurnSocket` (`frontends/ui/src/adapters/api/turn-socket.ts`):
 
-**user_message**: Standard chat query
+- **Reconnect.** A jittered ladder (`createRetryLadder`, 1 s doubling to 30 s,
+  12 attempts), with the auth cookie refreshed before each attempt, since the
+  handshake is the only point where the gateway reads it. A `rejected{auth_expired}`
+  reopens the socket the same way and sends the refused message again.
+- **Resume.** On every reopen each turn the client still holds open is
+  re-`attach`ed from the last `seq` it folded; the agent tier replays the
+  turn from its stream and continues live.
+- **Liveness.** While a turn runs the server sends `heartbeat{every_ms}`;
+  three beats of silence and the socket is dropped and reopened. Nothing is
+  watched before `RUN_STARTED` or after the terminal.
 
-```json
-{
-  "type": "user_message",
-  "schema_type": "chat_stream",
-  "id": "msg_<timestamp>_<counter>",
-  "conversation_id": "s_<uuid>",
-  "content": {
-    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "{\"query\":\"...\",\"data_sources\":[...]}" }] }]
-  },
-  "timestamp": "2026-06-30T..."
-}
-```
-
-**user_interaction**: Response to a human prompt
-
-```json
-{
-  "type": "user_interaction",
-  "id": "msg_<timestamp>_<counter>",
-  "parent_id": "<prompt_message_id>",
-  "conversation_id": "s_<uuid>",
-  "content": {
-    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "<response>" }] }]
-  },
-  "timestamp": "2026-06-30T..."
-}
-```
-
-### Incoming messages
-
-**system_response**: Streaming or final response
+**`CUSTOM` `heartbeat`**: the running turn is still running (chat wire v2)
 
 ```json
-{ "type": "system_response", "content": "...", "status": "streaming|complete", "parent_id": "...", "cards": [...] }
+{ "v": 2, "type": "CUSTOM", "name": "heartbeat", "conversation_id": "s_<uuid>", "turn_id": "<message_id>", "seq": 10, "ts": 1759000016777, "value": { "every_ms": 20000 } }
 ```
 
-**system_intermediate**: Thinking steps, tool calls, citations
-
-```json
-{ "type": "system_intermediate", "content": { ... }, "status": "...", "parent_id": "..." }
-```
-
-**system_interaction**: Human prompt (HITL)
-
-```json
-{ "type": "system_interaction", "id": "...", "parent_id": "...", "content": { "type": "clarification|approval", "title": "...", "message": "...", "options": [...] } }
-```
-
-**error**: Processing or auth error
-
-```json
-{ "type": "error", "content": { "code": "CONNECTION_FAILED|token_expired|auth_expired", "message": "...", "details": "..." } }
-```
-
-Auth errors with codes `auth_error`, `token_expired`, `token_invalid`, or `auth_expired` are tracked via `trackAuthEvent()` for RUM monitoring. `auth_expired` triggers a socket rotation with `refreshAuthBeforeReconnect`.
-
-**grid_turn_heartbeat**: the running turn is still running
-
-```json
-{ "type": "grid_turn_heartbeat", "v": 1, "conversation_id": "s_<uuid>", "parent_id": "<user_message_id>", "every_ms": 20000, "timestamp": "2026-09-05T..." }
-```
-
-Emitted every `TURN_HEARTBEAT_SECONDS` by a task that lives exactly as long as
-`_run_workflow` does, so it covers what the answer stream cannot: context
-loading before the graph starts, a ten-minute tool call, and the whole of a
-deep-research turn that runs on this socket because no job dispatcher is
-configured. It sleeps before its first beat, so a turn that answers in two
-seconds sends none.
+Stamped by the turn's own sequencer (`aiq_api.chat_socket.TurnWire`) every
+`TURN_HEARTBEAT_SECONDS`, by a task that lives exactly as long as the turn does,
+so it covers what the answer stream cannot: context loading before the graph
+starts, a ten-minute tool call, and the whole of a deep-research turn that runs
+on this socket because no job dispatcher is configured. It sleeps before its
+first beat, so a turn that answers in two seconds sends none, and none is ever
+sent after the terminal.
 
 It renders nothing. Its only job is to let the client tell a turn that is quiet
-because it is thinking from one that is quiet because its backend is gone — a
-question the client used to answer by keeping a copy of the backend's own
-`DEFAULT_MAX_RUN_SECONDS` and waiting it out, which meant forty minutes of a
-locked composer for a turn that had died in the first minute.
-
+because it is thinking from one that is quiet because its backend is gone.
 `every_ms` is the server's stated cadence and the client's deadline is a
-multiple of it (`MISSED_HEARTBEATS_BEFORE_GONE`), so the interval is retuned on
-the backend alone. A turn that has never beaten — an older replica during a
-rolling deploy — keeps the old generous budget; one beat is enough to switch it
-over, and the switch is per turn.
-
-Grid-owned and `grid_`-prefixed like `grid_stage_message`, and for the same
-reason: NAT resolves a frame's schema through a vendored `StrEnum` that cannot
-gain a member without patching the dependency.
-
-## Reconnection
-
-The `NATWebSocketClient` implements automatic reconnection with these characteristics:
-
-- **Max attempts**: 3 (configurable via `reconnectAttempts`)
-- **Base delay**: 1000ms between attempts (configurable via `reconnectDelay`)
-- **Backoff**: Fixed delay (not exponential in the current implementation)
-- **Auth refresh**: The `onBeforeReconnect` callback fires before each connect attempt, allowing the caller to refresh httpOnly auth cookies. Failures are swallowed — the connect proceeds with whatever cookies the browser has.
-- **Socket rotation**: `rotate()` atomically replaces the underlying WebSocket. It detaches all event handlers from the old socket before closing it, uses a per-handler `this.ws === socket` guard against stale events, and coalesces concurrent rotation calls into a single in-flight promise.
-
-### Connection lifecyle
-
-```
-disconnected → connect() → connecting → onopen → connected
-                                                 → onclose (intentional) → disconnected
-                                                 → onclose (unintentional) → handleReconnect()
-                                                                             → retry < max? → connect()
-                                                                             → retry >= max? → disconnected (final) + error
-```
+multiple of it, so the interval is retuned on the backend alone. The whole event
+set is [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md).

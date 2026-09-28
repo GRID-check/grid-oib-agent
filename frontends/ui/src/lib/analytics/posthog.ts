@@ -39,6 +39,8 @@ export interface PostHogConfig {
  */
 export type PostHogEvent =
   | 'organization_created'
+  | 'product_tour_completed'
+  | 'product_tour_skipped'
   | 'project_created'
   | 'project_member_access_changed'
   | 'job_created'

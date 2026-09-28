@@ -5,6 +5,7 @@
  * "New folder" / "New folder inside" path, which has no popover anchor.
  */
 
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { Folder } from 'lucide-react'
 import { Button } from '@/components/ui/button'

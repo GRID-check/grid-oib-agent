@@ -11,6 +11,9 @@ const files = [
   { fileName: 'oib-rl_2_leitfaden_ausgabe_mai_2023.pdf', origin: 'corpus' },
   { fileName: 'oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf', origin: 'corpus' },
   { fileName: 'aenderungen_oib-rl_2_ausgabe_mai_2023.pdf', origin: 'corpus' },
+  // The name oib.or.at publishes OIB-RL 2.2 under, with its Erläuterungen beside it.
+  { fileName: 'oib-richtlinie_2.2_ausgabe_mai_2023.pdf', origin: 'corpus' },
+  { fileName: 'erlaeuterungen-zu-oib-richtlinie_2.2_ausgabe_mai_2023.pdf', origin: 'corpus' },
 ]
 
 describe('resolveCorpusFileName', () => {
@@ -41,5 +44,9 @@ describe('resolveCorpusFileName', () => {
   it('never resolves to files whose source is not on this server', () => {
     const indexOnly = [{ fileName: 'oib-rl_2_ausgabe_mai_2023.pdf', origin: 'index_only' }]
     expect(resolveCorpusFileName('OIB-Richtlinie 2', indexOnly)).toBeNull()
+  })
+
+  it('resolves OIB-RL 2.2 under the name the OIB publishes it with', () => {
+    expect(resolveCorpusFileName('OIB-Richtlinie 2.2', files)).toBe('oib-richtlinie_2.2_ausgabe_mai_2023.pdf')
   })
 })

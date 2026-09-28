@@ -4,11 +4,18 @@ import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { FileSourcesTab } from './FileSourcesTab'
 
 // Mock the chat store
+const callOrder: string[] = []
+const mockEnsureConversationExists = vi.fn(async () => {
+  callOrder.push('ensureConversation')
+})
+let mockProjectId: string | null = null
 vi.mock('@/features/chat/store', () => ({
   useChatStore: vi.fn((selector) => {
     const state = {
       currentConversation: { id: 'session-1' },
       ensureSession: vi.fn(() => 'session-1'),
+      _ensureConversationExists: mockEnsureConversationExists,
+      projectId: mockProjectId,
     }
     return selector(state)
   }),
@@ -74,7 +81,7 @@ vi.mock('./FileSourceCard', () => ({
     id,
   }: {
     title: string
-    onDelete: (id: string) => void
+    onDelete?: (id: string) => void
     onOpen?: (id: string) => void
     id: string
   }) => (
@@ -84,7 +91,7 @@ vi.mock('./FileSourceCard', () => ({
       ) : (
         <span>{title}</span>
       )}
-      <button onClick={() => onDelete(id)}>Delete</button>
+      {onDelete && <button onClick={() => onDelete(id)}>Delete</button>}
     </div>
   ),
   FileSourceCardSkeleton: () => <div data-testid="file-card-skeleton" />,
@@ -120,6 +127,69 @@ import { useFileUpload, useDocumentsStore } from '@/features/documents'
 describe('FileSourcesTab', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockProjectId = null
+    // `mockReturnValue` is permanent; start every test from an empty list.
+    vi.mocked(useFileUpload).mockReturnValue({
+      uploadFiles: mockUploadFiles,
+      deleteFile: mockDeleteFile,
+      sessionFiles: [],
+      isUploading: false,
+      isPolling: false,
+      error: null,
+      clearError: mockClearError,
+    } as unknown as ReturnType<typeof useFileUpload>)
+  })
+
+  /**
+   * Project files listed in the chat's file dialog are not deleted from it. The
+   * delete here went through the proxy's chunk-only file delete with a document
+   * id where a filename was expected, so it removed nothing. A project document
+   * is deleted in the project's Files, where the delete checks legal holds and
+   * erases every version; this dialog says so instead of offering a control.
+   */
+  test('offers no delete for project files, and says where they are deleted', async () => {
+    mockProjectId = 'project-1'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ collectionName: 'proj_1' }) })
+    )
+    vi.mocked(useFileUpload).mockReturnValue({
+      uploadFiles: mockUploadFiles,
+      deleteFile: mockDeleteFile,
+      sessionFiles: [
+        { id: 'file-1', fileName: 'plan.pdf', status: 'success', collectionName: 'proj_1' },
+      ],
+      isUploading: false,
+      error: null,
+      clearError: mockClearError,
+    } as unknown as ReturnType<typeof useFileUpload>)
+
+    render(<FileSourcesTab />)
+
+    expect(await screen.findByText('Delete project files in the project’s files.')).toBeInTheDocument()
+    expect(screen.getByText('Open plan.pdf')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^delete$/i })).not.toBeInTheDocument()
+    vi.unstubAllGlobals()
+  })
+
+  test('still deletes the chat’s own attachments', async () => {
+    const user = userEvent.setup()
+    vi.mocked(useFileUpload).mockReturnValue({
+      uploadFiles: mockUploadFiles,
+      deleteFile: mockDeleteFile,
+      sessionFiles: [
+        { id: 'file-1', fileName: 'doc.pdf', status: 'success', collectionName: 'session-1' },
+      ],
+      isUploading: false,
+      error: null,
+      clearError: mockClearError,
+    } as unknown as ReturnType<typeof useFileUpload>)
+
+    render(<FileSourcesTab />)
+    await user.click(screen.getByRole('button', { name: /^delete$/i }))
+    await user.click(screen.getByRole('button', { name: /confirm delete/i }))
+
+    expect(mockDeleteFile).toHaveBeenCalledWith('file-1')
   })
 
   test('renders empty state when no files', () => {
@@ -135,6 +205,22 @@ describe('FileSourcesTab', () => {
     render(<FileSourcesTab />)
 
     expect(screen.getByText('Upload Zone')).toBeInTheDocument()
+  })
+
+  // An attachment is authorized on its conversation, which a chat does not have
+  // on the server until its first message. So the row is made real first.
+  test('makes the conversation real on the server before uploading into it', async () => {
+    callOrder.length = 0
+    mockUploadFiles.mockImplementation(async () => {
+      callOrder.push('upload')
+    })
+    const user = userEvent.setup()
+    render(<FileSourcesTab />)
+
+    await user.click(screen.getByText('Upload Zone'))
+
+    expect(callOrder).toEqual(['ensureConversation', 'upload'])
+    expect(mockUploadFiles).toHaveBeenCalledWith(expect.any(Array), { collectionOverride: 'session-1' })
   })
 
   test('renders file list when files exist', () => {

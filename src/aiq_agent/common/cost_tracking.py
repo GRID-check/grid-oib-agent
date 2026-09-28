@@ -614,14 +614,38 @@ def _read_identity_from_context() -> dict[str, str | None]:
     from aiq_agent.project_context import get_conversation_id_from_context
     from aiq_agent.project_context import get_organization_id_from_context
     from aiq_agent.project_context import get_project_id_from_context
+    from aiq_agent.project_context import get_signed_request_context
 
-    user_id = _read_header(USER_ID_HEADER)
+    # The user the spend is booked to, and whose per-user budget it draws on:
+    # signed when an envelope arrived, like the organization beside it.
+    envelope = get_signed_request_context()
+    user_id = envelope.user_id if envelope is not None else _read_header(USER_ID_HEADER)
     return {
         "organization_id": get_organization_id_from_context(),
         "user_id": user_id.strip() if user_id else None,
         "project_id": get_project_id_from_context(),
         "conversation_id": get_conversation_id_from_context(),
     }
+
+
+def _read_budget_header_from_context() -> str | None:
+    """The budget snapshot in its header encoding, from the signed envelope first.
+
+    The header shape (base64url JSON) is kept because it is what
+    ``capture_usage_context`` hands a worker and ``BudgetSnapshot.from_header``
+    reads. A client that could set the unsigned header could have given itself
+    an unlimited budget; with an envelope present that header is never read.
+    """
+    from aiq_agent.project_context import _read_header
+    from aiq_agent.project_context import get_signed_request_context
+
+    envelope = get_signed_request_context()
+    if envelope is None:
+        return _read_header(BUDGET_HEADER)
+    if not envelope.budget:
+        return None
+    raw = json.dumps(envelope.budget, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
 def capture_usage_context() -> dict[str, Any] | None:
@@ -632,10 +656,8 @@ def capture_usage_context() -> dict[str, Any] | None:
     ``track_llm_costs``. Returns None when there is nothing to carry over.
     """
     try:
-        from aiq_agent.project_context import _read_header
-
         identity = _read_identity_from_context()
-        raw_budget = _read_header(BUDGET_HEADER)
+        raw_budget = _read_budget_header_from_context()
         if not any(identity.values()) and not raw_budget:
             return None
         return {"identity": identity, "budget_header": raw_budget}
@@ -667,10 +689,10 @@ def track_llm_costs(
     tracker: GridCostTracker | None = None
     token = None
     try:
-        from aiq_agent.project_context import _read_header
-
         resolved_identity = identity if identity is not None else _read_identity_from_context()
-        resolved_budget = budget if budget is not None else BudgetSnapshot.from_header(_read_header(BUDGET_HEADER))
+        resolved_budget = budget
+        if resolved_budget is None:
+            resolved_budget = BudgetSnapshot.from_header(_read_budget_header_from_context())
         tracker = GridCostTracker(
             organization_id=resolved_identity.get("organization_id"),
             user_id=resolved_identity.get("user_id"),

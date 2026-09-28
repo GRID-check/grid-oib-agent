@@ -44,7 +44,6 @@ import { useShallow } from 'zustand/react/shallow'
 import Link from 'next/link'
 import {
   AlertCircle,
-  CircleEllipsis,
   FileCheck2,
   FlaskConical,
   Loader2,
@@ -68,7 +67,6 @@ import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { PageSheet } from '@/components/ui/page-sheet'
 import { AnimatePresence, motion, motionQuick } from '@/components/motion'
-import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { formatAbsoluteTime, formatRelativeTime, formatTimeOfDay } from '@/lib/format'
 import { useIsMobile } from '@/hooks/use-is-mobile'
@@ -79,35 +77,16 @@ import { useChatStore } from '@/features/chat'
 import { DeleteSessionConfirmationModal } from './DeleteSessionConfirmationModal'
 import { DeleteAllSessionsConfirmationModal } from './DeleteAllSessionsConfirmationModal'
 import { StopResearchConfirmationModal } from './StopResearchConfirmationModal'
-import { PurgeStuckResearchConfirmationModal } from './PurgeStuckResearchConfirmationModal'
+import { cancelJob } from '@/adapters/api/deep-research-client'
 
 interface Session {
   id: string
   title: string
   date: Date
+  /** A run is still going in this thread (read off its stored ledger). */
   hasActiveDeepResearch?: boolean
+  /** A run in this thread finished with a report. */
   hasCompletedReport?: boolean
-  hasExpiredReport?: boolean
-  /**
-   * The stuck run's id, when this session's latest research job is still
-   * non-terminal. Travels with the row so the history can stop the run it
-   * shows spinning — without it an abandoned run can only be watched, never
-   * dismissed, and its delete stays disabled forever.
-   */
-  activeDeepResearchJobId?: string | null
-}
-
-/**
- * A stop awaiting confirmation. Stopping cancels server-side work that cannot
- * be resumed, so the row/run buttons only ARM this — the shared ConfirmDialog
- * fires it. `refetchRuns` re-reads the server run list afterwards, so a
- * run stopped from the Deep Research section reads cancelled instead of
- * running.
- */
-interface PendingStop {
-  sessionId: string | null
-  jobId: string
-  refetchRuns: boolean
 }
 
 /**
@@ -181,18 +160,6 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
 
   const isSessionBusy = useChatStore((s) => s.isSessionBusy)
   const anySessionBusy = useChatStore((s) => s.hasAnyBusySession())
-  const refreshDeepResearchSessionStatuses = useChatStore(
-    (s) => s.refreshDeepResearchSessionStatuses
-  )
-  // Dismissing a stuck run cancels its backend job best-effort and marks the
-  // thread terminal locally — the counterpart to `refresh…` above, which only
-  // reconciles what the backend still admits to.
-  const dismissDeepResearchJob = useChatStore((s) => s.dismissDeepResearchJob)
-  const purgeAbandonedDeepResearchJobs = useChatStore((s) => s.purgeAbandonedDeepResearchJobs)
-  // Jobs this browser settled itself (see `resolvedDeepResearchJobs`): the
-  // runs list can serve a stale `running` for them indefinitely, so rows read
-  // the recorded verdict first.
-  const resolvedDeepResearchJobs = useChatStore((s) => s.resolvedDeepResearchJobs)
   // Navigation-specific busy check: only shallow thinking (WebSocket) and HITL prompts
   // block session switching. Deep research runs server-side and can be reconnected,
   // so it should NOT prevent navigation.
@@ -208,15 +175,11 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [deleteAllModalOpen, setDeleteAllModalOpen] = useState(false)
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null)
-  const refreshStatusesInFlightRef = useRef(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const [isPurgingStuck, setIsPurgingStuck] = useState(false)
-  // The stop awaiting confirmation (single run) and the bulk-purge confirm.
-  // Both render the shared ConfirmDialog, which owns the pending state of its
-  // own confirm button — so no extra in-flight flags are needed to prevent
-  // double confirms.
-  const [pendingStop, setPendingStop] = useState<PendingStop | null>(null)
-  const [purgeConfirmOpen, setPurgeConfirmOpen] = useState(false)
+  // The run whose stop awaits confirmation. Stopping cancels server-side work
+  // that cannot be resumed, so the row's button only ARMS this — the shared
+  // ConfirmDialog fires it, and owns the pending state of its confirm button.
+  const [pendingStop, setPendingStop] = useState<ResearchRun | null>(null)
 
   // FB-10: server-truth deep-research runs for the "Deep Research" section.
   // Fetched on panel open (like the status refresh above) so the list includes
@@ -232,15 +195,6 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   // panel must NOT, because the component stays mounted and the data is still
   // valid on reopen.
   const deepResearchCollectionRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    if (isSessionsPanelOpen && !refreshStatusesInFlightRef.current) {
-      refreshStatusesInFlightRef.current = true
-      void Promise.resolve(refreshDeepResearchSessionStatuses()).finally(() => {
-        refreshStatusesInFlightRef.current = false
-      })
-    }
-  }, [isSessionsPanelOpen, refreshDeepResearchSessionStatuses])
 
   // A query — or a scope filter — left behind from last time is a filtered list
   // the user did not ask for, and one that can hide the chat they came back
@@ -333,20 +287,19 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     searchInputRef.current?.focus()
   }, [])
 
-  // Stop one stuck run from its chat row. The row's delete stays disabled
-  // while the run looks active, so without this the chat holding an abandoned
-  // run could never be removed at all. Arms the confirm dialog — stopping
-  // cancels server-side work that cannot be resumed.
-  const handleStopSessionResearch = useCallback((sessionId: string, jobId: string) => {
-    setPendingStop({ sessionId, jobId, refetchRuns: false })
-  }, [])
-
-  // Fires the armed stop from the confirm dialog.
+  // Fires the armed stop from the confirm dialog: the backend's own cancel,
+  // then the list re-read so the row says what the server now says. A cancel
+  // the server refuses (the run already ended) is the same outcome, and the
+  // re-read shows it.
   const handleConfirmStop = useCallback(async () => {
     if (!pendingStop) return
-    await dismissDeepResearchJob(pendingStop.sessionId, pendingStop.jobId)
-    if (pendingStop.refetchRuns) fetchDeepResearchRuns()
-  }, [pendingStop, dismissDeepResearchJob, fetchDeepResearchRuns])
+    try {
+      await cancelJob(pendingStop.job_id)
+    } catch (err) {
+      console.warn('[SessionsPanel] Failed to stop run:', pendingStop.job_id, err)
+    }
+    fetchDeepResearchRuns()
+  }, [pendingStop, fetchDeepResearchRuns])
 
   const untitledLabel = t('sessionsPanel.untitledSession')
   const trimmedQuery = searchQuery.trim()
@@ -402,22 +355,6 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     [sessionTitleById, t]
   )
 
-  // A run this browser settled itself (dismissed from this history) renders
-  // its recorded verdict, in the list's own vocabulary — not whatever the
-  // runs list still serves for it. The list can lag a crashed run
-  // indefinitely (a dismissed `failure` keeps arriving as `running`), which is
-  // how stopped runs used to come back spinning after every refetch.
-  const effectiveRunStatus = useCallback(
-    (run: ResearchRun): string => {
-      const resolved = resolvedDeepResearchJobs[run.job_id]
-      if (resolved === 'success') return 'completed'
-      if (resolved === 'failure') return 'failed'
-      if (resolved === 'interrupted') return 'cancelled'
-      return run.status
-    },
-    [resolvedDeepResearchJobs]
-  )
-
   // A run opens the thread it was commissioned in, whatever became of it: its
   // report, its progress and, on a failure, what it tried are one message there
   // now (ADR-0062). The `?job=` links this used to build — plus `&tab=thinking`
@@ -457,38 +394,10 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     scopeFilter !== 'chats' &&
     (researchScopeSelected || isResearchLoading || deepResearchError || filteredRuns.length > 0)
 
-  // Stop one stuck run from the Deep Research section. Arms the confirm
-  // dialog; on confirm the server list is re-read so a cancelled run reads
-  // cancelled instead of running.
+  // Stop one run from the Deep Research section. Arms the confirm dialog.
   const handleStopRun = useCallback((run: ResearchRun) => {
-    setPendingStop({ sessionId: run.conversation_id, jobId: run.job_id, refetchRuns: true })
+    setPendingStop(run)
   }, [])
-
-  // Purge every stuck run of the current user: cancel best-effort, mark each
-  // thread terminal, unblock every row it held. Reports how many runs it
-  // stopped, because a button that silently does nothing reads as broken when
-  // the last stuck run belonged to another project and nothing on screen moves.
-  const handlePurgeStuckResearch = useCallback(async () => {
-    if (isPurgingStuck) return
-    setIsPurgingStuck(true)
-    try {
-      const count = await purgeAbandonedDeepResearchJobs()
-      if (deepResearchEnabled) fetchDeepResearchRuns()
-      if (count === 0) {
-        toast.message(t('sessionsPanel.purgeIdle'))
-      } else {
-        toast.success(t('sessionsPanel.purgeDone', { count }))
-      }
-    } finally {
-      setIsPurgingStuck(false)
-    }
-  }, [
-    isPurgingStuck,
-    purgeAbandonedDeepResearchJobs,
-    deepResearchEnabled,
-    fetchDeepResearchRuns,
-    t,
-  ])
 
   return (
     <PageSheet
@@ -710,10 +619,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
               ) : (
                 <ItemList as="ul" className="bg-card shadow-xs">
                   {filteredRuns.map((run) => {
-                    // Resolved once per row: every element below reads the same
-                    // status, so a dismissed run cannot show a terminal badge
-                    // beside a running spinner.
-                    const status = effectiveRunStatus(run)
+                    const status = run.status
                     const href = runHref(run)
                     return (
                     <Item key={run.job_id} as="li" className="relative items-start py-3.5">
@@ -836,10 +742,6 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                         onSelect={handleSessionClick}
                         onDelete={handleDeleteClick}
                         onRename={onRenameSession}
-                        activeResearchJobId={session.activeDeepResearchJobId ?? null}
-                        onStopResearch={(sessionId, jobId) =>
-                          handleStopSessionResearch(sessionId, jobId)
-                        }
                       />
                     ))}
                   </AnimatePresence>
@@ -881,26 +783,6 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
       <div className="bg-background shrink-0 border-t px-4 py-3 md:px-8">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
           <p className="text-muted-foreground text-xs">{t('sessionsPanel.syncedNote')}</p>
-          {/* Stuck research runs keep their rows spinning and their deletes
-              disabled — and block delete-all while any session is busy. This
-              stops every abandoned run of the current user (cancel
-              best-effort, thread marked stopped) so the history is actionable
-              again. Lives here beside delete-all, the other bulk action over
-              this list, rather than one row above the rows it touches. */}
-          {sessions.some((s) => s.hasActiveDeepResearch) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="-ml-2 h-8 w-fit justify-start px-2"
-              onClick={() => setPurgeConfirmOpen(true)}
-              disabled={isPurgingStuck}
-              aria-label={t('sessionsPanel.purgeStuckRuns')}
-              title={t('sessionsPanel.purgeStuckRuns')}
-            >
-              <Square className="size-4" aria-hidden="true" />
-              <span>{t('sessionsPanel.purgeStuckRunsButton')}</span>
-            </Button>
-          )}
           {/* Delete-all lives HERE, not above the list. It used to sit in the
               top row with equal weight to New chat — the loudest thing in the
               panel was the one action that destroys everything in it, one row
@@ -940,21 +822,15 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         count={sessions.length}
       />
 
-      {/* Stopping cancels server-side work that cannot be resumed — the single
-          stop and the bulk purge both confirm through the shared ConfirmDialog
-          rather than firing off their icons. */}
+      {/* Stopping cancels server-side work that cannot be resumed — it
+          confirms through the shared ConfirmDialog rather than firing off
+          its icon. */}
       <StopResearchConfirmationModal
         open={pendingStop !== null}
         onOpenChange={(open) => {
           if (!open) setPendingStop(null)
         }}
         onConfirm={() => handleConfirmStop()}
-      />
-
-      <PurgeStuckResearchConfirmationModal
-        open={purgeConfirmOpen}
-        onOpenChange={setPurgeConfirmOpen}
-        onConfirm={() => handlePurgeStuckResearch()}
       />
     </PageSheet>
   )
@@ -979,7 +855,7 @@ interface SessionItemProps {
   /** Navigation block: true when shallow thinking (WS) or HITL prompt is pending.
    *  Deep research does NOT block navigation since it runs server-side. */
   isBusy?: boolean
-  /** Per-session block: true when this specific session has active deep research */
+  /** Per-session block: true when the socket is mid-turn in this session. */
   isSessionActive?: boolean
   /** FB-10: show a "Deep Research" chip when this session carries research status. */
   showResearchLabel?: boolean
@@ -988,17 +864,6 @@ interface SessionItemProps {
   onSelect?: (sessionId: string) => void
   onDelete?: (sessionId: string) => void
   onRename?: (sessionId: string, newTitle: string) => void
-  /**
-   * The session's still-running research job, when there is one. Enables the
-   * stop action beside rename/delete: without it an abandoned run leaves the
-   * row with two disabled buttons and no way out.
-   */
-  activeResearchJobId?: string | null
-  /**
-   * Request stopping the session's stuck research run. Only arms the shared
-   * stop confirm — the parent fires the dismiss once confirmed.
-   */
-  onStopResearch?: (sessionId: string, jobId: string) => void
 }
 
 const SessionItem = forwardRef<HTMLLIElement, SessionItemProps>(function SessionItem(
@@ -1012,8 +877,6 @@ const SessionItem = forwardRef<HTMLLIElement, SessionItemProps>(function Session
     onSelect,
     onDelete,
     onRename,
-    activeResearchJobId,
-    onStopResearch,
   },
   ref
 ) {
@@ -1034,11 +897,7 @@ const SessionItem = forwardRef<HTMLLIElement, SessionItemProps>(function Session
   const sessionDate = session.date instanceof Date ? session.date : new Date(session.date)
   const sessionIso = Number.isNaN(sessionDate.getTime()) ? '' : sessionDate.toISOString()
   const showResearchChip =
-    showResearchLabel &&
-    (isSessionActive ||
-      session.hasActiveDeepResearch ||
-      session.hasCompletedReport ||
-      session.hasExpiredReport)
+    showResearchLabel && (session.hasActiveDeepResearch || session.hasCompletedReport)
 
   // Focus input when entering edit mode
   useEffect(() => {
@@ -1069,14 +928,6 @@ const SessionItem = forwardRef<HTMLLIElement, SessionItemProps>(function Session
       onDelete?.(session.id)
     },
     [onDelete, session.id]
-  )
-
-  const handleStopClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation()
-      if (activeResearchJobId) onStopResearch?.(session.id, activeResearchJobId)
-    },
-    [onStopResearch, session.id, activeResearchJobId]
   )
 
   const handleSaveRename = useCallback(() => {
@@ -1248,21 +1099,6 @@ const SessionItem = forwardRef<HTMLLIElement, SessionItemProps>(function Session
                 : '[background:linear-gradient(to_right,transparent,var(--muted)_1.5rem)]'
             )}
           >
-            {/* A stuck run's only way out: rename and delete stay disabled
-                while the run looks active, so the row that needs dismissing
-                most is the one that cannot be touched without this. */}
-            {isSessionActive && activeResearchJobId && onStopResearch && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={handleStopClick}
-                aria-label={t('sessionsPanel.stopResearch')}
-                title={t('sessionsPanel.stopResearchTitle')}
-              >
-                <Square className="size-4" aria-hidden="true" />
-              </Button>
-            )}
             <Button
               variant="ghost"
               size="icon"
@@ -1373,10 +1209,6 @@ const SessionStatusIcon: FC<{
     return <Loader2 className={cn(base, 'text-accent-primary animate-spin')} aria-hidden="true" />
   }
 
-  if (session.hasExpiredReport) {
-    return <CircleEllipsis className={cn(base, 'text-muted-foreground')} aria-hidden="true" />
-  }
-
   if (session.hasCompletedReport) {
     return <FileCheck2 className={cn(base, 'text-success')} aria-hidden="true" />
   }
@@ -1391,7 +1223,6 @@ const SessionStatusIcon: FC<{
  */
 const statusKeyFor = (session: Session, isSessionActive: boolean): string | null => {
   if (isSessionActive || session.hasActiveDeepResearch) return 'sessionsPanel.sessionActive'
-  if (session.hasExpiredReport) return 'sessionsPanel.reportExpired'
   if (session.hasCompletedReport) return 'sessionsPanel.reportCompleted'
   return null
 }

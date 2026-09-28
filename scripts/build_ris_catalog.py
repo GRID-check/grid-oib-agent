@@ -66,6 +66,9 @@ def _load_norm_registry_module():
             stub = types.ModuleType(package)
             stub.__path__ = []  # package marker: no real __init__ is executed
             sys.modules[package] = stub
+    # norm_registry imports source_kinds, which is stdlib-only; loaded the same
+    # way, or the builder dies on import before it verifies anything.
+    _standalone_module("aiq_agent.common.source_kinds", common_dir / "source_kinds.py")
     return _standalone_module("aiq_agent.common.norm_registry", common_dir / "norm_registry.py")
 
 

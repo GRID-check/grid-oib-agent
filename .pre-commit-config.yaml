@@ -60,7 +60,18 @@ repos:
         # detect-secrets sees a high-entropy blob with no surrounding code.
         # Excluded rather than baselined for the same line-number reason as
         # the lockfiles above. gitleaks in security.yml still sees it.
-        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$|^deploy/pulumi/aspire-dashboard\.pin$)
+        #
+        # frontends/web/art/riso/kit.json pins the riso kit to a public git
+        # commit sha: hex by construction, secret by none, and JSON cannot
+        # carry the inline pragma.
+        #
+        # The chat wire v2 fixtures (shared/wire/v2/*.jsonl, and the golden turn
+        # tests/fixtures/wire_v2/) carry each card's `key`, a hash of its
+        # canonical JSON: hex by construction, secret by none. They are
+        # recorded, and the golden turn is rewritten by GRID_REGEN_GOLDEN=1, so
+        # a baseline entry would pin a hash to a line number that does not
+        # survive the next recording; JSONL cannot carry the inline pragma.
+        exclude: (^tests/fixtures/wire_v2/.*\.jsonl$|^shared/wire/v2/.*\.jsonl$|^frontends/web/art/riso/kit\.json$|^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$|^deploy/pulumi/aspire-dashboard\.pin$)
         # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
         # failing again a few commits later:
         #
@@ -130,6 +141,21 @@ repos:
         language: system
         pass_filenames: false
         files: ^(src/aiq_agent/cards/models\.py|shared/cards/schemas\.json|scripts/generate_card_schema\.py|frontends/ui/scripts/generate-card-schemas\.mjs|frontends/ui/src/shared/cards/generated\.ts)$
+
+      - id: wire-schemas
+        name: the chat wire v2 schemas are generated from common/wire_v2.py
+        # The same two-stage pipeline as card-schemas above, for the chat wire
+        # (docs/design/chat-wire-v2.md), with the same reasons for the venv
+        # python and for skipping the Zod stage where node_modules is absent
+        # (scripts/generate-wire-schemas.spec.mjs covers it in the UI suite).
+        entry: >-
+          bash -c 'PYTHONPATH=src .venv/bin/python scripts/generate_wire_schema.py
+          && if [ -d frontends/ui/node_modules ];
+          then node frontends/ui/scripts/generate-wire-schemas.mjs;
+          else echo "skipping the Zod stage, frontends/ui/node_modules is absent"; fi'
+        language: system
+        pass_filenames: false
+        files: ^(src/aiq_agent/common/wire_v2\.py|shared/wire/v2\.schema\.json|scripts/generate_wire_schema\.py|frontends/ui/scripts/generate-(wire|card)-schemas\.mjs|frontends/ui/src/adapters/api/wire-v2\.generated\.ts)$
 
       - id: agent-docs
         name: every AGENTS.md is reachable by the agents that need it

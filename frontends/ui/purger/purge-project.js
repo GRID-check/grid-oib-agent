@@ -323,4 +323,4 @@ async function purgeProject(tx, entry, deps) {
   await tx`DELETE FROM projects WHERE id = ${projectId}`
 }
 
-module.exports = { LEGAL_HOLD_CODE, purgeProject }
+module.exports = { LEGAL_HOLD_CODE, assertNoHold, purgeProject }

@@ -6,6 +6,7 @@
  * this page only names its section and renders it.
  */
 
+import type { JSX } from 'react'
 import { PageHeader } from '@/components/ui/page-header'
 import { getTranslations } from '@/i18n/server'
 import { PlatformModelDefaults } from './platform-model-defaults'

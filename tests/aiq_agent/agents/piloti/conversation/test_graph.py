@@ -19,6 +19,7 @@ from aiq_agent.agents.piloti.markers import ESCALATION_MARKER
 from aiq_agent.agents.piloti.models import ClarifyResult
 from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.agents.piloti.models import ResearchAgentState
+from tests.aiq_agent.agents.piloti.conversation import turn
 
 
 def _research_result(messages, answer: str, *, escalating: bool = False, direct: bool = False):
@@ -128,7 +129,7 @@ class TestConversationGraph:
         )
 
         state = ConversationState(messages=[HumanMessage(content="Hello!")])
-        result = await agent.run(state, thread_id="test-thread")
+        result = await turn(agent, state, thread_id="test-thread")
 
         assert result.routing_decision == "meta"
         contents = [m.content for m in result.messages if isinstance(m, AIMessage)]
@@ -144,7 +145,7 @@ class TestConversationGraph:
         )
 
         state = ConversationState(messages=[HumanMessage(content="What is CUDA?")])
-        result = await agent.run(state, thread_id="test-thread")
+        result = await turn(agent, state, thread_id="test-thread")
 
         assert result is not None
         assert result.routing_decision == "shallow"
@@ -165,7 +166,7 @@ class TestConversationGraph:
         state = ConversationState(
             messages=[HumanMessage(content="Compare CUDA vs OpenCL")],
         )
-        result = await agent.run(state, thread_id="test-thread")
+        result = await turn(agent, state, thread_id="test-thread")
 
         assert result is not None
         assert result.routing_decision == "deep"
@@ -201,7 +202,7 @@ class TestConversationGraph:
         state = ConversationState(
             messages=[HumanMessage(content="Remember for the whole org: the firm is Grid and Partners")],
         )
-        result = await agent.run(state, thread_id="test-thread")
+        result = await turn(agent, state, thread_id="test-thread")
 
         assert result is not None
         assert deep_called is False, "a direct reply must not reach deep research"
@@ -220,7 +221,7 @@ class TestConversationGraph:
         )
 
         state = ConversationState(messages=[])
-        result = await agent.run(state, thread_id="test-thread")
+        result = await turn(agent, state, thread_id="test-thread")
 
         assert result is not None
 
@@ -238,7 +239,7 @@ class TestConversationGraph:
         )
 
         state = ConversationState(messages=[HumanMessage(content="Hi")])
-        result = await agent.run(state)
+        result = await turn(agent, state)
 
         assert result is not None
 
@@ -261,7 +262,7 @@ class TestConversationGraph:
             messages=[HumanMessage(content="Hello!")],
             data_sources=["gdrive", "confluence"],
         )
-        await agent.run(state, thread_id="test-thread")
+        await turn(agent, state, thread_id="test-thread")
 
         assert captured_state["data_sources"] == ["gdrive", "confluence"]
 
@@ -282,7 +283,7 @@ class TestConversationGraph:
             messages=[HumanMessage(content="Hello!")],
             collection_scope=["oib_knowledge", "proj_project-1", "s_conv-1"],
         )
-        result = await agent.run(state, thread_id="test-thread")
+        result = await turn(agent, state, thread_id="test-thread")
 
         assert result.collection_scope == ["oib_knowledge", "proj_project-1", "s_conv-1"]
 
@@ -305,7 +306,7 @@ class TestConversationGraph:
             messages=[HumanMessage(content="Hello!")],
             data_sources=None,
         )
-        await agent.run(state, thread_id="test-thread")
+        await turn(agent, state, thread_id="test-thread")
 
         assert captured_state["data_sources"] is None
 
@@ -328,7 +329,7 @@ class TestConversationGraph:
             messages=[HumanMessage(content="Hello!")],
             data_sources=[],
         )
-        await agent.run(state, thread_id="test-thread")
+        await turn(agent, state, thread_id="test-thread")
 
         assert captured_state["data_sources"] == []
 
@@ -352,13 +353,15 @@ class TestConversationGraph:
             clarifier_fn=mock_clarifier,
         )
 
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content="welche Dateien hast du im Büroarchiv")]),
             thread_id="t",
         )
         assert seen["shelf"] == Shelf.ARCHIV
 
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content="was sagt OIB-RL 2 zum Brandschutz")]),
             thread_id="t2",
         )
@@ -412,7 +415,7 @@ class TestRoutingBoundary:
             clarifier_fn=clarifier,
         )
         state = ConversationState(messages=[HumanMessage(content="How do I bake a cake?")])
-        result = await agent.run(state, thread_id="t")
+        result = await turn(agent, state, thread_id="t")
 
         assert calls["research"] is True, "Piloti answers every turn, off-topic ones included"
         assert calls["deep"] is False
@@ -433,7 +436,7 @@ class TestRoutingBoundary:
             clarifier_fn=clarifier,
         )
         state = ConversationState(messages=[HumanMessage(content="Was regelt die OIB-Richtlinie 2?")])
-        result = await agent.run(state, thread_id="t")
+        result = await turn(agent, state, thread_id="t")
 
         assert calls["research"] is True
         assert calls["clarifier"] is False, "a well-specified shallow question must not be sent to the clarifier"
@@ -454,7 +457,7 @@ class TestRoutingBoundary:
         state = ConversationState(
             messages=[HumanMessage(content="Vergleiche die OIB-2-Anforderungen über alle Gebäudeklassen")],
         )
-        result = await agent.run(state, thread_id="t")
+        result = await turn(agent, state, thread_id="t")
 
         assert calls["research"] is True, "every turn starts with the answering agent"
         assert calls["clarifier"] is True, "an escalation must pass through the clarifier"
@@ -516,7 +519,8 @@ class TestAppendContextMessage:
         agent = self._agent(trackers)
 
         # 1. Matthias asks Piloti.
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content="Ist das Atrium ein eigener Abschnitt?")]),
             thread_id="conv-1",
         )
@@ -536,7 +540,8 @@ class TestAppendContextMessage:
             return _research_result(messages, "Neu geprüft.")
 
         agent.research_fn = capture_research
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content="@Piloti given that, recheck")]),
             thread_id="conv-1",
         )
@@ -581,7 +586,8 @@ class TestTurnBoundary:
             return _research_result(state_input.messages, "Die Datei wird noch gelesen.", direct=True)
 
         agent = ConversationGraph(research_fn=research, deep_research_fn=_unused, clarifier_fn=None)
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content="Was steht im Plan?")], in_flight_documents=["plan.pdf"]),
             thread_id="t",
         )
@@ -594,7 +600,7 @@ class TestTurnBoundary:
             return _research_result(state_input.messages, "Antwort [1].")
 
         agent = ConversationGraph(research_fn=research, deep_research_fn=_unused, clarifier_fn=None)
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
         assert isinstance(result, ConversationState)
 
 
@@ -619,7 +625,118 @@ class TestEscalation:
             return _research_result(state_input.messages, "Ich konnte keine Informationen dazu finden.")
 
         agent = ConversationGraph(research_fn=research, deep_research_fn=_unused, clarifier_fn=_unused)
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
 
         assert not result.escalate_to_deep
         assert result.routing_decision == "shallow"
+
+
+class TestTheWholeTurnIsWrittenBack:
+    """The next turn has the passages the last answer was written from."""
+
+    async def test_tool_results_reach_the_conversation_and_the_answer_stays_last(self):
+        from langchain_core.messages import ToolMessage
+
+        from aiq_agent.agents.piloti.conversation import _finalize_answer
+
+        call = {"name": "read_passage", "args": {"document": "OIB-RL 2"}, "id": "c1"}
+        turn = [
+            AIMessage(content="", tool_calls=[call]),
+            ToolMessage(content="Passage aus OIB-RL 2", tool_call_id="c1", name="read_passage"),
+            AIMessage(content="Die Antwort."),
+        ]
+        result = ResearchAgentState(messages=[HumanMessage(content="Q"), *turn], source_lookup_attempted=True)
+
+        update = _finalize_answer(turn[-1], result, turn_messages=turn)
+
+        assert [type(m).__name__ for m in update["messages"]] == ["AIMessage", "ToolMessage", "AIMessage"]
+        assert update["messages"][-1].content == "Die Antwort."
+        assert update["messages"][1].content == "Passage aus OIB-RL 2"
+
+    async def test_the_written_back_results_are_cut_to_the_cited_passages(self):
+        from langchain_core.messages import ToolMessage
+
+        from aiq_agent.agents.piloti.conversation import _finalize_answer
+        from aiq_agent.agents.piloti.history import UNCITED_PASSAGE_NOTE
+
+        call = {"name": "knowledge_search", "args": {"query": "REI"}, "id": "c1"}
+        content = (
+            "Found 2 relevant document(s):\n\n"
+            "--- Result 1 ---\nSource: OIB 2\nCitation: oib-rl_2.pdf, p.1\n\nREI 60.\n\n"
+            "--- Result 2 ---\nSource: OIB 2\nCitation: oib-rl_2.pdf, p.9\n\nNie zitiert.\n"
+        )
+        turn = [
+            AIMessage(content="", tool_calls=[call]),
+            ToolMessage(content=content, tool_call_id="c1", name="knowledge_search"),
+            AIMessage(content="REI 60 [1]."),
+        ]
+        result = ResearchAgentState(
+            messages=[HumanMessage(content="Q"), *turn],
+            source_lookup_attempted=True,
+            verified_sources=[{"number": 1, "citation_key": "oib-rl_2.pdf, p.1"}],
+        )
+
+        update = _finalize_answer(turn[-1], result, turn_messages=turn)
+
+        kept = update["messages"][1].content
+        assert "REI 60." in kept and "Nie zitiert." not in kept
+        assert "Citation: oib-rl_2.pdf, p.9" in kept and UNCITED_PASSAGE_NOTE in kept
+
+    def test_the_next_turns_history_prunes_the_turn_before_last(self):
+        from langchain_core.messages import ToolMessage
+
+        async def research(state_input):
+            return _research_result(state_input.messages, "x")
+
+        async def deep(state):
+            return DeepResearchAgentState(messages=list(state.messages))
+
+        async def clarifier(request):
+            return ClarifyResult(research_context="", outcome="approved")
+
+        graph = ConversationGraph(research_fn=research, deep_research_fn=deep, clarifier_fn=clarifier)
+        call = {"name": "read_passage", "args": {"document": "OIB-RL 2"}, "id": "c1"}
+        old_turn = [
+            HumanMessage(content="Q1"),
+            AIMessage(content="", tool_calls=[call]),
+            ToolMessage(content="P1", tool_call_id="c1", name="read_passage"),
+            AIMessage(content="A1"),
+        ]
+        last_turn = [
+            HumanMessage(content="Q2"),
+            AIMessage(content="", tool_calls=[{**call, "id": "c2"}]),
+            ToolMessage(content="P2", tool_call_id="c2", name="read_passage"),
+            AIMessage(content="A2"),
+        ]
+        state = ConversationState(messages=[*old_turn, *last_turn, HumanMessage(content="und in GK 4?")])
+
+        trimmed = graph._trimmed(state)
+
+        contents = [m.content for m in trimmed]
+        assert "P2" in contents and "P1" not in contents
+        assert contents[:2] == ["Q1", "A1"]
+
+
+class TestAFollowUpAnsweredFromTheTranscript:
+    async def test_a_previous_turns_search_is_not_this_turns_lookup(self):
+        """Against an empty registry, a follow-up answered from the transcript is an
+        answer — not the "nothing retrieved" refusal the previous turn's search
+        would trigger if it counted as this turn's."""
+        from langchain_core.messages import ToolMessage
+
+        from aiq_agent.agents.piloti.answer_pipeline import finalize_answer
+        from aiq_agent.common.citation_verification import SourceRegistry
+
+        call = {"name": "knowledge_search", "args": {"query": "Fluchtweg"}, "id": "c1"}
+        messages = [
+            HumanMessage(content="Wie lang darf der Fluchtweg sein?"),
+            AIMessage(content="", tool_calls=[call]),
+            ToolMessage(content="Keine Treffer.", tool_call_id="c1", name="knowledge_search"),
+            AIMessage(content="Dazu habe ich nichts gefunden."),
+            HumanMessage(content="Und in GK 4?"),
+            AIMessage(content="Auch dazu liegt nichts vor; die Frage bleibt offen."),
+        ]
+
+        final = await finalize_answer(messages, registry=SourceRegistry(), tools=[], repair=None)
+
+        assert final.answered and not final.source_lookup_attempted

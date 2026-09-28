@@ -304,12 +304,10 @@ Two naming collisions to keep straight. The `task_definitions`/`task_runs`
 tables live in `grid_app` (the collapsed successor of `jobs`/`job_runs`/
 `tasks`); the backend async/Dask jobs live in `aiq_jobs` (deep-research runs,
 §5.5) — a `task_runs.backend_job_id` value names one of the latter. And
-`compliance_check` is a **task kind**, not a chat tool: the `compliance_check`
-direct tool
-binding (workflow config, chat tool list, plugin entry point) is retired —
-the implementation, tests and README under
-`src/aiq_agent/agents/compliance_checker/` stay in place — and a full
-Soll-Ist now runs as a task of kind `compliance_check` through delegation.
+`compliance_check` is a **task kind**, not a chat tool or an agent: the
+purpose-built compliance checker is deleted, and a full Soll-Ist runs as a
+task of kind `compliance_check` through delegation, worked by the general
+agent with its retrieval tools.
 
 → `docs/architecture/where-is-what.md` § Delegated work,
 `docs/roadmap/agentic-workspace-architecture.md` §6,

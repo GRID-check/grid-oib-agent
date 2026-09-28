@@ -30,6 +30,7 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/adapters/auth'
 import { useChatStore } from '@/features/chat'
+import { hasLiveRun } from '@/features/chat/lib/session-activity'
 import { AccessChip, namedAudienceCount } from '@/features/collaboration/components/AccessChip'
 import { InboxBadge } from '@/features/collaboration/components/InboxBadge'
 import { ParticipantStrip } from '@/features/collaboration/components/ParticipantStrip'
@@ -99,7 +100,10 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   const tCollab = useTranslations('collaboration')
   const toggleSessionsPanel = useLayoutStore((s) => s.toggleSessionsPanel)
   const openMobileNav = useLayoutStore((s) => s.setMobileNavOpen)
-  const isDeepResearchStreaming = useChatStore((s) => s.isDeepResearchStreaming)
+  // A run going in THIS thread, read off its stored ledger (ADR-0062).
+  const isDeepResearchStreaming = useChatStore((s) =>
+    hasLiveRun(s.currentConversation?.messages ?? [])
+  )
   // Inline rename reuses the SAME store action the sessions panel uses.
   const currentSessionId = useChatStore((s) => s.currentConversation?.id)
   const updateConversationTitle = useChatStore((s) => s.updateConversationTitle)
@@ -282,11 +286,8 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     // where a fixed width costs the title nothing.
     //
     // The other half of the crowding was duplicate doors. This header does not
-    // own the research report — the answer card that produced it does
-    // (`AgentResponse`'s "view report", which reconnects the right job and picks
-    // the right tab), and the panel closes from its own X and from Escape. So
-    // the toggle here is the *re-entry* for a report you already have, and it
-    // appears only when this thread actually has one.
+    // own the research report: a run is read in the thread that commissioned
+    // it, in its run block (ADR-0062), so there is no report toggle here.
     <header className="pointer-events-none absolute inset-x-0 top-0 z-20 min-h-12 px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-6">
       {/* The SAME wide column as the message list and composer (max-w-5xl,
           mx-auto), so the pills stay aligned with the chat window's edges. */}
@@ -510,8 +511,8 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                   className="inline-flex items-center gap-1.5 overflow-hidden whitespace-nowrap text-sm text-muted-foreground"
                   data-testid="research-running"
                 >
-                  <Spinner size="sm" label={t('researchPanel.researching')} />
-                  <span className="hidden lg:inline">{t('researchPanel.researching')}</span>
+                  <Spinner size="sm" label={t('chatToolbar.researching')} />
+                  <span className="hidden lg:inline">{t('chatToolbar.researching')}</span>
                 </motion.span>
               )}
             </AnimatePresence>

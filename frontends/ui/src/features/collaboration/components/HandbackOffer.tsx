@@ -27,6 +27,7 @@
  *      stay the loudest thing in the column.
  */
 
+import type { JSX } from 'react'
 import { X } from 'lucide-react'
 
 import { AvatarStack, type AvatarStackPerson } from '@/components/ui/avatar-stack'

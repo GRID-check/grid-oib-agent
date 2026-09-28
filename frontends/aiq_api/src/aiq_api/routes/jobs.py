@@ -10,6 +10,8 @@ Routes:
     POST /v1/jobs/async/job/{job_id}/cancel               - Cancel running job
     GET  /v1/jobs/async/job/{job_id}/state                - Get artifacts from event store
     GET  /v1/jobs/async/job/{job_id}/report               - Get final report
+    GET  /v1/internal/jobs/{job_id}/outcome               - A job's verdict for the BFF's run reconciler
+                                                            (service token, never on the external allowlist)
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from typing import Any
 from fastapi import Body
 from fastapi import FastAPI
 from fastapi import HTTPException
+from fastapi import Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic import ConfigDict
@@ -35,7 +38,7 @@ from aiq_agent.common.data_source_registry import get_all_tool_refs
 from aiq_agent.common.data_source_registry import get_source_id_for_tool
 from aiq_agent.common.db_utils import redact_db_url
 from aiq_agent.common.job_admission import JobAdmissionError
-from nat.builder.framework_enum import LLMFrameworkEnum
+from nat.plugin_api import LLMFrameworkEnum
 
 from ..jobs.access import require_verified_principal
 from ..registry import AGENT_REGISTRY
@@ -45,7 +48,21 @@ if TYPE_CHECKING:
     from nat.builder.workflow_builder import WorkflowBuilder
     from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorker
 
+from ..jobs.outcome_notify import notify_job_outcome_from_access
+from ..jobs.runner import DOCUMENT_ADDED_EVENT_TYPE
+from ..jobs.runner import WRITE_NOW_EVENT_TYPE
+from ..jobs.runner import _update_status_if_not_terminal
+from .internal_auth import _require_internal_token
+
 logger = logging.getLogger(__name__)
+
+
+class JobDocumentRequest(BaseModel):
+    """One document the reader adds to a running job's Grundlage (``plan_documents`` row)."""
+
+    name: str = Field(..., min_length=1, max_length=256, description="The file name, as the inventory lists it")
+    title: str | None = Field(None, max_length=256, description="The document's display title")
+    shelf: str | None = Field(None, max_length=64, description="Where it sits: archiv / project / session / base")
 
 
 class JobSubmitRequest(BaseModel):
@@ -379,6 +396,68 @@ def _report_sources(raw: Any) -> list[dict] | None:
         return None
     sources = [entry for entry in raw if isinstance(entry, dict)]
     return sources or None
+
+
+class InternalJobOutcomeResponse(BaseModel):
+    """A job's verdict as the BFF's run reconciler reads it (internal only).
+
+    Everything the run's own terminal writes would have carried, rebuilt from
+    the job store: the status and error for ``/api/internal/jobs/{id}/outcome``,
+    the report and cards for filing, and the run message's content and metadata
+    for ``/api/internal/runs/by-job/{id}/report``.
+    """
+
+    job_id: str
+    status: str = Field(..., description="submitted, running, success, failure or interrupted")
+    error: str | None = None
+    report: str | None = None
+    cards: list[dict] | None = None
+    message: dict[str, Any] | None = Field(
+        None, description="What the run message should hold: {content, metadata}; null while the job runs"
+    )
+
+
+def _job_status_value(status: Any) -> str:
+    """The job store's status as its lowercase wire word, enum or string alike."""
+    return str(getattr(status, "value", status)).lower()
+
+
+async def internal_job_outcome(
+    job_store: Any, db_url: str, job_id: str, organization_id: str
+) -> InternalJobOutcomeResponse:
+    """The job's verdict for one organization, or a 404.
+
+    The tenant is checked against the job's ``job_access`` row, written at
+    submit: the service token names no organization, and a reconciler that
+    asked about another tenant's job id must learn nothing about it, not even
+    that it exists.
+    """
+    from ..jobs.access import get_job_access
+    from ..jobs.conversation_output import run_message_for_outcome
+
+    job = await job_store.get_job(job_id)
+    access = await asyncio.get_running_loop().run_in_executor(None, get_job_access, job_id, db_url) if job else None
+    if not job or not access or access.get("organization_id") != organization_id:
+        raise HTTPException(404, f"Job not found: {job_id}")
+
+    status = _job_status_value(job.status)
+    output: dict[str, Any] | None = None
+    if job.output:
+        try:
+            parsed = json.loads(job.output) if isinstance(job.output, str) else job.output
+            output = parsed if isinstance(parsed, dict) else None
+        except (json.JSONDecodeError, TypeError):
+            output = None
+
+    report = output.get("report") if output and status == "success" else None
+    return InternalJobOutcomeResponse(
+        job_id=job_id,
+        status=status,
+        error=job.error if status in ("failure", "interrupted") else None,
+        report=report if isinstance(report, str) and report else None,
+        cards=_report_cards(output.get("cards")) if output and report else None,
+        message=run_message_for_outcome(job_id=job_id, status=status, output=output),
+    )
 
 
 class ResearchRunItem(BaseModel):
@@ -785,7 +864,16 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         if job.status not in (JobStatus.RUNNING.value, JobStatus.SUBMITTED.value):
             raise HTTPException(400, f"Job not cancellable: {job_id} (status: {job.status})")
 
-        await job_store.update_status(job_id, JobStatus.INTERRUPTED, error="cancelled by user")
+        # Conditional, like every other terminal writer: the run may have
+        # finished between the read above and this write, and an unconditional
+        # write would relabel its SUCCESS as a cancel (and, with the report
+        # below, tell the BFF so). The loser of that race gets the same 400 as
+        # a job that had already ended.
+        written = await _update_status_if_not_terminal(
+            job_store, job_id, JobStatus.INTERRUPTED, error="cancelled by user"
+        )
+        if not written:
+            raise HTTPException(400, f"Job not cancellable: {job_id} (already finished)")
 
         def _record_cancellation_event() -> None:
             # EventStore construction and store() are blocking DB I/O — keep
@@ -814,7 +902,74 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
         logger.info("Cancel requested for job %s: status updated, task_cancelled=%s", job_id, task_cancelled)
 
+        # This route wrote the verdict, so it reports it. A running worker
+        # reports the same INTERRUPTED again when its abort lands, which the BFF
+        # absorbs; but a job no worker ever claimed (db mode: the queue row was
+        # just dropped) or whose Dask task never started has no runner left to
+        # report anything, and the BFF's run row would stay `running` forever.
+        # No error text, exactly like the runner's own report, so the two
+        # reports write the same row.
+        await notify_job_outcome_from_access(job_id=job_id, db_url=db_url, status="interrupted")
+
         return {"job_id": job_id, "status": JobStatus.INTERRUPTED.value, "task_cancelled": task_cancelled}
+
+    @app.post(
+        "/v1/jobs/async/job/{job_id}/write-now",
+        tags=["async jobs"],
+        summary="Ask a running deep research to write its report from what it has",
+        description=(
+            "Records the reader's request; the worker stops researching after the current batch "
+            "and writes the report from the notes gathered so far. The job keeps running until the report is filed."
+        ),
+        responses={
+            400: {"description": "Job is not running"},
+            404: {"description": "Job not found"},
+        },
+    )
+    async def write_now(job_id: str) -> dict:
+        """Ask a running job to write its report now."""
+        principal = require_verified_principal()
+        job = await authorize_job_access(job_store, db_url, job_id, principal)
+
+        if job.status != JobStatus.RUNNING.value:
+            raise HTTPException(400, f"Job is not running: {job_id} (status: {job.status})")
+
+        def _record() -> None:
+            EventStore(db_url, job_id).store({"type": WRITE_NOW_EVENT_TYPE, "data": {"reason": "requested by user"}})
+
+        await asyncio.get_running_loop().run_in_executor(None, _record)
+        logger.info("Write-now requested for job %s", job_id)
+        return {"job_id": job_id, "write_now": True}
+
+    @app.post(
+        "/v1/jobs/async/job/{job_id}/documents",
+        tags=["async jobs"],
+        summary="Add a document to the Grundlage of a running deep research",
+        description=(
+            "Records the reader's addition; the worker plans one dedicated research query for the "
+            "document in its next batch and the run block lists it beside the other Grundlage."
+        ),
+        responses={
+            400: {"description": "Job is not running"},
+            404: {"description": "Job not found"},
+        },
+    )
+    async def add_document(job_id: str, body: JobDocumentRequest) -> dict:
+        """Add one document to the Grundlage of a running job."""
+        principal = require_verified_principal()
+        job = await authorize_job_access(job_store, db_url, job_id, principal)
+
+        if job.status != JobStatus.RUNNING.value:
+            raise HTTPException(400, f"Job is not running: {job_id} (status: {job.status})")
+
+        data = body.model_dump(exclude_none=True)
+
+        def _record() -> None:
+            EventStore(db_url, job_id).store({"type": DOCUMENT_ADDED_EVENT_TYPE, "data": data})
+
+        await asyncio.get_running_loop().run_in_executor(None, _record)
+        logger.info("Document added to the Grundlage of job %s: %s", job_id, body.name)
+        return {"job_id": job_id, "document": data}
 
     @app.get(
         "/v1/jobs/async/job/{job_id}/state",
@@ -881,6 +1036,24 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             sources=sources,
             project_collection=project_collection,
         )
+
+    @app.get(
+        "/v1/internal/jobs/{job_id}/outcome",
+        response_model=InternalJobOutcomeResponse,
+        tags=["async jobs", "internal"],
+        summary="A job's verdict for the BFF's run reconciler (internal)",
+        description=(
+            "Service-token guarded. The run reconciler holds no user token, and the job's owner "
+            "is whoever asked for the run, so the owner-scoped status route cannot answer it."
+        ),
+        responses={403: {"description": "Missing or invalid internal token"}, 404: {"description": "Job not found"}},
+    )
+    async def get_internal_job_outcome(
+        job_id: str, organization_id: str, request: Request
+    ) -> InternalJobOutcomeResponse:
+        """The job's status, error, report and run-message content, for one organization."""
+        _require_internal_token(request)
+        return await internal_job_outcome(job_store, db_url, job_id, organization_id)
 
     @app.get(
         "/v1/jobs/async/jobs",
@@ -957,6 +1130,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
 
 GHOST_JOB_TIMEOUT_SECONDS = 300  # 5 minutes without events = ghost job
+GHOST_JOB_ERROR = "Job timed out (no heartbeat received from worker)"
 GHOST_REAPER_INTERVAL_SECONDS = 60  # check every 60 seconds
 
 
@@ -1154,7 +1328,6 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
     from ..jobs.event_store import EventStore
-    from ..jobs.runner import _update_status_if_not_terminal
     from ..jobs.submit import job_execution_mode
 
     if job_execution_mode() == "db":
@@ -1183,7 +1356,7 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
                 job_store,
                 stale_job_id,
                 JobStatus.FAILURE,
-                error="Job timed out (no heartbeat received from worker)",
+                error=GHOST_JOB_ERROR,
             )
             if not written:
                 logger.info(
@@ -1196,7 +1369,7 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
                 {
                     "type": "job.error",
                     "data": {
-                        "error": "Job timed out (no heartbeat received from worker)",
+                        "error": GHOST_JOB_ERROR,
                         "error_type": "GhostJobTimeout",
                     },
                 }
@@ -1207,6 +1380,14 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
             # and its CancellationMonitor stops it once it polls the FAILURE).
             if scheduler_address:
                 await _cancel_dask_task(scheduler_address, stale_job_id)
+            # The run is dead or will lose every later write, so nothing else
+            # will tell the BFF; its run row closes on this report.
+            await notify_job_outcome_from_access(
+                job_id=stale_job_id,
+                db_url=db_url,
+                status="failure",
+                error=GHOST_JOB_ERROR,
+            )
             reaped.append(stale_job_id)
         except Exception as e:
             logger.warning("Failed to reap ghost job %s: %s", stale_job_id, e)

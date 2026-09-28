@@ -87,7 +87,7 @@ config:
   # dynamically from the merge commit — prod merge shas never have GHCR images;
 
   # only develop tips do.
-  grid-oib:imageTag: sha-9150f95df04ddc393507dd2dca7bb69415062b38
+  grid-oib:imageTag: sha-8d41b321ef1611d270b5b7e3e29d5dd8b7734304
   # ── Storage (provider CSI, NVMe/TCP) ──
 
   # Classes offered by the provider (see `kubectl get storageclass`):
@@ -310,8 +310,8 @@ config:
   grid-oib:enforceFeatureFlags: "true"
   # Deliberately still "true" under enforcement. It no longer decides whether
   # the Automation section is visible — the per-org `skills` flag does, and that
-  # is OFF for every organization — only whether the `skill-scheduler`
-  # Deployment exists at all (`src/app/workers.ts:206`). Keeping it up means
+  # is OFF for every organization — only whether the `skill-scheduler` fires
+  # schedules at all (it runs the run reconciler either way). Keeping it up means
   # re-enabling Automation for one organization is a WorkOS toggle rather than a
   # redeploy, and the scheduler's own per-org flag check keeps schedules paused
   # meanwhile.
@@ -367,13 +367,11 @@ config:
 
   # true before flipping it:
 
-  #   1. `err2issueImage` is digest-pinned. It currently defaults to a moving
+  #   1. `err2issueImage` is digest-pinned. Done: the default in src/config.ts
 
-  #      `:latest` because upstream publishes no tags; a moving tag on a pod
+  #      is v0.5.1 by digest, and the trivy job in .github/workflows/security.yml
 
-  #      holding a repo-write token is not a prod posture, and the trivy job in
-
-  #      .github/workflows/security.yml only scans pinned refs.
+  #      scans it.
 
   #   2. Steady-state error volume is known from dev, so
 
@@ -389,7 +387,6 @@ config:
 
   #   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:err2issueGithubToken ghp_... --secret
 
-  #   pulumi config set        grid-oib:err2issueImage       ghcr.io/matthiasbigl/err2issue@sha256:...
   grid-oib:err2issueEnabled: "false"
   grid-oib:protectDataResources: "true"
   grid-oib:seaweedfsPerOrgBuckets: "true"

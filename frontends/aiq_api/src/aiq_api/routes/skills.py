@@ -165,6 +165,22 @@ class SkillSubmitPayload(BaseModel):
             "itself on its event stream and writes nothing."
         ),
     )
+    clarifier_result: str | None = Field(
+        None,
+        max_length=20_000,
+        description=(
+            "What the commissioning turn settled with the person — the clarifier's exchange and the "
+            "approved plan — set on the agent state so the planner and the writer read it as binding, "
+            "the way the synchronous chat path does. Absent for a scheduled or delegated run."
+        ),
+    )
+    documents: dict | None = Field(
+        None,
+        description=(
+            "The Unterlagen the reader named on the plan: {grundlage: [{name,title?,shelf?}], "
+            "ausgeschlossen: [...]}. Sanitised in the worker; absent when none were named."
+        ),
+    )
     owner_email: str | None = Field(None, description="Skill owner's email (job ownership)")
     budget_header: str | None = Field(
         None,
@@ -333,6 +349,8 @@ def add_skill_routes(router: APIRouter) -> None:
                 # id the worker builds no `RunLedgerFold`, the block is minted
                 # and then never moves (`jobs/runner.py`).
                 run_id=body.run_id,
+                clarifier_result=body.clarifier_result,
+                documents=body.documents,
             )
         except JobAdmissionError as exc:
             raise HTTPException(429, str(exc), headers={"Retry-After": str(exc.retry_after_seconds)})

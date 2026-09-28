@@ -310,6 +310,9 @@ def render_system_prompt(
         # The L1 skills catalog, collated by the register layer; None renders
         # no section.
         skills_block=state.skills_block,
+        # The shapes of the cards this turn is likely to earn (ADR-0064),
+        # beyond the shapes the envelope teaches (ENVELOPE_SHAPE_TYPES).
+        card_shapes_block=state.card_shapes_block,
     )
     if os.environ.get("DEBUG_PROMPTS"):
         logger.debug("Rendered system prompt:\n%s", rendered)

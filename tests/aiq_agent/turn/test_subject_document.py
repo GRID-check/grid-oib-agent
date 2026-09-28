@@ -17,6 +17,7 @@ from langgraph.store.memory import InMemoryStore
 from aiq_agent.cards.registry import CardRegistry
 from aiq_agent.cards.registry import reset_card_registry
 from aiq_agent.cards.registry import set_card_registry
+from aiq_agent.common.wire_v2 import StatusStep
 from aiq_agent.tools.documents import draft_store
 from aiq_agent.tools.documents.draft_store import FILED_DOCUMENT_KEY
 from aiq_agent.tools.documents.draft_store import FILED_HASH_KEY
@@ -77,19 +78,47 @@ def _stored(store: InMemoryStore, path: str) -> dict | None:
     return item.value if item else None
 
 
-async def _load(subject: SubjectVersion) -> str | None:
+async def _load(subject: SubjectVersion) -> StatusStep | None:
     return await subject_document.load_subject_document(
         subject, conversation_id=CONVERSATION, organization_id=ORGANIZATION
     )
+
+
+async def _loaded_path(subject: SubjectVersion) -> str:
+    """Where the subject was written, read off the step that records the load."""
+    step = await _load(subject)
+    assert step is not None and step.detail["loaded"] is True, step
+    return str(step.detail["path"])
+
+
+async def _miss(subject: SubjectVersion) -> str:
+    """Why the subject was not loaded, read off the step that records the miss."""
+    step = await _load(subject)
+    assert step is not None and step.detail["loaded"] is False, step
+    return str(step.detail["reason"])
 
 
 class TestAnUnpublishedSubject:
     """The case the whole module exists for: a version retrieval cannot see."""
 
     async def test_the_text_lands_in_the_working_directory(self, store, reads) -> None:
-        path = await _load(OPEN)
+        step = await _load(OPEN)
 
-        assert path == "/entwuerfe/Befund Fluchtwege.md"
+        # RETURNED, for `_run` to yield: the setup phase runs outside any graph.
+        assert step == StatusStep(
+            id="status:documents:subject",
+            slot="documents:subject",
+            channel="technical",
+            detail={
+                "loaded": True,
+                "document_id": "doc-9",
+                "version_id": "ver-9",
+                "state": "draft",
+                "path": "/entwuerfe/Befund Fluchtwege.md",
+                "chars": len(TEXT),
+            },
+        )
+        path = "/entwuerfe/Befund Fluchtwege.md"
         assert reads == [("ver-9", ORGANIZATION, CONVERSATION)]
         assert _stored(store, path)["content"] == TEXT
 
@@ -97,14 +126,14 @@ class TestAnUnpublishedSubject:
         # The stored filename is namespaced (`piloti/<id>/<name>`), which is a
         # retrieval key and not a name a person would type. The reader sees the
         # display name in the Files pane, so that is what the file is called.
-        path = await _load(OPEN)
+        path = await _loaded_path(OPEN)
         assert path == f"{draft_store.DRAFT_ROOT}Befund Fluchtwege.md"
         assert "/" not in path[len(draft_store.DRAFT_ROOT) :]
 
     async def test_the_filing_record_names_the_document_and_the_version(self, store, reads) -> None:
         # THE JOIN. Without these four keys `file_draft` sees an unfiled draft,
         # posts a `create`, and one document becomes two.
-        value = _stored(store, await _load(OPEN))
+        value = _stored(store, await _loaded_path(OPEN))
         assert value[FILED_DOCUMENT_KEY] == "doc-9"
         assert value[FILED_VERSION_KEY] == "ver-9"
         assert value[FILED_HASH_KEY] == "hash-9"
@@ -117,7 +146,7 @@ class TestAnUnpublishedSubject:
         oversized = dict(BODY, content="x" * (draft_store.MAX_DRAFT_BYTES + 1))
         monkeypatch.setattr(subject_document, "get_document_version_content", lambda *_: oversized)
 
-        assert await _load(OPEN) is None
+        assert await _miss(OPEN) == "not_stored"
         assert _stored(store, "/entwuerfe/Befund Fluchtwege.md") is None
 
 
@@ -125,12 +154,13 @@ class TestASecondTurnOfTheSameConversation:
     """A subject is loaded once per turn; the file is not rewritten every time."""
 
     async def test_it_leaves_the_models_edits_alone(self, store, reads) -> None:
-        path = await _load(OPEN)
+        path = await _loaded_path(OPEN)
         backend = DraftBackend(store=store, conversation_id=CONVERSATION)
         edited = await backend.aedit(path, "GK 4", "GK 5")
         assert edited.error is None
 
-        assert await _load(OPEN) == path
+        # Already the working copy: nothing new happened, so nothing is recorded.
+        assert await _load(OPEN) is None
         # By turn three the model may have revised the draft at the reader's
         # request. Rewriting the stored bytes over it would silently undo an
         # edit they watched happen.
@@ -139,7 +169,7 @@ class TestASecondTurnOfTheSameConversation:
 
     async def test_a_reviewers_change_does_not_clobber_the_working_copy(self, store, monkeypatch) -> None:
         monkeypatch.setattr(subject_document, "get_document_version_content", lambda *_: dict(BODY))
-        path = await _load(OPEN)
+        path = await _loaded_path(OPEN)
 
         # The version's bytes moved on the server between two turns. The
         # conversation's copy stands, and the filing record still carries the
@@ -147,7 +177,7 @@ class TestASecondTurnOfTheSameConversation:
         # rather than an overwrite of somebody's edit.
         moved = dict(BODY, contentHash="hash-10", content="# Befund\n\nAbschnitt 3: GK 5.\n")
         monkeypatch.setattr(subject_document, "get_document_version_content", lambda *_: moved)
-        assert await _load(OPEN) == path
+        assert await _load(OPEN) is None
         assert "GK 4" in _stored(store, path)["content"]
         assert _stored(store, path)[FILED_HASH_KEY] == "hash-9"
 
@@ -159,7 +189,7 @@ class TestASecondTurnOfTheSameConversation:
         other = dict(BODY, documentId="doc-11", versionId="ver-11", contentHash="hash-11")
         monkeypatch.setattr(subject_document, "get_document_version_content", lambda *_: other)
 
-        assert await _load(SubjectVersion("doc-11", "ver-11", "draft")) is None
+        assert await _miss(SubjectVersion("doc-11", "ver-11", "draft")) == "not_stored"
         assert _stored(store, "/entwuerfe/Befund Fluchtwege.md")[FILED_DOCUMENT_KEY] == "doc-9"
 
     async def test_it_announces_no_draft_card_for_a_document_nobody_wrote(self, store, reads) -> None:
@@ -206,7 +236,7 @@ class TestWhenTheBytesDoNotArrive:
 
         monkeypatch.setattr(subject_document, "get_document_version_content", _refuse)
         with caplog.at_level(logging.WARNING):
-            assert await _load(OPEN) is None
+            assert await _miss(OPEN) == "refused"
         assert "ver-9" in caplog.text
 
     async def test_an_unreachable_bff_is_logged_and_the_turn_continues(
@@ -217,11 +247,11 @@ class TestWhenTheBytesDoNotArrive:
 
         monkeypatch.setattr(subject_document, "get_document_version_content", _unreachable)
         with caplog.at_level(logging.WARNING):
-            assert await _load(OPEN) is None
+            assert await _miss(OPEN) == "unreachable"
 
     async def test_empty_bytes_write_nothing(self, store, monkeypatch) -> None:
         monkeypatch.setattr(subject_document, "get_document_version_content", lambda *_: dict(BODY, content="   "))
-        assert await _load(OPEN) is None
+        assert await _miss(OPEN) == "empty"
         assert _stored(store, "/entwuerfe/Befund Fluchtwege.md") is None
 
     async def test_an_unexpected_failure_never_reaches_the_turn(self, store, monkeypatch) -> None:
@@ -275,7 +305,7 @@ class TestTheReadIsScopedToTheConversation:
 
         monkeypatch.setattr(subject_document, "get_document_version_content", _absent)
         with caplog.at_level(logging.INFO):
-            assert await _load(OPEN) is None
+            assert await _miss(OPEN) == "absent"
 
         assert _stored(store, "/entwuerfe/Befund Fluchtwege.md") is None
         absent = [record for record in caplog.records if "ver-9" in record.getMessage()]

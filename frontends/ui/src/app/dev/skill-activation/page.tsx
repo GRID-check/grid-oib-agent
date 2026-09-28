@@ -29,6 +29,7 @@
  * production on a server boundary.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
 
 import { I18nProvider } from '@/i18n'

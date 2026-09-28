@@ -327,9 +327,7 @@ export const backendService = backend.service.metadata.name;
 export const frontendService = frontend.service.metadata.name;
 export const webService = web.service.metadata.name;
 export const purgerDeployment = workers.purger.metadata.name;
-export const schedulerDeployment = workers.scheduler
-  ? workers.scheduler.metadata.name
-  : pulumi.output("(none: skills disabled)");
+export const schedulerDeployment = workers.scheduler.metadata.name;
 export const appRoute = routes.app.metadata.name;
 export const webRoute = routes.web.metadata.name;
 export const gatewayName = gatewayResources.gateway.metadata.name;

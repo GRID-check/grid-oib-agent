@@ -25,6 +25,7 @@
  *      actionable.
  */
 
+import type { JSX } from 'react'
 import { AvatarStack } from '@/components/ui/avatar-stack'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTranslations } from '@/i18n'

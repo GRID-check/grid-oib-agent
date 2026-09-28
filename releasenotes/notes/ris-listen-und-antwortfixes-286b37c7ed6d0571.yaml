@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    A question about several paragraphs, such as „§§ 3 bis 8“, now reads up to
+    six of them in one step instead of only the first.
+  - >
+    Your question stays at the top while the answer arrives, and a short answer
+    no longer jumps down at the end.

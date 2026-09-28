@@ -1,3 +1,4 @@
+import { isUniqueViolation } from '@/lib/db/errors'
 import { eq, and, isNull, like, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { documents, projectFolders } from '@/lib/db/schema'
@@ -131,7 +132,7 @@ export async function createProjectFolder(
      * what keeps that true at the surface the human touches: the same rejection
      * arrives as the validation result the caller already knows how to render.
      */
-    if ((error as { code?: string } | null)?.code !== '23505') throw error
+    if (!isUniqueViolation(error)) throw error
     return { ok: false, error: 'A folder with this name already exists here.' }
   }
 
@@ -193,7 +194,7 @@ export async function getOrCreateProjectFolderByName(
       .returning()
     return toFolderRow(inserted)
   } catch (error) {
-    if ((error as { code?: string } | null)?.code !== '23505') throw error
+    if (!isUniqueViolation(error)) throw error
     // The concurrent writer's row, which is now the one folder that exists.
     const winner = await find()
     if (winner) return winner
@@ -355,7 +356,7 @@ async function insertFolder(
       .returning()
     return { ok: true, folder: toFolderRow(row) }
   } catch (error) {
-    if ((error as { code?: string } | null)?.code !== '23505') throw error
+    if (!isUniqueViolation(error)) throw error
     // The other run won. Its row is the one folder that exists, so this one
     // files into it rather than failing an upload nobody did anything wrong in.
     const [winner] = await db

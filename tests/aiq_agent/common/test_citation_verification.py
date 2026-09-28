@@ -34,6 +34,88 @@ def fixture_restore_parser_registry():
 
 
 # ---------------------------------------------------------------------------
+# A document cited by the title the tool printed
+# ---------------------------------------------------------------------------
+
+
+def _knowledge_entry(file_name: str, page: int, title: str) -> SourceEntry:
+    return SourceEntry(
+        url=None,
+        title=title,
+        source_type="knowledge",
+        tool_name="knowledge_search",
+        citation_key=f"{file_name}, p.{page}",
+        collection="oib_knowledge",
+        shelf="base",
+    )
+
+
+class TestATitleCitationResolves:
+    """Every knowledge hit prints two names — ``Source:`` (the display title)
+    and ``Citation:`` (the file name) — and a German answer copies the first.
+    Removing that line cost the answer its source and bought a repair pass
+    (two searches and a rewrite) for a document the turn had retrieved."""
+
+    @pytest.fixture
+    def registry(self):
+        registry = SourceRegistry()
+        registry.add(_knowledge_entry("oib-rl_2_ausgabe_mai_2023.pdf", 1, "OIB-Richtlinie 2, Ausgabe Mai 2023"))
+        registry.add(_knowledge_entry("oib-rl_2_ausgabe_mai_2023.pdf", 12, "OIB-Richtlinie 2, Ausgabe Mai 2023"))
+        registry.add(_knowledge_entry("oib-rl_2.1_ausgabe_mai_2023.pdf", 1, "OIB-Richtlinie 2.1, Ausgabe Mai 2023"))
+        return registry
+
+    @pytest.mark.parametrize(
+        ("line", "key"),
+        [
+            ("OIB-Richtlinie 2, Ausgabe Mai 2023, S. 12", "oib-rl_2_ausgabe_mai_2023.pdf, p.12"),
+            ("OIB-Richtlinie 2, Ausgabe Mai 2023, p.12", "oib-rl_2_ausgabe_mai_2023.pdf, p.12"),
+            ("OIB-Richtlinie 2, Ausgabe Mai 2023, Pkt. 2.2", "oib-rl_2_ausgabe_mai_2023.pdf"),
+            ("OIB-Richtlinie 2, S. 12", "oib-rl_2_ausgabe_mai_2023.pdf, p.12"),
+            ("OIB-Richtlinie 2.1, Ausgabe Mai 2023, S. 1", "oib-rl_2.1_ausgabe_mai_2023.pdf, p.1"),
+            ("OIB-Richtlinie 2.1 – Betriebsbauten, S. 1", "oib-rl_2.1_ausgabe_mai_2023.pdf, p.1"),
+        ],
+    )
+    def test_the_title_resolves_to_the_files_own_key(self, registry, line, key):
+        is_kl, resolved = _is_knowledge_citation(line, registry)
+        assert (is_kl, resolved) == (True, key)
+
+    def test_a_title_cited_answer_keeps_its_citation(self, registry):
+        report = (
+            "Tragende Bauteile in GK 4: REI 60 [1].\n\n**Quellen:**\n- [1] OIB-Richtlinie 2, Ausgabe Mai 2023, S. 12"
+        )
+        result = verify_citations(report, registry)
+        assert len(result.removed_citations) == 0
+        assert [c["citation_key"] for c in result.valid_citations] == ["oib-rl_2_ausgabe_mai_2023.pdf, p.12"]
+
+    def test_the_head_of_one_title_never_claims_a_sibling(self, registry):
+        """``OIB-Richtlinie 2`` is not ``OIB-Richtlinie 2.1``: the dot continues the name."""
+        is_kl, resolved = _is_knowledge_citation("OIB-Richtlinie 2.1, S. 1", registry)
+        assert resolved == "oib-rl_2.1_ausgabe_mai_2023.pdf, p.1"
+        is_kl, resolved = _is_knowledge_citation("OIB-Richtlinie 2, S. 1", registry)
+        assert resolved == "oib-rl_2_ausgabe_mai_2023.pdf, p.1"
+
+    def test_a_head_two_editions_share_resolves_nothing(self):
+        """Two files, one head: naming the edition is what tells them apart."""
+        registry = SourceRegistry()
+        registry.add(_knowledge_entry("oib-rl_2_ausgabe_mai_2023.pdf", 1, "OIB-Richtlinie 2, Ausgabe Mai 2023"))
+        registry.add(_knowledge_entry("oib-rl_2_ausgabe_april_2019.pdf", 1, "OIB-Richtlinie 2, Ausgabe April 2019"))
+        assert _is_knowledge_citation("OIB-Richtlinie 2, S. 1", registry) == (False, None)
+        _, resolved = _is_knowledge_citation("OIB-Richtlinie 2, Ausgabe April 2019, S. 1", registry)
+        assert resolved == "oib-rl_2_ausgabe_april_2019.pdf, p.1"
+
+    def test_a_title_nobody_retrieved_is_still_removed(self, registry):
+        report = "Claim [1].\n\n**Quellen:**\n- [1] OIB-Richtlinie 4, Ausgabe April 2019, S. 5"
+        result = verify_citations(report, registry)
+        assert len(result.removed_citations) == 1
+
+    def test_the_title_cited_document_counts_as_cited(self, registry):
+        text = "Claim [1].\n\n**Quellen:**\n- [1] OIB-Richtlinie 2.1, Ausgabe Mai 2023, S. 1"
+        assert [entry.citation_key for entry in cited_document_entries(text, registry)] == [
+            "oib-rl_2.1_ausgabe_mai_2023.pdf, p.1"
+        ]
+
+
+# ---------------------------------------------------------------------------
 # URL normalization tests
 # ---------------------------------------------------------------------------
 
@@ -1377,6 +1459,19 @@ class TestSourceOriginToken:
     def test_ris_source_by_host_gets_ris_token_even_without_tool_name(self):
         entry = SourceEntry(url="https://ris.bka.gv.at/GeltendeFassung.wxe", source_type="generic")
         assert source_origin_token(entry) == "[RIS]"
+
+    def test_a_ris_lookup_passage_is_ris_not_kb(self):
+        # A grounding-block hit, so knowledge_layer; the suite saw every § go out
+        # as "[KB] Bauordnung für Wien, § 63".
+        entry = SourceEntry(
+            citation_key="Bauordnung für Wien, § 63",
+            source_type="knowledge_layer",
+            tool_name="ris_lookup_tool",
+            collection="ris/LrKons/Wien",
+        )
+        assert source_origin_token(entry) == "[RIS]"
+        hydrated = SourceEntry(citation_key="x", source_type="knowledge_layer", collection="ris/kons")
+        assert source_origin_token(hydrated) == "[RIS]"
 
     def test_non_ris_web_source_is_not_labeled_ris(self):
         # A URL that merely contains "ris" elsewhere must not be mislabeled.
@@ -3162,6 +3257,16 @@ class TestCitedDocumentsKeepTheirShelf:
             )
         report = "Siehe Plan [1][2].\n\n**Quellen:**\n- [1] Plan.pdf, p.3\n- [2] Plan.pdf, p.9\n"
         assert len(cited_document_entries(report, registry)) == 1
+
+    def test_a_filename_inside_another_lands_name_is_not_cited(self):
+        # `Bauordnung.pdf` is a substring of `NÖ Bauordnung.pdf`: a filename scan
+        # of the section counted the other Land's code as cited. Each line is
+        # resolved as the verifier resolves it, so only the NÖ document is.
+        registry = SourceRegistry()
+        for name in ("Bauordnung.pdf", "NÖ Bauordnung.pdf"):
+            registry.add(SourceEntry(citation_key=f"{name}, p.3", source_type="knowledge_layer", collection="kb"))
+        report = "Abstand [1].\n\n**Quellen:**\n- [1] NÖ Bauordnung.pdf, p.3\n"
+        assert [entry.citation_key for entry in cited_document_entries(report, registry)] == ["NÖ Bauordnung.pdf, p.3"]
 
 
 class TestBindingClassification:

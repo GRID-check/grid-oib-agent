@@ -44,6 +44,28 @@ The `WORKOS_COOKIE_PASSWORD` is used to encrypt the AuthKit session cookie. Requ
 - Must be stable across deployments — changing it invalidates all sessions
 - Store it securely (not in version control)
 
+### The chat socket's context headers
+
+The WebSocket proxy (`frontends/ui/server.js`) tells the backend who the caller
+is and what the organization decided: model overrides, the remaining budget, the
+data sources it switched off. It does so twice, as individual `x-grid-*` headers
+and as the signed `X-Grid-Request-Context` envelope (HMAC-SHA256 under
+`GRID_INTERNAL_API_TOKEN`). Two rules keep a client from choosing those values
+for itself:
+
+- The proxy removes every inbound `x-grid-*` header, `authorization` and
+  `x-internal-token` from the upgrade before it writes its own
+  (`src/lib/proxy/ws-upgrade-headers.js`). Until 2026-09 it only overwrote the
+  fields the scope response had, so a cookie-authenticated client outside a
+  browser could send its own model overrides, budget or disabled sources.
+- The backend reads those three fields, and the user a cost is booked to, from
+  the signed envelope whenever one arrived (`get_signed_request_context`), and
+  falls back to the individual headers only without one (a job worker, the CLI).
+
+`GRID_INTERNAL_API_TOKEN` must therefore be set in production: without it the
+backend accepts an envelope on its shape alone, and the signature protects
+nothing.
+
 ## SeaweedFS
 
 ### Default Credentials
@@ -147,7 +169,7 @@ AIQ_EXTRACT_TABLES=true
 AIQ_EXTRACT_IMAGES=true
 AIQ_EXTRACT_CHARTS=true
 # defaults, shown for completeness
-AIQ_VLM_MODEL=openai/gpt-5.6-luna
+AIQ_VLM_MODEL=openai/gpt-6-luna
 AIQ_VLM_BASE_URL=https://openrouter.ai/api/v1
 ```
 

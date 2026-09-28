@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { ChevronRight, Folder, FolderPlus, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 
