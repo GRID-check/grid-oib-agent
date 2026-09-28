@@ -334,7 +334,14 @@ def _envelope_index(number: int, handed: Collection[int]) -> int | None:
     return number - offset if number > offset else number
 
 
-def _renumber_envelope_markers(content: str, *, handed: set[int], positions: dict[int, int], count: int) -> str:
+def _renumber_envelope_markers(
+    content: str,
+    *,
+    handed: set[int],
+    positions: dict[int, int],
+    count: int,
+    fallbacks: dict[int, str] | None = None,
+) -> str:
     """The envelope's card markers moved from array numbers to registry positions.
 
     The taught rule (``cards/envelope._MARKER_RULE``) numbers the ``cards``
@@ -347,20 +354,35 @@ def _renumber_envelope_markers(content: str, *, handed: set[int], positions: dic
     and wrote a number at or below it is read as an array number, the only
     reading left. The marker of a card that was DROPPED is removed, so the
     reader never meets a marker with nothing behind it and no later card
-    slides onto its neighbour's place. A marker past the array is left alone,
-    as it always was.
+    slides onto its neighbour's place; a dropped card that left content behind
+    (``fallbacks``: a retired type laid out as Markdown) puts that content at
+    its marker instead, or after the prose when the answer placed none. A
+    marker past the array is left alone, as it always was.
     """
     if count == 0:
         return content
+    fallbacks = dict(fallbacks or {})
+    placed: set[int] = set()
 
     def substitute(match: re.Match[str]) -> str:
         index = _envelope_index(int(match.group(1)), handed)
         if index is None or not 1 <= index <= count:
             return match.group(0)
         position = positions.get(index)
-        return f"[[card:{position}]]" if position is not None else ""
+        if position is not None:
+            return f"[[card:{position}]]"
+        if index in fallbacks and index not in placed:
+            placed.add(index)
+            return f"\n\n{fallbacks[index]}\n\n"
+        return ""
 
-    return _CARD_MARKER_NUMBER_RE.sub(substitute, content)
+    content = _CARD_MARKER_NUMBER_RE.sub(substitute, content)
+    if not fallbacks:
+        return content
+    trailing = [fallbacks[index] for index in sorted(fallbacks) if index not in placed]
+    if trailing:
+        content = content.rstrip() + "\n\n" + "\n\n".join(trailing)
+    return re.sub(r"\n{3,}", "\n\n", content)
 
 
 async def _register_envelope_cards(
@@ -380,6 +402,7 @@ async def _register_envelope_cards(
     markers are moved to those positions. Fail-open throughout: no registry
     bound (a CLI run) means the answer ships without cards, as it always did.
     """
+    from aiq_agent.cards.catalog import retired_card_markdown
     from aiq_agent.cards.envelope import envelope_card_objects
     from aiq_agent.cards.registry import get_card_registry
 
@@ -398,13 +421,19 @@ async def _register_envelope_cards(
         *(_checked_envelope_card(payload, index, content, card_repair) for index, payload in enumerate(raw))
     )
     positions: dict[int, int] = {}
+    fallbacks: dict[int, str] = {}
     for index, validated in enumerate(checked):
         if validated is None:
+            # A retired type's content is laid out as Markdown rather than lost (guardrail 8).
+            markdown = retired_card_markdown(raw[index])
+            if markdown:
+                fallbacks[index + 1] = markdown
+                logger.info("answer envelope's retired '%s' card laid out as Markdown", raw[index].get("type"))
             continue
         registry.add(validated)
         positions[index + 1] = len(registry)
         logger.info("answer envelope registered a '%s' card as card %d", validated["type"], len(registry))
-    return _renumber_envelope_markers(content, handed=handed, positions=positions, count=len(raw))
+    return _renumber_envelope_markers(content, handed=handed, positions=positions, count=len(raw), fallbacks=fallbacks)
 
 
 async def _checked_envelope_card(
@@ -419,8 +448,9 @@ async def _checked_envelope_card(
 
     validated, refusal = validate_model_card(payload)
     card_type = refusal.card_type if refusal is not None else str(validated["type"])
-    # Only a SHAPE miss is repairable: a system or envelope type is refused
-    # whatever its fields, and a non-object has no fields to fix.
+    # Only a SHAPE miss is repairable: a system or retired type is refused
+    # whatever its fields (a retired one is laid out as Markdown by the
+    # caller), and a non-object has no fields to fix.
     if validated is None and refusal is not None and refusal.kind == REFUSED_SHAPE and card_repair is not None:
         repaired = await card_repair(payload, refusal.for_repair(), content)
         if repaired is not None:
