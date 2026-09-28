@@ -431,10 +431,14 @@ class SetbackPlanCard(CardModel):
     type: Literal["setback_plan"]
     title: str = Field(min_length=1, description="Title, e.g. 'Abstandsflächen – Lageplan'")
     parcel_width_m: float | None = Field(
-        default=None, gt=0, description="Parcel width in metres (drawn to scale); required unless a pure density question"
+        default=None,
+        gt=0,
+        description="Parcel width in metres (drawn to scale); required unless a pure density question",
     )
     parcel_depth_m: float | None = Field(
-        default=None, gt=0, description="Parcel depth in metres (drawn to scale); required unless a pure density question"
+        default=None,
+        gt=0,
+        description="Parcel depth in metres (drawn to scale); required unless a pure density question",
     )
     building_width_m: float | None = Field(
         default=None, gt=0, description="Building footprint width in metres; required unless a pure density question"

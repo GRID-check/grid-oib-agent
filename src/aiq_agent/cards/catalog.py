@@ -82,11 +82,16 @@ RETIRED_CARD_REPLACEMENTS: dict[str, str] = {
     "condition_tree": "a table of the cases, this project's case named once it is known",
     "process_map": "a numbered list, one step per line; a ```mermaid flowchart TD if it forks",
     "legal_basis": "a cited blockquote in the answer: > „<the passage verbatim>“ [N]",
-    "fire_compartment": "a table with a Status column (Anforderung | Ist | Soll | Status | Fundstelle); a calculation card where the area is worked out",
+    "fire_compartment": (
+        "a table with a Status column (Anforderung | Ist | Soll | Status | Fundstelle); "
+        "a calculation card where the area is worked out"
+    ),
     "thermal_envelope": "a table with a Status column (Bauteil | Ist | Soll | Status | Fundstelle), the U-Wert in Ist",
     "energy_performance": "a table of the figures against their limits, the Energieeffizienzklasse named",
     "acoustic_check": "a table with a Status column (Bauteil | Ist | Soll | Status | Fundstelle), the Nachweis in Ist",
-    "parking_requirement": "a table of the figures against their limits; a calculation card where the count is worked out",
+    "parking_requirement": (
+        "a table of the figures against their limits; a calculation card where the count is worked out"
+    ),
     "density_check": "a setback_plan card with `coverage` / `density`",
     "elevator_requirement": "a dimension_diagram card with shape `lift_cabin`",
 }
@@ -142,13 +147,19 @@ def retired_card_markdown(payload: object) -> str | None:
     if not isinstance(payload, dict) or payload.get("type") not in RETIRED_CARD_TYPES:
         return None
     parts: list[str] = []
-    title = next((payload[key] for key in _TITLE_KEYS if isinstance(payload.get(key), str) and payload[key].strip()), None)
+    title = next(
+        (payload[key] for key in _TITLE_KEYS if isinstance(payload.get(key), str) and payload[key].strip()), None
+    )
     # Short labels (an edition, a Punkt) ride on the title line; a sentence is its own paragraph.
     labels = [
         value.strip()
         for key, value in payload.items()
-        if key not in _SKIPPED_KEYS and key not in _TITLE_KEYS and key not in _QUOTE_KEYS
-        and isinstance(value, str) and value.strip() and len(value) <= _LABEL_CHARS
+        if key not in _SKIPPED_KEYS
+        and key not in _TITLE_KEYS
+        and key not in _QUOTE_KEYS
+        and isinstance(value, str)
+        and value.strip()
+        and len(value) <= _LABEL_CHARS
     ]
     if title or labels:
         parts.append(" · ".join(([f"**{title.strip()}**"] if title else []) + labels))

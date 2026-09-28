@@ -161,7 +161,12 @@ class TestRetiredContentIsKept:
         from aiq_agent.cards.catalog import retired_card_markdown
 
         markdown = retired_card_markdown(
-            {"type": "legal_basis", "law": "OIB-RL 2", "article": "3.1", "original_text": "Fluchtwege führen ins Freie."}
+            {
+                "type": "legal_basis",
+                "law": "OIB-RL 2",
+                "article": "3.1",
+                "original_text": "Fluchtwege führen ins Freie.",
+            }
         )
         assert markdown == "**OIB-RL 2** · 3.1\n\n> „Fluchtwege führen ins Freie.“"
 

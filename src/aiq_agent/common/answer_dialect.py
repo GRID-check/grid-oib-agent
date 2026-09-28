@@ -193,7 +193,9 @@ def _scan(lines: Sequence[str]) -> tuple[list[_Block], list[bool], int]:
             rest = opener.group(4)
             attrs = _ATTRS.search(rest)
             kept = sum(1 for at in stack if not blocks[at].bounded)
-            bounded = kept >= MAX_DIRECTIVE_DEPTH or sum(1 for block in blocks if not block.bounded) >= MAX_DIRECTIVE_BLOCKS
+            bounded = (
+                kept >= MAX_DIRECTIVE_DEPTH or sum(1 for block in blocks if not block.bounded) >= MAX_DIRECTIVE_BLOCKS
+            )
             blocks.append(
                 _Block(
                     name=opener.group(3),

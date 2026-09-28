@@ -218,9 +218,7 @@ class TestTheScannerReadsWhatTheRendererReads:
 
     def test_blocks_past_the_depth_bound_are_unwrapped_with_their_content_kept(self):
         depth = 6
-        text = "\n".join(
-            [*(f":::details[x{at}]" for at in range(depth)), "Inhalt", *(":::" for _ in range(depth))]
-        )
+        text = "\n".join([*(f":::details[x{at}]" for at in range(depth)), "Inhalt", *(":::" for _ in range(depth))])
         result = validate_dialect(text, None)
         assert sum(1 for line in result.text.splitlines() if line.startswith(":::details")) == 4
         assert "Inhalt" in result.text
