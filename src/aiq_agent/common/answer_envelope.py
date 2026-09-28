@@ -1200,8 +1200,8 @@ def render_envelope_schema() -> str:
         "answer*: string (the full written answer: markdown prose with [N] citations and the sources section)",
         f"confidence: {_shape(AnswerMetaConfidence)}",
         "escalate_to_deep: boolean (true when the question needs deep research: a commissioned report "
-        "(never a document: that is write_file), many sources to read against each other, or retrieved "
-        "sources that cannot support an adequate answer)",
+        "(never a document: a document is drafted, not researched), many sources to read against each "
+        "other, or retrieved sources that cannot support an adequate answer)",
         "escalation_reason: string (with escalate_to_deep: one short clause saying why, in the answer's language)",
         f"skills_applied: [string] ({AnswerMeta.model_fields['skills_applied'].description})",
     ]
