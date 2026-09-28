@@ -21,16 +21,17 @@
  * ## One path, not two
  *
  * Every write here is a call to the function the worker's own write reaches:
- * `writeRunReport` for the message, `applyRunLedgerOp` for the ledger,
- * `recordRunOutcome` for the row — the last with `onlyIfActive`, so a worker's
- * report arriving in the same instant cannot make the requester hear twice.
+ * `writeRunReport` for the message, `recordRunOutcome` for the row and its
+ * block's ledger — the last with `onlyIfActive`, so a worker's report arriving
+ * in the same instant cannot make the requester hear twice.
  *
  * ## Order, and why it makes a retry safe
  *
- * Message, then ledger, then row. The claim picks only active rows, so closing
- * the row LAST means a sweep that fails halfway leaves the row active and the
- * next sweep does the rest; each earlier step checks before it writes (an empty
- * message, a live ledger), so doing it twice changes nothing.
+ * Message, then ledger, then row (the recorder does the last two in that
+ * order). The claim picks only active rows, so closing the row LAST means a
+ * sweep that fails halfway leaves the row active and the next sweep does the
+ * rest; each earlier step checks before it writes (an empty message, a live
+ * ledger), so doing it twice changes nothing.
  *
  * ## Which rows, how often
  *
@@ -55,18 +56,21 @@
  */
 
 import 'server-only'
-import { NotFoundError } from '@/lib/api/errors'
 import type { TaskRun } from '@/lib/db/schema'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { fetchBackendJobOutcome, type BackendJobOutcome } from '@/lib/jobs/backend-client'
 import * as taskRepository from '@/lib/tasks/repository'
 import { recordRunOutcome, type TaskOutcome } from '@/lib/tasks/service'
-import type { RunLedgerRequest } from './run-ledger-types'
-import { isLiveStatus, runDisplayStatus } from './run-vocabulary'
-import { applyRunLedgerOp, readRunMessage, writeRunReport } from './service'
+import { readRunMessage, settleRunLedger, writeRunReport, type RunEnding } from './service'
 
 /** How many runs one sweep claims. Bounded: the sweep is housekeeping on a timer. */
 export const RECONCILE_BATCH = 25
+/**
+ * How many closed runs one sweep heals. Larger than the reconcile batch: a heal
+ * asks no backend, it is one locked read of a message, and the first sweeps
+ * after 0098 work through every closed run in the retention window.
+ */
+export const HEAL_BATCH = 100
 /** How many of them are asked about at once; each probe has its own 10 s timeout. */
 const RECONCILE_CONCURRENCY = 5
 
@@ -81,8 +85,6 @@ export const LOST_JOB_REASON =
   'Der Lauf ist im Hintergrunddienst nicht mehr auffindbar; sein Ergebnis ließ sich nicht wiederherstellen.'
 export const NEVER_SUBMITTED_REASON =
   'Der Lauf hat den Hintergrunddienst nie nachweislich erreicht; sein Ergebnis ließ sich nicht wiederherstellen.'
-/** What the ledger says for a failure that carried no reason, as the worker's fold says it. */
-const DEFAULT_FAILURE_REASON = 'Der Lauf ist fehlgeschlagen.'
 
 export interface ReconcileConfig {
   /** A run is due once nothing has checked it for this long. */
@@ -124,23 +126,12 @@ export type ReconcileDecision =
       outcome: TaskOutcome
       /** What the run's message should say, when it still says nothing. */
       message: { content: string; metadata: Record<string, unknown> } | null
-      /** The ledger op that settles the block, when it still reads as live. */
-      ledger: RunLedgerRequest
     }
 
 type RunForDecision = Pick<TaskRun, 'createdAt' | 'startedAt'>
 
-/** How the ledger learns the run ended — the same op the worker's fold sends. */
-function ledgerOpFor(outcome: TaskOutcome, now: Date): RunLedgerRequest {
-  if (outcome.status === 'success') return { op: 'finish', result: { filedAt: now.toISOString() } }
-  // A cancelled run has no finish op; „abgebrochen" travels as a status (ADR-0062).
-  if (outcome.status === 'interrupted') return { op: 'append', status: 'abgebrochen' }
-  return { op: 'finish', error: { reason: (outcome.error || DEFAULT_FAILURE_REASON).slice(0, 400) } }
-}
-
-function lostRun(reason: string, now: Date): ReconcileDecision {
-  const outcome: TaskOutcome = { status: 'failure', error: reason }
-  return { kind: 'close', outcome, message: null, ledger: ledgerOpFor(outcome, now) }
+function lostRun(reason: string): ReconcileDecision {
+  return { kind: 'close', outcome: { status: 'failure', error: reason }, message: null }
 }
 
 /**
@@ -168,13 +159,13 @@ export function decideReconciliation(
       report: outcome.report,
       cards: outcome.cards,
     }
-    return { kind: 'close', outcome: taskOutcome, message: outcome.message, ledger: ledgerOpFor(taskOutcome, now) }
+    return { kind: 'close', outcome: taskOutcome, message: outcome.message }
   }
 
   const since = run.startedAt ?? run.createdAt
   const ageMinutes = (now.getTime() - since.getTime()) / 60_000
   if (ageMinutes < config.unknownGraceMinutes) return { kind: 'wait', why: 'within-grace' }
-  return lostRun(probe.kind === 'no-job' ? NEVER_SUBMITTED_REASON : LOST_JOB_REASON, now)
+  return lostRun(probe.kind === 'no-job' ? NEVER_SUBMITTED_REASON : LOST_JOB_REASON)
 }
 
 async function probeJob(run: TaskRun): Promise<JobProbe> {
@@ -192,25 +183,14 @@ async function probeJob(run: TaskRun): Promise<JobProbe> {
 export type ReconcileVerdict = 'closed' | 'already-closed' | 'waiting' | 'failed'
 
 /**
- * Settle the message and the ledger that the worker's writes left behind.
- * Each only when it still needs it, so a second pass is a no-op.
+ * Fill the run's message with the report the worker's write never delivered,
+ * only while it is still empty, so a second pass is a no-op.
  */
-async function settleRunMessage(run: TaskRun, decision: Extract<ReconcileDecision, { kind: 'close' }>, now: Date) {
+async function settleRunMessage(run: TaskRun, decision: Extract<ReconcileDecision, { kind: 'close' }>) {
+  if (!decision.message || !run.backendJobId) return
   const current = await readRunMessage(run)
-  if (!current) return
-
-  if (decision.message && current.content.trim() === '' && run.backendJobId) {
-    await writeRunReport(run.backendJobId, decision.message)
-  }
-  if (current.ledger && !isLiveStatus(runDisplayStatus(current.ledger))) return
-  try {
-    await applyRunLedgerOp(run.id, decision.ledger, now)
-  } catch (error) {
-    // A run whose message cannot take a ledger is a run without a block; the
-    // row still closes below. Anything else is a real failure and propagates,
-    // leaving the row active for the next sweep.
-    if (!(error instanceof NotFoundError)) throw error
-  }
+  if (!current || current.content.trim() !== '') return
+  await writeRunReport(run.backendJobId, decision.message)
 }
 
 /**
@@ -225,7 +205,7 @@ export async function reconcileRun(
   const decision = decideReconciliation(run, await probeJob(run), now, config)
   if (decision.kind === 'wait') return 'waiting'
 
-  await settleRunMessage(run, decision, now)
+  await settleRunMessage(run, decision)
   // The sweep's counts are the log line: the scheduler prints them whenever a
   // sweep closed or failed something.
   const recorded = await recordRunOutcome(run, decision.outcome, { onlyIfActive: true })
@@ -237,7 +217,60 @@ export interface ReconcileSweepResult {
   closed: number
   alreadyClosed: number
   waiting: number
+  /** Closed runs whose block still read as live, and now reads as ended. */
+  healed: number
   failed: number
+}
+
+/**
+ * The ending a closed row records, as its block should show it. The row is the
+ * authority here: it was closed by the outcome recorder, the reaper's report or
+ * the reconciler, each with the job store's verdict.
+ */
+export function endingOfClosedRun(run: Pick<TaskRun, 'status' | 'error'>): RunEnding {
+  if (run.status === 'succeeded') return { status: 'success' }
+  if (run.status === 'interrupted') return { status: 'interrupted' }
+  return { status: 'failure', error: run.error }
+}
+
+/**
+ * The heal: settle the block of every closed run nothing has looked at since it
+ * ended (`claimClosedRunsToHeal`). A ledger the worker or the recorder already
+ * settled is left alone under its row lock, so for nearly every run this is one
+ * locked read. What it does write is a run whose row closed by a path that
+ * never reached its block — every such run before `recordRunOutcome` settled
+ * the block itself, and any later path that forgets to.
+ */
+async function healClosedRuns(batch: number, now: Date): Promise<{ healed: number; failed: number }> {
+  const claimed = await withPlatformAccess(
+    'run reconciler: finding the closed runs of every organization not looked at since they ended',
+    () => taskRepository.claimClosedRunsToHeal(batch),
+  )
+  const counts = { healed: 0, failed: 0 }
+  for (let i = 0; i < claimed.length; i += RECONCILE_CONCURRENCY) {
+    const slice = claimed.slice(i, i + RECONCILE_CONCURRENCY)
+    const results = await Promise.all(
+      slice.map(async (run) => {
+        try {
+          return await withTenant({ organizationId: run.organizationId }, () =>
+            // Dated to when the row ended, not to the heal: a run reaped days
+            // ago must not read as having ended today.
+            settleRunLedger(run, endingOfClosedRun(run), run.finishedAt ?? now),
+          )
+        } catch (error) {
+          // The stamp is already set, so this run is not retried on its own;
+          // the error is the log line that says which one to look at.
+          console.error('[runs] reconcile: the block of closed run', run.id, 'could not be settled', error)
+          return 'failed' as const
+        }
+      }),
+    )
+    for (const result of results) {
+      if (result === 'failed') counts.failed += 1
+      else if (result) counts.healed += 1
+    }
+  }
+  return counts
 }
 
 /**
@@ -255,7 +288,14 @@ export async function reconcileStaleRuns(
     () => taskRepository.claimRunsToReconcile(checkedBefore, config.batch),
   )
 
-  const result: ReconcileSweepResult = { checked: claimed.length, closed: 0, alreadyClosed: 0, waiting: 0, failed: 0 }
+  const result: ReconcileSweepResult = {
+    checked: claimed.length,
+    closed: 0,
+    alreadyClosed: 0,
+    waiting: 0,
+    healed: 0,
+    failed: 0,
+  }
   for (let i = 0; i < claimed.length; i += RECONCILE_CONCURRENCY) {
     const slice = claimed.slice(i, i + RECONCILE_CONCURRENCY)
     const verdicts = await Promise.all(
@@ -275,5 +315,9 @@ export async function reconcileStaleRuns(
       else result.failed += 1
     }
   }
+
+  const healed = await healClosedRuns(HEAL_BATCH, now)
+  result.healed = healed.healed
+  result.failed += healed.failed
   return result
 }

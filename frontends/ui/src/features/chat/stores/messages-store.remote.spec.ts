@@ -138,6 +138,26 @@ describe('insertRemoteMessages', () => {
     expect(stored.addressees).toEqual({ agent: true, users: [] })
   })
 
+  test('takes the server’s run ledger when it is newer — the copy the spinner and „Recherche läuft" read', () => {
+    const live = {
+      runId: 'run-1',
+      status: 'laeuft' as const,
+      phases: [{ phase: 'recherchieren' as const, startedAt: at(1).toISOString() }],
+      steps: [],
+      startedAt: at(1).toISOString(),
+      updatedAt: at(1).toISOString(),
+    }
+    const ended = { ...live, status: 'fehlgeschlagen' as const, updatedAt: at(5).toISOString() }
+    seed([message('run', { role: 'assistant', runLedger: live })])
+
+    // An older server copy (a poll that raced a live flush) changes nothing.
+    insertRemoteMessages(CONVERSATION_ID, [message('run', { role: 'assistant', runLedger: { ...live, updatedAt: at(0).toISOString() } })])
+    expect(messagesNow()[0].runLedger).toEqual(live)
+
+    insertRemoteMessages(CONVERSATION_ID, [message('run', { role: 'assistant', runLedger: ended })])
+    expect(messagesNow()[0].runLedger).toEqual(ended)
+  })
+
   test('orders by timestamp, then by id (spec CC-11)', () => {
     seed([message('b', { timestamp: at(3) })])
 

@@ -10,7 +10,8 @@
  *   3. prunes `task_runs` older than the retention window;
  *   4. POSTs the BFF's run reconciler (`/api/internal/runs/reconcile`), which
  *      closes the runs whose ending never reached the BFF by asking the job
- *      store (`lib/runs/reconcile.ts`, backlog T3-11).
+ *      store, and settles the block of any closed run that still reads
+ *      „läuft" (`lib/runs/reconcile.ts`, backlog T3-11).
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:
@@ -113,10 +114,11 @@ async function reconcileRuns(config, fetchImpl = fetch) {
     } catch {
       /* non-JSON 200 — nothing to report */
     }
-    if (counts && (counts.closed > 0 || counts.failed > 0)) {
+    if (counts && (counts.closed > 0 || counts.healed > 0 || counts.failed > 0)) {
       console.log(
         `${LOG} run reconcile: checked ${counts.checked}, closed ${counts.closed}, ` +
-          `already closed ${counts.alreadyClosed}, waiting ${counts.waiting}, failed ${counts.failed}`,
+          `already closed ${counts.alreadyClosed}, waiting ${counts.waiting}, ` +
+          `healed ${counts.healed ?? 0}, failed ${counts.failed}`,
       )
     }
     return counts

@@ -172,6 +172,13 @@ describe('reconcileRuns (the run reconciler’s clock)', () => {
     expect(log).not.toHaveBeenCalled()
   })
 
+  it('reports a sweep that only healed blocks, so the backlog clearing is visible in the log', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const healing = { ...counts, closed: 0, healed: 7 }
+    await reconcileRuns(config, vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(healing) }))
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('healed 7'))
+  })
+
   it('never throws, on a refusal or a transport error', async () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
     const refused = vi.fn().mockResolvedValue({ ok: false, status: 403, text: () => Promise.resolve('Forbidden') })
