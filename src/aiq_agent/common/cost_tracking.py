@@ -14,12 +14,16 @@ response carries a ``usage`` object including ``cost`` (USD),
 the final SSE chunk (no request flag asks for it — OpenRouter's
 ``usage: {include: true}`` is deprecated and always-on). langchain-openai
 surfaces that object verbatim as ``llm_output["token_usage"]`` — on the
-**chat-completions** path only. A role on ``api_type: responses`` gets a
+**chat-completions** path only. A role on ``api_type: responses`` gets the same
+``cost`` and ``is_byok`` on ``response.usage``, but langchain-openai builds a
 ``ChatResult`` with no ``llm_output`` and a ``response_metadata`` that omits
-``usage``, so only LangChain's normalized ``usage_metadata`` survives: token
-counts including the cache-read bucket, and no ``cost``. Those rows carry
-``costSource: missing``, which is the honest reading, and are reconciled
-against ``GET /api/v1/generation?id=`` by the recorded generation id.
+``usage``, keeping only the normalized token counts. Recording those rows at
+``cost: 0`` made the main answer role (``research_llm``) free on the ledger
+and in every budget, so :func:`install_responses_cost_carrier` copies the
+provider's accounting onto ``response_metadata`` under
+:data:`RESPONSES_ACCOUNTING_KEY`, and :func:`extract_usage_event` reads it
+back beside ``usage_metadata``. A row still says ``costSource: missing`` when
+the provider sent no cost at all.
 
 Events are written to the auditable ``llm_usage_events`` ledger via the
 token-guarded internal BFF endpoint ``POST /api/internal/usage`` — the
@@ -37,8 +41,10 @@ deliberate soft-limit semantic, documented in the architecture doc.
 from __future__ import annotations
 
 import base64
+import functools
 import json
 import logging
+import math
 import os
 import urllib.error
 import urllib.request
@@ -56,6 +62,12 @@ logger = logging.getLogger(__name__)
 
 BUDGET_HEADER = "x-grid-budget"
 USER_ID_HEADER = "x-grid-user-id"
+
+#: Where a Responses-API message keeps the provider's accounting, which
+#: langchain-openai would otherwise drop (see install_responses_cost_carrier).
+RESPONSES_ACCOUNTING_KEY = "grid_usage_accounting"
+#: The fields of OpenRouter's usage object the ledger prices from.
+_ACCOUNTING_FIELDS = ("cost", "is_byok")
 
 _REQUEST_TIMEOUT_SECONDS = 5
 _FLUSH_BATCH_SIZE = 5
@@ -197,31 +209,52 @@ def _as_int(value: Any) -> int:
         return 0
 
 
-def _usage_from_langchain_metadata(usage_metadata: Any) -> dict[str, Any]:
+def _usage_from_langchain_metadata(usage_metadata: Any, accounting: Any = None) -> dict[str, Any]:
     """LangChain's normalized ``usage_metadata``, reshaped as a provider usage object.
 
-    The ONLY usage a Responses-API call carries. ``_construct_lc_result_from_responses_api``
+    The token counts a Responses-API call carries. ``_construct_lc_result_from_responses_api``
     returns a ``ChatResult`` with no ``llm_output`` at all and a
-    ``response_metadata`` that excludes ``usage``, so the provider object —
-    with ``cost`` and ``cache_discount`` on it — never reaches this process on
-    that path; what survives is this normalized view, in which OpenRouter's
-    ``input_tokens_details.cached_tokens`` has become ``input_token_details.cache_read``.
-    Reading only the three scalars, as this did before, is what silently
-    zeroed ``cachedTokens`` on every row written by an ``api_type: responses``
-    role. The cost stays absent and is reported as ``missing`` rather than
-    invented.
+    ``response_metadata`` that excludes ``usage``; what survives is this
+    normalized view, in which OpenRouter's ``input_tokens_details.cached_tokens``
+    has become ``input_token_details.cache_read``. Reading only the three
+    scalars, as this did before, is what silently zeroed ``cachedTokens`` on
+    every row written by an ``api_type: responses`` role.
+
+    ``accounting`` is the provider's ``cost`` and ``is_byok``, which
+    :func:`install_responses_cost_carrier` keeps on ``response_metadata``.
+    Without it the cost stays absent and is reported as ``missing``.
     """
     if not usage_metadata:
         return {}
     input_details = usage_metadata.get("input_token_details") or {}
     output_details = usage_metadata.get("output_token_details") or {}
-    return {
+    usage: dict[str, Any] = {
         "prompt_tokens": usage_metadata.get("input_tokens", 0),
         "completion_tokens": usage_metadata.get("output_tokens", 0),
         "total_tokens": usage_metadata.get("total_tokens", 0),
         "prompt_tokens_details": {"cached_tokens": input_details.get("cache_read", 0)},
         "completion_tokens_details": {"reasoning_tokens": output_details.get("reasoning", 0)},
     }
+    if isinstance(accounting, dict):
+        usage.update({key: accounting[key] for key in _ACCOUNTING_FIELDS if key in accounting})
+    return usage
+
+
+def _reported_cost(raw: Any, generation_id: str | None) -> float | None:
+    """The provider's ``cost`` in USD when it is a real one, else ``None`` (recorded as ``missing``).
+
+    ``bool`` is an ``int`` in Python, so ``cost: true`` would book $1.00; NaN
+    disables the budget gate (every comparison with it is false); and the BFF
+    rejects a non-finite or negative cost, dropping the whole batch with it.
+    A present value that is none of those is logged, never booked, so a
+    malformed field is visible rather than indistinguishable from an absent one.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, int | float) and not isinstance(raw, bool) and math.isfinite(raw) and raw >= 0:
+        return float(raw)
+    logger.warning("Ignoring malformed provider cost %r on generation %s; recorded as missing", raw, generation_id)
+    return None
 
 
 def extract_usage_event(response: Any) -> UsageEvent | None:
@@ -238,6 +271,7 @@ def extract_usage_event(response: Any) -> UsageEvent | None:
 
     generation_id = None
     message = None
+    response_metadata: dict[str, Any] = {}
     try:
         generation = response.generations[0][0]
         message = getattr(generation, "message", None)
@@ -248,20 +282,23 @@ def extract_usage_event(response: Any) -> UsageEvent | None:
         response_metadata = getattr(message, "response_metadata", None) or {}
         if not usage:
             usage = response_metadata.get("token_usage") or {}
-        # usage_metadata is LangChain's normalized fallback (no cost field).
+        # usage_metadata is LangChain's normalized fallback: the Responses path,
+        # whose cost the carrier kept beside it.
         if not usage:
-            usage = _usage_from_langchain_metadata(getattr(message, "usage_metadata", None))
+            usage = _usage_from_langchain_metadata(
+                getattr(message, "usage_metadata", None), response_metadata.get(RESPONSES_ACCOUNTING_KEY)
+            )
 
     if not usage:
         return None
 
     prompt_details = usage.get("prompt_tokens_details") or {}
     completion_details = usage.get("completion_tokens_details") or {}
-    raw_cost = usage.get("cost")
-    cost_usd = float(raw_cost) if isinstance(raw_cost, int | float) else 0.0
+    cost_usd = _reported_cost(usage.get("cost"), generation_id)
 
     return UsageEvent(
-        model=llm_output.get("model_name"),
+        # The Responses path has no llm_output; its model is on response_metadata.
+        model=llm_output.get("model_name") or response_metadata.get("model_name"),
         requested_model=None,  # filled by the tracker from invocation params
         generation_id=generation_id,
         prompt_tokens=_as_int(usage.get("prompt_tokens")),
@@ -269,8 +306,8 @@ def extract_usage_event(response: Any) -> UsageEvent | None:
         total_tokens=_as_int(usage.get("total_tokens")),
         cached_tokens=_as_int(prompt_details.get("cached_tokens")),
         reasoning_tokens=_as_int(completion_details.get("reasoning_tokens")),
-        cost_usd=cost_usd,
-        cost_source="usage_field" if isinstance(raw_cost, int | float) else "missing",
+        cost_usd=cost_usd if cost_usd is not None else 0.0,
+        cost_source="usage_field" if cost_usd is not None else "missing",
         is_byok=usage.get("is_byok") if isinstance(usage.get("is_byok"), bool) else None,
     )
 
@@ -557,6 +594,67 @@ try:
 except Exception:  # pragma: no cover - defensive against langchain-core API drift
     logger.exception("Could not install LangChain configure hook; LLM cost tracking is DISABLED")
     _CONFIGURE_HOOK_INSTALLED = False
+
+
+def _provider_accounting(usage: Any) -> dict[str, Any] | None:
+    """``cost`` and ``is_byok`` off a Responses ``usage``, SDK model or plain dict."""
+    if usage is None:
+        return None
+    raw = usage if isinstance(usage, dict) else getattr(usage, "model_extra", None) or {}
+    if not isinstance(raw, dict):
+        return None
+    accounting = {key: raw[key] for key in _ACCOUNTING_FIELDS if raw.get(key) is not None}
+    return accounting or None
+
+
+def install_responses_cost_carrier() -> bool:
+    """Keep OpenRouter's ``cost`` on the Responses path. ``True`` once installed.
+
+    OpenRouter sends ``usage.cost`` and ``usage.is_byok`` on every Responses
+    reply, streamed or not. langchain-openai builds both paths' message in
+    ``_construct_lc_result_from_responses_api`` and keeps only the token counts
+    from ``usage``. That dropped cost is what the ledger prices credits from,
+    so every ``research_llm`` call (the main answer) was recorded at zero: an
+    answer's details showed only its post-answer stages (~0.1 credits), and the
+    budget was never charged for the answer itself.
+
+    The wrapper copies the two fields onto each message's ``response_metadata``
+    under :data:`RESPONSES_ACCOUNTING_KEY`. The streaming path copies that
+    metadata onto its last chunk, so both paths reach ``on_llm_end`` with it.
+    Patched at module level because the streaming path calls the function by
+    its global name. Idempotent. When langchain-openai renames the function
+    this logs an error and returns ``False``;
+    ``test_the_carrier_is_installed`` fails on that before a deploy does.
+    """
+    try:
+        from langchain_openai.chat_models import base as lc_openai
+    except ImportError:
+        return False
+    original = getattr(lc_openai, "_construct_lc_result_from_responses_api", None)
+    if original is None:
+        logger.error("langchain-openai has no _construct_lc_result_from_responses_api; Responses calls record no cost")
+        return False
+    if getattr(original, "__grid_cost_carrier__", False):
+        return True
+
+    @functools.wraps(original)
+    def construct(response: Any, *args: Any, **kwargs: Any) -> Any:
+        result = original(response, *args, **kwargs)
+        try:
+            accounting = _provider_accounting(getattr(response, "usage", None))
+            if accounting:
+                for generation in result.generations:
+                    generation.message.response_metadata[RESPONSES_ACCOUNTING_KEY] = dict(accounting)
+        except Exception:  # noqa: BLE001 - accounting must never break an answer
+            logger.warning("Could not carry the Responses usage cost", exc_info=True)
+        return result
+
+    construct.__grid_cost_carrier__ = True  # type: ignore[attr-defined]
+    lc_openai._construct_lc_result_from_responses_api = construct
+    return True
+
+
+_RESPONSES_COST_CARRIER_INSTALLED = install_responses_cost_carrier()
 
 
 def record_usage_event(

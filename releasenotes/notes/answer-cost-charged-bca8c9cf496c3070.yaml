@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    An answer's details now show what the whole answer cost, where they showed
+    about 0.1 credits for every answer. Your budget now counts the answer
+    itself too, not only the suggestions that follow it.
