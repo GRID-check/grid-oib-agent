@@ -1644,6 +1644,10 @@
     "de": "Text-, Markdown- und CSV-Dateien lassen sich jetzt direkt in Piloti lesen. Eine Markdown-Checkliste erscheint als Checkliste, eine CSV-Datei als Tabelle, auch semikolongetrennte Exporte aus einem deutschen Excel."
   },
   {
+    "en": "The @ list shows your colleagues again as soon as the connection to the sign-in service recovers. Before, one failed lookup could leave it empty for several minutes.",
+    "de": "Die @-Liste zeigt Ihre Kolleg:innen wieder an, sobald die Verbindung zum Login-Dienst wiederhergestellt ist. Bisher konnte eine fehlgeschlagene Suche dazu führen, dass sie mehrere Minuten lang leer blieb."
+  },
+  {
     "en": "The Agent darf selbst laden switch is gone from the skill editor; Piloti decides which skills to consider. Saved skills are unchanged and available again.",
     "de": "Der Schalter „Agent darf selbst laden“ im Skill-Editor ist entfallen; welche Skills in Frage kommen, entscheidet Piloti. Gespeicherte Skills bleiben unverändert und stehen wieder zur Auswahl."
   },

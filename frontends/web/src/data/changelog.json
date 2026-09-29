@@ -96,6 +96,10 @@
               "de": "Eine Frage, die nach einem kurzen Verbindungsabbruch erneut gesendet wird, wird nicht mehr doppelt beantwortet. Der Chat führt die bereits laufende Antwort fort."
             },
             {
+              "en": "The @ list shows your colleagues again as soon as the connection to the sign-in service recovers. Before, one failed lookup could leave it empty for several minutes.",
+              "de": "Die @-Liste zeigt Ihre Kolleg:innen wieder an, sobald die Verbindung zum Login-Dienst wiederhergestellt ist. Bisher konnte eine fehlgeschlagene Suche dazu führen, dass sie mehrere Minuten lang leer blieb."
+            },
+            {
               "en": "An overview now shows its parts either as a table or as a mindmap, never both. The duplicate drawing used to appear while the answer arrived and then vanish when it finished.",
               "de": "Eine Übersicht zeigt ihre Bestandteile jetzt entweder als Tabelle oder als Mindmap, nie beides. Die doppelte Darstellung erscheint während der Antwort und verschwindet nach deren Abschluss."
             },
