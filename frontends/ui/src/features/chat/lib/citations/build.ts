@@ -139,6 +139,7 @@ const addWireCitations = (
         // nothing, because a locator is not a passage.
         snippet: citation.snippet?.trim() || citationSnippet(citation),
         citationKey: citation.citationKey,
+        regions: citation.regions,
       },
     })
   }

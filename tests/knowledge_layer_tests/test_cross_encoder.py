@@ -44,7 +44,18 @@ def _reranker(**kwargs) -> CrossEncoderReranker:
 
 
 def _serve(monkeypatch, handler) -> list[httpx.Request]:
-    """Route the reranker's internal AsyncClient through a MockTransport."""
+    """Route the reranker's internal AsyncClient through a MockTransport.
+
+    The patch replaces ``httpx.AsyncClient`` with a ``functools.partial``, which
+    is not a class. The reranker records its usage through ``cost_tracking``,
+    which imports ``openai`` on first use, and ``openai`` subclasses
+    ``httpx.AsyncClient`` at import. Run alone, that first import landed inside
+    the patch and failed with ``TypeError: the first argument must be callable``;
+    it passed only when an earlier test had imported ``openai`` already. Importing
+    it here, before the patch, makes the result independent of test order.
+    """
+    import openai  # noqa: F401
+
     seen: list[httpx.Request] = []
 
     def _handler(request: httpx.Request) -> httpx.Response:

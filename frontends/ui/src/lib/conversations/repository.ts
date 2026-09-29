@@ -14,6 +14,7 @@
 import 'server-only'
 import { and, desc, eq, exists, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { isUuid } from '@/lib/ids'
 import { stripJsonNullBytes } from '@/lib/text/jsonb'
 import {
   conversationReads,
@@ -298,6 +299,8 @@ export async function conversationIdsExisting(ids: readonly string[]): Promise<S
 export async function findConversationTenancy(
   conversationId: string,
 ): Promise<Pick<Conversation, 'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'deletedAt'> | null> {
+  // A non-uuid id cannot exist; binding it would throw 22P02 (see findProjectTenancy).
+  if (!isUuid(conversationId)) return null
   const db = getDb()
   const [row] = await db
     .select({

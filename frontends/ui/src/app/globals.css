@@ -851,6 +851,28 @@ body {
   animation: grid-passage-ping 1.15s cubic-bezier(0.16, 1, 0.3, 1) 2 both;
 }
 
+/* A region: the box around a depiction on a plan or photo that a cited
+   passage was read off (issue #433). The same fill as the passage mark, much
+   lighter, because it covers a drawing rather than a line of text and the
+   drawing is what the reader came to see. The frame carries the signal
+   instead, and it is an outline so the arrival pulse, which animates the
+   fill, never hides it. */
+.region-highlight {
+  --passage-strength: 14%;
+  --passage-peak: 40%;
+  outline: 2px solid color-mix(in oklch, var(--passage-tint, var(--ring)) 85%, transparent);
+  outline-offset: 0;
+}
+
+.dark .region-highlight {
+  --passage-strength: 24%;
+  --passage-peak: 55%;
+}
+
+.region-label {
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--passage-tint, var(--ring)) 60%, transparent);
+}
+
 /* The fuzzy mark: a windowed or partial match, the software's best guess at
    where the passage is rather than the passage itself. Lighter fill and a
    dashed edge, so a reader verifying a citation can tell a guess from a hit

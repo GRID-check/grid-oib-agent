@@ -15,6 +15,8 @@
  * because a test has no bundler to stage worker assets for.
  */
 
+import { readPageTextItems } from '@/features/knowledge/lib/pdfjs-runtime'
+
 /** What a spec can ask about a rendered PDF. */
 export interface PdfContents {
   /** The Info dictionary: Title, Author, Subject, Keywords, Creator, Producer. */
@@ -79,8 +81,8 @@ export async function readPdf(bytes: Uint8Array): Promise<PdfContents> {
     const pages: string[] = []
     for (let number = 1; number <= pageCount; number += 1) {
       const page = await document.getPage(number)
-      const content = await page.getTextContent()
-      pages.push(content.items.map((item) => ('str' in item ? item.str : '')).join(' '))
+      const items = await readPageTextItems(page)
+      pages.push(items.map((item) => item.str).join(' '))
     }
 
     const { info } = await document.getMetadata()
