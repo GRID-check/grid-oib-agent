@@ -185,3 +185,190 @@ describe('ensureRendition', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2)
   })
 })
+
+/** A promise and the handle that settles it, for a converter the test answers by hand. */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((r) => {
+    resolve = r
+  })
+  return { promise, resolve }
+}
+
+const inputFor = (name: string) => ({
+  bucket: 'test-bucket',
+  storageKey: `org/org-1/project/proj-1/doc/${name}/v1/${name}.docx`,
+  filename: `${name}.docx`,
+})
+
+/**
+ * A reindex or a folder upload starts hundreds of conversions at once, and
+ * Gotenberg runs LibreOffice one at a time with a timeout that counts its own
+ * queue. The bound keeps that queue here, where waiting costs no timeout.
+ */
+describe('ensureRendition under a burst', () => {
+  it('runs at most GOTENBERG_MAX_CONCURRENCY conversions at once, and every queued one still succeeds', async () => {
+    vi.stubEnv('GOTENBERG_MAX_CONCURRENCY', '2')
+    const answers: Array<ReturnType<typeof deferred<Response>>> = []
+    let running = 0
+    let peak = 0
+    fetchSpy.mockImplementation(async () => {
+      running += 1
+      peak = Math.max(peak, running)
+      const answer = deferred<Response>()
+      answers.push(answer)
+      const response = await answer.promise
+      running -= 1
+      return response
+    })
+    const timeouts = vi.spyOn(AbortSignal, 'timeout')
+
+    const burst = Array.from({ length: 7 }, (_, i) => ensureRendition(inputFor(`burst-${i}`)))
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2))
+    // The five still queued have not started their clock: a timeout is made
+    // only for a request that reaches Gotenberg.
+    expect(timeouts).toHaveBeenCalledTimes(2)
+
+    for (let answered = 0; answered < 7; answered += 1) {
+      await vi.waitFor(() => expect(answers.length).toBeGreaterThan(answered))
+      answers[answered].resolve(new Response(PDF_BYTES, { status: 200 }))
+    }
+
+    const keys = await Promise.all(burst)
+    expect(keys).toHaveLength(7)
+    expect(peak).toBe(2)
+    expect(fetchSpy).toHaveBeenCalledTimes(7)
+    expect(timeouts).toHaveBeenCalledTimes(7)
+    expect(puts()).toHaveLength(7)
+    timeouts.mockRestore()
+  })
+
+  it('defaults to two at once', async () => {
+    const answers: Array<ReturnType<typeof deferred<Response>>> = []
+    fetchSpy.mockImplementation(() => {
+      const answer = deferred<Response>()
+      answers.push(answer)
+      return answer.promise
+    })
+
+    const burst = Array.from({ length: 4 }, (_, i) => ensureRendition(inputFor(`default-${i}`)))
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2))
+    await new Promise((r) => setTimeout(r, 10))
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+
+    for (let answered = 0; answered < 4; answered += 1) {
+      await vi.waitFor(() => expect(answers.length).toBeGreaterThan(answered))
+      answers[answered].resolve(new Response(PDF_BYTES, { status: 200 }))
+    }
+    await expect(Promise.all(burst)).resolves.toHaveLength(4)
+  })
+
+  it('frees the slot when a conversion fails, so the queue behind it moves on', async () => {
+    vi.stubEnv('GOTENBERG_MAX_CONCURRENCY', '1')
+    fetchSpy.mockResolvedValueOnce(new Response('down', { status: 503 }))
+
+    const [first, second] = await Promise.allSettled([
+      ensureRendition(inputFor('free-0')),
+      ensureRendition(inputFor('free-1')),
+    ])
+    expect(first.status).toBe('rejected')
+    expect(second).toEqual({ status: 'fulfilled', value: 'org/org-1/project/proj-1/doc/free-1/v1/_render.pdf' })
+  })
+
+  it('puts a reader ahead of the background conversions waiting for a slot', async () => {
+    vi.stubEnv('GOTENBERG_MAX_CONCURRENCY', '1')
+    const answers: Array<ReturnType<typeof deferred<Response>>> = []
+    const order: string[] = []
+    fetchSpy.mockImplementation((_url: string, init: RequestInit) => {
+      order.push(((init.body as FormData).get('files') as File).name)
+      const answer = deferred<Response>()
+      answers.push(answer)
+      return answer.promise
+    })
+
+    const background = [0, 1, 2].map((i) => ensureRendition(inputFor(`queue-${i}`)))
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
+    const reader = ensureRendition(inputFor('queue-reader'), { readerWaitMs: 60_000 })
+
+    for (let answered = 0; answered < 4; answered += 1) {
+      await vi.waitFor(() => expect(answers.length).toBeGreaterThan(answered))
+      answers[answered].resolve(new Response(PDF_BYTES, { status: 200 }))
+    }
+    await Promise.all([...background, reader])
+    expect(order).toEqual(['queue-0.docx', 'queue-reader.docx', 'queue-1.docx', 'queue-2.docx'])
+  })
+})
+
+/**
+ * The preview and file routes wait inside a request Cloudflare cuts at ~100s,
+ * and used to convert a file LibreOffice cannot read again on every open.
+ */
+describe('ensureRendition for a reader', () => {
+  it('stops waiting after readerWaitMs, while the conversion finishes and is stored for the next open', async () => {
+    const answer = deferred<Response>()
+    fetchSpy.mockReturnValue(answer.promise)
+    const input = inputFor('slow')
+
+    await expect(ensureRendition(input, { readerWaitMs: 20 })).rejects.toBeInstanceOf(RenditionFailedError)
+    expect(puts()).toHaveLength(0)
+
+    // The same conversion goes on: a second reader joins it rather than starting another.
+    const next = ensureRendition(input, { readerWaitMs: 60_000 })
+    answer.resolve(new Response(PDF_BYTES, { status: 200 }))
+    await expect(next).resolves.toBe('org/org-1/project/proj-1/doc/slow/v1/_render.pdf')
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(puts()).toHaveLength(1)
+  })
+
+  it('answers a recent failure at once instead of converting again', async () => {
+    const input = inputFor('broken')
+    fetchSpy.mockResolvedValue(new Response('cannot convert', { status: 400 }))
+
+    await expect(ensureRendition(input, { readerWaitMs: 60_000 })).rejects.toBeInstanceOf(RenditionFailedError)
+    await expect(ensureRendition(input, { readerWaitMs: 60_000 })).rejects.toBeInstanceOf(RenditionFailedError)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('still serves a rendition that appeared since the failure (another replica made it)', async () => {
+    const input = inputFor('elsewhere')
+    fetchSpy.mockResolvedValueOnce(new Response('down', { status: 503 }))
+    await expect(ensureRendition(input, { readerWaitMs: 60_000 })).rejects.toBeInstanceOf(RenditionFailedError)
+
+    send.mockResolvedValue({ ContentLength: 1024 })
+    await expect(ensureRendition(input, { readerWaitMs: 60_000 })).resolves.toBe(
+      'org/org-1/project/proj-1/doc/elsewhere/v1/_render.pdf',
+    )
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets the background ingest and its retry try again regardless', async () => {
+    const input = inputFor('retry')
+    fetchSpy.mockResolvedValueOnce(new Response('down', { status: 503 }))
+    await expect(ensureRendition(input, { readerWaitMs: 60_000 })).rejects.toBeInstanceOf(RenditionFailedError)
+
+    await expect(ensureRendition(input)).resolves.toBe('org/org-1/project/proj-1/doc/retry/v1/_render.pdf')
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    // And a success clears the memory: the reader converts no more, it reads.
+    send.mockResolvedValue({ ContentLength: 1024 })
+    await expect(ensureRendition(input, { readerWaitMs: 60_000 })).resolves.toBe(
+      'org/org-1/project/proj-1/doc/retry/v1/_render.pdf',
+    )
+  })
+
+  it('forgets a failure after five minutes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      const input = inputFor('forgotten')
+      fetchSpy.mockResolvedValueOnce(new Response('down', { status: 503 }))
+      await expect(ensureRendition(input, { readerWaitMs: 60_000 })).rejects.toBeInstanceOf(RenditionFailedError)
+
+      vi.setSystemTime(Date.now() + 5 * 60_000 + 1)
+      await expect(ensureRendition(input, { readerWaitMs: 60_000 })).resolves.toBe(
+        'org/org-1/project/proj-1/doc/forgotten/v1/_render.pdf',
+      )
+      expect(fetchSpy).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

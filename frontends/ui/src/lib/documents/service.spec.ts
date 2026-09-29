@@ -2704,4 +2704,23 @@ describe('an office document is viewed through its PDF rendition', () => {
       code: 'RENDITION_FAILED',
     })
   })
+
+  it('answers a file that just failed to convert at once, instead of converting it on every open', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.mocked(s3Client.send).mockImplementation((async (command: unknown) => {
+      if (command instanceof HeadObjectCommand) throw new Error('NotFound')
+      return { Body: { transformToByteArray: async () => new Uint8Array([1]) } }
+    }) as never)
+    const fetchSpy = vi.fn().mockResolvedValue(new Response('LibreOffice cannot read this', { status: 400 }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(getDocumentPreview(session, 'doc-office')).rejects.toMatchObject({ status: 502 })
+    const conversions = fetchSpy.mock.calls.length
+    await expect(getDocumentPreview(session, 'doc-office')).rejects.toMatchObject({
+      status: 502,
+      code: 'RENDITION_FAILED',
+    })
+    await expect(streamDocumentFile(session, 'doc-office')).rejects.toMatchObject({ status: 502 })
+    expect(fetchSpy).toHaveBeenCalledTimes(conversions)
+  })
 })

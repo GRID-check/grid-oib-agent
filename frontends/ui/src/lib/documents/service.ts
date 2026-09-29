@@ -171,6 +171,16 @@ const presignTtlSeconds = (): number => Number(process.env.SEAWEED_PRESIGNED_URL
 const BACKEND_FETCH_TIMEOUT_MS = 10_000
 
 /**
+ * The longest the preview and file routes wait for an office file's rendition
+ * to be made on first open. Under Cloudflare's ~100s origin timeout with room
+ * for the rest of the request, so a slow conversion is answered as the handled
+ * `RENDITION_FAILED` 502 rather than an edge 524. The conversion itself keeps
+ * its full budget (`GOTENBERG_TIMEOUT_MS` in `./rendition`) and stores its PDF
+ * for the next open.
+ */
+const RENDITION_READER_WAIT_MS = 85_000
+
+/**
  * Stored on the document when the backend ingest dispatch never yielded a job.
  * Persisted server-side (like backend-produced error messages), so it cannot
  * go through the per-user i18n dictionaries.
@@ -216,15 +226,31 @@ function isTimeoutError(error: unknown): boolean {
 }
 
 /**
+ * How long the presigned URLs handed to an ingest JOB stay valid: `file_ref`,
+ * `preview_ref` / `extraction_ref`, and the `thumbnail_upload_url` PUT.
+ *
+ * The job, not the dispatch request, uses them: `/v1/ingest` queues the work
+ * and answers at once, and the backend's worker pool (two workers) reaches a
+ * job only when the ones ahead of it finish. A folder upload or a project
+ * reindex of a few hundred plan sets queues well past an hour, and a URL that
+ * expired in the queue fails the document as `original_download_failed` (or,
+ * for the rendition, `office_rendition_required`) although nothing is wrong
+ * with it. A day covers any queue this deployment can build; SigV4 caps a
+ * presigned URL at seven days.
+ *
+ * The length is affordable because these URLs never leave the server side:
+ * signed with the internal-endpoint client, sent only in the POST body to the
+ * backend, which neither stores nor logs them, and never persisted here.
+ */
+const INGEST_JOB_REF_TTL_SECONDS = 86_400
+
+/**
  * Why a Word or presentation file was not indexed: its PDF could not be made.
  *
  * Its text is read from the rendition and from nothing else (ADR-0071), so no
  * PDF means no index — said as a failure the reader can retry, never papered
  * over by reading the original a worse way.
  */
-/** See {@link signedRenditionRef}. */
-const RENDITION_REF_TTL_SECONDS = 3600
-
 export const RENDITION_REQUIRED_MESSAGE = 'The PDF version of this file could not be created'
 
 /**
@@ -356,13 +382,12 @@ export async function dispatchIngest(
   const bucket = resolveDocumentBucket(storageBucket)
   // The backend fetches the file itself, from inside the Docker network —
   // sign with the internal-endpoint client, not the browser-facing one.
-  // An hour, like the rendition ref: the ingest JOB downloads it, not the
-  // request, and the job may start well after dispatch behind the bounded
-  // ingest queue.
+  // The ingest JOB downloads it, not the request, and the job may start long
+  // after dispatch behind the bounded ingest queue: see the constant.
   const presignedUrl = await getSignedUrl(
     s3Client,
     new GetObjectCommand({ Bucket: bucket, Key: storageKey }),
-    { expiresIn: RENDITION_REF_TTL_SECONDS }
+    { expiresIn: INGEST_JOB_REF_TTL_SECONDS }
   )
 
   // Presigned upload slot for the 200px JPEG thumbnail the ingest pipeline
@@ -378,7 +403,8 @@ export async function dispatchIngest(
           Key: thumbnailUploadKey,
           ContentType: 'image/jpeg',
         }),
-        { expiresIn: 3600 }
+        // Written by the same job at its end, so it must outlive the queue too.
+        { expiresIn: INGEST_JOB_REF_TTL_SECONDS }
       )
     : null
 
@@ -1524,17 +1550,18 @@ async function ingestThroughRendition(input: DispatchDocumentInput, fileName: st
  * inside the Docker network, as part of the job, so it is minted right before
  * the POST rather than when the conversion started.
  *
- * Valid for an hour, like the thumbnail slot, not for the default presign TTL:
- * the job downloads it when an ingest worker reaches it, and behind a queue of
- * plan sets that is well past ten minutes. An expired link fails the document
- * as `office_rendition_required`, which would read as a converter fault.
+ * Valid for {@link INGEST_JOB_REF_TTL_SECONDS}, like `file_ref` and the
+ * thumbnail slot, not for the default presign TTL: the job downloads it when an
+ * ingest worker reaches it, and behind a queue of plan sets that can be hours.
+ * An expired link fails the document as `office_rendition_required`, which
+ * would read as a converter fault.
  */
 async function signedRenditionRef(input: DispatchDocumentInput, fileName: string): Promise<string | null> {
   const bucket = resolveDocumentBucket(input.storageBucket)
   try {
     const renditionKey = await ensureRendition({ bucket, storageKey: input.storageKey, filename: fileName })
     return await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucket, Key: renditionKey }), {
-      expiresIn: RENDITION_REF_TTL_SECONDS,
+      expiresIn: INGEST_JOB_REF_TTL_SECONDS,
     })
   } catch (error) {
     console.warn(
@@ -2191,17 +2218,25 @@ export async function getDocumentDownload(
  * `GOTENBERG_URL` must look as it did — and a converter failure is a 502 of its
  * own so the reader is told the preview failed rather than that the product
  * cannot show Word files.
+ *
+ * A person is waiting here, so the wait is bounded by
+ * {@link RENDITION_READER_WAIT_MS} and a file whose conversion failed in the
+ * last few minutes is answered as failed at once instead of converted again on
+ * every open. The background ingest and its retry do not take that shortcut.
  */
 async function officeRenditionKey(doc: Pick<Document, 'storageKey' | 'storageBucket' | 'filename'>, contentType: string): Promise<string> {
   const unsupported = () =>
     new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Preview not available for this file type', { contentType })
   if (!isRenditionEnabled() || !doc.storageKey) throw unsupported()
   try {
-    return await ensureRendition({
-      bucket: resolveDocumentBucket(doc.storageBucket),
-      storageKey: doc.storageKey,
-      filename: doc.filename,
-    })
+    return await ensureRendition(
+      {
+        bucket: resolveDocumentBucket(doc.storageBucket),
+        storageKey: doc.storageKey,
+        filename: doc.filename,
+      },
+      { readerWaitMs: RENDITION_READER_WAIT_MS }
+    )
   } catch (error) {
     if (error instanceof RenditionUnavailableError) throw unsupported()
     if (error instanceof RenditionFailedError) {

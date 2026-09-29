@@ -53,6 +53,25 @@ const IN_FLIGHT_STATUSES = IN_FLIGHT_DOCUMENT_STATUSES
  */
 const LOCALLY_OWNED_STATUS = 'processing'
 
+/**
+ * The reason prefix the backend gives a job whose owner stopped heartbeating
+ * (`INTERRUPTED` in `aiq_agent/knowledge/ingest_status_store.py`). Such a
+ * failure is a verdict another replica reached about someone else's job, and
+ * the owner may still be alive: when it writes again its write wins, and the
+ * job can end `completed` with its chunks indexed. A row the BFF already moved
+ * to `failed` from that verdict is therefore asked about again.
+ */
+const INTERRUPTED_REASON_PREFIX = 'interrupted:'
+
+/**
+ * How long after the row's last write an `interrupted:` failure is re-checked.
+ * An owner that revives does so within a heartbeat of reaching the database
+ * again; half an hour covers a long outage and then stops, so a job that
+ * really died costs a bounded number of batch lookups rather than one per read
+ * for as long as the row exists.
+ */
+const INTERRUPTED_RECHECK_WINDOW_MS = 30 * 60 * 1000
+
 const FETCH_TIMEOUT_MS = 5000
 
 const getBackendUrl = (): string => {
@@ -118,6 +137,15 @@ interface TerminalResolution {
   status: 'completed' | 'failed'
   errorMessage: string | null
 }
+
+/**
+ * What a re-checked `interrupted:` row may become: the backend's terminal
+ * answer, or back to `pending` because the owner is still working. `pending`
+ * and not `processing`, which is the status the BFF owns (see
+ * {@link LOCALLY_OWNED_STATUS}); from `pending` the ordinary in-flight pass
+ * takes over on the next read.
+ */
+type RowResolution = TerminalResolution | { status: 'pending'; errorMessage: null }
 
 type JobResolution =
   | { kind: 'terminal'; resolution: TerminalResolution }
@@ -412,6 +440,32 @@ export async function describeBackendIngestState(row: {
 }
 
 /**
+ * A `failed` row whose failure was the backend's `interrupted` settle, recent
+ * enough to still be worth asking about, and with a job the batch call can
+ * answer for. See {@link INTERRUPTED_REASON_PREFIX}. A row without `updatedAt`
+ * is not re-checked: nothing would bound how long it keeps asking.
+ */
+const isRecheckableInterruption = (row: ReconcilableDocument, now: number): boolean => {
+  if (row.status !== 'failed') return false
+  if (!row.errorMessage?.startsWith(INTERRUPTED_REASON_PREFIX)) return false
+  if (!extractIngestJobId(row.metadata)) return false
+  const writtenAt = toEpochMs(row.updatedAt)
+  return writtenAt !== null && now - writtenAt < INTERRUPTED_RECHECK_WINDOW_MS
+}
+
+/**
+ * What the backend's answer about an interrupted job changes, or null for
+ * nothing: a job that is still failed (or unknown) leaves the row as it is, so
+ * a confirmed interruption costs no write.
+ */
+const resolveInterruptedRow = (job: BackendJobStatus | null | undefined): RowResolution | null => {
+  const result = resolveFromJobStatus(job)
+  if (result.kind === 'in_progress') return { status: 'pending', errorMessage: null }
+  if (result.kind === 'terminal' && result.resolution.status === 'completed') return result.resolution
+  return null
+}
+
+/**
  * Extract the curated, read-only metadata subset for a document from the backend
  * file list. Returns null (→ no enrichment) when the list is missing, the
  * filename is absent, or the join is ambiguous. Individual fields are omitted
@@ -451,7 +505,8 @@ const extractMetadata = (files: CollectionFiles | null, ref: CollectionFileRef):
 
 /**
  * Reconcile in-flight document rows with the backend's ingestion state and
- * persist any terminal transition, then merge the backend's read-only document
+ * persist any terminal transition (and re-check a recent `interrupted:`
+ * failure, see {@link INTERRUPTED_REASON_PREFIX}), then merge the backend's read-only document
  * metadata (summary, page/chunk counts, content types) onto every returned row.
  *
  * Returns the rows with fresh statuses and metadata; rows that are already
@@ -486,17 +541,37 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
     return cached
   }
 
-  // --- Status reconciliation (in-flight rows only) ---
-  const resolutions = new Map<string, TerminalResolution>()
+  // --- Status reconciliation (in-flight rows, and recent interrupted failures) ---
+  const resolutions = new Map<string, RowResolution>()
   const inFlight = rows.filter(
     (row) => IN_FLIGHT_STATUSES.has(row.status) && row.status !== LOCALLY_OWNED_STATUS
   )
-  if (inFlight.length > 0) {
-    // One batch call for every in-flight job id (previously one GET per row).
+  const now = Date.now()
+  const interrupted = rows.filter((row) => isRecheckableInterruption(row, now))
+  if (inFlight.length > 0 || interrupted.length > 0) {
+    // One batch call for every job id asked about (previously one GET per row).
     const jobIds = [
-      ...new Set(inFlight.map((row) => extractIngestJobId(row.metadata)).filter((id): id is string => !!id)),
+      ...new Set(
+        [...inFlight, ...interrupted]
+          .map((row) => extractIngestJobId(row.metadata))
+          .filter((id): id is string => !!id)
+      ),
     ]
     const jobStatuses = await fetchJobStatuses(jobIds)
+
+    // An interrupted row is healed from its job alone. The collection file
+    // list is no evidence about THIS dispatch: a previous version's `success`
+    // would turn a real failure green.
+    await Promise.all(
+      interrupted.map(async (row) => {
+        const jobId = extractIngestJobId(row.metadata)
+        if (jobStatuses === null || !jobId) return
+        const resolution = resolveInterruptedRow(jobStatuses.get(jobId))
+        if (!resolution) return
+        await setDocumentReconciledStatus(row.id, organizationId, resolution)
+        resolutions.set(row.id, resolution)
+      })
+    )
 
     await Promise.all(
       inFlight.map(async (row) => {

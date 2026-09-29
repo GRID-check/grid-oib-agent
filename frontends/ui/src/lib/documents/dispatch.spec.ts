@@ -287,20 +287,22 @@ describe('the ingest dispatch sends the document folder path', () => {
   const bodyOf = (call: number): Record<string, unknown> =>
     JSON.parse(fetchSpy.mock.calls[call][1].body as string) as Record<string, unknown>
 
-  it('signs file_ref for an hour: the ingest job downloads it, not the request', async () => {
+  it('signs file_ref and the thumbnail slot for a day: the queued JOB uses them, not the request', async () => {
     // `/v1/ingest` hands the job a deferred download and answers at once; the
-    // job may start well after dispatch behind the bounded ingest queue, so a
-    // ten-minute signature could expire before anything reads it.
+    // job may start hours after dispatch behind a folder upload on the
+    // two-worker ingest pool, and an expired signature fails the document as
+    // `original_download_failed` although nothing is wrong with it.
     await dispatchDocument(input('plan.pdf'))
 
-    const originalRead = vi
-      .mocked(getSignedUrl)
-      .mock.calls.find(
-        ([, command]) =>
-          (command as { input: { Key: string } }).input.Key === input('plan.pdf').storageKey &&
-          command.constructor.name === 'GetObjectCommand',
-      )
-    expect(originalRead?.[2]).toEqual({ expiresIn: 3600 })
+    const signed = vi.mocked(getSignedUrl).mock.calls
+    const originalRead = signed.find(
+      ([, command]) =>
+        (command as { input: { Key: string } }).input.Key === input('plan.pdf').storageKey &&
+        command.constructor.name === 'GetObjectCommand',
+    )
+    const thumbnailWrite = signed.find(([, command]) => command.constructor.name === 'PutObjectCommand')
+    expect(originalRead?.[2]).toEqual({ expiresIn: 86_400 })
+    expect(thumbnailWrite?.[2]).toEqual({ expiresIn: 86_400 })
   })
 
   it('sends the folder path the document was filed under', async () => {
@@ -467,6 +469,11 @@ describe('an office file is converted, detached, before it is ingested', () => {
       file_name: 'Baubeschreibung.docx',
     })
     await vi.waitFor(() => expect(setDocumentIngestJob).toHaveBeenCalledWith('doc-1', 'org-1', 'job-1'))
+    // The rendition is read by the same queued job, so it lives as long as file_ref.
+    const renditionRead = vi
+      .mocked(getSignedUrl)
+      .mock.calls.find(([, command]) => (command as { input: { Key: string } }).input.Key === RENDITION_KEY)
+    expect(renditionRead?.[2]).toEqual({ expiresIn: 86_400 })
   })
 
   it('keeps a workbook on its own extractor: preview_ref only', async () => {

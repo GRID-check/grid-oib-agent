@@ -97,12 +97,39 @@ export const bucketName = process.env.SEAWEED_BUCKET || "grid-documents";
  * mistake the uploader can necessarily see, and a file called `A/B.ifc` should
  * store, not fail. A segment of nothing but dots is `.` or `..` itself, which
  * has no flattening to do and is prefixed instead.
+ *
+ * The names of the derived siblings are prefixed the same way, see
+ * {@link RESERVED_DERIVED_SEGMENTS}.
  */
 export function storageKeySegment(raw: string): string {
   const flattened = raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/[/\\]/g, '_')
-  const guarded = /^\.+$/.test(flattened) ? `_${flattened}` : flattened
-  return guarded.trim().slice(0, 255).trim() || 'unnamed'
+  const segment = flattened.trim().slice(0, 255).trim()
+  if (!segment) return 'unnamed'
+  const reserved = /^\.+$/.test(segment) || RESERVED_DERIVED_SEGMENTS.has(segment.toLowerCase())
+  return reserved ? `_${segment}`.slice(0, 255) : segment
 }
+
+/**
+ * The names the pipelines write BESIDE a stored file, in the file's own
+ * directory: the `_thumb.jpg` and `_render.pdf` siblings and the `_img/` and
+ * `_bim/` prefixes (`lib/bim/service.ts`). An uploaded file may not take one.
+ *
+ * A file named `_render.pdf` was stored at `<dir>/_render.pdf`, which is
+ * exactly the key {@link buildRenditionStorageKey} derives from it, so the raw
+ * upload was served as its own "rendition" with none of the checks a
+ * conversion's output passes. A file named `_thumb.jpg` was worse: the ingest
+ * pipeline's thumbnail PUT landed on the original and replaced the person's
+ * bytes. `_img` and `_bim` would make one path both an object and a directory,
+ * which a filer-backed gateway such as SeaweedFS cannot hold, and put the
+ * original inside the prefix a delete sweeps. Prefixed with `_` (`__render.pdf`)
+ * like a dot-only name, rather than refused, for the same reason: the uploader
+ * did nothing wrong. Compared without case, so no case-insensitive store or
+ * gateway can fold one onto the other.
+ *
+ * Keys written before this rule keep their names; the derived-key builders
+ * below refuse to return a key equal to the input, which covers them.
+ */
+const RESERVED_DERIVED_SEGMENTS: ReadonlySet<string> = new Set(['_thumb.jpg', '_render.pdf', '_img', '_bim'])
 
 export function buildStorageKey(
   organizationId: string,
@@ -176,11 +203,24 @@ export function buildSessionStorageKey(
  * row, both return null and the callers treat that as "no thumbnail".
  * Unreachable from `buildStorageKey` output; reachable from a hand-edited or
  * legacy row.
+ *
+ * Null too when the file IS `_thumb.jpg`: the sibling would be the original,
+ * and the ingest pipeline's PUT would overwrite it. `storageKeySegment` no
+ * longer produces that name; a row stored before it did still exists.
  */
 export function buildThumbnailStorageKey(storageKey: string): string | null {
+  return derivedSiblingKey(storageKey, '_thumb.jpg')
+}
+
+/**
+ * `<dir>/<name>` beside the file at `storageKey`, or null when there is no
+ * directory to put it in or the sibling would be the file itself.
+ */
+function derivedSiblingKey(storageKey: string, name: string): string | null {
   const idx = storageKey.lastIndexOf('/')
   if (idx <= 0 || idx === storageKey.length - 1) return null
-  return `${storageKey.slice(0, idx)}/_thumb.jpg`
+  const key = `${storageKey.slice(0, idx)}/${name}`
+  return key === storageKey ? null : key
 }
 
 /**
@@ -193,12 +233,11 @@ export function buildThumbnailStorageKey(storageKey: string): string | null {
  * project and document prefix sweeps reach it without being told its name.
  * Same null rules as {@link buildThumbnailStorageKey} — a key with no filename
  * segment has nowhere to put a sibling, and a bucket-root `_render.pdf` would be
- * one shared write target for every malformed row.
+ * one shared write target for every malformed row. And null for a file that is
+ * itself named `_render.pdf`, whose "rendition" would be the raw upload.
  */
 export function buildRenditionStorageKey(storageKey: string): string | null {
-  const idx = storageKey.lastIndexOf('/')
-  if (idx <= 0 || idx === storageKey.length - 1) return null
-  return `${storageKey.slice(0, idx)}/_render.pdf`
+  return derivedSiblingKey(storageKey, '_render.pdf')
 }
 
 /**
