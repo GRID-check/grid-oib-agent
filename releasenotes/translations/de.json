@@ -308,6 +308,10 @@
     "de": "Eine Fundstelle nennt jetzt den Punkt der Richtlinie, nicht nur die Seite: „Pkt. 3.5.2 · S. 7“ statt „S. 7“. So zitiert das Baurecht selbst, und die Angabe bleibt nach dem Neuladen und in geteilten Unterhaltungen erhalten."
   },
   {
+    "en": "A reference to a Word or PowerPoint file opens its preview at the page the passage came from.",
+    "de": "Ein Verweis auf eine Word- oder PowerPoint-Datei öffnet die Vorschau auf der Seite, von der die Textstelle stammt."
+  },
+  {
     "en": "A report Piloti wrote can no longer be mistaken for one of your own documents when the two happen to share a name. Search results, file summaries, tags, page details and renaming now always act on the document you actually opened, and deleting a report can no longer take the corresponding Gutachten out of what Piloti can cite.",
     "de": "Ein von Piloti erstellter Bericht kann nicht mehr mit einem Ihrer eigenen Dokumente verwechselt werden, wenn beide zufällig denselben Namen haben. Suchergebnisse, Dateizusammenfassungen, Tags, Seitendetails und das Umbenennen beziehen sich jetzt immer auf das tatsächlich geöffnete Dokument. Beim Löschen eines Berichts wird das zugehörige Gutachten nicht mehr aus den Quellen entfernt, die Piloti zitieren kann."
   },
@@ -518,6 +522,10 @@
   {
     "en": "An open file now has its own address: the link can be shared, and Back closes the preview instead of leaving Dateien.",
     "de": "Eine geöffnete Datei hat jetzt eine eigene Adresse: Der Link lässt sich weitergeben, und Zurück schließt die Vorschau, statt die Dateien zu verlassen."
+  },
+  {
+    "en": "An open file shows its summary, page count and tags as soon as indexing finishes, without closing and reopening it.",
+    "de": "Eine geöffnete Datei zeigt ihre Zusammenfassung, Seitenzahl und Tags, sobald die Indexierung abgeschlossen ist, ohne dass Sie sie schließen und erneut öffnen müssen."
   },
   {
     "en": "An overview now shows its parts either as a table or as a mindmap, never both. The duplicate drawing used to appear while the answer arrived and then vanish when it finished.",
@@ -1310,6 +1318,10 @@
   {
     "en": "Permanently deleting a project now waits if even one document or chat in it is on hold.",
     "de": "Das endgültige Löschen eines Projekts wartet jetzt auch, wenn nur ein Dokument oder ein Chat darin gesperrt ist."
+  },
+  {
+    "en": "Pictures in Word and PowerPoint files are now read, so a photo or plan on a slide can be found and cited in an answer. Files uploaded earlier are read this way once you upload them again.",
+    "de": "Bilder in Word- und PowerPoint-Dateien werden jetzt gelesen, sodass ein Foto oder Plan auf einer Folie gefunden und in einer Antwort zitiert werden kann. Früher hochgeladene Dateien werden so gelesen, sobald Sie sie erneut hochladen."
   },
   {
     "en": "Piloti asks a short multiple-choice question more often instead of silently picking one of several plausible directions, for example when a comparison names no criteria.",

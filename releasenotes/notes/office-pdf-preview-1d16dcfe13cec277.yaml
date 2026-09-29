@@ -4,8 +4,22 @@ features:
     Word, Excel and PowerPoint files now open in the document viewer as a PDF
     preview, and a reference to one opens that preview instead of only offering
     a download. Download still gives you the original file, unchanged.
+  - >
+    Pictures in Word and PowerPoint files are now read, so a photo or plan on a
+    slide can be found and cited in an answer. Files uploaded earlier are read
+    this way once you upload them again.
+  - >
+    A reference to a Word or PowerPoint file opens its preview at the page the
+    passage came from.
+  - >
+    An open file shows its summary, page count and tags as soon as indexing
+    finishes, without closing and reopening it.
 operators:
   - >
     Office previews are converted by a Gotenberg service that the platform
     reaches at GOTENBERG_URL. Without it, office files stay download-only as
     before.
+  - >
+    With GOTENBERG_URL set, Word and presentation files are indexed from their
+    PDF rendition, so each embedded picture costs a VLM caption call at
+    ingestion. Existing documents keep their old chunks until re-ingested.

@@ -105,6 +105,9 @@ What that means in practice:
   citations would mean chunking by the rendition's pages, which changes answers
   and needs `task be:eval:answer-suite` before and after. That is a follow-up,
   not part of this decision.
+* Extended by [ADR-0071](0071-word-and-presentation-files-are-indexed-from-their-rendition.md):
+  Word and presentation files are now also indexed from the rendition, which
+  gives their citations a page. This decision still holds for viewing.
 * Bad, because it is one more container to run, patch and size. LibreOffice
   parses untrusted bytes, which is why it runs isolated and without egress
   rather than inside a service that holds credentials.
