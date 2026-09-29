@@ -25,28 +25,27 @@ name: Answer suite
 # Both fail the job fast when absent: a suite that skips reports success by not
 # running.
 
+#
+# Only `pull_request`, never `workflow_dispatch`: a dispatched run checks out a
+# ref its caller names and would write the ingest cache in the default
+# branch's scope, where every later run restores it (cache poisoning). A PR's
+# cache is scoped to the PR.
+
 on:
   pull_request:
     types: [labeled, synchronize, reopened]
-  workflow_dispatch:
-    inputs:
-      base:
-        description: "Ref to measure the baseline on"
-        default: develop
 
 permissions:
   contents: read
 
 concurrency:
-  group: answer-suite-${{ github.event.pull_request.number || github.ref }}
+  group: answer-suite-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   suite:
     name: Answer suite (${{ matrix.side }})
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      contains(github.event.pull_request.labels.*.name, 'answer-suite')
+    if: contains(github.event.pull_request.labels.*.name, 'answer-suite')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -62,12 +61,11 @@ jobs:
           SIDE: ${{ matrix.side }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          DISPATCH_BASE: ${{ inputs.base }}
         run: |
           if [ "$SIDE" = before ]; then
-            echo "ref=${PR_BASE:-$DISPATCH_BASE}" >> "$GITHUB_OUTPUT"
+            echo "ref=$PR_BASE" >> "$GITHUB_OUTPUT"
           else
-            echo "ref=${PR_HEAD:-$GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "ref=$PR_HEAD" >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/checkout@v7
         with:
@@ -141,7 +139,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup-python-env
         with:
@@ -163,7 +161,6 @@ jobs:
           [ -f "$before" ] && args+=(--baseline "$before")
           task be:eval:answer-suite -- "${args[@]}" > "$RUNNER_TEMP/report.md"
       - name: Upsert the sticky PR comment
-        if: github.event_name == 'pull_request'
         uses: actions/github-script@v9
         with:
           script: |
