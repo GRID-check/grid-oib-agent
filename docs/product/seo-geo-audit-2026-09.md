@@ -47,7 +47,7 @@ This branch builds that surface.
 
 | # | Area | Finding | Severity | Status |
 |---|---|---|---|---|
-| 1 | Content | Ten indexable pages, none aimed at a searched query | Critical | **Fixed**: 5 sections, 44 search pages × 2 languages (see below) |
+| 1 | Content | Ten indexable pages, none aimed at a searched query | Critical | **Fixed**: 5 sections, 42 search pages plus 5 hubs, each in German and English (94 new URLs) (see below) |
 | 2 | Content | No comparison pages, though "X Alternative" searches show only the vendors' own pages | High | **Fixed**: `/vergleich/`, 10 comparisons |
 | 3 | Content | No page per federal state, although building law is state law and search engines hedge on which OIB edition applies where | High | **Fixed**: `/baurecht/<land>/` for all nine states, with the OIB in-force status and date |
 | 4 | Content | Definitions that answer engines quote (Gebäudeklasse, Fluchtniveau) exist mostly as PDFs | High | **Fixed**: `/glossar/`, verbatim from the OIB Begriffsbestimmungen 2023, with DefinedTerm markup |
