@@ -7,6 +7,7 @@ import {
   buildArchivStorageKey,
   buildImageDerivedPrefix,
   buildImageStorageKey,
+  buildRenditionStorageKey,
   buildStorageKey,
   buildThumbnailStorageKey,
   storageKeySegment,
@@ -120,6 +121,33 @@ describe('buildThumbnailStorageKey', () => {
     expect(buildThumbnailStorageKey('plan.pdf')).toBeNull()
     expect(buildThumbnailStorageKey('/plan.pdf')).toBeNull()
     expect(buildThumbnailStorageKey('')).toBeNull()
+  })
+})
+
+/**
+ * The office rendition (ADR-0070). Its existence is the only state it has — no
+ * column records it — so the key must be derivable from the row alone, and the
+ * same row must always derive the same key.
+ */
+describe('buildRenditionStorageKey', () => {
+  it('is a sibling of the file, beside the thumbnail', () => {
+    const key = buildStorageKey('org-1', 'proj-1', 'doc-1', 'Bericht.docx', 'Plans/Fire Safety')
+    expect(buildRenditionStorageKey(key)).toBe(
+      'org/org-1/project/proj-1/Plans/Fire Safety/doc/doc-1/_render.pdf',
+    )
+  })
+
+  it('follows the per-version directory, so each version renders its own bytes', () => {
+    expect(buildRenditionStorageKey('org/org-1/project/proj-1/doc/doc-1/v2/Bericht.docx')).toBe(
+      'org/org-1/project/proj-1/doc/doc-1/v2/_render.pdf',
+    )
+  })
+
+  it('returns null for the shapes that have no directory to put it in', () => {
+    expect(buildRenditionStorageKey('Bericht.docx')).toBeNull()
+    expect(buildRenditionStorageKey('/Bericht.docx')).toBeNull()
+    expect(buildRenditionStorageKey('a/b/')).toBeNull()
+    expect(buildRenditionStorageKey('')).toBeNull()
   })
 })
 

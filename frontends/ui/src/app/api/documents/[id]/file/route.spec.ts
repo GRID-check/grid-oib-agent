@@ -29,8 +29,17 @@ vi.mock('@/lib/s3', () => ({
   bucketName: 'grid-documents',
 }))
 
+// The converter is `rendition.spec.ts`'s subject; here only its outcomes are
+// driven, with the real error classes.
+vi.mock('@/lib/documents/rendition', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/documents/rendition')>()),
+  isRenditionEnabled: vi.fn().mockReturnValue(true),
+  ensureRendition: vi.fn(),
+}))
+
 import { GET } from './route'
 import { getDb } from '@/lib/db'
+import { RenditionFailedError, ensureRendition, isRenditionEnabled } from '@/lib/documents/rendition'
 import type { getDb as getDbType } from '@/lib/db'
 
 /**
@@ -72,6 +81,8 @@ const call = (): Promise<Response> =>
 
 beforeEach(() => {
   send.mockReset()
+  vi.mocked(isRenditionEnabled).mockReturnValue(true)
+  vi.mocked(ensureRendition).mockReset()
 })
 
 describe('GET /api/documents/[id]/file', () => {
@@ -154,5 +165,51 @@ describe('GET /api/documents/[id]/file', () => {
 
     const response = await call()
     expect(response.headers.get('Content-Disposition')).toBe('inline; filename="Geb_ude_plan.pdf"')
+  })
+
+  /**
+   * An office document streams its PDF rendition, so pdf.js and the cited-
+   * passage highlight work on it as on any PDF (ADR-0070). What leaves this
+   * route is still only ever a PDF — the office bytes never do.
+   */
+  describe('an office document', () => {
+    const DOCX_ROW = {
+      ...PDF_ROW,
+      storageKey: 'org/org-1/project/proj-1/doc/doc-1/v1/Baubeschreibung.docx',
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      filename: 'Baubeschreibung.docx',
+    }
+    const RENDITION_KEY = 'org/org-1/project/proj-1/doc/doc-1/v1/_render.pdf'
+
+    it('streams the rendition as a PDF', async () => {
+      withRow(DOCX_ROW)
+      vi.mocked(ensureRendition).mockResolvedValue(RENDITION_KEY)
+      send.mockResolvedValue({ Body: { transformToWebStream: () => new ReadableStream() } })
+
+      const response = await call()
+      expect(response.status).toBe(200)
+      expect(response.headers.get('Content-Type')).toBe('application/pdf')
+      expect(response.headers.get('Content-Disposition')).toBe('inline; filename="Baubeschreibung.pdf"')
+      expect(send.mock.calls[0][0].input.Key).toBe(RENDITION_KEY)
+    })
+
+    it('is 415 when conversion is not configured, and reads nothing', async () => {
+      vi.mocked(isRenditionEnabled).mockReturnValue(false)
+      withRow(DOCX_ROW)
+
+      expect((await call()).status).toBe(415)
+      expect(ensureRendition).not.toHaveBeenCalled()
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('is 502 RENDITION_FAILED when the converter fails', async () => {
+      withRow(DOCX_ROW)
+      vi.mocked(ensureRendition).mockRejectedValue(new RenditionFailedError('timeout'))
+
+      const response = await call()
+      expect(response.status).toBe(502)
+      expect((await response.json()).code).toBe('RENDITION_FAILED')
+      expect(send).not.toHaveBeenCalled()
+    })
   })
 })

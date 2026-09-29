@@ -153,6 +153,9 @@ import {
   dispatchDocument,
   getDocumentTextPreview,
   getDocumentThumbnail,
+  getDocumentDownload,
+  getDocumentPreview,
+  streamDocumentFile,
   streamDocumentImage,
   AgentAuthoredDocumentNotIndexableError,
   INGEST_DISPATCH_FAILED_MESSAGE,
@@ -176,6 +179,7 @@ import { makeDocument, makeProject } from '@/test-utils/db-fixtures'
 import { s3Client, bucketAdminS3Client } from '@/lib/s3'
 import { __resetBucketCache, tenantBucketName } from '@/lib/storage/bucket'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { buildDocumentImageUrl } from '@/lib/images/signed-image-url'
 
@@ -2268,5 +2272,110 @@ describe('thumbnails ignore empty objects', () => {
     await expect(streamDocumentImage('doc-1', imageUrl.searchParams)).rejects.toBeInstanceOf(
       NotFoundError
     )
+  })
+})
+
+/**
+ * ADR-0070 end to end through the real rendition module, with only the object
+ * store and the converter doubled: the preview and the file stream serve the
+ * PDF beside an office file, and the download keeps serving the file itself.
+ */
+describe('an office document is viewed through its PDF rendition', () => {
+  const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  const ORIGINAL_KEY = 'org/org-1/project/proj-1/doc/doc-office/v1/Baubeschreibung.docx'
+  const RENDITION_KEY = 'org/org-1/project/proj-1/doc/doc-office/v1/_render.pdf'
+  const officeDoc = () =>
+    makeDocument({ id: 'doc-office', filename: 'Baubeschreibung.docx', contentType: DOCX, storageKey: ORIGINAL_KEY })
+  const signedInputs = () =>
+    vi.mocked(getSignedUrl).mock.calls.map(([, command]) => (command as { input: Record<string, unknown> }).input)
+  const commandOf = (call: number) =>
+    (vi.mocked(s3Client.send).mock.calls[call][0] as unknown as { input: Record<string, unknown> }).input
+
+  beforeEach(() => {
+    vi.stubEnv('GOTENBERG_URL', 'http://gotenberg:3000')
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(findDocumentInOrg).mockResolvedValue(officeDoc())
+    vi.mocked(getSignedUrl).mockClear()
+    vi.mocked(s3Client.send).mockReset()
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+    vi.mocked(s3Client.send).mockReset().mockResolvedValue(undefined as never)
+  })
+
+  it('previews an existing rendition without converting again', async () => {
+    vi.mocked(s3Client.send).mockResolvedValue({ ContentLength: 2048 } as never)
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(getDocumentPreview(session, 'doc-office')).resolves.toMatchObject({
+      contentType: 'application/pdf',
+      rendition: true,
+      sourceContentType: DOCX,
+      filename: 'Baubeschreibung.docx',
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(signedInputs()[0]).toMatchObject({ Key: RENDITION_KEY, ResponseContentType: 'application/pdf' })
+  })
+
+  it('converts on first read when no rendition exists yet', async () => {
+    vi.mocked(s3Client.send).mockImplementation((async (command: unknown) => {
+      if (command instanceof HeadObjectCommand) throw Object.assign(new Error('NotFound'), { name: 'NotFound' })
+      if (command instanceof GetObjectCommand) return { Body: { transformToByteArray: async () => new Uint8Array([1]) } }
+      return {}
+    }) as never)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new TextEncoder().encode('%PDF-1.7'))))
+
+    await getDocumentPreview(session, 'doc-office')
+
+    const put = vi
+      .mocked(s3Client.send)
+      .mock.calls.map(([c]) => c as unknown)
+      .find((c): c is PutObjectCommand => c instanceof PutObjectCommand)
+    expect(put?.input).toMatchObject({ Key: RENDITION_KEY, ContentType: 'application/pdf' })
+  })
+
+  it('streams the rendition, not the original, to the viewer', async () => {
+    vi.mocked(s3Client.send)
+      .mockResolvedValueOnce({ ContentLength: 2048 } as never)
+      .mockResolvedValueOnce({ Body: { transformToWebStream: () => new ReadableStream() } } as never)
+
+    const response = await streamDocumentFile(session, 'doc-office')
+
+    expect(response.headers.get('Content-Type')).toBe('application/pdf')
+    expect(commandOf(1)).toMatchObject({ Key: RENDITION_KEY })
+  })
+
+  it('downloads the ORIGINAL — the rendition is only ever a view', async () => {
+    const download = await getDocumentDownload(session, 'doc-office')
+
+    expect(download).toMatchObject({ filename: 'Baubeschreibung.docx', contentType: DOCX })
+    expect(signedInputs()[0]).toMatchObject({ Key: ORIGINAL_KEY })
+    expect(String(signedInputs()[0].ResponseContentDisposition)).toContain('attachment')
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  it('is the old 415 when conversion is not configured', async () => {
+    vi.stubEnv('GOTENBERG_URL', '')
+
+    await expect(getDocumentPreview(session, 'doc-office')).rejects.toMatchObject({ status: 415 })
+    await expect(streamDocumentFile(session, 'doc-office')).rejects.toMatchObject({ status: 415 })
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  it('is a 502 RENDITION_FAILED when the converter fails', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.mocked(s3Client.send).mockImplementation((async (command: unknown) => {
+      if (command instanceof HeadObjectCommand) throw new Error('NotFound')
+      return { Body: { transformToByteArray: async () => new Uint8Array([1]) } }
+    }) as never)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('down', { status: 503 })))
+
+    await expect(getDocumentPreview(session, 'doc-office')).rejects.toMatchObject({
+      status: 502,
+      code: 'RENDITION_FAILED',
+    })
   })
 })

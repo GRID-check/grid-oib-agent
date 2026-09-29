@@ -184,6 +184,24 @@ export function buildThumbnailStorageKey(storageKey: string): string | null {
 }
 
 /**
+ * The PDF rendition that sits beside an office document (ADR-0070), replacing
+ * the filename segment of its key with `_render.pdf`.
+ *
+ * A sibling like `_thumb.jpg` and for the same reasons: it is keyed off the
+ * file's own directory, which since ADR-0054 is per version (`v<n>/`), so a new
+ * version gets a fresh rendition and the old one stays with its version; and the
+ * project and document prefix sweeps reach it without being told its name.
+ * Same null rules as {@link buildThumbnailStorageKey} — a key with no filename
+ * segment has nowhere to put a sibling, and a bucket-root `_render.pdf` would be
+ * one shared write target for every malformed row.
+ */
+export function buildRenditionStorageKey(storageKey: string): string | null {
+  const idx = storageKey.lastIndexOf('/')
+  if (idx <= 0 || idx === storageKey.length - 1) return null
+  return `${storageKey.slice(0, idx)}/_render.pdf`
+}
+
+/**
  * The most embedded rasters one document may keep beside it.
  *
  * The ingest pipeline extracts every image XObject a PDF carries, captions

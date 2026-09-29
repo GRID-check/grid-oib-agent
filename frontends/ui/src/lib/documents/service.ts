@@ -95,7 +95,14 @@ import { isIfcFilename } from '@/lib/bim/types'
 import {
   INLINE_PREVIEW_CONTENT_TYPES,
   TEXT_PREVIEW_CONTENT_TYPES as SHARED_TEXT_PREVIEW_CONTENT_TYPES,
+  isOfficeRenditionSource,
 } from './preview-types'
+import {
+  RenditionFailedError,
+  RenditionUnavailableError,
+  ensureRendition,
+  isRenditionEnabled,
+} from './rendition'
 
 const PREVIEW_CONTENT_TYPES: readonly string[] = INLINE_PREVIEW_CONTENT_TYPES
 
@@ -250,6 +257,59 @@ export interface AgentDocumentProvenance {
   producer: string | null
 }
 
+/** How long an office upload waits for its PDF before dispatching without one (ADR-0070). */
+const EAGER_RENDITION_WAIT_MS = 20_000
+
+/**
+ * Convert an office original to its PDF rendition at dispatch time, and sign a
+ * read of it for the backend (ADR-0070).
+ *
+ * Eager so the first reader does not wait on LibreOffice, and so the ingest
+ * pipeline can draw the card thumbnail from the PDF — it has no way to render a
+ * Word file itself. Awaited before the POST because the backend fetches the
+ * URL as part of the job.
+ *
+ * Fail-open, always: the rendition is a convenience beside a file that is
+ * already durable, and the preview and file routes convert lazily on first
+ * read anyway. A conversion failure must never become an ingest failure.
+ * Signed with the INTERNAL client like `file_ref`: the backend reads it from
+ * inside the Docker network.
+ */
+async function eagerRenditionRef(
+  bucket: string,
+  storageKey: string,
+  fileName: string | null
+): Promise<string | null> {
+  const filename = fileName ?? storageKey.slice(storageKey.lastIndexOf('/') + 1)
+  if (!isRenditionEnabled() || !isOfficeRenditionSource({ filename })) return null
+  // The upload waits for the conversion only this long. The flight itself is
+  // NOT cut short: it keeps running, stores `_render.pdf`, and the first
+  // reader finds it there. What a slow deck costs is its thumbnail, never its
+  // preview, and never a two-minute upload.
+  const flight = ensureRendition({ bucket, storageKey, filename })
+  flight.catch(() => undefined)
+  try {
+    const renditionKey = await Promise.race([
+      flight,
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error('still converting; the preview picks it up')),
+          EAGER_RENDITION_WAIT_MS
+        ).unref?.()
+      }),
+    ])
+    return await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucket, Key: renditionKey }), {
+      expiresIn: presignTtlSeconds(),
+    })
+  } catch (error) {
+    console.warn(
+      '[documents] office rendition at ingest failed; the preview converts on first read:',
+      error instanceof Error ? error.message : String(error)
+    )
+    return null
+  }
+}
+
 export async function dispatchIngest(
   documentId: string,
   collectionName: string,
@@ -304,6 +364,8 @@ export async function dispatchIngest(
       )
     : null
 
+  const previewRef = await eagerRenditionRef(bucket, storageKey, extras.fileName ?? null)
+
   let ingestJobId: string | null = null
   try {
     const ingestRes = await fetch(`${getBackendUrl()}/v1/ingest`, {
@@ -316,6 +378,12 @@ export async function dispatchIngest(
         collection: collectionName,
         document_id: documentId,
         thumbnail_upload_url: thumbnailUploadUrl,
+        // A PDF of an office original (ADR-0070), for the thumbnail ONLY: the
+        // backend cannot rasterise a .docx, and text extraction still reads
+        // `file_ref`. Null for everything else and whenever conversion is off
+        // or failed. A presigned URL is a bearer credential, so the backend
+        // neither stores nor logs it.
+        preview_ref: previewRef,
         folder_path: folderPath,
         // The document's IDENTITY inside the collection, stated rather than
         // left to be derived. Without it the backend reads the name off the
@@ -1841,17 +1909,100 @@ export async function getDocumentDownload(
 }
 
 /**
+ * The key of an office document's PDF rendition, converting on first read
+ * (ADR-0070), with the two failures mapped to what the routes answer.
+ *
+ * Lazy here because every office file uploaded before the eager conversion in
+ * {@link dispatchIngest} existed has no rendition, nor does one whose eager
+ * conversion failed. "Disabled" is today's 415 exactly — a deployment without
+ * `GOTENBERG_URL` must look as it did — and a converter failure is a 502 of its
+ * own so the reader is told the preview failed rather than that the product
+ * cannot show Word files.
+ */
+async function officeRenditionKey(doc: Pick<Document, 'storageKey' | 'storageBucket' | 'filename'>, contentType: string): Promise<string> {
+  const unsupported = () =>
+    new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Preview not available for this file type', { contentType })
+  if (!isRenditionEnabled() || !doc.storageKey) throw unsupported()
+  try {
+    return await ensureRendition({
+      bucket: resolveDocumentBucket(doc.storageBucket),
+      storageKey: doc.storageKey,
+      filename: doc.filename,
+    })
+  } catch (error) {
+    if (error instanceof RenditionUnavailableError) throw unsupported()
+    if (error instanceof RenditionFailedError) {
+      console.warn('[documents] office rendition failed:', error.message)
+      throw new ApiError(502, 'RENDITION_FAILED', 'The PDF preview of this file could not be created')
+    }
+    throw error
+  }
+}
+
+/** `Bericht.docx` → `Bericht.pdf`: the name a rendition is served under. */
+function renditionFilename(filename: string): string {
+  const dot = filename.lastIndexOf('.')
+  return `${dot > 0 ? filename.slice(0, dot) : filename}.pdf`
+}
+
+/**
+ * Whether this row is served through its PDF rendition. A type the store can
+ * already show inline wins, so a real PDF that happens to be named `.docx` is
+ * still served as itself.
+ */
+function servedAsRendition(doc: Pick<Document, 'contentType' | 'filename'>): boolean {
+  const contentType = doc.contentType || 'application/octet-stream'
+  if (PREVIEW_CONTENT_TYPES.includes(contentType)) return false
+  return isOfficeRenditionSource({ contentType: doc.contentType, filename: doc.filename })
+}
+
+export interface DocumentPreview {
+  url: string
+  /** What `url` serves: the stored type, or `application/pdf` for a rendition. */
+  contentType: string
+  filename: string
+  imageUrl: string | null
+  /** True when `url` is the PDF rendition of an office original (ADR-0070), not the stored bytes. */
+  rendition: boolean
+  /** The stored type of the original when `rendition` is true; null otherwise. */
+  sourceContentType: string | null
+}
+
+/**
  * Presign a browser-facing inline preview URL. Non-previewable content types
- * are rejected with a 415.
+ * are rejected with a 415. An office document is previewed through its PDF
+ * rendition — the presigned URL is the rendition's, never the original's.
  */
 export async function getDocumentPreview(
   session: AuthorizedSession,
   documentId: string
-): Promise<{ url: string; contentType: string; filename: string; imageUrl: string | null }> {
+): Promise<DocumentPreview> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
   const contentType = doc.contentType || 'application/octet-stream'
+  if (servedAsRendition(doc)) {
+    const renditionKey = await officeRenditionKey(doc, contentType)
+    const url = await getSignedUrl(
+      signingS3Client,
+      new GetObjectCommand({
+        Bucket: resolveDocumentBucket(doc.storageBucket),
+        Key: renditionKey,
+        ResponseContentDisposition: contentDisposition('inline', renditionFilename(doc.filename)),
+        ResponseContentType: 'application/pdf',
+      }),
+      { expiresIn: 3600 }
+    )
+    return {
+      url,
+      contentType: 'application/pdf',
+      filename: doc.filename,
+      imageUrl: null,
+      rendition: true,
+      sourceContentType: doc.contentType ?? null,
+    }
+  }
+
   if (!PREVIEW_CONTENT_TYPES.includes(contentType)) {
     throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Preview not available for this file type', {
       contentType,
@@ -1877,7 +2028,7 @@ export async function getDocumentPreview(
     ? buildDocumentImageUrl(session.organizationId, documentId, 'original')
     : null
 
-  return { url, contentType, filename: doc.filename, imageUrl }
+  return { url, contentType, filename: doc.filename, imageUrl, rendition: false, sourceContentType: null }
 }
 
 /**
@@ -1908,6 +2059,11 @@ export async function getDocumentPreview(
  * optimizer above — this route must not be the hole that reintroduces it.
  * Images have no reason to come through here anyway: nothing fetches their
  * bytes to parse, so every caller keeps them on the presigned URL.
+ *
+ * An office document streams its PDF RENDITION (ADR-0070), converted on first
+ * read, so the viewer and the cited-passage highlight work on it exactly as on
+ * a PDF. Still PDF only: what leaves this route is always a PDF the BFF made or
+ * a PDF the user stored, never the office bytes themselves.
  */
 export async function streamDocumentFile(
   session: AuthorizedSession,
@@ -1917,7 +2073,12 @@ export async function streamDocumentFile(
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
   const contentType = doc.contentType || 'application/octet-stream'
-  if (contentType !== 'application/pdf') {
+  let key = doc.storageKey
+  let filename = doc.filename
+  if (servedAsRendition(doc)) {
+    key = await officeRenditionKey(doc, contentType)
+    filename = renditionFilename(doc.filename)
+  } else if (contentType !== 'application/pdf') {
     throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Only PDF documents stream from this route', {
       contentType,
     })
@@ -1928,7 +2089,7 @@ export async function streamDocumentFile(
     const object = await s3Client.send(
       new GetObjectCommand({
         Bucket: resolveDocumentBucket(doc.storageBucket),
-        Key: doc.storageKey,
+        Key: key,
       })
     )
     body = object.Body
@@ -1938,11 +2099,12 @@ export async function streamDocumentFile(
   if (!body) throw new NotFoundError('File not available')
 
   // ASCII-safe filename for the header; this route only ever displays inline.
-  const asciiName = doc.filename.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '_')
+  const asciiName = filename.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '_')
   return new Response(body.transformToWebStream(), {
     status: 200,
     headers: {
-      'Content-Type': contentType,
+      // Both branches above leave only a PDF to serve.
+      'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${asciiName}"`,
       // Private: these bytes are tenant data.
       'Cache-Control': 'private, max-age=300',

@@ -46,7 +46,17 @@ vi.mock('./repository', () => ({
   deleteProjectDocument: vi.fn(),
 }))
 
+// The converter is `rendition.spec.ts`'s subject; here it is a switch and an
+// outcome, so what is under test is what dispatch does with each.
+vi.mock('./rendition', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./rendition')>()),
+  isRenditionEnabled: vi.fn().mockReturnValue(false),
+  ensureRendition: vi.fn(),
+}))
+
 import { runBimExtraction } from '@/lib/bim/service'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import { RenditionFailedError, ensureRendition, isRenditionEnabled } from './rendition'
 import { markDocumentProcessing, setDocumentIngestJob, findDocumentInOrg } from './repository'
 import { makeDocument } from '@/test-utils/db-fixtures'
 import { dispatchDocument, type DispatchDocumentInput } from './service'
@@ -362,5 +372,103 @@ describe('the ingest dispatch sends the document folder path', () => {
     await dispatchDigest('org/org-1/project/proj-1/doc/doc-1/_bim/digest.md')
 
     expect(bodyOf(0).folder_path).toBe('Modelle')
+  })
+})
+
+/**
+ * The eager half of ADR-0070: an office upload is converted before the ingest
+ * POST so the backend can draw its thumbnail from the PDF (`preview_ref`). The
+ * rendition is a convenience beside a durable file, so every way it can fail
+ * must leave the ingest exactly as it was.
+ */
+describe('the ingest dispatch converts an office upload first', () => {
+  const bodyOf = (call: number): Record<string, unknown> =>
+    JSON.parse(fetchSpy.mock.calls[call][1].body as string) as Record<string, unknown>
+  const RENDITION_KEY = 'org/org-1/project/proj-1/doc/doc-1/_render.pdf'
+
+  beforeEach(() => {
+    vi.mocked(isRenditionEnabled).mockReturnValue(true)
+    vi.mocked(ensureRendition).mockReset().mockResolvedValue(RENDITION_KEY)
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ authoredBy: 'user', filename: 'Baubeschreibung.docx' }),
+    )
+  })
+
+  afterEach(() => {
+    // `clearAllMocks` keeps implementations; put the module default back so no
+    // later case inherits the rendition-aware signer.
+    vi.mocked(getSignedUrl).mockResolvedValue('https://seaweedfs.internal/presigned')
+    vi.mocked(isRenditionEnabled).mockReturnValue(false)
+  })
+
+  it('sends a signed read of the rendition as preview_ref', async () => {
+    vi.mocked(getSignedUrl).mockImplementation(async (_client, command) =>
+      (command as { input: { Key: string } }).input.Key === RENDITION_KEY
+        ? 'https://seaweedfs.internal/rendition'
+        : 'https://seaweedfs.internal/presigned',
+    )
+
+    await dispatchDocument(input('Baubeschreibung.docx'))
+
+    expect(ensureRendition).toHaveBeenCalledWith({
+      bucket: 'test-bucket',
+      storageKey: 'org/org-1/project/proj-1/doc/doc-1/Baubeschreibung.docx',
+      filename: 'Baubeschreibung.docx',
+    })
+    // Converted BEFORE the POST: the backend fetches it as part of the job.
+    expect(vi.mocked(ensureRendition).mock.invocationCallOrder[0]).toBeLessThan(
+      fetchSpy.mock.invocationCallOrder[0],
+    )
+    expect(bodyOf(0).preview_ref).toBe('https://seaweedfs.internal/rendition')
+    // Text extraction still reads the original.
+    expect(bodyOf(0).file_ref).toBe('https://seaweedfs.internal/presigned')
+  })
+
+  it('still ingests, with no preview_ref, when the conversion fails', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.mocked(ensureRendition).mockRejectedValue(new RenditionFailedError('Office conversion answered 503'))
+
+    await expect(dispatchDocument(input('Baubeschreibung.docx'))).resolves.toEqual({
+      jobId: 'job-1',
+      status: 'pending',
+    })
+    expect(bodyOf(0).preview_ref).toBeNull()
+  })
+
+  it('stops waiting for a slow conversion after 20s and ingests without preview_ref', async () => {
+    // The upload is a request a person is waiting on. A conversion still
+    // running at 20s keeps running (the reader's preview finds it later); the
+    // upload does not wait for it.
+    vi.useFakeTimers()
+    try {
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      vi.mocked(ensureRendition).mockReturnValue(new Promise<string>(() => undefined))
+
+      const dispatched = dispatchDocument(input('Baubeschreibung.docx'))
+      await vi.advanceTimersByTimeAsync(20_000)
+
+      await expect(dispatched).resolves.toEqual({ jobId: 'job-1', status: 'pending' })
+      expect(bodyOf(0).preview_ref).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not convert when conversion is not configured', async () => {
+    vi.mocked(isRenditionEnabled).mockReturnValue(false)
+
+    await dispatchDocument(input('Baubeschreibung.docx'))
+
+    expect(ensureRendition).not.toHaveBeenCalled()
+    expect(bodyOf(0).preview_ref).toBeNull()
+  })
+
+  it('does not convert a PDF', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ authoredBy: 'user', filename: 'plan.pdf' }))
+
+    await dispatchDocument(input('plan.pdf'))
+
+    expect(ensureRendition).not.toHaveBeenCalled()
+    expect(bodyOf(0).preview_ref).toBeNull()
   })
 })

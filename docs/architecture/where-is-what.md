@@ -91,6 +91,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | Session chunk purge | `frontends/ui/src/lib/session-documents/cleanup.ts` — `purgeSessionDocuments` | [`deletion-pipeline.md`](deletion-pipeline.md) | ADR-0011 |
 | Quota admission for stored bytes | `frontends/ui/src/lib/storage/admission.ts` — `admitOrDiscard` | [`usage-budgets.md`](usage-budgets.md) | ADR-0042 |
 | Object cleanup (originals and derivatives) | `frontends/ui/src/lib/documents/object-cleanup.ts` — `deleteDocumentObjects` | [`deletion-pipeline.md`](deletion-pipeline.md) | ADR-0011, ADR-0042 |
+| The PDF an office file is viewed through (`_render.pdf`, made by Gotenberg) | `frontends/ui/src/lib/documents/rendition.ts` — `ensureRendition`; which files: `frontends/ui/src/lib/documents/preview-types.ts` — `isOfficeRenditionSource` | [`docs/user-guides/documents.md`](../user-guides/documents.md) | ADR-0070 |
 | Per-tenant buckets | `frontends/ui/src/lib/storage/bucket.ts`, `frontends/ui/src/lib/s3.ts` | [`docs/deployment/security-config.md`](../deployment/security-config.md) | ADR-0043 |
 | Deletion policy | `frontends/ui/src/lib/deletion/policy.ts` | [`deletion-pipeline.md`](deletion-pipeline.md) | ADR-0011 |
 | Legal holds | `frontends/ui/src/lib/db/schema/legal-holds.ts` | [`deletion-pipeline.md`](deletion-pipeline.md) | ADR-0011 |

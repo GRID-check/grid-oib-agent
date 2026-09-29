@@ -14,8 +14,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   INLINE_PREVIEW_CONTENT_TYPES,
+  OFFICE_RENDITION_CONTENT_TYPES,
   TEXT_PREVIEW_CONTENT_TYPES,
   isInlinePreviewable,
+  isOfficeRenditionSource,
 } from './preview-types'
 
 describe('the preview content-type lists', () => {
@@ -56,3 +58,45 @@ describe('the preview content-type lists', () => {
     for (const type of TEXT_PREVIEW_CONTENT_TYPES) expect(inline.has(type)).toBe(false)
   })
 })
+
+/**
+ * The third way of being shown (ADR-0070): not the stored bytes but a PDF the
+ * BFF made from them. The preview route, the file route and the ingest dispatch
+ * all ask this one predicate, so it is pinned here.
+ */
+describe('isOfficeRenditionSource', () => {
+  it('recognises an office file by its stored type', () => {
+    expect(
+      isOfficeRenditionSource({
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        filename: 'Baubeschreibung',
+      })
+    ).toBe(true)
+    expect(isOfficeRenditionSource({ contentType: 'application/vnd.ms-excel; charset=binary' })).toBe(true)
+  })
+
+  it('recognises one by its extension when the stored type is empty or generic', () => {
+    expect(isOfficeRenditionSource({ contentType: null, filename: 'Kosten.XLSX' })).toBe(true)
+    expect(isOfficeRenditionSource({ contentType: 'application/octet-stream', filename: 'Präsentation.pptx' })).toBe(
+      true
+    )
+    expect(isOfficeRenditionSource({ filename: 'piloti/doc-1/bericht.docx' })).toBe(true)
+    expect(isOfficeRenditionSource({ filename: 'protokoll.odt' })).toBe(true)
+    expect(isOfficeRenditionSource({ filename: 'brief.rtf' })).toBe(true)
+  })
+
+  it('leaves everything that is shown some other way alone', () => {
+    expect(isOfficeRenditionSource({ contentType: 'application/pdf', filename: 'plan.pdf' })).toBe(false)
+    expect(isOfficeRenditionSource({ contentType: 'text/csv', filename: 'katalog.csv' })).toBe(false)
+    expect(isOfficeRenditionSource({ contentType: 'image/png', filename: 'foto.png' })).toBe(false)
+    expect(isOfficeRenditionSource({ filename: 'haus.ifc' })).toBe(false)
+    expect(isOfficeRenditionSource({ filename: 'docx' })).toBe(false)
+    expect(isOfficeRenditionSource({})).toBe(false)
+  })
+
+  it('never overlaps the inline list, so a stored PDF is never re-rendered', () => {
+    const inline = new Set<string>(INLINE_PREVIEW_CONTENT_TYPES)
+    for (const type of OFFICE_RENDITION_CONTENT_TYPES) expect(inline.has(type)).toBe(false)
+  })
+})
+
