@@ -11,6 +11,13 @@ import { NextResponse } from 'next/server'
 
 export const INTERNAL_TOKEN_HEADER = 'x-grid-internal-token'
 
+/**
+ * Which secret a route checks. The service token authorizes backend → BFF
+ * calls (memory writes among them); a credential handed to something outside
+ * the cluster gets its own, so leaking it opens exactly one route.
+ */
+export type InternalTokenEnv = 'GRID_INTERNAL_API_TOKEN' | 'GRID_CORPUS_EXPORT_TOKEN'
+
 const DEV_DEFAULT_TOKEN = 'grid-internal-dev-token'
 const DEV_APP_ENVS = new Set(['development', 'dev', 'local'])
 
@@ -31,15 +38,19 @@ function isDevEnvironment(): boolean {
  * Returns a rejection Response, or null when the request is authorized.
  * Usage: `const denied = requireInternalToken(request); if (denied) return denied`
  */
-export function requireInternalToken(request: Request, label: string): Response | null {
-  const expectedToken = process.env.GRID_INTERNAL_API_TOKEN
+export function requireInternalToken(
+  request: Request,
+  label: string,
+  tokenEnv: InternalTokenEnv = 'GRID_INTERNAL_API_TOKEN'
+): Response | null {
+  const expectedToken = process.env[tokenEnv]
   if (!expectedToken) {
-    console.error(`[${label}] GRID_INTERNAL_API_TOKEN is not configured — rejecting`)
+    console.error(`[${label}] ${tokenEnv} is not configured — rejecting`)
     return NextResponse.json({ error: 'Internal API disabled' }, { status: 503 })
   }
   if (expectedToken === DEV_DEFAULT_TOKEN && !isDevEnvironment()) {
     console.error(
-      `[${label}] GRID_INTERNAL_API_TOKEN is the well-known dev default in a non-dev environment — refusing to serve.`,
+      `[${label}] ${tokenEnv} is the well-known dev default in a non-dev environment — refusing to serve.`,
     )
     return NextResponse.json({ error: 'Internal API disabled' }, { status: 503 })
   }

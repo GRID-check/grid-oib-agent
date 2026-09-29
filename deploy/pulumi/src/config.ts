@@ -793,6 +793,12 @@ export interface GridConfig {
     apiToken: pulumi.Output<string>;
     adminToken: pulumi.Output<string>;
     /**
+     * Token for `/api/internal/oib-corpus`, the corpus tarball the answer-suite
+     * CI workflow ingests. Its own secret, because it lives outside the cluster
+     * (a repository secret). Empty = the export is disabled (503).
+     */
+    corpusExportToken: pulumi.Output<string>;
+    /**
      * 32-byte base64 KEK encrypting DB-claimed job payloads at rest (they carry
      * the user auth token). Empty = plaintext (dev only). Strongly recommended
      * whenever jobExecution="db". Generate: `openssl rand -base64 32`.
@@ -2374,6 +2380,7 @@ export function loadConfig(): GridConfig {
     internal: {
       apiToken: cfg.requireSecret("gridInternalApiToken"),
       adminToken: cfg.requireSecret("gridAdminToken"),
+      corpusExportToken: cfg.getSecret("gridCorpusExportToken") ?? pulumi.output(""),
       jobPayloadKek: jobPayloadKek ?? pulumi.output(""),
     },
 

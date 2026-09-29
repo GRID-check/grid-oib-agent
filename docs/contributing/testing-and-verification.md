@@ -324,8 +324,20 @@ task be:eval:answer-suite -- --out /tmp/suite/after --baseline /tmp/suite/before
 It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus in
 `data/oib` ingested into `AIQ_CHROMA_DIR` (`-- --ingest` runs the sync
 first). Every run costs model calls: the core set at two runs is twelve
-turns, about four minutes three at a time. It cannot run in CI for the same
-reason as the loop eval; its bookkeeping is covered offline by
+turns, about four minutes three at a time.
+
+**On a PR, add the `answer-suite` label** and CI runs it for you
+(`.github/workflows/answer-suite.yml`): the base and the head, the head's
+report with its baseline deltas as one sticky comment, re-run on every push
+while the label stays on. It needs the repository secrets `OPENROUTER_API_KEY`
+and `OIB_CORPUS_URL`, and fails fast without them. The corpus is the
+operator's and never committed; the deployment serves it for exactly this at
+`https://<app domain>/api/internal/oib-corpus` (the PDFs production ingests,
+as one .tar.gz), with the deployment's `GRID_CORPUS_EXPORT_TOKEN` in the
+`OIB_CORPUS_TOKEN` secret. The ingest is cached on the corpus version (`OIB_CORPUS_VERSION`, a
+repository variable to bump when the corpus changes) and the ingestion code.
+Opt-in rather than on every PR because every run is paid model calls. Its
+bookkeeping is also covered offline by
 [`tests/test_answer_suite.py`](../../tests/test_answer_suite.py). The
 September 2026 measurements it grew out of are in
 [turns-per-answer-audit-2026-09.md](../architecture/turns-per-answer-audit-2026-09.md).

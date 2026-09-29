@@ -471,6 +471,8 @@ services:
       # Admin token for the backend's /v1/admin/oib/* endpoints (must match the
       # aiq-agent value). Powers the platform-owner base-knowledge management UI.
       - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:?set GRID_ADMIN_TOKEN}
+      # Corpus tarball for the answer-suite CI (/api/internal/oib-corpus). Unset = disabled.
+      - GRID_CORPUS_EXPORT_TOKEN=${GRID_CORPUS_EXPORT_TOKEN:-}
       # WorkOS AuthKit — only consumed when REQUIRE_AUTH=true. Safe to leave the
       # keys empty for an unauthenticated preview.
       - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID:-}
