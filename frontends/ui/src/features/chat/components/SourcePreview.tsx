@@ -744,7 +744,12 @@ export const CitationDocumentDialog: FC<{
   const headerSignal: SourceTint =
     citation?.document.tint ?? (target.document.type === 'base' ? 'law' : 'project')
   const page = activeLocus?.page ?? target.page
-  const passage = activeLocus?.snippet ?? target.snippet
+  // A passage read off a picture of the page (a plan's Grundriss) is marked
+  // by its box, not searched for: its "snippet" is the vision model's
+  // description of the drawing, and none of those words are on the sheet
+  // (issue #433). A locus with no box keeps the text search, as before.
+  const regions = activeLocus?.regions
+  const passage = regions?.length ? undefined : (activeLocus?.snippet ?? target.snippet)
   // What the rail will show, decided here because it also decides whether the
   // dialog draws the passage a second time above the document.
   const railLoci = citation ? navigableLoci(citation.document) : []
@@ -779,6 +784,7 @@ export const CitationDocumentDialog: FC<{
       // page the reader then has to search — and it wears this source's own
       // tint, the same one the chip that opened the dialog wore.
       highlight={passage}
+      regions={regions}
       highlightColor={`var(--source-${headerSignal})`}
       // What the reader's OWN selection becomes on the clipboard. The viewer
       // knows the words and the page; only this side knows the document they

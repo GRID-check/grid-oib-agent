@@ -4,6 +4,7 @@
  * Type definitions for chat messages, conversations, and state.
  */
 
+import type { PageRegion } from '@/features/knowledge/lib/page-region'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
@@ -521,6 +522,13 @@ export interface CitationSource {
    * one direction a legal signal must not fail in.
    */
   bindingStatus?: string
+  /**
+   * Where on the page the passage sits, for a passage read off a picture of the
+   * page — a plan's Grundriss, a photo (issue #433). The viewer draws these
+   * boxes instead of searching the page's text for `snippet`, which for such a
+   * passage is the model's description of the drawing, not words on the page.
+   */
+  regions?: PageRegion[]
 }
 
 /** Wire shape of a structured source attached to a shallow ChatResponse. */
@@ -561,6 +569,8 @@ export interface WireCitationSource {
    * prose `binding_note`.
    */
   binding_status?: string | null
+  /** Boxes on the page, `[{box: [x0, y0, x1, y1], label}]` normalised 0-1 (issue #433). */
+  regions?: unknown
 }
 
 /**

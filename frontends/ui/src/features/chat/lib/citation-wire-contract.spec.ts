@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { citationFromWire, normalizeOrigin } from './wire-citation'
+import { buildCitationModel } from './citations'
 import { splitReportSources } from '@/features/layout/lib/report-citations'
 import type { WireCitationSource } from '../types'
 
@@ -83,6 +84,14 @@ describe('wire payload → citation chips', () => {
         page: 4,
       },
     ])
+  })
+
+  test('a plan\u2019s region reaches the viewer\u2019s locus, box and label intact (#433)', () => {
+    const [oib, plan] = WIRE_SOURCES.map((wire) => citationFromWire(wire))
+    expect(oib!.regions).toBeUndefined()
+    expect(plan!.regions).toEqual([{ box: [0.08, 0.12, 0.62, 0.71], label: 'Grundriss 1. OG' }])
+    const planDoc = buildCitationModel({ citations: [plan!] })[0]!
+    expect(planDoc.loci[0]!.regions).toEqual(plan!.regions)
   })
 
   test('no backend origin is silently dropped as unrecognized', () => {

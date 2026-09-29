@@ -30,6 +30,7 @@
  * only ever flattened for the wire.
  */
 
+import { mergePageRegions, type PageRegion } from '@/features/knowledge/lib/page-region'
 import type { SourceTint } from '@/features/layout/lib/source-presets'
 import type { CitationSource } from '../../types'
 import {
@@ -73,7 +74,21 @@ export interface CitationLocus {
   snippet?: string
   /** The exact key the backend registry used — drives preview + copy-citation. */
   citationKey?: string
+  /**
+   * Where on the page the passage sits, for one read off a picture of the page
+   * (a plan's depiction, a photo). The viewer marks these instead of searching
+   * the text for `snippet` (issue #433).
+   */
+  regions?: PageRegion[]
 }
+
+/**
+ * A locus as an observation states it: before it has a key, and before anyone
+ * has decided it was cited. One named shape for every path that folds a locus
+ * into a document, so a field added to {@link CitationLocus} reaches all of
+ * them or fails to compile.
+ */
+export type LocusObservation = Omit<CitationLocus, 'key' | 'isCited'> & { isCited?: boolean }
 
 /** One element a measured value was derived from. */
 export interface MeasuredElement {
@@ -754,15 +769,7 @@ export class CitationAccumulator {
     origin?: string | null
     tool?: string | null
     snippet?: string | null
-    locus?: {
-      page?: number
-      punkt?: string
-      score?: number
-      number?: number
-      isCited?: boolean
-      snippet?: string
-      citationKey?: string
-    }
+    locus?: LocusObservation
   }): CitedDocument | null {
     const id = documentIdentity(observation.identity)
     if (!id) return null
@@ -864,15 +871,7 @@ export class CitationAccumulator {
   /** Merge one locus into a document, keeping the richer of the two. */
   private mergeLocus(
     doc: CitedDocument,
-    locus: {
-      page?: number
-      punkt?: string
-      score?: number
-      number?: number
-      isCited?: boolean
-      snippet?: string
-      citationKey?: string
-    }
+    locus: LocusObservation
   ): void {
     const page =
       typeof locus.page === 'number' && Number.isFinite(locus.page) ? locus.page : undefined
@@ -889,6 +888,8 @@ export class CitationAccumulator {
       existing.snippet = existing.snippet || locus.snippet?.trim() || undefined
       existing.citationKey = existing.citationKey || locus.citationKey?.trim() || undefined
       existing.punkt = existing.punkt || locus.punkt?.trim() || undefined
+      // A page's boxes fold together, as the backend registry folds them.
+      existing.regions = mergePageRegions(existing.regions, locus.regions)
       // Several chunks of one page fold onto one locus; the page keeps the
       // best match any of them earned, mirroring the backend registry.
       existing.score =
@@ -908,6 +909,7 @@ export class CitationAccumulator {
       isCited: !!locus.isCited,
       snippet: locus.snippet?.trim() || undefined,
       citationKey: locus.citationKey?.trim() || undefined,
+      regions: locus.regions?.length ? locus.regions : undefined,
     })
   }
 
@@ -1046,15 +1048,7 @@ export class CitationAccumulator {
   /** Fold a written-list locus into an already-matched document (see above). */
   attachLocus(
     doc: CitedDocument,
-    locus: {
-      page?: number
-      punkt?: string
-      score?: number
-      number?: number
-      isCited?: boolean
-      snippet?: string
-      citationKey?: string
-    }
+    locus: LocusObservation
   ): void {
     this.mergeLocus(doc, locus)
   }
@@ -1094,4 +1088,5 @@ export const locusOf = (citation: CitationSource): CitationLocus => ({
   number: citation.number,
   isCited: !!citation.isCited,
   citationKey: citation.citationKey?.trim() || undefined,
+  regions: citation.regions,
 })
