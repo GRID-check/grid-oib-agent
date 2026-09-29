@@ -228,10 +228,10 @@ def heartbeat(job_ids: Iterable[str]) -> None:
     try:
         _ensure_table(url)
         engine = DocumentMetadataStore._get_or_create_sync_engine(url)
+        # A constant statement: CURRENT_TIMESTAMP means the same on Postgres and
+        # SQLite, so nothing here is composed; owner and ids are bound.
         statement = text(
-            # now is a dialect-chosen literal; owner and ids are bound.
-            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-            f"UPDATE ingest_jobs SET heartbeat_at = {_now(url)} WHERE owner = :owner AND job_id IN :ids"
+            "UPDATE ingest_jobs SET heartbeat_at = CURRENT_TIMESTAMP WHERE owner = :owner AND job_id IN :ids"
         ).bindparams(bindparam("ids", expanding=True))
         with engine.connect() as conn:
             conn.execute(statement, {"owner": OWNER, "ids": ids})
