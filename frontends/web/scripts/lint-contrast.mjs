@@ -48,7 +48,7 @@ const PAIRS = [
   // The story's fragment tags are dark tiles (bg-ink) on the panel.
   ['on-dark-label', ['panel', 'accent-900', 'ink']],
   ['on-dark-tag', ['panel', 'accent-900']],
-  ['on-dark-strong', ['panel', 'accent-900', 'ink']],
+  ['on-dark-strong', ['panel', 'accent-900', 'accent-800', 'ink']],
   ['accent-900', ['accent-400', 'surface']],
 ]
 

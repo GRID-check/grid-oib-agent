@@ -11,10 +11,20 @@ from a blank page.
 | Reader | Arrives with | Needs to leave with | Where the site answers |
 |---|---|---|---|
 | Office principal (buyer) | "Is this worth my team's time, and is it safe?" | Less submission risk, knowledge that does not leave with people, a clear data answer | `/warum-piloti/` (audiences, what Piloti is not), FAQ |
-| Project lead (champion) | A real question on a real project | Proof that the answer is checkable and project-aware | Homepage decision chain, `/warum-piloti/` stages, the CTA |
+| Project lead (champion) | A real question on a real project | Proof that the answer is checkable and project-aware, and that work can be handed over | Homepage decision chain, then the week of work (`Arbeit.astro`, on the homepage and atop `/warum-piloti/`), the CTA |
 | Planner (user) | A search: "Gebäudeklasse …", "ChatGPT Baurecht" | A useful article, then a reason to try | Journal articles, each ending in a real-question invite |
 | Data or IT decider (gatekeeper) | "Where do our drawings go?" | The providers, named, and no training | Quellen section, FAQ, privacy policy |
 | Buyer comparing tools | "Reiner AI Alternative", "Rainer AI" | An honest side-by-side they can trust | `/piloti-vs-reiner-ai/` |
+
+## The turn the page has to make
+
+The first version read as a better reference book: sources, citations, what
+Piloti draws on. The founders' verdict was that it lacked the moment a reader
+thinks "this does my work". That moment is the handover: one sentence starts
+a submission check, and a report, open points, an approval and a weekly
+recheck follow. The homepage shows one answer (Nutzung), then a week of work
+(Arbeit). Keep that order: an answer earns trust, and handing over work is
+what a reference book cannot do.
 
 ## The conversion path
 
