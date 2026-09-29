@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Decision eval for the uses off the reader's path (ADR-0064, uses 4, 5, 7, 8 and 9).
+"""Decision eval for the uses off the reader's path (ADR-0064, uses 4, 5, 7, 8 and 9), and the turn's repeat.
 
 WHY THIS EXISTS
 ---------------
@@ -29,6 +29,9 @@ THE FLOORS
   their cause (an operator's count, so a miss skews a number, not an answer).
 - memory supersede: no finding retires an entry it does not correct (a wrong
   retirement loses a fact); a missed correction is reported, not failed.
+- answered_before (the turn decision): no new ask reaches the threshold (a
+  false repeat skips round 0 and tells the model the answer is already
+  there); a missed repeat researches as before, so it is reported, not failed.
 
 IT NEEDS A KEY, NOT A BACKEND
 -----------------------------
@@ -45,7 +48,8 @@ THE LAST RUN
 0.8 (clear disciplines 0.96-0.98, the highest false one 0.47); reflection:
 skipped 8/9 empty passes at 0.7, lost none; memory supersede 8/8 corrections,
 no wrong retirement; Dokumentart 10/10 offered, none wrong; feedback causes
-16/16.
+16/16. 2026-09-29: answered_before 5-6 of 6 repeats over two runs (the
+„als Liste" rewrite sits on 0.8; the rest 0.91-0.97), no new ask above 0.31.
 """
 
 from __future__ import annotations
@@ -159,6 +163,37 @@ def eval_feedback_causes() -> bool:
     return right >= len(rows) - 2
 
 
+def repeat_probabilities(rows: list[dict]) -> list[float | None]:
+    """p(answered_before) per row, asked exactly as the turn asks it."""
+    import asyncio
+
+    from aiq_agent.agents.piloti.decisions import TurnFacts
+    from aiq_agent.agents.piloti.decisions import questions_for
+
+    facts = [
+        TurnFacts(question=r["message"], previous_message=r["previous_message"], previous_answer=r["previous_answer"])
+        for r in rows
+    ]
+    question = {"answered_before": questions_for(facts[0])["answered_before"]}
+    decided = asyncio.run(decisions.decide_many([f.state() for f in facts], question, slot="eval", timeout=20))
+    return [d.noul("answered_before") if d else None for d in decided]
+
+
+def eval_answered_before() -> bool:
+    from aiq_agent.agents.piloti.decisions import ANSWERED_BEFORE_THRESHOLD
+
+    rows = yaml.safe_load((FIXTURES / "answered_before.yaml").read_text(encoding="utf-8"))
+    found = false_repeats = 0
+    for row, p in zip(rows, repeat_probabilities(rows)):
+        hit = p is not None and p >= ANSWERED_BEFORE_THRESHOLD
+        found += hit and row["answered_before"]
+        false_repeats += hit and not row["answered_before"]
+        print(f"  want={row['answered_before']!s:5} p={p} {row['message'][:60]}")
+    repeats = sum(1 for row in rows if row["answered_before"])
+    print(f"answered_before: {found}/{repeats} repeats, {false_repeats} false")
+    return false_repeats == 0
+
+
 def main() -> int:
     os.environ.setdefault("OPENROUTER_API_KEY", os.environ.get("OPENROUTER_KEY", ""))
     # Not a request: no organization, so no ZDR policy to look up over HTTP.
@@ -168,6 +203,7 @@ def main() -> int:
         ok = eval_supersede() and ok
         ok = eval_doc_class() and ok
         ok = eval_feedback_causes() and ok
+        ok = eval_answered_before() and ok
     return 0 if ok else 1
 
 

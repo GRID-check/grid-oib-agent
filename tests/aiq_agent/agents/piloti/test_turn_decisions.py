@@ -260,6 +260,40 @@ class TestAFollowUpPrefetchesNothing:
         ]
 
 
+class TestARepeatPrefetchesNothing:
+    """„was weißt du zur oib 2" three times ran three full researches; the previous answer held it."""
+
+    def test_answered_before_is_asked_only_when_there_is_a_previous_exchange(self):
+        assert "answered_before" not in questions_for(_facts("was weißt du zur oib 2"))
+        assert "answered_before" in questions_for(_facts("was wißt du über die oib 2", previous_message="x"))
+
+    async def test_a_repeat_names_its_subject_and_still_prefetches_nothing(self):
+        decision = Decision(
+            answers={
+                "needs_evidence": {"type": "noul", "noul": 0.95},
+                "corpus": {"type": "choice", "choice": "baurecht", "probabilities": {"baurecht": 0.97}},
+                "self_contained": {"type": "noul", "noul": 0.93},
+                "answered_before": {"type": "noul", "noul": 0.94},
+            }
+        )
+        facts = _facts("was wißt du über die oib 2", previous_message="was weißt du über die oib 2")
+        with patch("aiq_agent.common.decisions.decide", new_callable=AsyncMock, return_value=decision):
+            decided = await decide_turn(facts)
+        assert decided.searchable and decided.repeats_previous
+        assert prefetch_calls(decided, facts.question, previous_message=facts.previous_message) == []
+
+    def test_a_new_ask_on_the_same_subject_is_searched(self):
+        decided = TurnDecisions(
+            decided=True, needs_evidence=0.9, corpus="baurecht", corpus_p=0.9, self_contained=0.9, answered_before=0.3
+        )
+        assert not decided.repeats_previous
+        assert prefetch_calls(decided, "bist du sicher mit 1,00 m?", previous_message="Geländerhöhe?") != []
+
+    def test_unknown_counts_as_not_a_repeat(self):
+        assert not TurnDecisions(decided=True, answered_before=None).repeats_previous
+        assert not TurnDecisions(answered_before=0.99).repeats_previous
+
+
 class TestTheOpenDocument:
     def test_a_project_question_with_a_file_open_is_pinned_to_it(self):
         decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="projekt", corpus_p=0.9)

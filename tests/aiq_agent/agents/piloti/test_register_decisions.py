@@ -105,6 +105,21 @@ class TestTheEffects:
         assert state.card_shapes_block and "fire_access_plan" in state.card_shapes_block
         assert "stair_diagram" not in state.card_shapes_block
 
+    def test_a_repeat_reaches_the_prompt_and_nothing_else_does(self):
+        from aiq_agent.agents.piloti.prompt import render_system_prompt
+        from aiq_agent.agents.piloti.prompt import system_prompt_template
+
+        def render(state):
+            return render_system_prompt(system_prompt_template(), state, [])
+
+        state = ResearchAgentState(messages=[HumanMessage(content="was wißt du über die oib 2")])
+        _apply_decisions(TurnDecisions(decided=True, answered_before=0.94), state, None)
+        assert state.answered_before
+        assert "answered in the previous turn" in render(state)
+        _apply_decisions(TurnDecisions(decided=True, answered_before=0.3), state, None)
+        assert not state.answered_before
+        assert "answered in the previous turn" not in render(state)
+
     def test_the_chosen_skills_preferred_shapes_beyond_the_contracts_ride_the_turn(self):
         state = ResearchAgentState(messages=[])
         decided = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.8, skill_veto=0.05)

@@ -202,6 +202,26 @@ is withheld when the veto reaches 0.7. Held-out (30 questions written blind,
 tuning set (summer overheating and ground moisture in the family scopes)
 changed nothing on the held-out set; they stay because they are true.
 
+*Amended 2026-09-29, a repeat is answered from the transcript.* „was weißt
+du zur oib 2", asked three times in one conversation, ran three full
+researches (7, 7 and 17 sources): a repeat names its own subject, so
+`self_contained` rated it searchable and round 0 searched the whole topic
+again, while the previous answer in the transcript already held it. The turn
+decision now asks `answered_before` whenever there is a previous exchange —
+does the previous answer already answer this message — over the two bounded
+fields the state already carried. At 0.8 or above the turn prefetches
+nothing and the prompt says the previous answer answers it: answer from that
+and the passages still in the transcript, open a pruned passage with
+`read_passage` rather than searching, fetch only what the user now asks
+beyond it. It adds a sentence and withholds only round 0, as a follow-up
+already does; every tool stays bound. Tuning set (sixteen rows, the
+conversation's own three first): repeats 0.80–0.97, new asks on the same
+subject — another class, „genauer", „bist du sicher?", an Aktenvermerk from
+it — 0.02–0.31. Held-out (30 rows written blind, scored once): 10/14
+repeats, no new ask at 0.8 (the highest 0.70, „bist du sicher?"); the misses
+are rewrites („kürzer", „als Stichpunktliste") and one reworded repeat, and
+a miss researches as before.
+
 **Use 5 — whether memory reflection runs** (`memory/reflection.nothing_durable_probability`,
 `stages/memory_reflection._handler`). Reflection is a reasoning call on the
 memory group's model after every project turn, and its prompt calls an empty

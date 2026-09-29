@@ -427,7 +427,7 @@ def _tools_in_scope(tools: list[Any]) -> list[Any]:
 
 
 def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtime: SkillRuntime | None) -> None:
-    """The two prompt-side effects: the chosen skill's body, and the likely card shapes.
+    """The prompt-side effects: the chosen skill's body, the likely card shapes, and a repeat.
 
     The chosen skill rides this turn's prompt in full (``inline_also``), the
     one method the question is the subject of; the shapes are its preferred
@@ -442,6 +442,7 @@ def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtim
     from aiq_agent.skills.models import preferred_cards
 
     withheld_shapes = {*ENVELOPE_SHAPE_TYPES, *CHAT_ONLY_CARD_TYPES}
+    state.answered_before = decisions.repeats_previous
 
     if runtime is not None and decisions.chosen_skill:
         runtime.inline_also((decisions.chosen_skill,))

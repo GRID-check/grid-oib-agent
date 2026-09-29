@@ -32,7 +32,10 @@ false one; reflection skipped 13/13 empty passes and lost no durable one;
 supersede 15/15 corrections, no wrong retirement; Dokumentart 13/13;
 feedback causes 20/24 (1 wrong, 3 unlabelled); turn: needs_evidence 30/30,
 self_contained 25/27, family 16/21 with one false pick on a follow-up,
-skill 25/30.
+skill 25/30. 2026-09-29, answered_before (scored once, on the wording the
+tuning set passed): 10/14 repeats, no new ask at 0.8 (highest 0.70, „bist
+du sicher?"); the misses are rewrites („als Stichpunktliste", „kürzer")
+and a reworded repeat, which research as before.
 """
 
 from __future__ import annotations
@@ -278,6 +281,31 @@ async def turn():
     return res
 
 
+async def answered_before():
+    from aiq_agent.agents.piloti.decisions import ANSWERED_BEFORE_THRESHOLD
+    from aiq_agent.agents.piloti.decisions import TurnFacts
+    from aiq_agent.agents.piloti.decisions import questions_for
+
+    rows = load("answered_before.yaml")
+    facts = [
+        TurnFacts(question=r["message"], previous_message=r["previous_message"], previous_answer=r["previous_answer"])
+        for r in rows
+    ]
+    question = {"answered_before": questions_for(facts[0])["answered_before"]}
+    ds = await decide_many([f.state() for f in facts], question, slot="h", timeout=20)
+    res = {"found": 0, "repeats": 0, "false_repeats": [], "missed": []}
+    for r, d in zip(rows, ds):
+        p = d.noul("answered_before") if d else None
+        hit = p is not None and p >= ANSWERED_BEFORE_THRESHOLD
+        res["repeats"] += r["answered_before"]
+        res["found"] += hit and r["answered_before"]
+        if hit and not r["answered_before"]:
+            res["false_repeats"].append((r["id"], p))
+        if r["answered_before"] and not hit:
+            res["missed"].append((r["id"], p))
+    return res
+
+
 FLOORS = {
     "tags": lambda r: r["type_right_at_0.8"] >= 22 and r["disc_fp"] <= 1,
     "reflection": lambda r: not r["lost_durable"] and r["skipped_non_durable"] >= 10,
@@ -291,6 +319,7 @@ FLOORS = {
         and len(r["family_false"]) <= 2
         and r["skill"][0] >= 23
     ),
+    "answered_before": lambda r: not r["false_repeats"] and r["found"] >= 9,
 }
 
 
@@ -304,6 +333,7 @@ async def main() -> int:
             ("doc_class", doc_class),
             ("causes", causes),
             ("turn", turn),
+            ("answered_before", answered_before),
         ):
             result = await fn()
             held = FLOORS[name](result)

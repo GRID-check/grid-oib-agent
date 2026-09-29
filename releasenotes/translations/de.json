@@ -2164,6 +2164,10 @@
     "de": "Lässt sich eine neue Fassung einer Datei nicht lesen, sagt die Dateivorschau neben dem Chat jetzt, dass Piloti weiterhin die vorige Fassung zitiert, statt zu melden, die Datei sei gar nicht zitierbar."
   },
   {
+    "en": "When a project detail changes, Piloti now replaces the old note in the project memory even when the new one is worded quite differently, so „Das Projekt liegt in Wien“ and „Das Grundstück liegt in St. Pölten“ no longer stand side by side. A note you created or confirmed yourself is still never replaced.",
+    "de": "Wenn sich eine Projektangabe ändert, ersetzt Piloti jetzt die alte Notiz im Projektgedächtnis, auch wenn die neue ganz anders formuliert ist; „Das Projekt liegt in Wien“ und „Das Grundstück liegt in St. Pölten“ stehen nicht mehr nebeneinander. Von Ihnen angelegte oder bestätigte Notizen ersetzt Piloti weiterhin nicht selbst."
+  },
+  {
     "en": "When a project has more notes than fit in one answer, Piloti now says so instead of silently showing a partial list, and pinned notes can no longer push everything else out of view.",
     "de": "Wenn ein Projekt mehr Notizen enthält, als in eine Antwort passen, weist Piloti jetzt darauf hin, statt stillschweigend nur einen Teil der Liste anzuzeigen, und angeheftete Notizen können nicht mehr alles andere aus dem Blickfeld verdrängen."
   },
@@ -2218,6 +2222,10 @@
   {
     "en": "When two sources contradict each other, Piloti now shows the difference, names both with their reference and says which rule decides, or that the sources cannot settle it.",
     "de": "Widersprechen sich zwei Quellen, zeigt Piloti den Unterschied jetzt an, nennt beide mit Fundstelle und sagt, welche Regel den Vorrang entscheidet, oder dass sich der Widerspruch aus den Quellen nicht auflösen lässt."
+  },
+  {
+    "en": "When you ask the same question again in a conversation, even in other words, Piloti answers from the answer it already gave you instead of researching the topic from scratch, so the reply comes much faster. If you ask for something that answer does not cover, Piloti looks up only that.",
+    "de": "Stellen Sie in einer Unterhaltung dieselbe Frage noch einmal, auch anders formuliert, antwortet Piloti aus der Antwort, die es Ihnen schon gegeben hat, statt das Thema von vorn zu recherchieren. Die Antwort kommt dadurch deutlich schneller. Fragen Sie nach etwas, das darin noch fehlt, schlägt Piloti gezielt nur das nach."
   },
   {
     "en": "Whether Piloti may file the documents it writes into a project is now a permission of its own, File agent-authored documents. Members without it can still upload, rename and delete their own files.",

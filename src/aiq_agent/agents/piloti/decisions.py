@@ -38,6 +38,14 @@ whose answer can only ADD to the turn:
   (``conversation._answer_update`` writes the whole turn back), which is
   the context the follow-up needs, and re-fetching it was the round every
   follow-up paid.
+- ``answered_before``, asked only when there is a previous exchange: whether
+  the previous answer already answers this message — the same question
+  again, reworded or misspelt. A repeat names its own subject, so
+  ``self_contained`` rates it searchable and round 0 used to search the
+  whole topic a second and a third time („was weißt du zur oib 2", three
+  turns, three full researches). A repeat prefetches nothing and the prompt
+  says the answer is in the transcript; every tool stays bound, so what the
+  previous answer lacks is still one call away.
 
 One request, every question over one state — the vendor evaluates them
 independently — and the state is built from structured fields, never the
@@ -121,6 +129,11 @@ SKILL_VETO_THRESHOLD = 0.7
 #: standalone 0.79-0.95, follow-ups at most 0.40; held-out 25/27 at 0.8 and
 #: 24/27 at 0.7, where a follow-up crossed — so 0.8.
 SELF_CONTAINED_THRESHOLD = 0.8
+#: At or above this p(answered_before) the turn prefetches nothing and the
+#: prompt points the model at the previous answer. Tuning set: repeats
+#: 0.80-0.97, new asks on the same subject (another class, „genauer",
+#: „bist du sicher?", an Aktenvermerk from it) 0.02-0.31.
+ANSWERED_BEFORE_THRESHOLD = 0.8
 #: How many card shapes the turn may attach in all (skill's plus the nouls').
 MAX_ATTACHED_SHAPES = 5
 
@@ -188,6 +201,8 @@ class TurnDecisions:
     #: p(the message asks for something other than an expert answer); a veto on the skill.
     skill_veto: float | None = None
     self_contained: float | None = None
+    #: p(the previous answer already answers this message); None on a first message.
+    answered_before: float | None = None
     latency_ms: int = 0
 
     @staticmethod
@@ -211,6 +226,11 @@ class TurnDecisions:
     def searchable(self) -> bool:
         """Whether the message itself is worth a search: unknown counts as yes."""
         return self.self_contained is None or self.self_contained >= SELF_CONTAINED_THRESHOLD
+
+    @property
+    def repeats_previous(self) -> bool:
+        """Whether the previous answer already answers this message: unknown counts as no."""
+        return self.decided and (self.answered_before or 0.0) >= ANSWERED_BEFORE_THRESHOLD
 
     def chosen_families(self) -> list[str]:
         ranked = sorted((f for f in self.families if f[1] >= FAMILY_THRESHOLD), key=lambda f: -f[1])
@@ -310,6 +330,19 @@ def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
             true=f"The answer would contain exactly what this card shows: {doc}",
             false="The answer is prose, a value, or a different kind of structure.",
         )
+    if facts.previous_message:
+        questions["answered_before"] = noul(
+            "Does the assistant's previous answer already answer this new message?",
+            true=(
+                "The new message asks the same thing as the previous message — repeated, misspelt, reworded or "
+                "in other words — or asks for something the previous answer already gives, such as restating it."
+            ),
+            false=(
+                "The new message asks something the previous answer does not give: another subject, part, value, "
+                "class, Land or situation, more detail than the previous answer gave, a doubt about it, a "
+                "follow-up such as 'und in GK 5?', a document to write from it, or thanks."
+            ),
+        )
     questions["self_contained"] = noul(
         "Can this message be searched for on its own, without the previous message, and still find what it asks about?",
         true=(
@@ -371,10 +404,12 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
         skill_p=skill_distribution.get(skill or "", 0.0),
         skill_veto=decision.noul("skill_veto"),
         self_contained=decision.noul("self_contained"),
+        answered_before=decision.noul("answered_before"),
         latency_ms=decision.latency_ms,
     )
     logger.info(
-        "Turn decision in %d ms: evidence=%.2f corpus=%s(%.2f) families=%s skill=%s cards=%s self_contained=%s",
+        "Turn decision in %d ms: evidence=%.2f corpus=%s(%.2f) families=%s skill=%s cards=%s self_contained=%s "
+        "answered_before=%s",
         decided.latency_ms,
         decided.needs_evidence or 0.0,
         decided.corpus,
@@ -383,6 +418,7 @@ async def decide_turn(facts: TurnFacts, *, organization_id: str | None = None) -
         decided.chosen_skill,
         decided.chosen_cards(),
         decided.self_contained,
+        decided.answered_before,
     )
     return decided
 
@@ -413,7 +449,8 @@ def prefetch_calls(
     office's own files, which is the audit's cleanest case: the subject was
     known before the model ran, and a pinned lookup skips the judge. A
     message that cannot be searched on its own (a follow-up) prefetches
-    nothing: the previous turn's passages are in the transcript; and,
+    nothing: the previous turn's passages are in the transcript, and so
+    does one the previous answer already answers; and,
     when the question is NOT itself a family overview, the chosen
     families' overviews — ``knowledge_search`` recognises ``OIB-Richtlinie n``
     as a family query and returns every member's scope and Gliederung. Nothing
@@ -436,7 +473,7 @@ def prefetch_calls(
     """
     if not decisions.decided:
         return [] if previous_message is not None else _undecided_prefetch(question)
-    if not decisions.wants_evidence or not decisions.searchable:
+    if not decisions.wants_evidence or not decisions.searchable or decisions.repeats_previous:
         return []
     if decisions.corpus not in {"baurecht", "projekt", "buero"} or decisions.corpus_p < CORPUS_THRESHOLD:
         return []

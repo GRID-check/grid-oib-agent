@@ -1,0 +1,8 @@
+---
+features:
+  - >
+    When you ask the same question again in a conversation, even in other
+    words, Piloti answers from the answer it already gave you instead of
+    researching the topic from scratch, so the reply comes much faster. If
+    you ask for something that answer does not cover, Piloti looks up only
+    that.
