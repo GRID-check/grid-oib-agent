@@ -1,0 +1,7 @@
+---
+operators:
+  - >
+    Pull requests can now run the answer suite in CI by adding the answer-
+    suite label. It needs the new optional GRID_CORPUS_EXPORT_TOKEN on the
+    frontend and the repository secrets OIB_CORPUS_URL and OIB_CORPUS_TOKEN;
+    without the token the corpus export stays disabled.
