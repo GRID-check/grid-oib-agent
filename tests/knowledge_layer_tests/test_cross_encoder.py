@@ -13,6 +13,11 @@ import logging
 from types import SimpleNamespace
 
 import httpx
+
+# Loaded before any test swaps ``httpx.AsyncClient`` for a partial: openai
+# subclasses it at import, and a first import inside the swap is a TypeError
+# (the file passed only when another test had imported openai first).
+import openai  # noqa: F401
 import pytest
 
 from sources.knowledge_layer.src import cross_encoder as ce
