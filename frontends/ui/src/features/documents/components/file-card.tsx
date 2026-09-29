@@ -3,6 +3,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import Image from 'next/image'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
+import { isOfficeRenditionSource } from '@/lib/documents/preview-types'
 import type { FileItem } from './project-file-workspace'
 import { formatBytes } from '@/lib/format'
 import { TimeAgo } from '@/components/ui/time-ago'
@@ -118,7 +119,13 @@ function loadThumbnail(fileId: string, provisional = false): Promise<string | nu
 export function ThumbnailWithFallback({ file }: { file: FileItem }) {
   const t = useTranslations('files')
   const kind = inferDocumentKind(file)
-  const canHaveThumbnail = file.contentType === 'application/pdf' || (file.contentType ?? '').startsWith('image/')
+  // Office files too: ingest renders their `_thumb.jpg` from the PDF rendition
+  // (ADR-0070). One uploaded before that, or with conversion off, has none, and
+  // the route answers `{ url: null }` — the kind sketch below, not a failure.
+  const canHaveThumbnail =
+    file.contentType === 'application/pdf' ||
+    (file.contentType ?? '').startsWith('image/') ||
+    isOfficeRenditionSource(file)
   const [state, setState] = useState<ThumbState>(canHaveThumbnail ? 'loading' : 'none')
   const [imgUrl, setImgUrl] = useState<string | null>(null)
 

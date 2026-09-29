@@ -1039,6 +1039,90 @@ describe('FilePreviewPane', () => {
     })
   })
 
+  describe('an office file, through its PDF rendition (ADR-0070)', () => {
+    afterEach(() => vi.unstubAllGlobals())
+
+    const docx = {
+      ...mockFile,
+      filename: 'Raumprogramm.docx',
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    }
+    const rendition = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        url: 'https://example.test/_render.pdf',
+        contentType: 'application/pdf',
+        rendition: true,
+        sourceContentType: docx.contentType,
+      }),
+    }
+
+    it('says the PDF is being made while the preview route converts', async () => {
+      const fetchMock = vi.fn(() => new Promise<Response>(() => {}))
+      vi.stubGlobal('fetch', fetchMock)
+      render(<FilePreviewPane file={docx} projectId="proj-1" />)
+
+      expect(await screen.findByText('Creating PDF preview…')).toBeInTheDocument()
+      expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-1/preview')
+    })
+
+    it('shows the rendition in the PDF frame, says so, and can enlarge it', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(rendition))
+      const { container } = render(<FilePreviewPane file={docx} projectId="proj-1" />)
+
+      expect(
+        await screen.findByRole('button', { name: /open large preview/i })
+      ).toBeInTheDocument()
+      expect(container.querySelector('iframe')?.getAttribute('src')).toBe(
+        'https://example.test/_render.pdf'
+      )
+      expect(screen.getByTestId('file-preview-rendition-note')).toHaveTextContent(
+        'PDF preview · Original: Raumprogramm.docx'
+      )
+      // Download stays: it always hands out the original.
+      expect(screen.getAllByRole('button', { name: 'Download' }).length).toBeGreaterThan(0)
+    })
+
+    it('decides by the extension when the stored type is empty', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(rendition))
+      const { container } = render(
+        <FilePreviewPane file={{ ...docx, contentType: null }} projectId="proj-1" />
+      )
+
+      await screen.findByRole('button', { name: /open large preview/i })
+      expect(container.querySelector('iframe')).not.toBeNull()
+    })
+
+    it.each([415, 502])(
+      'falls back to "no inline preview" and the download on %i',
+      async (status) => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status }))
+        render(<FilePreviewPane file={docx} projectId="proj-1" />)
+
+        expect(await screen.findByText(/no inline preview/i)).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /try again/i })).toBeNull()
+        expect(screen.queryByRole('button', { name: /open large preview/i })).toBeNull()
+        expect(screen.queryByTestId('file-preview-rendition-note')).toBeNull()
+      }
+    )
+
+    it('never draws an answer that is not a PDF', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: async () => ({ url: 'https://example.test/raw.docx', contentType: docx.contentType }),
+        })
+      )
+      const { container } = render(<FilePreviewPane file={docx} projectId="proj-1" />)
+
+      expect(await screen.findByText(/no inline preview/i)).toBeInTheDocument()
+      expect(container.querySelector('iframe')).toBeNull()
+    })
+  })
+
   describe('peek presentation', () => {
     const markdownFile = {
       ...mockFile,

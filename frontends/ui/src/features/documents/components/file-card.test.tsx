@@ -64,6 +64,34 @@ describe('ThumbnailWithFallback', () => {
     expect(screen.getByText('PNG')).toBeInTheDocument()
   })
 
+  it('asks for an office file\'s thumbnail, rendered from its PDF rendition (ADR-0070)', async () => {
+    server.use(
+      http.get('/api/documents/:id/thumbnail', () => HttpResponse.json({ url: 'https://cdn.test/d.jpg' }))
+    )
+
+    const { container } = render(
+      <ThumbnailWithFallback
+        file={file(
+          'o1',
+          'Raumprogramm.docx',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )}
+      />
+    )
+
+    await waitFor(() => expect(container.querySelector('img')).toHaveAttribute('src', 'https://cdn.test/d.jpg'))
+  })
+
+  it('draws the kind sketch for an office file that has no thumbnail yet', async () => {
+    server.use(http.get('/api/documents/:id/thumbnail', () => HttpResponse.json({ url: null })))
+
+    render(<ThumbnailWithFallback file={file('o2', 'Kosten.xlsx', null)} />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('document-kind-thumbnail')).toHaveAttribute('data-state', 'placeholder')
+    )
+  })
+
   it('treats a 404 as "no thumbnail" (warm placeholder), not a failure', async () => {
     server.use(http.get('/api/documents/:id/thumbnail', () => HttpResponse.json({}, { status: 404 })))
 

@@ -94,6 +94,9 @@ export const files = {
     goneCleared: 'No longer asking about that file.',
     goneUndo: 'Undo',
     tryAgain: 'Try again',
+    // An office file is shown through a PDF the BFF makes from it (ADR-0070).
+    renditionPending: 'Creating PDF preview…',
+    renditionNote: 'PDF preview · Original: {name}',
     noInlinePreview: 'No inline preview for this file type. Download it to view the full document.',
     textTruncated:
       'Only the beginning of this file is shown. Download it to read the whole thing.',

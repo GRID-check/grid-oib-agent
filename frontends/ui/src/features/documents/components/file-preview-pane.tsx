@@ -1,7 +1,10 @@
 'use client'
 
 import type { JSX } from 'react'
-import { INLINE_PREVIEW_CONTENT_TYPES } from '@/lib/documents/preview-types'
+import {
+  INLINE_PREVIEW_CONTENT_TYPES,
+  isOfficeRenditionSource,
+} from '@/lib/documents/preview-types'
 
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { FileTextPage, isTextPageType } from './file-text-page'
@@ -237,6 +240,16 @@ export function FilePreviewPane({
    * format the optimizer rejects still has to render.
    */
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
+  /**
+   * What the preview route said it is serving, for an office file only.
+   *
+   * An office file is never shown as itself: the BFF converts it to a PDF
+   * rendition (ADR-0070) and the preview answers with `contentType:
+   * 'application/pdf'`. The renderer is chosen from THAT answer rather than
+   * from the stored type — the stored `.docx` type would send the URL into the
+   * image branch — and anything but a PDF is treated as no rendition at all.
+   */
+  const [renditionType, setRenditionType] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
   /** The document is not there any more (or not the reader's) — see `loadPreview`. */
@@ -275,7 +288,13 @@ export function FilePreviewPane({
     tags: file.tags,
   })
   const isModel = kind === 'model'
-  const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '')
+  /**
+   * Word, Excel, PowerPoint and their ODF kin are shown through a PDF the BFF
+   * makes from them (ADR-0070). They ask the same preview route, so they are
+   * `canPreview` too; what differs is what comes back and what a refusal means.
+   */
+  const isOfficeRendition = isOfficeRenditionSource(file)
+  const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '') || isOfficeRendition
   /**
    * Text, Markdown and CSV are previewable too, by a different route: the pane
    * fetches the CONTENT and renders it, because the object store publishes no
@@ -284,10 +303,13 @@ export function FilePreviewPane({
    * a URL to put in an element", and these have none.
    */
   const isTextual = isTextPageType(file.contentType)
-  const isImage = (file.contentType ?? '').startsWith('image/')
+  const isImage = !isOfficeRendition && (file.contentType ?? '').startsWith('image/')
+  /** The type of the bytes the well actually shows: the rendition's, for an office file. */
+  const shownType = isOfficeRendition ? renditionType : file.contentType
   // The large viewer dialog enlarges PDFs (native iframe viewer) and images
-  // (img mode). Offer the expand affordance for both.
-  const canExpandPreview = file.contentType === 'application/pdf' || isImage
+  // (img mode). Offer the expand affordance for both. An office file's
+  // rendition is a PDF, and `/file` streams the rendition for it.
+  const canExpandPreview = shownType === 'application/pdf' || isImage
   const isFailed = file.status === 'failed'
   const Icon = fileTypeIcon(file.contentType, file.filename)
   // Only surface content categories when there is something beyond plain text;
@@ -346,12 +368,22 @@ export function FilePreviewPane({
     }
 
     setIsLoading(true)
+    setRenditionType(null)
     // A local, not the state above: the branch that sets it and the branch that
     // reads it are two links of the same promise chain, and a `useState` value
     // does not change between them.
     let gone = false
+    // An office file the BFF will not or could not convert: 415 when
+    // conversion is switched off, 502 when the converter failed. Neither is a
+    // hiccup a retry fixes, so the pane says what it said before renditions
+    // existed — no inline preview — and offers the download of the original.
+    let noRendition = false
     fetch(`/api/documents/${file.id}/preview`)
       .then(async (r) => {
+        if (isOfficeRendition && (r.status === 415 || r.status === 502)) {
+          noRendition = true
+          return null
+        }
         // A RETRY THAT CANNOT WORK IS A DEAD END WEARING A BUTTON.
         //
         // 404 here is not a hiccup: the service answers it for a document that
@@ -368,7 +400,14 @@ export function FilePreviewPane({
         return r.ok ? await r.json() : null
       })
       .then((data) => {
-        if (data?.url) {
+        if (isOfficeRendition && data?.url && data.contentType !== 'application/pdf') {
+          noRendition = true
+        }
+        if (noRendition) {
+          setPreviewUrl(null)
+          setPreviewImageUrl(null)
+        } else if (data?.url) {
+          if (isOfficeRendition) setRenditionType(data.contentType)
           setPreviewUrl(data.url)
           // Absent for PDFs and for image formats the optimizer cannot process;
           // the renderer falls back to `url` unoptimized in both cases.
@@ -385,7 +424,7 @@ export function FilePreviewPane({
         setPreviewFailed(true)
       })
       .finally(() => setIsLoading(false))
-  }, [file.id, canPreview, isTextual])
+  }, [file.id, canPreview, isTextual, isOfficeRendition])
 
   useEffect(() => {
     loadPreview()
@@ -535,6 +574,22 @@ export function FilePreviewPane({
                 className="shrink-0"
                 testId="file-preview-lifecycle-badge"
               />
+              {/* The well shows a PDF made from this file, not the file. Said
+                once, calmly, next to the name, so nobody mistakes the rendition's
+                pagination or fonts for the original's; Download beside it still
+                hands out the original. */}
+              {isOfficeRendition && previewUrl && (
+                <Badge
+                  variant="outline"
+                  className="min-w-0 max-w-full shrink font-normal"
+                  data-testid="file-preview-rendition-note"
+                  title={t('preview.renditionNote', { name: file.filename })}
+                >
+                  <span className="truncate">
+                    {t('preview.renditionNote', { name: file.filename })}
+                  </span>
+                </Badge>
+              )}
               {showMetadataPanel && detectedType && (
                 <Badge variant="secondary" className="min-w-0 max-w-full shrink font-normal">
                   <span className="truncate">{detectedType}</span>
@@ -740,9 +795,14 @@ export function FilePreviewPane({
               peeking={peeking}
             />
           ) : canPreview && isLoading ? (
-            <PageMock skeleton />
+            // Converting an office file can take seconds on first open, so the
+            // skeleton says what it is waiting for instead of looking stuck.
+            <PageMock
+              skeleton
+              caption={isOfficeRendition ? t('preview.renditionPending') : undefined}
+            />
           ) : canPreview && previewUrl ? (
-            file.contentType === 'application/pdf' ? (
+            shownType === 'application/pdf' ? (
               <iframe
                 src={previewUrl}
                 className={cn(
@@ -1675,7 +1735,10 @@ function PageMock({
         {!skeleton && kind && (
           <DocumentKindThumbnail kind={kind} className="text-muted-foreground/45 h-16 w-24" />
         )}
-        {!skeleton && caption && (
+        {/* A caption while loading is a statement of what is coming ("PDF
+            preview being created"), which a skeleton may make; most loads have
+            none and stay bare. */}
+        {caption && (
           <p className="text-muted-foreground max-w-[80%] text-balance text-xs leading-relaxed">
             {caption}
           </p>

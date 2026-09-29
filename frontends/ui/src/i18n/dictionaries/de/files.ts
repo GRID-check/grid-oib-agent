@@ -92,6 +92,9 @@ export const files: typeof en.files = {
     goneCleared: 'Frage bezieht sich nicht mehr auf diese Datei.',
     goneUndo: 'Rückgängig',
     tryAgain: 'Erneut versuchen',
+    // An office file is shown through a PDF the BFF makes from it (ADR-0070).
+    renditionPending: 'PDF-Vorschau wird erstellt…',
+    renditionNote: 'PDF-Vorschau · Original: {name}',
     noInlinePreview:
       'Für diesen Dateityp gibt es keine Inline-Vorschau. Laden Sie sie herunter, um das vollständige Dokument anzusehen.',
     textTruncated:

@@ -186,6 +186,35 @@ const TEXT_FIXTURES: Record<'markdown' | 'csv' | 'text', FileItem> = {
   },
 }
 
+/**
+ * An office file, shown through the PDF the BFF makes from it (ADR-0070).
+ * `?variant=office-converting|office-converted|office-failed` picks the state;
+ * the shim below answers by id: a preview that never settles (the conversion
+ * the reader waits on), a PDF rendition, and a 502 from a failed converter.
+ */
+const OFFICE_VARIANTS = ['office-converting', 'office-converted', 'office-failed'] as const
+type OfficeVariant = (typeof OFFICE_VARIANTS)[number]
+
+const officeFixture = (variant: OfficeVariant): FileItem => ({
+  id: `dev-doc-${variant}`,
+  filename: 'Raumprogramm_Wohnbau-Nord.docx',
+  displayName: null,
+  fileSize: 184_000,
+  contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  status: 'ready',
+  folderId: null,
+  createdAt: '2026-06-14T09:00:00Z',
+  errorMessage: null,
+  summary: 'Raumprogramm für den Wohnbau Nord mit Flächen je Nutzungseinheit und Geschoss.',
+  pageCount: 6,
+  chunkCount: 12,
+  contentTypes: ['text', 'table'],
+  tags: [],
+})
+
+const isOfficeVariant = (value: string | undefined): value is OfficeVariant =>
+  (OFFICE_VARIANTS as readonly string[]).includes(value ?? '')
+
 const MARKDOWN_BODY = `# Einreichplanung — Bürocheckliste
 
 Gilt für alle Einreichungen in Oberösterreich ab **Juni 2026**.
@@ -425,6 +454,24 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url =
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const officeMatch = /\/api\/documents\/dev-doc-(office-[a-z]+)\/preview$/.exec(url)
+      if (officeMatch?.[1] === 'office-converting') {
+        return new Promise<Response>(() => {})
+      }
+      if (officeMatch?.[1] === 'office-failed') {
+        return Response.json({ code: 'RENDITION_FAILED' }, { status: 502 })
+      }
+      if (officeMatch) {
+        // The page SVG stands in for the rendition's bytes: an iframe draws
+        // either, and the route's answer is what the pane decides by.
+        return Response.json({
+          url: PAGE_SVG,
+          contentType: 'application/pdf',
+          rendition: true,
+          sourceContentType:
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        })
+      }
       if (/\/api\/documents\/.+\/preview$/.test(url)) {
         return Response.json({ url: PAGE_SVG })
       }
@@ -559,9 +606,11 @@ export default function FilePreviewDevPage({
     )
   }
 
+  const officeFile = isOfficeVariant(variant) ? officeFixture(variant) : null
+
   return (
     <FilePreviewDialog
-      file={textFixture ?? (authored === 'agent' ? GENERATED_FIXTURE : FIXTURE)}
+      file={officeFile ?? textFixture ?? (authored === 'agent' ? GENERATED_FIXTURE : FIXTURE)}
       projectId="proj-demo"
       projectName="Wohnbau Nord — Linz"
       canManage
