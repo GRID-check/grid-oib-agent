@@ -257,6 +257,86 @@ def requery_notice(queries: Sequence[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Coverage: the honest "nothing here answers it".
+#
+# Without this, ``knowledge_search`` fills ``top_k`` whatever it found, and a
+# question the corpus cannot answer gets sixteen formatted excerpts the model
+# reads as evidence (fill@16 = 1.000 on the golden set's should-refuse rows,
+# rag-system-audit-2026-08 §20). The cosine floor cannot fix that: answerable
+# and unanswerable top-1 similarities overlap (0.799-0.933 against
+# 0.795-0.865). What CAN tell them apart is a model reading the question
+# against the passage, and the search already asks one: the decider behind the
+# judge (``decisions.passage_verdicts``, p(answers) per passage).
+#
+# So the signal is the decider's verdict on the pool the model will actually
+# get: asked only when the judge already found the first pool insufficient,
+# after the requery round has widened and reranked it. A decision that did not
+# run, or did not run on every passage it was asked about, claims nothing.
+#
+# No cross-encoder threshold. The Cohere relevance scores are roughly
+# calibrated, but nothing in this repository measures them against labelled
+# answerable/unanswerable questions (the golden set's should-refuse rows are
+# three distinct needs, and no rerank-score run over them is recorded), and a
+# threshold without that is a guess. The scores are also not carried past the
+# reranker today. A score floor waits for that measurement.
+#
+# The verdict is said, never enforced: the pool reaches the model whole. A
+# decision never withholds a passage (ADR-0064), so the block states the gap
+# and the prompt says what to do with it.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CoverageGap:
+    """The decider read every judged passage and none answers the question."""
+
+    judged: int
+    best: float
+    threshold: float
+    widened: bool
+
+    def reason(self) -> str:
+        """The clause after „Abdeckung: unzureichend — ", German like the excerpts."""
+        after = ", auch nach Umformulierung der Suche" if self.widened else ""
+        return (
+            f"keine der {self.judged} besten Passagen enthält die gesuchte Aussage "
+            f"(Entscheidungsmodell: höchste Wahrscheinlichkeit {self.best:.2f}, "
+            f"Schwelle {self.threshold:.2f}){after}"
+        )
+
+
+async def judge_coverage(
+    query: str,
+    chunks: Sequence[Any],
+    *,
+    threshold: float,
+    widened: bool,
+) -> CoverageGap | None:
+    """A :class:`CoverageGap` when the decider says no passage answers; else ``None``.
+
+    Reads the head of ``chunks`` (the pool as the model will get it, best
+    first) with the same question and threshold as the first pass. ``None``
+    for everything that is not a complete "no": a passage that answers, a
+    decision that did not run, a passage the decider left unanswered, an empty
+    pool. Missing evidence is never read as an absent answer. Never raises.
+    """
+    head = list(chunks or [])[:_JUDGE_CANDIDATES]
+    if not head or not query:
+        return None
+    try:
+        from .decisions import passage_verdicts
+
+        verdicts = await passage_verdicts(query, head, threshold=threshold, injection=False)
+    except Exception:
+        logger.debug("Coverage check failed open", exc_info=True)
+        return None
+    if verdicts is None or any(p is None for p in verdicts.answers) or verdicts.sufficient:
+        return None
+    logger.info("Coverage insufficient for %r: best p=%.2f over %d passage(s)", query[:60], verdicts.best, len(head))
+    return CoverageGap(judged=len(head), best=verdicts.best, threshold=threshold, widened=widened)
+
+
+# ---------------------------------------------------------------------------
 # Latency gate: skip the judge when the pool is already decisive.
 #
 # A production trace (28 s for a 684-token OIB overview) showed the loop's

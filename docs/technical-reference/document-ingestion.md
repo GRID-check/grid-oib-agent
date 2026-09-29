@@ -177,8 +177,21 @@ The `LlamaIndexIngestor.submit_job()` creates a job with `JobState.PENDING` and 
 
 For each file:
 
-1. **Text extraction** — `SimpleDirectoryReader(input_files=[file_path])` loads the file content into LlamaIndex `Document` objects; `.docx`/`.xlsx`/`.pptx` and their macro variants go through `office_extractors`. When the job carries an extraction path for the file, the PDF rendition is read instead and every later step treats it as a PDF: pages, tables, images and visual pages. For a `.pptx` or `.pptm` a companion reads the speaker notes from the original, one unit per slide labelled with its rendition page, because a PDF export drops them
-2. **Table extraction** (PDF only, optional) — Uses `pdfplumber` to extract tables as markdown; each table becomes a `Document` with `content_type: "table"` metadata
+1. **Text extraction** — a PDF is read per page with pdfplumber, recording each line's font size and weight (`line_styles`). `.xlsx`/`.xlsm` go through `office_extractors`; `.md`, `.txt`, `.csv` and `.tsv` through `text_formats`, which decodes without dropping a byte (BOM, else strict UTF-8, else cp1252, else Latin-1; the encoding is stored as `source_encoding`). Any other extension falls to `SimpleDirectoryReader`. When the job carries an extraction path for the file, the PDF rendition is read instead and every later step treats it as a PDF: pages, tables, images and visual pages. For a `.pptx` or `.pptm` a companion reads the speaker notes from the original, one unit per slide labelled with its rendition page, because a PDF export drops them
+   **Chunking.** Every text chunk carries a locator a citation and `read_passage(punkt=…)` can use:
+
+   | Source | Unit | Locator (`punkt_id`) | `page_label` |
+   |---|---|---|---|
+   | OIB Richtlinie (`oib_doc_class` set) | a Punkt (`punkt_chunking`) | `3.5.2`, `Tabelle 3` | first page |
+   | Any other PDF with a heading structure | chunks of ~640 tokens inside a section that may span pages, 96 tokens of overlap inside the section, heading breadcrumb as the first line (`section_chunking`) | the heading's number (`3.2`, `§ 4`, `Artikel 2`), else its title path (`Brandschutz › Allgemeines`) | page the chunk's own text starts on; `page_end` where it ends |
+   | A PDF without one | one Document per page, split by `SentenceSplitter` | none | the page |
+   | `.md` (the IFC digest too) | one section per ATX heading, packed to the same budget, breadcrumb first | the heading path under the document title (`Geschoße › EG`) | none |
+   | `.txt` | paragraph blocks packed to the budget | `Zeilen 12-30` | none |
+   | `.csv`/`.tsv` | row groups that each repeat the header | `Zeilen 2-41` (file lines) | none |
+   | `.xlsx`/`.xlsm` sheet | row groups that each repeat the header, at most 10,000 rows a sheet; the rest are stated in the last group and counted as `rows_over_cap` on the file's job status | `Raumliste: Zeilen 2-41` | the sheet name |
+
+   A PDF counts as structured when it has at least three headings, at least half its text sits under one, and at most 30% of its lines are headings (`section_chunking.structure_is_usable`). A heading is a short line in a larger type than the body, in bold, or opened by a German numbering; lines that repeat at the top or bottom of most pages are running headers and are dropped.
+2. **Table extraction** (PDF only, optional) — Uses `pdfplumber` to extract the tables the text pass did not already index as captioned tables; each becomes row groups that repeat the header row (`content_type: "table"`, `table_part` orders them), so the splitter never cuts a table into header-less rows
 3. **Image extraction** (PDF only, optional) — Uses `pypdfium2` to extract images (min 100×100px to filter icons); each image is sent to the VLM API (default: `openai/gpt-6-luna` via OpenRouter — image input verified, caption quality on OIB drawings still open, see the Configuration table) for classification (chart vs image) and captioning; captions become `Document` objects with `content_type: "chart"` or `"image"` metadata
 4. **Summarization** (optional) — If `generate_summary` is enabled, the first and last chunks are combined and sent, as two **concurrent** calls to the same `summary_model` LLM, for a one-sentence summary and a tag classification (document type + OIB discipline; see "Backfilling tags" below). Both calls independently swallow exceptions/timeouts and return nothing on failure. A deterministic, text-derived fallback summary now fires whenever the LLM summary is missing — for any reason, independent of whether tag classification succeeded — so a document that finishes ingestion always gets a `document_metadata` row (see "Silent summary-row loss" below for the fix and the reconciliation backstop).
 5. **Indexing** — All `Document` objects are inserted into a `VectorStoreIndex` backed by ChromaDB with OpenRouter embeddings (`openai/text-embedding-3-large` by default; see "Embedding-model changes" below — stored vectors only match query vectors from the same model)
@@ -299,9 +312,9 @@ One window remains, narrow and named:
 | `embed_model` | `openai/text-embedding-3-large` (via OpenRouter) | Embedding model id; keep it stable, stored vectors only match query vectors from the same model — see "Embedding-model changes" below |
 | `chunk_size` | 1024 | Text chunk size (model supports up to 2048 tokens) |
 | `chunk_overlap` | 128 | Overlap between chunks |
-| `extract_tables` | false | Enable PDF table extraction |
-| `extract_images` | false | Enable PDF image extraction + VLM captioning |
-| `extract_charts` | false | Enable chart extraction with structured data |
+| `extract_tables` | true (`AIQ_EXTRACT_TABLES`) | PDF table extraction |
+| `extract_images` | true (`AIQ_EXTRACT_IMAGES`) | PDF image extraction + VLM captioning, at most `AIQ_MAX_IMAGES_PER_DOCUMENT` (64) per PDF |
+| `extract_charts` | true (`AIQ_EXTRACT_CHARTS`) | Index VLM-typed charts as `chart` chunks with structured data; off, as images |
 | `vlm_model` | `openai/gpt-6-luna` (via OpenRouter) | VLM for image captioning. TODO: evaluate caption quality on OIB drawings; neither this default nor its predecessor has been measured there |
 | `generate_summary` | false | Enable document summarization |
 | `summary_model` | null | LLM reference for summarization |
@@ -423,6 +436,18 @@ reconciles lazily on every read of document rows (`GET /api/documents` list and
    job id (legacy rows) → fall back to `GET /v1/collections/{collection}/documents` and match
    by filename: `success` → `completed`, `failed` → `failed`
 4. Backend unreachable → leave the row untouched; the next read retries
+
+A job the backend lost to a restart is not an in-flight job forever: its status
+row stops being vouched for by a heartbeat, and the status endpoint answers
+`failed` with `error_message` starting `interrupted:` once the heartbeat is two
+minutes old, which step 2 records like any other failure and re-ingest can
+retry ([python endpoints](../api/python-endpoints.md#ingestion)).
+
+Dispatch (`dispatchIngest` in `service.ts`) sends `POST /v1/ingest` with a
+ten-second budget. A timeout is sent once more: the backend is idempotent per
+document and object, so the second request joins the job the first one started.
+Only a second timeout, a non-2xx answer or a connection that never reached the
+backend records `failed` with „Ingestion could not be started".
 
 The collection file list is fetched at most once per collection per request.
 

@@ -1,0 +1,13 @@
+---
+fixes:
+  - >
+    A file whose indexing was cut short by a service restart now shows as failed
+    with a retry, instead of staying in progress forever and refusing to be
+    re-indexed.
+  - >
+    Uploading a large file no longer shows it as failed while it is in fact
+    still being indexed.
+  - >
+    A PDF with a few damaged pages is now indexed up to its last page instead of
+    stopping at the first damaged one; a PDF with too many damaged pages fails
+    with a retry instead of being indexed with holes.

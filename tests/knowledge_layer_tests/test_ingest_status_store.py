@@ -111,3 +111,167 @@ class TestInFlightFiles:
         monkeypatch.delenv("AIQ_SUMMARY_DB", raising=False)
         monkeypatch.delenv("NAT_JOB_STORE_DB_URL", raising=False)
         assert ingest_status_store.in_flight_files(["s_test"]) == {}
+
+
+# --- A live row is a claim its owner keeps making ---------------------------
+
+
+def _age_heartbeat(url: str, job_id: str, *, legacy: bool = False) -> None:
+    """Make a row look like its owner stopped beating (or, legacy, never beat)."""
+    from sqlalchemy import create_engine
+    from sqlalchemy import text
+
+    engine = create_engine(url)
+    with engine.begin() as conn:
+        if legacy:
+            conn.execute(
+                text("UPDATE ingest_jobs SET heartbeat_at = NULL, owner = NULL, updated_at = :t WHERE job_id = :j"),
+                {"t": "2000-01-01 00:00:00", "j": job_id},
+            )
+        else:
+            conn.execute(
+                text("UPDATE ingest_jobs SET heartbeat_at = :t WHERE job_id = :j"),
+                {"t": "2000-01-01 00:00:00", "j": job_id},
+            )
+    engine.dispose()
+
+
+def _with_file(job_id: str, state: JobState) -> IngestionJobStatus:
+    return _job_with_files(job_id, state, {"plan.pdf": FileStatus.INGESTING})
+
+
+class TestInterruptedJobs:
+    def test_a_fresh_live_row_stays_live(self, sqlite_db):
+        ingest_status_store.put(_with_file("job-1", JobState.PROCESSING))
+        got = ingest_status_store.get("job-1")
+        assert got is not None and got.status == JobState.PROCESSING
+
+    @pytest.mark.parametrize("state", [JobState.PENDING, JobState.PROCESSING])
+    def test_a_live_row_whose_owner_stopped_beating_reads_interrupted(self, sqlite_db, state):
+        ingest_status_store.put(_with_file("job-1", state))
+        _age_heartbeat(sqlite_db, "job-1")
+
+        got = ingest_status_store.get("job-1")
+
+        assert got is not None
+        assert got.status == JobState.FAILED
+        assert got.error_message.startswith("interrupted:")
+        assert got.metadata["failure_reason"] == "interrupted"
+        assert got.metadata["retryable"] is True
+        assert got.file_details[0].status == FileStatus.FAILED
+        # Stored that way, not only answered: the next reader sees the same.
+        _age_heartbeat(sqlite_db, "job-1")
+        again = ingest_status_store.get("job-1")
+        assert again is not None and again.status == JobState.FAILED
+
+    def test_a_finished_row_is_never_rewritten(self, sqlite_db):
+        ingest_status_store.put(_with_file("job-1", JobState.COMPLETED))
+        _age_heartbeat(sqlite_db, "job-1")
+        got = ingest_status_store.get("job-1")
+        assert got is not None and got.status == JobState.COMPLETED
+
+    def test_a_legacy_row_ages_by_its_last_write(self, sqlite_db):
+        # A replica that predates heartbeats writes neither column.
+        ingest_status_store.put(_with_file("job-1", JobState.PROCESSING))
+        _age_heartbeat(sqlite_db, "job-1", legacy=True)
+        got = ingest_status_store.get("job-1")
+        assert got is not None and got.status == JobState.FAILED
+
+    def test_heartbeat_keeps_this_processs_rows_alive(self, sqlite_db):
+        ingest_status_store.put(_with_file("job-1", JobState.PROCESSING))
+        _age_heartbeat(sqlite_db, "job-1")
+        ingest_status_store.heartbeat(["job-1"])
+        got = ingest_status_store.get("job-1")
+        assert got is not None and got.status == JobState.PROCESSING
+
+    def test_heartbeat_does_not_revive_another_owners_row(self, sqlite_db, monkeypatch):
+        ingest_status_store.put(_with_file("job-1", JobState.PROCESSING))
+        _age_heartbeat(sqlite_db, "job-1")
+        monkeypatch.setattr(ingest_status_store, "OWNER", "another-process")
+        ingest_status_store.heartbeat(["job-1"])
+        got = ingest_status_store.get("job-1")
+        assert got is not None and got.status == JobState.FAILED
+
+    def test_startup_sweep_settles_stranded_rows_only(self, sqlite_db):
+        ingest_status_store.put(_with_file("stranded", JobState.PROCESSING))
+        ingest_status_store.put(_with_file("running", JobState.PROCESSING))
+        ingest_status_store.put(_with_file("done", JobState.COMPLETED))
+        _age_heartbeat(sqlite_db, "stranded")
+        _age_heartbeat(sqlite_db, "done")
+
+        assert ingest_status_store.fail_interrupted() == 1
+
+        from sqlalchemy import create_engine
+        from sqlalchemy import text
+
+        engine = create_engine(sqlite_db)
+        with engine.connect() as conn:
+            raw = dict(conn.execute(text("SELECT job_id, status_json FROM ingest_jobs")).all())
+        engine.dispose()
+        assert IngestionJobStatus.model_validate_json(raw["stranded"]).status == JobState.FAILED
+        assert IngestionJobStatus.model_validate_json(raw["running"]).status == JobState.PROCESSING
+        assert IngestionJobStatus.model_validate_json(raw["done"]).status == JobState.COMPLETED
+
+    def test_a_stranded_job_is_not_in_flight(self, sqlite_db):
+        status = _with_file("job-1", JobState.PROCESSING)
+        ingest_status_store.put(status)
+        _age_heartbeat(sqlite_db, "job-1")
+        assert ingest_status_store.in_flight_files(["s_test"]) == {}
+
+    def test_the_migration_is_additive_over_an_existing_table(self, tmp_path, monkeypatch):
+        from sqlalchemy import create_engine
+        from sqlalchemy import text
+
+        url = f"sqlite:///{tmp_path}/old.db"
+        engine = create_engine(url)
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE ingest_jobs (job_id VARCHAR PRIMARY KEY, status_json TEXT NOT NULL,"
+                    " updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+                )
+            )
+            conn.execute(
+                text("INSERT INTO ingest_jobs (job_id, status_json) VALUES ('old', :j)"),
+                {"j": _status("old", JobState.COMPLETED).model_dump_json()},
+            )
+        engine.dispose()
+        monkeypatch.setenv("AIQ_SUMMARY_DB", url)
+        try:
+            got = ingest_status_store.get("old")
+            assert got is not None and got.status == JobState.COMPLETED
+            ingest_status_store.put(_with_file("new", JobState.PROCESSING))
+            assert ingest_status_store.get("new").status == JobState.PROCESSING
+        finally:
+            ingest_status_store._initialized.discard(url)
+
+
+class TestFindLive:
+    def _keyed(self, job_id: str, state: JobState, key: str = "k1") -> IngestionJobStatus:
+        status = _with_file(job_id, state)
+        status.metadata["dispatch_key"] = key
+        return status
+
+    def test_finds_the_live_job_for_a_dispatch(self, sqlite_db):
+        ingest_status_store.put(self._keyed("job-1", JobState.PENDING))
+        got = ingest_status_store.find_live("k1")
+        assert got is not None and got.job_id == "job-1"
+
+    def test_a_finished_job_is_not_live(self, sqlite_db):
+        ingest_status_store.put(self._keyed("job-1", JobState.COMPLETED))
+        assert ingest_status_store.find_live("k1") is None
+
+    def test_another_dispatch_is_not_this_one(self, sqlite_db):
+        ingest_status_store.put(self._keyed("job-1", JobState.PENDING, key="k2"))
+        assert ingest_status_store.find_live("k1") is None
+
+    def test_a_stranded_job_is_settled_not_returned(self, sqlite_db):
+        ingest_status_store.put(self._keyed("job-1", JobState.PROCESSING))
+        _age_heartbeat(sqlite_db, "job-1")
+        assert ingest_status_store.find_live("k1") is None
+        assert ingest_status_store.get("job-1").status == JobState.FAILED
+
+    def test_a_later_write_without_the_key_keeps_it(self, sqlite_db):
+        ingest_status_store.put(self._keyed("job-1", JobState.PENDING))
+        ingest_status_store.put(_with_file("job-1", JobState.PROCESSING))
+        assert ingest_status_store.find_live("k1").job_id == "job-1"

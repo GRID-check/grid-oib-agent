@@ -1008,7 +1008,11 @@ In `db` mode the `aiq-agent` web tier now runs `backendReplicas` replicas
 - **Ingestion status is persisted** to a shared `ingest_jobs` table
   (`src/aiq_agent/knowledge/ingest_status_store.py`), so a
   `GET /v1/documents/{job_id}/status` poll resolves from any replica instead of
-  404-ing on the replica that didn't accept the upload.
+  404-ing on the replica that didn't accept the upload. The job itself runs
+  on the accepting replica, which stamps itself as the row's `owner` and
+  refreshes `heartbeat_at` every 30 s; when that replica restarts, its live
+  rows are read as `failed` (reason `interrupted`, retryable) once the
+  heartbeat is two minutes old, rather than as in progress forever.
 - **The two unlocked background loops are now single-runner**: the ghost-job
   reaper (`routes/jobs.py`) and the knowledge TTL-cleanup thread
   (`knowledge/base.py` via `knowledge/leader_lock.py`) elect one runner per

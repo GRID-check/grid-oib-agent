@@ -553,7 +553,33 @@ async def test_ingest_ignores_preview_ref_for_pdf_original(app, mock_ingestor):
     assert response.status_code == 202
     rendition_get.assert_not_called()
     mock_put.assert_called_once()
-    assert mock_ingestor.submit_job.call_args[1]["config"]["thumbnail_pregenerated"] is True
+    # Drawn after the response, so the job is not told it exists: the job's
+    # own 400px render follows and replaces it.
+    assert "thumbnail_pregenerated" not in mock_ingestor.submit_job.call_args[1]["config"]
+
+
+@pytest.mark.asyncio
+async def test_ingest_draws_the_quick_thumbnail_after_submitting(app, mock_ingestor):
+    """The BFF gives this request ten seconds; the thumbnail is not needed for
+    the job id, so it is drawn by a background task once the job is in."""
+    order: list[str] = []
+    mock_ingestor.submit_job.side_effect = lambda *a, **k: order.append("submit") or "job_test_123"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with (
+            patch("httpx.AsyncClient.get", return_value=_download(_tiny_pdf_bytes(), "application/pdf")),
+            patch("httpx.put") as mock_put,
+        ):
+            mock_put.side_effect = lambda *a, **k: order.append("thumbnail") or MagicMock(raise_for_status=MagicMock())
+            response = await client.post(
+                "/v1/ingest",
+                json={
+                    "file_ref": "http://seaweedfs.test/bucket/doc/plan.pdf",
+                    "collection": "proj_test123",
+                    "thumbnail_upload_url": _THUMB_URL,
+                },
+            )
+    assert response.status_code == 202
+    assert order == ["submit", "thumbnail"]
 
 
 def test_infer_suffix_office_types():
@@ -721,3 +747,148 @@ async def test_ingest_without_extraction_ref_is_unchanged(app, mock_ingestor):
         assert "extraction_paths" not in config
     finally:
         _unlink_submitted_original(mock_ingestor)
+
+
+# --- Idempotent dispatch: a retry joins the job the first attempt started ---
+
+
+class _KeyedIngestor:
+    """An ingestor that remembers what it submitted per dispatch key."""
+
+    backend_name = "test"
+
+    def __init__(self) -> None:
+        self.submitted: list[dict] = []
+
+    def submit_job(self, paths, collection, config=None):
+        import os
+
+        for path in paths:
+            if os.path.exists(path):
+                os.unlink(path)
+        self.submitted.append(config or {})
+        return f"job-{len(self.submitted)}"
+
+    def find_live_job(self, dispatch_key):
+        for index, config in enumerate(self.submitted, start=1):
+            if config.get("dispatch_key") == dispatch_key:
+                return f"job-{index}"
+        return None
+
+
+@pytest.fixture
+def keyed_ingestor():
+    ingestor = _KeyedIngestor()
+    set_active_ingestor(ingestor)
+    yield ingestor
+    clear_active_ingestor()
+
+
+def _doc_body(file_ref: str = "http://seaweedfs.test/bucket/doc/plan.pdf?X-Amz-Signature=one", **extra) -> dict:
+    return {"file_ref": file_ref, "collection": "proj_test123", "document_id": "doc-1", **extra}
+
+
+@pytest.mark.asyncio
+async def test_a_retried_dispatch_joins_the_live_job_without_downloading(app, keyed_ingestor):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient.get", return_value=_download(b"%PDF-1.4", "application/pdf")) as get:
+            first = await client.post("/v1/ingest", json=_doc_body())
+            # Signed again, so the signature differs: still the same dispatch.
+            retry = await client.post(
+                "/v1/ingest", json=_doc_body("http://seaweedfs.test/bucket/doc/plan.pdf?X-Amz-Signature=two")
+            )
+    assert first.status_code == retry.status_code == 202
+    assert first.json()["job_id"] == retry.json()["job_id"] == "job-1"
+    assert get.call_count == 1
+    assert len(keyed_ingestor.submitted) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_new_version_of_the_same_document_is_submitted(app, keyed_ingestor):
+    """A re-upload keeps the document id and writes a new object (ADR-0054):
+    it must be indexed even while the old version's job is still live."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient.get", return_value=_download(b"%PDF-1.4", "application/pdf")):
+            first = await client.post("/v1/ingest", json=_doc_body())
+            second = await client.post(
+                "/v1/ingest", json=_doc_body("http://seaweedfs.test/bucket/doc/v2/w1/plan.pdf?X-Amz-Signature=x")
+            )
+    assert (first.json()["job_id"], second.json()["job_id"]) == ("job-1", "job-2")
+
+
+@pytest.mark.asyncio
+async def test_concurrent_dispatches_of_one_document_submit_once(app, keyed_ingestor):
+    """The retry the BFF sends while the first attempt is still downloading
+    waits for it on this replica, then finds its job."""
+    import asyncio
+
+    release = asyncio.Event()
+
+    async def slow_download(*_args, **_kwargs):
+        await release.wait()
+        return _download(b"%PDF-1.4", "application/pdf")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient.get", side_effect=slow_download):
+            first = asyncio.create_task(client.post("/v1/ingest", json=_doc_body()))
+            second = asyncio.create_task(client.post("/v1/ingest", json=_doc_body()))
+            await asyncio.sleep(0.05)
+            release.set()
+            responses = await asyncio.gather(first, second)
+    assert [r.json()["job_id"] for r in responses] == ["job-1", "job-1"]
+    assert len(keyed_ingestor.submitted) == 1
+
+    from aiq_api.routes import ingest
+
+    assert ingest._dispatch_slots == {}
+
+
+@pytest.mark.asyncio
+async def test_without_a_document_id_every_dispatch_submits(app, keyed_ingestor):
+    """The OIB corpus sync sends no document id; it keeps its behaviour."""
+    body = {"file_ref": "http://seaweedfs.test/bucket/oib/rl1.pdf", "collection": "oib_knowledge"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient.get", return_value=_download(b"%PDF-1.4", "application/pdf")):
+            await client.post("/v1/ingest", json=body)
+            await client.post("/v1/ingest", json=body)
+    assert len(keyed_ingestor.submitted) == 2
+    assert "dispatch_key" not in keyed_ingestor.submitted[0]
+
+
+def test_the_dispatch_key_is_a_digest_of_document_and_object_path():
+    from aiq_api.models.requests import IngestRequest
+    from aiq_api.routes.ingest import _dispatch_key
+
+    def key(file_ref: str, document_id: str | None = "doc-1") -> str | None:
+        return _dispatch_key(IngestRequest(file_ref=file_ref, collection="c", document_id=document_id))
+
+    base = "http://seaweedfs.test/bucket/org/o1/doc/doc-1/Plan.pdf"
+    assert key(base + "?X-Amz-Signature=a") == key(base + "?X-Amz-Signature=b")
+    assert key(base) != key(base, document_id="doc-2")
+    assert key(base) != key(base.replace("Plan", "Plan2"))
+    assert key(base, document_id=None) is None
+    # Nothing of the tenant path is stored in the clear.
+    assert "org" not in key(base) and len(key(base)) == 64
+
+
+@pytest.mark.asyncio
+async def test_urls_are_gated_before_the_live_job_lookup(app, mock_ingestor):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/v1/ingest", json=_doc_body(thumbnail_upload_url="http://metadata.internal/latest/meta-data")
+        )
+    assert response.status_code == 400
+    mock_ingestor.find_live_job.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_failing_lookup_still_submits(app, mock_ingestor):
+    mock_ingestor.find_live_job.side_effect = RuntimeError("db down")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient.get", return_value=_download(b"%PDF-1.4", "application/pdf")):
+            response = await client.post("/v1/ingest", json=_doc_body())
+    assert response.status_code == 202
+    assert response.json()["job_id"] == "job_test_123"
+    config = mock_ingestor.submit_job.call_args[1]["config"]
+    assert len(config["dispatch_key"]) == 64
+    _unlink_submitted_original(mock_ingestor)

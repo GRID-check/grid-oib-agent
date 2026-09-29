@@ -14,8 +14,9 @@ Two jobs, both keyed by extension:
   there is no Word or slide-text reader here any more. What the PDF export
   drops is read from the original beside it: pptx speaker notes.
 
-Plain-text formats (``.csv``, ``.txt``, ``.md``) ingest correctly through the
-generic reader and deliberately have no handler.
+Plain-text formats (``.csv``, ``.txt``, ``.md``) have their own module,
+``text_formats``, which decodes them without dropping bytes and cuts them on
+their own structure (sections, paragraphs, row groups).
 
 Modularity contract (see ``docs/architecture/visual-ingestion.md``): one
 handler per format, keyed by extension, returning plain ``Document`` objects —
@@ -32,30 +33,15 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Bounds: a schedule/BoQ spreadsheet can carry tens of thousands of rows; the
-# text form exists for retrieval, not for round-tripping, so cap per unit and
-# say so in the emitted text rather than silently truncating.
-MAX_TABLE_ROWS = 1000
+# Bounds. A schedule or BoQ can carry tens of thousands of rows, and each sheet is
+# indexed as row groups that repeat its header, so a long sheet costs chunks, not
+# legibility. The row cap only bounds embedding cost on a pathological workbook; what
+# it cuts is stated in the last group's text AND counted (``rows_over_cap``) so the
+# ingest can put it on the file's result instead of dropping it silently. It used to
+# be 1000 rows, cut without a count.
+MAX_TABLE_ROWS = 10_000
 MAX_TABLE_COLS = 60
 MAX_CELL_CHARS = 500
-
-
-def _markdown_table(rows: list[list[str]], truncated: bool) -> str:
-    """Render rows as the same markdown shape the PDF table extractor emits."""
-    if not rows:
-        return ""
-    header, *body = rows
-    lines = [
-        "| " + " | ".join(header) + " |",
-        "| " + " | ".join(["---"] * len(header)) + " |",
-    ]
-    for row in body:
-        padded = row + [""] * (len(header) - len(row))
-        lines.append("| " + " | ".join(padded[: len(header)]) + " |")
-    if truncated:
-        lines.append("")
-        lines.append(f"[Tabelle gekürzt: nur die ersten {MAX_TABLE_ROWS} Zeilen indexiert]")
-    return "\n".join(lines)
 
 
 def _clean_cell(value: Any) -> str:
@@ -64,25 +50,58 @@ def _clean_cell(value: Any) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ").strip()[:MAX_CELL_CHARS]
 
 
-def _extract_xlsx(file_path: str) -> list[tuple[str, str]]:
-    """One unit per worksheet, rendered as a markdown table, labeled by sheet name."""
+def _sheet_rows(sheet: Any) -> tuple[list[tuple[int, list[str]]], int]:
+    """``([(spreadsheet row number, cells)], rows over the cap)``; empty rows skipped."""
+    rows: list[tuple[int, list[str]]] = []
+    over_cap = 0
+    for number, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+        cells = [_clean_cell(cell) for cell in row[:MAX_TABLE_COLS]]
+        if not any(cells):
+            continue
+        if len(rows) >= MAX_TABLE_ROWS:
+            over_cap += 1
+            continue
+        rows.append((number, cells))
+    return rows, over_cap
+
+
+def _sheet_units(title: str, rows: list[tuple[int, list[str]]], over_cap: int) -> list[tuple[str, str, dict]]:
+    """A sheet as row groups under its header row, each named by sheet and row range.
+
+    The header (the first non-empty row) is repeated in every group, so no chunk is a
+    run of numbers without the columns that say what they are.
+    """
+    from knowledge_layer.llamaindex.captioned_tables import Table
+    from knowledge_layer.llamaindex.captioned_tables import markdown_row_groups
+
+    header_rows = 1 if len(rows) > 1 else 0
+    table = Table("", "", [cells for _number, cells in rows], page_start=0, page_end=0, header_rows=header_rows)
+    numbers = [number for number, _cells in rows[header_rows:]]
+    groups = markdown_row_groups(table)
+    units = []
+    for part, (first, last, markdown) in enumerate(groups, start=1):
+        rows_label = f"Zeilen {numbers[first]}-{numbers[last]}" if last != first else f"Zeile {numbers[first]}"
+        suffix = f" (Teil {part} von {len(groups)})" if len(groups) > 1 else ""
+        text = f"Tabellenblatt „{title}“, {rows_label}{suffix}\n\n{markdown}"
+        extra: dict[str, Any] = {"punkt_id": f"{title}: {rows_label}", "table_part": part, "chunking": "table"}
+        if part == len(groups) and over_cap:
+            text += f"\n\n[Tabelle gekürzt: {over_cap} weitere Zeilen nach den ersten {MAX_TABLE_ROWS} nicht indexiert]"
+            extra["rows_over_cap"] = over_cap
+        units.append((title, text, extra))
+    return units
+
+
+def _extract_xlsx(file_path: str) -> list[tuple[str, str, dict]]:
+    """Every worksheet as header-repeating row groups, labelled by sheet name."""
     from openpyxl import load_workbook
 
-    units: list[tuple[str, str]] = []
+    units: list[tuple[str, str, dict]] = []
     workbook = load_workbook(file_path, read_only=True, data_only=True)
     try:
         for sheet in workbook.worksheets:
-            rows: list[list[str]] = []
-            truncated = False
-            for row_index, row in enumerate(sheet.iter_rows(values_only=True)):
-                if row_index >= MAX_TABLE_ROWS:
-                    truncated = True
-                    break
-                cells = [_clean_cell(cell) for cell in row[:MAX_TABLE_COLS]]
-                if any(cells):
-                    rows.append(cells)
+            rows, over_cap = _sheet_rows(sheet)
             if rows:
-                units.append((sheet.title, f"Tabellenblatt „{sheet.title}“\n\n{_markdown_table(rows, truncated)}"))
+                units.extend(_sheet_units(sheet.title, rows, over_cap))
     finally:
         workbook.close()
     return units
@@ -133,7 +152,7 @@ def _extract_pptx_notes(file_path: str) -> list[tuple[str, str]]:
 
 #: Extension → handler. Adding a format is one function plus one entry here;
 #: macro-enabled variants share their sibling's handler (same XML inside).
-_HANDLERS: dict[str, Callable[[str], list[tuple[str, str]]]] = {
+_HANDLERS: dict[str, Callable[[str], list[tuple[str, str, dict]]]] = {
     ".xlsx": _extract_xlsx,
     ".xlsm": _extract_xlsx,
 }
@@ -151,21 +170,26 @@ _RENDITION_COMPANIONS: dict[str, Callable[[str], list[tuple[str, str]]]] = {
 }
 
 
-def _documents(units: list[tuple[str, str]], file_name: str, file_size: int, content_type: str) -> list[Any]:
+def _documents(units: list[tuple], file_name: str, file_size: int, content_type: str) -> list[Any]:
+    """``(label, text)`` or ``(label, text, extra metadata)`` units as Documents.
+
+    The ordering and counting fields a row group carries (``table_part``,
+    ``rows_over_cap``) are kept out of the embedded text (``section_chunking``).
+    """
+    from knowledge_layer.llamaindex.section_chunking import apply_exclusions
     from llama_index.core import Document
 
-    return [
-        Document(
-            text=text,
-            metadata={
-                "file_name": file_name,
-                "file_size": file_size,
-                "page_label": label,
-                "content_type": content_type,
-            },
-        )
-        for label, text in units
-    ]
+    documents = []
+    for label, text, *extra in units:
+        metadata = {"file_name": file_name, "file_size": file_size, "page_label": label, "content_type": content_type}
+        documents.append(Document(text=text, metadata={**metadata, **(extra[0] if extra else {})}))
+        apply_exclusions(documents[-1])
+    return documents
+
+
+def rows_over_cap(documents: list[Any]) -> int:
+    """How many spreadsheet rows the cap left out, summed over a file's Documents."""
+    return sum(int((getattr(doc, "metadata", None) or {}).get("rows_over_cap") or 0) for doc in documents)
 
 
 def extract_rendition_companions(file_path: str, file_name: str, file_size: int) -> list[Any]:

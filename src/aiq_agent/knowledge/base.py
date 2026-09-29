@@ -279,6 +279,16 @@ class BaseIngestor(ABC):
             IngestionJobStatus with current state.
         """
 
+    def find_live_job(self, dispatch_key: str) -> str | None:
+        """The id of a pending or processing job submitted under ``dispatch_key``, or None.
+
+        ``dispatch_key`` rides in ``submit_job``'s config; ``POST /v1/ingest``
+        asks this before submitting, so a retried dispatch joins the job already
+        running instead of starting a second one. A backend that cannot answer
+        says None, and the dispatch submits as it always did.
+        """
+        return None
+
     @property
     @abstractmethod
     def backend_name(self) -> str:
@@ -387,8 +397,6 @@ class BaseIngestor(ABC):
         """
         Delete multiple files from a collection (batch delete).
 
-        Follows NVIDIA RAG Blueprint pattern for batch file deletion.
-
         Args:
             file_ids: List of file IDs to delete.
             collection_name: Collection containing the files.
@@ -490,6 +498,10 @@ class BaseIngestor(ABC):
             One-sentence summary or None if not implemented.
         """
         return None
+
+    def get_document_visual_details(self, collection_name: str, file_name: str) -> list[dict[str, Any]]:
+        """Per-page VLM descriptions of a document's visual chunks. Default: none."""
+        return []
 
     async def health_check(self) -> bool:
         """

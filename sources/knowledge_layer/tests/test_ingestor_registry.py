@@ -20,19 +20,19 @@ from aiq_agent.knowledge.factory import list_ingestors
 @pytest.fixture(autouse=True)
 def _import_adapters():
     """Importing an adapter module is what populates the registry."""
-    import knowledge_layer.foundational_rag.adapter  # noqa: F401
+    import knowledge_layer.llamaindex.adapter  # noqa: F401
 
 
-def test_foundational_rag_maps_to_an_ingestor_class():
-    from knowledge_layer.foundational_rag.adapter import FoundationalRagIngestor
+def test_llamaindex_maps_to_an_ingestor_class():
+    from knowledge_layer.llamaindex.adapter import LlamaIndexIngestor
 
-    assert is_ingestor_registered("foundational_rag")
+    assert is_ingestor_registered("llamaindex")
 
-    registered = _INGESTOR_REGISTRY["foundational_rag"]
+    registered = _INGESTOR_REGISTRY["llamaindex"]
 
-    assert inspect.isclass(registered), f"foundational_rag is registered as {registered!r}, not a class"
+    assert inspect.isclass(registered), f"llamaindex is registered as {registered!r}, not a class"
     assert issubclass(registered, BaseIngestor)
-    assert registered is FoundationalRagIngestor
+    assert registered is LlamaIndexIngestor
 
 
 def test_every_registered_ingestor_is_an_ingestor_class():

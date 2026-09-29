@@ -83,3 +83,31 @@ describe("frontendEnv", () => {
     expect(configSource).not.toContain('name: "GRID_WORKFLOWS_ENABLED"');
   });
 });
+
+/**
+ * Extraction is on because the CODE says so, not because a deployment
+ * remembered a flag. Production once set only AIQ_EXTRACT_IMAGES: uncaptioned
+ * tables were indexed as garbled page text, and every raster the VLM typed as a
+ * chart was analysed, paid for, and dropped. The rule is now "no flag set in a
+ * deployment = on", which holds only while the adapter reads each flag as an
+ * off-switch. Both halves are checked here, across the process boundary.
+ */
+describe("backendEnv extraction switches", () => {
+  const adapterSource = readFileSync(
+    join(repoRoot, "sources", "knowledge_layer", "src", "llamaindex", "adapter.py"),
+    "utf8",
+  );
+  const switches = ["AIQ_EXTRACT_TABLES", "AIQ_EXTRACT_IMAGES", "AIQ_EXTRACT_CHARTS"];
+
+  it("sets none of them, so none can be left off by omission", () => {
+    for (const name of switches) {
+      expect(configSource).not.toContain(`"${name}"`);
+    }
+  });
+
+  it("relies on the adapter reading each as on-unless-false", () => {
+    for (const name of switches) {
+      expect(adapterSource).toContain(`_env_switch("${name}")`);
+    }
+  });
+});

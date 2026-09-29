@@ -282,6 +282,21 @@ class TestTheFilterIsTheAnswer:
             groups
         )
 
+    def test_a_long_sections_parts_come_back_in_order(self):
+        """A tenant section cut into parts shares page and ``punkt_id``; ``section_part`` orders them."""
+        chunks = [_chunk(punkt="3.2", page=7, chunk_id=f"{9 - n}") for n in range(1, 4)]
+        for part, chunk in enumerate(chunks, start=1):
+            chunk.metadata["section_part"] = part
+        assert [c.metadata["section_part"] for c in sorted(chunks, key=_punkt_sort_key)] == [1, 2, 3]
+
+    def test_pageless_sections_come_back_in_document_order_not_alphabetically(self):
+        """A Markdown file has no page and its sections no number to sort on."""
+        titles = ["Modellangaben", "Geschoße", "Bauteile nach Typ", "Materialien"]
+        chunks = [_chunk(punkt=title, chunk_id=title) for title in titles]
+        for order, chunk in enumerate(chunks):
+            chunk.metadata["section_order"] = order
+        assert [c.chunk_id for c in sorted(reversed(chunks), key=_punkt_sort_key)] == titles
+
 
 class TestFormatParity:
     """The block is the search's block. Nothing downstream learns a second shape."""

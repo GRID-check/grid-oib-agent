@@ -114,7 +114,9 @@ _READ_PASSAGE_DESCRIPTION = (
     "Pkt. 3.5.2'), or the user named chapter and verse. "
     "Pass `document=` the exact name or display title as the inventory or a previous hit "
     "printed it (e.g. 'OIB-Richtlinie 2, Ausgabe Mai 2023' or 'oib-rl_2_ausgabe_mai_2023.pdf'), "
-    "and `punkt=` the number alone ('3.5.2', no 'Pkt.') or a table's caption ('Tabelle 3'), "
+    "and `punkt=` the number alone ('3.5.2', no 'Pkt.') or a table's caption ('Tabelle 3') — "
+    "for a project document, exactly what a hit's `Punkt:` line printed ('§ 4', 'Geschoße', "
+    "'Zeilen 2-41'), "
     "or `page=` the page number. With `punkt=`, `page=` is ignored: the Punkt alone names "
     "the passage.\n"
     "ALWAYS pass `conclusion=` — one sentence saying what you now know and what you still "
@@ -353,13 +355,12 @@ def _addresses(chunk: Any, punkt: str | None, page: int | None) -> bool:
     """Whether this chunk really IS the passage that was addressed.
 
     The metadata filter above is the store's job and the store does it — but
-    "the store applies the filter" is a contract, and one backend
-    (``foundational_rag``) reaches its index through an HTTP service that may
-    honour a narrower set of clauses than the LlamaIndex path translates. A
-    locator whose guarantee rests on a remote service's filter support is a
-    locator that silently returns the NEIGHBOURING requirement, which the model
-    then cites under the number it asked for. Cheap to re-check here; the whole
-    point of the tool is that the number is right.
+    "the store applies the filter" is a contract, and a retriever that honours
+    a narrower set of clauses than it was sent (a test fake, a regression in
+    the filter translation) would otherwise hand back the NEIGHBOURING
+    requirement, which the model then cites under the number it asked for.
+    Cheap to re-check here; the whole point of the tool is that the number is
+    right.
     """
     metadata = getattr(chunk, "metadata", None) or {}
     if punkt and str(metadata.get("punkt_id") or "") != punkt:
@@ -396,16 +397,39 @@ def _punkt_sort_key(chunk: Any) -> tuple:
     """
     raw = _punkt_of(chunk)
     page = getattr(chunk, "page_number", None) or 0
-    return (page, _punkt_number(raw), raw, _table_part(chunk), str(getattr(chunk, "chunk_id", "")))
+    return (
+        page,
+        _punkt_number(raw),
+        _document_order(chunk),
+        raw,
+        _table_part(chunk),
+        str(getattr(chunk, "chunk_id", "")),
+    )
 
 
-def _table_part(chunk: Any) -> int:
-    """A table row group's 1-based position, ``0`` for anything that is not one."""
-    raw = (getattr(chunk, "metadata", None) or {}).get("table_part")
+def _int_metadata(chunk: Any, key: str) -> int:
+    """An integer chunk-metadata field, ``0`` when absent or not a number."""
+    raw = (getattr(chunk, "metadata", None) or {}).get(key)
     try:
         return int(str(raw).strip())
     except ValueError:
         return 0
+
+
+def _document_order(chunk: Any) -> tuple[int, int]:
+    """Where a tenant section sits in its document: section ordinal, then first line.
+
+    A Markdown section („Geschoße") or a text block („Zeilen 12-30") has no page and no
+    Punkt number to sort on, so without this the opening passages of a Markdown file
+    came back in alphabetical order of their headings. ``(0, 0)`` for an OIB chunk,
+    which carries neither, so their order is unchanged.
+    """
+    return (_int_metadata(chunk, "section_order"), _int_metadata(chunk, "line_start"))
+
+
+def _table_part(chunk: Any) -> int:
+    """A row group's or section chunk's 1-based position, ``0`` for anything that is not one."""
+    return _int_metadata(chunk, "table_part") or _int_metadata(chunk, "section_part")
 
 
 def _punkt_depth(chunk: Any) -> int | None:
@@ -447,6 +471,8 @@ class OutlineEntry:
     #: The Punkt's opening sentence, bounded — what a chapter is ABOUT, beside
     #: what it is called. Empty below depth 1 and for a chunk with no body.
     excerpt: str = ""
+    #: Document order for a heading with no number to sort on (a tenant section).
+    order: tuple[int, int] = (0, 0)
 
 
 #: How much of a Punkt's opening sentence a Gliederung line carries.
@@ -501,8 +527,9 @@ def _outline_entries(chunks: Sequence[Any]) -> list[OutlineEntry]:
             page=str(metadata.get("page_label") or getattr(chunk, "page_number", "") or ""),
             depth=depth,
             excerpt=_excerpt_of(chunk) if depth == 1 else "",
+            order=_document_order(chunk),
         )
-    return sorted(entries.values(), key=lambda entry: (_punkt_number(entry.punkt_id), entry.punkt_id))
+    return sorted(entries.values(), key=lambda entry: (_punkt_number(entry.punkt_id), entry.order, entry.punkt_id))
 
 
 def _scope_chunks(chunks: Sequence[Any]) -> list[Any]:
@@ -521,7 +548,7 @@ def _scope_chunks(chunks: Sequence[Any]) -> list[Any]:
     top = [chunk for chunk in ordered if _punkt_depth(chunk) == 1]
     if not top:
         return ordered[:1]
-    first = min((_punkt_number(_punkt_of(chunk)), _punkt_of(chunk)) for chunk in top)[1]
+    first = min((_punkt_number(_punkt_of(chunk)), _document_order(chunk), _punkt_of(chunk)) for chunk in top)[2]
     return [chunk for chunk in top if _punkt_of(chunk) == first]
 
 
@@ -536,7 +563,8 @@ def _outline_lines(entries: Sequence[OutlineEntry], limit: int = _MAX_OUTLINE_LI
     lines = []
     for entry in shown:
         indent = "  " if entry.depth == 2 else ""
-        title = f": {entry.title}" if entry.title else ""
+        # An unnumbered section is addressed by its title; saying it twice is noise.
+        title = f": {entry.title}" if entry.title and entry.title != entry.punkt_id else ""
         page = f" (S. {entry.page})" if entry.page else ""
         excerpt = f" — {entry.excerpt}" if entry.excerpt else ""
         lines.append(f"{indent}- Punkt {entry.punkt_id}{title}{page}{excerpt}")

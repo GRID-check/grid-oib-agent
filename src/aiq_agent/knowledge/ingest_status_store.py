@@ -10,14 +10,33 @@ summaries database (``AIQ_SUMMARY_DB``, falling back to ``NAT_JOB_STORE_DB_URL``
 Best-effort / fail-open: with no DB configured (local dev) every call is a
 no-op and the adapter falls back to its in-process dict — single-node behaviour
 is unchanged.
+
+A LIVE ROW IS A CLAIM SOMEBODY HAS TO KEEP MAKING. The job itself runs in one
+process's thread pool, so a restart ends it without a word, and the row used to
+say ``processing`` forever: the BFF showed the file as in progress and refused
+its re-ingest as already running. Every row therefore carries the process that
+wrote it (``owner``) and a ``heartbeat_at`` that process refreshes while the job
+is live (``heartbeat``). A pending or processing row whose heartbeat is older
+than ``STALE_AFTER_SECONDS`` has lost its owner, and is read as ``failed`` with
+the stable, retryable reason ``interrupted`` (``get``, ``find_live``,
+``fail_interrupted``). The job is not re-run on its own: what it needs to run
+again (the downloaded temp file, a presigned URL that expires in minutes, the
+job config) is not persisted, so the honest answer is a failure the reader can
+retry.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import socket
+import uuid
 from collections.abc import Iterable
+from datetime import UTC
+from datetime import datetime
 
+from sqlalchemy import bindparam
+from sqlalchemy import inspect
 from sqlalchemy import text
 
 from .document_metadata_store import DocumentMetadataStore
@@ -28,6 +47,35 @@ from .schema import JobState
 logger = logging.getLogger(__name__)
 
 _initialized: set[str] = set()
+
+#: This process, as a row's ``owner``. The pid alone repeats across container
+#: restarts (it is 1 in most of them), so a random suffix makes every boot new.
+OWNER = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
+
+#: How often the owning process refreshes ``heartbeat_at`` on its live rows.
+HEARTBEAT_INTERVAL_SECONDS = 30
+
+#: A live row whose heartbeat is older than this has lost its owner. Four beats,
+#: so one slow beat under load is not a death.
+STALE_AFTER_SECONDS = 4 * HEARTBEAT_INTERVAL_SECONDS
+
+#: A row written by a replica that predates heartbeats has none, and is still
+#: being worked on while that replica runs (a rolling deploy). Only its
+#: ``updated_at`` can age it, and a single file can go minutes between status
+#: writes, so the old fifteen-minute in-flight window is the bound for it.
+_LEGACY_STALE_AFTER_SECONDS = 15 * 60
+
+#: The machine-readable reason, as the prefix of ``error_message`` (the same
+#: ``reason: text`` shape as ``vlm_not_configured``) and in ``metadata``.
+INTERRUPTED = "interrupted"
+INTERRUPTED_MESSAGE = f"{INTERRUPTED}: ingestion stopped when the service restarted; retry to index this file"
+
+#: Newest stale rows the startup sweep settles; older ones settle when read.
+_SWEEP_LIMIT = 500
+
+#: Columns added after the table first shipped. Nullable and without defaults,
+#: so adding them never rewrites or rejects an existing row.
+_ADDED_COLUMNS = {"owner": "VARCHAR", "dispatch_key": "VARCHAR"}
 
 
 def _db_url() -> str | None:
@@ -56,41 +104,148 @@ def _ensure_table(url: str) -> None:
                 ")"
             )
         )
+        _add_missing_columns(conn, url)
         conn.commit()
     _initialized.add(url)
 
 
+def _add_missing_columns(conn, url: str) -> None:
+    """Additive migration: owner, heartbeat_at and dispatch_key, then their index."""
+    heartbeat_type = "TIMESTAMP WITH TIME ZONE" if _is_postgres(url) else "DATETIME"
+    columns = {**_ADDED_COLUMNS, "heartbeat_at": heartbeat_type}
+    present = {column["name"] for column in inspect(conn).get_columns("ingest_jobs")}
+    guard = "IF NOT EXISTS " if _is_postgres(url) else ""
+    for name, column_type in columns.items():
+        if name in present:
+            continue
+        # name/column_type come from the module constants above; no user input.
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+        conn.execute(text(f"ALTER TABLE ingest_jobs ADD COLUMN {guard}{name} {column_type}"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ingest_jobs_dispatch_key ON ingest_jobs (dispatch_key)"))
+
+
+def _now(url: str) -> str:
+    return "NOW()" if _is_postgres(url) else "CURRENT_TIMESTAMP"
+
+
+def _ago(url: str, seconds: int) -> str:
+    return f"NOW() - INTERVAL '{seconds} seconds'" if _is_postgres(url) else f"DATETIME('now', '-{seconds} seconds')"
+
+
+def _stale_predicate(url: str) -> str:
+    """SQL: this row's owner has stopped vouching for it. Built from constants only."""
+    return (
+        f"((heartbeat_at IS NOT NULL AND heartbeat_at < {_ago(url, STALE_AFTER_SECONDS)}) "
+        f"OR (heartbeat_at IS NULL AND updated_at < {_ago(url, _LEGACY_STALE_AFTER_SECONDS)}))"
+    )
+
+
+def _is_live(status: IngestionJobStatus) -> bool:
+    return status.status in (JobState.PENDING, JobState.PROCESSING)
+
+
+def interrupted(status: IngestionJobStatus) -> IngestionJobStatus:
+    """``status`` as the failure a lost owner leaves: every unfinished file failed, retryable."""
+    failed = status.model_copy(deep=True)
+    failed.status = JobState.FAILED
+    failed.error_message = INTERRUPTED_MESSAGE
+    # A naive-UTC ISO string, as the adapter stores it (see ``put``'s
+    # serializer note and the adapter's retention pruning, which parses it).
+    failed.completed_at = datetime.now(UTC).replace(tzinfo=None).isoformat()
+    failed.metadata = {**failed.metadata, "failure_reason": INTERRUPTED, "retryable": True}
+    for detail in failed.file_details:
+        if detail.status in (FileStatus.SUCCESS, FileStatus.FAILED):
+            continue
+        detail.status = FileStatus.FAILED
+        detail.error_message = INTERRUPTED_MESSAGE
+    return failed
+
+
+def _settle_interrupted(conn, url: str, status: IngestionJobStatus) -> IngestionJobStatus:
+    """Write the interrupted failure, unless the owner beat again since it was read."""
+    failed = interrupted(status)
+    conn.execute(
+        # _now/_stale_predicate are dialect-chosen literals; values are bound.
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+        text(
+            f"UPDATE ingest_jobs SET status_json = :status_json, updated_at = {_now(url)} "
+            f"WHERE job_id = :job_id AND {_stale_predicate(url)}"
+        ),
+        {"job_id": status.job_id, "status_json": failed.model_dump_json(warnings=False)},
+    )
+    conn.commit()
+    logger.warning("Ingest job %s lost its owner; recorded as %s", status.job_id, INTERRUPTED)
+    return failed
+
+
 def put(status: IngestionJobStatus) -> None:
-    """Upsert a job's status. Never raises — ingestion must not break on a DB blip."""
+    """Upsert a job's status as this process's. Never raises — ingestion must not break on a DB blip.
+
+    Writing a row is vouching for it: ``owner`` becomes this process and
+    ``heartbeat_at`` now. ``dispatch_key`` is read from ``status.metadata`` and
+    kept when a later write does not carry it.
+    """
     url = _db_url()
     if not url:
         return
     try:
         _ensure_table(url)
         engine = DocumentMetadataStore._get_or_create_sync_engine(url)
-        now = "NOW()" if _is_postgres(url) else "CURRENT_TIMESTAMP"
+        now = _now(url)
         with engine.connect() as conn:
             conn.execute(
-                # now is a dialect-chosen literal; job_id/status_json are bound.
+                # now is a dialect-chosen literal; every value is bound.
                 # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 text(
-                    "INSERT INTO ingest_jobs (job_id, status_json, updated_at) "
-                    f"VALUES (:job_id, :status_json, {now}) "
+                    "INSERT INTO ingest_jobs (job_id, status_json, updated_at, owner, heartbeat_at, dispatch_key) "
+                    f"VALUES (:job_id, :status_json, {now}, :owner, {now}, :dispatch_key) "
                     "ON CONFLICT (job_id) DO UPDATE SET "
-                    f"status_json = EXCLUDED.status_json, updated_at = {now}"
+                    f"status_json = EXCLUDED.status_json, updated_at = {now}, "
+                    f"owner = EXCLUDED.owner, heartbeat_at = {now}, "
+                    "dispatch_key = COALESCE(EXCLUDED.dispatch_key, ingest_jobs.dispatch_key)"
                 ),
                 # warnings=False: the adapter deliberately stores completed_at as
                 # an ISO string (bypassing Pydantic coercion); silence the
                 # serializer notice — it round-trips back to a datetime on read.
-                {"job_id": status.job_id, "status_json": status.model_dump_json(warnings=False)},
+                {
+                    "job_id": status.job_id,
+                    "status_json": status.model_dump_json(warnings=False),
+                    "owner": OWNER,
+                    "dispatch_key": status.metadata.get("dispatch_key"),
+                },
             )
             conn.commit()
     except Exception:
         logger.warning("Failed to persist ingest status for %s (continuing)", status.job_id, exc_info=True)
 
 
+def heartbeat(job_ids: Iterable[str]) -> None:
+    """Refresh ``heartbeat_at`` on this process's rows for ``job_ids``. Never raises."""
+    ids = list(job_ids)
+    url = _db_url()
+    if not url or not ids:
+        return
+    try:
+        _ensure_table(url)
+        engine = DocumentMetadataStore._get_or_create_sync_engine(url)
+        statement = text(
+            # now is a dialect-chosen literal; owner and ids are bound.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+            f"UPDATE ingest_jobs SET heartbeat_at = {_now(url)} WHERE owner = :owner AND job_id IN :ids"
+        ).bindparams(bindparam("ids", expanding=True))
+        with engine.connect() as conn:
+            conn.execute(statement, {"owner": OWNER, "ids": ids})
+            conn.commit()
+    except Exception:
+        logger.warning("Ingest heartbeat failed for %d job(s) (continuing)", len(ids), exc_info=True)
+
+
 def get(job_id: str) -> IngestionJobStatus | None:
-    """Return a persisted status from any replica, or None. Never raises."""
+    """Return a persisted status from any replica, or None. Never raises.
+
+    A live row whose owner stopped beating comes back ``failed`` with reason
+    ``interrupted``, and is stored that way.
+    """
     url = _db_url()
     if not url:
         return None
@@ -99,25 +254,101 @@ def get(job_id: str) -> IngestionJobStatus | None:
         engine = DocumentMetadataStore._get_or_create_sync_engine(url)
         with engine.connect() as conn:
             row = conn.execute(
-                text("SELECT status_json FROM ingest_jobs WHERE job_id = :job_id"),
+                # The predicate is built from module constants; job_id is bound.
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                text(f"SELECT status_json, {_stale_predicate(url)} AS stale FROM ingest_jobs WHERE job_id = :job_id"),
                 {"job_id": job_id},
-            ).scalar()
-        if row is None:
-            return None
-        return IngestionJobStatus.model_validate_json(row)
+            ).first()
+            if row is None:
+                return None
+            status = IngestionJobStatus.model_validate_json(row[0])
+            if row[1] and _is_live(status):
+                return _settle_interrupted(conn, url, status)
+            return status
     except Exception:
         logger.warning("Failed to read ingest status for %s", job_id, exc_info=True)
         return None
 
 
-#: How far back a job may have been touched and still count as "in flight".
-#:
-#: A crashed worker leaves a row at ``processing`` forever, and a prompt that
-#: says "this file is still being read" about a job that died an hour ago is
-#: worse than saying nothing: the reader waits for something that is not coming.
-#: Ingestion of a large plan set is minutes, so fifteen is generous and still
-#: excludes anything stuck.
-_IN_FLIGHT_WINDOW_MINUTES = 15
+def find_live(dispatch_key: str) -> IngestionJobStatus | None:
+    """The live job some replica holds for this dispatch, or None. Never raises.
+
+    What makes ``POST /v1/ingest`` idempotent across replicas: a retried
+    dispatch of the same object for the same document gets the job already
+    running. A row whose owner is gone is settled as interrupted on the way and
+    does not count.
+    """
+    url = _db_url()
+    if not url or not dispatch_key:
+        return None
+    try:
+        _ensure_table(url)
+        engine = DocumentMetadataStore._get_or_create_sync_engine(url)
+        with engine.connect() as conn:
+            rows = conn.execute(
+                # The predicate is built from module constants; the key is bound.
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                text(
+                    f"SELECT status_json, {_stale_predicate(url)} AS stale FROM ingest_jobs "
+                    "WHERE dispatch_key = :key ORDER BY updated_at DESC LIMIT 5"
+                ),
+                {"key": dispatch_key},
+            ).all()
+            for status_json, stale in rows:
+                status = IngestionJobStatus.model_validate_json(status_json)
+                if not _is_live(status):
+                    continue
+                if not stale:
+                    return status
+                _settle_interrupted(conn, url, status)
+    except Exception:
+        logger.warning("Could not look up a live ingest job (continuing)", exc_info=True)
+    return None
+
+
+def fail_interrupted() -> int:
+    """Settle live rows whose owner is gone as ``interrupted``; how many. Never raises.
+
+    Run once when an ingestor starts, so what a restart stranded is settled
+    without waiting for someone to poll it. A row whose owner died moments
+    before this restart is not stale yet; ``get`` settles it when it is read.
+    """
+    url = _db_url()
+    if not url:
+        return 0
+    settled = 0
+    try:
+        _ensure_table(url)
+        engine = DocumentMetadataStore._get_or_create_sync_engine(url)
+        with engine.connect() as conn:
+            rows = (
+                conn.execute(
+                    # Built from module constants only; nothing here is user input.
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(
+                        f"SELECT status_json FROM ingest_jobs WHERE {_stale_predicate(url)} "
+                        f"ORDER BY updated_at DESC LIMIT {_SWEEP_LIMIT}"
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for row in rows:
+                status = IngestionJobStatus.model_validate_json(row)
+                if _is_live(status):
+                    _settle_interrupted(conn, url, status)
+                    settled += 1
+    except Exception:
+        logger.warning("Could not settle interrupted ingest jobs (continuing)", exc_info=True)
+    return settled
+
+
+#: A crashed worker used to leave a row at ``processing`` forever, and a prompt
+#: that says "this file is still being read" about a job that died an hour ago
+#: is worse than saying nothing: the reader waits for something that is not
+#: coming. A row counts as in flight only while its owner vouches for it (see
+#: ``_stale_predicate``); that replaced a fixed fifteen-minute window, which
+#: also dropped a live job that spent longer than that on one large file.
 
 #: Ceiling on rows read for one turn's question. This runs on the chat path.
 _IN_FLIGHT_SCAN_LIMIT = 200
@@ -135,7 +366,7 @@ def in_flight_files(collections: Iterable[str]) -> dict[str, list[str]]:
     This is the missing half of that: not what has been read, but what is being
     read. Callers put it in the prompt so the answer can say so.
 
-    Bounded by ``_IN_FLIGHT_WINDOW_MINUTES`` and ``_IN_FLIGHT_SCAN_LIMIT``, and
+    Bounded by the owner's heartbeat and ``_IN_FLIGHT_SCAN_LIMIT``, and
     filtered in Python rather than in SQL because ``status_json`` is a text
     column and JSON predicates are not portable between the Postgres and SQLite
     backings this store supports.
@@ -149,20 +380,15 @@ def in_flight_files(collections: Iterable[str]) -> dict[str, list[str]]:
     try:
         _ensure_table(url)
         engine = DocumentMetadataStore._get_or_create_sync_engine(url)
-        cutoff = (
-            f"NOW() - INTERVAL '{_IN_FLIGHT_WINDOW_MINUTES} minutes'"
-            if _is_postgres(url)
-            else f"DATETIME('now', '-{_IN_FLIGHT_WINDOW_MINUTES} minutes')"
-        )
         with engine.connect() as conn:
             rows = (
                 conn.execute(
-                    # cutoff is a dialect-chosen literal built from a module
-                    # constant; nothing here is user input.
+                    # The predicate is a dialect-chosen literal built from module
+                    # constants; nothing here is user input.
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
                         "SELECT status_json FROM ingest_jobs "
-                        f"WHERE updated_at > {cutoff} "
+                        f"WHERE NOT {_stale_predicate(url)} "
                         "ORDER BY updated_at DESC "
                         f"LIMIT {_IN_FLIGHT_SCAN_LIMIT}"
                     )

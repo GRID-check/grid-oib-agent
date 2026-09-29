@@ -78,7 +78,7 @@ _VLM_CACHE_TTL_SECONDS = 30 * 86400
 
 # Placeholder captions the adapter's VLM call sites return on failure
 # (provider error, missing key, empty response). Compared case-insensitively.
-_FAILURE_CAPTION_PREFIXES = ("[image -", "[drawing -")
+_FAILURE_CAPTION_PREFIXES = ("[image -", "[drawing -", "[transcription -")
 
 
 def is_failed_caption(caption: str | None) -> bool:
@@ -171,6 +171,66 @@ def _cached_vlm_call(
 # ---------------------------------------------------------------------------
 
 
+def _pdfium_page_text(page: Any) -> str:
+    text_page = page.get_textpage()
+    try:
+        return text_page.get_text_range() or ""
+    finally:
+        text_page.close()
+
+
+def _is_drawing_page(page: Any, text: str, min_text_chars: int, min_paths: int) -> bool:
+    """The standalone drawing check, through the same rule the ingestion triage uses."""
+    from knowledge_layer.llamaindex import page_triage
+
+    signals = page_triage._page_signals(page, 0, text, min_paths)
+    kind = page_triage.classify_page(signals, min_text_chars=min_text_chars, min_paths=min_paths)
+    return kind is page_triage.PageKind.DRAWING
+
+
+def _render_page_jpeg(page: Any, max_dim: int) -> tuple[bytes, int, int]:
+    """Render one pdfium page so its longest edge is ``max_dim`` px; ``(jpeg, width, height)``."""
+    import io
+
+    width_pt, height_pt = page.get_size()
+    scale = max_dim / (max(width_pt, height_pt) or 1.0)
+    pil_image = page.render(scale=scale).to_pil().convert("RGB")
+    buf = io.BytesIO()
+    pil_image.save(buf, format="JPEG", quality=90)
+    return buf.getvalue(), pil_image.width, pil_image.height
+
+
+def render_pdf_pages(pdf_path: str, page_numbers: list[int], *, max_dim: int) -> dict[int, bytes]:
+    """Render the given 1-based pages to JPEG; a page that fails is absent from the result.
+
+    Call from one thread at a time: pdfium is not thread-safe.
+    """
+    try:
+        import pypdfium2 as pdfium
+
+        doc = pdfium.PdfDocument(pdf_path)
+    except Exception as exc:  # noqa: BLE001 - the caller counts the missing pages
+        logger.warning("Page render unavailable for %s (%s: %s)", pdf_path, type(exc).__name__, exc)
+        return {}
+    rendered: dict[int, bytes] = {}
+    try:
+        for number in page_numbers:
+            try:
+                page = doc[number - 1]
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Page %d of %s could not be opened for rendering (%s)", number, pdf_path, exc)
+                continue
+            try:
+                rendered[number] = _render_page_jpeg(page, max_dim)[0]
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Page %d of %s could not be rendered (%s)", number, pdf_path, exc)
+            finally:
+                page.close()
+    finally:
+        doc.close()
+    return rendered
+
+
 def render_visual_pages_no_vlm(
     pdf_path: str,
     max_dim: int = 2048,
@@ -178,8 +238,9 @@ def render_visual_pages_no_vlm(
     min_paths: int = 300,
     max_pages: int = 20,
     page_texts: dict[int, str] | None = None,
+    only_pages: set[int] | None = None,
 ) -> list[dict[str, Any]]:
-    """Detect and render visual/vector PDF pages WITHOUT calling the VLM.
+    """Detect and render drawing pages WITHOUT calling the VLM.
 
     Returns rendered JPEG bytes instead of captioned results so the caller can
     batch VLM calls concurrently.
@@ -191,19 +252,21 @@ def render_visual_pages_no_vlm(
     holds. When omitted, the text is read here via pdfium (raw, unstripped) —
     kept for standalone/test use.
 
+    A page is a drawing by ``page_triage.classify_page``: many paths AND little
+    text. Scanned and garbled pages are NOT drawings; they are transcribed
+    (``transcription``). ``only_pages`` replaces the check with the caller's
+    own triage — the ingestion path passes the pages it already classified, so
+    the PDF is judged once.
+
     Returns a list of dicts:
       ``{"image_bytes": bytes, "page_number": int, "width": int, "height": int}``.
     Empty list when pypdfium2 is unavailable or the PDF has no visual pages.
     """
     try:
-        import io
-
         import pypdfium2 as pdfium
     except ImportError:
         logger.warning("pypdfium2 not installed; visual page detection disabled")
         return []
-
-    _PAGEOBJ_PATH = 2
 
     results: list[dict[str, Any]] = []
     rendered = 0
@@ -240,24 +303,14 @@ def render_visual_pages_no_vlm(
                     logger.debug("Visual-page render skipped page %d of %s (%s)", page_num + 1, pdf_path, e)
                     continue
                 try:
-                    if page_texts is not None:
-                        text_len = len((page_texts.get(page_num + 1) or "").strip())
+                    if only_pages is not None:
+                        is_visual = page_num + 1 in only_pages
                     else:
-                        text_page = page.get_textpage()
-                        try:
-                            raw_text = text_page.get_text_range()
-                        finally:
-                            text_page.close()
-                        text_len = len((raw_text or "").strip())
-
-                    path_count = 0
-                    for obj in page.get_objects():
-                        if obj.type == _PAGEOBJ_PATH:
-                            path_count += 1
-                            if path_count >= min_paths:
-                                break
-
-                    is_visual = text_len < min_text_chars or path_count >= min_paths
+                        if page_texts is not None:
+                            raw_text = page_texts.get(page_num + 1) or ""
+                        else:
+                            raw_text = _pdfium_page_text(page)
+                        is_visual = _is_drawing_page(page, raw_text, min_text_chars, min_paths)
                     if not is_visual:
                         continue
 
@@ -273,20 +326,13 @@ def render_visual_pages_no_vlm(
                         )
                         break
 
-                    width_pt, height_pt = page.get_size()
-                    longest_pt = max(width_pt, height_pt) or 1.0
-                    scale = max_dim / longest_pt
-                    bitmap = page.render(scale=scale)
-                    pil_image = bitmap.to_pil().convert("RGB")
-                    buf = io.BytesIO()
-                    pil_image.save(buf, format="JPEG", quality=90)
-
+                    image_bytes, width, height = _render_page_jpeg(page, max_dim)
                     results.append(
                         {
-                            "image_bytes": buf.getvalue(),
+                            "image_bytes": image_bytes,
                             "page_number": page_num + 1,
-                            "width": pil_image.width,
-                            "height": pil_image.height,
+                            "width": width,
+                            "height": height,
                         }
                     )
                     rendered += 1

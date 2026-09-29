@@ -1,0 +1,322 @@
+"""Ingestion that tells the truth about what it did.
+
+- a PDF page pdfplumber cannot parse costs that page, not every page after it:
+  the page is counted, the file keeps what could be read, and fails only when
+  too much is missing (``_extract_text_from_pdf``, ``unreadable_pdf_verdict``);
+- ``chunks_created`` is the number of nodes stored, not the number of
+  Documents handed to the splitter;
+- a job this process holds is found by its dispatch key while it is live
+  (``find_live_job``), which is what makes ``POST /v1/ingest`` idempotent;
+- a status row a dead process left at ``processing`` is answered as failed,
+  reason ``interrupted``, through ``get_job_status``.
+"""
+
+import time
+import uuid
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+from knowledge_layer.llamaindex import adapter as adapter_module
+from knowledge_layer.llamaindex.adapter import LlamaIndexIngestor
+from knowledge_layer.llamaindex.adapter import PdfTextPages
+from knowledge_layer.llamaindex.adapter import unreadable_pdf_verdict
+
+from aiq_agent.knowledge import ingest_status_store
+from aiq_agent.knowledge.schema import FileProgress
+from aiq_agent.knowledge.schema import FileStatus
+from aiq_agent.knowledge.schema import IngestionJobStatus
+from aiq_agent.knowledge.schema import JobState
+
+# ---------------------------------------------------------------------------
+# Per-page PDF reading
+# ---------------------------------------------------------------------------
+
+
+class _Page:
+    def __init__(self, number: int, broken: bool) -> None:
+        self._number = number
+        self._broken = broken
+
+    def extract_text(self):
+        if self._broken:
+            raise ValueError("unparseable content stream")
+        return f"Seite {self._number}"
+
+
+class _Pdf:
+    def __init__(self, pages):
+        self.pages = pages
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+@pytest.fixture()
+def fake_pdf(monkeypatch):
+    """``pdfplumber.open`` over pages numbered 1..n, the ones in ``broken`` raising."""
+    import pdfplumber
+    from knowledge_layer.llamaindex import captioned_tables
+
+    monkeypatch.setattr(captioned_tables, "extract_page_tables", lambda *a, **k: [])
+
+    def install(count: int, broken: set[int]):
+        pages = [_Page(n, n in broken) for n in range(1, count + 1)]
+        monkeypatch.setattr(pdfplumber, "open", lambda _path: _Pdf(pages))
+
+    return install
+
+
+def test_a_broken_page_costs_that_page_and_not_the_rest(fake_pdf):
+    fake_pdf(60, broken={50})
+
+    pages = adapter_module._extract_text_from_pdf("plan.pdf")
+
+    assert [p["page_number"] for p in pages] == [n for n in range(1, 61) if n != 50]
+    assert pages.failed_pages == [50]
+    assert pages.page_count == 60
+
+
+def test_an_unopenable_pdf_reads_as_no_pages(monkeypatch):
+    import pdfplumber
+
+    monkeypatch.setattr(pdfplumber, "open", MagicMock(side_effect=ValueError("not a PDF")))
+
+    pages = adapter_module._extract_text_from_pdf("broken.pdf")
+
+    assert list(pages) == [] and pages.failed_pages == [] and pages.page_count == 0
+
+
+@pytest.mark.parametrize(
+    ("failed", "total", "fails"),
+    [
+        (0, 10, False),
+        (1, 10, False),
+        (2, 10, False),  # 20% is the limit, inclusive
+        (3, 10, True),
+        (1, 1, True),  # every page
+        (5, 5, True),
+    ],
+)
+def test_the_file_fails_past_a_fifth_of_its_pages(failed, total, fails):
+    pages = PdfTextPages([], failed_pages=list(range(1, failed + 1)), page_count=total)
+
+    verdict = unreadable_pdf_verdict(pages)
+
+    assert (verdict is not None) is fails
+    if fails:
+        assert verdict == f"pdf_pages_unreadable: {failed} of {total} pages could not be read"
+
+
+def test_a_plain_page_list_has_nothing_to_report():
+    assert unreadable_pdf_verdict([{"page_number": 1, "text": "x"}]) is None
+
+
+# ---------------------------------------------------------------------------
+# End to end through _run_ingestion
+# ---------------------------------------------------------------------------
+
+
+class _SplittingIndex:
+    """Stands in for ``VectorStoreIndex``: every Document becomes three nodes, unembedded."""
+
+    NODES_PER_DOCUMENT = 3
+
+    @classmethod
+    def from_documents(cls, documents, storage_context, **_kwargs):
+        index = cls(storage_context.vector_store.client)
+        for document in documents:
+            index.insert(document)
+        return index
+
+    def __init__(self, collection):
+        self._collection = collection
+
+    def insert(self, document):
+        metadata = {key: value for key, value in document.metadata.items() if value is not None}
+        for part in range(self.NODES_PER_DOCUMENT):
+            self._collection.add(
+                ids=[str(uuid.uuid4())],
+                documents=[f"{document.get_content()} ({part})"],
+                metadatas=[metadata],
+                embeddings=[[0.1, 0.2, 0.3]],
+            )
+
+
+@pytest.fixture()
+def stores(tmp_path):
+    from aiq_agent.knowledge import configure_summary_db
+    from aiq_agent.knowledge import factory
+    from aiq_agent.knowledge.chunk_text_store import configure_chunk_text_store
+    from aiq_agent.knowledge.chunk_text_store import reset_chunk_text_store
+
+    factory._document_metadata_store = None
+    configure_summary_db(f"sqlite:///{tmp_path / 'summaries.db'}")
+    mirror = configure_chunk_text_store(f"sqlite:///{tmp_path / 'mirror.db'}")
+    yield mirror
+    factory._document_metadata_store = None
+    reset_chunk_text_store()
+
+
+@pytest.fixture()
+def live_ingestor(tmp_path, monkeypatch):
+    ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma"), "generate_summary": False})
+    ing._embed_model = MagicMock()
+    ing._initialized = True
+    monkeypatch.setattr("llama_index.core.VectorStoreIndex", _SplittingIndex)
+    monkeypatch.setattr("llama_index.core.Settings", MagicMock())
+    return ing
+
+
+@pytest.fixture()
+def quiet_pdf_pipeline(monkeypatch):
+    """No images, no rendered pages, no VLM: only the text stage speaks."""
+    import knowledge_layer.llamaindex.processing as processing_module
+
+    from aiq_agent.common.credential_resolution import ResolvedCredential
+
+    none = ResolvedCredential(api_key="", base_url="https://vlm.test/v1", model="test-vlm", source="none")
+    monkeypatch.setattr(adapter_module, "resolve_vlm_credential", lambda organization_id=None: none)
+    monkeypatch.setattr(adapter_module, "_extract_images_from_pdf", lambda *a, **k: [])
+    monkeypatch.setattr(processing_module, "render_visual_pages_no_vlm", lambda *a, **k: [])
+
+
+def _wait_terminal(ing, job_id, timeout=30):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        status = ing.get_job_status(job_id)
+        if status.is_terminal:
+            return status
+        time.sleep(0.05)
+    raise AssertionError("ingestion job did not terminate in time")
+
+
+def _pdf_upload(tmp_path):
+    upload = tmp_path / "tmp_upload.pdf"
+    upload.write_bytes(b"%PDF-1.7\n%test\n")
+    return upload
+
+
+def _text_pages(count: int, failed: list[int]) -> PdfTextPages:
+    read = [n for n in range(1, count + 1) if n not in failed]
+    pages = [{"page_number": n, "text": f"Brandabschnitt Seite {n}.", "tables": [], "table_boxes": []} for n in read]
+    return PdfTextPages(pages, failed_pages=failed, page_count=count)
+
+
+def test_chunks_created_counts_the_nodes_stored(tmp_path, live_ingestor, stores):
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Eine Statik mit Bewehrung.", encoding="utf-8")
+
+    job_id = live_ingestor.submit_job([str(upload)], "proj_count", config={"original_filenames": ["statik.txt"]})
+    status = _wait_terminal(live_ingestor, job_id)
+
+    assert status.file_details[0].status == FileStatus.SUCCESS
+    # One Document, three nodes: the count is the three.
+    assert status.file_details[0].chunks_created == _SplittingIndex.NODES_PER_DOCUMENT
+    assert status.metadata["total_chunks"] == _SplittingIndex.NODES_PER_DOCUMENT
+
+
+def test_a_few_unreadable_pages_are_recorded_on_a_successful_file(
+    tmp_path, monkeypatch, live_ingestor, stores, quiet_pdf_pipeline
+):
+    monkeypatch.setattr(adapter_module, "_extract_text_from_pdf", lambda _path: _text_pages(10, [4]))
+
+    job_id = live_ingestor.submit_job(
+        [str(_pdf_upload(tmp_path))], "proj_pages", config={"original_filenames": ["plan.pdf"]}
+    )
+    status = _wait_terminal(live_ingestor, job_id)
+
+    detail = status.file_details[0]
+    assert detail.status == FileStatus.SUCCESS
+    assert detail.pages_failed == 1
+
+
+def test_too_many_unreadable_pages_fail_the_file(tmp_path, monkeypatch, live_ingestor, stores, quiet_pdf_pipeline):
+    monkeypatch.setattr(adapter_module, "_extract_text_from_pdf", lambda _path: _text_pages(10, [2, 3, 4]))
+
+    job_id = live_ingestor.submit_job(
+        [str(_pdf_upload(tmp_path))], "proj_holes", config={"original_filenames": ["plan.pdf"]}
+    )
+    status = _wait_terminal(live_ingestor, job_id)
+
+    detail = status.file_details[0]
+    assert detail.status == FileStatus.FAILED
+    assert detail.error_message == "pdf_pages_unreadable: 3 of 10 pages could not be read"
+    assert status.status == JobState.FAILED
+
+
+# ---------------------------------------------------------------------------
+# Live jobs: found by dispatch key, and not trusted after their owner is gone
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def held_ingestor(tmp_path):
+    """An ingestor whose pool never runs anything, so a submitted job stays pending."""
+    ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma")})
+    ing._ingest_pool = MagicMock()
+    return ing
+
+
+def test_a_live_job_is_found_by_its_dispatch_key(tmp_path, held_ingestor):
+    upload = tmp_path / "a.txt"
+    upload.write_text("x", encoding="utf-8")
+
+    job_id = held_ingestor.submit_job([str(upload)], "proj_1", config={"dispatch_key": "k1", "document_id": "doc-1"})
+
+    assert held_ingestor.find_live_job("k1") == job_id
+    assert held_ingestor.find_live_job("k2") is None
+    assert held_ingestor.get_job_status(job_id).metadata == {"dispatch_key": "k1", "document_id": "doc-1"}
+    assert held_ingestor._live_job_ids() == [job_id]
+
+    held_ingestor._jobs[job_id].status = JobState.COMPLETED
+    assert held_ingestor.find_live_job("k1") is None
+    assert held_ingestor._live_job_ids() == []
+
+
+def test_a_job_a_dead_process_left_processing_reads_interrupted(tmp_path, monkeypatch, held_ingestor):
+    from sqlalchemy import create_engine
+    from sqlalchemy import text
+
+    url = f"sqlite:///{tmp_path / 'jobs.db'}"
+    monkeypatch.setenv("AIQ_SUMMARY_DB", url)
+    try:
+        stranded = IngestionJobStatus(
+            job_id="stranded",
+            status=JobState.PROCESSING,
+            submitted_at="2026-09-29T10:00:00",
+            total_files=1,
+            collection_name="proj_1",
+            backend="llamaindex",
+            file_details=[FileProgress(file_name="plan.pdf", status=FileStatus.INGESTING)],
+        )
+        ingest_status_store.put(stranded)
+        engine = create_engine(url)
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE ingest_jobs SET heartbeat_at = '2000-01-01 00:00:00', owner = 'gone'"))
+        engine.dispose()
+
+        status = held_ingestor.get_job_status("stranded")
+
+        assert status.status == JobState.FAILED
+        assert status.error_message.startswith("interrupted:")
+        assert status.metadata["retryable"] is True
+    finally:
+        ingest_status_store._initialized.discard(url)
+
+
+def test_startup_settles_and_each_beat_vouches_for_live_jobs_only(monkeypatch, held_ingestor):
+    calls: list[object] = []
+    monkeypatch.setattr(ingest_status_store, "fail_interrupted", lambda: calls.append("sweep") or 0)
+    monkeypatch.setattr(ingest_status_store, "heartbeat", lambda ids: calls.append(list(ids)))
+    held_ingestor._jobs["live"] = SimpleNamespace(status=JobState.PROCESSING)
+    held_ingestor._jobs["queued"] = SimpleNamespace(status=JobState.PENDING)
+    held_ingestor._jobs["done"] = SimpleNamespace(status=JobState.COMPLETED)
+
+    held_ingestor._settle_stranded_jobs()
+    held_ingestor._beat()
+
+    assert calls == ["sweep", ["live", "queued"]]

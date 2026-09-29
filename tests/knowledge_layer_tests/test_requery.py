@@ -12,6 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from knowledge_layer.register import KnowledgeRetrievalConfig
+from knowledge_layer.register import _coverage_gap
 from knowledge_layer.register import knowledge_retrieval
 from knowledge_layer.requery import SUFFICIENT
 from knowledge_layer.requery import SufficiencyVerdict
@@ -160,9 +161,12 @@ class _FakeRetriever:
         return _FakeResult(list(self.answers.get(query, [])))
 
 
-def _grounding(merged, query, notice="", trailer="", preamble_note="", opened_files=frozenset()):
+def _grounding(merged, query, notice="", trailer="", preamble_note="", opened_files=frozenset(), coverage_gap=None):
     """Stands in for the renderer, which carries every decoration inside its bytes."""
-    return notice + preamble_note + ("|".join(chunk.chunk_id for chunk in merged.chunks) or "no results") + trailer
+    gap = f"GAP[{coverage_gap}]" if coverage_gap else ""
+    return (
+        notice + gap + preamble_note + ("|".join(chunk.chunk_id for chunk in merged.chunks) or "no results") + trailer
+    )
 
 
 _NOTICE_MARK = "Hinweis: die Suche wurde um"
@@ -361,9 +365,9 @@ class TestLaneToolScope:
 
         seen: list[str | None] = []
 
-        def _spy(merged, query, notice="", trailer="", preamble_note="", opened_files=frozenset()):
+        def _spy(merged, query, notice="", trailer="", preamble_note="", opened_files=frozenset(), coverage_gap=None):
             seen.append(current_lane_tool())
-            return _grounding(merged, query, notice, trailer, preamble_note, opened_files)
+            return _grounding(merged, query, notice, trailer, preamble_note, opened_files, coverage_gap)
 
         retriever = _FakeRetriever({"Fluchtweg GK4": [_chunk("a", "a")]})
         loop_harness(retriever, None)
@@ -381,6 +385,137 @@ class TestLaneToolScope:
         await _search(_config())
 
         assert current_lane_tool() is None
+
+
+class _Decider:
+    """The decision client behind ``knowledge_layer.decisions``, answering by call.
+
+    ``rounds[i]`` is the p(answers) every passage gets on the i-th batch: the
+    first is the judge's decider on the fused head, the second the coverage
+    check on the pool the model gets. ``None`` in a round is a passage the
+    decider did not answer.
+    """
+
+    def __init__(self, *rounds):
+        self.rounds = list(rounds)
+        self.calls: list[dict] = []
+
+    def noul(self, instructions, *, true, false):
+        return {"type": "noul", "instructions": instructions}
+
+    async def decide_many(self, states, questions, **_):
+        from aiq_agent.common.decisions import Decision
+
+        self.calls.append({"count": len(states), "questions": set(questions)})
+        p = self.rounds[min(len(self.calls), len(self.rounds)) - 1]
+        if p is None:
+            return [None] * len(states)
+        return [Decision(answers={key: {"type": "noul", "noul": p} for key in questions}) for _ in states]
+
+
+def _pool(prefix: str, count: int) -> list:
+    return [_chunk(f"{prefix}{i}", f"{prefix}{i}") for i in range(count)]
+
+
+class TestTheCoverageSignal:
+    """After the requery round, a pool the decider still finds unanswered says so, and is kept whole."""
+
+    WIDEN = '{"sufficient": false, "queries": ["Gehweglänge Gebäudeklasse 4"]}'
+
+    def _retriever(self):
+        return _FakeRetriever({"Fluchtweg GK4": _pool("a", 5), "Gehweglänge Gebäudeklasse 4": _pool("b", 3)})
+
+    async def test_an_unanswered_pool_says_why_and_stays_whole(self, loop_harness, monkeypatch):
+        """The gap is stated, never enforced: a decision withholds no passage (ADR-0064)."""
+        decider = _Decider(0.1, 0.2)
+        monkeypatch.setattr("knowledge_layer.decisions._client", lambda: decider)
+        loop_harness(self._retriever(), _FakeLLM(self.WIDEN))
+
+        out = _body(await _search(_config(requery_llm="judge", requery_decider="jev")))
+
+        gap, _, rest = out.partition("]")
+        assert gap.startswith("GAP[keine der 8 besten Passagen") and "auch nach Umformulierung" in gap
+        assert len(rest.split("|")) == 8
+        assert decider.calls[-1] == {"count": 8, "questions": {"answers"}}
+
+    async def test_a_widened_pool_that_now_answers_is_delivered_whole(self, loop_harness, monkeypatch):
+        decider = _Decider(0.1, 0.8)
+        monkeypatch.setattr("knowledge_layer.decisions._client", lambda: decider)
+        loop_harness(self._retriever(), _FakeLLM(self.WIDEN))
+
+        out = _body(await _search(_config(requery_llm="judge", requery_decider="jev")))
+
+        assert "GAP[" not in out and len(out.split("|")) == 8
+
+    async def test_a_coverage_decision_that_did_not_run_claims_nothing(self, loop_harness, monkeypatch):
+        decider = _Decider(0.1, None)
+        monkeypatch.setattr("knowledge_layer.decisions._client", lambda: decider)
+        loop_harness(self._retriever(), _FakeLLM(self.WIDEN))
+
+        out = _body(await _search(_config(requery_llm="judge", requery_decider="jev")))
+
+        assert "GAP[" not in out and len(out.split("|")) == 8
+
+    async def test_a_head_the_decider_finds_answered_is_never_rechecked(self, loop_harness, monkeypatch):
+        decider = _Decider(0.9)
+        monkeypatch.setattr("knowledge_layer.decisions._client", lambda: decider)
+        loop_harness(self._retriever(), _FakeLLM(self.WIDEN))
+
+        out = await _search(_config(requery_llm="judge", requery_decider="jev"))
+
+        assert "GAP[" not in out and len(decider.calls) == 1
+
+    async def test_the_llm_decider_claims_nothing(self, loop_harness, monkeypatch):
+        """Its verdict was on the fused head before the reranker; re-asking it is a frontier call."""
+        decider = _Decider(0.1)
+        monkeypatch.setattr("knowledge_layer.decisions._client", lambda: decider)
+        loop_harness(self._retriever(), _FakeLLM(self.WIDEN))
+
+        out = _body(await _search(_config(requery_llm="judge")))
+
+        assert "GAP[" not in out and decider.calls == []
+
+    async def test_a_pinned_file_is_never_judged_for_coverage(self, loop_harness, monkeypatch):
+        decider = _Decider(0.1)
+        monkeypatch.setattr("knowledge_layer.decisions._client", lambda: decider)
+        loop_harness(self._retriever(), _FakeLLM(self.WIDEN))
+
+        out = await _search(_config(requery_llm="judge", requery_decider="jev"), file_name="oib-rl_4.pdf")
+
+        assert "GAP[" not in out and decider.calls == []
+
+
+class TestTheCoverageGate:
+    """``_coverage_gap`` asks only where the judge ran, said no, and the pool is whole."""
+
+    CONFIG = SimpleNamespace(requery_decider="jev", decision_sufficiency_threshold=0.55)
+
+    @pytest.mark.parametrize(
+        ("verdict", "pool"),
+        [
+            (None, _FakeResult([object()])),  # family overview, pinned file, skipped judge
+            (SUFFICIENT, _FakeResult([object()])),
+            (SufficiencyVerdict(sufficient=False), SimpleNamespace(success=True, error_message="partial", chunks=[1])),
+            (SufficiencyVerdict(sufficient=False), SimpleNamespace(success=False, error_message=None, chunks=[1])),
+            (SufficiencyVerdict(sufficient=False), _FakeResult([])),
+        ],
+    )
+    async def test_it_does_not_ask(self, verdict, pool, monkeypatch):
+        async def _never(*args, **kwargs):
+            raise AssertionError("coverage asked")
+
+        monkeypatch.setattr("knowledge_layer.requery.judge_coverage", _never)
+        assert await _coverage_gap("q", pool, verdict, self.CONFIG, widened=False) is None
+
+    def test_the_real_renderer_states_the_gap_and_stops_calling_the_hits_relevant(self):
+        from knowledge_layer.register import _format_results
+
+        result = SimpleNamespace(success=True, error_message=None, chunks=[_chunk("nah", "a")])
+        rendered = _format_results(result, "q", coverage_gap="kein Beleg")
+        assert rendered.startswith(
+            "Found 1 document(s), none judged to answer the question:\nAbdeckung: unzureichend — kein Beleg\n\n"
+        )
+        assert _format_results(result, "q").startswith("Found 1 relevant document(s):\n\n--- Result 1 ---")
 
 
 class TestTheSearchRetrieverHandle:

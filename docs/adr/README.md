@@ -131,6 +131,7 @@ Consequences, where a reader looks for them.
 | [0069](0069-the-answer-is-markdown-and-a-card-must-earn-its-place.md) | The answer is Markdown, drawn richly, and a card must carry what Markdown cannot | Accepted |
 | [0070](0070-office-files-are-viewed-through-a-pdf-rendition.md) | Office files are viewed through a PDF rendition that Gotenberg makes | Accepted |
 | [0071](0071-word-and-presentation-files-are-indexed-from-their-rendition.md) | Word and presentation files are indexed from their PDF rendition | Accepted |
+| [0072](0072-the-knowledge-layer-has-one-backend-llamaindex.md) | The knowledge layer has one backend: llamaindex | Accepted |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off

@@ -13,7 +13,6 @@ from contextlib import nullcontext
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
-from typing import Literal
 
 from pydantic import Field
 from pydantic import model_validator
@@ -119,14 +118,14 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "`title_contains`); it is not permission to invent a citation."
 )
 
-# Type-safe backend selection - Pydantic validates at config load time
-BackendType = Literal["llamaindex", "foundational_rag"]
+# The knowledge layer has one backend (ADR-0072). The name still keys the
+# adapter registry, where tests register fakes beside it.
+BACKEND = "llamaindex"
 
 
 class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     """Configuration for knowledge retrieval function."""
 
-    backend: BackendType = Field(default="llamaindex", description="Knowledge backend to use")
     collection_name: str = Field(default="default", description="Name of the collection/index to search")
     use_fixed_collection: bool = Field(
         default=False,
@@ -291,48 +290,21 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "draft and the search is the baseline."
         ),
     )
-    # Foundational RAG (hosted RAG Blueprint) options
-    rag_url: str = Field(default="http://localhost:8081/v1", description="RAG query server URL (foundational_rag only)")
-    ingest_url: str = Field(
-        default="http://localhost:8082/v1", description="RAG ingestion server URL (foundational_rag only)"
-    )
-    timeout: int = Field(default=120, description="Request timeout in seconds (foundational_rag only)")
-    verify_ssl: bool = Field(
-        default=True, description="Verify SSL certificates (foundational_rag only). Set false for self-signed certs."
-    )
 
     @model_validator(mode="after")
-    def validate_backend_config(self):
-        """Validate and warn about unused backend-specific config options."""
-        backend = self.backend.lower()
-
-        # Validate summary configuration
+    def validate_summary_config(self):
+        """``generate_summary`` needs a ``summary_model`` to summarise with."""
         if self.generate_summary and not self.summary_model:
             raise ValueError(
                 "generate_summary=true requires summary_model to be set. "
                 "Configure summary_model to reference an LLM from the llms: section."
             )
-
-        if backend == "llamaindex":
-            # LlamaIndex uses chroma_dir, warn if RAG-specific options are set
-            if self.rag_url != "http://localhost:8081/v1":
-                logger.warning("rag_url is ignored for llamaindex backend")
-            if self.ingest_url != "http://localhost:8082/v1":
-                logger.warning("ingest_url is ignored for llamaindex backend")
-
-        elif backend == "foundational_rag":
-            # Foundational RAG uses rag_url/ingest_url, warn if others are set
-            if self.chroma_dir != "/tmp/chroma_data":
-                logger.warning("chroma_dir is ignored for foundational_rag backend")
-            if not self.verify_ssl:
-                logger.warning("SSL verification disabled for foundational_rag. Use only in trusted environments.")
-
         return self
 
 
 def _setup_backend(config: KnowledgeRetrievalConfig, summary_llm_obj=None) -> tuple[str, dict]:
     """
-    Import the backend adapter and build its configuration.
+    Import the llamaindex adapter and build its configuration.
 
     Importing the adapter module triggers the @register_retriever/@register_ingestor
     decorators, which register the adapter classes with the factory.
@@ -344,43 +316,21 @@ def _setup_backend(config: KnowledgeRetrievalConfig, summary_llm_obj=None) -> tu
     Returns:
         Tuple of (backend_name, backend_config_dict)
     """
-    backend = config.backend.lower()
+    import knowledge_layer.llamaindex.adapter  # noqa: F401
 
-    # Summary config: LLM object if resolved, else adapters use default NVIDIA model
-    summary_config = {
+    os.environ.setdefault("AIQ_CHROMA_DIR", config.chroma_dir)
+    backend_config: dict = {
+        "persist_dir": config.chroma_dir,
         "generate_summary": config.generate_summary,
         "summary_llm": summary_llm_obj,
     }
+    if config.hybrid_search is not None:
+        backend_config["hybrid_search"] = config.hybrid_search
 
-    if backend == "llamaindex":
-        import knowledge_layer.llamaindex.adapter  # noqa: F401
+    os.environ["KNOWLEDGE_RETRIEVER_BACKEND"] = BACKEND
+    os.environ["KNOWLEDGE_INGESTOR_BACKEND"] = BACKEND
 
-        os.environ.setdefault("AIQ_CHROMA_DIR", config.chroma_dir)
-        backend_config: dict = {
-            "persist_dir": config.chroma_dir,
-            **summary_config,
-        }
-        if config.hybrid_search is not None:
-            backend_config["hybrid_search"] = config.hybrid_search
-
-    elif backend == "foundational_rag":
-        import knowledge_layer.foundational_rag.adapter  # noqa: F401
-
-        backend_config = {
-            "rag_url": config.rag_url,
-            "ingest_url": config.ingest_url,
-            "timeout": config.timeout,
-            "verify_ssl": config.verify_ssl,
-            **summary_config,
-        }
-
-    else:
-        raise ValueError(f"Unknown backend: {backend}. Use 'llamaindex' or 'foundational_rag'.")
-
-    os.environ["KNOWLEDGE_RETRIEVER_BACKEND"] = backend
-    os.environ["KNOWLEDGE_INGESTOR_BACKEND"] = backend
-
-    return backend, backend_config
+    return BACKEND, backend_config
 
 
 def _get_retriever(config: KnowledgeRetrievalConfig):
@@ -657,8 +607,8 @@ def _rank_channel(chunks) -> list:
     carries no ``chunk_id``: a collection whose rank 3 was dropped upstream keeps rank 4
     at rank 4 instead of silently promoting it.
 
-    Chunks with no stamped rank (SimpleNamespace test doubles, the foundational_rag
-    backend, anything predating the field) fall back to their position in the list, which
+    Chunks with no stamped rank (SimpleNamespace test doubles, anything predating
+    the field) fall back to their position in the list, which
     is the order the retriever returned them in — so an unstamped layer behaves exactly
     as it did before the field existed.
     """
@@ -888,9 +838,8 @@ def _fuse_channels(channels: list[list]) -> list[tuple]:
 
     The fusion helper lives in the llamaindex package, so it is imported lazily and
     defensively: ``_merge_results`` is called on ``asyncio.gather(..., return_exceptions=True)``
-    output and must never raise, and a deployment running the foundational_rag backend
-    without the llamaindex extra must degrade to the (still collection-ordered)
-    concatenation rather than losing the whole search.
+    output and must never raise, so a fusion failure degrades to the (still
+    collection-ordered) concatenation rather than losing the whole search.
     """
     try:
         from knowledge_layer.llamaindex.hybrid import fuse_with_ranks
@@ -1532,6 +1481,27 @@ def _grounding_hits(chunks) -> tuple:
     )
 
 
+async def _coverage_gap(query: str, merged, verdict, config, *, widened: bool):
+    """The decider's "none of these answers it" for the pool as delivered, or ``None``.
+
+    Asked only where the judge already ran and found the first pool
+    insufficient, so the family overview, a pinned file, a skipped judge and a
+    sufficient pool never reach it and render exactly as before. Only the
+    ``jev`` decider: the LLM judge's verdict was on the fused head before the
+    reranker and the requery round, and asking it again costs a frontier call.
+    A degraded pool claims nothing either: the layer that dropped out may hold
+    the answer, and the block already says it is partial.
+    """
+    from knowledge_layer.requery import DECIDER_JEV
+    from knowledge_layer.requery import judge_coverage
+
+    if verdict is None or verdict.sufficient or config.requery_decider != DECIDER_JEV:
+        return None
+    if not merged.success or getattr(merged, "error_message", None) or not merged.chunks:
+        return None
+    return await judge_coverage(query, merged.chunks, threshold=config.decision_sufficiency_threshold, widened=widened)
+
+
 def _format_results(
     retrieval_result,
     query: str,
@@ -1539,6 +1509,7 @@ def _format_results(
     trailer: str = "",
     preamble_note: str = "",
     opened_files: frozenset[str] = frozenset(),
+    coverage_gap: str | None = None,
 ) -> str:
     """Build this result set's grounding hits and render them for the LLM.
 
@@ -1557,6 +1528,11 @@ def _format_results(
     family a family-shaped query resolved to, and where its parts sit in the
     results. It is a second preamble line, so a result set without one renders
     byte-for-byte as before.
+
+    ``coverage_gap`` is why the passages do not answer the question, when the
+    decider read them and said so (``requery.judge_coverage``). The block then
+    says „Abdeckung: unzureichend" under a preamble that no longer calls the
+    hits relevant.
     """
     # The two answers below carry no block, so they carry no hash to protect
     # either; there the trailer is simply appended, which keeps it stated
@@ -1586,7 +1562,11 @@ def _format_results(
     from aiq_agent.common.turn_status import current_lane_tool
 
     hits = _grounding_hits(retrieval_result.chunks)
-    preamble = f"Found {len(hits)} relevant document(s):"
+    preamble = (
+        f"Found {len(hits)} document(s), none judged to answer the question:"
+        if coverage_gap
+        else f"Found {len(hits)} relevant document(s):"
+    )
     return render_grounding_block(
         GroundingBlock(
             preamble=f"{preamble}\n{preamble_note}" if preamble_note else preamble,
@@ -1599,6 +1579,7 @@ def _format_results(
             # is the search itself.
             tool=current_lane_tool() or KNOWLEDGE_SEARCH_TOOL,
             trailer=trailer,
+            coverage_gap=coverage_gap,
         )
     )
 
@@ -1729,9 +1710,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     Knowledge retrieval function for searching ingested documents.
 
     This function provides semantic search over documents that have been
-    previously ingested into the knowledge layer. It supports multiple
-    backends (LlamaIndex, Foundational RAG) and returns formatted results
-    suitable for LLM consumption.
+    previously ingested into the knowledge layer (the llamaindex backend) and
+    returns formatted results suitable for LLM consumption.
 
     The retriever and ingestor are initialized once when the function is
     created and reused for all subsequent queries. The ingestor singleton
@@ -1827,9 +1807,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     top_k = config.top_k
     max_per_document = config.max_chunks_per_document
 
-    logger.info(
-        "Knowledge retrieval initialized: backend=%s, collection=%s, top_k=%d", config.backend, collection, top_k
-    )
+    logger.info("Knowledge retrieval initialized: backend=%s, collection=%s, top_k=%d", BACKEND, collection, top_k)
 
     async def search(
         query: str,
@@ -2263,9 +2241,11 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
             # Relevance floor. Without one, top_k is ALWAYS filled: a question this
             # corpus cannot answer still returns sixteen formatted excerpts with page
-            # citations and a Dokumentart line asserting binding legal force, and the
-            # grounding block has no vocabulary for "I retrieved nothing useful". In a
+            # citations and a Dokumentart line asserting binding legal force. In a
             # building-law product that is the highest-consequence failure available.
+            # The block's vocabulary for "I retrieved nothing useful" is the coverage
+            # signal just below (`_coverage_gap`), which reads the question against
+            # the text; this floor is only a distance.
             #
             # DISABLED BY DEFAULT, and that is not timidity. A floor is a number on a
             # specific embedding model's cosine distribution, and this deployment's
@@ -2306,6 +2286,13 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     )
                     dropped_by_floor = before_floor - len(kept)
                 merged = merged.model_copy(update={"chunks": kept})
+
+            # Coverage: the judge found the first pool insufficient, and the
+            # decider now reads the pool the model will get, after the requery
+            # round. A complete "no" is said in the block; the pool stays whole,
+            # because a decision never withholds a passage (ADR-0064). Anything
+            # short of a complete "no" claims nothing.
+            coverage = await _coverage_gap(query, merged, verdict, config, widened=requery_fired)
 
             # The family's members go in FRONT of the ranked passages, and after
             # the cap and the floor: they are addressed, not ranked, so neither
@@ -2374,6 +2361,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                         search_input["dropped_by_cap"] = dropped_by_cap
                     if dropped_by_family:
                         search_input["dropped_by_family"] = dropped_by_family
+                    if coverage is not None:
+                        search_input["coverage"] = "insufficient"
+                        search_input["coverage_best"] = round(coverage.best, 3)
                     if not merged.chunks:
                         search_input["empty"] = True
                     if getattr(merged, "error_message", None):
@@ -2457,6 +2447,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     overview.trailer if overview is not None else "",
                     family_note,
                     overview.opened_files if overview is not None else frozenset(),
+                    coverage_gap=coverage.reason() if coverage is not None else None,
                 )
             logger.info(f"Knowledge search returned {len(merged.chunks)} chunks")
             logger.debug(f"Formatted result for LLM:\n{formatted[:500]}...")

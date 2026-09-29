@@ -1,6 +1,7 @@
 """URL-based ingestion endpoint for documents stored in SeaweedFS."""
 
 import asyncio
+import hashlib
 import io
 import ipaddress
 import logging
@@ -8,6 +9,8 @@ import os
 import re
 import socket
 import tempfile
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from urllib.parse import unquote
 from urllib.parse import urlparse
 
@@ -77,190 +80,241 @@ def add_ingest_routes(router: APIRouter):
         override — the ingest thread is detached from the request, so the org
         id must be captured here and carried in the job config.
         """
-        file_ref = request.file_ref
-        collection = request.collection
-
-        if not file_ref or not collection:
+        if not request.file_ref or not request.collection:
             raise HTTPException(status_code=400, detail="file_ref and collection are required")
+        _assert_request_urls(request)
 
-        temp_path: str | None = None
-        submitted = False
-        try:
-            _assert_fetchable_object_store_url(file_ref)
-            # The office rendition (ADR-0070/0071), for the thumbnail and for
-            # extraction. Both are fetched after this request has answered, so
-            # they pass the same two gates as file_ref now, before anything is
-            # requested, and fail-closed like thumbnail_upload_url: a request
-            # naming a non-object-store rendition is malformed.
-            if request.preview_ref:
-                _assert_fetchable_object_store_url(request.preview_ref, field="preview_ref")
-            if request.extraction_ref:
-                _assert_fetchable_object_store_url(request.extraction_ref, field="extraction_ref")
+        # Idempotent per document and object (see _dispatch_key): the BFF
+        # retries once when its ten-second budget runs out, and a retry must
+        # join the job the first attempt started, not start a second one. The
+        # slot serialises dispatches of one key on this replica, so a retry
+        # that arrives while the first attempt is still downloading waits for
+        # it and then finds its job.
+        dispatch_key = _dispatch_key(request)
+        async with _dispatch_slot(dispatch_key):
+            existing = await _live_job(ingestor, dispatch_key)
+            if existing:
+                logger.info("Dispatch joined the live ingestion job %s", existing)
+                return {"job_id": existing, "status": "pending", "document_id": request.document_id}
+            return await _download_and_submit(request, background_tasks, ingestor, x_grid_organization_id, dispatch_key)
 
-            async with httpx.AsyncClient() as client:
-                # No redirects: a follow could land on a host outside the
-                # allowlist (e.g. a cloud metadata endpoint), which would make
-                # the host check above a no-op. Presigned object-store GETs
-                # never redirect; a 3xx is a failed download like any other.
-                response = await client.get(file_ref, follow_redirects=False)
-                response.raise_for_status()
 
-            suffix = _infer_suffix(response.headers.get("content-type", ""), file_ref)
-            # NOTE: The temp file is NOT deleted here - the ingestion job owns
-            # cleanup (cleanup_files=True) so the background thread can access it.
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                tmp.write(response.content)
-                temp_path = tmp.name
+async def _download_and_submit(
+    request: IngestRequest,
+    background_tasks: BackgroundTasks,
+    ingestor: BaseIngestor,
+    x_grid_organization_id: str | None,
+    dispatch_key: str | None,
+) -> dict:
+    """Download ``file_ref``, submit the job, and schedule the quick thumbnail."""
+    file_ref = request.file_ref
+    collection = request.collection
+    temp_path: str | None = None
+    submitted = False
+    try:
+        async with httpx.AsyncClient() as client:
+            # No redirects: a follow could land on a host outside the
+            # allowlist (e.g. a cloud metadata endpoint), which would make
+            # the host check above a no-op. Presigned object-store GETs
+            # never redirect; a 3xx is a failed download like any other.
+            response = await client.get(file_ref, follow_redirects=False)
+            response.raise_for_status()
 
-            # NEVER log `file_ref`: it is a presigned S3 URL, i.e. a live bearer
-            # credential to the object with no user, org or IP binding — anyone
-            # holding the string can fetch the bytes until it expires. The old
-            # `file_ref[:80]` truncation was not a control: the prefix length
-            # varies with the org/project/document ids in the key, so whether the
-            # signature survived the cut was luck, and the tenant path leaked in
-            # full for short keys. Log the size and the document, never the URL.
-            logger.info("Downloaded %d bytes for ingestion", len(response.content))
+        suffix = _infer_suffix(response.headers.get("content-type", ""), file_ref)
+        # NOTE: The temp file is NOT deleted here - the ingestion job owns
+        # cleanup (cleanup_files=True) so the background thread can access it.
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(response.content)
+            temp_path = tmp.name
 
-            config: dict = {
-                "cleanup_files": True,
-                # The BFF's own `documents.filename` when it stated one, and the
-                # presigned URL's last path segment otherwise. Stating it is what
-                # keeps the chunk `file_name` metadata equal to the join key every
-                # chunk purge addresses: the URL segment is the OBJECT KEY's
-                # basename, which the BFF sanitises (a slash becomes an
-                # underscore, a 300-character name is cut), so the derived form
-                # can be a string no purge ever asks for.
-                "original_filenames": [request.file_name or _extract_filename(file_ref)],
-            }
-            if request.thumbnail_upload_url:
-                # Same two gates as file_ref, BEFORE the value is used
-                # anywhere: it feeds an httpx.put here (fast-path thumbnail)
-                # and rides into the ingest job's config for a second PUT
-                # there — an unvalidated URL on either path is an
-                # arbitrary-destination server-side request forgery. Unlike
-                # the thumbnail itself this check is fail-closed: a request
-                # naming a non-object-store upload target is malformed, not
-                # decorative.
-                _assert_fetchable_object_store_url(request.thumbnail_upload_url, field="thumbnail_upload_url")
-                config["thumbnail_upload_url"] = request.thumbnail_upload_url
-            # The folder this document was filed into, as the BFF's materialised
-            # path (ADR-0049). Carried into the detached ingest thread so the
-            # metadata row can be stamped with it — a folder is part of what the
-            # agent must know about a document, not only of how the object is keyed.
-            folder_path = (request.folder_path or "").strip()
-            if folder_path:
-                config["folder_path"] = folder_path
-            # Carry the org id into the detached ingest thread so the VLM
-            # resolves the tenant's BYOK credential + runtime model override.
-            if x_grid_organization_id:
-                config["organization_id"] = x_grid_organization_id
-            # The document's id, so the pipeline can ask the BFF for a PUT slot
-            # per raster it extracts (`knowledge_layer.llamaindex.image_store`).
-            # Without it the captions are indexed and the rasters discarded,
-            # which is what every caller that sends no id (the OIB corpus
-            # sync) gets.
-            if request.document_id:
-                config["document_id"] = request.document_id
-            # Who wrote this document and who released it, carried into the
-            # detached ingest thread so the ingestor can stamp it onto every
-            # chunk and onto the document metadata row (ADR-0054). Absent for
-            # every human document, and absence is what the parser expects — see
-            # aiq_agent.common.provenance.parse_agent_provenance, which returns
-            # None for anything unmarked.
-            config.update(_provenance_config(request))
-            if request.extraction_ref:
-                # Read the document from its PDF rendition (ADR-0071). The job
-                # downloads it: see DeferredObjectDownload for why not here.
-                # Positional like original_filenames, whose entry above stays
-                # the original's name, the identity every chunk carries.
-                config["extraction_paths"] = [DeferredObjectDownload(request.extraction_ref)]
+        # NEVER log `file_ref`: it is a presigned S3 URL, i.e. a live bearer
+        # credential to the object with no user, org or IP binding — anyone
+        # holding the string can fetch the bytes until it expires. The old
+        # `file_ref[:80]` truncation was not a control: the prefix length
+        # varies with the org/project/document ids in the key, so whether the
+        # signature survived the cut was luck, and the tenant path leaked in
+        # full for short keys. Log the size and the document, never the URL.
+        logger.info("Downloaded %d bytes for ingestion", len(response.content))
 
-            # An office original has no pages to draw here; its thumbnail comes
-            # from the rendition, which is a download, so it happens after the
-            # response (see _schedule_rendition_thumbnail).
-            if request.thumbnail_upload_url and not _draws_itself(temp_path):
-                _schedule_rendition_thumbnail(background_tasks, request, temp_path)
-            # Fast thumbnail: generate a 200px JPEG before the job enters the
-            # pool so the BFF polling sees it (near-)instantly. Fail-open —
-            # a thumbnail is decorative and never blocks ingestion.
-            elif request.thumbnail_upload_url:
-                try:
-                    pregenerated = await asyncio.to_thread(
-                        _generate_and_upload_thumbnail,
-                        temp_path,
-                        request.thumbnail_upload_url,
-                        request.preview_ref,
-                    )
-                    # Tell the ingest job the thumbnail already exists so it
-                    # skips its own (redundant) fallback render + PUT. On
-                    # failure the flag stays unset and the fallback still runs.
-                    if pregenerated:
-                        config["thumbnail_pregenerated"] = True
-                except Exception as thumb_error:
-                    # No `exc_info`: the traceback of a thumbnail PUT failure
-                    # renders the presigned upload URL. The class name is what
-                    # this line is actually for — a thumbnail is decorative and
-                    # the failure is swallowed either way.
-                    logger.warning(
-                        "Pre-ingest thumbnail failed (swallowed): %s",
-                        type(thumb_error).__name__,
-                    )
+        config: dict = {
+            "cleanup_files": True,
+            # The BFF's own `documents.filename` when it stated one, and the
+            # presigned URL's last path segment otherwise. Stating it is what
+            # keeps the chunk `file_name` metadata equal to the join key every
+            # chunk purge addresses: the URL segment is the OBJECT KEY's
+            # basename, which the BFF sanitises (a slash becomes an
+            # underscore, a 300-character name is cut), so the derived form
+            # can be a string no purge ever asks for.
+            "original_filenames": [request.file_name or _extract_filename(file_ref)],
+        }
+        if request.thumbnail_upload_url:
+            # Gated in _assert_request_urls before anything was requested.
+            config["thumbnail_upload_url"] = request.thumbnail_upload_url
+        # What a retried dispatch of this document and object is matched
+        # against (`BaseIngestor.find_live_job`).
+        if dispatch_key:
+            config["dispatch_key"] = dispatch_key
+        # The folder this document was filed into, as the BFF's materialised
+        # path (ADR-0049). Carried into the detached ingest thread so the
+        # metadata row can be stamped with it — a folder is part of what the
+        # agent must know about a document, not only of how the object is keyed.
+        folder_path = (request.folder_path or "").strip()
+        if folder_path:
+            config["folder_path"] = folder_path
+        # Carry the org id into the detached ingest thread so the VLM
+        # resolves the tenant's BYOK credential + runtime model override.
+        if x_grid_organization_id:
+            config["organization_id"] = x_grid_organization_id
+        # The document's id, so the pipeline can ask the BFF for a PUT slot
+        # per raster it extracts (`knowledge_layer.llamaindex.image_store`).
+        # Without it the captions are indexed and the rasters discarded,
+        # which is what every caller that sends no id (the OIB corpus
+        # sync) gets.
+        if request.document_id:
+            config["document_id"] = request.document_id
+        # Who wrote this document and who released it, carried into the
+        # detached ingest thread so the ingestor can stamp it onto every
+        # chunk and onto the document metadata row (ADR-0054). Absent for
+        # every human document, and absence is what the parser expects — see
+        # aiq_agent.common.provenance.parse_agent_provenance, which returns
+        # None for anything unmarked.
+        config.update(_provenance_config(request))
+        if request.extraction_ref:
+            # Read the document from its PDF rendition (ADR-0071). The job
+            # downloads it: see DeferredObjectDownload for why not here.
+            # Positional like original_filenames, whose entry above stays
+            # the original's name, the identity every chunk carries.
+            config["extraction_paths"] = [DeferredObjectDownload(request.extraction_ref)]
 
-            job_id = await asyncio.to_thread(
-                ingestor.submit_job,
-                [temp_path],
-                collection,
-                config=config,
-            )
+        job_id = await asyncio.to_thread(
+            ingestor.submit_job,
+            [temp_path],
+            collection,
+            config=config,
+        )
 
-            logger.info(f"Submitted ingestion job {job_id} for {_extract_filename(file_ref)}")
-            submitted = True
+        logger.info(f"Submitted ingestion job {job_id} for {_extract_filename(file_ref)}")
+        submitted = True
+        # The quick thumbnail is drawn after the response: see
+        # _schedule_thumbnail for why not here.
+        _schedule_thumbnail(background_tasks, request, temp_path)
 
-            return {
-                "job_id": job_id,
-                "status": "pending",
-                "document_id": request.document_id,
-            }
+        return {
+            "job_id": job_id,
+            "status": "pending",
+            "document_id": request.document_id,
+        }
 
-        # `str(e)` on either httpx error embeds the REQUEST URL, which for
-        # `file_ref` is a presigned S3 URL — a live bearer credential to the
-        # object plus the tenant path. So these handlers log the status code and
-        # the error CLASS, never the exception's own text, and the client gets a
-        # fixed message rather than one built from it. The sink filter
-        # (aiq_agent.common.log_redaction) would catch a slip here, but a leak
-        # avoided at the call site never has to be caught.
-        except httpx.HTTPStatusError as e:
-            logger.error("Failed to download file for ingestion: HTTP %d", e.response.status_code)
-            raise HTTPException(status_code=400, detail="Failed to download the file to ingest")
-        except httpx.RequestError as e:
-            logger.error("Network error downloading file for ingestion: %s", type(e).__name__)
-            raise HTTPException(status_code=502, detail="Network error downloading the file to ingest")
-        except HTTPException:
-            raise
-        except Exception as e:
-            # Class name, not `str(e)`: an arbitrary internal message is exactly
-            # where a path, a DSN or a URL rides out to the client.
-            logger.exception("Ingestion failed: %s", type(e).__name__)
-            raise HTTPException(status_code=500, detail="Ingestion failed")
-        finally:
-            # Once submit_job succeeds the ingestion job owns cleanup
-            # (cleanup_files=True); until then the downloaded temp file is
-            # ours, and leaving it behind on a failed submit leaks one file
-            # per request until the disk fills (mirrors documents.py).
-            if not submitted and temp_path:
-                try:
-                    os.unlink(temp_path)
-                except OSError:
-                    pass
+    # `str(e)` on either httpx error embeds the REQUEST URL, which for
+    # `file_ref` is a presigned S3 URL — a live bearer credential to the
+    # object plus the tenant path. So these handlers log the status code and
+    # the error CLASS, never the exception's own text, and the client gets a
+    # fixed message rather than one built from it. The sink filter
+    # (aiq_agent.common.log_redaction) would catch a slip here, but a leak
+    # avoided at the call site never has to be caught.
+    except httpx.HTTPStatusError as e:
+        logger.error("Failed to download file for ingestion: HTTP %d", e.response.status_code)
+        raise HTTPException(status_code=400, detail="Failed to download the file to ingest")
+    except httpx.RequestError as e:
+        logger.error("Network error downloading file for ingestion: %s", type(e).__name__)
+        raise HTTPException(status_code=502, detail="Network error downloading the file to ingest")
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Class name, not `str(e)`: an arbitrary internal message is exactly
+        # where a path, a DSN or a URL rides out to the client.
+        logger.exception("Ingestion failed: %s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Ingestion failed")
+    finally:
+        # Once submit_job succeeds the ingestion job owns cleanup
+        # (cleanup_files=True); until then the downloaded temp file is
+        # ours, and leaving it behind on a failed submit leaks one file
+        # per request until the disk fills (mirrors documents.py).
+        if not submitted and temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+
+def _assert_request_urls(request: IngestRequest) -> None:
+    """Every URL this request names passes both SSRF gates, before anything is requested.
+
+    ``file_ref`` is downloaded here. The office rendition (ADR-0070/0071) is
+    fetched for the thumbnail and for extraction after this request has
+    answered, and ``thumbnail_upload_url`` feeds a PUT from a background task
+    and rides into the job's config for a second one; an unvalidated URL on
+    any of those paths is an arbitrary-destination server-side request
+    forgery. Fail-closed for all of them: a request naming a non-object-store
+    URL is malformed, not decorative.
+    """
+    _assert_fetchable_object_store_url(request.file_ref)
+    for field in ("preview_ref", "extraction_ref", "thumbnail_upload_url"):
+        value = getattr(request, field)
+        if value:
+            _assert_fetchable_object_store_url(value, field=field)
+
+
+def _dispatch_key(request: IngestRequest) -> str | None:
+    """What makes two dispatches the same one: the document and the object it names.
+
+    Not the document alone: a re-upload keeps the document id and writes its
+    bytes under a new key (ADR-0054), and must be indexed even while the
+    previous version's job still runs. The object path is the presigned URL
+    without its query, so the signature, which differs on every signing, is
+    not part of it. Hashed, because the path names the tenant and the key is
+    stored in the shared status table. None without a document id (the OIB
+    corpus sync), which keeps that caller's behaviour.
+    """
+    if not request.document_id:
+        return None
+    path = urlparse(request.file_ref).path
+    return hashlib.sha256(f"{request.document_id}\0{path}".encode()).hexdigest()
+
+
+#: Dispatch keys with a request in the handler on this replica, and how many.
+_dispatch_slots: dict[str, tuple[asyncio.Lock, int]] = {}
+
+
+@asynccontextmanager
+async def _dispatch_slot(dispatch_key: str | None) -> AsyncIterator[None]:
+    """Serialise the dispatches of one key on this replica; no-op without a key."""
+    if dispatch_key is None:
+        yield
+        return
+    lock, holders = _dispatch_slots.get(dispatch_key, (asyncio.Lock(), 0))
+    _dispatch_slots[dispatch_key] = (lock, holders + 1)
+    try:
+        async with lock:
+            yield
+    finally:
+        lock, holders = _dispatch_slots[dispatch_key]
+        if holders <= 1:
+            del _dispatch_slots[dispatch_key]
+        else:
+            _dispatch_slots[dispatch_key] = (lock, holders - 1)
+
+
+async def _live_job(ingestor: BaseIngestor, dispatch_key: str | None) -> str | None:
+    """The live job for this key, if the ingestor knows one. Never raises: a failed
+    lookup is a dispatch that submits, which is what every dispatch did before."""
+    if dispatch_key is None:
+        return None
+    try:
+        found = await asyncio.to_thread(ingestor.find_live_job, dispatch_key)
+    except Exception as error:  # noqa: BLE001 - the lookup is an optimisation of a submit
+        logger.warning("Live-job lookup failed (submitting): %s", type(error).__name__)
+        return None
+    return found if isinstance(found, str) and found else None
 
 
 class DeferredObjectDownload:
     """A gated object-store GET the ingest job runs when it reaches the file.
 
-    Why deferred: the BFF aborts ``POST /v1/ingest`` after ten seconds and then
-    marks the row failed, while this route may still go on to submit the job,
-    so everything slow between the request and the job id is a false failure
-    plus a duplicate ingest waiting to happen. The PDF rendition (ADR-0071) is
+    Why deferred: the BFF aborts ``POST /v1/ingest`` after ten seconds, asks
+    once more, and marks the row failed when that times out too, while this
+    route may still go on to submit the job; everything slow between the
+    request and the job id is a false failure waiting to happen. The PDF rendition (ADR-0071) is
     a second download of up to tens of megabytes, so the route gates the URL
     and hands the job this object instead of the bytes.
 
@@ -294,20 +348,24 @@ class DeferredObjectDownload:
         return path
 
 
-def _schedule_rendition_thumbnail(
-    background_tasks: BackgroundTasks, request: IngestRequest, original_path: str
-) -> None:
-    """Draw an office original's thumbnail from its rendition, after the response.
+def _schedule_thumbnail(background_tasks: BackgroundTasks, request: IngestRequest, original_path: str) -> None:
+    """Draw the quick 200px thumbnail after the response. Fail-open: it is decorative.
 
-    With ``extraction_ref`` the ingest job downloads the rendition anyway and
-    draws the thumbnail from it (the PDF fallback in the ingestor), so the same
-    PDF is not fetched twice. Otherwise ``preview_ref`` is drawn by a background
-    task, which runs once this request has answered: the download stays off the
-    BFF's ten-second budget and the thumbnail stays independent of the backend.
-    ``original_path`` only routes ``_render_thumbnail`` past the PDF and image
-    branches; the file itself is not read.
+    After, not before ``submit_job``: the BFF gives this request ten seconds
+    and then records a failure while the job may still start, so nothing that
+    is not needed for the job id runs inside it. A background task still runs
+    within a second of the answer, long before the job reaches its own 400px
+    render, which replaces this one.
+
+    A PDF or an image is drawn from its own bytes. An office original has no
+    pages to draw: with ``extraction_ref`` the job downloads the rendition
+    anyway and draws the thumbnail from it, so the same PDF is not fetched
+    twice; otherwise ``preview_ref`` is drawn. ``original_path`` only routes
+    ``_render_thumbnail`` for an office original; that file is not read.
     """
-    if request.extraction_ref or not request.preview_ref:
+    if not request.thumbnail_upload_url:
+        return
+    if not _draws_itself(original_path) and (request.extraction_ref or not request.preview_ref):
         return
     background_tasks.add_task(
         _generate_and_upload_thumbnail, original_path, request.thumbnail_upload_url, request.preview_ref
@@ -500,11 +558,9 @@ def _generate_and_upload_thumbnail(file_path: str, thumbnail_url: str, preview_r
     """Render a 200px JPEG of the document and PUT it to the presigned
     SeaweedFS URL. Fail-open on any error (thumbnails are decorative).
 
-    Called in the ingest request handler (before ``submit_job``) so the
-    thumbnail is available near-instantly - before the file even enters the
-    worker pool; for an office original, as a background task once the
-    response is out (``_schedule_rendition_thumbnail``). Returns ``True`` when a thumbnail was uploaded so the caller
-    can signal the ingest job to skip its redundant fallback render.
+    Runs as a background task once the response is out
+    (``_schedule_thumbnail``), so the card has a thumbnail within a second,
+    long before the job's own render. Returns ``True`` when one was uploaded.
     ``preview_ref`` is the office original's PDF rendition (ADR-0070), read
     only when the original itself is neither a PDF nor an image.
     """

@@ -202,7 +202,7 @@ def get_retriever(
         3. Default: "llamaindex"
 
     Args:
-        backend: The backend name ('llamaindex' or 'foundational_rag').
+        backend: The registered backend name ('llamaindex', or a test fake).
                  If None, uses the environment variable or default.
         config: Backend-specific configuration. Passed directly to the adapter.
                 Each adapter defines its own defaults internally. A differing
@@ -266,7 +266,7 @@ def get_ingestor(
         3. Default: "llamaindex"
 
     Args:
-        backend: The backend name ('llamaindex' or 'foundational_rag').
+        backend: The registered backend name ('llamaindex', or a test fake).
                  If None, uses the environment variable or default.
         config: Backend-specific configuration. Passed directly to the adapter.
                 Each adapter defines its own defaults internally.

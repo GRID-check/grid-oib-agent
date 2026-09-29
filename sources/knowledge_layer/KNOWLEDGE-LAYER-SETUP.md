@@ -1,6 +1,6 @@
 # Knowledge Layer
 
-A pluggable abstraction for document ingestion and retrieval. Swap backends without changing application code.
+Document ingestion and retrieval for Piloti, on one backend: `llamaindex`.
 
 ## Key Features
 
@@ -9,19 +9,19 @@ A pluggable abstraction for document ingestion and retrieval. Swap backends with
 - **Collection Management** - create/delete/list collections per session or use case
 - **File Management** - upload/delete/list files with status tracking (UPLOADING → INGESTING → SUCCESS/FAILED)
 - **Content Typing** - TEXT, TABLE, CHART, IMAGE enums for frontend rendering
-- **Backend Agnostic** - Swap between local (LlamaIndex) and hosted (RAG Blueprint) without core agent code changes
+- **One backend** - `llamaindex` in production; the `BaseRetriever`/`BaseIngestor` seam stays so tests can register fakes
 
 ---
 
 ## Table of Contents
 
-- [Available Backends](#available-backends)
+- [The Backend](#the-backend)
 - [Quick Start](#quick-start)
 - [Usage](#usage)
   - [With YAML Config](#with-nemo-agent-toolkit-yaml-config---recommended)
   - [Programmatic Usage](#programmatic-usage)
 - [Web UI Mode](#web-ui-mode)
-- [Building a Custom Backend](#building-a-custom-backend)
+- [Adding a Backend](#adding-a-backend)
 - [Architecture](#architecture)
 - [Core Data Models](#core-data-models)
 - [Configuration](#configuration)
@@ -29,19 +29,19 @@ A pluggable abstraction for document ingestion and retrieval. Swap backends with
 
 ---
 
-## Available Backends
+## The Backend
 
-| Backend | Config Name | Mode | Vector Store | Best For |
-|---------|-------------|------|--------------|----------|
-| `llamaindex` | `"llamaindex"` | Local Library | ChromaDB | Dev, prototyping, macOS/Linux |
-| `foundational_rag` | `"foundational_rag"` | Hosted Service | Remote Milvus | Production, multi-user |
+`llamaindex` is the knowledge layer's only backend: LlamaIndex over ChromaDB,
+with embeddings and the VLM through OpenRouter. It runs in the agent's process
+and needs no external service beyond OpenRouter. It is the production backend,
+and has been since the first commit: every config Piloti deployed selects it.
 
-**Local Library Mode** - Everything runs in your Python process. No external services needed.
-- **`llamaindex`** - LlamaIndex + ChromaDB. Lightweight, great for development. Works on macOS and Linux.
-
-**Hosted Service Mode** - Connects to deployed services via HTTP. Requires infrastructure but scales better.
-- **`foundational_rag`** - Connects to [NVIDIA RAG Blueprint](https://github.com/NVIDIA-AI-Blueprints/rag) via HTTP.
-  - [Deployment Guide](https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/docs/deploy-docker-self-hosted.md)
+Earlier versions of this guide listed a second backend (a client for NVIDIA's
+hosted retrieval service, inherited from the AI-Q template) as "Production,
+multi-user". That was the template's claim, never Piloti's: no
+Piloti deployment ran it, and it could not serve the product's retrieval. It was
+deleted; [ADR-0072](../../docs/adr/0072-the-knowledge-layer-has-one-backend-llamaindex.md)
+records why.
 
 ---
 
@@ -55,12 +55,9 @@ A pluggable abstraction for document ingestion and retrieval. Swap backends with
 # 1. Set up environment variables (add to deploy/.env to avoid exporting each time)
 export OPENROUTER_API_KEY=sk-or-your-key-here
 
-# 2. Install backend (choose one)
-uv pip install -e "sources/knowledge_layer[llamaindex]"        # Recommended for local dev - works on macOS/Linux
-uv pip install -e "sources/knowledge_layer[foundational_rag]"  # Requires deployed server
+# 2. Install the backend
+uv pip install -e "sources/knowledge_layer[llamaindex]"
 ```
-
-> **New to Knowledge Layer?** Start with `llamaindex` - it requires no external services and works on macOS and Linux.
 
 ```bash
 # 3. Verify
@@ -99,15 +96,9 @@ The `knowledge_retrieval` function is registered as a NAT function type. **YAML 
 functions:
   knowledge_search:
     _type: knowledge_retrieval      # NAT function type
-    backend: llamaindex             # Required: which adapter to use
     collection_name: my_docs        # Required: target collection
     top_k: 5                        # Results to return
-
-    # Backend-specific options (each backend uses different fields):
-    chroma_dir: /tmp/chroma_data              # llamaindex only
-    rag_url: http://localhost:8081/v1         # foundational_rag only
-    ingest_url: http://localhost:8082/v1      # foundational_rag only
-    timeout: 120                              # foundational_rag only
+    chroma_dir: /tmp/chroma_data    # ChromaDB persistence directory
 ```
 
 You can also use environment variable substitution in YAML for sensitive values:
@@ -116,29 +107,12 @@ You can also use environment variable substitution in YAML for sensitive values:
 functions:
   knowledge_search:
     _type: knowledge_retrieval
-    backend: foundational_rag
-    rag_url: ${RAG_SERVER_URL:-http://localhost:8081/v1}
     collection_name: ${COLLECTION_NAME:-default}
 ```
 
-> **Note:** Each backend has different config options. Only the options matching your `backend` value are used - others are ignored (a warning will be logged). To add new config fields, edit `KnowledgeRetrievalConfig` in `sources/knowledge_layer/src/register.py`.
+> **Note:** To add config fields, edit `KnowledgeRetrievalConfig` in `sources/knowledge_layer/src/register.py`. An older config that still sets `backend: llamaindex` loads unchanged; the key is ignored.
 
-### Switching Backends
-
-To switch backends, change the `backend` field and its corresponding options. Here are complete examples for each backend:
-
-**LlamaIndex (ChromaDB) - macOS/Linux**
-```yaml
-functions:
-  knowledge_search:
-    _type: knowledge_retrieval
-    backend: llamaindex
-    collection_name: my_docs
-    top_k: 5
-    chroma_dir: /tmp/chroma_data    # ChromaDB persistence directory
-```
-
-#### Multimodal Extraction (LlamaIndex Only)
+#### Multimodal Extraction
 
 By default, LlamaIndex ingests text only and calls the embedding and VLM models through OpenRouter with `OPENROUTER_API_KEY`. All options below can be overridden via environment variables:
 
@@ -149,51 +123,31 @@ By default, LlamaIndex ingests text only and calls the embedding and VLM models 
 | `AIQ_EMBED_BASE_URL` | `https://openrouter.ai/api/v1` | Embedding API base URL (any OpenAI-compatible embeddings endpoint) |
 | `AIQ_EMBED_TIMEOUT_SECONDS` | `60` | Per-request timeout on the ingestion embeddings client, two retries |
 | `AIQ_QUERY_EMBED_TIMEOUT_SECONDS` | `3` | Per-request timeout on the query embedding a chat turn waits on, two retries; retrieval fails open after the third attempt |
-| **Extraction Flags** | | |
-| `AIQ_EXTRACT_TABLES` | `false` | Also index every other pdfplumber table in a PDF as a `[TABLE from page N]` chunk. Captioned tables („Tabelle 3: …") do not need it: they are always read as tables and cut out of the page text (`llamaindex/captioned_tables.py`). In a document with a Punkt outline each is its own passage, addressable as `read_passage(punkt="Tabelle 3")`; otherwise it is put back as Markdown into its page's text. This pass skips them |
-| `AIQ_EXTRACT_IMAGES` | `false` | Extract embedded images from PDFs and caption them with a VLM. For a BFF-dispatched document the raster is also stored beside the file (`_img/<index>.jpg`, via the BFF presign route) so `view_knowledge_image` can show it at its own resolution |
-| `AIQ_EXTRACT_CHARTS` | `false` | Classify images as charts and extract structured data (chart type, axis labels, data points) |
+| **Extraction switches** (on unless set to `false`; no deployment sets them) | | |
+| `AIQ_EXTRACT_TABLES` | `true` | Also index every other pdfplumber table in a PDF as a `[TABLE from page N]` chunk. Captioned tables („Tabelle 3: …") do not need it: they are always read as tables and cut out of the page text (`llamaindex/captioned_tables.py`). In a document with a Punkt outline each is its own passage, addressable as `read_passage(punkt="Tabelle 3")`; otherwise it is put back as Markdown into its page's text. This pass skips them |
+| `AIQ_EXTRACT_IMAGES` | `true` | Extract embedded images from PDFs and caption them with a VLM, skipping pages already rendered whole as visual pages. For a BFF-dispatched document the raster is also stored beside the file (`_img/<index>.jpg`, via the BFF presign route) so `view_knowledge_image` can show it at its own resolution |
+| `AIQ_EXTRACT_CHARTS` | `true` | Index a visual the VLM types as a chart as a `chart` chunk with its structured data (chart type, axis labels, data points); off, it is indexed as an image |
+| `AIQ_MAX_IMAGES_PER_DOCUMENT` | `64` | Most embedded images per PDF sent to the VLM, largest first; the count left out is on the file's job status as `images_over_cap` |
 | **Vision Model** | | |
 | `AIQ_VLM_MODEL` | `openai/gpt-6-luna` | VLM for image captioning — house model, image input verified on OpenRouter; caption quality on OIB tables/drawings still unevaluated (TODO) |
 | `AIQ_VLM_BASE_URL` | `https://openrouter.ai/api/v1` | VLM API base URL (any OpenAI-compatible chat endpoint that takes images) |
 
-You can also set these in `deploy/.env`:
+To switch one off, set it in `deploy/.env`:
 
 ```bash
 # In deploy/.env or export directly
-AIQ_EXTRACT_TABLES=true    # Also index uncaptioned PDF tables (captioned ones always are)
-AIQ_EXTRACT_IMAGES=true    # Extract images from PDFs using pypdfium2 + VLM captioning
-AIQ_EXTRACT_CHARTS=true    # Classify extracted images as charts and extract structured data
+AIQ_EXTRACT_TABLES=false   # Leave uncaptioned PDF tables in the page text (captioned ones are always tables)
+AIQ_EXTRACT_IMAGES=false   # Do not caption embedded PDF images
+AIQ_EXTRACT_CHARTS=false   # Index charts as images
 ```
 
-When enabled, the startup log shows the active mode:
+The startup log shows the active mode; by default:
 
 ```
-LlamaIndexIngestor initialized: persist_dir=/app/data/chroma_data, mode=text + tables + images
+LlamaIndexIngestor initialized: persist_dir=/app/data/chroma_data, mode=text + tables + charts + images
 ```
 
-When disabled (default):
-
-```
-LlamaIndexIngestor initialized: persist_dir=/app/data/chroma_data, mode=text-only
-```
-
-> **Note:** `AIQ_EXTRACT_IMAGES` and `AIQ_EXTRACT_CHARTS` work together. If both are enabled, each image is classified by the VLM as either a chart or a regular image. If only `AIQ_EXTRACT_IMAGES` is set, all images are captioned as regular images. Foundational RAG handles multimodal extraction server-side, so these flags only apply to the LlamaIndex backend.
-
-**Foundational RAG (Hosted Server)**
-```yaml
-functions:
-  knowledge_search:
-    _type: knowledge_retrieval
-    backend: foundational_rag
-    collection_name: my_docs
-    top_k: 5
-    rag_url: http://your-server:8081/v1      # Rag server
-    ingest_url: http://your-server:8082/v1   # Ingestion server
-    timeout: 120
-```
-
-> **Separate Docker stacks:** When AI-Q and RAG run as separate Docker Compose stacks, connect the AI-Q backend to the RAG network: `docker network connect nvidia-rag aiq-agent`. See the [Docker Compose README](../../deploy/compose/README.md) for the stack itself.
+> **Note:** `AIQ_EXTRACT_IMAGES` and `AIQ_EXTRACT_CHARTS` work together. With both on (the default), each image is typed by the VLM and a chart is indexed as a chart. With charts off, a chart is indexed as an image; with images off, embedded images are still analysed and only charts are kept.
 
 ### Programmatic Usage
 
@@ -254,7 +208,7 @@ Open `http://localhost:3000` in your browser.
 
 ### Port Configuration
 
-If the default port conflicts with other services (for example, RAG Blueprint uses ports 8000-8002), override it when starting Docker Compose:
+If the default port conflicts with other services, override it when starting Docker Compose:
 
 ```bash
 PORT=8100 docker compose --env-file ../.env -f docker-compose.yaml up -d
@@ -270,7 +224,7 @@ For more details, see the [Docker Compose README](../../deploy/compose/README.md
 
 ### Session Collections
 
-Both LlamaIndex and Foundational RAG support session-based collections (`s_<uuid>`) created by the UI. Each browser session gets its own isolated collection.
+The backend supports session-based collections (`s_<uuid>`) created by the UI. Each browser session gets its own isolated collection.
 
 ### TTL Cleanup
 
@@ -295,7 +249,6 @@ Add `generate_summary: true` to your knowledge retrieval config:
 functions:
   knowledge_search:
     _type: knowledge_retrieval
-    backend: llamaindex
     collection_name: test_collection
     top_k: 5
     generate_summary: true       # Enable AI-generated summaries
@@ -343,11 +296,6 @@ Other file types are ingested normally but do not receive summaries.
 > | **CLI** (`start_e2e.sh`) | `deploy/.env`: `FILE_UPLOAD_ACCEPTED_TYPES=.pdf,.docx,.pptx,.txt,.md` |
 > | **Docker Compose** | `deploy/.env` (passed to frontend container automatically) |
 > | **Helm** | `deploy/helm/deployment-k8s/values.yaml` under the frontend app's `env` section |
->
-> Example for Foundational RAG:
-> ```bash
-> FILE_UPLOAD_ACCEPTED_TYPES=.pdf,.docx,.pptx,.txt,.md
-> ```
 
 ### How It Works
 
@@ -382,7 +330,7 @@ The summary system works identically across all backends:
 | `unregister_summary()` | `aiq_agent.knowledge.factory` | Remove summary on file deletion |
 | `get_available_documents()` | `aiq_agent.knowledge.factory` | Retrieve summaries for agents |
 
-Both LlamaIndex and Foundational RAG adapters call these functions, ensuring consistent behavior regardless of backend choice.
+The LlamaIndex adapter calls these functions; the registry does not depend on it.
 
 ### Summary Storage
 
@@ -409,7 +357,6 @@ The summary store uses SQLAlchemy and follows the same pattern as the jobs datab
 To customize summary generation, modify the `generate_summary()` method in your adapter. See reference implementations:
 
 - **LlamaIndex**: `sources/knowledge_layer/src/llamaindex/adapter.py` (search for `generate_summary`)
-- **Foundational RAG**: `sources/knowledge_layer/src/foundational_rag/adapter.py` (search for `generate_summary`)
 
 Key customization points:
 - LLM model selection and prompt template
@@ -418,322 +365,21 @@ Key customization points:
 
 ---
 
-## Building a Custom Backend
-
-### Step 1: Create adapter directory
-
-```bash
-mkdir -p sources/knowledge_layer/src/my_backend
-touch sources/knowledge_layer/src/my_backend/{__init__.py,adapter.py,README.md}
-```
-
-### Step 2: Implement the adapter with registration decorators
-
-```python
-# sources/knowledge_layer/src/my_backend/adapter.py
-from typing import Any, Dict, List, Optional
-from aiq_agent.knowledge.base import BaseRetriever, BaseIngestor
-from aiq_agent.knowledge.factory import register_retriever, register_ingestor
-from aiq_agent.knowledge.schema import (
-    Chunk, RetrievalResult, CollectionInfo, FileInfo,
-    FileStatus, ContentType, IngestionJobStatus
-)
-
-
-@register_retriever("my_backend")  # <-- This name goes in YAML config
-class MyRetriever(BaseRetriever):
-    """My custom retriever implementation."""
-
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        super().__init__(config)
-        # Initialize your vector store client here
-        self.endpoint = self.config.get("endpoint", "http://localhost:8000")
-
-    @property
-    def backend_name(self) -> str:
-        return "my_backend"  # Should match registration name
-
-    async def retrieve(
-        self,
-        query: str,
-        collection_name: str,
-        top_k: int = 5,
-        filters: Optional[Dict] = None
-    ) -> RetrievalResult:
-        """Query your vector store and return normalized results."""
-        # Your search logic here
-        raw_results = []  # Get from your backend
-
-        chunks = [self.normalize(r) for r in raw_results]
-        return RetrievalResult(
-            chunks=chunks,
-            query=query,
-            backend=self.backend_name,
-            total_tokens=sum(len(c.content.split()) for c in chunks)
-        )
-
-    def normalize(self, raw_result: Any) -> Chunk:
-        """Convert backend-specific result to universal Chunk schema."""
-        return Chunk(
-            chunk_id=raw_result.get("id", "unknown"),
-            content=raw_result.get("text", ""),
-            content_type=ContentType.TEXT,
-            file_name=raw_result.get("source", "unknown"),
-            display_citation=f"{raw_result.get('source', 'unknown')}",
-            score=raw_result.get("score", 0.0),
-        )
-
-
-@register_ingestor("my_backend")  # <-- Same registration name
-class MyIngestor(BaseIngestor):
-    """My custom ingestor implementation."""
-
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        super().__init__(config)
-        self._jobs: Dict[str, FileInfo] = {}  # Track async jobs
-        self.endpoint = self.config.get("endpoint", "http://localhost:8000")
-
-    @property
-    def backend_name(self) -> str:
-        return "my_backend"
-
-    # --- Collection Management ---
-
-    def create_collection(self, name: str, description: str = None, **kwargs) -> CollectionInfo:
-        """Create a new collection in your vector store."""
-        # Your creation logic
-        return CollectionInfo(
-            name=name,
-            description=description,
-            backend=self.backend_name,
-            file_count=0,
-            chunk_count=0
-        )
-
-    def delete_collection(self, name: str) -> bool:
-        """Delete a collection."""
-        # Your deletion logic
-        return True
-
-    def list_collections(self) -> List[CollectionInfo]:
-        """List all collections."""
-        return []
-
-    def get_collection(self, name: str) -> Optional[CollectionInfo]:
-        """Get collection metadata."""
-        return None
-
-    # --- File Management ---
-
-    def upload_file(self, file_path: str, collection_name: str, **kwargs) -> str:
-        """Upload and ingest a file. Returns job_id for status tracking."""
-        import uuid
-        from datetime import datetime
-        import os
-
-        job_id = str(uuid.uuid4())
-        filename = os.path.basename(file_path)
-
-        # Track the job
-        self._jobs[job_id] = FileInfo(
-            file_id=job_id,
-            file_name=filename,
-            collection_name=collection_name,
-            status=FileStatus.UPLOADING,
-            uploaded_at=datetime.now()
-        )
-
-        # Start async ingestion (e.g., in a thread)
-        # Update self._jobs[job_id].status as processing progresses
-
-        return job_id
-
-    def delete_file(self, filename: str, collection_name: str) -> bool:
-        """Delete a file's chunks from collection."""
-        return True
-
-    def list_files(self, collection_name: str) -> List[FileInfo]:
-        """List files in a collection."""
-        return [f for f in self._jobs.values() if f.collection_name == collection_name]
-
-    def get_file_status(self, job_id: str, collection_name: str) -> Optional[FileInfo]:
-        """Get status of an ingestion job."""
-        return self._jobs.get(job_id)
-
-    # --- Legacy Job API (optional, for backwards compat) ---
-
-    def submit_job(self, file_paths: List[str], collection_name: str, **kwargs) -> str:
-        """Batch submit - calls upload_file for each."""
-        # Implementation...
-        pass
-
-    def get_job_status(self, job_id: str) -> IngestionJobStatus:
-        """Overall job status."""
-        # Implementation...
-        pass
-```
-
-> **Error Handling for UI Integration:**
->
-> If you're using the web UI for document upload, your adapter must properly populate error messages in the standard schema. The UI displays `FileProgress.error_message` to users when ingestion fails - it doesn't parse backend-specific error formats.
->
-> In your `get_job_status()` implementation:
-> 1. Check your backend's response for failure states
-> 2. Extract the error message from your backend's format (could be `error`, `message`, `result.error`, etc.)
-> 3. Set `FileProgress.error_message` for the affected file
-> 4. Set `FileProgress.status = FileStatus.FAILED`
->
-> ```python
-> # Example pattern in get_job_status():
-> if backend_status == "failed":
->     error_msg = (
->         response.get("error")
->         or response.get("message")
->         or response.get("result", {}).get("message")
->         or "Unknown error"
->     )
->     file_progress.status = FileStatus.FAILED
->     file_progress.error_message = error_msg
-> ```
->
-> See [`src/foundational_rag/adapter.py`](src/foundational_rag/adapter.py) `get_job_status()` for a complete example.
-
-### Step 3: Export in `__init__.py` (triggers registration on import)
-
-```python
-# sources/knowledge_layer/src/my_backend/__init__.py
-"""
-My Custom Backend for Knowledge Layer.
-
-Import this module to register the backend with the factory.
-"""
-from .adapter import MyRetriever, MyIngestor
-
-__all__ = ["MyRetriever", "MyIngestor"]
-```
-
-### Step 4: Register package in pyproject.toml
-
-```toml
-# sources/knowledge_layer/pyproject.toml
-
-[project.optional-dependencies]
-my_backend = [
-    "requests>=2.28.0",  # Your backend's dependencies
-]
-
-[tool.setuptools]
-packages = [
-    "aiq_sources",
-    "knowledge_layer.knowledge",
-    "knowledge_layer.llamaindex",
-    "knowledge_layer.foundational_rag",
-    "knowledge_layer.my_backend",  # <-- Add your backend
-]
-```
-
-### Step 5: Add to NAT function (for YAML config support)
-
-To use your backend via YAML config (`backend: my_backend`), you must edit **`sources/knowledge_layer/src/register.py`**:
-
-**Three changes required:**
-
-1. **Add to `BackendType` Literal** - Enables Pydantic validation at config load time
-2. **Add config fields to `KnowledgeRetrievalConfig`** - These become available in YAML
-3. **Add backend case to `_setup_backend()`** - This instantiates your adapter
-
-```python
-# sources/knowledge_layer/src/register.py
-from typing import Literal
-
-# 1. Add your backend to the BackendType Literal for type-safe validation
-BackendType = Literal["llamaindex", "foundational_rag", "my_backend"]  # <-- Add here
-
-
-# 2. Add your config fields to KnowledgeRetrievalConfig class
-class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
-    backend: BackendType = Field(default="llamaindex", ...)  # Uses the Literal type
-    collection_name: str = Field(...)
-    top_k: int = Field(...)
-
-    # ... existing backend fields (chroma_dir, rag_url, etc.) ...
-
-    # ADD YOUR BACKEND'S CONFIG FIELDS HERE:
-    my_backend_endpoint: str = Field(
-        default="http://localhost:8000",
-        description="Endpoint URL (my_backend only)"
-    )
-    my_backend_api_key: str = Field(
-        default="",
-        description="API key for authentication (my_backend only)"
-    )
-
-
-# 3. Add your backend case to _setup_backend() function
-def _setup_backend(config: KnowledgeRetrievalConfig):
-    backend = config.backend.lower()
-
-    if backend == "llamaindex":
-        # ... existing ...
-    elif backend == "foundational_rag":
-        # ... existing ...
-
-    # ADD YOUR BACKEND CASE HERE:
-    elif backend == "my_backend":
-        import knowledge_layer.my_backend.adapter  # noqa: F401
-        backend_config = {
-            "endpoint": config.my_backend_endpoint,
-            "api_key": config.my_backend_api_key,
-        }
-
-    else:
-        raise ValueError(f"Unknown backend: {backend}")
-
-    return backend, backend_config
-```
-
-> **Why add to `BackendType`?** The Literal type provides compile-time validation. If someone configures `backend: llama_index` (typo), Pydantic will reject it immediately with a clear error message: *"Input should be 'llamaindex', 'foundational_rag', or 'my_backend'"* rather than failing deep in the code at runtime.
-
-Now your backend can be configured via YAML:
-
-```yaml
-functions:
-  knowledge_search:
-    _type: knowledge_retrieval
-    backend: my_backend
-    collection_name: my_docs
-    my_backend_endpoint: http://my-server:8000
-    my_backend_api_key: ${MY_API_KEY}
-```
-
-### Step 6: Install and test
-
-```bash
-# Install
-uv pip install -e "sources/knowledge_layer[my_backend]"
-
-# Verify registration
-python -c "
-from knowledge_layer.my_backend import MyRetriever, MyIngestor
-from aiq_agent.knowledge.factory import list_retrievers, list_ingestors
-print('Registered retrievers:', list_retrievers())
-print('Registered ingestors:', list_ingestors())
-"
-# Output should include 'my_backend'
-```
-
-### Step 7: Use in YAML config
-
-```yaml
-# your_config.yml
-functions:
-  knowledge_search:
-    _type: knowledge_retrieval
-    backend: my_backend                          # Your registration name
-    collection_name: test_collection
-    my_backend_endpoint: http://my-server:8000   # Your config field
-    top_k: 5
-```
+## Adding a Backend
+
+Don't, without an ADR. There is one backend on purpose
+([ADR-0072](../../docs/adr/0072-the-knowledge-layer-has-one-backend-llamaindex.md)):
+the product's retrieval (the OIB base-collection filter, `read_passage`, the
+family overview, provenance, visual details, hybrid search) is written against
+what `llamaindex` can do, and a second backend that cannot do all of it fails
+quietly rather than loudly. A decision to add one supersedes ADR-0072.
+
+What stays is the seam: `BaseRetriever` and `BaseIngestor` in
+`src/aiq_agent/knowledge/base.py`, and the `@register_retriever` /
+`@register_ingestor` registry in `factory.py`. Tests register fakes through it,
+and `tests/knowledge_layer_tests/run_adapter_compliance.py --backend <name>`
+checks an adapter against the interface. `register.py` wires `llamaindex` in
+`_setup_backend`; a second backend would reintroduce a selection there.
 
 ---
 
@@ -756,9 +402,8 @@ class MyIngestor(BaseIngestor):
     ...
 ```
 
-The registration name (e.g., `"my_backend"`) is what you use in:
-- YAML config: `backend: my_backend`
-- Factory calls: `get_retriever("my_backend")`
+The registration name (e.g., `"my_backend"`) is what factory calls use:
+`get_retriever("my_backend")`. `register.py` always asks for `"llamaindex"`.
 
 **Important:** The adapter module must be imported for registration to happen. This is why:
 1. `__init__.py` imports the adapter classes
@@ -852,8 +497,8 @@ class Chunk(BaseModel):
 Configuration values are resolved in the following order (highest to lowest priority):
 
 1. **Explicit parameter** - Values passed directly to factory functions (`get_retriever("llamaindex")`)
-2. **YAML config file** - The `backend:` field and other options in your workflow config (recommended)
-3. **Environment variables** - `KNOWLEDGE_RETRIEVER_BACKEND`, `RAG_SERVER_URL`, etc.
+2. **YAML config file** - The options in your workflow config (recommended)
+3. **Environment variables** - `KNOWLEDGE_RETRIEVER_BACKEND`, `AIQ_CHROMA_DIR`, etc.
 4. **Hardcoded defaults** - Built-in fallback values
 
 **Recommendation:** Use YAML config as your single source of truth for workflow configuration. Environment variables are useful for:
@@ -870,8 +515,6 @@ Configuration values are resolved in the following order (highest to lowest prio
 | `KNOWLEDGE_INGESTOR_BACKEND` | All | Default ingestor backend (fallback if not in YAML) |
 | `AIQ_CHROMA_DIR` | llamaindex | ChromaDB persistence path |
 | `AIQ_SUMMARY_DB` | All | Summary database URL (SQLite or PostgreSQL) |
-| `RAG_SERVER_URL` | foundational_rag | Query server URL (port 8081) |
-| `RAG_INGEST_URL` | foundational_rag | Ingestion server URL (port 8082) |
 | `COLLECTION_NAME` | All | Default collection name |
 
 ---
@@ -884,7 +527,6 @@ Configuration values are resolved in the following order (highest to lowest prio
 | `ormsgpack` attribute error | Version conflict with langgraph | `uv pip install "ormsgpack>=1.5.0"` |
 | Empty retrieval results | Collection empty | Run ingestion first, verify collection name matches |
 | Job status 404 | Different process/instance | Factory uses singletons - ensure same process |
-| `milvus-lite` required | Missing dependency | `uv pip install "pymilvus[milvus_lite]"` |
 | Backend registered twice | Module imported multiple times | Normal - factory logs warning but works fine |
 
 ### Debug Registration

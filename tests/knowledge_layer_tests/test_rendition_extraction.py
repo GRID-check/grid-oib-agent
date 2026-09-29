@@ -7,8 +7,7 @@ through its PDF path, identity (``file_name``) stays the original's, and a pptx
 original adds its speaker notes. Without a rendition such a file fails with
 ``office_rendition_required``: there is no second way to read it. Layers: the
 notes companion; ``knowledge_layer.renditions``; ``_run_ingestion`` end to end
-with the heavy collaborators (embedder, vector index, VLM, pdfplumber) mocked;
-and the foundational_rag batch path.
+with the heavy collaborators (embedder, vector index, VLM, pdfplumber) mocked.
 """
 
 from __future__ import annotations
@@ -188,6 +187,19 @@ def _wait_terminal(ing, job_id, timeout=30):
     raise AssertionError("ingestion job did not terminate in time")
 
 
+def _gone(path, timeout=5) -> bool:
+    """Whether ``path`` is deleted within ``timeout``.
+
+    The job reports its terminal status before its ``finally`` deletes the temp
+    files, so an assertion made the instant the status turns terminal races the
+    cleanup; it failed intermittently in the full suite and never alone.
+    """
+    deadline = time.time() + timeout
+    while path.exists() and time.time() < deadline:
+        time.sleep(0.02)
+    return not path.exists()
+
+
 def _indexed_documents():
     import llama_index.core
 
@@ -275,8 +287,8 @@ class TestRunIngestionFromRendition:
         [image] = [d for d in documents if d.metadata["content_type"] == "image"]
         assert image.metadata["page_label"] == "2"
         # The job owns both temp files and deletes both.
-        assert not original.exists()
-        assert not rendition.exists()
+        assert _gone(original)
+        assert _gone(rendition)
 
     def test_a_pptx_adds_its_notes_on_the_slide_pages(self, tmp_path, ingestor, summary_db, pdf_pipeline):
         original = tmp_path / "tmp_upload.pptx"
@@ -344,44 +356,6 @@ class TestRunIngestionFromRendition:
 
 
 # =============================================================================
-# foundational_rag: does not read the rendition, still owns it
-# =============================================================================
-
-
-def test_foundational_rag_uploads_the_original_summarises_the_rendition_and_cleans_up(tmp_path, monkeypatch):
-    """The RAG server extracts the ORIGINAL under its own name (it dispatches by
-    extension); the client-side summary reads the rendition, since there is no
-    Word reader here any more; and with ``cleanup_files`` the job deletes both
-    temp files, which before the wrapper it deleted neither of."""
-    from knowledge_layer.foundational_rag import adapter as frag_adapter
-    from knowledge_layer.foundational_rag.adapter import FoundationalRagIngestor
-
-    read: list[str] = []
-    monkeypatch.setattr(frag_adapter, "_extract_text", lambda path, *a, **k: read.append(path) or "Berichtstext")
-    ing = FoundationalRagIngestor({"generate_summary": True, "summary_llm": MagicMock()})
-    ing.session = MagicMock()
-    ing.session.post.return_value.json.return_value = {"task_id": "t1", "message": "ok"}
-    original = tmp_path / "tmp_upload.docx"
-    _minimal_docx(original)
-    rendition = _rendition(tmp_path)
-
-    ing.submit_job(
-        [str(original)],
-        "coll",
-        config={"original_filenames": ["Bericht.docx"], "extraction_paths": [str(rendition)], "cleanup_files": True},
-    )
-
-    deadline = time.time() + 10
-    while (original.exists() or rendition.exists()) and time.time() < deadline:
-        time.sleep(0.02)
-    assert read == [str(rendition)]
-    assert not original.exists()
-    assert not rendition.exists()
-    [(_name, (sent_name, _handle, _type))] = ing.session.post.call_args[1]["files"]
-    assert sent_name == "Bericht.docx"
-
-
-# =============================================================================
 # Downloads the route deferred to the job
 # =============================================================================
 
@@ -424,7 +398,7 @@ class TestDeferredDownloads:
         assert drawn == [str(downloaded)]
         assert {d.metadata["file_name"] for d in _indexed_documents()} == {"Bericht.docx"}
         # The job made the file, so the job deletes it, cleanup_files or not.
-        assert not downloaded.exists()
+        assert _gone(downloaded)
         assert original.exists()
 
     def test_a_failed_download_fails_the_file_without_logging_the_url(
