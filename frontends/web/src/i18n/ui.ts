@@ -91,7 +91,7 @@ const de = {
     items: [
       {
         q: 'Was ist Piloti?',
-        a: 'Piloti ist eine KI-Wissensplattform für Architektur- und Planungsbüros. Sie beantwortet Planungsfragen aus dem geltenden Baurecht, den Unterlagen Ihres Büros und Ihres Projekts und nennt zu jeder Antwort die Quellen. Piloti ist ein Proof of Concept und wird derzeit mit ausgewählten Pilotbüros erprobt.',
+        a: 'Piloti ist eine KI-Wissensplattform für Architektur- und Planungsbüros. Sie beantwortet Planungsfragen aus dem geltenden Baurecht, den Unterlagen Ihres Büros und Ihres Projekts und nennt zu jeder Antwort die Quellen. Es übernimmt auch Arbeit, die länger dauert als eine Antwort: Prüfberichte und Aktenvermerke im Projekt, offene Punkte und wiederkehrende Checks. Piloti ist ein Proof of Concept und wird derzeit mit ausgewählten Pilotbüros erprobt.',
       },
       {
         q: 'Warum nicht einfach ChatGPT?',
@@ -137,11 +137,12 @@ const de = {
     hero: '01 Start',
     story: '02 Problem und Lösung',
     nutzung: '03 Nutzung',
-    daten: '04 Quellen und Daten',
-    wert: '05 Wert',
-    team: '06 Team',
-    faq: '07 Häufige Fragen',
-    kontakt: '08 Kontakt',
+    arbeit: '04 Arbeit übergeben',
+    daten: '05 Quellen und Daten',
+    wert: '06 Wert',
+    team: '07 Team',
+    faq: '08 Häufige Fragen',
+    kontakt: '09 Kontakt',
   },
   nav: {
     ariaLabel: 'Hauptnavigation',
@@ -158,6 +159,7 @@ const de = {
     sections: [
       { href: '#problem', label: 'Problem und Lösung' },
       { href: '#nutzung', label: 'Nutzung' },
+      { href: '#arbeit', label: 'Arbeit übergeben' },
       { href: '#daten', label: 'Quellen und Daten' },
       { href: '#wert', label: 'Wertrechner' },
       { href: '#team', label: 'Team' },
@@ -206,6 +208,60 @@ const de = {
     howLead: 'Wie eine Antwort entsteht:',
     howLabel: 'Wie Piloti funktioniert',
     howHref: '/blog/wie-piloti-funktioniert/',
+  },
+  // The handover: the step from an answer to work done. A fictional project,
+  // but every step is a shipped feature, in the changelog's own words where it
+  // has them (the task line, the finding count, the review actions).
+  arbeit: {
+    title: 'Übergeben Sie Arbeit. Nicht nur Fragen.',
+    body: 'Ein Nachschlagewerk wartet, bis Sie fragen. Piloti nimmt Aufträge an: Es recherchiert in Plänen und Vorschriften, legt den Bericht ins Projekt, macht aus Befunden offene Punkte und prüft wieder, wenn Sie es wollen.',
+    label: 'Fiktives Projekt · jeder Schritt eine ausgelieferte Funktion',
+    boardLabel: 'Eine Woche mit Piloti, fiktives Beispiel',
+    close: 'Fristen, Befunde und Freigaben bleiben im Projekt, für das ganze Team sichtbar. Das ist der Unterschied zwischen einem Werkzeug, das antwortet, und einem, das mitarbeitet.',
+    link: 'Jede Funktion im Changelog',
+    status: { ok: 'erfüllt', open: 'offen' },
+    steps: {
+      ask: {
+        when: 'Mo · Sie im Chat',
+        quote: '„Mach den Einreichcheck für den Wohnbau 1030 bis Freitag.“',
+        note: 'Ein Satz genügt. Daraus wird ein Auftrag, unter Ihrem Namen und mit Ihren Rechten.',
+      },
+      run: {
+        when: 'Mo · Auftrag läuft',
+        title: 'Einreichcheck · Wohnbau 1030',
+        line: 'Recherchieren · 3\u00a0Runden · 9\u00a0Dokumente',
+        note: 'Liest Pläne, Bescheid und Bebauungsplan des Projekts und die geltenden Vorschriften. Sie fragen im selben Chat weiter.',
+      },
+      report: {
+        when: 'Mo · Bericht im Projekt',
+        title: 'Prüfbericht Einreichung',
+        summary: '2 erfüllt · 1 offen',
+        rows: [
+          { req: 'Fluchtwege', ok: true },
+          { req: 'Stellplätze', ok: true },
+          { req: 'Brandschutzschott Fassade', ok: false },
+        ],
+        note: 'Urteil zuerst, dann eine Zeile je Anforderung, mit Fundstelle. Abgelegt unter „Berichte“.',
+      },
+      open: {
+        when: 'Di · Offener Punkt',
+        title: 'Schott im Fassadenschnitt fehlt',
+        action: 'Klären',
+        note: 'Aus dem Befund wird ein eigener Auftrag. Im Projektgedächtnis bleibt er offen, bis er geklärt ist.',
+      },
+      review: {
+        when: 'Do · Posteingang',
+        title: 'Prüfbericht zur Freigabe',
+        approve: 'Freigeben',
+        changes: 'Änderungen anfordern',
+        note: 'Die Projektleitung gibt frei oder schickt zurück, und Piloti überarbeitet anhand der Begründung.',
+      },
+      repeat: {
+        when: 'Ab jetzt · Zeitplan',
+        quote: '„Prüf das jeden Montag.“',
+        note: 'Der Check läuft jede Woche wieder, und das Ergebnis kommt in Ihren Posteingang.',
+      },
+    },
   },
   daten: {
     title: 'Quellen, die Sie prüfen können.',
@@ -681,7 +737,7 @@ const en: typeof de = {
     items: [
       {
         q: 'What is Piloti?',
-        a: 'Piloti is an AI knowledge platform for architecture and planning firms. It answers planning questions from the building law in force and from your office and project documents, and names the sources for every answer. Piloti is a proof of concept, currently being trialled with a small number of pilot offices.',
+        a: 'Piloti is an AI knowledge platform for architecture and planning firms. It answers planning questions from the building law in force and from your office and project documents, and names the sources for every answer. It also takes on work that takes longer than an answer: review reports and file notes in the project, open points and recurring checks. Piloti is a proof of concept, currently being trialled with a small number of pilot offices.',
       },
       {
         q: 'Why not just use ChatGPT?',
@@ -727,11 +783,12 @@ const en: typeof de = {
     hero: '01 Start',
     story: '02 Problem and solution',
     nutzung: '03 Usage',
-    daten: '04 Sources and data',
-    wert: '05 Value',
-    team: '06 Team',
-    faq: '07 Questions',
-    kontakt: '08 Contact',
+    arbeit: '04 Handing over work',
+    daten: '05 Sources and data',
+    wert: '06 Value',
+    team: '07 Team',
+    faq: '08 Questions',
+    kontakt: '09 Contact',
   },
   nav: {
     ariaLabel: 'Main navigation',
@@ -748,6 +805,7 @@ const en: typeof de = {
     sections: [
       { href: '#problem', label: 'Problem and solution' },
       { href: '#nutzung', label: 'Usage' },
+      { href: '#arbeit', label: 'Handing over work' },
       { href: '#daten', label: 'Sources and data' },
       { href: '#wert', label: 'Value calculator' },
       { href: '#team', label: 'Team' },
@@ -794,6 +852,57 @@ const en: typeof de = {
     howLead: 'How an answer comes about:',
     howLabel: 'How Piloti works',
     howHref: '/en/blog/how-piloti-works/',
+  },
+  arbeit: {
+    title: 'Hand over work. Not just questions.',
+    body: 'A reference book waits until you ask. Piloti takes on tasks: it researches drawings and regulations, files the report in the project, turns findings into open points and checks again when you want it to.',
+    label: 'Fictional project · every step a shipped feature',
+    boardLabel: 'A week with Piloti, fictional example',
+    close: 'Deadlines, findings and approvals stay in the project, visible to the whole team. That is the difference between a tool that answers and one that works alongside you.',
+    link: 'Every feature in the changelog',
+    status: { ok: 'met', open: 'open' },
+    steps: {
+      ask: {
+        when: 'Mon · You, in the chat',
+        quote: '“Do the submission check for the Vienna 1030 housing scheme by Friday.”',
+        note: 'One sentence is enough. It becomes a task, under your name and with your permissions.',
+      },
+      run: {
+        when: 'Mon · Task running',
+        title: 'Submission check · Housing 1030',
+        line: 'Researching · 3\u00a0rounds · 9\u00a0documents',
+        note: 'Reads the project’s drawings, permit and zoning plan and the regulations that apply. You keep asking in the same chat.',
+      },
+      report: {
+        when: 'Mon · Report in the project',
+        title: 'Submission review report',
+        summary: '2 met · 1 open',
+        rows: [
+          { req: 'Escape routes', ok: true },
+          { req: 'Parking spaces', ok: true },
+          { req: 'Façade fire stop', ok: false },
+        ],
+        note: 'Verdict first, then one row per requirement, with its citation. Filed under “Reports”.',
+      },
+      open: {
+        when: 'Tue · Open point',
+        title: 'Fire stop missing in the façade section',
+        action: 'Clarify',
+        note: 'The finding becomes a task of its own. The project memory keeps it open until it is resolved.',
+      },
+      review: {
+        when: 'Thu · Inbox',
+        title: 'Review report for approval',
+        approve: 'Approve',
+        changes: 'Request changes',
+        note: 'The project lead approves or sends it back, and Piloti revises it from the reason given.',
+      },
+      repeat: {
+        when: 'From now on · Schedule',
+        quote: '“Check this every Monday.”',
+        note: 'The check runs again every week, and the result comes to your inbox.',
+      },
+    },
   },
   daten: {
     title: 'Sources you can check.',

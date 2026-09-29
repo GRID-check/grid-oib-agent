@@ -1,11 +1,12 @@
 ---
 /**
- * /warum-piloti/: the argument the landing page leaves to the reader. Who it
- * is for, why not a general chatbot, what an answer turns into, what grows
- * with use, what Piloti is not, and that it ships every week. Copy in
+ * /warum-piloti/: the argument the landing page leaves to the reader. The week
+ * of work handed over (Arbeit) first, then who it is for, why not a general
+ * chatbot, what grows with use, what Piloti is not, and that it ships every week. Copy in
  * i18n/pages.ts; every capability named there is in the changelog.
  */
 import PageHead from '../molecules/PageHead.astro'
+import Arbeit from './Arbeit.astro'
 import CompareTable from '../molecules/CompareTable.astro'
 import Pill from '../atoms/Pill.astro'
 import { PLATES } from '../craft/plates'
@@ -38,8 +39,13 @@ const h2 = 'm-0 font-voice text-v4 text-ink'
       <Pill href={path('/changelog/')} variant="outline">{t.ctaSecondary}</Pill>
     </div>
   </PageHead>
+</div>
 
-  <section aria-labelledby="why-audiences" class="section-y">
+<!-- The week of work first: it is the answer to "why", before any table. -->
+<Arbeit locale={locale} standalone />
+
+<div class="frame">
+  <section aria-labelledby="why-audiences" class="section-y border-t border-ink/15">
     <h2 id="why-audiences" class={h2}>{t.audiences.title}</h2>
     <ul class="m-0 mt-8 grid list-none gap-x-10 gap-y-8 p-0 md:grid-cols-2">
       {
@@ -60,23 +66,6 @@ const h2 = 'm-0 font-voice text-v4 text-ink'
     <div class="mt-8">
       <CompareTable caption={t.chatgpt.title} headA={t.chatgpt.headA} headB={t.chatgpt.headB} rows={t.chatgpt.rows} ours="b" />
     </div>
-  </section>
-
-  <section aria-labelledby="why-stages" class="section-y border-t border-ink/15">
-    <h2 id="why-stages" class={h2}>{t.stages.title}</h2>
-    <p class="m-0 mt-5 max-w-measure text-base leading-relaxed text-ink-soft md:text-lg">{t.stages.body}</p>
-    <ol class="m-0 mt-8 grid list-none gap-8 p-0 md:grid-cols-3">
-      {
-        t.stages.items.map((s) => (
-          <li data-reveal class="border-t border-ink/15 pt-5">
-            <span class="font-mono text-xs text-accent-600">{s.step}</span>
-            <h3 class="m-0 mt-1 text-lg font-semibold text-ink">{s.name}</h3>
-            <p class="m-0 mt-1 font-voice text-lg text-ink">{s.question}</p>
-            <p class="m-0 mt-3 text-base leading-relaxed text-ink-soft">{s.body}</p>
-          </li>
-        ))
-      }
-    </ol>
   </section>
 
   <section aria-labelledby="why-moat" class="section-y border-t border-ink/15">

@@ -22,8 +22,8 @@ interface Row {
 
 const de = {
   why: {
-    heading: 'Warum Piloti? Weil keine Planungsfrage nur eine Quelle hat.',
-    lede: 'Die Stelle im Gesetz, der Plan von 2019, die Auflage vom Amt. Piloti bringt sie in eine Antwort, mit Quellen, die Sie am Original prüfen, bevor die Entscheidung ins Projekt geht.',
+    heading: 'Warum Piloti? Weil es nicht nachschlägt, sondern mitarbeitet.',
+    lede: 'Die Stelle im Gesetz, der Plan von 2019, die Auflage vom Amt: Piloti findet sie, mit Quellen, die Sie am Original prüfen. Und dann macht es weiter, bis die Entscheidung im Akt steht.',
     ctaPrimary: 'Mit einer echten Frage testen',
     ctaSecondary: 'Neuerungen ansehen',
     audiences: {
@@ -88,30 +88,6 @@ const de = {
           b: 'Sagt, wenn etwa der Bebauungsplan fehlt, statt zu antworten, als hätte es ihn gelesen',
         },
       ] as Row[],
-    },
-    stages: {
-      title: 'Vom Finden zum Weitertragen',
-      body: 'Eine Antwort ist erst der Anfang. Piloti begleitet eine Frage bis dorthin, wo sie im Projekt etwas ändert.',
-      items: [
-        {
-          step: '01',
-          name: 'Finden',
-          question: '„Welche Vorschrift gilt hier?“',
-          body: 'Die geltende Stelle aus Baurecht, Büroarchiv und Projekt, mit Fundstelle bis auf Paragraf, Punkt oder Seite. Anschlussfragen wie „und in Gebäudeklasse 4?“ beantwortet Piloti aus dem, was es schon gelesen hat.',
-        },
-        {
-          step: '02',
-          name: 'Verstehen',
-          question: '„Was heißt das für unser Projekt?“',
-          body: 'Piloti legt die Vorschrift neben Ihre Pläne und Unterlagen, zeigt Prüfungen als Tabelle mit Ergebnis je Zeile und vergleicht Varianten, zwei Entwurfslösungen oder Bestand und Umbau, nebeneinander.',
-        },
-        {
-          step: '03',
-          name: 'Weitertragen',
-          question: '„Was müssen wir ändern, dokumentieren, nachverfolgen?“',
-          body: 'Aus der Antwort wird ein Aktenvermerk, eine Checkliste oder ein Prüfbericht im Projekt. Offene Befunde werden zu Aufgaben, fertige Dokumente gehen zur Freigabe, und jede Antwort lässt sich als Word-Dokument ablegen.',
-        },
-      ],
     },
     moat: {
       title: 'Was mit jedem Projekt wächst',
@@ -239,8 +215,8 @@ const de = {
 
 const en: typeof de = {
   why: {
-    heading: 'Why Piloti? Because no planning question has only one source.',
-    lede: 'The clause in the code, the drawing from 2019, the condition from the authority. Piloti brings them into one answer, with sources you check against the original before the decision goes into the project.',
+    heading: 'Why Piloti? Because it does not just look things up. It works alongside you.',
+    lede: 'The clause in the code, the drawing from 2019, the condition from the authority: Piloti finds them, with sources you check against the original. And then it keeps going, until the decision is on file.',
     ctaPrimary: 'Try it with a real question',
     ctaSecondary: 'See what’s new',
     audiences: {
@@ -305,30 +281,6 @@ const en: typeof de = {
           b: 'Says when, for example, the zoning plan is missing, instead of answering as if it had read it',
         },
       ] as Row[],
-    },
-    stages: {
-      title: 'From finding to following through',
-      body: 'An answer is only the start. Piloti carries a question to the point where it changes something in the project.',
-      items: [
-        {
-          step: '01',
-          name: 'Find',
-          question: '“Which rule applies here?”',
-          body: 'The passage that applies, from building law, the office archive and the project, cited down to section, clause or page. Follow-ups like “and in building class 4?” are answered from what Piloti has already read.',
-        },
-        {
-          step: '02',
-          name: 'Understand',
-          question: '“What does it mean for our project?”',
-          body: 'Piloti sets the rule beside your drawings and documents, lays out checks as a table with a result on each row, and compares options, two design solutions or existing and altered, side by side.',
-        },
-        {
-          step: '03',
-          name: 'Follow through',
-          question: '“What do we change, record, follow up?”',
-          body: 'The answer becomes a file note, a checklist or a review report in the project. Open findings become tasks, finished documents go for approval, and any answer can be filed as a Word document.',
-        },
-      ],
     },
     moat: {
       title: 'What grows with every project',
