@@ -18,6 +18,7 @@
 import 'server-only'
 import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { isUuid } from '@/lib/ids'
 import { withOptionalTenant, withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { deletionQueue, projects, type Project } from '@/lib/db/schema'
 
@@ -87,10 +88,18 @@ export async function findProjectInOrg(
  * but it would make the caller's `organizationId !== session.organizationId`
  * comparison unreachable — a guard that looks live and can never fire is worse
  * than the bypass, which at least names itself.
+ *
+ * An id that is not a uuid is a project that cannot exist, so it answers null
+ * without a query. The id comes straight from the URL: bound to the uuid
+ * column, Postgres threw `invalid input syntax for type uuid` and the project
+ * page rendered a 500 instead of a 404 (issues #813/#814). Route handlers map
+ * that error to 404 in `apiRoute`; server components have no such net, and
+ * this probe is the first query every project page makes.
  */
 export async function findProjectTenancy(
   projectId: string
 ): Promise<Pick<Project, 'organizationId' | 'deletedAt'> | null> {
+  if (!isUuid(projectId)) return null
   const db = getDb()
   const [row] = await withPlatformAccess(
     'project tenancy probe: resolve the owning org before authorizing',

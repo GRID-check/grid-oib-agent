@@ -27,6 +27,9 @@ import { getTenantContext, runWithTenantSlot, type TenantContext } from '@/lib/d
 import { asDb, makeProject } from '@/test-utils/db-fixtures'
 import * as repository from './repository'
 
+/** The tenancy probe short-circuits a non-uuid id, so it needs a real one. */
+const PROJECT_UUID = '00000000-0000-4000-8000-000000000001'
+
 /** Contexts observed at the moment a query was awaited. */
 let observed: (TenantContext | undefined)[] = []
 
@@ -65,7 +68,7 @@ function recordingDb(rows: unknown[] = [makeProject()]) {
 const CALLS: Array<[string, () => Promise<unknown>]> = [
   ['listProjectsInOrg', () => repository.listProjectsInOrg('org-1')],
   ['findProjectInOrg', () => repository.findProjectInOrg('proj-1', 'org-1')],
-  ['findProjectTenancy', () => repository.findProjectTenancy('proj-1')],
+  ['findProjectTenancy', () => repository.findProjectTenancy(PROJECT_UUID)],
   [
     'insertProject',
     () =>
@@ -135,10 +138,15 @@ describe('projects repository establishes its own tenant scope', () => {
     expect(getTenantContext()).toBeUndefined()
   })
 
+  it('the tenancy probe answers null for a non-uuid id without querying (#813)', async () => {
+    await expect(repository.findProjectTenancy('e1105dec-20f7-4f9njl5f28e8d19')).resolves.toBeNull()
+    expect(observed).toEqual([])
+  })
+
   it('the tenancy probe states a platform reason rather than a tenant', async () => {
     // It reads a row that may belong to another organization so the caller can
     // decide whether a mismatch is a 404, so a tenant scope would be a lie.
-    await runWithTenantSlot(() => repository.findProjectTenancy('proj-1'))
+    await runWithTenantSlot(() => repository.findProjectTenancy(PROJECT_UUID))
 
     expect(observed.map((context) => context?.kind)).toContain('platform')
   })
