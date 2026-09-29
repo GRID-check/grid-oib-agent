@@ -54,3 +54,10 @@ def test_a_missing_or_malformed_box_carries_none():
 def test_out_of_range_coordinates_are_clamped():
     region = reg._hit_regions(_chunk(bbox=(-0.1, 0.2, 0.5, 1.3)))
     assert region == (SourceRegion(box=(0.0, 0.2, 0.5, 1.0), label="Grundriss EG"),)
+
+
+def test_a_non_finite_coordinate_drops_the_box_instead_of_clamping_it():
+    """NaN clamps to 0.0 and inf to an edge; both would pass as a box around the wrong drawing."""
+    for bbox in ((float("nan"), 0.2, 0.8, 0.9), (0.1, 0.2, float("inf"), 0.9), (float("-inf"), 0.2, 0.8, 0.9)):
+        assert reg._hit_regions(_chunk(bbox=bbox)) == ()
+    assert reg._hit_regions(_chunk(bbox=(0.1, 0.2, 0.5))) == ()

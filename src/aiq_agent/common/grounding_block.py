@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import uuid
 from collections import OrderedDict
@@ -96,6 +97,8 @@ class SourceRegion:
         try:
             x0, y0, x1, y1 = (float(part) for part in box)
         except (TypeError, ValueError):
+            return None
+        if not all(math.isfinite(part) for part in (x0, y0, x1, y1)):
             return None
         label = value.get("label")
         return cls(box=(x0, y0, x1, y1), label=label if isinstance(label, str) and label else None)

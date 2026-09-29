@@ -129,3 +129,11 @@ def test_a_malformed_cached_box_is_dropped_not_guessed():
     hydrated = _registry_from_cached_entries([cached])
 
     assert hydrated._all[0].regions == [SourceRegion(box=(0.1, 0.2, 0.5, 0.6))]
+
+
+def test_a_non_finite_cached_box_is_dropped():
+    cached = {"citation_key": "plan.pdf, p.3", "regions": [{"box": [float("nan"), 0.2, 0.5, 0.6]}]}
+
+    hydrated = _registry_from_cached_entries([cached])
+
+    assert hydrated._all[0].regions == []

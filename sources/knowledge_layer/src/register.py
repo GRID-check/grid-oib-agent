@@ -9,6 +9,7 @@ The retriever is instantiated once and reused for all queries.
 import asyncio
 import json
 import logging
+import math
 import os
 from contextlib import nullcontext
 from contextlib import suppress
@@ -1506,9 +1507,15 @@ def _hit_regions(chunk) -> tuple:
         return ()
     try:
         segment = json.loads(raw).get("segment") or {}
-        x0, y0, x1, y1 = (min(1.0, max(0.0, float(part))) for part in segment.get("bbox") or ())
+        coords = [float(part) for part in segment.get("bbox") or ()]
     except (TypeError, ValueError, AttributeError):
         return ()
+    # Finite before clamped: ``min(1.0, max(0.0, nan))`` is 0.0 and an infinity
+    # clamps to an edge, so either would pass the geometry checks below as a
+    # plausible box around the wrong part of the sheet.
+    if len(coords) != 4 or not all(math.isfinite(part) for part in coords):
+        return ()
+    x0, y0, x1, y1 = (min(1.0, max(0.0, part)) for part in coords)
     if x1 <= x0 or y1 <= y0 or (x1 - x0) * (y1 - y0) >= _WHOLE_FRAME_AREA:
         return ()
     title = segment.get("title")
