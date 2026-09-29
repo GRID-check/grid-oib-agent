@@ -1,7 +1,7 @@
 /**
- * Piloti next to AI tools built for construction and planning. Each column on
- * the other side says only what that vendor's own site says, read in the month
- * `checked` names; where the other tool is ahead, the page says so first.
+ * Piloti next to AI tools built for construction and planning. Each page
+ * argues for Piloti first; the other tool's column says only what that
+ * vendor's own site says, read in the month `checked` names.
  */
 import type { LandingEntry } from '../../lib/landing'
 
@@ -13,13 +13,34 @@ export const vergleichBau: LandingEntry[] = [
     de: {
       title: 'Reiner AI Alternative für Österreich: Piloti im Vergleich',
       description:
-        'Piloti oder Reiner AI (oft „Rainer AI“ gesucht)? Markt, Regelwerke, Belege, Projektarbeit, Hosting und Preise im Vergleich, auch wo Reiner vorn liegt.',
+        'Piloti oder Reiner AI (oft „Rainer AI“ gesucht)? Landesbauordnungen, OIB-Richtlinien, Belege, Pläne und Projektarbeit im Vergleich für Büros in Österreich.',
       heading: 'Piloti oder Reiner AI?',
-      lede: 'Beide sind KI-Werkzeuge für Planungsbüros. Sie sind für verschiedene Märkte und verschiedene Aufgaben gebaut. Hier der Vergleich, auch dort, wo Reiner AI vorn liegt.',
+      lede: 'Piloti ist für Planungsbüros in Österreich gebaut: Es liest Landesbauordnung, OIB-Richtlinien und Ihre Pläne und belegt jede Antwort mit der Fundstelle. Reiner AI ist ein KI-Werkzeug für Bau- und Vertragsdokumente in Deutschland. Hier der Vergleich.',
       note: 'Gemeint ist Reiner AI (reiner.ai) aus Deutschland, oft auch als „Rainer AI“ gesucht. Angaben zu Reiner AI laut reiner.ai.',
       answer:
-        'Planen Sie in Österreich und hängen Ihre Fragen an Landesbauordnungen, OIB-Richtlinien und Ihren Plänen, passt Piloti. Arbeiten Sie in Deutschland und suchen fertige Agenten für Protokolle, Leistungsverzeichnisse, VOB-Nachträge und HOAI, passt Reiner AI.',
+        'Für Planungsfragen in Österreich ist Piloti die bessere Wahl: Es arbeitet mit den neun Landesbauordnungen aus dem RIS und den OIB-Richtlinien, prüft jede Fundstelle vor dem Anzeigen und bringt Aufgaben, Berichte und Freigaben ins Projekt. Reiner AI ist auf deutsche Bauverträge und HOAI ausgerichtet.',
       blocks: [
+        {
+          kind: 'split',
+          left: {
+            title: 'Wo Piloti vorn liegt',
+            items: [
+              'Österreichisches Baurecht als Grundlage: die neun Landesbauordnungen aus dem RIS und die OIB-Richtlinien, zitiert, wie ein Bescheid sie nennt.',
+              'Das Bundesland zählt. Piloti nennt die OIB-Ausgabe, die im Land Ihres Projekts gilt, und öffnet die RIS-Stelle direkt im Werkzeug.',
+              'Belege, die halten: Jede Fundstelle wird vor dem Anzeigen gegen den Quelltext geprüft, bis auf Paragraf, Punkt oder Seite.',
+              'Das Projekt als Arbeitsort. Pläne, Bescheide und Antworten liegen dort, wo das Team arbeitet, mit Fassungen, Freigabe und einem Gedächtnis dafür, was schon geklärt ist.',
+              'Eine Frage wird zu Arbeit: Tiefenrecherche mit Bericht im Projekt, Befunde als offene Punkte, Aktenvermerke zur Freigabe.',
+            ],
+          },
+          right: {
+            title: 'Wofür Reiner AI gut passt',
+            items: [
+              'Büros in Deutschland, deren Fragen an LBO, HOAI, VOB, DIN und DWA hängen.',
+              'Fertige Agenten für Bauleitung und Vergabe, vom Protokoll bis zur Schlussrechnung.',
+              'Teams, die mit SharePoint oder Google Drive arbeiten und diese anbinden wollen.',
+            ],
+          },
+        },
         {
           kind: 'table',
           title: 'Im Detail',
@@ -29,13 +50,13 @@ export const vergleichBau: LandingEntry[] = [
             { label: 'Markt', a: 'Österreich', b: 'Deutschland' },
             {
               label: 'Regelwerke',
-              a: 'Die neun Landesbauordnungen aus dem RIS, OIB-Richtlinien, Normenverzeichnis',
+              a: 'Die neun Landesbauordnungen aus dem RIS, OIB-Richtlinien, Normenverzeichnis, Bundesgesetze wie ASchG und Arbeitsstättenverordnung',
               b: 'Nennt LBO, HOAI, VOB, DIN und DWA; auf der Website weder OIB-Richtlinien noch österreichisches Landesrecht',
             },
             {
-              label: 'Schwerpunkt',
-              a: 'Planungsfragen im Projekt, belegt, bis zum Aktenvermerk und zur Freigabe',
-              b: 'Chat und Agenten für Bau- und Vertragsdokumente, laut Website über 50 Aufgaben',
+              label: 'Bundesland & Ausgabe',
+              a: 'Fragt nach dem Bundesland oder nennt die Annahme; nennt die OIB-Ausgabe, die dort gilt',
+              b: 'Deutsche Landesbauordnungen',
             },
             {
               label: 'Belege',
@@ -53,46 +74,27 @@ export const vergleichBau: LandingEntry[] = [
               b: 'Getrennte Projektdaten, Anbindung von SharePoint und Google Drive',
             },
             {
-              label: 'Hosting',
-              a: 'Anmeldung über WorkOS (USA), KI-Anfragen über OpenRouter (USA) an Modellanbieter, auch außerhalb der EU',
-              b: 'Server in Frankfurt, laut Website Entwicklung und Infrastruktur in Deutschland',
+              label: 'Aufgaben & Berichte',
+              a: 'Aufgaben unter Ihrem Namen, wiederkehrende Prüfungen, Tiefenrecherche mit Bericht als PDF oder Word',
+              b: 'Chat und Agenten für Bau- und Vertragsdokumente, laut Website über 50 Aufgaben',
             },
             { label: 'Training', a: 'Kein Training mit Ihren Daten', b: '„Zero-Training Policy“' },
-            {
-              label: 'Preis',
-              a: 'Noch keine Preisliste; Bedingungen je Pilotbüro',
-              b: '49, 99 oder 299 € je Nutzer:in und Monat bei jährlicher Abrechnung, 7 Tage kostenlos testen',
-            },
-            { label: 'Stand', a: 'Proof of Concept mit ausgewählten Pilotbüros', b: 'Am Markt, mit Finanzierung' },
           ],
           note: 'Angaben zu Reiner AI laut reiner.ai, gelesen im September 2026. Stimmt etwas nicht mehr, schreiben Sie uns, und wir korrigieren es.',
-        },
-        {
-          kind: 'split',
-          left: {
-            title: 'Wo Reiner AI vorn liegt',
-            items: [
-              'Server in Deutschland. Wer für seine Daten einen Standort in Deutschland braucht, bekommt ihn bei Reiner, bei Piloti heute nicht.',
-              'Offene Preise und ein Test ohne Gespräch. Bei Piloti beginnt es mit einem Gespräch.',
-              'Fertige Agenten für Bauleitung und Vergabe, vom Protokoll bis zur Schlussrechnung.',
-              'Ein Unternehmen am Markt. Piloti ist in Gründung und in der Pilotphase.',
-            ],
-          },
-          right: {
-            title: 'Wo Piloti vorn liegt',
-            items: [
-              'Österreichisches Baurecht als Grundlage, nicht als Nachtrag: Landesbauordnungen aus dem RIS und OIB-Richtlinien, zitiert, wie ein Bescheid sie nennt.',
-              'Das Projekt als Arbeitsort. Pläne, Bescheide und Antworten liegen dort, wo das Team arbeitet, mit Fassungen, Freigabe und einem Gedächtnis dafür, was schon geklärt ist.',
-              'Eine Frage wird zu Arbeit: Tiefenrecherche mit Bericht im Projekt, Befunde als offene Punkte, Aktenvermerke zur Freigabe.',
-            ],
-          },
         },
         {
           kind: 'text',
           title: 'Warum der Markt den Unterschied macht',
           body: [
             'Baurecht ist in Deutschland wie in Österreich Landesrecht, aber es sind andere Länder und andere Gesetze. Eine deutsche Landesbauordnung, die DIN und die VOB helfen einem Büro in Graz oder Linz nicht weiter. In Österreich hängen die technischen Anforderungen an den OIB-Richtlinien, die jedes Bundesland in seiner eigenen Ausgabe für verbindlich erklärt.',
-            'Ein Werkzeug für österreichische Projekte muss deshalb wissen, welches Bundesland gilt, und die Fundstelle so nennen, dass Sie sie im RIS wiederfinden. Genau darauf ist Piloti gebaut.',
+            'Ein Werkzeug für österreichische Projekte muss deshalb wissen, welches Bundesland gilt, und die Fundstelle so nennen, dass Sie sie im RIS wiederfinden. Genau darauf ist Piloti gebaut: Es fragt nach dem Bundesland, liest die Bauordnung dieses Landes und legt das Ergebnis dort ab, wo Ihr Team am Projekt arbeitet.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Piloti ist für österreichisches Recht gebaut; VOB, HOAI und deutsche Landesbauordnungen gehören nicht dazu. Die Verantwortung für die Planung bleibt beim Büro: Piloti nennt zu jeder Aussage die Quelle, damit Sie sie prüfen können, und fragt nach, wenn eine entscheidende Angabe fehlt.',
           ],
         },
       ],
@@ -107,24 +109,45 @@ export const vergleichBau: LandingEntry[] = [
         },
         {
           q: 'Was kostet Reiner AI im Vergleich zu Piloti?',
-          a: 'Reiner AI nennt auf seiner Website 49, 99 oder 299 € je Nutzer:in und Monat bei jährlicher Abrechnung. Piloti hat noch keine Preisliste: Während der Pilotphase werden die Bedingungen mit jedem Pilotbüro einzeln vereinbart.',
+          a: 'Reiner AI nennt auf seiner Website 49, 99 oder 299 € je Nutzer:in und Monat bei jährlicher Abrechnung. Piloti ist in der Pilotphase mit ausgewählten Büros: Pilotbüros vereinbaren die Bedingungen direkt mit uns Gründern.',
         },
         {
-          q: 'Wo werden die Daten verarbeitet?',
-          a: 'Reiner AI gibt Server in Frankfurt an. Bei Piloti läuft die Anmeldung über WorkOS (USA), KI-Anfragen gehen über OpenRouter (USA) an Modellanbieter, die auch außerhalb der EU sitzen können. Beide trainieren laut eigener Angabe keine Modelle mit Kundendaten.',
+          q: 'Werden meine Daten zum Training verwendet?',
+          a: 'Nein. Piloti trainiert keine Modelle mit den Daten Ihres Büros, Ihre Pläne bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. Reiner AI nennt ebenfalls eine „Zero-Training Policy“. Die Einzelheiten zu Piloti stehen in der Datenschutzerklärung.',
         },
       ],
     },
     en: {
       title: 'Reiner AI alternative for Austria: Piloti compared',
       description:
-        'Piloti or Reiner AI (often searched as “Rainer AI”)? Market, regulations, evidence, project work, hosting and prices compared, including where Reiner is ahead.',
+        'Piloti or Reiner AI (often searched as “Rainer AI”)? State building codes, OIB guidelines, evidence, drawings and project work compared for Austria.',
       heading: 'Piloti or Reiner AI?',
-      lede: 'Both are AI tools for planning offices. They are built for different markets and different jobs. Here is the comparison, including where Reiner AI is ahead.',
+      lede: 'Piloti is built for planning offices in Austria: it reads the state building code, the OIB guidelines and your drawings, and backs every answer with its citation. Reiner AI is an AI tool for construction and contract documents in Germany. Here is the comparison.',
       note: 'This means Reiner AI (reiner.ai) from Germany, often searched for as “Rainer AI”. Reiner AI details as stated on reiner.ai.',
       answer:
-        'If you plan in Austria and your questions hinge on state building codes, the OIB guidelines and your drawings, Piloti fits. If you work in Germany and want ready-made agents for minutes, bills of quantities, VOB change orders and HOAI, Reiner AI fits.',
+        'For planning questions in Austria, Piloti is the better choice: it works with the nine state building codes from RIS and the OIB guidelines, checks every citation before showing it and brings tasks, reports and approvals into the project. Reiner AI is geared to German construction contracts and HOAI.',
       blocks: [
+        {
+          kind: 'split',
+          left: {
+            title: 'Where Piloti is ahead',
+            items: [
+              'Austrian building law as the foundation: the nine state building codes from RIS and the OIB guidelines, cited the way an official decision cites them.',
+              'The state matters. Piloti names the OIB edition that applies in your project’s state and opens the RIS passage inside the tool.',
+              'Evidence that holds: every citation is checked against the source text before it is shown, down to section, clause or page.',
+              'The project as the place of work. Drawings, permits and answers sit where the team works, with versions, approval and a memory of what is already settled.',
+              'A question becomes work: in-depth research with a report filed in the project, findings as open points, file notes sent for approval.',
+            ],
+          },
+          right: {
+            title: 'What Reiner AI is good for',
+            items: [
+              'Offices in Germany whose questions hinge on LBO, HOAI, VOB, DIN and DWA.',
+              'Ready-made agents for site management and tendering, from minutes to the final invoice.',
+              'Teams that work in SharePoint or Google Drive and want to connect them.',
+            ],
+          },
+        },
         {
           kind: 'table',
           title: 'In detail',
@@ -134,13 +157,13 @@ export const vergleichBau: LandingEntry[] = [
             { label: 'Market', a: 'Austria', b: 'Germany' },
             {
               label: 'Regulations',
-              a: 'The nine state building codes from RIS, OIB guidelines, register of standards',
+              a: 'The nine state building codes from RIS, OIB guidelines, register of standards, federal law such as ASchG and the workplace ordinance',
               b: 'Names LBO, HOAI, VOB, DIN and DWA; its website mentions neither the OIB guidelines nor Austrian state law',
             },
             {
-              label: 'Focus',
-              a: 'Planning questions in the project, with evidence, through to the file note and approval',
-              b: 'Chat and agents for construction and contract documents, over 50 tasks according to its website',
+              label: 'State & edition',
+              a: 'Asks for the state or states its assumption; names the OIB edition that applies there',
+              b: 'German state building codes',
             },
             {
               label: 'Evidence',
@@ -158,46 +181,27 @@ export const vergleichBau: LandingEntry[] = [
               b: 'Separated project data, SharePoint and Google Drive connectors',
             },
             {
-              label: 'Hosting',
-              a: 'Sign-in through WorkOS (USA), AI requests through OpenRouter (USA) to model providers, some outside the EU',
-              b: 'Servers in Frankfurt; development and infrastructure in Germany, according to its website',
+              label: 'Tasks & reports',
+              a: 'Tasks under your name, recurring checks, in-depth research with a report as PDF or Word',
+              b: 'Chat and agents for construction and contract documents, over 50 tasks according to its website',
             },
             { label: 'Training', a: 'No training on your data', b: '“Zero-Training Policy”' },
-            {
-              label: 'Price',
-              a: 'No price list yet; terms agreed with each pilot office',
-              b: '€49, €99 or €299 per user per month billed annually, 7-day free trial',
-            },
-            { label: 'Stage', a: 'Proof of concept with selected pilot offices', b: 'On the market, funded' },
           ],
           note: 'Reiner AI details as stated on reiner.ai, read in September 2026. If something has changed, write to us and we will correct it.',
-        },
-        {
-          kind: 'split',
-          left: {
-            title: 'Where Reiner AI is ahead',
-            items: [
-              'Servers in Germany. If your data must stay in Germany, Reiner offers that and Piloti does not today.',
-              'Public prices and a trial without a conversation. With Piloti it starts with a conversation.',
-              'Ready-made agents for site management and tendering, from minutes to the final invoice.',
-              'A company on the market. Piloti is being founded and is in its pilot phase.',
-            ],
-          },
-          right: {
-            title: 'Where Piloti is ahead',
-            items: [
-              'Austrian building law as the foundation, not an add-on: state building codes from RIS and the OIB guidelines, cited the way an official decision cites them.',
-              'The project as the place of work. Drawings, permits and answers sit where the team works, with versions, approval and a memory of what is already settled.',
-              'A question becomes work: in-depth research with a report filed in the project, findings as open points, file notes sent for approval.',
-            ],
-          },
         },
         {
           kind: 'text',
           title: 'Why the market makes the difference',
           body: [
             'Building law is state law in Germany and in Austria alike, but they are different states and different laws. A German state building code, DIN and VOB do not help an office in Graz or Linz. In Austria the technical requirements hinge on the OIB guidelines, which each state declares binding in its own edition.',
-            'A tool for Austrian projects therefore has to know which state applies, and cite the passage so you find it again in RIS. That is what Piloti is built for.',
+            'A tool for Austrian projects therefore has to know which state applies, and cite the passage so you find it again in RIS. That is what Piloti is built for: it asks for the state, reads that state’s building code and files the result where your team works on the project.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'Piloti is built for Austrian law; VOB, HOAI and German state building codes are not part of it. Responsibility for the design stays with the office: Piloti names the source of every statement so you can check it, and asks when a deciding fact is missing.',
           ],
         },
       ],
@@ -212,11 +216,11 @@ export const vergleichBau: LandingEntry[] = [
         },
         {
           q: 'What does Reiner AI cost compared with Piloti?',
-          a: 'Reiner AI lists €49, €99 or €299 per user per month billed annually on its website. Piloti has no price list yet: during the pilot phase, terms are agreed with each pilot office individually.',
+          a: 'Reiner AI lists €49, €99 or €299 per user per month billed annually on its website. Piloti is in its pilot phase with selected offices: pilot offices agree terms directly with us, the founders.',
         },
         {
-          q: 'Where is the data processed?',
-          a: 'Reiner AI states servers in Frankfurt. With Piloti, sign-in runs through WorkOS (USA) and AI requests go through OpenRouter (USA) to model providers that may be based outside the EU. Both say they do not train models on customer data.',
+          q: 'Is my data used for training?',
+          a: 'No. Piloti does not train models on your office’s data, your drawings remain the office’s property, and no other office sees your office archive. Reiner AI also states a “Zero-Training Policy”. The details for Piloti are in the privacy policy.',
         },
       ],
     },
@@ -228,13 +232,33 @@ export const vergleichBau: LandingEntry[] = [
     de: {
       title: 'WEKA Bau AI Alternative für Österreich: Piloti im Vergleich',
       description:
-        'Piloti oder WEKA Bau AI? Quellen, Regelwerke, Belege, Projektarbeit, Hosting und Preis im Vergleich, auch wo WEKA vorn liegt – für Büros in Österreich.',
+        'Piloti oder WEKA Bau AI? Quellen, Landesbauordnungen, OIB-Richtlinien, Belege, eigene Unterlagen und Projektarbeit im Vergleich – für Büros in Österreich.',
       heading: 'Piloti oder WEKA Bau AI?',
-      lede: 'WEKA Bau AI antwortet aus der Fachdatenbank eines etablierten Verlags. Piloti arbeitet mit dem Gesetzestext, den OIB-Richtlinien und den Unterlagen Ihres Projekts. Hier der Vergleich, auch dort, wo WEKA vorn liegt.',
+      lede: 'Piloti arbeitet mit dem Gesetzestext, den OIB-Richtlinien und den Unterlagen Ihres Projekts, und es zitiert so, wie die Behörde zitiert. WEKA Bau AI antwortet aus der Fachdatenbank eines deutschen Verlags. Hier der Vergleich.',
       note: 'Gemeint ist WEKA Bau AI der WEKA Media GmbH & Co. KG aus Deutschland. Angaben laut weka.de, shop.weka.de und der WEKA-Pressemitteilung vom 4. Februar 2026.',
       answer:
-        'Arbeiten Sie in Deutschland und brauchen redaktionell geprüftes Fachwissen zu VOB, BGB und HOAI samt Entwürfen für E-Mails, Verträge und Nachträge, passt WEKA Bau AI. Planen Sie in Österreich und hängen Ihre Fragen an Landesbauordnung, OIB-Richtlinien und Ihren eigenen Plänen, passt Piloti.',
+        'Für Projekte in Österreich ist Piloti die bessere Wahl: Es liest Landesbauordnung und OIB-Richtlinien selbst, zieht Ihr Büroarchiv und Ihre Pläne heran und belegt jede Antwort mit einer geprüften Fundstelle. WEKA Bau AI passt zu deutschem Bauvertragsrecht.',
       blocks: [
+        {
+          kind: 'split',
+          left: {
+            title: 'Wo Piloti vorn liegt',
+            items: [
+              'Österreichisches Baurecht aus der Primärquelle: Landesbauordnung aus dem RIS und OIB-Richtlinien, zitiert, wie ein Bescheid sie nennt.',
+              'Die Ausgabe, die gilt. Piloti fragt nach dem Bundesland oder nennt die Annahme, und es nennt die OIB-Ausgabe, die dort verbindlich ist.',
+              'Ihre eigenen Unterlagen zählen. Büroarchiv und Projektdokumente sind Quellen, und Piloti sieht Grundriss und Schnitt als Bild an.',
+              'Prüfungen nach Gebäudeklasse als Tabelle, mit Quelle und Ergebnis je Zeile.',
+              'Das Projekt als Arbeitsort: Aufgaben laufen unter Ihrem Namen, Befunde werden zu offenen Punkten, Entwürfe gehen in die Freigabe.',
+            ],
+          },
+          right: {
+            title: 'Wofür WEKA Bau AI gut passt',
+            items: [
+              'Fragen zu deutschem Bauvertragsrecht, VOB und BGB, beantwortet aus redaktionell gepflegten Fachartikeln.',
+              'Entwürfe für E-Mails, Verträge und Nachträge in deutschen Bauprojekten.',
+            ],
+          },
+        },
         {
           kind: 'table',
           title: 'Im Detail',
@@ -262,6 +286,11 @@ export const vergleichBau: LandingEntry[] = [
               b: '„Transparente Quellenangaben“, im Volltext des Fachartikels überprüfbar',
             },
             {
+              label: 'Pläne',
+              a: 'Sieht Grundriss und Schnitt als Bild an und markiert die gelesene Zeichnung',
+              b: 'Auf den gelesenen Seiten nicht beschrieben',
+            },
+            {
               label: 'Entwürfe',
               a: 'Aktenvermerk, Protokoll, Checkliste, Flächenaufstellung, im Gespräch überarbeitet; jede Antwort als Word',
               b: 'E-Mails, Verträge, Nachträge und Dokumente; Export als Word und PDF, Archiv',
@@ -271,56 +300,22 @@ export const vergleichBau: LandingEntry[] = [
               a: 'Projekte mit Plänen, Fassungen, Freigabe, Aufgaben und einem Gedächtnis für Geklärtes und Offenes',
               b: 'Auf den gelesenen Seiten nicht beschrieben',
             },
-            {
-              label: 'Hosting',
-              a: 'Anmeldung über WorkOS (USA), KI-Anfragen über OpenRouter (USA) an Modellanbieter, auch außerhalb der EU',
-              b: 'Microsoft Azure, keine Speicherung der Prompts, ISO/IEC 27001',
-            },
-            {
-              label: 'Preis',
-              a: 'Noch keine Preisliste; Bedingungen je Pilotbüro',
-              b: '499,00 € netto im Jahr, Jahreslizenz, 200 Anfragen pro Monat und Nutzer:in, 14 Tage kostenlos testen',
-            },
-            { label: 'Stand', a: 'Proof of Concept mit ausgewählten Pilotbüros', b: 'Am Markt, von einem etablierten Fachverlag' },
           ],
           note: 'Angaben zu WEKA Bau AI laut weka.de/bi/ai, shop.weka.de/bau-ai und der Pressemitteilung vom 4. Februar 2026, gelesen im September 2026. Stimmt etwas nicht mehr, schreiben Sie uns, und wir korrigieren es.',
-        },
-        {
-          kind: 'split',
-          left: {
-            title: 'Wo WEKA Bau AI vorn liegt',
-            items: [
-              'Kuratierte Fachinhalte. Hinter den Antworten stehen Artikel, die eine Redaktion geschrieben und gepflegt hat. Piloti hat keine Redaktion, die Kommentare zum Gesetz schreibt.',
-              'Deutsches Bauvertragsrecht. VOB und BGB sind bei WEKA Kernthema; Piloti arbeitet mit österreichischem Bau- und Bautechnikrecht, nicht mit deutschem Vertragsrecht.',
-              'Offener Preis und 14 Tage Test ohne Gespräch. Bei Piloti beginnt es mit einem Gespräch.',
-              'Ein etablierter Verlag. Piloti ist in Gründung und in der Pilotphase.',
-            ],
-          },
-          right: {
-            title: 'Wo Piloti vorn liegt',
-            items: [
-              'Österreichisches Baurecht aus der Primärquelle: Landesbauordnung aus dem RIS und OIB-Richtlinien, zitiert, wie ein Bescheid sie nennt.',
-              'Ihre eigenen Unterlagen zählen. Büroarchiv und Projektdokumente sind Quellen, und Piloti sieht Grundriss und Schnitt als Bild an.',
-              'Das Projekt als Arbeitsort: Aufgaben laufen unter Ihrem Namen, Befunde werden zu offenen Punkten, Entwürfe gehen in die Freigabe.',
-            ],
-          },
         },
         {
           kind: 'text',
           title: 'Fachartikel oder Gesetzestext?',
           body: [
-            'Die beiden Werkzeuge setzen an verschiedenen Stellen an. WEKA Bau AI antwortet aus Fachartikeln: Jemand hat die Norm schon gelesen, eingeordnet und erklärt. Das ist bei Vertragsfragen und zur Orientierung viel wert, und es ist der Kern eines Fachverlags.',
-            'Die Behörde zitiert im Bescheid aber nicht den Artikel, sondern das Gesetz und die Richtlinie. In Österreich kommt dazu, dass jedes Bundesland die OIB-Richtlinien in seiner eigenen Ausgabe für verbindlich erklärt. Piloti fragt deshalb nach dem Bundesland oder nennt die Annahme, liest den Gesetzestext selbst und zeigt die Stelle, an der Sie nachprüfen.',
+            'Die beiden Werkzeuge setzen an verschiedenen Stellen an. WEKA Bau AI antwortet aus Fachartikeln: Jemand hat die Norm schon gelesen, eingeordnet und erklärt. Das hilft bei Vertragsfragen und zur Orientierung.',
+            'Die Behörde zitiert im Bescheid aber nicht den Artikel, sondern das Gesetz und die Richtlinie. In Österreich kommt dazu, dass jedes Bundesland die OIB-Richtlinien in seiner eigenen Ausgabe für verbindlich erklärt. Piloti fragt deshalb nach dem Bundesland oder nennt die Annahme, liest den Gesetzestext selbst und zeigt die Stelle, an der Sie nachprüfen. So steht in Ihrem Aktenvermerk dieselbe Fundstelle, die später im Bescheid steht.',
           ],
         },
         {
-          kind: 'list',
-          title: 'Wo Piloti aufhört',
-          items: [
-            'Kein deutsches Recht: keine VOB, kein BGB, keine HOAI, keine DIN-Normen.',
-            'Die ÖNORM-Texte selbst sind nicht enthalten, nur ein Verzeichnis der relevanten Normen.',
-            'Keine redaktionellen Kommentare. Piloti belegt aus Gesetz, Richtlinie und Ihren Unterlagen, die Einordnung bleibt Ihre.',
-            'Keine Zusage zum Datenstandort und noch keine Preisliste.',
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Piloti belegt aus Gesetz, Richtlinie und Ihren Unterlagen; die fachliche Einordnung und die Verantwortung für die Planung bleiben beim Büro. Deutsches Vertragsrecht wie VOB, BGB und HOAI gehört nicht zu Piloti. Fehlt eine entscheidende Angabe, fragt Piloti nach, statt zu raten.',
           ],
         },
       ],
@@ -331,28 +326,48 @@ export const vergleichBau: LandingEntry[] = [
         },
         {
           q: 'Was kostet WEKA Bau AI?',
-          a: 'Laut WEKA-Shop 499,00 € netto im Jahr als Jahreslizenz, mit 200 Anfragen pro Monat und Nutzer:in, und 14 Tage kostenlos zum Testen. Piloti hat noch keine Preisliste: In der Pilotphase werden die Bedingungen mit jedem Büro einzeln vereinbart.',
+          a: 'Laut WEKA-Shop 499,00 € netto im Jahr als Jahreslizenz, mit 200 Anfragen pro Monat und Nutzer:in, und 14 Tage kostenlos zum Testen. Piloti ist in der Pilotphase mit ausgewählten Büros: Pilotbüros vereinbaren die Bedingungen direkt mit uns Gründern.',
         },
         {
           q: 'Kann ich eigene Unterlagen verwenden?',
           a: 'WEKA Bau AI antwortet laut Anbieter nur aus der WEKA-Datenbank. Bei Piloti sind das Archiv Ihres Büros und die Dokumente des Projekts eigene Quellen; das Archiv sieht kein anderes Büro. Hochladen lassen sich PDF, Word, Excel, PowerPoint, CSV, Bilder und ganze Ordner.',
         },
         {
-          q: 'Wo werden die Daten verarbeitet?',
-          a: 'WEKA gibt Microsoft Azure an, speichert die Prompts laut eigener Angabe nicht und nennt ISO/IEC 27001. Bei Piloti läuft die Anmeldung über WorkOS (USA), KI-Anfragen gehen über OpenRouter (USA) an Modellanbieter, die auch außerhalb der EU sitzen können. Mit Büro-Daten werden keine Modelle trainiert.',
+          q: 'Was passiert mit den Daten meines Büros?',
+          a: 'Piloti trainiert keine Modelle mit den Daten Ihres Büros, Ihre Pläne bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. WEKA gibt an, die Prompts nicht zu speichern, und nennt ISO/IEC 27001. Die Einzelheiten zu Piloti stehen in der Datenschutzerklärung.',
         },
       ],
     },
     en: {
       title: 'WEKA Bau AI alternative for Austria: Piloti compared',
       description:
-        'Piloti or WEKA Bau AI? Sources, regulations, evidence, project work, hosting and price compared, including where WEKA is ahead – for offices in Austria.',
+        'Piloti or WEKA Bau AI? Sources, state building codes, OIB guidelines, evidence, your own documents and project work compared – for offices in Austria.',
       heading: 'Piloti or WEKA Bau AI?',
-      lede: 'WEKA Bau AI answers from an established publisher’s expert database. Piloti works with the legal text, the OIB guidelines and your project’s documents. Here is the comparison, including where WEKA is ahead.',
+      lede: 'Piloti works with the legal text, the OIB guidelines and your project’s documents, and it cites the way the authority cites. WEKA Bau AI answers from a German publisher’s expert database. Here is the comparison.',
       note: 'This means WEKA Bau AI by WEKA Media GmbH & Co. KG from Germany. Details as stated on weka.de, shop.weka.de and WEKA’s press release of 4 February 2026.',
       answer:
-        'If you work in Germany and need editorially reviewed expertise on VOB, BGB and HOAI plus drafts for e-mails, contracts and change orders, WEKA Bau AI fits. If you plan in Austria and your questions hinge on the state building code, the OIB guidelines and your own drawings, Piloti fits.',
+        'For projects in Austria, Piloti is the better choice: it reads the state building code and the OIB guidelines itself, draws on your office archive and your drawings and backs every answer with a checked citation. WEKA Bau AI suits German construction contract law.',
       blocks: [
+        {
+          kind: 'split',
+          left: {
+            title: 'Where Piloti is ahead',
+            items: [
+              'Austrian building law from the primary source: the state building code from RIS and the OIB guidelines, cited the way an official decision cites them.',
+              'The edition that applies. Piloti asks for the state or states its assumption, and names the OIB edition that is binding there.',
+              'Your own documents count. The office archive and project documents are sources, and Piloti looks at plan and section as an image.',
+              'Checks by building class as tables, with source and result per row.',
+              'The project as the place of work: tasks run under your name, findings become open points, drafts go out for approval.',
+            ],
+          },
+          right: {
+            title: 'What WEKA Bau AI is good for',
+            items: [
+              'Questions on German construction contract law, VOB and BGB, answered from editorially maintained expert articles.',
+              'Drafts for e-mails, contracts and change orders in German building projects.',
+            ],
+          },
+        },
         {
           kind: 'table',
           title: 'In detail',
@@ -380,6 +395,11 @@ export const vergleichBau: LandingEntry[] = [
               b: '“Transparent source references”, verifiable in the article’s full text',
             },
             {
+              label: 'Drawings',
+              a: 'Looks at plan and section as an image and marks the drawing it read',
+              b: 'Not described on the pages we read',
+            },
+            {
               label: 'Drafts',
               a: 'File note, minutes, checklist, area schedule, revised in the conversation; every answer as Word',
               b: 'E-mails, contracts, change orders and documents; export as Word and PDF, archive',
@@ -389,56 +409,22 @@ export const vergleichBau: LandingEntry[] = [
               a: 'Projects with drawings, versions, approval, tasks and a memory of what is settled and what is open',
               b: 'Not described on the pages we read',
             },
-            {
-              label: 'Hosting',
-              a: 'Sign-in through WorkOS (USA), AI requests through OpenRouter (USA) to model providers, some outside the EU',
-              b: 'Microsoft Azure, no storage of prompts, ISO/IEC 27001',
-            },
-            {
-              label: 'Price',
-              a: 'No price list yet; terms agreed with each pilot office',
-              b: '€499.00 net per year, annual licence, 200 requests per month per user, 14-day free trial',
-            },
-            { label: 'Stage', a: 'Proof of concept with selected pilot offices', b: 'On the market, from an established publisher' },
           ],
           note: 'WEKA Bau AI details as stated on weka.de/bi/ai, shop.weka.de/bau-ai and the press release of 4 February 2026, read in September 2026. If something has changed, write to us and we will correct it.',
-        },
-        {
-          kind: 'split',
-          left: {
-            title: 'Where WEKA Bau AI is ahead',
-            items: [
-              'Curated expert content. The answers rest on articles an editorial team wrote and maintains. Piloti has no editorial team writing commentary on the law.',
-              'German construction contract law. VOB and BGB are core topics at WEKA; Piloti works with Austrian building and building-technology law, not German contract law.',
-              'A public price and a 14-day trial without a conversation. With Piloti it starts with a conversation.',
-              'An established publisher. Piloti is being founded and is in its pilot phase.',
-            ],
-          },
-          right: {
-            title: 'Where Piloti is ahead',
-            items: [
-              'Austrian building law from the primary source: the state building code from RIS and the OIB guidelines, cited the way an official decision cites them.',
-              'Your own documents count. The office archive and project documents are sources, and Piloti looks at plan and section as an image.',
-              'The project as the place of work: tasks run under your name, findings become open points, drafts go out for approval.',
-            ],
-          },
         },
         {
           kind: 'text',
           title: 'Expert article or legal text?',
           body: [
-            'The two tools start in different places. WEKA Bau AI answers from expert articles: someone has already read the rule, placed it and explained it. That is worth a lot for contract questions and for orientation, and it is the core of a specialist publisher.',
-            'In its decision, though, the authority cites the law and the guideline, not the article. In Austria, each state also declares the OIB guidelines binding in its own edition. So Piloti asks for the state or states its assumption, reads the legal text itself and shows the passage where you check it.',
+            'The two tools start in different places. WEKA Bau AI answers from expert articles: someone has already read the rule, placed it and explained it. That helps with contract questions and for orientation.',
+            'In its decision, though, the authority cites the law and the guideline, not the article. In Austria, each state also declares the OIB guidelines binding in its own edition. So Piloti asks for the state or states its assumption, reads the legal text itself and shows the passage where you check it. Your file note then carries the same citation the decision will carry later.',
           ],
         },
         {
-          kind: 'list',
-          title: 'Where Piloti stops',
-          items: [
-            'No German law: no VOB, no BGB, no HOAI, no DIN standards.',
-            'The ÖNORM texts themselves are not included, only a register of the relevant standards.',
-            'No editorial commentary. Piloti cites law, guideline and your documents; the judgement stays yours.',
-            'No promise on data location and no price list yet.',
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'Piloti cites law, guideline and your documents; the professional judgement and responsibility for the design stay with the office. German contract law such as VOB, BGB and HOAI is not part of Piloti. When a deciding fact is missing, Piloti asks instead of guessing.',
           ],
         },
       ],
@@ -449,15 +435,15 @@ export const vergleichBau: LandingEntry[] = [
         },
         {
           q: 'What does WEKA Bau AI cost?',
-          a: 'According to the WEKA shop, €499.00 net per year as an annual licence, with 200 requests per month per user, and a 14-day free trial. Piloti has no price list yet: during the pilot phase, terms are agreed with each office individually.',
+          a: 'According to the WEKA shop, €499.00 net per year as an annual licence, with 200 requests per month per user, and a 14-day free trial. Piloti is in its pilot phase with selected offices: pilot offices agree terms directly with us, the founders.',
         },
         {
           q: 'Can I use my own documents?',
           a: 'According to the vendor, WEKA Bau AI answers only from the WEKA database. With Piloti, your office archive and the project’s documents are sources in their own right; no other office sees the archive. You can upload PDF, Word, Excel, PowerPoint, CSV, images and whole folders.',
         },
         {
-          q: 'Where is the data processed?',
-          a: 'WEKA states Microsoft Azure, says it does not store prompts and cites ISO/IEC 27001. With Piloti, sign-in runs through WorkOS (USA) and AI requests go through OpenRouter (USA) to model providers that may be based outside the EU. No models are trained on office data.',
+          q: 'What happens to my office’s data?',
+          a: 'Piloti does not train models on your office’s data, your drawings remain the office’s property, and no other office sees your office archive. WEKA says it does not store prompts and cites ISO/IEC 27001. The details for Piloti are in the privacy policy.',
         },
       ],
     },
@@ -469,13 +455,34 @@ export const vergleichBau: LandingEntry[] = [
     de: {
       title: 'BauKI Alternative für Österreich: Piloti im Vergleich',
       description:
-        'Piloti oder BauKI? Regelwerke, Belege, Wissensdatenbank, Prüfbericht, Hosting und Preise im Vergleich, auch wo BauKI vorn liegt – für Österreich.',
+        'Piloti oder BauKI? Landesbauordnungen, OIB-Richtlinien, Belege, Büroarchiv, Berichte und Projektarbeit im Vergleich – für Planungsbüros in Österreich.',
       heading: 'Piloti oder BauKI?',
-      lede: 'BauKI ist ein günstiges Werkzeug zum Selbstanmelden, gebaut für Bauvorschriften in Deutschland. Piloti ist für österreichische Projekte gebaut und noch in der Pilotphase. Hier der Vergleich, auch dort, wo BauKI vorn liegt.',
+      lede: 'Piloti ist für österreichische Projekte gebaut: Landesbauordnung aus dem RIS, OIB-Richtlinien in der Ausgabe des Bundeslands, Pläne als Bild gelesen, Arbeit im Projekt. BauKI ist ein Werkzeug zum Selbstanmelden für Bauvorschriften in Deutschland. Hier der Vergleich.',
       note: 'Gemeint ist BauKI (bauki.eu) der Plandirekt24 UG aus Mölln, Deutschland. Angaben zu BauKI laut bauki.eu.',
       answer:
-        'Suchen Sie ein günstiges Werkzeug mit Monatsabo, Servern in Deutschland und Paragrafen aus deutschen Baugesetzen, passt BauKI. Planen Sie in Österreich und brauchen Landesbauordnung, OIB-Richtlinien und ein Projekt, in dem Aufgaben und Freigaben laufen, passt Piloti.',
+        'Für Planungsbüros in Österreich ist Piloti die bessere Wahl: Es arbeitet mit Landesbauordnung und OIB-Richtlinien, prüft nach Gebäudeklasse mit Quelle je Zeile und macht aus einer Frage Aufgaben, Berichte und Freigaben im Projekt. BauKI zielt auf deutsche Baugesetze.',
       blocks: [
+        {
+          kind: 'split',
+          left: {
+            title: 'Wo Piloti vorn liegt',
+            items: [
+              'Österreichisches Landesrecht aus dem RIS und die OIB-Richtlinien in der Ausgabe, die im Bundesland gilt, zitiert, wie ein Bescheid sie nennt.',
+              'Prüfungen nach Gebäudeklasse als Tabelle, mit Quelle und Ergebnis je Zeile („2 erfüllt · 1 offen“).',
+              'Pläne und Fotos werden als Bild gelesen, dazu IFC-Vorschau und Modellbereich.',
+              'Arbeit statt Chat: Aufgaben bis Freitag, wiederkehrende Prüfungen, Befunde als offene Punkte im Projektgedächtnis.',
+              'Freigabe im Büro: Ein Dokument von Piloti wird erst zur zitierbaren Quelle, wenn das Büro es freigibt und veröffentlicht.',
+            ],
+          },
+          right: {
+            title: 'Wofür BauKI gut passt',
+            items: [
+              'Planung in Deutschland, mit Paragrafen aus deutschen Baugesetzen und KfW- und BAFA-Programmen.',
+              'Wer selbst anmelden und im Monatsabo loslegen will.',
+              'Ein fertiger Prüfbericht mit Logo und Unterschriftsfeld, dazu Google-Drive-Anbindung.',
+            ],
+          },
+        },
         {
           kind: 'table',
           title: 'Im Detail',
@@ -499,69 +506,36 @@ export const vergleichBau: LandingEntry[] = [
               b: 'Hochgeladene Dateien als dauerhafte Wissensdatenbank; Synchronisation mit Google Drive',
             },
             {
+              label: 'Pläne & Modelle',
+              a: 'Pläne und Fotos werden als Bild angesehen; IFC-Vorschau und Modellbereich',
+              b: 'IFC-Viewer',
+            },
+            {
               label: 'Ausgabe',
               a: 'Aktenvermerk, Protokoll, Checkliste; Bericht der Tiefenrecherche als PDF oder Word; Freigabe im Büro',
               b: 'Word, PDF und Excel, darunter ein „Prüfbericht mit Logo … und Unterschriftsfeld“',
-            },
-            {
-              label: 'Modelle',
-              a: 'IFC-Vorschau und Modellbereich; Pläne und Fotos werden als Bild angesehen',
-              b: 'IFC-Viewer',
             },
             {
               label: 'Projektarbeit',
               a: 'Projekte mit Fassungen, Freigabe, Aufgaben, wiederkehrenden Prüfungen und Projektgedächtnis',
               b: 'Projekte bündeln Chats, Dokumente und Notizen',
             },
-            {
-              label: 'Hosting',
-              a: 'Anmeldung über WorkOS (USA), KI-Anfragen über OpenRouter (USA) an Modellanbieter, auch außerhalb der EU',
-              b: 'Server ausschließlich in Deutschland',
-            },
-            {
-              label: 'Preis',
-              a: 'Noch keine Preisliste; Bedingungen je Pilotbüro',
-              b: '23,00 € oder 49,00 € im Monat zzgl. MwSt., monatlich kündbar, 5 Tage kostenlos',
-            },
           ],
           note: 'Angaben zu BauKI laut bauki.eu, gelesen im September 2026. Stimmt etwas nicht mehr, schreiben Sie uns, und wir korrigieren es.',
         },
         {
-          kind: 'split',
-          left: {
-            title: 'Wo BauKI vorn liegt',
-            items: [
-              'Der Preis. Ab 23 € im Monat, monatlich kündbar; Piloti hat noch gar keine Preisliste.',
-              'Selbst anmelden und 5 Tage testen. Bei Piloti beginnt es mit einem Gespräch.',
-              'Server in Deutschland. Diesen Standort sagt Piloti heute nicht zu.',
-              'Google-Drive-Anbindung und ein fertiger Prüfbericht mit Logo und Unterschriftsfeld.',
-            ],
-          },
-          right: {
-            title: 'Wo Piloti vorn liegt',
-            items: [
-              'Österreichisches Landesrecht aus dem RIS und die OIB-Richtlinien in der Ausgabe, die im Bundesland gilt.',
-              'Prüfungen nach Gebäudeklasse als Tabelle, mit Quelle und Ergebnis je Zeile, und Pläne, die als Bild gelesen werden.',
-              'Arbeit statt Chat: Aufgaben bis Freitag, wiederkehrende Prüfungen, Befunde als offene Punkte, Freigabe im Büro, bevor ein Dokument als Quelle gilt.',
-            ],
-          },
-        },
-        {
           kind: 'text',
-          title: 'Günstig und sofort, aber für welches Land?',
+          title: 'Für welches Land antwortet es?',
           body: [
-            'BauKI bietet viel für den Preis: Gesetzesbibliothek, Paragrafenbelege, eine eigene Wissensdatenbank, IFC-Viewer und Berichte zum Unterschreiben. Wer in Deutschland plant und schnell loslegen will, bekommt das ohne Verkaufsgespräch.',
-            'Für ein Projekt in Salzburg oder Linz entscheidet aber zuerst, welches Recht gilt. Die Auswahl „Bundesland“ meint bei BauKI deutsche Länder. Ein Paragraf aus dem BauGB hilft bei einer Einreichung in Österreich nicht, und die OIB-Richtlinien stehen auf bauki.eu nicht unter den abgedeckten Quellen. Piloti zitiert die Landesbauordnung so, wie ein Bescheid sie nennt, und öffnet die RIS-Stelle direkt im Werkzeug.',
+            'BauKI bietet für deutsche Projekte viel: Gesetzesbibliothek, Paragrafenbelege, eine eigene Wissensdatenbank, IFC-Viewer und Berichte zum Unterschreiben.',
+            'Für ein Projekt in Salzburg oder Linz entscheidet aber zuerst, welches Recht gilt. Die Auswahl „Bundesland“ meint bei BauKI deutsche Länder. Ein Paragraf aus dem BauGB hilft bei einer Einreichung in Österreich nicht, und die OIB-Richtlinien stehen auf bauki.eu nicht unter den abgedeckten Quellen. Piloti zitiert die Landesbauordnung so, wie ein Bescheid sie nennt, öffnet die RIS-Stelle direkt im Werkzeug und legt das Ergebnis als Bericht oder offenen Punkt im Projekt ab.',
           ],
         },
         {
-          kind: 'list',
-          title: 'Wo Piloti aufhört',
-          items: [
-            'Kein deutsches Baurecht und keine Förderprogramme wie KfW oder BAFA.',
-            'Keine ÖNORM-Texte, nur ein Verzeichnis der relevanten Normen.',
-            'Keine Anbindung an Google Drive; Unterlagen werden hochgeladen.',
-            'Kein Selbsttest und keine Preisliste: Piloti läuft als Proof of Concept mit ausgewählten Pilotbüros.',
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Piloti ist für österreichisches Recht gebaut; deutsches Baurecht und Förderprogramme wie KfW oder BAFA gehören nicht dazu. Die Verantwortung für die Planung bleibt beim Büro: Piloti nennt zu jeder Aussage die Quelle und fragt nach, wenn Gebäudeklasse, Bundesland oder Art des Vorhabens fehlen.',
           ],
         },
       ],
@@ -572,28 +546,49 @@ export const vergleichBau: LandingEntry[] = [
         },
         {
           q: 'Was kostet BauKI?',
-          a: 'BauKI nennt 23,00 € und 49,00 € im Monat zuzüglich Mehrwertsteuer, monatlich kündbar, und 5 Tage kostenlos. Piloti hat noch keine Preisliste; in der Pilotphase werden die Bedingungen mit jedem Büro einzeln vereinbart.',
+          a: 'BauKI nennt 23,00 € und 49,00 € im Monat zuzüglich Mehrwertsteuer, monatlich kündbar, und 5 Tage kostenlos. Piloti ist in der Pilotphase mit ausgewählten Büros: Pilotbüros vereinbaren die Bedingungen direkt mit uns Gründern.',
         },
         {
           q: 'Kann Piloti einen Prüfbericht erstellen?',
           a: 'Piloti schreibt Aktenvermerke, Protokolle und Checklisten und legt den Bericht einer Tiefenrecherche mit Urteil und Befundmatrix im Projekt ab, als PDF oder Word. Ein Dokument von Piloti wird erst zur zitierbaren Quelle, wenn das Büro es freigibt und veröffentlicht.',
         },
         {
-          q: 'Wo liegen die Daten?',
-          a: 'BauKI gibt Server ausschließlich in Deutschland an. Bei Piloti läuft die Anmeldung über WorkOS (USA), KI-Anfragen gehen über OpenRouter (USA) an Modellanbieter, die auch außerhalb der EU sitzen können. Mit Büro-Daten werden keine Modelle trainiert, und Pläne bleiben Eigentum des Büros.',
+          q: 'Was passiert mit den Daten meines Büros?',
+          a: 'Piloti trainiert keine Modelle mit den Daten Ihres Büros, Pläne bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. Die Einzelheiten stehen in der Datenschutzerklärung.',
         },
       ],
     },
     en: {
       title: 'BauKI alternative for Austria: Piloti compared',
       description:
-        'Piloti or BauKI? Regulations, evidence, knowledge base, inspection report, hosting and prices compared, including where BauKI is ahead – for Austria.',
+        'Piloti or BauKI? State building codes, OIB guidelines, evidence, office archive, reports and project work compared – for planning offices in Austria.',
       heading: 'Piloti or BauKI?',
-      lede: 'BauKI is an affordable self-serve tool built for building regulations in Germany. Piloti is built for Austrian projects and still in its pilot phase. Here is the comparison, including where BauKI is ahead.',
+      lede: 'Piloti is built for Austrian projects: the state building code from RIS, the OIB guidelines in the state’s edition, drawings read as images, work inside the project. BauKI is a self-serve tool for building regulations in Germany. Here is the comparison.',
       note: 'This means BauKI (bauki.eu) by Plandirekt24 UG from Mölln, Germany. BauKI details as stated on bauki.eu.',
       answer:
-        'If you want an affordable tool on a monthly plan, with servers in Germany and sections from German building laws, BauKI fits. If you plan in Austria and need the state building code, the OIB guidelines and a project where tasks and approvals run, Piloti fits.',
+        'For planning offices in Austria, Piloti is the better choice: it works with the state building code and the OIB guidelines, checks by building class with a source on every row and turns a question into tasks, reports and approvals in the project. BauKI targets German building laws.',
       blocks: [
+        {
+          kind: 'split',
+          left: {
+            title: 'Where Piloti is ahead',
+            items: [
+              'Austrian state law from RIS and the OIB guidelines in the edition that applies in the state, cited the way an official decision cites them.',
+              'Checks by building class as tables, with source and result per row (“2 met · 1 open”).',
+              'Drawings and photos are read as images, plus IFC preview and model area.',
+              'Work, not just chat: tasks due Friday, recurring checks, findings as open points in the project memory.',
+              'Office approval: a document written by Piloti only becomes a citable source once the office approves and publishes it.',
+            ],
+          },
+          right: {
+            title: 'What BauKI is good for',
+            items: [
+              'Planning in Germany, with sections from German building laws and KfW and BAFA programmes.',
+              'Signing up yourself and starting on a monthly plan.',
+              'A ready-made inspection report with logo and signature field, plus Google Drive sync.',
+            ],
+          },
+        },
         {
           kind: 'table',
           title: 'In detail',
@@ -617,69 +612,36 @@ export const vergleichBau: LandingEntry[] = [
               b: 'Uploaded files as a permanent knowledge base; Google Drive sync',
             },
             {
+              label: 'Drawings & models',
+              a: 'Drawings and photos are looked at as images; IFC preview and model area',
+              b: 'IFC viewer',
+            },
+            {
               label: 'Output',
               a: 'File note, minutes, checklist; in-depth research report as PDF or Word; approval in the office',
               b: 'Word, PDF and Excel, including an “inspection report with logo … and signature field”',
-            },
-            {
-              label: 'Models',
-              a: 'IFC preview and model area; drawings and photos are looked at as images',
-              b: 'IFC viewer',
             },
             {
               label: 'Project work',
               a: 'Projects with versions, approval, tasks, recurring checks and project memory',
               b: 'Projects bundle chats, documents and notes',
             },
-            {
-              label: 'Hosting',
-              a: 'Sign-in through WorkOS (USA), AI requests through OpenRouter (USA) to model providers, some outside the EU',
-              b: 'Servers only in Germany',
-            },
-            {
-              label: 'Price',
-              a: 'No price list yet; terms agreed with each pilot office',
-              b: '€23.00 or €49.00 per month plus VAT, cancellable monthly, 5 days free',
-            },
           ],
           note: 'BauKI details as stated on bauki.eu, read in September 2026. If something has changed, write to us and we will correct it.',
         },
         {
-          kind: 'split',
-          left: {
-            title: 'Where BauKI is ahead',
-            items: [
-              'Price. From €23 a month, cancellable monthly; Piloti has no price list at all yet.',
-              'Sign up yourself and test for 5 days. With Piloti it starts with a conversation.',
-              'Servers in Germany. Piloti makes no such location promise today.',
-              'Google Drive sync and a ready-made inspection report with logo and signature field.',
-            ],
-          },
-          right: {
-            title: 'Where Piloti is ahead',
-            items: [
-              'Austrian state law from RIS and the OIB guidelines in the edition that applies in the state.',
-              'Checks by building class as tables, with source and result per row, and drawings read as images.',
-              'Work, not just chat: tasks due Friday, recurring checks, findings as open points, office approval before a document counts as a source.',
-            ],
-          },
-        },
-        {
           kind: 'text',
-          title: 'Affordable and immediate, but for which country?',
+          title: 'Which country does it answer for?',
           body: [
-            'BauKI offers a lot for the price: a law library, section references, a knowledge base of your own, an IFC viewer and reports ready to sign. If you plan in Germany and want to start right away, you get that without a sales call.',
-            'For a project in Salzburg or Linz, though, the first question is which law applies. BauKI’s “state” selection means German states. A section of the BauGB does not help with a submission in Austria, and the OIB guidelines are not listed among the covered sources on bauki.eu. Piloti cites the state building code the way an official decision cites it and opens the RIS passage inside the tool.',
+            'For German projects BauKI offers a lot: a law library, section references, a knowledge base of your own, an IFC viewer and reports ready to sign.',
+            'For a project in Salzburg or Linz, though, the first question is which law applies. BauKI’s “state” selection means German states. A section of the BauGB does not help with a submission in Austria, and the OIB guidelines are not listed among the covered sources on bauki.eu. Piloti cites the state building code the way an official decision cites it, opens the RIS passage inside the tool and files the result in the project as a report or an open point.',
           ],
         },
         {
-          kind: 'list',
-          title: 'Where Piloti stops',
-          items: [
-            'No German building law and no funding programmes such as KfW or BAFA.',
-            'No ÖNORM texts, only a register of the relevant standards.',
-            'No Google Drive connection; documents are uploaded.',
-            'No self-serve trial and no price list: Piloti runs as a proof of concept with selected pilot offices.',
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'Piloti is built for Austrian law; German building law and funding programmes such as KfW or BAFA are not part of it. Responsibility for the design stays with the office: Piloti names the source of every statement and asks when the building class, the state or the type of project is missing.',
           ],
         },
       ],
@@ -690,15 +652,15 @@ export const vergleichBau: LandingEntry[] = [
         },
         {
           q: 'What does BauKI cost?',
-          a: 'BauKI lists €23.00 and €49.00 per month plus VAT, cancellable monthly, and 5 days free. Piloti has no price list yet; during the pilot phase, terms are agreed with each office individually.',
+          a: 'BauKI lists €23.00 and €49.00 per month plus VAT, cancellable monthly, and 5 days free. Piloti is in its pilot phase with selected offices: pilot offices agree terms directly with us, the founders.',
         },
         {
           q: 'Can Piloti produce an inspection report?',
           a: 'Piloti writes file notes, minutes and checklists and files an in-depth research report with verdict and findings matrix in the project, as PDF or Word. A document written by Piloti only becomes a citable source once the office approves and publishes it.',
         },
         {
-          q: 'Where is the data?',
-          a: 'BauKI states servers only in Germany. With Piloti, sign-in runs through WorkOS (USA) and AI requests go through OpenRouter (USA) to model providers that may be based outside the EU. No models are trained on office data, and drawings remain the office’s property.',
+          q: 'What happens to my office’s data?',
+          a: 'Piloti does not train models on your office’s data, drawings remain the office’s property, and no other office sees your office archive. The details are in the privacy policy.',
         },
       ],
     },
@@ -710,13 +672,33 @@ export const vergleichBau: LandingEntry[] = [
     de: {
       title: 'K24AI Alternative: Piloti im Vergleich für Österreich',
       description:
-        'Piloti oder K24AI? Beide nennen OIB-Richtlinien und Bürodokumente. Quellen, Belege, Projektarbeit, Hosting und Verfügbarkeit im Vergleich, mit Datum.',
+        'Piloti oder K24AI? Beide nennen OIB-Richtlinien und Bürodokumente. Landesrecht, Belege, Projektarbeit und Verfügbarkeit im Vergleich, mit Datum.',
       heading: 'Piloti oder K24AI?',
-      lede: 'Von allen Werkzeugen in diesen Vergleichen ist K24AI Piloti im Ansatz am nächsten: OIB-Richtlinien, Normen und eigene Bürounterlagen, mit zitierten Antworten. Hier, worin sie sich unterscheiden, und wo K24AI vorn liegt.',
+      lede: 'Piloti ist heute im Einsatz: Pilotbüros stellen echte Projektfragen zu Landesbauordnung und OIB-Richtlinien und bekommen belegte Antworten im Projekt. K24AI setzt ähnlich an, mit OIB-Richtlinien, Normen und eigenen Bürounterlagen. Hier, worin sie sich unterscheiden.',
       note: 'Gemeint ist K24AI (k24ai.com). Angaben zu K24AI laut k24ai.com, einschließlich des dortigen Hinweises vom Juli 2026.',
       answer:
-        'K24AI und Piloti setzen ähnlich an: OIB-Richtlinien, Normen und Bürodokumente, mit Belegen. Der Unterschied heute ist die Verfügbarkeit: K24AI hat laut eigener Website den Alpha-Start verschoben und nimmt keine neuen Tester auf, Piloti läuft mit ausgewählten Pilotbüros und arbeitet mit den Landesbauordnungen aus dem RIS im Projekt.',
+        'Piloti ist die Wahl, die Büros heute nutzen können: Es arbeitet mit den Landesbauordnungen aus dem RIS und den OIB-Richtlinien und bringt Aufgaben, Berichte und Freigaben ins Projekt. K24AI hat laut eigener Website den Alpha-Start verschoben und nimmt keine neuen Tester auf.',
       blocks: [
+        {
+          kind: 'split',
+          left: {
+            title: 'Wo Piloti vorn liegt',
+            items: [
+              'Heute in Betrieb. Pilotbüros stellen echte Projektfragen, und neue Büros können mit einer echten Frage testen.',
+              'Die Landesbauordnungen aus dem RIS, zitiert, wie ein Bescheid sie nennt, mit der OIB-Ausgabe, die im Bundesland gilt.',
+              'Jede Fundstelle wird vor dem Anzeigen gegen den Quelltext geprüft, und RIS-Stellen öffnen direkt im Werkzeug.',
+              'Arbeitsweisen für Gebäudeklasse, Brandschutz, Einreichcheck, Bestand und Bebauung, und das Büro kann eigene ergänzen.',
+              'Das Projekt als Arbeitsort: Aufgaben, Tiefenrecherche mit Bericht, offene Punkte und Freigabe, bevor ein Dokument als Quelle gilt.',
+            ],
+          },
+          right: {
+            title: 'Wofür K24AI gut passt',
+            items: [
+              'Büros, die Rechtsquellen aus Österreich, Deutschland, der Schweiz und dem europäischen Recht in einem Werkzeug suchen.',
+              'DIN-Normen als Quelle und Werkzeuge wie Wissensgraph, Mindmap und Konflikt-Scanner.',
+            ],
+          },
+        },
         {
           kind: 'table',
           title: 'Im Detail',
@@ -744,6 +726,11 @@ export const vergleichBau: LandingEntry[] = [
               b: 'Wissensgraph, Mindmap, Compliance-Check, Agenten wie Brandschutz-Check, Normen-Vergleich und Konflikt-Scanner',
             },
             {
+              label: 'Pläne',
+              a: 'Sieht Grundriss und Schnitt als Bild an und markiert die gelesene Zeichnung',
+              b: 'Auf der Website nicht beschrieben',
+            },
+            {
               label: 'Sichtbarkeit',
               a: 'Büroarchiv, das kein anderes Büro sieht; Projekte mit Dateien und Fassungen',
               b: 'Vier Stufen: global, Organisation, Projekt, privat',
@@ -753,88 +740,75 @@ export const vergleichBau: LandingEntry[] = [
               a: 'Aufgaben unter Ihrem Namen, wiederkehrende Prüfungen, Tiefenrecherche mit Bericht, Freigabe im Posteingang',
               b: 'Projektebene als Sichtbarkeitsstufe; Aufgaben und Freigaben auf der Website nicht beschrieben',
             },
-            {
-              label: 'Hosting',
-              a: 'Anmeldung über WorkOS (USA), KI-Anfragen über OpenRouter (USA) an Modellanbieter, auch außerhalb der EU',
-              b: 'Hosting in Frankfurt, Datenhaltung in Europa; „Kein Training mit Ihren Dokumenten“',
-            },
-            { label: 'Preis', a: 'Noch keine Preisliste; Bedingungen je Pilotbüro', b: 'Preise noch nicht festgelegt' },
-            {
-              label: 'Stand',
-              a: 'Proof of Concept, in Betrieb mit ausgewählten Pilotbüros',
-              b: 'Laut Website (Juli 2026): Alpha-Start verschoben, Wissensbasis im Neuaufbau, keine neuen Tester',
-            },
+            { label: 'Training', a: 'Kein Training mit Ihren Daten', b: '„Kein Training mit Ihren Dokumenten“' },
           ],
           note: 'Angaben zu K24AI laut k24ai.com, gelesen im September 2026. Stimmt etwas nicht mehr, schreiben Sie uns, und wir korrigieren es.',
-        },
-        {
-          kind: 'split',
-          left: {
-            title: 'Wo K24AI vorn liegt',
-            items: [
-              'Mehr Länder. K24AI nennt Rechtsquellen aus Österreich, Deutschland, der Schweiz und dem europäischen Recht; Piloti bleibt bei Österreich.',
-              'DIN-Normen als Quelle. Piloti führt nur ein Verzeichnis der relevanten Normen, keine Normtexte.',
-              'Ein Hosting-Standort in Frankfurt mit Datenhaltung in Europa. Piloti sagt keinen Datenstandort zu.',
-              'Vier Sichtbarkeitsstufen und Werkzeuge wie Wissensgraph, Mindmap und Konflikt-Scanner.',
-            ],
-          },
-          right: {
-            title: 'Wo Piloti vorn liegt',
-            items: [
-              'Heute in Betrieb. Pilotbüros stellen echte Projektfragen, und neue Büros können mit einer echten Frage testen.',
-              'Die Landesbauordnungen aus dem RIS, zitiert, wie ein Bescheid sie nennt, mit der OIB-Ausgabe, die im Bundesland gilt.',
-              'Das Projekt als Arbeitsort: Aufgaben, Tiefenrecherche mit Bericht, offene Punkte und Freigabe, bevor ein Dokument als Quelle gilt.',
-            ],
-          },
         },
         {
           kind: 'text',
           title: 'Ähnlicher Ansatz, anderer Stand',
           body: [
-            'K24AI beschreibt, was viele Büros in Österreich suchen: OIB-Richtlinien und Bürodokumente an einem Ort, Antworten mit Zitat, Konflikte zwischen Regeln sichtbar gemacht. Das ist nah an dem, woran auch Piloti arbeitet, und wir halten den Ansatz für richtig.',
-            'Der Unterschied liegt heute weniger im Konzept als im Stand. Laut Hinweis auf k24ai.com vom Juli 2026 ist der Alpha-Start verschoben, die Wissensbasis wird neu aufgebaut, und neue Tester werden vorerst nicht aufgenommen. Piloti ist ebenfalls kein fertiges Produkt, läuft aber als Proof of Concept mit Pilotbüros. Dazu kommt ein Schwerpunkt: Piloti arbeitet mit dem Landesrecht aus dem RIS und bringt Aufgaben, Berichte und Freigaben ins Projekt.',
+            'K24AI beschreibt, was viele Büros in Österreich suchen: OIB-Richtlinien und Bürodokumente an einem Ort, Antworten mit Zitat, Konflikte zwischen Regeln sichtbar gemacht. Das ist nah an dem, was Piloti macht, und wir halten den Ansatz für richtig.',
+            'Der Unterschied liegt heute im Stand. Laut Hinweis auf k24ai.com vom Juli 2026 ist der Alpha-Start verschoben, die Wissensbasis wird neu aufgebaut, und neue Tester werden vorerst nicht aufgenommen. Piloti beantwortet Projektfragen von Pilotbüros schon heute, mit dem Landesrecht aus dem RIS, und bringt Aufgaben, Berichte und Freigaben ins Projekt.',
           ],
         },
         {
-          kind: 'list',
-          title: 'Wo Piloti aufhört',
-          items: [
-            'Nur Österreich: kein deutsches oder Schweizer Baurecht.',
-            'Keine Normtexte, weder ÖNORM noch DIN, nur ein Verzeichnis der relevanten Normen.',
-            'Keine Zusage zum Datenstandort.',
-            'Auch Piloti ist nicht frei zugänglich: Pilotphase mit ausgewählten Büros, keine Preisliste.',
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Piloti bleibt bei Österreich; deutsches und Schweizer Baurecht gehören nicht dazu. Die Verantwortung für die Planung bleibt beim Büro: Piloti nennt zu jeder Aussage die Quelle, damit Sie sie prüfen können, und fragt nach, wenn eine entscheidende Angabe fehlt.',
           ],
         },
       ],
       faq: [
         {
           q: 'Kann ich K24AI derzeit nutzen?',
-          a: 'Laut Hinweis auf k24ai.com vom Juli 2026 ist der Alpha-Start verschoben, die Wissensbasis wird neu aufgebaut, und neue Tester werden vorerst nicht aufgenommen. Wie es weitergeht, sagt am verlässlichsten die Website selbst.',
+          a: 'Laut Hinweis auf k24ai.com vom Juli 2026 ist der Alpha-Start verschoben, die Wissensbasis wird neu aufgebaut, und neue Tester werden vorerst nicht aufgenommen. Wie es weitergeht, sagt am verlässlichsten die Website selbst. Piloti können Büros mit einer echten Frage testen.',
         },
         {
           q: 'Worin unterscheiden sich K24AI und Piloti?',
-          a: 'Beide arbeiten mit OIB-Richtlinien und Bürodokumenten und zitieren ihre Quellen. K24AI nennt dazu DIN-Normen und Rechtsquellen aus Deutschland und der Schweiz. Piloti bleibt bei Österreich, arbeitet mit den neun Landesbauordnungen aus dem RIS und bringt Aufgaben, Berichte und Freigaben ins Projekt.',
+          a: 'Beide arbeiten mit OIB-Richtlinien und Bürodokumenten und zitieren ihre Quellen. K24AI nennt dazu DIN-Normen und Rechtsquellen aus Deutschland und der Schweiz. Piloti konzentriert sich auf Österreich, arbeitet mit den neun Landesbauordnungen aus dem RIS und bringt Aufgaben, Berichte und Freigaben ins Projekt.',
         },
         {
           q: 'Was kostet K24AI?',
-          a: 'K24AI gibt an, dass die Preise noch nicht festgelegt sind (Stand September 2026). Auch Piloti hat noch keine Preisliste; in der Pilotphase werden die Bedingungen mit jedem Büro einzeln vereinbart.',
+          a: 'K24AI gibt an, dass die Preise noch nicht festgelegt sind (Stand September 2026). Piloti ist in der Pilotphase mit ausgewählten Büros: Pilotbüros vereinbaren die Bedingungen direkt mit uns Gründern.',
         },
         {
-          q: 'Wo werden die Daten verarbeitet?',
-          a: 'K24AI nennt Hosting in Frankfurt mit Datenhaltung in Europa und kein Training mit Ihren Dokumenten. Bei Piloti läuft die Anmeldung über WorkOS (USA), KI-Anfragen gehen über OpenRouter (USA) an Modellanbieter, die auch außerhalb der EU sitzen können. Auch Piloti trainiert keine Modelle mit Büro-Daten.',
+          q: 'Was passiert mit den Daten meines Büros?',
+          a: 'Piloti trainiert keine Modelle mit den Daten Ihres Büros, Pläne bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. K24AI nennt ebenfalls „Kein Training mit Ihren Dokumenten“. Die Einzelheiten zu Piloti stehen in der Datenschutzerklärung.',
         },
       ],
     },
     en: {
       title: 'K24AI alternative: Piloti compared for Austria',
       description:
-        'Piloti or K24AI? Both name the OIB guidelines and office documents. Sources, evidence, project work, hosting and availability compared, with a date.',
+        'Piloti or K24AI? Both name the OIB guidelines and office documents. State law, evidence, project work and availability compared, with a date.',
       heading: 'Piloti or K24AI?',
-      lede: 'Of all the tools in these comparisons, K24AI is closest to Piloti in approach: OIB guidelines, standards and your own office documents, with cited answers. Here is how they differ, and where K24AI is ahead.',
+      lede: 'Piloti is in use today: pilot offices ask real project questions on the state building code and the OIB guidelines and get answers with evidence inside the project. K24AI takes a similar approach, with OIB guidelines, standards and your own office documents. Here is how they differ.',
       note: 'This means K24AI (k24ai.com). K24AI details as stated on k24ai.com, including its notice of July 2026.',
       answer:
-        'K24AI and Piloti take a similar approach: OIB guidelines, standards and office documents, with evidence. The difference today is availability: according to its website, K24AI has postponed its alpha start and is not taking new testers, while Piloti runs with selected pilot offices and works with the state building codes from RIS inside the project.',
+        'Piloti is the choice offices can use today: it works with the state building codes from RIS and the OIB guidelines and brings tasks, reports and approvals into the project. According to its website, K24AI has postponed its alpha start and is not taking new testers.',
       blocks: [
+        {
+          kind: 'split',
+          left: {
+            title: 'Where Piloti is ahead',
+            items: [
+              'Running today. Pilot offices ask real project questions, and new offices can test with a real question.',
+              'The state building codes from RIS, cited the way an official decision cites them, with the OIB edition that applies in the state.',
+              'Every citation is checked against the source text before it is shown, and RIS passages open inside the tool.',
+              'Ways of working for building class, fire safety, submission check, existing buildings and plot rules, and the office can add its own.',
+              'The project as the place of work: tasks, in-depth research with a report, open points and approval before a document counts as a source.',
+            ],
+          },
+          right: {
+            title: 'What K24AI is good for',
+            items: [
+              'Offices looking for legal sources from Austria, Germany, Switzerland and European law in one tool.',
+              'DIN standards as a source and tools such as a knowledge graph, mind map and conflict scanner.',
+            ],
+          },
+        },
         {
           kind: 'table',
           title: 'In detail',
@@ -862,6 +836,11 @@ export const vergleichBau: LandingEntry[] = [
               b: 'Knowledge graph, mind map, compliance check, agents such as fire safety check, standards comparison and conflict scanner',
             },
             {
+              label: 'Drawings',
+              a: 'Looks at plan and section as an image and marks the drawing it read',
+              b: 'Not described on the website',
+            },
+            {
               label: 'Visibility',
               a: 'Office archive that no other office sees; projects with files and versions',
               b: 'Four levels: global, organisation, project, private',
@@ -871,75 +850,42 @@ export const vergleichBau: LandingEntry[] = [
               a: 'Tasks under your name, recurring checks, in-depth research with report, approval in the inbox',
               b: 'Project as a visibility level; tasks and approvals not described on the website',
             },
-            {
-              label: 'Hosting',
-              a: 'Sign-in through WorkOS (USA), AI requests through OpenRouter (USA) to model providers, some outside the EU',
-              b: 'Hosting in Frankfurt, data kept in Europe; “no training on your documents”',
-            },
-            { label: 'Price', a: 'No price list yet; terms agreed with each pilot office', b: 'Prices not yet set' },
-            {
-              label: 'Stage',
-              a: 'Proof of concept, running with selected pilot offices',
-              b: 'According to its website (July 2026): alpha start postponed, knowledge base being rebuilt, no new testers',
-            },
+            { label: 'Training', a: 'No training on your data', b: '“No training on your documents”' },
           ],
           note: 'K24AI details as stated on k24ai.com, read in September 2026. If something has changed, write to us and we will correct it.',
-        },
-        {
-          kind: 'split',
-          left: {
-            title: 'Where K24AI is ahead',
-            items: [
-              'More countries. K24AI names legal sources from Austria, Germany, Switzerland and European law; Piloti stays with Austria.',
-              'DIN standards as a source. Piloti keeps only a register of the relevant standards, not their texts.',
-              'A hosting location in Frankfurt with data kept in Europe. Piloti makes no data-location promise.',
-              'Four visibility levels and tools such as a knowledge graph, mind map and conflict scanner.',
-            ],
-          },
-          right: {
-            title: 'Where Piloti is ahead',
-            items: [
-              'Running today. Pilot offices ask real project questions, and new offices can test with a real question.',
-              'The state building codes from RIS, cited the way an official decision cites them, with the OIB edition that applies in the state.',
-              'The project as the place of work: tasks, in-depth research with a report, open points and approval before a document counts as a source.',
-            ],
-          },
         },
         {
           kind: 'text',
           title: 'Similar approach, different stage',
           body: [
-            'K24AI describes what many offices in Austria are looking for: OIB guidelines and office documents in one place, answers with citations, conflicts between rules made visible. That is close to what Piloti works on too, and we think the approach is right.',
-            'Today the difference lies less in the concept than in the stage. According to a notice on k24ai.com from July 2026, the alpha start is postponed, the knowledge base is being rebuilt and new testers are not being taken on for now. Piloti is not a finished product either, but it runs as a proof of concept with pilot offices. There is also a difference in focus: Piloti works with state law from RIS and brings tasks, reports and approvals into the project.',
+            'K24AI describes what many offices in Austria are looking for: OIB guidelines and office documents in one place, answers with citations, conflicts between rules made visible. That is close to what Piloti does, and we think the approach is right.',
+            'Today the difference lies in the stage. According to a notice on k24ai.com from July 2026, the alpha start is postponed, the knowledge base is being rebuilt and new testers are not being taken on for now. Piloti already answers pilot offices’ project questions today, with state law from RIS, and brings tasks, reports and approvals into the project.',
           ],
         },
         {
-          kind: 'list',
-          title: 'Where Piloti stops',
-          items: [
-            'Austria only: no German or Swiss building law.',
-            'No standards texts, neither ÖNORM nor DIN, only a register of the relevant standards.',
-            'No promise on data location.',
-            'Piloti is not openly available either: pilot phase with selected offices, no price list.',
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'Piloti stays with Austria; German and Swiss building law are not part of it. Responsibility for the design stays with the office: Piloti names the source of every statement so you can check it, and asks when a deciding fact is missing.',
           ],
         },
       ],
       faq: [
         {
           q: 'Can I use K24AI right now?',
-          a: 'According to a notice on k24ai.com from July 2026, the alpha start is postponed, the knowledge base is being rebuilt and new testers are not being taken on for now. The website itself is the most reliable place to see what happens next.',
+          a: 'According to a notice on k24ai.com from July 2026, the alpha start is postponed, the knowledge base is being rebuilt and new testers are not being taken on for now. The website itself is the most reliable place to see what happens next. Offices can test Piloti with a real question.',
         },
         {
           q: 'How do K24AI and Piloti differ?',
-          a: 'Both work with the OIB guidelines and office documents and cite their sources. K24AI also names DIN standards and legal sources from Germany and Switzerland. Piloti stays with Austria, works with the nine state building codes from RIS and brings tasks, reports and approvals into the project.',
+          a: 'Both work with the OIB guidelines and office documents and cite their sources. K24AI also names DIN standards and legal sources from Germany and Switzerland. Piloti concentrates on Austria, works with the nine state building codes from RIS and brings tasks, reports and approvals into the project.',
         },
         {
           q: 'What does K24AI cost?',
-          a: 'K24AI states that prices have not yet been set (as of September 2026). Piloti has no price list yet either; during the pilot phase, terms are agreed with each office individually.',
+          a: 'K24AI states that prices have not yet been set (as of September 2026). Piloti is in its pilot phase with selected offices: pilot offices agree terms directly with us, the founders.',
         },
         {
-          q: 'Where is the data processed?',
-          a: 'K24AI names hosting in Frankfurt with data kept in Europe and no training on your documents. With Piloti, sign-in runs through WorkOS (USA) and AI requests go through OpenRouter (USA) to model providers that may be based outside the EU. Piloti does not train models on office data either.',
+          q: 'What happens to my office’s data?',
+          a: 'Piloti does not train models on your office’s data, drawings remain the office’s property, and no other office sees your office archive. K24AI also states “no training on your documents”. The details for Piloti are in the privacy policy.',
         },
       ],
     },
@@ -951,20 +897,39 @@ export const vergleichBau: LandingEntry[] = [
     de: {
       title: 'BaurechtGPT für Österreich? Piloti im Vergleich',
       description:
-        'BaurechtGPT vom Forum Verlag oder Piloti? Rechtsgrundlage, Belege, Hosting und Preis im Vergleich – und warum der Name nicht Österreich meint.',
+        'BaurechtGPT vom Forum Verlag oder Piloti? Rechtsgrundlage, Belege, Unterlagen und Projektarbeit im Vergleich – und warum der Name nicht Österreich meint.',
       heading: 'BaurechtGPT oder Piloti für österreichisches Baurecht?',
-      lede: 'BaurechtGPT ist ein KI-Chatbot für baurechtliche Fragen der Forum Verlag Herkert GmbH, einem Fachverlag aus Deutschland. Er antwortet aus deutschem Recht. Hier der Vergleich, auch dort, wo BaurechtGPT vorn liegt.',
+      lede: 'Piloti ist für österreichisches Baurecht gebaut: Landesbauordnung aus dem RIS, OIB-Richtlinien, Ihre Pläne und Unterlagen, jede Antwort mit geprüfter Fundstelle. BaurechtGPT ist ein Chatbot der Forum Verlag Herkert GmbH, einem Fachverlag aus Deutschland, und antwortet aus deutschem Recht.',
       note: 'Gemeint ist BaurechtGPT (gpt.forum-verlag.com) der Forum Verlag Herkert GmbH, Deutschland. Angaben laut Forum Verlag, auf gpt.forum-verlag.com und im Forum-Verlag-Shop.',
       answer:
-        'BaurechtGPT beantwortet Fragen zum deutschen Baurecht, laut Forum Verlag auf Basis von BauGB, BGB, VOB und den Landesbauordnungen deutscher Länder. Für ein Projekt in Österreich, dessen Fragen an Landesbauordnung und OIB-Richtlinien hängen, ist Piloti gebaut.',
+        'Für österreichisches Baurecht ist Piloti die bessere Wahl: Es arbeitet mit den neun Landesbauordnungen aus dem RIS und den OIB-Richtlinien, liest Ihre Pläne und belegt jede Antwort mit einer geprüften Fundstelle. BaurechtGPT beruht laut Forum Verlag auf deutschem Recht.',
       blocks: [
+        {
+          kind: 'split',
+          left: {
+            title: 'Wo Piloti vorn liegt',
+            items: [
+              'Österreichisches Landesrecht aus dem RIS und die OIB-Richtlinien, zitiert, wie ein Bescheid sie nennt.',
+              'Die Ausgabe, die gilt: Piloti nennt die OIB-Ausgabe, die im Bundesland Ihres Projekts verbindlich ist.',
+              'Ihre Pläne und Unterlagen: Büroarchiv und Projektdokumente sind Quellen, Grundriss und Schnitt werden als Bild gelesen.',
+              'Mehr als Antworten: Einreichcheck, Tiefenrecherche mit Bericht, Aktenvermerke zur Freigabe.',
+              'Arbeit im Team: Projekte mit Aufgaben, Fassungen, Freigabe und einem Gedächtnis für Geklärtes und Offenes.',
+            ],
+          },
+          right: {
+            title: 'Wofür BaurechtGPT gut passt',
+            items: [
+              'Fragen zum deutschen Baurecht, beantwortet aus einer Datenbasis, die Fachjurist:innen eines Verlags kuratieren.',
+              'Deutsches Bauvertragsrecht, Gewährleistung und Haftung nach BGB und VOB.',
+            ],
+          },
+        },
         {
           kind: 'table',
           title: 'Im Detail',
           headA: 'Piloti',
           headB: 'BaurechtGPT',
           rows: [
-            { label: 'Anbieter', a: 'Piloti aus Wien, Unternehmen in Gründung', b: 'Forum Verlag Herkert GmbH, Fachverlag aus Deutschland' },
             {
               label: 'Rechtsgrundlage',
               a: 'Die neun Landesbauordnungen und weiteres Landesrecht aus dem RIS, OIB-Richtlinien, Normenverzeichnis, Bundesgesetze',
@@ -991,54 +956,26 @@ export const vergleichBau: LandingEntry[] = [
               b: 'Mehrbenutzerfähig, mit integrierter Benutzerverwaltung',
             },
             {
-              label: 'Hosting',
-              a: 'Anmeldung über WorkOS (USA), KI-Anfragen über OpenRouter (USA) an Modellanbieter, auch außerhalb der EU',
-              b: 'Server in Deutschland; für die KI-Verarbeitung internationale API-Anbieter, eine Verarbeitung außerhalb der EU „nicht vollständig ausgeschlossen“',
-            },
-            {
-              label: 'Preis',
-              a: 'Noch keine Preisliste; Bedingungen je Pilotbüro',
-              b: '39 € im Monat oder 390 € im Jahr, jeweils zzgl. MwSt.; im Shop als Jahresbezug mit 75 Prompts pro Monat; kein Testzeitraum genannt',
+              label: 'Aufgaben & Berichte',
+              a: 'Einreichcheck, Tiefenrecherche mit Bericht als PDF oder Word, Aktenvermerke zur Freigabe',
+              b: 'Auf den gelesenen Seiten nicht genannt',
             },
           ],
           note: 'Angaben zu BaurechtGPT laut Forum Verlag, auf gpt.forum-verlag.com/baurecht und shop.forum-verlag.com, gelesen im September 2026. Stimmt etwas nicht mehr, schreiben Sie uns, und wir korrigieren es.',
-        },
-        {
-          kind: 'split',
-          left: {
-            title: 'Wo BaurechtGPT vorn liegt',
-            items: [
-              'Eine Datenbasis, die Fachjurist:innen eines Verlags kuratieren. Piloti hat keine juristische Redaktion.',
-              'Deutsches Bauvertragsrecht, Gewährleistung und Haftung nach BGB und VOB. Das deckt Piloti nicht ab.',
-              'Ein offener Preis und sofortiger Zugang nach Bestellung. Bei Piloti beginnt es mit einem Gespräch.',
-              'Server in Deutschland für Anwendungs- und Nutzungsdaten.',
-            ],
-          },
-          right: {
-            title: 'Wo Piloti vorn liegt',
-            items: [
-              'Österreichisches Landesrecht aus dem RIS und die OIB-Richtlinien, zitiert, wie ein Bescheid sie nennt.',
-              'Ihre Pläne und Unterlagen: Büroarchiv und Projektdokumente sind Quellen, Grundriss und Schnitt werden als Bild gelesen.',
-              'Mehr als Antworten: Einreichcheck, Tiefenrecherche mit Bericht, Aktenvermerke zur Freigabe.',
-            ],
-          },
         },
         {
           kind: 'text',
           title: 'Der Name sagt „Baurecht“, gemeint ist deutsches',
           body: [
             'Wer in Österreich nach „BaurechtGPT“ sucht, erwartet leicht ein Werkzeug für das eigene Baurecht. Laut Forum Verlag beruhen die Antworten aber auf BauGB, BGB, VOB und den Landesbauordnungen; gemeint sind deutsche Gesetze. Österreich taucht auf den Seiten nur als Rechnungsland auf.',
-            'Für österreichische Projekte ist das mehr als ein Detail. Die Bauordnung für Wien, die NÖ Bauordnung 2014 oder die Tiroler Bauordnung 2022 regeln andere Dinge als eine deutsche Landesbauordnung, und die technischen Anforderungen stehen in den OIB-Richtlinien in der Ausgabe, die das jeweilige Land für verbindlich erklärt hat. Eine Antwort, die das nicht unterscheidet, hilft bei der Einreichung nicht.',
+            'Für österreichische Projekte ist das mehr als ein Detail. Die Bauordnung für Wien, die NÖ Bauordnung 2014 oder die Tiroler Bauordnung 2022 regeln andere Dinge als eine deutsche Landesbauordnung, und die technischen Anforderungen stehen in den OIB-Richtlinien in der Ausgabe, die das jeweilige Land für verbindlich erklärt hat. Piloti unterscheidet das: Es fragt nach dem Bundesland, zitiert dessen Bauordnung und öffnet die Stelle im RIS.',
           ],
         },
         {
-          kind: 'list',
-          title: 'Wo Piloti aufhört',
-          items: [
-            'Kein deutsches Recht und kein Vertragsrecht als eigene Quelle.',
-            'Keine ÖNORM-Texte, nur ein Verzeichnis der relevanten Normen.',
-            'Keine Rechtsberatung: Piloti liefert eine belegte Arbeitsgrundlage, die Entscheidung trifft das Büro.',
-            'Keine Zusage zum Datenstandort, keine Preisliste, Pilotphase mit ausgewählten Büros.',
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Piloti liefert eine belegte Arbeitsgrundlage, keine Rechtsberatung; die Entscheidung und die Verantwortung für die Planung bleiben beim Büro. Deutsches Recht und Vertragsrecht gehören nicht zu Piloti. Fehlt eine entscheidende Angabe, fragt Piloti nach oder nennt seine Annahme.',
           ],
         },
       ],
@@ -1053,31 +990,50 @@ export const vergleichBau: LandingEntry[] = [
         },
         {
           q: 'Was kostet BaurechtGPT?',
-          a: 'Auf gpt.forum-verlag.com nennt der Verlag 39 € im Monat oder 390 € im Jahr, jeweils zuzüglich Mehrwertsteuer. Im Shop wird es als Jahresbezug mit 75 Prompts pro Monat angeboten. Piloti hat noch keine Preisliste; die Bedingungen werden in der Pilotphase je Büro vereinbart.',
+          a: 'Auf gpt.forum-verlag.com nennt der Verlag 39 € im Monat oder 390 € im Jahr, jeweils zuzüglich Mehrwertsteuer. Im Shop wird es als Jahresbezug mit 75 Prompts pro Monat angeboten. Piloti ist in der Pilotphase mit ausgewählten Büros: Pilotbüros vereinbaren die Bedingungen direkt mit uns Gründern.',
         },
         {
-          q: 'Wo werden die Daten verarbeitet?',
-          a: 'Der Forum Verlag betreibt die Anwendung auf Servern in Deutschland und nutzt für die KI internationale API-Anbieter; eine Verarbeitung außerhalb der EU sei nicht vollständig ausgeschlossen. Bei Piloti gehen KI-Anfragen über OpenRouter (USA) an Modellanbieter, die auch außerhalb der EU sitzen können. Beide trainieren laut eigener Angabe keine Modelle mit Kundendaten.',
+          q: 'Was passiert mit den Daten meines Büros?',
+          a: 'Piloti trainiert keine Modelle mit den Daten Ihres Büros, Pläne bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. Auch der Forum Verlag gibt an, keine Modelle mit Kundendaten zu trainieren. Die Einzelheiten zu Piloti stehen in der Datenschutzerklärung.',
         },
       ],
     },
     en: {
       title: 'BaurechtGPT for Austria? Piloti compared',
       description:
-        'BaurechtGPT by Forum Verlag or Piloti? Legal basis, evidence, own documents, hosting and price compared – and why the name does not mean Austrian law.',
+        'BaurechtGPT by Forum Verlag or Piloti? Legal basis, evidence, own documents and project work compared – and why the name does not mean Austrian law.',
       heading: 'BaurechtGPT or Piloti for Austrian building law?',
-      lede: 'BaurechtGPT is an AI chatbot for building-law questions by Forum Verlag Herkert GmbH, a specialist publisher from Germany. It answers from German law. Here is the comparison, including where BaurechtGPT is ahead.',
+      lede: 'Piloti is built for Austrian building law: the state building code from RIS, the OIB guidelines, your drawings and documents, every answer with a checked citation. BaurechtGPT is a chatbot by Forum Verlag Herkert GmbH, a specialist publisher from Germany, and answers from German law.',
       note: 'This means BaurechtGPT (gpt.forum-verlag.com) by Forum Verlag Herkert GmbH, Germany. Details as stated by Forum Verlag on gpt.forum-verlag.com and in the Forum Verlag shop.',
       answer:
-        'BaurechtGPT answers questions on German building law, according to Forum Verlag on the basis of BauGB, BGB, VOB and the building codes of German states. Piloti is built for a project in Austria whose questions hinge on the state building code and the OIB guidelines.',
+        'For Austrian building law, Piloti is the better choice: it works with the nine state building codes from RIS and the OIB guidelines, reads your drawings and backs every answer with a checked citation. According to Forum Verlag, BaurechtGPT rests on German law.',
       blocks: [
+        {
+          kind: 'split',
+          left: {
+            title: 'Where Piloti is ahead',
+            items: [
+              'Austrian state law from RIS and the OIB guidelines, cited the way an official decision cites them.',
+              'The edition that applies: Piloti names the OIB edition that is binding in your project’s state.',
+              'Your drawings and documents: the office archive and project documents are sources, plan and section are read as images.',
+              'More than answers: submission check, in-depth research with a report, file notes sent for approval.',
+              'Teamwork: projects with tasks, versions, approval and a memory of what is settled and what is open.',
+            ],
+          },
+          right: {
+            title: 'What BaurechtGPT is good for',
+            items: [
+              'Questions on German building law, answered from a database curated by a publisher’s legal experts.',
+              'German construction contract law, warranty and liability under BGB and VOB.',
+            ],
+          },
+        },
         {
           kind: 'table',
           title: 'In detail',
           headA: 'Piloti',
           headB: 'BaurechtGPT',
           rows: [
-            { label: 'Vendor', a: 'Piloti from Vienna, company in formation', b: 'Forum Verlag Herkert GmbH, specialist publisher from Germany' },
             {
               label: 'Legal basis',
               a: 'The nine state building codes and further state law from RIS, OIB guidelines, register of standards, federal law',
@@ -1104,54 +1060,26 @@ export const vergleichBau: LandingEntry[] = [
               b: 'Multi-user, with built-in user management',
             },
             {
-              label: 'Hosting',
-              a: 'Sign-in through WorkOS (USA), AI requests through OpenRouter (USA) to model providers, some outside the EU',
-              b: 'Servers in Germany; international API providers for AI processing, processing outside the EU “cannot be fully ruled out”',
-            },
-            {
-              label: 'Price',
-              a: 'No price list yet; terms agreed with each pilot office',
-              b: '€39 per month or €390 per year, plus VAT; in the shop as an annual subscription with 75 prompts per month; no trial mentioned',
+              label: 'Tasks & reports',
+              a: 'Submission check, in-depth research with a report as PDF or Word, file notes sent for approval',
+              b: 'Not mentioned on the pages we read',
             },
           ],
           note: 'BaurechtGPT details as stated by Forum Verlag on gpt.forum-verlag.com/baurecht and shop.forum-verlag.com, read in September 2026. If something has changed, write to us and we will correct it.',
-        },
-        {
-          kind: 'split',
-          left: {
-            title: 'Where BaurechtGPT is ahead',
-            items: [
-              'A database curated by a publisher’s legal experts. Piloti has no legal editorial team.',
-              'German construction contract law, warranty and liability under BGB and VOB. Piloti does not cover these.',
-              'A public price and immediate access after ordering. With Piloti it starts with a conversation.',
-              'Servers in Germany for application and usage data.',
-            ],
-          },
-          right: {
-            title: 'Where Piloti is ahead',
-            items: [
-              'Austrian state law from RIS and the OIB guidelines, cited the way an official decision cites them.',
-              'Your drawings and documents: the office archive and project documents are sources, plan and section are read as images.',
-              'More than answers: submission check, in-depth research with a report, file notes sent for approval.',
-            ],
-          },
         },
         {
           kind: 'text',
           title: 'The name says “building law”, but it means German law',
           body: [
             'Anyone in Austria searching for “BaurechtGPT” may well expect a tool for their own building law. According to Forum Verlag, though, the answers rest on BauGB, BGB, VOB and the state building codes; these are German laws. Austria appears on its pages only as a billing country.',
-            'For Austrian projects this is more than a detail. The Vienna Building Code, the Lower Austrian Building Code 2014 or the Tyrolean Building Code 2022 govern different things from a German state building code, and the technical requirements sit in the OIB guidelines, in the edition each state has declared binding. An answer that does not tell these apart does not help with a submission.',
+            'For Austrian projects this is more than a detail. The Vienna Building Code, the Lower Austrian Building Code 2014 or the Tyrolean Building Code 2022 govern different things from a German state building code, and the technical requirements sit in the OIB guidelines, in the edition each state has declared binding. Piloti tells these apart: it asks for the state, cites that state’s building code and opens the passage in RIS.',
           ],
         },
         {
-          kind: 'list',
-          title: 'Where Piloti stops',
-          items: [
-            'No German law and no contract law as a source of its own.',
-            'No ÖNORM texts, only a register of the relevant standards.',
-            'No legal advice: Piloti delivers a documented working basis, and the office makes the decision.',
-            'No promise on data location, no price list, pilot phase with selected offices.',
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'Piloti delivers a documented working basis, not legal advice; the decision and responsibility for the design stay with the office. German law and contract law are not part of Piloti. When a deciding fact is missing, Piloti asks or states its assumption.',
           ],
         },
       ],
@@ -1166,11 +1094,11 @@ export const vergleichBau: LandingEntry[] = [
         },
         {
           q: 'What does BaurechtGPT cost?',
-          a: 'On gpt.forum-verlag.com the publisher lists €39 per month or €390 per year, plus VAT. In its shop it is offered as an annual subscription with 75 prompts per month. Piloti has no price list yet; during the pilot phase, terms are agreed with each office.',
+          a: 'On gpt.forum-verlag.com the publisher lists €39 per month or €390 per year, plus VAT. In its shop it is offered as an annual subscription with 75 prompts per month. Piloti is in its pilot phase with selected offices: pilot offices agree terms directly with us, the founders.',
         },
         {
-          q: 'Where is the data processed?',
-          a: 'Forum Verlag runs the application on servers in Germany and uses international API providers for the AI; it says processing outside the EU cannot be fully ruled out. With Piloti, AI requests go through OpenRouter (USA) to model providers that may be based outside the EU. Both say they do not train models on customer data.',
+          q: 'What happens to my office’s data?',
+          a: 'Piloti does not train models on your office’s data, drawings remain the office’s property, and no other office sees your office archive. Forum Verlag also says it does not train models on customer data. The details for Piloti are in the privacy policy.',
         },
       ],
     },
