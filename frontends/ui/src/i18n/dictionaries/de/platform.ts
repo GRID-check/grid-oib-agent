@@ -473,6 +473,7 @@ export const platform: typeof en.platform = {
     retrieval: 'Abruf',
     quality: 'Antwortqualität',
     lessons: 'Lektionen',
+    feedback: 'Feedback',
     cards: 'Karten',
     knowledge: 'Basiswissen',
     norms: 'Normenkatalog',

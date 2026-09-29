@@ -291,6 +291,17 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
     )
     expect(new Set([...seenByPlatform].map((row) => row.organization_id))).toEqual(new Set([ORG_A, ORG_B]))
 
+    // The triage list's keyset cursor is a JS Date (milliseconds); a stored
+    // microsecond would let the next page skip a report in the same millisecond.
+    const subMillisecond = await withPlatformAccess('test: feedback precision', () =>
+      db.execute(
+        sql`select count(*)::int as n from product_feedback
+            where organization_id in (${ORG_A}, ${ORG_B})
+              and date_trunc('milliseconds', created_at) <> created_at`
+      )
+    )
+    expect(Number([...subMillisecond][0]?.n)).toBe(0)
+
     const blank = await rejectionCause(() =>
       withTenant({ organizationId: ORG_A }, () =>
         db.execute(

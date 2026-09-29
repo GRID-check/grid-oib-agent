@@ -66,7 +66,10 @@ export async function findFeedbackRecipients(platformOrganizationId: string): Pr
 
 /** The inbox rows for one report, one per recipient. Pure; exported for tests. */
 export function feedbackEmissions(
-  report: Pick<ProductFeedback, 'id' | 'kind' | 'message' | 'userId' | 'userName' | 'userEmail'>,
+  report: Pick<
+    ProductFeedback,
+    'id' | 'kind' | 'message' | 'userId' | 'userName' | 'userEmail' | 'allowContact'
+  >,
   organizationName: string | null,
   platformOrganizationId: string,
   recipients: readonly string[]
@@ -86,8 +89,10 @@ export function feedbackEmissions(
       subject: organizationName ?? undefined,
       excerpt: message.length > EXCERPT_MAX ? `${message.slice(0, EXCERPT_MAX)}…` : message,
       // The reporter lives in another organization, which the owner's
-      // directory cannot resolve, so the name travels with the row.
-      actorName: report.userName ?? report.userEmail ?? undefined,
+      // directory cannot resolve, so the name travels with the row. The email
+      // stands in for a missing name only when the reporter agreed to be
+      // contacted — the triage page withholds it otherwise, and so must this.
+      actorName: report.userName ?? (report.allowContact ? report.userEmail : null) ?? undefined,
       kind: report.kind,
     },
   }))

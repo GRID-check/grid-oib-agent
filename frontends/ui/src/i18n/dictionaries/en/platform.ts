@@ -465,6 +465,7 @@ export const platform = {
     retrieval: 'Retrieval',
     quality: 'Answer quality',
     lessons: 'Lessons',
+    feedback: 'Feedback',
     cards: 'Cards',
     knowledge: 'Base knowledge',
     norms: 'Norm catalog',

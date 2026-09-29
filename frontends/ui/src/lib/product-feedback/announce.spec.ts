@@ -105,6 +105,15 @@ describe('feedbackEmissions', () => {
     }
   })
 
+  it('names a nameless reporter by email only when they agreed to be contacted', () => {
+    const nameless = { userName: null, userEmail: 'maria@buero.test' }
+    const [withConsent] = feedbackEmissions(report({ ...nameless, allowContact: true }), null, 'org_platform', ['u'])
+    const [without] = feedbackEmissions(report({ ...nameless, allowContact: false }), null, 'org_platform', ['u'])
+
+    expect(withConsent!.payload!.actorName).toBe('maria@buero.test')
+    expect(without!.payload!.actorName).toBeUndefined()
+  })
+
   it('bounds the excerpt the row carries', () => {
     const [row] = feedbackEmissions(report({ message: 'x'.repeat(2000) }), null, 'org_platform', ['u'])
     expect(String(row!.payload!.excerpt).length).toBeLessThanOrEqual(501)

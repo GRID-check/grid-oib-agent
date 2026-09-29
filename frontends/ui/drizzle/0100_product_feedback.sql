@@ -43,7 +43,11 @@ CREATE TABLE IF NOT EXISTS "product_feedback" (
   "status" text DEFAULT 'new' NOT NULL,
   "triaged_by" text,
   "triaged_at" timestamp with time zone,
-  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  -- Milliseconds, not Postgres's default microseconds: the triage list pages
+  -- on (created_at, id), and the cursor travels through a JavaScript Date,
+  -- which holds milliseconds. At microsecond precision a report in the same
+  -- millisecond as the cursor, but a few microseconds earlier, was skipped.
+  "created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT "product_feedback_kind"
     CHECK ("kind" IN ('bug', 'idea', 'praise', 'question')),

@@ -74,7 +74,8 @@ export const productFeedback = pgTable(
     status: text('status').$type<ProductFeedbackStatus>().notNull().default('new'),
     triagedBy: text('triaged_by'),
     triagedAt: timestamp('triaged_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Milliseconds, so the keyset cursor (a JS Date) is exact — see migration 0100. */
+    createdAt: timestamp('created_at', { withTimezone: true, precision: 3 }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
