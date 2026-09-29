@@ -9,6 +9,8 @@ import { ui, languages, type Locale } from '../i18n/ui'
 import { blogPath, CATEGORIES } from './categories'
 import { getBlogPosts, postSlug, type BlogPost } from './posts'
 import { absoluteUrl, faqItems, founderNames } from './seo'
+import { LANDING } from '../data/landing'
+import { SECTIONS, SECTION_IDS, landingPath, type Block, type LandingCopy } from './landing'
 
 const LOCALES = Object.keys(languages) as Locale[]
 
@@ -20,7 +22,6 @@ const PAGE_PATHS: [PageKey | 'home', string][] = [
   ['bautagebuch', '/blog/bautagebuch/'],
   ['changelog', '/changelog/'],
   ['warum', '/warum-piloti/'],
-  ['vsReiner', '/piloti-vs-reiner-ai/'],
   ['rechenweg', '/rechenweg/'],
   ['impressum', '/impressum/'],
   ['datenschutz', '/datenschutz/'],
@@ -52,12 +53,20 @@ export async function llmsTxt(site: URL | undefined) {
     sections.push(`## ${ui[locale].seo.llmsPages}\n\n${pageLinks(locale, site).join('\n')}`)
   }
   for (const locale of LOCALES) {
+    for (const id of SECTION_IDS) {
+      const lines = LANDING[id].map(
+        (e) => `- [${e[locale].heading}](${absoluteUrl(landingPath(locale, id, e.slug), site)}): ${e[locale].answer}`
+      )
+      sections.push(`## ${SECTIONS[id][locale].label} (${languages[locale]})\n\n${lines.join('\n')}`)
+    }
+  }
+  for (const locale of LOCALES) {
     const posts = await getBlogPosts(locale)
     const lines = posts.map((p) => `- [${p.data.title}](${postUrl(p, locale, site)}): ${p.data.description}`)
     sections.push(`## ${ui[locale].seo.llmsPosts}\n\n${lines.join('\n')}`)
   }
   sections.push(
-    `## Optional\n\n- [llms-full.txt](${absoluteUrl('/llms-full.txt', site)}): FAQ und alle Blogbeiträge im Volltext / FAQ and every blog post in full`
+    `## Optional\n\n- [llms-full.txt](${absoluteUrl('/llms-full.txt', site)}): FAQ, alle Vergleiche, Anwendungen, Bundesländer, das Glossar und alle Blogbeiträge im Volltext / FAQ, every comparison, use case, state page, the glossary and every blog post in full`
   )
   return sections.join('\n\n') + '\n'
 }
@@ -101,5 +110,36 @@ export async function llmsFullTxt(site: URL | undefined) {
       sections.push(`### ${title}\n\n${meta}\n\n${description}\n\n${mdxToMarkdown(post.body ?? '', site)}`)
     }
   }
+  for (const locale of LOCALES) {
+    for (const id of SECTION_IDS) {
+      sections.push(`## ${SECTIONS[id][locale].label} (${languages[locale]})`)
+      for (const e of LANDING[id]) {
+        sections.push(landingMarkdown(e[locale], absoluteUrl(landingPath(locale, id, e.slug), site), e.checked))
+      }
+    }
+  }
   return sections.join('\n\n') + '\n'
+}
+
+/** A search page as Markdown: the answer first, then every block and the FAQ. */
+function landingMarkdown(c: LandingCopy, url: string, checked: string) {
+  const block = (b: Block): string => {
+    switch (b.kind) {
+      case 'text':
+        return `#### ${b.title}\n\n${b.body.join('\n\n')}`
+      case 'list':
+        return `#### ${b.title}\n\n${b.items.map((i) => `- ${i}`).join('\n')}`
+      case 'pairs':
+      case 'steps':
+        return `#### ${b.title}\n\n${b.body ? `${b.body}\n\n` : ''}${b.items.map((i) => `- **${i.name}**: ${i.body}`).join('\n')}`
+      case 'table':
+        return `#### ${b.title}\n\n| | ${b.headA} | ${b.headB} |\n|---|---|---|\n${b.rows.map((r) => `| ${r.label} | ${r.a} | ${r.b} |`).join('\n')}${b.note ? `\n\n${b.note}` : ''}`
+      case 'split':
+        return [b.left, b.right].map((col) => `#### ${col.title}\n\n${col.items.map((i) => `- ${i}`).join('\n')}`).join('\n\n')
+      case 'definition':
+        return `#### ${b.term}\n\n> ${b.text}\n\n(${b.source})`
+    }
+  }
+  const faq = c.faq.map(({ q, a }) => `#### ${q}\n\n${a}`).join('\n\n')
+  return [`### ${c.heading}`, `${url} · ${checked}`, c.answer, ...c.blocks.map(block), faq].filter(Boolean).join('\n\n')
 }

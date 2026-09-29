@@ -14,7 +14,7 @@ from a blank page.
 | Project lead (champion) | A real question on a real project | Proof that the answer is checkable and project-aware, and that work can be handed over | Homepage decision chain, then the week of work (`Arbeit.astro`, on the homepage and atop `/warum-piloti/`), the CTA |
 | Planner (user) | A search: "Gebäudeklasse …", "ChatGPT Baurecht" | A useful article, then a reason to try | Journal articles, each ending in a real-question invite |
 | Data or IT decider (gatekeeper) | "Where do our drawings go?" | The providers, named, and no training | Quellen section, FAQ, privacy policy |
-| Buyer comparing tools | "Reiner AI Alternative", "Rainer AI" | An honest side-by-side they can trust | `/piloti-vs-reiner-ai/` |
+| Buyer comparing tools | "Reiner AI Alternative", "Rainer AI" | An honest side-by-side they can trust | `/vergleich/reiner-ai/` |
 
 ## The turn the page has to make
 
@@ -40,18 +40,24 @@ One page per query cluster. A new article takes a cluster nobody owns yet.
 
 | Cluster (German first) | Page |
 |---|---|
-| KI für Architekten Österreich, KI Architekturbüro, KI Planungsbüro | `/warum-piloti/`, `/blog/ki-im-architekturbuero/` |
-| ChatGPT Baurecht, ChatGPT Architekten, KI Baurecht Österreich | `/blog/chatgpt-baurecht/`, the FAQ entry |
-| Reiner AI, Rainer AI, Reiner AI Alternative, Reiner AI Österreich | `/piloti-vs-reiner-ai/` |
-| Wissensmanagement Architekturbüro, Projektwissen, Büroarchiv | `/blog/wissen-aus-alten-projekten/` |
+| KI für Architekten Österreich, KI Architekturbüro, KI Planungsbüro | `/warum-piloti/`, `/fuer/architekturbueros/`, `/blog/ki-im-architekturbuero/` |
+| ChatGPT Baurecht, ChatGPT Alternative Architekten | `/vergleich/chatgpt/`, `/blog/chatgpt-baurecht/`, the FAQ entry |
+| Reiner AI, Rainer AI, WEKA Bau AI, BauKI, Copilot, NotebookLM, Perplexity + "Alternative" | `/vergleich/<tool>/`, hub `/vergleich/` |
+| Bauordnung <Land>, Welche OIB-Richtlinie gilt in <Land> | `/baurecht/<land>/` |
+| Gebäudeklasse bestimmen, Einreichplan Checkliste, Bauen im Bestand, Bebauungsplan prüfen | `/anwendungen/<use-case>/` |
+| Was ist Gebäudeklasse 4, Fluchtniveau Definition, OIB-Richtlinien erklärt | `/glossar/<term>/` |
+| Wissensmanagement Architekturbüro, Projektwissen, Büroarchiv | `/anwendungen/bueroarchiv/`, `/blog/wissen-aus-alten-projekten/` |
 | How Piloti works, RAG for building law | `/blog/wie-piloti-funktioniert/` |
 
-Next clusters, in order of intent: planning questions offices type verbatim,
-such as Gebäudeklasse bestimmen, Brandschutz WDVS Gebäudeklasse 4, Stellplatzpflicht
-Wien, and Einreichunterlagen by state. Write each as the answer first, the
-limits second, and "ask Piloti about your project" last. A post that states a
-regulatory value names its source and the edition, and is checked by someone in
-the office before it is published.
+The search pages are data (`frontends/web/src/data/landing/`), one entry per
+page; the audit behind them, the landscape and the backlog:
+[`seo-geo-audit-2026-09.md`](seo-geo-audit-2026-09.md).
+
+Next clusters, in order of intent: the long-tail questions in the audit's
+backlog. Write each as the answer first, the limits second, and "ask Piloti
+about your project" last. A post that states a regulatory value names its
+source and the edition, and is checked by someone in the office before it is
+published.
 
 ## Rules the copy keeps
 

@@ -12,6 +12,7 @@ import { CONTACT_EMAIL, SITE_NAME } from '../consts'
 import { founders } from '../data/founders'
 import { languages, ui, type Locale } from '../i18n/ui'
 import { art, artFile, type ArtId } from './art'
+import { SECTIONS, landingPath, type LandingEntry, type SectionId } from './landing'
 
 export interface OgImage {
   /** Site-relative or absolute URL. */
@@ -50,8 +51,6 @@ export const SHARE_ART = {
   legal: 'tafeln/pruefstand/og',
   /** Plate I, Drei Stützen: why Piloti, three columns under one answer (law, office, project). */
   warum: 'tafeln/stuetzen/og',
-  /** Tragwerk IV, Ziegelpfeiler: the comparison, another way to carry the same load. */
-  vsReiner: 'tragwerk/ziegel/og',
   /** Tragwerk II, Drei Säulen: the unlisted image page, all the prints on one slab. */
   bildmaterial: 'tragwerk/drei/og',
 } as const satisfies Record<string, OgArtId>
@@ -133,6 +132,23 @@ export function siteGraph(locale: Locale, site: URL | undefined) {
       founder: founderPersons(locale),
       areaServed: { '@type': 'Country', name: locale === 'de' ? 'Österreich' : 'Austria' },
       knowsAbout: KNOWS_ABOUT[locale],
+    },
+    {
+      // What Piloti is, as a thing an answer engine can name and compare: the
+      // product, not the company. No offers or rating: there is no price list
+      // and no review to state.
+      '@type': 'SoftwareApplication',
+      '@id': `${root}#software`,
+      name: SITE_NAME,
+      url: home,
+      applicationCategory: 'BusinessApplication',
+      applicationSubCategory: locale === 'de' ? 'KI-Wissensplattform für Planungsbüros' : 'AI knowledge platform for planning offices',
+      operatingSystem: 'Web',
+      inLanguage: ['de-AT', 'en'],
+      description: ui[locale].meta.description,
+      audience: { '@type': 'BusinessAudience', audienceType: locale === 'de' ? 'Architektur- und Planungsbüros in Österreich' : 'Architecture and planning offices in Austria' },
+      publisher: { '@id': `${root}#organization` },
+      creator: { '@id': `${root}#organization` },
     },
     {
       '@type': 'WebSite',
@@ -233,5 +249,74 @@ export function pageLd(locale: Locale, title: string, path: string, site: URL | 
         [name, url],
       ].map(([n, item], i) => ({ '@type': 'ListItem', position: i + 1, name: n, item })),
     },
+  ]
+}
+
+function crumbs(items: [string, string][]) {
+  return {
+    '@type': 'BreadcrumbList',
+    itemListElement: items.map(([name, item], i) => ({ '@type': 'ListItem', position: i + 1, name, item })),
+  }
+}
+
+/**
+ * A search page (lib/landing.ts): WebPage with its date, the breadcrumb
+ * Start › Section › Page, its FAQ as FAQPage, and for the glossary the term
+ * as DefinedTerm. The one-sentence answer is the page's description to
+ * machines, so an answer engine lifts the conclusion, not the lede.
+ */
+export function landingLd(locale: Locale, section: SectionId, entry: LandingEntry, site: URL | undefined) {
+  const c = entry[locale]
+  const home = absoluteUrl(locale === 'en' ? '/en/' : '/', site)
+  const hub = absoluteUrl(landingPath(locale, section), site)
+  const url = absoluteUrl(landingPath(locale, section, entry.slug), site)
+  const root = absoluteUrl('/', site)
+  const nodes: object[] = [
+    {
+      '@type': 'WebPage',
+      '@id': url,
+      url,
+      name: c.heading,
+      description: c.answer,
+      inLanguage: locale === 'de' ? 'de-AT' : 'en',
+      dateModified: `${entry.checked}-01`,
+      isPartOf: { '@id': `${home}#website` },
+      about: { '@id': `${root}#software` },
+    },
+    crumbs([
+      [ui[locale].seo.breadcrumbHome, home],
+      [SECTIONS[section][locale].label, hub],
+      [c.heading, url],
+    ]),
+  ]
+  if (c.faq.length) {
+    nodes.push({
+      '@type': 'FAQPage',
+      mainEntity: c.faq.map(({ q, a }) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })),
+    })
+  }
+  if (entry.term) {
+    nodes.push({
+      '@type': 'DefinedTerm',
+      name: entry.term,
+      description: c.answer,
+      url,
+      inDefinedTermSet: { '@type': 'DefinedTermSet', name: SECTIONS.glossar[locale].heading, url: absoluteUrl(landingPath(locale, 'glossar'), site) },
+    })
+  }
+  return nodes
+}
+
+/** A section hub: a CollectionPage listing its pages, with the breadcrumb. */
+export function hubLd(locale: Locale, section: SectionId, site: URL | undefined) {
+  const home = absoluteUrl(locale === 'en' ? '/en/' : '/', site)
+  const url = absoluteUrl(landingPath(locale, section), site)
+  const s = SECTIONS[section][locale]
+  return [
+    { '@type': 'CollectionPage', '@id': url, url, name: s.heading, description: s.description, inLanguage: locale === 'de' ? 'de-AT' : 'en' },
+    crumbs([
+      [ui[locale].seo.breadcrumbHome, home],
+      [s.label, url],
+    ]),
   ]
 }
