@@ -222,6 +222,7 @@ describe('resolveCitationTarget', () => {
       contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     },
     { id: 'doc-3', filename: 'Lageplan.png', contentType: 'image/png' },
+    { id: 'doc-4', filename: 'Bestandsplan.dwg', contentType: 'image/vnd.dwg' },
   ]
   const baseCorpusFiles = ['oib-rl_2_ausgabe_mai_2023.pdf']
 
@@ -468,7 +469,31 @@ describe('resolveCitationTarget', () => {
   test('a non-previewable project document is offered as a download, never as a broken viewer', () => {
     // It used to degrade to `info`, which said nothing and offered nothing —
     // and the reader concluded the product had lost their file (#623). It had
-    // not; it cannot DRAW a .docx. The two are different answers.
+    // not; it cannot DRAW a .dwg. The two are different answers.
+    const target = targetFor(
+      { url: '', content: '[KB] Bestandsplan.dwg' },
+      storedDocuments,
+      baseCorpusFiles
+    )
+
+    expect(target).toEqual({
+      kind: 'download',
+      title: 'Bestandsplan',
+      fileName: 'Bestandsplan.dwg',
+      snippet: undefined,
+      document: {
+        type: 'stored',
+        id: 'doc-4',
+        filename: 'Bestandsplan.dwg',
+        contentType: 'image/vnd.dwg',
+      },
+    })
+  })
+
+  test('an office project document opens in the viewer, on its PDF rendition (ADR-0070)', () => {
+    // A .docx was the #623 download example; it now has a viewer, the PDF the
+    // BFF renders from it. The ORIGINAL type travels with the target so the
+    // surface can say it is showing a rendition and download the Word file.
     const target = targetFor(
       { url: '', content: '[KB] Vermessung.docx' },
       storedDocuments,
@@ -476,9 +501,10 @@ describe('resolveCitationTarget', () => {
     )
 
     expect(target).toEqual({
-      kind: 'download',
+      kind: 'document',
       title: 'Vermessung',
       fileName: 'Vermessung.docx',
+      page: 1,
       snippet: undefined,
       document: {
         type: 'stored',

@@ -8,6 +8,11 @@ import {
   resetSourcePreviewIndexCache,
 } from './SourcePreview'
 
+const startDocumentDownload = vi.fn(async (_id: string, _filename: string) => true)
+vi.mock('@/lib/documents/download', () => ({
+  startDocumentDownload: (id: string, filename: string) => startDocumentDownload(id, filename),
+}))
+
 vi.mock('../store', () => ({
   useChatStore: (
     selector: (s: {
@@ -27,7 +32,36 @@ const fetchMock = vi.fn((input: RequestInfo | URL) => {
       jsonResponse({
         documents: [
           { id: 'doc-1', filename: 'Brandschutzkonzept.pdf', contentType: 'application/pdf' },
+          {
+            id: 'doc-word',
+            filename: 'Raumprogramm.docx',
+            contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          },
+          // Stored with no type: the extension alone makes it an office file.
+          { id: 'doc-sheet', filename: 'Kostenschaetzung.xlsx', contentType: null },
+          { id: 'doc-deck', filename: 'Entwurf.pptx', contentType: null },
         ],
+      })
+    )
+  }
+  // The BFF's two "no rendition" answers (ADR-0070): conversion switched off,
+  // and conversion attempted and failed.
+  if (url === '/api/documents/doc-sheet/preview') {
+    return Promise.resolve({ ok: false, status: 415, json: async () => ({}) })
+  }
+  if (url === '/api/documents/doc-deck/preview') {
+    return Promise.resolve({
+      ok: false,
+      status: 502,
+      json: async () => ({ code: 'RENDITION_FAILED' }),
+    })
+  }
+  if (url === '/api/documents/doc-word/preview') {
+    return Promise.resolve(
+      jsonResponse({
+        url: 'https://storage.example/_render.pdf',
+        contentType: 'application/pdf',
+        rendition: true,
       })
     )
   }
@@ -93,6 +127,7 @@ describe('SourcePreviewChip', () => {
   beforeEach(() => {
     resetSourcePreviewIndexCache()
     fetchMock.mockClear()
+    startDocumentDownload.mockClear()
     vi.stubGlobal('fetch', fetchMock)
   })
 
@@ -175,6 +210,83 @@ describe('SourcePreviewChip', () => {
     // The presigned preview URL was fetched for the project document.
     expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-1/preview')
   })
+
+  test('an office citation opens its PDF rendition and keeps the original downloadable', async () => {
+    const user = userEvent.setup()
+    render(
+      <SourcePreviewChip
+        citation={ref({
+          content: '[KB] Raumprogramm.docx',
+          fileName: 'Raumprogramm.docx',
+          collection: 'proj_1',
+          kind: 'projekt',
+        })}
+      />
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'Preview source: Raumprogramm' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-word/preview')
+    // The reader is told the page is a PDF made from the file, not the file.
+    expect(within(dialog).getByText('PDF preview of the original')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: /Download original/ }))
+    // The ORIGINAL, by its own name — never the rendition on screen.
+    expect(startDocumentDownload).toHaveBeenCalledWith('doc-word', 'Raumprogramm.docx')
+  })
+
+  test('a native PDF carries no rendition note', async () => {
+    const user = userEvent.setup()
+    render(
+      <SourcePreviewChip
+        citation={ref({
+          content: '[KB] Brandschutzkonzept.pdf, p.3',
+          fileName: 'Brandschutzkonzept.pdf',
+          collection: 'proj_1',
+          kind: 'projekt',
+          page: 3,
+        })}
+      />
+    )
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Preview source: Brandschutzkonzept' })
+    )
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByText('PDF preview of the original')).toBeNull()
+  })
+
+  test.each([
+    ['disabled (415)', 'Kostenschaetzung.xlsx', 'doc-sheet', 'Kostenschaetzung'],
+    ['failed (502)', 'Entwurf.pptx', 'doc-deck', 'Entwurf'],
+  ])(
+    'an office citation whose rendition is %s falls back to the download',
+    async (_case, fileName, id, title) => {
+      const user = userEvent.setup()
+      render(
+        <SourcePreviewChip
+          citation={ref({
+            content: `[KB] ${fileName}`,
+            fileName,
+            collection: 'proj_1',
+            kind: 'projekt',
+          })}
+        />
+      )
+
+      await user.click(await screen.findByRole('button', { name: `Preview source: ${title}` }))
+
+      // No viewer and no error: the reader gets the file they asked to see.
+      expect(fetchMock).toHaveBeenCalledWith(`/api/documents/${id}/preview`)
+      await vi.waitFor(() => expect(startDocumentDownload).toHaveBeenCalledWith(id, fileName))
+      expect(screen.queryByRole('dialog')).toBeNull()
+
+      // And from then on the chip is the download it is: its peek says why
+      // and offers the file, rather than promising a viewer again.
+      await user.hover(screen.getByRole('button', { name: `Preview source: ${title}` }))
+      expect(await screen.findByText('Download document')).toBeInTheDocument()
+    }
+  )
 
   test('a citation resolving to an org Archiv document opens it too', async () => {
     // Buero-kind citations were structurally unopenable: the preview index

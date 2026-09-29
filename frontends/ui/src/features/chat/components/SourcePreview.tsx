@@ -8,14 +8,18 @@
  *                 (`RisDocumentDialog`), with the authoritative RIS link kept in
  *                 its header. It used to link out like any web source, which
  *                 took the reader out of the answer to check it (#622).
- *  - `download` — a stored document with no in-app viewer (.docx, .xlsx, .dwg).
+ *  - `download` — a stored document with no in-app viewer (.dwg, .ifc, .zip).
  *                 The file is offered and the reason is stated; it is NOT the
  *                 same answer as `info` (#623).
  *  - `document` — knowledge-layer citations that resolve to a project upload
  *                 or a base-corpus PDF open the EXISTING PdfViewerDialog
  *                 (presigned preview URL for project docs, the corpus stream
  *                 route for base docs), with a provenance-tinted header chip
- *                 and the cited passage ("Fundstelle") when one exists.
+ *                 and the cited passage ("Fundstelle") when one exists. An
+ *                 office file opens on its PDF rendition (ADR-0070), says so
+ *                 in the header, and keeps a download of the ORIGINAL there;
+ *                 when the BFF cannot render one (415 disabled, 502 failed) the
+ *                 chip falls back to the `download` behaviour.
  *  - `info`     — unresolvable citations get a light popover (origin, title,
  *                 snippet) — never a broken viewer. Chips with nothing beyond
  *                 their label stay plain, non-interactive chips.
@@ -37,6 +41,7 @@ import { useTranslations } from '@/i18n'
 import { documentFileUrl } from '@/lib/documents/urls'
 import { onDocumentsChanged, useDocumentsGeneration } from '@/lib/documents/document-changes'
 import { startDocumentDownload } from '@/lib/documents/download'
+import { isOfficeRenditionSource } from '@/lib/documents/preview-types'
 import { SectionLabel } from '@/components/ui/section-label'
 import { HoverPeekPanel } from '@/components/ui/hover-peek-panel'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
@@ -497,6 +502,49 @@ const isImageTarget = (target: DocumentTarget): boolean =>
   (target.document.contentType ?? '').toLowerCase().startsWith('image/')
 
 /**
+ * Whether the viewer will show a PDF the BFF rendered from this document rather
+ * than the document itself (ADR-0070). Decided by the same predicate the BFF
+ * uses to decide what to serve, so the header's "PDF-Vorschau" note is never
+ * shown over a file's own bytes, nor missing over a rendition.
+ */
+const isRenditionTarget = (target: DocumentTarget): boolean =>
+  target.document.type === 'stored' && isOfficeRenditionSource(target.document)
+
+/**
+ * The same stored document, as the file it is. What an office citation turns
+ * into when its rendition cannot be had, and what the viewer's "download the
+ * original" action hands over — always the ORIGINAL, through the download
+ * route, never the PDF on screen.
+ */
+const asDownloadTarget = (target: DocumentTarget): DownloadTarget | null =>
+  target.document.type === 'stored'
+    ? {
+        kind: 'download',
+        title: target.title,
+        fileName: target.document.filename,
+        snippet: target.snippet,
+        document: target.document,
+      }
+    : null
+
+/**
+ * The preview route's two answers that mean "there is no PDF of this office
+ * file", as opposed to "something broke": 415 when conversion is switched off
+ * (`GOTENBERG_URL` unset) and 502 `RENDITION_FAILED` when LibreOffice could not
+ * make one. Both leave the reader exactly where #623 left them before ADR-0070
+ * — a real file with no viewer — so both get that answer, the download.
+ */
+const isRenditionUnavailable = (status: number): boolean => status === 415 || status === 502
+
+/**
+ * How long an office open may take before the reader is told a PDF is being
+ * made. A rendition already in the store answers in well under this; a first
+ * open converts, which can take many seconds, and a busy chip alone does not
+ * say why nothing is happening.
+ */
+const RENDITION_PENDING_NOTICE_MS = 400
+
+/**
  * The Fundstellen a viewer can actually be pointed at: the ones that name a
  * page, in page order.
  *
@@ -762,6 +810,13 @@ export const CitationDocumentDialog: FC<{
     document: citation.document,
     locus: activeLocus,
   }
+  // An office file is on screen as a PDF the BFF made from it. The reader is
+  // told so, and the one action that must not be lost is the original itself:
+  // the viewer's own "open in tab" and any save from it hand over the PDF.
+  const rendition = isRenditionTarget(target)
+  const { isDownloading, download } = useCitationDownload(
+    rendition ? asDownloadTarget(target) : null
+  )
 
   return (
     <PdfViewerDialog
@@ -809,10 +864,31 @@ export const CitationDocumentDialog: FC<{
         </SourceSignalChip>
       }
       headerActions={
-        shown && (
+        (shown || rendition) && (
           <span className="flex shrink-0 items-center gap-2">
-            <CopyCitationLinkButton citation={shown} icon={<Link2 className="size-3" />} />
-            <CopySourceCitationButton citation={shown} />
+            {rendition && (
+              <>
+                <span className="text-muted-foreground text-xs font-normal" data-rendition-note="">
+                  {t('sourcePreview.renditionNote')}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void download()}
+                  disabled={isDownloading}
+                  data-citation-download-original=""
+                  className="text-muted-foreground duration-quick hover:text-foreground focus-visible:ring-ring/50 touch-target inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium transition-[color,transform] ease-out focus-visible:outline-none focus-visible:ring-2 active:scale-95 disabled:cursor-progress disabled:opacity-70 motion-reduce:transition-none motion-reduce:active:scale-100"
+                >
+                  <Download aria-hidden="true" className="size-3" />
+                  {t(isDownloading ? 'citationPeek.downloading' : 'sourcePreview.downloadOriginal')}
+                </button>
+              </>
+            )}
+            {shown && (
+              <>
+                <CopyCitationLinkButton citation={shown} icon={<Link2 className="size-3" />} />
+                <CopySourceCitationButton citation={shown} />
+              </>
+            )}
           </span>
         )
       }
@@ -836,12 +912,19 @@ export const CitationDocumentDialog: FC<{
  * presigned preview URL per open (they expire); base-corpus PDFs stream from
  * the knowledge-base route PdfViewerDialog already builds from `fileName`.
  * The dialog only ever opens with a renderable source — a failed presign
- * surfaces as a toast, not a broken viewer.
+ * surfaces as a toast, not a broken viewer, and an office file the BFF cannot
+ * render (415/502) is downloaded instead: the reader asked for its content,
+ * and the original is the content.
+ *
+ * `openPreview` says how it ended, so a caller with no chip to degrade (the
+ * `?cite=` dialog) knows when there will be no viewer to wait for.
  *
  * The dialog owns an ACTIVE LOCUS, not just a page: which Fundstelle the reader
  * is on is the thing the rail marks, the citation footer copies, and a deep
  * link restores.
  */
+type PreviewOutcome = 'opened' | 'downloaded' | 'failed'
+
 const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
   const t = useTranslations('chat')
   const [isOpen, setIsOpen] = useState(false)
@@ -873,20 +956,36 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
   }, [citation?.locus?.key])
 
   const isImage = isImageTarget(target)
+  const rendition = isRenditionTarget(target)
+  const { download } = useCitationDownload(asDownloadTarget(target))
 
-  const openPreview = async (locus?: CitationLocus): Promise<void> => {
+  const openPreview = async (locus?: CitationLocus): Promise<PreviewOutcome> => {
     if (locus && citation) setActiveLocus(openAtLocus(citation.document, locus))
     else if (locus) setActiveLocus(locus)
     if (target.document.type === 'base') {
       setIsOpen(true)
-      return
+      return 'opened'
     }
     setIsResolving(true)
+    // A first open of an office file converts it, which is slow enough to need
+    // saying; a rendition already stored answers before this ever shows.
+    let pendingToast: string | number | undefined
+    const pendingTimer = rendition
+      ? setTimeout(() => {
+          pendingToast = toast.loading(t('sourcePreview.renditionPending'))
+        }, RENDITION_PENDING_NOTICE_MS)
+      : undefined
     try {
       // The presign still runs, and not only out of habit: it is the
       // authorization and existence check that keeps a failure a toast instead
       // of a dialog that opens onto nothing.
       const res = await fetch(`/api/documents/${target.document.id}/preview`)
+      if (isRenditionUnavailable(res.status)) {
+        clearTimeout(pendingTimer)
+        if (pendingToast !== undefined) toast.dismiss(pendingToast)
+        await download()
+        return 'downloaded'
+      }
       const data = res.ok ? await res.json() : null
       if (data?.url) {
         // An image is NAVIGATED to by `next/image` and keeps the presigned URL.
@@ -896,12 +995,16 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
         // have loaded. See `documentFileUrl`.
         setSrc(isImage ? data.url : documentFileUrl(target.document.id))
         setIsOpen(true)
-      } else {
-        toast.error(t('sourcePreview.loadFailed'))
+        return 'opened'
       }
+      toast.error(t('sourcePreview.loadFailed'))
+      return 'failed'
     } catch {
       toast.error(t('sourcePreview.loadFailed'))
+      return 'failed'
     } finally {
+      clearTimeout(pendingTimer)
+      if (pendingToast !== undefined) toast.dismiss(pendingToast)
       setIsResolving(false)
     }
   }
@@ -936,6 +1039,12 @@ const DocumentPreviewChip: FC<{
   citation?: CitationRef
   trailing?: ReactNode
   detail?: CitationDetail
+  /**
+   * The document turned out to have no viewer after all — an office file whose
+   * rendition the BFF could not make. The owner re-renders the chip as the
+   * download it now is.
+   */
+  onUnrenderable?: () => void
 }> = ({
   target,
   signal,
@@ -947,6 +1056,7 @@ const DocumentPreviewChip: FC<{
   citation,
   trailing,
   detail,
+  onUnrenderable,
 }) => {
   const t = useTranslations('chat')
   const { isResolving, openPreview, dialog } = useDocumentPreview(target, citation)
@@ -956,7 +1066,9 @@ const DocumentPreviewChip: FC<{
     // The dialog supersedes the peek — the peek's question is "what is this?",
     // and the document answers it far better than a panel floating over it.
     peek.dismiss()
-    void openPreview()
+    void openPreview().then((outcome) => {
+      if (outcome === 'downloaded') onUnrenderable?.()
+    })
   }
 
   const face = (
@@ -1010,7 +1122,7 @@ const DocumentPreviewChip: FC<{
  * A cited document with no in-app viewer — offered as a file, with the reason.
  *
  * Same face as every other citation chip, because it is the same kind of thing:
- * the reader must not have to learn that a `.docx` source is a different
+ * the reader must not have to learn that a `.dwg` source is a different
  * species of chip. What differs is the one control the popover holds — a
  * download rather than an open — and the line above it saying why.
  */
@@ -1427,12 +1539,22 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   // for card-derived documents, which name a law but no document at all.
   const needsIndex = !doc.url && !!doc.fileName
   const previewIndex = useSourcePreviewIndex(projectId, conversationId, needsIndex)
+  // The stored document whose office rendition the BFF refused (415/502). Only
+  // the preview route can say so, so it is learned on the first open, and from
+  // then on this chip is the download it would have been before ADR-0070.
+  const [unrenderableId, setUnrenderableId] = useState<string | null>(null)
 
-  const target = resolveCitationTarget(doc, {
+  const resolved = resolveCitationTarget(doc, {
     locus,
     storedDocuments: previewIndex?.storedDocuments,
     baseCorpusFiles: previewIndex?.baseCorpusFiles,
   })
+  const target: CitationTarget =
+    resolved.kind === 'document' &&
+    resolved.document.type === 'stored' &&
+    resolved.document.id === unrenderableId
+      ? (asDownloadTarget(resolved) ?? resolved)
+      : resolved
 
   const label = doc.title
   // A chip stands for a DOCUMENT, so it names every marker that document
@@ -1511,7 +1633,14 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   }
 
   if (target.kind === 'document') {
-    return <DocumentPreviewChip {...shared} target={target} />
+    const storedId = target.document.type === 'stored' ? target.document.id : null
+    return (
+      <DocumentPreviewChip
+        {...shared}
+        target={target}
+        onUnrenderable={storedId ? () => setUnrenderableId(storedId) : undefined}
+      />
+    )
   }
 
   // Resolved, and unrenderable. Not the same as unresolvable — see the
@@ -1612,9 +1741,16 @@ export const SourceDocumentDialog: FC<{
   )
 
   // Open as soon as resolution succeeds; close the owner when the reader
-  // dismisses the dialog, so the mount is tied to the viewing session.
+  // dismisses the dialog, so the mount is tied to the viewing session. An
+  // office citation opens its rendition here like any PDF; when there is none
+  // (415/502) the preview has already handed over the original, and when the
+  // open failed outright there is nothing left to show either — in both cases
+  // the owner is released rather than left mounted over no dialog.
   useEffect(() => {
-    if (isDocument && !isOpen) void openPreview(citation.locus)
+    if (isDocument && !isOpen)
+      void openPreview(citation.locus).then((outcome) => {
+        if (outcome !== 'opened') onClose()
+      })
     // Opening is a one-shot per resolved target; re-running on every render
     // would reopen a dialog the reader just dismissed.
     // eslint-disable-next-line react-hooks/exhaustive-deps

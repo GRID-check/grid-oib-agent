@@ -163,13 +163,14 @@ describe('a citation opens where the document was read (#621)', () => {
 })
 
 describe('a cited document with no viewer says so and hands over the file (#623)', () => {
-  const raumprogramm = () => {
+  const cited = (fileName: string, page?: number) => {
     const [document] = buildCitationModel({
       citations: [
         wire({
-          fileName: 'Raumprogramm_Schulbau.docx',
-          title: 'Raumprogramm Schulbau',
+          fileName,
+          title: fileName.replace(/\.[^.]+$/, ''),
           shelf: 'project',
+          page,
           isCited: true,
         }),
       ],
@@ -178,12 +179,12 @@ describe('a cited document with no viewer says so and hands over the file (#623)
   }
 
   test('resolves to a download rather than to a dead info popover', () => {
-    const target = resolveCitationTarget(raumprogramm(), {
+    const target = resolveCitationTarget(cited('Bestandsplan_EG.dwg'), {
       storedDocuments: [
         {
           id: 'doc-9',
-          filename: 'Raumprogramm_Schulbau.docx',
-          contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          filename: 'Bestandsplan_EG.dwg',
+          contentType: 'image/vnd.dwg',
           shelf: 'project',
         },
       ],
@@ -191,7 +192,7 @@ describe('a cited document with no viewer says so and hands over the file (#623)
 
     expect(target).toMatchObject({
       kind: 'download',
-      fileName: 'Raumprogramm_Schulbau.docx',
+      fileName: 'Bestandsplan_EG.dwg',
       document: { type: 'stored', id: 'doc-9' },
     })
   })
@@ -199,12 +200,12 @@ describe('a cited document with no viewer says so and hands over the file (#623)
   test('a citation that resolves to nothing is still `info`, not a download', () => {
     // The distinction is the whole point: "we cannot draw it" and "it is not
     // here" are different answers and the reader is owed the right one.
-    const target = resolveCitationTarget(raumprogramm(), { storedDocuments: [] })
+    const target = resolveCitationTarget(cited('Bestandsplan_EG.dwg'), { storedDocuments: [] })
     expect(target.kind).toBe('info')
   })
 
   test('a previewable document still opens in the viewer', () => {
-    const target = resolveCitationTarget(raumprogramm(), {
+    const target = resolveCitationTarget(cited('Raumprogramm_Schulbau.docx'), {
       storedDocuments: [
         {
           id: 'doc-9',
@@ -215,6 +216,81 @@ describe('a cited document with no viewer says so and hands over the file (#623)
       ],
     })
     expect(target.kind).toBe('document')
+  })
+})
+
+describe('a cited office document opens on its PDF rendition (ADR-0070)', () => {
+  const cited = (fileName: string, page?: number) => {
+    const [document] = buildCitationModel({
+      citations: [
+        wire({
+          fileName,
+          title: fileName.replace(/\.[^.]+$/, ''),
+          shelf: 'project',
+          page,
+          isCited: true,
+        }),
+      ],
+    })
+    return document!
+  }
+  const stored = (filename: string, contentType: string | null) => [
+    { id: 'doc-9', filename, contentType, shelf: 'project' as const },
+  ]
+
+  test('a Word file is a `document`, not a download, and keeps its original type', () => {
+    // The #623 example. It was a download because nothing could draw it; the
+    // BFF now renders a PDF from it, and the surface falls back to the download
+    // only when that rendition cannot be had (415 / 502).
+    const target = resolveCitationTarget(cited('Raumprogramm_Schulbau.docx', 1), {
+      storedDocuments: stored(
+        'Raumprogramm_Schulbau.docx',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      ),
+    })
+    expect(target).toMatchObject({
+      kind: 'document',
+      page: 1,
+      document: {
+        type: 'stored',
+        id: 'doc-9',
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      },
+    })
+  })
+
+  test('the extension alone is enough when the stored type is empty', () => {
+    const target = resolveCitationTarget(cited('Kostenschaetzung.xlsx'), {
+      storedDocuments: stored('Kostenschaetzung.xlsx', null),
+    })
+    expect(target.kind).toBe('document')
+  })
+
+  test('a slide number is the rendition page: one PDF page per slide', () => {
+    for (const fileName of ['Praesentation.pptx', 'Praesentation.pptm', 'Alt.ppt', 'Vortrag.odp']) {
+      const target = resolveCitationTarget(cited(fileName, 7), {
+        storedDocuments: stored(fileName, null),
+      })
+      expect(target, fileName).toMatchObject({ kind: 'document', page: 7 })
+    }
+  })
+
+  test('a Word or Excel locus page does not name a rendition page, so it opens at 1', () => {
+    // A .docx locus carries the constant 1 and an .xlsx one a sheet; neither
+    // says where the passage lands once LibreOffice lays the file out.
+    for (const fileName of ['Baubeschreibung.docx', 'Flaechen.xlsx', 'Notiz.odt']) {
+      const target = resolveCitationTarget(cited(fileName, 4), {
+        storedDocuments: stored(fileName, null),
+      })
+      expect(target, fileName).toMatchObject({ kind: 'document', page: 1 })
+    }
+  })
+
+  test('a slide deck cited with no slide opens at 1', () => {
+    const target = resolveCitationTarget(cited('Praesentation.pptx'), {
+      storedDocuments: stored('Praesentation.pptx', null),
+    })
+    expect(target).toMatchObject({ kind: 'document', page: 1 })
   })
 })
 

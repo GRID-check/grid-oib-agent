@@ -42,6 +42,12 @@ export const chat = {
       auslegend: 'Auslegend',
     },
     openExternal: 'Open in RIS',
+    // Office files (Word, Excel, PowerPoint, ODF, RTF) are shown as a PDF Piloti
+    // renders from the original (ADR-0070); the original stays untouched and
+    // downloadable.
+    renditionNote: 'PDF preview of the original',
+    renditionPending: 'Creating PDF preview…',
+    downloadOriginal: 'Download original',
     // Coarse source kind (ADR-0026) shown in the info popover. Preferred
     // over `origins` because the origin token is kb/ris/web only, so a
     // knowledge-base copy of a legal text reads as project material.
