@@ -1,0 +1,296 @@
+---
+/**
+ * The handover: after one answer (Nutzung), a week of work. Six cards on the
+ * drawing grid, read as a week in the app: the sentence that hands the work
+ * over, the task running, the report in the project, the finding that becomes
+ * an open point, the approval, the schedule. The project is fictional; each
+ * card is a shipped feature, dressed in the app's own words (`arbeit` in
+ * ui.ts). This is the page's turn from "it looks things up" to "it does the
+ * work".
+ *
+ * No script: the cards are in their finished state in the markup and arrive
+ * with the page's reveal, which is also what reduced motion shows.
+ */
+import { ui, type Locale } from '../../i18n/ui'
+import { useTranslatedPath } from '../../i18n/utils'
+
+interface Props {
+  locale?: Locale
+  /** On /warum-piloti/ the section follows the page head: no sheet label, an h2 all the same. */
+  standalone?: boolean
+}
+const { locale = 'de', standalone = false } = Astro.props
+const t = ui[locale]
+const a = t.arbeit
+const s = a.steps
+const changelog = useTranslatedPath(locale)('/changelog/')
+---
+
+<section
+  id={standalone ? undefined : 'arbeit'}
+  aria-labelledby="arbeit-title"
+  data-screen-label={standalone ? undefined : t.sheets.arbeit}
+  class="frame section-y"
+>
+  <div class="grid grid-cols-1 gap-y-6 lg:grid-cols-[5fr_7fr] lg:gap-x-16">
+    <div data-reveal>
+      <h2 id="arbeit-title" class="m-0 font-voice text-v3 text-ink" style="text-wrap: balance">{a.title}</h2>
+    </div>
+    <p data-reveal class="m-0 max-w-measure self-end text-base leading-relaxed text-ink-soft md:text-lg" style="text-wrap: pretty">
+      {a.body}
+    </p>
+  </div>
+
+  <div class="board mt-10 md:mt-12" role="group" aria-label={a.boardLabel}>
+    <p class="caption m-0"><span class="dot" aria-hidden="true"></span>{a.label}</p>
+
+    <ol class="week m-0 list-none p-0">
+      <li data-reveal class="card card--dark">
+        <p class="when">{s.ask.when}</p>
+        <p class="quote m-0">{s.ask.quote}</p>
+        <p class="note">{s.ask.note}</p>
+      </li>
+
+      <li data-reveal class="card">
+        <p class="when">{s.run.when}</p>
+        <p class="title m-0">{s.run.title}</p>
+        <p class="line m-0"><span class="pulse" aria-hidden="true"></span>{s.run.line}</p>
+        <p class="note">{s.run.note}</p>
+      </li>
+
+      <li data-reveal class="card card--sage">
+        <p class="when">{s.report.when}</p>
+        <p class="title m-0">{s.report.title}</p>
+        <p class="summary m-0">{s.report.summary}</p>
+        <ul class="rows m-0 list-none p-0">
+          {
+            s.report.rows.map((r) => (
+              <li class="row">
+                <span>{r.req}</span>
+                <span class={r.ok ? 'chip chip--ok' : 'chip chip--open'}>{r.ok ? a.status.ok : a.status.open}</span>
+              </li>
+            ))
+          }
+        </ul>
+        <p class="note">{s.report.note}</p>
+      </li>
+
+      <li data-reveal class="card">
+        <p class="when">{s.open.when}</p>
+        <p class="title m-0">{s.open.title}</p>
+        <p class="m-0"><span class="btn btn--solid">{s.open.action} →</span></p>
+        <p class="note">{s.open.note}</p>
+      </li>
+
+      <li data-reveal class="card">
+        <p class="when">{s.review.when}</p>
+        <p class="title m-0">{s.review.title}</p>
+        <p class="actions m-0">
+          <span class="btn btn--solid">{s.review.approve}</span>
+          <span class="btn">{s.review.changes}</span>
+        </p>
+        <p class="note">{s.review.note}</p>
+      </li>
+
+      <li data-reveal class="card card--dark">
+        <p class="when">{s.repeat.when}</p>
+        <p class="quote m-0">{s.repeat.quote}</p>
+        <p class="note">{s.repeat.note}</p>
+      </li>
+    </ol>
+  </div>
+
+  <div data-reveal class="mt-8 flex flex-col gap-3 border-t border-ink/15 pt-6 md:flex-row md:items-baseline md:justify-between md:gap-10">
+    <p class="m-0 max-w-measure text-base leading-relaxed text-ink" style="text-wrap: pretty">{a.close}</p>
+    <a href={changelog} class="shrink-0 text-base text-accent-600 underline underline-offset-4">{a.link}&nbsp;→</a>
+  </div>
+</section>
+
+<style>
+  /* The board is the Nutzung board's surface: paper on the drawing grid, the
+     mock shadow, so the week reads as the same app one step further on. */
+  .board {
+    border-radius: 1.25rem;
+    padding: 1rem;
+    background-color: var(--color-paper);
+    background-image:
+      linear-gradient(rgb(42 48 31 / 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(42 48 31 / 0.05) 1px, transparent 1px);
+    background-size: 22px 22px;
+    background-position: -1px -1px;
+    box-shadow:
+      0 0 0 1px var(--color-hairline),
+      var(--shadow-mock);
+  }
+  @media (min-width: 768px) {
+    .board {
+      padding: 1.25rem;
+    }
+  }
+  .caption {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0 0.25rem 0.875rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-mute);
+  }
+  .dot {
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 999px;
+    background: var(--color-ok);
+  }
+
+  /* One column on a phone, read top to bottom as the week runs; two from md;
+     three from lg, where the week reads in two rows of three days. */
+  .week {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.875rem;
+  }
+  @media (min-width: 768px) {
+    .week {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (min-width: 1024px) {
+    .week {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    min-width: 0;
+    border-radius: 0.875rem;
+    padding: 0.875rem 1rem 1rem;
+    background: var(--color-paper);
+    box-shadow:
+      0 0 0 1px rgb(42 48 31 / 0.1),
+      var(--shadow-card);
+    color: var(--color-ink);
+  }
+  .card--dark {
+    background: var(--color-panel);
+    box-shadow: var(--shadow-card);
+    color: var(--color-on-dark-strong);
+  }
+  .card--sage {
+    background: var(--color-surface);
+  }
+  .when {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-mute);
+  }
+  .card--dark .when {
+    color: var(--color-on-dark-tag);
+  }
+  .card--sage .when {
+    color: var(--color-accent-600);
+  }
+  .quote {
+    font-family: var(--font-voice);
+    font-size: 1.375rem;
+    line-height: 1.2;
+  }
+  .title {
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  .line {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    color: var(--color-ink-soft);
+  }
+  .pulse {
+    width: 0.5rem;
+    height: 0.5rem;
+    flex: none;
+    border-radius: 999px;
+    background: var(--color-accent-400);
+    box-shadow: 0 0 0 3px rgb(164 208 106 / 0.28);
+  }
+  .summary {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    color: var(--color-accent-600);
+  }
+  .rows {
+    display: grid;
+    gap: 0.375rem;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-top: 1px solid rgb(42 48 31 / 0.1);
+    padding-top: 0.375rem;
+    font-size: 0.875rem;
+  }
+  .chip {
+    flex: none;
+    border-radius: 999px;
+    padding: 0.0625rem 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .chip--ok {
+    background: var(--color-chip-project);
+    color: var(--color-chip-project-ink);
+  }
+  .chip--open {
+    background: var(--color-paper);
+    box-shadow: inset 0 0 0 1px rgb(42 48 31 / 0.25);
+    color: var(--color-ink);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .btn {
+    display: inline-flex;
+    border-radius: 999px;
+    padding: 0.25rem 0.75rem;
+    box-shadow: inset 0 0 0 1px rgb(42 48 31 / 0.2);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-ink);
+  }
+  .btn--solid {
+    background: var(--color-accent-800);
+    box-shadow: none;
+    color: var(--color-on-dark-strong);
+  }
+  /* The explanation under each card: what the app just did, in one line. */
+  .note {
+    margin: auto 0 0;
+    border-top: 1px dashed rgb(42 48 31 / 0.18);
+    padding-top: 0.625rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--color-ink-soft);
+  }
+  .card--dark .note {
+    border-top-color: rgb(238 242 228 / 0.18);
+    color: var(--color-on-dark);
+  }
+</style>
