@@ -97,7 +97,7 @@ beforeEach(() => {
 })
 
 describe('deleteDocumentObjects', () => {
-  it('reports success once the object, its thumbnail and its BIM derivatives are gone', async () => {
+  it('reports success once the object, its thumbnail, its rendition and its BIM derivatives are gone', async () => {
     const result = await deleteDocumentObjects(sessionDoc())
 
     expect(result).toEqual({ ok: true })
@@ -108,6 +108,7 @@ describe('deleteDocumentObjects', () => {
     expect(keys).toEqual([
       `org/${ORG_ID}/session/${CONVERSATION_ID}/doc/doc-1/brandschutz.pdf`,
       `org/${ORG_ID}/session/${CONVERSATION_ID}/doc/doc-1/_thumb.jpg`,
+      `org/${ORG_ID}/session/${CONVERSATION_ID}/doc/doc-1/_render.pdf`,
     ])
     // The rasters ingestion cut out of the PDF live under `_img/`; the sweep
     // lists that prefix so none of them outlives the document.

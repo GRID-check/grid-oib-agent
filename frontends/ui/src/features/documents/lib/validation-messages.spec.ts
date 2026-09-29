@@ -69,7 +69,8 @@ describe('summarizeValidation', () => {
 
     const already = validateFileUpload(
       [file('Plan.pdf', 10)],
-      context({ existingFileNames: new Set(['Plan.pdf']) }),
+      // A chat's attachments: a durable shelf asks about a known name instead.
+      context({ existingFileNames: new Set(['Plan.pdf']), durableCorpus: false }),
       config,
       'de'
     )

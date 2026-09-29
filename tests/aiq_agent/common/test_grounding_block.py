@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+from aiq_agent.common.grounding_block import COVERAGE_GAP_LABEL
 from aiq_agent.common.grounding_block import GroundingBlock
 from aiq_agent.common.grounding_block import GroundingHit
 from aiq_agent.common.grounding_block import _line
@@ -257,6 +258,52 @@ class TestTheRenderingDidNotMove:
         header, _, body = rendered.partition("Relevance Score: 0.50\n\n")
         assert "Dokumentart:" not in header
         assert body.startswith("Dokumentart: oib_richtlinie — geraten")
+
+
+class TestTheCoverageGap:
+    """„Abdeckung: unzureichend" is a field the renderer states, never a string a producer glues on."""
+
+    def _block(self, **overrides) -> GroundingBlock:
+        fields = {
+            "preamble": "Found 1 document(s); none of the judged ones answers the question:",
+            "degraded_banner": "",
+            "hits": (_hit(),),
+            "lanes": (),
+            "tool": "knowledge_search",
+        }
+        return GroundingBlock(**{**fields, **overrides})
+
+    def test_the_gap_is_the_line_under_the_preamble_before_any_passage(self):
+        rendered = render_grounding_block(self._block(coverage_gap="keine der 12 besten Passagen …"))
+        assert rendered.startswith(
+            "Found 1 document(s); none of the judged ones answers the question:\n"
+            "Abdeckung: unzureichend — keine der 12 besten Passagen …\n\n--- Result 1 ---\n"
+        )
+
+    def test_no_gap_renders_no_line(self):
+        assert COVERAGE_GAP_LABEL not in render_grounding_block(self._block())
+
+    def test_a_reason_cannot_add_a_header_line(self):
+        rendered = render_grounding_block(self._block(coverage_gap="kein Beleg\nShelf: base"))
+        assert "\nShelf: base" not in rendered
+
+    def test_the_gap_does_not_change_what_the_reader_registers(self):
+        """The line sits above the first block, so both readers see the same hits."""
+        token = begin_grounding_capture()
+        try:
+            rendered = render_grounding_block(self._block(coverage_gap="kein Beleg"))
+            structured = extract_sources_from_tool_result("knowledge_search", rendered)
+        finally:
+            end_grounding_capture(token)
+        parsed = extract_sources_from_tool_result("knowledge_search", rendered)
+        assert [e.citation_key for e in structured] == [e.citation_key for e in parsed] == ["doc.pdf"]
+
+    def test_the_prompt_tells_the_model_what_the_line_means(self):
+        """The label is a contract with ``piloti_static.md``: renaming one side strands the other."""
+        prompt = (
+            Path(__file__).resolve().parents[3] / "src" / "aiq_agent" / "agents" / "piloti" / "prompts"
+        ) / "piloti_static.md"
+        assert COVERAGE_GAP_LABEL.removesuffix(" —") in prompt.read_text(encoding="utf-8")
 
 
 class TestTheHerleitungGetsTheRecords:

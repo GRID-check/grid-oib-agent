@@ -1,0 +1,10 @@
+---
+fixes:
+  - >
+    Tables without a caption in an uploaded PDF are now found as tables,
+    rather than as scrambled text from the page. Charts in a PDF are now
+    found too: before, they were read and then left out of search.
+  - >
+    A PDF with a great many pictures is now read up to its 64 largest
+    pictures, and a scanned page is read once rather than twice, so such
+    files finish sooner.

@@ -36,6 +36,7 @@ import {
   type PlannedAction,
   type PlannedFile,
 } from '../lib/folder-upload-plan'
+import type { UploadDecisionKind } from '../hooks/use-upload-decision'
 
 /**
  * „Wollen Sie aktualisieren?" — asked once, with the answer visible.
@@ -64,6 +65,13 @@ import {
  * The counts are the headline because they are what the answer turns on. The
  * lists are there because a count without names is not something a person can
  * check, and they are collapsed because five hundred rows is not a summary.
+ *
+ * Loose FILES come through here too (`kind: 'files'`), but only when one of
+ * them would touch a document that is already on the shelf — a same-name
+ * upload makes a new version of the live document (ADR-0054), and that is the
+ * same question a folder asks about each of its files. One such file gets the
+ * question in its own words: „Neue Fassung von „X“ hochladen?", or, when the
+ * bytes are identical, „Unverändert – bereits vorhanden".
  */
 export interface FolderUploadDialogProps {
   open: boolean
@@ -76,6 +84,8 @@ export interface FolderUploadDialogProps {
   onConfirm: (includeUpdates: boolean) => void | Promise<void>
   /** In flight — the plan is being applied (folders created, files queued). */
   pending?: boolean
+  /** A dropped or picked folder, or loose files that met existing documents. */
+  kind?: UploadDecisionKind
 }
 
 export function FolderUploadDialog({
@@ -85,6 +95,7 @@ export function FolderUploadDialog({
   currentFolderName,
   onConfirm,
   pending = false,
+  kind = 'folder',
 }: FolderUploadDialogProps): JSX.Element {
   const t = useTranslations('files')
   /**
@@ -117,24 +128,56 @@ export function FolderUploadDialog({
   )
 
   const destination = currentFolderName ?? t('folders.allFiles')
+  const isFolder = kind === 'folder'
+  /**
+   * One loose file that is already here, new bytes or the same ones: asked in
+   * its own words, without the counts a batch needs.
+   */
+  const single =
+    !isFolder && plan?.files.length === 1 && (plan.files[0].action === 'update' || plan.files[0].action === 'unchanged')
+      ? plan.files[0]
+      : null
+  const singleName = single ? single.file.name : ''
+  const singleShownAs = single ? (single.existingName ?? single.file.name) : ''
+  const singleMoves = single?.refiledFromFolderId !== undefined
+
+  const title = single
+    ? single.action === 'update'
+      ? t('folderUpload.single.updateTitle', { name: singleName })
+      : t('folderUpload.single.unchangedTitle')
+    : isFolder
+      ? plan?.rootName
+        ? t('folderUpload.title', { name: plan.rootName })
+        : t('folderUpload.titleGeneric')
+      : plan
+        ? t('folderUpload.titleFiles', { count: plan.files.length })
+        : t('folderUpload.titleFilesGeneric')
+  const description = single
+    ? single.action === 'update'
+      ? t('folderUpload.single.updateExplain', { name: singleShownAs })
+      : t('folderUpload.single.unchangedExplain', { name: singleShownAs })
+    : isFolder
+      ? plan?.mergedIntoCurrentFolder
+        ? t('folderUpload.destinationMerged', { folder: destination })
+        : t('folderUpload.destination', { folder: destination })
+      : t('folderUpload.destinationFiles', { folder: destination })
+  const HeaderIcon = single ? (single.action === 'update' ? RefreshCw : ShieldCheck) : isFolder ? FolderInput : FilePlus2
+  const nothingToDo = !counts || counts.uploading + counts.moving === 0
 
   return (
     <Dialog open={open} onOpenChange={(next) => !pending && onOpenChange(next)}>
-      <DialogContent className="sm:max-w-lg" aria-busy={pending || undefined} data-testid="folder-upload-dialog">
+      <DialogContent
+        className="sm:max-w-lg"
+        aria-busy={pending || undefined}
+        data-testid="folder-upload-dialog"
+        data-kind={single ? `single-${single.action}` : kind}
+      >
         <DialogHeader>
           <div className="flex items-start gap-3.5">
-            <StatCardIcon icon={FolderInput} tone="info" />
+            <StatCardIcon icon={HeaderIcon} tone={single?.action === 'unchanged' ? 'muted' : 'info'} />
             <div className="min-w-0 space-y-1.5">
-              <DialogTitle>
-                {plan?.rootName
-                  ? t('folderUpload.title', { name: plan.rootName })
-                  : t('folderUpload.titleGeneric')}
-              </DialogTitle>
-              <DialogDescription>
-                {plan?.mergedIntoCurrentFolder
-                  ? t('folderUpload.destinationMerged', { folder: destination })
-                  : t('folderUpload.destination', { folder: destination })}
-              </DialogDescription>
+              <DialogTitle>{title}</DialogTitle>
+              <DialogDescription>{description}</DialogDescription>
             </div>
           </div>
         </DialogHeader>
@@ -148,6 +191,26 @@ export function FolderUploadDialog({
             <Spinner size="sm" />
             {t('folderUpload.planning')}
           </div>
+        ) : single ? (
+          // The one file already says everything in the title; what is left is
+          // where the document ends up, when that is not where it is now — and
+          // that it is archived, because the new version stays out of sight
+          // with it.
+          singleMoves || single.existingArchived ? (
+            <div className="space-y-2">
+              {single.existingArchived && (
+                <Alert data-testid="folder-upload-archived">
+                  <AlertDescription>{t('folderUpload.single.archived')}</AlertDescription>
+                </Alert>
+              )}
+              {singleMoves && (
+                <Alert data-testid="folder-upload-refiled">
+                  <MoveRight aria-hidden />
+                  <AlertDescription>{t('folderUpload.single.refiled', { folder: destination })}</AlertDescription>
+                </Alert>
+              )}
+            </div>
+          ) : null
         ) : (
           <div className="space-y-4">
             <div className="grid gap-2 sm:grid-cols-2">
@@ -172,6 +235,7 @@ export function FolderUploadDialog({
                 label={t('folderUpload.counts.unchanged')}
                 testId="folder-upload-count-unchanged"
               />
+              {isFolder && (
               <PlanCount
                 icon={FolderPlus}
                 tone="info"
@@ -187,6 +251,7 @@ export function FolderUploadDialog({
                     : undefined
                 }
               />
+              )}
             </div>
 
             {counts.update > 0 && (
@@ -277,11 +342,19 @@ export function FolderUploadDialog({
         )}
 
         <DialogFooter>
+          {single && nothingToDo ? (
+            // Identical and already where it belongs: a statement, so one way out.
+            <Button onClick={() => onOpenChange(false)} data-testid="folder-upload-close">
+              {t('folderUpload.close')}
+            </Button>
+          ) : (
+          <>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
             {t('folderUpload.cancel')}
           </Button>
           <Button
-            onClick={() => void onConfirm(includeUpdates)}
+            // The one file's question IS the update question, so its button answers yes.
+            onClick={() => void onConfirm(single ? true : includeUpdates)}
             /*
              * Nothing to send is not a reason to hide the dialog's answer — the
              * reader still wants to read "everything here is already up to
@@ -293,16 +366,20 @@ export function FolderUploadDialog({
              * work to do, and a disabled button there would say the tree is
              * already reproduced when it is not.
              */
-            disabled={pending || !counts || counts.uploading + counts.moving === 0}
+            disabled={pending || nothingToDo}
             data-testid="folder-upload-confirm"
           >
             {pending && <Spinner size="sm" />}
-            {!counts || counts.uploading + counts.moving === 0
+            {nothingToDo
               ? t('folderUpload.nothingToDo')
-              : counts.uploading > 0
-                ? t('folderUpload.confirm', { count: String(counts.uploading) })
-                : t('folderUpload.confirmMoveOnly', { count: String(counts.moving) })}
+              : single?.action === 'update'
+                ? t('folderUpload.single.confirmUpdate')
+                : (counts?.uploading ?? 0) > 0
+                  ? t('folderUpload.confirm', { count: String(counts?.uploading ?? 0) })
+                  : t('folderUpload.confirmMoveOnly', { count: String(counts?.moving ?? 0) })}
           </Button>
+          </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -355,12 +432,13 @@ function FileNameList({ files }: { files: readonly PlannedFile[] }): JSX.Element
   const t = useTranslations('files')
   return (
     <ul className="mt-1 space-y-0.5 text-xs">
-      {files.slice(0, 6).map((file) => (
-        <li key={file.originPath} className="truncate opacity-90">
+      {files.slice(0, 6).map((file, index) => (
+        <li key={`${index}:${file.originPath}`} className="truncate opacity-90">
           <span className="font-mono">{file.originPath}</span>
           {file.existingName && (
             <span className="opacity-80"> — {t('folderUpload.alreadyHereAs', { name: file.existingName })}</span>
           )}
+          {file.existingArchived && <span className="opacity-80"> ({t('folderUpload.archivedMatch')})</span>}
         </li>
       ))}
       {files.length > 6 && <li className="opacity-70">+{files.length - 6}</li>}
@@ -395,8 +473,8 @@ function PlanDetails({
       </summary>
       <ScrollArea className="max-h-56">
         <ul className="space-y-0.5 px-3 pb-3">
-          {rows.map((file) => (
-            <li key={file.originPath} className="flex items-center gap-2 text-xs">
+          {rows.map((file, index) => (
+            <li key={`${index}:${file.originPath}`} className="flex items-center gap-2 text-xs">
               <ActionTag action={file.action} includeUpdates={includeUpdates} />
               <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
                 {file.originPath}
@@ -409,6 +487,9 @@ function PlanDetails({
                 <span className="max-w-[45%] shrink-0 truncate text-muted-foreground/80">
                   {t('folderUpload.alreadyHereAs', { name: file.existingName })}
                 </span>
+              )}
+              {file.existingArchived && (
+                <span className="shrink-0 text-muted-foreground/80">{t('folderUpload.archivedMatch')}</span>
               )}
             </li>
           ))}

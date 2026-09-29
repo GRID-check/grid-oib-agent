@@ -268,3 +268,7 @@ looks wired and is not. To wire it:
   labelling artefact: the siblings' qrels are asserted identical on every run.
 * **`fill_rate` on the should-refuse cases at 1.0** is not a regression — it is the standing
   state of the system, and it will stay 1.0 until something is built that can abstain.
+  The coverage signal `knowledge_search` has (the live decider reads the pool after the
+  requery round and, on a complete "no", adds an `Abdeckung: unzureichend` line) states the
+  gap without shrinking the pool, so this number stays 1.0 by design; the answer suite is
+  where the abstention shows.

@@ -1,7 +1,7 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
-import { EDGE_RATE_LIMIT, LANGFUSE, PORT } from "../constants";
+import { EDGE_RATE_LIMIT, GOTENBERG, LANGFUSE, PORT } from "../constants";
 
 /**
  * `app.kubernetes.io/name` of the Aspire dashboard. Referenced by rule 2 (which
@@ -33,10 +33,12 @@ const CLICKHOUSE = LANGFUSE.clickhouse;
  * tiers, and nothing outside the allow-list can open a connection into `grid`.
  *
  * Scope decisions:
- *   - **Ingress only.** Egress is left open on purpose: the agent calls many
- *     external endpoints (OpenRouter, Tavily, WorkOS, ACME) plus cluster DNS, and
- *     an egress allow-list is the easiest way to silently break the product.
- *     Tightening egress is a follow-up that needs a live cluster to validate.
+ *   - **Ingress only**, with one exception. Egress is left open on purpose: the
+ *     agent calls many external endpoints (OpenRouter, Tavily, WorkOS, ACME)
+ *     plus cluster DNS, and an egress allow-list is the easiest way to silently
+ *     break the product. Tightening egress is a follow-up that needs a live
+ *     cluster to validate. The exception is Gotenberg (rule 13), which needs no
+ *     egress at all, so denying all of it cannot break anything it does.
  *   - **Intra-namespace is allowed wholesale** (frontend→backend, backend→data,
  *     workers→data, backend→frontend BFF). Per-edge micro-policies buy little
  *     here and are far easier to get subtly wrong. The ONE exception is the
@@ -121,6 +123,7 @@ export function installNetworkPolicies(
             OBSERVABILITY_DASHBOARD,
             ...(cfg.err2issue.enabled ? [ERR2ISSUE] : []),
             ...langfuseWithheld,
+            ...(cfg.gotenberg.enabled ? [GOTENBERG.name] : []),
           ],
         },
       ],
@@ -316,6 +319,33 @@ export function installNetworkPolicies(
       })
     : undefined;
 
+  // 13. Gotenberg (ADR-0070): the frontend in, nothing out.
+  //
+  //     It parses untrusted office files, and an office file can reference
+  //     external URLs (linked images, OLE links) that LibreOffice resolves
+  //     while rendering. Denying egress turns every such reference into a
+  //     failed fetch, so the converter cannot be used to reach the internet or
+  //     another pod, whatever a document asks of it. No DNS either: it has
+  //     nothing to resolve.
+  //
+  //     Withheld from rule 2 on the same grounds as the dashboard, so the
+  //     frontend BFF is its one caller. The agent never calls it (the BFF hands
+  //     the backend the finished PDF), and nothing else has a reason to.
+  const gotenberg = cfg.gotenberg.enabled
+    ? mk("gotenberg-frontend-only", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": GOTENBERG.name } },
+        policyTypes: ["Ingress", "Egress"],
+        ingress: [
+          {
+            from: [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "frontend" } } }],
+            ports: [{ protocol: "TCP", port: PORT.gotenberg }],
+          },
+        ],
+        // Present and empty: with `Egress` in policyTypes, no rule = deny all.
+        egress: [],
+      })
+    : undefined;
+
   return [
     deny,
     intra,
@@ -331,5 +361,6 @@ export function installNetworkPolicies(
     ...(edgeLangfuse ? [edgeLangfuse] : []),
     ...(collectorToLangfuse ? [collectorToLangfuse] : []),
     ...(langfuseToClickhouse ? [langfuseToClickhouse] : []),
+    ...(gotenberg ? [gotenberg] : []),
   ];
 }

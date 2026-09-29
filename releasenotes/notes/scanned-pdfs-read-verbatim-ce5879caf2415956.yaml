@@ -1,0 +1,14 @@
+---
+fixes:
+  - >
+    A scanned PDF is now read word for word, up to 500 pages, tables
+    included, and the file says how many pages were left. Before, only its first 20 pages were looked at and those were
+    described rather than read, so the conditions in a scanned permit could
+    not be found.
+  - >
+    A PDF whose text comes out as gibberish, as some drawing programs and
+    scanners export it, is now read from the page itself, and the gibberish
+    is no longer put into search.
+  - >
+    A scanned PDF that cannot be read because no image model is set up now
+    fails with that reason, rather than "no content extracted".

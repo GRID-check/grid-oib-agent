@@ -212,12 +212,25 @@ class GroundingBlock(BaseModel):
     #: records up by the hash of the WHOLE text, so a producer that appended
     #: these bytes itself fell back to the text parser.
     trailer: str = ""
+    #: Why the hits do NOT answer the question, when a judge that read them
+    #: against it said so (``knowledge_layer.requery.judge_coverage``). Rendered
+    #: as the ``Abdeckung: unzureichend — …`` line under the preamble, so the
+    #: model reads the verdict before the passages rather than inferring it
+    #: from a score. The reason names how many hits were judged, and the claim
+    #: covers those only. ``None`` renders nothing: an unjudged block and a
+    #: covered one read as they always did.
+    coverage_gap: str | None = None
 
 
 # ---------------------------------------------------------------------------
 # The renderer
 # ---------------------------------------------------------------------------
 
+
+#: The line that says a block's passages do not answer the question. The
+#: prompt names it (``piloti_static.md`` <research_rules>), so it is one
+#: constant rather than a spelling each producer picks.
+COVERAGE_GAP_LABEL = "Abdeckung: unzureichend —"
 
 #: The heading of the fan-out JSON every rendered block carries.
 TRACE_LANES_MARKER = "## Trace-Lanes"
@@ -253,6 +266,8 @@ def render_grounding_block(block: GroundingBlock) -> str:
     it is built from the records, never read back out of the text.
     """
     lines: list[str] = block.preamble.split("\n") if block.preamble else []
+    if block.coverage_gap:
+        lines.append(f"{COVERAGE_GAP_LABEL} {_line(block.coverage_gap)}")
     lines.append("")
     for index, hit in enumerate(block.hits, 1):
         lines.extend(_hit_lines(index, hit))

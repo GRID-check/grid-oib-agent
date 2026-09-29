@@ -155,6 +155,31 @@ rollback dispatches (operator-supplied `imageTag`) still pin **all three**
 services to that tag, after the workflow verifies the tag is published for
 every image — see "Rolling back".
 
+## Rolling out ADR-0071
+
+[ADR-0071](../adr/0071-word-and-presentation-files-are-indexed-from-their-rendition.md)
+moved Word, presentation, `.xls` and `.ods` indexing onto the PDF the BFF
+converts. The two tiers must not be skewed the wrong way round:
+
+- **New backend, old BFF**: the old BFF sends no `extraction_ref`, so the
+  backend refuses those files as `office_rendition_required` and marks them
+  failed.
+- **New BFF, old backend**: harmless. The old backend ignores the unknown
+  `extraction_ref` field and reads the original as it used to.
+
+A single `pulumi up` rolls `frontend` and `aiq-agent` in parallel, so the first
+case can last as long as the frontend's surge rollout. Office uploads in that
+window fail with a retryable reason. After the deploy, open the affected files
+and use "Erneut lesen"; it converts again and ingests through the new path.
+
+Closing the window means a frontend-only deploy first, and the pipeline has no
+such step: a manual dispatch pins all three images, and a local `pulumi up`
+from a fresh checkout does not know the deployed pins (see "Partial deploys").
+Pick a quiet moment instead, or accept the retries.
+
+Gotenberg must be running (`gotenbergEnabled`, default on) before the new
+backend takes traffic. With it off, every Word and presentation upload fails.
+
 ## Rolling back
 Deploys pin every service to an immutable `sha-<40-hex>` image tag, so a
 rollback is a deploy of an older tag — not a revert. It is also the only way a

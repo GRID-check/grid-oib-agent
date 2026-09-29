@@ -166,6 +166,36 @@ describe('validation', () => {
         expect(result.fileErrors[0].code).toBe('DUPLICATE_FILE')
         expect(result.fileErrors[0].message).toContain('already exists in this session')
       })
+
+      test('never refuses a known name on a durable shelf — that is a new version, asked about elsewhere', () => {
+        // The set is this browser's memory of its own uploads. Refusing on it
+        // made a revised plan „bereits hinzugefügt" in one browser and a silent
+        // replacement in another.
+        const context: ValidationContext = {
+          existingTotalSize: 1024,
+          existingFileCount: 1,
+          existingFileNames: new Set(['existing.pdf']),
+          durableCorpus: true,
+        }
+
+        const result = validateFileUpload([createFile('existing.pdf')], context)
+
+        expect(result.fileErrors).toEqual([])
+        expect(result.validFiles.map((file) => file.name)).toEqual(['existing.pdf'])
+      })
+
+      test('still refuses the same name twice in one batch on a durable shelf', () => {
+        const context: ValidationContext = {
+          existingTotalSize: 0,
+          existingFileCount: 0,
+          existingFileNames: new Set(),
+          durableCorpus: true,
+        }
+
+        const result = validateFileUpload([createFile('a.pdf'), createFile('a.pdf')], context)
+
+        expect(result.fileErrors[0].reason).toBe('duplicate-in-batch')
+      })
     })
 
     describe('partial batch uploads (file-level errors allow other files)', () => {

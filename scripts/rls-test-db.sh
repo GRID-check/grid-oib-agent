@@ -109,6 +109,7 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/bim/model-shelf.integration.spec.ts \
     src/lib/projects/memory-service.integration.spec.ts \
     src/lib/documents/document-versions.integration.spec.ts \
+    src/lib/documents/list-page.integration.spec.ts \
     src/lib/compliance/legal-hold.integration.spec.ts \
     src/lib/conversations/erasure-queue.integration.spec.ts \
     src/lib/runs/reconcile.integration.spec.ts

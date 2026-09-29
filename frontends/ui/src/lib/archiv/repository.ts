@@ -10,41 +10,97 @@
  */
 
 import 'server-only'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { withTenant } from '@/lib/db/tenant-context'
 import { documents, type Document } from '@/lib/db/schema'
-import { DOCUMENT_LIST_LIMIT, type DocumentListRow } from '@/lib/documents/repository'
+import {
+  DOCUMENT_LIST_LIMIT,
+  afterDocumentListCursor,
+  documentNameMatchColumns,
+  filenameLookupWhere,
+  probeDocumentNames,
+  type DocumentNameMatchRow,
+  cursorCreatedAtColumn,
+  documentListColumns,
+  readDocumentListPage,
+  type DocumentListPage,
+  type DocumentListRow,
+} from '@/lib/documents/repository'
+import type { DocumentListCursor } from '@/lib/documents/list-cursor'
 
-/** List an organization's Archiv documents, most-recent first (bounded). */
+/**
+ * One keyset page of an organization's Archiv, most-recent first.
+ *
+ * Bounded per page (`DOCUMENT_LIST_LIMIT`); the whole Archiv is reachable by
+ * following `nextCursor`, in the same `created_at DESC, id ASC` order the
+ * project listing uses, so the cursor codec is shared.
+ */
 export async function listArchivDocuments(
   organizationId: string,
-  limit = DOCUMENT_LIST_LIMIT,
+  { limit = DOCUMENT_LIST_LIMIT, cursor }: { limit?: number; cursor?: DocumentListCursor } = {},
+): Promise<DocumentListPage> {
+  const db = getDb()
+  return readDocumentListPage(
+    (probeLimit) =>
+      db
+        .select({ ...documentListColumns, cursorCreatedAt: cursorCreatedAtColumn })
+        .from(documents)
+        .where(
+          and(
+            eq(documents.organizationId, organizationId),
+            eq(documents.scope, 'archiv'),
+            ...(cursor ? [afterDocumentListCursor(cursor)] : []),
+          ),
+        )
+        .orderBy(desc(documents.createdAt), asc(documents.id))
+        .limit(probeLimit),
+    limit,
+  )
+}
+
+/**
+ * The Archiv rows named `filenames` — the semantic search's join and the
+ * by-name resolve, which must reach a document whatever page of the listing it
+ * would sit on.
+ *
+ * Bounded by its input (`filenameLookupWhere`: at most
+ * `FILENAME_LOOKUP_MAX_NAMES`, each in both Unicode forms and case-folded).
+ */
+export async function findArchivDocumentsByFilenames(
+  organizationId: string,
+  filenames: readonly string[],
 ): Promise<DocumentListRow[]> {
+  const byName = filenameLookupWhere(filenames)
+  if (!byName) return []
   const db = getDb()
   return db
-    .select({
-      id: documents.id,
-      filename: documents.filename,
-      displayName: documents.displayName,
-      fileSize: documents.fileSize,
-      contentType: documents.contentType,
-      contentHash: documents.contentHash,
-      status: documents.status,
-      authoredBy: documents.authoredBy,
-      publishedVersionId: documents.publishedVersionId,
-      lifecycle: documents.lifecycle,
-      collectionName: documents.collectionName,
-      folderId: documents.folderId,
-      originPath: documents.originPath,
-      createdAt: documents.createdAt,
-      updatedAt: documents.updatedAt,
-      errorMessage: documents.errorMessage,
-      metadata: documents.metadata,
-    })
+    .select(documentListColumns)
     .from(documents)
-    .where(and(eq(documents.organizationId, organizationId), eq(documents.scope, 'archiv')))
-    .orderBy(desc(documents.createdAt))
-    .limit(limit)
+    .where(and(eq(documents.organizationId, organizationId), eq(documents.scope, 'archiv'), byName))
+    .orderBy(desc(documents.createdAt), asc(documents.id))
+    .limit(DOCUMENT_LIST_LIMIT)
+}
+
+/**
+ * The Archiv documents answering to any of `names` — the upload planner's
+ * name probe, matched the way the upload will match (`probeDocumentNames`).
+ */
+export async function findArchivDocumentsByNames(
+  organizationId: string,
+  names: readonly string[],
+): Promise<DocumentNameMatchRow[]> {
+  const db = getDb()
+  return probeDocumentNames(names, (where, limit) =>
+    withTenant({ organizationId }, () =>
+      db
+        .select(documentNameMatchColumns)
+        .from(documents)
+        .where(and(eq(documents.organizationId, organizationId), eq(documents.scope, 'archiv'), where))
+        .orderBy(desc(documents.createdAt), asc(documents.id))
+        .limit(limit),
+    ),
+  )
 }
 
 /** Load one Archiv document by id, scoped to its organization. */

@@ -36,7 +36,7 @@ export const archiv = {
     },
     kind: {
       floorplan: 'Floor plan',
-      section: 'Section',
+      section: 'Section / elevation',
       siteplan: 'Site plan',
       notice: 'Notice',
       photo: 'Photo',
@@ -60,13 +60,20 @@ export const archiv = {
     uploadProblem: 'Upload problem',
     dismissError: 'Dismiss error',
     loadError: 'The Archiv could not be loaded.',
+    listTruncated: 'Showing the newest {count} documents. Older ones are missing from this list and from the name search.',
     tryAgain: 'Try again',
   },
   actions: {
     label: 'File actions for “{name}”',
-    reingest: 'Retry indexing',
+    reingest: 'Read again',
     reingesting: 'Retrying…',
-    reingestError: 'Indexing could not be restarted. Please try again.',
+    reingestError: "Reading couldn't be restarted. Please try again.",
+    reingestRunning: 'Already being read',
+    reingestAlreadyDone: 'Already finished',
+    reingestConfirmTitle: 'Read “{name}” again?',
+    reingestConfirmDescription:
+      'Piloti reads the file again from scratch, for example to pick up the pictures in Word and PowerPoint files. Answers keep using the current version until the new one is ready.',
+    reingestConfirmAction: 'Read again',
     menuLabel: 'File actions',
     download: 'Download',
     open: 'Open',
@@ -79,7 +86,7 @@ export const archiv = {
   rename: {
     title: 'Rename document',
     description:
-      'Changes the name shown everywhere in Piloti, including on citations. The file itself and everything indexed from it stay as they are.',
+      'Changes the name shown everywhere in Piloti, including on citations. The file itself and everything read from it stay as they are.',
     label: 'Name',
     hint: 'The file extension stays as it is.',
     save: 'Rename',

@@ -52,54 +52,78 @@ import {
   summarizeDocumentVersions,
 } from '@/lib/documents/lifecycle'
 import { newVersionWriteId, versionWriteKey } from '@/lib/documents/version-content'
-import type { DocumentListRow } from '@/lib/documents/repository'
+import type { DocumentListRow, DocumentNameMatchRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { archivCollectionName } from './collection'
 import {
   deleteArchivDocument as deleteArchivDocumentRow,
   findArchivDocument,
+  findArchivDocumentsByFilenames,
+  findArchivDocumentsByNames,
   listArchivDocuments as listArchivDocumentRows,
 } from './repository'
+import { encodeDocumentListCursor, type DocumentListCursor } from '@/lib/documents/list-cursor'
 
 /** Bound the best-effort backend call that purges an ingested doc's RAG chunks. */
 const BACKEND_FETCH_TIMEOUT_MS = 10_000
 
+type ArchivListedDocument = Omit<DocumentListRow, 'metadata'> &
+  DocumentMetadata & {
+    /**
+     * How many versions the document has; `null` without a version row.
+     * The chat peek reads it to say a failed re-upload is still cited
+     * through its previous version — the same count `/api/documents`
+     * carries for a project file.
+     */
+    versionCount: number | null
+  }
+
 export interface ArchivListResult {
-  documents: Array<
-    Omit<DocumentListRow, 'metadata'> &
-      DocumentMetadata & {
-        /**
-         * How many versions the document has; `null` without a version row.
-         * The chat peek reads it to say a failed re-upload is still cited
-         * through its previous version — the same count `/api/documents`
-         * carries for a project file.
-         */
-        versionCount: number | null
-      }
-  >
+  documents: ArchivListedDocument[]
+  /**
+   * Where the next page starts, or `null` when this page is the last. Opaque;
+   * a client passes it back as `?cursor=` until it is `null`.
+   */
+  nextCursor: string | null
   collectionName: string
   /** Whether the caller may upload/delete (drives the read-only vs manage UI). */
   canManage: boolean
 }
 
 /**
- * List the org's Archiv (bounded), lazily reconciling in-flight ingestion
- * statuses with the backend and merging its read-only document metadata — the
- * exact same treatment `listDocuments` gives a project's corpus. Any org member
- * may read; the internal `metadata` jsonb never leaves the BFF.
+ * Reconcile in-flight statuses and attach version counts — what a listing
+ * row needs before it leaves the BFF, whichever query found it.
  */
-export async function listArchiv(session: AuthorizedSession): Promise<ArchivListResult> {
-  const rows = await listArchivDocumentRows(session.organizationId)
+async function toArchivListedDocuments(
+  session: AuthorizedSession,
+  rows: DocumentListRow[],
+): Promise<ArchivListedDocument[]> {
   const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
   const versions = await summarizeDocumentVersions(
     session.organizationId,
     reconciled.map((row) => row.id),
   )
+  return reconciled.map(({ metadata: _metadata, ...row }) => ({
+    ...row,
+    versionCount: versions.get(row.id)?.versionCount ?? null,
+  }))
+}
+
+/**
+ * One page of the org's Archiv (bounded, keyset-paginated), lazily reconciling
+ * in-flight ingestion statuses with the backend and merging its read-only
+ * document metadata — the exact same treatment `listDocuments` gives a
+ * project's corpus. Any org member may read; the internal `metadata` jsonb
+ * never leaves the BFF.
+ */
+export async function listArchiv(
+  session: AuthorizedSession,
+  { cursor }: { cursor?: DocumentListCursor } = {},
+): Promise<ArchivListResult> {
+  const page = await listArchivDocumentRows(session.organizationId, { cursor })
   return {
-    documents: reconciled.map(({ metadata: _metadata, ...row }) => ({
-      ...row,
-      versionCount: versions.get(row.id)?.versionCount ?? null,
-    })),
+    documents: await toArchivListedDocuments(session, page.rows),
+    nextCursor: page.nextCursor ? encodeDocumentListCursor(page.nextCursor) : null,
     collectionName: archivCollectionName(session.organizationId),
     canManage: canManageArchiv(session),
   }
@@ -107,19 +131,55 @@ export async function listArchiv(session: AuthorizedSession): Promise<ArchivList
 
 /**
  * Document-centric semantic search over the org's shared Archiv. Any org member
- * may read (via `listArchiv`); resolves the org's `archiv_<orgId>` collection,
- * runs the deterministic vector search on the backend, and joins the hits to the
+ * may read; resolves the org's `archiv_<orgId>` collection, runs the
+ * deterministic vector search on the backend, and joins the hits to the
  * Archiv's file rows by filename. Fail-open: a backend error/timeout yields
  * `{ hits: [] }`, never a crash.
+ *
+ * The join looks the hit names up directly rather than reading the listing:
+ * the listing is paged, and a hit on a document past its first page would
+ * otherwise be dropped as if the search had not found it.
  */
 export async function searchArchivDocuments(
   session: AuthorizedSession,
   query: string,
   topK = 20,
-): Promise<{ hits: Array<SearchedDocument<ArchivListResult['documents'][number]>> }> {
-  const { documents, collectionName } = await listArchiv(session)
-  const hits = await fetchSemanticHits(collectionName, query, topK)
-  return { hits: joinHitsToFiles(hits, documents) }
+): Promise<{ hits: Array<SearchedDocument<ArchivListedDocument>> }> {
+  const hits = await fetchSemanticHits(archivCollectionName(session.organizationId), query, topK)
+  if (hits.length === 0) return { hits: [] }
+  const rows = await findArchivDocumentsByFilenames(
+    session.organizationId,
+    hits.map((hit) => hit.file_name),
+  )
+  return { hits: joinHitsToFiles(hits, await toArchivListedDocuments(session, rows)) }
+}
+
+/**
+ * The Archiv documents NAMED `filenames` (case-insensitive, either Unicode
+ * form), as listing rows — the by-name resolve
+ * (`POST /api/archiv/documents/by-name`). For the readers that want particular
+ * documents (citations, surfaced-document cards), which used to look them up in
+ * the listing's first page and missed every one past it. Any org member may
+ * read, as with `listArchiv`.
+ */
+export async function resolveArchivDocumentsByName(
+  session: AuthorizedSession,
+  filenames: readonly string[],
+): Promise<ArchivListedDocument[]> {
+  const rows = await findArchivDocumentsByFilenames(session.organizationId, filenames)
+  return toArchivListedDocuments(session, rows)
+}
+
+/**
+ * Which of `names` the Archiv already holds — the upload planner's question,
+ * asked of the database rather than of the paged listing (see
+ * `probeProjectDocumentNames`). Any org member may read, as with `listArchiv`.
+ */
+export async function probeArchivDocumentNames(
+  session: AuthorizedSession,
+  names: readonly string[],
+): Promise<DocumentNameMatchRow[]> {
+  return findArchivDocumentsByNames(session.organizationId, names)
 }
 
 export interface UploadArchivDocumentResult {

@@ -221,6 +221,22 @@ export const ROLLOUT = {
   },
 
   /**
+   * Gotenberg (ADR-0070/0071). Since ADR-0071 the BFF reads Word and
+   * presentation files from the PDF it converts, so a conversion cut by a
+   * rollout fails that ingest (retryably) instead of costing a preview. The
+   * preStop sleep keeps the old pod serving while the Service stops routing to
+   * it; then SIGTERM, and Gotenberg finishes what it holds for up to 120s
+   * (`--gotenberg-graceful-shutdown-duration` in `GOTENBERG.args`), the same
+   * budget its API timeout allows one conversion. Grace = hook + 120s + slack.
+   */
+  converter: {
+    minReadySeconds: 10,
+    progressDeadlineSeconds: 600,
+    terminationGracePeriodSeconds: 135,
+    endpointDrainSeconds: 5,
+  },
+
+  /**
    * Single-replica data-plane services (Dragonfly, and the Chroma/SeaweedFS
    * StatefulSets). Short soak — they either open their port or they don't.
    */
@@ -409,7 +425,7 @@ export function orderedRollout(p: RolloutProfile) {
  */
 export function gracefulShutdown(
   p: RolloutProfile,
-  runtime?: "node" | "python",
+  runtime?: "node" | "python" | "coreutils",
 ): {
   terminationGracePeriodSeconds: number;
   lifecycle?: k8s.types.input.core.v1.Lifecycle;
@@ -432,7 +448,9 @@ export function gracefulShutdown(
   const command =
     runtime === "node"
       ? ["node", "-e", `setTimeout(() => {}, ${p.endpointDrainSeconds * 1000})`]
-      : ["python", "-c", `import time; time.sleep(${p.endpointDrainSeconds})`];
+      : runtime === "python"
+        ? ["python", "-c", `import time; time.sleep(${p.endpointDrainSeconds})`]
+        : ["sleep", String(p.endpointDrainSeconds)];
   return { ...base, lifecycle: { preStop: { exec: { command } } } };
 }
 

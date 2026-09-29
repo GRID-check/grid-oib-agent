@@ -11,7 +11,6 @@ which asserts the same `folder_path` key on the request body.
 """
 
 from unittest.mock import MagicMock
-from unittest.mock import patch
 
 import httpx
 import pytest
@@ -48,14 +47,8 @@ def app(mock_ingestor, monkeypatch):
 
 async def _ingest(app, body: dict) -> httpx.Response:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        with patch("httpx.AsyncClient.get") as mock_get:
-            mock_response = MagicMock(spec=httpx.Response)
-            mock_response.status_code = 200
-            mock_response.content = b"pdf bytes"
-            mock_response.headers = {"content-type": "application/pdf"}
-            mock_response.raise_for_status = MagicMock()
-            mock_get.return_value = mock_response
-            return await client.post("/v1/ingest", json=body)
+        # The request downloads nothing (the job does), so nothing to stub.
+        return await client.post("/v1/ingest", json=body)
 
 
 def _config(mock_ingestor) -> dict:

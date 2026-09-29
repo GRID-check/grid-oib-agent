@@ -1,17 +1,16 @@
 """Shared, backend-agnostic document classification helpers.
 
-Both ingestion backends (LlamaIndex and Foundational RAG) run two light LLM
-passes over freshly-extracted document text at ingestion time:
+The ingestor runs two light LLM passes over freshly-extracted document text at
+ingestion time:
 
 1. A one-sentence summary (``summarize_document_text``) — surfaced in the Files
    metadata panel and in the per-turn ``available_documents`` prompt line.
 2. A controlled set of German document tags (``classify_document_tags``) —
    document type + OIB discipline — stored alongside the summary.
 
-The two backends differ only in how they *obtain* the text (LlamaIndex already
-holds extracted ``Document`` chunks; Foundational RAG extracts client-side from
-the file). Everything downstream of the text — the prompt, the LLM call, and the
-defensive parsing — lives here so the two backends can never drift apart.
+The ingestor supplies the extracted text; everything downstream of it — the
+prompt, the LLM call, and the defensive parsing — lives here, beside the tag
+vocabulary the API routes validate against.
 
 Both helpers are fully fail-open: any missing LLM, LLM error, timeout, or
 unparseable output resolves to ``None`` and never disturbs ingestion.
@@ -246,9 +245,8 @@ def fallback_summary_from_text(text: str | None, max_chars: int = FALLBACK_SUMMA
 def summarize_document_text(text_content: str, file_name: str, llm) -> str | None:
     """Generate a one-sentence summary from already-extracted document text.
 
-    Backends are responsible for obtaining ``text_content`` (from chunks or via
-    client-side extraction); this function owns the prompt, the LLM call, and
-    the response parsing so both backends stay identical.
+    The ingestor obtains ``text_content`` from its chunks; this function owns
+    the prompt, the LLM call, and the response parsing.
 
     Args:
         text_content: Representative document text (e.g. first + last chunk).

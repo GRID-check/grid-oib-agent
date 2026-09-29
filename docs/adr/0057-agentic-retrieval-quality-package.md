@@ -180,7 +180,9 @@ All changes ship with unit tests under `tests/knowledge_layer_tests/`
 
 - `view_knowledge_image` covers the LlamaIndex ingest backend; the
   `foundational_rag` backend's page-render track is a known follow-up (see
-  deep-dive §6 scope note).
+  deep-dive §6 scope note). *(2026-09-29: moot. That backend was deleted in
+  [ADR-0072](0072-the-knowledge-layer-has-one-backend-llamaindex.md);
+  LlamaIndex is the only one.)*
 - **`view_knowledge_image` shipped unbound, and stayed that way (2026-09
   correction).** Everything above describes it accurately — it was built,
   registered, ADR'd here and documented as default-on — but it was declared in
