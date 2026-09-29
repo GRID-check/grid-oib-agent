@@ -21,7 +21,6 @@ from fastapi import status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from pydantic import Field
-from starlette.background import BackgroundTask
 
 from aiq_agent.knowledge.document_classification import is_valid_doc_class
 from aiq_agent.oib_status import OibKnowledgeStatus
@@ -77,10 +76,33 @@ def _corpus_tarball() -> Path:
     handle = tempfile.NamedTemporaryFile(prefix="oib-corpus-", suffix=".tar.gz", delete=False)
     handle.close()
     path = Path(handle.name)
-    with tarfile.open(path, "w:gz", compresslevel=1) as archive:
-        for pdf in oib_sync.discover_pdfs():
-            archive.add(pdf, arcname=pdf.name)
+    try:
+        # `discover_pdfs` keeps a symlink to a PDF (``is_file`` follows it);
+        # the archive must carry the bytes the sync reads, not the link.
+        with tarfile.open(path, "w:gz", compresslevel=1, dereference=True) as archive:
+            for pdf in oib_sync.discover_pdfs():
+                archive.add(pdf, arcname=pdf.name)
+    except BaseException:
+        # The response's cleanup is only attached once this returns; a failed
+        # build would otherwise leave a partial copy of the corpus on disk.
+        path.unlink(missing_ok=True)
+        raise
     return path
+
+
+class _TemporaryFileResponse(FileResponse):
+    """A ``FileResponse`` that deletes its file however the response ends.
+
+    A background task is not enough: Starlette answers a malformed or
+    unsatisfiable ``Range`` (400, 416) and a client that disconnects mid-send
+    without ever reaching it, and each would leave a copy of the corpus behind.
+    """
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            Path(self.path).unlink(missing_ok=True)
 
 
 def _run_ingestion() -> tuple[int, int]:
@@ -324,14 +346,9 @@ def add_oib_routes(router: APIRouter) -> None:
         _: None = Depends(_require_admin_token_strict),
     ) -> FileResponse:
         """The corpus a CI run ingests (the answer-suite workflow), built on a
-        worker thread into a temp file that is removed once it is sent."""
+        worker thread into a temp file that is removed once the response ends."""
         path = await asyncio.to_thread(_corpus_tarball)
-        return FileResponse(
-            path,
-            media_type="application/gzip",
-            filename="oib-corpus.tar.gz",
-            background=BackgroundTask(path.unlink, missing_ok=True),
-        )
+        return _TemporaryFileResponse(path, media_type="application/gzip", filename="oib-corpus.tar.gz")
 
     @router.get(
         "/v1/oib/status",

@@ -41,14 +41,24 @@ on:
 permissions:
   contents: read
 
+# A run the job condition below will skip (another label added) still enters
+# its workflow's concurrency group, and would cancel a suite in progress: it
+# gets a group of its own.
 concurrency:
-  group: answer-suite-${{ github.event.pull_request.number }}
+  group: >-
+    answer-suite-${{ github.event.pull_request.number }}${{
+    github.event.action == 'labeled' && github.event.label.name != 'answer-suite'
+    && format('-skipped-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
   suite:
     name: Answer suite (${{ matrix.side }})
-    if: contains(github.event.pull_request.labels.*.name, 'answer-suite')
+    # A `labeled` event for ANOTHER label (a path labeler, `docs`) would re-run
+    # both paid sides and cancel a run in progress: only this label starts one.
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'answer-suite') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'answer-suite')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -95,9 +105,14 @@ jobs:
           OIB_CORPUS_URL: ${{ secrets.OIB_CORPUS_URL }}
           OIB_CORPUS_TOKEN: ${{ secrets.OIB_CORPUS_TOKEN }}
         run: |
-          auth=()
-          [ -n "$OIB_CORPUS_TOKEN" ] && auth=(-H "x-grid-internal-token: $OIB_CORPUS_TOKEN")
-          curl -fsSL --retry 3 --max-time 900 "${auth[@]}" -o "$RUNNER_TEMP/corpus" "$OIB_CORPUS_URL"
+          # A token-bearing request goes over HTTPS only and follows no
+          # redirect: curl would forward a custom header in clear text, or to
+          # whatever host a redirect names. A URL without a token may redirect.
+          opts=(-L)
+          if [ -n "$OIB_CORPUS_TOKEN" ]; then
+            opts=(--proto =https -H "x-grid-internal-token: $OIB_CORPUS_TOKEN")
+          fi
+          curl -fsS --retry 3 --max-time 900 "${opts[@]}" -o "$RUNNER_TEMP/corpus" "$OIB_CORPUS_URL"
           case "$(file -b --mime-type "$RUNNER_TEMP/corpus")" in
             application/zip) unzip -q -j "$RUNNER_TEMP/corpus" '*.pdf' -d data/oib ;;
             application/gzip|application/x-gzip) tar -xzf "$RUNNER_TEMP/corpus" -C data/oib --wildcards --no-anchored '*.pdf' --transform 's#.*/##' ;;
@@ -165,7 +180,11 @@ jobs:
           fi
           args=(--report "$after")
           [ -f "$before" ] && args+=(--baseline "$before")
-          task be:eval:answer-suite -- "${args[@]}" > "$RUNNER_TEMP/report.md"
+          # A failed render must not leave the previous run's report standing as
+          # the sticky comment: say this run failed instead.
+          if ! task be:eval:answer-suite -- "${args[@]}" > "$RUNNER_TEMP/report.md"; then
+            echo "Rendering the report failed; see this job's log." > "$RUNNER_TEMP/report.md"
+          fi
       - name: Upsert the sticky PR comment
         uses: actions/github-script@v9
         with:
