@@ -480,6 +480,33 @@ class TestCorpusExport:
             assert sorted(archive.getnames()) == ["oib-rl_2_ausgabe_mai_2023.pdf", "oib-rl_4_ausgabe_mai_2023.pdf"]
 
     @pytest.mark.asyncio
+    async def test_a_symlinked_pdf_is_archived_as_its_bytes(self, app, corpus, tmp_path):
+        import tarfile
+
+        target = tmp_path / "elsewhere.pdf"
+        target.write_bytes(b"%PDF linked")
+        (corpus / "oib-rl_3_ausgabe_mai_2023.pdf").symlink_to(target)
+        async with _client(app) as client:
+            res = await client.get("/v1/admin/oib/corpus.tar.gz", headers={"X-Admin-Token": "t0k3n"})
+        with tarfile.open(fileobj=io.BytesIO(res.content), mode="r:gz") as archive:
+            member = archive.getmember("oib-rl_3_ausgabe_mai_2023.pdf")
+            assert member.isfile() and archive.extractfile(member).read() == b"%PDF linked"
+
+    @pytest.mark.asyncio
+    async def test_a_refused_range_request_leaves_no_archive(self, app, corpus, tmp_path, monkeypatch):
+        import tempfile as tempfile_module
+
+        scratch = tmp_path / "tmp"
+        scratch.mkdir()
+        monkeypatch.setattr(tempfile_module, "tempdir", str(scratch))
+        async with _client(app) as client:
+            res = await client.get(
+                "/v1/admin/oib/corpus.tar.gz", headers={"X-Admin-Token": "t0k3n", "Range": "bytes=999999999-"}
+            )
+        assert res.status_code == 416
+        assert list(scratch.iterdir()) == []
+
+    @pytest.mark.asyncio
     async def test_a_wrong_token_is_refused(self, app, corpus):
         async with _client(app) as client:
             res = await client.get("/v1/admin/oib/corpus.tar.gz", headers={"X-Admin-Token": "nope"})

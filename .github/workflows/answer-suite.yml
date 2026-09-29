@@ -105,9 +105,14 @@ jobs:
           OIB_CORPUS_URL: ${{ secrets.OIB_CORPUS_URL }}
           OIB_CORPUS_TOKEN: ${{ secrets.OIB_CORPUS_TOKEN }}
         run: |
-          auth=()
-          [ -n "$OIB_CORPUS_TOKEN" ] && auth=(-H "x-grid-internal-token: $OIB_CORPUS_TOKEN")
-          curl -fsSL --retry 3 --max-time 900 "${auth[@]}" -o "$RUNNER_TEMP/corpus" "$OIB_CORPUS_URL"
+          # A token-bearing request goes over HTTPS only and follows no
+          # redirect: curl would forward a custom header in clear text, or to
+          # whatever host a redirect names. A URL without a token may redirect.
+          opts=(-L)
+          if [ -n "$OIB_CORPUS_TOKEN" ]; then
+            opts=(--proto =https -H "x-grid-internal-token: $OIB_CORPUS_TOKEN")
+          fi
+          curl -fsS --retry 3 --max-time 900 "${opts[@]}" -o "$RUNNER_TEMP/corpus" "$OIB_CORPUS_URL"
           case "$(file -b --mime-type "$RUNNER_TEMP/corpus")" in
             application/zip) unzip -q -j "$RUNNER_TEMP/corpus" '*.pdf' -d data/oib ;;
             application/gzip|application/x-gzip) tar -xzf "$RUNNER_TEMP/corpus" -C data/oib --wildcards --no-anchored '*.pdf' --transform 's#.*/##' ;;
