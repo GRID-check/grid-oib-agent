@@ -53,7 +53,11 @@ interface EffortDialProps {
   className?: string
 }
 
-export const EffortDial: FC<EffortDialProps> = ({ conversationId, disabled = false, className }) => {
+export const EffortDial: FC<EffortDialProps> = ({
+  conversationId,
+  disabled = false,
+  className,
+}) => {
   const t = useTranslations('chat')
   const effort = useEffortStore((state) => effectiveEffort(state, conversationId))
   const choose = useEffortStore((state) => state.choose)
@@ -72,7 +76,10 @@ export const EffortDial: FC<EffortDialProps> = ({ conversationId, disabled = fal
           variant="ghost"
           size="sm"
           data-testid="effort-dial-trigger"
-          className={cn('text-muted-foreground h-8 gap-1 rounded-lg px-2.5 text-xs font-semibold', className)}
+          className={cn(
+            'text-muted-foreground h-8 gap-1 rounded-lg px-2.5 text-xs font-semibold',
+            className
+          )}
           disabled={disabled}
           aria-label={t('effortDial.trigger', { level: label })}
           title={t('effortDial.trigger', { level: label })}
@@ -81,7 +88,13 @@ export const EffortDial: FC<EffortDialProps> = ({ conversationId, disabled = fal
           <ChevronDown className="size-3" aria-hidden="true" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="end" sideOffset={8} className="w-72 p-4" data-testid="effort-dial">
+      <PopoverContent
+        side="top"
+        align="end"
+        sideOffset={8}
+        className="w-72 p-4"
+        data-testid="effort-dial"
+      >
         <div className="flex items-center justify-between gap-2">
           <p className="text-sm">
             <span className="text-muted-foreground">{t('effortDial.title')}</span>{' '}
@@ -135,14 +148,30 @@ const RAIL: CSSProperties = { left: INSET + THUMB / 2, right: INSET + THUMB / 2 
 /** A box as wide as the thumb's travel, starting at the thumb's left edge in the left stop. */
 const TRAVEL: CSSProperties = { left: INSET, width: `calc(100% - ${2 * INSET + THUMB}px)` }
 
-const TRAIL: CSSProperties = {
-  // Ends at the thumb's centre and is one track long; the track clips the rest.
+/** The fade that thickens the trail toward the thumb. It ends at the thumb's centre, one track long; the track clips the rest. */
+const TRAIL_WINDOW: CSSProperties = {
   right: `calc(100% - ${THUMB / 2}px)`,
+  width: `calc(100% + ${2 * INSET + THUMB}px)`,
+  maskImage: 'linear-gradient(to right, transparent, black 85%)',
+}
+
+/**
+ * Inside the window, a box as wide as the travel whose left edge sits at the
+ * track's left edge when the thumb is in the left stop. It glides back by the
+ * same share the window glides forward, so what it carries stands still.
+ */
+const TRAIL_ANCHOR: CSSProperties = {
+  left: `calc(100% - ${INSET + THUMB / 2}px)`,
+  width: `calc(100% - ${2 * INSET + THUMB}px)`,
+}
+
+/** The dots, one track wide and fixed to the track. */
+const TRAIL_DOTS: CSSProperties = {
+  left: 0,
   width: `calc(100% + ${2 * INSET + THUMB}px)`,
   backgroundImage: 'radial-gradient(circle, currentColor 1.1px, transparent 1.6px)',
   backgroundSize: '6px 6px',
-  backgroundPosition: 'right center',
-  maskImage: 'linear-gradient(to right, transparent, black 85%)',
+  backgroundPosition: 'left center',
 }
 
 /**
@@ -151,10 +180,13 @@ const TRAIL: CSSProperties = {
  * thumb keeps the drawn thumb's width, which is what makes the browser's stop
  * positions and the drawn ones the same.
  *
- * Light stops mark the five levels. The thumb and its dot trail glide between
- * them on `springGlide`: the travel is anything from one stop to all four, and
- * the glide is the reader's own input carried through. Both move by
- * `transform`, a share of a box exactly as wide as the travel, so the global
+ * Light stops mark the five levels. The thumb glides between them on
+ * `springGlide`: the travel is anything from one stop to all four, and the
+ * glide is the reader's own input carried through. The dot trail does not
+ * travel with it: the dots are fixed to the track and the thumb reveals them,
+ * through a window that glides with the thumb while the dots inside glide
+ * back by the same share. Everything moves by `transform`, a share of a box
+ * exactly as wide as the travel, so the global
  * `<MotionConfig reducedMotion="user">` drops the glide for readers who asked
  * for less motion. A stop the trail has reached fades out, since a grey dot
  * inside the trail reads as a blemish rather than a stop, and the stops sit
@@ -163,10 +195,19 @@ const TRAIL: CSSProperties = {
 const EffortSlider: FC<EffortSliderProps> = ({ label, index, valueText, onChoose }) => {
   const sliderId = useId()
   const share = index / (CHAT_EFFORTS.length - 1)
-  const glide = { initial: false, animate: { x: `${share * 100}%` }, transition: springGlide } as const
+  const glide = {
+    initial: false,
+    animate: { x: `${share * 100}%` },
+    transition: springGlide,
+  } as const
+  const holdStill = {
+    initial: false,
+    animate: { x: `${-share * 100}%` },
+    transition: springGlide,
+  } as const
 
   return (
-    <div className="group bg-muted relative mt-2 h-10 overflow-hidden rounded-xl pointer-coarse:h-11">
+    <div className="bg-muted pointer-coarse:h-11 group relative mt-2 h-10 overflow-hidden rounded-xl">
       <div className="pointer-events-none absolute inset-y-0" style={RAIL} aria-hidden="true">
         {CHAT_EFFORTS.map((level, position) => (
           <span
@@ -181,8 +222,23 @@ const EffortSlider: FC<EffortSliderProps> = ({ label, index, valueText, onChoose
           />
         ))}
       </div>
-      <motion.div className="pointer-events-none absolute inset-y-1" style={TRAVEL} aria-hidden="true" {...glide}>
-        <span className="text-foreground/70 absolute inset-y-0" style={TRAIL} />
+      <motion.div
+        className="pointer-events-none absolute inset-y-1"
+        style={TRAVEL}
+        aria-hidden="true"
+        {...glide}
+      >
+        <span className="absolute inset-y-0 overflow-hidden" style={TRAIL_WINDOW}>
+          <motion.span
+            className="absolute inset-y-0"
+            style={TRAIL_ANCHOR}
+            data-testid="effort-dial-trail"
+            data-share={-share}
+            {...holdStill}
+          >
+            <span className="text-foreground/70 absolute inset-y-0" style={TRAIL_DOTS} />
+          </motion.span>
+        </span>
       </motion.div>
       <motion.div
         className="pointer-events-none absolute inset-y-1"

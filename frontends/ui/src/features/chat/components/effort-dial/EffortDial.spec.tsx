@@ -5,7 +5,9 @@ import { useEffortStore } from '../../stores/effort-store'
 import { EffortDial, resetEffortDialDefaultRequest } from './EffortDial'
 
 function mockOrgSettings(settings: Record<string, unknown>) {
-  const fetchMock = vi.fn(async () => new Response(JSON.stringify({ settings: { settings } }), { status: 200 }))
+  const fetchMock = vi.fn(
+    async () => new Response(JSON.stringify({ settings: { settings } }), { status: 200 })
+  )
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
 }
@@ -56,9 +58,23 @@ describe('EffortDial', () => {
     expect(screen.getByTestId('effort-dial-thumb')).toHaveAttribute('data-share', '0.75')
   })
 
+  it('holds the dot trail still while the thumb reveals it', async () => {
+    mockOrgSettings({})
+    render(<EffortDial conversationId="c1" />)
+
+    fireEvent.click(screen.getByTestId('effort-dial-trigger'))
+    fireEvent.change(await screen.findByTestId('effort-dial-slider'), { target: { value: '3' } })
+
+    // The trail's window glides with the thumb; the dots inside glide back by the same share.
+    expect(screen.getByTestId('effort-dial-trail')).toHaveAttribute('data-share', '-0.75')
+  })
+
   it('does not open its help tooltip when a click opens the dial', async () => {
     const matches = Element.prototype.matches
-    vi.spyOn(Element.prototype, 'matches').mockImplementation(function (this: Element, selector: string) {
+    vi.spyOn(Element.prototype, 'matches').mockImplementation(function (
+      this: Element,
+      selector: string
+    ) {
       return selector === ':focus-visible' ? false : matches.call(this, selector)
     })
     mockOrgSettings({})
@@ -71,7 +87,10 @@ describe('EffortDial', () => {
   })
 
   it('keeps the product default when the settings cannot be read', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 500 })))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('nope', { status: 500 }))
+    )
     render(<EffortDial conversationId="c1" />)
 
     await waitFor(() => expect(fetch).toHaveBeenCalled())
