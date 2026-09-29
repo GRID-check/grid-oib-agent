@@ -1,0 +1,7 @@
+---
+features:
+  - >
+    Opening a citation of a plan or photo now marks the drawing it refers to,
+    such as the floor plan or the section, with a labelled box instead of only
+    opening the page. The box shows which drawing on the sheet was read, not
+    the exact object within it.

@@ -175,6 +175,37 @@ Two properties are load-bearing and are what the tests pin:
   layer at all. The viewer then behaves exactly as it did before the highlight
   existed — open at the page, no mark, no error surface.
 
+A passage read off a PICTURE of the page is the exception, and it is marked by
+its box instead (issue #433, 2026-09-29):
+
+```text
+locus.regions   → boxes, 0-1 over the page as shown → drawn as percentages
+                  of the page box → scroll to the top one, pulse, leave a mark
+```
+
+What retrieval read for a plan is the vision model's description of one
+depiction on the sheet, so there is no text on the page to match. The analysis
+already stored a box per depiction in `drawing_data`; the knowledge layer states
+it on the `GroundingHit` as a `SourceRegion` (`register._hit_regions`), the
+registry merges a page's boxes on dedup, and the wire carries them as
+`regions: [{box, label}]`. Three rules hold it honest:
+
+- **A box only for a frame the viewer shows.** A rendered PDF page and an
+  uploaded image are the whole frame the analysis read. A raster embedded in a
+  document is not: its box is relative to the raster, whose place on the page
+  is not stored, so it gets no box rather than one in the wrong place.
+- **The model never reads it.** It is a record field with no header line, so the
+  grounding text is byte-identical and the answer suite has nothing to measure.
+  The text parser cannot recover it either, so a turn replayed from storage
+  without its records opens the plan at the page, as before.
+- **A region replaces the text search, never joins it.** `SourcePreview` passes
+  `regions` or `highlight`, not both: searching the sheet for a description
+  would only walk the neighbouring pages next.
+
+The box is the model's approximation of a depiction (the Grundriss, the
+Schnitt), not the one object a question named. Narrowing it to the Sitztreppe
+itself would need per-entity boxes from the analysis and a re-ingest.
+
 This is also why the viewer renders the PDF itself rather than framing the
 browser's. `#page=N` was the entire vocabulary an `<iframe>` offered; a text
 layer is not reachable through it at any price.

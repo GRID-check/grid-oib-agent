@@ -57,6 +57,9 @@ const baseSession: AuthorizedSession = {
   featureFlags: null,
 };
 
+/** A real project id is a uuid; the tenancy probe answers null for anything else. */
+const PROJECT_ID = "00000000-0000-4000-8000-000000000001";
+
 describe("requireProjectAccess", () => {
   // Every test below asks about the same (session, project) with different
   // FGA answers, so the authz cache (default TTL 30s) must be off here.
@@ -76,7 +79,7 @@ describe("requireProjectAccess", () => {
 
     const result = await requireProjectAccess(
       { ...baseSession, role: "admin" },
-      "project-1",
+      PROJECT_ID,
     );
 
     expect(result).toEqual({ role: "project-admin" });
@@ -92,7 +95,7 @@ describe("requireProjectAccess", () => {
     );
 
     await expect(
-      requireProjectAccess({ ...baseSession, role: "admin" }, "project-1"),
+      requireProjectAccess({ ...baseSession, role: "admin" }, PROJECT_ID),
     ).rejects.toThrow("Not found");
     expect(mockGetWorkOS).not.toHaveBeenCalled();
   });
@@ -107,13 +110,13 @@ describe("requireProjectAccess", () => {
       "project:manage": false,
     });
 
-    const result = await requireProjectAccess(baseSession, "project-1");
+    const result = await requireProjectAccess(baseSession, PROJECT_ID);
 
     expect(result).toEqual({ role: "project-viewer" });
     expect(check).toHaveBeenCalledWith({
       organizationMembershipId: "om_1",
       permissionSlug: "project:view",
-      resourceExternalId: "project-1",
+      resourceExternalId: PROJECT_ID,
       resourceTypeSlug: "project",
     });
   });
@@ -128,7 +131,7 @@ describe("requireProjectAccess", () => {
       "project:manage": false,
     });
 
-    const result = await requireProjectAccess(baseSession, "project-1");
+    const result = await requireProjectAccess(baseSession, PROJECT_ID);
 
     expect(result).toEqual({ role: "project-editor" });
   });
@@ -143,7 +146,7 @@ describe("requireProjectAccess", () => {
       "project:manage": true,
     });
 
-    const result = await requireProjectAccess(baseSession, "project-1");
+    const result = await requireProjectAccess(baseSession, PROJECT_ID);
 
     expect(result).toEqual({ role: "project-admin" });
   });
@@ -157,7 +160,7 @@ describe("requireProjectAccess", () => {
     });
 
     await expect(
-      requireProjectAccess(baseSession, "project-1"),
+      requireProjectAccess(baseSession, PROJECT_ID),
     ).rejects.toThrow("Not found");
   });
 
@@ -168,7 +171,7 @@ describe("requireProjectAccess", () => {
     setupWorkOS({});
 
     await expect(
-      requireProjectAccess(baseSession, "project-1"),
+      requireProjectAccess(baseSession, PROJECT_ID),
     ).rejects.toThrow("Not found");
     expect(mockGetWorkOS).not.toHaveBeenCalled();
   });
@@ -178,7 +181,7 @@ describe("requireProjectAccess", () => {
     setupWorkOS({});
 
     await expect(
-      requireProjectAccess(baseSession, "project-1"),
+      requireProjectAccess(baseSession, PROJECT_ID),
     ).rejects.toThrow("Not found");
     expect(mockGetWorkOS).not.toHaveBeenCalled();
   });

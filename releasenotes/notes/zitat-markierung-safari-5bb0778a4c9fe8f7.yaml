@@ -1,0 +1,5 @@
+---
+fixes:
+  - >
+    In Safari, opening a citation now marks the quoted passage in the document,
+    as it does in Chrome and Firefox.

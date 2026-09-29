@@ -45,6 +45,7 @@ from urllib.parse import urlparse
 from urllib.parse import urlunparse
 
 from aiq_agent.common.grounding_block import GroundingHit
+from aiq_agent.common.grounding_block import SourceRegion
 from aiq_agent.common.grounding_block import get_grounding_block
 from aiq_agent.common.source_kinds import SCOPE_QUALIFIERS
 from aiq_agent.common.source_kinds import TOOL_RESULT_SOURCE_TYPE
@@ -130,6 +131,12 @@ class SourceEntry:
     # session-registry cache like the other fields.
     rank: str | None = None
     binding_status: str = "unbekannt"
+    # WHERE ON THE PAGE the passage sits, as boxes the viewer draws (issue #433).
+    # Stated by the producer for a passage read off a picture of the page (a
+    # plan's Grundriss, a photo), never for running text, which the viewer
+    # locates by matching ``chunk_text`` instead. Several chunks of one page
+    # merge their boxes on dedup, so a page cited for two depictions marks both.
+    regions: list[SourceRegion] = field(default_factory=list)
 
 
 @dataclass
@@ -321,6 +328,20 @@ class _ParsedURL:
 # ---------------------------------------------------------------------------
 
 
+#: How many boxes one page's source carries. A sheet analysed into more
+#: depictions than this is marked on its best-scoring ones, which arrive first.
+_MAX_REGIONS_PER_SOURCE = 6
+
+
+def _merge_regions(entry: SourceEntry, regions: list[SourceRegion]) -> None:
+    """Fold ``regions`` into ``entry``'s, dropping repeats and holding the cap."""
+    for region in regions:
+        if len(entry.regions) >= _MAX_REGIONS_PER_SOURCE:
+            return
+        if region not in entry.regions:
+            entry.regions.append(region)
+
+
 class SourceRegistry:
     """Registry of sources captured from tool call results.
 
@@ -415,6 +436,7 @@ class SourceRegistry:
                             existing.punkt = entry.punkt
                         if entry.score is not None and (existing.score is None or entry.score > existing.score):
                             existing.score = entry.score
+                        _merge_regions(existing, entry.regions)
                         break
         if added:
             self._all.append(entry)
@@ -647,6 +669,11 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                             score=item.get("score"),
                             rank=item.get("rank"),
                             binding_status=item.get("binding_status", "unbekannt"),
+                            regions=[
+                                region
+                                for region in map(SourceRegion.from_cached, item.get("regions") or [])
+                                if region is not None
+                            ],
                         )
                     )
                 except Exception:
@@ -988,6 +1015,7 @@ def _entry_from_hit(hit: GroundingHit, tool_name: str) -> SourceEntry:
         chunk_text=hit.body.strip() or None,
         punkt=(hit.punkt or "").strip() or None,
         score=hit.score,
+        regions=list(hit.regions[:_MAX_REGIONS_PER_SOURCE]),
     )
 
 
@@ -2495,6 +2523,10 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
         # SSE frame and into ``messages.metadata``, and the client only needs
         # enough to locate a sentence in a document it already has.
         "snippet": _wire_snippet(entry.chunk_text),
+        # WHERE ON THE PAGE, for a passage read off a picture of it: boxes the
+        # viewer draws over the page (issue #433). Absent for running text,
+        # which the viewer finds by matching ``snippet`` instead.
+        "regions": [region.to_wire() for region in entry.regions] or None,
     }
     return {key: value for key, value in payload.items() if value is not None}
 

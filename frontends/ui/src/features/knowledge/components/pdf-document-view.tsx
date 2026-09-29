@@ -43,10 +43,13 @@ import { useTranslations } from '@/i18n'
 import {
   documentParameters,
   loadPdfjs,
+  readPageTextItems,
   renderTextLayer,
   type TextLayerHandle,
 } from '../lib/pdfjs-runtime'
 import { pageTextChunks } from '../lib/pdf-text-chunks'
+import type { PageRegion } from '../lib/page-region'
+import { RegionMarks } from './region-marks'
 import { locatePassage, passageBounds, type HighlightRect } from '../lib/passage-highlight'
 
 export interface PdfDocumentViewProps {
@@ -63,6 +66,14 @@ export interface PdfDocumentViewProps {
    * the chat feature's vocabulary.
    */
   highlightColor?: string
+  /**
+   * Boxes on `page` to mark, for a passage read off a picture of the page — a
+   * plan's depiction — rather than out of its text (issue #433). Drawn in the
+   * same tint as a passage mark. The caller passes these OR a `highlight`: a
+   * region's passage is the model's description of the drawing, and searching
+   * the page's text for it would only search the neighbours next.
+   */
+  regions?: readonly PageRegion[] | null
   /**
    * Turn a passage the READER selected into the text they want on their
    * clipboard — a quotation with the document and page attached, the form a
@@ -180,6 +191,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   page,
   highlight,
   highlightColor,
+  regions,
   quoteFormat,
   className,
 }) => {
@@ -315,6 +327,30 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
    * scroll has to be re-applied once the page stack settles (see below), and
    * re-pulsing on every correction would strobe the mark.
    */
+  // Marked only on the page they were stated for; with no page there is no
+  // frame to draw a share of.
+  const regionsOnPage = page && regions?.length ? regions : null
+
+  /**
+   * Put the cited region near the top of the frame — the same resting place a
+   * located passage gets, measured the same way (see `scrollToPassage`). A
+   * region is a share of the page, so the page's rendered height is all the
+   * geometry it needs.
+   */
+  const scrollToRegion = useCallback(
+    (smooth: boolean) => {
+      const frame = scrollRef.current
+      const pageNode = page ? pageRefs.current.get(page) : undefined
+      if (!frame || !pageNode || !regionsOnPage) return
+      const top = Math.min(...regionsOnPage.map((region) => region.box[1]))
+      const pageTop =
+        pageNode.getBoundingClientRect().top - frame.getBoundingClientRect().top + frame.scrollTop
+      const offset = pageTop + top * pageNode.clientHeight - frame.clientHeight * PASSAGE_SCROLL_OFFSET
+      frame.scrollTo({ top: Math.max(0, offset), behavior: smooth ? 'smooth' : 'auto' })
+    },
+    [page, regionsOnPage],
+  )
+
   const scrollToPassage = useCallback((target: PassageHit, smooth: boolean) => {
     const frame = scrollRef.current
     const pageNode = pageRefs.current.get(target.page)
@@ -402,10 +438,13 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   // first scroll runs while unrendered pages still have no height, so it
   // leaves the reader at the top of a document that then grows underneath
   // them (#430).
+  // A cited region is the same answer one step finer: the box, not the top of
+  // its page, re-applied on the same signal for the same reason.
   useEffect(() => {
     if (!doc || !page || hit) return
-    pageRefs.current.get(page)?.scrollIntoView({ block: 'start' })
-  }, [doc, page, hit, defaultAspect])
+    if (regionsOnPage) scrollToRegion(false)
+    else pageRefs.current.get(page)?.scrollIntoView({ block: 'start' })
+  }, [doc, page, hit, defaultAspect, regionsOnPage, scrollToRegion])
 
   /**
    * Which page the reader is on.
@@ -601,10 +640,23 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
             {t('viewer.passageNotFound')}
           </p>
         )}
-        {hit && (
+        {(hit || regionsOnPage) && (
           // After scrolling away — or after a rail jump to another Fundstelle —
-          // the way back is one control, not a hunt.
-          <Button type="button" variant="outline" size="sm" onClick={() => revealPassage(hit)}>
+          // the way back is one control, not a hunt. For a region it is the
+          // same control: to the reader both are "where the evidence is".
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (hit) {
+                revealPassage(hit)
+                return
+              }
+              setPing((previous) => previous + 1)
+              scrollToRegion(true)
+            }}
+          >
             <Crosshair aria-hidden className="size-3.5" />
             {t('viewer.toPassage')}
           </Button>
@@ -675,6 +727,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
                 highlight={page && Math.abs(number - page) <= radius ? highlight : null}
                 highlightColor={highlightColor}
                 marks={hit?.page === number ? hit.rects : null}
+                regions={number === page ? regionsOnPage : null}
                 fuzzy={hit?.page === number && hit.fuzzy}
                 ping={ping}
                 onPassage={handlePassage}
@@ -756,6 +809,8 @@ interface PdfPageCanvasProps {
   highlight?: string | null
   highlightColor?: string
   marks: HighlightRect[] | null
+  /** The cited region's boxes, when this is the page they were stated for. */
+  regions: readonly PageRegion[] | null
   /** The marks are a guess — see {@link PassageHit.fuzzy}. */
   fuzzy: boolean
   ping: number
@@ -778,6 +833,7 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
   highlight,
   highlightColor,
   marks,
+  regions,
   fuzzy,
   ping,
   onPassage,
@@ -897,22 +953,8 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
       const pdfPage = await doc.getPage(pageNumber)
       if (cancelled) return
       const base = pdfPage.getViewport({ scale: 1 })
-      const content = await pdfPage.getTextContent()
+      const items = await readPageTextItems(pdfPage)
       if (cancelled) return
-      // `TextMarkedContent` entries carry structure, not text; `'str' in item`
-      // narrows to the runs that have any, without a cast.
-      const items = content.items.flatMap((item) =>
-        'str' in item
-          ? [
-              {
-                str: item.str,
-                width: item.width,
-                height: item.height,
-                transform: item.transform.map(Number),
-              },
-            ]
-          : [],
-      )
       const match = locatePassage(pageTextChunks(items, base.transform), highlight)
       if (cancelled) return
       if (match)
@@ -1001,6 +1043,7 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
         className="pdf-text-layer"
         style={{ ['--total-scale-factor' as string]: scale } as CSSProperties}
       />
+      {regions && <RegionMarks regions={regions} color={highlightColor} ping={ping} />}
       {marks?.map((rect, index) => (
         <span
           // Remounting on each ping is what replays the arrival animation.
