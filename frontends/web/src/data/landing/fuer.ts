@@ -17,25 +17,25 @@ export const fuer: LandingEntry[] = [
       heading: 'KI für Architekturbüros: was Piloti im Büro übernimmt',
       lede: 'Zwischen Entwurf und Einreichung liegt eine lange Reihe kleiner Rechtsfragen. Piloti ist für genau diese Strecke gebaut: für die Frage, die Fundstelle und das, was danach im Akt stehen muss.',
       answer:
-        'Piloti ist ein KI-Werkzeug für Architekturbüros in Österreich, das Planungsfragen aus Landesbauordnungen, OIB-Richtlinien, Büroarchiv und Projektunterlagen beantwortet, mit gegen den Quelltext geprüfter Fundstelle, und daraus Arbeit im Projekt macht: Aktenvermerke, Einreichchecks, offene Punkte. Entwurf, Zeichnung und Verantwortung bleiben im Büro.',
+        'Piloti ist ein KI-Werkzeug für Architekturbüros in Österreich, das Planungsfragen aus Landesbauordnungen, OIB-Richtlinien, Büroarchiv und Projektunterlagen beantwortet, mit gegen den Quelltext geprüfter Fundstelle, und daraus Arbeit im Projekt macht: Aktenvermerke, Einreichchecks, offene Punkte.',
       blocks: [
+        {
+          kind: 'list',
+          title: 'Was Piloti übernimmt',
+          items: [
+            'Antworten mit Fundstelle, zitiert wie ein Bescheid, etwa „Bauordnung für Wien, § …“ oder „Pkt. 3.5.2 · S. 7“, gegen den Quelltext geprüft, bevor sie erscheinen. Die Quelle öffnet sich an der markierten Stelle.',
+            'Eigene Arbeitsweisen für Gebäudeklasse, Brandschutz, Einreichcheck, Bestand, Bebauung, Wärmeschutz, Barrierefreiheit und Aufenthaltsräume, jede mit ihrem eigenen Ablauf.',
+            'Grundrisse, Schnitte und Fotos sieht Piloti als Bild an, wenn die Zeichnung zählt, und sagt, welche Zeichnung auf dem Blatt es gelesen hat.',
+            'Das Büroarchiv: frühere Projekte, Aktenvermerke, eigene Checklisten, für kein anderes Büro sichtbar.',
+            'Entwürfe für Aktenvermerk, Protokoll, Checkliste und Flächenaufstellung, im Gespräch überarbeitet, mit Fassungen und Freigabe im Eingang.',
+          ],
+        },
         {
           kind: 'text',
           title: 'Der Alltag in einem österreichischen Architekturbüro',
           body: [
             'Ein Dachausbau in Wien, ein Wohnbau in Niederösterreich, ein Wettbewerb in der Steiermark: Viele Büros planen in mehreren Bundesländern gleichzeitig, und jedes hat seine eigene Bauordnung und seinen eigenen Stand bei den OIB-Richtlinien. Die Fragen sind oft klein, aber sie kommen ständig: Welche Gebäudeklasse? Reicht der Fluchtweg? Ist das noch ein Aufenthaltsraum?',
             'Die Antworten liegen verstreut. Im RIS, in den Richtlinien, in einem Aktenvermerk von 2019, im Kopf der Kollegin, die das schon dreimal durchgemacht hat. Wer fragt, unterbricht jemanden; wer nicht fragt, riskiert einen Verbesserungsauftrag.',
-          ],
-        },
-        {
-          kind: 'list',
-          title: 'Was Piloti übernimmt',
-          items: [
-            'Antworten mit Fundstelle, zitiert wie ein Bescheid, etwa „Bauordnung für Wien, § …“ oder „Pkt. 3.5.2 · S. 7“, gegen den Quelltext geprüft, bevor sie erscheinen. Die Quelle öffnet sich an der markierten Stelle.',
-            'Eigene Arbeitsweisen für Gebäudeklasse, Brandschutz, Einreichcheck, Bestand, Bebauung, Wärmeschutz, Barrierefreiheit und Aufenthaltsräume, jede mit ihren Grenzen.',
-            'Grundrisse, Schnitte und Fotos sieht Piloti als Bild an, wenn die Zeichnung zählt, und sagt, welche Zeichnung auf dem Blatt es gelesen hat.',
-            'Das Büroarchiv: frühere Projekte, Aktenvermerke, eigene Checklisten, für kein anderes Büro sichtbar.',
-            'Entwürfe für Aktenvermerk, Protokoll, Checkliste und Flächenaufstellung, im Gespräch überarbeitet, mit Fassungen und Freigabe im Eingang.',
           ],
         },
         {
@@ -66,27 +66,24 @@ export const fuer: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Was Piloti nicht tut',
-          items: [
-            'Es entwirft nicht und zeichnet nicht. Piloti ist kein CAD und kein Ersatz für die Planverfasser:in.',
-            'Es prüft beim Einreichcheck die Vollständigkeit, nicht, ob der Entwurf genehmigungsfähig ist.',
-            'Es rechnet keinen HWB und hat keine ÖNORM-Texte, nur ein Normenverzeichnis.',
-            'Was der Bebauungsplan für Ihr Grundstück festlegt, weiß es nur, wenn der Plan im Projekt liegt. Sonst sagt es, wo Sie nachsehen.',
-          ],
-        },
-        {
           kind: 'text',
-          title: 'Ihre Daten, ehrlich gesagt',
+          title: 'Ihre Daten',
           body: [
-            'Mit den Daten Ihres Büros werden keine Modelle trainiert, und Ihre Pläne bleiben Ihr Eigentum. Die Anmeldung läuft über WorkOS (USA), KI-Anfragen gehen über OpenRouter (USA) an Modellanbieter, die auch außerhalb der EU sitzen können. Einen Datenstandort versprechen wir nicht. Büros können einen eigenen Anbieterschlüssel verwenden.',
+            'Mit den Daten Ihres Büros werden keine Modelle trainiert, Ihre Pläne bleiben Ihr Eigentum, und Ihr Büroarchiv ist für kein anderes Büro sichtbar. Die Einzelheiten stehen in der Datenschutzerklärung.',
           ],
         },
         {
           kind: 'text',
           title: 'Pilotphase',
           body: [
-            'Piloti ist ein Proof of Concept, gegründet in Wien von drei Gründern, das Unternehmen ist in Gründung. Wir arbeiten mit ausgewählten Pilotbüros; eine Preisliste gibt es noch nicht. Wenn Sie wissen wollen, ob Piloti in Ihrem Büro trägt, schicken Sie uns über „Mit einer echten Frage testen“ eine Frage aus einem laufenden Projekt.',
+            'Piloti ist in der Pilotphase mit ausgewählten Büros. Wenn Sie sehen wollen, was es in Ihrem Büro übernimmt, schicken Sie uns über „Mit einer echten Frage testen“ eine Frage aus einem laufenden Projekt.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Entwurf, Zeichnung und Verantwortung bleiben bei Ihnen; Piloti liefert die Fundstellen, damit Ihr Büro jede Aussage nachprüfen kann. Der Einreichcheck stellt die Vollständigkeit des Pakets fest, und einen Heizwärmebedarf berechnet Piloti nicht, es sagt, welche Anforderung gilt und wie ein Wert dazu steht. Fehlt eine entscheidende Angabe, etwa der Bebauungsplan, fragt Piloti danach.',
           ],
         },
       ],
@@ -101,11 +98,11 @@ export const fuer: LandingEntry[] = [
         },
         {
           q: 'Werden unsere Pläne zum Training verwendet?',
-          a: 'Nein. Mit Daten aus Ihrem Büro werden keine Modelle trainiert, und Zeichnungen bleiben Eigentum des Büros. Die Verarbeitung läuft über Dienste in den USA und Modellanbieter, die auch außerhalb der EU sitzen können.',
+          a: 'Nein. Mit Daten aus Ihrem Büro werden keine Modelle trainiert, Zeichnungen bleiben Eigentum des Büros, und Ihr Büroarchiv sieht kein anderes Büro. Die Einzelheiten stehen in der Datenschutzerklärung.',
         },
         {
           q: 'Was kostet Piloti für ein Architekturbüro?',
-          a: 'Es gibt noch keine Preisliste. Piloti ist in der Pilotphase, und die Bedingungen werden mit jedem Pilotbüro einzeln vereinbart.',
+          a: 'Piloti arbeitet derzeit mit ausgewählten Pilotbüros. Pilotbüros vereinbaren die Bedingungen direkt mit uns Gründern; der erste Schritt ist eine echte Frage aus einem laufenden Projekt.',
         },
         {
           q: 'Kann Piloti unsere Bürostandards berücksichtigen?',
@@ -120,25 +117,25 @@ export const fuer: LandingEntry[] = [
       heading: 'AI for architecture offices: what Piloti takes on',
       lede: 'Between design and submission lies a long string of small legal questions. Piloti is built for exactly that stretch: the question, the citation, and what then has to go into the file.',
       answer:
-        'Piloti is an AI tool for architecture offices in Austria that answers planning questions from state building codes, OIB guidelines, the office archive and project documents, with citations checked against the source text, and turns them into work in the project: file notes, submission checks, open points. Design, drawing and responsibility stay in the office.',
+        'Piloti is an AI tool for architecture offices in Austria that answers planning questions from state building codes, OIB guidelines, the office archive and project documents, with citations checked against the source text, and turns them into work in the project: file notes, submission checks, open points.',
       blocks: [
+        {
+          kind: 'list',
+          title: 'What Piloti takes on',
+          items: [
+            'Answers with citations, the way a permit names them, for example “Bauordnung für Wien, § …” or “Pkt. 3.5.2 · S. 7”, checked against the source text before they appear. The source opens at the marked passage.',
+            'Its own ways of working for building class, fire safety, submission check, existing buildings, plot rules, thermal protection, accessibility and habitable rooms, each with its own sequence.',
+            'Piloti looks at floor plans, sections and photos as images when the drawing matters, and says which drawing on the sheet it read.',
+            'The office archive: past projects, file notes, your own checklists, visible to no other office.',
+            'Drafts of file notes, minutes, checklists and area schedules, revised in the conversation, with versions and approval in the inbox.',
+          ],
+        },
         {
           kind: 'text',
           title: 'Daily life in an Austrian architecture office',
           body: [
             'A roof conversion in Vienna, a housing block in Lower Austria, a competition in Styria: many offices plan in several states at once, and each has its own building code and its own status on the OIB guidelines. The questions are often small, but they never stop: which building class? Is the escape route enough? Is that still a habitable room?',
             'The answers are scattered. In the RIS, in the guidelines, in a file note from 2019, in the head of the colleague who has been through it three times. Asking interrupts someone; not asking risks a request for rectification.',
-          ],
-        },
-        {
-          kind: 'list',
-          title: 'What Piloti takes on',
-          items: [
-            'Answers with citations, the way a permit names them, for example “Bauordnung für Wien, § …” or “Pkt. 3.5.2 · S. 7”, checked against the source text before they appear. The source opens at the marked passage.',
-            'Its own ways of working for building class, fire safety, submission check, existing buildings, plot rules, thermal protection, accessibility and habitable rooms, each with its limits.',
-            'Piloti looks at floor plans, sections and photos as images when the drawing matters, and says which drawing on the sheet it read.',
-            'The office archive: past projects, file notes, your own checklists, visible to no other office.',
-            'Drafts of file notes, minutes, checklists and area schedules, revised in the conversation, with versions and approval in the inbox.',
           ],
         },
         {
@@ -169,27 +166,24 @@ export const fuer: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'What Piloti does not do',
-          items: [
-            'It does not design or draw. Piloti is not CAD and not a substitute for the responsible planner.',
-            'Its submission check covers completeness, not whether the design can be approved.',
-            'It does not calculate an HWB and has no ÖNORM texts, only a register of standards.',
-            'It knows what the development plan fixes for your plot only if the plan is in the project. Otherwise it says where to look.',
-          ],
-        },
-        {
           kind: 'text',
-          title: 'Your data, honestly',
+          title: 'Your data',
           body: [
-            'No models are trained on your office’s data, and your drawings remain your property. Sign-in runs through WorkOS (USA); AI requests go through OpenRouter (USA) to model providers that may be based outside the EU. We make no data-location promise. Offices can use their own provider key.',
+            'No models are trained on your office’s data, your drawings remain your property, and your office archive is visible to no other office. The details are in the privacy policy.',
           ],
         },
         {
           kind: 'text',
           title: 'Pilot phase',
           body: [
-            'Piloti is a proof of concept, founded in Vienna by three founders, with the company in formation. We work with selected pilot offices; there is no price list yet. If you want to know whether Piloti holds up in your office, send us a question from a live project via “Test with a real question”.',
+            'Piloti is in its pilot phase with selected offices. If you want to see what it takes on in your office, send us a question from a live project via “Try it with a real question”.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'Design, drawing and responsibility stay with you; Piloti supplies the citations so your office can check every statement. The submission check establishes that the package is complete, and Piloti does not calculate a heating demand: it says which requirement applies and how a value compares. If a deciding fact is missing, such as the development plan, Piloti asks for it.',
           ],
         },
       ],
@@ -204,11 +198,11 @@ export const fuer: LandingEntry[] = [
         },
         {
           q: 'Are our drawings used for training?',
-          a: 'No. No models are trained on data from your office, and drawings remain the office’s property. Processing runs through services in the USA and model providers that may be based outside the EU.',
+          a: 'No. No models are trained on data from your office, drawings remain the office’s property, and no other office sees your archive. The details are in the privacy policy.',
         },
         {
           q: 'What does Piloti cost for an architecture office?',
-          a: 'There is no price list yet. Piloti is in its pilot phase, and terms are agreed with each pilot office individually.',
+          a: 'Piloti currently works with selected pilot offices. Pilot offices agree terms directly with us founders; the first step is a real question from a live project.',
         },
         {
           q: 'Can Piloti follow our office standards?',
@@ -231,14 +225,6 @@ export const fuer: LandingEntry[] = [
         'Für Ziviltechniker:innen und Ingenieurbüros im Bauwesen recherchiert Piloti die Anforderungen aus Landesrecht, OIB-Richtlinien und Bundesrecht, trennt dabei Anforderung und Nachweis und legt Ergebnisse als belegte Berichte mit Befundmatrix im Projekt ab. Berechnungen, Bemessung und Unterschrift bleiben bei Ihnen.',
       blocks: [
         {
-          kind: 'text',
-          title: 'Die Lage in Ziviltechnik- und Ingenieurbüros',
-          body: [
-            'Brandschutzplanung, Bauphysik, Tragwerksplanung, Prüfberichte, Gutachten: Ziviltechniker:innen und Ingenieurbüros arbeiten oft für Architekturbüros und Bauherren in mehreren Bundesländern, meist mit wenig Zeit und hoher Haftung. Jede Aussage im Bericht muss sich auf eine Fundstelle stützen, und die Fundstelle muss im Land und in der Ausgabe stimmen, die für das Projekt gilt.',
-            'Genau dort entsteht der Aufwand: Die OIB-Richtlinien gelten laut OIB-Übersicht nicht überall in derselben Ausgabe, die Länder ergänzen eigene Regeln, und im Bestand gilt oft etwas anderes als im Neubau. Das eigentliche Fachwissen ist da; es ist das Nachschlagen und Belegen, das Tage frisst.',
-          ],
-        },
-        {
           kind: 'list',
           title: 'Was Piloti übernimmt',
           items: [
@@ -247,6 +233,14 @@ export const fuer: LandingEntry[] = [
             'Wärme- und Schallschutz: U-Wert-, HWB- und Schallanforderungen, zuerst geklärt, ob Neubau oder Bestand.',
             'Prüfungen nach Gebäudeklasse als Tabelle mit Fundstelle und Ergebnis je Zeile, etwa „2 erfüllt · 1 offen“, und Varianten in Tabs, etwa zwei Bundesländer nebeneinander.',
             'Eigene Arbeitsweisen im Skill-Editor, damit wiederkehrende Prüfungen so ablaufen, wie Ihr Büro sie macht.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Die Lage in Ziviltechnik- und Ingenieurbüros',
+          body: [
+            'Brandschutzplanung, Bauphysik, Tragwerksplanung, Prüfberichte, Gutachten: Ziviltechniker:innen und Ingenieurbüros arbeiten oft für Architekturbüros und Bauherren in mehreren Bundesländern, meist mit wenig Zeit und hoher Haftung. Jede Aussage im Bericht muss sich auf eine Fundstelle stützen, und die Fundstelle muss im Land und in der Ausgabe stimmen, die für das Projekt gilt.',
+            'Genau dort entsteht der Aufwand: Die OIB-Richtlinien gelten laut OIB-Übersicht nicht überall in derselben Ausgabe, die Länder ergänzen eigene Regeln, und im Bestand gilt oft etwas anderes als im Neubau. Das eigentliche Fachwissen ist da; es ist das Nachschlagen und Belegen, das Tage frisst.',
           ],
         },
         {
@@ -277,27 +271,24 @@ export const fuer: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Was Piloti nicht tut',
-          items: [
-            'Es rechnet nicht: keine Statik, keine Bemessung, keinen HWB, keine Bauphysik-Berechnung.',
-            'Es hat die ÖNORM-Texte nicht, nur ein Normenverzeichnis. Verweist eine Richtlinie auf eine Norm, nennt Piloti sie.',
-            'Es ersetzt kein Brandschutzkonzept und kein Gutachten und unterschreibt nichts. Ein von Piloti geschriebenes Dokument wird erst zur zitierbaren Quelle, wenn Ihr Büro es freigibt und veröffentlicht.',
-            'Pläne sieht es als Bild an und nennt die gelesene Zeichnung, nicht das genaue Bauteil.',
-          ],
-        },
-        {
           kind: 'text',
           title: 'Daten und Vertraulichkeit',
           body: [
-            'Unterlagen Ihrer Auftraggeber bleiben im Projekt, Ihr Büroarchiv ist für kein anderes Büro sichtbar, und mit den Daten wird kein Modell trainiert. Zur Einordnung für Ihre Verträge: Die Anmeldung läuft über WorkOS (USA), KI-Anfragen über OpenRouter (USA) an Modellanbieter, die auch außerhalb der EU sitzen können. Einen Datenstandort sagen wir nicht zu. Mit einem eigenen Anbieterschlüssel wählen Sie den Modellanbieter selbst.',
+            'Unterlagen Ihrer Auftraggeber bleiben im Projekt, Ihr Büroarchiv ist für kein anderes Büro sichtbar, mit den Daten wird kein Modell trainiert, und Pläne bleiben Eigentum des Büros. Die Einzelheiten für Ihre Verträge stehen in der Datenschutzerklärung.',
           ],
         },
         {
           kind: 'text',
           title: 'Pilotphase',
           body: [
-            'Piloti ist ein Proof of Concept in der Pilotphase, gegründet in Wien, das Unternehmen ist in Gründung. Eine Preisliste gibt es noch nicht. Der beste Test ist eine Frage, die Sie diese Woche ohnehin beantworten müssen: Schicken Sie sie über „Mit einer echten Frage testen“.',
+            'Piloti ist in der Pilotphase mit ausgewählten Büros. Der beste Test ist eine Frage, die Sie diese Woche ohnehin beantworten müssen: Schicken Sie sie über „Mit einer echten Frage testen“.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Berechnung, Bemessung und Unterschrift bleiben bei Ihnen; Piloti recherchiert die Anforderung und legt jede Fundstelle offen, damit Sie sie prüfen können. Verweist eine Richtlinie auf eine ÖNORM, nennt Piloti sie, und den Normtext schlagen Sie in Ihrer Lizenz nach. Ein von Piloti geschriebenes Dokument wird zur zitierbaren Quelle, sobald Ihr Büro es freigibt und veröffentlicht.',
           ],
         },
       ],
@@ -308,11 +299,11 @@ export const fuer: LandingEntry[] = [
         },
         {
           q: 'Rechnet Piloti den HWB oder U-Werte?',
-          a: 'Nein. Piloti klärt, welche Wärmeschutzanforderung gilt, ob Neubau oder Bestand, und nennt die Fundstelle. Die Berechnung bleibt in Ihrer Fachsoftware.',
+          a: 'Die Berechnung bleibt in Ihrer Fachsoftware. Piloti klärt, welche Wärmeschutzanforderung gilt, ob Neubau oder Bestand, nennt die Fundstelle und stellt Ihre gerechneten Werte dem Grenzwert gegenüber, mit Ergebnis je Bauteil.',
         },
         {
-          q: 'Hat Piloti Zugriff auf ÖNORMen?',
-          a: 'Nein, nur auf ein Normenverzeichnis. Piloti nennt die Norm, auf die eine Richtlinie oder ein Gesetz verweist; den Normtext schlagen Sie in Ihrer eigenen Lizenz nach.',
+          q: 'Wie geht Piloti mit ÖNORMen um?',
+          a: 'Piloti nennt die Norm, auf die eine Richtlinie oder ein Gesetz verweist, an der Stelle, an der sie zählt. Den Normtext schlagen Sie in Ihrer eigenen Lizenz nach.',
         },
         {
           q: 'Wie geht Piloti mit unterschiedlichen OIB-Ausgaben um?',
@@ -330,14 +321,6 @@ export const fuer: LandingEntry[] = [
         'For civil engineers (Ziviltechniker:innen) and engineering offices in construction, Piloti researches requirements from state law, OIB guidelines and federal law, separates requirement from evidence, and files results as cited reports with a findings matrix in the project. Calculations, design and signature stay with you.',
       blocks: [
         {
-          kind: 'text',
-          title: 'The situation in civil and consulting engineering offices',
-          body: [
-            'Fire safety design, building physics, structural design, inspection reports, expert opinions: civil engineers and engineering offices often work for architecture offices and clients in several states, usually with little time and high liability. Every statement in a report must rest on a citation, and the citation must be right for the state and edition that apply to the project.',
-            'That is where the effort lies: per the OIB overview, the OIB guidelines do not apply in the same edition everywhere, states add their own rules, and existing buildings often follow different rules from new builds. The expertise is there; it is looking things up and citing them that eats days.',
-          ],
-        },
-        {
           kind: 'list',
           title: 'What Piloti takes on',
           items: [
@@ -346,6 +329,14 @@ export const fuer: LandingEntry[] = [
             'Thermal and sound insulation: U-value, HWB and sound requirements, after first settling whether it is new build or existing.',
             'Checks by building class as tables with a citation and a result per row, for example “2 met · 1 open”, and options in tabs, such as two states side by side.',
             'Your own ways of working in the skill editor, so that recurring checks run the way your office does them.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'The situation in civil and consulting engineering offices',
+          body: [
+            'Fire safety design, building physics, structural design, inspection reports, expert opinions: civil engineers and engineering offices often work for architecture offices and clients in several states, usually with little time and high liability. Every statement in a report must rest on a citation, and the citation must be right for the state and edition that apply to the project.',
+            'That is where the effort lies: per the OIB overview, the OIB guidelines do not apply in the same edition everywhere, states add their own rules, and existing buildings often follow different rules from new builds. The expertise is there; it is looking things up and citing them that eats days.',
           ],
         },
         {
@@ -376,27 +367,24 @@ export const fuer: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'What Piloti does not do',
-          items: [
-            'It does not calculate: no structural analysis, no dimensioning, no HWB, no building physics calculation.',
-            'It does not have the ÖNORM texts, only a register of standards. When a guideline refers to a standard, Piloti names it.',
-            'It does not replace a fire safety concept or an expert opinion and signs nothing. A document Piloti wrote becomes a citable source only after your office approves and publishes it.',
-            'It looks at drawings as images and names the drawing it read, not the exact building element.',
-          ],
-        },
-        {
           kind: 'text',
           title: 'Data and confidentiality',
           body: [
-            'Your clients’ documents stay in the project, your office archive is visible to no other office, and no model is trained on the data. For your contracts: sign-in runs through WorkOS (USA), AI requests through OpenRouter (USA) to model providers that may be based outside the EU. We make no data-location commitment. With your own provider key you choose the model provider yourself.',
+            'Your clients’ documents stay in the project, your office archive is visible to no other office, no model is trained on the data, and drawings remain the office’s property. The details for your contracts are in the privacy policy.',
           ],
         },
         {
           kind: 'text',
           title: 'Pilot phase',
           body: [
-            'Piloti is a proof of concept in its pilot phase, founded in Vienna, with the company in formation. There is no price list yet. The best test is a question you have to answer this week anyway: send it via “Test with a real question”.',
+            'Piloti is in its pilot phase with selected offices. The best test is a question you have to answer this week anyway: send it via “Try it with a real question”.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'Calculation, dimensioning and signature stay with you; Piloti researches the requirement and lays every citation open so you can check it. Where a guideline refers to an ÖNORM, Piloti names it, and you look up the text under your licence. A document Piloti wrote becomes a citable source once your office approves and publishes it.',
           ],
         },
       ],
@@ -407,11 +395,11 @@ export const fuer: LandingEntry[] = [
         },
         {
           q: 'Does Piloti calculate the HWB or U-values?',
-          a: 'No. Piloti clarifies which thermal requirement applies, new build or existing, and cites it. The calculation stays in your specialist software.',
+          a: 'The calculation stays in your specialist software. Piloti clarifies which thermal requirement applies, new build or existing, cites it and sets your calculated values against the limit, with a result per element.',
         },
         {
-          q: 'Does Piloti have access to ÖNORM standards?',
-          a: 'No, only to a register of standards. Piloti names the standard a guideline or law refers to; you look up the text under your own licence.',
+          q: 'How does Piloti handle ÖNORM standards?',
+          a: 'Piloti names the standard a guideline or law refers to, at the point where it matters. You look up the text under your own licence.',
         },
         {
           q: 'How does Piloti handle different OIB editions?',
@@ -427,20 +415,12 @@ export const fuer: LandingEntry[] = [
     de: {
       title: 'KI für Baumeister und Bauträger in Österreich – Piloti',
       description:
-        'KI für Baumeister und Bauträger: Piloti beantwortet Baurechtsfragen der Planung, von Bebauung bis Einreichcheck. Keine Software für die Baustelle.',
+        'KI für Baumeister und Bauträger: Piloti beantwortet Baurechtsfragen der Planungsphase, von der Bebauung bis zum Einreichcheck, mit Fundstelle aus Landesrecht.',
       heading: 'KI für Baumeister und Bauträger: wo Piloti hilft',
-      lede: 'Piloti ist für Planungsfragen gebaut. Baumeisterbetriebe und Bauträger haben viele davon, vor allem bevor gebaut wird: Was geht auf dem Grundstück, welche Gebäudeklasse, was fehlt der Einreichung? Dafür ist es da, für die Baustelle nicht.',
+      lede: 'Piloti ist für Planungsfragen gebaut. Baumeisterbetriebe und Bauträger haben viele davon, vor allem bevor gebaut wird: Was geht auf dem Grundstück, welche Gebäudeklasse, was fehlt der Einreichung? Genau diese Fragen beantwortet Piloti, mit Fundstelle.',
       answer:
-        'Für Baumeister und Bauträger beantwortet Piloti die Baurechtsfragen der Planungsphase, etwa was auf einem Grundstück gebaut werden darf, welche Gebäudeklasse ein Projekt hat und was einer Einreichung fehlt, mit Fundstelle aus Landesrecht und OIB-Richtlinien. Bauleitung, Kalkulation und Ausschreibung deckt es nicht ab.',
+        'Für Baumeister und Bauträger beantwortet Piloti die Baurechtsfragen der Planungsphase, etwa was auf einem Grundstück gebaut werden darf, welche Gebäudeklasse ein Projekt hat und was einer Einreichung fehlt, mit Fundstelle aus Landesrecht und OIB-Richtlinien. So beginnt das Gespräch mit Planungsbüro und Behörde mit den richtigen Fragen.',
       blocks: [
-        {
-          kind: 'text',
-          title: 'Wo Baurecht im Baumeister- und Bauträgeralltag steckt',
-          body: [
-            'Baumeisterbetriebe planen und bauen, oft Einfamilienhäuser, Reihenhausanlagen und kleinere Wohnbauten. Bauträger entwickeln Projekte vom Grundstück an. In beiden Fällen fällt eine Reihe von Entscheidungen, bevor die erste Schaufel in die Erde geht: ob sich ein Grundstück lohnt, welche Bebauung der Bebauungsplan zulässt, in welche Gebäudeklasse das Projekt fällt und was das für den Brandschutz bedeutet.',
-            'Diese Fragen landen oft beim Planungsbüro, beim Amt oder bei der einen Person im Haus, die das Baurecht am besten kennt. Piloti ist für diese Vorarbeit gedacht, damit das Gespräch mit Planer:innen und Behörde mit den richtigen Fragen beginnt.',
-          ],
-        },
         {
           kind: 'list',
           title: 'Was Piloti übernimmt',
@@ -450,6 +430,14 @@ export const fuer: LandingEntry[] = [
             'Einreichcheck: was dem Paket für das Bundesland noch fehlt, je nach Verfahrensart.',
             'Bestand: welche Anforderungen nach Umbau, Aufstockung oder Nutzungsänderung gelten, ohne Neubauregeln auf ein bestehendes Haus anzuwenden.',
             'Vergleiche in Tabs, etwa zwei Bebauungsvarianten oder dasselbe Projekt in zwei Bundesländern.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Wo Baurecht im Baumeister- und Bauträgeralltag steckt',
+          body: [
+            'Baumeisterbetriebe planen und bauen, oft Einfamilienhäuser, Reihenhausanlagen und kleinere Wohnbauten. Bauträger entwickeln Projekte vom Grundstück an. In beiden Fällen fällt eine Reihe von Entscheidungen, bevor die erste Schaufel in die Erde geht: ob sich ein Grundstück lohnt, welche Bebauung der Bebauungsplan zulässt, in welche Gebäudeklasse das Projekt fällt und was das für den Brandschutz bedeutet.',
+            'Diese Fragen landen oft beim Planungsbüro, beim Amt oder bei der einen Person im Haus, die das Baurecht am besten kennt. Piloti ist für diese Vorarbeit gedacht, damit das Gespräch mit Planer:innen und Behörde mit den richtigen Fragen beginnt.',
           ],
         },
         {
@@ -480,27 +468,24 @@ export const fuer: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Was Piloti nicht tut',
-          items: [
-            'Keine Bauleitung, kein Bautagebuch, keine Mängelverwaltung auf der Baustelle.',
-            'Keine Kalkulation, keine Kostenverfolgung, keine Ausschreibung und keine Leistungsverzeichnisse.',
-            'Keine Planung: Piloti ersetzt nicht die Planverfasser:in und prüft beim Einreichcheck die Vollständigkeit, nicht die Genehmigungsfähigkeit.',
-            'Keine Zusage, was auf einem Grundstück geht, ohne den Bebauungsplan im Projekt. Die verbindliche Auskunft gibt die Baubehörde.',
-          ],
-        },
-        {
           kind: 'text',
           title: 'Ihre Daten',
           body: [
-            'Grundstücksunterlagen und Projektdaten bleiben im Projekt, Ihr Archiv sieht kein anderes Unternehmen, und niemand trainiert Modelle damit. Die Anmeldung läuft über WorkOS (USA), KI-Anfragen über OpenRouter (USA) an Modellanbieter, auch außerhalb der EU. Einen Datenstandort sagen wir nicht zu; ein eigener Anbieterschlüssel ist möglich.',
+            'Grundstücksunterlagen und Projektdaten bleiben im Projekt, Ihr Archiv sieht kein anderes Unternehmen, mit Ihren Daten werden keine Modelle trainiert, und Pläne bleiben Ihr Eigentum. Die Einzelheiten stehen in der Datenschutzerklärung.',
           ],
         },
         {
           kind: 'text',
           title: 'Pilotphase',
           body: [
-            'Piloti ist ein Proof of Concept, entstanden in Wien, in der Pilotphase mit ausgewählten Büros und ohne Preisliste. Ob es für Ihre Planungsfragen trägt, zeigt am schnellsten eine echte: Schicken Sie uns eine über „Mit einer echten Frage testen“.',
+            'Piloti ist in der Pilotphase mit ausgewählten Büros. Was es für Ihre Planungsfragen leistet, zeigt am schnellsten eine echte: Schicken Sie uns eine über „Mit einer echten Frage testen“.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Piloti ist für die Planungsphase gebaut; Bauleitung, Kalkulation und Ausschreibung laufen in Ihren bestehenden Werkzeugen. Planung und Einreichung verantworten Planer:innen mit der passenden Befugnis, und die verbindliche Auskunft zum Grundstück gibt die Baubehörde. Piloti liefert die Fundstellen dafür und fragt nach dem Bebauungsplan, wenn er fehlt.',
           ],
         },
       ],
@@ -526,20 +511,12 @@ export const fuer: LandingEntry[] = [
     en: {
       title: 'AI for master builders and developers in Austria – Piloti',
       description:
-        'AI for master builders and developers in Austria: Piloti answers planning-stage building law questions, from plot rules to submission. Not site software.',
+        'AI for master builders and developers in Austria: Piloti answers planning-stage building law questions, from plot rules to submission, with citations.',
       heading: 'AI for master builders and developers: where Piloti helps',
-      lede: 'Piloti is built for planning questions. Master builders and developers have plenty of them, above all before anything is built: what fits on the plot, which building class, what the submission still lacks? That is what it is for, not the construction site.',
+      lede: 'Piloti is built for planning questions. Master builders and developers have plenty of them, above all before anything is built: what fits on the plot, which building class, what the submission still lacks? Those are exactly the questions Piloti answers, with citations.',
       answer:
-        'For master builders and developers, Piloti answers the building law questions of the planning stage, such as what may be built on a plot, which building class a project has and what a submission still lacks, with citations from state law and OIB guidelines. It does not cover site management, costing or tendering.',
+        'For master builders and developers, Piloti answers the building law questions of the planning stage, such as what may be built on a plot, which building class a project has and what a submission still lacks, with citations from state law and OIB guidelines. That way the conversation with the planning office and the authority starts with the right questions.',
       blocks: [
-        {
-          kind: 'text',
-          title: 'Where building law sits in a master builder’s or developer’s day',
-          body: [
-            'Master builders (Baumeister) plan and build, often single-family houses, row house schemes and smaller housing blocks. Developers take projects from the plot onwards. In both cases a string of decisions falls before the first spade goes into the ground: whether a plot is worth it, what the development plan allows, which building class the project falls into and what that means for fire safety.',
-            'These questions often land with the planning office, the authority or the one person in-house who knows building law best. Piloti is meant for this groundwork, so that the conversation with planners and authority starts with the right questions.',
-          ],
-        },
         {
           kind: 'list',
           title: 'What Piloti takes on',
@@ -549,6 +526,14 @@ export const fuer: LandingEntry[] = [
             'Submission check: what the package for the state still lacks, depending on the type of procedure.',
             'Existing buildings: which requirements apply after alteration, adding a storey or change of use, without applying new-build rules to an existing house.',
             'Comparisons in tabs, such as two development options or the same project in two states.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Where building law sits in a master builder’s or developer’s day',
+          body: [
+            'Master builders (Baumeister) plan and build, often single-family houses, row house schemes and smaller housing blocks. Developers take projects from the plot onwards. In both cases a string of decisions falls before the first spade goes into the ground: whether a plot is worth it, what the development plan allows, which building class the project falls into and what that means for fire safety.',
+            'These questions often land with the planning office, the authority or the one person in-house who knows building law best. Piloti is meant for this groundwork, so that the conversation with planners and authority starts with the right questions.',
           ],
         },
         {
@@ -579,27 +564,24 @@ export const fuer: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'What Piloti does not do',
-          items: [
-            'No site management, no site diary, no defect management on site.',
-            'No costing, no cost tracking, no tendering and no bills of quantities.',
-            'No design: Piloti does not replace the responsible planner, and its submission check covers completeness, not whether the project can be approved.',
-            'No promise of what a plot allows without the development plan in the project. The binding answer comes from the building authority.',
-          ],
-        },
-        {
           kind: 'text',
           title: 'Your data',
           body: [
-            'Plot documents and project data stay in the project, no other company sees your archive, and nobody trains models on it. Sign-in runs through WorkOS (USA), AI requests through OpenRouter (USA) to model providers, including outside the EU. We make no data-location commitment; your own provider key is possible.',
+            'Plot documents and project data stay in the project, no other company sees your archive, no models are trained on your data, and drawings remain your property. The details are in the privacy policy.',
           ],
         },
         {
           kind: 'text',
           title: 'Pilot phase',
           body: [
-            'Piloti is a proof of concept, started in Vienna, in its pilot phase with selected offices and without a price list. Whether it holds up for your planning questions is fastest shown by a real one: send us one via “Test with a real question”.',
+            'Piloti is in its pilot phase with selected offices. What it does for your planning questions is fastest shown by a real one: send us one via “Try it with a real question”.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'Piloti is built for the planning stage; site management, costing and tendering run in your existing tools. Design and submission are the responsibility of planners with the matching authorisation, and the binding answer on the plot comes from the building authority. Piloti supplies the citations for it and asks for the development plan when it is missing.',
           ],
         },
       ],
