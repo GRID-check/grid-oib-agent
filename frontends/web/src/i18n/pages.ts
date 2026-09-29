@@ -98,11 +98,11 @@ const de = {
       ],
     },
     honest: {
-      title: 'Was Piloti nicht ist',
+      title: 'Worauf Sie sich verlassen können',
       items: [
-        'Keine Rechtsberatung und kein Ersatz für die Behörde. Die Verantwortung für die Planung bleibt bei Ihnen, und genau dafür stehen die Quellen an jeder Antwort.',
-        'Kein fertiges Produkt von der Stange. Piloti ist ein Proof of Concept, den wir mit wenigen Pilotbüros an echten Fragen erproben.',
-        'Kein Versprechen zum Datenstandort. Die Anmeldung läuft über WorkOS (USA), KI-Anfragen über OpenRouter (USA) an Modellanbieter, die auch außerhalb der EU sitzen können. Wir trainieren keine Modelle mit Ihren Daten.',
+        'Jede Antwort bringt ihre Quellen mit, bis auf Paragraf, Punkt oder Seite. Sie prüfen am Original, bevor etwas in die Einreichung geht; die Verantwortung für die Planung bleibt, wo sie hingehört, bei Ihnen.',
+        'Ihre Daten bleiben Ihre: Wir trainieren keine Modelle damit, Pläne und Projekte bleiben Eigentum Ihres Büros, und das Archiv Ihres Büros sieht kein anderes Büro.',
+        'Sie bauen mit: Pilotbüros bekommen früh Zugang, einen direkten Draht zu uns Gründern und bestimmen mit, was wir als Nächstes bauen.',
       ],
       link: 'Details in der Datenschutzerklärung',
     },
@@ -114,7 +114,7 @@ const de = {
     },
     compare: {
       title: 'Piloti im Vergleich',
-      body: 'Sie prüfen gerade mehrere KI-Werkzeuge für Ihr Büro? Piloti neben ChatGPT, Copilot, NotebookLM, Reiner AI und BaurechtGPT, ehrlich verglichen, auch dort, wo die anderen vorn liegen.',
+      body: 'Sie prüfen gerade mehrere KI-Werkzeuge für Ihr Büro? Piloti neben ChatGPT, Copilot, NotebookLM, Reiner AI und BaurechtGPT, verglichen, und warum Piloti für Planungsfragen in Österreich die bessere Wahl ist.',
       link: 'Alle Vergleiche',
     },
   },
@@ -202,11 +202,11 @@ const en: typeof de = {
       ],
     },
     honest: {
-      title: 'What Piloti is not',
+      title: 'What you can rely on',
       items: [
-        'Not legal advice and not a substitute for the authority. Responsibility for the design stays with you, which is exactly why every answer carries its sources.',
-        'Not a finished off-the-shelf product. Piloti is a proof of concept we are trialling with a few pilot offices on real questions.',
-        'Not a promise about data location. Sign-in runs through WorkOS (USA), AI requests through OpenRouter (USA) to model providers that may be based outside the EU. We do not train models on your data.',
+        'Every answer brings its sources, down to section, clause or page. You check against the original before anything goes into the submission; responsibility for the design stays where it belongs, with you.',
+        'Your data stays yours: we do not train models on it, drawings and projects remain your office’s property, and no other office sees your archive.',
+        'You build it with us: pilot offices get early access, a direct line to us founders and a say in what we build next.',
       ],
       link: 'Details in the privacy policy',
     },
@@ -217,7 +217,7 @@ const en: typeof de = {
     },
     compare: {
       title: 'Piloti compared',
-      body: 'Weighing several AI tools for your office? Piloti next to ChatGPT, Copilot, NotebookLM, Reiner AI and BaurechtGPT, compared honestly, including where the others are ahead.',
+      body: 'Weighing several AI tools for your office? Piloti next to ChatGPT, Copilot, NotebookLM, Reiner AI and BaurechtGPT, compared, and why Piloti is the better choice for planning questions in Austria.',
       link: 'All comparisons',
     },
   },
