@@ -34,9 +34,11 @@ const check = (file, lines, rules, skip = () => false) =>
 const isComment = (line) => /^\s*(\/\/|\*|\/\*)/.test(line)
 
 // Every dictionary: ui.ts and the argument pages' copy (pages.ts).
-for (const name of readdirSync('src/i18n')) {
-  if (!name.endsWith('.ts') || name === 'utils.ts') continue
-  const dict = join('src/i18n', name)
+const DICTS = [
+  ...readdirSync('src/i18n').filter((n) => n.endsWith('.ts') && n !== 'utils.ts').map((n) => join('src/i18n', n)),
+  ...readdirSync('src/data/landing').filter((n) => n.endsWith('.ts')).map((n) => join('src/data/landing', n)),
+]
+for (const dict of DICTS) {
   check(dict, readFileSync(dict, 'utf8').split('\n'), RULES, isComment)
 }
 

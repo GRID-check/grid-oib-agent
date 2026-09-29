@@ -16,6 +16,7 @@ const home = translatePath('/')
 const blog = translatePath('/blog/')
 const changelog = translatePath('/changelog/')
 const why = translatePath('/warum-piloti/')
+const compare = translatePath('/vergleich/')
 
 // The language switch appears twice (desktop row, phone menu); one list keeps
 // the two from drifting apart.
@@ -37,6 +38,7 @@ const langs = (['de', 'en'] as const).map((l) => ({
   >
     <div class="hidden items-center gap-6 text-[0.8125rem] font-medium lg:flex">
       <a href={why} class="whitespace-nowrap text-ink hover:text-accent-600">{t.nav.why}</a>
+      <a href={compare} class="whitespace-nowrap text-ink hover:text-accent-600">{t.nav.compare}</a>
       <a href={blog} class="whitespace-nowrap text-ink hover:text-accent-600">{t.nav.blog}</a>
       <a href={changelog} class="whitespace-nowrap text-ink hover:text-accent-600">{t.nav.changelog}</a>
     </div>
@@ -151,8 +153,9 @@ const langs = (['de', 'en'] as const).map((l) => ({
         }
       </ul>
     </div>
-    <div class="grid grid-cols-3 gap-2 border-t border-ink/8 px-5 py-3">
+    <div class="grid grid-cols-2 gap-2 border-t border-ink/8 px-5 py-3">
       <a href={why} class="flex min-h-11 items-center text-base text-ink">{t.nav.why}</a>
+      <a href={compare} class="flex min-h-11 items-center text-base text-ink">{t.nav.compare}</a>
       <a href={blog} class="flex min-h-11 items-center text-base text-ink">{t.nav.blog}</a>
       <a href={changelog} class="flex min-h-11 items-center text-base text-ink">{t.nav.changelog}</a>
     </div>

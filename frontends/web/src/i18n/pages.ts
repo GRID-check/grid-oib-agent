@@ -1,16 +1,12 @@
 /**
- * The copy of the two argument pages: why Piloti (/warum-piloti/) and the
- * comparison with Reiner AI (/piloti-vs-reiner-ai/). Kept out of ui.ts because
- * each is a page of prose, not interface strings; the titles and descriptions
- * stay in ui.ts `seo.pages` with every other page's.
+ * The copy of /warum-piloti/, the argument page. Kept out of ui.ts because it
+ * is a page of prose, not interface strings; its title and description stay
+ * in ui.ts `seo.pages` with every other page's. The comparisons are search
+ * pages now (src/data/landing/vergleich.ts).
  *
  * Same rules as ui.ts: both locales, German typography, and only what the
  * product does (each capability below shipped and is in the changelog). The
  * typography and claims lints read this file.
- *
- * What a competitor offers is stated as its own website states it, with the
- * month we read it, and never better or worse than it says. A comparison that
- * shades the other side is the one a buyer stops trusting halfway down.
  */
 import type { Locale } from './ui'
 
@@ -118,98 +114,9 @@ const de = {
     },
     compare: {
       title: 'Piloti im Vergleich',
-      body: 'Sie prüfen gerade mehrere KI-Werkzeuge für Ihr Büro? Der ehrliche Vergleich mit Reiner AI, auch dort, wo Reiner vorn liegt.',
-      link: 'Piloti oder Reiner AI',
+      body: 'Sie prüfen gerade mehrere KI-Werkzeuge für Ihr Büro? Piloti neben ChatGPT, Copilot, NotebookLM, Reiner AI und BaurechtGPT, ehrlich verglichen, auch dort, wo die anderen vorn liegen.',
+      link: 'Alle Vergleiche',
     },
-  },
-  vsReiner: {
-    heading: 'Piloti oder Reiner AI?',
-    lede: 'Beide sind KI-Werkzeuge für Planungsbüros. Sie sind für verschiedene Märkte und verschiedene Aufgaben gebaut. Hier der Vergleich, auch dort, wo Reiner AI vorn liegt.',
-    // People search for it misspelt; say once which product this page means.
-    nameNote: 'Gemeint ist Reiner AI (reiner.ai) aus Deutschland, oft auch als „Rainer AI“ gesucht.',
-    shortTitle: 'Die kurze Antwort',
-    short: [
-      {
-        label: 'Piloti passt',
-        body: 'wenn Sie in Österreich planen und Ihre Fragen an Baurecht, Plänen und dem Wissen Ihres Büros hängen: Welche Vorschrift gilt, was heißt sie für dieses Projekt, und wie kommt die Entscheidung in den Akt.',
-      },
-      {
-        label: 'Reiner AI passt',
-        body: 'wenn Sie in Deutschland arbeiten und fertige Agenten für wiederkehrende Dokumente suchen: Baubesprechungsprotokolle, Leistungsverzeichnisse, VOB-Nachträge, Schlussrechnungen und HOAI-Verträge.',
-      },
-    ],
-    tableTitle: 'Im Detail',
-    headA: 'Piloti',
-    headB: 'Reiner AI',
-    rows: [
-      {
-        label: 'Markt',
-        a: 'Österreich',
-        b: 'Deutschland',
-      },
-      {
-        label: 'Regelwerke',
-        a: 'Landesbauordnungen aus dem RIS, OIB-Richtlinien, Normenverzeichnis',
-        b: 'Nennt LBO, HOAI, VOB, DIN und DWA; auf der Website weder OIB-Richtlinien noch österreichisches Landesrecht',
-      },
-      {
-        label: 'Schwerpunkt',
-        a: 'Planungsfragen im Projekt, belegt, bis zum Aktenvermerk und zur Freigabe',
-        b: 'Chat und Agenten für Bau- und Vertragsdokumente, laut Website über 50 Aufgaben',
-      },
-      {
-        label: 'Belege',
-        a: 'Fundstelle bis auf Paragraf, Punkt oder Seite, vor dem Anzeigen gegen den Quelltext geprüft',
-        b: '„Referenzen auf einen Klick“ zu den verarbeiteten Textstellen',
-      },
-      {
-        label: 'Pläne',
-        a: 'Sieht Grundriss und Schnitt als Bild an und markiert die gelesene Zeichnung',
-        b: 'Agent „Planprüfer“: prüft Pläne auf Vollständigkeit, formale Anforderungen und Normenkonformität',
-      },
-      {
-        label: 'Projektarbeit',
-        a: 'Projekte mit Dateien, Fassungen, Freigabe, Projektgedächtnis und geplanten Aufgaben',
-        b: 'Getrennte Projektdaten, Anbindung von SharePoint und Google Drive',
-      },
-      {
-        label: 'Hosting',
-        a: 'Anmeldung über WorkOS (USA), KI-Anfragen über OpenRouter (USA) an Modellanbieter, auch außerhalb der EU',
-        b: 'Server in Frankfurt, laut Website Entwicklung und Infrastruktur in Deutschland',
-      },
-      {
-        label: 'Training',
-        a: 'Kein Training mit Ihren Daten',
-        b: '„Zero-Training Policy“',
-      },
-      {
-        label: 'Preis',
-        a: 'Noch keine Preisliste; Bedingungen je Pilotbüro',
-        b: '49, 99 oder 299 € je Nutzer:in und Monat bei jährlicher Abrechnung, 7 Tage kostenlos testen',
-      },
-      {
-        label: 'Stand',
-        a: 'Proof of Concept mit ausgewählten Pilotbüros',
-        b: 'Am Markt, mit Finanzierung',
-      },
-    ] as Row[],
-    source: 'Angaben zu Reiner AI laut reiner.ai, gelesen im September 2026. Stimmt etwas nicht mehr, schreiben Sie uns, und wir korrigieren es.',
-    theirsTitle: 'Wo Reiner AI vorn liegt',
-    theirs: [
-      'Server in Deutschland. Wer für seine Daten einen Standort in Deutschland braucht, bekommt ihn bei Reiner, bei Piloti heute nicht.',
-      'Offene Preise und ein Test ohne Gespräch. Bei Piloti beginnt es mit einem Gespräch.',
-      'Fertige Agenten für Bauleitung und Vergabe, vom Protokoll bis zur Schlussrechnung.',
-      'Ein Unternehmen am Markt. Piloti ist in Gründung und in der Pilotphase.',
-    ],
-    oursTitle: 'Wo Piloti vorn liegt',
-    ours: [
-      'Österreichisches Baurecht als Grundlage, nicht als Nachtrag: Landesbauordnungen aus dem RIS und OIB-Richtlinien, zitiert, wie ein Bescheid sie nennt.',
-      'Das Projekt als Arbeitsort. Pläne, Bescheide und Antworten liegen dort, wo das Team arbeitet, mit Fassungen, Freigabe und einem Gedächtnis dafür, was schon geklärt ist.',
-      'Eine Frage wird zu Arbeit: Tiefenrecherche mit Bericht im Projekt, Befunde als offene Punkte, Aktenvermerke zur Freigabe.',
-    ],
-    closeTitle: 'Selbst vergleichen',
-    close: 'Die ehrlichste Probe ist eine echte Frage. Schicken Sie uns eine aus einem laufenden Projekt, gern dieselbe, die Sie auch Reiner AI stellen. Wir zeigen Ihnen, wie Piloti sie beantwortet.',
-    ctaSecondary: 'Warum Piloti',
   },
 }
 
@@ -310,85 +217,9 @@ const en: typeof de = {
     },
     compare: {
       title: 'Piloti compared',
-      body: 'Weighing several AI tools for your office? The honest comparison with Reiner AI, including where Reiner is ahead.',
-      link: 'Piloti or Reiner AI',
+      body: 'Weighing several AI tools for your office? Piloti next to ChatGPT, Copilot, NotebookLM, Reiner AI and BaurechtGPT, compared honestly, including where the others are ahead.',
+      link: 'All comparisons',
     },
-  },
-  vsReiner: {
-    heading: 'Piloti or Reiner AI?',
-    lede: 'Both are AI tools for planning offices. They are built for different markets and different jobs. Here is the comparison, including where Reiner AI is ahead.',
-    nameNote: 'This means Reiner AI (reiner.ai) from Germany, often searched for as “Rainer AI”.',
-    shortTitle: 'The short answer',
-    short: [
-      {
-        label: 'Piloti fits',
-        body: 'if you plan in Austria and your questions hinge on building law, drawings and your office’s knowledge: which rule applies, what it means for this project, and how the decision gets on file.',
-      },
-      {
-        label: 'Reiner AI fits',
-        body: 'if you work in Germany and want ready-made agents for recurring documents: site meeting minutes, bills of quantities, VOB change orders, final invoices and HOAI contracts.',
-      },
-    ],
-    tableTitle: 'In detail',
-    headA: 'Piloti',
-    headB: 'Reiner AI',
-    rows: [
-      { label: 'Market', a: 'Austria', b: 'Germany' },
-      {
-        label: 'Regulations',
-        a: 'State building codes from RIS, OIB guidelines, register of standards',
-        b: 'Names LBO, HOAI, VOB, DIN and DWA; its website mentions neither the OIB guidelines nor Austrian state law',
-      },
-      {
-        label: 'Focus',
-        a: 'Planning questions in the project, with evidence, through to the file note and approval',
-        b: 'Chat and agents for construction and contract documents, over 50 tasks according to its website',
-      },
-      {
-        label: 'Evidence',
-        a: 'Citation down to section, clause or page, checked against the source text before it is shown',
-        b: '“References in one click” to the passages it processed',
-      },
-      {
-        label: 'Drawings',
-        a: 'Looks at plan and section as an image and marks the drawing it read',
-        b: '“Planprüfer” agent: checks drawings for completeness, formal requirements and conformity with standards',
-      },
-      {
-        label: 'Project work',
-        a: 'Projects with files, versions, approval, project memory and scheduled tasks',
-        b: 'Separated project data, SharePoint and Google Drive connectors',
-      },
-      {
-        label: 'Hosting',
-        a: 'Sign-in through WorkOS (USA), AI requests through OpenRouter (USA) to model providers, some outside the EU',
-        b: 'Servers in Frankfurt; development and infrastructure in Germany, according to its website',
-      },
-      { label: 'Training', a: 'No training on your data', b: '“Zero-Training Policy”' },
-      {
-        label: 'Price',
-        a: 'No price list yet; terms agreed with each pilot office',
-        b: '€49, €99 or €299 per user per month billed annually, 7-day free trial',
-      },
-      { label: 'Stage', a: 'Proof of concept with selected pilot offices', b: 'On the market, funded' },
-    ] as Row[],
-    source: 'Reiner AI details as stated on reiner.ai, read in September 2026. If something has changed, write to us and we will correct it.',
-    theirsTitle: 'Where Reiner AI is ahead',
-    theirs: [
-      'Servers in Germany. If your data must stay in Germany, Reiner offers that and Piloti does not today.',
-      'Public prices and a trial without a conversation. With Piloti it starts with a conversation.',
-      'Ready-made agents for site management and tendering, from minutes to the final invoice.',
-      'A company on the market. Piloti is being founded and is in its pilot phase.',
-    ],
-    oursTitle: 'Where Piloti is ahead',
-    ours: [
-      'Austrian building law as the foundation, not an add-on: state building codes from RIS and the OIB guidelines, cited the way an official decision cites them.',
-      'The project as the place of work. Drawings, permits and answers sit where the team works, with versions, approval and a memory of what is already settled.',
-      'A question becomes work: in-depth research with a report filed in the project, findings as open points, file notes sent for approval.',
-    ],
-    closeTitle: 'Compare for yourself',
-    close: 'The fairest test is a real question. Send us one from a current project, ideally the same one you put to Reiner AI. We will show you how Piloti answers it.',
-    ctaSecondary: 'Why Piloti',
   },
 }
 

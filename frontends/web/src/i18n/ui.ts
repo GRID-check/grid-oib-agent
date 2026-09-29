@@ -61,11 +61,6 @@ const de = {
         description:
           'Warum nicht einfach ChatGPT? Piloti verbindet österreichisches Baurecht, Ihre Pläne und Ihr Bürowissen zu Antworten mit prüfbaren Quellen, bis in den Akt.',
       },
-      vsReiner: {
-        title: 'Piloti oder Reiner AI? Der ehrliche Vergleich – Piloti',
-        description:
-          'Piloti und Reiner AI im Vergleich: Markt, Regelwerke, Belege, Projektarbeit, Hosting und Preise. Auch dort, wo Reiner AI vorn liegt. Stand September 2026.',
-      },
       notFound: {
         title: 'Seite nicht gefunden – Piloti',
         description: 'Diese Seite existiert nicht oder wurde verschoben.',
@@ -151,6 +146,7 @@ const de = {
     signInPending: 'Weiterleitung…',
     cta: 'Frage mitbringen',
     why: 'Warum Piloti',
+    compare: 'Vergleiche',
     langLabel: 'Sprache wählen',
     menu: 'Menü',
     menuOpen: 'Menü öffnen',
@@ -426,7 +422,6 @@ const de = {
     changelog: 'Was hier als Nächstes steht, bestimmen die Pilotbüros mit.',
     rechenweg: 'Gemessen hat das noch niemand. Messen wir es in Ihrem Büro.',
     warum: 'Die beste Probe ist eine Frage aus Ihrem laufenden Projekt. Schicken Sie uns eine.',
-    vsReiner: 'Stellen Sie beiden Werkzeugen dieselbe Frage. Unsere Antwort zeigen wir Ihnen gern.',
   },
   chat: {
     fictional: 'Fiktives Beispiel',
@@ -523,7 +518,6 @@ const de = {
     working: 'Rechenweg',
     team: 'Team',
     why: 'Warum Piloti',
-    vsReiner: 'Piloti vs. Reiner AI',
     blog: 'Blog',
     changelog: 'Neuerungen',
     privacy: 'Datenschutz',
@@ -710,11 +704,6 @@ const en: typeof de = {
         description:
           'Why not just ChatGPT? Piloti connects Austrian building law, your drawings and your office knowledge into answers with sources you can check, all the way to the file.',
       },
-      vsReiner: {
-        title: 'Piloti or Reiner AI? An honest comparison – Piloti',
-        description:
-          'Piloti and Reiner AI compared: market, regulations, evidence, project work, hosting and prices. Including where Reiner AI is ahead. As of September 2026.',
-      },
       notFound: {
         title: 'Page not found – Piloti',
         description: 'This page does not exist or has been moved.',
@@ -797,6 +786,7 @@ const en: typeof de = {
     signInPending: 'Redirecting…',
     cta: 'Bring a question',
     why: 'Why Piloti',
+    compare: 'Comparisons',
     langLabel: 'Choose language',
     menu: 'Menu',
     menuOpen: 'Open menu',
@@ -1060,7 +1050,6 @@ const en: typeof de = {
     changelog: 'The pilot offices help decide what comes next on this list.',
     rechenweg: 'Nobody has measured this yet. Let us measure it in your office.',
     warum: 'The best test is a question from your current project. Send us one.',
-    vsReiner: 'Put the same question to both tools. We are happy to show you our answer.',
   },
   chat: {
     fictional: 'Fictional example',
@@ -1153,7 +1142,6 @@ const en: typeof de = {
     working: 'The maths',
     team: 'Team',
     why: 'Why Piloti',
-    vsReiner: 'Piloti vs. Reiner AI',
     blog: 'Blog',
     changelog: 'What’s new',
     privacy: 'Privacy',
