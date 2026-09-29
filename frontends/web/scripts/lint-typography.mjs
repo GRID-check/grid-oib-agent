@@ -5,7 +5,7 @@
  * dash, „a quote closed with a straight one", straight quotes in German blog
  * prose, and a number torn from its unit at a line break ("30" / "s").
  *
- * It reads the dictionary (src/i18n/ui.ts, both locales, comments skipped) and
+ * It reads the dictionaries (src/i18n/*.ts, both locales, comments skipped) and
  * the blog posts (prose lines only: MDX component attributes use straight
  * quotes as syntax).
  */
@@ -33,8 +33,12 @@ const check = (file, lines, rules, skip = () => false) =>
 
 const isComment = (line) => /^\s*(\/\/|\*|\/\*)/.test(line)
 
-const dict = 'src/i18n/ui.ts'
-check(dict, readFileSync(dict, 'utf8').split('\n'), RULES, isComment)
+// Every dictionary: ui.ts and the argument pages' copy (pages.ts).
+for (const name of readdirSync('src/i18n')) {
+  if (!name.endsWith('.ts') || name === 'utils.ts') continue
+  const dict = join('src/i18n', name)
+  check(dict, readFileSync(dict, 'utf8').split('\n'), RULES, isComment)
+}
 
 const blog = 'src/content/blog'
 for (const locale of readdirSync(blog)) {

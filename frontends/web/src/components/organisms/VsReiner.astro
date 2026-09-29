@@ -1,0 +1,80 @@
+---
+/**
+ * /piloti-vs-reiner-ai/: the comparison a buyer searches for, written so it
+ * survives the buyer reading Reiner's own site next to it. Reiner's column
+ * says only what reiner.ai says, dated; the page names where Reiner is ahead
+ * before where Piloti is. Copy in i18n/pages.ts.
+ */
+import PageHead from '../molecules/PageHead.astro'
+import CompareTable from '../molecules/CompareTable.astro'
+import Pill from '../atoms/Pill.astro'
+import { TRAGWERK } from '../craft/plates'
+import type { Locale } from '../../i18n/ui'
+import { pages } from '../../i18n/pages'
+import { useTranslatedPath } from '../../i18n/utils'
+
+interface Props {
+  locale: Locale
+}
+const { locale } = Astro.props
+const t = pages[locale].vsReiner
+const path = useTranslatedPath(locale)
+const h2 = 'm-0 font-voice text-v4 text-ink'
+---
+
+<div class="frame pt-28 md:pt-36">
+  <PageHead title={t.heading} plate={TRAGWERK.IV} locale={locale} priority>
+    <p class="m-0">{t.lede}</p>
+    <p class="m-0 mt-3 text-sm">{t.nameNote}</p>
+  </PageHead>
+
+  <section aria-labelledby="vs-short" class="section-y">
+    <h2 id="vs-short" class={h2}>{t.shortTitle}</h2>
+    <div class="mt-8 grid gap-x-10 gap-y-6 md:grid-cols-2">
+      {
+        t.short.map((s) => (
+          <p data-reveal class="m-0 max-w-measure border-t border-ink/15 pt-5 text-base leading-relaxed text-ink-soft md:text-lg">
+            <strong class="font-semibold text-ink">{s.label}</strong> {s.body}
+          </p>
+        ))
+      }
+    </div>
+  </section>
+
+  <section aria-labelledby="vs-table" class="section-y border-t border-ink/15">
+    <h2 id="vs-table" class={h2}>{t.tableTitle}</h2>
+    <div class="mt-8">
+      <CompareTable caption={t.heading} headA={t.headA} headB={t.headB} rows={t.rows} ours="a" />
+    </div>
+    <p class="m-0 mt-5 max-w-measure text-sm leading-relaxed text-ink-soft">{t.source}</p>
+  </section>
+
+  <section aria-label={`${t.theirsTitle} · ${t.oursTitle}`} class="section-y border-t border-ink/15">
+    <div class="grid gap-x-10 gap-y-10 md:grid-cols-2">
+      {
+        [
+          { title: t.theirsTitle, items: t.theirs },
+          { title: t.oursTitle, items: t.ours },
+        ].map((col) => (
+          <div>
+            <h2 class={h2}>{col.title}</h2>
+            <ul class="m-0 mt-6 list-disc space-y-3 pl-5 text-base leading-relaxed text-ink-soft">
+              {col.items.map((item) => (
+                <li>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <section aria-labelledby="vs-close" class="section-y border-t border-ink/15">
+    <h2 id="vs-close" class={h2}>{t.closeTitle}</h2>
+    <p class="m-0 mt-5 max-w-measure text-base leading-relaxed text-ink-soft md:text-lg">{t.close}</p>
+    <div class="mt-7 flex flex-wrap gap-3">
+      <!-- The mail pill is EndInvite's, right below; a second one here said the same twice. -->
+      <Pill href={path('/warum-piloti/')} variant="outline">{t.ctaSecondary}</Pill>
+    </div>
+  </section>
+</div>

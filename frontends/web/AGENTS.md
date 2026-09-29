@@ -61,6 +61,11 @@ title, canonical, hreflang, Open Graph, Twitter, RSS links, icons and the
 JSON-LD graph. The builders live in `src/lib/seo.ts`; the strings in `ui.ts`:
 `meta` (the landing page, and the one sentence that says what Piloti is),
 `seo.pages` (every other page's title and description) and `faq`.
+The prose of the two argument pages, `/warum-piloti/` and
+`/piloti-vs-reiner-ai/`, lives in `src/i18n/pages.ts`, linted like `ui.ts`.
+A competitor's column says only what its own site says, with the month it was
+read. Audiences, the keyword map and the open gaps:
+[`docs/product/website-conversion-and-seo.md`](../../docs/product/website-conversion-and-seo.md).
 
 Every page type has its own riso share card, by art id in `SHARE_ART`
 (`src/lib/seo.ts`), passed as `ogArt`; a page that passes none shares the

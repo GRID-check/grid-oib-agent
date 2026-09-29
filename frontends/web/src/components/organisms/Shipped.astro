@@ -1,0 +1,54 @@
+---
+/**
+ * The landing page's proof that Piloti ships: the running total from the
+ * changelog and the latest week's first features, one sentence each, with the
+ * way to the whole list. Read from src/data/changelog.json at build time, so
+ * it can only ever say what was published there.
+ */
+import { ui, type Locale } from '../../i18n/ui'
+import { pages } from '../../i18n/pages'
+import { useTranslatedPath } from '../../i18n/utils'
+import { getReleases, shippedTotals } from '../../lib/changelog'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const t = pages[locale].why
+const path = useTranslatedPath(locale)
+const totals = shippedTotals()
+const fmt = new Intl.NumberFormat(locale === 'de' ? 'de-AT' : 'en-GB')
+const body = t.velocity.body.replace('{notes}', fmt.format(totals.notes)).replace('{weeks}', fmt.format(totals.weeks))
+
+const latest = getReleases().find((r) => r.sections.some((s) => s.key === 'features'))
+const week = latest?.kind === 'week' ? latest.id.split('-W')[1] : null
+const label = week ? ui[locale].changelog.weekShort.replace('{n}', String(Number(week))) : latest?.version
+// First sentence of each note: the list is a glance, the changelog the read.
+const firstSentence = (text: string) => text.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? text
+const notes = (latest?.sections.find((s) => s.key === 'features')?.notes ?? []).slice(0, 3).map((n) => firstSentence(n[locale]))
+---
+
+<section aria-labelledby="shipped-title" class="frame section-y">
+  <div class="grid grid-cols-1 gap-x-16 gap-y-8 border-t border-ink/15 pt-8 lg:grid-cols-[5fr_7fr]">
+    <div data-reveal>
+      <h2 id="shipped-title" class="m-0 font-voice text-v4 text-ink" style="text-wrap: balance">{t.velocity.title}</h2>
+      <p class="m-0 mt-4 max-w-measure text-base leading-relaxed text-ink-soft">{body}</p>
+      <p class="m-0 mt-4 flex flex-wrap gap-x-6 gap-y-2 text-base">
+        <a href={path('/changelog/')} class="text-accent-600 underline underline-offset-4">{t.velocity.link}&nbsp;→</a>
+        <a href={path('/warum-piloti/')} class="text-accent-600 underline underline-offset-4">{ui[locale].nav.why}&nbsp;→</a>
+      </p>
+    </div>
+    {
+      label && notes.length > 0 && (
+        <div data-reveal>
+          <p class="m-0 font-mono text-xs uppercase tracking-wide text-accent-600">{label}</p>
+          <ul class="m-0 mt-3 list-none space-y-3 p-0">
+            {notes.map((n) => (
+              <li class="border-t border-ink/12 pt-3 text-base leading-relaxed text-ink">{n}</li>
+            ))}
+          </ul>
+        </div>
+      )
+    }
+  </div>
+</section>

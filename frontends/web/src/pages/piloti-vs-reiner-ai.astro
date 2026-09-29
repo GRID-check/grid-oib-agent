@@ -1,0 +1,25 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import VsReiner from '../components/organisms/VsReiner.astro'
+import EndInvite from '../components/molecules/EndInvite.astro'
+import { ui } from '../i18n/ui'
+import { SHARE_ART, pageLd } from '../lib/seo'
+
+const t = ui.de.seo.pages.vsReiner
+---
+
+<BaseLayout
+  locale="de"
+  title={t.title}
+  description={t.description}
+  ogArt={SHARE_ART.vsReiner}
+  jsonLd={pageLd('de', t.title, Astro.url.pathname, Astro.site)}
+>
+  <VsReiner locale="de" />
+  <EndInvite locale="de" page="vsReiner" />
+</BaseLayout>
+
+<script>
+  import { initReveals } from '../scripts/reveal'
+  initReveals()
+</script>
