@@ -39,16 +39,22 @@ interface SubjectMembership {
  *
  * Cached under a key distinct from `membership:` (used by session resolution,
  * which stores only the id) so the two never clobber each other's shape.
+ *
+ * "Not a member" (WorkOS answered, with nothing) is cached for the short
+ * negative TTL. "Could not ask" is not cached at all: it is caught outside
+ * `getCached`, so the next request asks again. Caught inside the loader, a
+ * single failed lookup was stored as "not a member", and the colleague vanished
+ * from every picker for the negative TTL.
  */
 export async function resolveSubjectMembership(
   organizationId: string,
   userId: string
 ): Promise<SubjectMembership | null> {
-  return getCached(
-    `membership-role:${organizationId}:${userId}`,
-    MEMBERSHIP_TTL_MS,
-    async () => {
-      try {
+  try {
+    return await getCached(
+      `membership-role:${organizationId}:${userId}`,
+      MEMBERSHIP_TTL_MS,
+      async () => {
         const memberships = await getWorkOS().userManagement.listOrganizationMemberships({
           userId,
           organizationId,
@@ -60,13 +66,14 @@ export async function resolveSubjectMembership(
           organizationMembershipId: membership.id,
           role: membership.role?.slug ?? null,
         } satisfies SubjectMembership
-      } catch (error) {
-        console.warn(`[project-membership] lookup failed for ${userId}:`, error)
-        return null
-      }
-    },
-    { negativeTtlMs: MEMBERSHIP_NEGATIVE_TTL_MS }
-  )
+      },
+      { negativeTtlMs: MEMBERSHIP_NEGATIVE_TTL_MS }
+    )
+  } catch (error) {
+    // Fail closed, and uncached: an unanswered lookup is not a membership.
+    console.warn(`[project-membership] lookup failed for ${userId}:`, error)
+    return null
+  }
 }
 
 /**
