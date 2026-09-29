@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { motion, springDrawer } from '@/components/motion'
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { useLocale, useTranslations } from '@/i18n'
+import { IngestFailureNotice } from '@/features/documents/components/ingest-failure-notice'
 import { formatBytes } from '@/lib/format'
 
 /** File source status types */
@@ -36,6 +37,12 @@ export interface FileSourceCardProps {
   status: FileSourceStatus
   /** Error message when status is 'error' */
   errorMessage?: string
+  /**
+   * The failure happened while the file was being read, so `errorMessage` is a
+   * stored ingest failure: it is said in the reader's language, raw text behind
+   * „Details". Otherwise it is the upload's own message, shown as it is.
+   */
+  failedWhileReading?: boolean
   /** Hours after upload before the file may expire (0 = no expiry shown) */
   expirationIntervalHours?: number
   /**
@@ -171,6 +178,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
   description,
   status,
   errorMessage,
+  failedWhileReading = false,
   expirationIntervalHours = 0,
   onDelete,
   onOpen,
@@ -258,8 +266,16 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
         </div>
 
         {/* Error message */}
-        {status === 'error' && errorMessage && (
-          <span className="mt-1 text-xs text-error">{errorMessage}</span>
+        {status === 'error' && errorMessage && failedWhileReading ? (
+          <IngestFailureNotice
+            errorMessage={errorMessage}
+            className="mt-1"
+            sentenceClassName="text-error"
+            testId="file-source-card-failure"
+          />
+        ) : (
+          status === 'error' &&
+          errorMessage && <span className="mt-1 text-xs text-error">{errorMessage}</span>
         )}
       </div>
     </>

@@ -294,7 +294,26 @@ describe('FileCard while the document is still being read', () => {
     render(<FileCard file={failed} isSelected={false} onSelect={() => {}} locale="de" />)
 
     expect(screen.queryByTestId('file-card-summary-skeleton')).not.toBeInTheDocument()
-    expect(screen.getByText('Verschlüsseltes PDF')).toBeInTheDocument()
+    // An unclassified message says the generic sentence; the stored text is
+    // the tooltip, since the card is one click target and has no disclosure.
+    const line = screen.getByTestId('file-card-failure')
+    expect(line).toHaveTextContent(/Piloti (couldn't read|konnte dieses Dokument nicht lesen)/)
+    expect(line).toHaveAttribute('title', 'Verschlüsseltes PDF')
+  })
+
+  it('says why in words when the failure carries a known backend prefix', () => {
+    const failed: FileItem = {
+      ...unsettled,
+      status: 'failed',
+      errorMessage: 'pdf_pages_unreadable: 7 of 12 pages could not be read',
+    }
+
+    render(<FileCard file={failed} isSelected={false} onSelect={() => {}} locale="de" />)
+
+    const line = screen.getByTestId('file-card-failure')
+    expect(line).toHaveTextContent(/^7 (of|von) 12/)
+    expect(line).not.toHaveTextContent('pdf_pages_unreadable')
+    expect(line).toHaveAttribute('title', 'pdf_pages_unreadable: 7 of 12 pages could not be read')
   })
 
   it('omits the size · time strip when hideFooter is set', () => {

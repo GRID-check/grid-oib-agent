@@ -169,7 +169,7 @@ describe('FilePreviewPane', () => {
     const { unmount } = render(
       <FilePreviewPane file={{ ...failed, versionState: 'published', versionCount: 2 }} projectId="proj-1" />
     )
-    expect(screen.getByText('PDF is encrypted')).toBeInTheDocument()
+    expect(screen.getByText("Piloti couldn't read this document, so search can't find it.")).toBeInTheDocument()
     expect(screen.getByText(/still use the previous version/)).toBeInTheDocument()
     unmount()
 
@@ -1056,7 +1056,8 @@ describe('FilePreviewPane', () => {
     })
   })
 
-  it('surfaces the failure reason and a retry-ingestion affordance for failed documents', () => {
+  it('surfaces the failure reason and a retry-ingestion affordance for failed documents', async () => {
+    const user = userEvent.setup()
     render(
       <FilePreviewPane
         file={{ ...mockFile, status: 'failed', errorMessage: 'Ingestion could not be started' }}
@@ -1064,8 +1065,28 @@ describe('FilePreviewPane', () => {
       />
     )
     expect(screen.getByText('Reading failed')).toBeDefined()
-    expect(screen.getByText('Ingestion could not be started')).toBeDefined()
+    expect(screen.getByText("Reading couldn't be started. Try again.")).toBeDefined()
     expect(screen.getByRole('button', { name: /read again/i })).toBeDefined()
+
+    // The stored text is one click away, for the admin reading over a shoulder.
+    expect(screen.queryByText('Ingestion could not be started')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Details' }))
+    expect(screen.getByTestId('preview-ingest-failure-raw')).toHaveTextContent('Ingestion could not be started')
+  })
+
+  it('says a missing vision model is a configuration problem, not the file', () => {
+    render(
+      <FilePreviewPane
+        file={{
+          ...mockFile,
+          status: 'failed',
+          errorMessage: 'vlm_not_configured: image ingestion requires AIQ_VLM_API_KEY',
+        }}
+        projectId="proj-1"
+      />
+    )
+    expect(screen.getByText(/need a vision model, and none is set up/)).toBeDefined()
+    expect(screen.queryByText(/AIQ_VLM_API_KEY/)).toBeNull()
   })
 
   describe('the file operations', () => {

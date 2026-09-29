@@ -14,6 +14,8 @@ import {
 } from '../lib/upload-progress'
 import { useElapsedSeconds, useTransferRate } from '../hooks/use-transfer-rate'
 import { extChipTint, fileExtensionLabel } from '../document-kind'
+import { IngestFailureNotice } from './ingest-failure-notice'
+import { failedWhileReading } from '../lib/ingest-failure'
 import { Button } from '@/components/ui/button'
 import { AnimatePresence, motion, motionBase, springSnap } from '@/components/motion'
 import { useLocale, useTranslations } from '@/i18n'
@@ -461,8 +463,22 @@ function UploadRow({
         <TrackBar percent={percent} sweeping={phase === 'processing'} className="mt-1.5 rounded-full" />
       )}
 
-      {isFailed && file.errorMessage && (
-        <p className="mt-1 pl-[34px] text-xs leading-snug text-destructive">{file.errorMessage}</p>
+      {/* A file the server accepted failed while being read: its message is
+          the stored ingest failure, said in the reader's language. One that
+          never arrived failed its upload, and that message is already the
+          upload's own. */}
+      {isFailed && file.errorMessage && failedWhileReading(file) ? (
+        <IngestFailureNotice
+          errorMessage={file.errorMessage}
+          className="mt-1 pl-[34px]"
+          sentenceClassName="leading-snug text-destructive"
+          testId="upload-row-failure"
+        />
+      ) : (
+        isFailed &&
+        file.errorMessage && (
+          <p className="mt-1 pl-[34px] text-xs leading-snug text-destructive">{file.errorMessage}</p>
+        )
       )}
     </motion.li>
   )

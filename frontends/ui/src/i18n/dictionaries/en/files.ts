@@ -223,7 +223,6 @@ export const files = {
     download: 'Download',
     downloadFailed: "The download couldn't be started. Please try again.",
     ingestionFailed: 'Reading failed',
-    ingestionFailedGeneric: "Piloti couldn't read this document, so search can't find it.",
     ingestionFailedPreviousVersionKept:
       'Search and Piloti still use the previous version. The download serves the new file.',
     retryIngestion: 'Read again',
@@ -254,6 +253,26 @@ export const files = {
       'The new file could not be read — Piloti is still citing the previous version.',
     /** The way out of that: the enlarged view carries the error and the retry. */
     peekFailedAction: 'Details',
+  },
+  /**
+   * Why a document could not be read, by the category
+   * `features/documents/lib/ingest-failure.ts` gives the stored error. The raw
+   * text stays behind `details`.
+   */
+  ingestFailure: {
+    rendition_failed: "The PDF version of this file couldn't be created. Try reading it again, or upload it as a PDF.",
+    download_failed: "The uploaded file couldn't be fetched from storage. Try reading it again, or upload it once more.",
+    interrupted: 'Reading stopped when the service restarted. Read it again to finish.',
+    unreadable_pages:
+      "{failed} of {total} pages couldn't be read. Try reading it again. If that fails too, the PDF is probably damaged.",
+    vision_not_configured:
+      'Scanned pages and images need a vision model, and none is set up. Ask your admins to configure one.',
+    dispatch_failed: "Reading couldn't be started. Try again.",
+    timeout: 'Reading took too long and was stopped. Try again. Splitting a very large file helps.',
+    empty: 'No text was found in this file. It may be password-protected, damaged or empty.',
+    deleted: 'The file was deleted while Piloti was reading it.',
+    unknown: "Piloti couldn't read this document, so search can't find it.",
+    details: 'Details',
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',

@@ -218,7 +218,6 @@ export const files: typeof en.files = {
     download: 'Herunterladen',
     downloadFailed: 'Der Download konnte nicht gestartet werden. Bitte versuchen Sie es erneut.',
     ingestionFailed: 'Lesen fehlgeschlagen',
-    ingestionFailedGeneric: 'Piloti konnte dieses Dokument nicht lesen, daher findet die Suche es nicht.',
     ingestionFailedPreviousVersionKept:
       'Die Suche und Piloti verwenden weiterhin die vorige Fassung. Der Download liefert die neue Datei.',
     retryIngestion: 'Erneut lesen',
@@ -232,6 +231,28 @@ export const files: typeof en.files = {
     peekFailedPreviousVersionHint:
       'Die neue Datei konnte nicht gelesen werden — Piloti zitiert weiterhin die vorige Fassung.',
     peekFailedAction: 'Details',
+  },
+  /**
+   * Warum ein Dokument nicht gelesen werden konnte, nach der Kategorie, die
+   * `features/documents/lib/ingest-failure.ts` dem gespeicherten Fehler gibt.
+   * Der Rohtext steht hinter `details`.
+   */
+  ingestFailure: {
+    rendition_failed:
+      'Die PDF-Fassung dieser Datei ließ sich nicht erzeugen. Erneut lesen oder die Datei als PDF hochladen.',
+    download_failed:
+      'Die hochgeladene Datei war im Speicher nicht erreichbar. Erneut lesen oder die Datei noch einmal hochladen.',
+    interrupted: 'Das Lesen wurde durch einen Neustart des Dienstes unterbrochen. Erneut lesen, um es abzuschließen.',
+    unreadable_pages:
+      '{failed} von {total} Seiten ließen sich nicht lesen. Erneut lesen. Klappt es wieder nicht, ist die PDF vermutlich beschädigt.',
+    vision_not_configured:
+      'Für gescannte Seiten und Bilder braucht Piloti ein Bildmodell, und es ist keins eingerichtet. Bitte die Admins, eins zu konfigurieren.',
+    dispatch_failed: 'Das Lesen ließ sich nicht starten. Bitte erneut lesen.',
+    timeout: 'Das Lesen hat zu lange gedauert und wurde abgebrochen. Erneut lesen. Sehr große Dateien besser aufteilen.',
+    empty: 'In dieser Datei war kein Text zu finden. Sie ist vielleicht passwortgeschützt, beschädigt oder leer.',
+    deleted: 'Die Datei wurde gelöscht, während Piloti sie las.',
+    unknown: 'Piloti konnte dieses Dokument nicht lesen, daher findet die Suche es nicht.',
+    details: 'Details',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',

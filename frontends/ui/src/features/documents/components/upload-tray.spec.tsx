@@ -92,6 +92,22 @@ describe('UploadTray', () => {
       expect(screen.getByText('File too large')).toBeDefined()
     })
 
+    it('says a read failure in words, with the stored text behind Details', async () => {
+      const user = userEvent.setup()
+      renderTray([
+        tracked({
+          status: 'failed',
+          serverFileId: 'doc-1',
+          errorMessage: 'interrupted: ingestion stopped when the service restarted; retry to index this file',
+        }),
+      ])
+
+      expect(screen.getByText('Reading stopped when the service restarted. Read it again to finish.')).toBeDefined()
+      expect(screen.queryByText(/^interrupted:/)).toBeNull()
+      await user.click(screen.getByRole('button', { name: 'Details' }))
+      expect(screen.getByTestId('upload-row-failure-raw')).toHaveTextContent(/^interrupted: ingestion stopped/)
+    })
+
     it('announces phase changes politely rather than reading out a byte counter', () => {
       renderTray([tracked({ uploadStartedAt: 1 })])
       expect(screen.getByText('Uploading 1 document')).toHaveAttribute('aria-live', 'polite')

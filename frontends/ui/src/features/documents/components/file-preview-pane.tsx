@@ -62,6 +62,7 @@ import {
   isSettlingStatus,
 } from './document-status'
 import { DrawingStructuredDetails } from './drawing-structured-details'
+import { IngestFailureNotice } from './ingest-failure-notice'
 import { hasStructuredDetail, type DrawingStructured } from '@/lib/documents/drawing-structured'
 import { AssignmentFaces } from './assignment-faces'
 import { AuthorshipLine } from './authorship-line'
@@ -1439,9 +1440,11 @@ export function FilePreviewPane({
                     <p className="text-destructive text-sm font-medium">
                       {t('preview.ingestionFailed')}
                     </p>
-                    <p className="text-muted-foreground break-words text-xs">
-                      {file.errorMessage || t('preview.ingestionFailedGeneric')}
-                    </p>
+                    <IngestFailureNotice
+                      errorMessage={file.errorMessage}
+                      sentenceClassName="text-muted-foreground"
+                      testId="preview-ingest-failure"
+                    />
                     {/* A failed NEW version: the row already points at its
                       bytes, while the ingestor kept the previous version's
                       passages. Without this the two surfaces disagree
