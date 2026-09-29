@@ -343,12 +343,13 @@ class TestDeferredFlush:
         assert tracker.flush(wait=False) is None
 
 
-# The shape an `api_type: responses` role actually leaves behind. langchain-openai's
-# `_construct_lc_result_from_responses_api` builds a ChatResult with NO llm_output
-# and a response_metadata that excludes `usage`, so the provider object — the only
-# carrier of `cost` and `cache_discount` — never reaches this process; what survives
-# is LangChain's normalized usage_metadata, in which OpenRouter's
-# `input_tokens_details.cached_tokens` has become `input_token_details.cache_read`.
+# The shape an `api_type: responses` role leaves behind when nothing carries the
+# provider's accounting. langchain-openai's `_construct_lc_result_from_responses_api`
+# builds a ChatResult with NO llm_output and a response_metadata that excludes
+# `usage`; what survives is LangChain's normalized usage_metadata, in which
+# OpenRouter's `input_tokens_details.cached_tokens` has become
+# `input_token_details.cache_read`. `install_responses_cost_carrier` puts the
+# provider's `cost` back beside it (TestResponsesApiCost below).
 RESPONSES_USAGE_METADATA = {
     "input_tokens": 41883,
     "output_tokens": 514,
@@ -374,9 +375,9 @@ class TestResponsesApiUsage:
         assert event.cached_tokens == 35072
         assert event.reasoning_tokens == 192
 
-    def test_cost_is_reported_missing_rather_than_invented(self):
-        # OpenRouter's `cost` is genuinely absent on this path. A zero that
-        # claimed to be a measurement would be worse than one that says so.
+    def test_without_the_carried_cost_it_is_reported_missing(self):
+        # A zero that claimed to be a measurement would be worse than one that
+        # says so.
         event = extract_usage_event(_responses_result())
         assert event is not None
         assert event.cost_usd == 0.0
@@ -417,3 +418,136 @@ class TestPromptCacheSummary:
             with track_llm_costs(inline_flush=False) as tracker:
                 tracker.on_llm_end(_responses_result(), run_id="run-1")
         assert [r for r in caplog.records if "[PromptCache]" in r.getMessage()]
+
+
+# OpenRouter's Responses `usage`, as its API reference documents it
+# (https://openrouter.ai/docs/api/api-reference/responses/create-a-response):
+# token counts in the Responses spelling, plus `cost` in USD and `is_byok`.
+OPENROUTER_RESPONSES_USAGE = {
+    "input_tokens": 41883,
+    "input_tokens_details": {"cached_tokens": 35072},
+    "output_tokens": 514,
+    "output_tokens_details": {"reasoning_tokens": 192},
+    "total_tokens": 42397,
+    "cost": 0.0421,
+    "cost_details": {
+        "upstream_inference_cost": None,
+        "upstream_inference_input_cost": 0.0371,
+        "upstream_inference_output_cost": 0.005,
+    },
+    "is_byok": False,
+}
+
+
+def _openrouter_response(usage: dict = OPENROUTER_RESPONSES_USAGE) -> dict:
+    return {
+        "id": "gen-1759140000-RESPONSES",
+        "object": "response",
+        "created_at": 1759140000,
+        "model": "openai/gpt-6-luna",
+        "status": "completed",
+        "output": [
+            {
+                "type": "message",
+                "id": "msg_1",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{"type": "output_text", "text": "Antwort", "annotations": []}],
+            }
+        ],
+        "parallel_tool_calls": True,
+        "tool_choice": "auto",
+        "tools": [],
+        "usage": usage,
+    }
+
+
+def _responses_llm(*, streaming: bool, usage: dict = OPENROUTER_RESPONSES_USAGE):
+    """A real Responses-API ChatOpenAI whose HTTP is answered in-process."""
+    import httpx
+    from langchain_openai import ChatOpenAI
+
+    body = _openrouter_response(usage)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if not streaming:
+            return httpx.Response(200, json=body)
+        in_progress = {**body, "status": "in_progress", "output": [], "usage": None}
+        events = [
+            {"type": "response.created", "sequence_number": 0, "response": in_progress},
+            {
+                "type": "response.output_text.delta",
+                "sequence_number": 1,
+                "item_id": "msg_1",
+                "output_index": 0,
+                "content_index": 0,
+                "delta": "Antwort",
+                "logprobs": [],
+            },
+            {"type": "response.completed", "sequence_number": 2, "response": body},
+        ]
+        sse = "".join(f"event: {e['type']}\ndata: {json.dumps(e)}\n\n" for e in events)
+        return httpx.Response(200, text=sse, headers={"content-type": "text/event-stream"})
+
+    return ChatOpenAI(
+        model="openai/gpt-6-luna",
+        api_key="test",  # pragma: allowlist secret
+        base_url="https://openrouter.ai/api/v1",
+        use_responses_api=True,
+        streaming=streaming,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+
+class TestResponsesApiCost:
+    """The main answer role runs on the Responses API; its cost must reach the ledger.
+
+    Before the carrier every `research_llm` call was recorded at cost 0, so an
+    answer's details showed only its post-answer stages (~0.1 credits) and the
+    budget was never charged for the answer itself.
+    """
+
+    def test_the_carrier_is_installed(self):
+        from langchain_openai.chat_models import base as lc_openai
+
+        from aiq_agent.common import cost_tracking
+
+        assert cost_tracking._RESPONSES_COST_CARRIER_INSTALLED
+        assert getattr(lc_openai._construct_lc_result_from_responses_api, "__grid_cost_carrier__", False)
+        assert cost_tracking.install_responses_cost_carrier() is True  # idempotent
+
+    @pytest.mark.parametrize("streaming", [False, True], ids=["invoke", "stream"])
+    def test_a_responses_call_records_the_providers_cost(self, streaming):
+        tracker = GridCostTracker(organization_id="org_1")
+        _responses_llm(streaming=streaming).invoke("Frage", config={"callbacks": [tracker]})
+        assert tracker.events_recorded == 1
+        event = tracker._pending[0]
+        assert event.cost_usd == pytest.approx(0.0421)
+        assert event.cost_source == "usage_field"
+        assert event.is_byok is False
+        assert event.prompt_tokens == 41883
+        assert event.cached_tokens == 35072
+        assert event.reasoning_tokens == 192
+        assert event.model == "openai/gpt-6-luna"
+        assert tracker.turn_cost_usd == pytest.approx(0.0421)
+
+    def test_a_byok_responses_call_is_marked_byok(self):
+        tracker = GridCostTracker(organization_id="org_1")
+        usage = {**OPENROUTER_RESPONSES_USAGE, "cost": 0, "is_byok": True}
+        _responses_llm(streaming=False, usage=usage).invoke("Frage", config={"callbacks": [tracker]})
+        assert tracker._pending[0].is_byok is True
+
+    def test_a_reply_without_cost_still_says_missing(self):
+        tracker = GridCostTracker(organization_id="org_1")
+        usage = {k: v for k, v in OPENROUTER_RESPONSES_USAGE.items() if k not in ("cost", "is_byok")}
+        _responses_llm(streaming=False, usage=usage).invoke("Frage", config={"callbacks": [tracker]})
+        event = tracker._pending[0]
+        assert event.cost_usd == 0.0
+        assert event.cost_source == "missing"
+
+    def test_the_budget_gate_sees_the_answers_cost(self):
+        tracker = GridCostTracker(organization_id="org_1", budget=BudgetSnapshot(remaining_org_usd=0.04))
+        llm = _responses_llm(streaming=False)
+        llm.invoke("Frage", config={"callbacks": [tracker]})
+        with pytest.raises(BudgetExceededError):
+            llm.invoke("Noch eine", config={"callbacks": [tracker]})
