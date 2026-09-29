@@ -2256,6 +2256,10 @@
     "de": "Word-Dokumente werden korrekt eingelesen und sind in Antworten zitierbar. Bisher wurden sie beim Hochladen angenommen und danach als fehlgeschlagen markiert."
   },
   {
+    "en": "Word, Excel and PowerPoint files now open in the document viewer as a PDF preview, and a reference to one opens that preview instead of only offering a download. Download still gives you the original file, unchanged.",
+    "de": "Word-, Excel- und PowerPoint-Dateien öffnen sich jetzt im Dokumentbetrachter als PDF-Vorschau, und ein Verweis auf eine solche Datei öffnet diese Vorschau, statt nur einen Download anzubieten. Der Download liefert weiterhin die unveränderte Originaldatei."
+  },
+  {
     "en": "You can now hand Piloti recurring work in the chat: „prüf das jeden Montag“ creates a schedule that keeps running. Creating one needs the permission to manage schedules in the project.",
     "de": "Sie können Piloti im Chat jetzt auch wiederkehrende Arbeit übergeben: „prüf das jeden Montag“ legt einen Zeitplan an, der immer wieder läuft. Dafür braucht es die Berechtigung, Zeitpläne im Projekt zu verwalten."
   },

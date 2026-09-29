@@ -129,6 +129,7 @@ Consequences, where a reader looks for them.
 | [0067](0067-the-repair-corrects-a-misremembered-quote-in-place.md) | The repair corrects a misremembered quote in place, and nothing else | Accepted |
 | [0068](0068-use-nemo-agent-toolkit-as-designed.md) | Use the NeMo Agent Toolkit as designed: NAT runs the workflow, LangGraph streams natively, and the chat wire is ours | Accepted |
 | [0069](0069-the-answer-is-markdown-and-a-card-must-earn-its-place.md) | The answer is Markdown, drawn richly, and a card must carry what Markdown cannot | Accepted |
+| [0070](0070-office-files-are-viewed-through-a-pdf-rendition.md) | Office files are viewed through a PDF rendition that Gotenberg makes | Accepted |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off

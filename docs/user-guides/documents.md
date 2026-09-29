@@ -255,6 +255,31 @@ The **Document List** component (`document-list.tsx`) renders all tracked files 
 - **Error message** (if ingestion failed)
 - **Download button** — fetches a presigned S3 URL from `/api/documents/{id}/download` and triggers a browser download
 
+### Word, Excel and PowerPoint files
+
+Office files (`.docx`, `.xlsx`, `.pptx`, their older and OpenDocument
+counterparts, and `.rtf`) open in the preview as a **PDF preview**. Piloti
+converts the file to a PDF and shows that in the same viewer as any other PDF,
+so a citation to an office file opens the document instead of only offering a
+download. The pane says that it is showing a PDF preview of the original.
+
+**Download always gives the original file**, unchanged. The PDF is a copy for
+reading; nothing is edited or replaced.
+
+What to expect:
+
+- The first time an older file is opened, the preview shows „PDF-Vorschau wird
+  erstellt…" while it is converted. Files uploaded since the change are
+  converted during upload.
+- The PDF is LibreOffice's rendering, not Word's or Excel's. Layout can shift a
+  little, and a font the server does not have is replaced by a similar one.
+- A citation to a PowerPoint slide opens at that slide. A citation to a Word
+  document or an Excel sheet opens at page 1.
+- If conversion is not set up for your installation, or fails for a file, the
+  pane shows the placeholder and the Download button as before.
+
+Why it works this way: [ADR-0070](../adr/0070-office-files-are-viewed-through-a-pdf-rendition.md).
+
 ---
 
 ## Project-Scoped vs Session-Scoped Documents

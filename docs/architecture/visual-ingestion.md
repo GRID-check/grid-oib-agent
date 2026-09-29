@@ -130,6 +130,7 @@ For architectural drawings specifically:
 | `llama-index-readers-file` | not adopted | Optional distribution; wasn't installed, and `SimpleDirectoryReader`'s fallback read office files as raw bytes — every `.docx` upload failed ingestion. Replaced by `office_extractors`. |
 | Microsoft MarkItDown | evaluated, rejected (2026-08) | `markitdown[docx,xlsx,pptx]` pulls 30 packages incl. **onnxruntime** (native ML runtime via magika) + pandas — a toolchain in the ingest image for format conversion. Emits one Markdown blob per file: no per-sheet/per-slide `page_label`, which citations need. Its per-format converters could still back an `office_extractors` handler later. |
 | mammoth (docx→markdown) | noted as upgrade path | Preserves heading structure where docx2txt flattens; two small pure-Python deps. Worth taking when heading-aware chunking of Word uploads matters. |
+| Gotenberg 8 (LibreOffice over HTTP) | adopted for viewing, not for extraction (2026-09, [ADR-0070](../adr/0070-office-files-are-viewed-through-a-pdf-rendition.md)) | The BFF converts an office file to a `_render.pdf` sibling so it opens in the PDF viewer, and the backend draws the thumbnail from that PDF (`preview_ref`). Extraction still reads the original through `office_extractors`, so a `.docx` stays one text unit with no page label. Chunking by the rendition's pages would give Word citations a page, and would change answers. |
 
 ## Direction (not yet built)
 
