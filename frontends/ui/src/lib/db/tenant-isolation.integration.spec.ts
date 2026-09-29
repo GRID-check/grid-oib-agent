@@ -264,6 +264,55 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
     expect(cause.message).toMatch(/row-level security/i)
   })
 
+  /**
+   * Product feedback (0100): a tenant sees only the reports written from it,
+   * the platform bypass sees all of them, and the CHECKs hold the bounds the
+   * form counts against.
+   */
+  it('keeps product feedback inside its tenant, and its CHECKs hold', async () => {
+    for (const org of [ORG_A, ORG_B]) {
+      await withTenant({ organizationId: org, userId: `user_${org}` }, () =>
+        db.execute(
+          sql`insert into product_feedback (organization_id, user_id, kind, message)
+              values (${org}, ${'user_' + org}, 'bug', ${'report from ' + org})`
+        )
+      )
+    }
+
+    const seenByA = await withTenant({ organizationId: ORG_A }, () =>
+      db.execute(sql`select organization_id from product_feedback`)
+    )
+    expect([...seenByA].map((row) => row.organization_id)).toEqual([ORG_A])
+
+    const seenByPlatform = await withPlatformAccess('test: feedback triage list', () =>
+      db.execute(
+        sql`select organization_id from product_feedback where organization_id in (${ORG_A}, ${ORG_B})`
+      )
+    )
+    expect(new Set([...seenByPlatform].map((row) => row.organization_id))).toEqual(new Set([ORG_A, ORG_B]))
+
+    const blank = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(
+          sql`insert into product_feedback (organization_id, user_id, kind, message)
+              values (${ORG_A}, 'u', 'bug', '   ')`
+        )
+      )
+    )
+    expect(blank.message).toMatch(/product_feedback_message_not_blank/)
+
+    const unattributed = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`update product_feedback set status = 'resolved' where organization_id = ${ORG_A}`)
+      )
+    )
+    expect(unattributed.message).toMatch(/product_feedback_triage_attributed/)
+
+    await withPlatformAccess('test teardown: feedback', () =>
+      db.execute(sql`delete from product_feedback where organization_id in (${ORG_A}, ${ORG_B})`)
+    )
+  })
+
   it('updates and deletes nothing in another tenant', async () => {
     await withTenant({ organizationId: ORG_A }, async () => {
       await db.execute(sql`update projects set name = 'overwritten' where organization_id = ${ORG_B}`)

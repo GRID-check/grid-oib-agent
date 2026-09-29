@@ -33,7 +33,7 @@ export const feedback = {
     rateLimited: 'You have sent a lot of feedback in the last hour. Please try again later.',
     success: {
       title: 'Thank you!',
-      body: 'Your feedback has arrived. The Piloti team reads every report and gets in touch when there is news.',
+      body: 'Your feedback has reached the Piloti team. Every report is read.',
       another: 'Send more',
       close: 'Close',
     },

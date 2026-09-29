@@ -32,7 +32,7 @@ export const feedback: typeof en.feedback = {
       'Sie haben in der letzten Stunde schon viel Feedback gesendet. Bitte versuchen Sie es später erneut.',
     success: {
       title: 'Vielen Dank!',
-      body: 'Ihr Feedback ist angekommen. Das Piloti-Team liest jede Meldung und meldet sich, wenn es Neuigkeiten gibt.',
+      body: 'Ihr Feedback ist beim Piloti-Team angekommen. Jede Meldung wird gelesen.',
       another: 'Weiteres senden',
       close: 'Schließen',
     },
