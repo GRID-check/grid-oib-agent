@@ -197,9 +197,9 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
     UploadOrchestrator.setAuthToken(idToken)
   }, [idToken])
 
-  useEffect(() => {
-    UploadOrchestrator.setCallbacks({ onComplete, onError })
-  }, [onComplete, onError])
+  // One subscription per mount: several surfaces use this hook at once, and
+  // each must hear about the uploads it is showing.
+  useEffect(() => UploadOrchestrator.subscribe({ onComplete, onError }), [onComplete, onError])
 
   useEffect(() => {
     const previousSessionId = previousSessionIdRef.current

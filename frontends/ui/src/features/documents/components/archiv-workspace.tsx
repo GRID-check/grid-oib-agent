@@ -11,6 +11,7 @@ import { useArchivDocuments } from '../hooks/use-archiv-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
+import { useSettleTrackedUploads } from '../hooks/use-settle-tracked-uploads'
 import { ArchivLibraryPane } from './archiv-library-pane'
 import { DocumentActionsTrigger, DocumentObjectMenu } from './document-actions'
 import { FilePreviewDialog } from './file-preview-dialog'
@@ -345,6 +346,10 @@ export function ArchivWorkspace({
     () => trackedFiles.filter((f) => f.collectionName === collectionName && f.file != null),
     [trackedFiles, collectionName]
   )
+  // The listing's settling poll follows every document to the end; it settles
+  // the tray rows no ingest job will — a detached extraction (`.ifc`, an office
+  // file read from its PDF rendition) uploads with no job for the orchestrator.
+  useSettleTrackedUploads(files, activeUploads)
 
   // Drag-and-drop routes into the same upload path the button uses (managers only).
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({

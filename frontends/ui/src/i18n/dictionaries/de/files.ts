@@ -123,6 +123,7 @@ export const files: typeof en.files = {
       updated: 'Aktualisiert',
       caption:
         'Beim Hochladen automatisch erkannt – Ihre Korrekturen verbessern künftige Antworten.',
+      pending: 'Piloti liest das Dokument noch – Zusammenfassung und Merkmale erscheinen hier, sobald es fertig ist.',
     },
     pages: 'Seiten',
     chunks: 'Passagen',
@@ -138,6 +139,7 @@ export const files: typeof en.files = {
       title: 'Detaillierte Informationen',
       loading: 'Beschreibungen werden geladen …',
       empty: 'Keine visuellen Beschreibungen verfügbar.',
+      failed: 'Die Beschreibungen konnten nicht geladen werden.',
       page: 'Seite {page}',
       scale: 'Maßstab {scale}',
       structured: {

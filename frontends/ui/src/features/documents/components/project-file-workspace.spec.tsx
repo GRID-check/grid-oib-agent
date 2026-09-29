@@ -1657,4 +1657,41 @@ describe('ProjectFileWorkspace — the open file is on the URL', () => {
       expect(screen.getByTestId('file-card').querySelector('[aria-current="true"]')).toBeNull(),
     )
   })
+  it('brings the open modal along when the listing behind it refreshes', async () => {
+    server.use(
+      http.get('/api/documents', () =>
+        HttpResponse.json({
+          documents: [{ ...doc, status: 'ready', summary: 'Ein Grundriss.', pageCount: 2, tags: ['Grundriss'] }],
+        }),
+      ),
+      // The modal's own status read has not caught up with the summary; it
+      // must not erase what the listing brought.
+      http.get('/api/documents/:id/status', () =>
+        HttpResponse.json({ id: 'doc-eg', filename: 'EG.pdf', status: 'ready', summary: null }),
+      ),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+    )
+    searchParams = new URLSearchParams('doc=doc-eg')
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[{ ...doc, status: 'processing' }]}
+      />,
+    )
+    await waitFor(() => expect(useFilePreviewStore.getState().file?.id).toBe('doc-eg'))
+
+    // One settling tick of the listing.
+    await waitFor(
+      () =>
+        expect(useFilePreviewStore.getState().file).toMatchObject({
+          status: 'ready',
+          summary: 'Ein Grundriss.',
+          pageCount: 2,
+          tags: ['Grundriss'],
+        }),
+      { timeout: 6_000 },
+    )
+  }, 10_000)
 })

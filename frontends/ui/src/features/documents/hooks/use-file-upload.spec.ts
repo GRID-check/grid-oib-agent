@@ -50,7 +50,7 @@ const { mockClient, mockDocumentsStoreState, mockOrchestratorFns } = vi.hoisted(
     mockDocumentsStoreState: state,
     mockOrchestratorFns: {
       setAuthToken: vi.fn(),
-      setCallbacks: vi.fn(),
+      subscribe: vi.fn(() => vi.fn()),
       handleSessionChange: vi.fn(),
       loadFilesForSession: vi.fn(),
       enqueueJobs: vi.fn(),
@@ -168,16 +168,21 @@ describe('useFileUpload', () => {
       expect(mockOrchestratorFns.setAuthToken).toHaveBeenCalledWith('test-token')
     })
 
-    test('sets callbacks on mount', () => {
+    test('subscribes its callbacks on mount and unsubscribes on unmount', () => {
       const onComplete = vi.fn()
       const onError = vi.fn()
+      const unsubscribe = vi.fn()
+      mockOrchestratorFns.subscribe.mockReturnValueOnce(unsubscribe)
 
-      renderHook(() => useFileUpload({ onComplete, onError }))
+      const { unmount } = renderHook(() => useFileUpload({ onComplete, onError }))
 
-      expect(mockOrchestratorFns.setCallbacks).toHaveBeenCalledWith({
+      expect(mockOrchestratorFns.subscribe).toHaveBeenCalledWith({
         onComplete,
         onError,
       })
+      expect(unsubscribe).not.toHaveBeenCalled()
+      unmount()
+      expect(unsubscribe).toHaveBeenCalledTimes(1)
     })
 
     test('calls handleSessionChange on initial mount with collectionName', () => {

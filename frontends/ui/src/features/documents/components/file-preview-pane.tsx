@@ -50,7 +50,9 @@ import {
   failedWithPreviousVersion,
   fileTypeIcon,
   isCitable,
+  isCitableStatus,
   isNeverIndexed,
+  isSettlingStatus,
 } from './document-status'
 import { DrawingStructuredDetails } from './drawing-structured-details'
 import { hasStructuredDetail, type DrawingStructured } from '@/lib/documents/drawing-structured'
@@ -216,6 +218,17 @@ export function FilePreviewPane({
    */
   const showIndexedSection = showMetadataPanel && !isNeverIndexed(file)
   /**
+   * Which of the section's two claims holds right now. „Von Piloti indexiert"
+   * over nothing, while the document was still being read or under a failed
+   * block, promised a summary that was not coming (yet). Citable: the heading,
+   * over the summary once there is one. Still being read: one line saying so,
+   * which the settling poll replaces with the summary when it lands. Failed:
+   * neither — the failure block above already says what happened.
+   */
+  const indexedReady = showIndexedSection && isCitableStatus(file.status)
+  const indexedPending = showIndexedSection && isSettlingStatus(file.status)
+  const showIndexedHeading = (indexedReady && Boolean(file.summary)) || indexedPending
+  /**
    * What „Besprechen" will and will not be able to do with this document.
    *
    * It is a hint and no longer a reason a control is off: a report Piloti wrote
@@ -268,6 +281,12 @@ export function FilePreviewPane({
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [details, setDetails] = useState<VisualDetail[] | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
+  /**
+   * The descriptions could not be READ — a network error, a 500. Not the same
+   * answer as "there are none", and it used to say exactly that: a hiccup told
+   * the reader the drawing had no descriptions, with no way to ask again.
+   */
+  const [detailsFailed, setDetailsFailed] = useState(false)
   /**
    * An `.ifc` is a building, and it previews as one. This is the ONLY thing
    * this pane knows about the BIM subsystem — `inferDocumentKind` already
@@ -324,7 +343,20 @@ export function FilePreviewPane({
     (DOCUMENT_TYPE_TAGS as readonly string[]).includes(tag)
   )
 
+  /**
+   * The request the well is waiting on, so a newer one can retire it.
+   *
+   * An office file's rendition takes seconds. Open one, then open another file
+   * before it lands, and the first answer arrived last and won: the pane showed
+   * document A under document B's name. Every answer is checked against the
+   * request that asked for it; a retired one changes nothing.
+   */
+  const previewRequest = useRef<AbortController | null>(null)
   const loadPreview = useCallback(() => {
+    previewRequest.current?.abort()
+    const request = new AbortController()
+    previewRequest.current = request
+    const { signal } = request
     setPreviewFailed(false)
     setPreviewGone(false)
 
@@ -336,7 +368,7 @@ export function FilePreviewPane({
       setPreviewText(null)
       setIsLoading(true)
       let gone = false
-      fetch(`/api/documents/${file.id}/text`)
+      fetch(`/api/documents/${file.id}/text`, { signal })
         .then(async (r) => {
           if (r.status === 404) {
             gone = true
@@ -345,6 +377,7 @@ export function FilePreviewPane({
           return r.ok ? await r.json() : null
         })
         .then((data) => {
+          if (signal.aborted) return
           if (typeof data?.text === 'string') {
             setPreviewText({ text: data.text, truncated: data.truncated === true })
           } else if (gone) {
@@ -354,10 +387,13 @@ export function FilePreviewPane({
           }
         })
         .catch(() => {
+          if (signal.aborted) return
           setPreviewText(null)
           setPreviewFailed(true)
         })
-        .finally(() => setIsLoading(false))
+        .finally(() => {
+          if (!signal.aborted) setIsLoading(false)
+        })
       return
     }
 
@@ -378,7 +414,7 @@ export function FilePreviewPane({
     // hiccup a retry fixes, so the pane says what it said before renditions
     // existed — no inline preview — and offers the download of the original.
     let noRendition = false
-    fetch(`/api/documents/${file.id}/preview`)
+    fetch(`/api/documents/${file.id}/preview`, { signal })
       .then(async (r) => {
         if (isOfficeRendition && (r.status === 415 || r.status === 502)) {
           noRendition = true
@@ -400,6 +436,7 @@ export function FilePreviewPane({
         return r.ok ? await r.json() : null
       })
       .then((data) => {
+        if (signal.aborted) return
         if (isOfficeRendition && data?.url && data.contentType !== 'application/pdf') {
           noRendition = true
         }
@@ -419,15 +456,20 @@ export function FilePreviewPane({
         }
       })
       .catch(() => {
+        if (signal.aborted) return
         setPreviewUrl(null)
         setPreviewImageUrl(null)
         setPreviewFailed(true)
       })
-      .finally(() => setIsLoading(false))
+      .finally(() => {
+        if (!signal.aborted) setIsLoading(false)
+      })
   }, [file.id, canPreview, isTextual, isOfficeRendition])
 
   useEffect(() => {
     loadPreview()
+    // A different document (or an unmount) retires whatever was in flight.
+    return () => previewRequest.current?.abort()
   }, [loadPreview])
 
   // Reset the detailed-info section when the selected document changes, so it
@@ -435,23 +477,59 @@ export function FilePreviewPane({
   useEffect(() => {
     setDetailsOpen(false)
     setDetails(null)
+    setDetailsFailed(false)
   }, [file.id])
 
-  // Lazy-load the visual descriptions the first time the section is expanded.
-  const toggleDetails = useCallback(() => {
-    setDetailsOpen((open) => {
-      const next = !open
-      if (next && details === null && !detailsLoading) {
-        setDetailsLoading(true)
-        fetch(`/api/documents/${file.id}/visual-details`)
-          .then((r) => (r.ok ? r.json() : null))
-          .then((data) => setDetails(Array.isArray(data?.details) ? data.details : []))
-          .catch(() => setDetails([]))
-          .finally(() => setDetailsLoading(false))
-      }
-      return next
-    })
-  }, [file.id, details, detailsLoading])
+  // An answer is about the document AS IT WAS when asked. Opened while it was
+  // still being read, the section got an empty list and kept it for good, so
+  // the descriptions indexing produced a minute later never appeared without
+  // closing the file. What the answer depends on changing — the status, the
+  // content types that decide there is anything visual at all — makes it
+  // stale; an expanded section then asks again below.
+  const detailsBasis = `${file.status ?? ''}|${(file.contentTypes ?? []).join(',')}`
+  useEffect(() => {
+    setDetails(null)
+    setDetailsFailed(false)
+  }, [detailsBasis])
+
+  // Lazy: nothing is fetched until the section is expanded, and then once per
+  // basis. Cancelled on change so a slow answer for the previous document, or
+  // the previous basis, never lands.
+  useEffect(() => {
+    if (!detailsOpen || details !== null) return
+    let cancelled = false
+    setDetailsLoading(true)
+    fetch(`/api/documents/${file.id}/visual-details`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`visual-details ${r.status}`)
+        return r.json()
+      })
+      .then((data) => {
+        if (!cancelled) setDetails(Array.isArray(data?.details) ? data.details : [])
+      })
+      .catch(() => {
+        if (cancelled) return
+        // An answer, so the effect does not ask again on its own; the retry
+        // below is how the reader does.
+        setDetails([])
+        setDetailsFailed(true)
+      })
+      .finally(() => {
+        if (!cancelled) setDetailsLoading(false)
+      })
+    return () => {
+      cancelled = true
+      setDetailsLoading(false)
+    }
+    // `detailsBasis` too: a change that lands while a request is in flight
+    // retires that request rather than letting its older answer stand.
+  }, [detailsOpen, details, file.id, detailsBasis])
+
+  const toggleDetails = useCallback(() => setDetailsOpen((open) => !open), [])
+  const retryDetails = useCallback(() => {
+    setDetailsFailed(false)
+    setDetails(null)
+  }, [])
 
   /**
    * The document's name and its download, from the shared hook — this pane
@@ -1056,14 +1134,20 @@ export function FilePreviewPane({
               agent actually understand this file" — and it used to sit as one
               more 12.5px paragraph between an eyebrow and six key/value rows,
               read at the same weight as the MIME type. */}
-            {showIndexedSection && (
+            {showIndexedHeading && (
               <section className="space-y-2.5" aria-label={t('preview.indexed.title')}>
                 <SectionLabel as="p" icon={Sparkles} className="font-semibold tracking-[0.05em]">
                   {t('preview.indexed.title')}
                 </SectionLabel>
                 {/* Keyed by file so a newly-selected document always starts
                   collapsed and re-measures against its own text. */}
-                {file.summary && <IndexedSummary key={file.id} summary={file.summary} />}
+                {indexedReady && file.summary ? (
+                  <IndexedSummary key={file.id} summary={file.summary} />
+                ) : (
+                  <p className="text-muted-foreground text-xs leading-relaxed">
+                    {t('preview.indexed.pending')}
+                  </p>
+                )}
               </section>
             )}
 
@@ -1073,7 +1157,7 @@ export function FilePreviewPane({
               with, because one group was behind a feature flag and the other
               was not. The flag now gates ROWS, which is what it was always
               about; the group is whole either way. */}
-            <section className={cn('space-y-2', showIndexedSection && 'mt-4')}>
+            <section className={cn('space-y-2', showIndexedHeading && 'mt-4')}>
               <SectionLabel as="p" icon={FileCode2} className="font-semibold tracking-[0.05em]">
                 {t('preview.properties')}
               </SectionLabel>
@@ -1195,7 +1279,18 @@ export function FilePreviewPane({
                             {t('preview.visualDetails.loading')}
                           </p>
                         )}
-                        {!detailsLoading && details && details.length === 0 && (
+                        {!detailsLoading && detailsFailed && (
+                          <div className="space-y-2">
+                            <p className="text-muted-foreground text-xs">
+                              {t('preview.visualDetails.failed')}
+                            </p>
+                            <Button variant="outline" size="sm" className="gap-1.5" onClick={retryDetails}>
+                              <RotateCcw className="size-3.5" aria-hidden />
+                              {t('preview.tryAgain')}
+                            </Button>
+                          </div>
+                        )}
+                        {!detailsLoading && !detailsFailed && details && details.length === 0 && (
                           <p className="text-muted-foreground text-xs">
                             {t('preview.visualDetails.empty')}
                           </p>
@@ -1339,7 +1434,7 @@ export function FilePreviewPane({
             {/* Same claim as the section eyebrow, in a sentence — „beim Hochladen
               automatisch erkannt" is about an upload and an ingestion that a
               report Piloti wrote never had. */}
-            {showIndexedSection && (
+            {indexedReady && (
               <p className="text-muted-foreground/80 mt-4 border-t pt-3 text-xs leading-relaxed">
                 {t('preview.indexed.caption')}
               </p>
@@ -1466,6 +1561,20 @@ function DocumentTagsSection({
     // initialTags identity changes per file; fileId gates the reset intent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId])
+
+  // Tags indexing produces AFTER the file was opened arrive here too. Keyed on
+  // the content, not the array (a poll hands a new one every time), and held
+  // back while a save is in flight: that save is the reader's own edit, and
+  // the value it is about to confirm must not be replaced by the read it raced.
+  const initialKey = initialTags.join('\u0000')
+  const savingRef = useRef(false)
+  savingRef.current = isSaving
+  useEffect(() => {
+    if (savingRef.current) return
+    setTags(initialTags)
+    // initialKey IS initialTags, compared by value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialKey])
 
   /** PATCH the full replacement tag list; optimistic with revert on failure. */
   const persist = useCallback(

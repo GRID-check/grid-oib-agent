@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
+import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
 import { isSettlingStatus } from '../components/document-status'
 
 /**
@@ -14,6 +15,12 @@ export const SETTLING_POLL_MS = 4_000
 /** The one field this poll reads — every document surface's row has it. */
 interface SettlingItem {
   status: string | null | undefined
+  /**
+   * Still worth asking about although the status is terminal: something the
+   * row shows (the summary, the counts) is known to trail the status. The
+   * caller owns the bound — this poll asks for as long as it says so.
+   */
+  pending?: boolean
 }
 
 /**
@@ -48,7 +55,24 @@ export function useSettlingRefresh(
   refresh: (quiet?: boolean) => Promise<unknown>,
   intervalMs: number = SETTLING_POLL_MS
 ): void {
-  const hasSettlingItem = useMemo(() => items.some((item) => isSettlingStatus(item.status)), [items])
+  const hasSettlingItem = useMemo(
+    () => items.some((item) => item.pending === true || isSettlingStatus(item.status)),
+    [items]
+  )
+
+  // THE MOMENT THE LIST SETTLES, the estate changed. The upload announced
+  // itself while its rows were still being read, and the caches that listen
+  // (the citation index, the surfaced document cards) took that snapshot and
+  // kept it: rows without chunks, a file the answer could not be opened into.
+  // Nothing else observes completion for a detached extraction (an `.ifc`, an
+  // office file converting to its rendition), which has no ingest job for the
+  // upload orchestrator to watch. Only a flip with rows still on screen counts:
+  // a preview closing mid-read empties its list of one, and nothing settled.
+  const wasSettling = useRef(false)
+  useEffect(() => {
+    if (wasSettling.current && !hasSettlingItem && items.length > 0) notifyDocumentsChanged()
+    wasSettling.current = hasSettlingItem
+  }, [hasSettlingItem, items.length])
 
   useEffect(() => {
     if (!hasSettlingItem) return

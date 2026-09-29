@@ -125,6 +125,7 @@ export const files = {
       project: 'Project',
       updated: 'Updated',
       caption: 'Automatically detected on upload — your corrections improve future answers.',
+      pending: 'Piloti is still reading this document – its summary and properties appear here once it is done.',
     },
     pages: 'Pages',
     chunks: 'Passages',
@@ -140,6 +141,7 @@ export const files = {
       title: 'Detailed information',
       loading: 'Loading descriptions…',
       empty: 'No visual descriptions available.',
+      failed: 'The descriptions could not be loaded.',
       page: 'Page {page}',
       scale: 'Scale {scale}',
       structured: {

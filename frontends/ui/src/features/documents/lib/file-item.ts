@@ -79,3 +79,55 @@ export function toFileItem(row: DocumentWireRow): FileItem {
  * not change.
  */
 const EMPTY_ASSIGNEES: readonly FileAssignee[] = Object.freeze([])
+
+/**
+ * What ingestion writes after the status: the backend produces these from the
+ * collection listing, which the BFF caches, so a read can say `completed` a
+ * beat before it carries the summary. Absent in a fresh read means "not seen
+ * yet", never "removed".
+ */
+const TRAILING_METADATA: ReadonlySet<keyof FileItem> = new Set<keyof FileItem>([
+  'summary',
+  'pageCount',
+  'chunkCount',
+  'contentTypes',
+  'tags',
+])
+
+function sameValue(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+/**
+ * The patch that brings an OPEN file up to a fresher read of the same
+ * document, or `null` when nothing it shows has changed.
+ *
+ * One rule for every surface that holds a snapshot of a row while the row is
+ * still being read (the preview's status poll, a listing refresh behind an
+ * open modal), so they cannot disagree about it: a fresh value replaces the
+ * held one, except that trailing metadata is never erased by a read that has
+ * not caught up with it yet. `null` rather than an empty patch so a poll that
+ * learned nothing does not hand every subscriber a new object.
+ *
+ * @param fields The fields the fresh read is an authority for; defaults to
+ *   every field it carries.
+ */
+export function refreshedFileFields(
+  current: FileItem,
+  fresh: Partial<FileItem>,
+  fields: readonly (keyof FileItem)[] = Object.keys(fresh) as (keyof FileItem)[]
+): Partial<FileItem> | null {
+  const patch: Record<string, unknown> = {}
+  let changed = false
+  for (const field of fields) {
+    if (!(field in fresh)) continue
+    const next = fresh[field]
+    if (next == null && TRAILING_METADATA.has(field) && current[field] != null) continue
+    if (sameValue(current[field], next)) continue
+    patch[field] = next
+    changed = true
+  }
+  return changed ? (patch as Partial<FileItem>) : null
+}

@@ -24,6 +24,7 @@ import { useDocumentsStore } from './store'
 import { useLayoutStore } from '@/features/layout/store'
 import type { TrackedFile } from './types'
 import { mapBackendStatus } from './utils'
+import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
 import {
   persistJob,
   removePersistedJob,
@@ -62,7 +63,7 @@ export interface PendingJob {
   files: TrackedFile[]
 }
 
-interface OrchestratorCallbacks {
+export interface OrchestratorCallbacks {
   onComplete?: () => void
   onError?: (error: Error) => void
 }
@@ -75,14 +76,44 @@ class UploadOrchestratorImpl {
   private currentSessionId: string | null = null
   private lastLoadedSessionId: string | null = null
   private authToken: string | undefined = undefined
-  private callbacks: OrchestratorCallbacks = {}
+  /**
+   * Everyone listening for an upload to finish, not whoever mounted last.
+   *
+   * This was one slot that each `useFileUpload` overwrote, and several mount
+   * at once (the chat composer, the files tab, a project's Files page), so the
+   * surface that had actually started the upload lost its `onComplete` to
+   * whichever hook happened to render after it and never refreshed.
+   */
+  private subscribers = new Set<OrchestratorCallbacks>()
 
   setAuthToken(token: string | undefined): void {
     this.authToken = token
   }
 
-  setCallbacks(callbacks: OrchestratorCallbacks): void {
-    this.callbacks = callbacks
+  /** Listen for completion and failure. Returns the unsubscribe. */
+  subscribe(callbacks: OrchestratorCallbacks): () => void {
+    this.subscribers.add(callbacks)
+    return () => {
+      this.subscribers.delete(callbacks)
+    }
+  }
+
+  /**
+   * Tell every subscriber. Over a copy, so one that unsubscribes while running
+   * cannot skip the next, and isolated, so one that throws cannot keep the
+   * others from hearing about it.
+   */
+  private emit(event: 'onComplete'): void
+  private emit(event: 'onError', error: Error): void
+  private emit(event: 'onComplete' | 'onError', error?: Error): void {
+    for (const subscriber of [...this.subscribers]) {
+      try {
+        if (event === 'onComplete') subscriber.onComplete?.()
+        else if (error) subscriber.onError?.(error)
+      } catch (err) {
+        console.warn('[UploadOrchestrator] a subscriber threw', err)
+      }
+    }
   }
 
   private getClient() {
@@ -350,7 +381,11 @@ class UploadOrchestratorImpl {
       store.setFilesFromServer(poll.conversationId, files)
       if (!files.some((file) => file.status === 'ingesting')) {
         this.stopSessionPolling()
-        this.callbacks.onComplete?.()
+        // The upload POST already said "changed", while these were still
+        // being read; the listings that took that snapshot hold rows without
+        // chunks until told again, now that there is something to cite.
+        notifyDocumentsChanged()
+        this.emit('onComplete')
         return
       }
     } catch (err) {
@@ -519,13 +554,18 @@ class UploadOrchestratorImpl {
         this.stopPolling()
         removePersistedJob(jobId)
 
+        // Same reason as the session poll: the upload's own notification went
+        // out while the job was still pending, and a failure changes the
+        // listing just as much as a success does.
+        notifyDocumentsChanged()
+
         // Terminal state (files available or an error) is reflected on the
         // composer's inline file chips; no side panel is opened.
         if (status.status === 'completed') {
-          this.callbacks.onComplete?.()
+          this.emit('onComplete')
         } else if (status.error_message) {
           store.setError(status.error_message)
-          this.callbacks.onError?.(new Error(status.error_message))
+          this.emit('onError', new Error(status.error_message))
         }
 
         // If more jobs in queue, dequeue and start the next one
@@ -560,7 +600,7 @@ class UploadOrchestratorImpl {
         this.stopPolling()
         const message = err instanceof Error ? err.message : 'Polling failed'
         store.setError(message)
-        this.callbacks.onError?.(err instanceof Error ? err : new Error(message))
+        this.emit('onError', err instanceof Error ? err : new Error(message))
       } else {
         this.scheduleNextPoll()
       }

@@ -3,6 +3,7 @@
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { UploadOrchestrator } from './orchestrator'
+import { onDocumentsChanged } from '@/lib/documents/document-changes'
 
 // Mock the documents client
 const mockClient = {
@@ -114,12 +115,88 @@ describe('UploadOrchestrator', () => {
     })
   })
 
-  describe('setCallbacks', () => {
-    test('sets callbacks for upload events', () => {
-      const onComplete = vi.fn()
-      const onError = vi.fn()
+  describe('subscribe', () => {
+    const completedJob = {
+      job_id: 'job-1',
+      status: 'completed',
+      file_details: [{ file_id: 'file-1', file_name: 'test.pdf', status: 'completed', progress_percent: 100 }],
+    }
 
-      UploadOrchestrator.setCallbacks({ onComplete, onError })
+    test('every subscriber hears a completion, not only the last to subscribe', async () => {
+      mockClient.getJobStatus.mockResolvedValue(completedJob)
+      mockClient.listFiles.mockResolvedValue([])
+      const composer = vi.fn()
+      const filesTab = vi.fn()
+      const offComposer = UploadOrchestrator.subscribe({ onComplete: composer })
+      const offFilesTab = UploadOrchestrator.subscribe({ onComplete: filesTab })
+
+      UploadOrchestrator.startPolling('job-1', 'session-1')
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(composer).toHaveBeenCalledTimes(1)
+      expect(filesTab).toHaveBeenCalledTimes(1)
+      offComposer()
+      offFilesTab()
+    })
+
+    test('an unsubscribed listener is not called, and the rest still are', async () => {
+      mockClient.getJobStatus.mockResolvedValue({
+        job_id: 'job-1',
+        status: 'failed',
+        error_message: 'Upload failed',
+        file_details: [],
+      })
+      const gone = vi.fn()
+      const stays = vi.fn()
+      const offGone = UploadOrchestrator.subscribe({ onError: gone })
+      const offStays = UploadOrchestrator.subscribe({ onError: stays })
+      offGone()
+
+      UploadOrchestrator.startPolling('job-1', 'session-1')
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(gone).not.toHaveBeenCalled()
+      expect(stays).toHaveBeenCalledWith(new Error('Upload failed'))
+      offStays()
+    })
+
+    test('a subscriber that throws does not keep the next one from hearing', async () => {
+      mockClient.getJobStatus.mockResolvedValue(completedJob)
+      mockClient.listFiles.mockResolvedValue([])
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const after = vi.fn()
+      const offThrows = UploadOrchestrator.subscribe({
+        onComplete: () => {
+          throw new Error('boom')
+        },
+      })
+      const offAfter = UploadOrchestrator.subscribe({ onComplete: after })
+
+      UploadOrchestrator.startPolling('job-1', 'session-1')
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(after).toHaveBeenCalledTimes(1)
+      offThrows()
+      offAfter()
+      warn.mockRestore()
+    })
+
+    test('a terminal job tells the document listings, success or failure', async () => {
+      const changed = vi.fn()
+      const off = onDocumentsChanged(changed)
+      mockClient.getJobStatus.mockResolvedValue({
+        job_id: 'job-1',
+        status: 'failed',
+        error_message: 'Upload failed',
+        file_details: [],
+      })
+
+      UploadOrchestrator.startPolling('job-1', 'session-1')
+      expect(changed).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(changed).toHaveBeenCalledTimes(1)
+      off()
     })
   })
 
@@ -592,6 +669,23 @@ describe('UploadOrchestrator', () => {
 
       await vi.advanceTimersByTimeAsync(5000)
       expect(mockListSessionDocuments).toHaveBeenCalledTimes(2)
+    })
+
+    test('a chat whose attachments finish reading tells the document listings once', async () => {
+      const changed = vi.fn()
+      const off = onDocumentsChanged(changed)
+      mockListSessionDocuments
+        .mockResolvedValueOnce([row('ingesting')])
+        .mockResolvedValueOnce([row('success')])
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+
+      UploadOrchestrator.pollSessionDocuments(CHAT)
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(changed).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(changed).toHaveBeenCalledTimes(1)
+      off()
     })
 
     test('a reload with an attachment still being read resumes polling on its own', async () => {

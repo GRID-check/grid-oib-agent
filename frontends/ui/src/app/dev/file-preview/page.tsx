@@ -23,6 +23,8 @@ import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { use, useEffect } from 'react'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
+import { FilePreviewHost } from '@/features/documents/components/file-preview-host'
+import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 import { FilePreviewPane } from '@/features/documents/components/file-preview-pane'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 
@@ -211,6 +213,54 @@ const officeFixture = (variant: OfficeVariant): FileItem => ({
   contentTypes: ['text', 'table'],
   tags: [],
 })
+
+/**
+ * `?variant=settling`: an upload finishing WHILE its file is open.
+ *
+ * The real host, over a document still being read. The shim answers its
+ * status poll with `processing` twice, then `completed` without the summary
+ * (the cached listing the BFF can still hand back on the terminal read), then
+ * the full metadata — so one visit shows the pending line, the badge turning,
+ * and the summary, tags, counts and visual details arriving in the open modal
+ * without closing it. Reload the page to replay it.
+ */
+const SETTLING_FIXTURE: FileItem = {
+  ...FIXTURE,
+  id: 'dev-doc-settling',
+  status: 'processing',
+  summary: null,
+  pageCount: null,
+  chunkCount: null,
+  contentTypes: null,
+  tags: null,
+  assignees: [],
+}
+
+let settlingReads = 0
+
+function settlingStatus(): Record<string, unknown> {
+  settlingReads += 1
+  const base = { id: SETTLING_FIXTURE.id, filename: SETTLING_FIXTURE.filename, versionCount: 1 }
+  if (settlingReads <= 2) return { ...base, status: 'processing' }
+  if (settlingReads === 3) return { ...base, status: 'completed', summary: null }
+  return {
+    ...base,
+    status: 'completed',
+    summary: FIXTURE.summary,
+    pageCount: FIXTURE.pageCount,
+    chunkCount: FIXTURE.chunkCount,
+    contentTypes: FIXTURE.contentTypes,
+    tags: FIXTURE.tags,
+  }
+}
+
+function SettlingPreview(): JSX.Element {
+  useEffect(() => {
+    settlingReads = 0
+    useFilePreviewStore.getState().open(SETTLING_FIXTURE, 'modal', { projectId: 'proj-demo' })
+  }, [])
+  return <FilePreviewHost />
+}
 
 const isOfficeVariant = (value: string | undefined): value is OfficeVariant =>
   (OFFICE_VARIANTS as readonly string[]).includes(value ?? '')
@@ -504,6 +554,14 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       if (/\/api\/documents\/.+\/versions$/.test(url)) {
         return Response.json(REVIEW_VERSIONS)
       }
+      if (url.endsWith(`/api/documents/${SETTLING_FIXTURE.id}/status`)) {
+        return Response.json(settlingStatus())
+      }
+      // Nothing visual has been indexed while the document is still being
+      // read: the empty answer the pane must not keep once it is done.
+      if (url.endsWith(`/api/documents/${SETTLING_FIXTURE.id}/visual-details`) && settlingReads < 4) {
+        return Response.json({ details: [] })
+      }
       if (/\/api\/documents\/.+\/visual-details$/.test(url)) {
         return Response.json({
           details: [
@@ -605,6 +663,8 @@ export default function FilePreviewDevPage({
       </main>
     )
   }
+
+  if (variant === 'settling') return <SettlingPreview />
 
   const officeFile = isOfficeVariant(variant) ? officeFixture(variant) : null
 

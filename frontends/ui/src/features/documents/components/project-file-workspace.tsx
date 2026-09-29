@@ -10,8 +10,9 @@ import { useProjectDocuments } from '../hooks/use-project-documents'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
+import { useSettleTrackedUploads } from '../hooks/use-settle-tracked-uploads'
 import { useFileSearch } from '../hooks/use-file-search'
-import { toFileItem, type DocumentWireRow } from '../lib/file-item'
+import { refreshedFileFields, toFileItem, type DocumentWireRow } from '../lib/file-item'
 import { digestFiles } from '../lib/content-digest'
 import {
   buildFolderUploadPlan,
@@ -552,6 +553,21 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   // see `useSettlingRefresh` for why a detached `.ifc` extraction needs it.
   useSettlingRefresh(files, loadFiles)
 
+  // The open modal is a snapshot the preview store took when it was opened,
+  // and this listing is the fresher read of the same row: without this the
+  // grid behind the modal said "Bereit" with a summary while the modal kept
+  // "Wird verarbeitet…" until it was closed and reopened. Archiv derives its
+  // dialog from its list and has no copy to fall behind.
+  useEffect(() => {
+    const store = useFilePreviewStore.getState()
+    const open = store.file
+    if (!open) return
+    const fresh = files.find((f) => f.id === open.id)
+    if (!fresh) return
+    const patch = refreshedFileFields(open, fresh)
+    if (patch) store.patchFile(patch)
+  }, [files])
+
   // Refetch the corpus when an upload batch settles (covers non-orchestrated paths).
   const wasUploading = useRef(false)
   useEffect(() => {
@@ -943,6 +959,10 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     () => trackedFiles.filter((f) => f.collectionName === collectionName && f.file != null),
     [trackedFiles, collectionName]
   )
+  // The listing's settling poll follows every document to the end; it settles
+  // the tray rows no ingest job will — a detached extraction (`.ifc`, an office
+  // file read from its PDF rendition) uploads with no job for the orchestrator.
+  useSettleTrackedUploads(files, activeUploads)
 
   /*
    * A FOLDER IS NOT A LONGER LIST OF FILES.
