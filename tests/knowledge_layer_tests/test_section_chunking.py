@@ -213,6 +213,98 @@ class TestHeadingRecognition:
         assert locators == ["Brandschutz", "Brandschutz › Allgemeines", "Schallschutz", "Schallschutz › Allgemeines"]
 
 
+WRAPPED_SENTENCES = [
+    "§ 60 Abs. 1 lit. a BO wird nach Maßgabe der mit dem amtlichen",
+    "Anlage 3 wird zum Bestandteil dieses Bescheides erklärt und ist",
+    "3.2 Die Brandabschnitte sind mit Wänden in REI 90 herzustellen",
+    "1. Die Fluchtwege im Erdgeschoß sind mit einer lichten Breite von",
+]
+
+
+class TestWrappedSentencesAreNotHeadings:
+    """A body line that happens to open with a locator is a sentence, styled or not."""
+
+    @pytest.mark.parametrize("text", WRAPPED_SENTENCES)
+    def test_in_body_type(self, text):
+        assert sc.classify(_line(text), 10.0) is None
+
+    @pytest.mark.parametrize("text", WRAPPED_SENTENCES)
+    def test_without_font_information(self, text):
+        assert sc.classify(Line(1, text), None) is None
+
+    def test_a_line_running_on_into_a_lowercase_line_is_not_a_heading(self):
+        assert sc.classify(_line("3.2 Brandabschnitte"), 10.0, _line("sind in REI 90 herzustellen.")) is None
+        assert sc.classify(Line(1, "§ 4 Fluchtwege"), None, Line(1, "gemäß OIB-Richtlinie 2.")) is None
+
+    def test_a_bold_heading_wrapped_in_its_own_type_still_counts(self):
+        heading = _line("3.2 Anforderungen an die", 10.0, True)
+        assert sc.classify(heading, 10.0, _line("baulichen Brandschutzmaßnahmen", 10.0, True)) == (
+            "3.2",
+            "Anforderungen an die",
+        )
+
+    def test_a_short_title_in_body_type_is_still_a_heading(self):
+        assert sc.classify(_line("3.2 Brandabschnitte"), 10.0, _line("Die Wände sind in REI 90.")) == (
+            "3.2",
+            "Brandabschnitte",
+        )
+
+    def test_unstyled_auflagen_are_not_cut_into_sections(self):
+        lines = []
+        for number in range(1, 7):
+            lines += [
+                Line(1, f"{number}. Die Türen im Geschoß {number} sind selbstschließend und in"),
+                Line(1, "EI2 30-C auszuführen; der Nachweis ist vor Baubeginn vorzulegen."),
+            ]
+        assert sc.find_headings(lines) == {}
+
+    @pytest.mark.parametrize(
+        ("text", "number"),
+        [("§3 Begriffe", "§ 3"), ("§  3 Begriffe", "§ 3"), ("Art.3 Geltungsbereich", "Art. 3"), ("§ 3a Zweck", "§ 3a")],
+    )
+    def test_legal_locators_have_one_spelling(self, text, number):
+        assert sc.classify(_line(text, 10.0, True), 10.0) == (number, text.split()[-1])
+
+
+def _transcribed_pages() -> list[dict[str, Any]]:
+    """Three transcribed pages; each body line differs in words, not only in numbers (running-footer check)."""
+    words = ["Fluchtweg", "Brandwand", "Stiegenhaus", "Rauchabzug", "Löschwasser", "Zufahrt", "Türen", "Decken"]
+
+    def body(page: int) -> str:
+        return "\n".join(f"Die Auflage zu {word} {page} ist vor Baubeginn nachzuweisen." for word in words)
+
+    return [
+        {"page_number": 1, "text": "# Baubescheid\n\n## 1 Befund\n" + body(1)},
+        {"page_number": 2, "text": body(2) + "\n## 2 Auflagen\n" + body(3)},
+        {"page_number": 3, "text": "### 2.1 Brandschutz\n" + body(4)},
+    ]
+
+
+class TestTranscribedMarkdownPages:
+    def test_atx_lines_are_headings_at_their_hash_level(self):
+        headings = sc.find_headings(sc.document_lines(_transcribed_pages()))
+        assert [(h.label, h.level) for h in headings.values()] == [
+            ("Baubescheid", 1),
+            ("1 Befund", 2),
+            ("2 Auflagen", 2),
+            ("2.1 Brandschutz", 3),
+        ]
+
+    def test_sections_keep_their_pages_and_lose_the_markers(self):
+        docs = sc.section_documents(_transcribed_pages(), "bescheid.pdf", 1)
+        assert docs is not None
+        by_punkt = _by_punkt(docs)
+        assert by_punkt["1"][0].text.startswith("Baubescheid › 1 Befund\n\n")
+        assert by_punkt["1"][0].metadata["page_label"] == "1"
+        assert by_punkt["1"][-1].metadata["page_end"] == "2"
+        assert by_punkt["2.1"][0].metadata["page_label"] == "3"
+        assert not any(line.startswith("#") for doc in docs for line in doc.text.splitlines())
+
+    def test_a_hash_on_a_styled_pdf_line_is_text(self):
+        page = {"page_number": 1, "text": "# 3 Stück", "line_styles": [["# 3 Stück", 10.0, 0.0]]}
+        assert [line.text for line in sc.document_lines([page])] == ["# 3 Stück"]
+
+
 def _stream(headings: int, body_per_section: int, preamble: int = 0) -> list[Line]:
     lines = [_line(f"Einleitung Satz {n}.") for n in range(preamble)]
     for index in range(headings):

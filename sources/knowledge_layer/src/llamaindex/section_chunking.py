@@ -11,7 +11,12 @@ This module reads the headings the document already has and chunks within them:
 * A heading is a short line set in a larger font than the body, set bold, or opened by a
   German numbering (``3.2``, ``§ 3``, ``Artikel 4``, ``Anhang A``). Font size and weight
   come from pdfplumber's characters (``line_styles``, collected at extraction); a page
-  without them (an OCR text layer) still has its numbering.
+  without them (an OCR text layer) still has its numbering. A numbered line in body type
+  must also read as a title (:func:`_title_like`) and must not run on into a lowercase
+  next line: a wrapped sentence that happens to start ``§ 60 Abs. 1 … wird nach`` or
+  ``3.2 Die Brandabschnitte sind`` is body text, not a section.
+* A transcribed page (``transcription``) is Markdown without styles: its ATX lines
+  (``## 1 Befund``) are headings at their hash level, and the markers are stripped.
 * A section runs from its heading to the next heading of any level, across pages. It is
   cut into chunks of :data:`CHUNK_TOKENS`, each prefixed by the heading breadcrumb the
   way a Punkt chunk is, overlapping by :data:`OVERLAP_TOKENS` -- across a page break too,
@@ -74,7 +79,7 @@ logger = logging.getLogger(__name__)
 _NUMBERED_RE = re.compile(r"^(?P<num>\d{1,2}(?:\.\d{1,2}){0,4})\.?\s+(?P<title>\S.*)$")
 #: Legal and annex numbering. The title may sit on the next line (``§ 3`` / ``Begriffe``).
 _WORD_NUMBERED_RE = re.compile(
-    r"^(?P<num>§\s*\d+[a-z]?|(?:Artikel|Art\.)\s+\d+[a-z]?|(?:Anhang|Anlage|Beilage)\s+[A-Z0-9]{1,3}"
+    r"^(?P<num>§\s*\d+[a-z]?|(?:Artikel\s+|Art\.\s*)\d+[a-z]?|(?:Anhang|Anlage|Beilage)\s+[A-Z0-9]{1,3}"
     r"|(?:Kapitel|Abschnitt|Teil)\s+[0-9IVX]{1,4})\.?(?:\s*[:\-–]\s*|\s+|$)(?P<title>.*)$"
 )
 #: Wrappers that make a word-numbered heading the TOP level when a document uses them.
@@ -91,6 +96,15 @@ _LARGER_RATIO = 1.15
 _SMALLER_RATIO = 0.95
 _BOLD_FRACTION = 0.8
 _BOLD_FONT_RE = re.compile(r"bold|black|heavy|semibold|demi", re.IGNORECASE)
+#: A Markdown ATX heading (``## 1 Befund``), as the transcription prompt asks for them.
+ATX_HEADING_RE = re.compile(r"^(?P<hashes>#{1,6})\s+(?P<title>.+?)\s*#*\s*$")
+#: A numbered line in body type is a heading only when its title reads as one: at most
+#: this many words, no finite verb, not ending mid-sentence.
+_MAX_PLAIN_TITLE_WORDS = 8
+_FINITE_VERBS = frozenset(
+    "ist sind war waren wird werden wurde wurden hat haben hatte muss müssen darf dürfen "
+    "kann können soll sollen gilt gelten bleibt bleiben erfolgt erfolgen".split()
+)
 
 # --- Fallback gates ---------------------------------------------------------------------
 
@@ -122,6 +136,8 @@ class Line:
     bold: bool = False
     #: The last position a multi-line unit (a paragraph) covers; ``None`` for one line.
     end: int | None = None
+    #: The hash count of a Markdown ATX heading line (its markers stripped from ``text``).
+    atx: int = 0
 
     @property
     def last(self) -> int:
@@ -192,9 +208,22 @@ def extract_line_styles(page: Any) -> list[list[Any]]:
         return []
 
 
+def _markdown_line(number: int, text: str) -> Line:
+    """A line of an unstyled page; an ATX heading loses its markers and keeps its level."""
+    match = ATX_HEADING_RE.match(text)
+    if match is None:
+        return Line(number, text)
+    return Line(number, match.group("title"), atx=len(match.group("hashes")))
+
+
 def _page_lines(page: dict[str, Any]) -> list[Line]:
-    """A page's text lines with the style its ``line_styles`` recorded for the same text."""
-    styles = {str(text): (size, bold) for text, size, bold in page.get("line_styles") or []}
+    """A page's text lines with the style its ``line_styles`` recorded for the same text.
+
+    A page without styles (a transcription) is read as Markdown: its ATX headings are
+    recognised. A styled page is a PDF text layer, where a leading ``#`` is just text.
+    """
+    recorded = page.get("line_styles") or []
+    styles = {str(text): (size, bold) for text, size, bold in recorded}
     try:
         number = int(page.get("page_number"))
     except (TypeError, ValueError):
@@ -202,9 +231,13 @@ def _page_lines(page: dict[str, Any]) -> list[Line]:
     lines = []
     for raw in (page.get("text") or "").splitlines():
         text = raw.strip()
-        if text:
-            size, bold = styles.get(text, (None, 0.0))
-            lines.append(Line(number, text, size, bold >= _BOLD_FRACTION))
+        if not text:
+            continue
+        if not recorded:
+            lines.append(_markdown_line(number, text))
+            continue
+        size, bold = styles.get(text, (None, 0.0))
+        lines.append(Line(number, text, size, bold >= _BOLD_FRACTION))
     return lines
 
 
@@ -256,6 +289,12 @@ def _shape_ok(text: str) -> bool:
     return not re.search(r"[.,;]$", text)
 
 
+def normalise_locator(number: str) -> str:
+    """One spelling per legal locator: ``§3``, ``§  3`` -> ``§ 3``; ``Art.3`` -> ``Art. 3``."""
+    spaced = re.sub(r"^(§|Art\.)\s*(?=\d)", r"\1 ", number.strip())
+    return re.sub(r"\s+", " ", spaced)
+
+
 def _numbered(text: str) -> tuple[str, str, bool] | None:
     """``(number, title, strong)`` for a numbered heading line, else ``None``.
 
@@ -264,15 +303,74 @@ def _numbered(text: str) -> tuple[str, str, bool] | None:
     """
     word = _WORD_NUMBERED_RE.match(text)
     if word:
-        return re.sub(r"\s+", " ", word.group("num")), word.group("title").strip(), True
+        return normalise_locator(word.group("num")), word.group("title").strip(), True
     match = _NUMBERED_RE.match(text)
     if match is None or not match.group("title")[0].isupper():
         return None
     return match.group("num"), match.group("title").strip(), "." in match.group("num")
 
 
-def classify(line: Line, body: float | None) -> tuple[str, str] | None:
-    """``(number, title)`` when ``line`` is a heading, else ``None``."""
+def _ends_mid_sentence(text: str) -> bool:
+    """Whether a line breaks off inside a sentence: a trailing comma or hyphen, or a lowercase last word.
+
+    German titles end on a noun (``Brandabschnitte``, ``Allgemeines``); a wrapped
+    sentence ends wherever the line did (``… mit dem amtlichen``, ``… erklärt und ist``).
+    """
+    words = text.split()
+    if not words or text.endswith((",", "-")):
+        return bool(words)
+    return words[-1][:1].islower()
+
+
+def _title_like(title: str) -> bool:
+    """Whether the text after a number reads as a title rather than a sentence. Empty is a bare ``§ 3``."""
+    words = title.split()
+    if not words:
+        return True
+    if len(words) > _MAX_PLAIN_TITLE_WORDS:
+        return False
+    if any(word.lower().strip(",.;:") in _FINITE_VERBS for word in words):
+        return False
+    return not _ends_mid_sentence(title)
+
+
+def _runs_on(line: Line, following: Line | None, styled: bool) -> bool:
+    """Whether the next line continues ``line``'s sentence: it opens lowercase, in body type.
+
+    A styled heading wrapped over two lines keeps its style on the second, so that
+    one is not a run-on.
+    """
+    if following is None or not following.text[:1].islower():
+        return False
+    return not styled or (following.size, following.bold) != (line.size, line.bold)
+
+
+def _numbered_heading(
+    numbered: tuple[str, str, bool], line: Line, following: Line | None, styled: bool, unstyled: bool
+) -> tuple[str, str] | None:
+    """A numbered line's verdict. ``unstyled``: no font information for this line at all."""
+    number, title, strong = numbered
+    if _runs_on(line, following, styled):
+        return None
+    if styled:
+        return number, title
+    if not (strong or unstyled):
+        return None  # a bare "1" in body type where the fonts are known: a list item
+    return (number, title) if _title_like(title) else None
+
+
+def _atx_heading(line: Line) -> tuple[str, str] | None:
+    """A Markdown heading's ``(number, title)``; the author (or the transcriber) marked it."""
+    if len(line.text) > _MAX_HEADING_CHARS:
+        return None
+    numbered = _numbered(line.text)
+    return (numbered[0], numbered[1]) if numbered else ("", line.text)
+
+
+def classify(line: Line, body: float | None, following: Line | None = None) -> tuple[str, str] | None:
+    """``(number, title)`` when ``line`` is a heading, else ``None``. ``following``: the next line."""
+    if line.atx:
+        return _atx_heading(line)
     if not _shape_ok(line.text):
         return None
     if body and line.size and line.size < body * _SMALLER_RATIO:
@@ -280,9 +378,8 @@ def classify(line: Line, body: float | None) -> tuple[str, str] | None:
     larger = bool(body and line.size and line.size >= body * _LARGER_RATIO)
     numbered = _numbered(line.text)
     if numbered is not None:
-        number, title, strong = numbered
-        styled = larger or line.bold or body is None
-        return (number, title) if strong or styled else None
+        unstyled = body is None or line.size is None
+        return _numbered_heading(numbered, line, following, larger or line.bold, unstyled)
     if larger or (line.bold and len(line.text) <= _MAX_BOLD_HEADING_CHARS):
         return "", line.text
     return None
@@ -313,7 +410,7 @@ def _levels(found: list[tuple[int, str, str]], lines: list[Line]) -> list[Headin
     headings = [Heading("", found[0][2], 0, lines[found[0][0]].size)] if title else []
     for index, number, heading_title in rest:
         size = lines[index].size
-        level = _level(number, rank.get(size or 0.0, len(sizes) + 1), has_chapters)
+        level = lines[index].atx or _level(number, rank.get(size or 0.0, len(sizes) + 1), has_chapters)
         headings.append(Heading(number, heading_title, level, size))
     return headings
 
@@ -328,7 +425,12 @@ def _level(number: str, size_rank: int, has_chapters: bool) -> int:
 
 
 def _continues_heading(previous: Line, line: Line, number: str) -> bool:
-    """Whether ``line`` is the wrapped second line of the unnumbered heading on ``previous``."""
+    """Whether ``line`` is the wrapped second line of the unnumbered heading on ``previous``.
+
+    Markdown headings never wrap: each ATX line is its own heading.
+    """
+    if previous.atx or line.atx:
+        return False
     return not number and previous.size == line.size and previous.bold == line.bold
 
 
@@ -363,7 +465,7 @@ def find_headings(lines: list[Line]) -> dict[int, Heading]:
         last = found[-1] if found else None
         if last is not None and index < last[0] + last[3]:
             continue
-        result = classify(line, body)
+        result = classify(line, body, lines[index + 1] if index + 1 < len(lines) else None)
         if result is None or _goes_backwards(result[0], numbering):
             continue
         number, title = result

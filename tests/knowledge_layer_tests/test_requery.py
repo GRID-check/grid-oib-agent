@@ -434,7 +434,7 @@ class TestTheCoverageSignal:
         out = _body(await _search(_config(requery_llm="judge", requery_decider="jev")))
 
         gap, _, rest = out.partition("]")
-        assert gap.startswith("GAP[keine der 8 besten Passagen") and "auch nach Umformulierung" in gap
+        assert gap.startswith("GAP[keine der 8 gezeigten Passagen") and "auch nach Umformulierung" in gap
         assert len(rest.split("|")) == 8
         assert decider.calls[-1] == {"count": 8, "questions": {"answers"}}
 
@@ -513,7 +513,8 @@ class TestTheCoverageGate:
         result = SimpleNamespace(success=True, error_message=None, chunks=[_chunk("nah", "a")])
         rendered = _format_results(result, "q", coverage_gap="kein Beleg")
         assert rendered.startswith(
-            "Found 1 document(s), none judged to answer the question:\nAbdeckung: unzureichend — kein Beleg\n\n"
+            "Found 1 document(s); none of the judged ones answers the question:\n"
+            "Abdeckung: unzureichend — kein Beleg\n\n"
         )
         assert _format_results(result, "q").startswith("Found 1 relevant document(s):\n\n--- Result 1 ---")
 

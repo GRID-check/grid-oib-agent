@@ -5,7 +5,8 @@ vision-model OCR with its cache and caps) and the ``_run_ingestion`` wiring:
 
 - a scanned page becomes ordinary page text, chunked like any other, and never
   enters the drawing schema;
-- a ``(cid:n)`` or mojibake text layer is never indexed;
+- a ``(cid:n)`` or mojibake text layer is replaced by its transcription, and an
+  untranscribed one keeps only what is not glyph ids;
 - pages past a cap are counted on the file's job status;
 - a scan with no vision key fails with ``vlm_not_configured``, not "no content".
 
@@ -178,6 +179,34 @@ class TestTextQuality:
 
     def test_short_text_is_not_judged(self):
         assert not text_quality("(cid:3)(cid:4)").garbled
+
+    def test_a_list_with_unmapped_bullets_is_not_garbled(self):
+        # A normal list whose bullet glyph has no ToUnicode entry: pdfplumber
+        # writes (cid:120) per item. A token is ONE glyph, not nine characters.
+        items = [
+            "Brandabschnitte gemäß OIB-Richtlinie 2 ausbilden",
+            "Fluchtweglänge höchstens 40 m",
+            "Türen in EI2 30-C selbstschließend",
+            "Rauchabzug im Stiegenhaus vorsehen",
+        ] * 3
+        listing = "Auflagen:\n" + "\n".join(f"(cid:120) {item}" for item in items)
+        quality = text_quality(listing)
+        assert not quality.garbled
+        assert quality.cid_share == pytest.approx(12 / quality.chars)
+
+    def test_a_list_with_symbol_font_bullets_is_not_garbled(self):
+        # Word exports its Symbol-font bullet as U+F0B7, a private-use code point.
+        items = ["Fluchtweg 1,20 m", "REI 90", "EI2 30-C", "Rauchmelder je Raum"] * 6
+        listing = "\n".join(f"\uf0b7 {item}" for item in items)
+        assert not text_quality(listing).garbled
+
+    def test_private_use_glyphs_inside_words_are_still_garbled(self):
+        scrambled = "".join("\ue012" if index % 12 == 0 else ch for index, ch in enumerate(GERMAN))
+        assert text_quality(scrambled).garbled
+
+    def test_salvage_keeps_real_text_and_drops_glyph_ids(self):
+        assert page_triage.salvage_text("(cid:37)" * 200) == ""
+        assert page_triage.salvage_text(GERMAN + " (cid:3)").strip() == GERMAN
 
 
 # =============================================================================
@@ -373,6 +402,43 @@ class TestTranscribePdfPages:
         assert routes.drawing_pages is None, "the renderer falls back to its own check"
         assert routes.counts() == {"pages_transcription_failed": 1}
 
+    def test_an_untranscribed_garbled_page_keeps_its_text_and_is_counted(self, tmp_path):
+        path = _write(tmp_path, "broken.pdf", b"%PDF-1.4\n% nothing\n")
+        mojibake = GERMAN.encode("utf-8").decode("cp1252", errors="replace")
+        text_pages = [{"page_number": 1, "text": GERMAN}, {"page_number": 2, "text": mojibake}]
+
+        routes = transcription.route_pdf_pages(
+            path,
+            text_pages,
+            {page["page_number"]: page["text"] for page in text_pages},
+            vlm_api_key="k",
+            model="m",
+            base_url="u",
+            min_text_chars=200,
+            min_paths=300,
+            max_ocr_pages=10,
+            max_dim=400,
+        )
+
+        assert [page["text"] for page in text_pages] == [GERMAN, mojibake]
+        assert routes.counts() == {"pages_transcription_failed": 1, "pages_garbled_text_kept": 1}
+
+    def test_a_page_the_model_called_blank_keeps_nothing(self):
+        text_pages = [{"page_number": 1, "text": GERMAN}, {"page_number": 2, "text": GERMAN}]
+        kept = transcription._merge_transcriptions(text_pages, {2}, {}, blank={2})
+        assert kept == [] and [page["page_number"] for page in text_pages] == [1]
+
+    def test_no_ocr_pages_means_no_transcription_call(self, tmp_path, monkeypatch):
+        live, calls = _fake_live()
+        monkeypatch.setattr(transcription, "_transcribe_live", live)
+        path = _write(tmp_path, "s.pdf", scan_pdf(pages=2))
+
+        outcome = transcription.transcribe_pdf_pages(
+            path, [1, 2], model="m", base_url="u", api_key="k", max_pages=0, max_dim=400, workers=1
+        )
+
+        assert calls == [] and outcome.over_cap == [1, 2]
+
     def test_a_code_fence_around_the_reply_is_removed(self):
         assert transcription.clean_reply("```markdown\n# Titel\nText\n```") == "# Titel\nText"
 
@@ -548,6 +614,24 @@ class TestGarbledPdfIngestion:
         assert status.is_success
         assert [doc.metadata["page_label"] for doc in indexed.docs()] == ["1"]
         assert status.file_details[0].metadata == {"pages_not_transcribed_no_vlm": 1}
+
+
+class TestOcrSwitch:
+    def test_zero_ocr_pages_stops_transcription_and_keeps_the_text_layer(self, tmp_path, monkeypatch, indexed):
+        # AIQ_MAX_OCR_PAGES=0 is the OCR switch; AIQ_RENDER_VISUAL_PAGES is not.
+        _credential(monkeypatch)
+        live, calls = _fake_live()
+        monkeypatch.setattr(transcription, "_transcribe_live", live)
+        monkeypatch.setattr(adapter, "MAX_OCR_PAGES", 0)
+        mojibake = GERMAN.encode("utf-8").decode("cp1252", errors="replace")
+        path = _write(tmp_path, "alt.pdf", _pdf([text_page(), text_page(mojibake)]))
+
+        status = _ingest(indexed, path, "alt.pdf")
+
+        assert status.is_success
+        assert calls == []
+        assert [doc.metadata["page_label"] for doc in indexed.docs()] == ["1", "2"]
+        assert status.file_details[0].metadata == {"pages_over_ocr_cap": 1, "pages_garbled_text_kept": 1}
 
 
 class TestDrawingCapIsCounted:

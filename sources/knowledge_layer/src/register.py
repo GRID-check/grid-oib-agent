@@ -1589,7 +1589,8 @@ def _format_results(
     ``coverage_gap`` is why the passages do not answer the question, when the
     decider read them and said so (``requery.judge_coverage``). The block then
     says „Abdeckung: unzureichend" under a preamble that no longer calls the
-    hits relevant.
+    hits relevant; the line itself says how many were judged, and the preamble
+    claims nothing about the rest.
     """
     # The two answers below carry no block, so they carry no hash to protect
     # either; there the trailer is simply appended, which keeps it stated
@@ -1620,7 +1621,7 @@ def _format_results(
 
     hits = _grounding_hits(retrieval_result.chunks)
     preamble = (
-        f"Found {len(hits)} document(s), none judged to answer the question:"
+        f"Found {len(hits)} document(s); none of the judged ones answers the question:"
         if coverage_gap
         else f"Found {len(hits)} relevant document(s):"
     )

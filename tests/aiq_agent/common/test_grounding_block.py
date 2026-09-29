@@ -265,7 +265,7 @@ class TestTheCoverageGap:
 
     def _block(self, **overrides) -> GroundingBlock:
         fields = {
-            "preamble": "Found 1 document(s), none judged to answer the question:",
+            "preamble": "Found 1 document(s); none of the judged ones answers the question:",
             "degraded_banner": "",
             "hits": (_hit(),),
             "lanes": (),
@@ -276,7 +276,7 @@ class TestTheCoverageGap:
     def test_the_gap_is_the_line_under_the_preamble_before_any_passage(self):
         rendered = render_grounding_block(self._block(coverage_gap="keine der 12 besten Passagen …"))
         assert rendered.startswith(
-            "Found 1 document(s), none judged to answer the question:\n"
+            "Found 1 document(s); none of the judged ones answers the question:\n"
             "Abdeckung: unzureichend — keine der 12 besten Passagen …\n\n--- Result 1 ---\n"
         )
 

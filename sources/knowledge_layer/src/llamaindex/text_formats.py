@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from typing import Any
 
+from knowledge_layer.llamaindex.section_chunking import ATX_HEADING_RE
 from knowledge_layer.llamaindex.section_chunking import BREADCRUMB_SEP
 from knowledge_layer.llamaindex.section_chunking import Line
 from knowledge_layer.llamaindex.section_chunking import apply_exclusions
@@ -60,7 +61,6 @@ _BOMS = (
     (codecs.BOM_UTF16_LE, "utf-16"),
     (codecs.BOM_UTF16_BE, "utf-16"),
 )
-_ATX_RE = re.compile(r"^(?P<hashes>#{1,6})\s+(?P<title>.+?)\s*#*\s*$")
 _FENCE_RE = re.compile(r"^\s*(```|~~~)")
 
 
@@ -101,7 +101,7 @@ def _markdown_sections(lines: list[str]) -> list[tuple[list[str], int, list[Line
     for number, raw in enumerate(lines, start=1):
         if _FENCE_RE.match(raw):
             fenced = not fenced
-        match = None if fenced else _ATX_RE.match(raw)
+        match = None if fenced else ATX_HEADING_RE.match(raw)
         if match is None:
             sections[-1][2].append(Line(number, raw.rstrip()))
             continue

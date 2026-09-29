@@ -229,8 +229,9 @@ def transcribe_pdf_pages(
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
         for start in range(0, len(to_run), batch_size):
             batch = to_run[start : start + batch_size]
-            # Rendered here, on the calling thread: pdfium is not thread-safe,
-            # and a batch at a time keeps a 500-page scan out of memory.
+            # Rendered here, on the calling thread, a batch at a time so a
+            # 500-page scan stays out of memory. The render takes PDFium through
+            # `pdfium_lock` (see that module); the pool's threads only call the VLM.
             rendered = _processing.render_pdf_pages(pdf_path, batch, max_dim=max_dim)
             outcome.failed.extend(number for number in batch if number not in rendered)
             jobs = [(number, rendered[number]) for number in batch if number in rendered]
@@ -261,24 +262,45 @@ class PageRoutes:
     scan_pages: set[int] = field(default_factory=set)
     outcome: TranscriptionOutcome = field(default_factory=TranscriptionOutcome)
     not_transcribed: list[int] = field(default_factory=list)
+    garbled_kept: list[int] = field(default_factory=list)
 
     def counts(self) -> dict[str, int]:
         """The per-file counts that go on the job status; zero counts are left out."""
-        counts = {**self.outcome.counts(), "pages_not_transcribed_no_vlm": len(self.not_transcribed)}
+        counts = {
+            **self.outcome.counts(),
+            "pages_not_transcribed_no_vlm": len(self.not_transcribed),
+            "pages_garbled_text_kept": len(self.garbled_kept),
+        }
         return {key: value for key, value in counts.items() if value}
 
 
-def _merge_transcriptions(text_pages: list[dict], garbled: set[int], texts: dict[int, str]) -> None:
-    """Put transcriptions in as page text, in place; a garbled text layer never survives.
+def _merge_transcriptions(
+    text_pages: list[dict], garbled: set[int], texts: dict[int, str], blank: set[int] | frozenset[int] = frozenset()
+) -> list[int]:
+    """Put transcriptions in as page text, in place; return the garbled pages that kept their own text.
 
-    A page whose text layer was garbage keeps no text unless a transcription
-    replaces it: indexing ``(cid:37)(cid:68)…`` is worse than indexing nothing.
-    Mutated in place so the caller's list keeps its type and attributes.
+    A transcription replaces a garbled text layer. A garbled page nothing
+    replaced (no key, a failed call, the OCR cap, an unmeasurable PDF) keeps
+    what of its text is not glyph ids (``page_triage.salvage_text``): the
+    garbled verdict is a heuristic, and dropping a false positive loses a clean
+    page. A page the model read and called blank keeps nothing. Mutated in
+    place so the caller's list keeps its type and attributes.
     """
-    by_number = {page["page_number"]: page for page in text_pages if page["page_number"] not in garbled}
+    from knowledge_layer.llamaindex.page_triage import salvage_text
+
+    by_number = {page["page_number"]: page for page in text_pages}
+    kept: list[int] = []
+    for number in sorted(garbled & by_number.keys()):
+        salvaged = "" if number in blank or number in texts else salvage_text(by_number[number].get("text"))
+        if salvaged:
+            by_number[number] = {**by_number[number], "text": salvaged}
+            kept.append(number)
+        else:
+            del by_number[number]
     for number, text in texts.items():
         by_number[number] = {"page_number": number, "text": text, "tables": [], "table_boxes": []}
     text_pages[:] = [by_number[number] for number in sorted(by_number)]
+    return kept
 
 
 def route_pdf_pages(
@@ -298,8 +320,9 @@ def route_pdf_pages(
     """Triage every page, transcribe the scanned and garbled ones, merge them into ``text_pages``.
 
     ``text_pages`` is updated in place: transcriptions become ordinary page
-    text (and flow through the normal chunker), garbled text layers are
-    removed. Without a vision key nothing is transcribed and the pages are
+    text (and flow through the normal chunker) and replace garbled text layers;
+    an untranscribed garbled page keeps its salvageable text
+    (``garbled_kept``). Without a vision key nothing is transcribed and the pages are
     counted in ``not_transcribed``; the caller decides whether the file stands.
     """
     from knowledge_layer.llamaindex import page_triage
@@ -308,10 +331,10 @@ def route_pdf_pages(
     triage = page_triage.triage_pdf(pdf_path, page_texts, min_text_chars=min_text_chars, min_paths=min_paths)
     garbled = {n for n, text in page_texts.items() if page_triage.text_quality(text).garbled}
     if triage is None:
-        # pdfium cannot open the file, so nothing can be rendered: the garbage
-        # still goes, and is counted as pages that could not be transcribed.
-        _merge_transcriptions(text_pages, garbled, {})
-        return PageRoutes(outcome=TranscriptionOutcome(failed=sorted(garbled)))
+        # pdfium cannot open the file, so nothing can be rendered: the glyph
+        # ids still go, and the pages are counted as not transcribed.
+        kept = _merge_transcriptions(text_pages, garbled, {})
+        return PageRoutes(outcome=TranscriptionOutcome(failed=sorted(garbled)), garbled_kept=kept)
     routes = PageRoutes(
         drawing_pages=set(triage.drawings),
         scan_pages=set(triage.pages(page_triage.PageKind.SCAN)),
@@ -332,5 +355,7 @@ def route_pdf_pages(
             workers=workers or _processing.VLM_BATCH_WORKERS,
         )
         routes.drawing_pages.update(routes.outcome.drawings)
-    _merge_transcriptions(text_pages, garbled, routes.outcome.texts)
+    routes.garbled_kept = _merge_transcriptions(
+        text_pages, garbled, routes.outcome.texts, blank=set(routes.outcome.blank)
+    )
     return routes

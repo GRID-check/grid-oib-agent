@@ -92,6 +92,17 @@ _MAX_PASSAGE_CHUNKS = 12
 #: decided WHICH chunks exist.
 _MAX_OUTLINE_CHUNKS = 160
 
+#: How many pages before the requested one a chunk may start and still reach it.
+#:
+#: A section or Punkt chunk is filed under the page its text STARTS on
+#: (``page_label``) and records where it ends (``page_end``), so page 2 of a
+#: report whose section runs from page 1 to 3 is held by a chunk labelled 1.
+#: The store cannot compare the stored strings as numbers, so a page read asks
+#: for the labels of this window and keeps the chunks whose range covers the
+#: page. A chunk is at most ~640 tokens, so it spans more than a page or two
+#: only across near-empty pages; eight is a bound, not an estimate.
+_PAGE_SPAN_WINDOW = 8
+
 #: How many Gliederung lines the outline may print before it says how many more
 #: exist. Headings are not rendered as passages (a heading is not evidence), so
 #: 80 lines is roughly one search result in tokens.
@@ -287,13 +298,16 @@ def _passage_filters(file_name: str, punkt: str | None, page: int | None) -> dic
     ``page_label`` is stored as a STRING by every writer in the ingest path
     (``text_documents_for_pages``, the Punkt chunker, the table and image
     branches), so the page clause compares strings; comparing an int here
-    matches nothing and looks like an empty document.
+    matches nothing and looks like an empty document. A page asks for the
+    labels of :data:`_PAGE_SPAN_WINDOW` pages up to it, because a chunk that
+    started earlier may run onto it; :func:`_addresses` keeps the ones that do.
     """
     clauses: list[dict[str, Any]] = [{"file_name": {"$eq": file_name}}]
     if punkt:
-        clauses.append({"punkt_id": {"$eq": punkt}})
+        spellings = _punkt_spellings(punkt)
+        clauses.append({"punkt_id": {"$eq": punkt} if len(spellings) == 1 else {"$in": spellings}})
     if page is not None:
-        clauses.append({"page_label": {"$eq": str(page)}})
+        clauses.append({"page_label": {"$in": _page_window(page)}})
     if len(clauses) == 1:
         return clauses[0]
     return {"$and": clauses}
@@ -351,6 +365,33 @@ def _whole_document_filters(file_name: str) -> dict[str, Any]:
     return {"file_name": {"$eq": file_name}}
 
 
+def _page_window(page: int) -> list[str]:
+    """The ``page_label`` values a chunk covering ``page`` can carry, as strings."""
+    return [str(number) for number in range(max(1, page - _PAGE_SPAN_WINDOW), page + 1)]
+
+
+def _punkt_spellings(punkt: str) -> list[str]:
+    """The requested locator and its one normal spelling (``§3`` -> ``§ 3``), which the chunkers write."""
+    from knowledge_layer.llamaindex.section_chunking import normalise_locator
+
+    return sorted({punkt, normalise_locator(punkt)})
+
+
+def _covers_page(chunk: Any, page: int) -> bool:
+    """Whether the chunk's page range ``[page_label, page_end]`` contains ``page``.
+
+    A chunk without a numeric ``page_end`` covers its label only. A label that is
+    not a page number (a worksheet name) never matches a page.
+    """
+    metadata = getattr(chunk, "metadata", None) or {}
+    label = str(metadata.get("page_label") or getattr(chunk, "page_number", "") or "")
+    if not label.isdigit():
+        return False
+    end = str(metadata.get("page_end") or "")
+    last = int(end) if end.isdigit() else int(label)
+    return int(label) <= page <= max(last, int(label))
+
+
 def _addresses(chunk: Any, punkt: str | None, page: int | None) -> bool:
     """Whether this chunk really IS the passage that was addressed.
 
@@ -363,11 +404,9 @@ def _addresses(chunk: Any, punkt: str | None, page: int | None) -> bool:
     right.
     """
     metadata = getattr(chunk, "metadata", None) or {}
-    if punkt and str(metadata.get("punkt_id") or "") != punkt:
+    if punkt and str(metadata.get("punkt_id") or "") not in _punkt_spellings(punkt):
         return False
-    if page is not None and str(metadata.get("page_label") or getattr(chunk, "page_number", "")) != str(page):
-        return False
-    return True
+    return page is None or _covers_page(chunk, page)
 
 
 def _punkt_number(raw: str) -> tuple[int, ...]:
@@ -1101,8 +1140,11 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
             return refusal
 
         query = _fetch_query(document, punkt, page)
+        # A page read fetches the window's chunks and keeps those covering the
+        # page, so it may not stop at the passage bound before filtering.
+        top_k = _MAX_PASSAGE_CHUNKS if page is None else _MAX_OUTLINE_CHUNKS
         fetched, failures = await _fetch_all(
-            targets, lambda file_name: _passage_filters(file_name, punkt, page), query, _MAX_PASSAGE_CHUNKS
+            targets, lambda file_name: _passage_filters(file_name, punkt, page), query, top_k
         )
         chunks = [chunk for chunk in fetched if _addresses(chunk, punkt, page)]
         if failures and not chunks:

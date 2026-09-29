@@ -44,6 +44,16 @@ logger = logging.getLogger(__name__)
 #: call as large as the reranker's for a yes/no answer.
 _JUDGE_CANDIDATES = 12
 
+#: How many delivered passages the coverage check reads. It judges the pool the
+#: model gets, not the judge's head, because the block's claim is about that
+#: pool: judging the first 12 of 16 and saying "none of the 16" was false for
+#: four of them. The decider runs twelve calls at a time
+#: (``aiq_agent.common.decisions.DEFAULT_CONCURRENCY``), so the default
+#: ``top_k`` of 16 is one batch in two waves; past this bound (an admin's
+#: ``top_k`` up to 50) the rest is named as not judged rather than judged in
+#: three more waves.
+_COVERAGE_MAX_JUDGED = 24
+
 #: Per-candidate excerpt for the judge — enough to see whether the operative
 #: sentence is there, not enough to read the whole chunk.
 _JUDGE_EXCERPT_CHARS = 600
@@ -288,20 +298,27 @@ def requery_notice(queries: Sequence[str]) -> str:
 
 @dataclass(frozen=True)
 class CoverageGap:
-    """The decider read every judged passage and none answers the question."""
+    """The decider read every judged passage and none answers the question.
+
+    ``unjudged`` delivered passages past :data:`_COVERAGE_MAX_JUDGED` were not
+    read, and the reason says so: the claim covers the judged ones only.
+    """
 
     judged: int
     best: float
     threshold: float
     widened: bool
+    unjudged: int = 0
 
     def reason(self) -> str:
         """The clause after „Abdeckung: unzureichend — ", German like the excerpts."""
         after = ", auch nach Umformulierung der Suche" if self.widened else ""
+        which = f"{self.judged} besten" if self.unjudged else f"{self.judged} gezeigten"
+        rest = f"; die übrigen {self.unjudged} Passagen wurden nicht geprüft" if self.unjudged else ""
         return (
-            f"keine der {self.judged} besten Passagen enthält die gesuchte Aussage "
+            f"keine der {which} Passagen enthält die gesuchte Aussage "
             f"(Entscheidungsmodell: höchste Wahrscheinlichkeit {self.best:.2f}, "
-            f"Schwelle {self.threshold:.2f}){after}"
+            f"Schwelle {self.threshold:.2f}){after}{rest}"
         )
 
 
@@ -314,13 +331,15 @@ async def judge_coverage(
 ) -> CoverageGap | None:
     """A :class:`CoverageGap` when the decider says no passage answers; else ``None``.
 
-    Reads the head of ``chunks`` (the pool as the model will get it, best
-    first) with the same question and threshold as the first pass. ``None``
+    Reads ``chunks`` (the pool as the model will get it, best first) up to
+    :data:`_COVERAGE_MAX_JUDGED`, with the same question and threshold as the
+    first pass, in one decider batch. ``None``
     for everything that is not a complete "no": a passage that answers, a
     decision that did not run, a passage the decider left unanswered, an empty
     pool. Missing evidence is never read as an absent answer. Never raises.
     """
-    head = list(chunks or [])[:_JUDGE_CANDIDATES]
+    pool = list(chunks or [])
+    head = pool[:_COVERAGE_MAX_JUDGED]
     if not head or not query:
         return None
     try:
@@ -333,7 +352,9 @@ async def judge_coverage(
     if verdicts is None or any(p is None for p in verdicts.answers) or verdicts.sufficient:
         return None
     logger.info("Coverage insufficient for %r: best p=%.2f over %d passage(s)", query[:60], verdicts.best, len(head))
-    return CoverageGap(judged=len(head), best=verdicts.best, threshold=threshold, widened=widened)
+    return CoverageGap(
+        judged=len(head), best=verdicts.best, threshold=threshold, widened=widened, unjudged=len(pool) - len(head)
+    )
 
 
 # ---------------------------------------------------------------------------

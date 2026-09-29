@@ -216,8 +216,9 @@ class GroundingBlock(BaseModel):
     #: against it said so (``knowledge_layer.requery.judge_coverage``). Rendered
     #: as the ``Abdeckung: unzureichend — …`` line under the preamble, so the
     #: model reads the verdict before the passages rather than inferring it
-    #: from a score. ``None`` renders nothing: an unjudged block and a covered
-    #: one read as they always did.
+    #: from a score. The reason names how many hits were judged, and the claim
+    #: covers those only. ``None`` renders nothing: an unjudged block and a
+    #: covered one read as they always did.
     coverage_gap: str | None = None
 
 
