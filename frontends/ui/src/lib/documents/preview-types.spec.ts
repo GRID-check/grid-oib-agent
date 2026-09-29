@@ -15,8 +15,11 @@ import { describe, expect, it } from 'vitest'
 import {
   INLINE_PREVIEW_CONTENT_TYPES,
   OFFICE_RENDITION_CONTENT_TYPES,
+  OFFICE_RENDITION_EXTENSIONS,
+  RENDITION_INDEXED_EXTENSIONS,
   TEXT_PREVIEW_CONTENT_TYPES,
   isInlinePreviewable,
+  isIndexedFromRendition,
   isOfficeRenditionSource,
 } from './preview-types'
 
@@ -97,5 +100,39 @@ describe('isOfficeRenditionSource', () => {
   it('never overlaps the inline list, so a stored PDF is never re-rendered', () => {
     const inline = new Set<string>(INLINE_PREVIEW_CONTENT_TYPES)
     for (const type of OFFICE_RENDITION_CONTENT_TYPES) expect(inline.has(type)).toBe(false)
+  })
+})
+
+/**
+ * Which office files are INDEXED from their rendition (ADR-0071). The ingest
+ * dispatch and the citation page both read this predicate; spreadsheets with
+ * their own structure-preserving extractor must stay out of it.
+ */
+describe('isIndexedFromRendition', () => {
+  it('covers Word, presentations and the spreadsheets with no extractor of their own', () => {
+    for (const name of [
+      'Bericht.docx',
+      'Makro.DOCM',
+      'alt.doc',
+      'protokoll.odt',
+      'brief.rtf',
+      'Vortrag.pptx',
+      'Vortrag.pptm',
+      'alt.ppt',
+      'folien.odp',
+      'alt.xls',
+      'tabelle.ods',
+    ])
+      expect(isIndexedFromRendition(name), name).toBe(true)
+  })
+
+  it('keeps .xlsx and .xlsm on their own extractor, and ignores non-office files', () => {
+    for (const name of ['Kosten.xlsx', 'Makro.xlsm', 'plan.pdf', 'haus.ifc', 'docx', '', null, undefined])
+      expect(isIndexedFromRendition(name), String(name)).toBe(false)
+  })
+
+  it('is a subset of the formats that have a rendition at all', () => {
+    const rendered = new Set<string>(OFFICE_RENDITION_EXTENSIONS)
+    for (const ext of RENDITION_INDEXED_EXTENSIONS) expect(rendered.has(ext), ext).toBe(true)
   })
 })

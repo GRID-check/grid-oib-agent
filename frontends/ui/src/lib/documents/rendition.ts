@@ -23,6 +23,19 @@ import { buildRenditionStorageKey, s3Client, storageKeySegment } from '@/lib/s3'
 import { NotFoundError } from '@/lib/api/errors'
 
 /**
+ * Whether the backend should extract this file's TEXT from its rendition rather
+ * than from the original (ADR-0071): Word and presentation formats yes,
+ * `.xlsx`/`.xlsm` no, because openpyxl keeps a sheet's structure and a printed
+ * PDF of it does not.
+ *
+ * An alias, not a second list. The citation resolver has to agree with the
+ * dispatch about which formats' locus pages are rendition pages, and it runs in
+ * the browser, so the one list lives in the browser-safe `./preview-types` and
+ * this name is what the dispatch reads it by.
+ */
+export { isIndexedFromRendition as extractsFromRendition } from './preview-types'
+
+/**
  * How long one conversion may take. LibreOffice on a 200-slide deck or a
  * workbook with a print area of thousands of rows is slow, and a person is
  * waiting on the lazy path — two minutes is the point past which a spinner is
@@ -77,7 +90,7 @@ export interface EnsureRenditionInput {
  * Conversions in flight in THIS process, by bucket and key.
  *
  * The preview and the file route fire together when a viewer opens, the pane
- * and a citation chip can ask at once, and an upload's eager conversion may
+ * and a citation chip can ask at once, and an upload's detached conversion may
  * still be running when the first reader arrives. Without this each would pay
  * a LibreOffice run and race to PUT the same object. Per process only: two BFF
  * replicas can still both convert, and both write the same bytes to the same

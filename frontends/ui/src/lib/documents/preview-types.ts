@@ -121,3 +121,45 @@ export function isOfficeRenditionSource(file: {
   const dot = name.lastIndexOf('.')
   return dot >= 0 && officeExtensions.has(name.slice(dot))
 }
+
+/**
+ * Office formats whose TEXT the backend indexes from the PDF rendition, not the
+ * original (ADR-0071).
+ *
+ * The rendition carries what the original's text-only readers never saw: the
+ * pictures in a deck or a Word file, and real page numbers a citation can open
+ * at. `.xls` and `.ods` are here because they have no extractor of their own and
+ * would otherwise fall back to raw bytes. `.xlsx` and `.xlsm` are deliberately
+ * absent: openpyxl keeps a sheet's rows and columns, and LibreOffice splits one
+ * sheet across as many printed pages as its width needs.
+ *
+ * The BFF dispatch decides with this list and the citation resolver trusts a
+ * locus page for the same formats, so both import it from here. The backend has
+ * no list of its own: it reads the rendition iff the request carries one.
+ */
+export const RENDITION_INDEXED_EXTENSIONS = [
+  '.docx',
+  '.docm',
+  '.doc',
+  '.odt',
+  '.rtf',
+  '.pptx',
+  '.pptm',
+  '.ppt',
+  '.odp',
+  '.xls',
+  '.ods',
+] as const
+
+const renditionIndexedExtensions = new Set<string>(RENDITION_INDEXED_EXTENSIONS)
+
+/**
+ * Whether this file's chunks come from its rendition, so a locus page is a
+ * rendition page. Keyed by extension only: the dispatch and the resolver both
+ * hold the filename, and the stored type is whatever the browser sent.
+ */
+export function isIndexedFromRendition(filename: string | null | undefined): boolean {
+  const name = filename?.trim().toLowerCase() ?? ''
+  const dot = name.lastIndexOf('.')
+  return dot >= 0 && renditionIndexedExtensions.has(name.slice(dot))
+}

@@ -101,6 +101,7 @@ import {
   RenditionFailedError,
   RenditionUnavailableError,
   ensureRendition,
+  extractsFromRendition,
   isRenditionEnabled,
 } from './rendition'
 
@@ -217,11 +218,12 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
  * the birth status renders as a green "Ready" the document has not earned.
  */
 /**
- * The two things only some dispatch callers know.
+ * The things only some dispatch callers know.
  *
- * One trailing bag rather than a seventh and eighth positional on a function
- * that already takes six — and one bag rather than two parameters because they
- * arrive together, from the one caller that has a version row in hand.
+ * One trailing bag rather than more positionals on a function that already
+ * takes six. They arrive in pairs: the join key and provenance from the caller
+ * that read the row, the two rendition reads from the office path that
+ * converted it.
  */
 export interface DispatchIngestExtras {
   /**
@@ -231,6 +233,18 @@ export interface DispatchIngestExtras {
   fileName?: string | null
   /** Set only for a published Piloti document. */
   provenance?: AgentDocumentProvenance | null
+  /**
+   * A signed read of the office original's PDF rendition (ADR-0070), for the
+   * card thumbnail: the backend cannot rasterise a `.docx`. Set only by
+   * {@link beginRenditionIngest}, and only when the conversion succeeded.
+   */
+  previewRef?: string | null
+  /**
+   * The same signed read, for TEXT extraction (ADR-0071): the backend indexes
+   * the PDF instead of the original iff this is present. Which formats get it is
+   * the dispatch's decision (`extractsFromRendition`), never the backend's.
+   */
+  extractionRef?: string | null
 }
 
 /**
@@ -255,59 +269,6 @@ export interface AgentDocumentProvenance {
   approved_at: string | null
   /** Which pipeline wrote the document — `documents.authored_by_producer`. */
   producer: string | null
-}
-
-/** How long an office upload waits for its PDF before dispatching without one (ADR-0070). */
-const EAGER_RENDITION_WAIT_MS = 20_000
-
-/**
- * Convert an office original to its PDF rendition at dispatch time, and sign a
- * read of it for the backend (ADR-0070).
- *
- * Eager so the first reader does not wait on LibreOffice, and so the ingest
- * pipeline can draw the card thumbnail from the PDF — it has no way to render a
- * Word file itself. Awaited before the POST because the backend fetches the
- * URL as part of the job.
- *
- * Fail-open, always: the rendition is a convenience beside a file that is
- * already durable, and the preview and file routes convert lazily on first
- * read anyway. A conversion failure must never become an ingest failure.
- * Signed with the INTERNAL client like `file_ref`: the backend reads it from
- * inside the Docker network.
- */
-async function eagerRenditionRef(
-  bucket: string,
-  storageKey: string,
-  fileName: string | null
-): Promise<string | null> {
-  const filename = fileName ?? storageKey.slice(storageKey.lastIndexOf('/') + 1)
-  if (!isRenditionEnabled() || !isOfficeRenditionSource({ filename })) return null
-  // The upload waits for the conversion only this long. The flight itself is
-  // NOT cut short: it keeps running, stores `_render.pdf`, and the first
-  // reader finds it there. What a slow deck costs is its thumbnail, never its
-  // preview, and never a two-minute upload.
-  const flight = ensureRendition({ bucket, storageKey, filename })
-  flight.catch(() => undefined)
-  try {
-    const renditionKey = await Promise.race([
-      flight,
-      new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new Error('still converting; the preview picks it up')),
-          EAGER_RENDITION_WAIT_MS
-        ).unref?.()
-      }),
-    ])
-    return await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucket, Key: renditionKey }), {
-      expiresIn: presignTtlSeconds(),
-    })
-  } catch (error) {
-    console.warn(
-      '[documents] office rendition at ingest failed; the preview converts on first read:',
-      error instanceof Error ? error.message : String(error)
-    )
-    return null
-  }
 }
 
 export async function dispatchIngest(
@@ -364,8 +325,6 @@ export async function dispatchIngest(
       )
     : null
 
-  const previewRef = await eagerRenditionRef(bucket, storageKey, extras.fileName ?? null)
-
   let ingestJobId: string | null = null
   try {
     const ingestRes = await fetch(`${getBackendUrl()}/v1/ingest`, {
@@ -378,12 +337,16 @@ export async function dispatchIngest(
         collection: collectionName,
         document_id: documentId,
         thumbnail_upload_url: thumbnailUploadUrl,
-        // A PDF of an office original (ADR-0070), for the thumbnail ONLY: the
-        // backend cannot rasterise a .docx, and text extraction still reads
-        // `file_ref`. Null for everything else and whenever conversion is off
-        // or failed. A presigned URL is a bearer credential, so the backend
-        // neither stores nor logs it.
-        preview_ref: previewRef,
+        // A PDF of an office original (ADR-0070), for the thumbnail: the
+        // backend cannot rasterise a .docx. Null for everything else and
+        // whenever conversion is off or failed. A presigned URL is a bearer
+        // credential, so the backend neither stores nor logs it.
+        preview_ref: extras.previewRef ?? null,
+        // The same PDF, for the TEXT (ADR-0071): present only for the formats
+        // `extractsFromRendition` names, and the backend then indexes it
+        // instead of `file_ref`. Chunks keep the row's `file_name` either way —
+        // only the bytes read differ, never the identity.
+        extraction_ref: extras.extractionRef ?? null,
         folder_path: folderPath,
         // The document's IDENTITY inside the collection, stated rather than
         // left to be derived. Without it the backend reads the name off the
@@ -1132,7 +1095,10 @@ export interface DispatchDocumentInput extends BeginModelExtractionInput {
 
 export interface DispatchDocumentResult {
   jobId: string | null
-  /** `processing` is the IFC path — see {@link beginModelExtraction}. */
+  /**
+   * `processing` is a detached path: an IFC model ({@link beginModelExtraction})
+   * or an office file converting first ({@link beginRenditionIngest}).
+   */
   status: 'pending' | 'uploaded' | 'failed' | 'processing'
 }
 
@@ -1228,6 +1194,11 @@ export async function dispatchDocument(
 
   if (isIfcFilename(input.filename)) {
     return beginModelExtraction(input)
+  }
+  // Decided on the ROW's name and stored type, like the preview route decides
+  // what to serve, so a file is indexed from the same PDF a reader is shown.
+  if (isRenditionEnabled() && servedAsRendition(row)) {
+    return beginRenditionIngest(input, row.filename)
   }
   return dispatchIngest(
     input.documentId,
@@ -1328,6 +1299,99 @@ export async function beginModelExtraction(
     })
 
   return { jobId: null, status: 'processing' }
+}
+
+/**
+ * Convert an office original to its PDF rendition, then ingest — DETACHED,
+ * like {@link beginModelExtraction} and for the same reason (ADR-0071).
+ *
+ * The conversion used to be raced against a 20-second wait inside the upload
+ * request, because a person was waiting on it and the PDF only fed the
+ * thumbnail. Now it also decides what text is indexed, so a deck that took 25
+ * seconds would be indexed from a different source than one that took 15 —
+ * and a slow conversion would silently index the worse text. Detached, the
+ * conversion gets its full two minutes and nobody waits on it.
+ *
+ * The row goes to `processing` first, exactly as an IFC model does, so it never
+ * renders a green "Ready" before anything was dispatched. Every terminal
+ * outcome writes the row again: a dispatch sets `pending` + job id or `failed`
+ * itself, and the catch below covers anything that throws before it.
+ *
+ * The tradeoff is the IFC one: a process restart mid-conversion leaves the row
+ * at `processing` with no job, which the re-ingest action recognises as lost
+ * (`describeBackendIngestState` → `absent`) and retries.
+ */
+export async function beginRenditionIngest(
+  input: DispatchDocumentInput,
+  fileName: string
+): Promise<DispatchDocumentResult> {
+  await markDocumentProcessing(input.documentId, input.organizationId)
+
+  void ingestThroughRendition(input, fileName).catch(async (error) => {
+    // `dispatchIngest` records its own failures; this is the belt for anything
+    // that throws around it (a signer, a database write), so the row is never
+    // left at `processing` by an error nobody saw.
+    console.warn(
+      '[documents] office ingest failed before dispatch:',
+      error instanceof Error ? error.message : String(error)
+    )
+    await markDocumentIngestFailed(input.documentId, input.organizationId, INGEST_DISPATCH_FAILED_MESSAGE).catch(
+      () => undefined
+    )
+  })
+
+  return { jobId: null, status: 'processing' }
+}
+
+/**
+ * The background half of {@link beginRenditionIngest}.
+ *
+ * Fail-open on the conversion, always: the original is durable and the backend
+ * can extract it as it always did, so a converter outage costs the PDF-derived
+ * text and thumbnail, never the document. The preview and file routes convert
+ * lazily on first read anyway.
+ */
+async function ingestThroughRendition(input: DispatchDocumentInput, fileName: string): Promise<void> {
+  const renditionRef = await signedRenditionRef(input, fileName)
+  await dispatchIngest(
+    input.documentId,
+    input.collectionName,
+    input.storageKey,
+    input.organizationId,
+    input.storageBucket,
+    input.folderPath ?? null,
+    {
+      fileName,
+      provenance: input.provenance ?? null,
+      previewRef: renditionRef,
+      // A spreadsheet's rendition is a thumbnail only: its text keeps the
+      // structure-preserving extractor (see `extractsFromRendition`).
+      extractionRef: renditionRef && extractsFromRendition(fileName) ? renditionRef : null,
+    }
+  )
+}
+
+/**
+ * A signed read of the rendition, or `null` when there is none to give.
+ *
+ * Signed with the INTERNAL client like `file_ref`: the backend reads it from
+ * inside the Docker network, as part of the job, so it is minted right before
+ * the POST rather than when the conversion started.
+ */
+async function signedRenditionRef(input: DispatchDocumentInput, fileName: string): Promise<string | null> {
+  const bucket = resolveDocumentBucket(input.storageBucket)
+  try {
+    const renditionKey = await ensureRendition({ bucket, storageKey: input.storageKey, filename: fileName })
+    return await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucket, Key: renditionKey }), {
+      expiresIn: presignTtlSeconds(),
+    })
+  } catch (error) {
+    console.warn(
+      '[documents] office rendition at ingest failed; indexing the original:',
+      error instanceof Error ? error.message : String(error)
+    )
+    return null
+  }
 }
 
 /**
@@ -1912,9 +1976,9 @@ export async function getDocumentDownload(
  * The key of an office document's PDF rendition, converting on first read
  * (ADR-0070), with the two failures mapped to what the routes answer.
  *
- * Lazy here because every office file uploaded before the eager conversion in
- * {@link dispatchIngest} existed has no rendition, nor does one whose eager
- * conversion failed. "Disabled" is today's 415 exactly — a deployment without
+ * Lazy here because every office file uploaded before the conversion in
+ * {@link beginRenditionIngest} existed has no rendition, nor does one whose
+ * conversion failed there. "Disabled" is today's 415 exactly — a deployment without
  * `GOTENBERG_URL` must look as it did — and a converter failure is a 502 of its
  * own so the reader is told the preview failed rather than that the product
  * cannot show Word files.

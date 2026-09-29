@@ -22,6 +22,7 @@ import {
   RenditionFailedError,
   RenditionUnavailableError,
   ensureRendition,
+  extractsFromRendition,
   isRenditionEnabled,
 } from './rendition'
 
@@ -68,6 +69,19 @@ describe('isRenditionEnabled', () => {
     expect(isRenditionEnabled()).toBe(false)
     vi.stubEnv('GOTENBERG_URL', '   ')
     expect(isRenditionEnabled()).toBe(false)
+  })
+})
+
+describe('extractsFromRendition', () => {
+  // The list itself is `preview-types.spec.ts`'s subject. Pinned here is the
+  // one boundary the dispatch turns on: Word and decks read the PDF, a modern
+  // workbook keeps its structure-preserving extractor (ADR-0071).
+  it('sends Word and presentation files to the rendition and keeps .xlsx on its own extractor', () => {
+    expect(extractsFromRendition('Baubeschreibung.docx')).toBe(true)
+    expect(extractsFromRendition('piloti/doc-1/Präsentation.PPTX')).toBe(true)
+    expect(extractsFromRendition('Kosten.xlsx')).toBe(false)
+    expect(extractsFromRendition('Kosten.xlsm')).toBe(false)
+    expect(extractsFromRendition('plan.pdf')).toBe(false)
   })
 })
 
