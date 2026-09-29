@@ -95,8 +95,9 @@ the dates.
 - **K24AI** is the closest in concept (it names OIB and Austria), but its
   alpha is postponed and it has paused taking new testers.
 - **German-law tools:** Reiner AI, WEKA Bau AI, BauKI, Nexfour and
-  ki·spezial. None claims Austrian coverage. They beat Piloti on public
-  prices, trials and German hosting, and the pages say so.
+  ki·spezial. None claims Austrian coverage. They offer public prices,
+  trials and German hosting; the pages mention it in a line, and lead with
+  Austrian coverage.
 - **General assistants:** ChatGPT, Microsoft Copilot, NotebookLM (renamed
   Gemini Notebook in 2026) and Perplexity. They are strong on text, office
   documents and the web. None ships a curated Austrian building-law corpus.

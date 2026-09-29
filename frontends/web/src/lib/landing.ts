@@ -8,7 +8,10 @@
  * Copy rules are the rest of the site's: both locales, German typography
  * (`scripts/lint-typography.mjs` reads `src/data/landing/`), only what the
  * product does (`scripts/lint-claims.mjs`). A competitor is described only as
- * its own site describes it, with the month it was read (`checked`).
+ * its own site describes it, with the month it was read (`checked`). Each
+ * page argues for Piloti: its strengths lead, a competitor's use case and
+ * Piloti's boundaries come later and briefly (one „Gut zu wissen“ block).
+ * Nothing is said about what Piloti's corpus holds or which OIB edition it has.
  */
 import type { Locale } from '../i18n/ui'
 import type { OgArtId } from './seo'
@@ -80,7 +83,7 @@ export const SECTIONS: Record<SectionId, { og: OgArtId } & Record<Locale, Sectio
       description:
         'Piloti neben ChatGPT, Microsoft Copilot, NotebookLM, Reiner AI und weiteren KI-Werkzeugen für Planungsbüros: ehrlich verglichen, mit Datum und Quellen.',
       heading: 'Piloti im Vergleich',
-      lede: 'Jeder Vergleich sagt zuerst, wofür das andere Werkzeug besser passt. Angaben zu anderen Anbietern stammen von deren eigenen Websites, mit dem Monat, in dem wir sie gelesen haben.',
+      lede: 'Warum Piloti für Planungsfragen in Österreich die bessere Wahl ist: neben den Werkzeugen, die Büros heute vergleichen. Angaben zu anderen Anbietern stammen von deren eigenen Websites, mit dem Monat, in dem wir sie gelesen haben.',
     },
     en: {
       label: 'Comparisons',
@@ -88,7 +91,7 @@ export const SECTIONS: Record<SectionId, { og: OgArtId } & Record<Locale, Sectio
       description:
         'Piloti next to ChatGPT, Microsoft Copilot, NotebookLM, Reiner AI and other AI tools for planning offices: compared honestly, with dates and sources.',
       heading: 'Piloti compared',
-      lede: 'Every comparison first says what the other tool fits better. Details on other vendors come from their own websites, with the month we read them.',
+      lede: 'Why Piloti is the better choice for planning questions in Austria, next to the tools offices compare today. Details on other vendors come from their own websites, with the month we read them.',
     },
   },
   anwendungen: {

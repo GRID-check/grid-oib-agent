@@ -61,9 +61,15 @@ published.
 
 ## Rules the copy keeps
 
+- Every page argues for Piloti. Its strengths lead; a competitor's use case
+  and Piloti's boundaries come later and briefly, in one „Gut zu wissen“
+  block, never as a headline. The founders' call after the first version
+  listed weaknesses too prominently.
 - A competitor is described only as its own site describes it, with the month
-  it was read. Where it is ahead, the page says so first. A buyer reads both
-  sites side by side, and a shaded comparison loses them.
+  it was read, never false and never mocking: a buyer reads both sites side by
+  side.
+- Nothing about what Piloti's corpus holds or which OIB edition it has. That
+  is not verified on the site's side; `scripts/lint-claims.mjs` refuses it.
 - No number that was not measured. The ≈ 30 s answer time is measured; the
   changelog count on the homepage is counted at build time
   (`shippedTotals()` in `src/lib/changelog.ts`). Everything else waits for the pilots.
