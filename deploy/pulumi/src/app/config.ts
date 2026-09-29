@@ -100,6 +100,7 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     TAVILY_API_KEY: cfg.llm.tavilyApiKey,
     GRID_INTERNAL_API_TOKEN: cfg.internal.apiToken,
     GRID_ADMIN_TOKEN: cfg.internal.adminToken,
+    GRID_CORPUS_EXPORT_TOKEN: cfg.internal.corpusExportToken,
     GRID_JOB_PAYLOAD_KEK: cfg.internal.jobPayloadKek,
     WORKOS_API_KEY: cfg.auth.workosApiKey,
     WORKOS_COOKIE_PASSWORD: cfg.auth.workosCookiePassword,
@@ -309,6 +310,8 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     sref("GRID_APP_DATABASE_URL"),
     sref("GRID_INTERNAL_API_TOKEN"),
     sref("GRID_ADMIN_TOKEN"),
+    // The corpus export for the answer-suite CI (`/api/internal/oib-corpus`).
+    sref("GRID_CORPUS_EXPORT_TOKEN"),
     { name: "GRID_ALLOW_AGENT_ORG_MEMORY", value: String(cfg.auth.allowAgentOrgMemory) },
     // WorkOS AuthKit.
     { name: "WORKOS_CLIENT_ID", value: cfg.auth.workosClientId },
