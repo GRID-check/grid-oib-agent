@@ -28,7 +28,7 @@ def two_plan_sheet_pdf() -> bytes:
     """One page, two floor-plan room grids side by side, sparse text layer.
 
     Hand-built PDF bytes (no extra dependency): two stroked-rectangle grids
-    as vector linework plus three short labels. The stripped text stays well
+    with hatched walls as vector linework (336 paths) plus three short labels. The stripped text stays well
     under the visual-page text threshold, mirroring a plan sheet whose labels
     pdfplumber can read but whose content is the linework.
     """
@@ -40,6 +40,10 @@ def two_plan_sheet_pdf() -> bytes:
                 x = origin_x + col * 60
                 y = 600 - row * 50
                 lines.append(f"{x} {y} 55 45 re S")
+                # Wall hatching, as a CAD export draws it: one path per
+                # stroke. A real plan is hundreds to thousands of paths, and
+                # a drawing needs many paths AND little text (page_triage).
+                lines.extend(f"{x + 4 * k} {y} m {x + 4 * k + 3} {y + 3} l S" for k in range(13))
     lines.append("BT /F1 10 Tf 50 60 Td (Massstab 1:100) Tj ET")
     content = "\n".join(lines).encode("latin-1")
 

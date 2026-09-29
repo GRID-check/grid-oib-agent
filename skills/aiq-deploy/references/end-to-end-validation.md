@@ -14,7 +14,7 @@ This validation checks:
 - basic report/source structure
 - absence of auth, provider, search, database, or report-generation errors
 
-It does not validate data-source exhaustiveness, document ingestion, RAG ingestion, FRAG quality, or whether the final report is analytically strong. Those need separate test plans.
+It does not validate data-source exhaustiveness, document ingestion, RAG ingestion, retrieval quality, or whether the final report is analytically strong. Those need separate test plans.
 
 ## When To Run
 

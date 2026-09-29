@@ -163,7 +163,6 @@ functions:
 
   knowledge_search:
     _type: knowledge_retrieval
-    backend: llamaindex
     collection_name: ${COLLECTION_NAME:-oib_knowledge}
     include_base_collection: true
     include_session_collection: true

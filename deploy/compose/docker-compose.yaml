@@ -84,9 +84,6 @@ services:
       - CONFIG_FILE=${BACKEND_CONFIG:-/app/configs/config_oib_openrouter.yml}
       - HOST=0.0.0.0
       - PORT=8000
-      # RAG config
-      # - RAG_SERVER_URL=${RAG_SERVER_URL:-https://rag-backend}
-      # - RAG_INGEST_URL=${RAG_INGEST_URL:-https://rag-ingest}
       # Dask worker config
       - DASK_NWORKERS=${DASK_NWORKERS:-1}
       - DASK_NTHREADS=${DASK_NTHREADS:-4}
@@ -404,10 +401,19 @@ services:
       - GRID_BYOK_SECRET_BACKEND=${GRID_BYOK_SECRET_BACKEND:-}
       - GRID_BYOK_LOCAL_KEK=${GRID_BYOK_LOCAL_KEK:-}
       - GRID_BYOK_ALLOW_PRIVATE_BASE_URLS=${GRID_BYOK_ALLOW_PRIVATE_BASE_URLS:-false}
-      - FILE_UPLOAD_ACCEPTED_TYPES=${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md}
+      # Must match the code default in frontends/ui/src/shared/config/file-upload.ts:
+      # an override here that lists fewer types silently narrows what users can upload.
+      - FILE_UPLOAD_ACCEPTED_TYPES=${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md,.csv,.xlsx,.pptx}
       - FILE_UPLOAD_MAX_SIZE_MB=${FILE_UPLOAD_MAX_SIZE_MB:-}
       - FILE_UPLOAD_MAX_FILE_COUNT=${FILE_UPLOAD_MAX_FILE_COUNT:-}
       - FILE_EXPIRATION_CHECK_INTERVAL_HOURS=${FILE_EXPIRATION_CHECK_INTERVAL_HOURS:-}
+      # Office → PDF rendition (ADR-0070, ADR-0071). The BFF posts Word, Excel
+      # and PowerPoint files to Gotenberg's LibreOffice route and stores the PDF
+      # beside the original; the backend indexes Word, presentation, .xls and
+      # .ods files from that PDF and has no other reader. Set it empty only if
+      # you accept that: those files are then marked failed (retryable), and
+      # .xlsx/.xlsm index without preview or thumbnail.
+      - GOTENBERG_URL=${GOTENBERG_URL-http://gotenberg:3000}
       - SEAWEED_ENDPOINT=http://seaweedfs:8333
       # Browser-reachable endpoint used ONLY to sign presigned URLs handed to the
       # browser (PDF preview/download). Must be a host the browser can resolve --
@@ -475,6 +481,8 @@ services:
       - "${FRONTEND_PORT:-3000}:3000"
     networks:
       - aiq-network
+      # The only way into gotenberg; see that service.
+      - gotenberg-internal
     depends_on:
       grid-migrate:
         condition: service_completed_successfully
@@ -492,6 +500,10 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
+      # Started, not healthy: conversion fails open (the original stays
+      # downloadable), so a broken converter must never block the UI.
+      gotenberg:
+        condition: service_started
     # Liveness for the frontend web server. Hits the dependency-free
     # /api/healthz (not `/`, a full SSR render, and not /api/health, which
     # proxies the backend). start_period covers the drizzle-kit migrate that
@@ -612,6 +624,64 @@ services:
         reservations:
           cpus: '0.05'
           memory: 128M
+    restart: unless-stopped
+
+  gotenberg:
+    # Office → PDF converter (ADR-0070). Only the LibreOffice route is used,
+    # and only by the frontend BFF. Required for indexing Word, presentation,
+    # .xls and .ods files (ADR-0071): without it they fail, retryably.
+    # Hardening, because it parses untrusted office files:
+    #   - No published port, and ONLY on `gotenberg-internal`, a network with
+    #     `internal: true`: the frontend reaches it, it reaches nothing. Office
+    #     files can link external images and LibreOffice would fetch them.
+    #   - The `-libreoffice` image contains no Chromium, so the HTML/URL → PDF
+    #     routes (the SSRF surface) do not exist. It also rejects every
+    #     --chromium-* flag at boot, so none may be added here.
+    #   - --api-disable-download-from / --webhook-disable: Gotenberg never
+    #     fetches an input from a URL nor calls one back.
+    #   - --libreoffice-deny-private-ips / --libreoffice-deny-public-ips:
+    #     LibreOffice refuses every URL a file links, whatever it resolves to.
+    #     The internal network already blocks that here; the flags keep the
+    #     same guarantee where no such network exists (Coolify, K8s without
+    #     networkPolicies).
+    #   - --api-timeout=120s matches the BFF's own request timeout, and
+    #     --gotenberg-graceful-shutdown-duration=120s with stop_grace_period
+    #     lets a conversion in flight at `docker compose up` finish.
+    #   - --libreoffice-auto-start: start soffice at boot so the first upload
+    #     does not pay its cold start inside the 120s budget.
+    image: gotenberg/gotenberg:8.37.0-libreoffice
+    container_name: aiq-gotenberg
+    command:
+      [
+        "gotenberg",
+        "--api-timeout=120s",
+        "--api-disable-download-from",
+        "--webhook-disable",
+        "--libreoffice-auto-start=true",
+        "--gotenberg-graceful-shutdown-duration=120s",
+        "--libreoffice-deny-private-ips",
+        "--libreoffice-deny-public-ips",
+      ]
+    stop_grace_period: 130s
+    networks:
+      - gotenberg-internal
+    # /health reports each module; curl ships in the image for exactly this.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    # Gotenberg's own guidance is at least 512Mi and 0.2 CPU; LibreOffice on a
+    # large spreadsheet is what needs the headroom above that.
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.2'
+          memory: 512M
     restart: unless-stopped
 
   dragonfly:
@@ -886,3 +956,7 @@ volumes:
 networks:
   aiq-network:
     driver: bridge
+  # No route out of the host: gotenberg and the frontend only (ADR-0070).
+  gotenberg-internal:
+    driver: bridge
+    internal: true

@@ -29,6 +29,7 @@ import { startDocumentDownload } from '@/lib/documents/download'
 import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
 import { documentDisplayName, type NamedDocument } from '@/lib/documents/display-name'
 import { LEGAL_HOLD_REASON } from '@/lib/compliance/legal-hold-codes'
+import { INGEST_ALREADY_DONE, INGEST_RUNNING } from '@/lib/documents/reingest-codes'
 
 /** Which corpus the document belongs to — and so which words and which route. */
 export type DocumentScope = 'files' | 'archiv'
@@ -38,6 +39,11 @@ export interface ActionableDocument extends NamedDocument {
   id: string
   /** Only read to decide whether a re-ingest is worth offering. */
   status?: string | null
+  /**
+   * Who wrote it. Only read to keep "re-read an indexed file" to documents a
+   * person uploaded; absent reads as `'user'`, the column's default.
+   */
+  authoredBy?: string | null
   /** Where it is filed now, so a move can mark the current folder. */
   folderId?: string | null
 }
@@ -75,11 +81,29 @@ export interface DocumentActions {
   rename: (displayName: string | null) => Promise<boolean>
   remove: () => Promise<boolean>
   download: () => Promise<void>
-  /** Send a failed document back through ingestion; resolves the new status. */
+  /**
+   * Send the document back through ingestion (a retry, or a re-read of an
+   * indexed file); resolves the row's status afterwards, or `null` on failure.
+   */
   reingest: () => Promise<string | null>
   isMoving: boolean
   /** Re-file into another folder; `null` is the project root. */
   move: (folderId: string | null, folderName: string) => Promise<boolean>
+}
+
+/** A re-ingest 409's `details`: why it was refused, and the row's status now. */
+async function readReingestRefusal(
+  res: Response
+): Promise<{ code: string | null; status: string | null } | null> {
+  const body: unknown = await res.json().catch(() => null)
+  if (!body || typeof body !== 'object') return null
+  const details = (body as { details?: unknown }).details
+  if (!details || typeof details !== 'object') return null
+  const { code, status } = details as { code?: unknown; status?: unknown }
+  return {
+    code: typeof code === 'string' ? code : null,
+    status: typeof status === 'string' ? status : null,
+  }
 }
 
 /** Whether a 409 is the legal-hold refusal (`details.reason`, `lib/compliance`). */
@@ -196,7 +220,8 @@ export function useDocumentActions({
   }, [document.id, name])
 
   /**
-   * Send a failed document back through ingestion.
+   * Send a document back through ingestion: a retry for a failed or lost
+   * one, a re-read for an indexed one.
    *
    * Here, with rename/delete/download, rather than inline in the preview pane
    * where it started: a failed document's card SAYS why it failed and, until
@@ -210,9 +235,27 @@ export function useDocumentActions({
     setIsReingesting(true)
     try {
       const res = await fetch(`/api/documents/${document.id}/reingest`, { method: 'POST' })
+      if (res.status === 409) {
+        const refusal = await readReingestRefusal(res)
+        // Neither is a failure to retry. The row the reader clicked was stale
+        // (it said failed or stuck while the backend was working, or already
+        // done), so the answer is the real state and a fresh listing, not
+        // "please try again" — which could only ever 409 again.
+        if (refusal?.code === INGEST_RUNNING || refusal?.code === INGEST_ALREADY_DONE) {
+          toast.info(
+            t(refusal.code === INGEST_RUNNING ? 'actions.reingestRunning' : 'actions.reingestAlreadyDone')
+          )
+          notifyDocumentsChanged()
+          if (refusal.status) onReingested?.(document.id, refusal.status)
+          return refusal.status
+        }
+      }
       if (!res.ok) throw new Error(`Reingest failed (${res.status})`)
       const data = await res.json().catch(() => ({}))
       const status = typeof data?.status === 'string' ? data.status : 'pending'
+      // The row left the citable set (or rejoined the in-flight one); caches
+      // holding its status must re-read it.
+      notifyDocumentsChanged()
       onReingested?.(document.id, status)
       return status
     } catch {

@@ -40,6 +40,8 @@ import logging
 import os
 from pathlib import Path
 
+from knowledge_layer.llamaindex.pdfium_lock import detached_pil
+from knowledge_layer.llamaindex.pdfium_lock import pdfium_lock
 from pydantic import Field
 
 from aiq_agent.common.image_view_budget import MAX_IMAGE_VIEWS_PER_TURN
@@ -132,30 +134,43 @@ def _find_pdf(pdf_dirs: list[str], file_name: str) -> str | None:
     return None
 
 
+def _render_pdf_page(source: str | bytes, page_number: int, max_dim: int) -> tuple[bytes, int, int]:
+    """Render one page (1-based) of a PDF, given as a path or its bytes, to JPEG bytes.
+
+    Every PDFium call, the closes included, runs under the process-wide
+    :func:`pdfium_lock` (this tool renders on the event loop's executor while
+    the ingest pool renders on its own threads, and PDFium is not
+    thread-safe). The image leaves the lock detached from the bitmap, and the
+    JPEG encode runs after it is released.
+    """
+    import pypdfium2 as pdfium
+
+    with pdfium_lock():
+        doc = pdfium.PdfDocument(source)
+        try:
+            page = doc[page_number - 1]
+            try:
+                width_pt, height_pt = page.get_size()
+                longest_pt = max(width_pt, height_pt) or 1.0
+                pil_image = detached_pil(page.render(scale=max_dim / longest_pt))
+            finally:
+                page.close()
+        finally:
+            doc.close()
+
+    rgb = pil_image.convert("RGB")
+    buf = io.BytesIO()
+    rgb.save(buf, format="JPEG", quality=_JPEG_QUALITY)
+    return buf.getvalue(), rgb.width, rgb.height
+
+
 def _render_page(pdf_path: str, page_number: int, max_dim: int) -> tuple[bytes, int, int]:
-    """Render one page (1-based) of a PDF to JPEG bytes.
+    """Render one page (1-based) of a PDF on disk to JPEG bytes.
 
     Returns ``(jpeg_bytes, width_px, height_px)``. Raises on any failure; the
     caller turns errors into text-only blocks.
     """
-    import pypdfium2 as pdfium
-
-    doc = pdfium.PdfDocument(pdf_path)
-    try:
-        page = doc[page_number - 1]
-        try:
-            width_pt, height_pt = page.get_size()
-            longest_pt = max(width_pt, height_pt) or 1.0
-            scale = max_dim / longest_pt
-            bitmap = page.render(scale=scale)
-            pil_image = bitmap.to_pil().convert("RGB")
-            buf = io.BytesIO()
-            pil_image.save(buf, format="JPEG", quality=_JPEG_QUALITY)
-            return buf.getvalue(), pil_image.width, pil_image.height
-        finally:
-            page.close()
-    finally:
-        doc.close()
+    return _render_pdf_page(pdf_path, page_number, max_dim)
 
 
 def _render_page_from_bytes(pdf_bytes: bytes, page_number: int, max_dim: int) -> tuple[bytes, int, int]:
@@ -165,24 +180,7 @@ def _render_page_from_bytes(pdf_bytes: bytes, page_number: int, max_dim: int) ->
     fetched from SeaweedFS) instead of a path. pypdfium2 accepts a bytes-like
     object directly.
     """
-    import pypdfium2 as pdfium
-
-    doc = pdfium.PdfDocument(pdf_bytes)
-    try:
-        page = doc[page_number - 1]
-        try:
-            width_pt, height_pt = page.get_size()
-            longest_pt = max(width_pt, height_pt) or 1.0
-            scale = max_dim / longest_pt
-            bitmap = page.render(scale=scale)
-            pil_image = bitmap.to_pil().convert("RGB")
-            buf = io.BytesIO()
-            pil_image.save(buf, format="JPEG", quality=_JPEG_QUALITY)
-            return buf.getvalue(), pil_image.width, pil_image.height
-        finally:
-            page.close()
-    finally:
-        doc.close()
+    return _render_pdf_page(pdf_bytes, page_number, max_dim)
 
 
 def _normalize_image_to_jpeg(image_bytes: bytes, max_dim: int) -> tuple[bytes, int, int]:

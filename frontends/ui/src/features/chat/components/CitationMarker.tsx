@@ -30,7 +30,7 @@ import { useHoverPopover } from '@/hooks/use-hover-popover'
 import { useCitationScope } from './CitationScope'
 import { CitationPeek } from './CitationPeek'
 import { SourceDocumentDialog, useCitationDownload, useSourcePreviewIndex } from './SourcePreview'
-import { resolveCitationTarget } from '../lib/citations/target'
+import { citedFileName, resolveCitationTarget } from '../lib/citations/target'
 import { useChatStore } from '../store'
 import { PENDING_CITATION_ANCHOR_PREFIX } from '@/features/layout/lib/citation-markers'
 
@@ -215,7 +215,7 @@ const ResolvedCitationPeek: FC<{
   const url = citation.document.url
   // A URL source needs no stored-document index — but it still needs RESOLVING,
   // because a RIS URL now opens in the app rather than only linking out (#622).
-  const previewIndex = useSourcePreviewIndex(projectId, conversationId, !url)
+  const previewIndex = useSourcePreviewIndex(projectId, conversationId, !url, citedFileName(citation.document))
 
   const target = resolveCitationTarget(citation.document, {
     locus: citation.locus,

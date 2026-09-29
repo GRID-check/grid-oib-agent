@@ -20,6 +20,8 @@ from knowledge_layer.decisions import JevReranker
 from knowledge_layer.decisions import passage_verdicts
 from knowledge_layer.requery import DECIDER_JEV
 from knowledge_layer.requery import SUFFICIENT
+from knowledge_layer.requery import CoverageGap
+from knowledge_layer.requery import judge_coverage
 from knowledge_layer.requery import judge_sufficiency
 
 from aiq_agent.common.decisions import Decision
@@ -153,3 +155,59 @@ class TestTheJevReranker:
         assert isinstance(resolve_cross_encoder("jev"), JevReranker)
         client.enabled = lambda: False
         assert resolve_cross_encoder("jev") is None
+
+
+class TestTheCoverageCheck:
+    """„Abdeckung: unzureichend" is claimed on a complete "no", and on nothing less."""
+
+    async def test_every_passage_below_the_threshold_is_a_gap(self, client):
+        client.decide_many.return_value = [_decision(answers=0.2), _decision(answers=0.31)]
+        gap = await judge_coverage("q", [_chunk("a"), _chunk("b", "c2")], threshold=0.55, widened=True)
+        assert gap == CoverageGap(judged=2, best=0.31, threshold=0.55, widened=True)
+        assert "keine der 2 gezeigten Passagen" in gap.reason()
+        assert "nicht geprüft" not in gap.reason()
+        assert "auch nach Umformulierung" in gap.reason()
+
+    async def test_an_unwidened_gap_does_not_claim_a_rewording(self, client):
+        client.decide_many.return_value = [_decision(answers=0.1)]
+        gap = await judge_coverage("q", [_chunk("a")], threshold=0.55, widened=False)
+        assert gap is not None and "Umformulierung" not in gap.reason()
+
+    async def test_one_passage_that_answers_is_no_gap(self, client):
+        client.decide_many.return_value = [_decision(answers=0.1), _decision(answers=0.7)]
+        assert await judge_coverage("q", [_chunk("a"), _chunk("b", "c2")], threshold=0.55, widened=True) is None
+
+    async def test_a_passage_the_decider_did_not_answer_claims_nothing(self, client):
+        """Missing evidence is never read as an absent answer."""
+        client.decide_many.return_value = [_decision(answers=0.1), None]
+        assert await judge_coverage("q", [_chunk("a"), _chunk("b", "c2")], threshold=0.55, widened=True) is None
+        client.decide_many.return_value = [_decision(answers=0.1), _decision(other=0.9)]
+        assert await judge_coverage("q", [_chunk("a"), _chunk("b", "c2")], threshold=0.55, widened=True) is None
+
+    async def test_no_client_claims_nothing(self):
+        with patch.object(kl_decisions, "_client", return_value=None):
+            assert await judge_coverage("q", [_chunk("a")], threshold=0.55, widened=True) is None
+
+    async def test_an_empty_pool_claims_nothing(self, client):
+        assert await judge_coverage("q", [], threshold=0.55, widened=True) is None
+        client.decide_many.assert_not_called()
+
+    async def test_it_asks_only_the_answers_question_over_the_whole_delivered_pool(self, client):
+        """The first pass already screened for instruction-like text; asking twice records it twice.
+
+        The whole pool, not the judge's head of 12: the block says "none of the
+        N", and a default search delivers 16."""
+        client.decide_many.side_effect = lambda states, questions, **_: [_decision(answers=0.1)] * len(states)
+        gap = await judge_coverage("q", [_chunk(str(i), str(i)) for i in range(16)], threshold=0.55, widened=False)
+        states, questions = client.decide_many.call_args.args
+        assert set(questions) == {"answers"}
+        assert len(states) == gap.judged == 16
+        assert client.decide_many.call_count == 1, "one decider batch"
+        assert gap.unjudged == 0 and "keine der 16 gezeigten Passagen" in gap.reason()
+
+    async def test_past_the_bound_the_unjudged_rest_is_named(self, client):
+        client.decide_many.side_effect = lambda states, questions, **_: [_decision(answers=0.1)] * len(states)
+        gap = await judge_coverage("q", [_chunk(str(i), str(i)) for i in range(50)], threshold=0.55, widened=False)
+        assert (gap.judged, gap.unjudged) == (24, 26)
+        assert "keine der 24 besten Passagen" in gap.reason()
+        assert gap.reason().endswith("; die übrigen 26 Passagen wurden nicht geprüft")

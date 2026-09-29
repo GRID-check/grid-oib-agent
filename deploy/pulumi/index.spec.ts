@@ -123,6 +123,16 @@ describe("the program constructs in the split topology", () => {
     });
   });
 
+  it("deploys the office converter and fences it by default (ADR-0070)", () => {
+    // Default-on: without it every Word/Excel/PowerPoint file is download-only,
+    // and nothing in a green `pulumi up` says so.
+    expect(named("kubernetes:apps/v1:Deployment")).toContain("gotenberg");
+    expect(named("kubernetes:core/v1:Service")).toContain("gotenberg");
+    expect(named("kubernetes:networking.k8s.io/v1:NetworkPolicy")).toContain(
+      "gotenberg-frontend-only",
+    );
+  });
+
   it("keeps the S3 endpoint on the name the app tier already uses", () => {
     // A rename here silently removes the `allow-edge-to-seaweedfs` NetworkPolicy
     // from the pods that serve S3, and breaks `SEAWEED_ENDPOINT` for every tier.

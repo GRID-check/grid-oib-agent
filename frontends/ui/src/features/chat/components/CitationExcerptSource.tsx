@@ -19,7 +19,7 @@ import { useState, type FC } from 'react'
 import { ExcerptMargin, OpenPassageButton } from '@/shared/components/MarkdownRenderer/answer-atoms'
 import type { ExcerptSourceProps } from '@/shared/components/MarkdownRenderer/answer-block-context'
 import type { CitationRef } from '../lib/citations'
-import { resolveCitationTarget } from '../lib/citations/target'
+import { citedFileName, resolveCitationTarget } from '../lib/citations/target'
 import { useChatStore } from '../store'
 import { CitationOpenButton, LocusLine } from './CitationPeek'
 import { useCitationScope } from './CitationScope'
@@ -58,7 +58,7 @@ const ResolvedExcerptSource: FC<{ citation: CitationRef; verified: boolean }> = 
   const projectId = useChatStore((s) => s.projectId)
   const conversationId = useChatStore((s) => s.currentConversation?.id ?? null)
   const url = citation.document.url
-  const previewIndex = useSourcePreviewIndex(projectId, conversationId, !url)
+  const previewIndex = useSourcePreviewIndex(projectId, conversationId, !url, citedFileName(citation.document))
   const target = resolveCitationTarget(citation.document, {
     locus: citation.locus,
     storedDocuments: previewIndex?.storedDocuments,

@@ -182,6 +182,59 @@ def _oib_outline() -> list[Chunk]:
     ]
 
 
+def _section_chunk(locator: str, depth: int, title: str, order: int, *, file_name: str = PLAN) -> Chunk:
+    """A tenant section as ``text_formats``/``section_chunking`` write it: no page,
+    an address that is not a number, and its place in the document."""
+    return Chunk(
+        chunk_id=f"{file_name}:{locator}",
+        content=f"Digest › {title}\n\nText zu {title}.",
+        score=0.71,
+        file_name=file_name,
+        page_number=None,
+        display_citation=file_name,
+        content_type=ContentType.TEXT,
+        metadata={
+            "chunking": "section",
+            "punkt_id": locator,
+            "punkt_depth": depth,
+            "punkt_title": title,
+            "section_order": order,
+        },
+    )
+
+
+class TestATenantSectionOutline:
+    """A Markdown file or a sectioned tenant PDF answers "what is in it" with its headings."""
+
+    async def test_unnumbered_sections_are_listed_in_document_order_under_their_address(self, store):
+        store.outline_chunks = [
+            _section_chunk("Materialien", 1, "Materialien", 5),
+            _section_chunk("Modellangaben", 1, "Modellangaben", 1),
+            _section_chunk("Geschoße › EG", 2, "EG", 3),
+            _section_chunk("Geschoße", 1, "Geschoße", 2),
+        ]
+
+        lines = _gliederung(await _read(document=PLAN))
+
+        assert lines[:4] == [
+            "- Punkt Modellangaben — Text zu Modellangaben.",
+            "- Punkt Geschoße — Text zu Geschoße.",
+            "  - Punkt Geschoße › EG: EG",
+            "- Punkt Materialien — Text zu Materialien.",
+        ]
+
+    async def test_its_passage_is_the_first_section_not_the_alphabetically_first(self, store):
+        store.outline_chunks = [
+            _section_chunk("Materialien", 1, "Materialien", 5),
+            _section_chunk("Modellangaben", 1, "Modellangaben", 1),
+        ]
+
+        out = await _read(document=PLAN)
+
+        assert "Text zu Modellangaben." in out.split("## Gliederung", 1)[0]
+        assert "Text zu Materialien." not in out.split("## Gliederung", 1)[0]
+
+
 class TestThePunktOutline:
     """A Punkt-structured document answers "what is in it" with its own headings."""
 

@@ -21,6 +21,7 @@ import { useLayoutStore } from '@/features/layout/store'
 import type { TrackedFile } from '../types'
 import { mapUploadResponseStatus } from '../utils'
 import { shouldEmitProgress } from '../lib/upload-progress'
+import { isJoblessIngesting } from '../lib/document-status-reads'
 import { runWithConcurrency, sendWaitingOutRateLimit, UPLOAD_CONCURRENCY } from '../lib/upload-queue'
 import { validateFileUpload, type ValidationContext } from '../validation'
 import { summarizeValidation } from '../lib/validation-messages'
@@ -37,6 +38,8 @@ interface UploadDocumentResponse {
   documentId?: string
   jobId?: string | null
   status?: string
+  /** The bytes were already the live document's; nothing was written. */
+  unchanged?: boolean
 }
 
 /** Where each shelf deletes one of its documents. */
@@ -197,9 +200,9 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
     UploadOrchestrator.setAuthToken(idToken)
   }, [idToken])
 
-  useEffect(() => {
-    UploadOrchestrator.setCallbacks({ onComplete, onError })
-  }, [onComplete, onError])
+  // One subscription per mount: several surfaces use this hook at once, and
+  // each must hear about the uploads it is showing.
+  useEffect(() => UploadOrchestrator.subscribe({ onComplete, onError }), [onComplete, onError])
 
   useEffect(() => {
     const previousSessionId = previousSessionIdRef.current
@@ -417,6 +420,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
               status: mapUploadResponseStatus(result.status),
               serverFileId: result.documentId,
               jobId: result.jobId ?? undefined,
+              ...(result.unchanged ? { unchanged: true } : {}),
               // Every byte is on the server now, whatever the last progress
               // event happened to say.
               bytesUploaded: file.size,
@@ -510,6 +514,11 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
           if (pendingJobEntries.length > 0) {
             UploadOrchestrator.enqueueJobs(pendingJobEntries)
           }
+          // A detached extraction (an `.ifc`, an office file converting to its
+          // rendition) has no job to poll. The orchestrator follows it by
+          // document status, so it settles wherever the upload was started.
+          const detached = settled.filter((file): file is TrackedFile => !!file && isJoblessIngesting(file))
+          if (detached.length > 0) UploadOrchestrator.watchDocuments(detached.map((file) => file.id))
         }
         setUploading(false)
       }

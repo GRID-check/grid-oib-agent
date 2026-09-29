@@ -151,7 +151,7 @@ export const research: typeof en.research = {
 
   fileSourceCard: {
     statusUploading: 'Wird hochgeladen...',
-    statusIngesting: 'Wird verarbeitet...',
+    statusIngesting: 'Wird gelesen',
     statusAvailable: 'Verfügbar',
     statusError: 'Fehler',
     statusDeleting: 'Wird gelöscht...',
@@ -214,7 +214,7 @@ export const research: typeof en.research = {
     responseInput: 'Antworteingabe',
     chatMessageInput: 'Chat-Nachrichteneingabe',
     stopStreaming: 'Antwort stoppen',
-    sendWhilePending: 'Dateien werden noch verarbeitet – trotzdem senden?',
+    sendWhilePending: 'Noch sind nicht alle Dateien gelesen. Trotzdem senden?',
     heldForUpload: 'Wird gesendet, sobald die Datei gelesen ist.',
     heldForUploadSendNow: 'Jetzt ohne die Datei fragen',
     removeFile: 'Datei entfernen: {name}',

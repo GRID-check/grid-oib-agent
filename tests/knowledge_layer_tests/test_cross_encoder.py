@@ -7,7 +7,6 @@ network. The breaker/throttle state is module-global and reset per test.
 
 from __future__ import annotations
 
-import functools
 import json
 import logging
 from types import SimpleNamespace
@@ -62,9 +61,29 @@ def _serve(monkeypatch, handler) -> list[httpx.Request]:
         seen.append(request)
         return handler(request)
 
-    transport = httpx.MockTransport(_handler)
-    monkeypatch.setattr(httpx, "AsyncClient", functools.partial(httpx.AsyncClient, transport=transport))
+    _route_async_clients(monkeypatch, httpx.MockTransport(_handler))
     return seen
+
+
+_REAL_ASYNC_CLIENT_INIT = httpx.AsyncClient.__init__
+
+
+def _route_async_clients(monkeypatch, transport: httpx.MockTransport) -> None:
+    """Give every ``httpx.AsyncClient`` built during the test this transport.
+
+    Patches the constructor, never the name: ``httpx.AsyncClient`` must stay a
+    class. The reranker's first call imports ``cost_tracking``, which imports
+    ``langchain_openai`` and so ``openai``, whose ``_base_client`` subclasses
+    ``httpx.AsyncClient`` at import time. With a ``functools.partial`` in its
+    place that ``class`` statement raises ``TypeError: the first argument must
+    be callable``, and only when ``openai`` was not already imported.
+    """
+
+    def _init(self, *args, **kwargs) -> None:
+        kwargs.setdefault("transport", transport)
+        _REAL_ASYNC_CLIENT_INIT(self, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "__init__", _init)
 
 
 def _ok(payload: dict) -> httpx.Response:
@@ -193,8 +212,7 @@ async def test_breaker_trips_after_consecutive_failures_and_recovers(monkeypatch
     monkeypatch.setattr(ce, "_BREAKER_THRESHOLD", 3)
     monkeypatch.setattr(ce, "_BREAKER_COOLDOWN_SECONDS", 300.0)
 
-    transport = httpx.MockTransport(_fail)
-    monkeypatch.setattr(httpx, "AsyncClient", functools.partial(httpx.AsyncClient, transport=transport))
+    _route_async_clients(monkeypatch, httpx.MockTransport(_fail))
     reranker = _reranker()
     chunks = [_chunk("a"), _chunk("b")]
 
@@ -204,9 +222,7 @@ async def test_breaker_trips_after_consecutive_failures_and_recovers(monkeypatch
     assert [r for r in caplog.records if "disabling it for" in r.getMessage()]
 
     # Tripped: a healthy provider is not even called.
-    monkeypatch.setattr(
-        httpx, "AsyncClient", functools.partial(httpx.AsyncClient, transport=httpx.MockTransport(_succeed))
-    )
+    _route_async_clients(monkeypatch, httpx.MockTransport(_succeed))
     before = len(calls)
     assert await reranker.rerank("query", chunks) is None
     assert len(calls) == before

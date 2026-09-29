@@ -41,6 +41,7 @@ import { ALLOWED_TAGS } from './tag-vocabulary'
 import { contentDigest } from './content-digest'
 import { documentStatusFacts } from './document-status'
 import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
+import { INGEST_ALREADY_DONE, INGEST_NOT_ELIGIBLE, INGEST_RUNNING } from './reingest-codes'
 import { documentNameKey } from './name-match'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
@@ -63,7 +64,6 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document, DocumentAuthor } from '@/lib/db/schema'
 import { reconcileDocumentStatuses, describeBackendIngestState, type DocumentMetadata } from './reconcile-status'
 import {
-  collectionDocumentsUrl,
   collectionFileRef,
   collectionFileUrl,
   purgeIngestedChunks,
@@ -75,7 +75,10 @@ import {
   findFolderPathInProject,
   findStorageKeyByCollectionAndFilename,
   findStorageKeyByIdAndCollection,
-  listProjectDocuments,
+  listProjectDocumentPage,
+  findProjectDocumentsByFilenames,
+  findProjectDocumentsByNames,
+  type DocumentNameMatchRow,
   markDocumentIngestFailed,
   markDocumentProcessing,
   setDocumentDisplayName,
@@ -85,6 +88,8 @@ import {
   type DocumentListRow,
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
+import { decodeTextBytes } from '@/lib/text/decode-text'
+import { encodeDocumentListCursor, type DocumentListCursor } from './list-cursor'
 import { runBimExtraction } from '@/lib/bim/service'
 import { getAccessibleDocument } from './access'
 import { nextVersionNumber, recordUploadedVersionOrDiscard } from './lifecycle'
@@ -95,7 +100,15 @@ import { isIfcFilename } from '@/lib/bim/types'
 import {
   INLINE_PREVIEW_CONTENT_TYPES,
   TEXT_PREVIEW_CONTENT_TYPES as SHARED_TEXT_PREVIEW_CONTENT_TYPES,
+  isOfficeRenditionSource,
 } from './preview-types'
+import {
+  RenditionFailedError,
+  RenditionUnavailableError,
+  ensureRendition,
+  extractsFromRendition,
+  isRenditionEnabled,
+} from './rendition'
 
 const PREVIEW_CONTENT_TYPES: readonly string[] = INLINE_PREVIEW_CONTENT_TYPES
 
@@ -150,11 +163,22 @@ const presignTtlSeconds = (): number => Number(process.env.SEAWEED_PRESIGNED_URL
 /**
  * Bound every server-side call to the Python backend: an unreachable backend
  * container otherwise hangs the BFF request past Cloudflare's ~100s origin
- * timeout (→ 504). Ingest dispatch is best-effort (a timeout is caught and
- * recorded as a failed ingest); the tag edit is user-blocking (a timeout
+ * timeout (→ 504). Ingest dispatch is best-effort (a timeout is retried once
+ * against the idempotent `/v1/ingest`, and a second one is recorded as a
+ * failed ingest); the tag edit is user-blocking (a timeout
  * surfaces as an UpstreamError, same as any other transport failure).
  */
 const BACKEND_FETCH_TIMEOUT_MS = 10_000
+
+/**
+ * The longest the preview and file routes wait for an office file's rendition
+ * to be made on first open. Under Cloudflare's ~100s origin timeout with room
+ * for the rest of the request, so a slow conversion is answered as the handled
+ * `RENDITION_FAILED` 502 rather than an edge 524. The conversion itself keeps
+ * its full budget (`GOTENBERG_TIMEOUT_MS` in `./rendition`) and stores its PDF
+ * for the next open.
+ */
+const RENDITION_READER_WAIT_MS = 85_000
 
 /**
  * Stored on the document when the backend ingest dispatch never yielded a job.
@@ -162,6 +186,72 @@ const BACKEND_FETCH_TIMEOUT_MS = 10_000
  * go through the per-user i18n dictionaries.
  */
 export const INGEST_DISPATCH_FAILED_MESSAGE = 'Ingestion could not be started'
+
+/**
+ * One `POST /v1/ingest`, bounded. `jobId` is null for anything but a job id;
+ * `timedOut` says the budget ran out, the one outcome that leaves the backend's
+ * side unknown (see {@link dispatchIngest}).
+ */
+async function requestIngestJob(
+  body: string,
+  organizationId: string
+): Promise<{ jobId: string | null; timedOut: boolean }> {
+  try {
+    const response = await fetch(`${getBackendUrl()}/v1/ingest`, {
+      method: 'POST',
+      // Forward the org id so the backend resolves the org's BYOK vision
+      // credential + runtime model override for VLM captioning during ingestion.
+      headers: { 'Content-Type': 'application/json', 'x-grid-organization-id': organizationId },
+      body,
+      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
+    })
+    if (!response.ok) return { jobId: null, timedOut: false }
+    const result: unknown = await response.json()
+    const jobId =
+      typeof result === 'object' && result !== null ? (result as { job_id?: unknown }).job_id : null
+    return { jobId: typeof jobId === 'string' && jobId ? jobId : null, timedOut: false }
+  } catch (error) {
+    // Anything else never reached the backend or broke on the way back: the
+    // shared failed path applies.
+    return { jobId: null, timedOut: isTimeoutError(error) }
+  }
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { name?: unknown }).name === 'TimeoutError'
+  )
+}
+
+/**
+ * How long the presigned URLs handed to an ingest JOB stay valid: `file_ref`,
+ * `preview_ref` / `extraction_ref`, and the `thumbnail_upload_url` PUT.
+ *
+ * The job, not the dispatch request, uses them: `/v1/ingest` queues the work
+ * and answers at once, and the backend's worker pool (two workers) reaches a
+ * job only when the ones ahead of it finish. A folder upload or a project
+ * reindex of a few hundred plan sets queues well past an hour, and a URL that
+ * expired in the queue fails the document as `original_download_failed` (or,
+ * for the rendition, `office_rendition_required`) although nothing is wrong
+ * with it. A day covers any queue this deployment can build; SigV4 caps a
+ * presigned URL at seven days.
+ *
+ * The length is affordable because these URLs never leave the server side:
+ * signed with the internal-endpoint client, sent only in the POST body to the
+ * backend, which neither stores nor logs them, and never persisted here.
+ */
+const INGEST_JOB_REF_TTL_SECONDS = 86_400
+
+/**
+ * Why a Word or presentation file was not indexed: its PDF could not be made.
+ *
+ * Its text is read from the rendition and from nothing else (ADR-0071), so no
+ * PDF means no index — said as a failure the reader can retry, never papered
+ * over by reading the original a worse way.
+ */
+export const RENDITION_REQUIRED_MESSAGE = 'The PDF version of this file could not be created'
 
 /**
  * Filenames are user-controlled and end up in the `Content-Disposition` of
@@ -210,11 +300,12 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
  * the birth status renders as a green "Ready" the document has not earned.
  */
 /**
- * The two things only some dispatch callers know.
+ * The things only some dispatch callers know.
  *
- * One trailing bag rather than a seventh and eighth positional on a function
- * that already takes six — and one bag rather than two parameters because they
- * arrive together, from the one caller that has a version row in hand.
+ * One trailing bag rather than more positionals on a function that already
+ * takes six. They arrive in pairs: the join key and provenance from the caller
+ * that read the row, the two rendition reads from the office path that
+ * converted it.
  */
 export interface DispatchIngestExtras {
   /**
@@ -224,6 +315,18 @@ export interface DispatchIngestExtras {
   fileName?: string | null
   /** Set only for a published Piloti document. */
   provenance?: AgentDocumentProvenance | null
+  /**
+   * A signed read of the office original's PDF rendition (ADR-0070), for the
+   * card thumbnail: the backend cannot rasterise a `.docx`. Set only by
+   * {@link beginRenditionIngest}, and only when the conversion succeeded.
+   */
+  previewRef?: string | null
+  /**
+   * The same signed read, for TEXT extraction (ADR-0071): the backend indexes
+   * the PDF instead of the original iff this is present. Which formats get it is
+   * the dispatch's decision (`extractsFromRendition`), never the backend's.
+   */
+  extractionRef?: string | null
 }
 
 /**
@@ -279,12 +382,12 @@ export async function dispatchIngest(
   const bucket = resolveDocumentBucket(storageBucket)
   // The backend fetches the file itself, from inside the Docker network —
   // sign with the internal-endpoint client, not the browser-facing one.
+  // The ingest JOB downloads it, not the request, and the job may start long
+  // after dispatch behind the bounded ingest queue: see the constant.
   const presignedUrl = await getSignedUrl(
     s3Client,
     new GetObjectCommand({ Bucket: bucket, Key: storageKey }),
-    {
-      expiresIn: presignTtlSeconds(),
-    }
+    { expiresIn: INGEST_JOB_REF_TTL_SECONDS }
   )
 
   // Presigned upload slot for the 200px JPEG thumbnail the ingest pipeline
@@ -300,52 +403,54 @@ export async function dispatchIngest(
           Key: thumbnailUploadKey,
           ContentType: 'image/jpeg',
         }),
-        { expiresIn: 3600 }
+        // Written by the same job at its end, so it must outlive the queue too.
+        { expiresIn: INGEST_JOB_REF_TTL_SECONDS }
       )
     : null
 
-  let ingestJobId: string | null = null
-  try {
-    const ingestRes = await fetch(`${getBackendUrl()}/v1/ingest`, {
-      method: 'POST',
-      // Forward the org id so the backend resolves the org's BYOK vision
-      // credential + runtime model override for VLM captioning during ingestion.
-      headers: { 'Content-Type': 'application/json', 'x-grid-organization-id': organizationId },
-      body: JSON.stringify({
-        file_ref: presignedUrl,
-        collection: collectionName,
-        document_id: documentId,
-        thumbnail_upload_url: thumbnailUploadUrl,
-        folder_path: folderPath,
-        // The document's IDENTITY inside the collection, stated rather than
-        // left to be derived. Without it the backend reads the name off the
-        // presigned URL's last path segment, which is the OBJECT KEY's
-        // basename — and `storageKeySegment` has already flattened that
-        // (`piloti/<id>/x.md` becomes `piloti_<id>_x.md`, a name with a
-        // backslash or over 255 characters becomes a different one again). The
-        // chunks would then be filed under a string no purge ever asks for,
-        // because every purge addresses `documents.filename`. `null` keeps the
-        // old derivation for the one caller that genuinely ingests a different
-        // file than the row names — the IFC digest.
-        file_name: extras.fileName ?? null,
-        // Absent for every human document, and the Python side treats absent,
-        // null and a non-agent author identically (`parse_agent_provenance`).
-        // Spread so the four keys are the four keys, never a nested object the
-        // chunk metadata would have to be taught to flatten.
-        ...(extras.provenance ?? {}),
-      }),
-      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-    })
+  const body = JSON.stringify({
+    file_ref: presignedUrl,
+    collection: collectionName,
+    document_id: documentId,
+    thumbnail_upload_url: thumbnailUploadUrl,
+    // A PDF of an office original (ADR-0070), for the thumbnail: the
+    // backend cannot rasterise a .docx. Null for everything else and
+    // whenever conversion is off or failed. A presigned URL is a bearer
+    // credential, so the backend neither stores nor logs it.
+    preview_ref: extras.previewRef ?? null,
+    // The same PDF, for the TEXT (ADR-0071): present only for the formats
+    // `extractsFromRendition` names, and the backend then indexes it
+    // instead of `file_ref`. Chunks keep the row's `file_name` either way —
+    // only the bytes read differ, never the identity.
+    extraction_ref: extras.extractionRef ?? null,
+    folder_path: folderPath,
+    // The document's IDENTITY inside the collection, stated rather than
+    // left to be derived. Without it the backend reads the name off the
+    // presigned URL's last path segment, which is the OBJECT KEY's
+    // basename — and `storageKeySegment` has already flattened that
+    // (`piloti/<id>/x.md` becomes `piloti_<id>_x.md`, a name with a
+    // backslash or over 255 characters becomes a different one again). The
+    // chunks would then be filed under a string no purge ever asks for,
+    // because every purge addresses `documents.filename`. `null` keeps the
+    // old derivation for the one caller that genuinely ingests a different
+    // file than the row names — the IFC digest.
+    file_name: extras.fileName ?? null,
+    // Absent for every human document, and the Python side treats absent,
+    // null and a non-agent author identically (`parse_agent_provenance`).
+    // Spread so the four keys are the four keys, never a nested object the
+    // chunk metadata would have to be taught to flatten.
+    ...(extras.provenance ?? {}),
+  })
 
-    if (ingestRes.ok) {
-      const ingestResult = await ingestRes.json()
-      ingestJobId = ingestResult.job_id ?? null
-    }
-  } catch {
-    // Dispatch never reached the backend — the document is in SeaweedFS + DB but
-    // has no ingest job, so it can never be reconciled to a truthful status.
-    // `ingestJobId` stays null and the shared failed path below applies.
-  }
+  // A timeout is not a failure the backend reported: the request may still be
+  // downloading, and would then start the job after this caller had recorded
+  // `failed` — a false failure, and a duplicate once someone retries. The
+  // backend is idempotent per document and object (`/v1/ingest`), so the same
+  // request once more either joins the job the first one started or, when the
+  // first never arrived, starts it. Only a second timeout records a failure.
+  let attempt = await requestIngestJob(body, organizationId)
+  if (attempt.timedOut) attempt = await requestIngestJob(body, organizationId)
+  const ingestJobId = attempt.jobId
 
   if (ingestJobId) {
     await setDocumentIngestJob(documentId, organizationId, ingestJobId)
@@ -362,13 +467,20 @@ export async function dispatchIngest(
 }
 
 /**
- * List a project's documents (bounded), lazily reconciling in-flight
- * ingestion statuses with the backend and merging the backend's read-only
- * document metadata (summary, page/chunk counts, content types). The internal
- * `metadata` jsonb column (which carries `ingestJobId`) never leaves the BFF;
- * the curated metadata fields ride alongside as top-level properties.
+ * List one page of a project's documents (bounded, keyset-paginated), lazily
+ * reconciling in-flight ingestion statuses with the backend and merging the
+ * backend's read-only document metadata (summary, page/chunk counts, content
+ * types). The internal `metadata` jsonb column (which carries `ingestJobId`)
+ * never leaves the BFF; the curated metadata fields ride alongside as
+ * top-level properties.
+ *
+ * `nextCursor` is where the next page starts, `null` on the last one. The
+ * listing used to be one page of 500 with nothing saying so: in a big project
+ * the oldest plans were simply absent, so search, filters and the folder-upload
+ * planner (which labelled them „Neu") worked on a corpus that was not the
+ * project's. A client that needs the whole corpus follows the cursor.
  */
-export async function listDocuments(
+export async function listDocumentsPage(
   session: AuthorizedSession,
   projectId: string,
   /**
@@ -378,19 +490,32 @@ export async function listDocuments(
    * and filtering after the fact would read the whole project's corpus — plus
    * reconcile and assignment-hydrate every row of it — to return a handful.
    */
-  options: { authoredBy?: DocumentAuthor; includeArchived?: boolean } = {}
-): Promise<ListedDocument[]> {
+  options: { authoredBy?: DocumentAuthor; includeArchived?: boolean; cursor?: DocumentListCursor } = {}
+): Promise<{ documents: ListedDocument[]; nextCursor: string | null }> {
   await requireProjectAccess(session, projectId, 'project:view')
 
   // `limit` is deliberately not passed: the repository's own default is the
-  // cap, and a second copy of it here could drift from the real one.
-  const rows = await listProjectDocuments(projectId, session.organizationId, {
+  // page size, and a second copy of it here could drift from the real one.
+  const page = await listProjectDocumentPage(projectId, session.organizationId, {
     authoredBy: options.authoredBy,
     // Archived documents have LEFT the working set, so they are absent unless
     // the caller says otherwise (ADR-0054).
     includeArchived: options.includeArchived,
+    cursor: options.cursor,
   })
+  const nextCursor = page.nextCursor ? encodeDocumentListCursor(page.nextCursor) : null
+  return { documents: await toListedDocuments(session, page.rows), nextCursor }
+}
 
+/**
+ * What a project row needs before it leaves the BFF, whichever query found it:
+ * the listing page or a by-name lookup. The CALLER has already checked
+ * `project:view` for the project every row was read from.
+ */
+async function toListedDocuments(
+  session: AuthorizedSession,
+  rows: DocumentListRow[]
+): Promise<ListedDocument[]> {
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
   const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
@@ -401,13 +526,63 @@ export async function listDocuments(
     return listed.map((row) => ({ ...row, assignees: [] }))
   }
 
-  // Every id was read from this project, behind `project:view` above.
   const grouped = await listAssignmentsWithoutAccessCheck(
     session,
     'document',
     listed.map((row) => row.id)
   )
   return listed.map((row) => ({ ...row, assignees: grouped[row.id] ?? [] }))
+}
+
+/**
+ * The project's documents NAMED `filenames` (case-insensitive, either Unicode
+ * form), as listing rows — the by-name resolve (`POST /api/documents/by-name`).
+ *
+ * For the readers that want particular documents rather than the corpus: a
+ * citation chip, a surfaced-documents card, a file operation naming its file.
+ * They used to read the first listing page and look the name up in it, so a
+ * cited document older than the newest 500 resolved to nothing. Same gate and
+ * same row as the listing; archived documents are left out as they are there.
+ */
+export async function resolveProjectDocumentsByName(
+  session: AuthorizedSession,
+  projectId: string,
+  filenames: readonly string[]
+): Promise<ListedDocument[]> {
+  await requireProjectAccess(session, projectId, 'project:view')
+  const rows = await findProjectDocumentsByFilenames(projectId, session.organizationId, filenames)
+  return toListedDocuments(session, rows)
+}
+
+/**
+ * The FIRST page of a project's documents — {@link listDocumentsPage} without
+ * the cursor. Kept for the server-side callers that want a bounded sample
+ * rather than the corpus; anything that must see every document pages.
+ */
+export async function listDocuments(
+  session: AuthorizedSession,
+  projectId: string,
+  options: { authoredBy?: DocumentAuthor; includeArchived?: boolean } = {}
+): Promise<ListedDocument[]> {
+  return (await listDocumentsPage(session, projectId, options)).documents
+}
+
+/**
+ * Which of `names` this project's shelf already holds — the upload planner's
+ * question, asked of the database rather than of the listing a browser loaded
+ * (which is paged, can be narrowed by a filter, and leaves archived documents
+ * out, while the upload replaces by filename across all of them).
+ *
+ * Same gate as the listing: the answer is names and ids a `project:view`
+ * reader can already page through.
+ */
+export async function probeProjectDocumentNames(
+  session: AuthorizedSession,
+  projectId: string,
+  names: readonly string[]
+): Promise<DocumentNameMatchRow[]> {
+  await requireProjectAccess(session, projectId, 'project:view')
+  return findProjectDocumentsByNames(projectId, session.organizationId, names)
 }
 
 /**
@@ -555,7 +730,7 @@ export function joinHitsToFiles<
     // under a „Von Piloti erstellt" label.
     //
     // `authoredBy` is required rather than optional on purpose. Both callers
-    // select it (`listProjectDocuments`, `listArchiv`); making it optional would
+    // select it (`documentListColumns`); making it optional would
     // mean a future caller that forgets the column fails OPEN at runtime instead
     // of failing to compile.
     if (file.authoredBy !== 'user') continue
@@ -576,27 +751,36 @@ export function joinHitsToFiles<
 
 /**
  * Document-centric semantic search over a project's corpus. Enforces
- * `project:view` (via `listDocuments`), resolves the project's RAG collection,
- * runs the deterministic vector search on the backend, and joins the hits to the
- * project's own file rows by filename. Fail-open: a backend error/timeout yields
- * `{ hits: [] }`, never a crash.
+ * `project:view`, resolves the project's RAG collection, runs the deterministic
+ * vector search on the backend, and joins the hits to the project's own file
+ * rows by filename. Fail-open: a backend error/timeout yields `{ hits: [] }`,
+ * never a crash.
+ *
+ * The rows are looked up BY THE HIT NAMES, as `searchArchivDocuments` does,
+ * never read from the listing: the listing is paged, and a hit on a document
+ * past its first page used to be dropped as if the search had not found it.
  */
 export async function searchProjectDocuments(
   session: AuthorizedSession,
   projectId: string,
   query: string,
   topK = 20
-): Promise<{ hits: Array<SearchedDocument<Awaited<ReturnType<typeof listDocuments>>[number]>> }> {
-  // Authorization (project:view) + the canonical file rows come from the same
-  // path the normal list uses, so a semantic result is always a real, visible
-  // document with its live status/metadata.
-  const files = await listDocuments(session, projectId)
+): Promise<{ hits: Array<SearchedDocument<ListedDocument>> }> {
+  await requireProjectAccess(session, projectId, 'project:view')
 
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError('Project not found')
 
   const hits = await fetchSemanticHits(project.collectionName, query, topK)
-  return { hits: joinHitsToFiles(hits, files) }
+  if (hits.length === 0) return { hits: [] }
+  // The canonical rows, hydrated exactly as the listing hydrates them, so a
+  // semantic result is always a real, visible document with its live status.
+  const rows = await findProjectDocumentsByFilenames(
+    projectId,
+    session.organizationId,
+    hits.map((hit) => hit.file_name)
+  )
+  return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows)) }
 }
 
 export interface UploadDocumentInput {
@@ -655,6 +839,13 @@ export interface UploadDocumentResult {
    */
   status: 'pending' | 'uploaded' | 'failed' | 'processing'
   filename: string
+  /**
+   * The bytes were already the live document's, so nothing was written and no
+   * version was made. Present only then. The browser says „Unverändert –
+   * bereits vorhanden" from it where it could not know beforehand (no stored
+   * digest, no `crypto.subtle`).
+   */
+  unchanged?: true
 }
 
 /** Lowercased extension including the leading dot, or '' when there is none. */
@@ -952,7 +1143,7 @@ export async function uploadDocument(
   })
 
   if (placed.unchanged) {
-    return { documentId: placed.documentId, jobId: null, status: 'uploaded', filename }
+    return { documentId: placed.documentId, jobId: null, status: 'uploaded', filename, unchanged: true }
   }
   const { documentId, storageKey, replaced } = placed
 
@@ -1064,7 +1255,10 @@ export interface DispatchDocumentInput extends BeginModelExtractionInput {
 
 export interface DispatchDocumentResult {
   jobId: string | null
-  /** `processing` is the IFC path — see {@link beginModelExtraction}. */
+  /**
+   * `processing` is a detached path: an IFC model ({@link beginModelExtraction})
+   * or an office file converting first ({@link beginRenditionIngest}).
+   */
   status: 'pending' | 'uploaded' | 'failed' | 'processing'
 }
 
@@ -1160,6 +1354,18 @@ export async function dispatchDocument(
 
   if (isIfcFilename(input.filename)) {
     return beginModelExtraction(input)
+  }
+  // Decided on the ROW's name and stored type, like the preview route decides
+  // what to serve, so a file is indexed from the same PDF a reader is shown.
+  if (isRenditionEnabled() && servedAsRendition(row)) {
+    return beginRenditionIngest(input, row.filename)
+  }
+  // Without a converter a Word or presentation file has no source to index
+  // from. The file is still stored and downloadable; the row says why it is not
+  // citable instead of pretending to be ingested.
+  if (servedAsRendition(row) && extractsFromRendition(row.filename)) {
+    await markDocumentIngestFailed(input.documentId, input.organizationId, RENDITION_REQUIRED_MESSAGE)
+    return { jobId: null, status: 'failed' }
   }
   return dispatchIngest(
     input.documentId,
@@ -1263,6 +1469,110 @@ export async function beginModelExtraction(
 }
 
 /**
+ * Convert an office original to its PDF rendition, then ingest — DETACHED,
+ * like {@link beginModelExtraction} and for the same reason (ADR-0071).
+ *
+ * The conversion used to be raced against a 20-second wait inside the upload
+ * request, because a person was waiting on it and the PDF only fed the
+ * thumbnail. Now it also decides what text is indexed, so a deck that took 25
+ * seconds would be indexed from a different source than one that took 15 —
+ * and a slow conversion would silently index the worse text. Detached, the
+ * conversion gets its full two minutes and nobody waits on it.
+ *
+ * The row goes to `processing` first, exactly as an IFC model does, so it never
+ * renders a green "Ready" before anything was dispatched. Every terminal
+ * outcome writes the row again: a dispatch sets `pending` + job id or `failed`
+ * itself, and the catch below covers anything that throws before it.
+ *
+ * The tradeoff is the IFC one: a process restart mid-conversion leaves the row
+ * at `processing` with no job, which the re-ingest action recognises as lost
+ * (`describeBackendIngestState` → `absent`) and retries.
+ */
+export async function beginRenditionIngest(
+  input: DispatchDocumentInput,
+  fileName: string
+): Promise<DispatchDocumentResult> {
+  await markDocumentProcessing(input.documentId, input.organizationId)
+
+  void ingestThroughRendition(input, fileName).catch(async (error) => {
+    // `dispatchIngest` records its own failures; this is the belt for anything
+    // that throws around it (a signer, a database write), so the row is never
+    // left at `processing` by an error nobody saw.
+    console.warn(
+      '[documents] office ingest failed before dispatch:',
+      error instanceof Error ? error.message : String(error)
+    )
+    await markDocumentIngestFailed(input.documentId, input.organizationId, INGEST_DISPATCH_FAILED_MESSAGE).catch(
+      () => undefined
+    )
+  })
+
+  return { jobId: null, status: 'processing' }
+}
+
+/**
+ * The background half of {@link beginRenditionIngest}.
+ *
+ * For a Word or presentation file the rendition IS the source, so a failed
+ * conversion fails the document with {@link RENDITION_REQUIRED_MESSAGE}; the
+ * existing retry re-runs the conversion. A spreadsheet only loses its
+ * thumbnail and is ingested from the original as before.
+ */
+async function ingestThroughRendition(input: DispatchDocumentInput, fileName: string): Promise<void> {
+  const renditionRef = await signedRenditionRef(input, fileName)
+  const indexesRendition = extractsFromRendition(fileName)
+  if (indexesRendition && !renditionRef) {
+    await markDocumentIngestFailed(input.documentId, input.organizationId, RENDITION_REQUIRED_MESSAGE)
+    return
+  }
+  await dispatchIngest(
+    input.documentId,
+    input.collectionName,
+    input.storageKey,
+    input.organizationId,
+    input.storageBucket,
+    input.folderPath ?? null,
+    {
+      fileName,
+      provenance: input.provenance ?? null,
+      previewRef: renditionRef,
+      // A spreadsheet's rendition is a thumbnail only: its text keeps the
+      // structure-preserving extractor (see `extractsFromRendition`).
+      extractionRef: indexesRendition ? renditionRef : null,
+    }
+  )
+}
+
+/**
+ * A signed read of the rendition, or `null` when there is none to give.
+ *
+ * Signed with the INTERNAL client like `file_ref`: the backend reads it from
+ * inside the Docker network, as part of the job, so it is minted right before
+ * the POST rather than when the conversion started.
+ *
+ * Valid for {@link INGEST_JOB_REF_TTL_SECONDS}, like `file_ref` and the
+ * thumbnail slot, not for the default presign TTL: the job downloads it when an
+ * ingest worker reaches it, and behind a queue of plan sets that can be hours.
+ * An expired link fails the document as `office_rendition_required`, which
+ * would read as a converter fault.
+ */
+async function signedRenditionRef(input: DispatchDocumentInput, fileName: string): Promise<string | null> {
+  const bucket = resolveDocumentBucket(input.storageBucket)
+  try {
+    const renditionKey = await ensureRendition({ bucket, storageKey: input.storageKey, filename: fileName })
+    return await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucket, Key: renditionKey }), {
+      expiresIn: INGEST_JOB_REF_TTL_SECONDS,
+    })
+  } catch (error) {
+    console.warn(
+      '[documents] office rendition at ingest failed:',
+      error instanceof Error ? error.message : String(error)
+    )
+    return null
+  }
+}
+
+/**
  * The folder path a stored document is filed under, or `null` when it sits at
  * the project root (or on a shelf that has no folders at all).
  *
@@ -1286,10 +1596,26 @@ export interface ReingestDocumentResult {
 }
 
 /**
- * Re-dispatch a previously-failed document to the backend ingest API. Only
- * documents in status `failed` are eligible — re-ingesting a pending/ready one
- * would be a no-op at best and a duplicate job at worst, so it 409s. Reuses the
- * shared dispatch helper, so the success/failure persistence matches upload.
+ * Re-dispatch a document to the backend ingest API, keeping its id.
+ *
+ * Three kinds of row are eligible, each for its own reason:
+ *
+ *  - failed, or stranded at the `uploaded` birth status: a plain retry.
+ *  - in flight (`pending`, `processing`, …): only when the backend has LOST
+ *    the job — see the branch below.
+ *  - indexed (the `success` family, e.g. `completed`) and written by a person:
+ *    a deliberate re-read of an unchanged file, to pick up a change to how
+ *    files are READ (ADR-0071 taught Word and PowerPoint to read their
+ *    pictures; nothing in the upload path would notice that). Safe because the
+ *    backend replaces a version only once the new one has indexed
+ *    (`_retire_previous_version`, `llamaindex/adapter.py`): the old chunks stay
+ *    citable for the length of the job, and stay for good if it fails.
+ *    An agent-authored row is not offered this: its index entry belongs to a
+ *    published version, which only `ingestPublished` may dispatch.
+ *
+ * Every refusal is a 409 whose `details.code` says why (`./reingest-codes`),
+ * so the client can tell "already running" and "already finished" from a
+ * failure worth retrying.
  */
 export async function reingestDocument(
   session: AuthorizedSession,
@@ -1299,13 +1625,25 @@ export async function reingestDocument(
 
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
-  if (doc.status !== 'failed' && doc.status !== 'uploaded' && !IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status)) {
-    throw new ConflictError('Only failed, stuck, or never-indexed documents can be re-ingested', {
+  const variant = documentStatusFacts(doc.status)?.variant
+  const isIndexed = variant === 'success'
+  const isRetryable = variant === 'destructive' || doc.status === 'uploaded'
+  const isInFlight = IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status)
+
+  if (isIndexed && doc.authoredBy !== 'user') {
+    throw new ConflictError('Only documents a person uploaded can be re-read once indexed', {
       status: doc.status,
+      code: INGEST_NOT_ELIGIBLE,
+    })
+  }
+  if (!isIndexed && !isRetryable && !isInFlight) {
+    throw new ConflictError('This document is not in a state that can be re-ingested', {
+      status: doc.status,
+      code: INGEST_NOT_ELIGIBLE,
     })
   }
 
-  if (doc.status !== 'failed' && doc.status !== 'uploaded') {
+  if (isInFlight) {
     // In flight: retry only what the backend has LOST. A row can sit at
     // `processing` forever — a backend restart wipes the in-memory job
     // registry, a detached IFC extraction dies with the process — while the
@@ -1316,8 +1654,7 @@ export async function reingestDocument(
     //
     // The check is live backend state, not a timer: a row is retryable when
     // the backend knows neither a job nor a file for it. A job that is
-    // genuinely running refuses with 409 rather than doubling VLM work and
-    // churning the chunks citations point at.
+    // genuinely running refuses with 409 rather than doubling VLM work.
     const knowledge = await describeBackendIngestState({
       metadata: doc.metadata,
       collectionName: doc.collectionName,
@@ -1326,18 +1663,26 @@ export async function reingestDocument(
       publishedVersionId: doc.publishedVersionId,
     })
     if (knowledge.state === 'in-progress') {
-      throw new ConflictError('Ingestion is still running for this document', { status: doc.status })
+      throw new ConflictError('Ingestion is still running for this document', {
+        status: doc.status,
+        code: INGEST_RUNNING,
+      })
     }
     if (knowledge.state === 'unreachable') {
       throw new UpstreamError('The ingestion backend could not be reached, so a retry cannot be verified as safe')
     }
     if (knowledge.state === 'terminal') {
       // Finished behind the row's back (no listing read reconciled it yet).
-      // Heal the row instead of re-dispatching a finished document.
+      // Heal the row either way. A success is not re-dispatched: the reader
+      // clicked "retry" on what looked stuck, and it is done. A failure is
+      // what they were retrying, so it goes on to the dispatch below.
       await setDocumentReconciledStatus(doc.id, session.organizationId, knowledge.resolution)
-      throw new ConflictError(`Ingestion already ${knowledge.resolution.status} for this document`, {
-        status: knowledge.resolution.status,
-      })
+      if (knowledge.resolution.status !== 'failed') {
+        throw new ConflictError(`Ingestion already ${knowledge.resolution.status} for this document`, {
+          status: knowledge.resolution.status,
+          code: INGEST_ALREADY_DONE,
+        })
+      }
     }
   }
 
@@ -1368,44 +1713,56 @@ export async function reingestDocument(
 
 export interface ReindexProjectResult {
   projectId: string
-  /** Documents whose old chunks were removed and which are ingesting again. */
+  /** Documents sent back through ingestion; their current chunks stay until the new ones index. */
   queued: number
   /** Rows with no stored object, or still mid-flight — nothing to rebuild from. */
   skipped: number
-  /** Display names whose chunk delete failed, so they were deliberately NOT re-dispatched. */
+  /** Display names whose dispatch failed. Their previous chunks are untouched. */
   failed: string[]
+  /**
+   * True when the page ceiling ({@link REINDEX_MAX_PAGES}) stopped the walk
+   * before the project's last document: the rest was NOT rebuilt, and the
+   * reader is told so rather than handed a count that looks like the project.
+   */
+  truncated: boolean
 }
 
-/** Chunk-delete + re-dispatch runs this many documents at a time. */
+/** Re-dispatch runs this many documents at a time. */
 const REINDEX_CONCURRENCY = 4
+
+/**
+ * Listing pages one reindex walks — 20 of `DOCUMENT_LIST_LIMIT`, ten thousand
+ * documents. Each page is bounded by the repository; this bounds the request.
+ */
+export const REINDEX_MAX_PAGES = 20
 
 /**
  * Rebuild every document's chunks in one project.
  *
- * Distinct from `reingestDocument`, which is a RETRY: that one refuses anything
- * whose status is not `failed`, because re-dispatching a healthy document is a
- * different and more dangerous operation. This is that operation, and the danger
- * is duplication.
+ * The project-wide form of re-reading an indexed document (`reingestDocument`
+ * does it for one): every person-authored document with stored bytes goes
+ * through `dispatchDocument` again, under its own row filename.
  *
- * The ingest endpoint DOES replace now — `_replace_previous_versions`
- * (`llamaindex/adapter.py`, since `166dd79`) deletes the collection's chunks for
- * an incoming filename before writing new ones. This comment claimed the
- * opposite until 2026-09; the behaviour was safe and the reasoning was not, which
- * is the worse of the two to leave lying around.
+ * There is NO chunk delete first. The backend replaces a version only once the
+ * new one has indexed — `_find_previous_versions` collects the old ids before
+ * the file is read, `_retire_previous_version` removes exactly those after the
+ * file reaches SUCCESS (`llamaindex/adapter.py`; docs/technical-reference/
+ * document-ingestion.md, "A re-upload replaces the previous version once it has
+ * indexed"). This function used to DELETE the chunks and then dispatch, so any
+ * dispatch or ingest failure — a backend blip, an encrypted PDF, a missing VLM
+ * key — left a document that answered yesterday with zero chunks today. The
+ * backend moved away from delete-first for exactly that reason; the pre-delete
+ * here reintroduced it one tier up.
  *
- * The delete stays a PRECONDITION rather than becoming redundant, for two
- * reasons that outlive the backend's current behaviour. It matches on the
- * NORMALISED filename only, so a document this project holds under a name the
- * incoming batch does not repeat keeps its old chunks; and it is wrapped in a
- * bare `except` that only logs, so a failed replacement never fails the ingest.
- * Relying on it would make this function's guarantee depend on a best-effort
- * step in another tier.
- *
- * `deleteDocument` swallows
- * a failed chunk-delete on purpose (the durable row and object cleanup matter more,
- * and leftover chunks get swept by the next reconcile). The same failure here means
- * the opposite: dispatching after it would create the duplicate this whole function
- * exists to avoid. A document whose delete fails is reported and left alone.
+ * What the pre-delete bought is not worth that. The replacement is keyed on the
+ * row's own filename, which is also what the delete addressed, so there is no
+ * name the delete reached that the replacement does not. The one residual case
+ * is the backend's lookup of previous versions failing (it logs and ingests
+ * anyway), which leaves a duplicate until the next re-read — a smaller harm
+ * than an empty document, and a backend defect to fix there. Nor is this the
+ * tool for an embedding-model change: that invalidates the whole collection,
+ * which is rebuilt from an empty Chroma directory (same doc, "Embedding-model
+ * changes invalidate stored vectors"), not by per-file deletes.
  *
  * Reach for this after a change to how chunks are BUILT rather than to what they are
  * built from — a chunker change alters no file, so nothing in the ordinary upload
@@ -1417,49 +1774,33 @@ export async function reindexProject(
 ): Promise<ReindexProjectResult> {
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
 
-  // `'user'` explicitly, not "everything": a machine-authored document must not
-  // be indexed (see `dispatchDocument`), and reaching the dispatcher's refusal
-  // would report a project-wide reindex as partially FAILED for rows that were
-  // never eligible. The dispatcher is the invariant; this is the caller not
-  // asking a question it already knows the answer to.
-  const rows = await listProjectDocuments(projectId, session.organizationId, { authoredBy: 'user' })
-  const result: ReindexProjectResult = { projectId, queued: 0, skipped: 0, failed: [] }
+  const result: ReindexProjectResult = { projectId, queued: 0, skipped: 0, failed: [], truncated: false }
 
   const redispatch = async (row: DocumentListRow): Promise<void> => {
     // Re-resolved rather than trusted from the list: this is the same read the
     // single-document path uses, it carries the storage key and bucket the list
     // row does not, and it re-checks access per document.
     const doc = await getAccessibleDocument(session, row.id, 'write')
-    if (!doc.storageKey || doc.status === 'pending' || doc.status === 'processing') {
+    // Mid-flight rows are skipped: a second dispatch would double the work of
+    // one that is running. Every in-flight spelling, not just two of them.
+    if (!doc.storageKey || IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status)) {
       result.skipped += 1
       return
     }
 
-    // Belt to the query's braces. The listing above already asks for `'user'`
-    // only, so this is never null in practice — but the delete below is the
-    // destructive half of this function, and "the caller filtered correctly" is
-    // the assumption every one of these leaks was built on. A row that somehow
-    // arrives here machine-authored is skipped, not reported failed: it was
-    // never eligible, exactly as the `'user'` filter above says.
-    const ref = collectionFileRef(doc)
-    if (!ref) {
+    // Belt to the query's braces. The listing below already asks for `'user'`
+    // only, so this is never null in practice; a row that somehow arrives here
+    // machine-authored is skipped, not reported failed: it was never eligible,
+    // exactly as the `'user'` filter below says, and `dispatchDocument` would
+    // refuse it anyway.
+    if (!collectionFileRef(doc)) {
       result.skipped += 1
       return
     }
 
     // The bucket the object is ACTUALLY in — see `reingestDocument` for why
     // defaulting this breaks per-organization documents in two directions.
-    const response = await fetch(collectionDocumentsUrl(getBackendUrl(), ref), {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_ids: [ref.filename] }),
-      signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
-    })
-    if (!response.ok) {
-      throw new Error(`chunk delete returned ${response.status}`)
-    }
-
-    await dispatchDocument({
+    const { status } = await dispatchDocument({
       organizationId: session.organizationId,
       projectId: doc.projectId,
       documentId: doc.id,
@@ -1469,25 +1810,52 @@ export async function reindexProject(
       collectionName: doc.collectionName,
       folderPath: await resolveDocumentFolderPath(doc, session.organizationId),
     })
+    // A dispatch the backend refused comes back `failed` rather than throwing;
+    // the row says so, and the reindex summary has to as well.
+    if (status === 'failed') throw new Error('dispatch failed')
     result.queued += 1
   }
 
   // Bounded rather than unbounded: a project with hundreds of documents would
   // otherwise open that many backend connections at once and time the request out.
-  let next = 0
-  const workers = Array.from({ length: Math.min(REINDEX_CONCURRENCY, rows.length) }, async () => {
-    while (next < rows.length) {
-      const row = rows[next++]
-      try {
-        await redispatch(row)
-      } catch {
-        // One document's failure must not abandon the rest of the project.
-        result.failed.push(documentDisplayName(row))
+  const redispatchPage = async (rows: DocumentListRow[]): Promise<void> => {
+    let next = 0
+    const workers = Array.from({ length: Math.min(REINDEX_CONCURRENCY, rows.length) }, async () => {
+      while (next < rows.length) {
+        const row = rows[next++]
+        try {
+          await redispatch(row)
+        } catch {
+          // One document's failure must not abandon the rest of the project.
+          result.failed.push(documentDisplayName(row))
+        }
       }
-    }
-  })
-  await Promise.all(workers)
+    })
+    await Promise.all(workers)
+  }
 
+  // Every page, not the first: this read the newest `DOCUMENT_LIST_LIMIT` rows
+  // and stopped, so a project-wide reindex of a large project silently left
+  // its oldest documents on the old chunks. The keyset order is `created_at`,
+  // which a dispatch never touches, so re-dispatching a page cannot move a row
+  // across the cursor.
+  //
+  // `'user'` explicitly, not "everything": a machine-authored document must not
+  // be indexed (see `dispatchDocument`), and reaching the dispatcher's refusal
+  // would report a project-wide reindex as partially FAILED for rows that were
+  // never eligible. The dispatcher is the invariant; this is the caller not
+  // asking a question it already knows the answer to.
+  let cursor: DocumentListCursor | undefined
+  for (let page = 0; page < REINDEX_MAX_PAGES; page++) {
+    const { rows, nextCursor } = await listProjectDocumentPage(projectId, session.organizationId, {
+      authoredBy: 'user',
+      cursor,
+    })
+    await redispatchPage(rows)
+    if (!nextCursor) return result
+    cursor = nextCursor
+  }
+  result.truncated = true
   return result
 }
 
@@ -1841,17 +2209,108 @@ export async function getDocumentDownload(
 }
 
 /**
+ * The key of an office document's PDF rendition, converting on first read
+ * (ADR-0070), with the two failures mapped to what the routes answer.
+ *
+ * Lazy here because every office file uploaded before the conversion in
+ * {@link beginRenditionIngest} existed has no rendition, nor does one whose
+ * conversion failed there. "Disabled" is today's 415 exactly — a deployment without
+ * `GOTENBERG_URL` must look as it did — and a converter failure is a 502 of its
+ * own so the reader is told the preview failed rather than that the product
+ * cannot show Word files.
+ *
+ * A person is waiting here, so the wait is bounded by
+ * {@link RENDITION_READER_WAIT_MS} and a file whose conversion failed in the
+ * last few minutes is answered as failed at once instead of converted again on
+ * every open. The background ingest and its retry do not take that shortcut.
+ */
+async function officeRenditionKey(doc: Pick<Document, 'storageKey' | 'storageBucket' | 'filename'>, contentType: string): Promise<string> {
+  const unsupported = () =>
+    new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Preview not available for this file type', { contentType })
+  if (!isRenditionEnabled() || !doc.storageKey) throw unsupported()
+  try {
+    return await ensureRendition(
+      {
+        bucket: resolveDocumentBucket(doc.storageBucket),
+        storageKey: doc.storageKey,
+        filename: doc.filename,
+      },
+      { readerWaitMs: RENDITION_READER_WAIT_MS }
+    )
+  } catch (error) {
+    if (error instanceof RenditionUnavailableError) throw unsupported()
+    if (error instanceof RenditionFailedError) {
+      console.warn('[documents] office rendition failed:', error.message)
+      throw new ApiError(502, 'RENDITION_FAILED', 'The PDF preview of this file could not be created')
+    }
+    throw error
+  }
+}
+
+/** `Bericht.docx` → `Bericht.pdf`: the name a rendition is served under. */
+function renditionFilename(filename: string): string {
+  const dot = filename.lastIndexOf('.')
+  return `${dot > 0 ? filename.slice(0, dot) : filename}.pdf`
+}
+
+/**
+ * Whether this row is served through its PDF rendition. A type the store can
+ * already show inline wins, so a real PDF that happens to be named `.docx` is
+ * still served as itself.
+ */
+function servedAsRendition(doc: Pick<Document, 'contentType' | 'filename'>): boolean {
+  const contentType = doc.contentType || 'application/octet-stream'
+  if (PREVIEW_CONTENT_TYPES.includes(contentType)) return false
+  return isOfficeRenditionSource({ contentType: doc.contentType, filename: doc.filename })
+}
+
+export interface DocumentPreview {
+  url: string
+  /** What `url` serves: the stored type, or `application/pdf` for a rendition. */
+  contentType: string
+  filename: string
+  imageUrl: string | null
+  /** True when `url` is the PDF rendition of an office original (ADR-0070), not the stored bytes. */
+  rendition: boolean
+  /** The stored type of the original when `rendition` is true; null otherwise. */
+  sourceContentType: string | null
+}
+
+/**
  * Presign a browser-facing inline preview URL. Non-previewable content types
- * are rejected with a 415.
+ * are rejected with a 415. An office document is previewed through its PDF
+ * rendition — the presigned URL is the rendition's, never the original's.
  */
 export async function getDocumentPreview(
   session: AuthorizedSession,
   documentId: string
-): Promise<{ url: string; contentType: string; filename: string; imageUrl: string | null }> {
+): Promise<DocumentPreview> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
   const contentType = doc.contentType || 'application/octet-stream'
+  if (servedAsRendition(doc)) {
+    const renditionKey = await officeRenditionKey(doc, contentType)
+    const url = await getSignedUrl(
+      signingS3Client,
+      new GetObjectCommand({
+        Bucket: resolveDocumentBucket(doc.storageBucket),
+        Key: renditionKey,
+        ResponseContentDisposition: contentDisposition('inline', renditionFilename(doc.filename)),
+        ResponseContentType: 'application/pdf',
+      }),
+      { expiresIn: 3600 }
+    )
+    return {
+      url,
+      contentType: 'application/pdf',
+      filename: doc.filename,
+      imageUrl: null,
+      rendition: true,
+      sourceContentType: doc.contentType ?? null,
+    }
+  }
+
   if (!PREVIEW_CONTENT_TYPES.includes(contentType)) {
     throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Preview not available for this file type', {
       contentType,
@@ -1877,7 +2336,7 @@ export async function getDocumentPreview(
     ? buildDocumentImageUrl(session.organizationId, documentId, 'original')
     : null
 
-  return { url, contentType, filename: doc.filename, imageUrl }
+  return { url, contentType, filename: doc.filename, imageUrl, rendition: false, sourceContentType: null }
 }
 
 /**
@@ -1908,6 +2367,11 @@ export async function getDocumentPreview(
  * optimizer above — this route must not be the hole that reintroduces it.
  * Images have no reason to come through here anyway: nothing fetches their
  * bytes to parse, so every caller keeps them on the presigned URL.
+ *
+ * An office document streams its PDF RENDITION (ADR-0070), converted on first
+ * read, so the viewer and the cited-passage highlight work on it exactly as on
+ * a PDF. Still PDF only: what leaves this route is always a PDF the BFF made or
+ * a PDF the user stored, never the office bytes themselves.
  */
 export async function streamDocumentFile(
   session: AuthorizedSession,
@@ -1917,7 +2381,12 @@ export async function streamDocumentFile(
   if (!doc.storageKey) throw new NotFoundError('File not available')
 
   const contentType = doc.contentType || 'application/octet-stream'
-  if (contentType !== 'application/pdf') {
+  let key = doc.storageKey
+  let filename = doc.filename
+  if (servedAsRendition(doc)) {
+    key = await officeRenditionKey(doc, contentType)
+    filename = renditionFilename(doc.filename)
+  } else if (contentType !== 'application/pdf') {
     throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Only PDF documents stream from this route', {
       contentType,
     })
@@ -1928,7 +2397,7 @@ export async function streamDocumentFile(
     const object = await s3Client.send(
       new GetObjectCommand({
         Bucket: resolveDocumentBucket(doc.storageBucket),
-        Key: doc.storageKey,
+        Key: key,
       })
     )
     body = object.Body
@@ -1938,11 +2407,12 @@ export async function streamDocumentFile(
   if (!body) throw new NotFoundError('File not available')
 
   // ASCII-safe filename for the header; this route only ever displays inline.
-  const asciiName = doc.filename.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '_')
+  const asciiName = filename.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '_')
   return new Response(body.transformToWebStream(), {
     status: 200,
     headers: {
-      'Content-Type': contentType,
+      // Both branches above leave only a PDF to serve.
+      'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="${asciiName}"`,
       // Private: these bytes are tenant data.
       'Cache-Control': 'private, max-age=300',
@@ -1960,10 +2430,10 @@ export async function streamDocumentFile(
 /**
  * A text document's content, for the pane that renders it.
  *
- * Bounded by {@link TEXT_PREVIEW_MAX_BYTES} and decoded as UTF-8 with
- * replacement characters rather than a throw: a Windows-authored `.csv` in
- * cp1252 is common, and half a mojibake table still tells the reader which file
- * they are looking at. `truncated` is part of the contract because a viewer that
+ * Bounded by {@link TEXT_PREVIEW_MAX_BYTES} and decoded the way the knowledge
+ * layer reads the same bytes (`decodeTextBytes`: BOM, else strict UTF-8, else
+ * Windows-1252). A Windows-authored `.csv` in cp1252 is common, and decoding it
+ * as UTF-8 with replacement glyphs showed every umlaut as „�". `truncated` is part of the contract because a viewer that
  * silently shows the first half of a document is worse than one that shows none
  * of it — the reader would take the last line they see for the end of the file.
  */
@@ -1998,12 +2468,10 @@ export async function getDocumentTextPreview(
   }
 
   const truncated = bytes.byteLength > TEXT_PREVIEW_MAX_BYTES
-  const decoder = new TextDecoder('utf-8')
-  let text = decoder.decode(bytes.subarray(0, TEXT_PREVIEW_MAX_BYTES))
-  // A Range cut lands mid-codepoint as often as not, and the decoder turns the
-  // orphaned bytes into a replacement glyph at the very end of the text. Drop
-  // the trailing partial line instead: a half-written last row of a CSV reads
-  // as data, and the truncation notice below it is the honest statement.
+  let { text } = decodeTextBytes(bytes.subarray(0, TEXT_PREVIEW_MAX_BYTES), { truncated })
+  // A Range cut lands mid-line (and, in UTF-16, mid-character). Drop the
+  // trailing partial line: a half-written last row of a CSV reads as data, and
+  // the truncation notice below it is the honest statement.
   if (truncated) {
     const lastBreak = text.lastIndexOf('\n')
     if (lastBreak > 0) text = text.slice(0, lastBreak)

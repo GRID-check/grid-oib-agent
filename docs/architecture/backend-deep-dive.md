@@ -797,12 +797,19 @@ document summary:
    boilerplate lines (e.g. `VECTORWORKS EDUCATIONAL VERSION`) are removed by
    `_strip_watermark_lines` **before** indexing and before the visual-page
    heuristic, so a drawing that is pure linework plus a stamped watermark does
-   not read as "has text".
+   not read as "has text". Each line's font size and weight are kept
+   (`line_styles`): a tenant PDF is chunked on its own headings
+   (`section_chunking`), an OIB Richtlinie on its Punkte (`punkt_chunking`);
+   the table of chunk locators is in
+   [`document-ingestion.md`](../technical-reference/document-ingestion.md#_run_ingestionjob_id-file_paths-collection_name-config).
 2. **Tables** — `_extract_tables_from_pdf` (pdfplumber), gated on
-   `extract_tables`.
+   `extract_tables`; each table is indexed as row groups that repeat its header.
 3. **Embedded raster images** — `_extract_images_from_pdf` (pypdfium2 image
-   XObjects), gated on `extract_images`/`extract_charts`. Returns raw image
-   bytes — **no VLM call yet**. Identical rasters (a logo re-embedded on every
+   XObjects), gated on `extract_images`/`extract_charts` (both on by default).
+   Returns raw image bytes — **no VLM call yet**. Pages rendered whole in step 4
+   are skipped, so each page is analysed once, and at most
+   `AIQ_MAX_IMAGES_PER_DOCUMENT` (64, largest first) go to the VLM; the rest are
+   counted on the file's job status as `images_over_cap`. Identical rasters (a logo re-embedded on every
    page, a reused plan) are content-hash deduped (SHA-256 of the re-encoded
    JPEG) so each unique image is captioned and indexed exactly once.
 4. **Rendered visual/vector pages** — `processing.render_visual_pages_no_vlm`,
@@ -812,11 +819,18 @@ document summary:
    objects with almost no text and **no embedded raster image**, so tracks 1
    and 3 both miss them entirely. The whole page is composited into one bitmap
    (`page.render`, scaled so the long edge ≈ `AIQ_PAGE_RENDER_MAX_DIM` px,
-   default 2048) — **no VLM call yet**. A page is routed here only when its
+   default 2048) — **no VLM call yet**. A page is routed here only when the
+   page triage (`page_triage.classify_page`) calls it a drawing: its
    watermark-stripped text is below `AIQ_VISUAL_PAGE_MIN_TEXT_CHARS` (200)
-   **or** it has ≥ `AIQ_VISUAL_PAGE_MIN_PATHS` (300) vector paths — so ordinary
+   **and** it has ≥ `AIQ_VISUAL_PAGE_MIN_PATHS` (300) vector paths — so ordinary
    text PDFs (the bulk OIB corpus) skip rendering at near-zero cost — and at
-   most `AIQ_MAX_RENDERED_PAGES` (20) pages are rendered per document. The
+   most `AIQ_MAX_RENDERED_PAGES` (20) pages are rendered per document, the rest
+   counted as `drawing_pages_over_cap`. Scanned pages (text-low, a raster over
+   half the page) and garbled text layers (`(cid:n)`, mojibake) are not
+   drawings: before track 1 builds its Documents they are rendered and
+   transcribed by the same vision endpoint (`transcription.route_pdf_pages`,
+   capped by `AIQ_MAX_OCR_PAGES`), and the transcription is indexed as the
+   page's text. See [`visual-ingestion.md`](visual-ingestion.md#scans-and-garbled-text-layers). The
    renderer receives track 1's already watermark-stripped page texts
    (`page_texts=…`), so the PDF's text layer is read once per library and the
    "watermark-stripped" threshold actually holds (it previously measured the
@@ -944,11 +958,9 @@ and the retriever's embedding client. (Embedding calls remain synchronous on
 the worker thread; the standalone ingest-worker tier, not in-process
 parallelism, is the scaling answer — see the scope note below.)
 
-> Scope note: this lives in the **LlamaIndex** ingestor. The `foundational_rag`
-> backend shares the summary prompt (`summarize_document_text`) but not yet the
-> page-render track — a known follow-up if that backend is used for drawing PDFs.
-> Embeddings BYOK is likewise still a follow-up (needs an embeddings-capable BYOK
-> endpoint).
+> Scope note: this lives in the **LlamaIndex** ingestor, the knowledge layer's
+> only backend (ADR-0072). Embeddings BYOK is still a follow-up (needs an
+> embeddings-capable BYOK endpoint).
 
 ### Document thumbnails
 
@@ -961,25 +973,25 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
    `_thumb.jpg`) and generates a presigned **PUT** URL for it.
 2. The PUT URL is passed to the backend's `/v1/ingest` as
    `thumbnail_upload_url`.
-3. The `/v1/ingest` route handler (`ingest.py`) generates the thumbnail
-   **pre-ingest**, before `submit_job`, so the BFF polling job status sees a
-   thumbnail almost immediately — before the file even enters the worker pool:
-   - **PDFs**: page 0 via `pypdfium2` → PIL → 200px JPEG quality 80.
-   - **Images**: PIL open → RGB → 200px JPEG quality 80.
-   On a successful upload the route sets `config["thumbnail_pregenerated"] = True`.
-4. The JPEG bytes are PUT to SeaweedFS via the presigned URL (pypdfium2
-   render is quick — ~50 ms per page — so it does not delay the request
-   noticeably).
-5. `_run_ingestion` in `adapter.py` keeps a **fallback** thumbnail render
-   (400px) for callers that submit jobs without going through the route, or
-   whose pre-ingest render failed. It is skipped when
-   `config["thumbnail_pregenerated"]` is set, so the file is never rendered
-   and PUT twice.
+3. The ingest job draws the thumbnail right after it downloads its input and
+   before any extraction: page 0 of a PDF, or the image itself, via
+   `pypdfium2`/PIL → 400px JPEG. For a Word or presentation file, `.xls` or
+   `.ods`, that input is the PDF rendition from `extraction_ref`
+   (ADR-0071), so the thumbnail comes from the same file the job extracts.
+4. The route itself no longer has the bytes: the job downloads them, so there
+   is no quick render from the original. It draws a thumbnail only for an
+   office original the job cannot rasterise, which in practice means
+   `.xlsx`/`.xlsm`: `preview_ref` present and `extraction_ref` absent. Then a
+   FastAPI background task, run once the 202 is out, downloads the rendition
+   into a temp `.pdf`, renders page 0 at 200px and deletes the file.
+5. Either way the JPEG is PUT to SeaweedFS via the presigned URL. The full
+   contract is in [`python-endpoints.md`](../api/python-endpoints.md).
 
 **Serving:**
 - `GET /api/documents/{id}/thumbnail` → `getDocumentThumbnail()` presigns a
   browser-facing GET URL for `_thumb.jpg`. Returns `{ url: string | null }`;
-  `null` means no thumbnail exists (non-PDF/image, or generation failed).
+  `null` means no thumbnail exists (a type with none, an office original whose
+  conversion failed, or a render that failed).
 
 **Frontend:**
 - `ThumbnailWithFallback` (file-browser-pane.tsx) and
@@ -1212,6 +1224,27 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    (`turn-latency-measured-2026-09.md` §3.5; it lived in the requery gate of `knowledge_layer/register.py`, marked by a `ContextVar` the prefetch node set). A pinned file (`"file_pinned"`), a requery that already fired this turn
    (`"already_fired"`) and the cheap pre-checks of `should_skip_judge` skip it
    too.
+
+3b. **The coverage signal** — with `requery_decider: jev`, a search whose
+   judge found the first pool insufficient asks the decider once more over the
+   whole pool the model gets, up to 24 passages (`_COVERAGE_MAX_JUDGED`), after
+   the requery round (`requery.judge_coverage`, one `noul` per passage, the same
+   0.55). When every judged passage was decided and none reaches it, the
+   preamble reads `Found N document(s); none of the judged ones answers the
+   question:` and the line under it reads `Abdeckung: unzureichend — keine der
+   N gezeigten Passagen enthält die gesuchte Aussage …`, or, for a pool longer
+   than 24, `keine der 24 besten Passagen …; die übrigen K Passagen wurden
+   nicht geprüft` (`GroundingBlock.coverage_gap`). The pool reaches the model whole: a
+   decision never withholds a passage (ADR-0064), so the gap is stated, not
+   enforced. The prompt's `<research_rules>` tell the agent to say it found no
+   supporting passage rather than answer from them. The retrieval span records
+   `coverage: "insufficient"` and `coverage_best`. Anything short of a
+   complete "no" claims nothing:
+   a decision that did not run or left a passage unanswered, the LLM decider,
+   a degraded pool, and every search the judge skipped (family overview,
+   pinned file, `should_skip_judge`, a requery already spent this turn). There
+   is no cross-encoder score threshold: nothing in the repo measures Cohere
+   rerank scores against labelled unanswerable questions.
 
 4. **Retrieval-precision feedback** — a new `retrieval_precision` event kind in
    the citation-health pipeline (`src/aiq_agent/common/citation_events.py`):

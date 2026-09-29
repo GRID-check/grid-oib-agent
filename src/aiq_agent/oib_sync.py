@@ -237,15 +237,10 @@ def _get_oib_ingestor():
     # without importing the full NAT/LlamaIndex stack.
     import knowledge_layer.llamaindex.adapter  # noqa: F401
 
-    return get_ingestor(
-        "llamaindex",
-        {
-            "persist_dir": CHROMA_DIR,
-            "extract_tables": os.environ.get("AIQ_EXTRACT_TABLES", "false").lower() == "true",
-            "extract_images": os.environ.get("AIQ_EXTRACT_IMAGES", "false").lower() == "true",
-            "extract_charts": os.environ.get("AIQ_EXTRACT_CHARTS", "false").lower() == "true",
-        },
-    )
+    # The extraction switches are the adapter's own (AIQ_EXTRACT_*, on unless
+    # set to false): restating them here gave the corpus a second, off-by-default
+    # reading of the same flags.
+    return get_ingestor("llamaindex", {"persist_dir": CHROMA_DIR})
 
 
 def discover_pdfs() -> list[Path]:

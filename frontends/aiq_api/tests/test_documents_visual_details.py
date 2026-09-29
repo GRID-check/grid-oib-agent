@@ -52,21 +52,6 @@ async def test_returns_details_from_backend():
 
 
 @pytest.mark.asyncio
-async def test_fail_open_when_backend_lacks_method():
-    # A backend without get_document_visual_details (e.g. foundational_rag).
-    ingestor = MagicMock(spec=["backend_name"])
-    app = _make_app(ingestor)
-    try:
-        async with _client(app) as client:
-            res = await client.get("/v1/collections/proj_a/documents/plan.pdf/visual-details")
-    finally:
-        clear_active_ingestor()
-
-    assert res.status_code == 200
-    assert res.json() == {"details": []}
-
-
-@pytest.mark.asyncio
 async def test_fail_open_on_backend_error():
     ingestor = MagicMock()
     ingestor.get_document_visual_details.side_effect = RuntimeError("chroma down")

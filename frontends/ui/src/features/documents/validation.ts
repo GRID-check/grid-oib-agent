@@ -105,7 +105,15 @@ export interface ValidationContext {
   existingTotalSize: number
   /** Number of files already in the session */
   existingFileCount: number
-  /** Names of files already in the session (for duplicate detection) */
+  /**
+   * Names of files already in the session (for duplicate detection).
+   *
+   * Read for a chat's attachments only. On a durable shelf a name that is
+   * already there is a new VERSION (ADR-0054), and the upload surface asks
+   * about it from the server's listing; this set is what this browser's
+   * tracked uploads remember, so refusing on it made the same drop a refusal
+   * in one browser and a silent replacement in another.
+   */
   existingFileNames: Set<string>
   /**
    * Durable project / Archiv corpus. Those shelves are bounded by storage
@@ -250,8 +258,9 @@ export function validateFileUpload(
       continue
     }
 
-    // Check for duplicates against existing session files
-    if (context.existingFileNames.has(file.name)) {
+    // Check for duplicates against existing session files — a chat's only; see
+    // `ValidationContext.existingFileNames` for why a durable shelf never does.
+    if (!context.durableCorpus && context.existingFileNames.has(file.name)) {
       fileErrors.push({
         file,
         code: 'DUPLICATE_FILE',

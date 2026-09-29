@@ -1,0 +1,7 @@
+---
+improvements:
+  - >
+    When a document cannot be read, the file card, the preview, the upload list
+    and the chat's file list now say why in plain language and what helps, for
+    example reading it again or asking the admins to set up a vision model for
+    scanned pages. The original error text is still there under "Details".

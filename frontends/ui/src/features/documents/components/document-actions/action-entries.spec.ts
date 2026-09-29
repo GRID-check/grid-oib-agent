@@ -3,12 +3,12 @@
  * right-click. The renderer is tested in action-menu.spec; this file pins the
  * heuristics: a viewer who may not mutate sees nothing that mutates, retry is
  * offered wherever it could help (failed, still settling, or stranded at the
- * birth status — the backend refuses a genuinely running job), and an empty
- * move submenu is not a submenu.
+ * birth status — the backend refuses a genuinely running job), an indexed file
+ * a person uploaded can be re-read, and an empty move submenu is not a submenu.
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { documentActionEntries, type DocumentActionLabels } from './action-entries'
+import { documentActionEntries, reingestOffer, type DocumentActionLabels } from './action-entries'
 
 const LABELS: DocumentActionLabels = {
   open: 'Open',
@@ -18,7 +18,7 @@ const LABELS: DocumentActionLabels = {
   move: 'Move to folder',
   copyOriginPath: 'Copy origin path',
   delete: 'Delete…',
-  reingest: 'Retry indexing',
+  reingest: 'Read again',
   reingesting: 'Retrying…',
   allFiles: 'All Files',
 }
@@ -74,6 +74,7 @@ describe('documentActionEntries', () => {
 
   it('offers retry only for a failed document the viewer may manage', () => {
     expect(ids({ ...DOCUMENT, status: 'failed' })).toContain('reingest')
+    // No status at all: nothing is known, so nothing is offered.
     expect(ids(DOCUMENT)).not.toContain('reingest')
     expect(ids({ ...DOCUMENT, status: 'failed' }, { canManage: false })).not.toContain('reingest')
   })
@@ -88,6 +89,30 @@ describe('documentActionEntries', () => {
     expect(ids({ ...DOCUMENT, status: 'processing' }, { canManage: false })).not.toContain(
       'reingest'
     )
+  })
+
+  it('does not offer it while the bytes are still uploading', () => {
+    // The one in-flight row that is certainly busy: there is nothing stored
+    // to re-read yet.
+    expect(ids({ ...DOCUMENT, status: 'uploading' })).not.toContain('reingest')
+    expect(reingestOffer({ status: 'uploading' })).toBeNull()
+  })
+
+  it('offers a re-read of an indexed document a person uploaded', () => {
+    expect(ids({ ...DOCUMENT, status: 'completed' })).toContain('reingest')
+    expect(ids({ ...DOCUMENT, status: 'ready', authoredBy: 'user' })).toContain('reingest')
+    expect(reingestOffer({ status: 'completed' })).toBe('reread')
+    expect(reingestOffer({ status: 'failed' })).toBe('retry')
+    expect(reingestOffer({ status: 'processing' })).toBe('retry')
+    expect(ids({ ...DOCUMENT, status: 'completed' }, { canManage: false })).not.toContain('reingest')
+  })
+
+  it('keeps agent-authored documents to their own rules', () => {
+    // A published agent report is indexed under its published version, which
+    // only the publish path may dispatch; a filed draft (`stored`) is never
+    // indexed at all.
+    expect(ids({ ...DOCUMENT, status: 'completed', authoredBy: 'agent' })).not.toContain('reingest')
+    expect(ids({ ...DOCUMENT, status: 'stored', authoredBy: 'agent' })).not.toContain('reingest')
   })
 
   it('does not offer move when there is nowhere to move it to', () => {

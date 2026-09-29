@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    When the building-regulation search finds nothing that answers your
+    question, Piloti now tells you it found no supporting passage, instead of
+    answering from loosely related text.

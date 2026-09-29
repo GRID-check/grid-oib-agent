@@ -1,14 +1,16 @@
 /**
- * Documents API — list a project's documents.
+ * Documents API — list a project's documents, one keyset page at a time
+ * (`?cursor=` from the previous page's `nextCursor`, `null` on the last page).
  * Thin handler; all logic lives in `@/lib/documents/service`.
  */
 
 import { z } from 'zod'
 import { apiRoute, parseQuery } from '@/lib/api/handler'
-import { listDocuments } from '@/lib/documents/service'
+import { listDocumentsPage } from '@/lib/documents/service'
 import { summarizeDocumentVersions } from '@/lib/documents/lifecycle'
 import { toDocumentWireRow } from '@/lib/documents/list-projection'
 import { DOCUMENT_AUTHORS } from '@/lib/documents/document-authors'
+import { decodeDocumentListCursor, documentListCursorParam } from '@/lib/documents/list-cursor'
 
 const listDocumentsQuerySchema = z.object({
   projectId: z.string().min(1),
@@ -31,14 +33,17 @@ const listDocumentsQuerySchema = z.object({
    * URL the Files pane builds.
    */
   includeArchived: z.literal('true').optional(),
+  /** Where this page starts: the previous page's `nextCursor`. A malformed one is a 400. */
+  cursor: documentListCursorParam,
 })
 
 export const GET = apiRoute(
   async ({ session, request }) => {
-    const { projectId, authoredBy, includeArchived } = parseQuery(request, listDocumentsQuerySchema)
-    const documents = await listDocuments(session, projectId, {
+    const { projectId, authoredBy, includeArchived, cursor } = parseQuery(request, listDocumentsQuerySchema)
+    const { documents, nextCursor } = await listDocumentsPage(session, projectId, {
       authoredBy,
       includeArchived: includeArchived === 'true',
+      cursor: cursor ? (decodeDocumentListCursor(cursor) ?? undefined) : undefined,
     })
     // The editorial state rides ALONG with the listing rather than being asked
     // for per card: the badge is on every tile, and the Files workspace re-reads
@@ -52,7 +57,10 @@ export const GET = apiRoute(
     // Serialized explicitly rather than left to `JSON.stringify`, because the
     // Files page reads this same listing server-side and hands it across the
     // RSC boundary, which does not stringify a `Date` — see the module header.
-    return { documents: documents.map((row) => toDocumentWireRow(row, versions.get(row.id))) }
+    return {
+      documents: documents.map((row) => toDocumentWireRow(row, versions.get(row.id))),
+      nextCursor,
+    }
   },
-  { authz: { enforcedBy: 'listDocuments (requireProjectAccess project:view)' } }
+  { authz: { enforcedBy: 'listDocumentsPage (requireProjectAccess project:view)' } }
 )

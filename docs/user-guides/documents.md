@@ -78,7 +78,7 @@ The accepted file types are configured via `FILE_UPLOAD_ACCEPTED_TYPES` (default
 | `.csv` | `text/csv` |
 | `.json` | `application/json` |
 
-Spreadsheets index one chunk per worksheet (labelled by sheet name) and presentations one per slide (including tables and speaker notes) — so a citation points at the sheet or slide, not just the file. Image uploads (`.png`, `.jpg`, `.jpeg`, `.webp`) are governed by the image-upload flag plus VLM availability, not by this list (see below).
+Spreadsheets index one chunk per worksheet (labelled by sheet name), so a citation points at the sheet. Word files and presentations are indexed from their PDF preview, page by page and with their pictures, so a citation points at the page or slide (see [Word, Excel and PowerPoint files](#word-excel-and-powerpoint-files)). Image uploads (`.png`, `.jpg`, `.jpeg`, `.webp`) are governed by the image-upload flag plus VLM availability, not by this list (see below).
 
 ### File Size Limits
 
@@ -176,7 +176,7 @@ When you select files, the UI shows each file's status in real time:
 3. **completed** — Ingestion finished successfully; the document is searchable
 4. **failed** — Ingestion encountered an error (hover the row for details)
 
-After upload, the `UploadOrchestrator` polls the job status every 5 seconds via `/api/documents/{id}/status` until the job reaches a terminal state or times out (max 420 attempts / ~35 minutes).
+After upload, the `UploadOrchestrator` polls the ingestion job every 5 seconds via `/api/v1/documents/{jobId}/status` until the job reaches a terminal state, for at most 420 attempts (~35 minutes). Running out of that budget, or a job the backend no longer knows, is not a failure: the rows keep reading „Wird gelesen“, a notice says reading continues in the background, and the workspace listing settles them when the documents finish. A file that is open in the preview asks `/api/documents/{id}/status` on its own and shows the summary, page count and tags as soon as indexing finishes.
 
 On **page refresh**, the orchestrator resumes polling from persisted job state in localStorage, so in-progress uploads are not lost.
 
@@ -216,16 +216,16 @@ User uploads file
 1. **Upload** — `FileUploadZone` captures the file, the `useFileUpload` hook validates it against configured limits, then POSTs it as `multipart/form-data` to `/api/documents/upload` with `projectId` and `file`.
 2. **BFF upload route** — The Next.js API route generates a UUID `documentId`, stores the file in SeaweedFS at `org/{orgId}/project/{projId}/doc/{docId}/{filename}`, inserts a `documents` row in Drizzle (status: `uploaded`), generates a presigned GET URL, and calls the Python backend's `POST /v1/ingest` with that URL.
 3. **Python ingest route** — Downloads the file from the presigned URL via `httpx`, saves it to a tempfile, and submits it to the active ingestor via `submit_job()`.
-4. **Background ingestion** — the LlamaIndex backend extracts text (pdfplumber for PDFs; dedicated office extractors for docx/xlsx/pptx, one chunk per sheet/slide), optionally extracts tables (`pdfplumber`) and images (`pypdfium2`) with VLM captioning, chunks the content, generates embeddings via NVIDIA models, and stores the vectors in ChromaDB.
-5. **Status polling** — The frontend `UploadOrchestrator` polls `/api/documents/{id}/status` which reads the Drizzle `documents.status` column.
+4. **Background ingestion** — the LlamaIndex backend extracts text (pdfplumber for PDFs and for the PDF rendition of a Word or presentation file; dedicated office extractors for spreadsheets, one chunk per sheet), optionally extracts tables (`pdfplumber`) and images (`pypdfium2`) with VLM captioning, chunks the content, generates embeddings via NVIDIA models, and stores the vectors in ChromaDB.
+5. **Status polling** — The `UploadOrchestrator` polls the backend job through `/api/v1/documents/{jobId}/status`. Document lists and the open preview read `/api/documents/{id}/status`, which reconciles the `documents` row with the backend and returns its status together with the summary, page count, chunk count, content types and tags. Details: [Document ingestion, step 5](../technical-reference/document-ingestion.md#step-5-status-polling).
 6. **Searchable** — Once `status = 'completed'`, the document's chunks are queryable via the knowledge search function.
 
 ---
 
-## The "Indexed by Piloti" Panel (files-metadata-panel flag)
+## The "Read by Piloti" Panel (files-metadata-panel flag)
 
 With the `files-metadata-panel` feature flag on (the default while flag
-enforcement is off), the preview pane leads with an **Indexed by Piloti** panel
+enforcement is off), the preview pane leads with a **Read by Piloti** panel
 showing what ingestion extracted from the document:
 
 - the one-sentence **AI summary** that grounds the agent's answers
@@ -254,6 +254,54 @@ The **Document List** component (`document-list.tsx`) renders all tracked files 
 - **Status badge** (color-coded: yellow for pending/uploaded, green for success/ingested, red for failed)
 - **Error message** (if ingestion failed)
 - **Download button** — fetches a presigned S3 URL from `/api/documents/{id}/download` and triggers a browser download
+
+### Word, Excel and PowerPoint files
+
+Office files (`.docx`, `.xlsx`, `.pptx`, their older and OpenDocument
+counterparts, and `.rtf`) open in the preview as a **PDF preview**. Piloti
+converts the file to a PDF and shows that in the same viewer as any other PDF,
+so a citation to an office file opens the document instead of only offering a
+download. The pane says that it is showing a PDF preview of the original.
+
+**Download always gives the original file**, unchanged. The PDF is a copy for
+reading; nothing is edited or replaced.
+
+What to expect:
+
+- The first time an older file is opened, the preview shows „PDF-Vorschau wird
+  erstellt…" while it is converted. Files uploaded since the change are
+  converted during upload.
+- The PDF is LibreOffice's rendering, not Word's or Excel's. Layout can shift a
+  little, and a font the server does not have is replaced by a similar one.
+- A citation to a Word document or a PowerPoint slide opens at the page it
+  came from. A citation to an Excel sheet opens at page 1, because one sheet can
+  print across several pages.
+- If conversion is not set up for your installation, or fails for a file, the
+  pane shows the placeholder and the Download button as before.
+
+**Pictures in Word and PowerPoint files are read.** Piloti indexes these files
+from the PDF, the same way it reads a PDF you upload: a photo, a pasted plan or
+a rendering on a slide gets a description, and a question about it can find it
+and cite it. PowerPoint speaker notes are still read from the original file,
+because the PDF leaves them out. Excel files keep being read sheet by sheet, as
+tables.
+
+- While the PDF is being made, the upload shows „Wird gelesen“. It turns into
+  Ready once the file is indexed, which for a large deck can take a few minutes.
+- Files uploaded before this change keep their old index: their text is
+  searchable, their pictures are not, and a Word citation opens at page 1.
+  Choose „Erneut lesen“ in the file's ⋯ menu to have it read the new way.
+  Uploading the same file again does not: identical bytes are skipped as
+  „Unverändert“. Until the new reading finishes, answers use the old one.
+- A diagram drawn with Office shapes or SmartArt is not a picture to Piloti.
+  Its labels are text and are found; its layout is not described.
+- If the PDF cannot be made, the file shows „Lesen fehlgeschlagen“ with the
+  reason, and „Erneut lesen“ tries again. It stays stored and downloadable.
+  Excel files are the exception: they are still read, only without a thumbnail.
+
+Why it works this way: [ADR-0070](../adr/0070-office-files-are-viewed-through-a-pdf-rendition.md)
+for viewing, [ADR-0071](../adr/0071-word-and-presentation-files-are-indexed-from-their-rendition.md)
+for indexing.
 
 ---
 
@@ -301,9 +349,10 @@ mark = the Büroarchiv provenance signal used across the app):
   which is a claim about your own files that a search which never ran has no
   business making.
 - **A document that failed to index** carries the reason on its card, and the
-  card's ⋯ menu offers **Retry indexing** for it — the same retry the preview
-  has, where the failure is actually read. It appears only for a document that
-  failed, and only for someone who may manage it.
+  card's ⋯ menu offers „Erneut lesen“ for it, the same retry the preview
+  has, where the failure is actually read. An indexed document gets the same
+  action behind a confirmation, to read it again. A document with no known
+  state gets neither, and only someone who may manage the document sees it.
 
 ---
 

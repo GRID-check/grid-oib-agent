@@ -160,19 +160,29 @@ def _header_markdown(table: Table, width: int) -> list[str]:
 
 def markdown_chunks(table: Table, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
     """The table as Markdown, cut into row groups under ``max_chars``, each with the header."""
+    return [text for _first, _last, text in markdown_row_groups(table, max_chars)]
+
+
+def markdown_row_groups(table: Table, max_chars: int = MAX_CHUNK_CHARS) -> list[tuple[int, int, str]]:
+    """Row groups as ``(first, last, markdown)``, each repeating the header.
+
+    ``first``/``last`` are 0-based indexes into the table's BODY rows (header
+    excluded), which is what a row-range locator is built from: a spreadsheet
+    or CSV group names the rows it holds, so ``read_passage`` can open it.
+    """
     width = max(len(row) for row in table.rows)
     head = _header_markdown(table, width)
     head_chars = sum(len(line) + 1 for line in head)
-    chunks: list[list[str]] = [[]]
+    groups: list[tuple[int, list[str]]] = [(0, [])]
     size = head_chars
-    for row in table.rows[table.header_rows :]:
+    for index, row in enumerate(table.rows[table.header_rows :]):
         line = _markdown_row(row, width)
-        if chunks[-1] and size + len(line) + 1 > max_chars:
-            chunks.append([])
+        if groups[-1][1] and size + len(line) + 1 > max_chars:
+            groups.append((index, []))
             size = head_chars
-        chunks[-1].append(line)
+        groups[-1][1].append(line)
         size += len(line) + 1
-    return ["\n".join([*head, *body]) for body in chunks if body]
+    return [(first, first + len(body) - 1, "\n".join([*head, *body])) for first, body in groups if body]
 
 
 def page_text_with_tables(text: str, tables: list[PageTable]) -> str:

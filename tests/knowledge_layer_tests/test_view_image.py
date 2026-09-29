@@ -271,6 +271,75 @@ def test_render_page_from_bytes_round_trips_jpeg(monkeypatch) -> None:
     assert jpeg_bytes.startswith(b"\xff\xd8")
 
 
+def test_render_page_makes_every_pdfium_call_under_the_process_lock(monkeypatch) -> None:
+    """Open, read, render and every close hold ``pdfium_lock``; the JPEG encode does not."""
+    import sys
+    from types import ModuleType
+
+    from knowledge_layer.llamaindex import pdfium_lock as lock_module
+    from PIL import Image
+
+    held = lock_module._LOCK._is_owned
+    calls: list[tuple[str, bool]] = []
+
+    class _FakeBitmap:
+        def to_pil(self):
+            calls.append(("to_pil", held()))
+            return Image.new("RGB", (8, 8), "white")
+
+        def close(self):
+            calls.append(("bitmap.close", held()))
+
+    class _FakePage:
+        def get_size(self):
+            calls.append(("get_size", held()))
+            return (50.0, 50.0)
+
+        def render(self, *, scale):
+            calls.append(("render", held()))
+            return _FakeBitmap()
+
+        def close(self):
+            calls.append(("page.close", held()))
+
+    class _FakeDoc:
+        def __init__(self, _source):
+            calls.append(("open", held()))
+
+        def __getitem__(self, index):
+            return _FakePage()
+
+        def close(self):
+            calls.append(("doc.close", held()))
+
+    fake_pdfium = ModuleType("pypdfium2")
+    fake_pdfium.PdfDocument = _FakeDoc
+    monkeypatch.setitem(sys.modules, "pypdfium2", fake_pdfium)
+
+    original_save = Image.Image.save
+
+    def _save(self, *args, **kwargs):
+        calls.append(("encode", held()))
+        return original_save(self, *args, **kwargs)
+
+    monkeypatch.setattr(Image.Image, "save", _save)
+
+    _render_page_from_bytes(b"pdf", 1, 2048)
+
+    assert [name for name, _ in calls] == [
+        "open",
+        "get_size",
+        "render",
+        "to_pil",
+        "bitmap.close",
+        "page.close",
+        "doc.close",
+        "encode",
+    ]
+    assert all(locked for name, locked in calls if name != "encode")
+    assert dict(calls)["encode"] is False
+
+
 def _patch_seaweed_chain(
     monkeypatch,
     *,

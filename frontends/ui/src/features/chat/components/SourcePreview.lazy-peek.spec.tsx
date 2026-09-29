@@ -33,11 +33,17 @@ const jsonResponse = (data: unknown) => ({ ok: true, json: async () => data })
 
 const fetchMock = vi.fn((input: RequestInfo | URL) => {
   const url = String(input)
-  if (url.startsWith('/api/documents?projectId=')) {
+  // The cited document, resolved by name.
+  if (url === '/api/documents/by-name') {
     return Promise.resolve(
       jsonResponse({
         documents: [
-          { id: 'doc-1', filename: 'Brandschutzkonzept.pdf', contentType: 'application/pdf' },
+          {
+            id: 'doc-1',
+            filename: 'Brandschutzkonzept.pdf',
+            contentType: 'application/pdf',
+            createdAt: '2026-01-01T00:00:00.000Z',
+          },
         ],
       })
     )

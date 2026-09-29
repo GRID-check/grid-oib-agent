@@ -50,10 +50,11 @@ const { mockClient, mockDocumentsStoreState, mockOrchestratorFns } = vi.hoisted(
     mockDocumentsStoreState: state,
     mockOrchestratorFns: {
       setAuthToken: vi.fn(),
-      setCallbacks: vi.fn(),
+      subscribe: vi.fn(() => vi.fn()),
       handleSessionChange: vi.fn(),
       loadFilesForSession: vi.fn(),
       enqueueJobs: vi.fn(),
+      watchDocuments: vi.fn(),
       pollSessionDocuments: vi.fn(),
       stopPolling: vi.fn(),
     },
@@ -168,16 +169,21 @@ describe('useFileUpload', () => {
       expect(mockOrchestratorFns.setAuthToken).toHaveBeenCalledWith('test-token')
     })
 
-    test('sets callbacks on mount', () => {
+    test('subscribes its callbacks on mount and unsubscribes on unmount', () => {
       const onComplete = vi.fn()
       const onError = vi.fn()
+      const unsubscribe = vi.fn()
+      mockOrchestratorFns.subscribe.mockReturnValueOnce(unsubscribe)
 
-      renderHook(() => useFileUpload({ onComplete, onError }))
+      const { unmount } = renderHook(() => useFileUpload({ onComplete, onError }))
 
-      expect(mockOrchestratorFns.setCallbacks).toHaveBeenCalledWith({
+      expect(mockOrchestratorFns.subscribe).toHaveBeenCalledWith({
         onComplete,
         onError,
       })
+      expect(unsubscribe).not.toHaveBeenCalled()
+      unmount()
+      expect(unsubscribe).toHaveBeenCalledTimes(1)
     })
 
     test('calls handleSessionChange on initial mount with collectionName', () => {
@@ -524,6 +530,28 @@ describe('useFileUpload — durable document uploads', () => {
     const body = xhr.requests[0].body as FormData
     expect(body.get('projectId')).toBe('proj-1')
     expect(body.get('folderId')).toBe('folder-9')
+  })
+
+  test('carries the server’s „unchanged" answer onto the row, so it is not shown as a new upload', async () => {
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(1))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(
+        200,
+        JSON.stringify({ documentId: 'doc-1', jobId: null, status: 'uploaded', unchanged: true })
+      )
+      await pending
+    })
+
+    expect(mockDocumentsStoreState.updateTrackedFile).toHaveBeenCalledWith(
+      'mock-uuid',
+      expect.objectContaining({ status: 'success', serverFileId: 'doc-1', unchanged: true })
+    )
   })
 
   test('sends several at once instead of one after another', async () => {
