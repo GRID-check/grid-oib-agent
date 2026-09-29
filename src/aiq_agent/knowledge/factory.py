@@ -853,6 +853,11 @@ def set_search_retriever(retriever: BaseRetriever | None) -> None:
     _SEARCH_RETRIEVER = retriever
 
 
+def get_search_retriever() -> BaseRetriever | None:
+    """The knowledge search's own retriever, while its tool is up; ``None`` otherwise."""
+    return _SEARCH_RETRIEVER
+
+
 def clear_search_retriever(retriever: BaseRetriever) -> None:
     """Forget ``retriever`` as the search retriever, if it still is; a later tool's stays."""
     global _SEARCH_RETRIEVER

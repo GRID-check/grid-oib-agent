@@ -627,3 +627,14 @@ class TestANumericPunkt:
 
         assert "Brandschutz" in out
         assert {"punkt_id": {"$eq": "3"}} in store.calls[-1]["filters"]["$and"]
+
+
+class TestItReadsThroughTheSearchRetriever:
+    """The lazily built active retriever was a second adapter with cold caches beside the search's."""
+
+    async def test_the_search_retriever_answers_while_the_tool_is_up(self, store, monkeypatch):
+        search = _Store(store.documents)
+        search.outline_chunks, search.page_chunks = store.outline_chunks, store.page_chunks
+        monkeypatch.setattr("aiq_agent.knowledge.factory._SEARCH_RETRIEVER", search)
+        await _read(document=OIB)
+        assert search.calls and not store.calls
