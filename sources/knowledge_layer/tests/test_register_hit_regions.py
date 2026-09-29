@@ -11,8 +11,9 @@ confidence. These tests hold that line.
 import json
 from types import SimpleNamespace
 
-from aiq_agent.common.grounding_block import SourceRegion
 from knowledge_layer import register as reg
+
+from aiq_agent.common.grounding_block import SourceRegion
 
 
 def _chunk(file_name="plan.pdf", bbox=(0.1, 0.2, 0.5, 0.6), title="Grundriss EG", **metadata) -> SimpleNamespace:
