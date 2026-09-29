@@ -2260,6 +2260,10 @@
     "de": "Sie können Piloti im Chat jetzt auch wiederkehrende Arbeit übergeben: „prüf das jeden Montag“ legt einen Zeitplan an, der immer wieder läuft. Dafür braucht es die Berechtigung, Zeitpläne im Projekt zu verwalten."
   },
   {
+    "en": "You can now send feedback to the Piloti team from anywhere in the app: report a bug, suggest an idea, leave praise or ask a question from the avatar menu or the new button next to the inbox.",
+    "de": "Sie können jetzt von überall in der App Feedback an das Piloti-Team senden: Melden Sie einen Fehler, schlagen Sie eine Idee vor, hinterlassen Sie Lob oder stellen Sie eine Frage – über das Avatar-Menü oder den neuen Button neben der Inbox."
+  },
+  {
     "en": "You can now tell a project which file is its Bebauungsplan, by uploading it right at the question in the project wizard or by picking a document already in the project. Piloti then refers to the plan by name.",
     "de": "Sie können einem Projekt jetzt sagen, welche Datei der Bebauungsplan ist: direkt an der Frage im Projekt-Assistenten hochladen oder ein Dokument wählen, das schon im Projekt liegt. Piloti nennt den Plan danach beim Namen."
   },

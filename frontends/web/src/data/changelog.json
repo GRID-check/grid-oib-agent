@@ -57,6 +57,10 @@
             {
               "en": "A dial beside the send button sets how long Piloti thinks before it answers, from faster to smarter, and each chat keeps its own setting. Administrators choose where a new chat starts under Organisation → Einstellungen.",
               "de": "Ein Drehregler neben dem Senden-Button legt fest, wie lange Piloti vor der Antwort nachdenkt – von schneller bis intelligenter. Jeder Chat behält seine eigene Einstellung. Administratoren wählen unter Organisation → Einstellungen, mit welcher Einstellung neue Chats starten."
+            },
+            {
+              "en": "You can now send feedback to the Piloti team from anywhere in the app: report a bug, suggest an idea, leave praise or ask a question from the avatar menu or the new button next to the inbox.",
+              "de": "Sie können jetzt von überall in der App Feedback an das Piloti-Team senden: Melden Sie einen Fehler, schlagen Sie eine Idee vor, hinterlassen Sie Lob oder stellen Sie eine Frage – über das Avatar-Menü oder den neuen Button neben der Inbox."
             }
           ]
         },
