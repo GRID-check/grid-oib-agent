@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Decision eval for the annotations off the reader's path (ADR-0064, uses 4, 8 and 9).
+"""Decision eval for the uses off the reader's path (ADR-0064, uses 4, 5, 7, 8 and 9).
 
 WHY THIS EXISTS
 ---------------
-ADR-0064's uses 4, 8 and 9 put the decision model on three annotations: the
-tags stored with every upload, the Dokumentart offered for a base-corpus file,
-and the cause a down-vote is filed under. Their thresholds were set from runs
-over hand-labelled German sets, committed as ``tests/fixtures/decisions/*.yaml``.
-This script is that run, so a threshold or a criterion is changed against a
-number and not a guess.
+ADR-0064's uses 4 and 5 moved two generative calls onto the decision model:
+the tags stored with every upload, and whether memory reflection runs after a
+project turn. Their thresholds (``DISCIPLINE_THRESHOLD``,
+``REFLECTION_SKIP_THRESHOLD``) were set from one run over hand-labelled German
+sets, committed as ``tests/fixtures/decisions/*.yaml``. This script is that
+run, so a threshold or a criterion is changed against a number and not a guess.
 
 THESE ARE TUNING SETS
 ---------------------
@@ -21,10 +21,14 @@ THE FLOORS
 ----------
 - tags: the decided type is a labelled type on every row, and no discipline
   is tagged that the row does not carry.
+- reflection: no row labelled ``durable`` reaches the skip threshold on
+  "nothing about this project" (a wrong skip loses a memory row).
 - Dokumentart: every suggestion offered is the labelled class (a wrong one
   is offered to a person, who may accept it).
 - feedback causes: at least 14 of the 16 labelled down-votes filed under
   their cause (an operator's count, so a miss skews a number, not an answer).
+- memory supersede: no finding retires an entry it does not correct (a wrong
+  retirement loses a fact); a missed correction is reported, not failed.
 
 IT NEEDS A KEY, NOT A BACKEND
 -----------------------------
@@ -38,8 +42,10 @@ USAGE
 THE LAST RUN
 ------------
 2026-09-26: tags 12/12 types, disciplines 4 of 8 labelled with none false at
-0.8 (clear disciplines 0.96-0.98, the highest false one 0.47); Dokumentart
-10/10 offered, none wrong; feedback causes 16/16.
+0.8 (clear disciplines 0.96-0.98, the highest false one 0.47); reflection:
+skipped 8/9 empty passes at 0.7, lost none; memory supersede 8/8 corrections,
+no wrong retirement; Dokumentart 10/10 offered, none wrong; feedback causes
+16/16.
 """
 
 from __future__ import annotations
@@ -56,6 +62,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from aiq_agent.common import decisions  # noqa: E402
 from aiq_agent.knowledge import document_classification as dc  # noqa: E402
+from aiq_agent.memory import reflection  # noqa: E402
 
 FIXTURES = ROOT / "tests" / "fixtures" / "decisions"
 
@@ -74,6 +81,53 @@ def eval_tags() -> bool:
         print(f"  {row['file_name']:34s} {tags}")
     print(f"tags: types {types_right}/{len(rows)}, disciplines {discipline_hits}/{labelled}, false {discipline_false}")
     return types_right == len(rows) and discipline_false == 0
+
+
+def eval_reflection() -> bool:
+    import asyncio
+
+    rows = yaml.safe_load((FIXTURES / "reflection_exchanges.yaml").read_text(encoding="utf-8"))
+
+    async def run() -> list[float | None]:
+        return [
+            await reflection.nothing_durable_probability(r["question"], r["answer"], organization_id=None) for r in rows
+        ]
+
+    probabilities = asyncio.run(run())
+    threshold = reflection.REFLECTION_SKIP_THRESHOLD
+    lost = skipped = 0
+    for row, p in zip(rows, probabilities):
+        mark = "skip" if p is not None and p >= threshold else "run"
+        lost += row["durable"] and mark == "skip"
+        skipped += (not row["durable"]) and mark == "skip"
+        print(f"  durable={row['durable']!s:5s} p={p} {mark:4s} {row['question'][:60]}")
+    others = sum(not r["durable"] for r in rows)
+    print(f"reflection: skipped {skipped}/{others} non-durable, lost {lost} durable (threshold {threshold})")
+    return lost == 0 and None not in probabilities
+
+
+def eval_supersede() -> bool:
+    import asyncio
+
+    from aiq_agent.memory import supersede
+
+    data = yaml.safe_load((FIXTURES / "memory_supersede.yaml").read_text(encoding="utf-8"))
+    digest = "\n".join(f'- [constraint | high | agent] "{entry}"' for entry in data["memory"])
+
+    async def run() -> list[str | None]:
+        return [
+            await supersede.decided_supersedes(row["finding"], digest, organization_id=None) for row in data["findings"]
+        ]
+
+    wrong = found = 0
+    for row, quote in zip(data["findings"], asyncio.run(run())):
+        expected = row["supersedes"]
+        wrong += quote is not None and quote != expected
+        found += quote is not None and quote == expected
+        print(f"  {'T' if expected else 'N'} -> {quote!s:45.45s} | {row['finding'][:50]}")
+    corrections = sum(1 for row in data["findings"] if row["supersedes"])
+    print(f"supersede: {found}/{corrections} corrections found, {wrong} wrong retirements")
+    return wrong == 0
 
 
 def eval_doc_class() -> bool:
@@ -110,6 +164,8 @@ def main() -> int:
     # Not a request: no organization, so no ZDR policy to look up over HTTP.
     with patch.object(decisions, "_zdr_only_blocking", return_value=False):
         ok = eval_tags()
+        ok = eval_reflection() and ok
+        ok = eval_supersede() and ok
         ok = eval_doc_class() and ok
         ok = eval_feedback_causes() and ok
     return 0 if ok else 1

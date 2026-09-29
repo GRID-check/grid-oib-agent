@@ -89,7 +89,9 @@ class TestTheEffects:
         runtime = _runtime()
         assert runtime.inlined == ()
         _apply_decisions(
-            TurnDecisions(decided=True, skill=IFC, skill_p=0.9, skill_fit=0.8), ResearchAgentState(messages=[]), runtime
+            TurnDecisions(decided=True, skill=IFC, skill_p=0.9, skill_veto=0.05),
+            ResearchAgentState(messages=[]),
+            runtime,
         )
         assert [s.name for s in runtime.inlined] == [IFC]
         block = runtime.prompt_block() or ""
@@ -105,7 +107,7 @@ class TestTheEffects:
 
     def test_the_chosen_skills_preferred_shapes_beyond_the_contracts_ride_the_turn(self):
         state = ResearchAgentState(messages=[])
-        decided = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.8, skill_fit=0.9)
+        decided = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.8, skill_veto=0.05)
         runtime = _runtime()
         _apply_decisions(decided, state, runtime)
         assert [s.name for s in runtime.inlined] == ["brandschutz"]
@@ -123,7 +125,7 @@ class TestTheEffects:
             metadata={"grid-cards": "surface,fire_access_plan"},
             origin="platform",
         )
-        decided = TurnDecisions(decided=True, skill="varianten", skill_p=0.8, skill_fit=0.9)
+        decided = TurnDecisions(decided=True, skill="varianten", skill_p=0.8, skill_veto=0.05)
         _apply_decisions(decided, state, SkillRuntime(skills=(skill,)))
         block = state.card_shapes_block or ""
         assert "fire_access_plan" in block and '"surface"' not in block

@@ -1,0 +1,9 @@
+---
+fixes:
+  - >
+    Wenn sich eine Projektangabe ändert, ersetzt Piloti die alte Notiz im
+    Projektgedächtnis, auch wenn die neue ganz anders formuliert ist. Bisher
+    blieben etwa „Das Projekt liegt in Wien" und „Das Grundstück liegt in
+    St. Pölten" nebeneinander stehen, und spätere Antworten konnten sich auf
+    die überholte stützen. Von Ihnen angelegte oder bestätigte Notizen
+    ersetzt Piloti weiterhin nicht selbst.

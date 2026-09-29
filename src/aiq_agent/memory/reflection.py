@@ -211,6 +211,61 @@ REFLECTION_SYSTEM_PROMPT = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Whether to reflect at all, decided (ADR-0064, use 5)
+# ---------------------------------------------------------------------------
+# "If nothing qualifies, return an empty list — that is the common and correct
+# outcome": most turns are a lookup of what a regulation says, and each paid a
+# reasoning call on the memory group's model to learn that. Whether an
+# exchange says anything about THIS project is a yes/no over the exchange, the
+# shape the decision model answers in ~0.2 s for ~$0.00005. Only a confident
+# "no" skips the call; a decision that did not run, or any doubt, reflects as
+# before. The digest is not in the state: a correction names its own subject
+# in the user's words, and a small state is what the decider reads best.
+
+#: The technical-record slot: ``status:decision:memory_reflection``.
+REFLECTION_DECISION_SLOT = "memory_reflection"
+#: At or above this p(nothing about this project) the reflection call is
+#: skipped. The question is asked the way round the skip needs it, so the
+#: skip acts on a confident answer, like every decision here (0.7-0.8,
+#: 2026-09-26). Tuning set (sixteen exchanges, labelled by hand and by the
+#: reflection call itself): durable exchanges at most 0.42, eight of nine
+#: empty ones 0.8 or above. Held-out set (24 exchanges written blind to this
+#: wording, ``task be:eval:decisions:holdout``): durable at most 0.28, empty
+#: 0.76-0.95, so 0.7 skipped 13/13 and lost none, where 0.8 skipped 11-12.
+REFLECTION_SKIP_THRESHOLD = 0.7
+_DECISION_ANSWER_CHARS = 1500
+
+_NOTHING_QUESTION = (
+    "Is there nothing in this exchange worth remembering about THIS specific project for future conversations?"
+)
+_NOTHING_TRUE = (
+    "The user asks what a regulation, standard or authority generally requires — a value, a class, a list of "
+    "documents, a definition — and the answer states it, even when it names a Gebäudeklasse, a Land or a "
+    "number. Or it is a value read from the building model, small talk, thanks, or a short follow-up. Nothing "
+    "new about this particular project is said."
+)
+_NOTHING_FALSE = (
+    "The user tells something about this particular project — where it is, what it will be, what was decided "
+    "or agreed, what an authority required of it, what is still open, what changed, how they want to work — or "
+    "the answer concludes a fact about this project from its own data."
+)
+
+
+async def nothing_durable_probability(query: str, answer: str, *, organization_id: str | None) -> float | None:
+    """p(the exchange says nothing new about this project), or ``None`` when no decision ran."""
+    from aiq_agent.common.decisions import decide
+    from aiq_agent.common.decisions import noul
+
+    decision = await decide(
+        {"question": query.strip()[:_MAX_QUERY_CHARS], "answer": answer.strip()[:_DECISION_ANSWER_CHARS]},
+        {"nothing": noul(_NOTHING_QUESTION, true=_NOTHING_TRUE, false=_NOTHING_FALSE)},
+        slot=REFLECTION_DECISION_SLOT,
+        organization_id=organization_id,
+    )
+    return decision.noul("nothing") if decision is not None else None
+
+
 def _build_user_prompt(query: str, answer: str, memory_digest: str | None) -> str:
     """Assemble the reflection prompt from the turn and the existing memory."""
     existing = memory_digest.strip() if memory_digest else "(no project memory recorded yet)"
@@ -380,8 +435,16 @@ async def _write_finding(
     project_id: str | None,
     organization_id: str | None,
     conversation_id: str | None,
+    memory_digest: str | None = None,
 ) -> dict[str, str] | None:
     """Record one finding, returning the row the frame carries, or None if it did not land."""
+    from aiq_agent.memory.supersede import supersedes_for
+
+    # The model's own quote wins; without one, a decided contradiction
+    # supplies it (ADR-0064, use 7).
+    supersedes = await supersedes_for(
+        finding.content, finding.supersedes, memory_digest, organization_id=organization_id
+    )
     item_id = await asyncio.to_thread(
         insert_memory_item,
         # Always project scope — org-wide writes are excluded (audit S1).
@@ -398,11 +461,11 @@ async def _write_finding(
         salience=round(finding.importance / 10.0, 2),
         # Retires the entry this finding corrects (frontend resolves the quote;
         # unresolvable or human-curated targets are left alone).
-        supersedes_content=finding.supersedes or None,
+        supersedes_content=supersedes,
     )
     if not item_id:
         return None
-    if finding.supersedes:
+    if supersedes:
         logger.info("Memory reflection: recorded %s item %s as a correction", finding.kind, item_id)
     return {"id": item_id, "kind": finding.kind, "content": finding.content}
 
@@ -413,6 +476,7 @@ async def _record_findings(
     project_id: str | None,
     organization_id: str | None,
     conversation_id: str | None,
+    memory_digest: str | None = None,
 ) -> list[dict[str, str]]:
     """Write every finding concurrently, keeping the rows that landed, in order.
 
@@ -431,6 +495,7 @@ async def _record_findings(
                 project_id=project_id,
                 organization_id=organization_id,
                 conversation_id=conversation_id,
+                memory_digest=memory_digest,
             )
             for finding in findings
         ),
@@ -487,6 +552,7 @@ async def run_memory_reflection(
         project_id=project_id,
         organization_id=organization_id,
         conversation_id=conversation_id,
+        memory_digest=memory_digest,
     )
     if recorded:
         logger.info("Memory reflection recorded %d new memory item(s)", len(recorded))

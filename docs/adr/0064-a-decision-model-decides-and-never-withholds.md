@@ -184,6 +184,59 @@ plain label definitions (`tests/fixtures/decisions/holdout/`,
 disciplines, no false one; Dokumentart 13/13 offered right, none wrong;
 feedback causes 20/24 right, 1 wrong, 3 left unlabelled.
 
+*Amended 2026-09-26, the turn decision and project memory at 0.7–0.8,
+checked on held-out data.* Every threshold of the turn decision now acts on a
+confident answer: 0.8 for `needs_evidence`, `corpus`, `self_contained` and
+card shapes; 0.7 for the family and the skill, where held-out data showed 0.8
+cost right answers. The family is one choice over the Richtlinien and `none`,
+not a noul per family: independent nouls read each scope as a keyword list
+and missed questions whose words were not on it (Holzfassade → OIB 2 at
+0.27). One family is prefetched. The skill options carry the heading each
+skill's body opens with („Treppe, Geländer, Türbreite" never said
+Barrierefreiheit), and one veto noul — does the message ask for something
+other than an expert answer — replaces the per-skill "fits" nouls; a skill
+is withheld when the veto reaches 0.7. Held-out (30 questions written blind,
+`task be:eval:decisions:holdout`, never tuned on): `needs_evidence` 30/30,
+`self_contained` 25/27, family 16/21 (the reworded nouls 15/21, the original
+9/21), skill 25/30 (24/30 before). The one-row wording fixes made on the
+tuning set (summer overheating and ground moisture in the family scopes)
+changed nothing on the held-out set; they stay because they are true.
+
+**Use 5 — whether memory reflection runs** (`memory/reflection.nothing_durable_probability`,
+`stages/memory_reflection._handler`). Reflection is a reasoning call on the
+memory group's model after every project turn, and its prompt calls an empty
+result "the common and correct outcome". One noul over the question and the
+answer's opening — is there nothing in this exchange worth remembering about
+this project — skips the call at 0.7 or above. The question is asked the way
+round the skip needs it, so the skip acts on a confident answer. This is the
+one use whose wrong answer loses something (a memory row the in-turn
+`remember` tool also did not write). Tuning set (sixteen exchanges, labelled
+by hand and by the reflection call itself, which agreed on all sixteen):
+durable exchanges at most 0.42, eight of nine empty ones 0.8 or above.
+Held-out (24 exchanges written blind): durable at most 0.28, empty 0.76–0.95,
+so 0.7 skipped 13/13 and lost none. A decision that did not run reflects; a
+turn whose `remember` call wrote something reflects without asking; the skip
+is `StageEmpty("decided_nothing_durable")` on the stage's span, so its rate
+is measured in production like every other stage outcome. It never touches
+the answer, which has shipped before the stage starts.
+
+**Use 7 — which memory entry a correction retires** (`memory/supersede.py`).
+A yes/no per pair: does this new finding make that stored entry wrong. The
+single writer already retires an entry the writer quotes as `supersedes`, or
+one worded closely enough for its polarity split; a correction worded
+differently and not quoted („Das Grundstück liegt in St. Pölten" against
+„Das Projekt liegt in Wien") left both live, which the memory design names as
+outstanding (§3.2). Both agent writers — the `remember` tool on a project
+write and reflection — now ask it for every project entry of the digest when
+the model gave no quote, and send the most likely entry at 0.7 or above as the
+quote, through the same field: the writer's rules still hold (a quote that
+does not resolve is ignored; a pinned, user-confirmed or user-authored entry
+is never retired by an agent). The model's own quote always wins. Tuning set
+(twelve entries, sixteen findings): the eight corrections at 0.88–0.97, no
+other pair above 0.41. Held-out (fifteen entries, 24 findings written blind,
+most corrections worded unlike their entry): 15/15 found, no wrong
+retirement.
+
 **Not a use.** Intent or model routing, the escalation decision, confidence,
 verdict extraction, anything whose wrong answer removes a capability
 (ADR-0052, unchanged). Card selection and skill suggestion, which the audit
@@ -275,6 +328,13 @@ numbers above are one run on German questions the product actually gets.
 - `tests/aiq_agent/common/test_feedback_causes.py`, `frontends/aiq_api/tests/test_feedback_digest.py`:
   each down-vote asked with its comment, an unsure label left out, a
   labelling failure leaves the digest whole.
+- `tests/aiq_agent/agents/piloti/test_turn_decisions.py`: one family choice,
+  the skill heading and veto, the thresholds each read back.
+- `tests/aiq_agent/stages/test_memory_reflection_stage.py::TestTheDecisionSkipsOnlyAConfidentNo`
+  and `tests/aiq_agent/memory/test_reflection.py::TestDurableProbability`.
+- `tests/aiq_agent/memory/test_supersede.py`: the digest read back
+  unescaped, org-wide entries left out, the writer's quote first, both
+  writers send the decided one.
 - `tests/conftest.py::_no_live_decisions` (and its twin in
   `frontends/aiq_api/tests/conftest.py`): the suites never reach the live
   endpoint unless a test turns decisions on and stubs it.

@@ -9,6 +9,7 @@ effects.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import patch
 
@@ -19,6 +20,7 @@ from aiq_agent.agents.piloti.decisions import decide_turn
 from aiq_agent.agents.piloti.decisions import prefetch_calls
 from aiq_agent.agents.piloti.decisions import prefetch_query
 from aiq_agent.agents.piloti.decisions import questions_for
+from aiq_agent.agents.piloti.decisions import skill_option
 from aiq_agent.common.decisions import Decision
 from aiq_agent.common.norm_registry import oib_families
 
@@ -36,32 +38,45 @@ def _facts(question: str, **kwargs) -> TurnFacts:
 
 
 class TestWhatIsAsked:
-    def test_one_question_per_family_and_per_card_beside_the_fixed_ones(self):
+    def test_one_family_choice_and_one_question_per_card_beside_the_fixed_ones(self):
         questions = questions_for(_facts("Wie lang darf der Fluchtweg sein?"))
         assert set(questions) == {
             "needs_evidence",
             "corpus",
             "self_contained",
-            "family_2",
-            "family_4",
+            "family",
             "card_fire_compartment",
             "card_stair_diagram",
         }
         assert questions["corpus"]["type"] == "choice"
         assert set(questions["corpus"]["criteria"]) == {"baurecht", "projekt", "buero", "modell", "none"}
-        # The family question carries the Richtlinie's subject, in the decider's language.
-        assert "Brandschutz" in questions["family_2"]["criteria"]["true"]
+        # One choice over the families the corpus holds and "none", each carrying
+        # its Richtlinie's subject in the decider's language.
+        assert questions["family"]["type"] == "choice"
+        assert set(questions["family"]["criteria"]) == {"2", "4", "none"}
+        assert "Brandschutz" in questions["family"]["criteria"]["2"]
         # The card question carries the card's own index line.
         assert "fire compartments" in questions["card_fire_compartment"]["criteria"]["true"]
 
-    def test_skills_riding_the_prompt_get_a_choice_with_none_and_one_fits_noul_each(self):
+    def test_skills_riding_the_prompt_get_a_choice_with_none_and_one_veto(self):
         facts = TurnFacts(
             question="q", skills=[("brandschutz", "Brandabschnitt, Fluchtweg."), ("hygiene", "Aufenthaltsraum.")]
         )
         questions = questions_for(facts)
         assert set(questions["skill"]["criteria"]) == {"brandschutz", "hygiene", "none"}
-        assert "fits_brandschutz" in questions and "fits_hygiene" in questions
-        assert "Brandabschnitt" in questions["fits_brandschutz"]["criteria"]["true"]
+        assert "skill_veto" in questions and not any(key.startswith("fits_") for key in questions)
+
+    def test_the_decider_reads_a_skills_heading_beside_its_catalog_line(self):
+        skill = SimpleNamespace(
+            name="nutzungssicherheit",
+            description="Treppe, Geländer,\n Türbreite.",
+            body="# Eine Frage zu Nutzungssicherheit oder Barrierefreiheit beantworten\n\n## Mehr",
+        )
+        assert skill_option(skill) == (
+            "nutzungssicherheit",
+            "Treppe, Geländer, Türbreite. — Eine Frage zu Nutzungssicherheit oder Barrierefreiheit beantworten",
+        )
+        assert skill_option(SimpleNamespace(name="x", description="d", body="kein Titel")) == ("x", "d")
 
     def test_the_previous_exchange_rides_the_state_bounded(self):
         state = TurnFacts(question="und in GK 4?", previous_message="x" * 1000, previous_answer="y" * 1000).state()
@@ -92,9 +107,8 @@ class TestWhatTheAnswersBecome:
             answers={
                 "needs_evidence": {"type": "noul", "noul": 0.9},
                 "corpus": {"type": "choice", "choice": "baurecht", "probabilities": {"baurecht": 0.8, "none": 0.2}},
-                "family_2": {"type": "noul", "noul": 0.95},
-                "family_4": {"type": "noul", "noul": 0.1},
-                "card_fire_compartment": {"type": "noul", "noul": 0.7},
+                "family": {"type": "choice", "choice": "2", "probabilities": {"2": 0.95, "4": 0.03, "none": 0.02}},
+                "card_fire_compartment": {"type": "noul", "noul": 0.85},
                 "card_stair_diagram": {"type": "noul", "noul": 0.2},
             },
             latency_ms=210,
@@ -115,14 +129,14 @@ class TestWhatTheAnswersBecome:
         assert not decided.wants_evidence and decided.chosen_cards() == [] and decided.chosen_families() == []
         assert prefetch_calls(decided, "Hallo") == []
 
-    def test_the_top_two_families_and_cards_above_their_thresholds(self):
+    def test_one_family_and_the_top_two_cards_above_their_thresholds(self):
         decided = TurnDecisions(
             decided=True,
             needs_evidence=0.9,
-            families=(("2", 0.51), ("4", 0.9), ("3", 0.7), ("6", 0.49)),
-            cards=(("a", 0.59), ("b", 0.95), ("c", 0.8), ("d", 0.61)),
+            families=(("2", 0.69), ("4", 0.9), ("3", 0.72), ("6", 0.49)),
+            cards=(("a", 0.79), ("b", 0.95), ("c", 0.8), ("d", 0.61)),
         )
-        assert decided.chosen_families() == ["4", "3"]
+        assert decided.chosen_families() == ["4"]
         assert decided.chosen_cards() == ["b", "c"]
 
 
@@ -188,37 +202,40 @@ class TestTheSkillsShapes:
             decided=True,
             skill="brandschutz",
             skill_p=0.8,
-            skill_fit=0.9,
-            cards=(("egress_diagram", 0.9), ("stair_diagram", 0.7)),
+            skill_veto=0.05,
+            cards=(("egress_diagram", 0.9), ("stair_diagram", 0.8)),
         )
         assert attached_card_types(decided, self.SKILL_CARDS) == ["fire_compartment", "egress_diagram", "stair_diagram"]
 
-    def test_the_cookbooks_abstention_a_low_fit_or_none_attaches_no_skill(self):
-        name_match = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.8, skill_fit=0.05)
+    def test_a_veto_none_or_an_unsure_choice_attaches_no_skill(self):
+        # „Was steht im Brandschutzkonzept?": the choice names the subject, the veto says it asks for a file.
+        name_match = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.79, skill_veto=0.8)
         assert name_match.chosen_skill is None and attached_card_types(name_match, self.SKILL_CARDS) == []
-        none = TurnDecisions(decided=True, skill="none", skill_p=0.9, skill_fit=None)
+        none = TurnDecisions(decided=True, skill="none", skill_p=0.9, skill_veto=0.03)
         assert none.chosen_skill is None
-        unsure = TurnDecisions(decided=True, skill="hygiene", skill_p=0.5, skill_fit=0.9)
+        unsure = TurnDecisions(decided=True, skill="hygiene", skill_p=0.69, skill_veto=0.03)
         assert unsure.chosen_skill is None
-        # A weak fit on a confident choice still loads: a body is ~400 tokens and an offer.
-        weak_fit = TurnDecisions(decided=True, skill="waermeschutz", skill_p=0.64, skill_fit=0.13)
-        assert weak_fit.chosen_skill == "waermeschutz"
+        # The highest veto on a right pick measured was 0.27; it loads.
+        right = TurnDecisions(decided=True, skill="waermeschutz", skill_p=0.87, skill_veto=0.27)
+        assert right.chosen_skill == "waermeschutz"
+        no_veto_answer = TurnDecisions(decided=True, skill="waermeschutz", skill_p=0.87, skill_veto=None)
+        assert no_veto_answer.chosen_skill == "waermeschutz"
 
-    async def test_the_choice_and_its_fit_are_read_back(self):
+    async def test_the_choice_and_its_veto_are_read_back(self):
         decision = Decision(
             answers={
                 "skill": {
                     "type": "choice",
                     "choice": "brandschutz",
-                    "probabilities": {"brandschutz": 0.7, "none": 0.3},
+                    "probabilities": {"brandschutz": 0.85, "none": 0.15},
                 },
-                "fits_brandschutz": {"type": "noul", "noul": 0.85},
+                "skill_veto": {"type": "noul", "noul": 0.04},
                 "self_contained": {"type": "noul", "noul": 0.2},
             }
         )
         with patch("aiq_agent.common.decisions.decide", new_callable=AsyncMock, return_value=decision):
             decided = await decide_turn(TurnFacts(question="und in GK 4?", skills=[("brandschutz", "b")]))
-        assert decided.chosen_skill == "brandschutz" and decided.skill_fit == 0.85
+        assert decided.chosen_skill == "brandschutz" and decided.skill_veto == 0.04
         assert decided.self_contained == 0.2 and not decided.searchable
 
 
