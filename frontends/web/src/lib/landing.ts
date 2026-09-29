@@ -105,7 +105,7 @@ export const SECTIONS: Record<SectionId, { og: OgArtId } & Record<Locale, Sectio
       label: 'Use cases',
       title: 'Use cases: what planning offices use Piloti for – Piloti',
       description:
-        'Building class, fire safety, submission check, existing buildings, plot rules, thermal protection, accessibility: how Piloti handles typical planning questions in Austria.',
+        'Building class, fire safety, submission check, existing buildings, plot rules, thermal protection: how Piloti handles planning questions in Austria.',
       heading: 'What offices use Piloti for',
       lede: 'Piloti brings its own ways of working for the most common planning questions. Each says what it checks, what it needs and where it stops.',
     },
@@ -141,7 +141,7 @@ export const SECTIONS: Record<SectionId, { og: OgArtId } & Record<Locale, Sectio
     },
     en: {
       label: 'Building law by state',
-      title: 'Building law in Austria’s states: AI for planning offices – Piloti',
+      title: 'Building law by Austrian state: AI for planners – Piloti',
       description:
         'Nine states, nine building codes: which state laws Piloti draws on in each state, which OIB edition applies there, and how you check answers.',
       heading: 'Building law in Austria’s nine states',
