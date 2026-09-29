@@ -7,6 +7,7 @@ The retriever is instantiated once and reused for all queries.
 """
 
 import asyncio
+import json
 import logging
 import os
 from contextlib import nullcontext
@@ -1467,6 +1468,54 @@ def _stored_image_index(metadata: dict) -> int | None:
         return None
 
 
+#: Suffixes of a file that IS the image the visual analysis read. Anything else
+#: carrying an ``image_index`` is a raster embedded in a document, whose box is
+#: relative to the raster and not to the page the viewer shows.
+_IMAGE_FILE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".heic", ".heif")
+
+#: A box covering at least this share of the frame marks nothing a reader does
+#: not already see: the whole sheet is "the depiction", so it is left unmarked.
+_WHOLE_FRAME_AREA = 0.9
+
+
+def _hit_regions(chunk) -> tuple:
+    """Where on the page a visual chunk's depiction sits, as the viewer draws it (issue #433).
+
+    The visual analysis stores one ``bbox`` per segment inside the chunk's
+    ``drawing_data`` (``visual_analysis.segment_payloads``), normalised 0-1 over
+    the picture it read. That picture is the frame the viewer shows in two cases
+    and not in the third:
+
+    - a rendered PDF page (no ``image_index``): the whole page, uncropped;
+    - an uploaded image (``image_index`` on an image file): the whole image;
+    - a raster embedded in a PDF or office document: only the raster, and where
+      the raster sits on the page was never stored. A box there would land in
+      the wrong place with full confidence, so it gets none.
+
+    Anything malformed yields nothing: a missing box leaves the viewer opening
+    at the page, which is what it did before, while a wrong one points the
+    reader at the wrong drawing.
+    """
+    from aiq_agent.common.grounding_block import SourceRegion
+
+    metadata = chunk.metadata or {}
+    raw = metadata.get("drawing_data")
+    if not raw:
+        return ()
+    if metadata.get("image_index") is not None and not str(chunk.file_name).lower().endswith(_IMAGE_FILE_SUFFIXES):
+        return ()
+    try:
+        segment = json.loads(raw).get("segment") or {}
+        x0, y0, x1, y1 = (min(1.0, max(0.0, float(part))) for part in segment.get("bbox") or ())
+    except (TypeError, ValueError, AttributeError):
+        return ()
+    if x1 <= x0 or y1 <= y0 or (x1 - x0) * (y1 - y0) >= _WHOLE_FRAME_AREA:
+        return ()
+    title = segment.get("title")
+    label = title.strip() if isinstance(title, str) and title.strip() else None
+    return (SourceRegion(box=(x0, y0, x1, y1), label=label),)
+
+
 def _metadata_text(value: object) -> str | None:
     """A chunk-metadata value as the string a grounding block states, or ``None``."""
     return str(value) if value else None
@@ -1506,6 +1555,7 @@ def _grounding_hit(chunk, *, resolved, resolved_titles, resolved_folders, ambigu
         status_note=None,
         body=content[:_CHUNK_TRUNCATE_CHARS] if truncated else content,
         body_truncated=truncated,
+        regions=_hit_regions(chunk),
     )
 
 
