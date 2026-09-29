@@ -44,6 +44,7 @@ import base64
 import functools
 import json
 import logging
+import math
 import os
 import urllib.error
 import urllib.request
@@ -239,6 +240,23 @@ def _usage_from_langchain_metadata(usage_metadata: Any, accounting: Any = None) 
     return usage
 
 
+def _reported_cost(raw: Any, generation_id: str | None) -> float | None:
+    """The provider's ``cost`` in USD when it is a real one, else ``None`` (recorded as ``missing``).
+
+    ``bool`` is an ``int`` in Python, so ``cost: true`` would book $1.00; NaN
+    disables the budget gate (every comparison with it is false); and the BFF
+    rejects a non-finite or negative cost, dropping the whole batch with it.
+    A present value that is none of those is logged, never booked, so a
+    malformed field is visible rather than indistinguishable from an absent one.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, int | float) and not isinstance(raw, bool) and math.isfinite(raw) and raw >= 0:
+        return float(raw)
+    logger.warning("Ignoring malformed provider cost %r on generation %s; recorded as missing", raw, generation_id)
+    return None
+
+
 def extract_usage_event(response: Any) -> UsageEvent | None:
     """Build a UsageEvent from a LangChain ``LLMResult``.
 
@@ -276,8 +294,7 @@ def extract_usage_event(response: Any) -> UsageEvent | None:
 
     prompt_details = usage.get("prompt_tokens_details") or {}
     completion_details = usage.get("completion_tokens_details") or {}
-    raw_cost = usage.get("cost")
-    cost_usd = float(raw_cost) if isinstance(raw_cost, int | float) else 0.0
+    cost_usd = _reported_cost(usage.get("cost"), generation_id)
 
     return UsageEvent(
         # The Responses path has no llm_output; its model is on response_metadata.
@@ -289,8 +306,8 @@ def extract_usage_event(response: Any) -> UsageEvent | None:
         total_tokens=_as_int(usage.get("total_tokens")),
         cached_tokens=_as_int(prompt_details.get("cached_tokens")),
         reasoning_tokens=_as_int(completion_details.get("reasoning_tokens")),
-        cost_usd=cost_usd,
-        cost_source="usage_field" if isinstance(raw_cost, int | float) else "missing",
+        cost_usd=cost_usd if cost_usd is not None else 0.0,
+        cost_source="usage_field" if cost_usd is not None else "missing",
         is_byok=usage.get("is_byok") if isinstance(usage.get("is_byok"), bool) else None,
     )
 

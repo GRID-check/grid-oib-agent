@@ -93,6 +93,28 @@ class TestExtractUsageEvent:
         assert event.cost_usd == 0.0
         assert event.cost_source == "missing"
 
+    @pytest.mark.parametrize(
+        "cost",
+        [True, "0.0421", float("nan"), float("inf"), -1.0],
+        ids=["bool", "string", "nan", "inf", "negative"],
+    )
+    def test_a_malformed_cost_is_never_booked(self, cost, caplog):
+        # `True` is an int in Python and would book $1.00; NaN would switch the
+        # budget gate off; the BFF rejects a non-finite or negative cost with
+        # the whole batch. Recorded as missing, and said so in the log.
+        with caplog.at_level("WARNING", logger="aiq_agent.common.cost_tracking"):
+            event = extract_usage_event(_openrouter_result({**OPENROUTER_USAGE, "cost": cost}))
+        assert event is not None
+        assert event.cost_usd == 0.0
+        assert event.cost_source == "missing"
+        assert any("malformed provider cost" in r.getMessage() for r in caplog.records)
+
+    def test_a_zero_cost_is_a_reported_zero(self):
+        event = extract_usage_event(_openrouter_result({**OPENROUTER_USAGE, "cost": 0}))
+        assert event is not None
+        assert event.cost_usd == 0.0
+        assert event.cost_source == "usage_field"
+
     def test_no_usage_returns_none(self):
         assert extract_usage_event(_openrouter_result(usage=None)) is None
 
