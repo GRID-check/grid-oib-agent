@@ -15,13 +15,16 @@ name: Answer suite
 # REQUIRES two repository secrets:
 # - `OPENROUTER_API_KEY`: the agent, its embeddings and reranker all route
 #   through it (docs/deployment/environment-variables.md).
-# - `OIB_CORPUS_URL`: a URL CI can GET the OIB corpus from, as a .zip or
-#   .tar.gz of the PDFs under their published names (data/oib/README.md). The
-#   corpus is the operator's licensed material and is never committed, so it
-#   comes from wherever the operator keeps it: a presigned object-store URL, a
-#   private release asset. Rotate the URL here when the corpus changes, and
-#   bump the `OIB_CORPUS_VERSION` repository variable so the ingest cache
-#   below is rebuilt.
+# - `OIB_CORPUS_URL`: where CI GETs the OIB corpus, as a .zip or .tar.gz of
+#   the PDFs under their published names (data/oib/README.md). The corpus is
+#   the operator's licensed material and is never committed. Normally the
+#   deployment's own export, `https://<app domain>/api/internal/oib-corpus`,
+#   which serves exactly the PDFs production ingests.
+# - `OIB_CORPUS_TOKEN`: sent as `x-grid-internal-token`. For the export above
+#   it is the deployment's `GRID_CORPUS_EXPORT_TOKEN` (its own secret, not the
+#   service token). Leave it unset for a URL that needs none.
+# When the corpus changes, bump the `OIB_CORPUS_VERSION` repository variable
+# so the ingest cache below is rebuilt.
 # Both fail the job fast when absent: a suite that skips reports success by not
 # running.
 
@@ -90,8 +93,11 @@ jobs:
       - name: Fetch the corpus
         env:
           OIB_CORPUS_URL: ${{ secrets.OIB_CORPUS_URL }}
+          OIB_CORPUS_TOKEN: ${{ secrets.OIB_CORPUS_TOKEN }}
         run: |
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/corpus" "$OIB_CORPUS_URL"
+          auth=()
+          [ -n "$OIB_CORPUS_TOKEN" ] && auth=(-H "x-grid-internal-token: $OIB_CORPUS_TOKEN")
+          curl -fsSL --retry 3 --max-time 900 "${auth[@]}" -o "$RUNNER_TEMP/corpus" "$OIB_CORPUS_URL"
           case "$(file -b --mime-type "$RUNNER_TEMP/corpus")" in
             application/zip) unzip -q -j "$RUNNER_TEMP/corpus" '*.pdf' -d data/oib ;;
             application/gzip|application/x-gzip) tar -xzf "$RUNNER_TEMP/corpus" -C data/oib --wildcards --no-anchored '*.pdf' --transform 's#.*/##' ;;

@@ -330,9 +330,11 @@ turns, about four minutes three at a time.
 (`.github/workflows/answer-suite.yml`): the base and the head, the head's
 report with its baseline deltas as one sticky comment, re-run on every push
 while the label stays on. It needs the repository secrets `OPENROUTER_API_KEY`
-and `OIB_CORPUS_URL` (a URL CI can fetch the corpus from as a .zip or .tar.gz;
-the corpus is the operator's and never committed), and it fails fast without
-them. The ingest is cached on the corpus version (`OIB_CORPUS_VERSION`, a
+and `OIB_CORPUS_URL`, and fails fast without them. The corpus is the
+operator's and never committed; the deployment serves it for exactly this at
+`https://<app domain>/api/internal/oib-corpus` (the PDFs production ingests,
+as one .tar.gz), with the deployment's `GRID_CORPUS_EXPORT_TOKEN` in the
+`OIB_CORPUS_TOKEN` secret. The ingest is cached on the corpus version (`OIB_CORPUS_VERSION`, a
 repository variable to bump when the corpus changes) and the ingestion code.
 Opt-in rather than on every PR because every run is paid model calls. Its
 bookkeeping is also covered offline by

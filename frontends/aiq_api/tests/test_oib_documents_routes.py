@@ -450,3 +450,46 @@ async def test_reingest_rejects_an_empty_selection(app):
     async with _client(app) as client:
         response = await client.post("/v1/admin/oib/reingest", json={"file_names": []})
     assert response.status_code == 422, "an empty selection is a client bug, not a no-op"
+
+
+class TestCorpusExport:
+    """The corpus as one .tar.gz for a CI ingest; never served without a configured token."""
+
+    @pytest.fixture
+    def corpus(self, tmp_path, monkeypatch, uploads_dir):
+        from aiq_api.routes import oib as oib_routes
+
+        base = tmp_path / "oib"
+        (base / "sub").mkdir(parents=True)
+        (base / "sub" / "oib-rl_2_ausgabe_mai_2023.pdf").write_bytes(b"%PDF shipped")
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        (uploads_dir / "oib-rl_4_ausgabe_mai_2023.pdf").write_bytes(b"%PDF uploaded")
+        monkeypatch.setattr(oib_sync, "OIB_DIR", base)
+        monkeypatch.setattr(oib_sync, "EXCLUDED_PATH", tmp_path / "excluded.json")
+        monkeypatch.setattr(oib_routes, "_ADMIN_TOKEN", "t0k3n")
+        return base
+
+    @pytest.mark.asyncio
+    async def test_it_holds_every_pdf_the_sync_would_ingest_under_its_basename(self, app, corpus):
+        import tarfile
+
+        async with _client(app) as client:
+            res = await client.get("/v1/admin/oib/corpus.tar.gz", headers={"X-Admin-Token": "t0k3n"})
+        assert res.status_code == 200 and res.headers["content-type"] == "application/gzip"
+        with tarfile.open(fileobj=io.BytesIO(res.content), mode="r:gz") as archive:
+            assert sorted(archive.getnames()) == ["oib-rl_2_ausgabe_mai_2023.pdf", "oib-rl_4_ausgabe_mai_2023.pdf"]
+
+    @pytest.mark.asyncio
+    async def test_a_wrong_token_is_refused(self, app, corpus):
+        async with _client(app) as client:
+            res = await client.get("/v1/admin/oib/corpus.tar.gz", headers={"X-Admin-Token": "nope"})
+        assert res.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_no_configured_token_fails_closed(self, app, corpus, monkeypatch):
+        from aiq_api.routes import oib as oib_routes
+
+        monkeypatch.setattr(oib_routes, "_ADMIN_TOKEN", None)
+        async with _client(app) as client:
+            res = await client.get("/v1/admin/oib/corpus.tar.gz")
+        assert res.status_code == 503

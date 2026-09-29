@@ -4,6 +4,8 @@ import asyncio
 import io
 import logging
 import os
+import tarfile
+import tempfile
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -19,6 +21,7 @@ from fastapi import status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from pydantic import Field
+from starlette.background import BackgroundTask
 
 from aiq_agent.knowledge.document_classification import is_valid_doc_class
 from aiq_agent.oib_status import OibKnowledgeStatus
@@ -47,6 +50,37 @@ def _require_admin_token(x_admin_token: str | None = Header(default=None)):
         return
     if x_admin_token != _ADMIN_TOKEN:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin token")
+
+
+def _require_admin_token_strict(x_admin_token: str | None = Header(default=None)):
+    """The admin token, failing CLOSED when none is configured.
+
+    ``_require_admin_token`` lets every request through on a deployment without
+    ``GRID_ADMIN_TOKEN`` (local dev). An export hands the whole licensed corpus
+    to whoever asks, so it never runs unguarded.
+    """
+    if not _ADMIN_TOKEN:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Corpus export disabled")
+    _require_admin_token(x_admin_token)
+
+
+def _corpus_tarball() -> Path:
+    """Every PDF the sync would ingest, flat under its basename, as a .tar.gz in a temp file.
+
+    ``discover_pdfs`` is the set the agent indexes (the shipped corpus plus
+    uploads, exclusions applied), so a consumer that ingests this tarball
+    indexes what production indexes. PDFs are already compressed; level 1
+    spends no time on a gain that is not there.
+    """
+    from aiq_agent import oib_sync
+
+    handle = tempfile.NamedTemporaryFile(prefix="oib-corpus-", suffix=".tar.gz", delete=False)
+    handle.close()
+    path = Path(handle.name)
+    with tarfile.open(path, "w:gz", compresslevel=1) as archive:
+        for pdf in oib_sync.discover_pdfs():
+            archive.add(pdf, arcname=pdf.name)
+    return path
 
 
 def _run_ingestion() -> tuple[int, int]:
@@ -280,6 +314,24 @@ def add_oib_routes(router: APIRouter) -> None:
         except Exception as e:
             logger.exception("OIB sync failed")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+
+    @router.get(
+        "/v1/admin/oib/corpus.tar.gz",
+        tags=["oib"],
+        summary="Export the OIB base corpus as a .tar.gz of its PDFs",
+    )
+    async def export_oib_corpus(
+        _: None = Depends(_require_admin_token_strict),
+    ) -> FileResponse:
+        """The corpus a CI run ingests (the answer-suite workflow), built on a
+        worker thread into a temp file that is removed once it is sent."""
+        path = await asyncio.to_thread(_corpus_tarball)
+        return FileResponse(
+            path,
+            media_type="application/gzip",
+            filename="oib-corpus.tar.gz",
+            background=BackgroundTask(path.unlink, missing_ok=True),
+        )
 
     @router.get(
         "/v1/oib/status",
