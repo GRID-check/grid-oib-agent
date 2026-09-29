@@ -16,7 +16,7 @@ const PAGE_WIDTH = 595
 const PAGE_HEIGHT = 842
 
 /** Escape the three characters a PDF literal string cannot carry raw. */
-const pdfString = (text: string): string => text.replace(/([\\()])/g, '\\$1')
+export const pdfString = (text: string): string => text.replace(/([\\()])/g, '\\$1')
 
 /** One page's content stream, laid out from the top margin down. */
 const contentStream = (lines: readonly PdfLine[]): string => {
@@ -68,6 +68,15 @@ export const buildPdf = (pages: readonly (readonly PdfLine[])[]): Uint8Array<Arr
     '<</Type/Font/Subtype/Type1/BaseFont/Helvetica-Bold/Encoding/WinAnsiEncoding>>',
   ]
 
+  return assemblePdf(objects)
+}
+
+/**
+ * Number the objects, write them, and close the file with a cross-reference
+ * table of their real byte offsets. Every character stays below U+0100, so the
+ * string's indices are its byte offsets.
+ */
+export const assemblePdf = (objects: readonly string[]): Uint8Array<ArrayBuffer> => {
   let file = '%PDF-1.4\n'
   const offsets: number[] = []
   objects.forEach((body, index) => {
