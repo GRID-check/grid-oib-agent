@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    Large files no longer show as failed right after upload while they are in
+    fact being indexed. If a file cannot be read from storage, it now fails
+    with a reason that says so.

@@ -11,6 +11,7 @@ import threading
 import time
 from abc import ABC
 from abc import abstractmethod
+from collections.abc import Callable
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -246,7 +247,7 @@ class BaseIngestor(ABC):
     @abstractmethod
     def submit_job(
         self,
-        file_paths: list[str],
+        file_paths: list[str | Callable[[], str]],
         collection_name: str,
         config: dict[str, Any] | None = None,
     ) -> str:
@@ -257,7 +258,11 @@ class BaseIngestor(ABC):
         processing happens asynchronously in the background.
 
         Args:
-            file_paths: List of file paths (local or S3 URIs) to ingest.
+            file_paths: Files to ingest. An entry is a local path, or a
+                zero-argument callable the job runs when it reaches the file,
+                which downloads it and returns the local path; that file is the
+                job's to delete. ``POST /v1/ingest`` hands over the latter so
+                the request downloads nothing (``knowledge_layer.deferred_files``).
             collection_name: Target collection/index name.
             config: Optional ingestion configuration (chunking, extraction, and so on).
 

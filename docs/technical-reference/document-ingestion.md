@@ -26,15 +26,15 @@ User's Browser                 Next.js BFF                    SeaweedFS         
       │                            │   document_id}           │                      │                    │
       │                            │ ──────────────────────────────────────────────► │                    │
       │                            │                          │                      │                    │
-      │  {documentId, jobId,       │                          │   GET presigned URL  │                    │
-      │   status: "pending"}       │                          │ ──────────────────► │                    │
+      │                            │ ◄────────────────────────────────────────────── │                    │
+      │  {documentId, jobId,       │  202 {job_id} at once:   │                      │                    │
+      │   status: "pending"}       │  submit_job(), no GET    │                      │                    │
       │ ◄──────────────────────────┤                          │                      │                    │
+      │                            │                          │  job: GET presigned  │                    │
+      │                            │                          │  URL (deferred)      │                    │
       │                            │                          │ ◄────────────────── │                    │
+      │                            │                          │ ──────────────────► │                    │
       │                            │                          │     file bytes       │                    │
-      │                            │                          │                      │                    │
-      │                            │                          │   submit_job()       │                    │
-      │                            │                          │   (background)       │                    │
-      │                            │                          │ ────────────────►    │                    │
       │                            │                          │                      │                    │
       │  Poll /api/documents/      │                          │                      │                    │
       │  {id}/status (5s)          │                          │                      │  Extract → Chunk   │
@@ -77,7 +77,7 @@ Body: { projectId: string, file: File }
 2. **Generate documentId** — `uuidv4()`
 3. **Store in SeaweedFS** — `PutObjectCommand` with key `org/{orgId}/project/{projId}/doc/{docId}/{filename}` (built by `buildStorageKey()` in `s3.ts`)
 4. **Insert DB row** — Drizzle `documents` table with `status: 'uploaded'`, storing `documentId`, `organizationId`, `projectId`, `createdBy`, `filename`, `storageKey`, `collectionName`, `fileSize`, `contentType`
-5. **Generate presigned GET URL** — `getSignedUrl(s3Client, GetObjectCommand, { expiresIn: SEAWEED_PRESIGNED_URL_TTL_SECONDS || 600 })`
+5. **Generate presigned GET URL** — `getSignedUrl(s3Client, GetObjectCommand, { expiresIn: 3600 })`. An hour, not the 600 s `SEAWEED_PRESIGNED_URL_TTL_SECONDS` default the other signed reads use: the ingest job downloads the file when the bounded ingest pool reaches it, which can be well after dispatch (Step 3)
 6. **Trigger ingestion** — POST to `{BACKEND_URL}/v1/ingest` with `{ file_ref: presignedUrl, collection: collectionName, document_id: documentId, file_name: filename, folder_path }`. `file_name` is the row's own `documents.filename`, stated rather than derived from the presigned URL's last path segment, because it is the join key every chunk purge addresses
 7. **Record the job** — on success the row is updated to `status: 'pending'` with `metadata: { ingestJobId }` so status reads can later reconcile the row against the backend job (see Step 5)
 8. **Return response** — `{ documentId, jobId, status: 'pending' | 'uploaded' | 'processing' }`
@@ -136,12 +136,20 @@ Body: {
 Status: 202 Accepted
 ```
 
-1. Validates `file_ref` and `collection` are present, and passes `file_ref`, `extraction_ref` and `preview_ref` through the object-store SSRF gates before anything is downloaded (`thumbnail_upload_url` passes them before it is used)
-2. Downloads the file from the presigned URL via `httpx.AsyncClient` (follows redirects), and the rendition from `extraction_ref` alongside it when one is sent. A failed rendition download fails the request like a failed `file_ref`: the BFF only sends one it has just written
-3. Infers file suffix from `Content-Type` header or URL path
-4. Saves to a `tempfile.NamedTemporaryFile`
-5. Submits to the active ingestor via `ingestor.submit_job([temp_path], collection, config={cleanup_files: True, original_filenames: [...]})`. `original_filenames` is `file_name` when the BFF stated one and the URL basename otherwise; it becomes each chunk's `file_name` metadata. A downloaded rendition goes in as `extraction_paths`, positional like `original_filenames`, so the chunks are read from the PDF and still carry the original's name (`Bericht.docx`). No presigned URL is logged or put in the job config
-6. Returns `{ job_id, status: 'pending', document_id }`
+The request downloads nothing. The BFF aborts it after ten seconds and sends it
+once more, so every second spent before the job id is returned is a false
+„failed" waiting to happen: a download here failed any file slower than that,
+and a retry landing on another replica while the first attempt was still
+downloading.
+
+1. Validates `file_ref` and `collection` are present, and passes `file_ref`, `extraction_ref`, `preview_ref` and `thumbnail_upload_url` through the object-store SSRF gates. It is the only gate those URLs meet: the job fetches them later without asking again
+2. With a `document_id`, looks for a live job under the dispatch key (sha256 of `document_id` and the object path of `file_ref`), under a per-key lock on this replica, and answers with that job's id when one exists
+3. Otherwise submits to the active ingestor: `ingestor.submit_job([DeferredObjectDownload(file_ref)], collection, config={cleanup_files: True, original_filenames: [...], ...})`. `original_filenames` is `file_name` when the BFF stated one and the URL basename otherwise; it becomes each chunk's `file_name` metadata. A rendition goes in as `extraction_paths: [DeferredObjectDownload(extraction_ref, suffix=".pdf")]`, positional like `original_filenames`, so the chunks are read from the PDF and still carry the original's name (`Bericht.docx`). `DeferredObjectDownload`'s `repr` is `<deferred object download>`: no presigned URL is logged or visible in the job config
+4. Returns `{ job_id, status: 'pending', document_id }` (202), then, only for an office original with `preview_ref` and no `extraction_ref` (a spreadsheet), draws its thumbnail from `preview_ref` in a background task
+
+A failed submit is a 500 with a fixed message. A missing object, an expired
+signature or an unreachable store is no longer a status of this request: it is a
+failed file on the job (Step 4).
 
 ### Provenance (ADR-0054)
 
@@ -163,7 +171,7 @@ published version is ever dispatched, so a draft has no chunks at all — see
 [`../architecture/agent-document-provenance.md`](../architecture/agent-document-provenance.md)
 for the lane and the label, and ADR-0054 for the door.
 
-On failure, the temp file is cleaned up in the `finally` block. The ingestion route delegates to the active ingestor singleton, which is set up during NAT function registration.
+The ingestion route delegates to the active ingestor singleton, which is set up during NAT function registration.
 
 ---
 
@@ -171,12 +179,13 @@ On failure, the temp file is cleaned up in the `finally` block. The ingestion ro
 
 **File**: `sources/knowledge_layer/src/llamaindex/adapter.py`
 
-The `LlamaIndexIngestor.submit_job()` creates a job with `JobState.PENDING` and spawns a daemon thread running `_run_ingestion()`.
+The `LlamaIndexIngestor.submit_job()` creates a job with `JobState.PENDING` and hands `_run_ingestion()` to the bounded ingest pool. An entry of `file_paths` is a local path (the multipart upload, the OIB sync) or a deferred download (`/v1/ingest`); the latter is kept unchecked, since nothing is on disk yet.
 
 ### `_run_ingestion(job_id, file_paths, collection_name, config)`
 
 For each file:
 
+0. **Download and thumbnail** — a deferred original is downloaded first (`knowledge_layer.deferred_files.resolve_original`): one GET without redirects, into a temp file whose suffix comes from the response's `Content-Type` (the object path as fallback, scrubbed), owned and deleted by the job whether or not `cleanup_files` is set. A failed download fails the file with the stable error `original_download_failed: …` and nothing else is fetched for it, the rendition included; the log names the error class and HTTP status, never the URL. Then the rendition, when there is one, and then the 400px card thumbnail, drawn from the rendition or from a PDF or image original before any extraction, so the card has it as soon as anything has the bytes
 1. **Text extraction** — a PDF is read per page with pdfplumber, recording each line's font size and weight (`line_styles`). `.xlsx`/`.xlsm` go through `office_extractors`; `.md`, `.txt`, `.csv` and `.tsv` through `text_formats`, which decodes without dropping a byte (BOM, else strict UTF-8, else cp1252, else Latin-1; the encoding is stored as `source_encoding`). Any other extension falls to `SimpleDirectoryReader`. When the job carries an extraction path for the file, the PDF rendition is read instead and every later step treats it as a PDF: pages, tables, images and visual pages. For a `.pptx` or `.pptm` a companion reads the speaker notes from the original, one unit per slide labelled with its rendition page, because a PDF export drops them
    **Chunking.** Every text chunk carries a locator a citation and `read_passage(punkt=…)` can use:
 

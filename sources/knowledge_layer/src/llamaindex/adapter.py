@@ -39,6 +39,7 @@ import re
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from dataclasses import field
@@ -2559,11 +2560,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
     def submit_job(
         self,
-        file_paths: list[str],
+        file_paths: list[str | Callable[[], str]],
         collection_name: str,
         config: dict[str, Any] | None = None,
     ) -> str:
-        """Submit an ingestion job (non-blocking)."""
+        """Submit an ingestion job (non-blocking).
+
+        An entry is a local path, or a deferred download the job runs when it
+        reaches the file (``knowledge_layer.deferred_files``); the latter is
+        kept here unchecked, since there is nothing on disk yet to check.
+        """
+        from knowledge_layer.deferred_files import is_deferred
+
         job_id = str(uuid.uuid4())
         job_config = {**self.config, **(config or {})}
 
@@ -2579,7 +2587,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         aligned_file_ids = []
         kept_indices: list[int] = []
         for idx, path in enumerate(file_paths):
-            if os.path.exists(path):
+            if is_deferred(path) or os.path.exists(path):
                 validated_paths.append(path)
                 kept_indices.append(idx)
                 if idx < len(original_filenames):
@@ -2625,7 +2633,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             if i < len(original_filenames):
                 file_name = original_filenames[i]
             else:
-                file_name = Path(p).name
+                file_name = "document" if is_deferred(p) else Path(p).name
             if i < len(provided_file_ids):
                 file_id = provided_file_ids[i]
             elif single_file_id and len(validated_paths) == 1:
@@ -3598,8 +3606,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # short keys. Same rule as the download side in
             # frontends/aiq_api/src/aiq_api/routes/ingest.py.
             logger.info("Uploaded thumbnail (%d bytes)", len(thumbnail_bytes))
-        except Exception:
-            logger.warning("Failed to upload thumbnail", exc_info=True)
+        except Exception as error:
+            # The class only: an httpx error's text, and so its traceback,
+            # carries the upload URL.
+            logger.warning("Failed to upload thumbnail: %s", type(error).__name__)
 
     def _find_previous_versions(
         self, chroma_collection, collection_name: str, incoming_names: list[str]
@@ -3798,19 +3808,22 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     def _run_ingestion(
         self,
         job_id: str,
-        file_paths: list[str],
+        file_paths: list[str | Callable[[], str]],
         collection_name: str,
         config: dict[str, Any],
     ):
         """Background ingestion worker with optional multimodal extraction."""
+        from knowledge_layer.deferred_files import ORIGINAL_DOWNLOAD_FAILED
+        from knowledge_layer.deferred_files import resolve_original
         from knowledge_layer.renditions import OFFICE_RENDITION_REQUIRED
         from knowledge_layer.renditions import delete_quietly
         from knowledge_layer.renditions import handed_rendition_paths
         from knowledge_layer.renditions import requires_rendition
         from knowledge_layer.renditions import resolve_rendition
 
-        # Renditions this job downloaded itself: always its own to delete.
-        downloaded_renditions: list[str] = []
+        # Originals and renditions this job downloaded itself: always its own
+        # to delete, whether or not it owns the caller's files.
+        downloaded: list[str] = []
         try:
             # Update job to processing
             with self._lock:
@@ -3903,7 +3916,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # Process each file, each under its own replacement lock (see
             # _find_previous_versions), released when the file is done.
             kept_previous: list[str] = []
-            for i, file_path in enumerate(file_paths):
+            for i, file_entry in enumerate(file_paths):
+                # The original first, and nothing else for it when that fails:
+                # its rendition is no use without the identity it carries.
+                file_path = resolve_original(file_entry, downloaded)
+                if file_path is None:
+                    self._update_file_status(job, i, FileStatus.FAILED, error=ORIGINAL_DOWNLOAD_FAILED)
+                    continue
                 file_scope = contextlib.ExitStack()
                 previous = None
                 retired = False
@@ -3917,7 +3936,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 # pipeline reads comes from `source_path`, while identity —
                 # `file_name`, `file_size`, the replacement lock, the purge key
                 # — stays the original's.
-                rendition = resolve_rendition(config, i, downloaded_renditions)
+                rendition = resolve_rendition(config, i, downloaded)
                 source_path = rendition or file_path
                 try:
                     file_size = os.path.getsize(file_path)
@@ -3982,6 +4001,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         if i < len(job.file_details):
                             job.file_details[i].status = FileStatus.INGESTING
                             job.file_details[i].progress_percent = (i / len(file_paths)) * 100
+
+                    # The card's thumbnail, first: the one thing a person sees
+                    # of this file before it is indexed, and a page-1 render is
+                    # the quickest step there is. The route downloads nothing
+                    # (knowledge_layer.deferred_files), so this is the first
+                    # moment anything has the bytes; drawn from the rendition
+                    # when there is one, so that one download serves both. An
+                    # office original indexed from itself (a spreadsheet) gets
+                    # its thumbnail from the route's `preview_ref` render.
+                    thumbnail_upload_url = config.get("thumbnail_upload_url")
+                    if thumbnail_upload_url and (is_pdf or is_image):
+                        self._generate_and_upload_thumbnail(source_path, thumbnail_upload_url)
 
                     # Collect all documents for this file
                     all_documents = []
@@ -4108,20 +4139,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # the summary: notes are not what the document says first.
                     if rendition:
                         all_documents.extend(_rendition_companions(file_path, file_name, file_size))
-
-                    # Favourable ordering: thumbnail first. This is the quickest
-                    # operation (pypdfium2 page-1 render → fire-and-forget PUT to
-                    # as soon as the backend has the file.
-                    # The /v1/ingest route PUTs a quick 200px thumbnail from a
-                    # background task once it has answered, so the card has one
-                    # within a second; this 400px render lands later and
-                    # replaces it. The route no longer tells the job whether its
-                    # render succeeded: that render runs after the job is
-                    # submitted, and keeping it in the request was part of what
-                    # pushed dispatch past the BFF's ten-second budget.
-                    thumbnail_upload_url = config.get("thumbnail_upload_url")
-                    if thumbnail_upload_url and (is_pdf or is_image):
-                        self._generate_and_upload_thumbnail(source_path, thumbnail_upload_url)
 
                     # Summary + tag classification are started AFTER visual
                     # extraction (below) so that for text-sparse drawing PDFs the
@@ -4702,14 +4719,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             if config.get("cleanup_files", False):
                 # The renditions are temp files of the same request, and this
                 # job owns them the same way.
-                for file_path in [*file_paths, *handed_rendition_paths(config)]:
+                handed = [path for path in file_paths if isinstance(path, str)]
+                for file_path in [*handed, *handed_rendition_paths(config)]:
                     try:
                         if os.path.exists(file_path):
                             os.unlink(file_path)
                             logger.debug(f"Cleaned up temp file: {file_path}")
                     except OSError as e:
                         logger.warning(f"Failed to clean up temp file {file_path}: {e}")
-            delete_quietly(downloaded_renditions)
+            delete_quietly(downloaded)
 
     def generate_summary(self, text_content: str, file_name: str) -> str | None:
         """Generate summary using NVIDIA NIM if enabled."""

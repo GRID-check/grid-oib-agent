@@ -12,8 +12,10 @@ with the heavy collaborators (embedder, vector index, VLM, pdfplumber) mocked.
 
 from __future__ import annotations
 
+import threading
 import time
 import zipfile
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -419,3 +421,131 @@ class TestDeferredDownloads:
 
         assert status.file_details[0].error_message == OFFICE_RENDITION_REQUIRED
         assert all("X-Amz-Signature" not in record.getMessage() for record in caplog.records)
+
+
+# =============================================================================
+# The original, downloaded by the job (knowledge_layer.deferred_files)
+# =============================================================================
+
+_SIGNED_ORIGINAL = "http://seaweed/bucket/doc/object?X-Amz-Signature=secret-original"
+
+
+def _object_store_get(content: bytes, content_type: str, *, gate: threading.Event | None = None):
+    """An ``httpx.get`` stand-in for the object store, optionally held until ``gate`` is set."""
+    import httpx
+
+    calls: list[str] = []
+
+    def _get(url, **kwargs):
+        calls.append(url)
+        assert kwargs["follow_redirects"] is False
+        if gate is not None:
+            gate.wait(timeout=10)
+        response = MagicMock(spec=httpx.Response)
+        response.content = content
+        response.headers = {"content-type": content_type}
+        return response
+
+    return _get, calls
+
+
+class TestDeferredOriginal:
+    """What ``POST /v1/ingest`` hands the job: the original as a download, not a path."""
+
+    def test_the_job_downloads_the_original_ingests_it_and_deletes_it(
+        self, tmp_path, monkeypatch, ingestor, summary_db, pdf_pipeline, caplog
+    ):
+        from aiq_api.routes.ingest import DeferredObjectDownload
+
+        get, calls = _object_store_get(b"%PDF-1.4\n% original\n", "application/pdf")
+        monkeypatch.setattr("httpx.get", get)
+        drawn: list[str] = []
+        monkeypatch.setattr(
+            LlamaIndexIngestor, "_generate_and_upload_thumbnail", staticmethod(lambda path, url: drawn.append(path))
+        )
+
+        job_id = ingestor.submit_job(
+            [DeferredObjectDownload(_SIGNED_ORIGINAL)],
+            "proj_1",
+            config={
+                "original_filenames": ["Plan.pdf"],
+                "cleanup_files": True,
+                "thumbnail_upload_url": "http://seaweed/put/thumb",
+            },
+        )
+        assert _wait_terminal(ingestor, job_id).is_success
+
+        assert calls == [_SIGNED_ORIGINAL]
+        # The suffix came from the response's content type: the object path has none.
+        [read] = pdf_pipeline["text"]
+        assert read.endswith(".pdf")
+        # The thumbnail is drawn from the same download, before extraction.
+        assert drawn == [read]
+        assert {d.metadata["file_name"] for d in _indexed_documents()} == {"Plan.pdf"}
+        assert _gone(Path(read))
+        assert all("secret-original" not in record.getMessage() for record in caplog.records)
+
+    def test_a_failed_download_fails_the_file_with_a_stable_reason(
+        self, tmp_path, ingestor, summary_db, pdf_pipeline, caplog
+    ):
+        from knowledge_layer.deferred_files import ORIGINAL_DOWNLOAD_FAILED
+
+        rendition_calls: list[str] = []
+
+        def _expired():
+            raise RuntimeError("403 for http://seaweed/Plan.pdf?X-Amz-Signature=secret-original")
+
+        job_id = ingestor.submit_job(
+            [_expired],
+            "proj_1",
+            config={
+                "original_filenames": ["Bericht.docx"],
+                "extraction_paths": [lambda: rendition_calls.append("rendition") or ""],
+            },
+        )
+        status = _wait_terminal(ingestor, job_id)
+
+        assert not status.is_success
+        assert status.file_details[0].file_name == "Bericht.docx"
+        assert status.file_details[0].error_message == ORIGINAL_DOWNLOAD_FAILED
+        assert status.file_details[0].error_message.startswith("original_download_failed:")
+        # No original, no use for its rendition: it is never fetched.
+        assert rendition_calls == []
+        assert pdf_pipeline["text"] == []
+        assert all("secret-original" not in record.getMessage() for record in caplog.records)
+
+    def test_the_job_is_live_while_it_downloads(self, tmp_path, monkeypatch, ingestor, summary_db, pdf_pipeline):
+        """A retried dispatch that lands while the job is still downloading
+        (on this replica or another) finds the job and joins it."""
+        from aiq_api.routes.ingest import DeferredObjectDownload
+
+        gate = threading.Event()
+        get, calls = _object_store_get(b"%PDF-1.4\n", "application/pdf", gate=gate)
+        monkeypatch.setattr("httpx.get", get)
+
+        job_id = ingestor.submit_job(
+            [DeferredObjectDownload(_SIGNED_ORIGINAL)],
+            "proj_1",
+            config={"original_filenames": ["Plan.pdf"], "dispatch_key": "k-plan", "document_id": "doc-1"},
+        )
+        try:
+            deadline = time.time() + 5
+            while not calls and time.time() < deadline:
+                time.sleep(0.01)
+            assert calls, "the job never started its download"
+            assert ingestor.find_live_job("k-plan") == job_id
+        finally:
+            gate.set()
+        assert _wait_terminal(ingestor, job_id).is_success
+        assert ingestor.find_live_job("k-plan") is None
+
+    def test_local_paths_are_untouched(self, tmp_path, ingestor, summary_db, pdf_pipeline):
+        """Every other caller (the multipart upload, the OIB sync) hands paths."""
+        original = _rendition(tmp_path)
+
+        job_id = ingestor.submit_job([str(original)], "proj_1", config={"original_filenames": ["Plan.pdf"]})
+        assert _wait_terminal(ingestor, job_id).is_success
+
+        assert pdf_pipeline["text"] == [str(original)]
+        # Not the job's file without cleanup_files.
+        assert original.exists()

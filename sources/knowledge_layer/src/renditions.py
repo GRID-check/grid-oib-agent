@@ -4,9 +4,10 @@ The BFF converts these originals to ``_render.pdf`` through Gotenberg and sends
 ``extraction_ref`` with the ingest request; ``POST /v1/ingest`` gates the URL
 and hands the job ``config["extraction_paths"]``, positional like
 ``original_filenames``. An entry is a local path, or a zero-argument callable
-that downloads one: the route defers the download to the job because the BFF
-gives the request ten seconds, and everything slow before the job id is a false
-failure waiting to happen.
+that downloads one: the route defers every download to the job, the original's
+too (``knowledge_layer.deferred_files``), because the BFF gives the request ten
+seconds, and everything slow before the job id is a false failure waiting to
+happen.
 
 Shared by both ingestors, so it imports nothing either of them brings.
 """
@@ -16,9 +17,11 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+from knowledge_layer.deferred_files import is_deferred
+from knowledge_layer.deferred_files import run_deferred_download
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +92,8 @@ def resolve_rendition(config: dict[str, Any], index: int, downloaded: list[str])
     """
     entries = config.get("extraction_paths") or []
     entry = entries[index] if index < len(entries) else None
-    if callable(entry):
-        path = _run_deferred_download(entry)
+    if is_deferred(entry):
+        path = run_deferred_download(entry, "PDF rendition")
         if path:
             downloaded.append(path)
         return path
@@ -100,19 +103,6 @@ def resolve_rendition(config: dict[str, Any], index: int, downloaded: list[str])
         return entry
     logger.warning("Rendition for file %d is gone before extraction", index)
     return None
-
-
-def _run_deferred_download(source: Callable[[], str]) -> str | None:
-    """Run the download the route deferred; ``None`` when it failed.
-
-    The class name only: an httpx error's text carries the presigned URL,
-    which is a bearer credential.
-    """
-    try:
-        return source()
-    except Exception as error:  # noqa: BLE001 — the caller decides what a missing rendition costs
-        logger.warning("Download of the PDF rendition failed: %s", type(error).__name__)
-        return None
 
 
 def delete_quietly(paths: list[str]) -> None:
