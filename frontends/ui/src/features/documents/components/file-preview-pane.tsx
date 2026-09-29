@@ -44,6 +44,8 @@ import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-
 import type { DocumentKind } from '../document-kind'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
+import { PdfDocumentView } from '@/features/knowledge/components/pdf-document-view'
+import { useSeenOnce } from '@/hooks/use-seen-once'
 import { DocumentActionsMenu, useDocumentActions, type DocumentScope } from './document-actions'
 import {
   DocumentStatusBadge,
@@ -248,9 +250,10 @@ export function FilePreviewPane({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   /**
    * The same-origin signed path for the same bytes, when the optimizer can
-   * serve them. Separate from `previewUrl` rather than replacing it: the PDF
-   * iframe and the "open in new tab" link want the object-store URL, and a
-   * format the optimizer rejects still has to render.
+   * serve them. Separate from `previewUrl` rather than replacing it: the
+   * "open in new tab" link wants the object-store URL, and a format the
+   * optimizer rejects still has to render. (A PDF reads neither: the viewer
+   * fetches the same-origin stream, see `documentFileUrl`.)
    */
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   /**
@@ -269,7 +272,7 @@ export function FilePreviewPane({
   const [previewGone, setPreviewGone] = useState(false)
   /**
    * A text document's content, when the pane renders the bytes itself rather
-   * than handing a URL to an iframe. Null for every other format, and for a
+   * than handing a URL to an element. Null for every other format, and for a
    * text document whose fetch has not landed — `previewFailed`/`previewGone`
    * carry the failure, exactly as they do for the URL path.
    */
@@ -325,7 +328,7 @@ export function FilePreviewPane({
   const isImage = !isOfficeRendition && (file.contentType ?? '').startsWith('image/')
   /** The type of the bytes the well actually shows: the rendition's, for an office file. */
   const shownType = isOfficeRendition ? renditionType : file.contentType
-  // The large viewer dialog enlarges PDFs (native iframe viewer) and images
+  // The large viewer dialog enlarges PDFs (the same pdf.js viewer) and images
   // (img mode). Offer the expand affordance for both. An office file's
   // rendition is a PDF, and `/file` streams the rendition for it.
   const canExpandPreview = shownType === 'application/pdf' || isImage
@@ -465,6 +468,26 @@ export function FilePreviewPane({
         if (!signal.aborted) setIsLoading(false)
       })
   }, [file.id, canPreview, isTextual, isOfficeRendition])
+
+  /**
+   * The viewer could not open the bytes the preview route vouched for: the
+   * stream refused, the worker failed to load, the file is not a PDF after
+   * all. The same failed state the fetch path and the image `onError` use, so
+   * the reader gets the caption and the retry, never a blank frame.
+   */
+  const handlePdfFailed = useCallback(() => {
+    setPreviewUrl(null)
+    setPreviewImageUrl(null)
+    setPreviewFailed(true)
+  }, [])
+  /**
+   * pdf.js is a megabyte of parser plus a worker, and a document open in it
+   * holds its page cache. So it mounts only once the well has been on screen,
+   * and steps aside while the enlarged dialog shows the same file: one
+   * document open at a time, not two copies of one.
+   */
+  const [wellRef, wellSeen] = useSeenOnce<HTMLDivElement>()
+  const showInlinePdf = wellSeen && !isLargePreviewOpen
 
   useEffect(() => {
     loadPreview()
@@ -823,6 +846,7 @@ export function FilePreviewPane({
             drawing on a desk actually looks like, and the whole reason this
             column exists rather than a download link. */}
         <div
+          ref={wellRef}
           data-testid="file-preview-well"
           className={cn(
             'from-muted/25 to-muted/60 flex min-w-0 justify-center bg-gradient-to-b',
@@ -881,18 +905,27 @@ export function FilePreviewPane({
             />
           ) : canPreview && previewUrl ? (
             shownType === 'application/pdf' ? (
-              <iframe
-                src={previewUrl}
-                className={cn(
-                  'bg-background h-full w-full rounded-lg border',
-                  // `shadow-sm` is the CARD step of the elevation ramp; `xs`
-                  // dresses chips and buttons, and under a document it did not
-                  // read as a page on a ground at all. `lg` is the modal step,
-                  // which is what the enlarged view is.
-                  peeking ? 'shadow-sm' : 'shadow-lg'
-                )}
-                title={actions.name}
-              />
+              // THE APP'S OWN VIEWER, NOT THE BROWSER'S. A frame on the
+              // presigned URL drew nothing on Android Chrome (no inline PDF
+              // renderer: a blank box, or a download), little on iOS, and
+              // navigated, zoomed and searched unlike the citation viewer
+              // beside it. pdf.js renders it the same everywhere, fitted to the
+              // well's width with pages rasterised only near the viewport. It
+              // FETCHES the bytes, so it reads the same-origin stream, which
+              // for an office file streams the rendition (ADR-0070). The
+              // preview route above still decides whether there is anything
+              // to show; this only decides how it is drawn.
+              showInlinePdf ? (
+                <PdfDocumentView
+                  key={file.id}
+                  src={documentFileUrl(file.id)}
+                  title={actions.name}
+                  onLoadError={handlePdfFailed}
+                  className="size-full"
+                />
+              ) : (
+                <PageMock skeleton />
+              )
             ) : (
               // This is where the bytes actually were: the preview URL serves
               // the FULL-SIZE original into a column a few hundred pixels wide,
@@ -1200,7 +1233,13 @@ export function FilePreviewPane({
                   answers it, and the same fact stated twice on one surface
                   reads as two facts. */}
                 <MetaRow label={t('preview.type')} icon={FileCode2}>
-                  <span className="text-foreground truncate font-mono text-xs">
+                  {/* `block`: `truncate` clips nothing on an inline span, and
+                      an office MIME type (`…wordprocessingml.document`) is
+                      wider than a phone, so it pushed the whole pane sideways. */}
+                  <span
+                    className="text-foreground block truncate font-mono text-xs"
+                    title={file.contentType ?? undefined}
+                  >
                     {file.contentType ?? t('preview.unknownType')}
                   </span>
                 </MetaRow>

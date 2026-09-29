@@ -190,3 +190,105 @@ describe('FolderUploadDialog', () => {
     expect(screen.getByTestId('folder-upload-confirm')).toBeEnabled()
   })
 })
+
+describe('FolderUploadDialog — loose files', () => {
+  function loose(name: string, size = 100): File {
+    const file = new File(['x'], name, { type: 'application/pdf' })
+    Object.defineProperty(file, 'size', { value: size, configurable: true })
+    return file
+  }
+
+  function renderFiles(plan: FolderUploadPlan | null, currentFolderName: string | null = null) {
+    const onConfirm = vi.fn()
+    const onOpenChange = vi.fn()
+    render(
+      <FolderUploadDialog
+        open
+        onOpenChange={onOpenChange}
+        plan={plan}
+        currentFolderName={currentFolderName}
+        onConfirm={onConfirm}
+        kind="files"
+      />,
+    )
+    return { onConfirm, onOpenChange }
+  }
+
+  it('asks one file its own question and answers yes to the update', async () => {
+    const { onConfirm } = renderFiles(
+      buildFolderUploadPlan({
+        files: [loose('EG.pdf', 5)],
+        documents: [doc('EG.pdf', { displayName: 'Erdgeschoss' })],
+        folders: [],
+        currentFolderId: null,
+      }),
+    )
+
+    expect(screen.getByText('Upload a new version of “EG.pdf”?')).toBeInTheDocument()
+    // Named as the corpus names it, so the reader can find what is replaced.
+    expect(screen.getByText(/“Erdgeschoss” is already here/)).toBeInTheDocument()
+    // No batch furniture around one file.
+    expect(screen.queryByTestId('folder-upload-include-updates')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('folder-upload-count-new')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByTestId('folder-upload-confirm'))
+    expect(onConfirm).toHaveBeenCalledWith(true)
+  })
+
+  it('states an identical file and offers only a way out', async () => {
+    const file = loose('EG.pdf')
+    const digest = `sha256:${'b'.repeat(64)}`
+    const { onOpenChange, onConfirm } = renderFiles(
+      buildFolderUploadPlan({
+        files: [file],
+        documents: [doc('EG.pdf', { contentHash: digest })],
+        folders: [],
+        currentFolderId: null,
+        digests: new Map([[file, digest]]),
+      }),
+    )
+
+    expect(screen.getByText('Unchanged – already here')).toBeInTheDocument()
+    expect(screen.queryByTestId('folder-upload-confirm')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByTestId('folder-upload-close'))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  it('offers the move when an identical document is filed elsewhere', () => {
+    const file = loose('EG.pdf')
+    const digest = `sha256:${'c'.repeat(64)}`
+    renderFiles(
+      buildFolderUploadPlan({
+        files: [file],
+        documents: [doc('EG.pdf', { contentHash: digest, folderId: 'f-a' })],
+        folders: [
+          { id: 'f-a', parentId: null, name: 'A', path: 'A' },
+          { id: 'f-b', parentId: null, name: 'B', path: 'B' },
+        ],
+        currentFolderId: 'f-b',
+        digests: new Map([[file, digest]]),
+      }),
+      'B',
+    )
+
+    expect(screen.getByTestId('folder-upload-refiled')).toHaveTextContent('“B”')
+    expect(screen.getByTestId('folder-upload-confirm')).toBeEnabled()
+  })
+
+  it('shows several files as a batch, without a folder count', () => {
+    renderFiles(
+      buildFolderUploadPlan({
+        files: [loose('EG.pdf'), loose('Neu.pdf')],
+        documents: [doc('EG.pdf')],
+        folders: [],
+        currentFolderId: null,
+      }),
+    )
+
+    expect(screen.getByText('Upload 2 file(s)?')).toBeInTheDocument()
+    expect(screen.getByTestId('folder-upload-count-update')).toHaveTextContent('1')
+    expect(screen.queryByTestId('folder-upload-count-folders')).not.toBeInTheDocument()
+    expect(screen.getByTestId('folder-upload-include-updates')).toBeInTheDocument()
+  })
+})

@@ -117,7 +117,7 @@ describe('FileListView', () => {
   it('shows a document’s status and its summary on the same row', () => {
     renderList([doc('Energieausweis.pdf', { status: 'processing', summary: 'Heizwärmebedarf und Effizienzklasse.' })])
 
-    expect(screen.getByText('Processing')).toBeDefined()
+    expect(screen.getByText('Reading')).toBeDefined()
     expect(screen.getByText('Heizwärmebedarf und Effizienzklasse.')).toBeDefined()
   })
 

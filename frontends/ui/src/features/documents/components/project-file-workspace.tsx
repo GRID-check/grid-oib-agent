@@ -13,13 +13,10 @@ import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { useSettleTrackedUploads } from '../hooks/use-settle-tracked-uploads'
 import { useFileSearch } from '../hooks/use-file-search'
 import { refreshedFileFields, toFileItem, type DocumentWireRow } from '../lib/file-item'
-import { digestFiles } from '../lib/content-digest'
-import {
-  buildFolderUploadPlan,
-  filesToUpload,
-  isFolderUpload,
-  type FolderUploadPlan,
-} from '../lib/folder-upload-plan'
+import { fetchListingPages } from '../lib/fetch-listing-pages'
+import { createDocumentNameProbeClient } from '@/lib/documents/name-probe-client'
+import { filesToUpload } from '../lib/folder-upload-plan'
+import { useUploadDecision } from '../hooks/use-upload-decision'
 import { FolderUploadDialog } from './folder-upload-dialog'
 import { inferDocumentKind } from '../document-kind'
 import { FileBrowserPane } from './file-browser-pane'
@@ -114,6 +111,14 @@ interface ProjectFileWorkspaceProps {
    */
   initialFolders?: readonly FolderItem[]
   initialFiles?: readonly DocumentWireRow[]
+  /**
+   * Whether `initialFiles` is the WHOLE corpus. The server reads one bounded
+   * page; when the project has more, this is false and the workspace reads
+   * the rest right after the first paint (quietly — the first page is already
+   * on screen), because search, filters and the folder-upload plan all work
+   * over the corpus in the browser. Absent means complete, as before.
+   */
+  initialFilesComplete?: boolean
 }
 
 /**
@@ -235,7 +240,7 @@ type FileView = 'cards' | 'list'
 
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
-export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, previewFirst = true, canCollaborate = false, currentUserId, lifecyclePermissions, initialFolders, initialFiles }: ProjectFileWorkspaceProps) {
+export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, previewFirst = true, canCollaborate = false, currentUserId, lifecyclePermissions, initialFolders, initialFiles, initialFilesComplete = true }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const router = useRouter()
   const pathname = usePathname()
@@ -351,6 +356,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const [isLoadingFiles, setIsLoadingFiles] = useState(initialFiles === undefined)
   const [foldersError, setFoldersError] = useState(false)
   const [filesError, setFilesError] = useState(false)
+  /** The drain stopped at its page ceiling: older documents are not loaded. */
+  const [filesTruncated, setFilesTruncated] = useState(false)
 
   /**
    * Only the LATEST request may commit its answer.
@@ -374,9 +381,9 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    *
    * Assignment can be filtered here because the assignees ride along on every
    * row. Authorship cannot: it is a column with a partial index
-   * (`WHERE authored_by = 'agent'`), the listing is capped at 500 rows, and
-   * "everything Piloti wrote" has to be able to find a report that fell off the
-   * end of a large corpus. So the chip becomes `?authoredBy=agent` and the
+   * (`WHERE authored_by = 'agent'`), and asking the server for that narrow
+   * listing is a handful of rows where filtering here would page through the
+   * whole corpus to find them. So the chip becomes `?authoredBy=agent` and the
    * effect below re-reads the listing, because `loadFiles` changes identity
    * with it.
    */
@@ -410,14 +417,14 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     const params = new URLSearchParams({ projectId })
     if (agentAuthoredOnly) params.set('authoredBy', 'agent')
     if (includeArchived) params.set('includeArchived', 'true')
-    return fetch(`/api/documents?${params}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`Failed to load documents (${r.status})`)
-        return r.json() as Promise<{ documents?: DocumentWireRow[] }>
-      })
-      .then((data) => {
+    // Every page, not the newest one: the listing is paged by the server, and
+    // search, filters, folder counts and the folder-upload plan all read
+    // `files` as the project's corpus (fetch-listing-pages.ts).
+    return fetchListingPages<DocumentWireRow>(`/api/documents?${params}`)
+      .then(({ documents, truncated }) => {
         if (isStale()) return
-        setFiles((data.documents ?? []).map(toFileItem))
+        setFiles(documents.map(toFileItem))
+        setFilesTruncated(truncated)
       })
       .catch(() => {
         // A failed POLL must not empty a list the user is looking at; only a
@@ -481,7 +488,10 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    * for a different listing which has to reach the server.
    */
   const seededFolders = useRef(initialFolders !== undefined)
-  const seededFiles = useRef(initialFiles !== undefined)
+  // Seeded AND complete. A seed that is only the first page still paints at
+  // once, and the mount load then reads the rest without the skeleton.
+  const seededFiles = useRef(initialFiles !== undefined && initialFilesComplete)
+  const seededPartially = useRef(initialFiles !== undefined && !initialFilesComplete)
   const pickFilesRef = useRef<(() => void) | null>(null)
   const pickFolderRef = useRef<(() => void) | null>(null)
 
@@ -499,7 +509,9 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       seededFiles.current = false
       return
     }
-    void loadFiles()
+    const quiet = seededPartially.current
+    seededPartially.current = false
+    void loadFiles(quiet)
   }, [loadFiles])
 
   // Surface upload/validation/network errors that the hook computes: a persistent
@@ -980,38 +992,51 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    * they would. And two files of one name inside a single drop both uploaded,
    * one overwriting the other, because a project holds one document per
    * filename (migration 0074) — a loss nothing on screen mentioned.
+   *
+   * Loose files take the same plan. A file whose name the project already
+   * holds becomes a new version of that document (ADR-0054), so it asks
+   * „Neue Fassung von „X“ hochladen?" — decided from the listing, which every
+   * browser shares, and never from what this one happens to remember. Files
+   * that match nothing go straight to `uploadFiles`, as before.
    */
-  const [folderPlan, setFolderPlan] = useState<FolderUploadPlan | null>(null)
-  const [folderPlanOpen, setFolderPlanOpen] = useState(false)
-  const [folderPlanPending, setFolderPlanPending] = useState(false)
+  const {
+    propose: proposeUpload,
+    plan: folderPlan,
+    kind: uploadDecisionKind,
+    open: folderPlanOpen,
+    setOpen: setFolderPlanOpen,
+    pending: folderPlanPending,
+    setPending: setFolderPlanPending,
+  } = useUploadDecision()
+
   /**
-   * The plan's own generation, so a second drop while the first is still being
-   * hashed cannot land on top of it. Hashing a folder of models is seconds
-   * long, which is ample time to drop another folder.
+   * The shelf to compare against: asked of the server by the dropped names.
+   *
+   * Never the visible listing. „Von Piloti" narrows it to machine-authored
+   * rows, archived documents are left out of it, and past the page ceiling it
+   * is not the whole project — while the upload versions a same-name document
+   * in every one of those cases. The probe answers from the database exactly
+   * the rows the upload would match.
    */
-  const planGeneration = useRef(0)
+  const probeNames = useMemo(() => createDocumentNameProbeClient(), [])
+  const corpusForPlan = useCallback(
+    (names: readonly string[]) => probeNames.project(projectId, names),
+    [probeNames, projectId]
+  )
 
   const handleUpload = useCallback(
     (incoming: File[]) => {
-      if (!isFolderUpload(incoming)) {
-        void uploadFiles(incoming)
-        return
-      }
-      const generation = ++planGeneration.current
-      setFolderPlan(null)
-      setFolderPlanPending(false)
-      setFolderPlanOpen(true)
-      void (async () => {
-        const base = { files: incoming, documents: files, folders, currentFolderId: selectedFolderId }
-        // First pass names the plausible duplicates; only those are read into
-        // memory. Everything else is an upload either way.
-        const first = buildFolderUploadPlan(base)
-        const digests = await digestFiles(first.hashCandidates)
-        if (generation !== planGeneration.current) return
-        setFolderPlan(buildFolderUploadPlan({ ...base, digests }))
-      })()
+      proposeUpload(
+        {
+          files: incoming,
+          documents: corpusForPlan,
+          folders,
+          currentFolderId: selectedFolderId,
+        },
+        (direct) => void uploadFiles(direct)
+      ).catch(() => toast.error(t('folderUpload.compareError')))
     },
-    [uploadFiles, files, folders, selectedFolderId]
+    [proposeUpload, corpusForPlan, uploadFiles, folders, selectedFolderId, t]
   )
 
   /**
@@ -1134,7 +1159,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         setFolderPlanPending(false)
       }
     },
-    [folderPlan, projectId, selectedFolderId, uploadFiles, loadFolders, loadFiles, t]
+    [folderPlan, projectId, selectedFolderId, uploadFiles, loadFolders, loadFiles, t, setFolderPlanOpen, setFolderPlanPending]
   )
 
   // Drag-and-drop onto the workspace routes dropped files into the SAME upload
@@ -1355,6 +1380,16 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             <PaneLoadError message={t('workspace.foldersLoadError')} onRetry={loadFolders} inline />
           </div>
         )}
+        {/* The drain hit its ceiling: say which documents are missing rather
+            than let search, filters and the upload plan pretend to be whole. */}
+        {filesTruncated && (
+          <div className="border-b px-4 py-2">
+            <Alert>
+              <AlertCircle className="size-4" />
+              <AlertDescription>{t('workspace.listTruncated', { count: files.length })}</AlertDescription>
+            </Alert>
+          </div>
+        )}
 
         {/* File browser */}
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
@@ -1466,6 +1501,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         }
         onConfirm={applyFolderPlan}
         pending={folderPlanPending}
+        kind={uploadDecisionKind}
       />
 
       {/*

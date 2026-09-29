@@ -127,6 +127,47 @@ describe('ArchivWorkspace — library listing', () => {
     expect(await screen.findByText(/could not be loaded/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument()
   })
+  // Paged, not capped: the Archiv used to stop at its newest 500 without a word.
+  it('reads every page of the Archiv, following the cursor', async () => {
+    const cursors: Array<string | null> = []
+    server.use(
+      http.get('/api/archiv/documents', ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get('cursor')
+        cursors.push(cursor)
+        return HttpResponse.json({
+          documents: cursor ? [archivDocuments[1]] : [archivDocuments[0]],
+          nextCursor: cursor ? null : 'page-2',
+          collectionName: 'archiv_org-1',
+          canManage: true,
+        })
+      })
+    )
+    render(<ArchivWorkspace canManage />)
+
+    expect(await screen.findByText('fassadendetail.pdf')).toBeInTheDocument()
+    expect(screen.getByText('brandschutz-gutachten.pdf')).toBeInTheDocument()
+    expect(cursors).toEqual([null, 'page-2'])
+    expect(screen.queryByText(/showing the newest/i)).not.toBeInTheDocument()
+  })
+
+  it('says where it stopped when the Archiv outruns the page ceiling', async () => {
+    let requests = 0
+    server.use(
+      http.get('/api/archiv/documents', () => {
+        requests += 1
+        return HttpResponse.json({
+          documents: [{ ...archivDocuments[0], id: `doc-${requests}`, filename: `plan-${requests}.pdf` }],
+          nextCursor: `c${requests}`,
+          collectionName: 'archiv_org-1',
+          canManage: true,
+        })
+      })
+    )
+    render(<ArchivWorkspace canManage />)
+
+    expect(await screen.findByText(/showing the newest 20 documents/i)).toBeInTheDocument()
+    expect(requests).toBe(20)
+  })
 })
 
 describe('ArchivWorkspace — permissions', () => {
@@ -205,7 +246,7 @@ describe('ArchivWorkspace — a settling document settles on screen', () => {
 
     render(<ArchivWorkspace canManage />)
     await waitFor(() => expect(documentCalls).toBe(1))
-    expect(await screen.findByText('Processing')).toBeInTheDocument()
+    expect(await screen.findByText('Reading')).toBeInTheDocument()
 
     await vi.advanceTimersByTimeAsync(4_100)
     await waitFor(() => expect(documentCalls).toBe(2))
@@ -360,7 +401,7 @@ describe('ArchivWorkspace — only the newest answer may win', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
 
     render(<ArchivWorkspace canManage />)
-    expect(await screen.findByText('Processing')).toBeInTheDocument()
+    expect(await screen.findByText('Reading')).toBeInTheDocument()
 
     // The settling poll goes out and hangs.
     await vi.advanceTimersByTimeAsync(4_100)
@@ -380,7 +421,7 @@ describe('ArchivWorkspace — only the newest answer may win', () => {
     await flushWithoutPolling()
 
     expect(screen.getByText('Citable')).toBeInTheDocument()
-    expect(screen.queryByText('Processing')).not.toBeInTheDocument()
+    expect(screen.queryByText('Reading')).not.toBeInTheDocument()
 
     // …and it must not resurrect the poll either: the corpus is terminal, so
     // nothing more is asked for.
@@ -466,5 +507,91 @@ describe('ArchivWorkspace — file operations', () => {
     })
     // Both the card and the preview header carry the new name.
     expect((await screen.findAllByText('Fassade Nord.pdf')).length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * The Archiv answers a same-name file the way a project's Dateien does (U1):
+ * it asks for a new version, from the shelf itself — asked of the server by
+ * name (`POST /api/archiv/documents/name-matches`), since the listing on screen
+ * is paged — and never refuses or replaces on one browser's memory.
+ */
+describe('ArchivWorkspace — a file the Archiv already holds', () => {
+  let probed: string[][]
+  /** What the probe answers from: the Archiv's documents, by exact name. */
+  let shelf: Array<{ id: string; filename: string; lifecycle?: 'active' | 'archived' }>
+
+  beforeEach(() => {
+    probed = []
+    shelf = archivDocuments.map((doc) => ({ id: doc.id, filename: doc.filename }))
+    server.use(
+      http.post('/api/archiv/documents/name-matches', async ({ request }) => {
+        const { names } = (await request.json()) as { names: string[] }
+        probed.push(names)
+        return HttpResponse.json({
+          documents: shelf
+            .filter((doc) => names.includes(doc.filename))
+            .map((doc) => ({
+              id: doc.id,
+              filename: doc.filename,
+              displayName: null,
+              fileSize: 2048,
+              contentHash: null,
+              folderId: null,
+              authoredBy: 'user',
+              lifecycle: doc.lifecycle ?? 'active',
+            })),
+        })
+      })
+    )
+  })
+
+  function pick(file: File) {
+    const input = screen.getAllByTestId('project-upload-input')[0] as HTMLInputElement
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  }
+
+  it('asks „new version of X?" and uploads on yes', async () => {
+    const user = userEvent.setup()
+    render(<ArchivWorkspace canManage />)
+    await screen.findByText('brandschutz-gutachten.pdf')
+
+    const revised = new File(['revised'], 'brandschutz-gutachten.pdf', { type: 'application/pdf' })
+    pick(revised)
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    expect(dialog).toHaveAttribute('data-kind', 'single-update')
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+
+    await user.click(within(dialog).getByTestId('folder-upload-confirm'))
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([revised]))
+    expect(probed).toEqual([['brandschutz-gutachten.pdf']])
+  })
+
+  // Paged listing: the oldest Archiv document may not be loaded, and the upload
+  // versions it anyway. The probe is what knows.
+  it('asks about a same-name document the loaded listing does not hold', async () => {
+    shelf = [{ id: 'doc-old', filename: 'alt-norm.pdf', lifecycle: 'archived' }]
+    render(<ArchivWorkspace canManage />)
+    await screen.findByText('brandschutz-gutachten.pdf')
+
+    pick(new File(['x'], 'alt-norm.pdf', { type: 'application/pdf' }))
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    await waitFor(() => expect(dialog).toHaveAttribute('data-kind', 'single-update'))
+    expect(within(dialog).getByTestId('folder-upload-archived')).toBeInTheDocument()
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  it('sends a file with a name it does not hold straight to the upload', async () => {
+    render(<ArchivWorkspace canManage />)
+    await screen.findByText('brandschutz-gutachten.pdf')
+
+    const fresh = new File(['x'], 'neu.pdf', { type: 'application/pdf' })
+    pick(fresh)
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([fresh]))
+    expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
   })
 })

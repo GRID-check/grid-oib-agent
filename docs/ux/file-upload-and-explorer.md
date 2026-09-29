@@ -119,9 +119,13 @@ decorated afterwards. Where each one landed:
 9. **Recognize, diagnose, recover.** The server's own reason ("File exceeds the
    100 MB upload limit") lands on the row that owns it, with retry beside it. A
    cancelled file reads as a decision, not a failure — it never colours red.
-10. **Help and documentation.** The processing line says *"Indexing — no time
-    estimate, you can keep working"*, which is the help a user needs at exactly
-    the moment they would otherwise sit and watch.
+10. **Help and documentation.** The processing line says *"Reading. There is
+    no time estimate, so you can keep working."*, which is the help a user needs
+    at exactly the moment they would otherwise sit and watch. When the tray
+    stops following a job (its 35-minute budget ran out, or the job store no
+    longer knows it), the row stays *Reading* and a notice says reading
+    continues in the background. It is never reported as a failed upload; the
+    workspace listing settles the row (`useSettleTrackedUploads`).
 
 Beyond Nielsen:
 

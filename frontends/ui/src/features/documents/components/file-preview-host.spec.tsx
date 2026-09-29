@@ -266,7 +266,7 @@ describe('FilePreviewHost', () => {
       // CONSEQUENCE is the assertion, not the badge: "Processing" is a word,
       // "Piloti cannot cite this file yet" is the reason the reader is about
       // to get a worse answer than they expect.
-      expect(screen.getByRole('status')).toHaveTextContent(/cannot cite this file until it is indexed/i)
+      expect(screen.getByRole('status')).toHaveTextContent(/cannot cite this file until it has been read/i)
     })
 
     it('stays quiet about a file that is ready', () => {

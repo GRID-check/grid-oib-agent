@@ -37,6 +37,8 @@ interface UploadDocumentResponse {
   documentId?: string
   jobId?: string | null
   status?: string
+  /** The bytes were already the live document's; nothing was written. */
+  unchanged?: boolean
 }
 
 /** Where each shelf deletes one of its documents. */
@@ -417,6 +419,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
               status: mapUploadResponseStatus(result.status),
               serverFileId: result.documentId,
               jobId: result.jobId ?? undefined,
+              ...(result.unchanged ? { unchanged: true } : {}),
               // Every byte is on the server now, whatever the last progress
               // event happened to say.
               bytesUploaded: file.size,

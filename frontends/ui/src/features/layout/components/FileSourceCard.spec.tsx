@@ -53,8 +53,8 @@ describe('FileSourceCard', () => {
     render(<FileSourceCard {...defaultProps} status="ingesting" />)
 
     // Text appears twice: visible status span + sr-only spinner label
-    expect(screen.getAllByText('Processing...').length).toBeGreaterThan(0)
-    expect(screen.getByLabelText('Processing...')).toBeInTheDocument() // Spinner
+    expect(screen.getAllByText('Reading').length).toBeGreaterThan(0)
+    expect(screen.getByLabelText('Reading')).toBeInTheDocument() // Spinner
   })
 
   test('renders error status with error message', () => {

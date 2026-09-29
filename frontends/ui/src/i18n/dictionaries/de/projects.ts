@@ -338,18 +338,6 @@ export const projects: typeof en.projects = {
     removeTitle: 'Aus dem Speicher entfernen',
   },
   overview: {
-    docStatus: {
-      unknown: 'Unbekannt',
-      uploaded: 'Hochgeladen',
-      ready: 'Bereit',
-      ingested: 'Eingelesen',
-      success: 'Erfolgreich',
-      pending: 'Ausstehend',
-      ingesting: 'Wird eingelesen',
-      processing: 'Wird verarbeitet',
-      uploading: 'Wird hochgeladen',
-      failed: 'Fehlgeschlagen',
-    },
     workspaceCreated: 'Projekt-Arbeitsbereich · erstellt {date}',
     workspace: 'Projekt-Arbeitsbereich',
     askGrid: 'Piloti fragen',

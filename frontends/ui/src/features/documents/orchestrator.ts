@@ -18,7 +18,9 @@
  * also makes a reload resume on its own, with no job persisted in the browser.
  */
 
+import { toast } from 'sonner'
 import { createDocumentsClient } from '@/adapters/api'
+import { getStoreTranslator } from '@/i18n/store-translator'
 import { listSessionDocuments } from '@/adapters/api/session-documents-client'
 import { useDocumentsStore } from './store'
 import { useLayoutStore } from '@/features/layout/store'
@@ -37,7 +39,19 @@ import {
 } from './persistence'
 
 const POLL_INTERVAL_MS = 5000
+/**
+ * How long (420 × 5 s, 35 min) the orchestrator follows one job closely.
+ *
+ * Running out of it says nothing about the upload. A large set of drawings is
+ * still being read long after that, and calling it "timed out" put a red
+ * upload problem on a document that became citable a minute later. So the end
+ * of the budget hands the rows on (see `handOverToListing`), it never fails them.
+ */
 const MAX_POLL_ATTEMPTS = 420
+/** A chat's listing past the budget: still followed, just less often. */
+const SLOW_POLL_INTERVAL_MS = 60_000
+/** One notice per hand-over burst, however many jobs reach it together. */
+const STILL_READING_TOAST_ID = 'upload-still-reading'
 
 interface PollingState {
   jobId: string
@@ -355,20 +369,22 @@ class UploadOrchestratorImpl {
   private scheduleSessionPoll(): void {
     const poll = this.sessionPoll
     if (!poll) return
+    const interval = poll.pollCount > MAX_POLL_ATTEMPTS ? SLOW_POLL_INTERVAL_MS : POLL_INTERVAL_MS
     poll.timeoutId = setTimeout(() => {
       void this.runSessionPoll(poll)
-    }, POLL_INTERVAL_MS)
+    }, interval)
   }
 
+  /**
+   * Re-list a chat's attachments. Past the budget the listing is still the
+   * only thing that will settle these rows, so it keeps going at a slower
+   * pace instead of stopping, and says once that reading takes longer.
+   */
   private async runSessionPoll(poll: SessionPollState): Promise<void> {
     if (this.sessionPoll !== poll) return
     const store = this.getStore()
 
-    if (poll.pollCount >= MAX_POLL_ATTEMPTS) {
-      this.stopSessionPolling()
-      store.setError('Upload timed out. Please try again.')
-      return
-    }
+    if (poll.pollCount === MAX_POLL_ATTEMPTS) this.announceStillReading()
     poll.pollCount++
 
     try {
@@ -522,19 +538,17 @@ class UploadOrchestratorImpl {
     }
 
     if (this.pollingState.pollCount >= MAX_POLL_ATTEMPTS) {
-      this.stopPolling()
-      store.setError('Upload timed out. Please try again.')
-      removePersistedJob(jobId)
+      this.handOverToListing(jobId)
       return
     }
 
     try {
       const status = await client.getJobStatus(jobId, abortController.signal)
 
+      // The job store forgot the job (a restart, an expiry). The document rows
+      // it was writing did not go anywhere, so neither does the upload.
       if (!status) {
-        this.stopPolling()
-        store.setError('Job not found')
-        removePersistedJob(jobId)
+        this.handOverToListing(jobId)
         return
       }
 
@@ -594,17 +608,36 @@ class UploadOrchestratorImpl {
 
       if (!this.pollingState) return
 
+      // A failed status read is not a failed upload. The budget check at the
+      // top of the next poll decides when to stop asking.
       this.pollingState.pollCount++
-
-      if (this.pollingState.pollCount >= MAX_POLL_ATTEMPTS) {
-        this.stopPolling()
-        const message = err instanceof Error ? err.message : 'Polling failed'
-        store.setError(message)
-        this.emit('onError', err instanceof Error ? err : new Error(message))
-      } else {
-        this.scheduleNextPoll()
-      }
+      this.scheduleNextPoll()
     }
+  }
+
+  /**
+   * Stop following a job without calling its upload failed.
+   *
+   * Its rows lose the job id and wait as `ingesting`, which is exactly what
+   * `useSettleTrackedUploads` finishes from the workspace listing: that
+   * listing follows the document rows to the end, with or without a job.
+   */
+  private handOverToListing(jobId: string): void {
+    this.stopPolling()
+    removePersistedJob(jobId)
+    const store = this.getStore()
+    for (const file of store.trackedFiles) {
+      if (file.jobId !== jobId) continue
+      if (file.status !== 'uploading' && file.status !== 'ingesting') continue
+      store.updateTrackedFile(file.id, { jobId: undefined, status: 'ingesting' })
+    }
+    this.announceStillReading()
+    if (this.jobQueue.length > 0) this.dequeueAndPoll()
+  }
+
+  /** A notice, not an error: nothing failed and there is nothing to retry. */
+  private announceStillReading(): void {
+    toast.info(getStoreTranslator('files')('uploads.stillReading'), { id: STILL_READING_TOAST_ID })
   }
 
   /**

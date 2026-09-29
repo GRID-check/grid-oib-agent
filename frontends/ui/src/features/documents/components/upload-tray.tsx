@@ -380,6 +380,7 @@ function UploadRow({
   const ext = fileExtensionLabel(file.fileName)
   const canCancel = (phase === 'uploading' || phase === 'queued') && onCancel !== undefined
   const isFailed = phase === 'failed'
+  const unchanged = file.unchanged === true && phase === 'ready'
 
   return (
     <motion.li
@@ -419,13 +420,19 @@ function UploadRow({
 
         <span
           className={cn(
-            'w-[68px] shrink-0 text-right text-xs font-medium tabular-nums',
-            phase === 'ready' && 'text-success',
+            // The server's „unchanged" answer is a sentence, not a status word,
+            // so it may take the width a percentage never needs.
+            unchanged ? 'min-w-[68px]' : 'w-[68px]',
+            'shrink-0 text-right text-xs font-medium tabular-nums',
+            phase === 'ready' && !unchanged && 'text-success',
             isFailed && 'text-destructive',
-            phase !== 'ready' && !isFailed && 'text-muted-foreground'
+            (unchanged || (phase !== 'ready' && !isFailed)) && 'text-muted-foreground'
           )}
+          data-testid={unchanged ? 'upload-row-unchanged' : undefined}
         >
-          <ShimmerText active={phase === 'processing'}>{phaseLabel(phase, percent, t)}</ShimmerText>
+          <ShimmerText active={phase === 'processing'}>
+            {unchanged ? t('uploads.row.unchanged') : phaseLabel(phase, percent, t)}
+          </ShimmerText>
         </span>
 
         {canCancel && (

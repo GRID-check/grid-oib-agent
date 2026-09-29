@@ -185,8 +185,9 @@ const FileChip: FC<{
   const isPending = file.status === 'uploading' || file.status === 'ingesting'
   const isFailed = file.status === 'failed'
   const isSuccess = file.status === 'success'
+  // Uploading and reading are both pending, but only one of them is an upload.
   const statusTitle = isPending
-    ? t('inputArea.fileUploadingStatus')
+    ? t(file.status === 'ingesting' ? 'fileSourceCard.statusIngesting' : 'inputArea.fileUploadingStatus')
     : isFailed
       ? file.errorMessage || t('inputArea.fileFailedStatus')
       : t('inputArea.fileReadyStatus')

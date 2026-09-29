@@ -8,6 +8,9 @@ import { sourceBase, sourceTint } from '@/lib/ui/source-tint'
 import { AlertCircle, Archive, RotateCcw, X } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { useArchivDocuments } from '../hooks/use-archiv-documents'
+import { useUploadDecision } from '../hooks/use-upload-decision'
+import { filesToUpload } from '../lib/folder-upload-plan'
+import { FolderUploadDialog } from './folder-upload-dialog'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
@@ -22,6 +25,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { CountPill } from '@/components/ui/count-pill'
 import { EmptyState } from '@/components/ui/empty-state'
+import { fetchListingPages } from '../lib/fetch-listing-pages'
+import { createDocumentNameProbeClient } from '@/lib/documents/name-probe-client'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import { inferDocumentKind } from '../document-kind'
@@ -77,6 +82,7 @@ const OFFICE_TINT = sourceTint('office')
 
 interface ArchivListResponse {
   documents?: Array<Record<string, unknown>>
+  nextCursor?: string | null
   collectionName?: string
   canManage?: boolean
 }
@@ -108,6 +114,8 @@ export function ArchivWorkspace({
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  /** The drain stopped at its page ceiling: older documents are not loaded. */
+  const [truncated, setTruncated] = useState(false)
 
   /**
    * Only the LATEST request may commit its answer.
@@ -133,15 +141,14 @@ export function ArchivWorkspace({
     const isStale = () => generation !== loadGeneration.current
     if (!quiet) setIsLoading(true)
     setLoadError(false)
-    return fetch('/api/archiv/documents')
-      .then((r) => {
-        if (!r.ok) throw new Error(`Failed to load Archiv (${r.status})`)
-        return r.json() as Promise<ArchivListResponse>
-      })
-      .then((data) => {
+    // Every page: the Archiv is paged by the server, and the library's search
+    // and category chips run over what is loaded here.
+    return fetchListingPages<Record<string, unknown>, ArchivListResponse>('/api/archiv/documents')
+      .then(({ first, documents, truncated: stoppedEarly }) => {
         if (isStale()) return
-        setCollectionName(data.collectionName)
-        const docs: FileItem[] = (data.documents ?? []).map((d) => ({
+        setCollectionName(first.collectionName)
+        setTruncated(stoppedEarly)
+        const docs: FileItem[] = documents.map((d) => ({
           id: d.id as string,
           filename: d.filename as string,
           displayName: (d.displayName as string | null) ?? null,
@@ -156,6 +163,10 @@ export function ArchivWorkspace({
           chunkCount: (d.chunkCount as number | null) ?? null,
           contentTypes: (d.contentTypes as string[] | null) ?? null,
           tags: (d.tags as string[] | null) ?? null,
+          // Read by the upload plan: a same-name file is a new version, and an
+          // identical one is nothing to send.
+          contentHash: (d.contentHash as string | null) ?? null,
+          authoredBy: d.authoredBy === 'agent' ? 'agent' : 'user',
         }))
         setFiles(docs)
       })
@@ -351,16 +362,48 @@ export function ArchivWorkspace({
   // file read from its PDF rendition) uploads with no job for the orchestrator.
   useSettleTrackedUploads(files, activeUploads)
 
+  /*
+   * A same-name file is a new version of the Archiv document, exactly as it is
+   * in a project's Dateien, so it asks first — from the listing, the same plan
+   * and the same dialog. The Archiv has no folders, so the plan is flat.
+   */
+  const uploadDecision = useUploadDecision()
+  const { propose: proposeUpload, plan: uploadPlan, setOpen: setUploadPlanOpen, setPending: setUploadPlanPending } =
+    uploadDecision
+  const tFiles = useTranslations('files')
+  // Asked of the server by name, not of the listing on screen — see the
+  // project workspace's `corpusForPlan` for why the listing is not the shelf.
+  const probeNames = useMemo(() => createDocumentNameProbeClient(), [])
+  const handleUpload = useCallback(
+    (incoming: File[]) => {
+      proposeUpload(
+        { files: incoming, documents: probeNames.archiv, folders: [], currentFolderId: null, flat: true },
+        (direct) => void uploadFiles(direct)
+      ).catch(() => toast.error(tFiles('folderUpload.compareError')))
+    },
+    [proposeUpload, probeNames, uploadFiles, tFiles]
+  )
+  const applyUploadPlan = useCallback(
+    async (includeUpdates: boolean) => {
+      if (!uploadPlan) return
+      const selected = filesToUpload(uploadPlan, includeUpdates).map((planned) => planned.file)
+      setUploadPlanOpen(false)
+      setUploadPlanPending(false)
+      if (selected.length > 0) await uploadFiles(selected)
+    },
+    [uploadPlan, setUploadPlanOpen, setUploadPlanPending, uploadFiles]
+  )
+
   // Drag-and-drop routes into the same upload path the button uses (managers only).
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
-    onDrop: uploadFiles,
+    onDrop: handleUpload,
     disabled: isUploading || !canManage,
   })
 
   useWindowDragGuard()
 
   const uploadButton = canManage ? (
-    <ProjectUppyUpload onUpload={(f) => uploadFiles(f)} isUploading={isUploading} />
+    <ProjectUppyUpload onUpload={handleUpload} isUploading={isUploading} />
   ) : undefined
 
   return (
@@ -440,6 +483,16 @@ export function ArchivWorkspace({
         onDismiss={dismissFiles}
       />
 
+      {/* The drain hit its ceiling: say the oldest documents are not loaded. */}
+      {truncated && (
+        <div className="border-b px-4 py-2">
+          <Alert>
+            <AlertCircle className="size-4" />
+            <AlertDescription>{t('workspace.listTruncated', { count: files.length })}</AlertDescription>
+          </Alert>
+        </div>
+      )}
+
       {/* Library grid; the preview opens in the shared centered-modal dialog. */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
         {/* The last row of cards dissolves at the bottom edge instead of being
@@ -509,6 +562,16 @@ export function ArchivWorkspace({
           showModels={showModels}
         />
       </div>
+
+      <FolderUploadDialog
+        open={uploadDecision.open}
+        onOpenChange={setUploadPlanOpen}
+        plan={uploadPlan}
+        currentFolderName={t('title')}
+        onConfirm={applyUploadPlan}
+        pending={uploadDecision.pending}
+        kind={uploadDecision.kind}
+      />
 
       {/*
         The model, when the URL names one — the same full-screen stage a

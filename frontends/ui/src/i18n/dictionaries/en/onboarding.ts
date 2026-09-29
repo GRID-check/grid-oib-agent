@@ -104,7 +104,7 @@ export const onboarding = {
       },
       projectFiles: {
         title: 'Files: this project’s documents',
-        body: 'Upload plans, reports and correspondence for this building. Once a file is indexed, Piloti can quote it — only inside this project.',
+        body: 'Upload plans, reports and correspondence for this building. Once a file has been read, Piloti can quote it, but only inside this project.',
       },
       projectArchiv: {
         title: 'Archiv: your office’s documents',

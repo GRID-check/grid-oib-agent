@@ -27,6 +27,7 @@ import { FilePreviewHost } from '@/features/documents/components/file-preview-ho
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 import { FilePreviewPane } from '@/features/documents/components/file-preview-pane'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
+import { buildPdf, type PdfLine } from '../_fixtures/sample-pdf'
 
 // A visible "document page" so the left preview renders something real (not a
 // blank iframe) in the screenshot. Encoded as an SVG data URI, backend-free.
@@ -261,6 +262,78 @@ function SettlingPreview(): JSX.Element {
   }, [])
   return <FilePreviewHost />
 }
+
+/**
+ * `?variant=pdf` and `?variant=pdf-unreadable`: a PDF upload in the pane's own
+ * pdf.js viewer, and the same file when its bytes cannot be opened.
+ *
+ * The viewer FETCHES `/api/documents/{id}/file` (see `documentFileUrl`), so the
+ * shim answers that route with real bytes built by `sample-pdf.ts` — for these
+ * and for `office-converted`, whose `/file` streams the rendition. The
+ * unreadable one answers 500 there, which is what the pane's failure state and
+ * its retry exist for.
+ */
+const PDF_VARIANTS = ['pdf', 'pdf-unreadable'] as const
+type PdfVariant = (typeof PDF_VARIANTS)[number]
+
+const pdfFixture = (variant: PdfVariant): FileItem => ({
+  ...FIXTURE,
+  id: `dev-doc-${variant}`,
+  contentType: 'application/pdf',
+})
+
+const isPdfVariant = (value: string | undefined): value is PdfVariant =>
+  (PDF_VARIANTS as readonly string[]).includes(value ?? '')
+
+const BRANDSCHUTZ_PAGES: readonly (readonly PdfLine[])[] = [
+  [
+    ['Brandschutzkonzept Wohnbau Nord', 22, true],
+    ['Gebäudeklasse 4 · OIB-Richtlinie 2 (2023)', 11, false],
+    ['', 11, false],
+    ['1. Fluchtwege', 14, true],
+    ['', 11, false],
+    ['Je Nutzungseinheit stehen zwei voneinander unabhängige Fluchtwege', 11, false],
+    ['zur Verfügung: der erste über den notwendigen Flur in das nördliche', 11, false],
+    ['Sicherheitstreppenhaus, der zweite über die anleiterbaren Fenster', 11, false],
+    ['an der Ostfassade.', 11, false],
+    ['', 11, false],
+    ['Die maximale Gehweglänge im notwendigen Flur beträgt 34 m und', 11, false],
+    ['liegt damit unter dem Grenzwert von 40 m.', 11, false],
+    ['', 11, false],
+    ['2. Brandabschnitte', 14, true],
+    ['', 11, false],
+    ['Brandabschnitte sind mit Trennwänden REI 90 ausgeführt; die', 11, false],
+    ['Wohnungstrennwände erreichen REI 60.', 11, false],
+  ],
+  [
+    ['3. Rauchableitung', 14, true],
+    ['', 11, false],
+    ['Die Rauchableitung erfolgt über die Rauch- und Wärmeabzugsanlage', 11, false],
+    ['im Treppenhaus mit einer aerodynamisch wirksamen Öffnungsfläche', 11, false],
+    ['von 1,0 m².', 11, false],
+    ['', 11, false],
+    ['4. Löschwasser und Feuerwehr', 14, true],
+    ['', 11, false],
+    ['Löschwasserversorgung, Aufstellflächen und die Kennzeichnung der', 11, false],
+    ['Rettungswege sind im Lageplan Blatt 3 dokumentiert.', 11, false],
+  ],
+]
+
+const RAUMPROGRAMM_PAGES: readonly (readonly PdfLine[])[] = [
+  [
+    ['Raumprogramm Wohnbau Nord', 22, true],
+    ['Flächen je Nutzungseinheit und Geschoss', 11, false],
+    ['', 11, false],
+    ['Regelgeschoss', 14, true],
+    ['', 11, false],
+    ['Top 1   Wohnen/Essen 38,4 m²   Zimmer 12,1 m²   Zimmer 10,8 m²', 11, false],
+    ['Top 2   Wohnen/Essen 34,9 m²   Zimmer 11,6 m²', 11, false],
+    ['Top 3   Wohnen/Essen 38,4 m²   Zimmer 12,1 m²   Zimmer 10,8 m²', 11, false],
+    ['Top 4   Wohnen/Essen 29,7 m²', 11, false],
+    ['', 11, false],
+    ['Erschließung über den Laubengang an der Hofseite.', 11, false],
+  ],
+]
 
 const isOfficeVariant = (value: string | undefined): value is OfficeVariant =>
   (OFFICE_VARIANTS as readonly string[]).includes(value ?? '')
@@ -512,8 +585,8 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
         return Response.json({ code: 'RENDITION_FAILED' }, { status: 502 })
       }
       if (officeMatch) {
-        // The page SVG stands in for the rendition's bytes: an iframe draws
-        // either, and the route's answer is what the pane decides by.
+        // The route's answer is what the pane decides by; the viewer then
+        // reads the rendition's bytes from `/file`, answered below.
         return Response.json({
           url: PAGE_SVG,
           contentType: 'application/pdf',
@@ -521,6 +594,17 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
           sourceContentType:
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         })
+      }
+      // The same-origin stream the pdf.js viewer reads: the rendition for the
+      // office file, the upload itself for a PDF.
+      const fileMatch = /\/api\/documents\/(.+)\/file$/.exec(url)
+      if (fileMatch?.[1] === 'dev-doc-pdf-unreadable') {
+        return new Response('upstream unavailable', { status: 500 })
+      }
+      if (fileMatch) {
+        const pages =
+          fileMatch[1] === 'dev-doc-office-converted' ? RAUMPROGRAMM_PAGES : BRANDSCHUTZ_PAGES
+        return new Response(buildPdf(pages), { headers: { 'Content-Type': 'application/pdf' } })
       }
       if (/\/api\/documents\/.+\/preview$/.test(url)) {
         return Response.json({ url: PAGE_SVG })
@@ -666,7 +750,11 @@ export default function FilePreviewDevPage({
 
   if (variant === 'settling') return <SettlingPreview />
 
-  const officeFile = isOfficeVariant(variant) ? officeFixture(variant) : null
+  const officeFile = isOfficeVariant(variant)
+    ? officeFixture(variant)
+    : isPdfVariant(variant)
+      ? pdfFixture(variant)
+      : null
 
   return (
     <FilePreviewDialog

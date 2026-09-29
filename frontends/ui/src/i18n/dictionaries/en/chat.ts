@@ -113,8 +113,8 @@ export const chat = {
       buero: 'Office archive',
       session: 'Attachment in this chat',
     },
-    notIndexed: 'Not indexed — readable, but it cannot be cited.',
-    failed: 'Processing this file failed.',
+    notIndexed: 'Filed, not read. You can open it, but Piloti does not cite it.',
+    failed: 'Reading failed. Piloti cannot cite this file.',
   },
   composer: {
     /** Shown when the reader holds project:view but not project:chat. */
@@ -1102,12 +1102,6 @@ export const chat = {
       'Your usage budget is used up, so new messages can’t be sent right now. You can review your own usage under Organization → Usage & budgets. Ask an organization admin to raise your limit.',
     adminMessage:
       'The usage budget is used up, so new messages can’t be sent right now. Raise the limits under Organization → Usage & budgets.',
-  },
-  fileUpload: {
-    uploading:
-      'File is uploading and ingesting. Until completion, a file cannot be included in queries.',
-    pendingWarning:
-      'Files are pending! Wait until they are ready or send your query again to continue WITHOUT those files.',
   },
   noSources: {
     warning:

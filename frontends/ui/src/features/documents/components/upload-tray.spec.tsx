@@ -41,6 +41,14 @@ describe('UploadTray', () => {
       expect(screen.getByText(/no time estimate/i)).toBeDefined()
     })
 
+    it('says „unchanged – already here" when the server already held these bytes', () => {
+      renderTray([tracked({ status: 'success', unchanged: true, bytesUploaded: 4_000_000 })])
+
+      const row = screen.getByTestId('upload-row')
+      expect(within(row).getByTestId('upload-row-unchanged')).toHaveTextContent('Unchanged – already here')
+      expect(within(row).queryByText('Citable')).toBeNull()
+    })
+
     it('never invents a number for a queued file', () => {
       renderTray([tracked({ status: 'uploading' })])
 

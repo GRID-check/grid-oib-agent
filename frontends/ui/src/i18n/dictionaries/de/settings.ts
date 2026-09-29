@@ -54,7 +54,7 @@ export const settings: typeof en.settings = {
       '{count, plural, one {# Dokument wird} other {# Dokumente werden}} neu indiziert. Der Status aktualisiert sich laufend.',
     reindexNothing: 'Nichts zu indizieren — kein Dokument in diesem Projekt hat bisher gespeicherte Inhalte',
     reindexPartial:
-      '{count, plural, one {# Dokument wurde} other {# Dokumente wurden}} nicht geändert, weil der alte Index nicht zuerst geleert werden konnte',
+      '{count, plural, one {# Dokument konnte} other {# Dokumente konnten}} nicht neu eingelesen werden. Der bisherige Index dieser Dokumente bleibt erhalten.',
     reindexFailed: 'Neuindizierung konnte nicht gestartet werden',
     membersDescriptionManage:
       'Weisen Sie Organisationsmitgliedern Projektrollen zu. Organisations-Admins haben immer Zugriff.',

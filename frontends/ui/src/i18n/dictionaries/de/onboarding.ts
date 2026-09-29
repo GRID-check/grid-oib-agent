@@ -106,7 +106,7 @@ export const onboarding: typeof en.onboarding = {
       },
       projectFiles: {
         title: 'Dateien: die Unterlagen dieses Projekts',
-        body: 'Laden Sie Pläne, Gutachten und Schriftverkehr zu diesem Gebäude hoch. Sobald eine Datei indexiert ist, kann Piloti daraus zitieren — nur in diesem Projekt.',
+        body: 'Laden Sie Pläne, Gutachten und Schriftverkehr zu diesem Gebäude hoch. Sobald eine Datei gelesen ist, kann Piloti daraus zitieren, und zwar nur in diesem Projekt.',
       },
       projectArchiv: {
         title: 'Archiv: die Unterlagen Ihres Büros',

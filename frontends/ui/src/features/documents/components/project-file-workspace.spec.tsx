@@ -118,6 +118,42 @@ vi.mock('@/shared/context', () => ({
   }),
 }))
 
+/**
+ * The shelf the upload planner's name probe answers from
+ * (`POST /api/documents/name-matches`). Empty unless a test puts its corpus
+ * here: the plan is asked of the server, never of the listing on screen.
+ */
+let probeShelf: DocumentWireRow[] = []
+/** Every name list the probe was asked about, in order. */
+let probedNames: string[][] = []
+
+beforeEach(() => {
+  probeShelf = []
+  probedNames = []
+  server.use(
+    http.post('/api/documents/name-matches', async ({ request }) => {
+      const { names } = (await request.json()) as { names: string[] }
+      probedNames.push(names)
+      const fold = (name: string) => name.normalize('NFC').trim().toLowerCase()
+      const wanted = new Set(names.map(fold))
+      const documents = probeShelf
+        .filter((doc) => doc.authoredBy !== 'agent')
+        .filter((doc) => [doc.filename, doc.displayName].some((name) => name && wanted.has(fold(name))))
+        .map((doc) => ({
+          id: doc.id,
+          filename: doc.filename,
+          displayName: doc.displayName ?? null,
+          fileSize: doc.fileSize,
+          contentHash: doc.contentHash ?? null,
+          folderId: doc.folderId ?? null,
+          authoredBy: doc.authoredBy ?? 'user',
+          lifecycle: doc.lifecycle ?? 'active',
+        }))
+      return HttpResponse.json({ documents })
+    }),
+  )
+})
+
 /** Minimal DataTransfer stand-in for jsdom drag events. */
 function makeDataTransfer(files: File[]) {
   return {
@@ -265,6 +301,7 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
     files: DocumentWireRow[] = [existing],
     folders: Array<{ id: string; parentId: string | null; name: string; path: string }> = [],
   ) {
+    probeShelf = files
     return renderWorkspace(
       <ProjectFileWorkspace
         projectId="proj-1"
@@ -410,6 +447,186 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
 
     await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([file]))
     expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * A REVISED FILE UNDER THE SAME NAME (U1).
+ *
+ * The same drop used to do two different things depending on the browser: one
+ * that had uploaded to the project before refused it as „bereits hinzugefügt"
+ * (its localStorage remembered the name), a fresh one replaced the live
+ * document without a word. Both now ask, and both ask from the listing.
+ */
+describe('ProjectFileWorkspace — a picked file the project already holds', () => {
+  const existing: DocumentWireRow = {
+    id: 'doc-eg',
+    filename: 'EG.pdf',
+    displayName: null,
+    fileSize: 10,
+    contentType: 'application/pdf',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00.000Z',
+    errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
+    tags: null,
+    assignees: [],
+    authoredBy: 'user' as const,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+    server.use(
+      http.get('/api/documents', () => HttpResponse.json({ documents: [existing] })),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function renderWithCorpus(files: DocumentWireRow[] = [existing]) {
+    probeShelf = files
+    return renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={files}
+        initialFolders={[]}
+      />,
+    )
+  }
+
+  function pick(file: File) {
+    // The empty state draws a second upload control; either is the same path.
+    const input = screen.getAllByTestId('project-upload-input')[0] as HTMLInputElement
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    fireEvent.change(input)
+  }
+
+  it('asks „new version of X?" and uploads it on yes', async () => {
+    renderWithCorpus()
+    const revised = new File(['revised bytes'], 'EG.pdf', { type: 'application/pdf' })
+    pick(revised)
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    await waitFor(() => expect(dialog).toHaveAttribute('data-kind', 'single-update'))
+    expect(within(dialog).getByText('Upload a new version of “EG.pdf”?')).toBeInTheDocument()
+    // Nothing leaves on the strength of the gesture alone.
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+
+    const confirm = within(dialog).getByTestId('folder-upload-confirm')
+    expect(confirm).toHaveTextContent('Upload as new version')
+    await userEvent.click(confirm)
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
+    const [sent, options] = mockUploadFiles.mock.calls[0] as [
+      File[],
+      { folderIdFor: (file: File) => string | null },
+    ]
+    // The same upload path a replacement always took — the server keeps the
+    // document's id and records the bytes as its next version.
+    expect(sent).toEqual([revised])
+    expect(options.folderIdFor(revised)).toBeNull()
+  })
+
+  it('sends nothing when the reader cancels', async () => {
+    renderWithCorpus()
+    pick(new File(['revised bytes'], 'EG.pdf', { type: 'application/pdf' }))
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    await waitFor(() => expect(dialog).toHaveAttribute('data-kind', 'single-update'))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() => expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument())
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  it('says „unchanged – already here" for identical bytes and uploads nothing', async () => {
+    const digest = `sha256:${'a'.repeat(64)}`
+    renderWithCorpus([{ ...existing, fileSize: 4, contentHash: digest }])
+    vi.stubGlobal('crypto', {
+      ...globalThis.crypto,
+      subtle: { digest: async () => new Uint8Array(32).fill(0xaa).buffer },
+    })
+    pick(new File(['same'], 'EG.pdf', { type: 'application/pdf' }))
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    await waitFor(() => expect(dialog).toHaveAttribute('data-kind', 'single-unchanged'))
+    expect(within(dialog).getByText('Unchanged – already here')).toBeInTheDocument()
+    expect(within(dialog).queryByTestId('folder-upload-confirm')).not.toBeInTheDocument()
+
+    await userEvent.click(within(dialog).getByTestId('folder-upload-close'))
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  it('compares against the whole shelf while „Von Piloti" narrows the listing', async () => {
+    const searches: string[] = []
+    server.use(
+      http.get('/api/documents', ({ request }) => {
+        const search = new URL(request.url).search
+        searches.push(search)
+        // The narrowed listing holds no human upload; the shelf does.
+        return HttpResponse.json({ documents: search.includes('authoredBy=agent') ? [] : [existing] })
+      }),
+    )
+    renderWithCorpus()
+
+    await userEvent.click(screen.getByTestId('file-filter-menu-trigger'))
+    await userEvent.click(await screen.findByLabelText('By Piloti'))
+    await waitFor(() => expect(searches.at(-1)).toContain('authoredBy=agent'))
+    await userEvent.keyboard('{Escape}')
+
+    pick(new File(['revised bytes'], 'EG.pdf', { type: 'application/pdf' }))
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    await waitFor(() => expect(dialog).toHaveAttribute('data-kind', 'single-update'))
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  // The listing on screen is paged and leaves archived documents out; the
+  // upload versions a same-name document either way. So the plan asks the
+  // server by name, and a match the browser never loaded is still asked about.
+  it('asks about a same-name document the loaded listing does not hold', async () => {
+    renderWithCorpus([])
+    probeShelf = [{ ...existing, lifecycle: 'archived' }]
+    const revised = new File(['revised bytes'], 'EG.pdf', { type: 'application/pdf' })
+    pick(revised)
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    await waitFor(() => expect(dialog).toHaveAttribute('data-kind', 'single-update'))
+    expect(probedNames.at(-1)).toEqual(['EG.pdf'])
+    // Archived, and the new version stays out of the list with it — said, not
+    // discovered afterwards.
+    expect(within(dialog).getByTestId('folder-upload-archived')).toBeInTheDocument()
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  it('sends a name the shelf does not hold straight to the upload', async () => {
+    renderWithCorpus()
+    const fresh = new File(['x'], 'Neu.pdf', { type: 'application/pdf' })
+    pick(fresh)
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([fresh]))
+    expect(probedNames).toEqual([['Neu.pdf']])
+    expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
+  })
+
+  it('says so when the comparison could not be made, and sends nothing', async () => {
+    server.use(http.post('/api/documents/name-matches', () => HttpResponse.json({}, { status: 500 })))
+    renderWithCorpus()
+    pick(new File(['x'], 'EG.pdf', { type: 'application/pdf' }))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled())
+    expect(mockUploadFiles).not.toHaveBeenCalled()
   })
 })
 
@@ -1169,7 +1386,7 @@ describe('ProjectFileWorkspace — only the newest answer may win', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
 
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
-    expect(await screen.findByText('Processing')).toBeInTheDocument()
+    expect(await screen.findByText('Reading')).toBeInTheDocument()
 
     // The settling poll goes out and hangs.
     await vi.advanceTimersByTimeAsync(4_100)
@@ -1189,7 +1406,7 @@ describe('ProjectFileWorkspace — only the newest answer may win', () => {
     await flushWithoutPolling()
 
     expect(screen.getByText('Citable')).toBeInTheDocument()
-    expect(screen.queryByText('Processing')).not.toBeInTheDocument()
+    expect(screen.queryByText('Reading')).not.toBeInTheDocument()
 
     // …and it must not resurrect the poll either: the corpus is terminal, so
     // nothing more is asked for.
@@ -1694,4 +1911,110 @@ describe('ProjectFileWorkspace — the open file is on the URL', () => {
       { timeout: 6_000 },
     )
   }, 10_000)
+})
+
+/**
+ * A project larger than one page of the listing.
+ *
+ * `GET /api/documents` used to answer the newest 500 and stop, silently: the
+ * oldest plans of a big project were not on screen, search and filters could
+ * not find them, and a dropped folder labelled them „Neu". The listing is paged
+ * now, and the workspace reads it to the end — or says, visibly, where it
+ * stopped.
+ */
+describe('ProjectFileWorkspace — a corpus larger than one page', () => {
+  const row = (id: string, filename: string): DocumentWireRow => ({
+    id,
+    filename,
+    displayName: null,
+    fileSize: 10,
+    contentType: 'application/pdf',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00.000Z',
+    errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
+    tags: null,
+    assignees: [],
+    authoredBy: 'user' as const,
+  })
+  const newest = row('doc-new', 'Neu-Plan.pdf')
+  const oldest = row('doc-old', 'EG.pdf')
+
+  let cursors: Array<string | null>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+    cursors = []
+    server.use(
+      http.get('/api/documents', ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get('cursor')
+        cursors.push(cursor)
+        return cursor === 'page-2'
+          ? HttpResponse.json({ documents: [oldest], nextCursor: null })
+          : HttpResponse.json({ documents: [newest], nextCursor: 'page-2' })
+      }),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+    )
+  })
+
+  it('follows the cursor until the last page, so the oldest document is there too', async () => {
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+
+    expect(await findFileButton(/EG\.pdf/)).toBeInTheDocument()
+    expect(await findFileButton(/Neu-Plan\.pdf/)).toBeInTheDocument()
+    expect(cursors).toEqual([null, 'page-2'])
+    expect(screen.queryByText(/showing the newest/i)).not.toBeInTheDocument()
+  })
+
+  it('reads the rest after a first-page seed, and a dropped folder then knows the old file', async () => {
+    probeShelf = [newest, oldest]
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[newest]}
+        initialFilesComplete={false}
+        initialFolders={[]}
+      />,
+    )
+    // The seed paints at once, without a skeleton over it …
+    expect(await findFileButton(/Neu-Plan\.pdf/)).toBeInTheDocument()
+    expect(screen.queryByTestId('file-browser-skeleton')).not.toBeInTheDocument()
+    // … and the page it did not carry arrives behind it.
+    expect(await findFileButton(/EG\.pdf/)).toBeInTheDocument()
+
+    const file = new File(['x'.repeat(10)], 'EG.pdf', { type: 'application/pdf' })
+    Object.defineProperty(file, 'webkitRelativePath', { value: 'Wohnbau/EG.pdf', configurable: true })
+    const input = screen.getByTestId('project-upload-folder-input') as HTMLInputElement
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    fireEvent.change(input)
+
+    // The U2 symptom: compared against the newest page alone, this said „Neu".
+    // The plan asks the server by name now; the shelf holds both.
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    await waitFor(() => expect(within(dialog).getByTestId('folder-upload-count-update')).toHaveTextContent('1'))
+    expect(within(dialog).getByTestId('folder-upload-count-new')).toHaveTextContent('0')
+  })
+
+  it('stops at the page ceiling and says so, rather than pretending to be whole', async () => {
+    let requests = 0
+    server.use(
+      http.get('/api/documents', () => {
+        requests += 1
+        return HttpResponse.json({ documents: [row(`doc-${requests}`, `plan-${requests}.pdf`)], nextCursor: `c${requests}` })
+      }),
+    )
+
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+
+    expect(await screen.findByText(/showing the newest 20 documents/i)).toBeInTheDocument()
+    expect(requests).toBe(20)
+  })
 })

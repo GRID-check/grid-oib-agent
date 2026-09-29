@@ -1,0 +1,14 @@
+---
+fixes:
+  - >
+    A large upload that takes more than half an hour to read no longer shows
+    an upload problem and a request to try again. The file stays at Wird
+    gelesen, a notice says reading continues in the background, and the row
+    turns citable when the document is ready.
+  - >
+    Dateien and the Archiv now use one word for reading a document: Wird
+    gelesen, Lesen fehlgeschlagen and Erneut lesen. Before, the same step
+    appeared under five names.
+  - >
+    The Archiv's Schnitt filter now says Schnitt / Ansicht, as in Dateien,
+    because it also finds elevations.

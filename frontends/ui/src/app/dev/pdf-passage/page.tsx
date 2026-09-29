@@ -37,14 +37,12 @@ import { PdfDocumentView } from '@/features/knowledge/components/pdf-document-vi
 import { CitationDocumentDialog } from '@/features/chat/components/SourcePreview'
 import { buildCitationModel, resolveCitationTarget } from '@/features/chat/lib/citations'
 import type { CitationSource } from '@/features/chat/types'
+import { buildPdf, type PdfLine } from '../_fixtures/sample-pdf'
 
 const FILE_NAME = 'bescheid_ba-2026-0417.pdf'
 const TITLE = 'Bescheid BA-2026-0417'
 
-/** One printed line: text, point size, bold. */
-type Line = readonly [string, number, boolean]
-
-const PAGES: readonly (readonly Line[])[] = [
+const PAGES: readonly (readonly PdfLine[])[] = [
   [
     ['Bescheid der Baubehörde erster Instanz', 22, true],
     ['Geschäftszahl BA-2026-0417/12', 11, false],
@@ -101,79 +99,6 @@ const PAGES: readonly (readonly Line[])[] = [
  */
 const CITED_PASSAGE =
   'Die beiden voneinander unabhängigen Fluchtwege je Nutzungseinheit sind während der gesamten Bauführung freizuhalten.'
-
-const PAGE_WIDTH = 595
-const PAGE_HEIGHT = 842
-
-/** Escape the three characters a PDF literal string cannot carry raw. */
-const pdfString = (text: string): string => text.replace(/([\\()])/g, '\\$1')
-
-/** One page's content stream, laid out from the top margin down. */
-const contentStream = (lines: readonly Line[]): string => {
-  let content = ''
-  let y = PAGE_HEIGHT - 70
-  for (const [text, size, bold] of lines) {
-    if (text) {
-      content += `BT /${bold ? 'F2' : 'F1'} ${size} Tf 1 0 0 1 64 ${y} Tm (${pdfString(text)}) Tj ET\n`
-    }
-    y -= size + 8
-  }
-  return content
-}
-
-/**
- * Assemble the document.
- *
- * Written out longhand rather than pulled from a library because the whole file
- * is a hundred lines of it, and because the cross-reference table has to carry
- * real byte offsets — which is exactly what a string-concatenating "generator"
- * gets wrong. Every character stays below U+0100, so the string's indices ARE
- * its byte offsets and WinAnsi encodes umlauts one byte each.
- *
- * Object numbering, since the Kids array has to name it before the objects
- * exist: 1 catalog, 2 pages, then one page object per sheet, then one content
- * stream per sheet, then the two fonts.
- */
-const buildPdf = (): Uint8Array<ArrayBuffer> => {
-  const count = PAGES.length
-  const firstPage = 3
-  const firstContent = firstPage + count
-  const [regular, bold] = [firstContent + count, firstContent + count + 1]
-  const kids = PAGES.map((_, index) => `${firstPage + index} 0 R`).join(' ')
-
-  const objects = [
-    '<</Type/Catalog/Pages 2 0 R>>',
-    `<</Type/Pages/Kids[${kids}]/Count ${count}>>`,
-    ...PAGES.map(
-      (_, index) =>
-        `<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}]` +
-        `/Resources<</Font<</F1 ${regular} 0 R/F2 ${bold} 0 R>>>>` +
-        `/Contents ${firstContent + index} 0 R>>`
-    ),
-    ...PAGES.map((lines) => {
-      const content = contentStream(lines)
-      return `<</Length ${content.length}>>\nstream\n${content}endstream`
-    }),
-    '<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>',
-    '<</Type/Font/Subtype/Type1/BaseFont/Helvetica-Bold/Encoding/WinAnsiEncoding>>',
-  ]
-
-  let file = '%PDF-1.4\n'
-  const offsets: number[] = []
-  objects.forEach((body, index) => {
-    offsets.push(file.length)
-    file += `${index + 1} 0 obj\n${body}\nendobj\n`
-  })
-
-  const xrefStart = file.length
-  file += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
-  for (const offset of offsets) file += `${String(offset).padStart(10, '0')} 00000 n \n`
-  file += `trailer\n<</Size ${objects.length + 1}/Root 1 0 R>>\nstartxref\n${xrefStart}\n%%EOF\n`
-
-  const bytes = new Uint8Array(new ArrayBuffer(file.length))
-  for (let i = 0; i < file.length; i += 1) bytes[i] = file.charCodeAt(i) & 0xff
-  return bytes
-}
 
 /** One wire source — one LOCUS of the document, the shape the backend sends. */
 const locus = (page: number, snippet: string, number?: number): CitationSource => ({
@@ -275,7 +200,7 @@ export default function PdfPassagePreviewPage() {
   const [src, setSrc] = useState<string | null>(null)
 
   useEffect(() => {
-    const url = URL.createObjectURL(new Blob([buildPdf()], { type: 'application/pdf' }))
+    const url = URL.createObjectURL(new Blob([buildPdf(PAGES)], { type: 'application/pdf' }))
     setSrc(url)
     return () => URL.revokeObjectURL(url)
   }, [])

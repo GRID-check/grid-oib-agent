@@ -531,6 +531,28 @@ describe('useFileUpload — durable document uploads', () => {
     expect(body.get('folderId')).toBe('folder-9')
   })
 
+  test('carries the server’s „unchanged" answer onto the row, so it is not shown as a new upload', async () => {
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(1))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(
+        200,
+        JSON.stringify({ documentId: 'doc-1', jobId: null, status: 'uploaded', unchanged: true })
+      )
+      await pending
+    })
+
+    expect(mockDocumentsStoreState.updateTrackedFile).toHaveBeenCalledWith(
+      'mock-uuid',
+      expect.objectContaining({ status: 'success', serverFileId: 'doc-1', unchanged: true })
+    )
+  })
+
   test('sends several at once instead of one after another', async () => {
     const { result } = renderUpload()
 
