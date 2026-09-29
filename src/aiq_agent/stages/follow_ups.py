@@ -49,6 +49,7 @@ from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
 
+from aiq_agent.common.answer_references import prose_without_references
 from aiq_agent.common.message_utils import response_text
 from aiq_agent.common.model_overrides import AgentGroup
 
@@ -255,7 +256,8 @@ def _gate(facts: TurnFacts) -> GateDecision:
         # four more is the wrong invitation, and the reader already gets the
         # truncation note.
         return GateDecision.skip("research_truncated")
-    text = (facts.answer or "").strip()
+    # The prose, not the reference list: a cited answer's last line is a source.
+    text = prose_without_references(facts.answer or "").strip()
     if not facts.query or not text:
         return GateDecision.skip("empty_turn")
     if any(text.startswith(prefix) for prefix in _NON_ANSWERS):

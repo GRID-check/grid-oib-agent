@@ -156,6 +156,18 @@ class TestGate:
             ({"answer": GENERIC_ERROR_MESSAGE * 12}, "canned_non_answer"),
             ({"answer": "Ja, 100 cm."}, "answer_too_short"),
             ({"answer": ANSWER + "\n\nIn welchem Bundesland liegt das Projekt?"}, "answer_ends_in_question"),
+            # A cited answer's last line is a source; the question is the prose's last.
+            (
+                {
+                    "answer": ANSWER
+                    + "\n\nIn welchem Bundesland liegt das Projekt?\n\n**Quellen:**\n- [1] oib-rl_4.pdf, p.5"
+                },
+                "answer_ends_in_question",
+            ),
+            (
+                {"answer": "Ja, 100 cm [1].\n\n**Quellen:**\n" + "- [1] oib-rl_4_ausgabe_mai_2023.pdf, p.5\n" * 12},
+                "answer_too_short",
+            ),
         ],
     )
     def test_each_declined_turn_names_its_own_condition(self, overrides, reason):

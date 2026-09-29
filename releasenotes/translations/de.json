@@ -1032,6 +1032,10 @@
     "de": "Anschlussfragen wie „und in Gebäudeklasse 4?“ beantwortet Piloti aus den Stellen, die die vorige Antwort schon gelesen hat, und braucht dafür einen Schritt statt einer neuen Suche."
   },
   {
+    "en": "Follow-up suggestions no longer appear under an answer that already ends with a question to you, now also when the answer cites its sources. Answers citing many passages no longer slow down other people's answers while their quotations are checked.",
+    "de": "Vorschläge für Anschlussfragen erscheinen nicht mehr unter einer Antwort, die Ihnen bereits selbst eine Frage stellt, jetzt auch dann, wenn die Antwort Quellen zitiert. Antworten, die viele Stellen zitieren, bremsen beim Prüfen ihrer Zitate die Antworten anderer nicht mehr aus."
+  },
+  {
     "en": "Follow-up suggestions, the methods used and the answer header now survive a reload, a change of device and a colleague reading along.",
     "de": "Anschlussfragen, verwendete Methoden und Antwortkopf überstehen jetzt ein Neuladen, einen Gerätewechsel und den Blick einer Kollegin."
   },

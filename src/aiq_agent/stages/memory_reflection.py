@@ -34,6 +34,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import Field
 
+from aiq_agent.common.answer_references import prose_without_references
 from aiq_agent.common.canned_replies import NON_ANSWER_PREFIXES
 from aiq_agent.common.model_overrides import AgentGroup
 from aiq_agent.stages.registry import register_stage
@@ -71,8 +72,12 @@ _INSUFFICIENCY_TAIL_CHARS = 800
 
 
 def matches_escalation_keywords(content: str) -> bool:
-    """Whether the tail of an answer reads as an insufficiency statement."""
-    tail = content[-_INSUFFICIENCY_TAIL_CHARS:].lower()
+    """Whether the tail of an answer's prose reads as an insufficiency statement.
+
+    The prose, not the reference list: on a cited answer the last 800
+    characters are mostly sources.
+    """
+    tail = prose_without_references(content).rstrip()[-_INSUFFICIENCY_TAIL_CHARS:].lower()
     return any(phrase in tail for phrase in _INSUFFICIENCY_PHRASES)
 
 

@@ -1120,6 +1120,13 @@ Each failed condition produces `outcome:"skipped"` with that condition as
 > `research_truncated`, `empty_turn`, `canned_non_answer`, `answer_too_short`,
 > `answer_ends_in_question`.
 >
+> **The text gates read the prose, not the reference list** (2026-09-29).
+> `answer_too_short`, `answer_ends_in_question` and reflection's insufficiency
+> keywords run on `common.answer_references.prose_without_references`. Read on
+> the whole answer, a cited answer's last line was a source, so the question
+> gate never fired on one, and the source list counted towards the length
+> floor and filled reflection's 800-character tail.
+>
 > **`emitted_card_types` is deliberately NOT a condition**, although §2.3 put
 > the field there for exactly this kind of use. A turn where the answering model
 > already emitted a `follow_ups` card is precisely the turn the stage is being

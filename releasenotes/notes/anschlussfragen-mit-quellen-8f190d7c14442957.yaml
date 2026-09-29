@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Follow-up suggestions no longer appear under an answer that already ends
+    with a question to you, now also when the answer cites its sources.
+    Answers citing many passages no longer slow down other people's answers
+    while their quotations are checked.

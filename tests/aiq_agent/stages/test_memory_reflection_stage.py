@@ -230,6 +230,11 @@ class TestMatchesEscalationKeywords:
     def test_german_phrase_one_hits(self):
         assert matches_escalation_keywords("Es liegen nicht genügend Informationen vor.") is True
 
+    def test_the_keywords_are_read_in_the_prose_not_under_the_sources(self):
+        sources = "\n".join(f"- [{i}] oib-rl_2_ausgabe_mai_2023.pdf, p.{i}" for i in range(1, 30))
+        content = f"Es liegen nicht genügend Informationen vor.\n\n**Quellen:**\n{sources}"
+        assert matches_escalation_keywords(content) is True
+
     def test_german_phrase_two_hits(self):
         assert matches_escalation_keywords("Weitere Recherche erforderlich, um dies zu klären.") is True
 
