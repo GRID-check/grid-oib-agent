@@ -496,6 +496,10 @@
     "de": "In den Antwortdetails sehen Sie jetzt, wie viele Credits eine Antwort kostet und – mit Ihrem eigenen Provider-Key – wie viele Tokens. Wenn Sie mit der Maus über die Zeile fahren, sehen Sie, wie viel auf Lesen, Schreiben und Denken entfällt."
   },
   {
+    "en": "An answer's details now show what the whole answer cost, where they showed about 0.1 credits for every answer. Your budget now counts the answer itself too, not only the suggestions that follow it.",
+    "de": "In den Antwortdetails sehen Sie jetzt, was die gesamte Antwort gekostet hat; bisher wurden für jede Antwort etwa 0,1 Credits angezeigt. Ihr Budget berücksichtigt jetzt auch die Antwort selbst und nicht nur die anschließenden Vorschläge."
+  },
+  {
     "en": "An archived document no longer turns up as a source in answers, whoever wrote it. The file and its versions stay where they were; archiving is not deleting.",
     "de": "Ein archiviertes Dokument taucht nicht mehr als Quelle in Antworten auf, gleich wer es verfasst hat. Die Datei und ihre Fassungen bleiben erhalten; Archivieren ist kein Löschen."
   },

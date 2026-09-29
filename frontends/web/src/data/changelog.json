@@ -64,6 +64,10 @@
           "key": "fixes",
           "notes": [
             {
+              "en": "An answer's details now show what the whole answer cost, where they showed about 0.1 credits for every answer. Your budget now counts the answer itself too, not only the suggestions that follow it.",
+              "de": "In den Antwortdetails sehen Sie jetzt, was die gesamte Antwort gekostet hat; bisher wurden für jede Antwort etwa 0,1 Credits angezeigt. Ihr Budget berücksichtigt jetzt auch die Antwort selbst und nicht nur die anschließenden Vorschläge."
+            },
+            {
               "en": "A question in the chat no longer shows „Denkt nach\" forever when the server does not answer it. After half a minute without a reply it ends with an error you can retry.",
               "de": "Eine Frage im Chat bleibt nicht mehr endlos bei „Denkt nach“, wenn der Server nicht antwortet. Nach einer halben Minute ohne Antwort wird ein Fehler angezeigt und Sie können die Anfrage erneut senden."
             },
