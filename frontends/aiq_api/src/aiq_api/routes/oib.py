@@ -77,9 +77,15 @@ def _corpus_tarball() -> Path:
     handle = tempfile.NamedTemporaryFile(prefix="oib-corpus-", suffix=".tar.gz", delete=False)
     handle.close()
     path = Path(handle.name)
-    with tarfile.open(path, "w:gz", compresslevel=1) as archive:
-        for pdf in oib_sync.discover_pdfs():
-            archive.add(pdf, arcname=pdf.name)
+    try:
+        with tarfile.open(path, "w:gz", compresslevel=1) as archive:
+            for pdf in oib_sync.discover_pdfs():
+                archive.add(pdf, arcname=pdf.name)
+    except BaseException:
+        # The response's cleanup is only attached once this returns; a failed
+        # build would otherwise leave a partial copy of the corpus on disk.
+        path.unlink(missing_ok=True)
+        raise
     return path
 
 

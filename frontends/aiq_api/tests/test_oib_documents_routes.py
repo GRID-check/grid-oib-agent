@@ -493,3 +493,20 @@ class TestCorpusExport:
         async with _client(app) as client:
             res = await client.get("/v1/admin/oib/corpus.tar.gz")
         assert res.status_code == 503
+
+    def test_a_failed_build_leaves_no_partial_archive(self, corpus, tmp_path, monkeypatch):
+        import tempfile as tempfile_module
+
+        from aiq_api.routes import oib as oib_routes
+
+        scratch = tmp_path / "tmp"
+        scratch.mkdir()
+        monkeypatch.setattr(tempfile_module, "tempdir", str(scratch))
+
+        def broken(self, *args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr("tarfile.TarFile.add", broken)
+        with pytest.raises(OSError):
+            oib_routes._corpus_tarball()
+        assert list(scratch.iterdir()) == []
