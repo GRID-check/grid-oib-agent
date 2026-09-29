@@ -40,7 +40,12 @@ import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatBytes } from '@/lib/format'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
 import { cn } from '@/lib/utils'
-import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
+import {
+  extChipTint,
+  fileExtensionLabel,
+  fileFormatMessage,
+  inferDocumentKind,
+} from '../document-kind'
 import type { DocumentKind } from '../document-kind'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
@@ -334,6 +339,7 @@ export function FilePreviewPane({
   const canExpandPreview = shownType === 'application/pdf' || isImage
   const isFailed = file.status === 'failed'
   const Icon = fileTypeIcon(file.contentType, file.filename)
+  const formatMessage = fileFormatMessage(file)
   // Only surface content categories when there is something beyond plain text;
   // a lone "Text" row is noise for the text-only documents that dominate here.
   const hasRichContent = (file.contentTypes ?? []).some((c) => c !== 'text')
@@ -1233,14 +1239,17 @@ export function FilePreviewPane({
                   answers it, and the same fact stated twice on one surface
                   reads as two facts. */}
                 <MetaRow label={t('preview.type')} icon={FileCode2}>
-                  {/* `block`: `truncate` clips nothing on an inline span, and
-                      an office MIME type (`…wordprocessingml.document`) is
-                      wider than a phone, so it pushed the whole pane sideways. */}
+                  {/* The format by name ("Word-Dokument"); the MIME type a
+                      reader cannot parse stays in the tooltip for whoever
+                      needs it. `block`: `truncate` clips nothing on an inline
+                      span, and the raw-type fallback can be wider than a phone. */}
                   <span
-                    className="text-foreground block truncate font-mono text-xs"
+                    className="text-foreground block truncate text-xs font-medium"
                     title={file.contentType ?? undefined}
                   >
-                    {file.contentType ?? t('preview.unknownType')}
+                    {formatMessage
+                      ? t(`preview.formats.${formatMessage.key}`, formatMessage.values)
+                      : t('preview.unknownType')}
                   </span>
                 </MetaRow>
                 <MetaRow label={t('preview.size')} icon={HardDrive}>

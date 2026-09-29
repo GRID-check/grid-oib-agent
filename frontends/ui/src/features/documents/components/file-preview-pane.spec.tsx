@@ -189,6 +189,22 @@ describe('FilePreviewPane', () => {
     expect(await screen.findByRole('button', { name: /open large preview/i })).toBeDefined()
   })
 
+  it('names the format in the Type row and keeps the MIME type in its tooltip', () => {
+    const docx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, json: async () => ({}) } as Response)
+
+    render(
+      <FilePreviewPane
+        file={{ ...mockFile, filename: 'Vertrag.docx', contentType: docx }}
+        projectId="proj-1"
+      />
+    )
+
+    const type = screen.getByText('Word document')
+    expect(type.getAttribute('title')).toBe(docx)
+    expect(screen.queryByText(docx)).toBeNull()
+  })
+
   it('offers the expand affordance for an image once its preview URL has loaded (FB-15a)', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
