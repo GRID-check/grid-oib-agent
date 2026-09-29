@@ -6,6 +6,8 @@ and the finished answer lifts it back out. A turn that digests nothing must
 not wipe the checkpointed lines.
 """
 
+from unittest.mock import patch
+
 import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
@@ -80,6 +82,20 @@ class TestDigestTravelsTheGraph:
         await turn(agent, ConversationState(messages=[HumanMessage(content="Und noch?")]), thread_id=thread)
 
         assert seen[-1] == DIGEST
+
+    @pytest.mark.asyncio
+    async def test_a_turn_without_caller_lines_does_not_read_the_checkpoint(self):
+        """The field is conversation-scoped: left out, it keeps its value, so the read buys nothing."""
+        agent = ConversationGraph(
+            research_fn=_digest_answering(DIGEST),
+            deep_research_fn=_unused,
+            clarifier_fn=None,
+            checkpointer=MemorySaver(),
+        )
+        state = ConversationState(messages=[HumanMessage(content="Was gilt?")])
+        with patch.object(agent._graph, "aget_state", side_effect=AssertionError("read")) as read:
+            assert await agent._merged_digest({"configurable": {"thread_id": "t"}}, state) is None
+        read.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_a_turn_that_digests_nothing_keeps_the_lines(self):

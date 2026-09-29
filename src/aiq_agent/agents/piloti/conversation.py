@@ -658,6 +658,11 @@ class ConversationGraph:
         absent rather than becoming an empty list the nodes read as a value.
         """
         caller = list(state.already_read_digest or [])
+        if not caller:
+            # Nothing to merge: the field is conversation-scoped, so leaving it
+            # out keeps what the checkpoint holds, and the full-thread read on
+            # the path to the first token buys nothing.
+            return None
         checkpoint: list[str] = []
         try:
             snapshot = await self._graph.aget_state(graph_config)
