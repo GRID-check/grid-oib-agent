@@ -7,7 +7,7 @@ features:
   - >
     Pictures in Word and PowerPoint files are now read, so a photo or plan on a
     slide can be found and cited in an answer. Files uploaded earlier are read
-    this way once you upload them again.
+    this way once you choose Erneut lesen in their menu.
   - >
     A reference to a Word or PowerPoint file opens its preview at the page the
     passage came from.
@@ -16,10 +16,16 @@ features:
     finishes, without closing and reopening it.
 operators:
   - >
-    Office previews are converted by a Gotenberg service that the platform
-    reaches at GOTENBERG_URL. Without it, office files stay download-only as
-    before.
+    The platform now needs a Gotenberg service at GOTENBERG_URL. Office
+    previews are converted there, and Word, presentation, .xls and .ods files
+    are indexed only from that PDF. Without it, or when a conversion fails,
+    those files are marked failed with a retryable reason; .xlsx and .xlsm
+    still index, without a preview. Compose and Pulumi ship it by default.
   - >
-    With GOTENBERG_URL set, Word and presentation files are indexed from their
-    PDF rendition, so each embedded picture costs a VLM caption call at
-    ingestion. Existing documents keep their old chunks until re-ingested.
+    Deploy the frontend before the backend, or expect office uploads made while
+    only the backend is new to fail retryably. docs/deployment/cd.md and
+    docs/deployment/coolify.md have the rollout steps.
+  - >
+    Each picture embedded in a Word or presentation file costs a VLM caption
+    call at ingestion. Existing documents keep their old chunks until someone
+    chooses Erneut lesen on them.

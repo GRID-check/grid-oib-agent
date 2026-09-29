@@ -1332,8 +1332,8 @@
     "de": "Das endgültige Löschen eines Projekts wartet jetzt auch, wenn nur ein Dokument oder ein Chat darin gesperrt ist."
   },
   {
-    "en": "Pictures in Word and PowerPoint files are now read, so a photo or plan on a slide can be found and cited in an answer. Files uploaded earlier are read this way once you upload them again.",
-    "de": "Bilder in Word- und PowerPoint-Dateien werden jetzt gelesen, sodass ein Foto oder Plan auf einer Folie gefunden und in einer Antwort zitiert werden kann. Früher hochgeladene Dateien werden so gelesen, sobald Sie sie erneut hochladen."
+    "en": "Pictures in Word and PowerPoint files are now read, so a photo or plan on a slide can be found and cited in an answer. Files uploaded earlier are read this way once you choose Erneut lesen in their menu.",
+    "de": "Bilder in Word- und PowerPoint-Dateien werden jetzt gelesen, sodass ein Foto oder Plan auf einer Folie gefunden und in einer Antwort zitiert werden kann. Früher hochgeladene Dateien werden so gelesen, sobald Sie in ihrem Menü „Erneut lesen“ wählen."
   },
   {
     "en": "Piloti asks a short multiple-choice question more often instead of silently picking one of several plausible directions, for example when a comparison names no criteria.",

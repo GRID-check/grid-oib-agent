@@ -435,8 +435,11 @@ export interface GridConfig {
 
   gotenberg: {
     /**
-     * Run the office → PDF converter (ADR-0070). When false the frontend gets
-     * no `GOTENBERG_URL`, and Word/Excel/PowerPoint files are download-only.
+     * Run the office → PDF converter (ADR-0070). Required for indexing Word,
+     * presentation, .xls and .ods files, which the backend reads only from the
+     * PDF (ADR-0071). When false the frontend gets no `GOTENBERG_URL`: those
+     * files are marked failed with a retryable reason, and .xlsx/.xlsm index
+     * without preview or thumbnail.
      */
     enabled: boolean;
     image: string;

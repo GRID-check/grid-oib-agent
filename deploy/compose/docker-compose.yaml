@@ -405,9 +405,12 @@ services:
       - FILE_UPLOAD_MAX_SIZE_MB=${FILE_UPLOAD_MAX_SIZE_MB:-}
       - FILE_UPLOAD_MAX_FILE_COUNT=${FILE_UPLOAD_MAX_FILE_COUNT:-}
       - FILE_EXPIRATION_CHECK_INTERVAL_HOURS=${FILE_EXPIRATION_CHECK_INTERVAL_HOURS:-}
-      # Office → PDF rendition (ADR-0070). The BFF posts Word/Excel/PowerPoint
-      # files to Gotenberg's LibreOffice route and stores the PDF beside the
-      # original. Set it empty to disable: office files are then download-only.
+      # Office → PDF rendition (ADR-0070, ADR-0071). The BFF posts Word, Excel
+      # and PowerPoint files to Gotenberg's LibreOffice route and stores the PDF
+      # beside the original; the backend indexes Word, presentation, .xls and
+      # .ods files from that PDF and has no other reader. Set it empty only if
+      # you accept that: those files are then marked failed (retryable), and
+      # .xlsx/.xlsm index without preview or thumbnail.
       - GOTENBERG_URL=${GOTENBERG_URL-http://gotenberg:3000}
       - SEAWEED_ENDPOINT=http://seaweedfs:8333
       # Browser-reachable endpoint used ONLY to sign presigned URLs handed to the
@@ -622,8 +625,9 @@ services:
     restart: unless-stopped
 
   gotenberg:
-    # Office → PDF converter for the document viewer (ADR-0070). Only the
-    # LibreOffice route is used, and only by the frontend BFF.
+    # Office → PDF converter (ADR-0070). Only the LibreOffice route is used,
+    # and only by the frontend BFF. Required for indexing Word, presentation,
+    # .xls and .ods files (ADR-0071): without it they fail, retryably.
     # Hardening, because it parses untrusted office files:
     #   - No published port, and ONLY on `gotenberg-internal`, a network with
     #     `internal: true`: the frontend reaches it, it reaches nothing. Office
@@ -633,7 +637,14 @@ services:
     #     --chromium-* flag at boot, so none may be added here.
     #   - --api-disable-download-from / --webhook-disable: Gotenberg never
     #     fetches an input from a URL nor calls one back.
-    #   - --api-timeout=120s matches the BFF's own request timeout.
+    #   - --libreoffice-deny-private-ips / --libreoffice-deny-public-ips:
+    #     LibreOffice refuses every URL a file links, whatever it resolves to.
+    #     The internal network already blocks that here; the flags keep the
+    #     same guarantee where no such network exists (Coolify, K8s without
+    #     networkPolicies).
+    #   - --api-timeout=120s matches the BFF's own request timeout, and
+    #     --gotenberg-graceful-shutdown-duration=120s with stop_grace_period
+    #     lets a conversion in flight at `docker compose up` finish.
     #   - --libreoffice-auto-start: start soffice at boot so the first upload
     #     does not pay its cold start inside the 120s budget.
     image: gotenberg/gotenberg:8.37.0-libreoffice
@@ -645,7 +656,11 @@ services:
         "--api-disable-download-from",
         "--webhook-disable",
         "--libreoffice-auto-start=true",
+        "--gotenberg-graceful-shutdown-duration=120s",
+        "--libreoffice-deny-private-ips",
+        "--libreoffice-deny-public-ips",
       ]
+    stop_grace_period: 130s
     networks:
       - gotenberg-internal
     # /health reports each module; curl ships in the image for exactly this.

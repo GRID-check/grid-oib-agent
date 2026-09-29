@@ -14,8 +14,8 @@ model. **Use it, not `docker-compose.yaml`, on Coolify.**
 ## 1. What the stack looks like
 
 Services build from this repo (no external image pulls required after the
-NVIDIA base-image removal — see §2, apart from the stock `chromadb/chroma` and
-`dragonflydb/dragonfly` images):
+NVIDIA base-image removal — see §2, apart from the stock `chromadb/chroma`,
+`dragonflydb/dragonfly` and `gotenberg/gotenberg` images):
 
 | Service | Role | Exposed publicly? |
 |---|---|---|
@@ -26,6 +26,7 @@ NVIDIA base-image removal — see §2, apart from the stock `chromadb/chroma` an
 | `seaweedfs` | S3-compatible object storage — port 8333 | **Yes** (presigned PDF URLs) |
 | `postgres` | Three logical DBs: `aiq_jobs`, `aiq_checkpoints`, `grid_app` | No (internal) |
 | `dragonfly` | Redis-protocol shared cache + conversation bus (ADR-0020/0028) | No (internal) |
+| `gotenberg` | Office → PDF converter (ADR-0070), called by the frontend BFF only — port 3000. Required: Word, presentation, `.xls` and `.ods` files are indexed from its PDF (ADR-0071) | No (internal) |
 | `purger` | Grace-period hard-delete worker | No |
 | `skill-scheduler` | Agent Skills cron scheduler (ADR-0046) | No |
 | `seaweedfs-init` | One-shot: creates the `grid-documents` bucket | No |
@@ -426,6 +427,26 @@ redeploys of the same environment; each preview gets its own set.
       [agent-authored documents rollout](agent-authored-documents-rollout.md) §3.
 - [ ] (If a managed/external Postgres is used instead of the bundled one) the
       three databases exist — run `deploy/compose/init-db.sql` manually.
+
+### Rolling out ADR-0071
+
+From [ADR-0071](../adr/0071-word-and-presentation-files-are-indexed-from-their-rendition.md)
+on, the backend indexes Word, presentation, `.xls` and `.ods` files only from
+the PDF the frontend converts. A new backend next to the old frontend refuses
+them as `office_rendition_required`. The opposite order is harmless: the old
+backend ignores the new field.
+
+Coolify redeploys the whole stack, and `depends_on` recreates `aiq-agent`
+before `frontend`, so the wrong order is what happens. Office files uploaded
+in that window are marked failed with a retryable reason. After the deploy,
+open them in the Archiv and use "Erneut lesen". To avoid the window on a
+server you manage by hand, pull the new images and bring the frontend up
+first:
+
+```bash
+docker compose -f docker-compose.coolify.yaml up -d --no-deps gotenberg frontend
+docker compose -f docker-compose.coolify.yaml up -d
+```
 
 ---
 

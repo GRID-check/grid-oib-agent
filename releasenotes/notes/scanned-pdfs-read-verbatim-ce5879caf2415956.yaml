@@ -1,8 +1,8 @@
 ---
 fixes:
   - >
-    A scanned PDF is now read word for word, every page of it, tables
-    included. Before, only its first 20 pages were looked at and those were
+    A scanned PDF is now read word for word, up to 500 pages, tables
+    included, and the file says how many pages were left. Before, only its first 20 pages were looked at and those were
     described rather than read, so the conditions in a scanned permit could
     not be found.
   - >

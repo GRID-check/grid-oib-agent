@@ -21,15 +21,24 @@ export interface Gotenberg {
  * state and no secret, so it takes none: no `grid-secrets`, no pull Secret
  * (a public upstream image), no service-account token.
  *
- * One replica. Conversion fails open in the BFF (the original stays
- * downloadable, and a missing rendition is retried lazily on the next view),
- * so a pod restart costs a slower preview, never a failed upload. That is also
- * why the frontend does not wait on it.
+ * It is required, not optional (ADR-0071): the backend indexes Word,
+ * presentation, .xls and .ods files from this PDF and has no fallback reader.
+ * A conversion that fails, or that no converter answers, marks the file
+ * failed with a retryable reason; "Erneut lesen" recovers it. .xlsx/.xlsm
+ * still index without it, only without preview or thumbnail.
+ *
+ * One replica. A restart mid-conversion therefore fails that ingest, so the
+ * `converter` rollout profile drains: the new pod is ready before the old one
+ * stops (surge), a preStop sleep covers endpoint removal, and Gotenberg
+ * finishes a conversion in flight for up to 120s after SIGTERM. A crash or an
+ * OOM kill is not covered; those ingests fail retryably. The frontend still
+ * does not wait on it at boot: uploads of other types work without it.
  *
  * It parses untrusted files, so it is the most exposed process in the
  * namespace after the edge. `platform/network-policies.ts` admits only the
- * frontend and denies it all egress; the flags in `GOTENBERG.args` close the
- * routes that would fetch from a URL.
+ * frontend and denies it all egress when networkPolicies is on; the flags in
+ * `GOTENBERG.args` close the routes that would fetch from a URL and refuse
+ * every outbound fetch LibreOffice itself would make, with or without them.
  */
 export function installGotenberg(
   cfg: GridConfig,
@@ -38,9 +47,10 @@ export function installGotenberg(
   dependsOn: pulumi.Resource[],
 ): Gotenberg {
   const labels = commonLabels(GOTENBERG.name);
-  // No preStop drain: its one caller retries lazily, so a request cut at a
-  // rollout is a retried preview rather than a lost one.
-  const shutdown = gracefulShutdown(ROLLOUT.dataPlane);
+  // A conversion cut at a rollout is a failed ingest (ADR-0071), so drain:
+  // preStop `sleep` (the image ships coreutils, not node or python), then
+  // Gotenberg's own graceful shutdown inside the grace period.
+  const shutdown = gracefulShutdown(ROLLOUT.converter, "coreutils");
 
   const deployment = new k8s.apps.v1.Deployment(
     GOTENBERG.name,
@@ -49,7 +59,7 @@ export function installGotenberg(
       spec: {
         replicas: 1,
         selector: { matchLabels: labels },
-        ...surgeRollout(ROLLOUT.dataPlane),
+        ...surgeRollout(ROLLOUT.converter),
         template: {
           metadata: { labels },
           spec: {
@@ -67,6 +77,7 @@ export function installGotenberg(
                 image: cfg.gotenberg.image,
                 imagePullPolicy: pullPolicyFor(cfg.gotenberg.image),
                 securityContext: hardenedContainerSecurityContext(),
+                lifecycle: shutdown.lifecycle,
                 // The image's ENTRYPOINT is tini, so args replace only its CMD.
                 args: [...GOTENBERG.args],
                 ports: [{ containerPort: PORT.gotenberg, name: "http" }],

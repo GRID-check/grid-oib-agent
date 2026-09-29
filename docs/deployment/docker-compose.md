@@ -220,7 +220,7 @@ The Next.js UI application.
 | `NEXT_PUBLIC_WORKOS_REDIRECT_URI` | `${NEXT_PUBLIC_WORKOS_REDIRECT_URI:-${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}}` |
 | `WORKOS_COOKIE_PASSWORD` | `${WORKOS_COOKIE_PASSWORD}` |
 | `FILE_UPLOAD_ACCEPTED_TYPES` | `${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md,.csv,.xlsx,.pptx}` — the same list as the code default in `frontends/ui/src/shared/config/file-upload.ts` |
-| `GOTENBERG_URL` | `${GOTENBERG_URL-http://gotenberg:3000}` — set it empty to disable office → PDF previews (no colon in the expansion, so an empty value is kept rather than replaced by the default) |
+| `GOTENBERG_URL` | `${GOTENBERG_URL-http://gotenberg:3000}`. Required for indexing Word, presentation, `.xls` and `.ods` files (ADR-0071). An empty value disables conversion: those files are then marked failed with a retryable reason, and `.xlsx`/`.xlsm` index without a preview. No colon in the expansion, so an empty value is kept rather than replaced by the default. The Coolify file uses `:-`, so there an empty value falls back to the bundled converter |
 | `SEAWEED_ENDPOINT` | `http://seaweedfs:8333` (hardcoded in compose) |
 | `SEAWEED_ACCESS_KEY` | `seaweedadmin` (hardcoded in compose) |
 | `SEAWEED_SECRET_KEY` | `${SEAWEED_SECRET_KEY:?}` — **required**; the deploy fails fast if it is unset (see `deploy/.env.example`) |
@@ -236,15 +236,21 @@ The Next.js UI application.
 
 **Healthcheck**: `curl -f http://localhost:3000/api/healthz` — interval 15s, timeout 10s, start period 60s, retries 5. The dependency-free `/api/healthz`, not `/` (a full SSR render) and not `/api/health` (which proxies the backend and reports 502 while the agent boots).
 
-**Depends on**: `grid-migrate` (completed successfully), `grid-audit-schemas` (completed successfully), `aiq-agent` (healthy), `seaweedfs` (healthy), `seaweedfs-init` (completed successfully), `postgres` (healthy), `gotenberg` (started, not healthy: conversion fails open, so a broken converter must not block the UI).
+**Depends on**: `grid-migrate` (completed successfully), `grid-audit-schemas` (completed successfully), `aiq-agent` (healthy), `seaweedfs` (healthy), `seaweedfs-init` (completed successfully), `postgres` (healthy), `gotenberg` (started, not healthy: a broken converter fails Word and presentation ingests retryably, and must not also take down the UI and every other upload type).
 
 **Restart**: `unless-stopped`.
 
 ### gotenberg
 
-Office → PDF converter for the document viewer (ADR-0070). The frontend BFF
-posts Word/Excel/PowerPoint/ODF/RTF originals to its LibreOffice route and
-stores the PDF beside the original. Nothing else calls it.
+Office → PDF converter (ADR-0070). The frontend BFF posts Word, Excel,
+PowerPoint, ODF and RTF originals to its LibreOffice route and stores the PDF
+beside the original. Nothing else calls it.
+
+It is required. The backend indexes Word, presentation, `.xls` and `.ods`
+files from that PDF and has no fallback reader (ADR-0071). While it is down, or
+when a conversion fails, those files are marked failed with a retryable reason
+and "Erneut lesen" recovers them. `.xlsx` and `.xlsm` still index, only without
+preview or thumbnail.
 
 | Property | Value |
 |----------|-------|
@@ -261,8 +267,13 @@ stores the PDF beside the original. Nothing else calls it.
 | `--api-disable-download-from` | Never fetches an input from a URL |
 | `--webhook-disable` | Never calls a URL back |
 | `--libreoffice-auto-start=true` | Starts LibreOffice at boot, so the first upload does not pay its cold start |
+| `--gotenberg-graceful-shutdown-duration=120s` | A conversion in flight when the container stops runs to the same 120s. With `stop_grace_period: 130s`, a `docker compose up` that replaces the container does not cut it, which would fail that ingest |
+| `--libreoffice-deny-private-ips` | LibreOffice refuses to fetch a URL an office file links when it resolves to a loopback, RFC 1918, link-local or unique-local address: the other containers and the host |
+| `--libreoffice-deny-public-ips` | The same for public addresses. Together the two refuse every outbound fetch |
 
-The image contains no Chromium, so the HTML/URL → PDF routes (the SSRF surface) do not exist. It also refuses to start with any `--chromium-*` flag, so none may be added.
+The image contains no Chromium, so the HTML/URL → PDF routes do not exist. It also refuses to start with any `--chromium-*` flag, so none may be added.
+
+Here the `gotenberg-internal` network already stops LibreOffice reaching anything. The two deny flags matter where no such network exists. On Coolify the converter shares a network with Postgres, SeaweedFS and the backend, and a host firewall sees none of that traffic, so the flags are what stop a crafted file from reaching those containers. Kubernetes has the same gap when `networkPolicies` is off.
 
 **Resource limits**:
 

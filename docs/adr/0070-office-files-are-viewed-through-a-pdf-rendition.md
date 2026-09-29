@@ -33,7 +33,9 @@ office file reaches it.
 * The BFF owns storage, authorization and the per-tenant buckets, and every
   file uploaded before this change needs a preview too.
 * Buy, don't build: office layout is somebody else's domain.
-* A deployment without the new service must behave exactly as today.
+* A deployment without the new service must behave exactly as today. This
+  held for viewing alone. ADR-0071 made the service required for indexing
+  Word, presentation, `.xls` and `.ods` files, so it no longer holds.
 
 ## Considered Options
 
@@ -65,23 +67,35 @@ What that means in practice:
   original, POSTs it to `{GOTENBERG_URL}/forms/libreoffice/convert` with its
   original filename (LibreOffice picks the filter by extension), and PUTs the
   result. Concurrent requests for one key share one conversion.
-* **Eager at dispatch, lazy at view.** `dispatchIngest` converts an office file
-  before it posts to `/v1/ingest`, and fails open: a failed conversion is logged
-  and ingestion continues. `/preview` and `/file` convert on first view when the
-  object is missing, which covers every file uploaded before this change and
-  every `.docx` Piloti generates.
+* **Eager at dispatch, lazy at view.** The upload converts an office file
+  before it posts to `/v1/ingest`. `/preview` and `/file` convert on first view
+  when the object is missing, which covers every file uploaded before this
+  change and every `.docx` Piloti generates. As decided here the dispatch
+  failed open: a failed conversion was logged and ingestion continued.
+  [ADR-0071](0071-word-and-presentation-files-are-indexed-from-their-rendition.md)
+  ended that for Word, presentation, `.xls` and `.ods` files. They are indexed
+  from the rendition, so a failed conversion now fails their ingest, retryably.
+  A spreadsheet still ingests and only loses its thumbnail.
 * **The thumbnail comes from the rendition.** The BFF sends a presigned GET of
   the PDF to the backend as `preview_ref`, which passes the same two SSRF gates
   as `file_ref`, is used only to render the thumbnail, and is never stored or
-  logged. Text extraction still reads the original.
+  logged. Under this decision text extraction still read the original; since
+  ADR-0071 the same PDF is also sent as `extraction_ref` for the formats it
+  lists, and those are read from it.
 * **Which files** is `isOfficeRenditionSource` in
   `lib/documents/preview-types.ts`: Word, Excel, PowerPoint, their ODF
   counterparts and RTF, by content type or extension.
-* **`GOTENBERG_URL` unset means today's behaviour**: `/preview` answers 415, the
+* **`GOTENBERG_URL` unset turns viewing off**: `/preview` answers 415, the
   pane shows the placeholder and Download. A failed conversion answers 502
-  `RENDITION_FAILED` and the pane falls back the same way.
+  `RENDITION_FAILED` and the pane falls back the same way. For viewing that is
+  the behaviour before this decision. Since ADR-0071 it also fails the ingest
+  of every Word, presentation, `.xls` and `.ods` file.
 * **Gotenberg has no egress.** It receives bytes and returns bytes, and needs
-  nothing outside the cluster to do it.
+  nothing outside the cluster to do it. The network denies it a route where it
+  can (an internal Compose network, a NetworkPolicy), and the
+  `--libreoffice-deny-private-ips` and `--libreoffice-deny-public-ips` flags
+  make LibreOffice refuse every URL a file links where it cannot (Coolify, a
+  cluster without NetworkPolicies).
 
 ### Consequences
 
@@ -89,10 +103,21 @@ What that means in practice:
   citation to it opens that viewer instead of a download.
 * Good, because the original is untouched, and deleting a document deletes the
   rendition with the other derived objects (`deleteDerivedObjects`).
-* Good, because a deployment without Gotenberg loses nothing it had.
+* Good, because, as decided here, a deployment without Gotenberg lost nothing
+  it had. ADR-0071 gave that up: without it, Word and presentation files no
+  longer index.
 * Bad, because the first view of a file uploaded before this change waits for a
-  conversion, seconds for a typical file and up to the 120 s timeout for a large
-  workbook. The preview says it is being made.
+  conversion, seconds for a typical file. A reader waits at most 85 s
+  (`RENDITION_READER_WAIT_MS`, below Cloudflare's roughly 100 s origin timeout)
+  and then gets the handled 502 while the conversion runs on in the background
+  and is stored for the next open. The preview says it is being made.
+* Bad, because a failed conversion is remembered in-process for five minutes
+  for readers, so a broken file is not converted again on every open. The
+  retry and the ingest bypass that memory.
+* Neutral, because conversions are bounded per BFF process
+  (`GOTENBERG_MAX_CONCURRENCY`, default 2), readers queue ahead of background
+  work, and the 120 s conversion budget counts from when a slot is held, not
+  from the request.
 * Bad, because LibreOffice is not Word. Layout can shift, and a document set in
   a font the container lacks is drawn in a substitute. Installing the office's
   fonts in the Gotenberg image may be needed; that is a deployment change, not a
@@ -100,14 +125,15 @@ What that means in practice:
 * Bad, because an `.xlsx` is paged by its print areas, not by sheet. A sheet has
   no page number the PDF knows, so a citation to a sheet opens page 1. A
   `.pptx` slide label is a page number, and that one opens at its slide.
-* Neutral, because retrieval is unchanged: a `.docx` is still one text unit
-  with no page label, so its citations open at page 1 too. Page-accurate Word
-  citations would mean chunking by the rendition's pages, which changes answers
-  and needs `task be:eval:answer-suite` before and after. That is a follow-up,
-  not part of this decision.
-* Extended by [ADR-0071](0071-word-and-presentation-files-are-indexed-from-their-rendition.md):
-  Word and presentation files are now also indexed from the rendition, which
-  gives their citations a page. This decision still holds for viewing.
+* Neutral, because this decision left retrieval unchanged: a `.docx` stayed one
+  text unit with no page label, so its citations opened at page 1 too.
+  Page-accurate Word citations meant chunking by the rendition's pages, which
+  changes answers and needs `task be:eval:answer-suite` before and after, so it
+  was left as a follow-up.
+* Extended by [ADR-0071](0071-word-and-presentation-files-are-indexed-from-their-rendition.md),
+  which took that follow-up: Word and presentation files are indexed from the
+  rendition, with no fallback reader, which gives their citations a page and
+  makes Gotenberg a required service. This decision still holds for viewing.
 * Bad, because it is one more container to run, patch and size. LibreOffice
   parses untrusted bytes, which is why it runs isolated and without egress
   rather than inside a service that holds credentials.
@@ -179,5 +205,5 @@ by page, which is the follow-up named under Consequences.
 
 `GOTENBERG_URL` is listed in
 [`environment-variables.md`](../deployment/environment-variables.md). How office
-text is extracted for retrieval is unchanged:
+text is extracted for retrieval since ADR-0071:
 [`visual-ingestion.md`](../architecture/visual-ingestion.md).

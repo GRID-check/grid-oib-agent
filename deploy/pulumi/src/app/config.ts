@@ -403,8 +403,10 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // `memory-reflection` WorkOS flag decides instead.
     { name: "GRID_MEMORY_REFLECTION_ENABLED", value: String(cfg.memory.reflectionEnabled) },
     // Office → PDF rendition (ADR-0070). Frontend-only: the BFF is the one
-    // converter; the backend receives the finished PDF as `preview_ref`.
-    // Absent ⇒ office files are download-only, exactly as before.
+    // converter; the backend receives the finished PDF as `preview_ref`, and
+    // for Word/presentation/.xls/.ods also as `extraction_ref`, the only
+    // source it indexes those from (ADR-0071). Absent ⇒ those files are
+    // marked failed (retryable); .xlsx/.xlsm index without preview.
     ...(w.gotenbergUrl ? [{ name: "GOTENBERG_URL", value: w.gotenbergUrl }] : []),
     // OTLP tracing via the cluster collector — injected only when the
     // observability tier is deployed, which is what makes

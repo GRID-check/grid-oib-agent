@@ -85,7 +85,11 @@ What that means in practice:
   background runs `ensureRendition` with its full 120-second timeout, then
   `dispatchIngest` with `preview_ref` (thumbnail) and, for the listed formats,
   `extraction_ref`. The upload response says `processing`. Re-ingest takes the
-  same path.
+  same path. Background conversions are bounded per BFF process
+  (`GOTENBERG_MAX_CONCURRENCY`, default 2) behind any reader waiting for a
+  preview, and time spent queued for a slot does not count against the 120
+  seconds. A folder upload of hundreds of office files used to start them all
+  at once and time most of them out in Gotenberg's own queue.
 * **The rendition is the only source; there is no fallback reader.** The
   docx2txt Word reader and the python-pptx slide-text reader are deleted, and
   docx2txt leaves the dependencies. When `ensureRendition` throws, or no
@@ -120,13 +124,23 @@ What that means in practice:
   vectors, SmartArt and shapes arrive as PDF paths and are read only by the
   visual-page detector, if the page is sparse enough in text to trigger it.
 * Bad, because documents indexed before this change keep their old chunks until
-  they are ingested again. There is no backfill job. Uploading the file again
-  under the same name replaces it and keeps its identity; a Word citation from
-  the old chunks carries `"1"` and opens at page 1, which is where it opened
-  before.
+  they are ingested again. There is no backfill job. "Erneut lesen" on the
+  file reads it again through this path and keeps its identity. Uploading the
+  same bytes again does not: an identical upload is skipped as „Unverändert“.
+  A Word citation from the old chunks carries `"1"` and opens at page 1, which
+  is where it opened before.
 * Bad, because a process restart during a conversion leaves the row at
   `processing` with no job. This is the tradeoff the IFC path already makes: the
   re-ingest action reads the backend state as `absent` and retries it.
+* Bad, because Gotenberg is now required, not optional. Without it, or while
+  it restarts mid-conversion, a Word or presentation upload fails retryably.
+  Its rollout drains a conversion in flight for up to 120 s, and its flags
+  refuse every URL LibreOffice would fetch.
+* Bad, because the rollout order matters once. A new backend next to an old
+  BFF refuses office files as `office_rendition_required`; the reverse is
+  harmless. The runbooks are in
+  [`cd.md`](../deployment/cd.md#rolling-out-adr-0071) and
+  [`coolify.md`](../deployment/coolify.md#rolling-out-adr-0071).
 * Bad, because LibreOffice's layout is not Word's. A page number is the
   rendition's page, correct in the viewer and possibly different from the page a
   person sees in Word.

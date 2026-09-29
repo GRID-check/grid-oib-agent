@@ -360,13 +360,19 @@ export const GOTENBERG = {
    *     every `--chromium-*` flag at boot, so none belongs here.
    *   - download-from / webhooks: it never fetches an input from a URL nor
    *     calls one back.
-   * The egress NetworkPolicy is the other half: office files can link external
-   * images, and LibreOffice would fetch them.
+   *   - `--libreoffice-deny-private-ips` / `--libreoffice-deny-public-ips`:
+   *     an office file can link external images, and LibreOffice would fetch
+   *     them. With both flags Gotenberg refuses every such fetch, whatever
+   *     the address resolves to, so a crafted file cannot reach an in-cluster
+   *     service either.
+   * The egress NetworkPolicy is the second layer, where networkPolicies is on.
    *
    * `--api-timeout` matches the BFF's own 120s conversion timeout, so the
    * converter never keeps working on a request its caller has abandoned for
    * long. `--libreoffice-auto-start` pays soffice's cold start at boot instead
-   * of inside the first user's upload.
+   * of inside the first user's upload. `--gotenberg-graceful-shutdown-duration`
+   * lets a conversion in flight at SIGTERM run to that same 120s instead of
+   * the upstream 30s: since ADR-0071 a cut conversion is a failed ingest.
    */
   args: [
     "gotenberg",
@@ -374,6 +380,9 @@ export const GOTENBERG = {
     "--api-disable-download-from",
     "--webhook-disable",
     "--libreoffice-auto-start=true",
+    "--gotenberg-graceful-shutdown-duration=120s",
+    "--libreoffice-deny-private-ips",
+    "--libreoffice-deny-public-ips",
   ],
   /**
    * Upstream's own floor is 512Mi / 0.2 CPU. The limit is what a large

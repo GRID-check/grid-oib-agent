@@ -11,8 +11,8 @@ import { baseStackConfig } from "../test-support/stack-config";
  *
  * Every mistake worth catching here plans clean and runs green:
  *   - A flag the pinned 8.x image does not know stops Gotenberg at boot, and
- *     the frontend fails open, so the only symptom is that office previews
- *     quietly never appear.
+ *     the plan stays green. Since ADR-0071 every Word and presentation upload
+ *     then fails to index, with a retryable reason nobody reads as an outage.
  *   - A converter that keeps egress, or that any pod may call, works
  *     perfectly — while an office file's linked image fetches whatever URL it
  *     names from inside the cluster.
@@ -106,6 +106,10 @@ describe("gotenberg", () => {
         "--api-timeout=120s",
         "--api-disable-download-from",
         "--webhook-disable",
+        // LibreOffice fetches images an office file links; these refuse every
+        // such fetch, in-cluster addresses included, networkPolicies or not.
+        "--libreoffice-deny-private-ips",
+        "--libreoffice-deny-public-ips",
       ]),
     );
     // That binary rejects Chromium flags at boot; one slipping back in would
@@ -119,13 +123,27 @@ describe("gotenberg", () => {
     expect(pod.securityContext).toMatchObject({ runAsNonRoot: true, runAsUser: 1001 });
   });
 
+  it("drains a conversion in flight instead of cutting it at a rollout", async () => {
+    // ADR-0071: a cut conversion is a failed ingest, not a slower preview.
+    const spec = await resolve(find("kubernetes:apps/v1:Deployment", "gotenberg").inputs.spec);
+    const pod = spec.template.spec;
+    const c = pod.containers[0];
+    // The image ships coreutils, not node or python.
+    expect(c.lifecycle.preStop.exec.command).toEqual(["sleep", "5"]);
+    expect(c.args).toContain("--gotenberg-graceful-shutdown-duration=120s");
+    // Hook + Gotenberg's 120s drain must fit, or SIGKILL lands mid-conversion.
+    expect(pod.terminationGracePeriodSeconds).toBeGreaterThan(5 + 120);
+    expect(spec.strategy.rollingUpdate.maxUnavailable).toBe(0);
+  });
+
   it("hands the frontend the Service's address", async () => {
     const svc = await resolve(find("kubernetes:core/v1:Service", "gotenberg").inputs.spec);
     expect(svc.ports[0].port).toBe(3000);
 
     const url = env.find((e) => e.name === "GOTENBERG_URL");
     expect(await resolve(url?.value)).toBe("http://gotenberg:3000");
-    // Disabled means absent, which the BFF reads as "download only".
+    // Disabled means absent: the BFF then stores office files unconverted and
+    // the backend marks Word/presentation files failed, retryably (ADR-0071).
     expect(envDisabled.some((e) => e.name === "GOTENBERG_URL")).toBe(false);
   });
 

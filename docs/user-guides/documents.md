@@ -286,12 +286,13 @@ and cite it. PowerPoint speaker notes are still read from the original file,
 because the PDF leaves them out. Excel files keep being read sheet by sheet, as
 tables.
 
-- While the PDF is being made, the upload shows **Processing**. It turns into
+- While the PDF is being made, the upload shows „Wird gelesen“. It turns into
   Ready once the file is indexed, which for a large deck can take a few minutes.
 - Files uploaded before this change keep their old index: their text is
   searchable, their pictures are not, and a Word citation opens at page 1.
-  Upload the file again under the same name to have it read the new way. It
-  replaces the old copy and keeps its folder, citations and history.
+  Choose „Erneut lesen“ in the file's ⋯ menu to have it read the new way.
+  Uploading the same file again does not: identical bytes are skipped as
+  „Unverändert“. Until the new reading finishes, answers use the old one.
 - A diagram drawn with Office shapes or SmartArt is not a picture to Piloti.
   Its labels are text and are found; its layout is not described.
 - If the PDF cannot be made, the file shows „Lesen fehlgeschlagen“ with the
@@ -348,9 +349,10 @@ mark = the Büroarchiv provenance signal used across the app):
   which is a claim about your own files that a search which never ran has no
   business making.
 - **A document that failed to index** carries the reason on its card, and the
-  card's ⋯ menu offers **Read again** for it — the same retry the preview
-  has, where the failure is actually read. It appears only for a document that
-  failed, and only for someone who may manage it.
+  card's ⋯ menu offers „Erneut lesen“ for it, the same retry the preview
+  has, where the failure is actually read. An indexed document gets the same
+  action behind a confirmation, to read it again. A document with no known
+  state gets neither, and only someone who may manage the document sees it.
 
 ---
 

@@ -75,16 +75,17 @@ Body: { projectId: string, file: File }
 
 1. **Auth check** — `requireAuthorizedSession()` + `requireProjectAccess(session, projectId, 'project:edit')`
 2. **Generate documentId** — `uuidv4()`
-3. **Store in SeaweedFS** — `PutObjectCommand` with key `org/{orgId}/project/{projId}/doc/{docId}/{filename}` (built by `buildStorageKey()` in `s3.ts`)
+3. **Store in SeaweedFS** — `PutObjectCommand` with key `org/{orgId}/project/{projId}/doc/{docId}/{filename}` (built by `buildStorageKey()` in `s3.ts`). The filename segment goes through `storageKeySegment`: separators are flattened, and a name the pipelines write beside the original (`_render.pdf`, `_thumb.jpg`, `_img`, `_bim`, compared without case) or a dot-only name gets a `_` prefix, so a user file named `_render.pdf` is stored as `__render.pdf` and cannot be mistaken for a derived object. The row keeps the user's filename
 4. **Insert DB row** — Drizzle `documents` table with `status: 'uploaded'`, storing `documentId`, `organizationId`, `projectId`, `createdBy`, `filename`, `storageKey`, `collectionName`, `fileSize`, `contentType`
-5. **Generate presigned GET URL** — `getSignedUrl(s3Client, GetObjectCommand, { expiresIn: 3600 })`. An hour, not the 600 s `SEAWEED_PRESIGNED_URL_TTL_SECONDS` default the other signed reads use: the ingest job downloads the file when the bounded ingest pool reaches it, which can be well after dispatch (Step 3)
+5. **Generate presigned GET URL** — `getSignedUrl(s3Client, GetObjectCommand, { expiresIn: INGEST_JOB_REF_TTL_SECONDS })`. 24 hours, not the 600 s `SEAWEED_PRESIGNED_URL_TTL_SECONDS` default the other signed reads use: the ingest job downloads the file when the bounded ingest pool reaches it, which can be well after dispatch (Step 3)
 6. **Trigger ingestion** — POST to `{BACKEND_URL}/v1/ingest` with `{ file_ref: presignedUrl, collection: collectionName, document_id: documentId, file_name: filename, folder_path }`. `file_name` is the row's own `documents.filename`, stated rather than derived from the presigned URL's last path segment, because it is the join key every chunk purge addresses
 7. **Record the job** — on success the row is updated to `status: 'pending'` with `metadata: { ingestJobId }` so status reads can later reconcile the row against the backend job (see Step 5)
 8. **Return response** — `{ documentId, jobId, status: 'pending' | 'uploaded' | 'processing' }`
 
 Two kinds of file skip steps 6 and 7 and return `processing` with no job id:
 an IFC model (`beginModelExtraction`) and, when `GOTENBERG_URL` is set, an
-office file.
+office file. Without it, a Word, presentation, `.xls` or `.ods` file returns
+`failed` at once.
 
 ### Office files: convert, then ingest
 
@@ -96,7 +97,10 @@ request ([ADR-0071](../adr/0071-word-and-presentation-files-are-indexed-from-the
 
 1. The row is set to `processing` and the upload returns.
 2. In the background, `ensureRendition` (`lib/documents/rendition.ts`) writes
-   `<dir>/_render.pdf` through Gotenberg, with a 120-second timeout.
+   `<dir>/_render.pdf` through Gotenberg, with a 120-second timeout. Each BFF
+   process runs at most `GOTENBERG_MAX_CONCURRENCY` conversions at once
+   (default 2), readers ahead of background work, and the 120 seconds start
+   when a slot is held, not while the conversion waits for one.
 3. `dispatchIngest` posts to `/v1/ingest` with `preview_ref`, a presigned GET of
    the rendition for the thumbnail, and, when `isIndexedFromRendition(filename)`
    (`lib/documents/preview-types.ts`: Word, presentations, `.xls`, `.ods`),
@@ -106,9 +110,13 @@ request ([ADR-0071](../adr/0071-word-and-presentation-files-are-indexed-from-the
    throw anywhere around it marks the row `failed`, so a row never stays at
    `processing` because of an error nobody saw.
 
-A failed or timed-out conversion is logged and the dispatch goes out without
-either ref: the backend extracts the original, as it did before ADR-0071. The
-re-ingest action (`POST /api/documents/{id}/reingest`) takes the same path. A
+There is no fallback reader. A failed or timed-out conversion of a Word,
+presentation, `.xls` or `.ods` file marks the row `failed` with
+`RENDITION_REQUIRED_MESSAGE` and dispatches nothing. Without `GOTENBERG_URL` the
+dispatch marks such a file failed the same way, before any background work. A
+`.xlsx` or `.xlsm` goes out without `preview_ref` and is indexed from the
+original, only without a thumbnail. The re-ingest action („Erneut lesen“,
+`POST /api/documents/{id}/reingest`) takes the same path and converts again. A
 process restart during a conversion leaves the row at `processing` with no job,
 which re-ingest reads as lost and retries.
 
@@ -199,9 +207,12 @@ For each file:
    | `.csv`/`.tsv` | row groups that each repeat the header | `Zeilen 2-41` (file lines) | none |
    | `.xlsx`/`.xlsm` sheet | row groups that each repeat the header, at most 10,000 rows a sheet; the rest are stated in the last group and counted as `rows_over_cap` on the file's job status | `Raumliste: Zeilen 2-41` | the sheet name |
 
-   A PDF counts as structured when it has at least three headings, at least half its text sits under one, and at most 30% of its lines are headings (`section_chunking.structure_is_usable`). A heading is a short line in a larger type than the body, in bold, or opened by a German numbering; lines that repeat at the top or bottom of most pages are running headers and are dropped.
+   A PDF counts as structured when it has at least three headings, at least half its text sits under one, and at most 30% of its lines are headings (`section_chunking.structure_is_usable`). A heading is a short line in a larger type than the body, in bold, or opened by a German numbering; lines that repeat at the top or bottom of most pages are running headers and are dropped. A transcribed page's Markdown ATX headings (`## 1 Befund`) are section headings. A numbered line in body type counts only when its title reads as one: at most 8 words, no finite verb, not ending mid-sentence. A line that runs on in lowercase into a line of another style is not a heading. Locators are normalised, so `§3` and `Art.3` become `§ 3` and `Art. 3`. `read_passage(page=N)` returns the chunks whose `[page_label, page_end]` range covers N, so a section chunk that starts on page 2 and ends on page 3 is found for page 3.
 2. **Table extraction** (PDF only, optional) — Uses `pdfplumber` to extract the tables the text pass did not already index as captioned tables; each becomes row groups that repeat the header row (`content_type: "table"`, `table_part` orders them), so the splitter never cuts a table into header-less rows
 3. **Image extraction** (PDF only, optional) — Uses `pypdfium2` to extract images (min 100×100px to filter icons); each image is sent to the VLM API (default: `openai/gpt-6-luna` via OpenRouter — image input verified, caption quality on OIB drawings still open, see the Configuration table) for classification (chart vs image) and captioning; captions become `Document` objects with `content_type: "chart"` or `"image"` metadata
+
+   Every PDFium call in the process (page triage, page renders, image extraction, thumbnails, `view_knowledge_image`) is serialized through `pdfium_lock` in `knowledge_layer/llamaindex/pdfium_lock.py`, because PDFium is not thread-safe; the lock is held per page and image encoding happens after it is released.
+
 4. **Summarization** (optional) — If `generate_summary` is enabled, the first and last chunks are combined and sent, as two **concurrent** calls to the same `summary_model` LLM, for a one-sentence summary and a tag classification (document type + OIB discipline; see "Backfilling tags" below). Both calls independently swallow exceptions/timeouts and return nothing on failure. A deterministic, text-derived fallback summary now fires whenever the LLM summary is missing — for any reason, independent of whether tag classification succeeded — so a document that finishes ingestion always gets a `document_metadata` row (see "Silent summary-row loss" below for the fix and the reconciliation backstop).
 5. **Indexing** — All `Document` objects are inserted into a `VectorStoreIndex` backed by ChromaDB with OpenRouter embeddings (`openai/text-embedding-3-large` by default; see "Embedding-model changes" below — stored vectors only match query vectors from the same model)
 6. **Job completion** — Status updated to `JobState.COMPLETED` with metadata about chunks, tables, charts, and images created

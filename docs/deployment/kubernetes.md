@@ -24,7 +24,7 @@ their own namespaces.
 | `skill-scheduler` | Deployment (always; fires schedules only when `skillsEnabled`, drives the run reconciler either way) | 1 | — | n/a (DB-claimed ticks) |
 | `postgres` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) | CloudNativePG `Cluster` | 1 (→3 HA) | RWO PVC | Add replicas |
 | `dragonfly` (Redis-proto cache) | Deployment | 1 | — (cache) | — |
-| `gotenberg` (office → PDF for the viewer, ADR-0070; `gotenbergEnabled`, default on) | Deployment | 1 | — | n/a (stateless, fail-open: a missing rendition is retried on the next view) |
+| `gotenberg` (office → PDF, ADR-0070; required to index Word, presentation, `.xls` and `.ods` files, ADR-0071; `gotenbergEnabled`, default on) | Deployment | 1 | — | n/a (stateless. A conversion it drops fails that ingest retryably, so a rollout drains for up to 120s) |
 | `seaweedfs` (filer + S3 gateway) | StatefulSet | 1 (`single`) / N (`split`) | RWO PVC `/data` (unused under the Postgres filer store) | See §4 |
 | `seaweedfs-master` (`split` only) | StatefulSet | 1 (3 = HA, untested) | RWO PVC `/data` (raft + volume-id sequence) | Odd replica counts only |
 | `seaweedfs-volume` (`split` only) | StatefulSet | N | RWO PVC `/data` per replica | `seaweedfsVolumeReplicas` — this is the object-capacity knob |
@@ -1090,6 +1090,9 @@ see §10.
   The exception is `gotenberg` (`gotenberg-frontend-only`): it parses untrusted
   office files that can link external URLs, needs no network of its own, and so
   gets ingress from the frontend alone and no egress at all, DNS included.
+  With `networkPolicies` off that policy is gone; Gotenberg's
+  `--libreoffice-deny-private-ips` and `--libreoffice-deny-public-ips` flags
+  still refuse every URL LibreOffice would fetch.
 - **Dragonfly authentication** (`grid-oib:dragonflyPassword` and
   `grid-oib:rateLimitStorePassword`, both **required**): `requirepass` on both
   instances, delivered as `DFLY_requirepass` from a Kubernetes Secret rather

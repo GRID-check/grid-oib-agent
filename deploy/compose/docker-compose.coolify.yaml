@@ -492,9 +492,12 @@ services:
       - FILE_UPLOAD_MAX_SIZE_MB=${FILE_UPLOAD_MAX_SIZE_MB:-100}
       - FILE_UPLOAD_MAX_FILE_COUNT=${FILE_UPLOAD_MAX_FILE_COUNT:-10}
       - FILE_EXPIRATION_CHECK_INTERVAL_HOURS=${FILE_EXPIRATION_CHECK_INTERVAL_HOURS:-0}
-      # Office → PDF rendition (ADR-0070). Set it empty to disable: office
-      # files are then download-only.
-      - GOTENBERG_URL=${GOTENBERG_URL-http://gotenberg:3000}
+      # Office → PDF rendition (ADR-0070). Required: the backend indexes Word,
+      # presentation, .xls and .ods files from this PDF (ADR-0071), so the
+      # default always points at the bundled converter. `:-` rather than the
+      # dev file's `-`, because Coolify's parser may not honour the colon-less
+      # form; an empty value here falls back to the default too.
+      - GOTENBERG_URL=${GOTENBERG_URL:-http://gotenberg:3000}
       # Internal (server-side uploads) vs public (browser presigned URLs).
       - SEAWEED_ENDPOINT=http://seaweedfs:8333
       - SEAWEED_PUBLIC_ENDPOINT=https://${SERVICE_FQDN_SEAWEEDFS}
@@ -651,17 +654,21 @@ services:
   # binds the published host port on the server regardless of Traefik routing,
   # which would expose the converter (3000) publicly. In-cluster access only.
   gotenberg:
-    # Office → PDF converter for the document viewer (ADR-0070). Only the
-    # LibreOffice route is used, and only by the frontend BFF. Flags as in
-    # docker-compose.yaml: LibreOffice-only image (no Chromium), no
-    # download-from, no webhooks.
+    # Office → PDF converter (ADR-0070). Only the LibreOffice route is used,
+    # and only by the frontend BFF. Required for indexing Word, presentation,
+    # .xls and .ods files (ADR-0071). Flags as in docker-compose.yaml:
+    # LibreOffice-only image (no Chromium), no download-from, no webhooks,
+    # LibreOffice outbound fetches refused, 120s drain on stop.
     #
-    # KNOWN GAP vs the dev compose: there it sits alone on an `internal: true`
-    # network so LibreOffice cannot fetch images an office file links to. Here
-    # that would need the frontend on a second network, which makes it
-    # dual-homed and breaks Traefik routing (see the NOTE at the bottom of
-    # this file). So on Coolify gotenberg keeps egress; block it at the host
-    # firewall if the server allows outbound traffic.
+    # Network: the dev compose also puts it alone on an `internal: true`
+    # network. Here that would need the frontend on a second network, which
+    # makes it dual-homed and breaks Traefik routing (see the NOTE at the
+    # bottom of this file), so the container keeps a route out. The
+    # --libreoffice-deny-private-ips / --libreoffice-deny-public-ips flags
+    # close what that route would expose: LibreOffice refuses every URL an
+    # office file links, including other containers on this network, which a
+    # host firewall cannot see. A host egress rule is still worth having as
+    # a second layer.
     image: gotenberg/gotenberg:8.37.0-libreoffice
     command:
       [
@@ -670,7 +677,11 @@ services:
         "--api-disable-download-from",
         "--webhook-disable",
         "--libreoffice-auto-start=true",
+        "--gotenberg-graceful-shutdown-duration=120s",
+        "--libreoffice-deny-private-ips",
+        "--libreoffice-deny-public-ips",
       ]
+    stop_grace_period: 130s
     expose:
       - "3000"
     healthcheck:

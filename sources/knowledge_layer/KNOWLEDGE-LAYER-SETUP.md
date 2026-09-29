@@ -282,18 +282,18 @@ Summaries are generated for the following file types:
 | Format | Extension | Extraction Method |
 |--------|-----------|-------------------|
 | PDF | `.pdf` | First 2 pages via `pypdf` |
-| Word | `.docx` | Body text via `docx2txt` |
-| PowerPoint | `.pptx` | Slide text via `python-pptx` |
+| Word | `.docx` `.docm` `.doc` `.odt` `.rtf` | The PDF rendition the BFF converts through Gotenberg (`extraction_ref`, ADR-0071), read like a PDF. No rendition, no index: the file fails as `office_rendition_required` and can be re-ingested |
+| PowerPoint | `.pptx` `.pptm` `.ppt` `.odp` | The PDF rendition, as for Word. Speaker notes of a `.pptx`/`.pptm` come from the original via `python-pptx`, one unit per slide, labelled with the slide's rendition page |
 | Plain Text | `.txt` | Direct file read |
 | Markdown | `.md` | Direct file read |
 
 Other file types are ingested normally but do not receive summaries.
 
-> **Frontend file types:** The frontend file picker defaults to `.pdf,.docx,.txt,.md` (matching LlamaIndex). Set `FILE_UPLOAD_ACCEPTED_TYPES` to match your backend:
+> **Frontend file types:** The frontend file picker defaults to `.pdf,.docx,.txt,.md,.csv,.xlsx,.pptx` (`frontends/ui/src/shared/config/file-upload.ts`). Leave `FILE_UPLOAD_ACCEPTED_TYPES` unset to keep that default; a value that lists fewer types narrows what users can upload. Word and PowerPoint files also need Gotenberg (`GOTENBERG_URL`). Where to set it:
 >
 > | Deployment | Where to set |
 > |-----------|-------------|
-> | **CLI** (`start_e2e.sh`) | `deploy/.env`: `FILE_UPLOAD_ACCEPTED_TYPES=.pdf,.docx,.pptx,.txt,.md` |
+> | **CLI** (`start_e2e.sh`) | `deploy/.env` |
 > | **Docker Compose** | `deploy/.env` (passed to frontend container automatically) |
 > | **Helm** | `deploy/helm/deployment-k8s/values.yaml` under the frontend app's `env` section |
 

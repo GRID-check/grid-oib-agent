@@ -91,7 +91,7 @@ A page reaches the index by one of four roads (`page_triage`):
 |---|---|---|
 | text | usable text layer | pdfplumber text, as always |
 | scan | less than `AIQ_VISUAL_PAGE_MIN_TEXT_CHARS` of text and a raster covering at least half the page | rendered, **transcribed**, indexed as page text |
-| garbled | the text layer is `(cid:n)` runs, replacement characters, mojibake (`GebÃ¤ude`) or glyph ids shifted into letters (vowel ratio below 0.22) | as a scan; the garbage is never indexed |
+| garbled | the text layer is `(cid:n)` runs, replacement characters, mojibake (`GebÃ¤ude`) or glyph ids shifted into letters (vowel ratio below 0.22) | as a scan, and the transcription replaces the text layer. A page left untranscribed (no vision key, a failed call, past `AIQ_MAX_OCR_PAGES`, or that set to 0) keeps what of its text is not `(cid:n)` tokens (`salvage_text`), counted as `pages_garbled_text_kept`. The shares are measured per glyph, a `(cid:n)` token counting as the one glyph it stands for, and symbol-font bullets in the private use area are exempt, so a clean Word export with bullets is not garbled |
 | drawing | text-low and not a scan, carrying any real graphic content: at least `MIN_SKETCH_PATHS` (20) vector paths or a picture. A garbled page with at least `AIQ_VISUAL_PAGE_MIN_PATHS` paths is a CAD sheet and lands here too | rendered, drawing schema |
 
 Until 2026-09 a page with under 200 characters went through the drawing schema,

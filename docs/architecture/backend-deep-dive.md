@@ -973,24 +973,25 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
    `_thumb.jpg`) and generates a presigned **PUT** URL for it.
 2. The PUT URL is passed to the backend's `/v1/ingest` as
    `thumbnail_upload_url`.
-3. The `/v1/ingest` route handler (`ingest.py`) draws a quick thumbnail in a
-   **background task** that runs once the route has answered 202, so the card
-   has one within a second while the request stays inside the BFF's
-   ten-second dispatch budget:
-   - **PDFs**: page 0 via `pypdfium2` → PIL → 200px JPEG quality 80.
-   - **Images**: PIL open → RGB → 200px JPEG quality 80.
-   - **Office originals**: the same, from the PDF rendition (`preview_ref`).
-4. The JPEG bytes are PUT to SeaweedFS via the presigned URL.
-5. `_run_ingestion` in `adapter.py` renders the 400px thumbnail for every PDF
-   or image once text extraction is done, and its PUT replaces the quick one.
-   The route used to tell the job to skip this when its own render succeeded;
-   that signal needed the render to finish inside the request, so it went with
-   the move to a background task.
+3. The ingest job draws the thumbnail right after it downloads its input and
+   before any extraction: page 0 of a PDF, or the image itself, via
+   `pypdfium2`/PIL → 400px JPEG. For a Word or presentation file, `.xls` or
+   `.ods`, that input is the PDF rendition from `extraction_ref`
+   (ADR-0071), so the thumbnail comes from the same file the job extracts.
+4. The route itself no longer has the bytes: the job downloads them, so there
+   is no quick render from the original. It draws a thumbnail only for an
+   office original the job cannot rasterise, which in practice means
+   `.xlsx`/`.xlsm`: `preview_ref` present and `extraction_ref` absent. Then a
+   FastAPI background task, run once the 202 is out, downloads the rendition
+   into a temp `.pdf`, renders page 0 at 200px and deletes the file.
+5. Either way the JPEG is PUT to SeaweedFS via the presigned URL. The full
+   contract is in [`python-endpoints.md`](../api/python-endpoints.md).
 
 **Serving:**
 - `GET /api/documents/{id}/thumbnail` → `getDocumentThumbnail()` presigns a
   browser-facing GET URL for `_thumb.jpg`. Returns `{ url: string | null }`;
-  `null` means no thumbnail exists (non-PDF/image, or generation failed).
+  `null` means no thumbnail exists (a type with none, an office original whose
+  conversion failed, or a render that failed).
 
 **Frontend:**
 - `ThumbnailWithFallback` (file-browser-pane.tsx) and
@@ -1226,12 +1227,14 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
 
 3b. **The coverage signal** — with `requery_decider: jev`, a search whose
    judge found the first pool insufficient asks the decider once more over the
-   head of the pool the model gets, after the requery round
-   (`requery.judge_coverage`, one `noul` per passage, the same 0.55). When
-   every passage was decided and none reaches it, the block's preamble stops
-   calling the hits relevant and the line under it reads `Abdeckung:
-   unzureichend — keine der N besten Passagen enthält die gesuchte Aussage …`
-   (`GroundingBlock.coverage_gap`). The pool reaches the model whole: a
+   whole pool the model gets, up to 24 passages (`_COVERAGE_MAX_JUDGED`), after
+   the requery round (`requery.judge_coverage`, one `noul` per passage, the same
+   0.55). When every judged passage was decided and none reaches it, the
+   preamble reads `Found N document(s); none of the judged ones answers the
+   question:` and the line under it reads `Abdeckung: unzureichend — keine der
+   N gezeigten Passagen enthält die gesuchte Aussage …`, or, for a pool longer
+   than 24, `keine der 24 besten Passagen …; die übrigen K Passagen wurden
+   nicht geprüft` (`GroundingBlock.coverage_gap`). The pool reaches the model whole: a
    decision never withholds a passage (ADR-0064), so the gap is stated, not
    enforced. The prompt's `<research_rules>` tell the agent to say it found no
    supporting passage rather than answer from them. The retrieval span records
