@@ -26,6 +26,7 @@ import {
   DatabaseZap,
   HardDrive,
   LayoutGrid,
+  MessageSquarePlus,
   Scale,
   ShieldCheck,
   SlidersHorizontal,
@@ -48,6 +49,8 @@ export const PLATFORM_SECTIONS = [
   // Right after quality, because it is what quality's signal FEEDS: the lesson
   // register distilled from down-votes, framed as the bandage it is.
   { key: 'lessons', href: '/app/platform/lessons', icon: Bandage },
+  // What members tell us directly, beside what their down-votes tell us.
+  { key: 'feedback', href: '/app/platform/feedback', icon: MessageSquarePlus },
   { key: 'cards', href: '/app/platform/cards', icon: LayoutGrid },
   { key: 'knowledge', href: '/app/platform/knowledge', icon: BookOpenCheck },
   { key: 'norms', href: '/app/platform/norms', icon: Scale },

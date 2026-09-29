@@ -603,6 +603,11 @@ export const platform: typeof en.platform = {
       subtitle:
         'Was die Plattform aus negativem Feedback gelernt hat — anonymisiert, dedupliziert und in jede Antwort injiziert, damit ein gemeldeter Fehler sich nicht wiederholt. Jede Lektion ist ein symptomatisches Pflaster, keine Ursachenbehebung.',
     },
+    feedback: {
+      title: 'Feedback',
+      subtitle:
+        'Was Mitglieder aus Piloti heraus melden — Fehler, Ideen, Lob und Fragen. Neue Meldungen landen auch in Ihrem Postfach.',
+    },
     knowledge: {
       title: 'Basiswissen',
       subtitle: 'Der gemeinsame OIB-Korpus, auf den jedes Projekt seine Antworten stützt.',

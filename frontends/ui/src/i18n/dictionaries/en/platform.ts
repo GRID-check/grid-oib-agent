@@ -595,6 +595,11 @@ export const platform = {
       subtitle:
         'What the platform learned from negative feedback — anonymized, deduplicated, and injected into every answer so a reported failure does not repeat. Every lesson is a symptomatic patch, not a fix.',
     },
+    feedback: {
+      title: 'Feedback',
+      subtitle:
+        'What members report from inside Piloti — bugs, ideas, praise and questions. New reports also land in your inbox.',
+    },
     knowledge: {
       title: 'Base knowledge',
       subtitle: 'The shared OIB corpus every project grounds its answers on.',
