@@ -16,11 +16,29 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Gebäudeklasse bestimmen nach OIB: welche Angaben die GK entscheiden, welche Ausgabe im Bundesland gilt und wie Piloti die Klasse mit Fundstelle einordnet.',
       heading: 'Gebäudeklasse bestimmen: GK 1 bis 5 nach OIB',
-      lede: 'Fast jede Anforderung der OIB-Richtlinie 2 hängt an der Gebäudeklasse. Wer sie falsch einordnet, prüft danach sauber das Falsche.',
+      lede: 'Piloti ordnet Ihr Gebäude in GK 1 bis 5 ein, mit dem Wortlaut der Begriffsbestimmungen als Beleg und der Ausgabe, die in Ihrem Bundesland gilt. Fehlt eine entscheidende Angabe, stellt es genau eine Frage.',
       note: 'Begriffe nach: OIB-Richtlinien, Begriffsbestimmungen, Ausgabe Mai 2023.',
       answer:
-        'Die OIB-Gebäudeklasse (GK 1 bis 5) folgt aus dem Fluchtniveau, der Zahl der oberirdischen Geschoße, der Fläche und der Nutzung, bei GK 1 und GK 2c auch aus der Zugänglichkeit von mindestens drei Seiten. Welche Ausgabe der Richtlinien dafür gilt, legt das Bundesland fest.',
+        'Piloti bestimmt die OIB-Gebäudeklasse (GK 1 bis 5) aus Fluchtniveau, Zahl der oberirdischen Geschoße, Fläche und Nutzung, bei GK 1 und GK 2c auch aus der Zugänglichkeit von mindestens drei Seiten, und liefert die Klasse als kopierbaren Wert mit geprüfter Fundstelle und der Ausgabe, die im Bundesland gilt.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'Was Piloti liefert',
+          items: [
+            {
+              name: 'Die Klasse zuerst',
+              body: 'Oben steht das Ergebnis als kopierbarer Wert, etwa „GK 3“, darunter die kurze Begründung und die Annahmen, auf denen es ruht.',
+            },
+            {
+              name: 'Eine Fallunterscheidung, wo es kippt',
+              body: 'Liegt ein Projekt an einer Grenze, stehen die Fälle nebeneinander, etwa mit und ohne ausgebautes Dachgeschoß.',
+            },
+            {
+              name: 'Eine Schnittskizze',
+              body: 'Wo Höhe und Fluchtniveau der Gegenstand sind, zeichnet Piloti einen schematischen Schnitt mit Geschoßen, Gelände und Fluchtniveau.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Warum die Einordnung heikel ist',
@@ -43,7 +61,7 @@ export const anwendungen: LandingEntry[] = [
             },
             {
               name: 'Ausgabe und Bundesland festhalten',
-              body: 'Die im Land verbindliche Ausgabe kommt aus der Wissensbasis oder dem RIS, nicht aus dem Gedächtnis.',
+              body: 'Piloti nennt die Ausgabe, die im Bundesland des Projekts gilt, dort, wo sie das Ergebnis verschiebt, und zitiert die Stelle.',
             },
             {
               name: 'Mit Fundstelle einordnen',
@@ -52,24 +70,6 @@ export const anwendungen: LandingEntry[] = [
             {
               name: 'Den Plan ansehen, wenn er entscheidet',
               body: 'Liegen Schnitt oder Ansicht im Projekt, sieht Piloti sie als Bild an und sagt, welche Zeichnung auf dem Blatt es gelesen hat.',
-            },
-          ],
-        },
-        {
-          kind: 'pairs',
-          title: 'Was Sie bekommen',
-          items: [
-            {
-              name: 'Die Klasse zuerst',
-              body: 'Oben steht das Ergebnis als kopierbarer Wert, etwa „GK 3“, darunter die kurze Begründung und die Annahmen, auf denen es ruht.',
-            },
-            {
-              name: 'Eine Fallunterscheidung, wo es kippt',
-              body: 'Liegt ein Projekt an einer Grenze, stehen die Fälle nebeneinander, etwa mit und ohne ausgebautes Dachgeschoß.',
-            },
-            {
-              name: 'Eine Schnittskizze',
-              body: 'Wo Höhe und Fluchtniveau der Gegenstand sind, zeichnet Piloti einen schematischen Schnitt mit Geschoßen, Gelände und Fluchtniveau.',
             },
           ],
         },
@@ -86,10 +86,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wo Piloti aufhört',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti ordnet ein und belegt die Einordnung. Es misst nicht nach: Ein Fluchtniveau, das Sie angeben, bleibt Ihre Angabe, und eine Kote, die der Plan nicht eindeutig zeigt, wird erfragt, nicht geschätzt. Liest Piloti einen Plan, markiert es die Zeichnung auf dem Blatt, nicht das einzelne Bauteil.',
-            'Entweder steht die Klasse mit Fundstelle da, oder die eine Tatsache, ohne die es keine Klasse gibt. Ob die Behörde ein Grenzprojekt genauso sieht, klären Sie im Vorgespräch.',
+            'Die Einordnung liefert Piloti mit Fundstelle, damit Ihr Büro sie nachprüfen kann; die Verantwortung für die Planung bleibt bei Ihnen. Eine Kote, die der Plan nicht eindeutig zeigt, erfragt Piloti, statt sie zu schätzen. Ein Grenzprojekt besprechen Sie mit dieser Begründung im Vorgespräch mit der Behörde.',
           ],
         },
       ],
@@ -113,11 +112,29 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Determining the OIB building class: which facts decide it, which edition applies in each state, and how Piloti classifies a building with a citation.',
       heading: 'Determining the building class: GK 1 to 5 under OIB',
-      lede: 'Almost every requirement in OIB guideline 2 hinges on the building class. Classify it wrongly and you then check the wrong thing very carefully.',
+      lede: 'Piloti places your building in GK 1 to 5, with the wording of the OIB definitions as evidence and the edition that applies in your state. If a deciding fact is missing, it asks exactly one question.',
       note: 'Terms from: OIB-Richtlinien, Begriffsbestimmungen, edition May 2023.',
       answer:
-        'The OIB building class (GK 1 to 5) follows from the escape level, the number of above-ground storeys, the floor area and the use, and for GK 1 and GK 2c also from access on at least three sides. Which edition of the guidelines applies is set by each state.',
+        'Piloti determines the OIB building class (GK 1 to 5) from the escape level, the number of above-ground storeys, the floor area and the use, and for GK 1 and GK 2c also from access on at least three sides, and delivers the class as a copyable value with a checked citation and the edition that applies in the state.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'What Piloti delivers',
+          items: [
+            {
+              name: 'The class first',
+              body: 'The result comes first as a copyable value, such as “GK 3”, followed by the short reasoning and the assumptions it rests on.',
+            },
+            {
+              name: 'A case split where it tips',
+              body: 'If a project sits on a boundary, the cases stand side by side, such as with and without a converted attic.',
+            },
+            {
+              name: 'A section sketch',
+              body: 'Where height and escape level are the subject, Piloti draws a schematic section with storeys, ground and escape level.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Why the classification is tricky',
@@ -140,7 +157,7 @@ export const anwendungen: LandingEntry[] = [
             },
             {
               name: 'Pin down edition and state',
-              body: 'The edition binding in the state comes from the knowledge base or from RIS, not from memory.',
+              body: 'Piloti names the edition that applies in the project’s state wherever it moves the result, and cites the passage.',
             },
             {
               name: 'Classify with a citation',
@@ -149,24 +166,6 @@ export const anwendungen: LandingEntry[] = [
             {
               name: 'Look at the drawing when it decides',
               body: 'If a section or elevation is in the project, Piloti looks at it as an image and says which drawing on the sheet it read.',
-            },
-          ],
-        },
-        {
-          kind: 'pairs',
-          title: 'What you get',
-          items: [
-            {
-              name: 'The class first',
-              body: 'The result comes first as a copyable value, such as “GK 3”, followed by the short reasoning and the assumptions it rests on.',
-            },
-            {
-              name: 'A case split where it tips',
-              body: 'If a project sits on a boundary, the cases stand side by side, such as with and without a converted attic.',
-            },
-            {
-              name: 'A section sketch',
-              body: 'Where height and escape level are the subject, Piloti draws a schematic section with storeys, ground and escape level.',
             },
           ],
         },
@@ -183,10 +182,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Where Piloti stops',
+          title: 'Good to know',
           body: [
-            'Piloti classifies and backs the classification with sources. It does not measure: an escape level you give remains your figure, and a level the drawing does not show clearly is asked for, not estimated. When Piloti reads a drawing, it marks the drawing on the sheet, not the individual element.',
-            'Either the class stands with a citation, or the one fact without which there is no class. Whether the authority sees a borderline project the same way is for your pre-application meeting.',
+            'Piloti delivers the classification with its citation so your office can check it; responsibility for the design stays with you. A level the drawing does not show clearly is asked for rather than estimated. A borderline project goes into the pre-application meeting with this reasoning in hand.',
           ],
         },
       ],
@@ -215,10 +213,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Brandschutz nach OIB-Richtlinie 2 mit KI prüfen: Fluchtweg, Brandabschnitt und Feuerwiderstand, getrennt nach Anforderung und Nachweis, mit Fundstelle.',
       heading: 'Fluchtweg und Brandabschnitt prüfen nach OIB-Richtlinie 2',
-      lede: 'Welche Feuerwiderstandsklasse, wie lang der Fluchtweg, wie groß der Brandabschnitt: Jede dieser Fragen beginnt bei der Gebäudeklasse und endet bei einem Nachweis am Plan.',
+      lede: 'Feuerwiderstand, Fluchtweglänge, Brandabschnitt: Piloti klärt zuerst die Gebäudeklasse, zitiert dann die Anforderung bis zum Punkt und prüft auf Wunsch Ihren Grundriss dagegen, Segment für Segment.',
       answer:
-        'Die Brandschutzanforderungen der OIB-Richtlinie 2 hängen fast alle an der Gebäudeklasse und an der Ausgabe, die im Bundesland gilt; ohne beide gibt es keine belastbare Zahl. Piloti stellt zuerst die Klasse fest, nennt dann die Anforderung mit Fundstelle und sagt, ob es die Anforderung beschreibt oder am Plan prüft, ob sie erfüllt ist.',
+        'Piloti prüft den Brandschutz nach OIB-Richtlinie 2 in der Reihenfolge, in der die Richtlinie gebaut ist: zuerst Gebäudeklasse und die im Bundesland geltende Ausgabe, dann die Anforderung mit geprüfter Fundstelle, dann auf Wunsch der Befund am Plan. Jede Antwort sagt, ob sie die Anforderung beschreibt oder ihre Erfüllung prüft.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'Was Piloti liefert',
+          items: [
+            {
+              name: 'Den Fluchtweg als Diagramm',
+              body: 'Ein Fluchtweg aus mehreren Segmenten wird gezeichnet, jedes Segment einzeln. Die Frage ist fast immer, welches Segment zu lang ist, nicht ob die Summe stimmt.',
+            },
+            {
+              name: 'Brandabschnitte als Prüftabelle',
+              body: 'Eine Zeile je Abschnitt, mit Fläche, Grenzwert, Quelle und Ergebnis, oben zusammengefasst, etwa „2 erfüllt · 1 offen“.',
+            },
+            {
+              name: 'Zufahrt und Aufstellfläche',
+              body: 'Wo die Feuerwehrzufahrt die Frage ist, zeigt eine Skizze Zufahrt, Durchfahrt und Aufstellfläche.',
+            },
+            {
+              name: 'Varianten nebeneinander',
+              body: 'Zwei Lösungen für ein Stiegenhaus stehen als Tabs nebeneinander, jede mit eigenem Urteil.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Warum Brandschutzfragen heikel sind',
@@ -255,28 +275,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'Was Sie bekommen',
-          items: [
-            {
-              name: 'Den Fluchtweg als Diagramm',
-              body: 'Ein Fluchtweg aus mehreren Segmenten wird gezeichnet, jedes Segment einzeln. Die Frage ist fast immer, welches Segment zu lang ist, nicht ob die Summe stimmt.',
-            },
-            {
-              name: 'Brandabschnitte als Prüftabelle',
-              body: 'Eine Zeile je Abschnitt, mit Fläche, Grenzwert, Quelle und Ergebnis, oben zusammengefasst, etwa „2 erfüllt · 1 offen“.',
-            },
-            {
-              name: 'Zufahrt und Aufstellfläche',
-              body: 'Wo die Feuerwehrzufahrt die Frage ist, zeigt eine Skizze Zufahrt, Durchfahrt und Aufstellfläche.',
-            },
-            {
-              name: 'Varianten nebeneinander',
-              body: 'Zwei Lösungen für ein Stiegenhaus stehen als Tabs nebeneinander, jede mit eigenem Urteil.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'Was Piloti von Ihnen braucht',
           items: [
@@ -288,10 +286,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wo Piloti aufhört',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti schreibt kein Brandschutzkonzept und ersetzt keine Brandschutzplanung. Es sagt, welche Anforderung gilt und wo sie steht, und prüft am Plan, was sich am Plan prüfen lässt. Fehlt die Gebäudeklasse, ist das die offene Tatsache, nicht eine geschätzte Widerstandsklasse.',
-            'Wo die Richtlinie auf eine Norm verweist, nennt Piloti sie aus dem Normenverzeichnis. Den Normtext selbst hat Piloti nicht, und was nur in der Norm steht, zitiert es deshalb nicht als Wert.',
+            'Piloti bereitet Anforderung und Befund mit Fundstelle vor; Brandschutzkonzept und Verantwortung bleiben bei der Brandschutzplanung. Fehlt die Gebäudeklasse, fragt Piloti danach, bevor eine Widerstandsklasse fällt. Verweist die Richtlinie auf eine Norm, nennt Piloti sie, und den Normtext schlagen Sie in Ihrer Lizenz nach.',
           ],
         },
       ],
@@ -319,10 +316,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Checking fire safety under OIB guideline 2 with AI: escape routes, fire compartments and fire resistance, requirement apart from evidence, with citations.',
       heading: 'Checking escape routes and fire compartments under OIB guideline 2',
-      lede: 'Which fire resistance class, how long the escape route, how large the fire compartment: each of these questions starts at the building class and ends at evidence on the drawing.',
+      lede: 'Fire resistance, escape route length, fire compartment: Piloti settles the building class first, then cites the requirement to the clause and, on request, checks your floor plan against it, segment by segment.',
       answer:
-        'The fire safety requirements of OIB guideline 2 almost all hinge on the building class and on the edition in force in the state; without both there is no reliable number. Piloti settles the class first, then names the requirement with a citation, and says whether it is describing the requirement or checking on the drawing whether it is met.',
+        'Piloti checks fire safety under OIB guideline 2 in the order the guideline is built: building class and the edition in force in the state first, then the requirement with a checked citation, then, on request, the finding on the drawing. Every answer says whether it describes the requirement or checks that it is met.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'What Piloti delivers',
+          items: [
+            {
+              name: 'The escape route as a diagram',
+              body: 'An escape route made of several segments is drawn with each segment separately. The question is almost always which segment is too long, not whether the total fits.',
+            },
+            {
+              name: 'Fire compartments as a check table',
+              body: 'One row per compartment, with area, limit, source and result, summarised at the top, such as “2 met · 1 open”.',
+            },
+            {
+              name: 'Access and staging area',
+              body: 'Where fire brigade access is the question, a sketch shows the approach, passage and staging area.',
+            },
+            {
+              name: 'Options side by side',
+              body: 'Two solutions for a stairwell stand side by side as tabs, each with its own verdict.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Why fire safety questions are tricky',
@@ -359,28 +378,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'What you get',
-          items: [
-            {
-              name: 'The escape route as a diagram',
-              body: 'An escape route made of several segments is drawn with each segment separately. The question is almost always which segment is too long, not whether the total fits.',
-            },
-            {
-              name: 'Fire compartments as a check table',
-              body: 'One row per compartment, with area, limit, source and result, summarised at the top, such as “2 met · 1 open”.',
-            },
-            {
-              name: 'Access and staging area',
-              body: 'Where fire brigade access is the question, a sketch shows the approach, passage and staging area.',
-            },
-            {
-              name: 'Options side by side',
-              body: 'Two solutions for a stairwell stand side by side as tabs, each with its own verdict.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'What Piloti needs from you',
           items: [
@@ -392,10 +389,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Where Piloti stops',
+          title: 'Good to know',
           body: [
-            'Piloti does not write a fire safety concept and does not replace fire safety design. It says which requirement applies and where it stands, and checks on the drawing what can be checked on the drawing. If the building class is missing, that is the open fact, not an estimated resistance class.',
-            'Where the guideline refers to a standard, Piloti names it from the register of standards. It does not have the text of the standard itself, so it does not cite as a value what only the standard contains.',
+            'Piloti prepares requirement and finding with citations; the fire safety concept and the responsibility for it stay with the fire safety designer. If the building class is missing, Piloti asks for it before naming a resistance class. Where the guideline refers to a standard, Piloti names it, and you look up the text under your licence.',
           ],
         },
       ],
@@ -428,10 +424,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Einreichunterlagen prüfen vor dem Bauansuchen: Piloti gleicht Ihr Paket mit der Liste aus der Bauordnung Ihres Bundeslands ab und zeigt, was noch fehlt.',
       heading: 'Einreichunterlagen prüfen: Was fehlt dem Bauansuchen noch?',
-      lede: 'Eine Einreichung bleibt selten am Entwurf allein hängen. Oft fehlt ein Plan, eine Zustimmung, ein Nachweis. Der Einreichcheck sucht genau das.',
+      lede: 'Piloti legt die Unterlagenliste aus der Bauordnung Ihres Bundeslands neben Ihr Einreichpaket und zeigt Stück für Stück, was da ist und was fehlt. Aus jeder Lücke wird ein offener Punkt im Projekt.',
       answer:
-        'Der Einreichcheck gleicht Ihr Einreichpaket mit den Unterlagen ab, die Bauordnung und Verordnungen Ihres Bundeslands für dieses Verfahren verlangen, und führt jedes Stück als vorhanden, fehlend oder nicht anwendbar. Er prüft die Vollständigkeit, nicht ob der Entwurf die Anforderungen erfüllt.',
+        'Der Einreichcheck von Piloti gleicht Ihr Einreichpaket mit den Unterlagen ab, die Bauordnung und Verordnungen Ihres Bundeslands für dieses Verfahren verlangen, und führt jedes Stück mit Fundstelle als vorhanden, fehlend oder nicht anwendbar. So steht vor dem Bauansuchen fest, dass das Paket vollständig ist; was fehlt, wird zur Aufgabe im Projekt.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'Was Piloti liefert',
+          items: [
+            {
+              name: 'Eine Prüftabelle, eine Zeile je Unterlage',
+              body: 'Mit Status, Fundstelle und Ergebnis, oben die Zählung je Status. Nichts steht als „vermutlich dabei“: Die offenen Punkte sind die Arbeitsliste, nicht eine Fußnote.',
+            },
+            {
+              name: 'Das Verfahren als Ablauf',
+              body: 'Einreichung, Verhandlung, Bewilligung, Fertigstellung als nummerierte Stufen, der Schritt, an dem Ihr Projekt steht, markiert, sobald das Gespräch ihn kennt.',
+            },
+            {
+              name: 'Behörde und Büro getrennt',
+              body: 'Was das Gesetz verlangt und was Ihr Büro verlangt, in zwei Gruppen, jede mit ihrer eigenen Quelle.',
+            },
+            {
+              name: 'Eine Checkliste für das Team',
+              body: 'Auf Wunsch schreibt Piloti die offenen Punkte als Checkliste ins Projekt, mit Fassungen und Freigabe, und als Word-Datei zum Herunterladen.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Warum eine Checkliste aus der Schublade nicht reicht',
@@ -464,28 +482,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'Was Sie bekommen',
-          items: [
-            {
-              name: 'Eine Prüftabelle, eine Zeile je Unterlage',
-              body: 'Mit Status, Fundstelle und Ergebnis, oben die Zählung je Status. Nichts steht als „vermutlich dabei“: Die offenen Punkte sind die Arbeitsliste, nicht eine Fußnote.',
-            },
-            {
-              name: 'Das Verfahren als Ablauf',
-              body: 'Einreichung, Verhandlung, Bewilligung, Fertigstellung als nummerierte Stufen, der Schritt, an dem Ihr Projekt steht, markiert, sobald das Gespräch ihn kennt.',
-            },
-            {
-              name: 'Behörde und Büro getrennt',
-              body: 'Was das Gesetz verlangt und was Ihr Büro verlangt, in zwei Gruppen, jede mit ihrer eigenen Quelle.',
-            },
-            {
-              name: 'Eine Checkliste für das Team',
-              body: 'Auf Wunsch schreibt Piloti die offenen Punkte als Checkliste ins Projekt, mit Fassungen und Freigabe, und als Word-Datei zum Herunterladen.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'Was Piloti von Ihnen braucht',
           items: [
@@ -497,10 +493,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wo Piloti aufhört',
+          title: 'Gut zu wissen',
           body: [
-            'Der Einreichcheck prüft, ob das Paket für die Behörde steht, nicht ob der Entwurf die OIB-Richtlinien oder den Bebauungsplan erfüllt. Ein vollständiges Ansuchen kann einen unzulässigen Entwurf tragen, und ein zulässiger Entwurf kann an einem fehlenden Plan scheitern. Für die zweite Frage gibt es eigene Arbeitsweisen: Gebäudeklasse, Brandschutz, Bebauung.',
-            'Piloti prüft, ob eine Unterlage da ist und ob sie die ist, die die Bestimmung verlangt. Ob ein Nachweis inhaltlich stimmt oder ein Plan maßlich stimmig ist, ist damit nicht beantwortet. Und was eine einzelne Baubehörde nur in ihrer Praxis verlangt, steht in keinem Gesetz; das findet Piloti nur, wenn Ihr Büro es im Archiv festgehalten hat.',
+            'Der Einreichcheck stellt die Vollständigkeit des Pakets fest; ob der Entwurf die Anforderungen erfüllt, prüfen die Arbeitsweisen zu Gebäudeklasse, Brandschutz und Bebauung. Was eine Baubehörde über das Gesetz hinaus in ihrer Praxis verlangt, nimmt Piloti mit, sobald Ihr Büro es im Archiv festgehalten hat. Unterschrift und Verantwortung für die Einreichung bleiben bei der Planverfasser:in.',
           ],
         },
       ],
@@ -528,10 +523,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Checking submission documents before filing: Piloti compares your package with the list in your state’s building code and shows what is still missing.',
       heading: 'Checking submission documents: what is the application still missing?',
-      lede: 'A submission rarely stalls on the design alone. Often a drawing, a consent or a certificate is missing. The Einreichcheck looks for exactly that.',
+      lede: 'Piloti lays the document list from your state’s building code next to your submission package and shows, item by item, what is there and what is missing. Every gap becomes an open point in the project.',
       answer:
-        'The Einreichcheck compares your submission package with the documents your state’s building code and regulations require for this procedure, and records each item as present, missing or not applicable. It checks completeness, not whether the design meets the requirements.',
+        'Piloti’s Einreichcheck compares your submission package with the documents your state’s building code and regulations require for this procedure, and records each item with its citation as present, missing or not applicable. Before you file, you know the package is complete; whatever is missing becomes a task in the project.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'What Piloti delivers',
+          items: [
+            {
+              name: 'A check table, one row per document',
+              body: 'With status, location and result, and a count per status at the top. Nothing is “probably included”: the open points are the work list, not a footnote.',
+            },
+            {
+              name: 'The procedure as a sequence',
+              body: 'Submission, hearing, permit, completion as numbered stages, with the step your project is at marked as soon as the conversation knows it.',
+            },
+            {
+              name: 'Authority and office kept apart',
+              body: 'What the law requires and what your office requires, in two groups, each with its own source.',
+            },
+            {
+              name: 'A checklist for the team',
+              body: 'On request Piloti writes the open points as a checklist into the project, with versions and approval, and as a Word file to download.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Why a checklist from the drawer is not enough',
@@ -564,28 +581,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'What you get',
-          items: [
-            {
-              name: 'A check table, one row per document',
-              body: 'With status, location and result, and a count per status at the top. Nothing is “probably included”: the open points are the work list, not a footnote.',
-            },
-            {
-              name: 'The procedure as a sequence',
-              body: 'Submission, hearing, permit, completion as numbered stages, with the step your project is at marked as soon as the conversation knows it.',
-            },
-            {
-              name: 'Authority and office kept apart',
-              body: 'What the law requires and what your office requires, in two groups, each with its own source.',
-            },
-            {
-              name: 'A checklist for the team',
-              body: 'On request Piloti writes the open points as a checklist into the project, with versions and approval, and as a Word file to download.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'What Piloti needs from you',
           items: [
@@ -597,10 +592,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Where Piloti stops',
+          title: 'Good to know',
           body: [
-            'The Einreichcheck checks whether the package is ready for the authority, not whether the design complies with the OIB guidelines or the zoning plan. A complete application can carry an inadmissible design, and an admissible design can fail on a missing drawing. The second question has its own ways of working: building class, fire safety, plot rules.',
-            'Piloti checks whether a document is there and whether it is the one the provision requires. Whether a certificate is correct in substance or a drawing consistent in its dimensions is not answered by that. And what a single authority requires only in practice is in no law; Piloti finds it only if your office has recorded it in the archive.',
+            'The Einreichcheck establishes that the package is complete; whether the design meets the requirements is checked by the ways of working for building class, fire safety and plot rules. What an authority asks for in practice beyond the law, Piloti includes once your office has recorded it in the archive. Signature and responsibility for the submission stay with the responsible planner.',
           ],
         },
       ],
@@ -639,10 +633,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Bauen im Bestand nach OIB: welche Anforderungen bei Umbau, Zubau oder Nutzungsänderung gelten, was der Bestand trägt und wie Piloti das Vorhaben einordnet.',
       heading: 'Bauen im Bestand: Was nach Umbau und Nutzungsänderung gilt',
-      lede: 'Der größte Teil der Arbeit in einem Planungsbüro ist Bestand. Die häufigste falsche Zahl ist eine Neubau-Anforderung, die auf einen Dachausbau gelegt wird.',
+      lede: 'Der größte Teil der Arbeit in einem Planungsbüro ist Bestand. Piloti ordnet zuerst das Vorhaben nach der Bauordnung Ihres Landes ein und zitiert erst dann die Anforderung, die für genau diesen Eingriff gilt, nicht die für den Neubau daneben.',
       answer:
-        'Bei Umbau, Zubau, Nutzungsänderung oder größerer Renovierung hängt jede Anforderung zuerst daran, als welches Vorhaben die Bauordnung Ihres Landes den Eingriff einordnet; erst danach lässt sich sagen, welche OIB-Anforderung gilt und was der bewilligte Bestand noch trägt. Piloti ordnet das Vorhaben mit Fundstelle ein, bevor es eine Anforderung zitiert.',
+        'Bei Umbau, Zubau, Nutzungsänderung oder größerer Renovierung ordnet Piloti den Eingriff zuerst mit Fundstelle nach der Bauordnung Ihres Landes ein, prüft die Gebäudeklasse neu und nennt dann die OIB-Anforderungen, die für dieses Vorhaben gelten. Ist eine Anforderung am Bestand nicht haltbar, baut Piloti den Abweichungsfall mit Schutzziel und Nachweis auf.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'Was Piloti liefert',
+          items: [
+            {
+              name: 'Das Regime mit Fundstelle',
+              body: 'Oben steht, als welches Vorhaben der Eingriff gilt und nach welcher Bestimmung.',
+            },
+            {
+              name: 'Eine Fallunterscheidung',
+              body: 'Gabelt sich die Antwort am Regime, stehen die Fälle als Tabelle nebeneinander, Ihr Fall markiert, sobald er feststeht. Bestand und geänderter Zustand lassen sich als Tabs vergleichen.',
+            },
+            {
+              name: 'Eine Prüftabelle',
+              body: 'Mehrere Anforderungen, jede mit eigenem Urteil, eigener Quelle und dem Regime, zu dem sie gehört.',
+            },
+            {
+              name: 'Einen Hinweis, wenn er den nächsten Schritt ändert',
+              body: 'Eine Frist oder ein Vorbehalt steht hervorgehoben über der Antwort, höchstens einer, damit er nicht zwischen anderen untergeht.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Warum Bestand schwieriger ist als Neubau',
@@ -679,28 +695,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'Was Sie bekommen',
-          items: [
-            {
-              name: 'Das Regime mit Fundstelle',
-              body: 'Oben steht, als welches Vorhaben der Eingriff gilt und nach welcher Bestimmung.',
-            },
-            {
-              name: 'Eine Fallunterscheidung',
-              body: 'Gabelt sich die Antwort am Regime, stehen die Fälle als Tabelle nebeneinander, Ihr Fall markiert, sobald er feststeht. Bestand und geänderter Zustand lassen sich als Tabs vergleichen.',
-            },
-            {
-              name: 'Eine Prüftabelle',
-              body: 'Mehrere Anforderungen, jede mit eigenem Urteil, eigener Quelle und dem Regime, zu dem sie gehört.',
-            },
-            {
-              name: 'Einen Hinweis, wenn er den nächsten Schritt ändert',
-              body: 'Eine Frist oder ein Vorbehalt steht hervorgehoben über der Antwort, höchstens einer, damit er nicht zwischen anderen untergeht.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'Was Piloti von Ihnen braucht',
           items: [
@@ -712,10 +706,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wo Piloti aufhört',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti ordnet ein und zitiert. Ob ein bestimmter Bestand rechtmäßig bewilligt ist und wie weit sein Schutz reicht, lässt sich nur aus den Bescheiden dieses Gebäudes beantworten. Liegen sie nicht im Projekt, sagt Piloti, dass sie fehlen, statt einen bewilligten Zustand anzunehmen.',
-            'Ein Abweichungsfall ist eine Argumentation, keine Zusage. „Macht die Behörde oft mit“ ist kein Fall, und Piloti schreibt ihn nicht so. Ob das gleiche Schutzniveau erreicht ist, entscheidet die Behörde. Offene Punkte bleiben Fragen oder Abweichungsfälle, nie ein geschätzter Grenzwert.',
+            'Was ein Bestand rechtmäßig trägt, liest Piloti aus den Bescheiden des Gebäudes; fehlen sie im Projekt, sagt es das, statt einen bewilligten Zustand anzunehmen. Einen Abweichungsfall baut Piloti als belegte Argumentation auf, über das gleiche Schutzniveau entscheidet die Behörde. Die Verantwortung für die Planung bleibt bei Ihrem Büro.',
           ],
         },
       ],
@@ -743,10 +736,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Existing buildings under OIB: which requirements apply to conversion, extension or change of use, what existing rights carry, and how Piloti classifies it.',
       heading: 'Existing buildings: what applies after conversion and change of use',
-      lede: 'Most of the work in a planning office is existing stock. The most common wrong number is a new-build requirement applied to an attic conversion.',
+      lede: 'Most of the work in a planning office is existing stock. Piloti first classifies the project under your state’s building code and only then cites the requirement that applies to exactly this intervention, not the one for the new build next door.',
       answer:
-        'For a conversion, extension, change of use or major renovation, every requirement first depends on how your state’s building code classifies the intervention; only then can one say which OIB requirement applies and what the permitted existing building still carries. Piloti classifies the project with a citation before it cites a requirement.',
+        'For a conversion, extension, change of use or major renovation, Piloti first classifies the intervention with a citation under your state’s building code, checks the building class again and then names the OIB requirements that apply to this project. If a requirement cannot be met in the existing building, Piloti builds the deviation case with protection goal and evidence.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'What Piloti delivers',
+          items: [
+            {
+              name: 'The regime with a citation',
+              body: 'At the top: what kind of project the intervention counts as, and under which provision.',
+            },
+            {
+              name: 'A case split',
+              body: 'If the answer forks at the regime, the cases stand side by side in a table, with your case marked once it is settled. Existing and altered states can be compared as tabs.',
+            },
+            {
+              name: 'A check table',
+              body: 'Several requirements, each with its own verdict, its own source and the regime it belongs to.',
+            },
+            {
+              name: 'A note when it changes the next step',
+              body: 'A deadline or a reservation stands highlighted above the answer, one at most, so it does not get lost among the others.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Why existing buildings are harder than new ones',
@@ -783,28 +798,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'What you get',
-          items: [
-            {
-              name: 'The regime with a citation',
-              body: 'At the top: what kind of project the intervention counts as, and under which provision.',
-            },
-            {
-              name: 'A case split',
-              body: 'If the answer forks at the regime, the cases stand side by side in a table, with your case marked once it is settled. Existing and altered states can be compared as tabs.',
-            },
-            {
-              name: 'A check table',
-              body: 'Several requirements, each with its own verdict, its own source and the regime it belongs to.',
-            },
-            {
-              name: 'A note when it changes the next step',
-              body: 'A deadline or a reservation stands highlighted above the answer, one at most, so it does not get lost among the others.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'What Piloti needs from you',
           items: [
@@ -816,10 +809,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Where Piloti stops',
+          title: 'Good to know',
           body: [
-            'Piloti classifies and cites. Whether a particular existing building was lawfully permitted and how far its protection reaches can only be answered from that building’s permits. If they are not in the project, Piloti says they are missing instead of assuming a permitted state.',
-            'A deviation case is an argument, not a promise. “The authority often accepts that” is not a case, and Piloti does not write it as one. Whether the same level of protection is reached is for the authority to decide. Open points remain questions or deviation cases, never an estimated limit.',
+            'What an existing building lawfully carries, Piloti reads from its permits; if they are not in the project, it says so instead of assuming a permitted state. Piloti builds a deviation case as a sourced argument, and the authority decides whether the same level of protection is reached. Responsibility for the design stays with your office.',
           ],
         },
       ],
@@ -852,10 +844,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Bebauungsplan prüfen: Was darf ich auf dem Grundstück bauen? Bauklasse, Bauwich, Widmung, Dichte und Stellplätze nach Landesrecht erklärt, mit Fundstelle.',
       heading: 'Was darf ich auf dem Grundstück bauen?',
-      lede: 'Höhe, Abstand, Dichte, Widmung, Stellplätze: Das regeln Land und Gemeinde, nicht die OIB-Richtlinien. Und was für ein bestimmtes Grundstück gilt, steht in dessen Plan.',
+      lede: 'Höhe, Abstand, Dichte, Widmung, Stellplätze: Piloti nennt die Regel aus dem Landesrecht mit Fundstelle, liest den Bebauungsplan im Projekt mit und rechnet mit seinen Festlegungen, als Lageplan-Skizze und Kennzahl.',
       answer:
-        'Was auf einem Grundstück gebaut werden darf, legen das Landesrecht und der Flächenwidmungs- und Bebauungsplan der Gemeinde fest, nicht die OIB-Richtlinien. Piloti nennt die Regel mit Fundstelle und rechnet mit den Festlegungen, wenn der Plan im Projekt liegt; sonst sagt es, wo die Festlegung für Ihr Grundstück nachzulesen ist.',
+        'Was auf einem Grundstück gebaut werden darf, legen das Landesrecht und der Flächenwidmungs- und Bebauungsplan der Gemeinde fest, nicht die OIB-Richtlinien. Piloti nennt die Regel mit Fundstelle, rechnet mit den Festlegungen des Plans im Projekt Bebauungsgrad, Dichte und Abstände je Seite und zeigt das Ergebnis als Lageplan-Skizze.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'Was Piloti liefert',
+          items: [
+            {
+              name: 'Eine Lageplan-Skizze',
+              body: 'Grundstück, Fußabdruck und Abstände je Seite; mit den Flächen auch Bebauungsgrad und Dichte, die Quote aus den Flächen gerechnet.',
+            },
+            {
+              name: 'Einen Schnitt für die Höhe',
+              body: 'Wo die Höhe über die Geschoße geprüft wird, zeichnet Piloti einen schematischen Schnitt.',
+            },
+            {
+              name: 'Stellplätze als Kennzahl',
+              body: 'Gefordert gegen vorhanden, mit der Bemessungsgrundlage im Text, denn ohne sie ist die Zahl nicht prüfbar. Eine errechnete Zahl zeigt ihren Rechenweg.',
+            },
+            {
+              name: 'Varianten',
+              body: 'Zwei Baukörper auf demselben Grundstück als Tabs nebeneinander, jeder mit eigenem Urteil.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Warum hier keine österreichweite Zahl hilft',
@@ -892,28 +906,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'Was Sie bekommen',
-          items: [
-            {
-              name: 'Eine Lageplan-Skizze',
-              body: 'Grundstück, Fußabdruck und Abstände je Seite; mit den Flächen auch Bebauungsgrad und Dichte, die Quote aus den Flächen gerechnet.',
-            },
-            {
-              name: 'Einen Schnitt für die Höhe',
-              body: 'Wo die Höhe über die Geschoße geprüft wird, zeichnet Piloti einen schematischen Schnitt.',
-            },
-            {
-              name: 'Stellplätze als Kennzahl',
-              body: 'Gefordert gegen vorhanden, mit der Bemessungsgrundlage im Text, denn ohne sie ist die Zahl nicht prüfbar. Eine errechnete Zahl zeigt ihren Rechenweg.',
-            },
-            {
-              name: 'Varianten',
-              body: 'Zwei Baukörper auf demselben Grundstück als Tabs nebeneinander, jeder mit eigenem Urteil.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'Was Piloti von Ihnen braucht',
           items: [
@@ -925,10 +917,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wo Piloti aufhört',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti kann nicht wissen, was der Bebauungsplan dieses Grundstücks festsetzt, solange der Plan nicht im Projekt liegt. Es sagt dann, welche Regel greift und was sie üblicherweise festlegt, und wo die Festlegung für Ihr Grundstück steht: im Plan der Gemeinde. Eine Zahl erscheint erst, wenn sie eine Fundstelle hat.',
-            'Auch mit dem Plan im Projekt bleibt eine Grenze: Liest Piloti ein Plandokument als Bild, markiert es die Zeichnung, die es gelesen hat, nicht die einzelne Linie. Wo eine Festlegung unscharf ist, klären Sie sie mit der Gemeinde oder im Vorgespräch mit der Baubehörde.',
+            'Die Festlegungen für Ihr Grundstück liest Piloti aus dem Bebauungsplan, den Sie ins Projekt laden; ohne ihn sagt es, welche Regel greift und wo die Festlegung nachzulesen ist. Jede Zahl erscheint mit ihrer Fundstelle, damit Ihr Büro sie prüfen kann. Eine unscharfe Festlegung klären Sie mit der Gemeinde oder im Vorgespräch mit der Baubehörde.',
           ],
         },
       ],
@@ -947,7 +938,7 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           q: 'Kann Piloti den Bebauungsplan für meine Adresse abrufen?',
-          a: 'Nicht verlässlich. Piloti arbeitet mit dem Landesrecht aus dem RIS und mit dem, was in Ihrem Projekt liegt. Eine Webrecherche kann auf das Planportal einer Gemeinde führen, belastbar ist aber erst der Plan, den Sie ins Projekt laden.',
+          a: 'Eine Webrecherche von Piloti kann das Planportal Ihrer Gemeinde finden, mit verlinkter Quelle. Am belastbarsten wird die Antwort mit dem Plan oder einem Auszug im Projekt: Dann liest Piloti die Festlegungen und rechnet damit.',
         },
       ],
     },
@@ -956,10 +947,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Checking the zoning plan: what may I build on this plot? Height class, setbacks, zoning, density and parking under state law, explained with citations.',
       heading: 'What may I build on this plot?',
-      lede: 'Height, setback, density, zoning, parking: these are set by the state and the municipality, not by the OIB guidelines. And what applies to a particular plot is in that plot’s plan.',
+      lede: 'Height, setback, density, zoning, parking: Piloti names the rule from state law with a citation, reads the zoning plan in the project alongside it and calculates with its provisions, as a site plan sketch and key figures.',
       answer:
-        'What may be built on a plot is set by state law and the municipality’s land-use and zoning plan, not by the OIB guidelines. Piloti names the rule with a citation and calculates with the plan’s provisions if the plan is in the project; otherwise it says where the provision for your plot can be found.',
+        'What may be built on a plot is set by state law and the municipality’s land-use and zoning plan, not by the OIB guidelines. Piloti names the rule with a citation, calculates site coverage, density and setbacks per side from the provisions of the plan in the project, and shows the result as a site plan sketch.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'What Piloti delivers',
+          items: [
+            {
+              name: 'A site plan sketch',
+              body: 'Plot, footprint and setbacks per side; with the areas also site coverage and density, the ratio calculated from the areas.',
+            },
+            {
+              name: 'A section for height',
+              body: 'Where height is checked across the storeys, Piloti draws a schematic section.',
+            },
+            {
+              name: 'Parking as a key figure',
+              body: 'Required against provided, with the basis of assessment in the text, because without it the number cannot be checked. A calculated number shows its working.',
+            },
+            {
+              name: 'Options',
+              body: 'Two building volumes on the same plot side by side as tabs, each with its own verdict.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Why no Austria-wide number helps here',
@@ -996,28 +1009,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'What you get',
-          items: [
-            {
-              name: 'A site plan sketch',
-              body: 'Plot, footprint and setbacks per side; with the areas also site coverage and density, the ratio calculated from the areas.',
-            },
-            {
-              name: 'A section for height',
-              body: 'Where height is checked across the storeys, Piloti draws a schematic section.',
-            },
-            {
-              name: 'Parking as a key figure',
-              body: 'Required against provided, with the basis of assessment in the text, because without it the number cannot be checked. A calculated number shows its working.',
-            },
-            {
-              name: 'Options',
-              body: 'Two building volumes on the same plot side by side as tabs, each with its own verdict.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'What Piloti needs from you',
           items: [
@@ -1029,10 +1020,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Where Piloti stops',
+          title: 'Good to know',
           body: [
-            'Piloti cannot know what the zoning plan fixes for this plot as long as the plan is not in the project. It then says which rule applies and what it usually sets, and where the provision for your plot is: in the municipality’s plan. A number appears only once it has a source.',
-            'Even with the plan in the project there is a limit: when Piloti reads a plan document as an image, it marks the drawing it read, not the individual line. Where a provision is unclear, clarify it with the municipality or in a pre-application meeting with the building authority.',
+            'Piloti reads the provisions for your plot from the zoning plan you upload to the project; without it, it says which rule applies and where the provision can be found. Every number appears with its source, so your office can check it. An unclear provision is for the municipality or a pre-application meeting with the building authority.',
           ],
         },
       ],
@@ -1051,7 +1041,7 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           q: 'Can Piloti fetch the zoning plan for my address?',
-          a: 'Not reliably. Piloti works with state law from RIS and with what is in your project. A web search may lead to a municipality’s plan portal, but what counts is the plan you upload to the project.',
+          a: 'Piloti’s web research can find your municipality’s plan portal, with the source linked. The answer is most solid with the plan or an extract in the project: then Piloti reads the provisions and calculates with them.',
         },
       ],
     },
@@ -1065,10 +1055,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'U-Wert-Anforderung nach OIB-Richtlinie 6 und Schallschutz: welcher Grenzwert für welches Bauteil gilt, bei Neubau oder Bestand, in welcher Ausgabe.',
       heading: 'U-Wert, HWB und Schallschutz: Was die OIB-Richtlinien 5 und 6 verlangen',
-      lede: 'Ein Grenzwert allein beantwortet die Frage selten. Er gilt für ein Bauteil in einer bestimmten Lage, oder für eine Wand zwischen zwei bestimmten Nutzungen.',
+      lede: 'Piloti nennt jeden Grenzwert mit dem Bauteil und der Lage, für die er gilt, beim Schallschutz mit der Paarung der Nutzungen, und stellt Ihre U-Werte in einer Prüftabelle dagegen, Zeile für Zeile.',
       answer:
-        'U-Wert-Anforderungen stehen in der OIB-Richtlinie 6 und gelten je Bauteil und Lage, etwa gegen Außenluft, Erdreich oder einen unbeheizten Raum; Schallschutz regelt die OIB-Richtlinie 5 für Bauteile zwischen zwei Nutzungseinheiten. Piloti klärt zuerst die Ausgabe und ob Neubau oder Bestand vorliegt; einen HWB rechnet es nicht.',
+        'U-Wert-Anforderungen stehen in der OIB-Richtlinie 6 und gelten je Bauteil und Lage, etwa gegen Außenluft, Erdreich oder einen unbeheizten Raum; Schallschutz regelt die OIB-Richtlinie 5 für Bauteile zwischen zwei Nutzungseinheiten. Piloti klärt Ausgabe und Neubau oder Bestand, zitiert den Grenzwert bis zum Punkt und prüft Ihre Werte als Tabelle mit Ergebnis je Bauteil.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'Was Piloti liefert',
+          items: [
+            {
+              name: 'U-Werte als Prüftabelle',
+              body: 'Eine Zeile je Bauteil der Hülle: Istwert, Grenzwert mit ≤, Quelle, Ergebnis.',
+            },
+            {
+              name: 'Den HWB als Kennzahl',
+              body: 'Ein gegebener Wert gegen den Grenzwert, mit der Energieeffizienzklasse benannt.',
+            },
+            {
+              name: 'Schallschutz je Paarung',
+              body: 'Eine Prüftabelle mit der Paarung in der ersten Spalte, etwa Wohnung zu Wohnung oder Wohnung zu Geschäftslokal.',
+            },
+            {
+              name: 'Neubau und Bestand nebeneinander',
+              body: 'Wo beides in Frage kommt, stehen die Anforderungen als Tabs nebeneinander, bis das Vorhaben eingeordnet ist.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Warum die Zahl ohne Bauteil nichts sagt',
@@ -1101,28 +1113,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'Was Sie bekommen',
-          items: [
-            {
-              name: 'U-Werte als Prüftabelle',
-              body: 'Eine Zeile je Bauteil der Hülle: Istwert, Grenzwert mit ≤, Quelle, Ergebnis.',
-            },
-            {
-              name: 'Den HWB als Kennzahl',
-              body: 'Ein gegebener Wert gegen den Grenzwert, mit der Energieeffizienzklasse benannt.',
-            },
-            {
-              name: 'Schallschutz je Paarung',
-              body: 'Eine Prüftabelle mit der Paarung in der ersten Spalte, etwa Wohnung zu Wohnung oder Wohnung zu Geschäftslokal.',
-            },
-            {
-              name: 'Neubau und Bestand nebeneinander',
-              body: 'Wo beides in Frage kommt, stehen die Anforderungen als Tabs nebeneinander, bis das Vorhaben eingeordnet ist.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'Was Piloti von Ihnen braucht',
           items: [
@@ -1134,10 +1124,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wo Piloti aufhört',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti rechnet keinen Heizwärmebedarf. Ein HWB kommt aus einer Berechnung für den Energieausweis, die Piloti nicht ausführt. Piloti sagt, welche Anforderung gilt und wie ein gegebener Wert dazu steht, und es sagt ausdrücklich, wenn eine Frage klingt, als würde sie eine Berechnung verlangen.',
-            'Energieausweis und Schallschutznachweis bleiben bei der Bauphysik. Wo die Richtlinien auf Normen verweisen, nennt Piloti sie aus dem Normenverzeichnis; den Normtext selbst hat Piloti nicht. Und ein Grenzwert ohne Bauteil und Lage kommt in keiner Antwort vor.',
+            'Einen Heizwärmebedarf berechnet Piloti nicht; es sagt, welche Anforderung gilt und wie ein Wert aus Ihrem Energieausweis dazu steht. Energieausweis und Schallschutznachweis bleiben bei der Bauphysik. Verweist eine Richtlinie auf eine Norm, nennt Piloti sie, und den Normtext schlagen Sie in Ihrer Lizenz nach.',
           ],
         },
       ],
@@ -1152,11 +1141,11 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           q: 'Kann Piloti den HWB berechnen?',
-          a: 'Nein. Der Heizwärmebedarf kommt aus der Berechnung für den Energieausweis, die Piloti nicht ausführt. Piloti nennt die Anforderung und stellt einen gegebenen HWB dem Grenzwert gegenüber.',
+          a: 'Den HWB rechnet Ihre Bauphysik-Software für den Energieausweis. Piloti nennt die Anforderung mit Fundstelle, stellt den gerechneten HWB dem Grenzwert gegenüber und benennt die Energieeffizienzklasse.',
         },
         {
           q: 'Wo stehen die Schallschutzanforderungen?',
-          a: 'In der OIB-Richtlinie 5, in der Ausgabe, die Ihr Land erklärt hat. Die Werte gelten für Bauteile zwischen zwei bestimmten Nutzungen, deshalb gehört die Paarung in die Antwort. Wo die Richtlinie auf Normen verweist, nennt Piloti sie aus dem Normenverzeichnis.',
+          a: 'In der OIB-Richtlinie 5, in der Ausgabe, die Ihr Land erklärt hat. Die Werte gelten für Bauteile zwischen zwei bestimmten Nutzungen, deshalb gehört die Paarung in die Antwort. Wo die Richtlinie auf Normen verweist, nennt Piloti sie.',
         },
       ],
     },
@@ -1165,10 +1154,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'U-value requirements under OIB guideline 6 and sound insulation: which limit applies to which element, new build or existing, and which edition applies.',
       heading: 'U-value, HWB and sound insulation: what OIB guidelines 5 and 6 require',
-      lede: 'A limit alone rarely answers the question. It applies to an element in a particular position, or to a wall between two particular uses.',
+      lede: 'Piloti names every limit with the element and position it applies to, for sound insulation with the pairing of uses, and sets your U-values against it in a check table, row by row.',
       answer:
-        'U-value requirements are in OIB guideline 6 and apply per element and position, such as against outside air, ground or an unheated space; sound insulation is set by OIB guideline 5 for elements between two units of use. Piloti first settles the edition and whether it is new build or existing; it does not calculate an HWB.',
+        'U-value requirements are in OIB guideline 6 and apply per element and position, such as against outside air, ground or an unheated space; sound insulation is set by OIB guideline 5 for elements between two units of use. Piloti settles the edition and new build or existing, cites the limit to the clause and checks your values as a table with a result per element.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'What Piloti delivers',
+          items: [
+            {
+              name: 'U-values as a check table',
+              body: 'One row per envelope element: actual value, limit with ≤, source, result.',
+            },
+            {
+              name: 'The HWB as a key figure',
+              body: 'A given value against the limit, with the energy efficiency class named.',
+            },
+            {
+              name: 'Sound insulation per pairing',
+              body: 'A check table with the pairing in the first column, such as flat to flat or flat to shop.',
+            },
+            {
+              name: 'New build and existing side by side',
+              body: 'Where both are possible, the requirements stand side by side as tabs until the project is classified.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Why the number says nothing without the element',
@@ -1201,28 +1212,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'What you get',
-          items: [
-            {
-              name: 'U-values as a check table',
-              body: 'One row per envelope element: actual value, limit with ≤, source, result.',
-            },
-            {
-              name: 'The HWB as a key figure',
-              body: 'A given value against the limit, with the energy efficiency class named.',
-            },
-            {
-              name: 'Sound insulation per pairing',
-              body: 'A check table with the pairing in the first column, such as flat to flat or flat to shop.',
-            },
-            {
-              name: 'New build and existing side by side',
-              body: 'Where both are possible, the requirements stand side by side as tabs until the project is classified.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'What Piloti needs from you',
           items: [
@@ -1234,10 +1223,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Where Piloti stops',
+          title: 'Good to know',
           body: [
-            'Piloti does not calculate the heating demand. An HWB comes from a calculation for the energy certificate, which Piloti does not perform. Piloti says which requirement applies and how a given value compares, and it says so explicitly when a question sounds as if it asks for a calculation.',
-            'Energy certificate and sound insulation evidence stay with building physics. Where the guidelines refer to standards, Piloti names them from the register of standards; it does not have the text of the standard itself. And a limit without element and position appears in no answer.',
+            'Piloti does not calculate the heating demand; it says which requirement applies and how a value from your energy certificate compares. The energy certificate and sound insulation evidence stay with building physics. Where a guideline refers to a standard, Piloti names it, and you look up the text under your licence.',
           ],
         },
       ],
@@ -1252,11 +1240,11 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           q: 'Can Piloti calculate the HWB?',
-          a: 'No. The heating demand comes from the calculation for the energy certificate, which Piloti does not perform. Piloti names the requirement and sets a given HWB against the limit.',
+          a: 'Your building physics software calculates the HWB for the energy certificate. Piloti names the requirement with a citation, sets the calculated HWB against the limit and names the energy efficiency class.',
         },
         {
           q: 'Where are the sound insulation requirements?',
-          a: 'In OIB guideline 5, in the edition your state has declared. The values apply to elements between two particular uses, so the pairing belongs in the answer. Where the guideline refers to standards, Piloti names them from the register of standards.',
+          a: 'In OIB guideline 5, in the edition your state has declared. The values apply to elements between two particular uses, so the pairing belongs in the answer. Where the guideline refers to standards, Piloti names them.',
         },
       ],
     },
@@ -1270,10 +1258,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Barrierefreiheit nach OIB-RL 4 prüfen: Treppe, Geländer, Türbreite und Rampe gegen die Richtlinie, mit Maßskizze und Fundstelle und ohne geschätzte Maße.',
       heading: 'Treppe, Geländer und Barrierefreiheit nach OIB-Richtlinie 4 prüfen',
-      lede: 'Ob ein Auftritt reicht oder ein Geländer hoch genug ist, sieht man in einer Zeichnung schneller als in einem Satz. Piloti schreibt den Satz und zeichnet das Maß dazu.',
+      lede: 'Ob ein Auftritt reicht oder ein Geländer hoch genug ist, sieht man in einer Zeichnung schneller als in einem Satz. Piloti liefert beides: das Urteil mit Fundstelle und die Maßskizze dazu.',
       answer:
-        'Die Anforderungen an Treppen, Geländer, Türen und Rampen stehen in der OIB-Richtlinie 4 „Nutzungssicherheit und Barrierefreiheit“ in der Ausgabe, die Ihr Bundesland verbindlich erklärt hat. Piloti stellt Ihr Maß der zitierten Anforderung gegenüber, zeichnet es als Skizze und führt jedes Maß, das dem Plan fehlt, als offen, statt es zu schätzen.',
+        'Piloti prüft Treppen, Geländer, Türen und Rampen gegen die OIB-Richtlinie 4 „Nutzungssicherheit und Barrierefreiheit“ in der Ausgabe, die Ihr Bundesland verbindlich erklärt hat: Es stellt Ihr Maß der zitierten Anforderung gegenüber, zeichnet es als Skizze und führt jedes Maß, das dem Plan fehlt, als offenen Punkt.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'Was Piloti liefert',
+          items: [
+            {
+              name: 'Das Urteil im Satz',
+              body: 'Erfüllt, nicht erfüllt oder offen, mit der Klausel. Die Skizze kommt dazu, nie stattdessen.',
+            },
+            {
+              name: 'Die Skizze mit dem Maß',
+              body: 'Ihr Maß neben der Grenze, gezeichnet, sodass die Kollegin es nicht im Kopf neu zeichnen muss.',
+            },
+            {
+              name: 'Eine Prüftabelle für mehrere Stellen',
+              body: 'Alle Treppen oder Türen eines Geschoßes, eine Zeile je Stelle, mit Quelle und Ergebnis.',
+            },
+            {
+              name: 'Ob ein Aufzug nötig ist',
+              body: 'Als Satz mit Fundstelle; ist ein Aufzug geplant, die Kabinenmaße zusätzlich als Skizze.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Warum die Maße tückisch sind',
@@ -1306,28 +1316,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'Was Sie bekommen',
-          items: [
-            {
-              name: 'Das Urteil im Satz',
-              body: 'Erfüllt, nicht erfüllt oder offen, mit der Klausel. Die Skizze kommt dazu, nie stattdessen.',
-            },
-            {
-              name: 'Die Skizze mit dem Maß',
-              body: 'Ihr Maß neben der Grenze, gezeichnet, sodass die Kollegin es nicht im Kopf neu zeichnen muss.',
-            },
-            {
-              name: 'Eine Prüftabelle für mehrere Stellen',
-              body: 'Alle Treppen oder Türen eines Geschoßes, eine Zeile je Stelle, mit Quelle und Ergebnis.',
-            },
-            {
-              name: 'Ob ein Aufzug nötig ist',
-              body: 'Als Satz mit Fundstelle; ist ein Aufzug geplant, die Kabinenmaße zusätzlich als Skizze.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'Was Piloti von Ihnen braucht',
           items: [
@@ -1339,10 +1327,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wo Piloti aufhört',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti misst nicht nach und schätzt nicht. Liest es einen Plan als Bild, markiert es die Zeichnung, nicht das einzelne Bauteil, und ein Maß, das nicht bemaßt ist, bleibt offen. Die Verantwortung für die Maßkette bleibt bei der Planung.',
-            'Wo die Richtlinie auf eine ÖNORM verweist, nennt Piloti die Norm aus dem Normenverzeichnis. Den Normtext selbst hat Piloti nicht; was nur in der Norm steht, zitiert es deshalb nicht als Wert. Und wo die Anforderung ein Ziel ist und kein Maß, sagt Piloti das, statt ein Maß zu zitieren, das es so nicht gibt.',
+            'Piloti arbeitet mit bemaßten Werten; fehlt ein Maß, fragt es danach, statt zu schätzen. Die Verantwortung für die Maßkette bleibt bei der Planung. Verweist die Richtlinie auf eine ÖNORM, nennt Piloti die Norm, und wo die Anforderung ein Ziel statt eines Maßes ist, sagt es das.',
           ],
         },
       ],
@@ -1370,10 +1357,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Checking accessibility under OIB-RL 4: stairs, railings, door widths and ramps against the guideline, with a dimension sketch, a citation and no guesswork.',
       heading: 'Checking stairs, railings and accessibility under OIB guideline 4',
-      lede: 'Whether a tread is deep enough or a railing high enough is quicker to see in a drawing than in a sentence. Piloti writes the sentence and draws the dimension next to it.',
+      lede: 'Whether a tread is deep enough or a railing high enough is quicker to see in a drawing than in a sentence. Piloti delivers both: the verdict with its citation and the dimension sketch next to it.',
       answer:
-        'The requirements for stairs, railings, doors and ramps are in OIB guideline 4 “Nutzungssicherheit und Barrierefreiheit” in the edition your state has declared binding. Piloti sets your dimension against the cited requirement, draws it as a sketch and records every dimension missing from the drawing as open instead of estimating it.',
+        'Piloti checks stairs, railings, doors and ramps against OIB guideline 4 “Nutzungssicherheit und Barrierefreiheit” in the edition your state has declared binding: it sets your dimension against the cited requirement, draws it as a sketch and records every dimension missing from the drawing as an open point.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'What Piloti delivers',
+          items: [
+            {
+              name: 'The verdict in a sentence',
+              body: 'Met, not met or open, with the clause. The sketch comes in addition, never instead.',
+            },
+            {
+              name: 'The sketch with the dimension',
+              body: 'Your dimension next to the limit, drawn, so a colleague does not have to redraw it in her head.',
+            },
+            {
+              name: 'A check table for several places',
+              body: 'All stairs or doors of a storey, one row per place, with source and result.',
+            },
+            {
+              name: 'Whether a lift is needed',
+              body: 'As a sentence with a citation; if a lift is planned, the car dimensions as a sketch too.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Why the dimensions are treacherous',
@@ -1406,28 +1415,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'What you get',
-          items: [
-            {
-              name: 'The verdict in a sentence',
-              body: 'Met, not met or open, with the clause. The sketch comes in addition, never instead.',
-            },
-            {
-              name: 'The sketch with the dimension',
-              body: 'Your dimension next to the limit, drawn, so a colleague does not have to redraw it in her head.',
-            },
-            {
-              name: 'A check table for several places',
-              body: 'All stairs or doors of a storey, one row per place, with source and result.',
-            },
-            {
-              name: 'Whether a lift is needed',
-              body: 'As a sentence with a citation; if a lift is planned, the car dimensions as a sketch too.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'What Piloti needs from you',
           items: [
@@ -1439,10 +1426,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Where Piloti stops',
+          title: 'Good to know',
           body: [
-            'Piloti does not measure and does not estimate. When it reads a drawing as an image, it marks the drawing, not the individual element, and a length that is not dimensioned stays open. Responsibility for the dimensions stays with the design team.',
-            'Where the guideline refers to an ÖNORM, Piloti names the standard from the register of standards. It does not have the text of the standard itself, so it does not cite as a value what only the standard contains. And where the requirement is a goal and not a dimension, Piloti says so instead of citing a dimension that does not exist in that form.',
+            'Piloti works with dimensioned values; if a dimension is missing, it asks for it rather than estimating. Responsibility for the dimensions stays with the design team. Where the guideline refers to an ÖNORM, Piloti names the standard, and where the requirement is a goal rather than a dimension, it says so.',
           ],
         },
       ],
@@ -1475,10 +1461,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Aufenthaltsraum nach OIB-RL 3: Ist der Raum einer, und was gilt dann für Raumhöhe, Belichtung und Lüftung? Piloti ordnet ein, zitiert und prüft Ihre Maße.',
       heading: 'Ist das ein Aufenthaltsraum, und was verlangt die OIB-Richtlinie 3 dann?',
-      lede: 'Ob ein Raum Anforderungen an Raumhöhe, Belichtung und Lüftung erfüllen muss, hängt an einer rechtlichen Einordnung, nicht am Raumstempel im Plan.',
+      lede: 'Piloti ordnet den Raum nach seiner Nutzung ein, nicht nach dem Raumstempel im Plan, und prüft dann Raumhöhe, Belichtung und Lüftung gegen die OIB-Richtlinie 3, mit Fundstelle und Skizze zum Lichteinfall.',
       answer:
-        'Ob ein Raum ein Aufenthaltsraum ist, folgt aus der Begriffsbestimmung und seiner tatsächlichen Nutzung, nicht aus seinem Namen im Plan; erst dann gelten die Anforderungen der OIB-Richtlinie 3 an Raumhöhe, Belichtung und Lüftung. Piloti ordnet den Raum mit Fundstelle ein, holt den Grenzwert aus der Klausel und prüft Ihr Maß dagegen.',
+        'Piloti ordnet einen Raum mit Fundstelle als Aufenthaltsraum ein, nach der Begriffsbestimmung und seiner tatsächlichen Nutzung statt nach seinem Namen im Plan, holt dann die Anforderungen der OIB-Richtlinie 3 an Raumhöhe, Belichtung und Lüftung aus der Klausel und prüft Ihre Maße dagegen.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'Was Piloti liefert',
+          items: [
+            {
+              name: 'Die Einordnung mit Fundstelle',
+              body: 'Aufenthaltsraum ja, nein oder offen, mit der Bestimmung und der Tatsache, auf der die Einordnung ruht.',
+            },
+            {
+              name: 'Eine Prüftabelle',
+              body: 'Raumhöhe, Belichtung und Lüftung nebeneinander, eine Zeile je Anforderung, oder je Raum, wenn eine ganze Wohnung geprüft wird.',
+            },
+            {
+              name: 'Eine Skizze zum Lichteinfall',
+              body: 'Wo die Belichtung die Frage ist, zeichnet Piloti den Lichteinfall mit dem Glasanteil des Fensters.',
+            },
+            {
+              name: 'Die Stelle im Wortlaut',
+              body: 'Der Satz der Richtlinie, an dem die Antwort hängt, steht als Zitat in der Antwort, anklickbar bis zur Quelle.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Warum die Einordnung zuerst kommt',
@@ -1511,28 +1519,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'Was Sie bekommen',
-          items: [
-            {
-              name: 'Die Einordnung mit Fundstelle',
-              body: 'Aufenthaltsraum ja, nein oder offen, mit der Bestimmung und der Tatsache, auf der die Einordnung ruht.',
-            },
-            {
-              name: 'Eine Prüftabelle',
-              body: 'Raumhöhe, Belichtung und Lüftung nebeneinander, eine Zeile je Anforderung, oder je Raum, wenn eine ganze Wohnung geprüft wird.',
-            },
-            {
-              name: 'Eine Skizze zum Lichteinfall',
-              body: 'Wo die Belichtung die Frage ist, zeichnet Piloti den Lichteinfall mit dem Glasanteil des Fensters.',
-            },
-            {
-              name: 'Die Stelle im Wortlaut',
-              body: 'Der Satz der Richtlinie, an dem die Antwort hängt, steht als Zitat in der Antwort, anklickbar bis zur Quelle.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'Was Piloti von Ihnen braucht',
           items: [
@@ -1544,10 +1530,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wo Piloti aufhört',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti ordnet ein und prüft Maße gegen Klauseln. Eine Tageslichtsimulation oder eine Lüftungsplanung ersetzt es nicht, und fehlt ein Maß, bleibt die Prüfung offen, statt mit einem geschätzten Wert zu enden.',
-            'Die Einordnung ist eine Begründung, keine Feststellung der Behörde. Wo die Nutzung ein Grenzfall ist, etwa ein Arbeitsplatz im Souterrain, gibt Piloti die Bestimmung und die offene Tatsache, und die Frage gehört ins Vorgespräch. Für Arbeitsräume in Betrieben zieht Piloti zusätzlich die Arbeitsstättenverordnung heran und hält die beiden Regelwerke in der Antwort auseinander.',
+            'Piloti prüft Maße gegen Klauseln; Tageslichtsimulation und Lüftungsplanung bleiben bei den Fachplanern, und fehlt ein Maß, fragt Piloti danach. Für Arbeitsräume in Betrieben zieht Piloti zusätzlich die Arbeitsstättenverordnung heran und hält die beiden Regelwerke auseinander. Einen Grenzfall, etwa einen Arbeitsplatz im Souterrain, nehmen Sie mit der Begründung ins Vorgespräch.',
           ],
         },
       ],
@@ -1575,10 +1560,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Habitable rooms under OIB-RL 3: is the room one, and what applies to room height, daylight and ventilation? Piloti classifies, cites and checks dimensions.',
       heading: 'Is this a habitable room, and what does OIB guideline 3 then require?',
-      lede: 'Whether a room must meet requirements for room height, daylight and ventilation depends on a legal classification, not on the room label in the drawing.',
+      lede: 'Piloti classifies the room by its use, not by the label in the drawing, and then checks room height, daylight and ventilation against OIB guideline 3, with a citation and a daylight sketch.',
       answer:
-        'Whether a room is a habitable room (Aufenthaltsraum) follows from the definition and its actual use, not from its name in the drawing; only then do the requirements of OIB guideline 3 for room height, daylight and ventilation apply. Piloti classifies the room with a citation, takes the limit from the clause and checks your dimension against it.',
+        'Piloti classifies a room as a habitable room (Aufenthaltsraum) with a citation, by the definition and its actual use rather than its name in the drawing, then takes the requirements of OIB guideline 3 for room height, daylight and ventilation from the clause and checks your dimensions against them.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'What Piloti delivers',
+          items: [
+            {
+              name: 'The classification with a citation',
+              body: 'Habitable room yes, no or open, with the provision and the fact the classification rests on.',
+            },
+            {
+              name: 'A check table',
+              body: 'Room height, daylight and ventilation side by side, one row per requirement, or per room when a whole flat is checked.',
+            },
+            {
+              name: 'A daylight sketch',
+              body: 'Where daylight is the question, Piloti draws the incidence of light with the glazed share of the window.',
+            },
+            {
+              name: 'The passage in its wording',
+              body: 'The sentence of the guideline the answer hangs on stands as a quote in the answer, clickable through to the source.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Why the classification comes first',
@@ -1611,28 +1618,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'What you get',
-          items: [
-            {
-              name: 'The classification with a citation',
-              body: 'Habitable room yes, no or open, with the provision and the fact the classification rests on.',
-            },
-            {
-              name: 'A check table',
-              body: 'Room height, daylight and ventilation side by side, one row per requirement, or per room when a whole flat is checked.',
-            },
-            {
-              name: 'A daylight sketch',
-              body: 'Where daylight is the question, Piloti draws the incidence of light with the glazed share of the window.',
-            },
-            {
-              name: 'The passage in its wording',
-              body: 'The sentence of the guideline the answer hangs on stands as a quote in the answer, clickable through to the source.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'What Piloti needs from you',
           items: [
@@ -1644,10 +1629,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Where Piloti stops',
+          title: 'Good to know',
           body: [
-            'Piloti classifies and checks dimensions against clauses. It does not replace a daylight simulation or ventilation design, and if a dimension is missing the check stays open rather than ending with an estimated value.',
-            'The classification is reasoning, not a finding by the authority. Where the use is a borderline case, such as a workplace in a semi-basement, Piloti gives the provision and the open fact, and the question belongs in the pre-application meeting. For workrooms in businesses, Piloti also draws on the Arbeitsstättenverordnung and keeps the two sets of rules apart in the answer.',
+            'Piloti checks dimensions against clauses; daylight simulation and ventilation design stay with the specialists, and if a dimension is missing, Piloti asks for it. For workrooms in businesses, Piloti also draws on the Arbeitsstättenverordnung and keeps the two sets of rules apart. A borderline case, such as a workplace in a semi-basement, goes into the pre-application meeting with the reasoning in hand.',
           ],
         },
       ],
@@ -1680,10 +1664,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Prüfbericht und Aktenvermerk mit KI erstellen: Piloti schreibt Bericht, Vermerk und Protokoll aus belegten Antworten, mit Fassungen und Freigabe.',
       heading: 'Vom Befund zum Aktenvermerk: Prüfbericht und Vermerk mit Piloti',
-      lede: 'Eine Antwort nützt wenig, wenn sie im Chatverlauf bleibt. Im Büro zählt, was im Akt steht, wer es freigegeben hat und worauf es sich stützt.',
+      lede: 'Im Büro zählt, was im Akt steht, wer es freigegeben hat und worauf es sich stützt. Piloti macht aus belegten Antworten Prüfberichte, Aktenvermerke und Protokolle, mit Fassungen und Freigabe im Eingang.',
       answer:
-        'Piloti schreibt aus einer Tiefenrecherche einen Prüfbericht mit Urteil und Befundmatrix, der im Projekt unter „Berichte“ liegt, und entwirft Aktenvermerke, Protokolle, Checklisten und Flächenaufstellungen, die Sie im Gespräch überarbeiten und über die Freigabe in den Akt bringen. Die fachliche Verantwortung bleibt bei Ihrem Büro.',
+        'Piloti schreibt aus einer Tiefenrecherche einen Prüfbericht mit Urteil und Befundmatrix, der im Projekt unter „Berichte“ liegt, und entwirft Aktenvermerke, Protokolle, Checklisten und Flächenaufstellungen, die Sie im Gespräch überarbeiten und über die Freigabe in den Akt bringen. Die Fundstellen bleiben im Dokument, und jede Antwort lässt sich als Word herunterladen, Berichte auch als PDF.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'Was Piloti liefert',
+          items: [
+            {
+              name: 'Einen Prüfbericht',
+              body: 'Das Urteil zuerst, dann eine Befundmatrix: jede geprüfte Anforderung mit Quelle und Ergebnis.',
+            },
+            {
+              name: 'Entwürfe in Büroform',
+              body: 'Aktenvermerk, Protokoll, Checkliste, Flächenaufstellung, in Form und Schwerpunkt so, wie es die ständigen Anweisungen Ihres Büros festlegen.',
+            },
+            {
+              name: 'Word zum Weiterarbeiten',
+              body: 'Jede Antwort lässt sich als Word-Datei herunterladen, Berichte auch als PDF.',
+            },
+            {
+              name: 'Abläufe als Diagramm',
+              body: 'Verfahren, Übergaben und Termine zeichnet Piloti als Diagramm, wo der Vermerk sie braucht.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Warum das mehr ist als Schreibarbeit',
@@ -1723,28 +1729,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'Was Sie bekommen',
-          items: [
-            {
-              name: 'Einen Prüfbericht',
-              body: 'Das Urteil zuerst, dann eine Befundmatrix: jede geprüfte Anforderung mit Quelle und Ergebnis.',
-            },
-            {
-              name: 'Entwürfe in Büroform',
-              body: 'Aktenvermerk, Protokoll, Checkliste, Flächenaufstellung, in Form und Schwerpunkt so, wie es die ständigen Anweisungen Ihres Büros festlegen.',
-            },
-            {
-              name: 'Word zum Weiterarbeiten',
-              body: 'Jede Antwort lässt sich als Word-Datei herunterladen, Berichte auch als PDF.',
-            },
-            {
-              name: 'Abläufe als Diagramm',
-              body: 'Verfahren, Übergaben und Termine zeichnet Piloti als Diagramm, wo der Vermerk sie braucht.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'Was Piloti von Ihnen braucht',
           items: [
@@ -1756,10 +1740,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wo Piloti aufhört',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti unterschreibt nichts. Ein Prüfbericht von Piloti ist kein Gutachten und kein Brandschutzkonzept, und ein Aktenvermerk wird erst durch Ihre Freigabe zu einem Dokument Ihres Büros. Die fachliche Verantwortung bleibt bei den Planenden.',
-            'Ständige Anweisungen bestimmen Form und Schwerpunkt, nie einen normativen Wert: Wer dort eine Fluchtweglänge hineinschreibt, ändert nicht, was Piloti als Anforderung zitiert. Und fehlt für einen Vermerk eine Unterlage, sagt Piloti das, statt die Lücke mit einer plausiblen Formulierung zu füllen.',
+            'Ein Aktenvermerk wird durch Ihre Freigabe zum Dokument Ihres Büros; Unterschrift und fachliche Verantwortung bleiben bei den Planenden. Ständige Anweisungen bestimmen Form und Schwerpunkt, die Anforderungen zitiert Piloti aus der Quelle. Fehlt für einen Vermerk eine Unterlage, sagt Piloti das.',
           ],
         },
       ],
@@ -1787,10 +1770,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Creating inspection reports and file notes with AI: Piloti drafts reports, notes and minutes from sourced answers, with versions and approval.',
       heading: 'From finding to file note: reports and notes with Piloti',
-      lede: 'An answer is of little use if it stays in the chat history. In an office, what counts is what is on file, who approved it and what it rests on.',
+      lede: 'In an office, what counts is what is on file, who approved it and what it rests on. Piloti turns sourced answers into inspection reports, file notes and minutes, with versions and approval in the inbox.',
       answer:
-        'From an in-depth research run, Piloti writes an inspection report with a verdict and a findings matrix, filed in the project under “Berichte”, and drafts file notes, minutes, checklists and area schedules that you revise in the conversation and bring onto the file through approval. Professional responsibility stays with your office.',
+        'From an in-depth research run, Piloti writes an inspection report with a verdict and a findings matrix, filed in the project under “Berichte”, and drafts file notes, minutes, checklists and area schedules that you revise in the conversation and bring onto the file through approval. The citations stay in the document, and every answer downloads as Word, reports also as PDF.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'What Piloti delivers',
+          items: [
+            {
+              name: 'An inspection report',
+              body: 'The verdict first, then a findings matrix: every requirement checked, with source and result.',
+            },
+            {
+              name: 'Drafts in your office’s form',
+              body: 'File note, minutes, checklist, area schedule, in the form and focus your office’s standing instructions set.',
+            },
+            {
+              name: 'Word to keep working in',
+              body: 'Every answer can be downloaded as a Word file, reports also as PDF.',
+            },
+            {
+              name: 'Sequences as diagrams',
+              body: 'Piloti draws procedures, handovers and schedules as diagrams where the note needs them.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Why this is more than paperwork',
@@ -1830,28 +1835,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'What you get',
-          items: [
-            {
-              name: 'An inspection report',
-              body: 'The verdict first, then a findings matrix: every requirement checked, with source and result.',
-            },
-            {
-              name: 'Drafts in your office’s form',
-              body: 'File note, minutes, checklist, area schedule, in the form and focus your office’s standing instructions set.',
-            },
-            {
-              name: 'Word to keep working in',
-              body: 'Every answer can be downloaded as a Word file, reports also as PDF.',
-            },
-            {
-              name: 'Sequences as diagrams',
-              body: 'Piloti draws procedures, handovers and schedules as diagrams where the note needs them.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'What Piloti needs from you',
           items: [
@@ -1863,10 +1846,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Where Piloti stops',
+          title: 'Good to know',
           body: [
-            'Piloti signs nothing. A report from Piloti is not an expert opinion and not a fire safety concept, and a file note becomes a document of your office only through your approval. Professional responsibility stays with the designers.',
-            'Standing instructions set form and focus, never a normative value: writing an escape route length into them does not change what Piloti cites as the requirement. And if a document needed for a note is missing, Piloti says so instead of filling the gap with a plausible phrase.',
+            'A file note becomes a document of your office through your approval; signature and professional responsibility stay with the designers. Standing instructions set form and focus, and Piloti cites the requirements from the source. If a document needed for a note is missing, Piloti says so.',
           ],
         },
       ],
@@ -1899,10 +1881,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Wissensmanagement im Architekturbüro: das Büroarchiv mit KI durchsuchen, mit Fundstelle aus eigenen Projekten und für kein anderes Büro sichtbar.',
       heading: 'Das Büroarchiv befragen: Wissensmanagement im Architekturbüro',
-      lede: 'Das Wissen eines Büros steckt in alten Projekten, Bescheiden, Vermerken und in den Köpfen der Erfahrenen. Gebraucht wird es meist genau dann, wenn niemand Zeit hat, es zu suchen.',
+      lede: 'Das Wissen eines Büros steckt in alten Projekten, Bescheiden und Vermerken. Piloti macht dieses Archiv befragbar: Sie fragen wie eine Kollegin und bekommen Dokument und Stelle, getrennt von dem, was das Gesetz verlangt.',
       answer:
         'Piloti durchsucht das Büroarchiv, das Sie hochladen, also Pläne, Bescheide, Vermerke und Checklisten, und beantwortet Fragen daraus mit Fundstelle, getrennt von dem, was Gesetz und OIB-Richtlinien verlangen. Das Archiv sieht kein anderes Büro, und mit den Daten des Büros werden keine Modelle trainiert.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'Was Piloti liefert',
+          items: [
+            {
+              name: 'Antworten mit Dokument und Stelle',
+              body: 'Jede Fundstelle aus dem Archiv lässt sich öffnen, so wie eine Fundstelle aus dem RIS.',
+            },
+            {
+              name: 'Büro und Gesetz getrennt',
+              body: 'Die Antwort sagt, was aus Ihrem Archiv kommt und was aus Landesrecht und OIB-Richtlinien.',
+            },
+            {
+              name: 'Ein Projektgedächtnis',
+              body: 'Geklärte Fakten und offene Punkte bleiben im Projekt, damit niemand dieselbe Frage zweimal klärt.',
+            },
+            {
+              name: 'Daten, die Ihnen gehören',
+              body: 'Kein Training von Modellen mit Büro-Daten; Pläne bleiben Eigentum des Büros; auf Wunsch mit eigenem Schlüssel für den Modellanbieter.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Warum Büroarchive selten gefragt werden',
@@ -1938,28 +1942,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'Was Sie bekommen',
-          items: [
-            {
-              name: 'Antworten mit Dokument und Stelle',
-              body: 'Jede Fundstelle aus dem Archiv lässt sich öffnen, so wie eine Fundstelle aus dem RIS.',
-            },
-            {
-              name: 'Büro und Gesetz getrennt',
-              body: 'Die Antwort sagt, was aus Ihrem Archiv kommt und was aus Landesrecht und OIB-Richtlinien.',
-            },
-            {
-              name: 'Ein Projektgedächtnis',
-              body: 'Geklärte Fakten und offene Punkte bleiben im Projekt, damit niemand dieselbe Frage zweimal klärt.',
-            },
-            {
-              name: 'Daten, die Ihnen gehören',
-              body: 'Kein Training von Modellen mit Büro-Daten; Pläne bleiben Eigentum des Büros; auf Wunsch mit eigenem Schlüssel für den Modellanbieter.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'Was Piloti von Ihnen braucht',
           items: [
@@ -1970,10 +1952,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wo Piloti aufhört',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti findet, was hochgeladen ist, nicht mehr. Was nur in einem Kopf steckt, muss erst aufgeschrieben werden. Ein veralteter Vermerk bleibt veraltet: Piloti zitiert ihn als Büroquelle, nicht als geltendes Recht, und die Antwort sagt, was aus dem Archiv und was aus dem Gesetz kommt.',
-            'Zum Datenschutz ohne Beschönigung: Die Anmeldung läuft über WorkOS (USA), KI-Anfragen gehen über OpenRouter (USA) an Modellanbieter, die auch außerhalb der EU sitzen können. Einen Speicherort sagt Piloti nicht zu. Büros können einen eigenen Anbieterschlüssel verwenden.',
+            'Piloti antwortet aus dem, was Ihr Büro hochgeladen hat; was bisher nur in einem Kopf steckt, lohnt sich deshalb als Vermerk. Einen älteren Vermerk zitiert Piloti als Büroquelle, nicht als geltendes Recht, damit Ihr Büro sieht, was woher kommt. Wie Ihre Daten verarbeitet werden, steht in der Datenschutzerklärung.',
           ],
         },
       ],
@@ -1992,7 +1973,7 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           q: 'Ist Piloti schon verfügbar?',
-          a: 'Piloti ist ein Proof of Concept in der Pilotphase mit ausgewählten Büros, in Wien von drei Gründern gegründet; das Unternehmen ist in Gründung. Eine Preisliste gibt es noch nicht. Wer es ausprobieren will, meldet sich über „Mit einer echten Frage testen“.',
+          a: 'Piloti ist in der Pilotphase mit ausgewählten Büros, entwickelt in Wien. Pilotbüros vereinbaren die Bedingungen direkt mit uns Gründern. Wer es ausprobieren will, schickt uns über „Mit einer echten Frage testen“ eine Frage aus einem laufenden Projekt.',
         },
       ],
     },
@@ -2001,10 +1982,32 @@ export const anwendungen: LandingEntry[] = [
       description:
         'Knowledge management for architecture offices: search your office archive with AI, with citations from your own projects, visible to no other office.',
       heading: 'Asking the office archive: knowledge management in an architecture office',
-      lede: 'An office’s knowledge sits in old projects, permits, notes and in the heads of the experienced. It is usually needed exactly when nobody has time to look for it.',
+      lede: 'An office’s knowledge sits in old projects, permits and notes. Piloti makes that archive answerable: you ask as you would a colleague and get document and passage, kept apart from what the law requires.',
       answer:
         'Piloti searches the office archive you upload, meaning drawings, permits, notes and checklists, and answers questions from it with citations, kept apart from what the law and the OIB guidelines require. No other office sees the archive, and no models are trained on the office’s data.',
       blocks: [
+        {
+          kind: 'pairs',
+          title: 'What Piloti delivers',
+          items: [
+            {
+              name: 'Answers with document and passage',
+              body: 'Every citation from the archive can be opened, just like a citation from RIS.',
+            },
+            {
+              name: 'Office and law kept apart',
+              body: 'The answer says what comes from your archive and what from state law and the OIB guidelines.',
+            },
+            {
+              name: 'A project memory',
+              body: 'Settled facts and open points stay in the project, so nobody settles the same question twice.',
+            },
+            {
+              name: 'Data that stays yours',
+              body: 'No model training on office data; drawings remain the office’s property; optionally with your own key for the model provider.',
+            },
+          ],
+        },
         {
           kind: 'text',
           title: 'Why office archives are rarely asked',
@@ -2040,28 +2043,6 @@ export const anwendungen: LandingEntry[] = [
           ],
         },
         {
-          kind: 'pairs',
-          title: 'What you get',
-          items: [
-            {
-              name: 'Answers with document and passage',
-              body: 'Every citation from the archive can be opened, just like a citation from RIS.',
-            },
-            {
-              name: 'Office and law kept apart',
-              body: 'The answer says what comes from your archive and what from state law and the OIB guidelines.',
-            },
-            {
-              name: 'A project memory',
-              body: 'Settled facts and open points stay in the project, so nobody settles the same question twice.',
-            },
-            {
-              name: 'Data that stays yours',
-              body: 'No model training on office data; drawings remain the office’s property; optionally with your own key for the model provider.',
-            },
-          ],
-        },
-        {
           kind: 'list',
           title: 'What Piloti needs from you',
           items: [
@@ -2072,10 +2053,9 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Where Piloti stops',
+          title: 'Good to know',
           body: [
-            'Piloti finds what has been uploaded, nothing more. What lives only in someone’s head has to be written down first. An outdated note stays outdated: Piloti cites it as an office source, not as law in force, and the answer says what comes from the archive and what from the law.',
-            'On data protection, without gloss: sign-in runs through WorkOS (USA), and AI requests go through OpenRouter (USA) to model providers that may be based outside the EU. Piloti makes no promise about data location. Offices can use their own provider key.',
+            'Piloti answers from what your office has uploaded, so what so far lives only in someone’s head is worth a file note. Piloti cites an older note as an office source, not as law in force, so your office sees what comes from where. How your data is processed is set out in the privacy policy.',
           ],
         },
       ],
@@ -2094,7 +2074,7 @@ export const anwendungen: LandingEntry[] = [
         },
         {
           q: 'Is Piloti available yet?',
-          a: 'Piloti is a proof of concept in a pilot phase with selected offices, founded in Vienna by three founders; the company is in formation. There is no price list yet. If you want to try it, get in touch through “Mit einer echten Frage testen”.',
+          a: 'Piloti is in its pilot phase with selected offices, built in Vienna. Pilot offices agree terms directly with us founders. If you want to try it, send us a question from a live project through “Try it with a real question”.',
         },
       ],
     },
