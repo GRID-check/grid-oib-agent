@@ -446,3 +446,120 @@ async def test_ingest_carries_document_id_into_job_config(app, mock_ingestor):
             )
             assert without_id.status_code == 202
             assert "document_id" not in mock_ingestor.submit_job.call_args[1]["config"]
+
+
+def _tiny_pdf_bytes() -> bytes:
+    """A one-page blank PDF, built with the renderer the route itself uses."""
+    import io
+
+    import pypdfium2 as pdfium
+
+    doc = pdfium.PdfDocument.new()
+    doc.new_page(200, 300)
+    buf = io.BytesIO()
+    doc.save(buf)
+    doc.close()
+    return buf.getvalue()
+
+
+def _download(content: bytes, content_type: str) -> MagicMock:
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = 200
+    response.content = content
+    response.headers = {"content-type": content_type}
+    response.raise_for_status = MagicMock()
+    return response
+
+
+_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+_THUMB_URL = "http://seaweedfs.test/bucket/doc/_thumb.jpg?X-Amz-Signature=put"
+_PREVIEW_REF = "http://seaweedfs.test/bucket/doc/_render.pdf?X-Amz-Signature=get"
+
+
+async def _post_with_rendition(app, file_ref: str, original: MagicMock, preview_ref: str = _PREVIEW_REF):
+    """POST an ingest with a thumbnail slot and a rendition; returns (response, rendition GET mock, PUT mock)."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with (
+            patch("httpx.AsyncClient.get", return_value=original),
+            patch("httpx.get", return_value=_download(_tiny_pdf_bytes(), "application/pdf")) as rendition_get,
+            patch("httpx.put") as mock_put,
+        ):
+            mock_put.return_value = MagicMock(spec=httpx.Response, raise_for_status=MagicMock())
+            response = await client.post(
+                "/v1/ingest",
+                json={
+                    "file_ref": file_ref,
+                    "collection": "proj_test123",
+                    "thumbnail_upload_url": _THUMB_URL,
+                    "preview_ref": preview_ref,
+                },
+            )
+    return response, rendition_get, mock_put
+
+
+@pytest.mark.asyncio
+async def test_ingest_rejects_non_object_store_preview_ref(app, mock_ingestor):
+    """preview_ref is fetched by the thumbnail fast path, so a URL off the
+    object store is the same SSRF primitive as a foreign file_ref: 400, before
+    anything is downloaded or submitted."""
+    with patch("httpx.AsyncClient.get") as mock_get:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/v1/ingest",
+                json={
+                    "file_ref": "http://seaweedfs.test/bucket/doc/brief.docx",
+                    "collection": "proj_test123",
+                    "preview_ref": "http://169.254.169.254/latest/meta-data",
+                },
+            )
+    assert response.status_code == 400
+    assert "preview_ref" in response.json()["detail"]
+    mock_get.assert_not_called()
+    mock_ingestor.submit_job.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ingest_renders_office_thumbnail_from_preview_ref(app, mock_ingestor):
+    """A .docx has no pages the fast path can draw, so the thumbnail comes from
+    its PDF rendition (ADR-0070). The rendition is fetched without redirects,
+    stays out of the job config, and text extraction still gets the original."""
+    response, rendition_get, mock_put = await _post_with_rendition(
+        app, "http://seaweedfs.test/bucket/doc/brief.docx", _download(b"PK docx bytes", _DOCX)
+    )
+
+    assert response.status_code == 202
+    rendition_get.assert_called_once()
+    assert rendition_get.call_args[0][0] == _PREVIEW_REF
+    assert rendition_get.call_args[1]["follow_redirects"] is False
+    mock_put.assert_called_once()
+    assert mock_put.call_args[0][0] == _THUMB_URL
+    assert mock_put.call_args[1]["content"][:2] == b"\xff\xd8"  # a JPEG
+    config = mock_ingestor.submit_job.call_args[1]["config"]
+    assert config["thumbnail_pregenerated"] is True
+    assert _PREVIEW_REF not in config.values()
+    assert mock_ingestor.submit_job.call_args[0][0][0].endswith(".docx")
+
+
+@pytest.mark.asyncio
+async def test_ingest_ignores_preview_ref_for_pdf_original(app, mock_ingestor):
+    """A PDF original renders its own thumbnail; the rendition is never fetched."""
+    response, rendition_get, mock_put = await _post_with_rendition(
+        app, "http://seaweedfs.test/bucket/doc/plan.pdf", _download(_tiny_pdf_bytes(), "application/pdf")
+    )
+
+    assert response.status_code == 202
+    rendition_get.assert_not_called()
+    mock_put.assert_called_once()
+    assert mock_ingestor.submit_job.call_args[1]["config"]["thumbnail_pregenerated"] is True
+
+
+def test_infer_suffix_office_types():
+    """An office original whose presigned path has no extension keeps its
+    type's extension rather than landing as `.bin`."""
+    from aiq_api.routes.ingest import _infer_suffix
+
+    url = "http://seaweedfs.test/bucket/doc/object"
+    assert _infer_suffix("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", url) == ".xlsx"
+    assert _infer_suffix("application/vnd.ms-excel.sheet.macroEnabled.12", url) == ".xlsm"
+    assert _infer_suffix("application/vnd.oasis.opendocument.text; charset=binary", url) == ".odt"
+    assert _infer_suffix("text/rtf", url) == ".rtf"

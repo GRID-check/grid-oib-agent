@@ -28,6 +28,15 @@ class IngestRequest(BaseModel):
     collection: str = Field(..., description="Target collection name")
     document_id: str | None = Field(None, description="Optional document tracking ID")
     thumbnail_upload_url: str | None = Field(None, description="Presigned URL for uploading a generated thumbnail")
+    preview_ref: str | None = Field(
+        None,
+        description=(
+            "Presigned GET of the document's PDF rendition (`<dir>/_render.pdf`, ADR-0070), sent "
+            "for an office original. Read ONLY to render the fast-path thumbnail when the original "
+            "is neither a PDF nor an image; text extraction still reads `file_ref`. Never stored "
+            "in the job config and never logged: a presigned URL is a bearer credential."
+        ),
+    )
     folder_path: str | None = Field(
         None,
         description=(

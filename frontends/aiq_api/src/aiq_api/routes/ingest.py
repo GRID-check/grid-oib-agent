@@ -84,8 +84,14 @@ def add_ingest_routes(router: APIRouter):
         temp_path: str | None = None
         submitted = False
         try:
-            _assert_object_store_url(file_ref)
-            _assert_public_host_resolution(file_ref)
+            _assert_fetchable_object_store_url(file_ref)
+            if request.preview_ref:
+                # The office rendition (ADR-0070) is fetched by the thumbnail
+                # fast path, so it passes the same two gates as file_ref, and
+                # fail-closed like thumbnail_upload_url: a request naming a
+                # non-object-store rendition is malformed. It is checked here,
+                # before any request is made, and never enters the job config.
+                _assert_fetchable_object_store_url(request.preview_ref, field="preview_ref")
 
             async with httpx.AsyncClient() as client:
                 # No redirects: a follow could land on a host outside the
@@ -131,8 +137,7 @@ def add_ingest_routes(router: APIRouter):
                 # the thumbnail itself this check is fail-closed: a request
                 # naming a non-object-store upload target is malformed, not
                 # decorative.
-                _assert_object_store_url(request.thumbnail_upload_url, field="thumbnail_upload_url")
-                _assert_public_host_resolution(request.thumbnail_upload_url, field="thumbnail_upload_url")
+                _assert_fetchable_object_store_url(request.thumbnail_upload_url, field="thumbnail_upload_url")
                 config["thumbnail_upload_url"] = request.thumbnail_upload_url
             # The folder this document was filed into, as the BFF's materialised
             # path (ADR-0049). Carried into the detached ingest thread so the
@@ -169,6 +174,7 @@ def add_ingest_routes(router: APIRouter):
                         _generate_and_upload_thumbnail,
                         temp_path,
                         request.thumbnail_upload_url,
+                        request.preview_ref,
                     )
                     # Tell the ingest job the thumbnail already exists so it
                     # skips its own (redundant) fallback render + PUT. On
@@ -262,6 +268,12 @@ def _provenance_config(request: IngestRequest) -> dict[str, str]:
     return {key: value for key, value in fields.items() if value}
 
 
+def _assert_fetchable_object_store_url(url: str, field: str = "file_ref") -> None:
+    """Both SSRF gates every URL this route requests must pass, in order."""
+    _assert_object_store_url(url, field=field)
+    _assert_public_host_resolution(url, field=field)
+
+
 def _assert_public_host_resolution(url: str, field: str = "file_ref") -> None:
     """Ensure a URL host OUTSIDE the object-store allowlist resolves publicly.
 
@@ -352,10 +364,29 @@ def _infer_suffix(content_type: str, url: str) -> str:
         "text/markdown": ".md",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+        # The rest of the office family the BFF renders to PDF (ADR-0070,
+        # OFFICE_RENDITION_CONTENT_TYPES in the UI's preview-types.ts), each
+        # with the one extension its type names. Without them an office file
+        # whose presigned path has no extension would land as `.bin`, and the
+        # parser dispatches by that suffix.
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+        "application/vnd.ms-word.document.macroenabled.12": ".docm",
+        "application/msword": ".doc",
+        "application/vnd.ms-excel.sheet.macroenabled.12": ".xlsm",
+        "application/vnd.ms-excel": ".xls",
+        "application/vnd.ms-powerpoint.presentation.macroenabled.12": ".pptm",
+        "application/vnd.ms-powerpoint": ".ppt",
+        "application/vnd.oasis.opendocument.text": ".odt",
+        "application/vnd.oasis.opendocument.spreadsheet": ".ods",
+        "application/vnd.oasis.opendocument.presentation": ".odp",
+        "application/rtf": ".rtf",
+        "text/rtf": ".rtf",
         "image/png": ".png",
         "image/jpeg": ".jpg",
     }
-    suffix = content_map.get(content_type.split(";", maxsplit=1)[0].strip(), "")
+    # MIME types are case-insensitive, and the macro-enabled ones are commonly
+    # sent as `...macroEnabled.12`.
+    suffix = content_map.get(content_type.split(";", maxsplit=1)[0].strip().lower(), "")
     if not suffix:
         suffix = re.sub(r"[^a-zA-Z0-9.]", "", os.path.splitext(urlparse(url).path)[1])[:16]
     return suffix or ".bin"
@@ -379,56 +410,101 @@ def _extract_filename(url: str) -> str:
     return filename
 
 
-def _generate_and_upload_thumbnail(file_path: str, thumbnail_url: str) -> bool:
-    """Render the first page of a PDF/image as a 200px JPEG and PUT it to the
-    presigned SeaweedFS URL. Fail-open on any error (thumbnails are decorative).
+# The originals the fast path renders from their own bytes. Anything else gets
+# a thumbnail only through its PDF rendition (``preview_ref``), if one was sent.
+_PDF_SUFFIXES = (".pdf",)
+_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
+
+
+def _generate_and_upload_thumbnail(file_path: str, thumbnail_url: str, preview_ref: str | None = None) -> bool:
+    """Render a 200px JPEG of the document and PUT it to the presigned
+    SeaweedFS URL. Fail-open on any error (thumbnails are decorative).
 
     Called in the ingest request handler (before ``submit_job``) so the
     thumbnail is available near-instantly - before the file even enters the
     worker pool. Returns ``True`` when a thumbnail was uploaded so the caller
     can signal the ingest job to skip its redundant fallback render.
+    ``preview_ref`` is the office original's PDF rendition (ADR-0070), read
+    only when the original itself is neither a PDF nor an image.
     """
     try:
-        ext = os.path.splitext(file_path)[1].lower()
-        thumbnail_bytes: bytes | None = None
-
-        if ext == ".pdf":
-            import pypdfium2 as pdfium
-
-            doc = pdfium.PdfDocument(file_path)
-            try:
-                if len(doc) > 0:
-                    page = doc[0]
-                    try:
-                        width_pt, height_pt = page.get_size()
-                        longest_pt = max(width_pt, height_pt) or 1.0
-                        scale = 200.0 / longest_pt
-                        bitmap = page.render(scale=scale)
-                        img = bitmap.to_pil().convert("RGB")
-                        buf = io.BytesIO()
-                        img.save(buf, format="JPEG", quality=80)
-                        thumbnail_bytes = buf.getvalue()
-                    finally:
-                        page.close()
-            finally:
-                doc.close()
-        elif ext in (".png", ".jpg", ".jpeg"):
-            img = Image.open(file_path).convert("RGB")
-            img.thumbnail((200, 200))
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=80)
-            thumbnail_bytes = buf.getvalue()
-
-        if thumbnail_bytes:
-            resp = httpx.put(thumbnail_url, content=thumbnail_bytes)
-            resp.raise_for_status()
-            logger.info("Pre-ingest thumbnail uploaded (%d bytes)", len(thumbnail_bytes))
-            return True
+        thumbnail_bytes = _render_thumbnail(file_path, preview_ref)
+        if not thumbnail_bytes:
+            return False
+        resp = httpx.put(thumbnail_url, content=thumbnail_bytes)
+        resp.raise_for_status()
+        logger.info("Pre-ingest thumbnail uploaded (%d bytes)", len(thumbnail_bytes))
+        return True
     except Exception as thumb_error:
         # See the sibling handler above: the traceback carries the presigned
-        # upload URL, so this logs what failed and not how.
+        # upload URL (or the rendition's GET URL), so this logs what failed
+        # and not how.
         logger.warning(
             "Pre-ingest thumbnail generation failed (swallowed): %s",
             type(thumb_error).__name__,
         )
     return False
+
+
+def _render_thumbnail(file_path: str, preview_ref: str | None) -> bytes | None:
+    """JPEG bytes for the original, or for its rendition when it has no pages of its own."""
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext in _PDF_SUFFIXES:
+        return _render_pdf_thumbnail(file_path)
+    if ext in _IMAGE_SUFFIXES:
+        return _render_image_thumbnail(file_path)
+    if not preview_ref:
+        return None
+    return _render_rendition_thumbnail(preview_ref)
+
+
+def _render_rendition_thumbnail(preview_ref: str) -> bytes | None:
+    """Download the PDF rendition to a temp file, render its first page, delete it.
+
+    ``preview_ref`` passed the object-store gates in the handler. No redirects
+    for the same reason as the ``file_ref`` download: a follow could land
+    outside the allowlist. The URL is never logged; an ``HTTPStatusError``
+    here propagates to the caller, which logs only its class name.
+    """
+    response = httpx.get(preview_ref, follow_redirects=False, timeout=30.0)
+    response.raise_for_status()
+    fd, pdf_path = tempfile.mkstemp(suffix=".pdf")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(response.content)
+        return _render_pdf_thumbnail(pdf_path)
+    finally:
+        os.unlink(pdf_path)
+
+
+def _render_pdf_thumbnail(pdf_path: str) -> bytes | None:
+    """First page of a PDF as a 200px (longest side) JPEG; ``None`` for an empty PDF."""
+    import pypdfium2 as pdfium
+
+    doc = pdfium.PdfDocument(pdf_path)
+    try:
+        if len(doc) == 0:
+            return None
+        page = doc[0]
+        try:
+            width_pt, height_pt = page.get_size()
+            scale = 200.0 / (max(width_pt, height_pt) or 1.0)
+            img = page.render(scale=scale).to_pil().convert("RGB")
+        finally:
+            page.close()
+    finally:
+        doc.close()
+    return _jpeg_bytes(img)
+
+
+def _render_image_thumbnail(image_path: str) -> bytes:
+    """An image scaled to fit 200x200 as a JPEG."""
+    img = Image.open(image_path).convert("RGB")
+    img.thumbnail((200, 200))
+    return _jpeg_bytes(img)
+
+
+def _jpeg_bytes(img: Image.Image) -> bytes:
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=80)
+    return buf.getvalue()
