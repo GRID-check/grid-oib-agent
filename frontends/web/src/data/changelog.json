@@ -137,6 +137,10 @@
               "de": "In den Antwortdetails sehen Sie jetzt, was die gesamte Antwort gekostet hat; bisher wurden für jede Antwort etwa 0,1 Credits angezeigt. Ihr Budget berücksichtigt jetzt auch die Antwort selbst und nicht nur die anschließenden Vorschläge."
             },
             {
+              "en": "In the effort slider the dotted trail no longer slides along with the handle. The dots stay in place and the handle uncovers them as it moves.",
+              "de": "Im Aufwand-Slider bewegt sich die gepunktete Spur nicht mehr mit dem Regler mit. Die Punkte bleiben an Ort und Stelle und werden freigelegt, wenn sich der Regler bewegt."
+            },
+            {
               "en": "A question in the chat no longer shows „Denkt nach\" forever when the server does not answer it. After half a minute without a reply it ends with an error you can retry.",
               "de": "Eine Frage im Chat bleibt nicht mehr endlos bei „Denkt nach“, wenn der Server nicht antwortet. Nach einer halben Minute ohne Antwort wird ein Fehler angezeigt und Sie können die Anfrage erneut senden."
             },

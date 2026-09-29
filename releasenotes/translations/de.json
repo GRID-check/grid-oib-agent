@@ -1188,6 +1188,10 @@
     "de": "In der Karte Rechtsgrundlage steht eine lange Fundstelle jetzt in der Zeile neben der Richtlinie statt in der schmalen Randspalte, wo sie auf sieben Zeilen umbrach."
   },
   {
+    "en": "In the effort slider the dotted trail no longer slides along with the handle. The dots stay in place and the handle uncovers them as it moves.",
+    "de": "Im Aufwand-Slider bewegt sich die gepunktete Spur nicht mehr mit dem Regler mit. Die Punkte bleiben an Ort und Stelle und werden freigelegt, wenn sich der Regler bewegt."
+  },
+  {
     "en": "In the research plan you choose under Unterlagen which documents from the project and office archive the research reads in full and which it never uses. Excluded documents are never cited, even when a search finds them.",
     "de": "Im Rechercheplan wählen Sie unter „Unterlagen“, welche Dokumente aus Projekt und Büroarchiv die Recherche vollständig liest und welche sie nie verwendet. Ausgeschlossene Dokumente werden nie zitiert, auch wenn eine Suche sie findet."
   },
