@@ -40,14 +40,19 @@ Typical usage (inside ``_run_ingestion``)::
 from __future__ import annotations
 
 import hashlib
+import io
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
+from dataclasses import dataclass
 from typing import Any
 
 from aiq_agent.common.cache import get_json
 from aiq_agent.common.cache import set_json
+
+from .pdfium_lock import detached_pil
+from .pdfium_lock import pdfium_lock
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +173,21 @@ def _cached_vlm_call(
 
 # ---------------------------------------------------------------------------
 # Drawing-page renderer (VLM-free variant)
+#
+# Every PDFium call below runs under ``pdfium_lock`` (see that module): the
+# ingest pool has more than one worker, and the ingest route renders preview
+# thumbnails on its own thread. The lock covers one page's PDFium work at a
+# time; JPEG encoding happens after it is released.
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _PageRead:
+    """One page's outcome in ``render_visual_pages_no_vlm``."""
+
+    image: Any = None
+    capped: bool = False
+    failed: bool = False
 
 
 def _pdfium_page_text(page: Any) -> str:
@@ -188,47 +207,116 @@ def _is_drawing_page(page: Any, text: str, min_text_chars: int, min_paths: int) 
     return kind is page_triage.PageKind.DRAWING
 
 
-def _render_page_jpeg(page: Any, max_dim: int) -> tuple[bytes, int, int]:
-    """Render one pdfium page so its longest edge is ``max_dim`` px; ``(jpeg, width, height)``."""
-    import io
-
+def _render_page_image(page: Any, max_dim: int) -> Any:
+    """Render one pdfium page so its longest edge is ``max_dim`` px, as an RGB PIL image. Hold the lock."""
     width_pt, height_pt = page.get_size()
     scale = max_dim / (max(width_pt, height_pt) or 1.0)
-    pil_image = page.render(scale=scale).to_pil().convert("RGB")
+    return detached_pil(page.render(scale=scale)).convert("RGB")
+
+
+def _encode_jpeg(pil_image: Any) -> tuple[bytes, int, int]:
+    """``(jpeg, width, height)``. Pure PIL, so it runs outside the PDFium lock."""
     buf = io.BytesIO()
     pil_image.save(buf, format="JPEG", quality=90)
     return buf.getvalue(), pil_image.width, pil_image.height
 
 
-def render_pdf_pages(pdf_path: str, page_numbers: list[int], *, max_dim: int) -> dict[int, bytes]:
-    """Render the given 1-based pages to JPEG; a page that fails is absent from the result.
-
-    Call from one thread at a time: pdfium is not thread-safe.
-    """
+def _open_pdf(pdf_path: str, purpose: str) -> Any:
+    """The pdfium document, or None when it cannot be opened (logged). Takes the lock."""
     try:
         import pypdfium2 as pdfium
 
-        doc = pdfium.PdfDocument(pdf_path)
-    except Exception as exc:  # noqa: BLE001 - the caller counts the missing pages
-        logger.warning("Page render unavailable for %s (%s: %s)", pdf_path, type(exc).__name__, exc)
+        with pdfium_lock():
+            return pdfium.PdfDocument(pdf_path)
+    except Exception as exc:  # noqa: BLE001 - the caller treats None as "nothing rendered"
+        logger.warning("%s unavailable for %s (%s: %s)", purpose, pdf_path, type(exc).__name__, exc)
+        return None
+
+
+def _close_pdf(doc: Any) -> None:
+    with pdfium_lock():
+        doc.close()
+
+
+def _render_numbered_page(doc: Any, number: int, max_dim: int, pdf_path: str) -> Any:
+    """1-based page ``number`` rendered to a PIL image, or None (logged)."""
+    with pdfium_lock():
+        try:
+            page = doc[number - 1]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Page %d of %s could not be opened for rendering (%s)", number, pdf_path, exc)
+            return None
+        try:
+            return _render_page_image(page, max_dim)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Page %d of %s could not be rendered (%s)", number, pdf_path, exc)
+            return None
+        finally:
+            page.close()
+
+
+def render_pdf_pages(pdf_path: str, page_numbers: list[int], *, max_dim: int) -> dict[int, bytes]:
+    """Render the given 1-based pages to JPEG; a page that fails is absent from the result.
+
+    Safe from any thread: each page's PDFium work holds ``pdfium_lock``.
+    """
+    doc = _open_pdf(pdf_path, "Page render")
+    if doc is None:
         return {}
     rendered: dict[int, bytes] = {}
     try:
         for number in page_numbers:
-            try:
-                page = doc[number - 1]
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Page %d of %s could not be opened for rendering (%s)", number, pdf_path, exc)
-                continue
-            try:
-                rendered[number] = _render_page_jpeg(page, max_dim)[0]
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Page %d of %s could not be rendered (%s)", number, pdf_path, exc)
-            finally:
-                page.close()
+            image = _render_numbered_page(doc, number, max_dim, pdf_path)
+            if image is not None:
+                rendered[number] = _encode_jpeg(image)[0]
     finally:
-        doc.close()
+        _close_pdf(doc)
     return rendered
+
+
+def _page_is_visual(
+    page: Any,
+    page_num: int,
+    only_pages: set[int] | None,
+    page_texts: dict[int, str] | None,
+    thresholds: tuple[int, int],
+) -> bool:
+    if only_pages is not None:
+        return page_num + 1 in only_pages
+    if page_texts is not None:
+        raw_text = page_texts.get(page_num + 1) or ""
+    else:
+        raw_text = _pdfium_page_text(page)
+    min_text_chars, min_paths = thresholds
+    return _is_drawing_page(page, raw_text, min_text_chars, min_paths)
+
+
+def _read_visual_page(doc: Any, page_num: int, *, can_render: bool, max_dim: int, criteria: dict) -> _PageRead:
+    """Judge one page and render it when it is visual; all of it under the PDFium lock."""
+    pdf_path = criteria["pdf_path"]
+    with pdfium_lock():
+        # Guarded separately, and this is the defect the guard exists for:
+        # `doc[page_num]` raises on a damaged page and used to sit OUTSIDE the
+        # render's guard, so one unreadable page abandoned every page after it.
+        # A 40-page drawing set could lose 38 captions to page 2 and report
+        # nothing — the caller sees a short list, not an error.
+        try:
+            page = doc[page_num]
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Visual-page render skipped page %d of %s (%s)", page_num + 1, pdf_path, e)
+            return _PageRead(failed=True)
+        try:
+            thresholds = (criteria["min_text_chars"], criteria["min_paths"])
+            if not _page_is_visual(page, page_num, criteria["only_pages"], criteria["page_texts"], thresholds):
+                return _PageRead()
+            if not can_render:
+                return _PageRead(capped=True)
+            return _PageRead(image=_render_page_image(page, max_dim))
+        except Exception as e:  # noqa: BLE001 - one page's render failing costs that page, not the rest
+            logger.debug("Visual-page render failed on page %d of %s (%s)", page_num + 1, pdf_path, e)
+            return _PageRead(failed=True)
+        finally:
+            page.close()
 
 
 def render_visual_pages_no_vlm(
@@ -262,92 +350,53 @@ def render_visual_pages_no_vlm(
       ``{"image_bytes": bytes, "page_number": int, "width": int, "height": int}``.
     Empty list when pypdfium2 is unavailable or the PDF has no visual pages.
     """
-    try:
-        import pypdfium2 as pdfium
-    except ImportError:
-        logger.warning("pypdfium2 not installed; visual page detection disabled")
-        return []
-
-    results: list[dict[str, Any]] = []
-    rendered = 0
-    skipped_pages = 0
-
     # Opening is its own step so the failure can say what it actually means. A PDF
     # pdfium cannot parse is NOT a failed ingestion: the text layer is read by
     # pdfplumber on a separate path, so the document still ingests and simply
     # contributes no visual pages. Logging that at ERROR filed a GitHub issue for
     # every unusual PDF in the corpus while the ingest it described succeeded.
+    doc = _open_pdf(pdf_path, "Visual-page rendering (text ingestion is unaffected)")
+    if doc is None:
+        return []
+
+    criteria = {
+        "pdf_path": pdf_path,
+        "min_text_chars": min_text_chars,
+        "min_paths": min_paths,
+        "page_texts": page_texts,
+        "only_pages": only_pages,
+    }
+    results: list[dict[str, Any]] = []
+    skipped_pages = 0
     try:
-        doc = pdfium.PdfDocument(pdf_path)
-    except Exception as e:
-        logger.warning(
-            "Visual-page rendering unavailable for %s (%s: %s); text ingestion is unaffected",
-            pdf_path,
-            type(e).__name__,
-            e,
-        )
-        return results
-
-    try:
-        try:
-            for page_num in range(len(doc)):
-                # Guarded separately, and this is the defect the guard exists for:
-                # `doc[page_num]` raises on a damaged page and used to sit OUTSIDE
-                # the try below, so one unreadable page abandoned every page after
-                # it. A 40-page drawing set could lose 38 captions to page 2 and
-                # report nothing — the caller sees a short list, not an error.
-                try:
-                    page = doc[page_num]
-                except Exception as e:
-                    skipped_pages += 1
-                    logger.debug("Visual-page render skipped page %d of %s (%s)", page_num + 1, pdf_path, e)
-                    continue
-                try:
-                    if only_pages is not None:
-                        is_visual = page_num + 1 in only_pages
-                    else:
-                        if page_texts is not None:
-                            raw_text = page_texts.get(page_num + 1) or ""
-                        else:
-                            raw_text = _pdfium_page_text(page)
-                        is_visual = _is_drawing_page(page, raw_text, min_text_chars, min_paths)
-                    if not is_visual:
-                        continue
-
-                    if rendered >= max_pages:
-                        # Said out loud rather than inferred from a short chunk
-                        # list: capped pages still index their text layer, but
-                        # their drawings are never described — a plan set whose
-                        # later sheets show sparse facts lost them here.
-                        logger.warning(
-                            "Visual-page render cap (%d) reached for %s; remaining visual pages index as text only",
-                            max_pages,
-                            pdf_path,
-                        )
-                        break
-
-                    image_bytes, width, height = _render_page_jpeg(page, max_dim)
-                    results.append(
-                        {
-                            "image_bytes": image_bytes,
-                            "page_number": page_num + 1,
-                            "width": width,
-                            "height": height,
-                        }
-                    )
-                    rendered += 1
-                except Exception as e:
-                    # One page's render failing costs that page, not the rest.
-                    skipped_pages += 1
-                    logger.debug("Visual-page render failed on page %d of %s (%s)", page_num + 1, pdf_path, e)
-                finally:
-                    page.close()
-        finally:
-            doc.close()
+        with pdfium_lock():
+            page_count = len(doc)
+        for page_num in range(page_count):
+            read = _read_visual_page(
+                doc, page_num, can_render=len(results) < max_pages, max_dim=max_dim, criteria=criteria
+            )
+            skipped_pages += read.failed
+            if read.capped:
+                # Said out loud rather than inferred from a short chunk list:
+                # capped pages still index their text layer, but their drawings
+                # are never described — a plan set whose later sheets show
+                # sparse facts lost them here.
+                logger.warning(
+                    "Visual-page render cap (%d) reached for %s; remaining visual pages index as text only",
+                    max_pages,
+                    pdf_path,
+                )
+                break
+            if read.image is None:
+                continue
+            image_bytes, width, height = _encode_jpeg(read.image)
+            results.append({"image_bytes": image_bytes, "page_number": page_num + 1, "width": width, "height": height})
     except Exception as e:
         # Whatever is left: a failure of the document itself rather than of one
         # page. Still not fatal to ingestion, for the reason given above.
         logger.warning("Visual-page rendering stopped for %s (%s: %s)", pdf_path, type(e).__name__, e)
+    finally:
+        _close_pdf(doc)
 
     if results:
         logger.info("Detected %d visual page(s) in %s", len(results), pdf_path)

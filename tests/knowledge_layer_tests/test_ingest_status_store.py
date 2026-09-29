@@ -275,3 +275,119 @@ class TestFindLive:
         ingest_status_store.put(self._keyed("job-1", JobState.PENDING))
         ingest_status_store.put(_with_file("job-1", JobState.PROCESSING))
         assert ingest_status_store.find_live("k1").job_id == "job-1"
+
+
+# --- Lost writes are reported, and a settle that lost the race says so -------
+
+
+def _owner_beats_before_the_settle(monkeypatch, url: str) -> None:
+    """The owner beats between a reader's SELECT and its settling UPDATE.
+
+    Through its own engine, as the owner is another process: the store's
+    SQLite pool holds one connection, and the reader has it.
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy import text
+
+    settle = ingest_status_store._settle_interrupted
+
+    def beat_then_settle(conn, url_, status):
+        engine = create_engine(url)
+        with engine.begin() as owner:
+            owner.execute(
+                text("UPDATE ingest_jobs SET heartbeat_at = CURRENT_TIMESTAMP WHERE job_id = :j"),
+                {"j": status.job_id},
+            )
+        engine.dispose()
+        return settle(conn, url_, status)
+
+    monkeypatch.setattr(ingest_status_store, "_settle_interrupted", beat_then_settle)
+
+
+class TestWritesReportTheirOutcome:
+    def test_put_says_whether_the_row_was_stored(self, sqlite_db, monkeypatch):
+        assert ingest_status_store.put(_status("job-1")) is True
+
+        def unreachable(url):
+            raise ConnectionError("database unreachable")
+
+        monkeypatch.setattr(ingest_status_store, "_ensure_table", unreachable)
+        assert ingest_status_store.put(_status("job-1", JobState.COMPLETED)) is False
+
+    def test_without_a_database_there_is_nothing_to_retry(self, monkeypatch):
+        monkeypatch.delenv("AIQ_SUMMARY_DB", raising=False)
+        monkeypatch.delenv("NAT_JOB_STORE_DB_URL", raising=False)
+        assert ingest_status_store.put(_status("job-1")) is True
+        assert ingest_status_store.heartbeat(["job-1"]) is None
+
+    def test_heartbeat_counts_the_rows_it_refreshed(self, sqlite_db):
+        ingest_status_store.put(_with_file("mine", JobState.PROCESSING))
+        assert ingest_status_store.heartbeat(["mine", "never-written"]) == 1
+        assert ingest_status_store.heartbeat([]) == 0
+
+    def test_a_settled_row_is_not_the_owners_to_beat_any_more(self, sqlite_db):
+        """Settling clears the owner, so the owner's heartbeat sees the row is gone."""
+        ingest_status_store.put(_with_file("job-1", JobState.PROCESSING))
+        _age_heartbeat(sqlite_db, "job-1")
+        assert ingest_status_store.get("job-1").status == JobState.FAILED
+
+        assert ingest_status_store.heartbeat(["job-1"]) == 0
+
+
+class TestTheSettleRace:
+    def test_get_returns_the_row_the_owner_kept_alive(self, sqlite_db, monkeypatch):
+        ingest_status_store.put(_with_file("job-1", JobState.PROCESSING))
+        _age_heartbeat(sqlite_db, "job-1")
+        _owner_beats_before_the_settle(monkeypatch, sqlite_db)
+
+        got = ingest_status_store.get("job-1")
+
+        assert got is not None and got.status == JobState.PROCESSING
+        assert ingest_status_store.heartbeat(["job-1"]) == 1, "the owner still holds the row"
+
+    def test_the_sweep_counts_only_rows_it_settled(self, sqlite_db, monkeypatch):
+        ingest_status_store.put(_with_file("job-1", JobState.PROCESSING))
+        _age_heartbeat(sqlite_db, "job-1")
+        _owner_beats_before_the_settle(monkeypatch, sqlite_db)
+
+        assert ingest_status_store.fail_interrupted() == 0
+        assert ingest_status_store.get("job-1").status == JobState.PROCESSING
+
+    def test_find_live_returns_the_job_that_beat_again(self, sqlite_db, monkeypatch):
+        status = _with_file("job-1", JobState.PROCESSING)
+        status.metadata = {"dispatch_key": "k1"}
+        ingest_status_store.put(status)
+        _age_heartbeat(sqlite_db, "job-1")
+        _owner_beats_before_the_settle(monkeypatch, sqlite_db)
+
+        found = ingest_status_store.find_live("k1")
+
+        assert found is not None and found.job_id == "job-1" and found.status == JobState.PROCESSING
+
+
+class TestTheOwnerIsRightAboutItsJob:
+    """An owner cut off past the stale window is settled by another replica; its next write wins."""
+
+    def test_the_owners_terminal_write_replaces_the_interrupted_failure(self, sqlite_db):
+        ingest_status_store.put(_with_file("job-1", JobState.PROCESSING))
+        _age_heartbeat(sqlite_db, "job-1")
+        assert ingest_status_store.get("job-1").status == JobState.FAILED
+
+        assert ingest_status_store.put(_with_file("job-1", JobState.COMPLETED)) is True
+
+        got = ingest_status_store.get("job-1")
+        assert got is not None and got.status == JobState.COMPLETED and got.error_message is None
+
+    def test_the_owners_live_write_makes_the_job_findable_again(self, sqlite_db):
+        """Otherwise a retried dispatch finds nothing live and starts a second job on the same file."""
+        status = _with_file("job-1", JobState.PROCESSING)
+        status.metadata = {"dispatch_key": "k1"}
+        ingest_status_store.put(status)
+        _age_heartbeat(sqlite_db, "job-1")
+        assert ingest_status_store.find_live("k1") is None
+
+        ingest_status_store.put(_with_file("job-1", JobState.PROCESSING))
+
+        found = ingest_status_store.find_live("k1")
+        assert found is not None and found.job_id == "job-1"
+        assert ingest_status_store.heartbeat(["job-1"]) == 1

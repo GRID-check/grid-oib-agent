@@ -64,6 +64,9 @@ from aiq_agent.knowledge.schema import IngestionJobStatus
 from aiq_agent.knowledge.schema import JobState
 from aiq_agent.knowledge.schema import RetrievalResult
 
+from .pdfium_lock import detached_pil
+from .pdfium_lock import pdfium_lock
+
 logger = logging.getLogger(__name__)
 
 
@@ -341,7 +344,9 @@ VLM_MAX_IMAGE_DIM = 1568
 # @required false
 # Render drawing pages (text-sparse AND vector-heavy, `page_triage`) to images
 # and analyse them with the drawing schema. Effective only when a VLM key
-# resolves. Scanned pages are transcribed instead, whatever this says.
+# resolves. It does not govern transcription: scanned and garbled pages are
+# rendered and transcribed whatever this says, and AIQ_MAX_OCR_PAGES=0 is the
+# switch that stops that.
 RENDER_VISUAL_PAGES = os.environ.get("AIQ_RENDER_VISUAL_PAGES", "true").lower() == "true"
 
 # Long-edge target (px) for a full-page render before it is sent to the VLM.
@@ -372,7 +377,8 @@ MAX_RENDERED_PAGES = _env_int("AIQ_MAX_RENDERED_PAGES", 20, minimum=0)
 # Most scanned or garbled PDF pages transcribed by the vision model per
 # document. A page costs about $0.0007 with the default model. Pages past it
 # are counted on the file's job status (`pages_over_ocr_cap`), never dropped
-# quietly. 0 transcribes none.
+# quietly. 0 transcribes none: the OCR switch, independent of
+# AIQ_RENDER_VISUAL_PAGES.
 MAX_OCR_PAGES = _env_int("AIQ_MAX_OCR_PAGES", 500, minimum=0)
 
 # @environment_variable AIQ_VLM_TIMEOUT_SECONDS
@@ -1019,16 +1025,10 @@ def _extract_images_from_pdf(
         List of dicts with 'image_bytes', 'page_number', 'image_index', 'format'.
     """
     try:
-        import io
-
         import pypdfium2 as pdfium
     except ImportError:
         logger.warning("pypdfium2 not installed. Install with: pip install pypdfium2")
         return []
-
-    # PDFium C API constant: FPDF_PAGEOBJ_IMAGE = 3
-    # Not always exposed as a Python attribute in pypdfium2 v5
-    PAGEOBJ_IMAGE = 3
 
     images = []
     # Content-hash dedupe: the same raster embedded repeatedly (a logo on every
@@ -1036,62 +1036,102 @@ def _extract_images_from_pdf(
     # dedupes the API call; this dedupes the duplicate indexed chunks.
     seen_hashes: set[str] = set()
     try:
-        doc = pdfium.PdfDocument(pdf_path)
-        for page_num in range(len(doc)):
-            if page_num + 1 in skip_pages:
-                continue
-            page = doc[page_num]
-            img_idx = 0
-
-            for obj in page.get_objects():
-                if obj.type != PAGEOBJ_IMAGE:
+        # PDFium work holds the process-wide lock one page at a time
+        # (`pdfium_lock`); downscaling and JPEG encoding run after it.
+        with pdfium_lock():
+            doc = pdfium.PdfDocument(pdf_path)
+            page_count = len(doc)
+        try:
+            for page_num in range(page_count):
+                if page_num + 1 in skip_pages:
                     continue
-
-                try:
-                    bitmap = obj.get_bitmap()
-                    width = bitmap.width
-                    height = bitmap.height
-
-                    # Filter small images (likely icons/logos)
-                    if width >= min_width and height >= min_height:
-                        pil_image = bitmap.to_pil()
-                        # Downscale the longest edge to VLM_MAX_IMAGE_DIM before
-                        # re-encoding (aspect preserved, never upscaled) to bound
-                        # the VLM payload. thumbnail() is a no-op when already
-                        # within bounds. Metadata still records the ORIGINAL size.
-                        pil_image.thumbnail((VLM_MAX_IMAGE_DIM, VLM_MAX_IMAGE_DIM))
-                        buf = io.BytesIO()
-                        pil_image.save(buf, format="JPEG", quality=95)
-                        image_bytes = buf.getvalue()
-                        digest = hashlib.sha256(image_bytes).hexdigest()
-                        if digest in seen_hashes:
-                            img_idx += 1
-                            continue
-                        seen_hashes.add(digest)
-                        images.append(
-                            {
-                                "image_bytes": image_bytes,
-                                "page_number": page_num + 1,
-                                "image_index": img_idx,
-                                "format": "jpeg",
-                                "width": width,
-                                "height": height,
-                            }
-                        )
-                except Exception as e:
-                    logger.debug(f"Could not extract image {img_idx} from page {page_num}: {e}")
-
-                img_idx += 1
-
-            page.close()
-
-        doc.close()
+                for img_idx, pil_image, width, height in _page_rasters(doc, page_num, min_width, min_height):
+                    record = _raster_record(pil_image, page_num + 1, img_idx, (width, height), seen_hashes)
+                    if record is not None:
+                        images.append(record)
+        finally:
+            with pdfium_lock():
+                doc.close()
         logger.info(f"Extracted {len(images)} images from {pdf_path}")
 
     except Exception as e:
         logger.error(f"Error extracting images from PDF: {e}")
 
     return images
+
+
+def _page_rasters(doc: Any, page_num: int, min_width: int, min_height: int) -> list[tuple[int, Any, int, int]]:
+    """``(image_index, pil_image, width, height)`` for one page's rasters at least the minimum size.
+
+    Holds the PDFium lock for the page; the images own their pixels, so they
+    leave it. ``image_index`` counts every image object, kept or not.
+    """
+    # PDFium C API constant: FPDF_PAGEOBJ_IMAGE = 3
+    # Not always exposed as a Python attribute in pypdfium2 v5
+    PAGEOBJ_IMAGE = 3
+
+    rasters: list[tuple[int, Any, int, int]] = []
+    with pdfium_lock():
+        page = doc[page_num]
+        try:
+            image_objects = [obj for obj in page.get_objects() if obj.type == PAGEOBJ_IMAGE]
+            for img_idx, obj in enumerate(image_objects):
+                try:
+                    bitmap = obj.get_bitmap()
+                    width, height = bitmap.width, bitmap.height
+                    # Filter small images (likely icons/logos)
+                    if width >= min_width and height >= min_height:
+                        rasters.append((img_idx, detached_pil(bitmap), width, height))
+                except Exception as e:
+                    logger.debug(f"Could not extract image {img_idx} from page {page_num}: {e}")
+        finally:
+            page.close()
+    return rasters
+
+
+def _raster_record(
+    pil_image: Any, page_number: int, img_idx: int, size: tuple[int, int], seen_hashes: set[str]
+) -> dict[str, Any] | None:
+    """One extracted raster as a JPEG record, or None when an identical one was already kept."""
+    import io
+
+    # Downscale the longest edge to VLM_MAX_IMAGE_DIM before re-encoding
+    # (aspect preserved, never upscaled) to bound the VLM payload. thumbnail()
+    # is a no-op when already within bounds. Metadata still records the
+    # ORIGINAL size.
+    pil_image.thumbnail((VLM_MAX_IMAGE_DIM, VLM_MAX_IMAGE_DIM))
+    buf = io.BytesIO()
+    pil_image.save(buf, format="JPEG", quality=95)
+    image_bytes = buf.getvalue()
+    digest = hashlib.sha256(image_bytes).hexdigest()
+    if digest in seen_hashes:
+        return None
+    seen_hashes.add(digest)
+    width, height = size
+    return {
+        "image_bytes": image_bytes,
+        "page_number": page_number,
+        "image_index": img_idx,
+        "format": "jpeg",
+        "width": width,
+        "height": height,
+    }
+
+
+def _render_first_pdf_page(pdf_path: str, *, scale: float) -> Any:
+    """Page 1 of ``pdf_path`` as a PIL image that owns its pixels, rendered under the PDFium lock."""
+    import pypdfium2 as pdfium
+
+    with pdfium_lock():
+        pdf = pdfium.PdfDocument(pdf_path)
+        try:
+            page = pdf[0]
+            try:
+                return detached_pil(page.render(scale=scale))
+            finally:
+                page.close()
+        finally:
+            pdf.close()
 
 
 def cap_images(images: list[dict[str, Any]], max_images: int) -> tuple[list[dict[str, Any]], int]:
@@ -2383,6 +2423,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         self._jobs: dict[str, IngestionJobStatus] = {}
         self._files: dict[str, FileInfo] = {}
         self._lock = threading.RLock()  # RLock allows same thread to acquire multiple times
+        # Shared-store writes, one at a time (`_persist`), and the jobs whose
+        # latest write did not land, which the heartbeat writes again.
+        self._persist_lock = threading.Lock()
+        self._unpersisted: set[str] = set()
 
         # Bounded ingestion pool: a thread per upload gave N concurrent
         # uploads N threads all embedding against the remote API and writing
@@ -2437,7 +2481,58 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             logger.warning("Settled %d ingest job(s) a previous process left unfinished as interrupted", settled)
 
     def _beat(self) -> None:
-        ingest_status_store.heartbeat(self._live_job_ids())
+        """Vouch for the live jobs, re-write any whose row is not ours, retry the writes that failed."""
+        live = self._live_job_ids()
+        refreshed = ingest_status_store.heartbeat(live)
+        if refreshed is not None and refreshed < len(live):
+            # A row this process holds a live job for is not its own: another
+            # replica settled it as interrupted while this one could not beat,
+            # or its first write never landed. The owner is right about its
+            # job (`ingest_status_store`), so it writes the job again.
+            logger.warning("Heartbeat refreshed %d of %d live ingest job(s); re-writing them", refreshed, len(live))
+            with self._persist_lock:
+                self._unpersisted.update(live)
+        self._retry_unpersisted()
+
+    def _persist(self, job: IngestionJobStatus) -> None:
+        """Write ``job`` to the shared status store; a write that fails is retried on the heartbeat.
+
+        A terminal status that never lands is the costly loss: heartbeats cover
+        only live jobs, so the row stays ``processing``, ages, and another
+        replica settles it ``failed: interrupted`` while the chunks are indexed.
+        Writes are serialized and each stores the job as it is when the write
+        starts, so a retry can never put an older status over a newer one.
+        Lock order: ``_persist_lock`` then ``_lock``, so never call this while
+        holding ``_lock``. ``_persist_lock`` also guards ``_unpersisted``.
+        """
+        with self._persist_lock:
+            with self._lock:
+                snapshot = job.model_copy(deep=True)
+            if ingest_status_store.put(snapshot):
+                self._unpersisted.discard(job.job_id)
+            else:
+                self._unpersisted.add(job.job_id)
+
+    def _retry_unpersisted(self) -> None:
+        """Write again every job whose last write failed, for as long as this process tracks it.
+
+        Bounded by the job registry's retention: a terminal job is pruned
+        ``JOB_RETENTION_SECONDS`` after it finished, together with its row, and
+        a job no longer tracked is dropped from the retry set.
+        """
+        with self._persist_lock:
+            pending = list(self._unpersisted)
+        if not pending:
+            return
+        self._prune_completed_jobs()
+        with self._lock:
+            jobs = {jid: self._jobs.get(jid) for jid in pending}
+        for jid, job in jobs.items():
+            if job is not None:
+                self._persist(job)
+                continue
+            with self._persist_lock:
+                self._unpersisted.discard(jid)
 
     def _live_job_ids(self) -> list[str]:
         with self._lock:
@@ -2541,7 +2636,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             job.processed_files = file_index + 1
 
         # Persist outside the lock (DB I/O) so any replica can serve this status.
-        ingest_status_store.put(job)
+        self._persist(job)
 
     def _record_failed_pages(self, job: IngestionJobStatus, file_index: int, text_pages: list) -> None:
         """Put the pages a PDF read lost, below the failure threshold, on the file's result."""
@@ -2621,7 +2716,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             )
             with self._lock:
                 self._jobs[job_id] = job
-            ingest_status_store.put(job)
+            self._persist(job)
             return job_id
 
         # Create pending job with file details
@@ -2684,7 +2779,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
         # Persist the initial PENDING status so a poll to any replica resolves it
         # immediately, even before this replica's pool starts processing.
-        ingest_status_store.put(job)
+        self._persist(job)
 
         # Run ingestion on the bounded pool; the job stays PENDING while queued.
         self._ingest_pool.submit(self._run_ingestion, job_id, validated_paths, collection_name, job_config)
@@ -3559,15 +3654,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
         if is_pdf:
             try:
-                import pypdfium2 as pdfium
-
-                pdf = pdfium.PdfDocument(file_path)
-                page = pdf[0]
                 # Render at 2x (supersample) so the down-scaled thumbnail keeps
                 # crisp, anti-aliased text/lines instead of a soft 72-DPI page.
-                bitmap = page.render(scale=2)
-                pil_image = bitmap.to_pil()
-                pdf.close()
+                pil_image = _render_first_pdf_page(file_path, scale=2)
             except Exception:
                 logger.warning("Failed to render PDF page for thumbnail", exc_info=True)
                 return
@@ -3830,7 +3919,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 job = self._jobs[job_id]
                 job.status = JobState.PROCESSING
                 job.started_at = datetime.utcnow()
-            ingest_status_store.put(job)
+            self._persist(job)
 
             # Initialize components
             self._ensure_initialized()
@@ -4671,7 +4760,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 }
 
             # Persist the terminal status so any replica serves the final result.
-            ingest_status_store.put(job)
+            self._persist(job)
 
             # Update collection's updated_at timestamp
             self._update_collection_timestamp(collection_name)
@@ -4712,7 +4801,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 job.status = JobState.FAILED
                 job.completed_at = datetime.utcnow().isoformat()
                 job.error_message = str(e)
-            ingest_status_store.put(job)
+            self._persist(job)
 
         finally:
             # Clean up temp files if requested

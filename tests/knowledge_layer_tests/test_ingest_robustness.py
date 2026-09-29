@@ -13,6 +13,8 @@
 
 import time
 import uuid
+from datetime import UTC
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -320,3 +322,119 @@ def test_startup_settles_and_each_beat_vouches_for_live_jobs_only(monkeypatch, h
     held_ingestor._beat()
 
     assert calls == ["sweep", ["live", "queued"]]
+
+
+# ---------------------------------------------------------------------------
+# A status write that did not land is written again by the heartbeat
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def status_db(tmp_path, monkeypatch):
+    url = f"sqlite:///{tmp_path / 'jobs.db'}"
+    monkeypatch.setenv("AIQ_SUMMARY_DB", url)
+    yield url
+    ingest_status_store._initialized.discard(url)
+
+
+def _age_row(url: str, job_id: str) -> None:
+    from sqlalchemy import create_engine
+    from sqlalchemy import text
+
+    engine = create_engine(url)
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE ingest_jobs SET heartbeat_at = '2000-01-01 00:00:00' WHERE job_id = :j"), {"j": job_id}
+        )
+    engine.dispose()
+
+
+def _tracked_job(ingestor, job_id: str, state: JobState) -> IngestionJobStatus:
+    job = IngestionJobStatus(
+        job_id=job_id,
+        status=state,
+        submitted_at="2026-09-29T10:00:00",
+        total_files=1,
+        collection_name="proj_1",
+        backend="llamaindex",
+        file_details=[FileProgress(file_name="plan.pdf", status=FileStatus.INGESTING)],
+    )
+    ingestor._jobs[job_id] = job
+    return job
+
+
+def _finish(ingestor, job: IngestionJobStatus) -> None:
+    with ingestor._lock:
+        job.status = JobState.COMPLETED
+        # Naive UTC, as the adapter writes it; recent, so retention keeps it.
+        job.completed_at = datetime.now(UTC).replace(tzinfo=None).isoformat()
+        job.file_details[0].status = FileStatus.SUCCESS
+
+
+def test_a_lost_terminal_write_is_retried_until_it_lands(status_db, monkeypatch, held_ingestor):
+    """The chunks are indexed; the row must not age into `failed: interrupted`."""
+    job = _tracked_job(held_ingestor, "job-1", JobState.PROCESSING)
+    held_ingestor._persist(job)
+    _finish(held_ingestor, job)
+
+    real_put = ingest_status_store.put
+    monkeypatch.setattr(ingest_status_store, "put", lambda status: False)
+    held_ingestor._persist(job)
+    assert held_ingestor._unpersisted == {"job-1"}
+
+    held_ingestor._beat()  # the database is still unreachable: kept for the next beat
+    assert held_ingestor._unpersisted == {"job-1"}
+
+    monkeypatch.setattr(ingest_status_store, "put", real_put)
+    held_ingestor._beat()
+
+    assert held_ingestor._unpersisted == set()
+    _age_row(status_db, "job-1")  # long after: a finished row is never settled
+    assert ingest_status_store.get("job-1").status == JobState.COMPLETED
+
+
+def test_a_job_settled_while_its_owner_could_not_beat_is_written_back(status_db, held_ingestor):
+    """Another replica read the stale row as interrupted; the owner, alive, restores it within one beat."""
+    job = _tracked_job(held_ingestor, "job-1", JobState.PROCESSING)
+    held_ingestor._persist(job)
+    _age_row(status_db, "job-1")
+    assert ingest_status_store.get("job-1").status == JobState.FAILED
+
+    held_ingestor._beat()
+
+    assert ingest_status_store.get("job-1").status == JobState.PROCESSING
+    assert ingest_status_store.heartbeat(["job-1"]) == 1
+
+
+def test_a_live_job_whose_first_write_never_landed_is_written_by_the_beat(status_db, held_ingestor):
+    _tracked_job(held_ingestor, "job-1", JobState.PENDING)
+
+    held_ingestor._beat()
+
+    assert ingest_status_store.get("job-1").status == JobState.PENDING
+
+
+def test_a_job_no_longer_tracked_is_not_retried(monkeypatch, held_ingestor):
+    """Retention bounds the retry set: a pruned job has nothing left to write."""
+    monkeypatch.setattr(ingest_status_store, "heartbeat", lambda ids: None)
+    puts: list[str] = []
+    monkeypatch.setattr(ingest_status_store, "put", lambda status: puts.append(status.job_id) or False)
+    held_ingestor._unpersisted.add("pruned")
+
+    held_ingestor._beat()
+
+    assert puts == [] and held_ingestor._unpersisted == set()
+
+
+def test_a_retry_writes_the_job_as_it_is_now(status_db, monkeypatch, held_ingestor):
+    """The retry stores the latest status, never the one whose write failed."""
+    job = _tracked_job(held_ingestor, "job-1", JobState.PROCESSING)
+    real_put = ingest_status_store.put
+    monkeypatch.setattr(ingest_status_store, "put", lambda status: False)
+    held_ingestor._persist(job)
+    monkeypatch.setattr(ingest_status_store, "put", real_put)
+    _finish(held_ingestor, job)
+
+    held_ingestor._beat()
+
+    assert ingest_status_store.get("job-1").status == JobState.COMPLETED

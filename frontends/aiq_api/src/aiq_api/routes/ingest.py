@@ -524,23 +524,42 @@ def _render_rendition_thumbnail(preview_ref: str) -> bytes | None:
 
 
 def _render_pdf_thumbnail(pdf_path: str) -> bytes | None:
-    """First page of a PDF as a 200px (longest side) JPEG; ``None`` for an empty PDF."""
-    import pypdfium2 as pdfium
+    """First page of a PDF as a 200px (longest side) JPEG; ``None`` for an empty PDF.
 
-    doc = pdfium.PdfDocument(pdf_path)
-    try:
-        if len(doc) == 0:
-            return None
-        page = doc[0]
+    This runs on a background task while the ingest pool's workers may be inside
+    PDFium, which is not thread-safe: the PDFium work holds the process-wide
+    lock the ingestor uses (``knowledge_layer.llamaindex.pdfium_lock``), and the
+    JPEG is encoded after releasing it.
+    """
+    img = _render_first_page(pdf_path)
+    return _jpeg_bytes(img) if img is not None else None
+
+
+def _render_first_page(pdf_path: str) -> Image.Image | None:
+    import pypdfium2 as pdfium
+    from knowledge_layer.llamaindex.pdfium_lock import pdfium_lock
+
+    with pdfium_lock():
+        doc = pdfium.PdfDocument(pdf_path)
         try:
-            width_pt, height_pt = page.get_size()
-            scale = 200.0 / (max(width_pt, height_pt) or 1.0)
-            img = page.render(scale=scale).to_pil().convert("RGB")
+            return _render_page_zero(doc)
         finally:
-            page.close()
+            doc.close()
+
+
+def _render_page_zero(doc) -> Image.Image | None:
+    """Page 1 scaled to 200px on its longest side. The caller holds the PDFium lock."""
+    from knowledge_layer.llamaindex.pdfium_lock import detached_pil
+
+    if len(doc) == 0:
+        return None
+    page = doc[0]
+    try:
+        width_pt, height_pt = page.get_size()
+        scale = 200.0 / (max(width_pt, height_pt) or 1.0)
+        return detached_pil(page.render(scale=scale)).convert("RGB")
     finally:
-        doc.close()
-    return _jpeg_bytes(img)
+        page.close()
 
 
 def _jpeg_bytes(img: Image.Image) -> bytes:

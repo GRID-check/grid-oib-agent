@@ -23,6 +23,24 @@ the stable, retryable reason ``interrupted`` (``get``, ``find_live``,
 again (the downloaded temp file, a presigned URL that expires in minutes, the
 job config) is not persisted, so the honest answer is a failure the reader can
 retry.
+
+THE OWNER, WHILE IT LIVES, IS RIGHT ABOUT ITS JOB. A stale heartbeat is
+evidence of death, not proof: an owner cut off from the database for longer
+than ``STALE_AFTER_SECONDS`` is still running, and another replica may settle
+its row as interrupted meanwhile. When the owner writes again, its write wins
+(``put`` is an unconditional upsert) and the row goes back to what the owner
+knows: processing, or completed with its chunks indexed. The alternative, a
+settled row the owner can no longer overwrite, is a lie about a live job: it
+tells ``find_live`` nothing runs (so a retried dispatch starts a second job on
+the same document) and reports ``failed`` for a file whose chunks are indexed.
+The BFF may already have written ``failed`` from the settled row; it asks
+about such an ``interrupted:`` failure again for 30 minutes after the row's
+last write (``reconcile-status.ts``) and adopts a completed or live answer, and
+a retry in the meantime dispatches again and finds the revived job through
+``find_live`` while it runs. Settling clears ``owner`` so
+the owner's ``heartbeat`` refreshes fewer rows than it asked for, which is how
+the adapter learns to re-write its jobs within one beat rather than at its next
+status change.
 """
 
 from __future__ import annotations
@@ -161,33 +179,56 @@ def interrupted(status: IngestionJobStatus) -> IngestionJobStatus:
     return failed
 
 
-def _settle_interrupted(conn, url: str, status: IngestionJobStatus) -> IngestionJobStatus:
-    """Write the interrupted failure, unless the owner beat again since it was read."""
+def _settle_interrupted(conn, url: str, status: IngestionJobStatus) -> IngestionJobStatus | None:
+    """Write the interrupted failure, unless the owner beat again since it was read.
+
+    The failure written, or None when the conditional update matched no row:
+    the owner beat (or wrote) between the read and this update, so the row is
+    live and the caller must read it again rather than report a failure that
+    was never stored. ``owner`` is cleared so the owner, if it is alive after
+    all, sees its heartbeat miss this row (see the module docstring).
+    """
     failed = interrupted(status)
-    conn.execute(
+    result = conn.execute(
         # _now/_stale_predicate are dialect-chosen literals; values are bound.
         # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         text(
-            f"UPDATE ingest_jobs SET status_json = :status_json, updated_at = {_now(url)} "
+            f"UPDATE ingest_jobs SET status_json = :status_json, updated_at = {_now(url)}, owner = NULL "
             f"WHERE job_id = :job_id AND {_stale_predicate(url)}"
         ),
         {"job_id": status.job_id, "status_json": failed.model_dump_json(warnings=False)},
     )
     conn.commit()
+    if result.rowcount == 0:
+        return None
     logger.warning("Ingest job %s lost its owner; recorded as %s", status.job_id, INTERRUPTED)
     return failed
 
 
-def put(status: IngestionJobStatus) -> None:
-    """Upsert a job's status as this process's. Never raises — ingestion must not break on a DB blip.
+def _read(conn, job_id: str) -> IngestionJobStatus | None:
+    row = conn.execute(
+        text("SELECT status_json FROM ingest_jobs WHERE job_id = :job_id"), {"job_id": job_id}
+    ).scalar_one_or_none()
+    return IngestionJobStatus.model_validate_json(row) if row is not None else None
+
+
+def put(status: IngestionJobStatus) -> bool:
+    """Upsert a job's status as this process's; whether it is stored. Never raises.
+
+    Ingestion must not break on a DB blip, but the caller must know when a
+    write was lost: a terminal status that never lands leaves the row live, and
+    once its heartbeat ages another replica settles it as interrupted although
+    the job finished. The adapter retries a failed write on its heartbeat.
+    With no database configured there is nothing to store, which is success.
 
     Writing a row is vouching for it: ``owner`` becomes this process and
-    ``heartbeat_at`` now. ``dispatch_key`` is read from ``status.metadata`` and
-    kept when a later write does not carry it.
+    ``heartbeat_at`` now, and the write wins over a row another replica settled
+    as interrupted (see the module docstring). ``dispatch_key`` is read from
+    ``status.metadata`` and kept when a later write does not carry it.
     """
     url = _db_url()
     if not url:
-        return
+        return True
     try:
         _ensure_table(url)
         engine = DocumentMetadataStore._get_or_create_sync_engine(url)
@@ -216,15 +257,25 @@ def put(status: IngestionJobStatus) -> None:
             )
             conn.commit()
     except Exception:
-        logger.warning("Failed to persist ingest status for %s (continuing)", status.job_id, exc_info=True)
+        logger.warning("Failed to persist ingest status for %s (will retry)", status.job_id, exc_info=True)
+        return False
+    return True
 
 
-def heartbeat(job_ids: Iterable[str]) -> None:
-    """Refresh ``heartbeat_at`` on this process's rows for ``job_ids``. Never raises."""
+def heartbeat(job_ids: Iterable[str]) -> int | None:
+    """Refresh ``heartbeat_at`` on this process's rows for ``job_ids``; how many rows. Never raises.
+
+    Fewer rows than ids means a row is not this process's any more (another
+    replica settled it while this one could not beat) or was never written; the
+    caller re-writes those jobs. None when nothing could be asked: no database,
+    or the update failed.
+    """
     ids = list(job_ids)
     url = _db_url()
-    if not url or not ids:
-        return
+    if not url:
+        return None
+    if not ids:
+        return 0
     try:
         _ensure_table(url)
         engine = DocumentMetadataStore._get_or_create_sync_engine(url)
@@ -234,17 +285,20 @@ def heartbeat(job_ids: Iterable[str]) -> None:
             "UPDATE ingest_jobs SET heartbeat_at = CURRENT_TIMESTAMP WHERE owner = :owner AND job_id IN :ids"
         ).bindparams(bindparam("ids", expanding=True))
         with engine.connect() as conn:
-            conn.execute(statement, {"owner": OWNER, "ids": ids})
+            refreshed = conn.execute(statement, {"owner": OWNER, "ids": ids}).rowcount
             conn.commit()
     except Exception:
         logger.warning("Ingest heartbeat failed for %d job(s) (continuing)", len(ids), exc_info=True)
+        return None
+    return refreshed
 
 
 def get(job_id: str) -> IngestionJobStatus | None:
     """Return a persisted status from any replica, or None. Never raises.
 
     A live row whose owner stopped beating comes back ``failed`` with reason
-    ``interrupted``, and is stored that way.
+    ``interrupted``, and is stored that way. When the owner beat again between
+    the read and the settling write, the row as it now stands comes back.
     """
     url = _db_url()
     if not url:
@@ -262,9 +316,9 @@ def get(job_id: str) -> IngestionJobStatus | None:
             if row is None:
                 return None
             status = IngestionJobStatus.model_validate_json(row[0])
-            if row[1] and _is_live(status):
-                return _settle_interrupted(conn, url, status)
-            return status
+            if not (row[1] and _is_live(status)):
+                return status
+            return _settle_interrupted(conn, url, status) or _read(conn, job_id)
     except Exception:
         logger.warning("Failed to read ingest status for %s", job_id, exc_info=True)
         return None
@@ -300,7 +354,12 @@ def find_live(dispatch_key: str) -> IngestionJobStatus | None:
                     continue
                 if not stale:
                     return status
-                _settle_interrupted(conn, url, status)
+                if _settle_interrupted(conn, url, status) is not None:
+                    continue
+                # The owner beat between the read and the settle: live after all.
+                current = _read(conn, status.job_id)
+                if current is not None and _is_live(current):
+                    return current
     except Exception:
         logger.warning("Could not look up a live ingest job (continuing)", exc_info=True)
     return None
@@ -333,11 +392,10 @@ def fail_interrupted() -> int:
                 .scalars()
                 .all()
             )
-            for row in rows:
-                status = IngestionJobStatus.model_validate_json(row)
-                if _is_live(status):
-                    _settle_interrupted(conn, url, status)
-                    settled += 1
+            live = [status for status in map(IngestionJobStatus.model_validate_json, rows) if _is_live(status)]
+            # Counted only when the conditional update matched: a row whose
+            # owner beat since the read was not settled.
+            settled = sum(_settle_interrupted(conn, url, status) is not None for status in live)
     except Exception:
         logger.warning("Could not settle interrupted ingest jobs (continuing)", exc_info=True)
     return settled
