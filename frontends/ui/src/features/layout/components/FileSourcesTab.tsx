@@ -25,6 +25,7 @@ import {
   mapToDisplayStatus,
 } from '@/features/documents'
 import { trackedFileToFileItem } from '@/features/documents/types'
+import { failedWhileReading } from '@/features/documents/lib/ingest-failure'
 import type { TrackedFile } from '@/features/documents'
 import { sessionHasKnownCollection } from '@/features/documents/persistence'
 import { useChatStore } from '@/features/chat/store'
@@ -391,6 +392,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
             uploadedAt={file.uploadedAt}
             status={mapToDisplayStatus(file.status)}
             errorMessage={file.errorMessage ?? undefined}
+            failedWhileReading={failedWhileReading(file)}
             expirationIntervalHours={fileUploadConfig.fileExpirationCheckIntervalHours}
             // A project document is deleted in the project's Files, where the
             // delete runs the legal-hold check and erases every version. This

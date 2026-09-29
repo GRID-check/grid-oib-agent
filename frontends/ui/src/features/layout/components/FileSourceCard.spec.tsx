@@ -53,8 +53,8 @@ describe('FileSourceCard', () => {
     render(<FileSourceCard {...defaultProps} status="ingesting" />)
 
     // Text appears twice: visible status span + sr-only spinner label
-    expect(screen.getAllByText('Processing...').length).toBeGreaterThan(0)
-    expect(screen.getByLabelText('Processing...')).toBeInTheDocument() // Spinner
+    expect(screen.getAllByText('Reading').length).toBeGreaterThan(0)
+    expect(screen.getByLabelText('Reading')).toBeInTheDocument() // Spinner
   })
 
   test('renders error status with error message', () => {
@@ -62,6 +62,17 @@ describe('FileSourceCard', () => {
 
     expect(screen.getByText('Error')).toBeInTheDocument()
     expect(screen.getByText('Upload failed')).toBeInTheDocument()
+  })
+
+  test('says a read failure in words and keeps the stored text behind Details', async () => {
+    const user = userEvent.setup()
+    const raw = 'No content extracted (file may be password-protected, corrupted, or empty)'
+    render(<FileSourceCard {...defaultProps} status="error" errorMessage={raw} failedWhileReading />)
+
+    expect(screen.getByText(/No text was found in this file/)).toBeInTheDocument()
+    expect(screen.queryByText(raw)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Details' }))
+    expect(screen.getByTestId('file-source-card-failure-raw')).toHaveTextContent(raw)
   })
 
   test('opens the preview when the row is clicked (available + onOpen)', async () => {

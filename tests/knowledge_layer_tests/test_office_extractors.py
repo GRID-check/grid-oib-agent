@@ -1,45 +1,16 @@
-"""Unit tests for the zipped-office-format extractors (docx/xlsx/pptx).
+"""Unit tests for the spreadsheet extractor (xlsx/xlsm).
 
 The regression these guard: without ``llama-index-readers-file`` installed,
 ``SimpleDirectoryReader`` reads an office file's raw zip bytes as text
-(``PK\\x03…``), which the binary-content guard then rejects — every Word
-upload failed ingestion. Real files are built with the same libraries the
-extractors use, so the tests exercise the actual parse.
+(``PK\\x03…``), which the binary-content guard then rejects. Real files are
+built with the same library the extractor uses, so the tests exercise the
+actual parse. Word and presentation files are indexed from their PDF rendition
+(ADR-0071); the pptx notes companion is tested in ``test_rendition_extraction``.
 """
-
-import zipfile
 
 import pytest
 from knowledge_layer.llamaindex import office_extractors
 from knowledge_layer.llamaindex.adapter import _looks_like_image
-from knowledge_layer.llamaindex.adapter import _looks_like_raw_pdf_or_binary
-
-
-def _minimal_docx(path):
-    document_xml = (
-        '<?xml version="1.0"?>'
-        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-        "<w:body><w:p><w:r><w:t>Brandschutzkonzept nach OIB-Richtlinie 2</w:t></w:r></w:p></w:body></w:document>"
-    )
-    with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("word/document.xml", document_xml)
-        archive.writestr(
-            "[Content_Types].xml",
-            "<Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'/>",
-        )
-
-
-class TestDocx:
-    def test_extracts_text_not_zip_bytes(self, tmp_path):
-        path = tmp_path / "konzept.docx"
-        _minimal_docx(path)
-        docs = office_extractors.extract_office_documents(str(path), "konzept.docx", 123)
-        assert len(docs) == 1
-        assert "Brandschutzkonzept" in docs[0].text
-        # The exact failure mode this module exists to prevent.
-        assert not _looks_like_raw_pdf_or_binary(docs[0].text)
-        assert docs[0].metadata["file_name"] == "konzept.docx"
-        assert docs[0].metadata["content_type"] == "text"
 
 
 class TestXlsx:
@@ -63,39 +34,48 @@ class TestXlsx:
         assert "| Atelier | 24,5 m² |" in docs[0].text
         assert docs[0].metadata["content_type"] == "table"
 
-    def test_row_cap_is_stated_not_silent(self, tmp_path):
+    def test_a_long_sheet_is_row_groups_that_each_repeat_the_header(self, tmp_path):
+        """The old cap indexed the first 1000 rows as ONE Document, which the splitter cut
+        into header-less runs of numbers; every group now names its columns and rows."""
         openpyxl = pytest.importorskip("openpyxl")
         workbook = openpyxl.Workbook()
         sheet = workbook.active
-        for i in range(office_extractors.MAX_TABLE_ROWS + 50):
+        sheet.title = "Türliste"
+        sheet.append(["Tür", "Brandschutzklasse", "Geschoß"])
+        for i in range(1500):
+            sheet.append([f"T{i:04d}", "EI2 30-C", "EG"])
+        path = tmp_path / "tueren.xlsx"
+        workbook.save(path)
+
+        docs = office_extractors.extract_office_documents(str(path), "tueren.xlsx", 1)
+
+        assert len(docs) > 1
+        assert all("| Tür | Brandschutzklasse | Geschoß |" in doc.text for doc in docs)
+        assert all(doc.metadata["page_label"] == "Türliste" for doc in docs)
+        assert docs[0].metadata["punkt_id"].startswith("Türliste: Zeilen 2-")
+        assert docs[-1].metadata["punkt_id"].endswith("-1501")
+        assert docs[0].text.startswith("Tabellenblatt „Türliste“, Zeilen 2-")
+        body = "".join(doc.text for doc in docs)
+        assert "| T1499 |" in body, "rows past the old 1000-row cap were dropped"
+        assert office_extractors.rows_over_cap(docs) == 0
+        assert "table_part" in docs[0].excluded_embed_metadata_keys
+
+    def test_the_row_cap_is_stated_and_counted(self, tmp_path, monkeypatch):
+        openpyxl = pytest.importorskip("openpyxl")
+        monkeypatch.setattr(office_extractors, "MAX_TABLE_ROWS", 20)
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        for i in range(70):
             sheet.append([f"Zeile {i}", i])
         path = tmp_path / "lang.xlsx"
         workbook.save(path)
 
         docs = office_extractors.extract_office_documents(str(path), "lang.xlsx", 1)
 
-        assert "Tabelle gekürzt" in docs[0].text
-        assert f"Zeile {office_extractors.MAX_TABLE_ROWS - 1}" in docs[0].text
-        assert f"Zeile {office_extractors.MAX_TABLE_ROWS}" not in docs[0].text
-
-
-class TestPptx:
-    def test_one_document_per_slide_with_notes(self, tmp_path):
-        pptx = pytest.importorskip("pptx")
-        presentation = pptx.Presentation()
-        slide = presentation.slides.add_slide(presentation.slide_layouts[1])
-        slide.shapes.title.text = "Projektvorstellung"
-        slide.placeholders[1].text = "Bestand transformieren statt abreißen"
-        slide.notes_slide.notes_text_frame.text = "Hinweis auf OIB 2.1"
-        path = tmp_path / "vortrag.pptx"
-        presentation.save(path)
-
-        docs = office_extractors.extract_office_documents(str(path), "vortrag.pptx", 1)
-
-        assert len(docs) == 1
-        assert docs[0].metadata["page_label"] == "1"
-        assert "Projektvorstellung" in docs[0].text
-        assert "Notizen: Hinweis auf OIB 2.1" in docs[0].text
+        assert "Tabelle gekürzt: 50 weitere Zeilen" in docs[-1].text
+        assert office_extractors.rows_over_cap(docs) == 50
+        body = "".join(doc.text for doc in docs)
+        assert "| Zeile 19 |" in body and "| Zeile 20 |" not in body
 
 
 class TestRouting:
@@ -104,12 +84,13 @@ class TestRouting:
         path.write_text("nur text")
         assert office_extractors.extract_office_documents(str(path), "notiz.txt", 1) is None
 
-    def test_extension_of_original_name_wins_over_temp_path(self, tmp_path):
-        # Uploads land as temp files; the ORIGINAL filename carries the truth.
-        path = tmp_path / "tmpabc123.bin"
-        _minimal_docx(path)
-        docs = office_extractors.extract_office_documents(str(path), "konzept.docx", 1)
-        assert docs and "Brandschutzkonzept" in docs[0].text
+    def test_word_and_presentation_have_no_reader_of_their_own(self, tmp_path):
+        """They are indexed from their PDF rendition only (ADR-0071); the
+        docx2txt and slide-text readers are gone, not bypassed."""
+        path = tmp_path / "konzept.docx"
+        path.write_bytes(b"PK")
+        assert office_extractors.extract_office_documents(str(path), "konzept.docx", 1) is None
+        assert office_extractors.extract_office_documents(str(path), "vortrag.pptx", 1) is None
 
     def test_handled_but_empty_returns_empty_list(self, tmp_path):
         openpyxl = pytest.importorskip("openpyxl")

@@ -1,7 +1,10 @@
 'use client'
 
 import type { JSX } from 'react'
-import { INLINE_PREVIEW_CONTENT_TYPES } from '@/lib/documents/preview-types'
+import {
+  INLINE_PREVIEW_CONTENT_TYPES,
+  isOfficeRenditionSource,
+} from '@/lib/documents/preview-types'
 
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { FileTextPage, isTextPageType } from './file-text-page'
@@ -37,19 +40,29 @@ import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatBytes } from '@/lib/format'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
 import { cn } from '@/lib/utils'
-import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
+import {
+  extChipTint,
+  fileExtensionLabel,
+  fileFormatMessage,
+  inferDocumentKind,
+} from '../document-kind'
 import type { DocumentKind } from '../document-kind'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
+import { PdfDocumentView } from '@/features/knowledge/components/pdf-document-view'
+import { useSeenOnce } from '@/hooks/use-seen-once'
 import { DocumentActionsMenu, useDocumentActions, type DocumentScope } from './document-actions'
 import {
   DocumentStatusBadge,
   failedWithPreviousVersion,
   fileTypeIcon,
   isCitable,
+  isCitableStatus,
   isNeverIndexed,
+  isSettlingStatus,
 } from './document-status'
 import { DrawingStructuredDetails } from './drawing-structured-details'
+import { IngestFailureNotice } from './ingest-failure-notice'
 import { hasStructuredDetail, type DrawingStructured } from '@/lib/documents/drawing-structured'
 import { AssignmentFaces } from './assignment-faces'
 import { AuthorshipLine } from './authorship-line'
@@ -213,6 +226,17 @@ export function FilePreviewPane({
    */
   const showIndexedSection = showMetadataPanel && !isNeverIndexed(file)
   /**
+   * Which of the section's two claims holds right now. „Von Piloti indexiert"
+   * over nothing, while the document was still being read or under a failed
+   * block, promised a summary that was not coming (yet). Citable: the heading,
+   * over the summary once there is one. Still being read: one line saying so,
+   * which the settling poll replaces with the summary when it lands. Failed:
+   * neither — the failure block above already says what happened.
+   */
+  const indexedReady = showIndexedSection && isCitableStatus(file.status)
+  const indexedPending = showIndexedSection && isSettlingStatus(file.status)
+  const showIndexedHeading = (indexedReady && Boolean(file.summary)) || indexedPending
+  /**
    * What „Besprechen" will and will not be able to do with this document.
    *
    * It is a hint and no longer a reason a control is off: a report Piloti wrote
@@ -232,18 +256,29 @@ export function FilePreviewPane({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   /**
    * The same-origin signed path for the same bytes, when the optimizer can
-   * serve them. Separate from `previewUrl` rather than replacing it: the PDF
-   * iframe and the "open in new tab" link want the object-store URL, and a
-   * format the optimizer rejects still has to render.
+   * serve them. Separate from `previewUrl` rather than replacing it: the
+   * "open in new tab" link wants the object-store URL, and a format the
+   * optimizer rejects still has to render. (A PDF reads neither: the viewer
+   * fetches the same-origin stream, see `documentFileUrl`.)
    */
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
+  /**
+   * What the preview route said it is serving, for an office file only.
+   *
+   * An office file is never shown as itself: the BFF converts it to a PDF
+   * rendition (ADR-0070) and the preview answers with `contentType:
+   * 'application/pdf'`. The renderer is chosen from THAT answer rather than
+   * from the stored type — the stored `.docx` type would send the URL into the
+   * image branch — and anything but a PDF is treated as no rendition at all.
+   */
+  const [renditionType, setRenditionType] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [previewFailed, setPreviewFailed] = useState(false)
   /** The document is not there any more (or not the reader's) — see `loadPreview`. */
   const [previewGone, setPreviewGone] = useState(false)
   /**
    * A text document's content, when the pane renders the bytes itself rather
-   * than handing a URL to an iframe. Null for every other format, and for a
+   * than handing a URL to an element. Null for every other format, and for a
    * text document whose fetch has not landed — `previewFailed`/`previewGone`
    * carry the failure, exactly as they do for the URL path.
    */
@@ -255,6 +290,12 @@ export function FilePreviewPane({
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [details, setDetails] = useState<VisualDetail[] | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
+  /**
+   * The descriptions could not be READ — a network error, a 500. Not the same
+   * answer as "there are none", and it used to say exactly that: a hiccup told
+   * the reader the drawing had no descriptions, with no way to ask again.
+   */
+  const [detailsFailed, setDetailsFailed] = useState(false)
   /**
    * An `.ifc` is a building, and it previews as one. This is the ONLY thing
    * this pane knows about the BIM subsystem — `inferDocumentKind` already
@@ -275,7 +316,13 @@ export function FilePreviewPane({
     tags: file.tags,
   })
   const isModel = kind === 'model'
-  const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '')
+  /**
+   * Word, Excel, PowerPoint and their ODF kin are shown through a PDF the BFF
+   * makes from them (ADR-0070). They ask the same preview route, so they are
+   * `canPreview` too; what differs is what comes back and what a refusal means.
+   */
+  const isOfficeRendition = isOfficeRenditionSource(file)
+  const canPreview = PREVIEW_TYPES.includes(file.contentType ?? '') || isOfficeRendition
   /**
    * Text, Markdown and CSV are previewable too, by a different route: the pane
    * fetches the CONTENT and renders it, because the object store publishes no
@@ -284,12 +331,16 @@ export function FilePreviewPane({
    * a URL to put in an element", and these have none.
    */
   const isTextual = isTextPageType(file.contentType)
-  const isImage = (file.contentType ?? '').startsWith('image/')
-  // The large viewer dialog enlarges PDFs (native iframe viewer) and images
-  // (img mode). Offer the expand affordance for both.
-  const canExpandPreview = file.contentType === 'application/pdf' || isImage
+  const isImage = !isOfficeRendition && (file.contentType ?? '').startsWith('image/')
+  /** The type of the bytes the well actually shows: the rendition's, for an office file. */
+  const shownType = isOfficeRendition ? renditionType : file.contentType
+  // The large viewer dialog enlarges PDFs (the same pdf.js viewer) and images
+  // (img mode). Offer the expand affordance for both. An office file's
+  // rendition is a PDF, and `/file` streams the rendition for it.
+  const canExpandPreview = shownType === 'application/pdf' || isImage
   const isFailed = file.status === 'failed'
   const Icon = fileTypeIcon(file.contentType, file.filename)
+  const formatMessage = fileFormatMessage(file)
   // Only surface content categories when there is something beyond plain text;
   // a lone "Text" row is noise for the text-only documents that dominate here.
   const hasRichContent = (file.contentTypes ?? []).some((c) => c !== 'text')
@@ -302,7 +353,20 @@ export function FilePreviewPane({
     (DOCUMENT_TYPE_TAGS as readonly string[]).includes(tag)
   )
 
+  /**
+   * The request the well is waiting on, so a newer one can retire it.
+   *
+   * An office file's rendition takes seconds. Open one, then open another file
+   * before it lands, and the first answer arrived last and won: the pane showed
+   * document A under document B's name. Every answer is checked against the
+   * request that asked for it; a retired one changes nothing.
+   */
+  const previewRequest = useRef<AbortController | null>(null)
   const loadPreview = useCallback(() => {
+    previewRequest.current?.abort()
+    const request = new AbortController()
+    previewRequest.current = request
+    const { signal } = request
     setPreviewFailed(false)
     setPreviewGone(false)
 
@@ -314,7 +378,7 @@ export function FilePreviewPane({
       setPreviewText(null)
       setIsLoading(true)
       let gone = false
-      fetch(`/api/documents/${file.id}/text`)
+      fetch(`/api/documents/${file.id}/text`, { signal })
         .then(async (r) => {
           if (r.status === 404) {
             gone = true
@@ -323,6 +387,7 @@ export function FilePreviewPane({
           return r.ok ? await r.json() : null
         })
         .then((data) => {
+          if (signal.aborted) return
           if (typeof data?.text === 'string') {
             setPreviewText({ text: data.text, truncated: data.truncated === true })
           } else if (gone) {
@@ -332,10 +397,13 @@ export function FilePreviewPane({
           }
         })
         .catch(() => {
+          if (signal.aborted) return
           setPreviewText(null)
           setPreviewFailed(true)
         })
-        .finally(() => setIsLoading(false))
+        .finally(() => {
+          if (!signal.aborted) setIsLoading(false)
+        })
       return
     }
 
@@ -346,12 +414,22 @@ export function FilePreviewPane({
     }
 
     setIsLoading(true)
+    setRenditionType(null)
     // A local, not the state above: the branch that sets it and the branch that
     // reads it are two links of the same promise chain, and a `useState` value
     // does not change between them.
     let gone = false
-    fetch(`/api/documents/${file.id}/preview`)
+    // An office file the BFF will not or could not convert: 415 when
+    // conversion is switched off, 502 when the converter failed. Neither is a
+    // hiccup a retry fixes, so the pane says what it said before renditions
+    // existed — no inline preview — and offers the download of the original.
+    let noRendition = false
+    fetch(`/api/documents/${file.id}/preview`, { signal })
       .then(async (r) => {
+        if (isOfficeRendition && (r.status === 415 || r.status === 502)) {
+          noRendition = true
+          return null
+        }
         // A RETRY THAT CANNOT WORK IS A DEAD END WEARING A BUTTON.
         //
         // 404 here is not a hiccup: the service answers it for a document that
@@ -368,7 +446,15 @@ export function FilePreviewPane({
         return r.ok ? await r.json() : null
       })
       .then((data) => {
-        if (data?.url) {
+        if (signal.aborted) return
+        if (isOfficeRendition && data?.url && data.contentType !== 'application/pdf') {
+          noRendition = true
+        }
+        if (noRendition) {
+          setPreviewUrl(null)
+          setPreviewImageUrl(null)
+        } else if (data?.url) {
+          if (isOfficeRendition) setRenditionType(data.contentType)
           setPreviewUrl(data.url)
           // Absent for PDFs and for image formats the optimizer cannot process;
           // the renderer falls back to `url` unoptimized in both cases.
@@ -380,15 +466,40 @@ export function FilePreviewPane({
         }
       })
       .catch(() => {
+        if (signal.aborted) return
         setPreviewUrl(null)
         setPreviewImageUrl(null)
         setPreviewFailed(true)
       })
-      .finally(() => setIsLoading(false))
-  }, [file.id, canPreview, isTextual])
+      .finally(() => {
+        if (!signal.aborted) setIsLoading(false)
+      })
+  }, [file.id, canPreview, isTextual, isOfficeRendition])
+
+  /**
+   * The viewer could not open the bytes the preview route vouched for: the
+   * stream refused, the worker failed to load, the file is not a PDF after
+   * all. The same failed state the fetch path and the image `onError` use, so
+   * the reader gets the caption and the retry, never a blank frame.
+   */
+  const handlePdfFailed = useCallback(() => {
+    setPreviewUrl(null)
+    setPreviewImageUrl(null)
+    setPreviewFailed(true)
+  }, [])
+  /**
+   * pdf.js is a megabyte of parser plus a worker, and a document open in it
+   * holds its page cache. So it mounts only once the well has been on screen,
+   * and steps aside while the enlarged dialog shows the same file: one
+   * document open at a time, not two copies of one.
+   */
+  const [wellRef, wellSeen] = useSeenOnce<HTMLDivElement>()
+  const showInlinePdf = wellSeen && !isLargePreviewOpen
 
   useEffect(() => {
     loadPreview()
+    // A different document (or an unmount) retires whatever was in flight.
+    return () => previewRequest.current?.abort()
   }, [loadPreview])
 
   // Reset the detailed-info section when the selected document changes, so it
@@ -396,23 +507,59 @@ export function FilePreviewPane({
   useEffect(() => {
     setDetailsOpen(false)
     setDetails(null)
+    setDetailsFailed(false)
   }, [file.id])
 
-  // Lazy-load the visual descriptions the first time the section is expanded.
-  const toggleDetails = useCallback(() => {
-    setDetailsOpen((open) => {
-      const next = !open
-      if (next && details === null && !detailsLoading) {
-        setDetailsLoading(true)
-        fetch(`/api/documents/${file.id}/visual-details`)
-          .then((r) => (r.ok ? r.json() : null))
-          .then((data) => setDetails(Array.isArray(data?.details) ? data.details : []))
-          .catch(() => setDetails([]))
-          .finally(() => setDetailsLoading(false))
-      }
-      return next
-    })
-  }, [file.id, details, detailsLoading])
+  // An answer is about the document AS IT WAS when asked. Opened while it was
+  // still being read, the section got an empty list and kept it for good, so
+  // the descriptions indexing produced a minute later never appeared without
+  // closing the file. What the answer depends on changing — the status, the
+  // content types that decide there is anything visual at all — makes it
+  // stale; an expanded section then asks again below.
+  const detailsBasis = `${file.status ?? ''}|${(file.contentTypes ?? []).join(',')}`
+  useEffect(() => {
+    setDetails(null)
+    setDetailsFailed(false)
+  }, [detailsBasis])
+
+  // Lazy: nothing is fetched until the section is expanded, and then once per
+  // basis. Cancelled on change so a slow answer for the previous document, or
+  // the previous basis, never lands.
+  useEffect(() => {
+    if (!detailsOpen || details !== null) return
+    let cancelled = false
+    setDetailsLoading(true)
+    fetch(`/api/documents/${file.id}/visual-details`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`visual-details ${r.status}`)
+        return r.json()
+      })
+      .then((data) => {
+        if (!cancelled) setDetails(Array.isArray(data?.details) ? data.details : [])
+      })
+      .catch(() => {
+        if (cancelled) return
+        // An answer, so the effect does not ask again on its own; the retry
+        // below is how the reader does.
+        setDetails([])
+        setDetailsFailed(true)
+      })
+      .finally(() => {
+        if (!cancelled) setDetailsLoading(false)
+      })
+    return () => {
+      cancelled = true
+      setDetailsLoading(false)
+    }
+    // `detailsBasis` too: a change that lands while a request is in flight
+    // retires that request rather than letting its older answer stand.
+  }, [detailsOpen, details, file.id, detailsBasis])
+
+  const toggleDetails = useCallback(() => setDetailsOpen((open) => !open), [])
+  const retryDetails = useCallback(() => {
+    setDetailsFailed(false)
+    setDetails(null)
+  }, [])
 
   /**
    * The document's name and its download, from the shared hook — this pane
@@ -535,6 +682,22 @@ export function FilePreviewPane({
                 className="shrink-0"
                 testId="file-preview-lifecycle-badge"
               />
+              {/* The well shows a PDF made from this file, not the file. Said
+                once, calmly, next to the name, so nobody mistakes the rendition's
+                pagination or fonts for the original's; Download beside it still
+                hands out the original. */}
+              {isOfficeRendition && previewUrl && (
+                <Badge
+                  variant="outline"
+                  className="min-w-0 max-w-full shrink font-normal"
+                  data-testid="file-preview-rendition-note"
+                  title={t('preview.renditionNote', { name: file.filename })}
+                >
+                  <span className="truncate">
+                    {t('preview.renditionNote', { name: file.filename })}
+                  </span>
+                </Badge>
+              )}
               {showMetadataPanel && detectedType && (
                 <Badge variant="secondary" className="min-w-0 max-w-full shrink font-normal">
                   <span className="truncate">{detectedType}</span>
@@ -690,6 +853,7 @@ export function FilePreviewPane({
             drawing on a desk actually looks like, and the whole reason this
             column exists rather than a download link. */}
         <div
+          ref={wellRef}
           data-testid="file-preview-well"
           className={cn(
             'from-muted/25 to-muted/60 flex min-w-0 justify-center bg-gradient-to-b',
@@ -740,21 +904,35 @@ export function FilePreviewPane({
               peeking={peeking}
             />
           ) : canPreview && isLoading ? (
-            <PageMock skeleton />
+            // Converting an office file can take seconds on first open, so the
+            // skeleton says what it is waiting for instead of looking stuck.
+            <PageMock
+              skeleton
+              caption={isOfficeRendition ? t('preview.renditionPending') : undefined}
+            />
           ) : canPreview && previewUrl ? (
-            file.contentType === 'application/pdf' ? (
-              <iframe
-                src={previewUrl}
-                className={cn(
-                  'bg-background h-full w-full rounded-lg border',
-                  // `shadow-sm` is the CARD step of the elevation ramp; `xs`
-                  // dresses chips and buttons, and under a document it did not
-                  // read as a page on a ground at all. `lg` is the modal step,
-                  // which is what the enlarged view is.
-                  peeking ? 'shadow-sm' : 'shadow-lg'
-                )}
-                title={actions.name}
-              />
+            shownType === 'application/pdf' ? (
+              // THE APP'S OWN VIEWER, NOT THE BROWSER'S. A frame on the
+              // presigned URL drew nothing on Android Chrome (no inline PDF
+              // renderer: a blank box, or a download), little on iOS, and
+              // navigated, zoomed and searched unlike the citation viewer
+              // beside it. pdf.js renders it the same everywhere, fitted to the
+              // well's width with pages rasterised only near the viewport. It
+              // FETCHES the bytes, so it reads the same-origin stream, which
+              // for an office file streams the rendition (ADR-0070). The
+              // preview route above still decides whether there is anything
+              // to show; this only decides how it is drawn.
+              showInlinePdf ? (
+                <PdfDocumentView
+                  key={file.id}
+                  src={documentFileUrl(file.id)}
+                  title={actions.name}
+                  onLoadError={handlePdfFailed}
+                  className="size-full"
+                />
+              ) : (
+                <PageMock skeleton />
+              )
             ) : (
               // This is where the bytes actually were: the preview URL serves
               // the FULL-SIZE original into a column a few hundred pixels wide,
@@ -996,14 +1174,20 @@ export function FilePreviewPane({
               agent actually understand this file" — and it used to sit as one
               more 12.5px paragraph between an eyebrow and six key/value rows,
               read at the same weight as the MIME type. */}
-            {showIndexedSection && (
+            {showIndexedHeading && (
               <section className="space-y-2.5" aria-label={t('preview.indexed.title')}>
                 <SectionLabel as="p" icon={Sparkles} className="font-semibold tracking-[0.05em]">
                   {t('preview.indexed.title')}
                 </SectionLabel>
                 {/* Keyed by file so a newly-selected document always starts
                   collapsed and re-measures against its own text. */}
-                {file.summary && <IndexedSummary key={file.id} summary={file.summary} />}
+                {indexedReady && file.summary ? (
+                  <IndexedSummary key={file.id} summary={file.summary} />
+                ) : (
+                  <p className="text-muted-foreground text-xs leading-relaxed">
+                    {t('preview.indexed.pending')}
+                  </p>
+                )}
               </section>
             )}
 
@@ -1013,7 +1197,7 @@ export function FilePreviewPane({
               with, because one group was behind a feature flag and the other
               was not. The flag now gates ROWS, which is what it was always
               about; the group is whole either way. */}
-            <section className={cn('space-y-2', showIndexedSection && 'mt-4')}>
+            <section className={cn('space-y-2', showIndexedHeading && 'mt-4')}>
               <SectionLabel as="p" icon={FileCode2} className="font-semibold tracking-[0.05em]">
                 {t('preview.properties')}
               </SectionLabel>
@@ -1056,8 +1240,17 @@ export function FilePreviewPane({
                   answers it, and the same fact stated twice on one surface
                   reads as two facts. */}
                 <MetaRow label={t('preview.type')} icon={FileCode2}>
-                  <span className="text-foreground truncate font-mono text-xs">
-                    {file.contentType ?? t('preview.unknownType')}
+                  {/* The format by name ("Word-Dokument"); the MIME type a
+                      reader cannot parse stays in the tooltip for whoever
+                      needs it. `block`: `truncate` clips nothing on an inline
+                      span, and the raw-type fallback can be wider than a phone. */}
+                  <span
+                    className="text-foreground block truncate text-xs font-medium"
+                    title={file.contentType ?? undefined}
+                  >
+                    {formatMessage
+                      ? t(`preview.formats.${formatMessage.key}`, formatMessage.values)
+                      : t('preview.unknownType')}
                   </span>
                 </MetaRow>
                 <MetaRow label={t('preview.size')} icon={HardDrive}>
@@ -1135,7 +1328,18 @@ export function FilePreviewPane({
                             {t('preview.visualDetails.loading')}
                           </p>
                         )}
-                        {!detailsLoading && details && details.length === 0 && (
+                        {!detailsLoading && detailsFailed && (
+                          <div className="space-y-2">
+                            <p className="text-muted-foreground text-xs">
+                              {t('preview.visualDetails.failed')}
+                            </p>
+                            <Button variant="outline" size="sm" className="gap-1.5" onClick={retryDetails}>
+                              <RotateCcw className="size-3.5" aria-hidden />
+                              {t('preview.tryAgain')}
+                            </Button>
+                          </div>
+                        )}
+                        {!detailsLoading && !detailsFailed && details && details.length === 0 && (
                           <p className="text-muted-foreground text-xs">
                             {t('preview.visualDetails.empty')}
                           </p>
@@ -1236,9 +1440,11 @@ export function FilePreviewPane({
                     <p className="text-destructive text-sm font-medium">
                       {t('preview.ingestionFailed')}
                     </p>
-                    <p className="text-muted-foreground break-words text-xs">
-                      {file.errorMessage || t('preview.ingestionFailedGeneric')}
-                    </p>
+                    <IngestFailureNotice
+                      errorMessage={file.errorMessage}
+                      sentenceClassName="text-muted-foreground"
+                      testId="preview-ingest-failure"
+                    />
                     {/* A failed NEW version: the row already points at its
                       bytes, while the ingestor kept the previous version's
                       passages. Without this the two surfaces disagree
@@ -1279,7 +1485,7 @@ export function FilePreviewPane({
             {/* Same claim as the section eyebrow, in a sentence — „beim Hochladen
               automatisch erkannt" is about an upload and an ingestion that a
               report Piloti wrote never had. */}
-            {showIndexedSection && (
+            {indexedReady && (
               <p className="text-muted-foreground/80 mt-4 border-t pt-3 text-xs leading-relaxed">
                 {t('preview.indexed.caption')}
               </p>
@@ -1406,6 +1612,20 @@ function DocumentTagsSection({
     // initialTags identity changes per file; fileId gates the reset intent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId])
+
+  // Tags indexing produces AFTER the file was opened arrive here too. Keyed on
+  // the content, not the array (a poll hands a new one every time), and held
+  // back while a save is in flight: that save is the reader's own edit, and
+  // the value it is about to confirm must not be replaced by the read it raced.
+  const initialKey = initialTags.join('\u0000')
+  const savingRef = useRef(false)
+  savingRef.current = isSaving
+  useEffect(() => {
+    if (savingRef.current) return
+    setTags(initialTags)
+    // initialKey IS initialTags, compared by value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialKey])
 
   /** PATCH the full replacement tag list; optimistic with revert on failure. */
   const persist = useCallback(
@@ -1675,7 +1895,10 @@ function PageMock({
         {!skeleton && kind && (
           <DocumentKindThumbnail kind={kind} className="text-muted-foreground/45 h-16 w-24" />
         )}
-        {!skeleton && caption && (
+        {/* A caption while loading is a statement of what is coming ("PDF
+            preview being created"), which a skeleton may make; most loads have
+            none and stay bare. */}
+        {caption && (
           <p className="text-muted-foreground max-w-[80%] text-balance text-xs leading-relaxed">
             {caption}
           </p>

@@ -5,18 +5,15 @@ Combines Knowledge API (collections/documents) and Async Job API (agent jobs/SSE
 
 Knowledge Layer Configuration:
     The Knowledge API uses the same ingestor instance as the knowledge_retrieval tool.
-    Configure the backend via the knowledge_retrieval function in your workflow YAML:
+    Configure it via the knowledge_retrieval function in your workflow YAML:
 
     functions:
       knowledge_search:
         _type: knowledge_retrieval
-        backend: foundational_rag
-        rag_url: http://localhost:8081/v1
-        ingest_url: http://localhost:8082/v1
+        collection_name: oib_knowledge
 
-    The API plugin will automatically use the configured backend. If no tool is
-    configured, it falls back to environment variables (KNOWLEDGE_INGESTOR_BACKEND)
-    or the default backend (llamaindex).
+    The backend is llamaindex, the only one (ADR-0072). If no tool is
+    configured, the API falls back to KNOWLEDGE_INGESTOR_BACKEND or llamaindex.
 """
 
 import asyncio

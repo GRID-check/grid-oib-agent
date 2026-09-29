@@ -587,6 +587,318 @@ describe('reconcileDocumentStatuses collection-file-list caching', () => {
   })
 })
 
+describe('reconcileDocumentStatuses enrichment on a status transition', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch)
+    mockFetch.mockReset()
+    clearCollectionFilesCache()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+    vi.useRealTimers()
+  })
+
+  const collectionCalls = () =>
+    mockFetch.mock.calls.filter(([url]) => String(url).includes('/v1/collections/proj_abc/documents'))
+
+  /**
+   * The backend as the file viewer meets it: the listing a steady-state read
+   * cached before the upload landed, then the job finishing with its summary
+   * registered. `listing` is swapped mid-test to play the backend moving on.
+   */
+  const routeBackend = (jobs: Record<string, unknown>, listing: { current: unknown[] }) => {
+    mockFetch.mockImplementation(async (url: string) =>
+      url.includes('/v1/documents/status/batch') ? batchResponse(jobs) : collectionResponse(listing.current)
+    )
+  }
+
+  const indexedPlan = {
+    file_id: 'f-1',
+    file_name: 'plan.pdf',
+    status: 'success',
+    summary: 'A ground-floor plan.',
+    chunk_count: 12,
+    tags: ['Grundriss'],
+    metadata: { page_count: 4, content_types: ['text'] },
+  }
+
+  it('enriches the read that turns a row completed from a fresh listing, not the stale cached one', async () => {
+    makeDbMock()
+    const listing = { current: [] as unknown[] }
+    routeBackend({ 'job-1': { status: 'completed', file_details: [{ status: 'success' }] } }, listing)
+
+    // A terminal sibling in the same collection primes the cache with the
+    // listing from before plan.pdf existed.
+    await reconcileDocumentStatuses([makeRow({ id: 'doc-old', filename: 'old.pdf', status: 'completed' })], 'org-1')
+    expect(collectionCalls()).toHaveLength(1)
+
+    listing.current = [indexedPlan]
+    const [result] = await reconcileDocumentStatuses([makeRow()], 'org-1')
+
+    expect(result.status).toBe('completed')
+    expect(result.summary).toBe('A ground-floor plan.')
+    expect(result.pageCount).toBe(4)
+    expect(result.chunkCount).toBe(12)
+    expect(result.contentTypes).toEqual(['text'])
+    expect(result.tags).toEqual(['Grundriss'])
+    expect(collectionCalls()).toHaveLength(2)
+  })
+
+  it('replaces the cache entry, so the next steady-state read serves the fresh listing without a fetch', async () => {
+    makeDbMock()
+    const listing = { current: [] as unknown[] }
+    routeBackend({ 'job-1': { status: 'completed', file_details: [{ status: 'success' }] } }, listing)
+    await reconcileDocumentStatuses([makeRow({ id: 'doc-old', filename: 'old.pdf', status: 'completed' })], 'org-1')
+    listing.current = [indexedPlan]
+    await reconcileDocumentStatuses([makeRow()], 'org-1')
+
+    const [again] = await reconcileDocumentStatuses([makeRow({ status: 'completed' })], 'org-1')
+
+    expect(again.summary).toBe('A ground-floor plan.')
+    expect(collectionCalls()).toHaveLength(2)
+  })
+
+  it('fetches a collection fresh at most once per read, however many rows transition', async () => {
+    makeDbMock()
+    const listing = { current: [] as unknown[] }
+    routeBackend(
+      {
+        'job-1': { status: 'completed', file_details: [{ status: 'success' }] },
+        'job-2': { status: 'completed', file_details: [{ status: 'success' }] },
+      },
+      listing
+    )
+    await reconcileDocumentStatuses([makeRow({ id: 'doc-old', filename: 'old.pdf', status: 'completed' })], 'org-1')
+    listing.current = [indexedPlan, { file_id: 'f-2', file_name: 'specs.pdf', status: 'success', chunk_count: 3 }]
+
+    const result = await reconcileDocumentStatuses(
+      [
+        makeRow(),
+        makeRow({ id: 'doc-2', filename: 'specs.pdf', metadata: { ingestJobId: 'job-2' } }),
+        // A legacy row resolved from the list shares the same fresh fetch.
+        makeRow({ id: 'doc-3', filename: 'legacy.pdf', metadata: null }),
+        makeRow({ id: 'doc-4', filename: 'old.pdf', status: 'completed' }),
+      ],
+      'org-1'
+    )
+
+    expect(result.map((r) => r.chunkCount)).toEqual([12, 3, undefined, undefined])
+    expect(collectionCalls()).toHaveLength(2)
+  })
+
+  it('keeps steady-state reads of unchanged terminal rows on the cache', async () => {
+    makeDbMock()
+    const listing = { current: [indexedPlan] as unknown[] }
+    routeBackend({}, listing)
+    const row = makeRow({ status: 'completed', updatedAt: new Date(Date.now() - 60_000) })
+
+    await reconcileDocumentStatuses([row], 'org-1')
+    await reconcileDocumentStatuses([row], 'org-1')
+    await reconcileDocumentStatuses([row], 'org-1')
+
+    expect(collectionCalls()).toHaveLength(1)
+  })
+
+  it('refreshes once for a row written after the cached listing, e.g. a transition another read made', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-29T10:00:00Z'))
+    makeDbMock()
+    const listing = { current: [] as unknown[] }
+    routeBackend({}, listing)
+    await reconcileDocumentStatuses([makeRow({ id: 'doc-old', filename: 'old.pdf', status: 'completed' })], 'org-1')
+
+    vi.setSystemTime(new Date('2026-09-29T10:00:05Z'))
+    listing.current = [indexedPlan]
+    const row = makeRow({ status: 'completed', updatedAt: new Date('2026-09-29T10:00:03Z') })
+    const [first] = await reconcileDocumentStatuses([row], 'org-1')
+    const [second] = await reconcileDocumentStatuses([row], 'org-1')
+
+    expect(first.summary).toBe('A ground-floor plan.')
+    expect(second.summary).toBe('A ground-floor plan.')
+    expect(collectionCalls()).toHaveLength(2)
+  })
+})
+
+describe('reconcileDocumentStatuses on a row the BFF is still working on', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch)
+    mockFetch.mockReset()
+    clearCollectionFilesCache()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  it('leaves a processing row without a job id processing, and asks the backend nothing about its status', async () => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(collectionResponse([]))
+
+    const [result] = await reconcileDocumentStatuses(
+      [makeRow({ status: 'processing', filename: 'Bericht.docx', metadata: null })],
+      'org-1'
+    )
+
+    expect(result.status).toBe('processing')
+    expect(db.update).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/v1/documents/status/batch'),
+      expect.anything()
+    )
+  })
+
+  it('does not adopt the previous version\'s success from the list while a re-ingest converts', async () => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(
+      collectionResponse([{ file_id: 'f-1', file_name: 'Bericht.docx', status: 'success', chunk_count: 8 }])
+    )
+
+    const [result] = await reconcileDocumentStatuses(
+      [makeRow({ status: 'processing', filename: 'Bericht.docx', metadata: null })],
+      'org-1'
+    )
+
+    expect(result.status).toBe('processing')
+    expect(db.update).not.toHaveBeenCalled()
+  })
+
+  it('ignores the job id a retried row still carries from its failed dispatch', async () => {
+    const db = makeDbMock()
+    // `markDocumentProcessing` does not clear `metadata`, so a retry of a
+    // failed document still names the job that failed.
+    mockFetch.mockImplementation(async (url: string) =>
+      url.includes('/v1/documents/status/batch')
+        ? batchResponse({ 'job-1': { status: 'failed', error_message: 'old failure' } })
+        : collectionResponse([])
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ status: 'processing' })], 'org-1')
+
+    expect(result.status).toBe('processing')
+    expect(db.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('reconcileDocumentStatuses on a failure the backend settled as interrupted', () => {
+  const INTERRUPTED = 'interrupted: ingestion stopped when the service restarted; retry to index this file'
+  const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000)
+  const interruptedRow = (overrides: Partial<ReconcilableDocument> = {}) =>
+    makeRow({ status: 'failed', errorMessage: INTERRUPTED, updatedAt: minutesAgo(5), ...overrides })
+
+  const batchCalls = () =>
+    mockFetch.mock.calls.filter(([url]) => String(url).includes('/v1/documents/status/batch'))
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch)
+    mockFetch.mockReset()
+    clearCollectionFilesCache()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  it('heals to completed when the owner outlived the settle and finished the job', async () => {
+    const db = makeDbMock()
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes('/v1/documents/status/batch')
+          ? batchResponse({ 'job-1': { status: 'completed', file_details: [{ status: 'success' }] } })
+          : collectionResponse([])
+      )
+    )
+
+    const [result] = await reconcileDocumentStatuses([interruptedRow()], 'org-1')
+
+    expect(result.status).toBe('completed')
+    expect(result.errorMessage).toBeNull()
+    expect(db.set).toHaveBeenCalledWith(expect.objectContaining({ status: 'completed', errorMessage: null }))
+  })
+
+  it('goes back to pending while the owner is still working, so the in-flight pass takes over', async () => {
+    const db = makeDbMock()
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes('/v1/documents/status/batch')
+          ? batchResponse({ 'job-1': { status: 'processing' } })
+          : collectionResponse([])
+      )
+    )
+
+    const [result] = await reconcileDocumentStatuses([interruptedRow()], 'org-1')
+
+    expect(result.status).toBe('pending')
+    expect(result.errorMessage).toBeNull()
+    expect(db.set).toHaveBeenCalledWith(expect.objectContaining({ status: 'pending', errorMessage: null }))
+  })
+
+  it('stays failed, with no write, when the backend still says failed', async () => {
+    const db = makeDbMock()
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes('/v1/documents/status/batch')
+          ? batchResponse({ 'job-1': { status: 'failed', error_message: INTERRUPTED } })
+          : collectionResponse([])
+      )
+    )
+
+    const [result] = await reconcileDocumentStatuses([interruptedRow()], 'org-1')
+
+    expect(batchCalls()).toHaveLength(1)
+    expect(result.status).toBe('failed')
+    expect(result.errorMessage).toBe(INTERRUPTED)
+    expect(db.update).not.toHaveBeenCalled()
+  })
+
+  it('does not adopt a previous version\'s success from the file list when the job is unknown', async () => {
+    const db = makeDbMock()
+    mockFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes('/v1/documents/status/batch')
+          ? batchResponse({})
+          : collectionResponse([{ file_name: 'plan.pdf', status: 'success' }])
+      )
+    )
+
+    const [result] = await reconcileDocumentStatuses([interruptedRow()], 'org-1')
+
+    expect(result.status).toBe('failed')
+    expect(db.update).not.toHaveBeenCalled()
+  })
+
+  it('stops asking once the row is older than the re-check window', async () => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(collectionResponse([]))
+
+    const rows = [interruptedRow({ updatedAt: minutesAgo(31) }), interruptedRow({ id: 'doc-2', updatedAt: null })]
+    const result = await reconcileDocumentStatuses(rows, 'org-1')
+
+    expect(batchCalls()).toHaveLength(0)
+    expect(result.map((r) => r.status)).toEqual(['failed', 'failed'])
+    expect(db.update).not.toHaveBeenCalled()
+  })
+
+  it('leaves other failed rows alone: another reason, or no job to ask about', async () => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(collectionResponse([{ file_name: 'plan.pdf', status: 'success' }]))
+
+    const rows = [
+      interruptedRow({ errorMessage: 'embedding service unavailable' }),
+      interruptedRow({ id: 'doc-2', errorMessage: null }),
+      interruptedRow({ id: 'doc-3', metadata: {} }),
+    ]
+    const result = await reconcileDocumentStatuses(rows, 'org-1')
+
+    expect(batchCalls()).toHaveLength(0)
+    expect(result.map((r) => r.status)).toEqual(['failed', 'failed', 'failed'])
+    expect(db.update).not.toHaveBeenCalled()
+  })
+})
+
 describe('extractIngestJobId', () => {
   it('extracts a job id from metadata', () => {
     expect(extractIngestJobId({ ingestJobId: 'job-9' })).toBe('job-9')

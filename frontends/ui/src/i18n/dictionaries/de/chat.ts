@@ -37,6 +37,12 @@ export const chat: typeof en.chat = {
       auslegend: 'Auslegend',
     },
     openExternal: 'Im RIS öffnen',
+    // Office-Dateien (Word, Excel, PowerPoint, ODF, RTF) zeigt der Viewer als
+    // PDF, das Piloti aus dem Original erzeugt (ADR-0070); das Original bleibt
+    // unverändert und herunterladbar.
+    renditionNote: 'PDF-Vorschau des Originals',
+    renditionPending: 'PDF-Vorschau wird erstellt…',
+    downloadOriginal: 'Original herunterladen',
     // Coarse source kind (ADR-0026) shown in the info popover. Preferred
     // over `origins` because the origin token is kb/ris/web only, so a
     // knowledge-base copy of a legal text reads as project material.
@@ -99,8 +105,8 @@ export const chat: typeof en.chat = {
       buero: 'Büroarchiv',
       session: 'Beilage in diesem Chat',
     },
-    notIndexed: 'Nicht indexiert — lesbar, aber nicht zitierfähig.',
-    failed: 'Die Verarbeitung dieser Datei ist fehlgeschlagen.',
+    notIndexed: 'Abgelegt, nicht gelesen. Sie können die Datei öffnen, aber Piloti zitiert sie nicht.',
+    failed: 'Lesen fehlgeschlagen. Piloti kann diese Datei nicht zitieren.',
   },
   composer: {
     /** Shown when the reader holds project:view but not project:chat. */
@@ -1107,12 +1113,6 @@ export const chat: typeof en.chat = {
       'Ihr Nutzungsbudget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Ihren eigenen Verbrauch finden Sie unter Organisation → Verbrauch & Budgets. Bitten Sie eine Organisations-Administratorin oder einen -Administrator, Ihr Limit zu erhöhen.',
     adminMessage:
       'Das Nutzungsbudget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Erhöhen Sie die Limits unter Organisation → Verbrauch & Budgets.',
-  },
-  fileUpload: {
-    uploading:
-      'Die Datei wird hochgeladen und verarbeitet. Bis zum Abschluss kann eine Datei nicht in Abfragen einbezogen werden.',
-    pendingWarning:
-      'Dateien stehen noch aus! Warten Sie, bis sie bereit sind, oder senden Sie Ihre Abfrage erneut, um OHNE diese Dateien fortzufahren.',
   },
   noSources: {
     warning:

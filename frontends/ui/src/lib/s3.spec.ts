@@ -7,6 +7,7 @@ import {
   buildArchivStorageKey,
   buildImageDerivedPrefix,
   buildImageStorageKey,
+  buildRenditionStorageKey,
   buildStorageKey,
   buildThumbnailStorageKey,
   storageKeySegment,
@@ -49,6 +50,34 @@ describe('storageKeySegment', () => {
   it('drops control characters and caps the length', () => {
     expect(storageKeySegment('a\u0000b\u007fc.ifc')).toBe('abc.ifc')
     expect(storageKeySegment('x'.repeat(400))).toHaveLength(255)
+  })
+  it('guards a dot-only name that only surrounding spaces hid', () => {
+    expect(storageKeySegment(' .. ')).toBe('_..')
+  })
+
+  /**
+   * A file may not take the name of a sibling the pipelines derive from it. A
+   * `_render.pdf` upload was its own rendition, and a `_thumb.jpg` upload was
+   * overwritten by its own thumbnail.
+   */
+  it('never produces the name of a derived sibling or prefix', () => {
+    expect(storageKeySegment('_render.pdf')).toBe('__render.pdf')
+    expect(storageKeySegment('_thumb.jpg')).toBe('__thumb.jpg')
+    expect(storageKeySegment('_img')).toBe('__img')
+    expect(storageKeySegment('_bim')).toBe('__bim')
+    expect(storageKeySegment('_Render.PDF')).toBe('__Render.PDF')
+    expect(storageKeySegment(' _thumb.jpg ')).toBe('__thumb.jpg')
+    // Only the exact names: a file that merely resembles one is left alone.
+    expect(storageKeySegment('_render.pdf.docx')).toBe('_render.pdf.docx')
+    expect(storageKeySegment('render.pdf')).toBe('render.pdf')
+  })
+
+  it('keeps an uploaded file off its own derived keys', () => {
+    for (const name of ['_render.pdf', '_thumb.jpg']) {
+      const key = buildStorageKey('org-1', 'proj-1', 'doc-1', name)
+      expect(buildRenditionStorageKey(key)).not.toBe(key)
+      expect(buildThumbnailStorageKey(key)).not.toBe(key)
+    }
   })
 })
 
@@ -120,6 +149,41 @@ describe('buildThumbnailStorageKey', () => {
     expect(buildThumbnailStorageKey('plan.pdf')).toBeNull()
     expect(buildThumbnailStorageKey('/plan.pdf')).toBeNull()
     expect(buildThumbnailStorageKey('')).toBeNull()
+  })
+
+  it('returns null for a legacy row whose file IS `_thumb.jpg`, so the thumbnail PUT cannot overwrite it', () => {
+    expect(buildThumbnailStorageKey('org/org-1/project/proj-1/doc/doc-1/_thumb.jpg')).toBeNull()
+  })
+})
+
+/**
+ * The office rendition (ADR-0070). Its existence is the only state it has — no
+ * column records it — so the key must be derivable from the row alone, and the
+ * same row must always derive the same key.
+ */
+describe('buildRenditionStorageKey', () => {
+  it('is a sibling of the file, beside the thumbnail', () => {
+    const key = buildStorageKey('org-1', 'proj-1', 'doc-1', 'Bericht.docx', 'Plans/Fire Safety')
+    expect(buildRenditionStorageKey(key)).toBe(
+      'org/org-1/project/proj-1/Plans/Fire Safety/doc/doc-1/_render.pdf',
+    )
+  })
+
+  it('follows the per-version directory, so each version renders its own bytes', () => {
+    expect(buildRenditionStorageKey('org/org-1/project/proj-1/doc/doc-1/v2/Bericht.docx')).toBe(
+      'org/org-1/project/proj-1/doc/doc-1/v2/_render.pdf',
+    )
+  })
+
+  it('returns null for the shapes that have no directory to put it in', () => {
+    expect(buildRenditionStorageKey('Bericht.docx')).toBeNull()
+    expect(buildRenditionStorageKey('/Bericht.docx')).toBeNull()
+    expect(buildRenditionStorageKey('a/b/')).toBeNull()
+    expect(buildRenditionStorageKey('')).toBeNull()
+  })
+
+  it('returns null for a legacy row whose file IS `_render.pdf`: the raw upload is no rendition', () => {
+    expect(buildRenditionStorageKey('org/org-1/project/proj-1/doc/doc-1/_render.pdf')).toBeNull()
   })
 })
 

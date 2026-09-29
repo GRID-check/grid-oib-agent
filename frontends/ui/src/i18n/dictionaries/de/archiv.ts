@@ -35,7 +35,7 @@ export const archiv = {
     },
     kind: {
       floorplan: 'Grundriss',
-      section: 'Schnitt',
+      section: 'Schnitt / Ansicht',
       siteplan: 'Lageplan',
       notice: 'Bescheid',
       photo: 'Foto',
@@ -59,13 +59,20 @@ export const archiv = {
     uploadProblem: 'Upload-Problem',
     dismissError: 'Fehler ausblenden',
     loadError: 'Das Archiv konnte nicht geladen werden.',
+    listTruncated: 'Angezeigt werden die neuesten {count} Dokumente. Ältere fehlen in dieser Liste und in der Suche nach Namen.',
     tryAgain: 'Erneut versuchen',
   },
   actions: {
     label: 'Dateiaktionen für „{name}“',
-    reingest: 'Erneut einlesen',
+    reingest: 'Erneut lesen',
     reingesting: 'Wird erneut gestartet …',
-    reingestError: 'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
+    reingestError: 'Das erneute Lesen konnte nicht gestartet werden. Bitte versuchen Sie es noch einmal.',
+    reingestRunning: 'Wird bereits gelesen',
+    reingestAlreadyDone: 'Ist bereits fertig',
+    reingestConfirmTitle: '„{name}“ erneut lesen?',
+    reingestConfirmDescription:
+      'Piloti liest die Datei noch einmal vollständig, zum Beispiel damit Bilder in Word- und PowerPoint-Dateien erfasst werden. Bis die neue Fassung fertig ist, stützen sich Antworten weiter auf die bisherige.',
+    reingestConfirmAction: 'Erneut lesen',
     menuLabel: 'Dateiaktionen',
     download: 'Herunterladen',
     open: 'Öffnen',
@@ -78,7 +85,7 @@ export const archiv = {
   rename: {
     title: 'Dokument umbenennen',
     description:
-      'Ändert den Namen, der in Piloti überall angezeigt wird — auch in Zitaten. Die Datei selbst und alles daraus Indexierte bleiben unverändert.',
+      'Ändert den Namen, der in Piloti überall angezeigt wird — auch in Zitaten. Die Datei selbst und alles daraus Gelesene bleiben unverändert.',
     label: 'Name',
     hint: 'Die Dateiendung bleibt erhalten.',
     save: 'Umbenennen',

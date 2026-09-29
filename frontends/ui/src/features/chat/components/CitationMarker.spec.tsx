@@ -300,7 +300,7 @@ describe('an inline citation marker', () => {
    *
    * „An dieser Stelle öffnen" used to be offered for every citation without an
    * outbound URL, with no resolution attempted. On a source the viewer cannot
-   * render — a plan, a `.docx`, a citation whose shelf holds no such file — the
+   * render — a plan, a `.dwg`, a citation whose shelf holds no such file — the
    * click mounted the dialog, which resolved to `info`, closed itself and
    * rendered nothing. The popover shut and nothing happened. Both directions
    * are pinned here, because closing only one of them would trade a silent

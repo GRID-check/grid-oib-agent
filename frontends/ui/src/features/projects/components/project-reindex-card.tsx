@@ -40,6 +40,7 @@ export function ProjectReindexCard({ projectId }: ProjectReindexCardProps): JSX.
         queued: number
         skipped: number
         failed: string[]
+        truncated?: boolean
       }
 
       if (result.queued === 0 && result.failed.length === 0) {
@@ -53,6 +54,9 @@ export function ProjectReindexCard({ projectId }: ProjectReindexCardProps): JSX.
       if (result.failed.length > 0) {
         toast.error(t('project.reindexPartial', { count: result.failed.length }))
       }
+      // The walk stops at a page ceiling; a count that looked like the whole
+      // project when it was not would be the silent cap this replaced.
+      if (result.truncated) toast.warning(t('project.reindexTruncated'))
     } catch {
       toast.error(t('project.reindexFailed'))
     } finally {

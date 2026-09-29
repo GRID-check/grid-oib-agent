@@ -15,6 +15,8 @@ export interface AppWiring {
   seaweedPublicEndpoint: pulumi.Output<string>;
   /** Shared Chroma server URL (set when cfg.chroma.enabled). */
   chromaUrl?: pulumi.Output<string>;
+  /** Office → PDF converter URL (set when cfg.gotenberg.enabled, ADR-0070). */
+  gotenbergUrl?: pulumi.Output<string>;
   dsn: (opts: {
     db: string;
     driver?: string;
@@ -243,11 +245,9 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "AIQ_VLM_MODEL", value: cfg.llm.vlmModel },
     { name: "AIQ_VLM_BASE_URL", value: cfg.llm.vlmBaseUrl },
     srefAs("AIQ_VLM_API_KEY", "OPENROUTER_API_KEY"),
-    // Photos and figures embedded in uploaded PDFs are captioned at ingest so a
-    // search can find them and `view_knowledge_image` can be asked for the
-    // page. Off, a plan set's photos are invisible to retrieval; the compose
-    // deployment has had this on since the tool shipped.
-    { name: "AIQ_EXTRACT_IMAGES", value: "true" },
+    // No AIQ_EXTRACT_* here: tables, images and charts are on in code and a
+    // flag only switches one off. Setting them per deployment is how production
+    // ran without tables and dropped every chart it had paid to analyse.
     // Object storage for the `view_knowledge_image` tool (ADR-0039): the backend
     // fetches project/Archiv document bytes directly from SeaweedFS (it resolves
     // the storage key via the internal BFF lookup first). This OVERRIDES the
@@ -402,6 +402,12 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // enforceFeatureFlags is off; with enforcement on, the per-org
     // `memory-reflection` WorkOS flag decides instead.
     { name: "GRID_MEMORY_REFLECTION_ENABLED", value: String(cfg.memory.reflectionEnabled) },
+    // Office → PDF rendition (ADR-0070). Frontend-only: the BFF is the one
+    // converter; the backend receives the finished PDF as `preview_ref`, and
+    // for Word/presentation/.xls/.ods also as `extraction_ref`, the only
+    // source it indexes those from (ADR-0071). Absent ⇒ those files are
+    // marked failed (retryable); .xlsx/.xlsm index without preview.
+    ...(w.gotenbergUrl ? [{ name: "GOTENBERG_URL", value: w.gotenbergUrl }] : []),
     // OTLP tracing via the cluster collector — injected only when the
     // observability tier is deployed, which is what makes
     // src/instrumentation.ts register @vercel/otel (it no-ops without the

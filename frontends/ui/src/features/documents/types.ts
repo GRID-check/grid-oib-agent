@@ -74,6 +74,12 @@ export interface TrackedFile {
   serverFileId?: string
   /** Ingestion job ID */
   jobId?: string
+  /**
+   * The server already held these exact bytes as the live document, so it
+   * wrote nothing and made no version. Shown as „Unverändert – bereits
+   * vorhanden" rather than as a fresh upload.
+   */
+  unchanged?: boolean
   /** Collection this file belongs to */
   collectionName?: string
   /** When the file was uploaded (from server) */

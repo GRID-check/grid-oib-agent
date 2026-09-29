@@ -14,6 +14,8 @@ import {
 } from '../lib/upload-progress'
 import { useElapsedSeconds, useTransferRate } from '../hooks/use-transfer-rate'
 import { extChipTint, fileExtensionLabel } from '../document-kind'
+import { IngestFailureNotice } from './ingest-failure-notice'
+import { failedWhileReading } from '../lib/ingest-failure'
 import { Button } from '@/components/ui/button'
 import { AnimatePresence, motion, motionBase, springSnap } from '@/components/motion'
 import { useLocale, useTranslations } from '@/i18n'
@@ -380,6 +382,7 @@ function UploadRow({
   const ext = fileExtensionLabel(file.fileName)
   const canCancel = (phase === 'uploading' || phase === 'queued') && onCancel !== undefined
   const isFailed = phase === 'failed'
+  const unchanged = file.unchanged === true && phase === 'ready'
 
   return (
     <motion.li
@@ -419,13 +422,19 @@ function UploadRow({
 
         <span
           className={cn(
-            'w-[68px] shrink-0 text-right text-xs font-medium tabular-nums',
-            phase === 'ready' && 'text-success',
+            // The server's „unchanged" answer is a sentence, not a status word,
+            // so it may take the width a percentage never needs.
+            unchanged ? 'min-w-[68px]' : 'w-[68px]',
+            'shrink-0 text-right text-xs font-medium tabular-nums',
+            phase === 'ready' && !unchanged && 'text-success',
             isFailed && 'text-destructive',
-            phase !== 'ready' && !isFailed && 'text-muted-foreground'
+            (unchanged || (phase !== 'ready' && !isFailed)) && 'text-muted-foreground'
           )}
+          data-testid={unchanged ? 'upload-row-unchanged' : undefined}
         >
-          <ShimmerText active={phase === 'processing'}>{phaseLabel(phase, percent, t)}</ShimmerText>
+          <ShimmerText active={phase === 'processing'}>
+            {unchanged ? t('uploads.row.unchanged') : phaseLabel(phase, percent, t)}
+          </ShimmerText>
         </span>
 
         {canCancel && (
@@ -454,8 +463,22 @@ function UploadRow({
         <TrackBar percent={percent} sweeping={phase === 'processing'} className="mt-1.5 rounded-full" />
       )}
 
-      {isFailed && file.errorMessage && (
-        <p className="mt-1 pl-[34px] text-xs leading-snug text-destructive">{file.errorMessage}</p>
+      {/* A file the server accepted failed while being read: its message is
+          the stored ingest failure, said in the reader's language. One that
+          never arrived failed its upload, and that message is already the
+          upload's own. */}
+      {isFailed && file.errorMessage && failedWhileReading(file) ? (
+        <IngestFailureNotice
+          errorMessage={file.errorMessage}
+          className="mt-1 pl-[34px]"
+          sentenceClassName="leading-snug text-destructive"
+          testId="upload-row-failure"
+        />
+      ) : (
+        isFailed &&
+        file.errorMessage && (
+          <p className="mt-1 pl-[34px] text-xs leading-snug text-destructive">{file.errorMessage}</p>
+        )
       )}
     </motion.li>
   )

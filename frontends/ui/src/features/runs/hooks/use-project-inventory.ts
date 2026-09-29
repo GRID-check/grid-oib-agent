@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 import { toFileItem, type DocumentWireRow } from '@/features/documents/lib/file-item'
+import { fetchListingPages } from '@/features/documents/lib/fetch-listing-pages'
 import type { PlanDocument } from '@/lib/runs/plan-documents'
 
 export interface InventoryDocument extends PlanDocument {
@@ -22,12 +23,13 @@ export interface InventoryDocument extends PlanDocument {
   source: 'projekt' | 'buero'
 }
 
+/**
+ * A whole listing, every page: the picker offers what a run can read, and a
+ * document older than the newest page is as readable as any other.
+ */
 const listing = async (url: string): Promise<DocumentWireRow[]> => {
   try {
-    const response = await fetch(url, { credentials: 'same-origin' })
-    if (!response.ok) return []
-    const body = (await response.json()) as { documents?: DocumentWireRow[] }
-    return Array.isArray(body.documents) ? body.documents : []
+    return (await fetchListingPages<DocumentWireRow>(url)).documents
   } catch {
     return []
   }

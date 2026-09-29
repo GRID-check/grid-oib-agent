@@ -164,8 +164,7 @@ PORT=8100 docker compose --env-file ../.env -f docker-compose.yaml up -d
 **Note**: The backend API always runs on port 8000 inside the container. The `PORT` variable only changes the host port mapping.
 
 Common conflicts:
-- RAG Blueprint `page-elements` service uses ports 8000-8002. Set `PORT=8100` to avoid this conflict.
-- Other development servers may use common ports like 8000, 8080, or 3000.
+- Other development servers may use common ports like 8000, 8080, or 3000. Set `PORT=8100` to move off 8000.
 
 ## Troubleshooting
 

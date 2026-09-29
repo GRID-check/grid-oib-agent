@@ -87,6 +87,16 @@ export interface PdfDocumentViewProps {
    * for someone who is not citing anything.
    */
   quoteFormat?: (quote: { text: string; page: number }) => string
+  /**
+   * The document could not be opened (pdf.js failed to load, the stream
+   * refused, the bytes are not a PDF). Left unset, the viewer falls back to the
+   * browser's own viewer in a frame, which is right for a dialog with nothing
+   * better to offer. A caller that owns a failure state of its own (the Files
+   * preview pane, with its retry) passes this, and the viewer then renders
+   * nothing on failure and leaves the answer to it: a frame is exactly what
+   * shows blank on Android Chrome, which has no inline PDF renderer.
+   */
+  onLoadError?: () => void
   className?: string
 }
 
@@ -193,6 +203,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   highlightColor,
   regions,
   quoteFormat,
+  onLoadError,
   className,
 }) => {
   const t = useTranslations('knowledge')
@@ -256,6 +267,10 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
       void task.then((loading) => loading.destroy()).catch(() => {})
     }
   }, [src])
+
+  useEffect(() => {
+    if (failed) onLoadError?.()
+  }, [failed, onLoadError])
 
   /**
    * Reserve realistic room for every page before any of them has rendered.
@@ -598,6 +613,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
     !hit && candidatePages.length > 0 && candidatePages.every((number) => missed.includes(number))
 
   if (failed) {
+    if (onLoadError) return null
     return (
       <PdfFallbackFrame
         src={src}

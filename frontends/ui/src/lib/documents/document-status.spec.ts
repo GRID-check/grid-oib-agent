@@ -143,7 +143,6 @@ const OPAQUE_STATUS_WRITES: Readonly<Record<string, string>> = {
   // Reads, not writes: a drizzle SELECT projection naming the column.
   'src/lib/documents/repository.ts: documents.status': 'a SELECT projection, not a write',
   'src/lib/session-documents/repository.ts: documents.status': 'a SELECT projection, not a write',
-  'src/lib/archiv/repository.ts: documents.status': 'a SELECT projection, not a write',
   // The reconciler's own plumbing: an HTTP status, a backend file state, and
   // its resolution being handed on. None of them reaches the column except
   // through the repository entry above.

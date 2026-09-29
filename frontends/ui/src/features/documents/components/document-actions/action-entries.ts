@@ -20,7 +20,7 @@ import {
   Eye,
 } from 'lucide-react'
 import type { ActionMenuEntry } from '@/components/ui/action-menu'
-import { isFailedStatus, isSettlingStatus } from '../document-status'
+import { isCitableStatus, isFailedStatus, isSettlingStatus } from '../document-status'
 import { sortedFolderDestinations, type PathFolder } from '../../lib/folder-path-label'
 import type { ActionableDocument } from './use-document-actions'
 
@@ -77,6 +77,38 @@ export interface DocumentActionEntriesInput {
   onCopyOriginPath?: () => void
 }
 
+/**
+ * Whether re-ingest applies to this row, and in which sense.
+ *
+ * Decided by the status PHASE (`lib/documents/document-status.ts`):
+ *
+ *  - `retry` — terminal and not indexed: failed, or stranded at the `uploaded`
+ *    birth status.
+ *  - `retry` — in flight, EXCEPT `uploading`. A `pending`/`processing` row may
+ *    be busy or may be a job the backend lost (a restart wipes the registry,
+ *    nothing reconciles `absent` back to failed), and the menu cannot tell the
+ *    two apart; the server asks the backend at click time and answers a busy
+ *    one with 409 `INGEST_RUNNING`, which the hook turns into „Wird bereits
+ *    gelesen“. Hiding it here would strand every lost job again. An
+ *    `uploading` row is the one in-flight row that is certainly busy: its
+ *    bytes are still arriving and the server has nothing to re-read.
+ *  - `reread` — indexed and written by a person: re-read an unchanged file to
+ *    pick up a change in how files are read (ADR-0071). It asks first.
+ *    An agent-authored row keeps its own rules: its index entry belongs to a
+ *    published version, so it is never offered here.
+ */
+export type ReingestOffer = 'retry' | 'reread'
+
+export function reingestOffer(
+  document: Pick<ActionableDocument, 'status' | 'authoredBy'>
+): ReingestOffer | null {
+  const status = document.status
+  if (isFailedStatus(status) || status === 'uploaded') return 'retry'
+  if (isSettlingStatus(status)) return status === 'uploading' ? null : 'retry'
+  if (isCitableStatus(status) && (document.authoredBy ?? 'user') === 'user') return 'reread'
+  return null
+}
+
 export function documentActionEntries({
   document,
   labels,
@@ -103,19 +135,7 @@ export function documentActionEntries({
     if (kind === 'copyOriginPath') {
       return Boolean(document.originPath && onCopyOriginPath)
     }
-    // Failed, still settling, or stranded at the `uploaded` birth status: the
-    // backend decides at click time whether a retry is safe (a genuinely
-    // running job refuses with 409), so the menu does not have to tell a
-    // stuck `processing` row from a busy one — offering everywhere a retry
-    // could help, and letting the guard sort it out, is what ends the
-    // delete-and-re-upload era for lost ingestions.
-    if (kind === 'reingest')
-      return (
-        canManage &&
-        (isFailedStatus(document.status) ||
-          isSettlingStatus(document.status) ||
-          document.status === 'uploaded')
-      )
+    if (kind === 'reingest') return canManage && reingestOffer(document) !== null
     if (kind === 'move') return canManage && Boolean(folders && folders.length > 0)
     return canManage
   }

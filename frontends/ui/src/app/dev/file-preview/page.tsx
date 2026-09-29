@@ -23,8 +23,11 @@ import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { use, useEffect } from 'react'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
+import { FilePreviewHost } from '@/features/documents/components/file-preview-host'
+import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 import { FilePreviewPane } from '@/features/documents/components/file-preview-pane'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
+import { buildPdf, type PdfLine } from '../_fixtures/sample-pdf'
 
 // A visible "document page" so the left preview renders something real (not a
 // blank iframe) in the screenshot. Encoded as an SVG data URI, backend-free.
@@ -185,6 +188,155 @@ const TEXT_FIXTURES: Record<'markdown' | 'csv' | 'text', FileItem> = {
     tags: [],
   },
 }
+
+/**
+ * An office file, shown through the PDF the BFF makes from it (ADR-0070).
+ * `?variant=office-converting|office-converted|office-failed` picks the state;
+ * the shim below answers by id: a preview that never settles (the conversion
+ * the reader waits on), a PDF rendition, and a 502 from a failed converter.
+ */
+const OFFICE_VARIANTS = ['office-converting', 'office-converted', 'office-failed'] as const
+type OfficeVariant = (typeof OFFICE_VARIANTS)[number]
+
+const officeFixture = (variant: OfficeVariant): FileItem => ({
+  id: `dev-doc-${variant}`,
+  filename: 'Raumprogramm_Wohnbau-Nord.docx',
+  displayName: null,
+  fileSize: 184_000,
+  contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  status: 'ready',
+  folderId: null,
+  createdAt: '2026-06-14T09:00:00Z',
+  errorMessage: null,
+  summary: 'Raumprogramm für den Wohnbau Nord mit Flächen je Nutzungseinheit und Geschoss.',
+  pageCount: 6,
+  chunkCount: 12,
+  contentTypes: ['text', 'table'],
+  tags: [],
+})
+
+/**
+ * `?variant=settling`: an upload finishing WHILE its file is open.
+ *
+ * The real host, over a document still being read. The shim answers its
+ * status poll with `processing` twice, then `completed` without the summary
+ * (the cached listing the BFF can still hand back on the terminal read), then
+ * the full metadata — so one visit shows the pending line, the badge turning,
+ * and the summary, tags, counts and visual details arriving in the open modal
+ * without closing it. Reload the page to replay it.
+ */
+const SETTLING_FIXTURE: FileItem = {
+  ...FIXTURE,
+  id: 'dev-doc-settling',
+  status: 'processing',
+  summary: null,
+  pageCount: null,
+  chunkCount: null,
+  contentTypes: null,
+  tags: null,
+  assignees: [],
+}
+
+let settlingReads = 0
+
+function settlingStatus(): Record<string, unknown> {
+  settlingReads += 1
+  const base = { id: SETTLING_FIXTURE.id, filename: SETTLING_FIXTURE.filename, versionCount: 1 }
+  if (settlingReads <= 2) return { ...base, status: 'processing' }
+  if (settlingReads === 3) return { ...base, status: 'completed', summary: null }
+  return {
+    ...base,
+    status: 'completed',
+    summary: FIXTURE.summary,
+    pageCount: FIXTURE.pageCount,
+    chunkCount: FIXTURE.chunkCount,
+    contentTypes: FIXTURE.contentTypes,
+    tags: FIXTURE.tags,
+  }
+}
+
+function SettlingPreview(): JSX.Element {
+  useEffect(() => {
+    settlingReads = 0
+    useFilePreviewStore.getState().open(SETTLING_FIXTURE, 'modal', { projectId: 'proj-demo' })
+  }, [])
+  return <FilePreviewHost />
+}
+
+/**
+ * `?variant=pdf` and `?variant=pdf-unreadable`: a PDF upload in the pane's own
+ * pdf.js viewer, and the same file when its bytes cannot be opened.
+ *
+ * The viewer FETCHES `/api/documents/{id}/file` (see `documentFileUrl`), so the
+ * shim answers that route with real bytes built by `sample-pdf.ts` — for these
+ * and for `office-converted`, whose `/file` streams the rendition. The
+ * unreadable one answers 500 there, which is what the pane's failure state and
+ * its retry exist for.
+ */
+const PDF_VARIANTS = ['pdf', 'pdf-unreadable'] as const
+type PdfVariant = (typeof PDF_VARIANTS)[number]
+
+const pdfFixture = (variant: PdfVariant): FileItem => ({
+  ...FIXTURE,
+  id: `dev-doc-${variant}`,
+  contentType: 'application/pdf',
+})
+
+const isPdfVariant = (value: string | undefined): value is PdfVariant =>
+  (PDF_VARIANTS as readonly string[]).includes(value ?? '')
+
+const BRANDSCHUTZ_PAGES: readonly (readonly PdfLine[])[] = [
+  [
+    ['Brandschutzkonzept Wohnbau Nord', 22, true],
+    ['Gebäudeklasse 4 · OIB-Richtlinie 2 (2023)', 11, false],
+    ['', 11, false],
+    ['1. Fluchtwege', 14, true],
+    ['', 11, false],
+    ['Je Nutzungseinheit stehen zwei voneinander unabhängige Fluchtwege', 11, false],
+    ['zur Verfügung: der erste über den notwendigen Flur in das nördliche', 11, false],
+    ['Sicherheitstreppenhaus, der zweite über die anleiterbaren Fenster', 11, false],
+    ['an der Ostfassade.', 11, false],
+    ['', 11, false],
+    ['Die maximale Gehweglänge im notwendigen Flur beträgt 34 m und', 11, false],
+    ['liegt damit unter dem Grenzwert von 40 m.', 11, false],
+    ['', 11, false],
+    ['2. Brandabschnitte', 14, true],
+    ['', 11, false],
+    ['Brandabschnitte sind mit Trennwänden REI 90 ausgeführt; die', 11, false],
+    ['Wohnungstrennwände erreichen REI 60.', 11, false],
+  ],
+  [
+    ['3. Rauchableitung', 14, true],
+    ['', 11, false],
+    ['Die Rauchableitung erfolgt über die Rauch- und Wärmeabzugsanlage', 11, false],
+    ['im Treppenhaus mit einer aerodynamisch wirksamen Öffnungsfläche', 11, false],
+    ['von 1,0 m².', 11, false],
+    ['', 11, false],
+    ['4. Löschwasser und Feuerwehr', 14, true],
+    ['', 11, false],
+    ['Löschwasserversorgung, Aufstellflächen und die Kennzeichnung der', 11, false],
+    ['Rettungswege sind im Lageplan Blatt 3 dokumentiert.', 11, false],
+  ],
+]
+
+const RAUMPROGRAMM_PAGES: readonly (readonly PdfLine[])[] = [
+  [
+    ['Raumprogramm Wohnbau Nord', 22, true],
+    ['Flächen je Nutzungseinheit und Geschoss', 11, false],
+    ['', 11, false],
+    ['Regelgeschoss', 14, true],
+    ['', 11, false],
+    ['Top 1   Wohnen/Essen 38,4 m²   Zimmer 12,1 m²   Zimmer 10,8 m²', 11, false],
+    ['Top 2   Wohnen/Essen 34,9 m²   Zimmer 11,6 m²', 11, false],
+    ['Top 3   Wohnen/Essen 38,4 m²   Zimmer 12,1 m²   Zimmer 10,8 m²', 11, false],
+    ['Top 4   Wohnen/Essen 29,7 m²', 11, false],
+    ['', 11, false],
+    ['Erschließung über den Laubengang an der Hofseite.', 11, false],
+  ],
+]
+
+const isOfficeVariant = (value: string | undefined): value is OfficeVariant =>
+  (OFFICE_VARIANTS as readonly string[]).includes(value ?? '')
 
 const MARKDOWN_BODY = `# Einreichplanung — Bürocheckliste
 
@@ -425,6 +577,35 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url =
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const officeMatch = /\/api\/documents\/dev-doc-(office-[a-z]+)\/preview$/.exec(url)
+      if (officeMatch?.[1] === 'office-converting') {
+        return new Promise<Response>(() => {})
+      }
+      if (officeMatch?.[1] === 'office-failed') {
+        return Response.json({ code: 'RENDITION_FAILED' }, { status: 502 })
+      }
+      if (officeMatch) {
+        // The route's answer is what the pane decides by; the viewer then
+        // reads the rendition's bytes from `/file`, answered below.
+        return Response.json({
+          url: PAGE_SVG,
+          contentType: 'application/pdf',
+          rendition: true,
+          sourceContentType:
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        })
+      }
+      // The same-origin stream the pdf.js viewer reads: the rendition for the
+      // office file, the upload itself for a PDF.
+      const fileMatch = /\/api\/documents\/(.+)\/file$/.exec(url)
+      if (fileMatch?.[1] === 'dev-doc-pdf-unreadable') {
+        return new Response('upstream unavailable', { status: 500 })
+      }
+      if (fileMatch) {
+        const pages =
+          fileMatch[1] === 'dev-doc-office-converted' ? RAUMPROGRAMM_PAGES : BRANDSCHUTZ_PAGES
+        return new Response(buildPdf(pages), { headers: { 'Content-Type': 'application/pdf' } })
+      }
       if (/\/api\/documents\/.+\/preview$/.test(url)) {
         return Response.json({ url: PAGE_SVG })
       }
@@ -456,6 +637,14 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       }
       if (/\/api\/documents\/.+\/versions$/.test(url)) {
         return Response.json(REVIEW_VERSIONS)
+      }
+      if (url.endsWith(`/api/documents/${SETTLING_FIXTURE.id}/status`)) {
+        return Response.json(settlingStatus())
+      }
+      // Nothing visual has been indexed while the document is still being
+      // read: the empty answer the pane must not keep once it is done.
+      if (url.endsWith(`/api/documents/${SETTLING_FIXTURE.id}/visual-details`) && settlingReads < 4) {
+        return Response.json({ details: [] })
       }
       if (/\/api\/documents\/.+\/visual-details$/.test(url)) {
         return Response.json({
@@ -559,9 +748,17 @@ export default function FilePreviewDevPage({
     )
   }
 
+  if (variant === 'settling') return <SettlingPreview />
+
+  const officeFile = isOfficeVariant(variant)
+    ? officeFixture(variant)
+    : isPdfVariant(variant)
+      ? pdfFixture(variant)
+      : null
+
   return (
     <FilePreviewDialog
-      file={textFixture ?? (authored === 'agent' ? GENERATED_FIXTURE : FIXTURE)}
+      file={officeFile ?? textFixture ?? (authored === 'agent' ? GENERATED_FIXTURE : FIXTURE)}
       projectId="proj-demo"
       projectName="Wohnbau Nord — Linz"
       canManage
