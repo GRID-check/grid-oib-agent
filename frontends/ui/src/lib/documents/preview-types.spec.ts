@@ -99,4 +99,3 @@ describe('isOfficeRenditionSource', () => {
     for (const type of OFFICE_RENDITION_CONTENT_TYPES) expect(inline.has(type)).toBe(false)
   })
 })
-
