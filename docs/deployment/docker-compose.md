@@ -1,7 +1,7 @@
 # Docker Compose Service Reference
 
 The Docker Compose file is at `deploy/compose/docker-compose.yaml`. It defines
-15 services, several named volumes, and 1 bridge network. This page describes
+16 services, several named volumes, and 2 bridge networks. This page describes
 the core ones; the observability stack (`dragonfly`, `clickhouse`, the three
 `langfuse-*` services) and the two background workers (`purger`,
 `skill-scheduler`) are defined in the compose file with their own comments and
@@ -206,7 +206,7 @@ The Next.js UI application.
 | Dockerfile | `deploy/Dockerfile` |
 | Container name | `aiq-blueprint-ui` |
 | Ports | `${FRONTEND_PORT:-3000}:3000` |
-| Networks | `aiq-network` |
+| Networks | `aiq-network`, `gotenberg-internal` |
 
 **Environment**:
 
@@ -219,7 +219,8 @@ The Next.js UI application.
 | `WORKOS_API_KEY` | `${WORKOS_API_KEY}` |
 | `NEXT_PUBLIC_WORKOS_REDIRECT_URI` | `${NEXT_PUBLIC_WORKOS_REDIRECT_URI:-${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}}` |
 | `WORKOS_COOKIE_PASSWORD` | `${WORKOS_COOKIE_PASSWORD}` |
-| `FILE_UPLOAD_ACCEPTED_TYPES` | `${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md}` |
+| `FILE_UPLOAD_ACCEPTED_TYPES` | `${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md,.csv,.xlsx,.pptx}` — the same list as the code default in `frontends/ui/src/shared/config/file-upload.ts` |
+| `GOTENBERG_URL` | `${GOTENBERG_URL-http://gotenberg:3000}` — set it empty to disable office → PDF previews (no colon in the expansion, so an empty value is kept rather than replaced by the default) |
 | `SEAWEED_ENDPOINT` | `http://seaweedfs:8333` (hardcoded in compose) |
 | `SEAWEED_ACCESS_KEY` | `seaweedadmin` (hardcoded in compose) |
 | `SEAWEED_SECRET_KEY` | `${SEAWEED_SECRET_KEY:?}` — **required**; the deploy fails fast if it is unset (see `deploy/.env.example`) |
@@ -235,9 +236,49 @@ The Next.js UI application.
 
 **Healthcheck**: `curl -f http://localhost:3000/api/healthz` — interval 15s, timeout 10s, start period 60s, retries 5. The dependency-free `/api/healthz`, not `/` (a full SSR render) and not `/api/health` (which proxies the backend and reports 502 while the agent boots).
 
-**Depends on**: `grid-migrate` (completed successfully), `grid-audit-schemas` (completed successfully), `aiq-agent` (healthy), `seaweedfs` (healthy), `seaweedfs-init` (completed successfully), `postgres` (healthy).
+**Depends on**: `grid-migrate` (completed successfully), `grid-audit-schemas` (completed successfully), `aiq-agent` (healthy), `seaweedfs` (healthy), `seaweedfs-init` (completed successfully), `postgres` (healthy), `gotenberg` (started, not healthy: conversion fails open, so a broken converter must not block the UI).
 
 **Restart**: `unless-stopped`.
+
+### gotenberg
+
+Office → PDF converter for the document viewer (ADR-0070). The frontend BFF
+posts Word/Excel/PowerPoint/ODF/RTF originals to its LibreOffice route and
+stores the PDF beside the original. Nothing else calls it.
+
+| Property | Value |
+|----------|-------|
+| Image | `gotenberg/gotenberg:8.37.0-libreoffice` (pinned, LibreOffice-only variant; Pulumi pins the same tag, and `deploy/pulumi/src/app/gotenberg.spec.ts` fails when they differ) |
+| Container name | `aiq-gotenberg` |
+| Ports | none published |
+| Networks | `gotenberg-internal` only |
+
+**Command flags**:
+
+| Flag | Why |
+|------|-----|
+| `--api-timeout=120s` | Matches the BFF's conversion timeout |
+| `--api-disable-download-from` | Never fetches an input from a URL |
+| `--webhook-disable` | Never calls a URL back |
+| `--libreoffice-auto-start=true` | Starts LibreOffice at boot, so the first upload does not pay its cold start |
+
+The image contains no Chromium, so the HTML/URL → PDF routes (the SSRF surface) do not exist. It also refuses to start with any `--chromium-*` flag, so none may be added.
+
+**Resource limits**:
+
+| Resource | Limit | Reservation |
+|----------|-------|-------------|
+| CPU | 1 | 0.2 |
+| Memory | 1G | 512M |
+
+**Healthcheck**: `curl -fsS http://localhost:3000/health` — interval 15s, timeout 5s, start period 30s, retries 5.
+
+**Restart**: `unless-stopped`.
+
+**Coolify**: `docker-compose.coolify.yaml` runs the same image and flags but
+cannot isolate it on its own network, because a second network on the frontend
+breaks Traefik routing there. On Coolify the converter keeps egress; block it
+at the host firewall if outbound traffic matters.
 
 ### postgres
 
@@ -289,7 +330,8 @@ PostgreSQL 16 database.
 
 | Name | Driver | Services |
 |------|--------|----------|
-| `aiq-network` | bridge | All 5 services |
+| `aiq-network` | bridge | Every service except `gotenberg` |
+| `gotenberg-internal` | bridge, `internal: true` (no route off the host) | `gotenberg`, `frontend` |
 
 ## Build Targets
 

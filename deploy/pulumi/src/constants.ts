@@ -22,6 +22,8 @@ export const UID = {
   frontend: 1001,
   /** Web (landing/blog) image (`frontends/web/Dockerfile`): user `piloti` = 1001. */
   web: 1001,
+  /** Gotenberg image (upstream `build/Dockerfile`): user `gotenberg` = 1001. */
+  gotenberg: 1001,
 } as const;
 
 /** Service/container ports. One definition; Services, probes, env and
@@ -59,6 +61,8 @@ export const PORT = {
    * needs BOTH: the app talks HTTP, its schema migrator speaks native.
    */
   clickhouseNative: 9000,
+  /** Gotenberg API (office → PDF, ADR-0070). Upstream default. */
+  gotenberg: 3000,
 } as const;
 
 /**
@@ -335,6 +339,49 @@ export const EDGE_RATE_LIMIT = {
      * that session, because every later turn rides the open socket (ADR-0009).
      */
     ws: "/websocket",
+  },
+} as const;
+
+/**
+ * Gotenberg (ADR-0070) — the office → PDF converter behind the document viewer.
+ *
+ * The image is a knob (`gotenbergImage`); the name, the flags and the envelope
+ * are fixed, because the frontend's `GOTENBERG_URL`, the NetworkPolicies and
+ * the Compose service all have to agree with them.
+ */
+export const GOTENBERG = {
+  /** Deployment/Service name and `app.kubernetes.io/name`. */
+  name: "gotenberg",
+  /**
+   * The container args. Only the LibreOffice route is used, by the frontend
+   * BFF alone; every other way Gotenberg can reach the network is switched off:
+   *   - The `-libreoffice` image (config.ts) has no Chromium, so the HTML/URL
+   *     → PDF routes, the SSRF surface, do not exist. That binary also rejects
+   *     every `--chromium-*` flag at boot, so none belongs here.
+   *   - download-from / webhooks: it never fetches an input from a URL nor
+   *     calls one back.
+   * The egress NetworkPolicy is the other half: office files can link external
+   * images, and LibreOffice would fetch them.
+   *
+   * `--api-timeout` matches the BFF's own 120s conversion timeout, so the
+   * converter never keeps working on a request its caller has abandoned for
+   * long. `--libreoffice-auto-start` pays soffice's cold start at boot instead
+   * of inside the first user's upload.
+   */
+  args: [
+    "gotenberg",
+    "--api-timeout=120s",
+    "--api-disable-download-from",
+    "--webhook-disable",
+    "--libreoffice-auto-start=true",
+  ],
+  /**
+   * Upstream's own floor is 512Mi / 0.2 CPU. The limit is what a large
+   * spreadsheet needs; one LibreOffice conversion runs at a time per pod.
+   */
+  resources: {
+    requests: { cpu: "200m", memory: "512Mi" },
+    limits: { cpu: "1", memory: "1Gi" },
   },
 } as const;
 

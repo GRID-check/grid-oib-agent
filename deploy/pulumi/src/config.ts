@@ -433,6 +433,15 @@ export interface GridConfig {
    */
   protectDataResources: boolean;
 
+  gotenberg: {
+    /**
+     * Run the office → PDF converter (ADR-0070). When false the frontend gets
+     * no `GOTENBERG_URL`, and Word/Excel/PowerPoint files are download-only.
+     */
+    enabled: boolean;
+    image: string;
+  };
+
   chroma: {
     /**
      * Run a shared Chroma server (horizontal scaling). When true, the backend
@@ -2169,6 +2178,15 @@ export function loadConfig(): GridConfig {
     networkPolicies: bool(cfg, "networkPolicies", true),
 
     protectDataResources: bool(cfg, "protectDataResources", true),
+
+    gotenberg: {
+      enabled: bool(cfg, "gotenbergEnabled", true),
+      // Pinned, LibreOffice-only variant (no Chromium, so no HTML/URL routes).
+      // The container args in constants.ts are 8.x flag names, and a flag
+      // this binary does not know (any --chromium-*) stops it at boot. Keep it equal to the
+      // Compose pin (deploy/compose/docker-compose.yaml).
+      image: cfg.get("gotenbergImage") ?? "gotenberg/gotenberg:8.37.0-libreoffice",
+    },
 
     chroma: {
       enabled: chromaEnabled,

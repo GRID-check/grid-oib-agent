@@ -488,10 +488,15 @@ services:
       - GRID_BYOK_SECRET_BACKEND=${GRID_BYOK_SECRET_BACKEND:-}
       - GRID_BYOK_LOCAL_KEK=${GRID_BYOK_LOCAL_KEK:-}
       - GRID_BYOK_ALLOW_PRIVATE_BASE_URLS=${GRID_BYOK_ALLOW_PRIVATE_BASE_URLS:-false}
-      - FILE_UPLOAD_ACCEPTED_TYPES=${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md}
+      # Must match the code default in frontends/ui/src/shared/config/file-upload.ts:
+      # an override here that lists fewer types silently narrows what users can upload.
+      - FILE_UPLOAD_ACCEPTED_TYPES=${FILE_UPLOAD_ACCEPTED_TYPES:-.pdf,.docx,.txt,.md,.csv,.xlsx,.pptx}
       - FILE_UPLOAD_MAX_SIZE_MB=${FILE_UPLOAD_MAX_SIZE_MB:-100}
       - FILE_UPLOAD_MAX_FILE_COUNT=${FILE_UPLOAD_MAX_FILE_COUNT:-10}
       - FILE_EXPIRATION_CHECK_INTERVAL_HOURS=${FILE_EXPIRATION_CHECK_INTERVAL_HOURS:-0}
+      # Office → PDF rendition (ADR-0070). Set it empty to disable: office
+      # files are then download-only.
+      - GOTENBERG_URL=${GOTENBERG_URL-http://gotenberg:3000}
       # Internal (server-side uploads) vs public (browser presigned URLs).
       - SEAWEED_ENDPOINT=http://seaweedfs:8333
       - SEAWEED_PUBLIC_ENDPOINT=https://${SERVICE_FQDN_SEAWEEDFS}
@@ -562,6 +567,10 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
+      # Started, not healthy: conversion fails open (the original stays
+      # downloadable), so a broken converter must never block the UI.
+      gotenberg:
+        condition: service_started
     # Liveness for Coolify/Traefik. Hits the dependency-free /api/healthz (not
     # `/`, which is a full SSR render, and not /api/health, which proxies the
     # backend and reports 502 while the agent boots). start_period covers the
@@ -638,6 +647,40 @@ services:
         condition: service_healthy
       frontend:
         condition: service_healthy
+    restart: unless-stopped
+
+  # WARNING: do NOT add a `ports:` mapping to this internal service. Coolify
+  # binds the published host port on the server regardless of Traefik routing,
+  # which would expose the converter (3000) publicly. In-cluster access only.
+  gotenberg:
+    # Office → PDF converter for the document viewer (ADR-0070). Only the
+    # LibreOffice route is used, and only by the frontend BFF. Flags as in
+    # docker-compose.yaml: LibreOffice-only image (no Chromium), no
+    # download-from, no webhooks.
+    #
+    # KNOWN GAP vs the dev compose: there it sits alone on an `internal: true`
+    # network so LibreOffice cannot fetch images an office file links to. Here
+    # that would need the frontend on a second network, which makes it
+    # dual-homed and breaks Traefik routing (see the NOTE at the bottom of
+    # this file). So on Coolify gotenberg keeps egress; block it at the host
+    # firewall if the server allows outbound traffic.
+    image: gotenberg/gotenberg:8.37.0-libreoffice
+    command:
+      [
+        "gotenberg",
+        "--api-timeout=120s",
+        "--api-disable-download-from",
+        "--webhook-disable",
+        "--libreoffice-auto-start=true",
+      ]
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
   # WARNING: do NOT add a `ports:` mapping to this internal service. Coolify

@@ -15,6 +15,8 @@ export interface AppWiring {
   seaweedPublicEndpoint: pulumi.Output<string>;
   /** Shared Chroma server URL (set when cfg.chroma.enabled). */
   chromaUrl?: pulumi.Output<string>;
+  /** Office → PDF converter URL (set when cfg.gotenberg.enabled, ADR-0070). */
+  gotenbergUrl?: pulumi.Output<string>;
   dsn: (opts: {
     db: string;
     driver?: string;
@@ -402,6 +404,10 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // enforceFeatureFlags is off; with enforcement on, the per-org
     // `memory-reflection` WorkOS flag decides instead.
     { name: "GRID_MEMORY_REFLECTION_ENABLED", value: String(cfg.memory.reflectionEnabled) },
+    // Office → PDF rendition (ADR-0070). Frontend-only: the BFF is the one
+    // converter; the backend receives the finished PDF as `preview_ref`.
+    // Absent ⇒ office files are download-only, exactly as before.
+    ...(w.gotenbergUrl ? [{ name: "GOTENBERG_URL", value: w.gotenbergUrl }] : []),
     // OTLP tracing via the cluster collector — injected only when the
     // observability tier is deployed, which is what makes
     // src/instrumentation.ts register @vercel/otel (it no-ops without the

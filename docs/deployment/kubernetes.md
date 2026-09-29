@@ -24,6 +24,7 @@ their own namespaces.
 | `skill-scheduler` | Deployment (always; fires schedules only when `skillsEnabled`, drives the run reconciler either way) | 1 | — | n/a (DB-claimed ticks) |
 | `postgres` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) | CloudNativePG `Cluster` | 1 (→3 HA) | RWO PVC | Add replicas |
 | `dragonfly` (Redis-proto cache) | Deployment | 1 | — (cache) | — |
+| `gotenberg` (office → PDF for the viewer, ADR-0070; `gotenbergEnabled`, default on) | Deployment | 1 | — | n/a (stateless, fail-open: a missing rendition is retried on the next view) |
 | `seaweedfs` (filer + S3 gateway) | StatefulSet | 1 (`single`) / N (`split`) | RWO PVC `/data` (unused under the Postgres filer store) | See §4 |
 | `seaweedfs-master` (`split` only) | StatefulSet | 1 (3 = HA, untested) | RWO PVC `/data` (raft + volume-id sequence) | Odd replica counts only |
 | `seaweedfs-volume` (`split` only) | StatefulSet | N | RWO PVC `/data` per replica | `seaweedfsVolumeReplicas` — this is the object-capacity knob |
@@ -1082,6 +1083,9 @@ see §10.
   edge (Envoy) to `frontend`/`seaweedfs`, and the CNPG operator to its pods.
   Egress is deliberately open (the agent calls many external LLM/search APIs);
   tightening it is the one item that needs a live-cluster validation pass first.
+  The exception is `gotenberg` (`gotenberg-frontend-only`): it parses untrusted
+  office files that can link external URLs, needs no network of its own, and so
+  gets ingress from the frontend alone and no egress at all, DNS included.
 - **Dragonfly authentication** (`grid-oib:dragonflyPassword` and
   `grid-oib:rateLimitStorePassword`, both **required**): `requirepass` on both
   instances, delivered as `DFLY_requirepass` from a Kubernetes Secret rather
@@ -1365,6 +1369,7 @@ Three things are true of this whole table and are easy to miss:
 | Frontend → backend (BFF/HTTP) | **No** | `http://aiq-agent:8000` inside the pod network. |
 | Frontend → backend (WebSocket chat) | **No** | `ws://`, per-replica via the headless service (ADR-0028 conversation affinity). This is the full chat transport, including prompts and answers. |
 | Producers → OTel Collector, Collector → dashboard | **No** | Plain OTLP on `http://otel-collector:4318`. This traffic carries **prompts, retrieved snippets, LLM output and live presigned S3 URLs**, so it is the most sensitive plaintext channel in the namespace; the unauthenticated Aspire UI on `:18888` is likewise kept off-limits only by NetworkPolicy, which is why `observabilityEnabled` refuses to deploy with `networkPolicies=false`. |
+| Frontend → Gotenberg | **No, and unauthenticated** | `http://gotenberg:3000`. It carries the bytes of every office file converted, and anyone who can reach it can have LibreOffice parse a file of their choosing. NetworkPolicy admits the frontend only. |
 | App → Chroma | **No, and unauthenticated** | `http://chroma:8000`, no credentials of any kind. Any pod that can reach it can read or delete every tenant's vectors. NetworkPolicy is the only control. |
 | Cluster egress (OpenRouter, Tavily, WorkOS, GitHub) | **Yes** | All HTTPS. |
 
