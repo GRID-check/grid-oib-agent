@@ -1,18 +1,21 @@
-"""Light text extractors for zipped office formats (docx, xlsx, pptx).
+"""Extractors for the office content the PDF pipeline does not read.
 
-Why not SimpleDirectoryReader: its per-format readers live in the optional
-``llama-index-readers-file`` distribution, which this deployment does not
-install — and its documented fallback for an unknown extension is to read the
-raw bytes as UTF-8 text. For a ``.docx`` (a zip) that produced ``PK\\x03…``
-garbage which the binary-content guard then rejected, so every Word upload
-failed ingestion while the UI offered the type. These extractors are small,
-depend only on libraries the extra already carries (docx2txt, python-pptx,
-openpyxl), and give every unit a real ``page_label`` (sheet name, slide
-number) a citation can point at.
+Two jobs, both keyed by extension:
 
-Only formats the generic reader actually garbles get a handler: plain-text
-formats (``.csv``, ``.txt``, ``.md``) ingest correctly through the fallback
-text read and deliberately have none.
+- **Spreadsheets with a structure of their own** (``.xlsx``/``.xlsm``): one unit
+  per worksheet, a markdown table labelled by sheet name, via openpyxl. A PDF
+  rendition of a workbook is a print layout that cuts columns across pages, so
+  these keep this reader. Why not SimpleDirectoryReader: its per-format readers
+  live in the optional ``llama-index-readers-file`` distribution, which this
+  deployment does not install, and its fallback reads a zip's raw bytes as
+  text (``PK\\x03…``), which the binary-content guard rejects.
+- **Rendition companions**: a Word or presentation file is indexed from its PDF
+  rendition and nothing else (ADR-0071; ``knowledge_layer.renditions``), so
+  there is no Word or slide-text reader here any more. What the PDF export
+  drops is read from the original beside it: pptx speaker notes.
+
+Plain-text formats (``.csv``, ``.txt``, ``.md``) ingest correctly through the
+generic reader and deliberately have no handler.
 
 Modularity contract (see ``docs/architecture/visual-ingestion.md``): one
 handler per format, keyed by extension, returning plain ``Document`` objects —
@@ -61,14 +64,6 @@ def _clean_cell(value: Any) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ").strip()[:MAX_CELL_CHARS]
 
 
-def _extract_docx(file_path: str) -> list[tuple[str, str]]:
-    """Word text via docx2txt: one unit, no page mapping (docx has no pages)."""
-    import docx2txt
-
-    text = (docx2txt.process(file_path) or "").strip()
-    return [("1", text)] if text else []
-
-
 def _extract_xlsx(file_path: str) -> list[tuple[str, str]]:
     """One unit per worksheet, rendered as a markdown table, labeled by sheet name."""
     from openpyxl import load_workbook
@@ -93,45 +88,101 @@ def _extract_xlsx(file_path: str) -> list[tuple[str, str]]:
     return units
 
 
-def _extract_pptx(file_path: str) -> list[tuple[str, str]]:
-    """One unit per slide: text frames, tables and speaker notes."""
+def _slide_notes(slide: Any) -> str:
+    """A slide's speaker notes, stripped; empty when it has none.
+
+    ``has_notes_slide`` first: reading ``notes_slide`` on a slide without one
+    CREATES the part, which is a write this read-only path has no business making.
+    """
+    if not getattr(slide, "has_notes_slide", False):
+        return ""
+    frame = slide.notes_slide.notes_text_frame
+    return frame.text.strip() if frame is not None else ""
+
+
+def _is_hidden(slide: Any) -> bool:
+    """Whether PowerPoint hides the slide in a show (``<p:sld show="0">``)."""
+    return slide._element.get("show") in ("0", "false")
+
+
+def _extract_pptx_notes(file_path: str) -> list[tuple[str, str]]:
+    """Speaker notes only, one unit per slide that has them, labelled by PDF page.
+
+    The companion of a presentation indexed from its PDF rendition (ADR-0071):
+    the rendition carries every slide's visible text and pictures, but a PDF
+    export drops the notes, which are often where the argument of a deck lives.
+    So these units carry the notes and nothing else; the slide text would be
+    indexed twice otherwise.
+
+    The label is the slide's page in the RENDITION, not its position in the
+    deck: LibreOffice leaves hidden slides out of the PDF, so after one hidden
+    slide the deck's slide 3 is the PDF's page 2, and a citation opens the
+    rendition at the label. A hidden slide's own notes are skipped for the
+    same reason its text is: there is no page for them to land on.
+    """
     from pptx import Presentation
 
     units: list[tuple[str, str]] = []
-    presentation = Presentation(file_path)
-    for number, slide in enumerate(presentation.slides, start=1):
-        parts: list[str] = []
-        for shape in slide.shapes:
-            if getattr(shape, "has_text_frame", False) and shape.text_frame.text.strip():
-                parts.append(shape.text_frame.text.strip())
-            if getattr(shape, "has_table", False):
-                rows = [[_clean_cell(cell.text) for cell in row.cells] for row in shape.table.rows]
-                rows = [row for row in rows if any(row)]
-                if rows:
-                    parts.append(_markdown_table(rows[:MAX_TABLE_ROWS], len(rows) > MAX_TABLE_ROWS))
-        notes = getattr(slide, "notes_slide", None)
-        if notes is not None and notes.notes_text_frame is not None:
-            note_text = notes.notes_text_frame.text.strip()
-            if note_text:
-                parts.append(f"Notizen: {note_text}")
-        if parts:
-            units.append((str(number), f"Folie {number}\n\n" + "\n\n".join(parts)))
+    visible = [slide for slide in Presentation(file_path).slides if not _is_hidden(slide)]
+    for page, slide in enumerate(visible, start=1):
+        note_text = _slide_notes(slide)
+        if note_text:
+            units.append((str(page), f"Folie {page}, Notizen des Vortragenden\n\n{note_text}"))
     return units
 
 
 #: Extension → handler. Adding a format is one function plus one entry here;
 #: macro-enabled variants share their sibling's handler (same XML inside).
 _HANDLERS: dict[str, Callable[[str], list[tuple[str, str]]]] = {
-    ".docx": _extract_docx,
-    ".docm": _extract_docx,
     ".xlsx": _extract_xlsx,
     ".xlsm": _extract_xlsx,
-    ".pptx": _extract_pptx,
-    ".pptm": _extract_pptx,
 }
 
 #: Formats this module handles (advertisable to capability probes/tests).
 SUPPORTED_EXTENSIONS = frozenset(_HANDLERS)
+
+
+#: Extension → the part of the ORIGINAL a PDF rendition loses. Consulted only
+#: when the text and pictures come from the rendition (ADR-0071); a format
+#: without an entry loses nothing worth indexing in the conversion.
+_RENDITION_COMPANIONS: dict[str, Callable[[str], list[tuple[str, str]]]] = {
+    ".pptx": _extract_pptx_notes,
+    ".pptm": _extract_pptx_notes,
+}
+
+
+def _documents(units: list[tuple[str, str]], file_name: str, file_size: int, content_type: str) -> list[Any]:
+    from llama_index.core import Document
+
+    return [
+        Document(
+            text=text,
+            metadata={
+                "file_name": file_name,
+                "file_size": file_size,
+                "page_label": label,
+                "content_type": content_type,
+            },
+        )
+        for label, text in units
+    ]
+
+
+def extract_rendition_companions(file_path: str, file_name: str, file_size: int) -> list[Any]:
+    """What the original adds to its PDF rendition's extraction: today, pptx speaker notes.
+
+    ``file_path`` is the ORIGINAL (the rendition is read by the PDF pipeline),
+    ``file_name`` its identity, which every unit carries. Empty for a format
+    with no companion. An unreadable original raises, like every extractor
+    here; the caller decides whether the notes are worth the file.
+    """
+    extension = (Path(file_name).suffix or Path(file_path).suffix).lower()
+    handler = _RENDITION_COMPANIONS.get(extension)
+    if handler is None:
+        return []
+    units = handler(file_path)
+    logger.info("Rendition companion (%s): %d unit(s) from %s", extension, len(units), file_name)
+    return _documents(units, file_name, file_size, "text")
 
 
 def extract_office_documents(file_path: str, file_name: str, file_size: int) -> list[Any] | None:
@@ -149,19 +200,6 @@ def extract_office_documents(file_path: str, file_name: str, file_size: int) -> 
     if handler is None:
         return None
 
-    from llama_index.core import Document
-
     units = handler(file_path)
     logger.info("Office extraction (%s): %d unit(s) from %s", extension, len(units), file_name)
-    return [
-        Document(
-            text=text,
-            metadata={
-                "file_name": file_name,
-                "file_size": file_size,
-                "page_label": label,
-                "content_type": "table" if extension in {".xlsx", ".xlsm"} else "text",
-            },
-        )
-        for label, text in units
-    ]
+    return _documents(units, file_name, file_size, "table")

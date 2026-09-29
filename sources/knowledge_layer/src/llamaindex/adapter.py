@@ -2007,6 +2007,21 @@ def _generate_document_summary(text_content: str, file_name: str, llm=None) -> s
 _TMP_UPLOAD_PREFIX = re.compile(r"^tmp.{8}_")
 
 
+def _rendition_companions(original_path: str, file_name: str, file_size: int) -> list[Any]:
+    """The original's units a PDF rendition lacks (pptx speaker notes), fail-open.
+
+    The rendition already indexed the document's text and pictures; notes that
+    cannot be read cost the notes, not the file (visual-ingestion rule 4).
+    """
+    from knowledge_layer.llamaindex import office_extractors
+
+    try:
+        return office_extractors.extract_rendition_companions(original_path, file_name, file_size)
+    except Exception as error:  # noqa: BLE001 — per-unit fail-open, named in the log
+        logger.warning("Speaker notes of %s skipped: %s", file_name, type(error).__name__)
+        return []
+
+
 def _normalized_file_name(name: str | None) -> str:
     """A stored file name as its plain re-upload spells it: no ``tmp[8]_`` prefix, percent-decoded."""
     from urllib.parse import unquote
@@ -2316,9 +2331,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         validated_paths = []
         aligned_filenames = []
         aligned_file_ids = []
+        kept_indices: list[int] = []
         for idx, path in enumerate(file_paths):
             if os.path.exists(path):
                 validated_paths.append(path)
+                kept_indices.append(idx)
                 if idx < len(original_filenames):
                     aligned_filenames.append(original_filenames[idx])
                 if idx < len(provided_file_ids):
@@ -2330,6 +2347,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         # _run_ingestion re-reads these from the config; keep it aligned too.
         job_config["original_filenames"] = aligned_filenames
         job_config["file_ids"] = aligned_file_ids
+        if "extraction_paths" in job_config:
+            from knowledge_layer.renditions import align_extraction_paths
+
+            align_extraction_paths(job_config, kept_indices)
 
         if not validated_paths:
             # Create failed job immediately
@@ -3515,6 +3536,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         config: dict[str, Any],
     ):
         """Background ingestion worker with optional multimodal extraction."""
+        from knowledge_layer.renditions import OFFICE_RENDITION_REQUIRED
+        from knowledge_layer.renditions import delete_quietly
+        from knowledge_layer.renditions import handed_rendition_paths
+        from knowledge_layer.renditions import requires_rendition
+        from knowledge_layer.renditions import resolve_rendition
+
+        # Renditions this job downloaded itself: always its own to delete.
+        downloaded_renditions: list[str] = []
         try:
             # Update job to processing
             with self._lock:
@@ -3611,6 +3640,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 # anything; None until indexing starts and again once it is in.
                 chunks_before: set[str] | None = None
                 file_name = original_filenames[i] if i < len(original_filenames) else Path(file_path).name
+                # The PDF rendition the BFF made of a Word or presentation
+                # original (ADR-0071), when it sent one: every byte the PDF
+                # pipeline reads comes from `source_path`, while identity —
+                # `file_name`, `file_size`, the replacement lock, the purge key
+                # — stays the original's.
+                rendition = resolve_rendition(config, i, downloaded_renditions)
+                source_path = rendition or file_path
                 try:
                     file_size = os.path.getsize(file_path)
 
@@ -3645,7 +3681,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     base_corpus = legacy_shelf_for_collection_name(collection_name) is None
                     doc_class = stored_doc_class or (guess_doc_class(file_name) if base_corpus else None)
                     is_pdf = (
-                        file_name.lower().endswith(".pdf")
+                        rendition is not None
+                        or file_name.lower().endswith(".pdf")
                         or Path(file_path).suffix.lower() == ".pdf"
                         or _looks_like_pdf(file_path)
                     )
@@ -3682,7 +3719,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # when optional LlamaIndex file readers are missing.
                     text_pages: list[dict[str, Any]] = []
                     if is_pdf:
-                        text_pages = _extract_text_from_pdf(file_path)
+                        text_pages = _extract_text_from_pdf(source_path)
                         text_documents = text_documents_for_pages(text_pages, file_name, file_size)
                     elif is_image:
                         # Standalone image: caption via the VLM into a single
@@ -3728,16 +3765,22 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             total_charts += 1
                         else:
                             total_images += 1
+                    elif requires_rendition(file_name, file_path):
+                        # A Word or presentation file is indexed from its PDF
+                        # rendition and from nothing else (ADR-0071): one
+                        # extraction path, one page numbering, the one the
+                        # viewer opens. No rendition, no guess at the original.
+                        self._update_file_status(job, i, FileStatus.FAILED, error=OFFICE_RENDITION_REQUIRED)
+                        logger.warning("No PDF rendition to index %s from", file_name)
+                        continue
                     else:
-                        # Known office formats first: SimpleDirectoryReader's
-                        # per-format readers are an optional distribution this
-                        # deployment does not install, and its fallback reads
-                        # raw bytes as text — a .docx (a zip) became PK\x03…
-                        # garbage that the binary guard rejected, failing every
-                        # Word upload. The office extractors handle
-                        # docx/xlsx/pptx with the libraries already here;
-                        # plain-text formats (.txt/.md/.csv) stay on the
-                        # generic reader, which handles them correctly.
+                        # Spreadsheets with an extractor of their own first:
+                        # SimpleDirectoryReader's per-format readers are an
+                        # optional distribution this deployment does not
+                        # install, and its fallback reads raw bytes as text — an
+                        # .xlsx (a zip) became PK\x03… garbage that the binary
+                        # guard rejected. Plain-text formats (.txt/.md/.csv)
+                        # stay on the generic reader, which handles them.
                         from knowledge_layer.llamaindex import office_extractors
 
                         office_documents = office_extractors.extract_office_documents(file_path, file_name, file_size)
@@ -3755,6 +3798,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
                     all_documents.extend(text_documents)
                     logger.info(f"  Text extraction: {len(text_documents)} documents")
+                    # What the PDF export dropped from the original (pptx
+                    # speaker notes). Kept out of `text_documents`, which feed
+                    # the summary: notes are not what the document says first.
+                    if rendition:
+                        all_documents.extend(_rendition_companions(file_path, file_name, file_size))
 
                     # Favourable ordering: thumbnail first. This is the quickest
                     # operation (pypdfium2 page-1 render → fire-and-forget PUT to
@@ -3769,7 +3817,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # This avoids rendering + PUTting the thumbnail twice per file.
                     thumbnail_upload_url = config.get("thumbnail_upload_url")
                     if thumbnail_upload_url and (is_pdf or is_image) and not config.get("thumbnail_pregenerated"):
-                        self._generate_and_upload_thumbnail(file_path, thumbnail_upload_url)
+                        self._generate_and_upload_thumbnail(source_path, thumbnail_upload_url)
 
                     # Summary + tag classification are started AFTER visual
                     # extraction (below) so that for text-sparse drawing PDFs the
@@ -3784,7 +3832,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # 2. Extract tables (PDF only)
                     if is_pdf and extract_tables:
                         taken = {page["page_number"]: page.get("table_boxes") or [] for page in text_pages}
-                        tables = _extract_tables_from_pdf(file_path, taken)
+                        tables = _extract_tables_from_pdf(source_path, taken)
                         for table in tables:
                             table_doc = Document(
                                 text=f"[TABLE from page {table['page_number']}]\n\n{table['table_text']}",
@@ -3809,7 +3857,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # re-ingest or cross-document duplicate skips the API call.
                     if is_pdf:
                         # Extract image bytes (no VLM yet)
-                        images = _extract_images_from_pdf(file_path) if (extract_images or extract_charts) else []
+                        images = _extract_images_from_pdf(source_path) if (extract_images or extract_charts) else []
 
                         from knowledge_layer.llamaindex import processing as _processing
 
@@ -3820,7 +3868,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             # layer is read once, and the visual heuristic's
                             # "watermark-stripped text" threshold actually holds.
                             drawing_pages_raw = _processing.render_visual_pages_no_vlm(
-                                file_path,
+                                source_path,
                                 min_text_chars=VISUAL_PAGE_MIN_TEXT_CHARS,
                                 min_paths=VISUAL_PAGE_MIN_PATHS,
                                 max_pages=MAX_RENDERED_PAGES,
@@ -4345,13 +4393,16 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         finally:
             # Clean up temp files if requested
             if config.get("cleanup_files", False):
-                for file_path in file_paths:
+                # The renditions are temp files of the same request, and this
+                # job owns them the same way.
+                for file_path in [*file_paths, *handed_rendition_paths(config)]:
                     try:
                         if os.path.exists(file_path):
                             os.unlink(file_path)
                             logger.debug(f"Cleaned up temp file: {file_path}")
                     except OSError as e:
                         logger.warning(f"Failed to clean up temp file {file_path}: {e}")
+            delete_quietly(downloaded_renditions)
 
     def generate_summary(self, text_content: str, file_name: str) -> str | None:
         """Generate summary using NVIDIA NIM if enabled."""

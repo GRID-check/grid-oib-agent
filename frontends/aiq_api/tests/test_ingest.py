@@ -521,8 +521,9 @@ async def test_ingest_rejects_non_object_store_preview_ref(app, mock_ingestor):
 @pytest.mark.asyncio
 async def test_ingest_renders_office_thumbnail_from_preview_ref(app, mock_ingestor):
     """A .docx has no pages the fast path can draw, so the thumbnail comes from
-    its PDF rendition (ADR-0070). The rendition is fetched without redirects,
-    stays out of the job config, and text extraction still gets the original."""
+    its PDF rendition (ADR-0070), in a background task once the response is
+    out: the download is off the BFF's ten-second budget. The rendition is
+    fetched without redirects and stays out of the job config."""
     response, rendition_get, mock_put = await _post_with_rendition(
         app, "http://seaweedfs.test/bucket/doc/brief.docx", _download(b"PK docx bytes", _DOCX)
     )
@@ -535,8 +536,10 @@ async def test_ingest_renders_office_thumbnail_from_preview_ref(app, mock_ingest
     assert mock_put.call_args[0][0] == _THUMB_URL
     assert mock_put.call_args[1]["content"][:2] == b"\xff\xd8"  # a JPEG
     config = mock_ingestor.submit_job.call_args[1]["config"]
-    assert config["thumbnail_pregenerated"] is True
-    assert _PREVIEW_REF not in config.values()
+    # Drawn after the response (a background task), so the job is not told
+    # it exists; the job has no fallback for a .docx original anyway.
+    assert "thumbnail_pregenerated" not in config
+    assert _PREVIEW_REF not in repr(config)
     assert mock_ingestor.submit_job.call_args[0][0][0].endswith(".docx")
 
 
@@ -563,3 +566,158 @@ def test_infer_suffix_office_types():
     assert _infer_suffix("application/vnd.ms-excel.sheet.macroEnabled.12", url) == ".xlsm"
     assert _infer_suffix("application/vnd.oasis.opendocument.text; charset=binary", url) == ".odt"
     assert _infer_suffix("text/rtf", url) == ".rtf"
+
+
+def test_deferred_download_writes_a_temp_file_and_hides_its_url():
+    """What the job calls: one GET without redirects, the bytes in a new temp
+    file the caller owns; the URL appears in no repr."""
+    import os
+
+    from aiq_api.routes.ingest import DeferredObjectDownload
+
+    deferred = DeferredObjectDownload(_PREVIEW_REF)
+    assert "X-Amz-Signature" not in repr(deferred)
+    assert "X-Amz-Signature" not in repr({"extraction_paths": [deferred]})
+    with patch("httpx.get", return_value=_download(b"%PDF-1.4 rendition", "application/pdf")) as get:
+        path = deferred()
+    try:
+        assert get.call_args[0][0] == _PREVIEW_REF
+        assert get.call_args[1]["follow_redirects"] is False
+        assert path.endswith(".pdf")
+        with open(path, "rb") as handle:
+            assert handle.read() == b"%PDF-1.4 rendition"
+    finally:
+        os.unlink(path)
+
+
+def test_deferred_download_raises_on_a_failed_get():
+    from aiq_api.routes.ingest import DeferredObjectDownload
+
+    failed = MagicMock(spec=httpx.Response)
+    failed.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "403", request=MagicMock(), response=MagicMock(status_code=403)
+    )
+    with patch("httpx.get", return_value=failed), pytest.raises(httpx.HTTPStatusError):
+        DeferredObjectDownload(_PREVIEW_REF)()
+
+
+# --- extraction_ref: extract a Word/presentation file from its PDF rendition (ADR-0071) ---
+
+_EXTRACTION_REF = "http://seaweedfs.test/bucket/doc/_render.pdf?X-Amz-Signature=secret-extract"
+
+
+def _downloads_by_url(responses: dict[str, MagicMock]):
+    """An AsyncClient.get stand-in that answers per URL, recording each call."""
+    calls: list[tuple[str, dict]] = []
+
+    async def _get(url, **kwargs):
+        calls.append((url, kwargs))
+        return responses[url]
+
+    return _get, calls
+
+
+async def _post_ingest(app, body: dict, responses: dict[str, MagicMock]):
+    get, calls = _downloads_by_url(responses)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with patch("httpx.AsyncClient.get", side_effect=get), patch("httpx.get") as sync_get, patch("httpx.put") as put:
+            put.return_value = MagicMock(spec=httpx.Response, raise_for_status=MagicMock())
+            response = await client.post("/v1/ingest", json=body)
+    return response, calls, sync_get, put
+
+
+_ORIGINAL_REF = "http://seaweedfs.test/bucket/doc/Bericht.docx"
+
+
+def _docx_body(**extra) -> dict:
+    return {"file_ref": _ORIGINAL_REF, "collection": "proj_test123", "file_name": "Bericht.docx", **extra}
+
+
+def _unlink_submitted_original(mock_ingestor) -> None:
+    import os
+
+    for path in mock_ingestor.submit_job.call_args[0][0]:
+        if os.path.exists(path):
+            os.unlink(path)
+
+
+@pytest.mark.asyncio
+async def test_ingest_rejects_non_object_store_extraction_ref(app, mock_ingestor):
+    """extraction_ref is downloaded by the job, so it is gated like file_ref
+    here: 400 before anything is fetched or submitted."""
+    with patch("httpx.AsyncClient.get") as mock_get:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/v1/ingest", json=_docx_body(extraction_ref="http://169.254.169.254/latest/meta-data")
+            )
+    assert response.status_code == 400
+    assert "extraction_ref" in response.json()["detail"]
+    mock_get.assert_not_called()
+    mock_ingestor.submit_job.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ingest_defers_the_rendition_download_and_keeps_the_original_identity(app, mock_ingestor, caplog):
+    """The request downloads only the original, then hands the job a deferred
+    download of the rendition; the original is still the file submitted and
+    its name is still the identity. The URL is in no config repr and no log."""
+    import logging
+
+    from aiq_api.routes.ingest import DeferredObjectDownload
+
+    caplog.set_level(logging.DEBUG)
+    response, calls, sync_get, _put = await _post_ingest(
+        app, _docx_body(extraction_ref=_EXTRACTION_REF), {_ORIGINAL_REF: _download(b"PK docx bytes", _DOCX)}
+    )
+
+    assert response.status_code == 202
+    assert [url for url, _ in calls] == [_ORIGINAL_REF]
+    sync_get.assert_not_called()
+    args, kwargs = mock_ingestor.submit_job.call_args
+    config = kwargs["config"]
+    try:
+        assert args[0][0].endswith(".docx")
+        assert config["original_filenames"] == ["Bericht.docx"]
+        [deferred] = config["extraction_paths"]
+        assert isinstance(deferred, DeferredObjectDownload)
+        assert config["cleanup_files"] is True
+        assert "secret-extract" not in repr(config)
+        assert all("secret-extract" not in record.getMessage() for record in caplog.records)
+    finally:
+        _unlink_submitted_original(mock_ingestor)
+
+
+@pytest.mark.asyncio
+async def test_ingest_with_extraction_ref_draws_no_thumbnail_in_the_request(app, mock_ingestor):
+    """preview_ref naming the same PDF is not a second download: the job draws
+    the thumbnail from the rendition it downloads for extraction."""
+    try:
+        response, calls, sync_get, put = await _post_ingest(
+            app,
+            _docx_body(extraction_ref=_EXTRACTION_REF, preview_ref=_EXTRACTION_REF, thumbnail_upload_url=_THUMB_URL),
+            {_ORIGINAL_REF: _download(b"PK docx bytes", _DOCX)},
+        )
+        assert response.status_code == 202
+        assert len(calls) == 1
+        sync_get.assert_not_called()
+        put.assert_not_called()
+        config = mock_ingestor.submit_job.call_args[1]["config"]
+        assert "thumbnail_pregenerated" not in config
+        assert config["thumbnail_upload_url"] == _THUMB_URL
+    finally:
+        _unlink_submitted_original(mock_ingestor)
+
+
+@pytest.mark.asyncio
+async def test_ingest_without_extraction_ref_is_unchanged(app, mock_ingestor):
+    """Absent, one download and no rendition key: extraction reads the original."""
+    try:
+        response, calls, _sync_get, _put = await _post_ingest(
+            app, _docx_body(), {_ORIGINAL_REF: _download(b"PK docx bytes", _DOCX)}
+        )
+        assert response.status_code == 202
+        assert len(calls) == 1
+        config = mock_ingestor.submit_job.call_args[1]["config"]
+        assert "extraction_paths" not in config
+    finally:
+        _unlink_submitted_original(mock_ingestor)

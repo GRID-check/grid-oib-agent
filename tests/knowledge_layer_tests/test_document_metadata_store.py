@@ -1282,48 +1282,6 @@ class TestExtractText:
         assert result is not None
         assert len(result) > 0
 
-    def test_docx_extraction(self):
-        """Test DOCX text extraction using docx2txt."""
-        from knowledge_layer.foundational_rag.adapter import _extract_text
-
-        pytest.importorskip("docx2txt")
-
-        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as f:
-            tmp_path = f.name
-
-        try:
-            from docx import Document
-
-            doc = Document()
-            doc.add_paragraph("Test paragraph for DOCX extraction.")
-            doc.save(tmp_path)
-
-            result = _extract_text(tmp_path)
-            assert result is not None
-            assert "Test paragraph" in result
-        except ImportError:
-            pytest.skip("python-docx not installed for DOCX creation")
-
-    def test_pptx_extraction(self):
-        """Test PPTX text extraction using python-pptx."""
-        from knowledge_layer.foundational_rag.adapter import _extract_text
-
-        pytest.importorskip("pptx")
-        from pptx import Presentation
-
-        with tempfile.NamedTemporaryFile(suffix=".pptx", delete=False) as f:
-            tmp_path = f.name
-
-        prs = Presentation()
-        slide = prs.slides.add_slide(prs.slide_layouts[1])
-        slide.shapes.title.text = "Test Slide Title"
-        slide.placeholders[1].text = "Slide body content for testing."
-        prs.save(tmp_path)
-
-        result = _extract_text(tmp_path)
-        assert result is not None
-        assert "Test Slide Title" in result
-
 
 # =============================================================================
 # File Summary Generation Tests
@@ -1414,8 +1372,9 @@ class TestGenerateFileSummary:
         from knowledge_layer.foundational_rag.adapter import SUMMARIZABLE_EXTENSIONS
 
         assert ".pdf" in SUMMARIZABLE_EXTENSIONS
-        assert ".docx" in SUMMARIZABLE_EXTENSIONS
-        assert ".pptx" in SUMMARIZABLE_EXTENSIONS
+        # Word and presentation files are summarised from their PDF rendition.
+        assert ".docx" not in SUMMARIZABLE_EXTENSIONS
+        assert ".pptx" not in SUMMARIZABLE_EXTENSIONS
         assert ".txt" in SUMMARIZABLE_EXTENSIONS
         assert ".md" in SUMMARIZABLE_EXTENSIONS
         assert ".csv" not in SUMMARIZABLE_EXTENSIONS

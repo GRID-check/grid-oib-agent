@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter
+from fastapi import BackgroundTasks
 from fastapi import Depends
 from fastapi import Header
 from fastapi import HTTPException
@@ -51,6 +52,7 @@ def add_ingest_routes(router: APIRouter):
     )
     async def ingest_from_url(
         request: IngestRequest,
+        background_tasks: BackgroundTasks,
         ingestor: BaseIngestor = Depends(_require_ingestor),
         x_grid_organization_id: str | None = Header(default=None),
     ) -> dict:
@@ -85,13 +87,15 @@ def add_ingest_routes(router: APIRouter):
         submitted = False
         try:
             _assert_fetchable_object_store_url(file_ref)
+            # The office rendition (ADR-0070/0071), for the thumbnail and for
+            # extraction. Both are fetched after this request has answered, so
+            # they pass the same two gates as file_ref now, before anything is
+            # requested, and fail-closed like thumbnail_upload_url: a request
+            # naming a non-object-store rendition is malformed.
             if request.preview_ref:
-                # The office rendition (ADR-0070) is fetched by the thumbnail
-                # fast path, so it passes the same two gates as file_ref, and
-                # fail-closed like thumbnail_upload_url: a request naming a
-                # non-object-store rendition is malformed. It is checked here,
-                # before any request is made, and never enters the job config.
                 _assert_fetchable_object_store_url(request.preview_ref, field="preview_ref")
+            if request.extraction_ref:
+                _assert_fetchable_object_store_url(request.extraction_ref, field="extraction_ref")
 
             async with httpx.AsyncClient() as client:
                 # No redirects: a follow could land on a host outside the
@@ -164,11 +168,22 @@ def add_ingest_routes(router: APIRouter):
             # aiq_agent.common.provenance.parse_agent_provenance, which returns
             # None for anything unmarked.
             config.update(_provenance_config(request))
+            if request.extraction_ref:
+                # Read the document from its PDF rendition (ADR-0071). The job
+                # downloads it: see DeferredObjectDownload for why not here.
+                # Positional like original_filenames, whose entry above stays
+                # the original's name, the identity every chunk carries.
+                config["extraction_paths"] = [DeferredObjectDownload(request.extraction_ref)]
 
+            # An office original has no pages to draw here; its thumbnail comes
+            # from the rendition, which is a download, so it happens after the
+            # response (see _schedule_rendition_thumbnail).
+            if request.thumbnail_upload_url and not _draws_itself(temp_path):
+                _schedule_rendition_thumbnail(background_tasks, request, temp_path)
             # Fast thumbnail: generate a 200px JPEG before the job enters the
             # pool so the BFF polling sees it (near-)instantly. Fail-open —
             # a thumbnail is decorative and never blocks ingestion.
-            if request.thumbnail_upload_url:
+            elif request.thumbnail_upload_url:
                 try:
                     pregenerated = await asyncio.to_thread(
                         _generate_and_upload_thumbnail,
@@ -237,6 +252,66 @@ def add_ingest_routes(router: APIRouter):
                     os.unlink(temp_path)
                 except OSError:
                     pass
+
+
+class DeferredObjectDownload:
+    """A gated object-store GET the ingest job runs when it reaches the file.
+
+    Why deferred: the BFF aborts ``POST /v1/ingest`` after ten seconds and then
+    marks the row failed, while this route may still go on to submit the job,
+    so everything slow between the request and the job id is a false failure
+    plus a duplicate ingest waiting to happen. The PDF rendition (ADR-0071) is
+    a second download of up to tens of megabytes, so the route gates the URL
+    and hands the job this object instead of the bytes.
+
+    The URL is a presigned GET, a bearer credential: it lives in a private slot
+    and never in ``repr``, so a job config that is logged, printed or shown in
+    a traceback carries ``<deferred object download>`` and nothing a reader
+    could replay. Calling it downloads to a new temp file, which the caller
+    then owns and deletes, and raises on any failure
+    (``knowledge_layer.renditions.resolve_rendition`` runs it).
+
+    The job runs when the bounded ingest pool reaches it, which can be minutes
+    after this request, so the URL must be signed to outlive the queue.
+    """
+
+    __slots__ = ("_suffix", "_url")
+
+    def __init__(self, url: str, suffix: str = ".pdf") -> None:
+        self._url = url
+        self._suffix = suffix
+
+    def __repr__(self) -> str:
+        return "<deferred object download>"
+
+    def __call__(self) -> str:
+        # No redirects, for the reason the file_ref download gives.
+        response = httpx.get(self._url, follow_redirects=False, timeout=60.0)
+        response.raise_for_status()
+        fd, path = tempfile.mkstemp(suffix=self._suffix)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(response.content)
+        return path
+
+
+def _schedule_rendition_thumbnail(
+    background_tasks: BackgroundTasks, request: IngestRequest, original_path: str
+) -> None:
+    """Draw an office original's thumbnail from its rendition, after the response.
+
+    With ``extraction_ref`` the ingest job downloads the rendition anyway and
+    draws the thumbnail from it (the PDF fallback in the ingestor), so the same
+    PDF is not fetched twice. Otherwise ``preview_ref`` is drawn by a background
+    task, which runs once this request has answered: the download stays off the
+    BFF's ten-second budget and the thumbnail stays independent of the backend.
+    ``original_path`` only routes ``_render_thumbnail`` past the PDF and image
+    branches; the file itself is not read.
+    """
+    if request.extraction_ref or not request.preview_ref:
+        return
+    background_tasks.add_task(
+        _generate_and_upload_thumbnail, original_path, request.thumbnail_upload_url, request.preview_ref
+    )
 
 
 def _provenance_config(request: IngestRequest) -> dict[str, str]:
@@ -416,13 +491,19 @@ _PDF_SUFFIXES = (".pdf",)
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
 
 
+def _draws_itself(file_path: str) -> bool:
+    """Whether the fast path can render this original's thumbnail from its own bytes."""
+    return os.path.splitext(file_path)[1].lower() in (*_PDF_SUFFIXES, *_IMAGE_SUFFIXES)
+
+
 def _generate_and_upload_thumbnail(file_path: str, thumbnail_url: str, preview_ref: str | None = None) -> bool:
     """Render a 200px JPEG of the document and PUT it to the presigned
     SeaweedFS URL. Fail-open on any error (thumbnails are decorative).
 
     Called in the ingest request handler (before ``submit_job``) so the
     thumbnail is available near-instantly - before the file even enters the
-    worker pool. Returns ``True`` when a thumbnail was uploaded so the caller
+    worker pool; for an office original, as a background task once the
+    response is out (``_schedule_rendition_thumbnail``). Returns ``True`` when a thumbnail was uploaded so the caller
     can signal the ingest job to skip its redundant fallback render.
     ``preview_ref`` is the office original's PDF rendition (ADR-0070), read
     only when the original itself is neither a PDF nor an image.

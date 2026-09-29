@@ -105,7 +105,9 @@ JOB_RETENTION_SECONDS = 3600  # 1 hour
 # Client-side summary settings (runs parallel to FRAG ingestion)
 SUMMARY_MAX_CHARS = 4000
 SUMMARY_MAX_PAGES = 2
-SUMMARIZABLE_EXTENSIONS = {".pdf", ".docx", ".pptx", ".txt", ".md"}
+# No Word or presentation reader: those are summarised from their PDF
+# rendition (ADR-0071), which the batch path reads in place of the original.
+SUMMARIZABLE_EXTENSIONS = {".pdf", ".txt", ".md"}
 
 
 def _create_session(timeout: int = DEFAULT_TIMEOUT, verify_ssl: bool = True) -> requests.Session:
@@ -141,7 +143,8 @@ def _extract_text(file_path: str, max_chars: int = SUMMARY_MAX_CHARS) -> str | N
     """
     Extract text from a file for summary generation.
 
-    Supports PDF, DOCX, PPTX, TXT, and Markdown files.
+    Supports PDF, TXT and Markdown files; a Word or presentation file is read
+    through its PDF rendition (ADR-0071).
 
     Args:
         file_path: Path to the file.
@@ -168,33 +171,6 @@ def _extract_text(file_path: str, max_chars: int = SUMMARY_MAX_CHARS) -> str | N
                         break
                 return text[:max_chars].strip() or None
 
-        elif suffix == ".docx":
-            try:
-                import docx2txt
-            except ImportError:
-                logger.debug("docx2txt not installed, skipping DOCX text extraction")
-                return None
-            text = docx2txt.process(file_path) or ""
-            return text[:max_chars].strip() or None
-
-        elif suffix == ".pptx":
-            try:
-                from pptx import Presentation
-            except ImportError:
-                logger.debug("python-pptx not installed, skipping PPTX text extraction")
-                return None
-            prs = Presentation(file_path)
-            text = ""
-            for slide in prs.slides:
-                for shape in slide.shapes:
-                    if shape.has_text_frame:
-                        text += shape.text_frame.text + "\n"
-                    if len(text) > max_chars:
-                        break
-                if len(text) > max_chars:
-                    break
-            return text[:max_chars].strip() or None
-
         elif suffix in (".txt", ".md"):
             with open(file_path, encoding="utf-8", errors="replace") as f:
                 text = f.read(max_chars)
@@ -210,8 +186,8 @@ def _generate_file_summary(file_path: str, llm=None, text: str | None = None) ->
     """
     Generate one-sentence summary from a local file.
 
-    Runs client-side in parallel with FRAG upload. Supports PDF, DOCX,
-    PPTX, TXT, and Markdown files.
+    Runs client-side in parallel with FRAG upload. Supports PDF, TXT and
+    Markdown files (a Word or presentation file through its rendition).
 
     Args:
         file_path: Path to the file to summarize.
@@ -830,7 +806,7 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
 
         # Upload files in background
         thread = threading.Thread(
-            target=self._upload_files_async,
+            target=self._upload_then_clean_up,
             args=(job_id, file_paths, collection_name, config),
             daemon=True,
         )
@@ -838,14 +814,51 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
 
         return job_id
 
+    def _upload_then_clean_up(
+        self,
+        job_id: str,
+        file_paths: list[str],
+        collection_name: str,
+        config: dict[str, Any],
+    ) -> None:
+        """Upload, then delete the temp files this job owns.
+
+        ``POST /v1/ingest`` sets ``cleanup_files`` and hands the job its
+        downloaded original, and for a Word or presentation file its PDF
+        rendition in ``extraction_paths`` (ADR-0071). The RAG server receives
+        and extracts the ORIGINAL, under its own name: it dispatches by
+        extension, so the rendition's bytes under ``Bericht.docx`` would be
+        misread, and under another name would break the purge key. The
+        rendition is what the client-side summary reads instead. Before this
+        wrapper nothing was deleted: every ingest through this backend left its
+        temp file behind.
+        """
+        from knowledge_layer.renditions import delete_quietly
+        from knowledge_layer.renditions import handed_rendition_paths
+        from knowledge_layer.renditions import resolve_rendition
+
+        downloaded: list[str] = []
+        try:
+            summary_paths = [resolve_rendition(config, i, downloaded) for i in range(len(file_paths))]
+            self._upload_files_async(job_id, file_paths, collection_name, config, summary_paths=summary_paths)
+        finally:
+            delete_quietly(downloaded)
+            if config.get("cleanup_files"):
+                delete_quietly([*file_paths, *handed_rendition_paths(config)])
+
     def _upload_files_async(
         self,
         job_id: str,
         file_paths: list[str],
         collection_name: str,
         config: dict[str, Any] | None = None,
+        summary_paths: list[str | None] | None = None,
     ):
-        """Background thread to upload files to RAG server."""
+        """Background thread to upload files to RAG server.
+
+        ``summary_paths`` holds, per file, the PDF rendition the client-side
+        summary reads in place of the original (``None``: the original).
+        """
         from concurrent.futures import ThreadPoolExecutor
 
         with self._lock:
@@ -880,24 +893,24 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
         files_payload = []
         for i, file_path in enumerate(file_paths):
             file_name = original_filenames[i] if i < len(original_filenames) else Path(file_path).name
-            file_path_obj = Path(file_path)
+            summary_path = (summary_paths[i] if summary_paths and i < len(summary_paths) else None) or file_path
 
             with self._lock:
                 file_details[i].status = FileStatus.INGESTING
 
             # Start client-side summary + tag generation in parallel (if enabled)
-            if self.generate_summary and file_path_obj.suffix.lower() in SUMMARIZABLE_EXTENSIONS:
+            if self.generate_summary and Path(summary_path).suffix.lower() in SUMMARIZABLE_EXTENSIONS:
                 logger.info("Starting client-side summary + tag generation")
                 # Extract text ONCE and feed both futures (summary + tags),
                 # avoiding a redundant second extraction per file. The text is
                 # also retained for a deterministic fallback summary below.
-                extracted_text = _extract_text(file_path)
+                extracted_text = _extract_text(summary_path)
                 extracted_texts[i] = extracted_text
-                future = executor.submit(_generate_file_summary, file_path, self.summary_llm, extracted_text)
+                future = executor.submit(_generate_file_summary, summary_path, self.summary_llm, extracted_text)
                 summary_futures[i] = (file_name, future)
                 tags_futures[i] = executor.submit(
                     _generate_file_tags,
-                    file_path,
+                    summary_path,
                     self.summary_llm,
                     extracted_text,
                     config.get("organization_id"),

@@ -32,9 +32,22 @@ class IngestRequest(BaseModel):
         None,
         description=(
             "Presigned GET of the document's PDF rendition (`<dir>/_render.pdf`, ADR-0070), sent "
-            "for an office original. Read ONLY to render the fast-path thumbnail when the original "
-            "is neither a PDF nor an image; text extraction still reads `file_ref`. Never stored "
-            "in the job config and never logged: a presigned URL is a bearer credential."
+            "for an office original. Read ONLY to draw the thumbnail of an original that is neither "
+            "a PDF nor an image, in a background task after the response; not read at all when "
+            "`extraction_ref` is sent (the job draws the thumbnail from that download). Never "
+            "stored in the job config and never logged: a presigned URL is a bearer credential."
+        ),
+    )
+    extraction_ref: str | None = Field(
+        None,
+        description=(
+            "Presigned GET of the document's PDF rendition to EXTRACT from (ADR-0071), sent by the "
+            "BFF for Word, presentation and legacy spreadsheet originals, which are indexed from it "
+            "and nothing else: text, embedded images and drawing pages come from this PDF "
+            "(page_label = PDF page), a .pptx/.pptm original adds its speaker notes per slide, and "
+            "identity stays the original's (every chunk carries `file_name`). Such a file without a "
+            "readable rendition fails with `office_rendition_required`. Gated like `file_ref` here, "
+            "downloaded by the ingest job, never logged."
         ),
     )
     folder_path: str | None = Field(
