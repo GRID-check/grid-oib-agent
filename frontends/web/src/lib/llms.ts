@@ -19,6 +19,8 @@ const PAGE_PATHS: [PageKey | 'home', string][] = [
   ['journal', '/blog/journal/'],
   ['bautagebuch', '/blog/bautagebuch/'],
   ['changelog', '/changelog/'],
+  ['warum', '/warum-piloti/'],
+  ['vsReiner', '/piloti-vs-reiner-ai/'],
   ['rechenweg', '/rechenweg/'],
   ['impressum', '/impressum/'],
   ['datenschutz', '/datenschutz/'],

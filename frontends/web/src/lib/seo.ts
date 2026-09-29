@@ -48,6 +48,10 @@ export const SHARE_ART = {
   rechenweg: 'tafeln/waage/og',
   /** Plate V, Prüfstand: the quiet card, a clause under the glass (imprint, privacy, 404). */
   legal: 'tafeln/pruefstand/og',
+  /** Plate I, Drei Stützen: why Piloti, three columns under one answer (law, office, project). */
+  warum: 'tafeln/stuetzen/og',
+  /** Tragwerk IV, Ziegelpfeiler: the comparison, another way to carry the same load. */
+  vsReiner: 'tragwerk/ziegel/og',
   /** Tragwerk II, Drei Säulen: the unlisted image page, all the prints on one slab. */
   bildmaterial: 'tragwerk/drei/og',
 } as const satisfies Record<string, OgArtId>
@@ -201,4 +205,33 @@ export function postLd(p: PostLdInput) {
 /** JSON for a <script type="application/ld+json">, safe against a `</script>` in any string. */
 export function ldJson(nodes: object[]) {
   return JSON.stringify({ '@context': 'https://schema.org', '@graph': nodes }).replace(/</g, '\\u003c')
+}
+
+/**
+ * A standalone page (why Piloti, the comparison) as a WebPage in the site
+ * graph with its breadcrumb Start › Page, so a result can show the trail
+ * instead of the bare URL.
+ */
+export function pageLd(locale: Locale, title: string, path: string, site: URL | undefined) {
+  const url = absoluteUrl(path, site)
+  const home = absoluteUrl(locale === 'en' ? '/en/' : '/', site)
+  const name = title.replace(/ – Piloti$/, '')
+  return [
+    {
+      '@type': 'WebPage',
+      '@id': url,
+      url,
+      name,
+      inLanguage: locale === 'de' ? 'de-AT' : 'en',
+      isPartOf: { '@id': `${home}#website` },
+      about: { '@id': `${absoluteUrl('/', site)}#organization` },
+    },
+    {
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        [ui[locale].seo.breadcrumbHome, home],
+        [name, url],
+      ].map(([n, item], i) => ({ '@type': 'ListItem', position: i + 1, name: n, item })),
+    },
+  ]
 }

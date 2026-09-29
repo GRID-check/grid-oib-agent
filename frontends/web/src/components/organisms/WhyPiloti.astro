@@ -1,0 +1,128 @@
+---
+/**
+ * /warum-piloti/: the argument the landing page leaves to the reader. Who it
+ * is for, why not a general chatbot, what an answer turns into, what grows
+ * with use, what Piloti is not, and that it ships every week. Copy in
+ * i18n/pages.ts; every capability named there is in the changelog.
+ */
+import PageHead from '../molecules/PageHead.astro'
+import CompareTable from '../molecules/CompareTable.astro'
+import Pill from '../atoms/Pill.astro'
+import { PLATES } from '../craft/plates'
+import { mailtoHref } from '../../consts'
+import { ui, type Locale } from '../../i18n/ui'
+import { pages } from '../../i18n/pages'
+import { useTranslatedPath } from '../../i18n/utils'
+import { shippedTotals } from '../../lib/changelog'
+
+interface Props {
+  locale: Locale
+}
+const { locale } = Astro.props
+const t = pages[locale].why
+const cta = ui[locale].cta
+const path = useTranslatedPath(locale)
+const totals = shippedTotals()
+const fmt = new Intl.NumberFormat(locale === 'de' ? 'de-AT' : 'en-GB')
+const velocity = t.velocity.body
+  .replace('{notes}', fmt.format(totals.notes))
+  .replace('{weeks}', fmt.format(totals.weeks))
+const h2 = 'm-0 font-voice text-v4 text-ink'
+---
+
+<div class="frame pt-28 md:pt-36">
+  <PageHead title={t.heading} plate={PLATES.I} locale={locale} priority>
+    <p class="m-0">{t.lede}</p>
+    <div class="mt-7 flex flex-wrap gap-3">
+      <Pill href={mailtoHref(cta.subjectPilot, cta.bodyPilot)} variant="solid">{t.ctaPrimary}</Pill>
+      <Pill href={path('/changelog/')} variant="outline">{t.ctaSecondary}</Pill>
+    </div>
+  </PageHead>
+
+  <section aria-labelledby="why-audiences" class="section-y">
+    <h2 id="why-audiences" class={h2}>{t.audiences.title}</h2>
+    <ul class="m-0 mt-8 grid list-none gap-x-10 gap-y-8 p-0 md:grid-cols-2">
+      {
+        t.audiences.items.map((a) => (
+          <li data-reveal class="border-t border-ink/15 pt-5">
+            <h3 class="m-0 text-lg font-semibold text-ink">{a.who}</h3>
+            <p class="m-0 mt-2 max-w-measure text-base leading-relaxed text-ink-soft">{a.need}</p>
+            <p class="m-0 mt-2 max-w-measure text-base leading-relaxed text-ink">→ {a.gets}</p>
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+
+  <section aria-labelledby="why-chatgpt" class="section-y border-t border-ink/15">
+    <h2 id="why-chatgpt" class={h2}>{t.chatgpt.title}</h2>
+    <p class="m-0 mt-5 max-w-measure text-base leading-relaxed text-ink-soft md:text-lg">{t.chatgpt.body}</p>
+    <div class="mt-8">
+      <CompareTable caption={t.chatgpt.title} headA={t.chatgpt.headA} headB={t.chatgpt.headB} rows={t.chatgpt.rows} ours="b" />
+    </div>
+  </section>
+
+  <section aria-labelledby="why-stages" class="section-y border-t border-ink/15">
+    <h2 id="why-stages" class={h2}>{t.stages.title}</h2>
+    <p class="m-0 mt-5 max-w-measure text-base leading-relaxed text-ink-soft md:text-lg">{t.stages.body}</p>
+    <ol class="m-0 mt-8 grid list-none gap-8 p-0 md:grid-cols-3">
+      {
+        t.stages.items.map((s) => (
+          <li data-reveal class="border-t border-ink/15 pt-5">
+            <span class="font-mono text-xs text-accent-600">{s.step}</span>
+            <h3 class="m-0 mt-1 text-lg font-semibold text-ink">{s.name}</h3>
+            <p class="m-0 mt-1 font-voice text-lg text-ink">{s.question}</p>
+            <p class="m-0 mt-3 text-base leading-relaxed text-ink-soft">{s.body}</p>
+          </li>
+        ))
+      }
+    </ol>
+  </section>
+
+  <section aria-labelledby="why-moat" class="section-y border-t border-ink/15">
+    <h2 id="why-moat" class={h2}>{t.moat.title}</h2>
+    <p class="m-0 mt-5 max-w-measure text-base leading-relaxed text-ink-soft md:text-lg">{t.moat.body}</p>
+    <dl class="m-0 mt-8 grid gap-x-10 gap-y-6 md:grid-cols-2 lg:grid-cols-3">
+      {
+        t.moat.items.map((m) => (
+          <div class="border-t border-ink/15 pt-4">
+            <dt class="text-base font-semibold text-ink">{m.name}</dt>
+            <dd class="m-0 mt-1 text-base leading-relaxed text-ink-soft">{m.body}</dd>
+          </div>
+        ))
+      }
+    </dl>
+  </section>
+
+  <section aria-labelledby="why-honest" class="section-y border-t border-ink/15">
+    <h2 id="why-honest" class={h2}>{t.honest.title}</h2>
+    <ul class="m-0 mt-6 max-w-measure list-disc space-y-3 pl-5 text-base leading-relaxed text-ink-soft">
+      {t.honest.items.map((item) => <li>{item}</li>)}
+    </ul>
+    <a href={path('/datenschutz/')} class="mt-5 inline-block text-base text-accent-600 underline underline-offset-4">
+      {t.honest.link}
+    </a>
+  </section>
+
+  <section aria-labelledby="why-velocity" class="section-y border-t border-ink/15">
+    <div class="grid gap-10 md:grid-cols-2">
+      <div>
+        <h2 id="why-velocity" class={h2}>{t.velocity.title}</h2>
+        <p class="m-0 mt-4 max-w-measure text-base leading-relaxed text-ink-soft">{velocity}</p>
+        <a href={path('/changelog/')} class="mt-4 inline-block text-base text-accent-600 underline underline-offset-4">
+          {t.velocity.link} →
+        </a>
+      </div>
+      <div>
+        <h2 class={h2}>{t.compare.title}</h2>
+        <p class="m-0 mt-4 max-w-measure text-base leading-relaxed text-ink-soft">{t.compare.body}</p>
+        <a
+          href={path('/piloti-vs-reiner-ai/')}
+          class="mt-4 inline-block text-base text-accent-600 underline underline-offset-4"
+        >
+          {t.compare.link} →
+        </a>
+      </div>
+    </div>
+  </section>
+</div>
