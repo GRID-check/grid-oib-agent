@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    A project link with a mistyped or truncated address now shows the same
+    "no access" page as any project you cannot open, instead of a general
+    error page.
