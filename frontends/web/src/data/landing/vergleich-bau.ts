@@ -94,7 +94,7 @@ export const vergleichBau: LandingEntry[] = [
           kind: 'text',
           title: 'Gut zu wissen',
           body: [
-            'Piloti ist für österreichisches Recht gebaut; VOB, HOAI und deutsche Landesbauordnungen gehören nicht dazu. Die Verantwortung für die Planung bleibt beim Büro: Piloti nennt zu jeder Aussage die Quelle, damit Sie sie prüfen können, und fragt nach, wenn eine entscheidende Angabe fehlt.',
+            'Piloti ist für österreichisches Recht gebaut; VOB, HOAI und deutsche Landesbauordnungen gehören nicht dazu. Die Verantwortung für die Planung bleibt beim Büro: Piloti nennt zu jeder Antwort die Quellen, damit Sie sie prüfen können, und fragt nach, wenn eine entscheidende Angabe fehlt.',
           ],
         },
       ],
@@ -201,7 +201,7 @@ export const vergleichBau: LandingEntry[] = [
           kind: 'text',
           title: 'Good to know',
           body: [
-            'Piloti is built for Austrian law; VOB, HOAI and German state building codes are not part of it. Responsibility for the design stays with the office: Piloti names the source of every statement so you can check it, and asks when a deciding fact is missing.',
+            'Piloti is built for Austrian law; VOB, HOAI and German state building codes are not part of it. Responsibility for the design stays with the office: Piloti names the source of every answer so you can check it, and asks when a deciding fact is missing.',
           ],
         },
       ],
@@ -535,7 +535,7 @@ export const vergleichBau: LandingEntry[] = [
           kind: 'text',
           title: 'Gut zu wissen',
           body: [
-            'Piloti ist für österreichisches Recht gebaut; deutsches Baurecht und Förderprogramme wie KfW oder BAFA gehören nicht dazu. Die Verantwortung für die Planung bleibt beim Büro: Piloti nennt zu jeder Aussage die Quelle und fragt nach, wenn Gebäudeklasse, Bundesland oder Art des Vorhabens fehlen.',
+            'Piloti ist für österreichisches Recht gebaut; deutsches Baurecht und Förderprogramme wie KfW oder BAFA gehören nicht dazu. Die Verantwortung für die Planung bleibt beim Büro: Piloti nennt zu jeder Antwort die Quellen und fragt nach, wenn Gebäudeklasse, Bundesland oder Art des Vorhabens fehlen.',
           ],
         },
       ],
@@ -641,7 +641,7 @@ export const vergleichBau: LandingEntry[] = [
           kind: 'text',
           title: 'Good to know',
           body: [
-            'Piloti is built for Austrian law; German building law and funding programmes such as KfW or BAFA are not part of it. Responsibility for the design stays with the office: Piloti names the source of every statement and asks when the building class, the state or the type of project is missing.',
+            'Piloti is built for Austrian law; German building law and funding programmes such as KfW or BAFA are not part of it. Responsibility for the design stays with the office: Piloti names the source of every answer and asks when the building class, the state or the type of project is missing.',
           ],
         },
       ],
@@ -756,7 +756,7 @@ export const vergleichBau: LandingEntry[] = [
           kind: 'text',
           title: 'Gut zu wissen',
           body: [
-            'Piloti bleibt bei Österreich; deutsches und Schweizer Baurecht gehören nicht dazu. Die Verantwortung für die Planung bleibt beim Büro: Piloti nennt zu jeder Aussage die Quelle, damit Sie sie prüfen können, und fragt nach, wenn eine entscheidende Angabe fehlt.',
+            'Piloti bleibt bei Österreich; deutsches und Schweizer Baurecht gehören nicht dazu. Die Verantwortung für die Planung bleibt beim Büro: Piloti nennt zu jeder Antwort die Quellen, damit Sie sie prüfen können, und fragt nach, wenn eine entscheidende Angabe fehlt.',
           ],
         },
       ],
@@ -866,7 +866,7 @@ export const vergleichBau: LandingEntry[] = [
           kind: 'text',
           title: 'Good to know',
           body: [
-            'Piloti stays with Austria; German and Swiss building law are not part of it. Responsibility for the design stays with the office: Piloti names the source of every statement so you can check it, and asks when a deciding fact is missing.',
+            'Piloti stays with Austria; German and Swiss building law are not part of it. Responsibility for the design stays with the office: Piloti names the source of every answer so you can check it, and asks when a deciding fact is missing.',
           ],
         },
       ],

@@ -183,7 +183,7 @@ export const fuer: LandingEntry[] = [
           kind: 'text',
           title: 'Good to know',
           body: [
-            'Design, drawing and responsibility stay with you; Piloti supplies the citations so your office can check every statement. The submission check establishes that the package is complete, and Piloti does not calculate a heating demand: it says which requirement applies and how a value compares. If a deciding fact is missing, such as the development plan, Piloti asks for it.',
+            'Design, drawing and responsibility stay with you; Piloti supplies the citations so your office can check every answer. The submission check establishes that the package is complete, and Piloti does not calculate a heating demand: it says which requirement applies and how a value compares. If a deciding fact is missing, such as the development plan, Piloti asks for it.',
           ],
         },
       ],

@@ -1,9 +1,10 @@
 /**
  * Piloti next to general AI assistants an office may already use, and next to
- * researching by hand. Each column on the other side says only what that
- * vendor's own pages say, read in the month `checked` names; where the other
- * tool is ahead, the page says so first. No prices for tools that do not
- * publish a stable one on the page we read.
+ * researching by hand. Piloti leads each page: what it does for an office in
+ * Austria comes first, the other tool's fit after it and briefly. Each column
+ * on the other side says only what that vendor's own pages say, read in the
+ * month `checked` names. No prices for tools that do not publish a stable one
+ * on the page we read.
  */
 import type { LandingEntry } from '../../lib/landing'
 
@@ -15,13 +16,21 @@ export const vergleichAllgemein: LandingEntry[] = [
     de: {
       title: 'ChatGPT für Baurecht in Österreich? Piloti im Vergleich',
       description:
-        'ChatGPT für Baurecht und Architekten: was es gut kann, wo Bundesland, OIB-Ausgabe und Belege fehlen, und was bei DSGVO und Training im Büro zählt.',
+        'ChatGPT oder Piloti für Baurecht in Österreich? Piloti zitiert Landesbauordnung und OIB-Richtlinie je Bundesland, geprüft und direkt im Projekt.',
       heading: 'ChatGPT oder Piloti für Baurecht?',
-      lede: 'In vielen Büros schreibt ChatGPT schon Mails und Zusammenfassungen. Reicht es auch für Baurecht? Hier der Vergleich, zuerst das, was ChatGPT besser kann.',
+      lede: 'Piloti beantwortet Planungsfragen österreichischer Projekte aus den Landesbauordnungen und den OIB-Richtlinien, mit Bundesland, Ausgabe und geprüfter Fundstelle. ChatGPT schreibt in vielen Büros schon Mails und Zusammenfassungen. Hier, was beim Baurecht den Unterschied macht.',
       note: 'Angaben zu ChatGPT laut OpenAI (openai.com, help.openai.com), gelesen im September 2026. Preise nennen wir nicht, weil sie je Tarif und Region wechseln.',
       answer:
-        'Für Texte, Zusammenfassungen und Entwürfe ist ChatGPT ein gutes Werkzeug. Für die Frage, was für ein Projekt in einem bestimmten Bundesland gilt, fehlt ihm ein geprüfter Bestand an österreichischem Baurecht mit Ausgabe und Fundstelle; dafür ist Piloti gebaut.',
+        'Für Baurecht in Österreich ist Piloti die bessere Wahl: Es zieht die Bauordnung des Bundeslands und die dort geltende OIB-Ausgabe heran, prüft jede Fundstelle gegen den Quelltext und hält das Ergebnis im Projekt fest. ChatGPT bleibt ein gutes Werkzeug für Texte.',
       blocks: [
+        {
+          kind: 'text',
+          title: 'Was Piloti beim Baurecht leistet',
+          body: [
+            'Sie fragen, wie Sie eine Kollegin fragen würden: „Welche Gebäudeklasse hat das, und was heißt das für die Fluchtwege?“ Piloti zieht die Bauordnung des Bundeslands heran, in dem das Projekt liegt, dazu die OIB-Richtlinien und bei Bedarf Bundesgesetze wie das ASchG. Die Antwort beginnt mit dem Ergebnis, danach folgen Begründung, Annahmen und Fundstelle.',
+            'Jede Fundstelle wird gegen den Quelltext geprüft, bevor sie anklickbar erscheint. Landesrecht zitiert Piloti so, wie ein Bescheid es nennt, etwa „Bauordnung für Wien, § …“, und die RIS-Quelle öffnet sich an der markierten Stelle. Fehlt ein entscheidender Fakt wie die Gebäudeklasse, fragt Piloti einmal nach oder nennt die Annahme.',
+          ],
+        },
         {
           kind: 'table',
           title: 'Im Detail',
@@ -58,31 +67,27 @@ export const vergleichAllgemein: LandingEntry[] = [
               a: 'Kein Training mit Büro-Daten',
               b: 'Laut OpenAI: Business und Enterprise standardmäßig kein Training; Free und Plus standardmäßig an, in den Einstellungen abschaltbar',
             },
-            {
-              label: 'Datenstandort',
-              a: 'Anmeldung über WorkOS (USA), KI-Anfragen über OpenRouter (USA) an Modellanbieter, auch außerhalb der EU; kein Versprechen zum Datenstandort',
-              b: 'Laut OpenAI Speicherung in Europa für einige Business-Tarife, schrittweise eingeführt; gilt für die Speicherung, nicht für die Verarbeitung',
-            },
           ],
           note: 'Angaben zu ChatGPT laut OpenAI, gelesen im September 2026. Stimmt etwas nicht mehr, schreiben Sie uns, und wir korrigieren es.',
         },
         {
           kind: 'split',
           left: {
-            title: 'Wo ChatGPT vorn liegt',
+            title: 'Wo Piloti vorn liegt',
             items: [
-              'Texte. Mails an Bauherr:innen, Baubeschreibungen, Zusammenfassungen langer Bescheide oder Gutachten schreibt ChatGPT schnell und gut.',
-              'Breite: Excel-Formeln, Übersetzungen, Code, weit über das Baurecht hinaus.',
-              'Sofort nutzbar, mit öffentlichen Tarifen.',
-              'Ein Unternehmen am Markt. Piloti ist in Gründung und in der Pilotphase.',
+              'Österreichisches Baurecht als Grundlage: die neun Landesbauordnungen aus dem RIS und die OIB-Richtlinien, zitiert bis zum Paragrafen oder Punkt.',
+              'Bundesland und Ausgabe als Teil der Antwort. Fehlt das Bundesland oder die Gebäudeklasse, fragt Piloti nach oder nennt die Annahme.',
+              'Geprüfte Fundstellen: Jede wird gegen den Quelltext abgeglichen, bevor sie erscheint.',
+              'Pläne als Bild: Piloti sieht Grundriss und Schnitt an und markiert, welche Zeichnung auf dem Blatt es gelesen hat.',
+              'Das Projekt als Arbeitsort: Aufgaben, Tiefenrecherche mit Bericht, Aktenvermerke zur Freigabe und ein Gedächtnis für das schon Geklärte.',
             ],
           },
           right: {
-            title: 'Wo Piloti vorn liegt',
+            title: 'Wofür ChatGPT gut passt',
             items: [
-              'Ein gepflegter Bestand an österreichischem Baurecht: Landesbauordnungen aus dem RIS und OIB-Richtlinien, zitiert bis zum Paragraf oder Punkt.',
-              'Bundesland und Ausgabe als Teil der Antwort. Fehlt das Bundesland oder die Gebäudeklasse, fragt Piloti nach oder nennt die Annahme.',
-              'Das Projekt als Arbeitsort: Pläne, Aufgaben, Aktenvermerke zur Freigabe und ein Gedächtnis für das, was schon geklärt ist.',
+              'Texte: Mails an Bauherr:innen, Baubeschreibungen, Zusammenfassungen langer Bescheide oder Gutachten.',
+              'Breite: Excel-Formeln, Übersetzungen, Code, weit über das Baurecht hinaus.',
+              'Sofort nutzbar, mit öffentlichen Tarifen.',
             ],
           },
         },
@@ -90,52 +95,52 @@ export const vergleichAllgemein: LandingEntry[] = [
           kind: 'text',
           title: 'Warum eine gute Formulierung nicht reicht',
           body: [
-            'Eine Frage wie „Wie lang darf der Fluchtweg hier sein?“ hat in Österreich nicht eine Antwort. Sie hängt vom Bundesland ab, von der OIB-Ausgabe, die das Land für verbindlich erklärt hat, und von der Gebäudeklasse. Laut OIB-Übersicht gilt die Ausgabe 2023 in Wien, Kärnten, Niederösterreich, Oberösterreich und Tirol ganz oder teilweise, in den anderen vier Ländern im Allgemeinen noch die Ausgabe 2019. Ein allgemeines Sprachmodell hat das nicht verlässlich parat und sagt selten dazu, von welcher Fassung es ausgeht.',
-            'Dazu kommt das Zitat. Ein Sprachmodell schreibt Paragrafen, die plausibel klingen, auch wenn es sie so nicht gibt. Wer die Fundstelle nicht selbst im RIS aufschlägt, übernimmt sie ungeprüft in den Aktenvermerk.',
+            'Eine Frage wie „Wie lang darf der Fluchtweg hier sein?“ hat in Österreich nicht eine Antwort. Sie hängt vom Bundesland ab, von der OIB-Ausgabe, die das Land für verbindlich erklärt hat, und von der Gebäudeklasse. Laut OIB-Übersicht gilt die Ausgabe 2023 in Wien, Kärnten, Niederösterreich, Oberösterreich und Tirol ganz oder teilweise, in den anderen vier Ländern im Allgemeinen noch die Ausgabe 2019. Ein allgemeines Sprachmodell hat das nicht verlässlich parat und sagt selten dazu, von welcher Fassung es ausgeht. Piloti nennt die Ausgabe, die im Bundesland gilt, wenn sie den Wert verändert.',
+            'Dazu kommt das Zitat. Ein Sprachmodell schreibt Paragrafen, die plausibel klingen, auch wenn es sie so nicht gibt. Piloti gleicht jede Fundstelle vor dem Anzeigen mit dem Quelltext ab, und ein Klick führt an die Stelle im RIS oder in der OIB-Richtlinie.',
             'Ausführlicher dazu im Journal-Beitrag „ChatGPT für Baurecht? Wo es an Grenzen stößt“.',
           ],
         },
         {
           kind: 'text',
-          title: 'Datenschutz im Planungsbüro',
+          title: 'Gut zu wissen',
           body: [
-            'Für die DSGVO zählt zuerst der Tarif. Laut OpenAI trainiert ChatGPT Business und Enterprise standardmäßig nicht mit Ihren Daten, Free und Plus schon, abschaltbar in den Einstellungen. Wer Pläne oder Namen von Bauherr:innen in ein privates Konto kopiert, sollte das wissen.',
-            'Piloti trainiert keine Modelle mit Büro-Daten und verspricht keinen Datenstandort; die Wege stehen in der Tabelle. Büros können einen eigenen Anbieter-Schlüssel verwenden.',
-          ],
-        },
-        {
-          kind: 'text',
-          title: 'Wo Piloti aufhört',
-          body: [
-            'Piloti ist kein allgemeiner Assistent: Für ein Anschreiben oder eine Übersetzung nehmen Sie ChatGPT. Piloti führt das Normenverzeichnis, nicht die ÖNORM-Texte, und nimmt Ihnen die Prüfung nicht ab. Es zeigt, woher eine Antwort kommt, damit Sie sie prüfen können.',
+            'Die Verantwortung für den Entwurf bleibt beim Planungsbüro. Piloti nennt zu jeder Antwort die Quellen, damit Sie sie mit einem Klick prüfen, und fragt nach, wenn ein entscheidender Fakt fehlt. Jede Antwort lässt sich als Word herunterladen und in den Akt legen.',
           ],
         },
       ],
       faq: [
         {
           q: 'Kann ich ChatGPT für Baurecht in Österreich nutzen?',
-          a: 'Als Ausgangspunkt ja, als Beleg nein. ChatGPT erklärt Begriffe gut, hat aber keinen gepflegten Bestand an Landesbauordnungen und OIB-Richtlinien. Jede Fundstelle sollten Sie im RIS oder in der OIB-Richtlinie selbst nachschlagen.',
+          a: 'Für Begriffe und einen ersten Überblick ja. ChatGPT bringt aber keinen eigenen Bestand an Landesbauordnungen und OIB-Richtlinien mit; jede Fundstelle müssten Sie selbst im RIS nachschlagen. Piloti zieht das Landesrecht des Projekts heran und prüft jede Fundstelle gegen den Quelltext, bevor sie erscheint.',
         },
         {
           q: 'Ist ChatGPT im Planungsbüro DSGVO-konform?',
-          a: 'Das hängt vom Tarif und von Ihrer Vereinbarung mit OpenAI ab, nicht vom Werkzeug allein. Laut OpenAI werden Business- und Enterprise-Daten standardmäßig nicht zum Training verwendet, in Free und Plus schon, abschaltbar. Die Bewertung für Ihr Büro gehört in Ihre Datenschutzberatung.',
+          a: 'Das hängt vom Tarif und von Ihrer Vereinbarung mit OpenAI ab, nicht vom Werkzeug allein. Laut OpenAI werden Business- und Enterprise-Daten standardmäßig nicht zum Training verwendet, in Free und Plus schon, abschaltbar in den Einstellungen; wer Pläne oder Namen von Bauherr:innen in ein privates Konto kopiert, sollte das wissen. Piloti trainiert keine Modelle mit Büro-Daten, und das Büroarchiv sieht kein anderes Büro.',
         },
         {
           q: 'Welche ChatGPT-Alternative passt für Architekten in Österreich?',
-          a: 'Das hängt von der Aufgabe ab. Für Texte und allgemeine Fragen bleibt ChatGPT stark. Für Fragen, deren Antwort in eine Einreichung oder einen Aktenvermerk geht, braucht es ein Werkzeug mit österreichischem Baurecht, Bundesland-Logik und geprüften Fundstellen. Dafür ist Piloti gebaut, heute in der Pilotphase mit ausgewählten Büros.',
+          a: 'Für Fragen, deren Antwort in eine Einreichung oder einen Aktenvermerk geht, braucht es österreichisches Baurecht, Bundesland-Logik und geprüfte Fundstellen. Dafür ist Piloti gebaut, samt Projekt, Aufgaben und Freigabe. Für Texte und allgemeine Fragen bleibt ChatGPT eine gute Ergänzung.',
         },
       ],
     },
     en: {
       title: 'ChatGPT for Austrian building law? Piloti compared',
       description:
-        'ChatGPT for building law and architects: what it does well, where state, OIB edition and evidence are missing, and what matters for GDPR and training.',
+        'ChatGPT or Piloti for Austrian building law? Piloti cites the state building code and OIB guideline for each state, checked and inside the project.',
       heading: 'ChatGPT or Piloti for building law?',
-      lede: 'Many offices already use ChatGPT for emails and summaries. Is it enough for building law? Here is the comparison, starting with what ChatGPT does better.',
+      lede: 'Piloti answers planning questions on Austrian projects from the state building codes and the OIB guidelines, with state, edition and a checked citation. Many offices already use ChatGPT for emails and summaries. Here is what makes the difference for building law.',
       note: 'ChatGPT details as stated by OpenAI (openai.com, help.openai.com), read in September 2026. We do not list prices, because they vary by plan and region.',
       answer:
-        'For text, summaries and drafts, ChatGPT is a good tool. For the question of what applies to a project in a given Austrian state, it lacks a maintained body of Austrian building law with edition and citation; that is what Piloti is built for.',
+        'For Austrian building law, Piloti is the better choice: it draws on the state’s building code and the OIB edition in force there, checks every citation against the source text and records the result in the project. ChatGPT remains a good tool for writing.',
       blocks: [
+        {
+          kind: 'text',
+          title: 'What Piloti does for building law',
+          body: [
+            'You ask the way you would ask a colleague: “Which building class is this, and what does that mean for the escape routes?” Piloti draws on the building code of the state the project is in, the OIB guidelines and, where needed, federal law such as the ASchG. The answer starts with the result, followed by reasoning, assumptions and citation.',
+            'Every citation is checked against the source text before it appears as a link. Piloti cites state law the way an official decision does, for example “Bauordnung für Wien, § …”, and the RIS source opens at the marked passage. If a deciding fact such as the building class is missing, Piloti asks once or states its assumption.',
+          ],
+        },
         {
           kind: 'table',
           title: 'In detail',
@@ -172,31 +177,27 @@ export const vergleichAllgemein: LandingEntry[] = [
               a: 'No training on office data',
               b: 'According to OpenAI: Business and Enterprise not used for training by default; Free and Plus on by default, can be switched off in settings',
             },
-            {
-              label: 'Data location',
-              a: 'Sign-in through WorkOS (USA), AI requests through OpenRouter (USA) to model providers, some outside the EU; no data-location promise',
-              b: 'According to OpenAI, storage in Europe for some business plans, rolled out gradually; covers storage, not processing',
-            },
           ],
           note: 'ChatGPT details as stated by OpenAI, read in September 2026. If something has changed, write to us and we will correct it.',
         },
         {
           kind: 'split',
           left: {
-            title: 'Where ChatGPT is ahead',
+            title: 'Where Piloti is ahead',
             items: [
-              'Writing. Emails to clients, building descriptions, summaries of long permits or expert reports: ChatGPT writes them quickly and well.',
-              'Breadth: spreadsheet formulas, translations, code, far beyond building law.',
-              'Ready to use, with public plans.',
-              'A company on the market. Piloti is being founded and is in its pilot phase.',
+              'Austrian building law as the foundation: the nine state building codes from RIS and the OIB guidelines, cited down to section or clause.',
+              'State and edition as part of the answer. If the state or the building class is missing, Piloti asks or states its assumption.',
+              'Checked citations: each one is matched against the source text before it appears.',
+              'Drawings as images: Piloti looks at plan and section and marks which drawing on the sheet it read.',
+              'The project as the place of work: tasks, in-depth research with a report, file notes sent for approval, and a memory of what is already settled.',
             ],
           },
           right: {
-            title: 'Where Piloti is ahead',
+            title: 'What ChatGPT is good for',
             items: [
-              'A maintained body of Austrian building law: state building codes from RIS and the OIB guidelines, cited down to section or clause.',
-              'State and edition as part of the answer. If the state or the building class is missing, Piloti asks or states its assumption.',
-              'The project as the place of work: drawings, tasks, file notes sent for approval, and a memory of what is already settled.',
+              'Writing: emails to clients, building descriptions, summaries of long permits or expert reports.',
+              'Breadth: spreadsheet formulas, translations, code, far beyond building law.',
+              'Ready to use, with public plans.',
             ],
           },
         },
@@ -204,39 +205,31 @@ export const vergleichAllgemein: LandingEntry[] = [
           kind: 'text',
           title: 'Why good phrasing is not enough',
           body: [
-            'A question like “How long may the escape route be here?” has no single answer in Austria. It depends on the state, on the OIB edition that state has declared binding, and on the building class. According to the OIB overview, the 2023 edition applies in whole or in part in Vienna, Carinthia, Lower Austria, Upper Austria and Tyrol, and in the other four states the 2019 edition generally still applies. A general language model does not have this reliably to hand and rarely says which version it assumes.',
-            'Then there is the citation. A language model writes sections that sound plausible even when they do not exist in that form. Anyone who does not look the citation up in RIS carries it unchecked into the file note.',
+            'A question like “How long may the escape route be here?” has no single answer in Austria. It depends on the state, on the OIB edition that state has declared binding, and on the building class. According to the OIB overview, the 2023 edition applies in whole or in part in Vienna, Carinthia, Lower Austria, Upper Austria and Tyrol, and in the other four states the 2019 edition generally still applies. A general language model does not have this reliably to hand and rarely says which version it assumes. Piloti names the edition in force in the state when it changes the value.',
+            'Then there is the citation. A language model writes sections that sound plausible even when they do not exist in that form. Piloti matches every citation against the source text before showing it, and one click leads to the passage in RIS or in the OIB guideline.',
             'More on this in our journal article “ChatGPT for building law? Where it falls short”.',
           ],
         },
         {
           kind: 'text',
-          title: 'Data protection in a planning office',
+          title: 'Good to know',
           body: [
-            'For the GDPR, the plan counts first. According to OpenAI, ChatGPT Business and Enterprise do not train on your data by default, Free and Plus do, switchable off in settings. Anyone copying drawings or clients’ names into a personal account should know this.',
-            'Piloti does not train models on office data and makes no data-location promise; the routes are in the table. Offices can use their own provider key.',
-          ],
-        },
-        {
-          kind: 'text',
-          title: 'Where Piloti stops',
-          body: [
-            'Piloti is not a general assistant: for a cover letter or a translation, use ChatGPT. Piloti holds the register of standards, not the ÖNORM texts, and does not do your checking for you. It shows where an answer comes from so that you can check it.',
+            'Responsibility for the design stays with the planning office. Piloti names the source of every answer so that you can check it in one click, and asks when a deciding fact is missing. Every answer can be downloaded as Word and filed.',
           ],
         },
       ],
       faq: [
         {
           q: 'Can I use ChatGPT for building law in Austria?',
-          a: 'As a starting point, yes; as evidence, no. ChatGPT explains terms well, but has no maintained body of state building codes and OIB guidelines. Look every citation up yourself in RIS or in the OIB guideline.',
+          a: 'For terms and a first overview, yes. But ChatGPT brings no body of state building codes and OIB guidelines of its own; you would have to look every citation up in RIS yourself. Piloti draws on the project’s state law and checks every citation against the source text before it appears.',
         },
         {
           q: 'Is ChatGPT GDPR-compliant for a planning office?',
-          a: 'That depends on the plan and on your agreement with OpenAI, not on the tool alone. According to OpenAI, Business and Enterprise data is not used for training by default; on Free and Plus it is, and that can be switched off. The assessment for your office belongs with your data-protection adviser.',
+          a: 'That depends on the plan and on your agreement with OpenAI, not on the tool alone. According to OpenAI, Business and Enterprise data is not used for training by default; on Free and Plus it is, and that can be switched off in settings. Anyone copying drawings or clients’ names into a personal account should know this. Piloti does not train models on office data, and no other office sees the office archive.',
         },
         {
           q: 'Which ChatGPT alternative fits architects in Austria?',
-          a: 'It depends on the job. For writing and general questions ChatGPT remains strong. For questions whose answer goes into a submission or a file note, you need a tool with Austrian building law, state logic and checked citations. Piloti is built for that, currently in a pilot phase with selected offices.',
+          a: 'For questions whose answer goes into a submission or a file note, you need Austrian building law, state logic and checked citations. Piloti is built for that, with project, tasks and approval. For writing and general questions, ChatGPT remains a good complement.',
         },
       ],
     },
@@ -248,13 +241,21 @@ export const vergleichAllgemein: LandingEntry[] = [
     de: {
       title: 'Microsoft Copilot für Architekten: Piloti im Vergleich',
       description:
-        'Microsoft Copilot oder Piloti im Planungsbüro? Wo Copilot in Microsoft 365 stark ist und wo österreichisches Baurecht, OIB und Freigaben fehlen.',
+        'Microsoft Copilot oder Piloti im Planungsbüro? Piloti bringt österreichisches Baurecht, die OIB-Ausgabe je Bundesland und Freigaben ins Projekt.',
       heading: 'Microsoft Copilot oder Piloti?',
-      lede: 'Viele Büros arbeiten mit Microsoft 365, und Copilot steckt dort schon drin. Die Frage ist, was es für Baurecht und Planung leistet. Hier der Vergleich, zuerst das, was Copilot besser kann.',
+      lede: 'Piloti beantwortet Planungsfragen aus den neun Landesbauordnungen und den OIB-Richtlinien und führt sie im Projekt bis zum freigegebenen Aktenvermerk. Copilot steckt in vielen Büros schon in Microsoft 365. Hier, was jedes Werkzeug für Baurecht und Planung leistet.',
       note: 'Gemeint ist Microsoft Copilot, früher Microsoft 365 Copilot. Angaben laut Microsoft (microsoft.com, learn.microsoft.com), gelesen im September 2026.',
       answer:
-        'Liegt das Wissen Ihres Büros in SharePoint, Outlook und Teams, findet Copilot es dort, und nur das, was Sie sehen dürfen. Für Fragen zum österreichischen Baurecht bringt es keinen eigenen Bestand an Landesbauordnungen und OIB-Richtlinien mit; dafür ist Piloti gebaut.',
+        'Für Fragen zum österreichischen Baurecht ist Piloti die bessere Wahl: Es bringt die Landesbauordnungen aus dem RIS und die OIB-Richtlinien mit, nennt die Ausgabe, die im Bundesland gilt, und führt die Antwort bis zur Freigabe im Projekt. Copilot passt für Mails und Dateien in Microsoft 365.',
       blocks: [
+        {
+          kind: 'text',
+          title: 'Was Piloti im Planungsbüro übernimmt',
+          body: [
+            'Piloti arbeitet mit der Bauordnung und den Bautechnikvorschriften des Landes, in dem Ihr Projekt steht, für Wien etwa auch mit der Wiener Bautechnikverordnung 2023, dem Wiener Garagengesetz 2008 und den MA 37 Merkblättern. Es zitiert so, wie ein Bescheid es tut, und öffnet die RIS-Quelle an der markierten Stelle.',
+            'Aus der Frage wird Arbeit im Projekt: „Mach den Einreichcheck bis Freitag“ läuft als Aufgabe unter Ihrem Namen und Ihren Rechten, eine Tiefenrecherche legt ihren Bericht mit Befundmatrix unter „Berichte“ ab, und ein Aktenvermerk geht zur Freigabe in den Posteingang.',
+          ],
+        },
         {
           kind: 'table',
           title: 'Im Detail',
@@ -278,7 +279,7 @@ export const vergleichAllgemein: LandingEntry[] = [
             },
             {
               label: 'Baurecht',
-              a: 'Bundesland und OIB-Ausgabe als Teil der Antwort, Fundstelle bis zum Paragraf oder Punkt',
+              a: 'Bundesland und OIB-Ausgabe als Teil der Antwort, Fundstelle bis zum Paragrafen oder Punkt',
               b: 'Kein eigener Bestand an österreichischem Baurecht; antwortet aus Ihren Dokumenten und aus dem Web',
             },
             {
@@ -296,36 +297,25 @@ export const vergleichAllgemein: LandingEntry[] = [
               a: 'Kein Training mit Büro-Daten',
               b: 'Laut Microsoft kein Training der Basismodelle mit Eingaben, Antworten und über Microsoft Graph abgerufenen Daten',
             },
-            {
-              label: 'Datenstandort',
-              a: 'Anmeldung über WorkOS (USA), KI-Anfragen über OpenRouter (USA) an Modellanbieter, auch außerhalb der EU; kein Versprechen zum Datenstandort',
-              b: 'Laut Microsoft Verarbeitung innerhalb der europäischen Datengrenze für Kunden in Europa, mit Ausnahmen für einzelne Modellanbieter',
-            },
-            {
-              label: 'Preis',
-              a: 'Noch keine Preisliste; Bedingungen je Pilotbüro',
-              b: 'Enterprise: 30 US-Dollar je Nutzer:in und Monat bei jährlicher Zahlung (US-Website); die Business-Variante setzt eine Microsoft-365-Business-Lizenz voraus; Copilot Chat ohne Aufpreis für berechtigte Microsoft-365-Nutzer:innen',
-            },
           ],
           note: 'Angaben zu Microsoft Copilot laut Microsoft, gelesen im September 2026. Stimmt etwas nicht mehr, schreiben Sie uns, und wir korrigieren es.',
         },
         {
           kind: 'split',
           left: {
-            title: 'Wo Copilot vorn liegt',
-            items: [
-              'Das eigene Büro-Wissen, wo es schon liegt. Protokolle, Mails, Besprechungen und Dokumente in Microsoft 365 findet Copilot ohne Umzug.',
-              'Eingebaut in Word, Outlook und Teams: Mails zusammenfassen, Besprechungen nachbereiten, Entwürfe schreiben.',
-              'Ein großer Anbieter mit offenem Preis. Piloti ist in Gründung und gibt kein Versprechen zum Datenstandort.',
-            ],
-          },
-          right: {
             title: 'Wo Piloti vorn liegt',
             items: [
-              'Österreichisches Baurecht als eigener Bestand: neun Landesbauordnungen aus dem RIS und die OIB-Richtlinien.',
+              'Österreichisches Baurecht als eigene Grundlage: neun Landesbauordnungen aus dem RIS und die OIB-Richtlinien.',
               'Die Ausgabe, die im Bundesland gilt. Piloti nennt sie, wenn sie den Wert verändert, und fragt nach, wenn Bundesland oder Gebäudeklasse fehlen.',
               'Pläne als Bild: Piloti sieht Grundriss und Schnitt an und markiert, welche Zeichnung auf dem Blatt es gelesen hat.',
               'Ein Ablauf für Planungsfragen: Tiefenrecherche mit Bericht im Projekt, Befunde als offene Punkte, Aktenvermerke mit Freigeben, Änderungen anfordern oder Ablehnen.',
+            ],
+          },
+          right: {
+            title: 'Wofür Copilot gut passt',
+            items: [
+              'Das Büro-Wissen, wo es schon liegt: Protokolle, Mails, Besprechungen und Dokumente in Microsoft 365, ohne Umzug.',
+              'Eingebaut in Word, Outlook und Teams: Mails zusammenfassen, Besprechungen nachbereiten, Entwürfe schreiben.',
             ],
           },
         },
@@ -333,48 +323,63 @@ export const vergleichAllgemein: LandingEntry[] = [
           kind: 'text',
           title: 'Woher Copilot baurechtliche Antworten nimmt',
           body: [
-            'Copilot antwortet aus zwei Quellen: aus den Daten Ihrer Organisation und aus dem Web über Bing. Liegt in Ihrem SharePoint die aktuelle Fassung der Bauordnung, findet Copilot sie. Liegt dort eine alte, findet es die alte. Welche OIB-Ausgabe in welchem Bundesland verbindlich ist, entnimmt Copilot keinem gepflegten Bestand, sondern dem, was es gerade findet.',
-            'Piloti führt je Bundesland die Landesgesetze aus dem RIS, für Wien etwa auch die Bautechnikverordnung 2023 und die MA 37 Merkblätter, und zitiert so, wie ein Bescheid es tut: „Bauordnung für Wien, § …“. Die Quelle öffnet sich in Piloti an der markierten Stelle.',
+            'Copilot antwortet aus zwei Quellen: aus den Daten Ihrer Organisation und aus dem Web über Bing. Liegt in Ihrem SharePoint die aktuelle Fassung der Bauordnung, findet Copilot sie. Liegt dort eine alte, findet es die alte. Welche OIB-Ausgabe in welchem Bundesland verbindlich ist, entnimmt Copilot dem, was es gerade findet.',
+            'Piloti zieht je Bundesland die Landesgesetze aus dem RIS heran und nennt die OIB-Ausgabe, die dort laut OIB-Übersicht gilt, wenn sie den Wert verändert. Das Zitat lautet so, wie ein Bescheid es schreibt: „Bauordnung für Wien, § …“.',
           ],
         },
         {
           kind: 'text',
-          title: 'Wie beides zusammenpasst, und wo Piloti aufhört',
+          title: 'Wie beides zusammenpasst',
           body: [
             'Copilot und Piloti schließen einander nicht aus. Für Mails, Besprechungsnotizen und die eigenen Microsoft-365-Dateien ist Copilot das nähere Werkzeug, für die Frage, was ein Projekt in Salzburg oder Tirol erfüllen muss, Piloti.',
-            'Piloti ist nicht in Word oder Outlook eingebaut und durchsucht nicht Ihr Microsoft 365. Dokumente kommen durch Hochladen ins Projekt oder ins Büroarchiv, auch als ganzer Ordner. Und Piloti ist ein Proof of Concept in der Pilotphase.',
+            'Dokumente aus SharePoint oder vom Dateiserver kommen durch Hochladen ins Projekt oder ins Büroarchiv, auch als ganzer Ordner: PDF, Word, Excel, PowerPoint, CSV und Bilder. Was dort liegt, zieht Piloti neben dem Baurecht heran, und das Büroarchiv sieht kein anderes Büro.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Die Verantwortung für den Entwurf bleibt beim Planungsbüro. Piloti nennt zu jeder Antwort die Quellen, damit Sie sie prüfen können, und fragt nach, wenn ein entscheidender Fakt wie das Bundesland fehlt.',
           ],
         },
       ],
       faq: [
         {
           q: 'Kann Microsoft Copilot österreichisches Baurecht?',
-          a: 'Copilot hat keinen eigenen Bestand an Landesbauordnungen und OIB-Richtlinien. Es antwortet aus Ihren Dateien in Microsoft 365 und aus dem Web über Bing, also so gut wie die Fassungen, die es dort findet.',
+          a: 'Copilot hat keinen eigenen Bestand an Landesbauordnungen und OIB-Richtlinien. Es antwortet aus Ihren Dateien in Microsoft 365 und aus dem Web über Bing, also so gut wie die Fassungen, die es dort findet. Piloti zieht das Landesrecht des Projekts aus dem RIS und die OIB-Richtlinien heran und prüft jede Fundstelle gegen den Quelltext.',
         },
         {
           q: 'Was kostet Microsoft Copilot?',
-          a: 'Microsoft nennt auf seiner US-Website für die Enterprise-Variante 30 US-Dollar je Nutzer:in und Monat bei jährlicher Zahlung; Copilot Chat ist für berechtigte Microsoft-365-Nutzer:innen ohne Aufpreis enthalten. Piloti hat noch keine Preisliste; in der Pilotphase werden die Bedingungen je Büro vereinbart.',
+          a: 'Microsoft nennt auf seiner US-Website für die Enterprise-Variante 30 US-Dollar je Nutzer:in und Monat bei jährlicher Zahlung; die Business-Variante setzt eine Microsoft-365-Business-Lizenz voraus, und Copilot Chat ist für berechtigte Microsoft-365-Nutzer:innen ohne Aufpreis enthalten. Pilotbüros vereinbaren die Bedingungen direkt mit uns Gründern.',
         },
         {
           q: 'Trainiert Microsoft mit den Daten aus Copilot?',
-          a: 'Laut Microsoft werden Eingaben, Antworten und über Microsoft Graph abgerufene Daten nicht zum Training der Basismodelle verwendet. Piloti trainiert ebenfalls keine Modelle mit Büro-Daten.',
+          a: 'Laut Microsoft werden Eingaben, Antworten und über Microsoft Graph abgerufene Daten nicht zum Training der Basismodelle verwendet. Piloti trainiert ebenfalls keine Modelle mit Büro-Daten, und Pläne bleiben Eigentum des Büros.',
         },
         {
           q: 'Wo verarbeitet Copilot die Daten?',
-          a: 'Microsoft verarbeitet Copilot-Daten europäischer Kunden laut eigener Angabe innerhalb seiner europäischen Datengrenze, mit Ausnahmen für einzelne Modellanbieter. Bei Piloti läuft die Anmeldung über WorkOS (USA), KI-Anfragen gehen über OpenRouter (USA) an Modellanbieter, die auch außerhalb der EU sitzen können.',
+          a: 'Microsoft verarbeitet Copilot-Daten europäischer Kunden laut eigener Angabe innerhalb seiner europäischen Datengrenze, mit Ausnahmen für einzelne Modellanbieter. Wie Piloti mit Daten umgeht, steht in der Datenschutzerklärung: kein Training mit Büro-Daten, Pläne bleiben Eigentum des Büros, das Büroarchiv sieht kein anderes Büro.',
         },
       ],
     },
     en: {
       title: 'Microsoft Copilot for architects: Piloti compared',
       description:
-        'Microsoft Copilot or Piloti in a planning office? Where Copilot is strong in Microsoft 365, and where Austrian building law, OIB and approvals are missing.',
+        'Microsoft Copilot or Piloti in a planning office? Piloti brings Austrian building law, the OIB edition for each state and approvals into the project.',
       heading: 'Microsoft Copilot or Piloti?',
-      lede: 'Many offices work in Microsoft 365, and Copilot is already built in there. The question is what it does for building law and planning. Here is the comparison, starting with what Copilot does better.',
+      lede: 'Piloti answers planning questions from the nine state building codes and the OIB guidelines and carries them in the project through to the approved file note. Copilot is already built into Microsoft 365 in many offices. Here is what each tool does for building law and planning.',
       note: 'This means Microsoft Copilot, formerly Microsoft 365 Copilot. Details as stated by Microsoft (microsoft.com, learn.microsoft.com), read in September 2026.',
       answer:
-        'If your office’s knowledge lives in SharePoint, Outlook and Teams, Copilot finds it there, and only what you are allowed to see. For questions on Austrian building law it brings no body of state building codes and OIB guidelines of its own; that is what Piloti is built for.',
+        'For questions on Austrian building law, Piloti is the better choice: it brings the state building codes from RIS and the OIB guidelines, names the edition in force in the state, and carries the answer through to approval in the project. Copilot fits emails and files in Microsoft 365.',
       blocks: [
+        {
+          kind: 'text',
+          title: 'What Piloti takes on in a planning office',
+          body: [
+            'Piloti works with the building code and building-technology rules of the state your project is in, for Vienna also the Building Technology Ordinance 2023, the Vienna Garage Act 2008 and the MA 37 guidance sheets. It cites the way an official decision does and opens the RIS source at the marked passage.',
+            'A question becomes work in the project: “Do the submission check by Friday” runs as a task under your name and your permissions, in-depth research files its report with a findings matrix under “Reports”, and a file note goes to the inbox for approval.',
+          ],
+        },
         {
           kind: 'table',
           title: 'In detail',
@@ -416,36 +421,25 @@ export const vergleichAllgemein: LandingEntry[] = [
               a: 'No training on office data',
               b: 'According to Microsoft, prompts, responses and data accessed through Microsoft Graph aren’t used to train foundation models',
             },
-            {
-              label: 'Data location',
-              a: 'Sign-in through WorkOS (USA), AI requests through OpenRouter (USA) to model providers, some outside the EU; no data-location promise',
-              b: 'According to Microsoft, processed within its European data boundary for customers in Europe, with exceptions for individual model providers',
-            },
-            {
-              label: 'Price',
-              a: 'No price list yet; terms agreed with each pilot office',
-              b: 'Enterprise: $30 per user per month, paid yearly (US website); the Business variant requires a Microsoft 365 Business licence; Copilot Chat at no extra cost for eligible Microsoft 365 users',
-            },
           ],
           note: 'Microsoft Copilot details as stated by Microsoft, read in September 2026. If something has changed, write to us and we will correct it.',
         },
         {
           kind: 'split',
           left: {
-            title: 'Where Copilot is ahead',
-            items: [
-              'Your office’s own knowledge, where it already lives. Copilot finds minutes, emails, meetings and documents in Microsoft 365 without moving anything.',
-              'Built into Word, Outlook and Teams: summarising emails, following up meetings, writing drafts.',
-              'A large vendor with a public price. Piloti is being founded and makes no data-location promise.',
-            ],
-          },
-          right: {
             title: 'Where Piloti is ahead',
             items: [
-              'Austrian building law as its own body of sources: nine state building codes from RIS and the OIB guidelines.',
+              'Austrian building law as its own foundation: nine state building codes from RIS and the OIB guidelines.',
               'The edition in force in the state. Piloti names it when it changes the value, and asks when the state or building class is missing.',
               'Drawings as images: Piloti looks at plan and section and marks which drawing on the sheet it read.',
               'A workflow for planning questions: in-depth research with a report in the project, findings as open points, file notes with Approve, Request changes or Reject.',
+            ],
+          },
+          right: {
+            title: 'What Copilot is good for',
+            items: [
+              'Your office’s knowledge where it already lives: minutes, emails, meetings and documents in Microsoft 365, without moving anything.',
+              'Built into Word, Outlook and Teams: summarising emails, following up meetings, writing drafts.',
             ],
           },
         },
@@ -453,35 +447,42 @@ export const vergleichAllgemein: LandingEntry[] = [
           kind: 'text',
           title: 'Where Copilot’s building-law answers come from',
           body: [
-            'Copilot answers from two sources: your organisation’s data and the web via Bing. If your SharePoint holds the current version of the building code, Copilot finds it. If it holds an old one, it finds the old one. Which OIB edition is binding in which state is not taken from a maintained register but from whatever it happens to find.',
-            'Piloti holds each state’s laws from RIS, for Vienna also the Building Technology Ordinance 2023 and the MA 37 guidance sheets, and cites them the way an official decision does: “Bauordnung für Wien, § …”. The source opens inside Piloti at the marked passage.',
+            'Copilot answers from two sources: your organisation’s data and the web via Bing. If your SharePoint holds the current version of the building code, Copilot finds it. If it holds an old one, it finds the old one. Which OIB edition is binding in which state, Copilot takes from whatever it happens to find.',
+            'Piloti draws on each state’s laws from RIS and names the OIB edition in force there according to the OIB overview when it changes the value. The citation reads the way an official decision writes it: “Bauordnung für Wien, § …”.',
           ],
         },
         {
           kind: 'text',
-          title: 'How the two fit together, and where Piloti stops',
+          title: 'How the two fit together',
           body: [
             'Copilot and Piloti do not exclude each other. For emails, meeting notes and your own Microsoft 365 files, Copilot is the closer tool; for what a project in Salzburg or Tyrol must meet, Piloti.',
-            'Piloti is not built into Word or Outlook and does not search your Microsoft 365. Documents come in by upload to the project or the office archive, including whole folders. And Piloti is a proof of concept in a pilot phase.',
+            'Documents from SharePoint or the file server come in by upload to the project or the office archive, including whole folders: PDF, Word, Excel, PowerPoint, CSV and images. Piloti draws on what is there alongside building law, and no other office sees the office archive.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'Responsibility for the design stays with the planning office. Piloti names the source of every answer so that you can check it, and asks when a deciding fact such as the state is missing.',
           ],
         },
       ],
       faq: [
         {
           q: 'Does Microsoft Copilot handle Austrian building law?',
-          a: 'Copilot has no body of state building codes and OIB guidelines of its own. It answers from your files in Microsoft 365 and from the web via Bing, so it is as good as the versions it finds there.',
+          a: 'Copilot has no body of state building codes and OIB guidelines of its own. It answers from your files in Microsoft 365 and from the web via Bing, so it is as good as the versions it finds there. Piloti draws on the project’s state law from RIS and the OIB guidelines and checks every citation against the source text.',
         },
         {
           q: 'What does Microsoft Copilot cost?',
-          a: 'On its US website, Microsoft lists $30 per user per month, paid yearly, for the Enterprise variant; Copilot Chat is included at no extra cost for eligible Microsoft 365 users. Piloti has no price list yet; during the pilot phase terms are agreed with each office.',
+          a: 'On its US website, Microsoft lists $30 per user per month, paid yearly, for the Enterprise variant; the Business variant requires a Microsoft 365 Business licence, and Copilot Chat is included at no extra cost for eligible Microsoft 365 users. Pilot offices agree terms directly with us, the founders.',
         },
         {
           q: 'Does Microsoft train on Copilot data?',
-          a: 'According to Microsoft, prompts, responses and data accessed through Microsoft Graph are not used to train foundation models. Piloti does not train models on office data either.',
+          a: 'According to Microsoft, prompts, responses and data accessed through Microsoft Graph are not used to train foundation models. Piloti does not train models on office data either, and drawings remain the office’s property.',
         },
         {
           q: 'Where does Copilot process data?',
-          a: 'Microsoft says it processes Copilot data of European customers within its European data boundary, with exceptions for individual model providers. With Piloti, sign-in runs through WorkOS (USA) and AI requests go through OpenRouter (USA) to model providers that may be based outside the EU.',
+          a: 'Microsoft says it processes Copilot data of European customers within its European data boundary, with exceptions for individual model providers. How Piloti handles data is set out in its privacy policy: no training on office data, drawings remain the office’s property, and no other office sees the office archive.',
         },
       ],
     },
@@ -493,13 +494,21 @@ export const vergleichAllgemein: LandingEntry[] = [
     de: {
       title: 'NotebookLM (Gemini Notebook) für Baurecht: Vergleich',
       description:
-        'NotebookLM (Gemini Notebook) oder Piloti für Baurecht in Österreich? Eigene Quellen mit Zitaten gegen gepflegte Landesbauordnungen und OIB-Richtlinien.',
+        'NotebookLM (Gemini Notebook) oder Piloti für Baurecht in Österreich? Piloti bringt Landesbauordnungen und OIB-Richtlinien mit, Sie sammeln nichts.',
       heading: 'NotebookLM oder Piloti?',
-      lede: 'NotebookLM, das Google inzwischen Gemini Notebook nennt, beantwortet Fragen aus den Quellen, die Sie selbst hinzufügen. Das ist nah an dem, was ein Planungsbüro braucht. Der Unterschied liegt darin, wer die Quellen sammelt und aktuell hält.',
+      lede: 'Piloti bringt das österreichische Baurecht mit; NotebookLM, das Google inzwischen Gemini Notebook nennt, antwortet aus den Quellen, die Sie selbst hinzufügen. Beide zitieren. Der Unterschied liegt darin, wer die Quellen sammelt und wer im Blick hat, welche Fassung im Bundesland gilt.',
       note: 'Angaben zu NotebookLM (Gemini Notebook) laut Google, gelesen im September 2026.',
       answer:
-        'NotebookLM (Gemini Notebook) antwortet mit Zitaten aus Quellen, die Sie selbst sammeln und aktuell halten. Piloti bringt die neun Landesbauordnungen aus dem RIS und die OIB-Richtlinien mit, zieht die Ausgabe heran, die im Bundesland gilt, und bettet die Antwort in die Projektarbeit ein.',
+        'Für Baurecht in Österreich ist Piloti die bessere Wahl: Die Landesbauordnungen aus dem RIS und die OIB-Richtlinien sind schon da, Piloti nennt die Ausgabe, die im Bundesland gilt, und bettet die Antwort in die Projektarbeit ein. NotebookLM (Gemini Notebook) passt für Sammlungen, die Sie selbst zusammenstellen.',
       blocks: [
+        {
+          kind: 'text',
+          title: 'Was Piloti mitbringt',
+          body: [
+            'Mit Piloti beginnt die Arbeit bei der Frage, nicht beim Sammeln. Die neun Landesbauordnungen und verwandtes Landesrecht aus dem RIS, die OIB-Richtlinien, ein Normenverzeichnis und Bundesgesetze wie ASchG und Arbeitsstättenverordnung stehen bereit. Dazu kommen Ihr Büroarchiv, das kein anderes Büro sieht, und die Dokumente des Projekts.',
+            'Die Antwort beginnt mit dem Ergebnis als kopierbarem Wert, danach folgen Begründung, Annahmen und Fundstelle bis Paragraf, Punkt oder Seite, etwa „Pkt. 3.5.2 · S. 7“. Prüfungen nach Gebäudeklasse erscheinen als Tabelle mit Quelle und Ergebnis je Zeile.',
+          ],
+        },
         {
           kind: 'table',
           title: 'Im Detail',
@@ -508,7 +517,7 @@ export const vergleichAllgemein: LandingEntry[] = [
           rows: [
             {
               label: 'Prinzip',
-              a: 'Gepflegter Bestand an österreichischem Baurecht, dazu Ihr Büroarchiv und Ihre Projektdokumente',
+              a: 'Österreichisches Baurecht ist schon da, dazu Ihr Büroarchiv und Ihre Projektdokumente',
               b: 'Antworten auf Grundlage der Quellen, die Sie in ein Notizbuch geben',
             },
             {
@@ -536,32 +545,26 @@ export const vergleichAllgemein: LandingEntry[] = [
               a: 'Kein Training mit Büro-Daten',
               b: 'Laut Google werden hochgeladene Daten nie zum Training verwendet',
             },
-            {
-              label: 'Verfügbarkeit',
-              a: 'Proof of Concept mit ausgewählten Pilotbüros',
-              b: 'Kostenloser Einstieg, in Google-Workspace-Tarifen enthalten',
-            },
           ],
           note: 'Angaben zu NotebookLM (Gemini Notebook) laut Google, gelesen im September 2026. Stimmt etwas nicht mehr, schreiben Sie uns, und wir korrigieren es.',
         },
         {
           kind: 'split',
           left: {
-            title: 'Wo NotebookLM vorn liegt',
-            items: [
-              'Sie bestimmen die Quellen. Die Antwort stützt sich auf das, was Sie ausgewählt haben.',
-              'Viele Formate, auch Video und Audio, etwa die Aufzeichnung eines Vortrags zu einer Novelle.',
-              'Sofort nutzbar, kostenlos oder in Google Workspace enthalten, ohne Gespräch.',
-              'Ein großer Anbieter am Markt. Piloti ist in Gründung und in der Pilotphase.',
-            ],
-          },
-          right: {
             title: 'Wo Piloti vorn liegt',
             items: [
               'Die Quellen sind schon da: neun Landesbauordnungen und verwandtes Landesrecht aus dem RIS, OIB-Richtlinien, für Wien auch Bautechnikverordnung 2023, Garagengesetz 2008 und MA 37 Merkblätter.',
-              'Die Ausgabe folgt dem Bundesland. Laut OIB-Übersicht gilt die Ausgabe 2023 nicht überall; Piloti nennt, welche es heranzieht, wenn sie den Wert verändert.',
+              'Die Ausgabe folgt dem Bundesland. Laut OIB-Übersicht gilt die Ausgabe 2023 nicht überall; Piloti nennt die Ausgabe, die im Bundesland gilt, wenn sie den Wert verändert.',
               'Rückfragen bei fehlenden Fakten: Fehlt die Gebäudeklasse oder das Bundesland, fragt Piloti nach oder nennt die Annahme.',
               'Fragen werden zu Arbeit im Projekt: Aufgaben, Tiefenrecherche mit Bericht, Aktenvermerk zur Freigabe.',
+            ],
+          },
+          right: {
+            title: 'Wofür NotebookLM gut passt',
+            items: [
+              'Sammlungen, deren Quellen Sie selbst bestimmen: Wettbewerbsunterlagen, Fachvorträge, Literatur zu einem Entwurfsthema.',
+              'Viele Formate, auch Video und Audio, etwa die Aufzeichnung eines Vortrags zu einer Novelle.',
+              'Sofort nutzbar, kostenlos oder in Google Workspace enthalten.',
             ],
           },
         },
@@ -570,15 +573,14 @@ export const vergleichAllgemein: LandingEntry[] = [
           title: 'Was ein Baurechts-Notizbuch an Pflege braucht',
           body: [
             'Wer NotebookLM für Baurecht nutzt, baut sein eigenes Regelwerk: die OIB-Richtlinien in der Ausgabe, die im Bundesland gilt, die Bauordnung und die Bautechnikvorschriften jedes Landes, in dem das Büro plant, dazu Merkblätter. In Wien sind das die Bauordnung für Wien und die Wiener Bautechnikverordnung 2023, in Salzburg das Bautechnikgesetz 2015 und das Baupolizeigesetz 1997, in Tirol die Tiroler Bauordnung 2022. Neun Bundesländer, neun Sammlungen.',
-            'Dann beginnt die Pflege. Laut OIB-Übersicht ist die OIB-Richtlinie 6 in der Ausgabe 2025 bisher nur in Tirol und Wien in Kraft, die Ausgabe 2027 wird vorbereitet, und Landesgesetze werden novelliert. Jede neue Fassung muss jemand im Büro bemerken, hinzufügen und die alte aus dem Notizbuch nehmen. Übersieht man das, zitiert das Notizbuch sauber aus einer veralteten Quelle.',
+            'Dann beginnt die Pflege. Laut OIB-Übersicht ist die OIB-Richtlinie 6 in der Ausgabe 2025 bisher nur in Tirol und Wien in Kraft, die Ausgabe 2027 wird vorbereitet, und Landesgesetze werden novelliert. Jede neue Fassung muss jemand im Büro bemerken, hinzufügen und die alte aus dem Notizbuch nehmen. Übersieht man das, zitiert das Notizbuch sauber aus einer veralteten Quelle. Mit Piloti stellen Sie die Frage, und das Landesrecht des Projekts ist schon zur Hand.',
           ],
         },
         {
           kind: 'text',
-          title: 'Wo Piloti aufhört',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti führt das Normenverzeichnis, nicht die ÖNORM-Texte; wer mit Normtexten arbeiten will, lädt die lizenzierten Dokumente selbst ins Projekt. Was der Bebauungsplan für ein bestimmtes Grundstück festlegt, sieht Piloti nur, wenn der Plan im Projekt liegt; sonst sagt es, wo Sie nachsehen.',
-            'Für eine Sammlung, die nicht Baurecht ist, etwa Wettbewerbsunterlagen, Fachvorträge oder die Literatur zu einem Entwurfsthema, ist ein Notizbuch in NotebookLM ein gutes Werkzeug.',
+            'Die Verantwortung für den Entwurf bleibt beim Planungsbüro. Piloti nennt zu jeder Antwort die Quellen, damit Sie sie prüfen können, und fragt nach, wenn ein entscheidender Fakt wie das Bundesland fehlt. Was der Bebauungsplan für Ihr Grundstück festlegt, liest Piloti aus dem Plan im Projekt; fehlt er, sagt es, wo Sie nachsehen.',
           ],
         },
       ],
@@ -589,7 +591,7 @@ export const vergleichAllgemein: LandingEntry[] = [
         },
         {
           q: 'Kann ich die OIB-Richtlinien in NotebookLM hochladen?',
-          a: 'Ja, als PDF wie jedes andere Dokument. Sie wählen dann selbst die Ausgabe, die im Bundesland Ihres Projekts gilt, und tauschen sie aus, wenn sich das ändert. Laut OIB-Übersicht gilt die Ausgabe 2023 nicht in allen Bundesländern; maßgeblich ist die Bautechnikverordnung oder das Gesetz des Landes.',
+          a: 'Ja, als PDF wie jedes andere Dokument. Sie wählen dann selbst die Ausgabe, die im Bundesland Ihres Projekts gilt, und tauschen sie aus, wenn sich das ändert. Laut OIB-Übersicht gilt die Ausgabe 2023 nicht in allen Bundesländern; maßgeblich ist die Bautechnikverordnung oder das Gesetz des Landes. Piloti nennt die Ausgabe, die im Bundesland gilt, von sich aus.',
         },
         {
           q: 'Wie viele Quellen passen in ein Notizbuch?',
@@ -597,20 +599,28 @@ export const vergleichAllgemein: LandingEntry[] = [
         },
         {
           q: 'Verwendet Google meine Dokumente zum Training?',
-          a: 'Laut Google werden hochgeladene Daten nie zum Training verwendet. Auch Piloti trainiert keine Modelle mit Büro-Daten.',
+          a: 'Laut Google werden hochgeladene Daten nie zum Training verwendet. Auch Piloti trainiert keine Modelle mit Büro-Daten, und Pläne bleiben Eigentum des Büros.',
         },
       ],
     },
     en: {
       title: 'NotebookLM (Gemini Notebook) for building law: compared',
       description:
-        'NotebookLM (Gemini Notebook) or Piloti for Austrian building law? Your own sources with citations, or maintained state building codes and OIB guidelines.',
+        'NotebookLM (Gemini Notebook) or Piloti for Austrian building law? Piloti brings the state building codes and OIB guidelines, so you collect nothing.',
       heading: 'NotebookLM or Piloti?',
-      lede: 'NotebookLM, which Google now calls Gemini Notebook, answers questions from the sources you add yourself. That is close to what a planning office needs. The difference lies in who collects the sources and keeps them current.',
+      lede: 'Piloti brings Austrian building law with it; NotebookLM, which Google now calls Gemini Notebook, answers from the sources you add yourself. Both cite. The difference lies in who collects the sources and who keeps track of which version applies in the state.',
       note: 'NotebookLM (Gemini Notebook) details as stated by Google, read in September 2026.',
       answer:
-        'NotebookLM (Gemini Notebook) answers with citations from sources you collect and keep current yourself. Piloti brings the nine state building codes from RIS and the OIB guidelines, draws on the edition in force in the state, and places the answer in the project work.',
+        'For Austrian building law, Piloti is the better choice: the state building codes from RIS and the OIB guidelines are already there, Piloti names the edition in force in the state, and it places the answer in the project work. NotebookLM (Gemini Notebook) fits collections you put together yourself.',
       blocks: [
+        {
+          kind: 'text',
+          title: 'What Piloti brings',
+          body: [
+            'With Piloti, the work starts with the question, not with collecting. The nine state building codes and related state law from RIS, the OIB guidelines, a register of standards and federal law such as the ASchG and the Workplace Ordinance are ready. Add your office archive, which no other office sees, and the project’s documents.',
+            'The answer starts with the result as a copyable value, followed by reasoning, assumptions and citation down to section, clause or page, for example “Pkt. 3.5.2 · S. 7”. Checks by building class appear as a table with source and result per row.',
+          ],
+        },
         {
           kind: 'table',
           title: 'In detail',
@@ -619,7 +629,7 @@ export const vergleichAllgemein: LandingEntry[] = [
           rows: [
             {
               label: 'Principle',
-              a: 'Maintained body of Austrian building law, plus your office archive and your project documents',
+              a: 'Austrian building law is already there, plus your office archive and your project documents',
               b: 'Answers grounded in the sources you add to a notebook',
             },
             {
@@ -647,32 +657,26 @@ export const vergleichAllgemein: LandingEntry[] = [
               a: 'No training on office data',
               b: 'According to Google, uploaded data is never used for training',
             },
-            {
-              label: 'Availability',
-              a: 'Proof of concept with selected pilot offices',
-              b: 'Free entry, included in Google Workspace plans',
-            },
           ],
           note: 'NotebookLM (Gemini Notebook) details as stated by Google, read in September 2026. If something has changed, write to us and we will correct it.',
         },
         {
           kind: 'split',
           left: {
-            title: 'Where NotebookLM is ahead',
-            items: [
-              'You choose the sources. The answer rests on what you selected.',
-              'Many formats, including video and audio, such as the recording of a talk on an amendment.',
-              'Ready to use, free or included in Google Workspace, without a conversation.',
-              'A large vendor on the market. Piloti is being founded and is in its pilot phase.',
-            ],
-          },
-          right: {
             title: 'Where Piloti is ahead',
             items: [
               'The sources are already there: nine state building codes and related state law from RIS, the OIB guidelines, and for Vienna also the Building Technology Ordinance 2023, the Garage Act 2008 and the MA 37 guidance sheets.',
-              'The edition follows the state. According to the OIB overview the 2023 edition does not apply everywhere; Piloti names which one it draws on when it changes the value.',
+              'The edition follows the state. According to the OIB overview the 2023 edition does not apply everywhere; Piloti names the edition in force in the state when it changes the value.',
               'Questions back when facts are missing: if the building class or the state is missing, Piloti asks or states its assumption.',
               'Questions become work in the project: tasks, in-depth research with a report, a file note sent for approval.',
+            ],
+          },
+          right: {
+            title: 'What NotebookLM is good for',
+            items: [
+              'Collections whose sources you choose yourself: competition documents, lectures, the literature on a design topic.',
+              'Many formats, including video and audio, such as the recording of a talk on an amendment.',
+              'Ready to use, free or included in Google Workspace.',
             ],
           },
         },
@@ -681,15 +685,14 @@ export const vergleichAllgemein: LandingEntry[] = [
           title: 'What a building-law notebook takes to maintain',
           body: [
             'Using NotebookLM for building law means building your own rulebook: the OIB guidelines in the edition in force in the state, the building code and building-technology rules of every state the office plans in, and guidance sheets. In Vienna that is the Bauordnung für Wien and the Wiener Bautechnikverordnung 2023, in Salzburg the Bautechnikgesetz 2015 and the Baupolizeigesetz 1997, in Tyrol the Tiroler Bauordnung 2022. Nine states, nine collections.',
-            'Then the maintenance starts. According to the OIB overview, the 2025 edition of OIB guideline 6 is so far in force only in Tyrol and Vienna, the 2027 edition is being prepared, and state laws are amended. Someone in the office has to notice each new version, add it and take the old one out of the notebook. Miss that, and the notebook cites cleanly from an outdated source.',
+            'Then the maintenance starts. According to the OIB overview, the 2025 edition of OIB guideline 6 is so far in force only in Tyrol and Vienna, the 2027 edition is being prepared, and state laws are amended. Someone in the office has to notice each new version, add it and take the old one out of the notebook. Miss that, and the notebook cites cleanly from an outdated source. With Piloti you ask the question, and the project’s state law is already to hand.',
           ],
         },
         {
           kind: 'text',
-          title: 'Where Piloti stops',
+          title: 'Good to know',
           body: [
-            'Piloti holds the register of standards, not the ÖNORM texts; if you want to work with standard texts, upload your licensed copies to the project. What the zoning plan fixes for a specific plot Piloti sees only if the plan is in the project; otherwise it tells you where to look.',
-            'For a collection that is not building law, such as competition documents, lectures or the literature on a design topic, a notebook in NotebookLM is a good tool.',
+            'Responsibility for the design stays with the planning office. Piloti names the source of every answer so that you can check it, and asks when a deciding fact such as the state is missing. What the zoning plan fixes for your plot, Piloti reads from the plan in the project; if it is missing, Piloti tells you where to look.',
           ],
         },
       ],
@@ -700,7 +703,7 @@ export const vergleichAllgemein: LandingEntry[] = [
         },
         {
           q: 'Can I upload the OIB guidelines to NotebookLM?',
-          a: 'Yes, as a PDF like any other document. You then choose the edition in force in your project’s state yourself, and replace it when that changes. According to the OIB overview, the 2023 edition does not apply in every state; what counts is the state’s building-technology ordinance or law.',
+          a: 'Yes, as a PDF like any other document. You then choose the edition in force in your project’s state yourself, and replace it when that changes. According to the OIB overview, the 2023 edition does not apply in every state; what counts is the state’s building-technology ordinance or law. Piloti names the edition in force in the state on its own.',
         },
         {
           q: 'How many sources fit in a notebook?',
@@ -708,7 +711,7 @@ export const vergleichAllgemein: LandingEntry[] = [
         },
         {
           q: 'Does Google use my documents for training?',
-          a: 'According to Google, uploaded data is never used for training. Piloti does not train models on office data either.',
+          a: 'According to Google, uploaded data is never used for training. Piloti does not train models on office data either, and drawings remain the office’s property.',
         },
       ],
     },
@@ -720,13 +723,21 @@ export const vergleichAllgemein: LandingEntry[] = [
     de: {
       title: 'Perplexity für Baurecht in Österreich? Piloti im Vergleich',
       description:
-        'Perplexity oder Piloti für Baurecht? Websuche mit Quellen gegen Landesbauordnungen aus dem RIS und OIB-Richtlinien, mit Bundesland, Ausgabe und Projekt.',
+        'Perplexity oder Piloti für Baurecht? Piloti zieht Landesbauordnung aus dem RIS und OIB-Richtlinie je Bundesland heran, mit geprüfter Fundstelle.',
       heading: 'Perplexity oder Piloti?',
-      lede: 'Perplexity sucht im Web und nennt zu jeder Antwort die Quellen. Für aktuelle Recherche ist das stark. Beim Baurecht kommt es darauf an, welche Quelle das Web gerade liefert.',
+      lede: 'Piloti zieht für jede Planungsfrage das Landesrecht des Projekts aus dem RIS und die OIB-Richtlinien heran und recherchiert bei Bedarf auch im Web. Perplexity sucht im Web und nennt zu jeder Antwort die Quellen. Beim Baurecht entscheidet, welche Fassung im Bundesland gilt.',
       note: 'Angaben zu Perplexity laut Perplexity (perplexity.ai), gelesen im September 2026. Preise nennen wir nicht, weil sie je Tarif wechseln.',
       answer:
-        'Perplexity beantwortet Fragen aus dem offenen Web und verlinkt die Quellen, gut für aktuelle Recherche. Für Baurecht in Österreich fehlt ihm die Logik, welches Landesgesetz und welche OIB-Ausgabe im Bundesland des Projekts gilt; Piloti arbeitet mit diesem Bestand und im Projekt.',
+        'Für Baurecht in Österreich ist Piloti die bessere Wahl: Es zieht das Landesgesetz und die OIB-Ausgabe heran, die im Bundesland des Projekts gelten, prüft jede Fundstelle gegen den Quelltext und arbeitet im Projekt. Perplexity passt für aktuelle Recherche im offenen Web.',
       blocks: [
+        {
+          kind: 'text',
+          title: 'Was Piloti beim Baurecht leistet',
+          body: [
+            'Piloti zieht die Gesetze des Bundeslands heran, in dem Ihr Projekt liegt, und die OIB-Richtlinien in der Ausgabe, die dort gilt. Dazu kommen Bundesgesetze wie ASchG, UVP-G und Gewerbeordnung, Ihr Büroarchiv und die Projektdokumente. Wo das Web weiterhilft, etwa bei Herstellerangaben, recherchiert Piloti auch dort und verlinkt jede Quelle.',
+            'Jede Fundstelle wird gegen den Quelltext geprüft, bevor sie erscheint; RIS-Quellen öffnen sich an der markierten Stelle. Fehlt ein entscheidender Fakt wie die Gebäudeklasse, fragt Piloti einmal nach, statt zu raten.',
+          ],
+        },
         {
           kind: 'table',
           title: 'Im Detail',
@@ -735,7 +746,7 @@ export const vergleichAllgemein: LandingEntry[] = [
           rows: [
             {
               label: 'Prinzip',
-              a: 'Gepflegter Bestand an österreichischem Baurecht, dazu Büroarchiv, Projektdokumente und Websuche',
+              a: 'Österreichisches Baurecht als Grundlage, dazu Büroarchiv, Projektdokumente und Websuche',
               b: 'Antworten aus dem Web, mit Quellen zu jeder Antwort',
             },
             {
@@ -745,7 +756,7 @@ export const vergleichAllgemein: LandingEntry[] = [
             },
             {
               label: 'Websuche',
-              a: 'Ja, jede Quelle verlinkt, neben dem gepflegten Bestand',
+              a: 'Ja, jede Quelle verlinkt, neben dem Baurecht',
               b: 'Kern des Produkts',
             },
             {
@@ -768,28 +779,27 @@ export const vergleichAllgemein: LandingEntry[] = [
               a: 'Kein Training mit Büro-Daten',
               b: 'Laut Perplexity: Enterprise-Daten kein Training; in Free und Pro ist die Nutzung zur Verbesserung der Modelle standardmäßig an und abschaltbar',
             },
-            { label: 'Stand', a: 'Proof of Concept mit ausgewählten Pilotbüros', b: 'Am Markt' },
           ],
           note: 'Angaben zu Perplexity laut Perplexity, gelesen im September 2026. Stimmt etwas nicht mehr, schreiben Sie uns, und wir korrigieren es.',
         },
         {
           kind: 'split',
           left: {
-            title: 'Wo Perplexity vorn liegt',
-            items: [
-              'Aktuelles aus dem Web: Förderungen, Herstellerangaben, Marktberichte, eine Novelle, über die gerade berichtet wird.',
-              'Websuche ist das Kernprodukt, mit Quellen bei jeder Antwort.',
-              'Sofort nutzbar, auch im kostenlosen Tarif.',
-              'Ein Unternehmen am Markt. Piloti ist in Gründung und in der Pilotphase.',
-            ],
-          },
-          right: {
             title: 'Wo Piloti vorn liegt',
             items: [
               'Landesrecht aus dem RIS statt der Seite, die in der Suche oben steht. Piloti zieht die Gesetze des Bundeslands heran, in dem das Projekt liegt.',
               'OIB-Richtlinien mit Punkt und Seite, in der Ausgabe, die dort gilt.',
               'Fundstellen werden gegen den Quelltext geprüft, bevor sie erscheinen.',
+              'Websuche inklusive: Jede Quelle ist verlinkt, und die Antwort zeigt, ob eine Aussage aus dem Baurecht, dem Büro, dem Projekt oder dem Web stammt.',
               'Das Projekt: Pläne, Aufgaben, Aktenvermerke zur Freigabe und ein Gedächtnis für das schon Geklärte.',
+            ],
+          },
+          right: {
+            title: 'Wofür Perplexity gut passt',
+            items: [
+              'Aktuelles aus dem Web: Förderungen, Herstellerangaben, Marktberichte, eine Novelle, über die gerade berichtet wird.',
+              'Breite Recherche und Nachrichten weit über das Baurecht hinaus, mit Quellen bei jeder Antwort.',
+              'Sofort nutzbar, auch im kostenlosen Tarif.',
             ],
           },
         },
@@ -798,26 +808,25 @@ export const vergleichAllgemein: LandingEntry[] = [
           title: 'Warum das Web beim Baurecht wenig verlässlich ist',
           body: [
             'Baurechtliche Antworten stehen im Web oft in PDFs unterschiedlichen Alters: ein Merkblatt einer Landesregierung, das vor einer Novelle geschrieben wurde, ein Vortrag bei der Kammer, eine Herstellerseite, die OIB-Richtlinie in der Ausgabe 2019 neben der von 2023. Eine Suche ordnet nach Relevanz, nicht danach, welche Fassung heute im Bundesland verbindlich ist.',
-            'Dazu kommen neun Bauordnungen. Eine Seite über das Wiener Baurecht beantwortet keine Frage zu einem Projekt in Vorarlberg, auch wenn sie in der Suche oben steht. Perplexity nennt die Quelle; ob sie für Ihr Bundesland und Ihre Ausgabe gilt, prüfen Sie selbst.',
+            'Dazu kommen neun Bauordnungen. Eine Seite über das Wiener Baurecht beantwortet keine Frage zu einem Projekt in Vorarlberg, auch wenn sie in der Suche oben steht. Perplexity nennt die Quelle; ob sie für Ihr Bundesland und Ihre Ausgabe gilt, prüfen Sie selbst. Piloti geht vom Bundesland des Projekts aus und nennt die Ausgabe, die dort gilt.',
           ],
         },
         {
           kind: 'text',
-          title: 'Wo Piloti aufhört',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti recherchiert ebenfalls im Web und verlinkt jede Quelle, aber die Websuche ist nicht sein Kern. Für breite Marktrecherche, Nachrichten oder Fragen weit außerhalb des Baurechts ist Perplexity das bessere Werkzeug.',
-            'Piloti führt das Normenverzeichnis, nicht die ÖNORM-Texte, und rechnet keinen HWB. Es ist ein Proof of Concept in der Pilotphase mit ausgewählten Büros.',
+            'Die Verantwortung für den Entwurf bleibt beim Planungsbüro. Piloti nennt zu jeder Antwort die Quellen, damit Sie sie prüfen können, und fragt nach, wenn ein entscheidender Fakt fehlt. Einen Heizwärmebedarf berechnet Piloti nicht; es sagt, welche Anforderung gilt und wie ein Wert dazu steht.',
           ],
         },
       ],
       faq: [
         {
           q: 'Kann Perplexity Fragen zum österreichischen Baurecht beantworten?',
-          a: 'Es findet dazu Seiten im Web und nennt sie als Quellen. Ob die gefundene Fassung für Ihr Bundesland und die dort geltende OIB-Ausgabe stimmt, entscheidet die Suche nicht. Für eine Antwort, die in eine Einreichung geht, schlagen Sie die Fundstelle im RIS oder in der OIB-Richtlinie nach.',
+          a: 'Es findet dazu Seiten im Web und nennt sie als Quellen. Ob die gefundene Fassung für Ihr Bundesland und die dort geltende OIB-Ausgabe stimmt, entscheidet die Suche nicht. Piloti geht vom Landesrecht des Projekts aus dem RIS aus und prüft jede Fundstelle gegen den Quelltext.',
         },
         {
           q: 'Welche Quellen nutzt Perplexity?',
-          a: 'Das offene Web, mit Links zu den Seiten, aus denen die Antwort stammt. In Spaces lassen sich laut Perplexity Websuche und eigene Dateien verbinden. Einen gepflegten Bestand an Landesbauordnungen und OIB-Richtlinien nennt Perplexity nicht.',
+          a: 'Das offene Web, mit Links zu den Seiten, aus denen die Antwort stammt. In Spaces lassen sich laut Perplexity Websuche und eigene Dateien verbinden. Einen eigenen Bestand an Landesbauordnungen und OIB-Richtlinien nennt Perplexity nicht.',
         },
         {
           q: 'Verwendet Perplexity meine Fragen zum Training?',
@@ -832,13 +841,21 @@ export const vergleichAllgemein: LandingEntry[] = [
     en: {
       title: 'Perplexity for Austrian building law? Piloti compared',
       description:
-        'Perplexity or Piloti for building law? Web search with sources versus state building codes from RIS and OIB guidelines, with state, edition and project.',
+        'Perplexity or Piloti for building law? Piloti draws on the state building code from RIS and the OIB guideline for each state, with a checked citation.',
       heading: 'Perplexity or Piloti?',
-      lede: 'Perplexity searches the web and names the sources for every answer. For current research that is strong. For building law, it depends on which source the web happens to return.',
+      lede: 'For every planning question, Piloti draws on the project’s state law from RIS and the OIB guidelines, and researches the web as well where that helps. Perplexity searches the web and names the sources for every answer. For building law, what decides is which version applies in the state.',
       note: 'Perplexity details as stated by Perplexity (perplexity.ai), read in September 2026. We do not list prices, because they vary by plan.',
       answer:
-        'Perplexity answers from the open web and links its sources, which is good for current research. For Austrian building law it lacks the logic of which state law and which OIB edition apply in the project’s state; Piloti works with that body of law and inside the project.',
+        'For Austrian building law, Piloti is the better choice: it draws on the state law and the OIB edition in force in the project’s state, checks every citation against the source text and works inside the project. Perplexity fits current research on the open web.',
       blocks: [
+        {
+          kind: 'text',
+          title: 'What Piloti does for building law',
+          body: [
+            'Piloti draws on the laws of the state your project is in and on the OIB guidelines in the edition in force there. Add federal law such as the ASchG, the UVP-G and the Trade Act, your office archive and the project documents. Where the web helps, for manufacturer data for example, Piloti researches there too and links every source.',
+            'Every citation is checked against the source text before it appears; RIS sources open at the marked passage. If a deciding fact such as the building class is missing, Piloti asks once instead of guessing.',
+          ],
+        },
         {
           kind: 'table',
           title: 'In detail',
@@ -847,7 +864,7 @@ export const vergleichAllgemein: LandingEntry[] = [
           rows: [
             {
               label: 'Principle',
-              a: 'Maintained body of Austrian building law, plus office archive, project documents and web search',
+              a: 'Austrian building law as the foundation, plus office archive, project documents and web search',
               b: 'Answers from the web, with sources for every answer',
             },
             {
@@ -857,7 +874,7 @@ export const vergleichAllgemein: LandingEntry[] = [
             },
             {
               label: 'Web search',
-              a: 'Yes, every source linked, alongside the maintained body of law',
+              a: 'Yes, every source linked, alongside building law',
               b: 'The core of the product',
             },
             {
@@ -880,28 +897,27 @@ export const vergleichAllgemein: LandingEntry[] = [
               a: 'No training on office data',
               b: 'According to Perplexity: Enterprise data not used for training; on Free and Pro, use for model improvement is on by default and can be switched off',
             },
-            { label: 'Stage', a: 'Proof of concept with selected pilot offices', b: 'On the market' },
           ],
           note: 'Perplexity details as stated by Perplexity, read in September 2026. If something has changed, write to us and we will correct it.',
         },
         {
           kind: 'split',
           left: {
-            title: 'Where Perplexity is ahead',
-            items: [
-              'What is current on the web: subsidies, manufacturer data, market reports, an amendment that is in the news.',
-              'Web search is the core product, with sources for every answer.',
-              'Ready to use, including on the free plan.',
-              'A company on the market. Piloti is being founded and is in its pilot phase.',
-            ],
-          },
-          right: {
             title: 'Where Piloti is ahead',
             items: [
               'State law from RIS instead of whichever page ranks first. Piloti draws on the laws of the state the project is in.',
               'OIB guidelines with clause and page, in the edition in force there.',
               'Citations are checked against the source text before they appear.',
+              'Web search included: every source is linked, and the answer shows whether a statement comes from building law, the office, the project or the web.',
               'The project: drawings, tasks, file notes sent for approval, and a memory of what is already settled.',
+            ],
+          },
+          right: {
+            title: 'What Perplexity is good for',
+            items: [
+              'What is current on the web: subsidies, manufacturer data, market reports, an amendment that is in the news.',
+              'Broad research and news far beyond building law, with sources for every answer.',
+              'Ready to use, including on the free plan.',
             ],
           },
         },
@@ -910,26 +926,25 @@ export const vergleichAllgemein: LandingEntry[] = [
           title: 'Why the web is unreliable for building law',
           body: [
             'Building-law answers on the web often sit in PDFs of varying age: a state government guidance sheet written before an amendment, a talk at the chamber, a manufacturer’s page, the 2019 edition of an OIB guideline next to the 2023 one. A search ranks by relevance, not by which version is binding in the state today.',
-            'Then there are nine building codes. A page on Vienna’s building law answers no question about a project in Vorarlberg, even if it ranks first. Perplexity names the source; whether it applies to your state and your edition is yours to check.',
+            'Then there are nine building codes. A page on Vienna’s building law answers no question about a project in Vorarlberg, even if it ranks first. Perplexity names the source; whether it applies to your state and your edition is yours to check. Piloti starts from the project’s state and names the edition in force there.',
           ],
         },
         {
           kind: 'text',
-          title: 'Where Piloti stops',
+          title: 'Good to know',
           body: [
-            'Piloti also researches the web and links every source, but web search is not its core. For broad market research, news or questions far outside building law, Perplexity is the better tool.',
-            'Piloti holds the register of standards, not the ÖNORM texts, and does not calculate an HWB. It is a proof of concept in a pilot phase with selected offices.',
+            'Responsibility for the design stays with the planning office. Piloti names the source of every answer so that you can check it, and asks when a deciding fact is missing. Piloti does not calculate a heating demand; it says which requirement applies and how a value stands against it.',
           ],
         },
       ],
       faq: [
         {
           q: 'Can Perplexity answer questions on Austrian building law?',
-          a: 'It finds web pages on the topic and names them as sources. Whether the version it found is right for your state and the OIB edition in force there, the search does not decide. For an answer that goes into a submission, look the citation up in RIS or in the OIB guideline.',
+          a: 'It finds web pages on the topic and names them as sources. Whether the version it found is right for your state and the OIB edition in force there, the search does not decide. Piloti starts from the project’s state law from RIS and checks every citation against the source text.',
         },
         {
           q: 'What sources does Perplexity use?',
-          a: 'The open web, with links to the pages the answer comes from. According to Perplexity, Spaces combine web search with your own files. Perplexity does not name a maintained body of state building codes and OIB guidelines.',
+          a: 'The open web, with links to the pages the answer comes from. According to Perplexity, Spaces combine web search with your own files. Perplexity does not name a body of state building codes and OIB guidelines of its own.',
         },
         {
           q: 'Does Perplexity use my questions for training?',
@@ -949,13 +964,21 @@ export const vergleichAllgemein: LandingEntry[] = [
     de: {
       title: 'Baurecht selbst recherchieren: RIS, OIB, Google oder Piloti',
       description:
-        'Baurecht selbst recherchieren im RIS, auf der OIB-Website und mit Google, oder mit Piloti? Was die eigene Recherche leistet und wo die Arbeit darin liegt.',
+        'Baurecht selbst recherchieren im RIS, auf der OIB-Website und mit Google, oder mit Piloti? Was Piloti übernimmt und wie es ins RIS zurückführt.',
       heading: 'Baurecht selbst recherchieren oder mit Piloti?',
-      lede: 'Das RIS ist die amtliche Quelle für Landesrecht, die OIB-Website die für die Richtlinien, beide frei zugänglich. Hier, wo die Arbeit liegt und was Piloti davon übernimmt.',
+      lede: 'Piloti nimmt Ihnen das Zusammensuchen ab und führt Sie für jede Fundstelle an die amtliche Quelle zurück. Das RIS ist die amtliche Quelle für Landesrecht, die OIB-Website die für die Richtlinien, beide frei zugänglich. Hier, was Piloti daraus für ein Projekt macht.',
       note: 'RIS: Rechtsinformationssystem des Bundes (ris.bka.gv.at). OIB: Österreichisches Institut für Bautechnik (oib.or.at). Angaben zu den OIB-Ausgaben laut OIB-Übersicht zum Inkrafttreten.',
       answer:
-        'Die eigene Recherche im RIS und auf der OIB-Website bleibt der Maßstab für Richtigkeit. Piloti ersetzt sie nicht, es übernimmt das Zusammensuchen: das Landesgesetz, die geltende OIB-Ausgabe, die Verbindung zu den Plänen des Projekts und die Dokumentation, und es verweist für jede Fundstelle zurück ins RIS.',
+        'Piloti übernimmt die Arbeit rund um das RIS: Es sucht die Bestimmungen aus dem Landesrecht des Projekts und aus den OIB-Richtlinien in der dort geltenden Ausgabe zusammen, verbindet sie mit den Plänen und hält das Ergebnis als Aktenvermerk fest. Jede Fundstelle führt zurück ins RIS, die amtliche und freie Quelle für den Originaltext.',
       blocks: [
+        {
+          kind: 'text',
+          title: 'Was Piloti übernimmt',
+          body: [
+            'Piloti holt die einschlägigen Bestimmungen aus dem Landesrecht des Projekts und aus den OIB-Richtlinien zusammen, legt sie neben Grundriss, Schnitt und das schon Geklärte und schreibt das Ergebnis mit Begründung, Annahmen und Fundstelle auf. Fehlt ein entscheidender Fakt wie die Gebäudeklasse, fragt es einmal nach oder nennt die Annahme.',
+            'Landesrecht zitiert Piloti so, wie ein Bescheid es nennt, und öffnet die RIS-Quelle in Piloti an der markierten Stelle. OIB-Fundstellen tragen Punkt und Seite, etwa „Pkt. 3.5.2 · S. 7“. Der Weg zum Originaltext ist damit ein Klick.',
+          ],
+        },
         {
           kind: 'table',
           title: 'Im Detail',
@@ -969,7 +992,7 @@ export const vergleichAllgemein: LandingEntry[] = [
             },
             {
               label: 'Verbindlichkeit',
-              a: 'Zitiert ins RIS und in die OIB-Richtlinie; maßgeblich bleibt der Originaltext',
+              a: 'Zitiert ins RIS und in die OIB-Richtlinie und öffnet die Stelle; maßgeblich bleibt der Originaltext',
               b: 'Direkt an der amtlichen Quelle',
             },
             {
@@ -988,30 +1011,29 @@ export const vergleichAllgemein: LandingEntry[] = [
               b: 'Sie schreiben den Aktenvermerk selbst',
             },
             {
-              label: 'Typische Fehler',
-              a: 'Ein Sprachmodell kann irren; Fundstellen werden geprüft, die Schlussfolgerung prüfen Sie',
-              b: 'Übersehene Novelle, falsches Bundesland, alte Ausgabe aus einem Google-Treffer',
+              label: 'Projektgedächtnis',
+              a: 'Befunde werden Fakten und offene Punkte im Projekt; Folgefragen bauen darauf auf',
+              b: 'Sie halten selbst fest, was geklärt ist',
             },
           ],
         },
         {
           kind: 'split',
           left: {
-            title: 'Wo die eigene Recherche vorn liegt',
-            items: [
-              'Sie lesen den Originaltext. Keine Zwischenschicht, kein Modell, das zusammenfasst.',
-              'Kostenlos und ohne Anmeldung, im RIS wie auf der OIB-Website.',
-              'Sie sehen auch, was neben der gesuchten Bestimmung steht.',
-              'Keine Projektdaten an einen Dienst. Wer selbst sucht, lädt keine Pläne hoch.',
-            ],
-          },
-          right: {
             title: 'Wo Piloti vorn liegt',
             items: [
               'Das Zusammensuchen: Piloti holt die einschlägigen Bestimmungen aus dem Landesrecht des Projekts und aus den OIB-Richtlinien zusammen.',
-              'Die Ausgabe: Piloti nennt, welche OIB-Ausgabe es heranzieht, wenn sie den Wert verändert.',
+              'Die Ausgabe: Piloti nennt die OIB-Ausgabe, die im Bundesland gilt, wenn sie den Wert verändert.',
               'Die Verbindung zum Projekt: Pläne, Bescheide und frühere Klärungen liegen im selben Projekt wie die Antwort.',
               'Die Dokumentation: Begründung, Annahmen und Fundstelle stehen in der Antwort, als Word herunterladbar oder als Aktenvermerk zur Freigabe.',
+            ],
+          },
+          right: {
+            title: 'Wofür die eigene Recherche gut passt',
+            items: [
+              'Der Originaltext ohne Zwischenschicht: Im RIS lesen Sie die Bestimmung im amtlichen Wortlaut.',
+              'Kostenlos und ohne Anmeldung, im RIS wie auf der OIB-Website.',
+              'Der Blick auf das Umfeld: was neben der gesuchten Bestimmung steht.',
             ],
           },
         },
@@ -1020,22 +1042,21 @@ export const vergleichAllgemein: LandingEntry[] = [
           title: 'Was an der eigenen Recherche Arbeit macht',
           body: [
             'Das RIS beantwortet die Frage, was ein Gesetz sagt, sehr gut. Die Arbeit liegt davor und danach. Davor: herausfinden, welche Vorschrift überhaupt gilt. Eine Frage zum Brandschutz führt in Wien über die Bauordnung für Wien und die Wiener Bautechnikverordnung 2023 zur OIB-Richtlinie 2 in der Ausgabe 2023. In Salzburg führt sie über das Bautechnikgesetz 2015 laut OIB-Übersicht zur Ausgabe 2019, weil Salzburg die Ausgabe 2023 bisher nicht für verbindlich erklärt hat.',
-            'Danach: die Bestimmung mit dem Grundriss, der Gebäudeklasse und dem schon Geklärten verbinden und das Ergebnis so festhalten, dass eine Kollegin es in einem Jahr nachvollziehen kann.',
+            'Danach: die Bestimmung mit dem Grundriss, der Gebäudeklasse und dem schon Geklärten verbinden und das Ergebnis so festhalten, dass eine Kollegin es in einem Jahr nachvollziehen kann. Genau diese Schritte übernimmt Piloti, und das RIS bleibt die Stelle, an der Sie den Wortlaut lesen.',
           ],
         },
         {
           kind: 'text',
-          title: 'Wie Piloti die eigene Recherche ergänzt, und wo es aufhört',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti zitiert Landesrecht so, wie ein Bescheid es nennt, und öffnet die RIS-Quelle in Piloti an der markierten Stelle. OIB-Fundstellen tragen Punkt und Seite, etwa „Pkt. 3.5.2 · S. 7“. Der Weg zurück zum Originaltext bleibt damit kurz, und diesen Weg sollten Sie bei jeder Antwort gehen, die in eine Einreichung geht.',
-            'Piloti übernimmt nicht Ihre Verantwortung für Auslegung und Abwägung im Einzelfall. Was der Bebauungsplan für ein Grundstück festlegt, sieht es nur, wenn der Plan im Projekt liegt. Es führt das Normenverzeichnis, nicht die ÖNORM-Texte. Und es ist ein Proof of Concept in der Pilotphase mit ausgewählten Büros.',
+            'Auslegung und Abwägung im Einzelfall bleiben beim Planungsbüro. Piloti nennt zu jeder Antwort die Fundstellen und öffnet das RIS an der markierten Stelle, damit Sie den Originaltext mit einem Klick lesen. Was der Bebauungsplan für Ihr Grundstück festlegt, liest Piloti aus dem Plan im Projekt; fehlt er, sagt es, wo Sie nachsehen.',
           ],
         },
       ],
       faq: [
         {
           q: 'Wo finde ich die Bauordnung meines Bundeslands?',
-          a: 'Im RIS, dem Rechtsinformationssystem des Bundes, unter dem Landesrecht des jeweiligen Bundeslands. Die Namen unterscheiden sich: In Wien ist es die Bauordnung für Wien, in der Steiermark das Steiermärkische Baugesetz, in Vorarlberg das Baugesetz, in Kärnten die Kärntner Bauordnung 1996. Die technischen Anforderungen stehen oft in einer eigenen Bautechnikvorschrift.',
+          a: 'Im RIS, dem Rechtsinformationssystem des Bundes, unter dem Landesrecht des jeweiligen Bundeslands. Die Namen unterscheiden sich: In Wien ist es die Bauordnung für Wien, in der Steiermark das Steiermärkische Baugesetz, in Vorarlberg das Baugesetz, in Kärnten die Kärntner Bauordnung 1996. Die technischen Anforderungen stehen oft in einer eigenen Bautechnikvorschrift; Piloti zieht beides für das Bundesland des Projekts heran.',
         },
         {
           q: 'Welche OIB-Richtlinien gelten in meinem Bundesland?',
@@ -1043,24 +1064,32 @@ export const vergleichAllgemein: LandingEntry[] = [
         },
         {
           q: 'Ist Google für Baurecht verlässlich?',
-          a: 'Google findet schnell Merkblätter, Fachartikel und Gesetzestexte, sortiert aber nach Relevanz, nicht nach Geltung. Ein Treffer kann eine alte Fassung, eine andere OIB-Ausgabe oder ein anderes Bundesland betreffen. Die geltende Fassung steht im RIS und auf der OIB-Website.',
+          a: 'Google findet schnell Merkblätter, Fachartikel und Gesetzestexte, sortiert aber nach Relevanz, nicht nach Geltung. Ein Treffer kann eine alte Fassung, eine andere OIB-Ausgabe oder ein anderes Bundesland betreffen. Die geltende Fassung steht im RIS und auf der OIB-Website, und dorthin verweist Piloti mit jeder Fundstelle.',
         },
         {
           q: 'Brauche ich das RIS noch, wenn ich Piloti nutze?',
-          a: 'Ja. Piloti zitiert ins RIS und öffnet die Quelle an der markierten Stelle, damit Sie den Originaltext lesen. Für eine Antwort, die in eine Einreichung oder einen Aktenvermerk geht, bleibt dieser Blick Ihr Teil der Arbeit.',
+          a: 'Ja, und Piloti bringt Sie schneller hin: Es zitiert ins RIS und öffnet die Quelle an der markierten Stelle. Für eine Antwort, die in eine Einreichung oder einen Aktenvermerk geht, lesen Sie dort den Originaltext, ohne die Stelle erst suchen zu müssen.',
         },
       ],
     },
     en: {
       title: 'Research building law yourself: RIS, OIB, Google or Piloti',
       description:
-        'Research Austrian building law yourself in RIS, on the OIB website and Google, or with Piloti? What your own research delivers, and where the work lies.',
+        'Research Austrian building law yourself in RIS, on the OIB website and Google, or with Piloti? What Piloti takes on and how it leads back into RIS.',
       heading: 'Research building law yourself, or with Piloti?',
-      lede: 'RIS is the official source for state law, the OIB website the one for the guidelines, both freely accessible. Here is where the work lies and what Piloti takes on.',
+      lede: 'Piloti does the gathering for you and leads you back to the official source for every citation. RIS is the official source for state law, the OIB website the one for the guidelines, both freely accessible. Here is what Piloti makes of them for a project.',
       note: 'RIS: the Austrian federal legal information system (ris.bka.gv.at). OIB: Austrian Institute of Construction Engineering (oib.or.at). OIB editions as stated in the OIB overview of entry into force.',
       answer:
-        'Your own research in RIS and on the OIB website remains the benchmark for correctness. Piloti does not replace it; it does the gathering: the state law, the OIB edition in force, the link to the project’s drawings and the documentation, and it points back into RIS for every citation.',
+        'Piloti takes on the work around RIS: it gathers the provisions from the project’s state law and from the OIB guidelines in the edition in force there, connects them to the drawings and records the result as a file note. Every citation leads back into RIS, the official and free source for the original text.',
       blocks: [
+        {
+          kind: 'text',
+          title: 'What Piloti takes on',
+          body: [
+            'Piloti pulls together the relevant provisions from the project’s state law and the OIB guidelines, sets them next to plan, section and what is already settled, and writes the result down with reasoning, assumptions and citation. If a deciding fact such as the building class is missing, it asks once or states its assumption.',
+            'Piloti cites state law the way an official decision does and opens the RIS source inside Piloti at the marked passage. OIB citations carry clause and page, for example “Pkt. 3.5.2 · S. 7”. The way to the original text is one click.',
+          ],
+        },
         {
           kind: 'table',
           title: 'In detail',
@@ -1074,7 +1103,7 @@ export const vergleichAllgemein: LandingEntry[] = [
             },
             {
               label: 'Authority',
-              a: 'Cites into RIS and the OIB guideline; the original text remains decisive',
+              a: 'Cites into RIS and the OIB guideline and opens the passage; the original text remains decisive',
               b: 'Directly at the official source',
             },
             {
@@ -1093,30 +1122,29 @@ export const vergleichAllgemein: LandingEntry[] = [
               b: 'You write the file note yourself',
             },
             {
-              label: 'Typical errors',
-              a: 'A language model can be wrong; citations are checked, the conclusion is yours to check',
-              b: 'A missed amendment, the wrong state, an old edition from a Google hit',
+              label: 'Project memory',
+              a: 'Findings become facts and open points in the project; follow-up questions build on them',
+              b: 'You record yourself what is settled',
             },
           ],
         },
         {
           kind: 'split',
           left: {
-            title: 'Where your own research is ahead',
-            items: [
-              'You read the original text. No intermediate layer, no model summarising.',
-              'Free and without sign-in, in RIS as on the OIB website.',
-              'You also see what stands next to the provision you were looking for.',
-              'No project data sent to a service. Researching yourself means uploading no drawings.',
-            ],
-          },
-          right: {
             title: 'Where Piloti is ahead',
             items: [
               'The gathering: Piloti pulls the relevant provisions together from the project’s state law and the OIB guidelines.',
-              'The edition: Piloti names which OIB edition it draws on when it changes the value.',
+              'The edition: Piloti names the OIB edition in force in the state when it changes the value.',
               'The link to the project: drawings, permits and earlier clarifications sit in the same project as the answer.',
               'The documentation: reasoning, assumptions and citation are in the answer, downloadable as Word or sent as a file note for approval.',
+            ],
+          },
+          right: {
+            title: 'What your own research is good for',
+            items: [
+              'The original text with no layer in between: in RIS you read the provision in its official wording.',
+              'Free and without sign-in, in RIS as on the OIB website.',
+              'The view of the surroundings: what stands next to the provision you were looking for.',
             ],
           },
         },
@@ -1125,22 +1153,21 @@ export const vergleichAllgemein: LandingEntry[] = [
           title: 'What makes your own research work',
           body: [
             'RIS answers the question of what a law says very well. The work lies before and after. Before: finding out which rule applies at all. A fire-safety question in Vienna leads through the Bauordnung für Wien and the Wiener Bautechnikverordnung 2023 to OIB guideline 2 in the 2023 edition. In Salzburg it leads through the Bautechnikgesetz 2015 to the 2019 edition, according to the OIB overview, because Salzburg has not yet declared the 2023 edition binding.',
-            'After: connecting the provision to the floor plan, the building class and what is already settled, and recording the result so that a colleague can follow it a year later.',
+            'After: connecting the provision to the floor plan, the building class and what is already settled, and recording the result so that a colleague can follow it a year later. These are the steps Piloti takes on, and RIS stays the place where you read the wording.',
           ],
         },
         {
           kind: 'text',
-          title: 'How Piloti complements your own research, and where it stops',
+          title: 'Good to know',
           body: [
-            'Piloti cites state law the way an official decision does and opens the RIS source inside Piloti at the marked passage. OIB citations carry clause and page, for example “Pkt. 3.5.2 · S. 7”. The way back to the original text stays short, and that is the way to go for every answer that goes into a submission.',
-            'Piloti does not take over your responsibility for interpretation and judgement in the individual case. What the zoning plan fixes for a plot it sees only if the plan is in the project. It holds the register of standards, not the ÖNORM texts. And it is a proof of concept in a pilot phase with selected offices.',
+            'Interpretation and judgement in the individual case stay with the planning office. Piloti gives the citation for every answer and opens RIS at the marked passage, so that you read the original text in one click. What the zoning plan fixes for your plot, Piloti reads from the plan in the project; if it is missing, Piloti tells you where to look.',
           ],
         },
       ],
       faq: [
         {
           q: 'Where do I find my state’s building code?',
-          a: 'In RIS, the federal legal information system, under the state law of the state concerned. The names differ: in Vienna it is the Bauordnung für Wien, in Styria the Steiermärkisches Baugesetz, in Vorarlberg the Baugesetz, in Carinthia the Kärntner Bauordnung 1996. The technical requirements are often in a separate building-technology rule.',
+          a: 'In RIS, the federal legal information system, under the state law of the state concerned. The names differ: in Vienna it is the Bauordnung für Wien, in Styria the Steiermärkisches Baugesetz, in Vorarlberg the Baugesetz, in Carinthia the Kärntner Bauordnung 1996. The technical requirements are often in a separate building-technology rule; Piloti draws on both for the project’s state.',
         },
         {
           q: 'Which OIB guidelines apply in my state?',
@@ -1148,11 +1175,11 @@ export const vergleichAllgemein: LandingEntry[] = [
         },
         {
           q: 'Is Google reliable for building law?',
-          a: 'Google quickly finds guidance sheets, articles and legal texts, but ranks by relevance, not by validity. A hit can concern an old version, another OIB edition or another state. The version in force is in RIS and on the OIB website.',
+          a: 'Google quickly finds guidance sheets, articles and legal texts, but ranks by relevance, not by validity. A hit can concern an old version, another OIB edition or another state. The version in force is in RIS and on the OIB website, and that is where every Piloti citation points.',
         },
         {
           q: 'Do I still need RIS if I use Piloti?',
-          a: 'Yes. Piloti cites into RIS and opens the source at the marked passage so that you read the original text. For an answer that goes into a submission or a file note, that look remains your part of the work.',
+          a: 'Yes, and Piloti gets you there faster: it cites into RIS and opens the source at the marked passage. For an answer that goes into a submission or a file note, you read the original text there without having to find the passage first.',
         },
       ],
     },
