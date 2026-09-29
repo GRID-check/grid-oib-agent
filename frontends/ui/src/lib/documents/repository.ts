@@ -11,7 +11,7 @@
  */
 
 import 'server-only'
-import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
 import { documentNameVariants } from './name-match'
@@ -736,8 +736,14 @@ export async function setDocumentIngestJob(
  * tens of seconds, during which there is no ingest job to reconcile against.
  * Leaving the row at 'uploaded' would render a green "Ready" for a model that
  * cannot be opened yet. 'processing' is an in-flight status, and reconciliation
- * writes nothing for an in-flight row the backend has never heard of, so the
- * status survives until extraction sets a real one.
+ * leaves a `processing` row alone, so the status survives until extraction
+ * sets a real one.
+ *
+ * The previous ingest job id is dropped here. A retried or re-ingested document
+ * still carried it, and every reader that consults the job (the reconcile and
+ * the re-ingest heal) then answered with the OLD job's outcome — a retry of a
+ * failed file flipped back to failed while its new conversion was running.
+ * Clearing it at the one writer of `processing` fixes both readers at once.
  */
 export async function markDocumentProcessing(
   documentId: string,
@@ -747,7 +753,12 @@ export async function markDocumentProcessing(
   await withTenant({ organizationId }, () =>
     db
       .update(documents)
-      .set({ status: 'processing', errorMessage: null, updatedAt: new Date() })
+      .set({
+        status: 'processing',
+        errorMessage: null,
+        metadata: sql`coalesce(${documents.metadata}, '{}'::jsonb) - 'ingestJobId'`,
+        updatedAt: new Date(),
+      })
       .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
   )
 }

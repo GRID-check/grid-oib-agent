@@ -37,6 +37,22 @@ import { setDocumentReconciledStatus } from './repository'
  */
 const IN_FLIGHT_STATUSES = IN_FLIGHT_DOCUMENT_STATUSES
 
+/**
+ * The one in-flight status the BACKEND cannot answer for. `processing` is
+ * written only by `markDocumentProcessing`, for work running in the BFF itself
+ * (IFC extraction, office rendition) before any ingest job exists. Whatever the
+ * row's metadata still carries is from the PREVIOUS dispatch: `metadata` is not
+ * cleared when the row goes back to `processing`, so a retried document asks
+ * the batch endpoint about its old failed job and flips back to `failed` while
+ * the new conversion is still running; and a re-ingested document finds its
+ * previous version `success` in the collection list and goes green before its
+ * new bytes were read. The detached work writes every terminal outcome itself
+ * (`pending` + job id on dispatch, `failed` otherwise), so the reconciler leaves
+ * the status alone. A row stuck here because the process died is recovered by
+ * the re-ingest action, which asks the backend live.
+ */
+const LOCALLY_OWNED_STATUS = 'processing'
+
 const FETCH_TIMEOUT_MS = 5000
 
 const getBackendUrl = (): string => {
@@ -74,6 +90,13 @@ export interface ReconcilableDocument {
   publishedVersionId: string | null
   errorMessage: string | null
   metadata?: unknown
+  /**
+   * When the row was last written. Optional because it only sharpens the
+   * metadata cache (a listing fetched before the row's last write cannot
+   * describe that write — see `reconcileDocumentStatuses`); a row type that
+   * leaves it out is enriched from the TTL cache exactly as before.
+   */
+  updatedAt?: Date | string | null
 }
 
 /**
@@ -243,6 +266,8 @@ const COLLECTION_FILES_TTL_MS = 15_000
 
 interface CollectionFilesCacheEntry {
   promise: Promise<CollectionFiles | null>
+  /** When the fetch STARTED: the listing describes the backend at or after it. */
+  fetchedAt: number
   expiresAt: number
 }
 
@@ -254,7 +279,8 @@ const collectionFilesCache = new Map<string, CollectionFilesCacheEntry>()
  * whole TTL window — the next read retries instead.
  */
 const storeCollectionFiles = (collectionName: string, promise: Promise<CollectionFiles | null>): void => {
-  collectionFilesCache.set(collectionName, { promise, expiresAt: Date.now() + COLLECTION_FILES_TTL_MS })
+  const now = Date.now()
+  collectionFilesCache.set(collectionName, { promise, fetchedAt: now, expiresAt: now + COLLECTION_FILES_TTL_MS })
   void promise.then((value) => {
     if (value === null && collectionFilesCache.get(collectionName)?.promise === promise) {
       collectionFilesCache.delete(collectionName)
@@ -271,11 +297,17 @@ const loadCollectionFilesCached = (collectionName: string): Promise<CollectionFi
   return promise
 }
 
+/** When the live cache entry for a collection was fetched, or null when there is none. */
+const cachedListingFetchedAt = (collectionName: string): number | null => {
+  const entry = collectionFilesCache.get(collectionName)
+  return entry && entry.expiresAt > Date.now() ? entry.fetchedAt : null
+}
+
 /**
- * Fresh (TTL-bypassing) read used by in-flight status reconciliation, where the
- * status must reflect the very latest backend state. It also primes the cache so
- * the enrichment pass in the same read reuses this fetch rather than issuing a
- * second one.
+ * Fresh (TTL-bypassing) read, for status reconciliation from the list and for
+ * enriching a row whose status just changed. It REPLACES the cache entry, so
+ * every later read within the TTL sees the fresh listing too rather than the
+ * one that predates the change.
  */
 const loadCollectionFilesFresh = (collectionName: string): Promise<CollectionFiles | null> => {
   const promise = loadCollectionFiles(collectionName)
@@ -284,11 +316,10 @@ const loadCollectionFilesFresh = (collectionName: string): Promise<CollectionFil
 }
 
 /**
- * Invalidate the collection-file-list cache. Exported primarily so tests can
- * isolate TTL behaviour between cases. (The pending→terminal transition itself
- * is detected via a fresh fetch that re-primes the cache, so a document
- * completing is already reflected without an explicit clear; hence no
- * upload-completion caller is wired here — TTL expiry covers the rest.)
+ * Invalidate the collection-file-list cache. Exported so tests can isolate TTL
+ * behaviour between cases. Nothing in production needs it: a read that moves a
+ * row to a terminal status enriches that collection from a fresh listing, which
+ * replaces the entry (see `reconcileDocumentStatuses`).
  */
 export const clearCollectionFilesCache = (): void => {
   collectionFilesCache.clear()
@@ -394,6 +425,12 @@ export async function describeBackendIngestState(row: {
  * „Von Piloti erstellt“ byline, and returned by
  * `GET /api/documents/{id}/status` to the chat peek pane.
  */
+const toEpochMs = (value: Date | string | null | undefined): number | null => {
+  if (value === null || value === undefined) return null
+  const ms = new Date(value).getTime()
+  return Number.isNaN(ms) ? null : ms
+}
+
 const extractMetadata = (files: CollectionFiles | null, ref: CollectionFileRef): DocumentMetadata | null => {
   if (!files || files.ambiguousNames.has(ref.filename)) return null
   const file = files.byName.get(ref.filename)
@@ -436,10 +473,9 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
 ): Promise<Array<T & DocumentMetadata>> {
   if (rows.length === 0) return []
 
-  // Per-call dedup for FRESH fetches used by status reconciliation: multiple
-  // in-flight rows in the same collection share one fetch. Each fresh fetch also
-  // primes the module-level TTL cache (via loadCollectionFilesFresh), so the
-  // enrichment pass below reuses it instead of fetching again.
+  // Per-call dedup for FRESH fetches: at most one per collection per read,
+  // shared by the status pass and the enrichment pass. Each also replaces the
+  // module-level cache entry (via loadCollectionFilesFresh).
   const freshFetches = new Map<string, Promise<CollectionFiles | null>>()
   const getFreshCollectionFiles = (collectionName: string): Promise<CollectionFiles | null> => {
     let cached = freshFetches.get(collectionName)
@@ -452,7 +488,9 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
 
   // --- Status reconciliation (in-flight rows only) ---
   const resolutions = new Map<string, TerminalResolution>()
-  const inFlight = rows.filter((row) => IN_FLIGHT_STATUSES.has(row.status))
+  const inFlight = rows.filter(
+    (row) => IN_FLIGHT_STATUSES.has(row.status) && row.status !== LOCALLY_OWNED_STATUS
+  )
   if (inFlight.length > 0) {
     // One batch call for every in-flight job id (previously one GET per row).
     const jobIds = [
@@ -495,12 +533,41 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
   }
 
   // --- Metadata enrichment (all rows) ---
-  // Completed documents never hit the status pass above, so metadata is joined
-  // here for every row via the short-TTL cache. Collections that were consulted
-  // fresh during status reconciliation are already primed (no double fetch);
-  // a read where every row is terminal reuses the cache and — within the TTL —
-  // makes zero backend calls, restoring the zero-call steady state. Fail-open:
-  // a null file list (backend down / 404) simply yields no metadata.
+  // Steady state reads the short-TTL cache: a read where every row is terminal
+  // and unchanged makes zero backend calls within the TTL. Two cases read a
+  // FRESH listing instead, because the cached one cannot describe them:
+  //
+  //  - a row this read moved to a terminal status. The job batch said
+  //    `completed`, but the listing in the cache may be from before the file
+  //    or its summary existed, and this is the read that tells every client to
+  //    stop polling. Enriching it from that listing meant the first (and last)
+  //    `completed` a client saw carried no summary, counts or tags.
+  //  - a row written after the cached listing was fetched (`updatedAt`). A
+  //    transition written by ANOTHER read, or by the re-ingest heal, lands here
+  //    once and then not again: the fresh fetch is newer than the write.
+  //
+  // Fail-open throughout: a null file list (backend down / 404) yields no
+  // metadata.
+  const collectionsNeedingFresh = new Set<string>()
+  for (const row of rows) {
+    if (freshFetches.has(row.collectionName)) continue
+    if (resolutions.has(row.id)) {
+      collectionsNeedingFresh.add(row.collectionName)
+      continue
+    }
+    if (IN_FLIGHT_STATUSES.has(row.status)) continue
+    const fetchedAt = cachedListingFetchedAt(row.collectionName)
+    const writtenAt = toEpochMs(row.updatedAt)
+    if (fetchedAt !== null && writtenAt !== null && writtenAt > fetchedAt) {
+      collectionsNeedingFresh.add(row.collectionName)
+    }
+  }
+
+  const listingFor = (collectionName: string): Promise<CollectionFiles | null> =>
+    freshFetches.has(collectionName) || collectionsNeedingFresh.has(collectionName)
+      ? getFreshCollectionFiles(collectionName)
+      : loadCollectionFilesCached(collectionName)
+
   const metaByRow = new Map<string, DocumentMetadata>()
   await Promise.all(
     rows.map(async (row) => {
@@ -509,7 +576,7 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
       // owns nothing in the list either way.
       const ref = collectionFileRef(row)
       if (!ref) return
-      const meta = extractMetadata(await loadCollectionFilesCached(row.collectionName), ref)
+      const meta = extractMetadata(await listingFor(row.collectionName), ref)
       if (meta) metaByRow.set(row.id, meta)
     })
   )
