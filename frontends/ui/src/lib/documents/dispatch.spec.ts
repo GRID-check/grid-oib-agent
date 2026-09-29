@@ -64,7 +64,7 @@ import {
   setDocumentIngestJob,
 } from './repository'
 import { makeDocument } from '@/test-utils/db-fixtures'
-import { dispatchDocument, type DispatchDocumentInput } from './service'
+import { RENDITION_REQUIRED_MESSAGE, dispatchDocument, type DispatchDocumentInput } from './service'
 
 const input = (filename: string): DispatchDocumentInput => ({
   organizationId: 'org-1',
@@ -463,7 +463,9 @@ describe('an office file is converted, detached, before it is ingested', () => {
     expect(bodyOf(0).extraction_ref).toBeNull()
   })
 
-  it('indexes the original, with neither ref, when the conversion fails', async () => {
+  it('fails a Word file whose PDF cannot be made, and never reads the original instead', async () => {
+    // The rendition is its only source (ADR-0071): a converter outage is a
+    // failure the reader can retry, not a quietly worse index.
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     vi.mocked(ensureRendition).mockRejectedValue(new RenditionFailedError('Office conversion answered 503'))
 
@@ -471,12 +473,23 @@ describe('an office file is converted, detached, before it is ingested', () => {
       jobId: null,
       status: 'processing',
     })
+
+    await vi.waitFor(() =>
+      expect(markDocumentIngestFailed).toHaveBeenCalledWith('doc-1', 'org-1', RENDITION_REQUIRED_MESSAGE),
+    )
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('still ingests a workbook whose PDF cannot be made: it only loses the thumbnail', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.mocked(findDocumentInOrg).mockResolvedValue(officeRow('Kostenschätzung.xlsx'))
+    vi.mocked(ensureRendition).mockRejectedValue(new RenditionFailedError('Office conversion answered 503'))
+
+    await dispatchDocument(input('Kostenschätzung.xlsx'))
     await ingested()
 
     expect(bodyOf(0).preview_ref).toBeNull()
     expect(bodyOf(0).extraction_ref).toBeNull()
-    // Never a failed document because the converter hiccupped.
-    await vi.waitFor(() => expect(setDocumentIngestJob).toHaveBeenCalledWith('doc-1', 'org-1', 'job-1'))
     expect(markDocumentIngestFailed).not.toHaveBeenCalled()
   })
 
@@ -504,15 +517,26 @@ describe('an office file is converted, detached, before it is ingested', () => {
     expect(bodyOf(0).preview_ref).toBe(RENDITION_URL)
   })
 
-  it('dispatches synchronously, as before, when conversion is not configured', async () => {
+  it('fails a Word file at once when no converter is configured', async () => {
     vi.mocked(isRenditionEnabled).mockReturnValue(false)
 
     await expect(dispatchDocument(input('Baubeschreibung.docx'))).resolves.toEqual({
+      jobId: null,
+      status: 'failed',
+    })
+    expect(markDocumentIngestFailed).toHaveBeenCalledWith('doc-1', 'org-1', RENDITION_REQUIRED_MESSAGE)
+    expect(ensureRendition).not.toHaveBeenCalled()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('ingests a workbook synchronously, as before, when no converter is configured', async () => {
+    vi.mocked(isRenditionEnabled).mockReturnValue(false)
+    vi.mocked(findDocumentInOrg).mockResolvedValue(officeRow('Kostenschätzung.xlsx'))
+
+    await expect(dispatchDocument(input('Kostenschätzung.xlsx'))).resolves.toEqual({
       jobId: 'job-1',
       status: 'pending',
     })
-    expect(ensureRendition).not.toHaveBeenCalled()
-    expect(markDocumentProcessing).not.toHaveBeenCalled()
     expect(bodyOf(0).preview_ref).toBeNull()
     expect(bodyOf(0).extraction_ref).toBeNull()
   })
@@ -538,5 +562,76 @@ describe('an office file is converted, detached, before it is ingested', () => {
     expect(markDocumentProcessing).not.toHaveBeenCalled()
     expect(ensureRendition).not.toHaveBeenCalled()
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * A timeout is the one dispatch outcome that leaves the backend's side unknown.
+ *
+ * The backend may still be downloading when the ten-second budget runs out and
+ * start the job afterwards; recording `failed` then was a false failure, and a
+ * duplicate once someone retried. `/v1/ingest` is idempotent per document and
+ * object, so the dispatch sends the same request once more and takes whichever
+ * job id comes back. The backend twin is the idempotency block at the end of
+ * `frontends/aiq_api/tests/test_ingest.py`.
+ */
+describe('the ingest dispatch after a timeout', () => {
+  const timeout = () =>
+    Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+
+  it('asks once more and records the job the backend holds', async () => {
+    fetchSpy
+      .mockRejectedValueOnce(timeout())
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ job_id: 'job-live' }) })
+
+    await expect(dispatchDocument(input('plan.pdf'))).resolves.toEqual({
+      jobId: 'job-live',
+      status: 'pending',
+    })
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    // The same request, so the backend can recognise it.
+    expect(fetchSpy.mock.calls[1][1].body).toBe(fetchSpy.mock.calls[0][1].body)
+    expect(setDocumentIngestJob).toHaveBeenCalledWith('doc-1', 'org-1', 'job-live')
+    expect(markDocumentIngestFailed).not.toHaveBeenCalled()
+  })
+
+  it('records a failure only when the second attempt times out too', async () => {
+    fetchSpy.mockRejectedValueOnce(timeout()).mockRejectedValueOnce(timeout())
+
+    await expect(dispatchDocument(input('plan.pdf'))).resolves.toEqual({
+      jobId: null,
+      status: 'failed',
+    })
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(markDocumentIngestFailed).toHaveBeenCalledWith(
+      'doc-1',
+      'org-1',
+      'Ingestion could not be started'
+    )
+  })
+
+  it('does not retry a failure the backend reported', async () => {
+    fetchSpy.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) })
+
+    await expect(dispatchDocument(input('plan.pdf'))).resolves.toEqual({
+      jobId: null,
+      status: 'failed',
+    })
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(markDocumentIngestFailed).toHaveBeenCalled()
+  })
+
+  it('does not retry a connection that never reached the backend', async () => {
+    fetchSpy.mockRejectedValueOnce(new TypeError('fetch failed'))
+
+    await expect(dispatchDocument(input('plan.pdf'))).resolves.toEqual({
+      jobId: null,
+      status: 'failed',
+    })
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 })

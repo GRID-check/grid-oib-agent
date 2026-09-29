@@ -11,10 +11,11 @@
  */
 
 import 'server-only'
-import { and, asc, count, desc, eq, inArray, ne, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
-import { documentNameVariants } from './name-match'
+import { documentAliasKey, documentNameVariants } from './name-match'
+import { CURSOR_TIMESTAMP_FORMAT, type DocumentListCursor } from './list-cursor'
 import {
   documents,
   projectFolders,
@@ -24,7 +25,11 @@ import {
   type ResourceVisibility,
 } from '@/lib/db/schema'
 
-/** Hard cap for unpaginated per-project document lists. */
+/**
+ * Hard cap on one page of a document listing (project and Archiv alike).
+ * A caller that needs the whole corpus follows `nextCursor`
+ * (`listProjectDocumentPage`), it never raises this.
+ */
 export const DOCUMENT_LIST_LIMIT = 500
 
 /** The column subset the list endpoint serves (metadata is stripped later). */
@@ -137,59 +142,258 @@ export interface ListProjectDocumentsOptions {
   includeArchived?: boolean
 }
 
+/**
+ * The columns a listing serves — one definition for the project listing, its
+ * keyset page and the Archiv's, so the three cannot disagree about what a
+ * `DocumentListRow` is.
+ */
+export const documentListColumns = {
+  id: documents.id,
+  filename: documents.filename,
+  displayName: documents.displayName,
+  fileSize: documents.fileSize,
+  contentType: documents.contentType,
+  status: documents.status,
+  authoredBy: documents.authoredBy,
+  publishedVersionId: documents.publishedVersionId,
+  lifecycle: documents.lifecycle,
+  collectionName: documents.collectionName,
+  folderId: documents.folderId,
+  originPath: documents.originPath,
+  contentHash: documents.contentHash,
+  createdAt: documents.createdAt,
+  updatedAt: documents.updatedAt,
+  errorMessage: documents.errorMessage,
+  metadata: documents.metadata,
+}
+
+function projectListingWhere(
+  projectId: string,
+  organizationId: string,
+  { authoredBy, includeArchived = false }: Pick<ListProjectDocumentsOptions, 'authoredBy' | 'includeArchived'>,
+): SQL | undefined {
+  return and(
+    eq(documents.projectId, projectId),
+    eq(documents.organizationId, organizationId),
+    // The shelf, stated. This query used to filter on `project_id` alone
+    // and be correct by accident: the only other shelf was the Archiv,
+    // whose rows carry a NULL project, so `project_id = $1` excluded them
+    // without ever saying that was the intent. `session` is a third shelf
+    // that also has a NULL project (ADR-0047 Phase 2) — so the accident
+    // still holds, and one row that ever carries both a project and a
+    // non-project scope would end it silently. A project listing lists
+    // project documents; that is now what it asks for.
+    eq(documents.scope, 'project'),
+    ...(authoredBy ? [eq(documents.authoredBy, authoredBy)] : []),
+    ...(includeArchived ? [] : [eq(documents.lifecycle, 'active')]),
+  )
+}
+
+function boundListLimit(limit: number): number {
+  return Math.min(Math.max(1, Math.trunc(limit)), DOCUMENT_LIST_LIMIT)
+}
+
 export async function listProjectDocuments(
   projectId: string,
   organizationId: string,
   { limit = DOCUMENT_LIST_LIMIT, offset = 0, authoredBy, includeArchived = false }: ListProjectDocumentsOptions = {},
 ): Promise<DocumentListRow[]> {
-  const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), DOCUMENT_LIST_LIMIT)
+  const boundedLimit = boundListLimit(limit)
   const boundedOffset = Math.max(0, Math.trunc(offset))
   const db = getDb()
   return withTenant({ organizationId }, () =>
     db
-      .select({
-        id: documents.id,
-        filename: documents.filename,
-        displayName: documents.displayName,
-        fileSize: documents.fileSize,
-        contentType: documents.contentType,
-        status: documents.status,
-        authoredBy: documents.authoredBy,
-        publishedVersionId: documents.publishedVersionId,
-        lifecycle: documents.lifecycle,
-        collectionName: documents.collectionName,
-        folderId: documents.folderId,
-        originPath: documents.originPath,
-        contentHash: documents.contentHash,
-        createdAt: documents.createdAt,
-        updatedAt: documents.updatedAt,
-        errorMessage: documents.errorMessage,
-        metadata: documents.metadata,
-      })
+      .select(documentListColumns)
       .from(documents)
-      .where(
-        and(
-          eq(documents.projectId, projectId),
-          eq(documents.organizationId, organizationId),
-          // The shelf, stated. This query used to filter on `project_id` alone
-          // and be correct by accident: the only other shelf was the Archiv,
-          // whose rows carry a NULL project, so `project_id = $1` excluded them
-          // without ever saying that was the intent. `session` is a third shelf
-          // that also has a NULL project (ADR-0047 Phase 2) — so the accident
-          // still holds, and one row that ever carries both a project and a
-          // non-project scope would end it silently. A project listing lists
-          // project documents; that is now what it asks for.
-          eq(documents.scope, 'project'),
-          ...(authoredBy ? [eq(documents.authoredBy, authoredBy)] : []),
-          ...(includeArchived ? [] : [eq(documents.lifecycle, 'active')]),
-        ),
-      )
+      .where(projectListingWhere(projectId, organizationId, { authoredBy, includeArchived }))
       // Newest first, with the id as tiebreak: createdAt ties are real (a
       // batch import lands on one timestamp), and under offset pagination an
       // unstable order drops rows from one page and repeats them on the next.
       .orderBy(desc(documents.createdAt), asc(documents.id))
       .limit(boundedLimit)
       .offset(boundedOffset),
+  )
+}
+
+/** One page of a keyset listing, and where the next one starts. */
+export interface DocumentListPage {
+  rows: DocumentListRow[]
+  /** The position after the last row, or `null` when this page is the last. */
+  nextCursor: DocumentListCursor | null
+}
+
+/**
+ * Rows strictly after `cursor` in the `created_at DESC, id ASC` order.
+ *
+ * The comparison is against the cursor's microsecond text, parsed as UTC, so
+ * it matches the column exactly — see `list-cursor.ts` for why a `Date` would
+ * not.
+ */
+export function afterDocumentListCursor(cursor: DocumentListCursor): SQL {
+  const at = sql`(${cursor.createdAt}::timestamp AT TIME ZONE 'UTC')`
+  return sql`(${documents.createdAt} < ${at} OR (${documents.createdAt} = ${at} AND ${documents.id} > ${cursor.id}::uuid))`
+}
+
+/**
+ * Fetch one page of `limit + 1` rows and split off the probe row.
+ *
+ * The extra row is how "is there more" is answered without a COUNT: a page
+ * that came back full is not proof of a next one, and a client that asked
+ * again only to receive nothing would pay a round trip to learn it.
+ */
+export async function readDocumentListPage(
+  query: (probeLimit: number) => Promise<Array<DocumentListRow & { cursorCreatedAt: string }>>,
+  limit: number,
+): Promise<DocumentListPage> {
+  const bounded = boundListLimit(limit)
+  const fetched = await query(bounded + 1)
+  const hasMore = fetched.length > bounded
+  const page = hasMore ? fetched.slice(0, bounded) : fetched
+  const rows = page.map(({ cursorCreatedAt: _cursor, ...row }) => ({
+    ...row,
+    // Coerced at the boundary: a raw driver can hand the timestamp back as text.
+    createdAt: new Date(row.createdAt),
+    updatedAt: new Date(row.updatedAt),
+  }))
+  const last = page.at(-1)
+  return {
+    rows,
+    nextCursor: hasMore && last ? { createdAt: last.cursorCreatedAt, id: last.id } : null,
+  }
+}
+
+/** The microsecond UTC text of `created_at`, which a cursor is built from. */
+export const cursorCreatedAtColumn = sql<string>`to_char(${documents.createdAt} AT TIME ZONE 'UTC', ${CURSOR_TIMESTAMP_FORMAT})`
+
+/**
+ * One keyset page of a project's documents — the listing the Files pane
+ * drains, page after page, so no document past the first `DOCUMENT_LIST_LIMIT`
+ * falls off it.
+ *
+ * Each query stays bounded; completeness comes from following `nextCursor`,
+ * never from a larger limit.
+ */
+export async function listProjectDocumentPage(
+  projectId: string,
+  organizationId: string,
+  {
+    limit = DOCUMENT_LIST_LIMIT,
+    cursor,
+    authoredBy,
+    includeArchived = false,
+  }: Omit<ListProjectDocumentsOptions, 'offset'> & { cursor?: DocumentListCursor } = {},
+): Promise<DocumentListPage> {
+  const db = getDb()
+  return readDocumentListPage(
+    (probeLimit) =>
+      withTenant({ organizationId }, () =>
+        db
+          .select({ ...documentListColumns, cursorCreatedAt: cursorCreatedAtColumn })
+          .from(documents)
+          .where(
+            and(
+              projectListingWhere(projectId, organizationId, { authoredBy, includeArchived }),
+              ...(cursor ? [afterDocumentListCursor(cursor)] : []),
+            ),
+          )
+          .orderBy(desc(documents.createdAt), asc(documents.id))
+          .limit(probeLimit),
+      ),
+    limit,
+  )
+}
+
+/** One row of a name probe (`name-probe-types.ts` is its wire shape). */
+export interface DocumentNameMatchRow {
+  id: string
+  filename: string
+  displayName: string | null
+  fileSize: number | null
+  contentHash: string | null
+  folderId: string | null
+  authoredBy: DocumentAuthor
+  lifecycle: DocumentLifecycle
+}
+
+export const documentNameMatchColumns = {
+  id: documents.id,
+  filename: documents.filename,
+  displayName: documents.displayName,
+  fileSize: documents.fileSize,
+  contentHash: documents.contentHash,
+  folderId: documents.folderId,
+  authoredBy: documents.authoredBy,
+  lifecycle: documents.lifecycle,
+}
+
+/** Names per probe query; a longer probe runs several bounded queries. */
+const NAME_PROBE_CHUNK = 500
+/** Rows per probe query: one identity match per name plus room for aliases. */
+const NAME_PROBE_ROW_LIMIT = NAME_PROBE_CHUNK * 4
+
+/**
+ * The rows answering to any of `names`, as the upload planner compares them:
+ * the filename in either Unicode form (IDENTITY — what the upload replaces),
+ * or the filename or rename case-folded (RECOGNITION — the planner's
+ * `duplicate`). See `name-match.ts` for the two keys.
+ *
+ * Person-uploaded rows only, and every lifecycle: exactly the rows
+ * `findLiveDocumentByFilename` would version, so the plan cannot promise „Neu"
+ * for a file the server is about to put on an archived document.
+ */
+function nameProbeWhere(names: readonly string[]): SQL | undefined {
+  const exact = [...new Set(names.flatMap(documentNameVariants))]
+  const folded = [...new Set(names.flatMap((name) => documentNameVariants(documentAliasKey(name))))]
+  return and(
+    eq(documents.authoredBy, 'user'),
+    or(
+      inArray(documents.filename, exact),
+      inArray(sql`lower(${documents.filename})`, folded),
+      inArray(sql`lower(${documents.displayName})`, folded),
+    ),
+  )
+}
+
+/**
+ * Run a name probe in bounded chunks and merge the answers (a document can
+ * answer to names in two chunks; it is returned once).
+ */
+export async function probeDocumentNames(
+  names: readonly string[],
+  query: (where: SQL | undefined, limit: number) => Promise<DocumentNameMatchRow[]>,
+): Promise<DocumentNameMatchRow[]> {
+  const byId = new Map<string, DocumentNameMatchRow>()
+  const unique = [...new Set(names)]
+  for (let start = 0; start < unique.length; start += NAME_PROBE_CHUNK) {
+    const rows = await query(nameProbeWhere(unique.slice(start, start + NAME_PROBE_CHUNK)), NAME_PROBE_ROW_LIMIT)
+    for (const row of rows) byId.set(row.id, row)
+  }
+  return [...byId.values()]
+}
+
+/** The project documents answering to any of `names` — see {@link nameProbeWhere}. */
+export async function findProjectDocumentsByNames(
+  projectId: string,
+  organizationId: string,
+  names: readonly string[],
+): Promise<DocumentNameMatchRow[]> {
+  const db = getDb()
+  return probeDocumentNames(names, (where, limit) =>
+    withTenant({ organizationId }, () =>
+      db
+        .select(documentNameMatchColumns)
+        .from(documents)
+        .where(
+          and(
+            eq(documents.projectId, projectId),
+            eq(documents.organizationId, organizationId),
+            eq(documents.scope, 'project'),
+            where,
+          ),
+        )
+        .orderBy(desc(documents.createdAt), asc(documents.id))
+        .limit(limit),
+    ),
   )
 }
 

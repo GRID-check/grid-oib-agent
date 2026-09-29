@@ -116,6 +116,7 @@ vi.mock('@/lib/compliance/repository', () => ({
 
 vi.mock('./repository', () => ({
   listArchivDocuments: vi.fn(),
+  findArchivDocumentsByFilenames: vi.fn(),
   findArchivDocument: vi.fn(),
   deleteArchivDocument: vi.fn().mockResolvedValue(undefined),
 }))
@@ -134,8 +135,10 @@ import { LiveFilenameTakenError, ReplacedDocumentGoneError } from '@/lib/documen
 import {
   listArchivDocuments,
   findArchivDocument,
+  findArchivDocumentsByFilenames,
   deleteArchivDocument as deleteArchivDocumentRow,
 } from './repository'
+import { decodeDocumentListCursor, encodeDocumentListCursor } from '@/lib/documents/list-cursor'
 import { listArchiv, uploadArchivDocument, deleteArchivDocument, searchArchivDocuments } from './service'
 import { makeDocument } from '@/test-utils/db-fixtures'
 import { listDocumentVersionSummaries } from '@/lib/documents/version-repository'
@@ -179,7 +182,7 @@ afterEach(() => {
 
 describe('listArchiv', () => {
   it('returns the org archive collection name and the caller manage flag', async () => {
-    vi.mocked(listArchivDocuments).mockResolvedValue([])
+    vi.mocked(listArchivDocuments).mockResolvedValue({ rows: [], nextCursor: null })
     vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])
     vi.mocked(canManageArchiv).mockReturnValue(true)
 
@@ -187,11 +190,27 @@ describe('listArchiv', () => {
 
     expect(result.collectionName).toBe('archiv_org-1')
     expect(result.canManage).toBe(true)
-    expect(listArchivDocuments).toHaveBeenCalledWith('org-1')
+    expect(listArchivDocuments).toHaveBeenCalledWith('org-1', { cursor: undefined })
+    expect(result.nextCursor).toBeNull()
+  })
+
+  // The Archiv is paged, not capped: the next page's position leaves as an
+  // opaque cursor and comes back decoded to the repository.
+  it('encodes the next page position and passes a decoded cursor through', async () => {
+    const next = { createdAt: '2026-01-01T00:00:00.123456', id: '00000000-0000-4000-8000-000000000001' }
+    vi.mocked(listArchivDocuments).mockResolvedValue({ rows: [], nextCursor: next })
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])
+    const cursor = { createdAt: '2026-02-01T00:00:00.000001', id: '00000000-0000-4000-8000-000000000002' }
+
+    const result = await listArchiv(session, { cursor })
+
+    expect(listArchivDocuments).toHaveBeenCalledWith('org-1', { cursor })
+    expect(result.nextCursor).toBe(encodeDocumentListCursor(next))
+    expect(decodeDocumentListCursor(result.nextCursor ?? '')).toEqual(next)
   })
 
   it('strips the internal metadata jsonb from every returned row', async () => {
-    vi.mocked(listArchivDocuments).mockResolvedValue([])
+    vi.mocked(listArchivDocuments).mockResolvedValue({ rows: [], nextCursor: null })
     const reconciled: Array<ReconcilableDocument & DocumentMetadata> = [
       {
         id: 'd1',
@@ -218,7 +237,7 @@ describe('listArchiv', () => {
   // The chat peek reads this to tell a failed re-upload (the previous version
   // is still cited) from a Büro file that never indexed.
   it('annotates each row with its version count', async () => {
-    vi.mocked(listArchivDocuments).mockResolvedValue([])
+    vi.mocked(listArchivDocuments).mockResolvedValue({ rows: [], nextCursor: null })
     const row = (id: string): ReconcilableDocument & DocumentMetadata => ({
       id,
       filename: `${id}.pdf`,
@@ -259,7 +278,7 @@ describe('searchArchivDocuments', () => {
         publishedVersionId: null,
       },
     ]
-    vi.mocked(listArchivDocuments).mockResolvedValue([])
+    vi.mocked(findArchivDocumentsByFilenames).mockResolvedValue([])
     vi.mocked(reconcileDocumentStatuses).mockResolvedValue(docs.map((d) => ({ ...d, metadata: {} })))
     vi.mocked(canManageArchiv).mockReturnValue(false)
     const backendHits = [{ file_name: 'plan.pdf', score: 0.8, snippet: 's', page_number: 1, collection: 'archiv_org-1' }]
@@ -272,6 +291,10 @@ describe('searchArchivDocuments', () => {
     const { hits } = await searchArchivDocuments(session, 'fire escape', 20)
 
     expect(fetchSemanticHits).toHaveBeenCalledWith('archiv_org-1', 'fire escape', 20)
+    // The join reads the hit names directly, not the paged listing — a hit on
+    // a document past the first page must still resolve.
+    expect(findArchivDocumentsByFilenames).toHaveBeenCalledWith('org-1', ['plan.pdf'])
+    expect(listArchivDocuments).not.toHaveBeenCalled()
     // Joined against the Archiv's own reconciled rows (not the raw backend hits).
     expect(joinHitsToFiles).toHaveBeenCalledWith(backendHits, expect.arrayContaining([expect.objectContaining({ id: 'd1' })]))
     // The service returns the join result untouched — the document row plus
@@ -280,7 +303,7 @@ describe('searchArchivDocuments', () => {
   })
 
   it('defaults topK to 20 when omitted', async () => {
-    vi.mocked(listArchivDocuments).mockResolvedValue([])
+    vi.mocked(findArchivDocumentsByFilenames).mockResolvedValue([])
     vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])
     vi.mocked(canManageArchiv).mockReturnValue(false)
     vi.mocked(fetchSemanticHits).mockResolvedValue([])
@@ -289,6 +312,8 @@ describe('searchArchivDocuments', () => {
     await searchArchivDocuments(session, 'q')
 
     expect(fetchSemanticHits).toHaveBeenCalledWith('archiv_org-1', 'q', 20)
+    // No hits, no lookup.
+    expect(findArchivDocumentsByFilenames).not.toHaveBeenCalled()
   })
 })
 
