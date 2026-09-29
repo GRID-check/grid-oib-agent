@@ -40,6 +40,8 @@ const PROJECT_ROWS: Row[] = [
   // Stored with no type: the extension alone makes it an office file.
   { id: 'doc-sheet', filename: 'Kostenschaetzung.xlsx', contentType: null },
   { id: 'doc-deck', filename: 'Entwurf.pptx', contentType: null },
+  // A PDF the gateway fails on: 502 like a refused rendition, but not one.
+  { id: 'doc-gateway', filename: 'Statik.pdf', contentType: 'application/pdf' },
 ]
 
 const ARCHIV_ROWS: Row[] = [
@@ -74,6 +76,9 @@ const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       status: 502,
       json: async () => ({ code: 'RENDITION_FAILED' }),
     })
+  }
+  if (url === '/api/documents/doc-gateway/preview') {
+    return Promise.resolve({ ok: false, status: 502, json: async () => ({}) })
   }
   if (url === '/api/documents/doc-word/preview') {
     return Promise.resolve(
@@ -305,6 +310,32 @@ describe('SourcePreviewChip', () => {
       expect(await screen.findByText('Download document')).toBeInTheDocument()
     }
   )
+
+  test('a 502 on an ordinary PDF citation is a failure, not a silent download', async () => {
+    // 502 is also what a failed office rendition answers, and the fallback to
+    // the download used to fire on the status alone.
+    const user = userEvent.setup()
+    render(
+      <SourcePreviewChip
+        citation={ref({
+          content: '[KB] Statik.pdf, p.1',
+          fileName: 'Statik.pdf',
+          collection: 'proj_1',
+          kind: 'projekt',
+          page: 1,
+        })}
+      />
+    )
+
+    await user.click(await screen.findByRole('button', { name: 'Preview source: Statik' }))
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-gateway/preview'))
+    expect(startDocumentDownload).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // Still a preview: the chip did not learn "unrenderable" from a gateway hiccup.
+    await user.hover(screen.getByRole('button', { name: 'Preview source: Statik' }))
+    expect(screen.queryByText('Download document')).toBeNull()
+  })
 
   test('a citation resolving to an org Archiv document opens it too', async () => {
     // Buero-kind citations were structurally unopenable: the preview index

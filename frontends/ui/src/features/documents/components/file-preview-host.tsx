@@ -26,6 +26,7 @@ import { failedWithPreviousVersion, isCitableStatus, isFailedStatus, isSettlingS
 import { FilePreviewPane } from './file-preview-pane'
 import { fileItemFromStatus } from '../lib/document-question'
 import { refreshedFileFields } from '../lib/file-item'
+import { STATUS_FIELDS } from '../lib/document-status-reads'
 import type { FileItem } from './project-file-workspace'
 import {
   FILE_PEEK_WIDTH_DEFAULT,
@@ -42,18 +43,6 @@ import {
  * listing on the terminal transition itself.
  */
 export const METADATA_GRACE_POLLS = 3
-
-/** What `/api/documents/{id}/status` carries that the open file shows. */
-const STATUS_FIELDS: readonly (keyof FileItem)[] = [
-  'status',
-  'errorMessage',
-  'summary',
-  'pageCount',
-  'chunkCount',
-  'contentTypes',
-  'tags',
-  'versionCount',
-]
 
 type StatusBody = Parameters<typeof fileItemFromStatus>[0]
 

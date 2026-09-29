@@ -28,6 +28,12 @@ import type { TrackedFile } from './types'
 import { mapBackendStatus } from './utils'
 import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
 import {
+  isJoblessIngesting,
+  nextStatusBatch,
+  readDocumentStatuses,
+  trackedPatchFromStatus,
+} from './lib/document-status-reads'
+import {
   persistJob,
   removePersistedJob,
   getPersistedJobForCollection,
@@ -50,6 +56,13 @@ const POLL_INTERVAL_MS = 5000
 const MAX_POLL_ATTEMPTS = 420
 /** A chat's listing past the budget: still followed, just less often. */
 const SLOW_POLL_INTERVAL_MS = 60_000
+/**
+ * How often a row no job follows is asked about by id: a handed-over row
+ * (past the budget, or its job forgotten) or a detached extraction. Slow,
+ * because a workspace that is open settles the same rows every few seconds
+ * itself; this is the floor for everywhere else.
+ */
+const DOCUMENT_WATCH_INTERVAL_MS = SLOW_POLL_INTERVAL_MS
 /** One notice per hand-over burst, however many jobs reach it together. */
 const STILL_READING_TOAST_ID = 'upload-still-reading'
 
@@ -99,6 +112,13 @@ class UploadOrchestratorImpl {
    * whichever hook happened to render after it and never refreshed.
    */
   private subscribers = new Set<OrchestratorCallbacks>()
+  /**
+   * Tray rows (by tracked id) that no job follows, and the timer asking about
+   * them by document id. See {@link watchDocuments}.
+   */
+  private watchedRows = new Set<string>()
+  private documentWatchTimer: ReturnType<typeof setTimeout> | null = null
+  private documentWatchOffset = 0
 
   setAuthToken(token: string | undefined): void {
     this.authToken = token
@@ -618,21 +638,103 @@ class UploadOrchestratorImpl {
   /**
    * Stop following a job without calling its upload failed.
    *
-   * Its rows lose the job id and wait as `ingesting`, which is exactly what
-   * `useSettleTrackedUploads` finishes from the workspace listing: that
-   * listing follows the document rows to the end, with or without a job.
+   * Its rows lose the job id and wait as `ingesting`. A mounted workspace
+   * settles them from its listing (`useSettleTrackedUploads`); everywhere else
+   * {@link watchDocuments} follows them by document status until they land.
    */
   private handOverToListing(jobId: string): void {
     this.stopPolling()
     removePersistedJob(jobId)
     const store = this.getStore()
+    const handedOver: string[] = []
     for (const file of store.trackedFiles) {
       if (file.jobId !== jobId) continue
       if (file.status !== 'uploading' && file.status !== 'ingesting') continue
       store.updateTrackedFile(file.id, { jobId: undefined, status: 'ingesting' })
+      handedOver.push(file.id)
     }
+    this.watchDocuments(handedOver)
     this.announceStillReading()
     if (this.jobQueue.length > 0) this.dequeueAndPoll()
+  }
+
+  /**
+   * Follow tray rows that no ingest job will finish, by their documents'
+   * status, until each is terminal.
+   *
+   * The workspace listing settles these too, but only while a Files or Archiv
+   * page is mounted. A project upload started from the chat's side panel, or
+   * one the reader walked away from, had nothing asking at all and spun
+   * forever. This is the floor: slow, per document, and only for rows that
+   * carry a document id. Idempotent per row.
+   *
+   * @param trackedIds Tray row ids; rows that are not jobless-and-ingesting are ignored.
+   */
+  watchDocuments(trackedIds: readonly string[]): void {
+    const rows = new Map(this.getStore().trackedFiles.map((file) => [file.id, file]))
+    for (const id of trackedIds) {
+      const row = rows.get(id)
+      if (row && isJoblessIngesting(row)) this.watchedRows.add(id)
+    }
+    if (this.watchedRows.size > 0 && !this.documentWatchTimer) this.scheduleDocumentWatch()
+  }
+
+  private scheduleDocumentWatch(): void {
+    this.documentWatchTimer = setTimeout(() => {
+      void this.runDocumentWatch()
+    }, DOCUMENT_WATCH_INTERVAL_MS)
+  }
+
+  private stopDocumentWatch(): void {
+    if (this.documentWatchTimer) clearTimeout(this.documentWatchTimer)
+    this.documentWatchTimer = null
+    this.watchedRows.clear()
+  }
+
+  /** The rows still owed an answer, pruning any somebody else settled or removed. */
+  private watchedWaiting(): TrackedFile[] {
+    const rows = new Map(this.getStore().trackedFiles.map((file) => [file.id, file]))
+    const waiting: TrackedFile[] = []
+    for (const id of this.watchedRows) {
+      const row = rows.get(id)
+      if (row && isJoblessIngesting(row)) waiting.push(row)
+      else this.watchedRows.delete(id)
+    }
+    return waiting
+  }
+
+  private async runDocumentWatch(): Promise<void> {
+    this.documentWatchTimer = null
+    const waiting = this.watchedWaiting()
+    if (waiting.length === 0) return
+    const ids = waiting.map((row) => row.serverFileId ?? '')
+    const { batch, next } = nextStatusBatch(ids, this.documentWatchOffset)
+    this.documentWatchOffset = next
+    const reads = await readDocumentStatuses(batch)
+
+    let completed = false
+    const store = this.getStore()
+    for (const row of this.watchedWaiting()) {
+      const read = reads.get(row.serverFileId ?? '')
+      if (!read) continue
+      // Deleted meanwhile: nothing left to follow, and nothing to report.
+      if (read.kind === 'gone') {
+        this.watchedRows.delete(row.id)
+        continue
+      }
+      const patch = trackedPatchFromStatus(read.fields.status, read.fields.errorMessage)
+      if (!patch) continue
+      store.updateTrackedFile(row.id, patch)
+      this.watchedRows.delete(row.id)
+      completed = true
+    }
+    if (completed) {
+      // Same reason as the job and session polls: listings snapshotted while
+      // these were being read hold rows without chunks until told again.
+      notifyDocumentsChanged()
+      this.emit('onComplete')
+    }
+    if (this.watchedRows.size > 0 && !this.documentWatchTimer) this.scheduleDocumentWatch()
   }
 
   /** A notice, not an error: nothing failed and there is nothing to retry. */
@@ -670,6 +772,7 @@ class UploadOrchestratorImpl {
   cleanup(): void {
     this.stopPolling()
     this.stopSessionPolling()
+    this.stopDocumentWatch()
     this.jobQueue = []
     this.currentSessionId = null
     this.lastLoadedSessionId = null

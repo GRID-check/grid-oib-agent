@@ -86,8 +86,24 @@ describe('POST /api/documents/name-matches', () => {
 
   it('refuses a probe longer than a folder drop can be', async () => {
     const names = Array.from({ length: NAME_PROBE_MAX_NAMES + 1 }, (_, i) => `f${i}.pdf`)
-    await expect(client.project('proj_1', names)).rejects.toMatchObject({ status: 400 })
+    const response = await probeProject(
+      new Request(`https://grid.test${PROJECT_NAME_PROBE_PATH}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: 'proj_1', names }),
+      }),
+      { params: Promise.resolve({}) },
+    )
+    expect(response.status).toBe(400)
     expect(probeProjectDocumentNames).not.toHaveBeenCalled()
+  })
+
+  it('splits a pick past the cap into probes the route accepts, one match per document', async () => {
+    // One POST with every name was a 400 past the cap, and nothing uploaded.
+    const names = Array.from({ length: NAME_PROBE_MAX_NAMES + 5 }, (_, i) => `f${i}.pdf`)
+    expect(await client.project('proj_1', names)).toEqual([MATCH])
+    const batches = vi.mocked(probeProjectDocumentNames).mock.calls.map(([, , batch]) => batch.length)
+    expect(batches).toEqual([NAME_PROBE_MAX_NAMES, 5])
   })
 
   it('carries the service refusal through as the status', async () => {

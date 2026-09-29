@@ -286,7 +286,7 @@ describe('FolderUploadDialog — loose files', () => {
       }),
     )
 
-    expect(screen.getByText('Upload 2 file(s)?')).toBeInTheDocument()
+    expect(screen.getByText('Upload 2 files?')).toBeInTheDocument()
     expect(screen.getByTestId('folder-upload-count-update')).toHaveTextContent('1')
     expect(screen.queryByTestId('folder-upload-count-folders')).not.toBeInTheDocument()
     expect(screen.getByTestId('folder-upload-include-updates')).toBeInTheDocument()

@@ -9,7 +9,7 @@
  * No `server-only` and no drizzle: the browser imports this.
  */
 
-import { nameProbeResponseSchema, type DocumentNameMatch } from './name-probe-types'
+import { NAME_PROBE_MAX_NAMES, nameProbeResponseSchema, type DocumentNameMatch } from './name-probe-types'
 
 export type NameProbeFetch = (path: string, init?: RequestInit) => Promise<Response>
 
@@ -31,6 +31,25 @@ export interface DocumentNameProbeClient {
   archiv: (names: readonly string[]) => Promise<DocumentNameMatch[]>
 }
 
+/**
+ * The names in probes the route accepts: unique, non-empty, at most
+ * {@link NAME_PROBE_MAX_NAMES} each. One POST with every name refused the whole
+ * pick with a 400 past the cap, and nothing was uploaded.
+ */
+function chunks(names: readonly string[]): string[][] {
+  const unique = [...new Set(names.filter((name) => name.length > 0))]
+  const out: string[][] = []
+  for (let start = 0; start < unique.length; start += NAME_PROBE_MAX_NAMES) {
+    out.push(unique.slice(start, start + NAME_PROBE_MAX_NAMES))
+  }
+  return out
+}
+
+/** One document per id: a rename can match a name in one batch and the filename in another. */
+function uniqueById(matches: readonly DocumentNameMatch[]): DocumentNameMatch[] {
+  return [...new Map(matches.map((match) => [match.id, match])).values()]
+}
+
 export function createDocumentNameProbeClient(
   run: NameProbeFetch = (path, init) => fetch(path, init),
 ): DocumentNameProbeClient {
@@ -43,9 +62,10 @@ export function createDocumentNameProbeClient(
     if (!response.ok) throw new NameProbeError(response.status)
     return nameProbeResponseSchema.parse(await response.json()).documents
   }
+  const batched = async (path: string, names: readonly string[], extra: Record<string, unknown>) =>
+    uniqueById((await Promise.all(chunks(names).map((batch) => post(path, { ...extra, names: batch })))).flat())
   return {
-    project: (projectId, names) =>
-      names.length === 0 ? Promise.resolve([]) : post(PROJECT_NAME_PROBE_PATH, { projectId, names: [...names] }),
-    archiv: (names) => (names.length === 0 ? Promise.resolve([]) : post(ARCHIV_NAME_PROBE_PATH, { names: [...names] })),
+    project: (projectId, names) => batched(PROJECT_NAME_PROBE_PATH, names, { projectId }),
+    archiv: (names) => batched(ARCHIV_NAME_PROBE_PATH, names, {}),
   }
 }

@@ -150,7 +150,7 @@ export function FolderUploadDialog({
         ? t('folderUpload.title', { name: plan.rootName })
         : t('folderUpload.titleGeneric')
       : plan
-        ? t('folderUpload.titleFiles', { count: String(plan.files.length) })
+        ? t('folderUpload.titleFiles', { count: plan.files.length })
         : t('folderUpload.titleFilesGeneric')
   const description = single
     ? single.action === 'update'

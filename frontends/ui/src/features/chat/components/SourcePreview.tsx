@@ -1012,7 +1012,10 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
       // authorization and existence check that keeps a failure a toast instead
       // of a dialog that opens onto nothing.
       const res = await fetch(`/api/documents/${target.document.id}/preview`)
-      if (isRenditionUnavailable(res.status)) {
+      // Only an office source has a rendition to be refused. A 502 on an
+      // ordinary PDF is a gateway hiccup, and downloading the file instead of
+      // saying so turned a failed preview into a silent download.
+      if (rendition && isRenditionUnavailable(res.status)) {
         clearTimeout(pendingTimer)
         if (pendingToast !== undefined) toast.dismiss(pendingToast)
         await download()

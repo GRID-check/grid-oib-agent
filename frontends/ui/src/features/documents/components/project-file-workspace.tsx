@@ -11,6 +11,7 @@ import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { useSettleTrackedUploads } from '../hooks/use-settle-tracked-uploads'
+import { useSettlingStatusReads } from '../hooks/use-settling-status-reads'
 import { useFileSearch } from '../hooks/use-file-search'
 import { refreshedFileFields, toFileItem, type DocumentWireRow } from '../lib/file-item'
 import { fetchListingPages } from '../lib/fetch-listing-pages'
@@ -405,12 +406,19 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    */
   const [sort, setSort] = useState<FileSort>(DEFAULT_FILE_SORT)
 
+  // The settling poll's read: the in-flight rows by id, not the whole corpus.
+  const settlingReads = useSettlingStatusReads(files, setFiles)
+  const { beginLoad } = settlingReads
+
   /**
-   * @param quiet Refresh without the skeleton — used by the settling poll
-   *   below, which would otherwise flash the whole grid every few seconds.
+   * The full drain: every page of the listing.
+   *
+   * @param quiet Refresh without the skeleton — for a reload behind a grid the
+   *   user is already reading (an upload finishing elsewhere, a partial seed).
    */
   const loadFiles = useCallback((quiet = false) => {
     const generation = ++loadGeneration.current
+    const withNewerReads = beginLoad()
     const isStale = () => generation !== loadGeneration.current
     if (!quiet) setIsLoadingFiles(true)
     setFilesError(false)
@@ -423,7 +431,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     return fetchListingPages<DocumentWireRow>(`/api/documents?${params}`)
       .then(({ documents, truncated }) => {
         if (isStale()) return
-        setFiles(documents.map(toFileItem))
+        setFiles(withNewerReads(documents.map(toFileItem)))
         setFilesTruncated(truncated)
       })
       .catch(() => {
@@ -440,7 +448,22 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         // otherwise leave it spinning forever with nobody left to clear it.
         if (!quiet) setIsLoadingFiles(false)
       })
-  }, [projectId, agentAuthoredOnly, includeArchived])
+  }, [projectId, agentAuthoredOnly, includeArchived, beginLoad])
+
+  /**
+   * An upload finished — on this page or any other surface subscribed to the
+   * orchestrator (a chat attachment, the side panel). Quiet: the grid is
+   * already on screen, and a skeleton over it for somebody else's upload is a
+   * flash with nothing to show for it. Through a ref so the orchestrator
+   * subscription is made once, not re-made on every render.
+   */
+  const loadFilesRef = useRef(loadFiles)
+  useEffect(() => {
+    loadFilesRef.current = loadFiles
+  }, [loadFiles])
+  const reloadQuietly = useCallback(() => {
+    void loadFilesRef.current(true)
+  }, [])
 
   // The query lives here rather than in the browser pane: the field sits in the
   // page header (beside the view toggles and Upload) while the results it
@@ -454,10 +477,9 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       collectionName,
       folderId: selectedFolderId ?? undefined,
       // Refresh the durable file list once ingestion of an upload completes so
-      // new documents appear without a manual reload. Wrapped rather than passed
-      // directly: `loadFiles` now takes a `quiet` flag, and whatever the
-      // orchestrator hands its callback must not decide how this renders.
-      onComplete: () => void loadFiles(),
+      // new documents appear without a manual reload. Stable and quiet: see
+      // `reloadQuietly`.
+      onComplete: reloadQuietly,
     })
 
   // Fetch folders
@@ -563,7 +585,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   // Re-ask while anything is still being read, and stop the moment everything
   // is terminal. The Archiv workspace runs the same poll over its own loader —
   // see `useSettlingRefresh` for why a detached `.ifc` extraction needs it.
-  useSettlingRefresh(files, loadFiles)
+  useSettlingRefresh(files, settlingReads.tick)
 
   // The open modal is a snapshot the preview store took when it was opened,
   // and this listing is the fresher read of the same row: without this the
@@ -971,9 +993,11 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     () => trackedFiles.filter((f) => f.collectionName === collectionName && f.file != null),
     [trackedFiles, collectionName]
   )
-  // The listing's settling poll follows every document to the end; it settles
-  // the tray rows no ingest job will — a detached extraction (`.ifc`, an office
-  // file read from its PDF rendition) uploads with no job for the orchestrator.
+  // Settles the tray rows no ingest job will — a detached extraction (`.ifc`,
+  // an office file read from its PDF rendition) uploads with no job for the
+  // orchestrator. From the listing when it carries the row, by the row's own
+  // status when it does not (the „Von Piloti" filter leaves a person's upload
+  // out of `files`).
   useSettleTrackedUploads(files, activeUploads)
 
   /*

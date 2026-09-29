@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import { renderHook } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, renderHook } from '@testing-library/react'
 import { useDocumentsStore } from '../store'
 import type { TrackedFile } from '../types'
 import { useSettleTrackedUploads } from './use-settle-tracked-uploads'
@@ -56,5 +56,53 @@ describe('useSettleTrackedUploads', () => {
     renderHook(() => useSettleTrackedUploads([{ id: 'doc-1', status: 'completed' }], [row]))
 
     expect(trackedStatus('local-1')).toBe('ingesting')
+  })
+
+  describe('a row the listing does not carry', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('settles from its own status while „Von Piloti" narrows the listing', async () => {
+      // The filter makes the listing agent-authored rows only, so a person's
+      // detached upload is never in it and used to spin forever in the tray.
+      vi.useFakeTimers()
+      const row = upload({})
+      useDocumentsStore.setState({ trackedFiles: [row] })
+      let status = 'processing'
+      const fetcher = vi.fn(async () => new Response(JSON.stringify({ id: 'doc-1', status }), { status: 200 }))
+
+      const agentOnly = [{ id: 'doc-agent', status: 'completed' }]
+      renderHook(() => useSettleTrackedUploads(agentOnly, [row], { fetcher: fetcher as unknown as typeof fetch }))
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_000)
+      })
+      expect(fetcher).toHaveBeenCalledWith('/api/documents/doc-1/status', expect.anything())
+      expect(trackedStatus('local-1')).toBe('ingesting')
+
+      status = 'completed'
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_000)
+      })
+      expect(trackedStatus('local-1')).toBe('success')
+    })
+
+    it('asks nothing for a row the listing already answers for', async () => {
+      vi.useFakeTimers()
+      const row = upload({})
+      useDocumentsStore.setState({ trackedFiles: [row] })
+      const fetcher = vi.fn()
+
+      renderHook(() =>
+        useSettleTrackedUploads([{ id: 'doc-1', status: 'processing' }], [row], {
+          fetcher: fetcher as unknown as typeof fetch,
+        })
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12_000)
+      })
+      expect(fetcher).not.toHaveBeenCalled()
+    })
   })
 })

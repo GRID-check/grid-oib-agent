@@ -438,7 +438,7 @@ export const files = {
     title: 'Upload “{name}”?',
     titleGeneric: 'Upload this folder?',
     // Loose files, at least one of which meets an existing document.
-    titleFiles: 'Upload {count} file(s)?',
+    titleFiles: '{count, plural, one {Upload # file?} other {Upload # files?}}',
     titleFilesGeneric: 'Upload files?',
     destinationFiles: 'The files go into “{folder}”.',
     close: 'Close',

@@ -578,8 +578,8 @@ describe('UploadOrchestrator', () => {
 
     /**
      * Losing track of a job is not a failed upload. The document rows it wrote
-     * are still being read, so the tray rows go to the workspace listing
-     * (`useSettleTrackedUploads`) instead of turning red.
+     * are still being read, so the tray rows are followed by their documents'
+     * status (and a mounted workspace's listing) instead of turning red.
      */
     describe('when the orchestrator stops following a job', () => {
       const tray = (overrides: Partial<TrackedFile>): TrackedFile => ({
@@ -653,6 +653,54 @@ describe('UploadOrchestrator', () => {
         await vi.advanceTimersByTimeAsync(421 * 5000)
 
         expectHandedOver()
+      })
+
+      test('keeps following a handed-over row by its document status, slowly, until it lands', async () => {
+        // Nothing else settles it when no Files page is mounted: a project
+        // upload from the chat's side panel spun forever.
+        mockDocumentsStore.updateTrackedFile.mockImplementation((id: string, patch: Partial<TrackedFile>) => {
+          mockDocumentsStore.trackedFiles = mockDocumentsStore.trackedFiles.map((file) =>
+            file.id === id ? { ...file, ...patch } : file
+          )
+        })
+        mockClient.getJobStatus.mockResolvedValue(null)
+        let status = 'processing'
+        const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'doc-1', status }), { status: 200 }))
+        vi.stubGlobal('fetch', fetchMock)
+        const onComplete = vi.fn()
+        const off = UploadOrchestrator.subscribe({ onComplete })
+        const changed = vi.fn()
+        const offChanged = onDocumentsChanged(changed)
+        try {
+          UploadOrchestrator.startPolling('job-1', 'session-1')
+          await vi.advanceTimersByTimeAsync(5000)
+          expect(fetchMock).not.toHaveBeenCalled()
+
+          // Slow: a minute, not the job poll's five seconds.
+          await vi.advanceTimersByTimeAsync(60_000)
+          expect(fetchMock).toHaveBeenCalledTimes(1)
+          expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-1/status', expect.anything())
+          expect(mockDocumentsStore.trackedFiles.find((f) => f.id === 'row-1')?.status).toBe('ingesting')
+          expect(onComplete).not.toHaveBeenCalled()
+
+          status = 'completed'
+          await vi.advanceTimersByTimeAsync(60_000)
+          expect(mockDocumentsStore.trackedFiles.find((f) => f.id === 'row-1')).toMatchObject({
+            status: 'success',
+            progress: 100,
+          })
+          expect(onComplete).toHaveBeenCalledTimes(1)
+          expect(changed).toHaveBeenCalled()
+
+          // Terminal: nothing more is asked.
+          await vi.advanceTimersByTimeAsync(180_000)
+          expect(fetchMock).toHaveBeenCalledTimes(2)
+        } finally {
+          off()
+          offChanged()
+          vi.unstubAllGlobals()
+          mockDocumentsStore.updateTrackedFile.mockReset()
+        }
       })
 
       test('the next queued job is still polled', async () => {

@@ -413,7 +413,7 @@ export const files: typeof en.files = {
     title: '„{name}“ hochladen?',
     titleGeneric: 'Diesen Ordner hochladen?',
     // Lose Dateien, von denen mindestens eine ein vorhandenes Dokument trifft.
-    titleFiles: '{count} Datei(en) hochladen?',
+    titleFiles: '{count, plural, one {# Datei hochladen?} other {# Dateien hochladen?}}',
     titleFilesGeneric: 'Dateien hochladen?',
     destinationFiles: 'Die Dateien kommen nach „{folder}“.',
     close: 'Schließen',

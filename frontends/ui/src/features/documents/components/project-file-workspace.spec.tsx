@@ -6,6 +6,7 @@ import { http, HttpResponse } from 'msw'
 import { server } from '@/mocks/server'
 import { ProjectFileWorkspace } from './project-file-workspace'
 import { FilePreviewHost } from './file-preview-host'
+import { SETTLING_POLL_MS } from '../hooks/use-settling-refresh'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import type { DocumentWireRow } from '../lib/file-item'
@@ -1181,8 +1182,10 @@ describe('ProjectFileWorkspace — renaming and deleting a document', () => {
  * extraction is detached and has no ingest job for the orchestrator to poll.
  */
 describe('ProjectFileWorkspace — a settling document settles on screen', () => {
-  /** How many times the corpus has been asked for, across the poll. */
+  /** How many times the whole corpus has been asked for. */
   let documentCalls = 0
+  /** How many times the settling row's own status has been asked for. */
+  let statusCalls = 0
 
   /** The list, served with whatever status the test has moved it to. */
   const corpus = (status: string, filename = 'Haus-A.ifc') =>
@@ -1201,10 +1204,14 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
       ],
     })
 
+  const statusOf = (status: string, filename = 'Haus-A.ifc') =>
+    HttpResponse.json({ id: 'doc-ifc', filename, status })
+
   beforeEach(() => {
     vi.clearAllMocks()
     searchParams = new URLSearchParams()
     documentCalls = 0
+    statusCalls = 0
     resetPreviewStore()
   })
 
@@ -1212,13 +1219,17 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
     vi.useRealTimers()
   })
 
-  it('re-asks while a model is being read, and stops once it is', async () => {
+  it('re-asks the settling row by id — not the whole corpus — and stops once it is terminal', async () => {
     server.use(
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
       http.get('/api/documents', () => {
         documentCalls += 1
-        // Still extracting on the first read; done by the time the poll fires.
-        return corpus(documentCalls === 1 ? 'processing' : 'ready')
+        return corpus('processing')
+      }),
+      http.get('/api/documents/:id/status', ({ params }) => {
+        statusCalls += 1
+        expect(params.id).toBe('doc-ifc')
+        return statusOf('ready')
       })
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
@@ -1227,34 +1238,38 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
     await waitFor(() => expect(documentCalls).toBe(1))
 
     await vi.advanceTimersByTimeAsync(4_100)
-    await waitFor(() => expect(documentCalls).toBe(2))
+    await waitFor(() => expect(statusCalls).toBe(1))
+    await waitFor(() => expect(screen.getByText('Citable')).toBeInTheDocument())
+    // Twenty pages of listing every four seconds was the cost of one PDF being
+    // read; the poll never drains the listing again.
+    expect(documentCalls).toBe(1)
 
-    // Everything is terminal now, so the polling stops rather than asking
-    // forever about a corpus that cannot change on its own.
-    const settled = documentCalls
+    // Everything is terminal now, so the polling stops.
     await vi.advanceTimersByTimeAsync(12_000)
-    expect(documentCalls).toBe(settled)
+    expect(statusCalls).toBe(1)
+    expect(documentCalls).toBe(1)
   })
 
   it('keeps at most one poll in flight, however slow the endpoint is', async () => {
     // `setInterval` fired again whether or not the previous refresh had come
     // back, so a slow endpoint accumulated requests and let an older response
-    // land after a newer one — overwriting a document that had just finished
-    // with its earlier "still reading" row.
+    // land after a newer one.
     let inFlight = 0
     let peak = 0
     const gate: { release: (() => void) | null } = { release: null }
     server.use(
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
-      http.get('/api/documents', async () => {
+      http.get('/api/documents', () => {
         documentCalls += 1
+        return corpus('processing')
+      }),
+      http.get('/api/documents/:id/status', async () => {
+        statusCalls += 1
         inFlight += 1
         peak = Math.max(peak, inFlight)
-        // The first response returns at once; every poll after it hangs until
-        // this test lets it go.
-        if (documentCalls > 1) await new Promise<void>((resolve) => (gate.release = resolve))
+        await new Promise<void>((resolve) => (gate.release = resolve))
         inFlight -= 1
-        return corpus('processing')
+        return statusOf('processing')
       })
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
@@ -1262,9 +1277,9 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     await waitFor(() => expect(documentCalls).toBe(1))
 
-    // Three poll windows pass while the second request is still hanging.
+    // Three poll windows pass while the first status read is still hanging.
     await vi.advanceTimersByTimeAsync(13_000)
-    expect(documentCalls).toBe(2)
+    expect(statusCalls).toBe(1)
     expect(peak).toBe(1)
 
     gate.release?.()
@@ -1275,8 +1290,9 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
       http.get('/api/documents', () => {
         documentCalls += 1
-        return corpus(documentCalls === 1 ? 'processing' : 'ready')
-      })
+        return corpus('processing')
+      }),
+      http.get('/api/documents/:id/status', () => statusOf('ready'))
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
 
@@ -1297,8 +1313,9 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
       http.get('/api/documents', () => {
         documentCalls += 1
-        return corpus(documentCalls === 1 ? 'processing' : 'ready', 'Bescheid.pdf')
-      })
+        return corpus('processing', 'Bescheid.pdf')
+      }),
+      http.get('/api/documents/:id/status', () => statusOf('ready', 'Bescheid.pdf'))
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
 
@@ -1313,6 +1330,33 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
       )
     )
   })
+
+  it('reloads quietly, with one stable callback, when an upload finishes on any surface', async () => {
+    // The orchestrator tells every subscriber, so a chat attachment finishing
+    // lands here too; a skeleton over the grid for it is a flash for nothing.
+    const gate: { release: (() => void) | null } = { release: null }
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', async () => {
+        documentCalls += 1
+        if (documentCalls > 1) await new Promise<void>((resolve) => (gate.release = resolve))
+        return corpus('ready', 'Bescheid.pdf')
+      })
+    )
+
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    expect(await findFileButton(/Bescheid\.pdf/)).toBeInTheDocument()
+
+    const onComplete = vi.mocked(useProjectDocuments).mock.calls.at(-1)?.[0]?.onComplete
+    onComplete?.()
+    await waitFor(() => expect(documentCalls).toBe(2))
+    expect(await findFileButton(/Bescheid\.pdf/)).toBeInTheDocument()
+
+    const callbacks = new Set(vi.mocked(useProjectDocuments).mock.calls.map(([options]) => options?.onComplete))
+    expect(callbacks.size).toBe(1)
+
+    gate.release?.()
+  })
 })
 
 /**
@@ -1320,12 +1364,12 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
  *
  * `useSettlingRefresh` serialises its OWN polls, so at most one poll is in
  * flight — but nothing coordinated that poll with a FOREGROUND load (mount,
- * upload settled, `onComplete`, retry). A slow poll carrying `processing` could
- * land after a newer foreground load had already brought back `ready`, putting
- * the "Wird verarbeitet…" badge back on a document the user had just been told was
- * citable — and, because the row read as unsettled again, restarting the poll
- * that was supposed to have stopped. The Archiv workspace carries the twin of
- * this test over its own loader.
+ * upload settled, `onComplete`, retry). A slow status read carrying
+ * `processing` could land after a newer load had already brought back `ready`,
+ * putting the "Wird gelesen…" badge back on a document the user had just been
+ * told was citable — and, because the row read as unsettled again, restarting
+ * the poll that was supposed to have stopped. The Archiv workspace carries the
+ * twin of this test.
  */
 describe('ProjectFileWorkspace — only the newest answer may win', () => {
   beforeEach(() => {
@@ -1357,10 +1401,8 @@ describe('ProjectFileWorkspace — only the newest answer may win', () => {
   /**
    * Let the released response travel msw → fetch → React, WITHOUT letting the
    * 4 s settling poll fire. If a stale answer regressed the badge, a restarted
-   * poll would immediately fetch the real `ready` again and heal it — the test
-   * would then pass while the user still saw the flicker. Well under one poll
-   * interval of fake time, spent in many small awaits, is what separates the
-   * two.
+   * poll would heal it and the test would pass while the user still saw the
+   * flicker.
    */
   const flushWithoutPolling = async () => {
     for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(50)
@@ -1368,19 +1410,20 @@ describe('ProjectFileWorkspace — only the newest answer may win', () => {
 
   it('ignores a poll response that resolves after a newer foreground load', async () => {
     let documentCalls = 0
+    let statusCalls = 0
     const gate: { release: (() => void) | null } = { release: null }
     server.use(
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
-      http.get('/api/documents', async () => {
+      http.get('/api/documents', () => {
         documentCalls += 1
-        const call = documentCalls
-        // The POLL (call 2) is held open until a newer foreground load (call 3)
-        // has already answered `ready`, then answers the stale `processing`.
-        if (call === 2) {
-          await new Promise<void>((resolve) => (gate.release = resolve))
-          return corpus('processing')
-        }
-        return corpus(call === 1 ? 'processing' : 'ready')
+        return corpus(documentCalls === 1 ? 'processing' : 'ready')
+      }),
+      // The POLL is held open until a newer load has already answered
+      // `ready`, then answers the stale `processing`.
+      http.get('/api/documents/:id/status', async () => {
+        statusCalls += 1
+        await new Promise<void>((resolve) => (gate.release = resolve))
+        return HttpResponse.json({ id: 'doc-ifc', filename: 'Haus-A.ifc', status: 'processing' })
       })
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
@@ -1390,14 +1433,13 @@ describe('ProjectFileWorkspace — only the newest answer may win', () => {
 
     // The settling poll goes out and hangs.
     await vi.advanceTimersByTimeAsync(4_100)
-    await waitFor(() => expect(documentCalls).toBe(2))
+    await waitFor(() => expect(statusCalls).toBe(1))
 
-    // Meanwhile the upload orchestrator finishes and asks for the corpus again —
-    // a foreground load, uncoordinated with the poll already in flight.
+    // Meanwhile the upload orchestrator finishes and asks for the corpus again.
     const onComplete = vi.mocked(useProjectDocuments).mock.calls.at(-1)?.[0]?.onComplete
     expect(onComplete).toBeTypeOf('function')
     onComplete?.()
-    await waitFor(() => expect(documentCalls).toBe(3))
+    await waitFor(() => expect(documentCalls).toBe(2))
     await waitFor(() => expect(screen.getByText('Citable')).toBeInTheDocument())
 
     // Now the stale poll answers. It is older than what is on screen, so it
@@ -1408,10 +1450,10 @@ describe('ProjectFileWorkspace — only the newest answer may win', () => {
     expect(screen.getByText('Citable')).toBeInTheDocument()
     expect(screen.queryByText('Reading')).not.toBeInTheDocument()
 
-    // …and it must not resurrect the poll either: the corpus is terminal, so
-    // nothing more is asked for.
+    // …and it must not resurrect the poll either.
     await vi.advanceTimersByTimeAsync(8_000)
-    expect(documentCalls).toBe(3)
+    expect(statusCalls).toBe(1)
+    expect(documentCalls).toBe(2)
   })
 })
 
@@ -1801,6 +1843,10 @@ describe('ProjectFileWorkspace — the open file is on the URL', () => {
     searchParams = new URLSearchParams()
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   function renderAt(query = '') {
     searchParams = new URLSearchParams(query)
     return renderWorkspace(
@@ -1875,16 +1921,18 @@ describe('ProjectFileWorkspace — the open file is on the URL', () => {
     )
   })
   it('brings the open modal along when the listing behind it refreshes', async () => {
+    let documentCalls = 0
     server.use(
-      http.get('/api/documents', () =>
-        HttpResponse.json({
+      http.get('/api/documents', () => {
+        documentCalls += 1
+        return HttpResponse.json({
           documents: [{ ...doc, status: 'ready', summary: 'Ein Grundriss.', pageCount: 2, tags: ['Grundriss'] }],
-        }),
-      ),
-      // The modal's own status read has not caught up with the summary; it
-      // must not erase what the listing brought.
+        })
+      }),
+      // The modal's own status read has not caught up; it must not erase what
+      // the listing brought.
       http.get('/api/documents/:id/status', () =>
-        HttpResponse.json({ id: 'doc-eg', filename: 'EG.pdf', status: 'ready', summary: null }),
+        HttpResponse.json({ id: 'doc-eg', filename: 'EG.pdf', status: 'processing', summary: null }),
       ),
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
     )
@@ -1899,18 +1947,55 @@ describe('ProjectFileWorkspace — the open file is on the URL', () => {
     )
     await waitFor(() => expect(useFilePreviewStore.getState().file?.id).toBe('doc-eg'))
 
-    // One settling tick of the listing.
-    await waitFor(
-      () =>
-        expect(useFilePreviewStore.getState().file).toMatchObject({
-          status: 'ready',
-          summary: 'Ein Grundriss.',
-          pageCount: 2,
-          tags: ['Grundriss'],
-        }),
-      { timeout: 6_000 },
+    // An upload elsewhere finished: the listing is read again.
+    vi.mocked(useProjectDocuments).mock.calls.at(-1)?.[0]?.onComplete?.()
+    await waitFor(() => expect(documentCalls).toBe(1))
+
+    await waitFor(() =>
+      expect(useFilePreviewStore.getState().file).toMatchObject({
+        status: 'ready',
+        summary: 'Ein Grundriss.',
+        pageCount: 2,
+        tags: ['Grundriss'],
+      }),
     )
-  }, 10_000)
+  })
+
+  it('never moves the open modal back to settling on a stale listing', async () => {
+    // The modal's own poll said `ready`; a drain that went out before it
+    // answers `processing` afterwards. The badge must not flip back.
+    let documentCalls = 0
+    server.use(
+      http.get('/api/documents', () => {
+        documentCalls += 1
+        return HttpResponse.json({ documents: [{ ...doc, status: 'processing' }] })
+      }),
+      http.get('/api/documents/:id/status', () =>
+        HttpResponse.json({ id: 'doc-eg', filename: 'EG.pdf', status: 'ready' }),
+      ),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    searchParams = new URLSearchParams('doc=doc-eg')
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[{ ...doc, status: 'processing' }]}
+      />,
+    )
+    await waitFor(() => expect(useFilePreviewStore.getState().file?.id).toBe('doc-eg'))
+    // One settling tick: the modal's own status read says `ready`.
+    await vi.advanceTimersByTimeAsync(SETTLING_POLL_MS)
+    await waitFor(() => expect(useFilePreviewStore.getState().file?.status).toBe('ready'))
+
+    vi.mocked(useProjectDocuments).mock.calls.at(-1)?.[0]?.onComplete?.()
+    await waitFor(() => expect(documentCalls).toBe(1))
+    await waitFor(() => expect(screen.getAllByText('Reading').length).toBeGreaterThan(0))
+
+    expect(useFilePreviewStore.getState().file?.status).toBe('ready')
+  })
 })
 
 /**

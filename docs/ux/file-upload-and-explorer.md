@@ -124,8 +124,11 @@ decorated afterwards. Where each one landed:
     at exactly the moment they would otherwise sit and watch. When the tray
     stops following a job (its 35-minute budget ran out, or the job store no
     longer knows it), the row stays *Reading* and a notice says reading
-    continues in the background. It is never reported as a failed upload; the
-    workspace listing settles the row (`useSettleTrackedUploads`).
+    continues in the background. It is never reported as a failed upload. The
+    orchestrator keeps a slow per-document status poll for such a row
+    (`watchDocuments`, every 60 s) until it is final, and an open workspace
+    settles it sooner (`useSettleTrackedUploads`, from the listing or, for a
+    row the current filter hides, from its own status).
 
 Beyond Nielsen:
 

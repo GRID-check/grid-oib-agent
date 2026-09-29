@@ -54,6 +54,7 @@ const { mockClient, mockDocumentsStoreState, mockOrchestratorFns } = vi.hoisted(
       handleSessionChange: vi.fn(),
       loadFilesForSession: vi.fn(),
       enqueueJobs: vi.fn(),
+      watchDocuments: vi.fn(),
       pollSessionDocuments: vi.fn(),
       stopPolling: vi.fn(),
     },

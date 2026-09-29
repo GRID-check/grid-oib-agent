@@ -89,7 +89,7 @@ export interface DocumentActionEntriesInput {
  *    nothing reconciles `absent` back to failed), and the menu cannot tell the
  *    two apart; the server asks the backend at click time and answers a busy
  *    one with 409 `INGEST_RUNNING`, which the hook turns into „Wird bereits
- *    verarbeitet“. Hiding it here would strand every lost job again. An
+ *    gelesen“. Hiding it here would strand every lost job again. An
  *    `uploading` row is the one in-flight row that is certainly busy: its
  *    bytes are still arriving and the server has nothing to re-read.
  *  - `reread` — indexed and written by a person: re-read an unchanged file to

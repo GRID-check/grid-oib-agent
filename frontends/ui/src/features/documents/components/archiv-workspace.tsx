@@ -15,6 +15,7 @@ import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { useSettleTrackedUploads } from '../hooks/use-settle-tracked-uploads'
+import { useSettlingStatusReads } from '../hooks/use-settling-status-reads'
 import { ArchivLibraryPane } from './archiv-library-pane'
 import { DocumentActionsTrigger, DocumentObjectMenu } from './document-actions'
 import { FilePreviewDialog } from './file-preview-dialog'
@@ -132,12 +133,19 @@ export function ArchivWorkspace({
    */
   const loadGeneration = useRef(0)
 
+  // The settling poll's read: the in-flight rows by id, not the whole Archiv.
+  const settlingReads = useSettlingStatusReads(files, setFiles)
+  const { beginLoad } = settlingReads
+
   /**
-   * @param quiet Refresh without the skeleton — used by the settling poll
-   *   below, which would otherwise flash the whole grid every few seconds.
+   * The full drain: every page of the Archiv.
+   *
+   * @param quiet Refresh without the skeleton — for a reload behind a grid the
+   *   user is already reading.
    */
   const loadDocuments = useCallback((quiet = false) => {
     const generation = ++loadGeneration.current
+    const withNewerReads = beginLoad()
     const isStale = () => generation !== loadGeneration.current
     if (!quiet) setIsLoading(true)
     setLoadError(false)
@@ -168,7 +176,7 @@ export function ArchivWorkspace({
           contentHash: (d.contentHash as string | null) ?? null,
           authoredBy: d.authoredBy === 'agent' ? 'agent' : 'user',
         }))
-        setFiles(docs)
+        setFiles(withNewerReads(docs))
       })
       .catch(() => {
         // A failed POLL must not empty a list the user is looking at; only a
@@ -184,6 +192,16 @@ export function ArchivWorkspace({
         // otherwise leave it spinning forever with nobody left to clear it.
         if (!quiet) setIsLoading(false)
       })
+  }, [beginLoad])
+
+  // An upload finished on any surface: reload quietly, through a ref so the
+  // orchestrator subscription is made once. Same reasoning as the Files pane.
+  const loadDocumentsRef = useRef(loadDocuments)
+  useEffect(() => {
+    loadDocumentsRef.current = loadDocuments
+  }, [loadDocuments])
+  const reloadQuietly = useCallback(() => {
+    void loadDocumentsRef.current(true)
   }, [])
 
   useEffect(() => {
@@ -205,10 +223,8 @@ export function ArchivWorkspace({
     dismissFiles,
   } = useArchivDocuments({
     collectionName: canManage ? collectionName : undefined,
-    // Wrapped rather than passed directly: `loadDocuments` takes a `quiet`
-    // flag now, and whatever the orchestrator hands its callback must not
-    // decide how this renders.
-    onComplete: () => void loadDocuments(),
+    // Stable and quiet: see `reloadQuietly`.
+    onComplete: reloadQuietly,
   })
 
   // Surface hook errors as a transient toast (plus the persistent inline Alert).
@@ -246,7 +262,7 @@ export function ArchivWorkspace({
     gelesen…" until the page was reloaded, and the completion toast below never
     fired at all. Same hook, same guarantees, as the project Files workspace.
   */
-  useSettlingRefresh(files, loadDocuments)
+  useSettlingRefresh(files, settlingReads.tick)
 
   // Refetch the durable list when an upload batch settles.
   const wasUploading = useRef(false)

@@ -21,6 +21,7 @@ import { useLayoutStore } from '@/features/layout/store'
 import type { TrackedFile } from '../types'
 import { mapUploadResponseStatus } from '../utils'
 import { shouldEmitProgress } from '../lib/upload-progress'
+import { isJoblessIngesting } from '../lib/document-status-reads'
 import { runWithConcurrency, sendWaitingOutRateLimit, UPLOAD_CONCURRENCY } from '../lib/upload-queue'
 import { validateFileUpload, type ValidationContext } from '../validation'
 import { summarizeValidation } from '../lib/validation-messages'
@@ -513,6 +514,11 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
           if (pendingJobEntries.length > 0) {
             UploadOrchestrator.enqueueJobs(pendingJobEntries)
           }
+          // A detached extraction (an `.ifc`, an office file converting to its
+          // rendition) has no job to poll. The orchestrator follows it by
+          // document status, so it settles wherever the upload was started.
+          const detached = settled.filter((file): file is TrackedFile => !!file && isJoblessIngesting(file))
+          if (detached.length > 0) UploadOrchestrator.watchDocuments(detached.map((file) => file.id))
         }
         setUploading(false)
       }

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { act } from '@testing-library/react'
 import { renderHook, waitFor } from '@/test-utils'
 import { http, HttpResponse } from 'msw'
 import { server } from '@/mocks/server'
@@ -56,8 +57,55 @@ const row = (id: string, filename: string) => ({
   tags: null,
 })
 
-/** Let effects, microtasks and a mocked request run to completion. */
-const settle = () => new Promise((resolve) => setTimeout(resolve, 50))
+/**
+ * Record every name the project by-name resolver is asked for, and every file
+ * the peek opens.
+ */
+function observe() {
+  const asked: string[] = []
+  const opened: string[] = []
+  server.use(
+    http.post('/api/documents/by-name', async ({ request }) => {
+      const { names } = (await request.json()) as { names: string[] }
+      asked.push(...names)
+      return HttpResponse.json({
+        documents: names.map((name) => row(sameName(name, CONTROL_FILE) ? 'ctrl' : 'p1', name)),
+      })
+    }),
+  )
+  const unsubscribe = useFilePreviewStore.subscribe((state) => {
+    if (state.file && opened.at(-1) !== state.file.id) opened.push(state.file.id)
+  })
+  return { asked, opened, unsubscribe }
+}
+
+const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
+
+/** A name no test answer cites, so the control's request cannot be mistaken for one. */
+const CONTROL_FILE = 'Kontrolle.pdf'
+
+/**
+ * The positive control: a later answer that DOES cite one file, awaited until
+ * its peek opens. The hook resolves answers in order through one pipeline, so
+ * once the control has gone all the way through, anything the answer under
+ * test was going to ask for has been asked — on any runner, however slow. A
+ * fixed sleep proved nothing when it expired first.
+ */
+async function flushWithControl() {
+  const messages = useChatStore.getState().currentConversation?.messages ?? []
+  act(() => {
+    useChatStore.setState({
+      currentConversation: conversation([
+        ...messages,
+        answer({
+          id: 'ans-control',
+          citations: [cited({ id: 'c-control', fileName: CONTROL_FILE, content: `${CONTROL_FILE}, p.1` })],
+        }),
+      ]),
+    })
+  })
+  await waitFor(() => expect(useFilePreviewStore.getState().file?.id).toBe('ctrl'))
+}
 
 describe('useCitationPeek', () => {
   beforeEach(() => {
@@ -112,31 +160,21 @@ describe('useCitationPeek', () => {
   })
 
   it('does not peek while the answer is still streaming', async () => {
-    let fetched = false
-    server.use(
-      http.post('/api/documents/by-name', () => {
-        fetched = true
-        return HttpResponse.json({ documents: [row('p1', 'Plan.pdf')] })
-      }),
-    )
+    const { asked, opened, unsubscribe } = observe()
     useChatStore.setState({
       currentConversation: conversation([answer({ isStreaming: true })]),
     })
     renderHook(() => useCitationPeek({ projectId: 'proj-1' }))
-    // Nothing to peek is nothing to resolve: no document is asked for by name.
-    await settle()
-    expect(fetched).toBe(false)
-    expect(useFilePreviewStore.getState().file).toBeNull()
+    // Nothing to peek is nothing to resolve: no document is asked for by name,
+    // and only the control ever opens.
+    await flushWithControl()
+    unsubscribe()
+    expect(asked.map((name) => name.toLowerCase())).toEqual([CONTROL_FILE.toLowerCase()])
+    expect(opened).toEqual(['ctrl'])
   })
 
   it('does not peek when two project files are cited', async () => {
-    let fetched = false
-    server.use(
-      http.post('/api/documents/by-name', () => {
-        fetched = true
-        return HttpResponse.json({ documents: [row('p1', 'Plan.pdf')] })
-      }),
-    )
+    const { asked, opened, unsubscribe } = observe()
     useChatStore.setState({
       currentConversation: conversation([
         answer({
@@ -145,20 +183,16 @@ describe('useCitationPeek', () => {
       ]),
     })
     renderHook(() => useCitationPeek({ projectId: 'proj-1' }))
-    // Nothing to peek is nothing to resolve: no document is asked for by name.
-    await settle()
-    expect(fetched).toBe(false)
-    expect(useFilePreviewStore.getState().file).toBeNull()
+    // Nothing to peek is nothing to resolve: no document is asked for by name,
+    // and only the control ever opens.
+    await flushWithControl()
+    unsubscribe()
+    expect(asked.map((name) => name.toLowerCase())).toEqual([CONTROL_FILE.toLowerCase()])
+    expect(opened).toEqual(['ctrl'])
   })
 
   it('does not peek a baurecht-only answer', async () => {
-    let fetched = false
-    server.use(
-      http.post('/api/documents/by-name', () => {
-        fetched = true
-        return HttpResponse.json({ documents: [row('p1', 'Plan.pdf')] })
-      }),
-    )
+    const { asked, opened, unsubscribe } = observe()
     useChatStore.setState({
       currentConversation: conversation([
         answer({
@@ -174,9 +208,11 @@ describe('useCitationPeek', () => {
       ]),
     })
     renderHook(() => useCitationPeek({ projectId: 'proj-1' }))
-    // Nothing to peek is nothing to resolve: no document is asked for by name.
-    await settle()
-    expect(fetched).toBe(false)
-    expect(useFilePreviewStore.getState().file).toBeNull()
+    // Nothing to peek is nothing to resolve: no document is asked for by name,
+    // and only the control ever opens.
+    await flushWithControl()
+    unsubscribe()
+    expect(asked.map((name) => name.toLowerCase())).toEqual([CONTROL_FILE.toLowerCase()])
+    expect(opened).toEqual(['ctrl'])
   })
 })

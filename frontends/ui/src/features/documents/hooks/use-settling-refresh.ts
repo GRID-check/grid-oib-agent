@@ -12,6 +12,10 @@ import { isSettlingStatus } from '../components/document-status'
  */
 export const SETTLING_POLL_MS = 4_000
 
+function isDocumentHidden(): boolean {
+  return typeof document !== 'undefined' && document.visibilityState === 'hidden'
+}
+
 /** The one field this poll reads — every document surface's row has it. */
 interface SettlingItem {
   status: string | null | undefined
@@ -46,8 +50,9 @@ interface SettlingItem {
  * confirmation the user sees.
  *
  * @param items The rows currently on screen; their statuses decide whether to poll.
- * @param refresh The list loader, called with `quiet = true` so the poll never
- *   flashes a skeleton over a grid the user is reading.
+ * @param refresh What one tick re-reads, called with `quiet = true` so the poll
+ *   never flashes a skeleton over a grid the user is reading. A list passes the
+ *   cheap read of its settling rows here, never the full drain.
  * @param intervalMs Gap between a settled refresh and the next one.
  */
 export function useSettlingRefresh(
@@ -82,17 +87,38 @@ export function useSettlingRefresh(
     // that had just finished with its earlier "still reading" row. Scheduling
     // the next poll only once the current one settles makes at most one in
     // flight and puts them in order by construction.
+    //
+    // A hidden tab does not ask. Nobody is reading the badge, and a workspace
+    // left open in a background tab over a long extraction was the one client
+    // still polling at 4 s. The tick that falls due while hidden parks; the tab
+    // coming back asks straight away, so the reader never sees a stale badge
+    // for a full interval, and the chain resumes from there.
     let cancelled = false
+    let inFlight = false
     let timer: ReturnType<typeof setTimeout> | null = null
+    const schedule = () => {
+      if (!cancelled) timer = setTimeout(tick, intervalMs)
+    }
     const tick = () => {
+      timer = null
+      if (isDocumentHidden()) return
+      inFlight = true
       void refresh(true).finally(() => {
-        if (!cancelled) timer = setTimeout(tick, intervalMs)
+        inFlight = false
+        schedule()
       })
     }
-    timer = setTimeout(tick, intervalMs)
+    const onVisibilityChange = () => {
+      if (cancelled || inFlight || isDocumentHidden()) return
+      if (timer) clearTimeout(timer)
+      tick()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    schedule()
     return () => {
       cancelled = true
       if (timer) clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [hasSettlingItem, refresh, intervalMs])
 }
