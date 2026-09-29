@@ -255,11 +255,17 @@ async def _emit_span(spec: StageSpec, facts: TurnFacts, outcome: StageOutcome) -
     GROUP BY. Never raises: telemetry may not be the thing that breaks a stage.
     """
     try:
+        from aiq_agent.common.profiler import flush_after_answer
         from aiq_agent.common.profiler import track_agent_profile
 
         metadata = {"stage": spec.id, "outcome": outcome.status, "reason": outcome.reason}
-        with track_agent_profile(agent_name=f"stage:{spec.id}", identity=_identity(facts), metadata=metadata):
+        # A task runs on the worker's one loop too: an inline flush here is a
+        # blocking POST that stalls every other turn's stream on the replica.
+        with track_agent_profile(
+            agent_name=f"stage:{spec.id}", identity=_identity(facts), metadata=metadata, inline_flush=False
+        ) as profiler:
             pass
+        await flush_after_answer(profiler)
     except Exception:
         logger.warning("Could not record the span for stage %s", spec.id, exc_info=True)
 
@@ -275,14 +281,19 @@ async def _run_stage(spec: StageSpec, ctx: StageContext) -> StageOutcome:
 
     from aiq_agent.common.cost_tracking import BudgetSnapshot
     from aiq_agent.common.cost_tracking import track_llm_costs
+    from aiq_agent.common.profiler import flush_after_answer
     from aiq_agent.common.profiler import track_agent_profile
 
     metadata: dict[str, Any] = {"stage": spec.id, "outcome": "failed", "reason": "unknown"}
+    profiler: Any = None
+    tracker: Any = None
     try:
         loop = asyncio.get_running_loop()
         async with _loop_semaphore(loop):
             with (
-                track_agent_profile(agent_name=f"stage:{spec.id}", identity=_identity(facts), metadata=metadata),
+                track_agent_profile(
+                    agent_name=f"stage:{spec.id}", identity=_identity(facts), metadata=metadata, inline_flush=False
+                ) as profiler,
                 track_llm_costs(
                     identity={
                         "organization_id": facts.organization_id,
@@ -296,6 +307,8 @@ async def _run_stage(spec: StageSpec, ctx: StageContext) -> StageOutcome:
                     # by a budget it did not spend against, but its spend is
                     # still written to llm_usage_events.
                     budget=BudgetSnapshot(),
+                    # Posted off the loop below (``flush_after_answer``), like the turn's own.
+                    inline_flush=False,
                 ) as tracker,
             ):
                 try:
@@ -334,6 +347,8 @@ async def _run_stage(spec: StageSpec, ctx: StageContext) -> StageOutcome:
     )
     if spec.delivery == "frame" and status in {"ready", "empty", "failed", "timeout"}:
         await deliver_stage_frame(facts.conversation_id, facts.ws_parent_id, stage_value(spec, outcome))
+    # After the frame: the reader gets the stage's result before its telemetry posts.
+    await flush_after_answer(profiler, tracker)
     return outcome
 
 
