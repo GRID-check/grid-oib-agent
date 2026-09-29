@@ -71,6 +71,13 @@ export const fakePdfjsRuntime = (state: FakePdfState) => ({
     }
     return { destroy: () => container.replaceChildren() }
   },
+  /**
+   * Stand-in for the stream reader. The page carries its runs in `textItems`
+   * (below), because the fake never builds a real text stream; the reader's own
+   * behaviour, including that it never needs async iteration, is covered in
+   * `pdfjs-runtime.spec.ts`.
+   */
+  readPageTextItems: async (page: { textItems?: FakeTextItem[] }) => page.textItems ?? [],
   loadPdfjs: async () => {
     if (state.fail) throw new Error('worker unavailable')
     return {
@@ -87,10 +94,9 @@ export const fakePdfjsRuntime = (state: FakePdfState) => ({
               }),
               render: () => ({ promise: Promise.resolve(), cancel: () => {} }),
               cleanup: () => {},
-              getTextContent: () =>
-                Promise.resolve({ items: state.pages[number - 1]?.items ?? [] }),
-              // Not a pdf.js field: how `renderTextLayer` above knows which
-              // page it was handed, since it never touches a real stream.
+              // Not a pdf.js field: how `renderTextLayer` and
+              // `readPageTextItems` above know which page they were handed,
+              // since neither touches a real stream.
               textItems: state.pages[number - 1]?.items ?? [],
             }),
         }),

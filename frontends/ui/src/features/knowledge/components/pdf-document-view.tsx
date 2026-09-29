@@ -43,6 +43,7 @@ import { useTranslations } from '@/i18n'
 import {
   documentParameters,
   loadPdfjs,
+  readPageTextItems,
   renderTextLayer,
   type TextLayerHandle,
 } from '../lib/pdfjs-runtime'
@@ -897,22 +898,8 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
       const pdfPage = await doc.getPage(pageNumber)
       if (cancelled) return
       const base = pdfPage.getViewport({ scale: 1 })
-      const content = await pdfPage.getTextContent()
+      const items = await readPageTextItems(pdfPage)
       if (cancelled) return
-      // `TextMarkedContent` entries carry structure, not text; `'str' in item`
-      // narrows to the runs that have any, without a cast.
-      const items = content.items.flatMap((item) =>
-        'str' in item
-          ? [
-              {
-                str: item.str,
-                width: item.width,
-                height: item.height,
-                transform: item.transform.map(Number),
-              },
-            ]
-          : [],
-      )
       const match = locatePassage(pageTextChunks(items, base.transform), highlight)
       if (cancelled) return
       if (match)

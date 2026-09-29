@@ -129,6 +129,14 @@ export default [
           message:
             "drizzle wraps the driver error: `error.code` is undefined and the SQLSTATE is on `cause`. Use isUniqueViolation(error, '<constraint>') from @/lib/db/errors.",
         },
+        {
+          // pdf.js drains its text stream with `for await`, and Safari before 27
+          // cannot iterate a ReadableStream: every cited passage went unmarked
+          // there while the page rendered fine.
+          selector: "CallExpression[callee.property.name='getTextContent']",
+          message:
+            "page.getTextContent() iterates a ReadableStream with for-await, which Safari before 27 cannot do. Use readPageTextItems(page) from features/knowledge/lib/pdfjs-runtime.",
+        },
       ],
     },
   },
