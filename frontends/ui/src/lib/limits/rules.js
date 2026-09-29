@@ -256,7 +256,19 @@ const DEFAULT_MUTATION_LIMIT = {
   burst: { limit: 40, windowMs: 2 * 1000 },
 }
 
+/**
+ * Sending product feedback to the platform owners.
+ *
+ * Every report becomes an inbox item for every platform owner (and, once a
+ * sender exists, an email), so one person's budget is a blast-radius bound on
+ * the platform's inbox, not a load bound. Ten an hour is far more than anyone
+ * honestly writes and far less than a stuck retry loop would.
+ * @type {LimitRule}
+ */
+const FEEDBACK_REPORT_LIMIT = { name: 'feedback-report', limit: 10, windowMs: 60 * 60 * 1000 }
+
 module.exports = {
+  FEEDBACK_REPORT_LIMIT,
   BIM_QUERY_LIMIT,
   BIM_EXPORT_LIMIT,
   RIS_DOCUMENT_LIMIT,

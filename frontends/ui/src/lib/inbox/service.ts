@@ -15,6 +15,8 @@ import 'server-only'
 import { NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 import { isCollaborationEnabled } from '@/lib/authz/feature-flags'
+import { getPlatformOrganizationId, hasPlatformPermission } from '@/lib/authz/platform'
+import { withTenant } from '@/lib/db/tenant-context'
 import { publishToUser } from '@/lib/events/bus'
 import type {
   InboxItem,
@@ -39,7 +41,12 @@ import {
   upsertInboxItems,
   type InboxResolutionTarget,
 } from './repository'
-import { inboxItemIsActionable, visibleInboxTypes } from './registry'
+import {
+  inboxItemIsActionable,
+  PLATFORM_INBOX_PERMISSION,
+  platformInboxTypes,
+  visibleInboxTypes,
+} from './registry'
 import type {
   InboxItemState,
   InboxItemView,
@@ -210,6 +217,81 @@ function typesVisibleTo(session: Pick<GridSession, 'featureFlags'>): InboxItemTy
 }
 
 /**
+ * One organization's slice of a reader's inbox: whose rows, which types.
+ *
+ * A reader's inbox is normally one lane, their active organization. Platform
+ * staff have a second: the rows addressed to them in the PLATFORM organization
+ * (`gate: 'platform'` types — a member's product feedback). Those rows cannot
+ * live in the reader's tenant, because the owner works from whichever
+ * organization they happen to be in, and a tenant's inbox is no place for the
+ * platform's mail. So the platform lane is read alongside the tenant lane, and
+ * the two are merged into one list and one badge.
+ *
+ * The lanes are disjoint by construction: `visibleInboxTypes` never contains a
+ * platform type, so even a reader whose active organization IS the platform
+ * organization gets each row exactly once.
+ */
+interface InboxLane {
+  organizationId: string
+  types: InboxItemType[]
+}
+
+/**
+ * The platform lane, when this reader has one.
+ *
+ * Opened by the permission (`PLATFORM_INBOX_PERMISSION`), not by membership
+ * alone — the same rule every platform surface applies. Both lookups are
+ * cached in `@/lib/authz/platform` and are already warm from the nav flags on
+ * every page, so the badge stays cheap for everybody else.
+ */
+async function platformLaneFor(session: AuthorizedSession): Promise<InboxLane | null> {
+  const types = platformInboxTypes()
+  if (types.length === 0) return null
+  if (!(await hasPlatformPermission(session, PLATFORM_INBOX_PERMISSION))) return null
+  const organizationId = await getPlatformOrganizationId()
+  return organizationId ? { organizationId, types } : null
+}
+
+async function lanesFor(session: AuthorizedSession): Promise<InboxLane[]> {
+  const tenant: InboxLane = { organizationId: session.organizationId, types: typesVisibleTo(session) }
+  const platform = await platformLaneFor(session)
+  return platform ? [tenant, platform] : [tenant]
+}
+
+/**
+ * Run a lane's query as that lane's organization.
+ *
+ * The platform lane's rows belong to the platform organization, so row-level
+ * security only shows them inside that tenant scope. This is not a bypass: the
+ * scope is still ONE organization and the query is still pinned to the
+ * reader's own user id, exactly as the tenant lane is.
+ */
+function inLane<T>(session: AuthorizedSession, lane: InboxLane, fn: () => Promise<T>): Promise<T> {
+  if (lane.organizationId === session.organizationId) return fn()
+  return withTenant({ organizationId: lane.organizationId, userId: session.userId }, fn)
+}
+
+/** The badge across every lane — one indexed count per lane. */
+async function countPendingAcross(session: AuthorizedSession, lanes: readonly InboxLane[]): Promise<number> {
+  const counts = await Promise.all(
+    lanes.map((lane) =>
+      inLane(session, lane, () => countPendingInboxItems(lane.organizationId, session.userId, lane.types)),
+    ),
+  )
+  return counts.reduce((sum, value) => sum + value, 0)
+}
+
+/** Apply a mutation in every lane and total the rows it touched. */
+async function mutateAcross(
+  session: AuthorizedSession,
+  lanes: readonly InboxLane[],
+  mutate: (lane: InboxLane) => Promise<number>,
+): Promise<number> {
+  const affected = await Promise.all(lanes.map((lane) => inLane(session, lane, () => mutate(lane))))
+  return affected.reduce((sum, value) => sum + value, 0)
+}
+
+/**
  * Lifecycle state from the row's timestamps, strongest fact first.
  *
  * Order matters: an inert item is inert whatever else was set on it, and an
@@ -346,7 +428,13 @@ function toItemView(
     // Unknown ids stay null rather than falling back to the raw WorkOS id: the
     // client still has `actorUserId` and can render initials without us leaking
     // an identifier into copy.
-    actorName: row.actorUserId ? (actorNames.get(row.actorUserId) ?? null) : null,
+    //
+    // A platform-lane row's actor belongs to ANOTHER organization, which the
+    // reader's directory cannot resolve, so its emitter snapshots the name as
+    // `payload.actorName`. Withheld with the rest of the payload when redacted.
+    actorName: row.actorUserId
+      ? (actorNames.get(row.actorUserId) ?? (access ? coerceText(payload.actorName, SUBJECT_MAX_LENGTH) : null))
+      : null,
     actorUserId: row.actorUserId,
     count: row.count,
     href: access
@@ -375,19 +463,31 @@ export async function listInbox(
   session: AuthorizedSession,
   params: ListInboxParams = {},
 ): Promise<InboxListResponse> {
-  const types = typesVisibleTo(session)
-  const rows = await listInboxItems(session.organizationId, session.userId, {
-    pendingOnly: params.pendingOnly ?? false,
-    limit: INBOX_LIST_LIMIT,
-    types,
-  })
+  const lanes = await lanesFor(session)
+  const perLane = await Promise.all(
+    lanes.map((lane) =>
+      inLane(session, lane, () =>
+        listInboxItems(lane.organizationId, session.userId, {
+          pendingOnly: params.pendingOnly ?? false,
+          limit: INBOX_LIST_LIMIT,
+          types: lane.types,
+        }),
+      ),
+    ),
+  )
+  // Each lane is already newest-first and bounded, so the merged page is the
+  // newest INBOX_LIST_LIMIT across them — the same bound one lane had.
+  const rows = perLane
+    .flat()
+    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+    .slice(0, INBOX_LIST_LIMIT)
 
   const actorIds = [...new Set(rows.flatMap((row) => (row.actorUserId ? [row.actorUserId] : [])))]
 
   const [targets, people, pending] = await Promise.all([
     resolveTargets(session, rows),
     resolvePeople(session.organizationId, actorIds),
-    countPendingInboxItems(session.organizationId, session.userId, types),
+    countPendingAcross(session, lanes),
   ])
 
   const actorNames = new Map([...people].map(([userId, person]) => [userId, person.name]))
@@ -402,9 +502,7 @@ export async function listInbox(
  * it must stay one indexed count — no re-authorization, no directory, no rows.
  */
 export async function getInboxSummary(session: AuthorizedSession): Promise<InboxSummaryResponse> {
-  return {
-    pending: await countPendingInboxItems(session.organizationId, session.userId, typesVisibleTo(session)),
-  }
+  return { pending: await countPendingAcross(session, await lanesFor(session)) }
 }
 
 // ---------------------------------------------------------------------------
@@ -426,12 +524,12 @@ export interface InboxMutationResult {
  * OTHER tabs until their next fetch — never correctness. `publishToUser` never
  * throws, so this cannot fail the mutation it reports.
  */
-async function publishPending(session: AuthorizedSession, affected: number): Promise<InboxMutationResult> {
-  const pending = await countPendingInboxItems(
-    session.organizationId,
-    session.userId,
-    typesVisibleTo(session),
-  )
+async function publishPending(
+  session: AuthorizedSession,
+  lanes: readonly InboxLane[],
+  affected: number,
+): Promise<InboxMutationResult> {
+  const pending = await countPendingAcross(session, lanes)
   await publishToUser(session.userId, { kind: 'inbox.changed', pending })
   return { affected, pending }
 }
@@ -448,13 +546,11 @@ export async function markRead(
   session: AuthorizedSession,
   itemIds: readonly string[],
 ): Promise<InboxMutationResult> {
-  const affected = await markInboxItemsRead(
-    session.organizationId,
-    session.userId,
-    [...itemIds],
-    typesVisibleTo(session),
+  const lanes = await lanesFor(session)
+  const affected = await mutateAcross(session, lanes, (lane) =>
+    markInboxItemsRead(lane.organizationId, session.userId, [...itemIds], lane.types),
   )
-  return publishPending(session, affected)
+  return publishPending(session, lanes, affected)
 }
 
 /**
@@ -466,12 +562,11 @@ export async function markRead(
  * something on their behalf about a surface they cannot look at.
  */
 export async function markAllRead(session: AuthorizedSession): Promise<InboxMutationResult> {
-  const affected = await markAllInboxItemsRead(
-    session.organizationId,
-    session.userId,
-    typesVisibleTo(session),
+  const lanes = await lanesFor(session)
+  const affected = await mutateAcross(session, lanes, (lane) =>
+    markAllInboxItemsRead(lane.organizationId, session.userId, lane.types),
   )
-  return publishPending(session, affected)
+  return publishPending(session, lanes, affected)
 }
 
 /**
@@ -482,14 +577,13 @@ export async function markAllRead(session: AuthorizedSession): Promise<InboxMuta
  * another user", so the endpoint cannot be used to probe for item ids.
  */
 export async function archiveItem(session: AuthorizedSession, itemId: string): Promise<InboxMutationResult> {
-  const archived = await archiveInboxItem(
-    session.organizationId,
-    session.userId,
-    itemId,
-    typesVisibleTo(session),
+  const lanes = await lanesFor(session)
+  // An id belongs to at most one lane; the others match nothing.
+  const archived = await mutateAcross(session, lanes, async (lane) =>
+    (await archiveInboxItem(lane.organizationId, session.userId, itemId, lane.types)) ? 1 : 0,
   )
-  if (!archived) throw new NotFoundError()
-  return publishPending(session, 1)
+  if (archived === 0) throw new NotFoundError()
+  return publishPending(session, lanes, archived)
 }
 
 /**
@@ -515,5 +609,5 @@ export async function markResourceItemsReadFor(
     resourceType,
     resourceId,
   )
-  return publishPending(session, affected)
+  return publishPending(session, await lanesFor(session), affected)
 }

@@ -382,6 +382,12 @@ export const collaboration = {
        * from inside the tenant (ADR-0042), so pointing an org admin at their own
        * settings would send them looking for a control that is not there.
        */
+      // Platform tier: a member sent product feedback. {subject} is the
+      // organization it came from; the excerpt below the title is the message.
+      feedbackSubmitted: {
+        title: '{actor} sent feedback',
+        body: 'from {subject} — open it to triage.',
+      },
       storageQuotaWarning: {
         title: 'Your organisation is running out of storage',
         body: '{subject} of the storage quota is in use. Once it is full, uploads will start failing — delete documents you no longer need, or ask whoever runs Piloti for you to raise the quota.',
