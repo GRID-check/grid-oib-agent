@@ -461,7 +461,7 @@ turn whose Herleitung drew two empty „Suche" layers until this change (§6).
 | | Call | Needs |
 |---|---|---|
 | before | ① `read_passage(OIB-RL 2, Pkt 2.2)` → ② `emit_card` → ③ answer | ① the other column of the same table — ② the card — ③ the marker |
-| after | ① answer + card | the previous turn's passages are still in the transcript: a turn writes its whole transcript back, not the answer alone (`conversation._answer_update`), and the turn before it is pruned to what was said (`history.prune_tool_results`) |
+| after | ① answer + card | the previous turn's passages are still in the transcript: a turn writes its whole transcript back, not the answer alone (`conversation._answer_update`), and the turn before it is pruned to what was said (`history.prune_tool_results`; since 2026-09-29 counted in turns that fetched) |
 
 Three become one, with no fetch at all. Only the final answer used to be
 written back to the conversation, so every follow-up re-fetched what the
