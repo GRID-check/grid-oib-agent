@@ -18,6 +18,7 @@
  * grows tomorrow arrives in the document unformatted instead of missing.
  */
 
+import { stripDirectives } from '@/lib/text/answer-directives'
 import { marked, type Token, type Tokens } from 'marked'
 import type { DocBlock, DocRun, HeadingLevel } from './blocks'
 import { DIAGRAM_SOURCE_KINDS } from '@/lib/diagrams/diagram-sources'
@@ -257,5 +258,7 @@ export function markdownToBlocks(
   options: MarkdownToBlocksOptions = {}
 ): DocBlock[] {
   if (!markdown.trim()) return []
-  return marked.lexer(markdown).flatMap((token) => blockFrom(token, options))
+  // The answer's directive dialect is the app's to draw; on paper it is the
+  // Markdown it wraps (a check is its table, a `details` block is printed open).
+  return marked.lexer(stripDirectives(markdown)).flatMap((token) => blockFrom(token, options))
 }

@@ -101,7 +101,7 @@ const schemaFor = (defName: string) =>
 describe('nested card fields are validated, not waved through', () => {
   it('finds nested fields to check at all', () => {
     // A zero here would make every assertion below vacuously true.
-    expect(nestedFields.length).toBeGreaterThan(50)
+    expect(nestedFields.length).toBeGreaterThan(25)
   })
 
   it.each(nestedFields.map((entry) => [`${entry.cardType}.${entry.field}`, entry] as const))(
@@ -163,10 +163,15 @@ describe('nested card fields are validated, not waved through', () => {
     // cost one card, not the thread — and not the positions after it, which
     // `[[card:N]]` markers and persisted decisions address by index.
     const kept = validateGridCards([
-      { type: 'verdict_header', subject: 'a', verdict: 'b', reference: 'banana' },
-      { type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' },
+      {
+        type: 'calculation',
+        title: 'Schrittmaß',
+        steps: [{ label: 'a', operation: 'sum', operands: [{ label: 'b', value: 1 }] }],
+        reference: 'banana',
+      },
+      { type: 'memory_proposal', title: 'Merken?', content: 'Alles gut.', kind: 'preference' },
     ])
     expect(kept).toHaveLength(2)
-    expect(kept.map((card) => card?.type)).toEqual([undefined, 'summary'])
+    expect(kept.map((card) => card?.type)).toEqual([undefined, 'memory_proposal'])
   })
 })

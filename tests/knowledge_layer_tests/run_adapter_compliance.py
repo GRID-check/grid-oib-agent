@@ -16,11 +16,9 @@ Usage:
 
     # Quick mode - registration check only (no files/services needed)
     python tests/knowledge_layer_tests/run_adapter_compliance.py --backend llamaindex --quick
-    python tests/knowledge_layer_tests/run_adapter_compliance.py --backend foundational_rag --quick
 
     # Full mode - complete ingestion + retrieval test
     python tests/knowledge_layer_tests/run_adapter_compliance.py --backend llamaindex
-    python tests/knowledge_layer_tests/run_adapter_compliance.py --backend foundational_rag
 
 Exit codes:
     0 - All tests passed
@@ -88,15 +86,7 @@ class AdapterComplianceTest:
 
     def _import_backend(self):
         """Import the backend module to trigger registration."""
-        backend_imports = {
-            "llamaindex": "knowledge_layer.llamaindex",
-            "foundational_rag": "knowledge_layer.foundational_rag",
-        }
-
-        module_name = backend_imports.get(self.backend.lower())
-        if not module_name:
-            # Try generic import pattern
-            module_name = f"knowledge_layer.{self.backend}"
+        module_name = f"knowledge_layer.{self.backend.lower()}"
 
         try:
             __import__(module_name)
@@ -450,7 +440,7 @@ def main():
         epilog=__doc__,
     )
 
-    parser.add_argument("--backend", "-b", required=True, help="Backend name (e.g., llamaindex, foundational_rag)")
+    parser.add_argument("--backend", "-b", required=True, help="Backend name (llamaindex, or an adapter under test)")
 
     parser.add_argument("--config", "-c", default="{}", help="Backend config as JSON string (default: {})")
 

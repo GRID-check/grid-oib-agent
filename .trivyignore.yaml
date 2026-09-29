@@ -359,6 +359,19 @@ vulnerabilities:
 
       Drop as soon as a Langfuse image ships fast-uri >= 3.1.6.
 
+  # A fifth fast-uri 3.1.4 advisory, first seen 2026-09-29 on #764 (its
+  # deploy/ changes run the image scan). Fixed only in 3.1.7, so it outlives
+  # the others unless the Langfuse image moves past it; same box date so the
+  # whole fast-uri question is still re-argued in one pass.
+  - id: CVE-2026-84292
+    expired_at: 2026-10-09
+    statement: |
+      fast-uri 3.1.4 — authority injection via an unvalidated port. Same
+      image, same call path and same limit as CVE-2026-18446 above: the
+      parsed authority is not used for a routing or allowlist decision.
+
+      Drop as soon as a Langfuse image ships fast-uri >= 3.1.7.
+
   - id: GHSA-5p4m-2wfm-xmqj
     expired_at: 2026-10-09
     statement: |

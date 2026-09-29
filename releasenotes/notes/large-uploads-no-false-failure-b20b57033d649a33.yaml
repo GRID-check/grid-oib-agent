@@ -1,0 +1,9 @@
+---
+fixes:
+  - >
+    A large upload no longer shows as failed while it is still being read: it
+    stays at Wird gelesen, a notice says reading continues in the background,
+    and the file becomes citable once it is ready.
+  - >
+    A file that cannot be read from storage now fails with a reason that says
+    so.

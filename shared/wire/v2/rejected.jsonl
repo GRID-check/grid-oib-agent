@@ -1,3 +1,4 @@
 {"v":2,"type":"CUSTOM","name":"rejected","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000500000_13","seq":0,"ts":1759000500020,"value":{"of":"user_message","code":"auth_expired"}}
 {"v":2,"type":"CUSTOM","name":"rejected","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":0,"ts":1759000001000,"value":{"of":"cancel_turn","code":"not_asker","message":"Only the person who asked can stop this turn."}}
 {"v":2,"type":"CUSTOM","name":"rejected","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000200000_7","seq":0,"ts":1759000210000,"value":{"of":"interaction_response","code":"no_pending_interaction"}}
+{"v":2,"type":"CUSTOM","name":"rejected","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"unknown","seq":0,"ts":1759000600000,"value":{"of":"unknown","code":"invalid_message","message":"Unknown message type."}}

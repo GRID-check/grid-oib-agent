@@ -298,8 +298,8 @@ class JobReportResponse(BaseModel):
 
     ## Why ``cards`` rides on the report response
 
-    ``lib/pdf/legal-basis.ts`` renders a „Rechtsgrundlagen" section into the
-    filed report PDF out of the answer's ``legal_basis`` cards, and
+    The filed report PDF (``frontends/ui/src/lib/pdf/report-document.ts``) is
+    built from the report and the run's cards, and
     ``fileResearchReport`` (``frontends/ui/src/lib/documents/research-report.ts``)
     takes them as an optional argument its only caller could not fill: the BFF
     files the report at the moment it reads it off THIS route, and this route
@@ -327,9 +327,11 @@ class JobReportResponse(BaseModel):
     ``legalBasisSection``'s own narrowing) — not a third time in between, where
     the only new behaviour available to it is failure.
 
-    ## Why every card type and not only ``legal_basis``
+    ## Why every card type
 
-    The PDF reads ``legal_basis`` today, but the same run's cards already reach
+    The „Rechtsgrundlagen" section now reads the report's own quote lines
+    (``frontends/ui/src/lib/answer-export/excerpts.ts``), not a card; the
+    retired ``legal_basis`` card no longer exists. The run's cards already reach
     the client whole by two other paths — over the socket as the answer streams,
     and on the conversation message row ``write_job_turn`` writes
     (``metadata["cards"]``). A report response carrying a filtered subset would
@@ -875,41 +877,8 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         if not written:
             raise HTTPException(400, f"Job not cancellable: {job_id} (already finished)")
 
-        def _record_cancellation_event() -> None:
-            # EventStore construction and store() are blocking DB I/O — keep
-            # them off the event loop like the rest of this module.
-            event_store = EventStore(db_url, job_id)
-            event_store.store(
-                {
-                    "type": "job.cancellation_requested",
-                    "data": {"reason": "cancelled by user"},
-                }
-            )
-
-        await asyncio.get_running_loop().run_in_executor(None, _record_cancellation_event)
-
-        if job_execution_mode() == "db":
-            # DB-claimed execution (ADR-0021): removing the queue row drops an
-            # unclaimed job so no worker ever runs it; a running worker sees the
-            # INTERRUPTED status via its CancellationMonitor and stops on its own.
-            # No scheduler is involved, so the Dask cancel is skipped.
-            from ..jobs import queue
-
-            await asyncio.get_running_loop().run_in_executor(None, queue.mark_done, db_url, job_id)
-            task_cancelled = False
-        else:
-            task_cancelled = await _cancel_dask_task(scheduler_address, job_id)
-
+        task_cancelled = await _stop_interrupted_job(db_url, scheduler_address, job_id, reason="cancelled by user")
         logger.info("Cancel requested for job %s: status updated, task_cancelled=%s", job_id, task_cancelled)
-
-        # This route wrote the verdict, so it reports it. A running worker
-        # reports the same INTERRUPTED again when its abort lands, which the BFF
-        # absorbs; but a job no worker ever claimed (db mode: the queue row was
-        # just dropped) or whose Dask task never started has no runner left to
-        # report anything, and the BFF's run row would stay `running` forever.
-        # No error text, exactly like the runner's own report, so the two
-        # reports write the same row.
-        await notify_job_outcome_from_access(job_id=job_id, db_url=db_url, status="interrupted")
 
         return {"job_id": job_id, "status": JobStatus.INTERRUPTED.value, "task_cancelled": task_cancelled}
 
@@ -1037,6 +1006,22 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             project_collection=project_collection,
         )
 
+    @app.post(
+        "/v1/internal/jobs/kill-active",
+        tags=["async jobs", "internal"],
+        summary="Kill every submitted or running job, across every organization (internal)",
+        description=(
+            "Service-token guarded; the BFF's platform maintenance button is the one caller. Each job gets "
+            "the cancel route's treatment: INTERRUPTED, its queue row dropped or its Dask task force-cancelled, "
+            "and the verdict reported so the BFF closes its run row."
+        ),
+        responses={403: {"description": "Missing or invalid internal token"}},
+    )
+    async def kill_active_jobs(request: Request) -> dict:
+        """Interrupt every non-terminal job and stop its worker."""
+        _require_internal_token(request)
+        return await _kill_active_jobs(job_store, db_url, scheduler_address)
+
     @app.get(
         "/v1/internal/jobs/{job_id}/outcome",
         response_model=InternalJobOutcomeResponse,
@@ -1127,6 +1112,114 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     # have no terminal event, so they accumulate forever without this (P0 #1,
     # chat side — see checkpoint_retention.py). Runs regardless of execution mode.
     _start_checkpoint_reaper()
+
+
+KILL_REASON = "killed by platform operator"
+# One press of the button, bounded like every other list here. A fleet with
+# more live jobs than this is killed by pressing again.
+KILL_BATCH = 1000
+
+
+async def _stop_interrupted_job(db_url: str, scheduler_address: str | None, job_id: str, *, reason: str) -> bool:
+    """Stop the worker of a job whose INTERRUPTED status the caller just wrote, and report it.
+
+    Shared by the cancel route and the platform kill. Returns whether a Dask
+    task was cancelled.
+    """
+    from ..jobs.event_store import EventStore
+    from ..jobs.submit import job_execution_mode
+
+    loop = asyncio.get_running_loop()
+
+    def _record_cancellation_event() -> None:
+        # EventStore construction and store() are blocking DB I/O; keep them
+        # off the event loop like the rest of this module.
+        EventStore(db_url, job_id).store({"type": "job.cancellation_requested", "data": {"reason": reason}})
+
+    await loop.run_in_executor(None, _record_cancellation_event)
+
+    if job_execution_mode() == "db":
+        # DB-claimed execution (ADR-0021): removing the queue row drops an
+        # unclaimed job so no worker ever runs it; a running worker sees the
+        # INTERRUPTED status via its CancellationMonitor and stops on its own.
+        # No scheduler is involved, so the Dask cancel is skipped.
+        from ..jobs import queue
+
+        await loop.run_in_executor(None, queue.mark_done, db_url, job_id)
+        task_cancelled = False
+    else:
+        task_cancelled = await _cancel_dask_task(scheduler_address, job_id)
+
+    # The caller wrote the verdict, so it reports it. A running worker reports
+    # the same INTERRUPTED again when its abort lands, which the BFF absorbs;
+    # but a job no worker ever claimed (db mode: the queue row was just
+    # dropped) or whose Dask task never started has no runner left to report
+    # anything, and the BFF's run row would stay `running` forever. No error
+    # text, exactly like the runner's own report, so the two reports write the
+    # same row.
+    await notify_job_outcome_from_access(job_id=job_id, db_url=db_url, status="interrupted")
+    return task_cancelled
+
+
+def _find_active_job_ids(db_url: str, statuses: tuple[str, ...], limit: int) -> list[str]:
+    """Every job in one of ``statuses``, oldest first. Sync; run it in an executor."""
+    from sqlalchemy import bindparam
+    from sqlalchemy import inspect
+    from sqlalchemy import text
+
+    from ..jobs.event_store import EventStore
+
+    engine = EventStore._get_or_create_sync_engine(db_url)
+    if not inspect(engine).has_table("job_info"):
+        return []
+    # A literal statement with an expanding bind: no SQL is built from strings.
+    query = text(
+        "SELECT job_id FROM job_info WHERE status IN :statuses ORDER BY created_at, job_id LIMIT :limit"
+    ).bindparams(bindparam("statuses", expanding=True))
+    with engine.connect() as conn:
+        rows = conn.execute(query, {"statuses": list(statuses), "limit": limit})
+        return [row[0] for row in rows]
+
+
+async def _kill_active_jobs(job_store, db_url: str, scheduler_address: str | None) -> dict:
+    """Interrupt every SUBMITTED or RUNNING job and stop its worker.
+
+    Each job goes through the cancel route's conditional write, so a job that
+    finishes while the sweep runs keeps its own verdict and is counted as
+    already finished. One job's failure is logged and counted; it never stops
+    the others from being killed.
+    """
+    from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+    loop = asyncio.get_running_loop()
+    statuses = (JobStatus.RUNNING.value, JobStatus.SUBMITTED.value)
+    job_ids = await loop.run_in_executor(None, _find_active_job_ids, db_url, statuses, KILL_BATCH)
+
+    killed: list[str] = []
+    already_finished = 0
+    failed: list[dict[str, str]] = []
+    for job_id in job_ids:
+        try:
+            written = await _update_status_if_not_terminal(job_store, job_id, JobStatus.INTERRUPTED, error=KILL_REASON)
+            if not written:
+                already_finished += 1
+                continue
+            await _stop_interrupted_job(db_url, scheduler_address, job_id, reason=KILL_REASON)
+            killed.append(job_id)
+        except Exception as exc:
+            logger.warning("kill-active: job %s could not be killed: %s", job_id, exc)
+            failed.append({"job_id": job_id, "error": str(exc)})
+
+    logger.warning(
+        "kill-active: killed %d job(s), %d had already finished, %d failed", len(killed), already_finished, len(failed)
+    )
+    return {
+        "found": len(job_ids),
+        "killed": killed,
+        "already_finished": already_finished,
+        "failed": failed,
+        "truncated": len(job_ids) >= KILL_BATCH,
+    }
 
 
 GHOST_JOB_TIMEOUT_SECONDS = 300  # 5 minutes without events = ghost job

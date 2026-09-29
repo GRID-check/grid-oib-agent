@@ -21,6 +21,13 @@ with everything the workflow yields.
 **Client messages** are what the browser sends: ``user_message``,
 ``interaction_response``, ``cancel_turn`` and ``attach``.
 
+One frame is none of the three: :class:`Hello`, the server's first frame on
+every socket. It belongs to the connection, not to a turn, so it has no
+``conversation_id``, ``turn_id`` or ``seq`` and is not a :data:`WireEvent`. The
+client opens nothing until it arrives: a server that accepts the upgrade and
+never says it speaks v2 (an agent rolled back to NAT's stock socket, which
+ignores ``?v=2``) is otherwise indistinguishable from one that is thinking.
+
 Rules the models carry
 ----------------------
 
@@ -272,6 +279,25 @@ class RunHandoff(_Model):
     run_message_id: str = Field(min_length=1)
 
 
+class QuoteStamp(_Model):
+    """The server's check of one quote line ``> „…“ [N]`` (``common/quote_stamps.py``), in document order.
+
+    ``verbatim`` names the passage that holds the wording and the ``[N]`` it
+    carries (absent for a passage read but not cited); ``not_found`` means no
+    retrieved passage holds it; ``unchecked`` means there was nothing to check
+    against, or the span is too short to mean anything.
+    """
+
+    text: str = Field(description="The wording between the quote marks, as the final text writes it.")
+    status: Literal["verbatim", "not_found", "unchecked"]
+    number: int | None = Field(default=None, ge=1)
+    title: str | None = None
+    file_name: str | None = None
+    page: int | None = None
+    punkt: str | None = None
+    url: str | None = None
+
+
 class TurnResult(_Model):
     """Everything the finished turn delivers; authoritative, and what the server persists.
 
@@ -301,6 +327,8 @@ class TurnResult(_Model):
     skills_activated: list[str] = Field(default_factory=list)
     skills_hidden: list[str] = Field(default_factory=list)
     retrieval_ledger: list[dict[str, Any]] = Field(default_factory=list)
+    #: One stamp per quote line of ``text``, in document order.
+    quote_stamps: list[QuoteStamp] = Field(default_factory=list)
     #: ADR-0062: the run this turn commissioned instead of answering itself.
     run: RunHandoff | None = None
 
@@ -442,9 +470,14 @@ class InteractionResolvedValue(_Model):
 
 
 class RejectedValue(_Model):
-    """A client message was refused. Out of band: ``seq == 0``, never replayed, never ends a turn."""
+    """A client message was refused. Out of band: ``seq == 0``, never replayed, never ends a turn.
 
-    of: Literal["user_message", "interaction_response", "cancel_turn", "attach"]
+    ``of`` is the refused message's ``type``, or ``unknown`` for a frame that is
+    not JSON or names no type this contract has: that is answered too, so a
+    client never waits on silence.
+    """
+
+    of: Literal["user_message", "interaction_response", "cancel_turn", "attach", "unknown"]
     code: Literal[
         "auth_expired",
         "conversation_mismatch",
@@ -512,6 +545,29 @@ class InteractionResolvedBody(_CustomBody):
 class RejectedBody(_CustomBody):
     name: Literal["rejected"] = "rejected"
     value: RejectedValue
+
+
+class HelloValue(_Model):
+    build: str = Field(min_length=1, description="The deployed commit (GRID_GIT_SHA), or 'unknown', as /health has it.")
+
+
+class Hello(_Model):
+    """The server's first frame on every socket, before it reads any client message.
+
+    Sent once the version and the caller have been checked, so it says: this
+    server speaks wire v2 and will answer what you send. A connection event, not
+    a turn's: no ``conversation_id``, ``turn_id`` or ``seq``, never published to
+    the conversation's stream, never replayed. The client sends nothing until it
+    has it, and treats a socket that stays silent, or opens with anything else,
+    as a server that does not speak this wire.
+    """
+
+    v: Literal[2] = WIRE_VERSION
+    type: Literal["CUSTOM"] = "CUSTOM"
+    name: Literal["hello"] = "hello"
+    #: Server clock, epoch milliseconds.
+    ts: int = Field(ge=0)
+    value: HelloValue
 
 
 # The events: the envelope plus the body. `stamp` is the only constructor the
@@ -672,7 +728,7 @@ def stamp(body: EventBody, *, conversation_id: str, turn_id: str, seq: int, ts: 
     )
 
 
-def to_frame(event: Envelope) -> dict[str, Any]:
+def to_frame(event: Envelope | Hello) -> dict[str, Any]:
     """The JSON object the socket writes: defaults omitted (never null), discriminators always present."""
     return event.model_dump(mode="json", exclude_defaults=True)
 
@@ -706,6 +762,10 @@ class UserMessage(_ClientBase):
     focus_document_id: str | None = None
     focus_version_id: str | None = None
     focus_version_state: Literal["draft", "in_review", "changes_requested"] | None = None
+    reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh"] | None = Field(
+        default=None,
+        description="The composer's Aufwand dial for this turn; absent keeps the platform level.",
+    )
 
 
 class InteractionResponse(_ClientBase):
@@ -751,6 +811,7 @@ ClientMessage = Annotated[
 
 WIRE_EVENT: TypeAdapter[Any] = TypeAdapter(WireEvent)
 CLIENT_MESSAGE: TypeAdapter[Any] = TypeAdapter(ClientMessage)
+HELLO: TypeAdapter[Hello] = TypeAdapter(Hello)
 
 
 def _consts_required(node: Any) -> None:
@@ -777,12 +838,14 @@ def _consts_required(node: Any) -> None:
 
 
 def wire_json_schema() -> dict[str, Any]:
-    """The JSON Schema ``shared/wire/v2.schema.json`` holds: both unions, by name."""
+    """The JSON Schema ``shared/wire/v2.schema.json`` holds: both unions and the hello, by name."""
     events = WIRE_EVENT.json_schema(ref_template="#/$defs/{model}")
     clients = CLIENT_MESSAGE.json_schema(ref_template="#/$defs/{model}")
-    defs = {**events.pop("$defs", {}), **clients.pop("$defs", {})}
+    hello = HELLO.json_schema(ref_template="#/$defs/{model}")
+    defs = {**events.pop("$defs", {}), **clients.pop("$defs", {}), **hello.pop("$defs", {})}
     defs["WireEvent"] = events
     defs["ClientMessage"] = clients
+    defs["Hello"] = hello
     _consts_required(defs)
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

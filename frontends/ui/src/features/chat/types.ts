@@ -4,6 +4,7 @@
  * Type definitions for chat messages, conversations, and state.
  */
 
+import type { PageRegion } from '@/features/knowledge/lib/page-region'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
@@ -14,6 +15,7 @@ import type {
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import type { Findings } from '@/lib/conversations/message-findings'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
+import type { QuoteStamp } from '@/lib/conversations/message-quote-stamps'
 import type { RunLedger } from '@/lib/runs/run-ledger-types'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { StoredPromptOption } from '@/lib/conversations/message-prompt'
@@ -92,6 +94,8 @@ export type ErrorCode =
   | 'connection.timeout'
   // The server speaks a newer wire than this page (close code 4426): reload.
   | 'connection.client_outdated'
+  // The server does not speak this page's wire (no v2 hello): a deploy fault, not the network.
+  | 'connection.server_incompatible'
   // Auth errors
   | 'auth.session_expired'
   | 'auth.unauthorized'
@@ -348,6 +352,12 @@ export interface ChatMessage {
    */
   retrievalLedger?: RetrievalLedger
   /**
+   * The server's check of each quote line `> „…" [N]` against the passages the
+   * turn retrieved (`TurnResult.quote_stamps`). The excerpt draws „Wortlaut
+   * belegt [N]" from it; same sanitize contract as `retrievalLedger`.
+   */
+  quoteStamps?: QuoteStamp[]
+  /**
    * The account of the RUN this message is (ADR-0062): the phases it walked,
    * the steps it took and what it left behind.
    *
@@ -512,6 +522,13 @@ export interface CitationSource {
    * one direction a legal signal must not fail in.
    */
   bindingStatus?: string
+  /**
+   * Where on the page the passage sits, for a passage read off a picture of the
+   * page — a plan's Grundriss, a photo (issue #433). The viewer draws these
+   * boxes instead of searching the page's text for `snippet`, which for such a
+   * passage is the model's description of the drawing, not words on the page.
+   */
+  regions?: PageRegion[]
 }
 
 /** Wire shape of a structured source attached to a shallow ChatResponse. */
@@ -552,6 +569,8 @@ export interface WireCitationSource {
    * prose `binding_note`.
    */
   binding_status?: string | null
+  /** Boxes on the page, `[{box: [x0, y0, x1, y1], label}]` normalised 0-1 (issue #433). */
+  regions?: unknown
 }
 
 /**

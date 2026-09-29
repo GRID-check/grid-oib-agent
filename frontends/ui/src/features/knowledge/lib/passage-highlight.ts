@@ -1,11 +1,13 @@
 /**
  * Locating a cited passage inside a rendered PDF page.
  *
- * A citation tells us a page and the retrieved passage TEXT — there is no
- * geometry anywhere in the pipeline (the backend `SourceRegistry` keys on
- * `(collection, filename, page)` and carries a snippet string, nothing more).
- * So the rectangles to light up have to be recovered on the client, by matching
- * that snippet against the page's own text layer.
+ * A citation of running text tells us a page and the retrieved passage TEXT,
+ * and no geometry (the backend `SourceRegistry` keys on `(collection, filename,
+ * page)` and carries a snippet string). So the rectangles to light up have to
+ * be recovered on the client, by matching that snippet against the page's own
+ * text layer. A passage read off a picture of the page (a plan) is the one that
+ * does carry geometry, as `regions`, and never comes through here: see
+ * `page-region.ts`.
  *
  * The matching cannot be an `indexOf`. The snippet was produced by a different
  * extractor than pdf.js's text layer, so by the time the same sentence reaches

@@ -7,7 +7,11 @@ import type { ChatStoreWithHydration } from '../store'
 import type { SourcePreviewChipProps } from './SourcePreview'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { GridCard } from '@/shared/cards/schemas'
+import { CARD_PREVIEW_FIXTURES } from '@/features/grid-cards/preview-fixtures'
 import { useAnswerFileReferences } from '../hooks/use-answer-file-references'
+
+/** A presentational card that draws its title, for placement tests. */
+const calculationCard = (title: string): GridCard => ({ ...CARD_PREVIEW_FIXTURES.calculation!, title } as GridCard)
 
 /**
  * A turn the post-answer reflection stage recorded something for. No hook is
@@ -239,54 +243,13 @@ describe('AgentResponse', () => {
     expect(screen.getByText('Answer')).toBeInTheDocument()
   })
 
-  test('renders SummaryCard framed and an unplaced legal_basis flat from cards prop', () => {
-    const cards = [
-      {
-        type: 'summary' as const,
-        title: 'Summary Title',
-        content: 'Summary content',
-        key_points: ['Point one', 'Point two'],
-      },
-      {
-        type: 'legal_basis' as const,
-        law: 'GDPR',
-        lane: null,
-        edition: null,
-        article: '5',
-        section: '1',
-        summary: 'Summary of the legal basis',
-        original_text: 'Original legal text',
-      },
-    ]
-
-    const { container } = render(<AgentResponse content="Response with cards" cards={cards} />)
-
-    expect(screen.getByText('Summary Title')).toBeInTheDocument()
-    expect(screen.getByText('Summary content')).toBeInTheDocument()
-    expect(screen.getByText('Point one')).toBeInTheDocument()
-    // An unplaced legal_basis is not a fallback-grid item: it renders flat
-    // right after the prose (`EvidenceBlock`) — eyebrow, one Fundstelle line, quote
-    // and disclaimer, but never the framed card's plain-language summary.
-    expect(screen.getByText('Legal basis')).toBeInTheDocument()
-    expect(screen.getByText('GDPR · 5 · 1')).toBeInTheDocument()
-    expect(screen.getByText('Original legal text')).toBeInTheDocument()
-    expect(screen.queryByText('Summary of the legal basis')).not.toBeInTheDocument()
-    const text = container.textContent ?? ''
-    expect(text.indexOf('Legal basis')).toBeGreaterThan(text.indexOf('Response with cards'))
-  })
-
   // Cards used to open the answer, which is the one place they cannot help: two
   // of them push the written answer — the thing that was asked for — below the
   // fold. A card the answer did not place itself now follows the prose.
   // (`MarkdownRenderer` is stubbed above, so nothing is placed inline here.)
   test('renders unplaced cards after the answer body, not before it', () => {
     const cards = [
-      {
-        type: 'summary' as const,
-        title: 'Nachgestellte Karte',
-        content: 'Summary content',
-        key_points: null,
-      },
+      calculationCard('Nachgestellte Karte'),
     ]
 
     const { container } = render(<AgentResponse content="Die Antwort." cards={cards} />)
@@ -300,12 +263,7 @@ describe('AgentResponse', () => {
   // markdown body, so the block after the prose must not draw it a second time.
   test('leaves a card the answer placed inline out of the block', () => {
     const cards = [
-      {
-        type: 'summary' as const,
-        title: 'Platzierte Karte',
-        content: 'Summary content',
-        key_points: null,
-      },
+      calculationCard('Platzierte Karte'),
     ]
 
     render(<AgentResponse content={'Die Antwort.\n\n[[card:1]]'} cards={cards} />)
@@ -362,27 +320,6 @@ describe('AgentResponse', () => {
       expect(
         screen.queryByRole('list', { name: /sources this answer is backed by/i })
       ).not.toBeInTheDocument()
-    })
-
-    test('derives a law chip from a legal_basis card on shallow answers', () => {
-      const cards = [
-        {
-          type: 'legal_basis' as const,
-          law: 'OIB-Richtlinie 2',
-          lane: 'baurecht_oib' as const,
-          edition: 'Ausgabe Mai 2023',
-          article: null,
-          section: 'Pkt. 5.1.1',
-          summary: null,
-          original_text: null,
-        },
-      ]
-
-      render(<AgentResponse content="Shallow answer" cards={cards} />)
-
-      const row = screen.getByRole('list', { name: /sources this answer is backed by/i })
-      expect(row).toBeInTheDocument()
-      expect(screen.getByText('OIB-Richtlinie 2 Pkt. 5.1.1')).toBeInTheDocument()
     })
 
     test('renders the sources row in the inline variant too', () => {
@@ -1095,16 +1032,6 @@ describe('AgentResponse', () => {
       { text: 'Maßgeblich ist das Fluchtniveau' },
       { text: 'Tragende Bauteile mindestens REI 60' },
     ]
-    const legalBasis = {
-      type: 'legal_basis' as const,
-      law: 'OIB-Richtlinie 2',
-      lane: 'baurecht_oib' as const,
-      edition: 'Ausgabe Mai 2023',
-      article: '3.1.1',
-      section: '2.3',
-      summary: 'Tragende Bauteile in GK 4: mindestens REI 60.',
-      original_text: 'Tragende Bauteile sind in REI 60 auszuführen.',
-    }
 
     const chipSignal = (container: HTMLElement): string | null =>
       container.querySelector('[data-signal]')?.getAttribute('data-signal') ?? null
@@ -1116,21 +1043,6 @@ describe('AgentResponse', () => {
         <AgentResponse
           content="Maßgeblich ist das Fluchtniveau."
           citations={citations}
-          answerMeta={{ v: 1, kind: 'walkthrough', takeaways }}
-        />
-      )
-      expect(chipSignal(container)).toBe('oib')
-    })
-
-    test('evidence plus takeaways keep the chips tinted', async () => {
-      // Lane tint is provenance, not decoration: the evidence block and the
-      // takeaways spend the hue budget elsewhere, never by muting the source
-      // signal.
-      const { container } = render(
-        <AgentResponse
-          content="Die Antwort steht in der Richtlinie."
-          citations={citations}
-          cards={[legalBasis]}
           answerMeta={{ v: 1, kind: 'walkthrough', takeaways }}
         />
       )
@@ -1190,12 +1102,7 @@ describe('AgentResponse', () => {
       // its prose: nothing can claim the card any more, and waiting for the
       // terminal held it back until verification and the pipeline were done.
       const cards = [
-        {
-          type: 'summary' as const,
-          title: 'Nachgestellte Karte',
-          content: 'Summary content',
-          key_points: null,
-        },
+        calculationCard('Nachgestellte Karte'),
       ]
 
       const prose = render(<AgentResponse content="Die " isStreaming />)

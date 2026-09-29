@@ -21,6 +21,7 @@
 
 import type * as PdfjsModule from 'pdfjs-dist'
 import type { PDFPageProxy } from 'pdfjs-dist'
+import type { RawTextItem } from './pdf-text-chunks'
 
 export type Pdfjs = typeof PdfjsModule
 
@@ -120,5 +121,45 @@ export const renderTextLayer = async (
       layer.cancel()
       container.replaceChildren()
     },
+  }
+}
+
+/**
+ * Every text run on a page, read off pdf.js's text stream with a reader.
+ *
+ * NOT `page.getTextContent()`. That method drains the same stream with
+ * `for await (… of readableStream)`, which needs `ReadableStream` to be async
+ * iterable: Chrome 124, Firefox 110, and Safari only from 27. The legacy build
+ * polyfills much of what pdf.js assumes but not that, so on every Safari before
+ * 27 the call threw, the viewer caught it as "this page has no text", and a
+ * cited passage was never marked while the page itself rendered fine. pdf.js's
+ * own `TextLayer` reads the stream with `getReader()`, which is why selecting
+ * text kept working and made the fault look like a matching bug. This reads it
+ * the same way. `eslint.config.mjs` bans `getTextContent` so it stays that way.
+ *
+ * `TextMarkedContent` entries carry structure, not text; `'str' in item`
+ * narrows to the runs that have any, without a cast.
+ */
+export const readPageTextItems = async (
+  page: Pick<PDFPageProxy, 'streamTextContent'>,
+): Promise<RawTextItem[]> => {
+  const reader = page.streamTextContent().getReader()
+  const items: RawTextItem[] = []
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) return items
+      for (const item of value.items) {
+        if (!('str' in item)) continue
+        items.push({
+          str: item.str,
+          width: item.width,
+          height: item.height,
+          transform: item.transform.map(Number),
+        })
+      }
+    }
+  } finally {
+    reader.releaseLock()
   }
 }

@@ -16,7 +16,11 @@
 import type { Shelf } from '../source-kinds'
 import { citedLoci, isHttpUrl, type CitationLocus, type CitedDocument } from './model'
 import { parseKbLocator, type KbCitationLocator } from './locator'
-import { isInlinePreviewable } from '@/lib/documents/preview-types'
+import {
+  isIndexedFromRendition,
+  isInlinePreviewable,
+  isOfficeRenditionSource,
+} from '@/lib/documents/preview-types'
 
 /**
  * The minimal shape of a STORED document a citation can resolve against — a
@@ -55,6 +59,10 @@ const STORED_SHELVES: ReadonlySet<Shelf> = new Set<Shelf>(['project', 'archiv', 
  *  - `document` — an in-app preview of a stored document (project upload or org
  *                 Archiv, presigned via /api/documents/{id}/preview) or a
  *                 base-corpus PDF (/api/knowledge-base/documents/{fileName}).
+ *                 An office file (Word, Excel, PowerPoint, ODF, RTF) is one of
+ *                 these too: the preview route serves its PDF rendition
+ *                 (ADR-0070), and the surface falls back to the download
+ *                 behaviour when that route answers 415 or 502.
  *  - `download` — the document EXISTS and the reader may have it, but no viewer
  *                 in this app can render its format. The file is offered, and
  *                 the reason is said out loud.
@@ -100,8 +108,9 @@ export type CitationTarget =
     }
   | {
       /**
-       * A RESOLVED document with no inline viewer — a Word file, a
-       * Kalkulation, a DWG. It used to be indistinguishable from a citation
+       * A RESOLVED document with no inline viewer — a DWG, an IFC, a ZIP.
+       * (Office files left this list with ADR-0070: they open on their PDF
+       * rendition.) It used to be indistinguishable from a citation
        * that resolved to nothing: both became `info`, the popover offered no
        * way in and said nothing about why, and the reader was left to conclude
        * the product had lost their file. It had not; it cannot DRAW it.
@@ -133,6 +142,29 @@ export type CitationTarget =
  */
 const isPreviewableContentType = isInlinePreviewable
 
+/**
+ * The PDF page an office citation opens at, in its RENDITION.
+ *
+ * For a format indexed from the rendition (ADR-0071: Word, presentations, and
+ * the spreadsheets with no extractor of their own) the chunker read the PDF, so
+ * a locus page IS a rendition page. An `.xlsx` or `.xlsm` is still read from the
+ * original: its locus names a SHEET, which can span many printed pages or share
+ * one, so it opens at page 1 and the viewer finds the passage from there (it
+ * looks next door on a miss). A Word file indexed before ADR-0071 carries the
+ * constant "1", which opens at page 1 and is correct anyway.
+ */
+const renditionPage = (filename: string, locus: CitationLocus | undefined): number => {
+  const page = locus?.page
+  if (
+    isIndexedFromRendition(filename) &&
+    typeof page === 'number' &&
+    Number.isInteger(page) &&
+    page >= 1
+  )
+    return page
+  return 1
+}
+
 /** The document's filename + shelf, however it can be recovered. */
 const documentLocator = (doc: CitedDocument): KbCitationLocator | null => {
   if (doc.fileName?.trim()) return { filename: doc.fileName.trim(), shelf: doc.shelf }
@@ -146,6 +178,12 @@ const documentLocator = (doc: CitedDocument): KbCitationLocator | null => {
   }
   return null
 }
+
+/**
+ * The filename a document resolves by — what the by-name index is asked for.
+ * `null` for a document that names none, which resolves to `info` anyway.
+ */
+export const citedFileName = (doc: CitedDocument): string | null => documentLocator(doc)?.filename ?? null
 
 /**
  * Hosts the in-app RIS reader can serve — mirrors `ALLOWED_DOCUMENT_HOSTS` in
@@ -228,8 +266,9 @@ export const openAtLocus = (doc: CitedDocument, locus?: CitationLocus): Citation
  *  2. Otherwise the filename is matched case-insensitively against the stored
  *     documents — project uploads, private chat attachments AND the org Archiv —
  *     then the base corpus, NARROWED to the shelf the citation names. A stored
- *     match the viewer can render is a `document`; one it cannot is a
- *     `download`, which is a different answer and not a lesser one.
+ *     match the viewer can render — natively, or through its office PDF
+ *     rendition — is a `document`; one it cannot is a `download`, which is a
+ *     different answer and not a lesser one.
  *  3. Anything unresolvable becomes an `info` target — and `info` means the
  *     citation resolved to NOTHING, never "we have it and cannot draw it".
  */
@@ -285,12 +324,16 @@ export const resolveCitationTarget = (
           : []
     const storedDoc = candidates[0]
 
-    if (storedDoc && isPreviewableContentType(storedDoc.contentType)) {
+    const isOffice = storedDoc != null && isOfficeRenditionSource(storedDoc)
+    if (storedDoc && (isPreviewableContentType(storedDoc.contentType) || isOffice)) {
       return {
         kind: 'document',
         title: doc.title,
         fileName: storedDoc.filename,
-        page: locus?.page,
+        // An office file is read on its PDF rendition, whose pages match the
+        // locus's pages only when the chunks were read from it — see
+        // `renditionPage`.
+        page: isOffice ? renditionPage(storedDoc.filename, locus) : locus?.page,
         snippet,
         document: {
           type: 'stored',
@@ -316,7 +359,8 @@ export const resolveCitationTarget = (
     // The document is there and the reader is entitled to it — this app simply
     // has no viewer for its format. That is a different answer from `info`, and
     // the difference is the whole of what an architect asked for when a cited
-    // Raumprogramm.docx offered no way in and no reason.
+    // file offered no way in and no reason (then a Raumprogramm.docx, which now
+    // opens on its rendition; today a .dwg).
     if (storedDoc) {
       return {
         kind: 'download',

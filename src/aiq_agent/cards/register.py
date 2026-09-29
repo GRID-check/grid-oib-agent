@@ -1,9 +1,9 @@
 """``emit_card`` tool — the agent's first-class channel for rich UI cards.
 
-The answering agent calls this mid-turn whenever a structured element (a legal
-basis, a dimension/stair diagram, a summary, …) communicates better than
-prose. The card is validated against the shared card schema and pushed into
-the conversation-scoped :class:`~aiq_agent.cards.registry.CardRegistry`; the
+The answering agent calls this mid-turn whenever a structured element (a
+dimension/stair diagram, a calculation, …) communicates better than prose.
+The card is validated against the shared card schema and pushed into the
+conversation-scoped :class:`~aiq_agent.cards.registry.CardRegistry`; the
 chat entrypoint reads that registry after the turn and attaches the cards to
 the response.
 
@@ -33,7 +33,6 @@ from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.cards.catalog import render_card_doctrine
 from aiq_agent.cards.catalog import render_card_index
 from aiq_agent.cards.catalog import shape_hint_for as _shape_hint_for  # noqa: F401 — re-exported
-from aiq_agent.cards.envelope import REFUSED_ENVELOPE_TYPE
 from aiq_agent.cards.envelope import REFUSED_SHAPE
 from aiq_agent.cards.envelope import REFUSED_SYSTEM_TYPE
 from aiq_agent.cards.envelope import validate_model_card
@@ -45,21 +44,11 @@ from nat.plugin_api import register_function
 logger = logging.getLogger(__name__)
 
 
-# The WHOLE contract for calling this tool: which trigger takes which card, how that card is
-# filled well, what may go on one and when to emit none. It is one statement because it is one
-# decision — "a Verfahren -> process_map" and "stations must carry what each step requires" are a
-# question and its answer, and they were split across this file and the `<cards>` section of
-# Piloti's system prompt (`piloti/prompts/piloti.j2`). The prompt's half had since grown its own
-# sharpened triggers, its own two-card budget and its own restatement test beside the ones the
-# doctrine already carried, which is what a rule kept in two places always does. A new card type
-# now earns a trigger line AND its craft in `catalog._CARD_TRIGGERS`, together.
-#
-# Two things stayed in the prompt rather than moving here, because they are facts about the
-# ANSWER rather than about this tool: the `[[card:N]]` placement marker contract (the tool's own
-# success message repeats the marker per call, so nothing is lost by not paying for the paragraph
-# on turns that emit nothing), and the redirect saying a verdict, the key takeaways and the
-# callout are `answer_json` envelope fields rather than cards. The refusal below still names the
-# right channel for a model that reaches for one of those anyway.
+# The WHOLE contract for calling this tool: Markdown first, which trigger takes which card, how
+# that card is filled well, what may go on one and when to emit none. One statement, in
+# `catalog.render_card_doctrine`, shared with the chat envelope and the post-hoc pass. What stays
+# out is what belongs to the answer rather than the tool: the `[[card:N]]` placement contract
+# (the success message repeats the marker per call) and the answer envelope's own fields.
 _CARD_DOCTRINE = render_card_doctrine()
 
 
@@ -105,18 +94,6 @@ _DESCRIBE_DESCRIPTION = (
     "card types, so you can fill `emit_card` in correctly on the first attempt. Pass `card_types`: "
     "one type name, or several separated by commas. Call this once for the types you intend to "
     "emit; the shapes stay in context afterwards."
-)
-
-
-# The redirect for a model that recognised "this answer has a verdict" and reached for a tool call
-# anyway. It used to be stated TWICE on this surface: once up front in the doctrine every turn
-# pays, and once here, on the one call that actually needed it. The up-front sentence is the
-# answering prompt's now — placement and the answer's own anatomy are facts about the answer being
-# written, and the post-hoc surface has neither — so this is the tool's whole statement of it, and
-# it is named rather than inline so a test can hold it to naming the channel.
-_ENVELOPE_REFUSAL = (
-    "Error: card type '{card_type}' is not emitted as a card. Put its content into the matching "
-    "field of your ```answer_json answer envelope instead (see the answer contract)."
 )
 
 
@@ -174,7 +151,7 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
         """
         # ONE validator for a card the model composes, shared with the answer
         # envelope's `cards` field (``cards/envelope.py``): the shape check,
-        # the system-card channel and the envelope-field channel. What this
+        # the system-card channel and the retired-type channel. What this
         # tool adds is its own advice — which call to make next.
         if isinstance(payload, dict) and payload.get("type") in CHAT_ONLY_CARD_TYPES:
             # A surface's `Text` [N] are held to the answer's citations on the
@@ -203,11 +180,9 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
                 f"Error: card type '{refusal.card_type}' is system-emitted and cannot be created with "
                 "emit_card. Do not emit this card type."
             )
-        if refusal.kind == REFUSED_ENVELOPE_TYPE:
-            # Envelope shapes are answer-envelope fields; the refusal names the
-            # right channel so a model that correctly recognised "this answer
-            # has a verdict" is redirected rather than merely refused.
-            return None, _ENVELOPE_REFUSAL.format(card_type=refusal.card_type)
+        # A retired type's refusal names the Markdown (or envelope field) that
+        # replaced it, so a model that recognised the content is redirected
+        # rather than merely refused; every other kind says what went wrong.
         return None, f"Error: {refusal.message}"
 
     def _register(validated: dict) -> int | None:

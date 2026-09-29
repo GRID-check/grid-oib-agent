@@ -18,14 +18,7 @@ import { SetbackPlanCard } from './SetbackPlanCard'
 import { EgressDiagramCard } from './EgressDiagramCard'
 import { DaylightIncidenceCard } from './DaylightIncidenceCard'
 import { GuardrailCheckCard } from './GuardrailCheckCard'
-import { DensityCheckCard } from './DensityCheckCard'
 import { FireAccessPlanCard } from './FireAccessPlanCard'
-import { AcousticCheckCard } from './AcousticCheckCard'
-import { FireCompartmentCard } from './FireCompartmentCard'
-import { ThermalEnvelopeCard } from './ThermalEnvelopeCard'
-import { EnergyPerformanceCard } from './EnergyPerformanceCard'
-import { ElevatorRequirementCard } from './ElevatorRequirementCard'
-import { ParkingRequirementCard } from './ParkingRequirementCard'
 
 /**
  * The cards render in German because the reader is Austrian, and the copy now
@@ -361,60 +354,6 @@ describe('GuardrailCheckCard', () => {
   })
 })
 
-describe('DensityCheckCard', () => {
-  it('derives coverage and GFZ from the areas and settles needs_input statuses', () => {
-    render(
-      <DensityCheckCard
-        title="Bebauungsdichte – Grundstück"
-        parcel_area_m2={800}
-        footprint_area_m2={240}
-        gross_floor_area_m2={720}
-        coverage={{
-          label: 'Bebauungsgrad',
-          value: null,
-          required: 30,
-          unit: '%',
-          comparator: '<=',
-          status: 'needs_input',
-        }}
-        density={{
-          label: 'GFZ',
-          value: null,
-          required: 1.2,
-          comparator: '<=',
-          status: 'needs_input',
-        }}
-        reference={{ document: 'Bebauungsplan Nr. 7710', section: '§ 4' }}
-      />
-    )
-
-    expect(screen.getByText('Grundstück 800 m²')).toBeInTheDocument()
-    // Renderer-derived ratios: 240/800 → 30 %, 720/800 → 0.9 GFZ, both within
-    // limits. The coverage ratio appears twice: in the plan and on its bar.
-    expect(screen.getAllByText(/^30 %/).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText(/^0,9/)).toBeInTheDocument()
-    expect(screen.getByText('erfüllt')).toBeInTheDocument()
-    expect(screen.getByText(/720 m²/)).toBeInTheDocument()
-    expect(screen.getByText('Bebauungsplan Nr. 7710')).toBeInTheDocument()
-  })
-
-  it('reads needs_input when the areas are missing, never a guessed ratio', () => {
-    render(
-      <DensityCheckCard
-        title="Bebauungsdichte – offene Angaben"
-        parcel_area_m2={650}
-        coverage={{ label: 'Bebauungsgrad', value: null, required: 25, unit: '%', comparator: '<=', status: 'needs_input' }}
-        density={{ label: 'GFZ', value: null, required: 1, comparator: '<=', status: 'needs_input' }}
-        reference={{ document: 'Bebauungsplan' }}
-      />
-    )
-
-    expect(screen.getByText(/bebaute Fläche: fehlende Angabe/)).toBeInTheDocument()
-    expect(screen.getAllByText('fehlende Angabe').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByText('Angabe fehlt')).toBeInTheDocument()
-  })
-})
-
 describe('FireAccessPlanCard', () => {
   it('draws route, Aufstellfläche, and reach arrow with every check listed', () => {
     render(
@@ -466,200 +405,6 @@ describe('FireAccessPlanCard', () => {
     expect(screen.getByText('Durchfahrt lichte Höhe')).toBeInTheDocument()
     expect(screen.getAllByText('GK 4').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('erfüllt')).toBeInTheDocument()
-  })
-})
-
-describe('AcousticCheckCard', () => {
-  it('orients airborne and impact gauges and computes the dB margins', () => {
-    render(
-      <AcousticCheckCard
-        title="Schallschutz – Wohnungstrennung"
-        sound_class="Klasse C"
-        checks={[
-          {
-            path_label: 'Wohnungstrennwand Top 3/Top 4',
-            metric: 'DnTw',
-            check: {
-              label: 'DnT,w',
-              value: 57,
-              required: 55,
-              unit: 'dB',
-              comparator: '>=',
-              status: 'pass',
-            },
-            reference: { document: 'OIB-Richtlinie 5', section: 'Pkt. 2.2', edition: 'Ausgabe Mai 2023' },
-          },
-          {
-            path_label: 'Wohnungstrenndecke Top 3/Top 7',
-            metric: 'LnTw',
-            check: {
-              label: 'LnT,w',
-              value: 50,
-              required: 48,
-              unit: 'dB',
-              comparator: '<=',
-              status: 'fail',
-            },
-            reference: { document: 'ÖNORM B 8115-2', section: 'Tab. 3' },
-          },
-        ]}
-      />
-    )
-
-    expect(screen.getByText('Wohnungstrennwand Top 3/Top 4')).toBeInTheDocument()
-    expect(screen.getByText('↑ höher ist besser')).toBeInTheDocument()
-    expect(screen.getByText('↓ niedriger ist besser')).toBeInTheDocument()
-    // Renderer-computed, direction-aware margins: 57−55 = +2, 48−50 = −2.
-    expect(screen.getByText('Reserve +2 dB')).toBeInTheDocument()
-    expect(screen.getByText('Fehlbetrag 2 dB')).toBeInTheDocument()
-    expect(screen.getByText('Klasse C')).toBeInTheDocument()
-    // Worst status wins the verdict; the diverging reference shows inline.
-    expect(screen.getByText('nicht erfüllt')).toBeInTheDocument()
-    expect(screen.getByText('OIB-Richtlinie 5')).toBeInTheDocument()
-    expect(screen.getByText(/ÖNORM B 8115-2/)).toBeInTheDocument()
-  })
-})
-
-describe('FireCompartmentCard', () => {
-  it('draws each compartment, flags an oversized one, and lists the area checks', () => {
-    render(
-      <FireCompartmentCard
-        title="Brandabschnitte – Regelgeschoss"
-        storey_label="2.OG"
-        gebaeudeklasse="GK 5"
-        compartments={[
-          {
-            label: 'BA 1',
-            use: 'Wohnen',
-            area: { label: 'BA 1', value: 1200, required: 1600, unit: 'm²', comparator: '<=', status: 'pass' },
-          },
-          {
-            label: 'BA 2',
-            use: 'Büro',
-            area: { label: 'BA 2', value: 1850, required: 1600, unit: 'm²', comparator: '<=', status: 'fail' },
-          },
-        ]}
-        reference={{ document: 'OIB-Richtlinie 2', section: 'Pkt. 3.1', edition: 'Ausgabe Mai 2023' }}
-      />
-    )
-
-    expect(screen.getByText('Geschoss 2.OG · GK 5')).toBeInTheDocument()
-    expect(screen.getAllByText('BA 1').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('nicht erfüllt')).toBeInTheDocument()
-    expect(screen.getByText('OIB-Richtlinie 2')).toBeInTheDocument()
-  })
-})
-
-describe('ThermalEnvelopeCard', () => {
-  it('reads each component U-value against its limit and flags a failing wall', () => {
-    render(
-      <ThermalEnvelopeCard
-        title="Wärmeschutz – U-Werte der Gebäudehülle"
-        components={[
-          {
-            label: 'Außenwand',
-            kind: 'wall',
-            u_value: { label: 'Außenwand', value: 0.4, required: 0.35, unit: 'W/(m²K)', comparator: '<=', status: 'fail' },
-          },
-          {
-            label: 'Dach',
-            kind: 'roof',
-            u_value: { label: 'Dach', value: 0.18, required: 0.2, unit: 'W/(m²K)', comparator: '<=', status: 'pass' },
-          },
-        ]}
-        reference={{ document: 'OIB-Richtlinie 6', section: 'Tabelle 3', edition: 'Ausgabe Mai 2023' }}
-      />
-    )
-
-    // Each checked component gets a status callout in the section plus its
-    // limit bar below.
-    expect(screen.getAllByText('Außenwand').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getAllByText('Dach').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByText('nicht erfüllt')).toBeInTheDocument()
-    expect(screen.getByText('OIB-Richtlinie 6')).toBeInTheDocument()
-  })
-})
-
-describe('EnergyPerformanceCard', () => {
-  it('places the HWB on the class ladder and reads it against the limit', () => {
-    render(
-      <EnergyPerformanceCard
-        title="Energieausweis – Heizwärmebedarf"
-        energy_class="B"
-        hwb={{
-          label: 'Heizwärmebedarf (HWB)',
-          value: 42,
-          required: 54.4,
-          unit: 'kWh/m²a',
-          comparator: '<=',
-          status: 'pass',
-        }}
-        reference={{ document: 'OIB-Richtlinie 6', section: 'Pkt. 4', edition: 'Ausgabe Mai 2023' }}
-      />
-    )
-
-    expect(screen.getByText('A++')).toBeInTheDocument()
-    expect(screen.getByText('G')).toBeInTheDocument()
-    expect(screen.getByText(/HWB 42/)).toBeInTheDocument()
-    expect(screen.getByText('erfüllt')).toBeInTheDocument()
-    expect(screen.getByText('OIB-Richtlinie 6')).toBeInTheDocument()
-  })
-})
-
-describe('ElevatorRequirementCard', () => {
-  it('states the requirement and checks the cabin dimensions', () => {
-    render(
-      <ElevatorRequirementCard
-        title="Barrierefreier Aufzug – Erschließung"
-        storeys_served={5}
-        entrance_level_index={0}
-        is_required={true}
-        requirement_note="Mehr als zwei oberirdische Geschoße → barrierefreier Aufzug erforderlich."
-        cabin_width={{ label: 'Kabinenbreite', value: 110, required: 110, unit: 'cm', comparator: '>=', status: 'pass' }}
-        cabin_depth={{ label: 'Kabinentiefe', value: null, required: 140, unit: 'cm', comparator: '>=', status: 'needs_input' }}
-        reference={{ document: 'OIB-Richtlinie 4', section: 'Pkt. 2.3', edition: 'Ausgabe Mai 2023' }}
-      />
-    )
-
-    expect(screen.getByText('erforderlich')).toBeInTheDocument()
-    expect(screen.getByText('Zugangsebene')).toBeInTheDocument()
-    expect(screen.getByText('Kabinenbreite')).toBeInTheDocument()
-    expect(screen.getByText('fehlende Angabe')).toBeInTheDocument()
-    expect(screen.getByText('OIB-Richtlinie 4')).toBeInTheDocument()
-  })
-})
-
-describe('ParkingRequirementCard', () => {
-  it('reads provided car spaces against the required minimum', () => {
-    render(
-      <ParkingRequirementCard
-        title="Stellplatznachweis – Wohnbau"
-        basis="1 Stpl. je 100 m² BGF"
-        car_spaces={{
-          label: 'Kfz-Stellplätze',
-          value: 8,
-          required: 10,
-          unit: 'Stpl.',
-          comparator: '>=',
-          status: 'fail',
-        }}
-        bicycle_spaces={{
-          label: 'Fahrradabstellplätze',
-          value: 20,
-          required: 16,
-          unit: 'Stpl.',
-          comparator: '>=',
-          status: 'pass',
-        }}
-        reference={{ document: 'Wiener Garagengesetz', section: '§ 48' }}
-      />
-    )
-
-    expect(screen.getAllByText('Kfz-Stellplätze').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('Fahrradabstellplätze').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText(/1 Stpl. je 100 m² BGF/)).toBeInTheDocument()
-    expect(screen.getByText('nicht erfüllt')).toBeInTheDocument()
-    expect(screen.getByText('Wiener Garagengesetz')).toBeInTheDocument()
   })
 })
 
@@ -769,9 +514,8 @@ describe('the tolerance band against the limit', () => {
      * assert a verdict the measurement does not support.
      */
     render(
-      <EnergyPerformanceCard
-        title="Energieausweis"
-        hwb={{
+      <LimitBar
+        check={{
           label: 'Heizwärmebedarf',
           value: 54,
           required: 55,
@@ -781,7 +525,6 @@ describe('the tolerance band against the limit', () => {
           provenance: 'computed',
           tolerance: 3,
         }}
-        reference={{ document: 'OIB-Richtlinie 6' }}
       />
     )
 
@@ -797,9 +540,8 @@ describe('the tolerance band against the limit', () => {
      * required` and warned here.
      */
     render(
-      <EnergyPerformanceCard
-        title="Energieausweis"
-        hwb={{
+      <LimitBar
+        check={{
           label: 'Heizwärmebedarf',
           value: 50,
           required: 55,
@@ -809,7 +551,6 @@ describe('the tolerance band against the limit', () => {
           provenance: 'computed',
           tolerance: 5,
         }}
-        reference={{ document: 'OIB-Richtlinie 6' }}
       />
     )
     expect(screen.queryByText(/Messtoleranz reicht über den Grenzwert/)).not.toBeInTheDocument()
@@ -823,9 +564,8 @@ describe('the tolerance band against the limit', () => {
      * fixes the case above, silently stops warning here.
      */
     render(
-      <EnergyPerformanceCard
-        title="Nutzbreite"
-        hwb={{
+      <LimitBar
+        check={{
           label: 'Breite',
           value: 50,
           required: 55,
@@ -835,7 +575,6 @@ describe('the tolerance band against the limit', () => {
           provenance: 'computed',
           tolerance: 5,
         }}
-        reference={{ document: 'OIB-Richtlinie 4' }}
       />
     )
     expect(screen.getByText(/Messtoleranz reicht über den Grenzwert/)).toBeInTheDocument()
@@ -843,10 +582,9 @@ describe('the tolerance band against the limit', () => {
 
   it('says nothing about crossing when no comparator gives the limit a direction', () => {
     /**
-     * Rendered through `LimitBar` directly rather than through a card, because
-     * every card that uses it defaults the comparator (`comparator ?? '<='`),
-     * so a null one is unreachable from that direction. The branch is
-     * defensive, and this is the level at which it is real.
+     * Every card that uses the bar defaults the comparator (`comparator ??
+     * '<='`), so a null one is unreachable through a card. The branch is
+     * defensive, and the bar is the level at which it is real.
      */
     render(<LimitBar check={{ label: 'Breite', value: 54, required: 55, unit: 'cm', status: 'warning',
                               provenance: 'computed', tolerance: 3 }} />)
@@ -857,9 +595,8 @@ describe('the tolerance band against the limit', () => {
 
   it('stays quiet when the band clears the limit outright', () => {
     render(
-      <EnergyPerformanceCard
-        title="Energieausweis"
-        hwb={{
+      <LimitBar
+        check={{
           label: 'Heizwärmebedarf',
           value: 40,
           required: 55,
@@ -869,7 +606,6 @@ describe('the tolerance band against the limit', () => {
           provenance: 'computed',
           tolerance: 3,
         }}
-        reference={{ document: 'OIB-Richtlinie 6' }}
       />
     )
 

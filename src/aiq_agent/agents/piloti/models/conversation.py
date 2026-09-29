@@ -186,6 +186,10 @@ class ConversationState(BaseModel):
     # the record exists from the first turn, not from the release that renders
     # it. None when no round was announced.
     retrieval_ledger: list[dict[str, Any]] | None = None
+    # The server's stamp on each quote line of the answer (``common/quote_stamps.py``),
+    # lifted from Piloti's state and onto ``TurnResult.quote_stamps``. None when
+    # the answer quotes nothing.
+    quote_stamps: list[dict[str, Any]] | None = None
     # --- Transparency extras (WP-A) -------------------------------------------
     # All optional/additive: absent means "unknown/not applicable". Lifted onto
     # ``RUN_FINISHED``'s ``TurnResult`` (``turn.response.build_result``), same

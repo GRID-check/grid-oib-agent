@@ -4,17 +4,17 @@
  */
 import { describe, expect, it } from 'vitest'
 import { render, waitFor } from '@/test-utils'
-import type { GridCard } from '@/shared/cards/schemas'
 import { GridCardItem } from './GridCards'
+import { CARD_PREVIEW_FIXTURES } from '../preview-fixtures'
 
-const SUMMARY = { type: 'summary', title: 'Überblick', content: 'Kurz.', key_points: [] } as unknown as GridCard
+const CARD = CARD_PREVIEW_FIXTURES.calculation!
 
 describe('GridCardItem', () => {
   it('gives two answers without a message id different surface ids', async () => {
     render(
       <>
-        <GridCardItem card={SUMMARY} index={0} />
-        <GridCardItem card={SUMMARY} index={0} />
+        <GridCardItem card={CARD} index={0} />
+        <GridCardItem card={CARD} index={0} />
       </>
     )
     await waitFor(() => expect(document.querySelectorAll('[data-a2ui-surface]')).toHaveLength(2))
@@ -23,7 +23,7 @@ describe('GridCardItem', () => {
   })
 
   it('keys the surface by the message when there is one', async () => {
-    render(<GridCardItem card={SUMMARY} index={3} messageId="m7" />)
+    render(<GridCardItem card={CARD} index={3} messageId="m7" />)
     await waitFor(() => expect(document.querySelector('[data-a2ui-surface="m7:3"]')).not.toBeNull())
   })
 })

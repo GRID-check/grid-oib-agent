@@ -227,6 +227,15 @@ def _track(task: asyncio.Task, *, handler: bool) -> asyncio.Task:
     return task
 
 
+def _answer_message_id(facts: TurnFacts) -> str | None:
+    """The id of the answer this stage follows, or ``None`` off the WebSocket path."""
+    if not facts.ws_parent_id:
+        return None
+    from aiq_agent.turn.response import answer_message_id
+
+    return answer_message_id(facts.conversation_id, facts.ws_parent_id)
+
+
 def _identity(facts: TurnFacts) -> dict[str, str | None]:
     return {"organization_id": facts.organization_id, "conversation_id": facts.conversation_id}
 
@@ -280,6 +289,8 @@ async def _run_stage(spec: StageSpec, ctx: StageContext) -> StageOutcome:
                         "user_id": facts.user_id,
                         "project_id": facts.project_id,
                         "conversation_id": facts.conversation_id,
+                        # A stage's spend is part of what the answer cost.
+                        "message_id": _answer_message_id(facts),
                     },
                     # Empty on purpose: a post-answer stage is never hard-stopped
                     # by a budget it did not spend against, but its spend is

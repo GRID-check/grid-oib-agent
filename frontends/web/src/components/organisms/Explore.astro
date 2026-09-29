@@ -1,0 +1,38 @@
+---
+/**
+ * The landing page's way into the search pages: one line per section with
+ * its lede, after the FAQ. Links from the home page are what tell a crawler
+ * these pages matter; a reader who still has a question finds its page here.
+ */
+import { type Locale } from '../../i18n/ui'
+import { LANDING } from '../../data/landing'
+import { SECTIONS, SECTION_IDS, landingPath } from '../../lib/landing'
+
+interface Props {
+  locale?: Locale
+}
+const { locale = 'de' } = Astro.props
+const title = locale === 'de' ? 'Weiterlesen, nach Frage.' : 'Read on, by question.'
+const count = (n: number) => (locale === 'de' ? `${n} Seiten` : `${n} pages`)
+---
+
+<section aria-labelledby="explore-title" class="frame section-y">
+  <div class="border-t border-ink/15 pt-8">
+    <h2 id="explore-title" class="m-0 font-voice text-v4 text-ink">{title}</h2>
+    <ul class="m-0 mt-8 grid list-none gap-x-10 gap-y-6 p-0 md:grid-cols-2 lg:grid-cols-3">
+      {
+        SECTION_IDS.map((id) => (
+          <li data-reveal class="border-t border-ink/12 pt-4">
+            <a href={landingPath(locale, id)} class="group block">
+              <span class="flex items-baseline justify-between gap-4">
+                <span class="text-lg font-semibold text-ink group-hover:text-accent-600">{SECTIONS[id][locale].heading}</span>
+                <span class="shrink-0 font-mono text-xs text-ink-mute">{count(LANDING[id].length)}</span>
+              </span>
+              <span class="mt-1 block text-base leading-relaxed text-ink-soft">{SECTIONS[id][locale].lede}</span>
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>

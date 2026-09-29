@@ -24,6 +24,7 @@ import { useTranslations } from '@/i18n'
 import { RenameDocumentDialog } from './rename-document-dialog'
 import {
   documentActionEntries,
+  reingestOffer,
   type DocumentActionKind,
 } from './action-entries'
 import { useDocumentActions, type ActionableDocument, type DocumentScope } from './use-document-actions'
@@ -76,6 +77,7 @@ export function useDocumentActionMenu({
   const filesT = useTranslations('files')
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [rereadOpen, setRereadOpen] = useState(false)
   const documentActions = useDocumentActions({
     document,
     scope,
@@ -119,7 +121,12 @@ export function useDocumentActionMenu({
     onDownload: () => void documentActions.download(),
     onRename: () => setRenameOpen(true),
     onDelete: () => setDeleteOpen(true),
-    onReingest: () => void documentActions.reingest(),
+    // A retry just runs; re-reading an indexed file asks first, because it is
+    // not a repair of anything the reader can see and it costs a full read.
+    onReingest: () =>
+      reingestOffer(document) === 'reread'
+        ? setRereadOpen(true)
+        : void documentActions.reingest(),
     onMove: (folderId, folderName) => void documentActions.move(folderId, folderName),
     onCopyOriginPath: document.originPath ? copyOriginPath : undefined,
   })
@@ -148,6 +155,25 @@ export function useDocumentActionMenu({
           confirmTestId="document-delete-confirm"
           onConfirm={async () => {
             if (await documentActions.remove()) setDeleteOpen(false)
+          }}
+        />
+      )}
+      {entries.some((entry) => entry.type === 'item' && entry.id === 'reingest') && (
+        <ConfirmDialog
+          open={rereadOpen}
+          onOpenChange={setRereadOpen}
+          title={t('actions.reingestConfirmTitle', { name: documentActions.name })}
+          description={t('actions.reingestConfirmDescription')}
+          confirmLabel={
+            documentActions.isReingesting ? t('actions.reingesting') : t('actions.reingestConfirmAction')
+          }
+          cancelLabel={t('delete.cancel')}
+          pending={documentActions.isReingesting}
+          tone="default"
+          confirmTestId="document-reingest-confirm"
+          onConfirm={async () => {
+            await documentActions.reingest()
+            setRereadOpen(false)
           }}
         />
       )}

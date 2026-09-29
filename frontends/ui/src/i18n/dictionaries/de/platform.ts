@@ -386,6 +386,52 @@ export const platform: typeof en.platform = {
     failed: 'Bereinigung fehlgeschlagen',
     failedHint: 'Die Anfrage wurde nicht abgeschlossen, es wurde daher nichts gelöscht. Bitte erneut versuchen.',
   },
+  runKillSwitch: {
+    title: 'Alle laufenden Recherchen abbrechen',
+    description:
+      'Beendet jede Tiefenrecherche, die wartet oder läuft, in allen Organisationen, und schließt jeden Lauf als abgebrochen.',
+    whatTitle: 'Was passiert',
+    whatBody:
+      'Jeder wartende oder laufende Job im Job-Store wird als abgebrochen markiert. Wartende Jobs werden verworfen, bevor ein Worker sie übernimmt; laufende Worker sehen den Status und hören auf, unter Dask werden ihre Tasks zwangsweise beendet. Danach wird jeder Lauf als abgebrochen geschlossen: sein Block zeigt nicht mehr „läuft“, und wer ihn beauftragt hat, erhält eine Benachrichtigung.',
+    whenTitle: 'Wann Sie das brauchen',
+    whenBody:
+      'Wenn Worker hängen, in einer Schleife Tokens verbrauchen oder alle Plätze belegen, sodass nichts Neues starten kann. Läufe, die sich nicht mehr melden, räumt der Ghost-Reaper ohnehin auf; dies ist für die, die sich noch melden und trotzdem aufhören müssen.',
+    lossTitle: 'Was verloren geht',
+    lossBody:
+      'Alles, was die Läufe noch nicht abgelegt hatten. Ein abgebrochener Lauf schreibt keinen Teilbericht und lässt sich nicht fortsetzen; er muss neu gestartet werden.',
+    run: 'Alle laufenden Recherchen abbrechen',
+    running: 'Wird abgebrochen…',
+    confirmTitle: 'Jede laufende Tiefenrecherche abbrechen?',
+    confirmDescription:
+      'Jede wartende und laufende Tiefenrecherche der Plattform wird beendet und als abgebrochen geschlossen.',
+    confirmWarning:
+      'Das wirkt in allen Organisationen zugleich und lässt sich nicht rückgängig machen. Laufende Arbeit wird verworfen, und alle Auftraggeber werden benachrichtigt, dass ihr Lauf abgebrochen wurde.',
+    confirmCta: 'Alle Läufe abbrechen',
+    cancel: 'Abbrechen',
+    lastRunTitle: 'Letzter Abbruch',
+    lastRunHint: 'Nur im Server-Log festgehalten; hier steht, was Sie auf dieser Seite auslösen.',
+    neverRunTitle: 'Noch nichts abgebrochen',
+    neverRunBody: 'Brechen Sie alle Läufe ab, um zu sehen, wie viele Jobs beendet und wie viele Läufe geschlossen wurden.',
+    colMeasure: 'Kennzahl',
+    colCount: 'Anzahl',
+    measureFound: 'Aktive Jobs gefunden',
+    measureFoundHint: 'Jobs, die der Job-Store als wartend oder laufend führte.',
+    measureKilled: 'Jobs abgebrochen',
+    measureKilledHint: 'Als abgebrochen markiert, ihre Worker zum Aufhören angewiesen.',
+    measureFinished: 'Von selbst beendet',
+    measureFinishedHint: 'Während des Abbruchs fertig geworden; ihr eigenes Ergebnis bleibt.',
+    measureRunsClosed: 'Hier geschlossene Läufe',
+    measureRunsClosedHint: 'Läufe, die keine Job-Meldung erreicht hat, von dieser Seite als abgebrochen geschlossen.',
+    outcomeKilled: '{jobs} Job(s) abgebrochen; {runs} weitere(r) Lauf/Läufe geschlossen.',
+    outcomeClean: 'Es lief nichts.',
+    truncated: 'Es lief mehr, als ein Klick beendet. Erneut klicken, um den Rest abzubrechen.',
+    failuresTitle: '{count} Job(s) oder Lauf/Läufe ließen sich nicht beenden',
+    colId: 'Job oder Lauf',
+    colError: 'Grund',
+    failed: 'Abbruch fehlgeschlagen',
+    failedHint:
+      'Der Job-Store hat den Abbruch nicht bestätigt, daher wurde kein Lauf geschlossen. Worker laufen möglicherweise weiter. Backend prüfen und erneut versuchen.',
+  },
   skills: {
     hint: 'Ein hier geschriebener Skill wird jeder Organisation angeboten; jede entscheidet selbst, ob sie ihn einschaltet. Entwürfe bleiben unsichtbar, bis Sie sie veröffentlichen. Was für jede Antwort gelten soll, gehört nicht in einen Skill, sondern in den Plattform-Prompt.',
     new: 'Neuer kuratierter Skill',
@@ -427,6 +473,7 @@ export const platform: typeof en.platform = {
     retrieval: 'Abruf',
     quality: 'Antwortqualität',
     lessons: 'Lektionen',
+    feedback: 'Feedback',
     cards: 'Karten',
     knowledge: 'Basiswissen',
     norms: 'Normenkatalog',
@@ -556,6 +603,11 @@ export const platform: typeof en.platform = {
       title: 'Lektionen',
       subtitle:
         'Was die Plattform aus negativem Feedback gelernt hat — anonymisiert, dedupliziert und in jede Antwort injiziert, damit ein gemeldeter Fehler sich nicht wiederholt. Jede Lektion ist ein symptomatisches Pflaster, keine Ursachenbehebung.',
+    },
+    feedback: {
+      title: 'Feedback',
+      subtitle:
+        'Was Mitglieder aus Piloti heraus melden — Fehler, Ideen, Lob und Fragen. Neue Meldungen landen auch in Ihrem Postfach.',
     },
     knowledge: {
       title: 'Basiswissen',

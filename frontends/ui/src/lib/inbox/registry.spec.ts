@@ -9,6 +9,7 @@ import {
   inboxIsReachable,
   inboxItemIsActionable,
   inboxRetentionCutoff,
+  platformInboxTypes,
   visibleInboxTypes,
 } from './registry'
 
@@ -91,8 +92,11 @@ describe('the registry itself', () => {
  * `visibleInboxTypes` would pass a name-based test and fail these.
  */
 describe('visibleInboxTypes — the gate is registry-driven, not a hardcoded list', () => {
-  it('shows every registered type when collaboration is on', () => {
-    expect(visibleInboxTypes(true)).toEqual([...INBOX_ITEM_TYPES])
+  it('shows every tenant type when collaboration is on — never a platform one', () => {
+    const tenantTypes = INBOX_ITEM_TYPES.filter(
+      (type) => INBOX_TYPE_DEFINITIONS[type].gate !== 'platform',
+    )
+    expect(visibleInboxTypes(true)).toEqual(tenantTypes)
   })
 
   it('shows exactly the types the REGISTRY marks operational when collaboration is off', () => {
@@ -121,8 +125,55 @@ describe('visibleInboxTypes — the gate is registry-driven, not a hardcoded lis
     // asserts the FIELD is populated with a meaningful value rather than that
     // the key exists.
     for (const type of INBOX_ITEM_TYPES) {
-      expect(['collaboration', 'operational'], type).toContain(INBOX_TYPE_DEFINITIONS[type].gate)
+      expect(['collaboration', 'operational', 'platform'], type).toContain(
+        INBOX_TYPE_DEFINITIONS[type].gate,
+      )
     }
+  })
+})
+
+/**
+ * Platform types live in the platform organization's rows and reach a reader
+ * only through the platform lane (`./service`). The tenant lane and the
+ * platform lane must never overlap, or a platform owner whose ACTIVE
+ * organization is the platform organization would see every row twice.
+ */
+describe('platformInboxTypes — the platform lane is disjoint from every tenant lane', () => {
+  it('is exactly the types the registry gates on the platform', () => {
+    expect(platformInboxTypes()).toEqual(
+      INBOX_ITEM_TYPES.filter((type) => INBOX_TYPE_DEFINITIONS[type].gate === 'platform'),
+    )
+    expect(platformInboxTypes()).toContain('feedback.submitted')
+  })
+
+  it('shares no type with a tenant lane, collaboration on or off', () => {
+    for (const collaboration of [true, false]) {
+      const tenant = new Set(visibleInboxTypes(collaboration))
+      for (const type of platformInboxTypes()) {
+        expect(tenant.has(type), `${type} leaked into a tenant lane`).toBe(false)
+      }
+    }
+  })
+})
+
+/**
+ * Every type states its email default (spec IB-5, IB-11) even though nothing
+ * sends mail yet — so the day a sender exists, no type mails by accident.
+ */
+describe('email defaults', () => {
+  it('gives every type an explicit email decision with a sane delay', () => {
+    for (const type of INBOX_ITEM_TYPES) {
+      const { email } = INBOX_TYPE_DEFINITIONS[type]
+      expect(['never', 'if-unread'], type).toContain(email.send)
+      if (email.send === 'if-unread') {
+        expect(email.afterMinutes, type).toBeGreaterThanOrEqual(0)
+        expect(email.afterMinutes, type).toBeLessThanOrEqual(7 * 24 * 60)
+      }
+    }
+  })
+
+  it('keeps ambient activity in-app only — the type that would make our mail noise', () => {
+    expect(INBOX_TYPE_DEFINITIONS['conversation.activity'].email).toEqual({ send: 'never' })
   })
 })
 

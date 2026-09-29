@@ -194,14 +194,17 @@ class TestTheFilterIsTheAnswer:
     def test_a_page_request_compares_page_label_as_a_STRING(self):
         """Every writer in the ingest path stores `page_label` as a string; an
         int here matches nothing and reads as an empty document."""
-        assert _passage_filters(OIB, None, 12) == {"$and": [{"file_name": {"$eq": OIB}}, {"page_label": {"$eq": "12"}}]}
+        labels = [str(number) for number in range(4, 13)]
+        assert _passage_filters(OIB, None, 12) == {
+            "$and": [{"file_name": {"$eq": OIB}}, {"page_label": {"$in": labels}}]
+        }
 
     def test_both_together_read_that_punkt_on_that_page(self):
         clauses = _passage_filters(OIB, "3.5.2", 12)["$and"]
         assert clauses == [
             {"file_name": {"$eq": OIB}},
             {"punkt_id": {"$eq": "3.5.2"}},
-            {"page_label": {"$eq": "12"}},
+            {"page_label": {"$in": [str(number) for number in range(4, 13)]}},
         ]
 
     async def test_a_punkt_request_drops_the_page_beside_it(self, store):
@@ -225,7 +228,31 @@ class TestTheFilterIsTheAnswer:
         await _read(document=OIB, page=12)
 
         (call,) = store.calls
-        assert {"page_label": {"$eq": "12"}} in call["filters"]["$and"]
+        assert {"page_label": {"$in": [str(number) for number in range(4, 13)]}} in call["filters"]["$and"]
+
+    async def test_a_continuation_page_reaches_the_chunk_that_runs_onto_it(self, store):
+        """Section chunks are filed under the page they start on: a four-page
+        report is labelled 1,1,3,3,4,4, and page 2 lives inside the second chunk."""
+        spans = [(1, 1), (1, 2), (3, 3), (3, 4), (4, 4), (4, 4)]
+        store.chunks = []
+        for index, (label, end) in enumerate(spans):
+            chunk = _chunk(punkt="1", page=label, content=f"Teil {index}", chunk_id=f"s{index}")
+            chunk.metadata["page_end"] = str(end)
+            store.chunks.append(chunk)
+
+        out = await _read(document=OIB, page=2)
+
+        assert "Teil 1" in out
+        assert not any(f"Teil {index}" in out for index in (0, 2, 3, 4, 5))
+        (call,) = store.calls
+        assert call["top_k"] > _MAX_PASSAGE_CHUNKS, "the window is fetched whole, then filtered"
+
+    async def test_a_page_read_keeps_a_chunk_without_page_end_to_its_own_page(self, store):
+        out = await _read(document=OIB, page=13)
+        assert "Rauchabzug" in out and "Fluchtweglänge" not in out
+
+    def test_a_paragraph_locator_asks_for_both_spellings(self):
+        assert _passage_filters(OIB, "§3", None)["$and"][1] == {"punkt_id": {"$in": ["§ 3", "§3"]}}
 
     async def test_neither_punkt_nor_page_outlines_the_document_instead_of_refusing(self, store):
         """Naming only the document is the OVERVIEW question, not a malformed call.
@@ -281,6 +308,21 @@ class TestTheFilterIsTheAnswer:
         assert [f"Teil {n} von {len(groups)}" in c.content for n, c in enumerate(ordered, start=1)] == [True] * len(
             groups
         )
+
+    def test_a_long_sections_parts_come_back_in_order(self):
+        """A tenant section cut into parts shares page and ``punkt_id``; ``section_part`` orders them."""
+        chunks = [_chunk(punkt="3.2", page=7, chunk_id=f"{9 - n}") for n in range(1, 4)]
+        for part, chunk in enumerate(chunks, start=1):
+            chunk.metadata["section_part"] = part
+        assert [c.metadata["section_part"] for c in sorted(chunks, key=_punkt_sort_key)] == [1, 2, 3]
+
+    def test_pageless_sections_come_back_in_document_order_not_alphabetically(self):
+        """A Markdown file has no page and its sections no number to sort on."""
+        titles = ["Modellangaben", "Geschoße", "Bauteile nach Typ", "Materialien"]
+        chunks = [_chunk(punkt=title, chunk_id=title) for title in titles]
+        for order, chunk in enumerate(chunks):
+            chunk.metadata["section_order"] = order
+        assert [c.chunk_id for c in sorted(reversed(chunks), key=_punkt_sort_key)] == titles
 
 
 class TestFormatParity:

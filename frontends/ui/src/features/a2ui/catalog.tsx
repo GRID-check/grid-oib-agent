@@ -227,19 +227,14 @@ export function pilotiCatalog(): Catalog<ReactComponentImplementation> {
 /**
  * Card types that may not be a leaf of a surface. Mirrors
  * `SURFACE_EXCLUDED_LEAVES` in `src/aiq_agent/cards/models.py`, which refuses
- * them when the surface is written: system cards are pushed by tools, the
- * envelope's own fields are not cards, and an interactive card's decision is
+ * them when the surface is written: system cards are pushed by tools, and an
+ * interactive card's decision is
  * keyed by its position in the message (`card-decision.ts`), which a card
  * inside a surface does not have. The catalog still registers them, because a
  * card outside a surface is drawn through it too, so the refusal lives here.
  */
 export const SURFACE_EXCLUDED_LEAVES: ReadonlySet<string> = new Set([
   'surface',
-  'summary',
-  'verdict_header',
-  'key_takeaways',
-  'callout',
-  'follow_ups',
   'memory_proposal',
   'document_grid',
   'document_draft',

@@ -269,6 +269,7 @@ One caution for honest positioning: this makes the *product capable of* GDPR-con
 
 - Partial purge failure: retried in full next tick (idempotent steps); state is always recoverable because the queue row and entity row survive until success.
 - WorkOS/API outage: same retry path; `attempts` + `last_error` make it observable.
+- Database outage: the tick's reap and claim fail before anything is claimed, and the next poll retries. It logs one WARN per tick, and one ERROR (which err2issue files as an issue, ADR-0031) only once it has lasted about five minutes (5 ticks at the 60 s default; `workers/failure-streak.js`), then a recovery line on the first good tick. What counts as an outage is `workers/database-unavailable.js`, the code set the BFF uses too. A purge step that fails stays ERROR at once: its causes span four stores, and the row's attempts are the retry.
 - Double-delete requests: enqueue is idempotent per (entity_type, entity_id) with an active row (unique partial index).
 - Restore raced against purge: restore only valid while `status='pending'`; the `FOR UPDATE` claim makes purge-vs-restore serial.
 

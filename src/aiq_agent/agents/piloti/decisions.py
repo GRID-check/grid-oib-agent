@@ -417,9 +417,8 @@ def attached_card_types(decisions: TurnDecisions, skill_cards: Mapping[str, Sequ
     The chosen skill's preferred cards first — the shapes ``use_skill`` used
     to hand over with the body — then the types the card nouls picked; each
     once, at most ``MAX_ATTACHED_SHAPES``. The caller's lists already leave
-    out the three shapes the envelope teaches (``ENVELOPE_SHAPE_TYPES``), the
-    Markdown-written types (``MARKDOWN_CARD_TYPES``) and ``surface``
-    (``CHAT_ONLY_CARD_TYPES``).
+    out the shapes the envelope teaches (``ENVELOPE_SHAPE_TYPES``) and
+    ``surface`` (``CHAT_ONLY_CARD_TYPES``).
     """
     ordered: list[str] = []
     skill = decisions.chosen_skill

@@ -5,18 +5,15 @@ Combines Knowledge API (collections/documents) and Async Job API (agent jobs/SSE
 
 Knowledge Layer Configuration:
     The Knowledge API uses the same ingestor instance as the knowledge_retrieval tool.
-    Configure the backend via the knowledge_retrieval function in your workflow YAML:
+    Configure it via the knowledge_retrieval function in your workflow YAML:
 
     functions:
       knowledge_search:
         _type: knowledge_retrieval
-        backend: foundational_rag
-        rag_url: http://localhost:8081/v1
-        ingest_url: http://localhost:8082/v1
+        collection_name: oib_knowledge
 
-    The API plugin will automatically use the configured backend. If no tool is
-    configured, it falls back to environment variables (KNOWLEDGE_INGESTOR_BACKEND)
-    or the default backend (llamaindex).
+    The backend is llamaindex, the only one (ADR-0072). If no tool is
+    configured, the API falls back to KNOWLEDGE_INGESTOR_BACKEND or llamaindex.
 """
 
 import asyncio
@@ -44,6 +41,7 @@ from nat.front_ends.fastapi.fastapi_front_end_config import FastApiFrontEndConfi
 from nat.front_ends.fastapi.fastapi_front_end_plugin import FastApiFrontEndPlugin
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorker
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorkerBase
+from nat.runtime.session import SessionManager
 
 from .chat_socket import chat_socket_endpoint
 from .chat_socket import configure_websocket_auth
@@ -325,7 +323,7 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
 
         # The chat socket (ADR-0068), on the worker's own session manager so
         # NAT shuts it down with the others.
-        session_manager = await self._create_session_manager(builder)
+        session_manager = await self._create_chat_session_manager(builder)
         app.add_api_websocket_route(CHAT_SOCKET_PATH, chat_socket_endpoint(session_manager))
 
         # Presigned URLs are live bearer credentials to a tenant's objects, and
@@ -380,6 +378,23 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
                 pass
         else:
             logger.info("Debug console disabled by AIQ_ENABLE_DEBUG")
+
+    async def _create_chat_session_manager(self, builder: WorkflowBuilder) -> SessionManager:
+        """The chat socket's session manager, with NAT's concurrency gate off (``max_concurrency=0``).
+
+        NAT's default gate (8) is an ``asyncio.Semaphore`` held for the whole
+        ``Session.run``: a turn waiting on a person's answer kept its place for
+        up to ``GRID_HITL_RESPONSE_TIMEOUT_SECONDS``, and the ninth turn queued
+        behind them unseen, after ``RUN_STARTED``, while its heartbeat kept the
+        reader's spinner alive. Nobody chose that number. The chosen gate is
+        ADR-0040's admission (``aiq_agent.common.turn_admission``,
+        ``GRID_MAX_ACTIVE_TURNS``), held around every chat turn, which refuses
+        a turn it has no slot for at once with a retry hint instead of queueing
+        it. Registered with the worker's others so NAT shuts it down with them.
+        """
+        session_manager = await SessionManager.create(config=self._config, shared_builder=builder, max_concurrency=0)
+        self._session_managers.append(session_manager)
+        return session_manager
 
     def _schedule_internal_api_check(self):
         """Fire-and-forget the internal-API startup handshake (never fatal).

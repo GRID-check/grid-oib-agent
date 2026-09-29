@@ -1,0 +1,56 @@
+---
+/**
+ * A two-column comparison with a label per row: why Piloti against a general
+ * chatbot, Piloti against Reiner AI. A real <table>, so search engines and
+ * screen readers get rows and headers; on a phone each row stacks, its label
+ * over the two cells, and every cell names its column.
+ */
+interface Row {
+  label: string
+  a: string
+  b: string
+}
+interface Props {
+  caption: string
+  headA: string
+  headB: string
+  rows: Row[]
+  /** Which column is Piloti's, drawn in ink; the other stays soft. */
+  ours: 'a' | 'b'
+}
+const { caption, headA, headB, rows, ours } = Astro.props
+const cell = (col: 'a' | 'b') => (col === ours ? 'text-ink' : 'text-ink-soft')
+---
+
+<table class="w-full border-collapse text-left text-base leading-relaxed">
+  <caption class="sr-only">{caption}</caption>
+  <thead class="max-md:sr-only">
+    <tr class="border-b border-ink/15">
+      <th scope="col" class="w-[22%] py-3 pr-6 font-mono text-xs font-normal uppercase tracking-wide text-ink-soft"></th>
+      <th scope="col" class={`py-3 pr-6 text-sm font-semibold ${cell('a')}`}>{headA}</th>
+      <th scope="col" class={`py-3 text-sm font-semibold ${cell('b')}`}>{headB}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {
+      rows.map((row) => (
+        <tr class="border-b border-ink/12 max-md:grid max-md:grid-cols-2 max-md:gap-x-5 max-md:py-4">
+          <th
+            scope="row"
+            class="py-4 pr-6 align-top font-mono text-xs font-normal uppercase tracking-wide text-ink-soft max-md:col-span-2 max-md:p-0 max-md:pb-2"
+          >
+            {row.label}
+          </th>
+          <td class={`py-4 pr-6 align-top ${cell('a')} max-md:p-0`}>
+            <span class="block text-xs font-semibold md:hidden" aria-hidden="true">{headA}</span>
+            {row.a}
+          </td>
+          <td class={`py-4 align-top ${cell('b')} max-md:p-0`}>
+            <span class="block text-xs font-semibold md:hidden" aria-hidden="true">{headB}</span>
+            {row.b}
+          </td>
+        </tr>
+      ))
+    }
+  </tbody>
+</table>

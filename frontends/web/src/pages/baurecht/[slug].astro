@@ -1,0 +1,25 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import LandingPage from '../../components/landing/LandingPage.astro'
+import EndInvite from '../../components/molecules/EndInvite.astro'
+import { LANDING } from '../../data/landing'
+import { SECTIONS } from '../../lib/landing'
+import { landingLd } from '../../lib/seo'
+
+export function getStaticPaths() {
+  return LANDING.baurecht.map((entry) => ({ params: { slug: entry.slug }, props: { entry } }))
+}
+const { entry } = Astro.props
+const c = entry.de
+---
+
+<BaseLayout
+  locale="de"
+  title={c.title}
+  description={c.description}
+  ogArt={SECTIONS.baurecht.og}
+  jsonLd={landingLd('de', 'baurecht', entry, Astro.site)}
+>
+  <LandingPage locale="de" section="baurecht" entry={entry} />
+  <EndInvite locale="de" page="warum" />
+</BaseLayout>

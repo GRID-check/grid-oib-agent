@@ -17,7 +17,7 @@ import {
   checkBackendHealthCached,
   invalidateHealthCache,
 } from '@/shared/hooks/use-backend-health'
-import { useChatStore, selectHasConnectionError } from '../store'
+import { useChatStore, selectHasRecoverableConnectionError } from '../store'
 
 const INITIAL_DELAY_MS = 5_000
 const MAX_DELAY_MS = 60_000
@@ -30,7 +30,7 @@ const BACKOFF_FACTOR = 2
  *   (e.g. trigger WebSocket reconnect).
  */
 export function useConnectionRecovery(onRecovered: () => void): void {
-  const hasConnectionError = useChatStore(selectHasConnectionError)
+  const hasConnectionError = useChatStore(selectHasRecoverableConnectionError)
   const dismissConnectionErrors = useChatStore(
     (s) => s.dismissConnectionErrors
   )

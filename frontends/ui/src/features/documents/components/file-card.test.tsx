@@ -64,6 +64,34 @@ describe('ThumbnailWithFallback', () => {
     expect(screen.getByText('PNG')).toBeInTheDocument()
   })
 
+  it('asks for an office file\'s thumbnail, rendered from its PDF rendition (ADR-0070)', async () => {
+    server.use(
+      http.get('/api/documents/:id/thumbnail', () => HttpResponse.json({ url: 'https://cdn.test/d.jpg' }))
+    )
+
+    const { container } = render(
+      <ThumbnailWithFallback
+        file={file(
+          'o1',
+          'Raumprogramm.docx',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )}
+      />
+    )
+
+    await waitFor(() => expect(container.querySelector('img')).toHaveAttribute('src', 'https://cdn.test/d.jpg'))
+  })
+
+  it('draws the kind sketch for an office file that has no thumbnail yet', async () => {
+    server.use(http.get('/api/documents/:id/thumbnail', () => HttpResponse.json({ url: null })))
+
+    render(<ThumbnailWithFallback file={file('o2', 'Kosten.xlsx', null)} />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('document-kind-thumbnail')).toHaveAttribute('data-state', 'placeholder')
+    )
+  })
+
   it('treats a 404 as "no thumbnail" (warm placeholder), not a failure', async () => {
     server.use(http.get('/api/documents/:id/thumbnail', () => HttpResponse.json({}, { status: 404 })))
 
@@ -266,7 +294,26 @@ describe('FileCard while the document is still being read', () => {
     render(<FileCard file={failed} isSelected={false} onSelect={() => {}} locale="de" />)
 
     expect(screen.queryByTestId('file-card-summary-skeleton')).not.toBeInTheDocument()
-    expect(screen.getByText('Verschlüsseltes PDF')).toBeInTheDocument()
+    // An unclassified message says the generic sentence; the stored text is
+    // the tooltip, since the card is one click target and has no disclosure.
+    const line = screen.getByTestId('file-card-failure')
+    expect(line).toHaveTextContent(/Piloti (couldn't read|konnte dieses Dokument nicht lesen)/)
+    expect(line).toHaveAttribute('title', 'Verschlüsseltes PDF')
+  })
+
+  it('says why in words when the failure carries a known backend prefix', () => {
+    const failed: FileItem = {
+      ...unsettled,
+      status: 'failed',
+      errorMessage: 'pdf_pages_unreadable: 7 of 12 pages could not be read',
+    }
+
+    render(<FileCard file={failed} isSelected={false} onSelect={() => {}} locale="de" />)
+
+    const line = screen.getByTestId('file-card-failure')
+    expect(line).toHaveTextContent(/^7 (of|von) 12/)
+    expect(line).not.toHaveTextContent('pdf_pages_unreadable')
+    expect(line).toHaveAttribute('title', 'pdf_pages_unreadable: 7 of 12 pages could not be read')
   })
 
   it('omits the size · time strip when hideFooter is set', () => {

@@ -31,6 +31,8 @@ const usageBatchSchema = z.object({
   projectId: z.string().max(120).nullable().optional(),
   conversationId: z.string().max(255).nullable().optional(),
   jobId: z.string().max(255).nullable().optional(),
+  /** The chat answer the batch's spend belongs to (`turn.response.answer_message_id`). */
+  messageId: z.string().max(128).nullable().optional(),
   events: z.array(usageEventSchema).min(1).max(100),
 })
 
@@ -54,6 +56,7 @@ export const POST = internalApiRoute(
         projectId: batch.projectId ?? null,
         conversationId: batch.conversationId ?? null,
         jobId: batch.jobId ?? null,
+        messageId: batch.messageId ?? null,
         requestedModel: event.requestedModel ?? null,
         model: event.model ?? null,
         generationId: event.generationId ?? null,

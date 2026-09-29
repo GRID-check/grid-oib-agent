@@ -278,7 +278,10 @@ export const toFachtext = (ref: CitationRef, now: Date): string => {
   // citation named a page in a document architects cite by Punkt.
   // A RIS locus already names its unit („§ 63 Abs 1"); only an OIB/ÖNORM
   // Punkt needs the „Pkt." that the profession writes before a bare number.
-  if (csl.section) parts.push(csl.type === 'legislation' ? csl.section : `Pkt. ${csl.section}`)
+  // So does any other locus that is not a bare number: a project document's
+  // section is addressed as „§ 4", „Tabelle 3", „Geschoße" or „Zeilen 2-41",
+  // and „Pkt. Zeilen 2-41" names nothing.
+  if (csl.section) parts.push(/^\d/.test(csl.section) ? `Pkt. ${csl.section}` : csl.section)
   if (csl.page) parts.push(`S. ${csl.page}`)
 
   let text = parts.join(', ')

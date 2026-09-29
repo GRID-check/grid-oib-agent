@@ -418,7 +418,9 @@ async def _answer(turn: _Turn, *, message_id: str, stream: bool) -> AsyncIterato
             turn.state,
             thread_id=runtime.thread_id,
             organization_id=turn.request.organization_id,
-            identity=runtime.identity,
+            # The answer's id rides the cost ledger, so its details can say what it
+            # cost. No identity means "read it off the request", which must stay so.
+            identity={**runtime.identity, "message_id": message_id} if runtime.identity is not None else None,
             metadata=runtime.metadata,
             ledgers=runtime.ledgers,
         )

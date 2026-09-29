@@ -52,8 +52,10 @@ export const settings = {
       '{count, plural, one {# document is} other {# documents are}} being re-indexed. The status updates as each one finishes.',
     reindexNothing: 'Nothing to re-index — no document in this project has stored content yet',
     reindexPartial:
-      '{count, plural, one {# document was} other {# documents were}} left unchanged because the old index could not be cleared first',
+      '{count, plural, one {# document} other {# documents}} could not be re-read. Their existing index is kept.',
     reindexFailed: 'Re-indexing could not be started',
+    reindexTruncated:
+      'Not every document was reached: one run covers the newest 10,000 documents, and the older ones keep their existing index.',
     membersDescriptionManage:
       'Assign project roles to organization members. Organization admins always have access.',
     membersDescriptionReadOnly:

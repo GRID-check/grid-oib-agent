@@ -35,6 +35,17 @@
     "file_name": "einreichplan_og.pdf",
     "page": 4,
     "score": 0.87,
-    "snippet": "Der Einreichplan zeigt die Lage der Fluchtwege im Obergeschoss."
+    "snippet": "Der Einreichplan zeigt die Lage der Fluchtwege im Obergeschoss.",
+    "regions": [
+      {
+        "box": [
+          0.08,
+          0.12,
+          0.62,
+          0.71
+        ],
+        "label": "Grundriss 1. OG"
+      }
+    ]
   }
 ]

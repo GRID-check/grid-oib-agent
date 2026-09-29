@@ -10,6 +10,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { frameOf } from '@/test-utils/wire-v2-fixtures'
 import { useSpectatedTurn } from './use-spectated-turn'
+import { CARD_PREVIEW_FIXTURES } from '@/features/grid-cards/preview-fixtures'
 
 /** A controllable stand-in for the browser's EventSource. */
 class FakeEventSource {
@@ -102,7 +103,7 @@ describe('useSpectatedTurn', () => {
     const cards = {
       type: 'CUSTOM',
       name: 'card',
-      value: { index: 0, key: 'k1', card: { type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' } },
+      value: { index: 0, key: 'k1', card: CARD_PREVIEW_FIXTURES.calculation },
     }
     act(() => FakeEventSource.instances[0].emit(frame(1, cards)))
     await waitFor(() => expect(result.current.live).toBe(true))

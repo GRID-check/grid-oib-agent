@@ -25,6 +25,8 @@ export const DEFAULT_MUTATION_LIMIT: LimitRule = rules.DEFAULT_MUTATION_LIMIT
 export const BIM_QUERY_LIMIT: LimitRule = rules.BIM_QUERY_LIMIT
 export const BIM_EXPORT_LIMIT: LimitRule = rules.BIM_EXPORT_LIMIT
 export const RIS_DOCUMENT_LIMIT: LimitRule = rules.RIS_DOCUMENT_LIMIT
+export const DOCUMENT_UPLOAD_LIMIT: LimitRule = rules.DOCUMENT_UPLOAD_LIMIT
+export const FEEDBACK_REPORT_LIMIT: LimitRule = rules.FEEDBACK_REPORT_LIMIT
 
 /**
  * Every rule, for the coverage spec and for anything that wants to enumerate
@@ -43,6 +45,8 @@ export const LIMIT_CATALOG = {
   [BIM_QUERY_LIMIT.name]: BIM_QUERY_LIMIT,
   [BIM_EXPORT_LIMIT.name]: BIM_EXPORT_LIMIT,
   [RIS_DOCUMENT_LIMIT.name]: RIS_DOCUMENT_LIMIT,
+  [DOCUMENT_UPLOAD_LIMIT.name]: DOCUMENT_UPLOAD_LIMIT,
+  [FEEDBACK_REPORT_LIMIT.name]: FEEDBACK_REPORT_LIMIT,
 } as const satisfies Record<string, LimitRule>
 
 /**

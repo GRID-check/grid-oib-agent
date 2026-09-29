@@ -29,8 +29,6 @@ secret_keys = {
     "TAVILY_API_KEY",
     "SERPER_API_KEY",
     "EXA_API_KEY",
-    "RAG_SERVER_URL",
-    "RAG_INGEST_URL",
 }
 runtime_keys = {
     "NAT_JOB_STORE_DB_URL",
@@ -62,8 +60,6 @@ for key in [
     "EXA_API_KEY",
     "NAT_JOB_STORE_DB_URL",
     "AIQ_CHECKPOINT_DB",
-    "RAG_SERVER_URL",
-    "RAG_INGEST_URL",
     "REQUIRE_AUTH",
     "APP_ENV",
     "AIQ_DEV_ENV",

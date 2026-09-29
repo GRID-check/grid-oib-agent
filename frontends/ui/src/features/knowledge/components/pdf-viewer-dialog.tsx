@@ -22,6 +22,8 @@ import {
 } from '@/components/ui/dialog'
 import { useTranslations } from '@/i18n'
 import { PdfDocumentView } from './pdf-document-view'
+import { RegionMarks } from './region-marks'
+import type { PageRegion } from '../lib/page-region'
 
 export interface PdfViewerDialogProps {
   open: boolean
@@ -42,7 +44,8 @@ export interface PdfViewerDialogProps {
   /**
    * Render the source as an image (next/image in a scrollable frame) instead of
    * the PDF view. Lets the Files preview pane reuse this dialog to enlarge
-   * standalone image uploads (FB-15a). `page`/`highlight` do not apply.
+   * standalone image uploads (FB-15a). `page`/`highlight` do not apply;
+   * `regions` do, as shares of the image.
    */
   isImage?: boolean
   /**
@@ -57,6 +60,12 @@ export interface PdfViewerDialogProps {
    * opened the dialog (e.g. `var(--source-law)`).
    */
   highlightColor?: string
+  /**
+   * Boxes to mark on `page` — or on the image, in image mode — for a passage
+   * read off a picture of the page rather than out of its text (issue #433).
+   * Worn in `highlightColor`, like a passage mark.
+   */
+  regions?: readonly PageRegion[] | null
   /**
    * Turns a passage the reader selects in the document into the text they want
    * on their clipboard — passed straight through to the document view, which
@@ -101,7 +110,7 @@ export interface PdfViewerDialogProps {
   aside?: ReactNode
 }
 
-export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, imageUnoptimized = true, highlight, highlightColor, quoteFormat, headerChip, headerActions, children, aside }: PdfViewerDialogProps) {
+export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src: srcOverride, isImage, imageUnoptimized = true, highlight, highlightColor, regions, quoteFormat, headerChip, headerActions, children, aside }: PdfViewerDialogProps) {
   const t = useTranslations('knowledge')
   const baseSrc = srcOverride ?? `/api/knowledge-base/documents/${encodeURIComponent(fileName)}`
   // The fragment is for the "open in new tab" link and the image branch, which
@@ -161,15 +170,21 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
                     at its natural size in the scroll frame, exactly as before.
                     The `w-auto` is not decoration — drop it and the browser
                     sizes the image to the width="0" attribute. */}
-                <Image
-                  src={src}
-                  alt={title ?? fileName}
-                  width={0}
-                  height={0}
-                  sizes="95vw"
-                  unoptimized={imageUnoptimized}
-                  className="mx-auto h-auto w-auto max-w-full"
-                />
+                {/* `relative w-fit`: the wrapper shrinks to the image, so a
+                    region's percentages are shares of the IMAGE, not of the
+                    scroll frame around it. */}
+                <div className="relative mx-auto w-fit max-w-full">
+                  <Image
+                    src={src}
+                    alt={title ?? fileName}
+                    width={0}
+                    height={0}
+                    sizes="95vw"
+                    unoptimized={imageUnoptimized}
+                    className="block h-auto w-auto max-w-full"
+                  />
+                  {regions?.length ? <RegionMarks regions={regions} color={highlightColor} /> : null}
+                </div>
               </div>
             ) : (
               <PdfDocumentView
@@ -178,6 +193,7 @@ export function PdfViewerDialog({ open, onOpenChange, fileName, page, title, src
                 page={page}
                 highlight={highlight}
                 highlightColor={highlightColor}
+                regions={regions}
                 quoteFormat={quoteFormat}
               />
             ))}

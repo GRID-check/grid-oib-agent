@@ -33,3 +33,7 @@
 - name: no-release-note
   color: "e4e669"
   description: "Exempt from the mandatory release note — no user can observe this change"
+
+- name: answer-suite
+  color: "5319e7"
+  description: "Run the answer suite on this PR, base against head (paid model calls, on every push while set)"

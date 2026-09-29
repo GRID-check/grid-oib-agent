@@ -1,0 +1,6 @@
+---
+features:
+  - >
+    An answer's details now show how many credits it cost, and with your own
+    provider key how many tokens. Hovering the line shows how much went to
+    reading, writing and thinking.

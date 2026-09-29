@@ -120,6 +120,9 @@ export const organization: typeof en.organization = {
     displayNamePlaceholder: 'z. B. Acme Architektur GmbH',
     defaultLocale: 'Standardsprache für neue Mitglieder',
     defaultLocaleHint: 'Neue Mitglieder starten in dieser Sprache, bis sie ihre eigene wählen.',
+    chatEffort: 'Standard-Aufwand für neue Chats',
+    chatEffortHint:
+      'Wie lange Piloti in einem neuen Chat nachdenkt. Jedes Mitglied kann den Aufwand im Chat selbst verstellen; das hier ist nur der Startwert.',
     webSearch: 'Websuche',
     webSearchHint:
       'Erlaubt den Agenten, das öffentliche Web zu durchsuchen. Wenn deaktiviert, verschwinden Websuche-Tools aus der Auswahl und werden serverseitig für alle Mitglieder blockiert.',

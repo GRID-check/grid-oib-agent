@@ -1,0 +1,14 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import LandingHub from '../../components/landing/LandingHub.astro'
+import EndInvite from '../../components/molecules/EndInvite.astro'
+import { SECTIONS } from '../../lib/landing'
+import { hubLd } from '../../lib/seo'
+
+const s = SECTIONS.vergleich.de
+---
+
+<BaseLayout locale="de" title={s.title} description={s.description} ogArt={SECTIONS.vergleich.og} jsonLd={hubLd('de', 'vergleich', Astro.site)}>
+  <LandingHub locale="de" section="vergleich" />
+  <EndInvite locale="de" page="warum" />
+</BaseLayout>

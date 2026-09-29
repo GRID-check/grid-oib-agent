@@ -438,6 +438,38 @@ describe('PdfDocumentView', () => {
     expect(screen.queryByTestId('pdf-quote-bar')).toBeNull()
   })
 
+  it('marks a cited region on its page, as shares of the page box (#433)', async () => {
+    state.pages = [{ items: [] }, { items: [] }]
+    render(
+      <PdfDocumentView
+        src="/api/doc.pdf"
+        title="plan.pdf"
+        page={2}
+        highlightColor="var(--source-project)"
+        regions={[{ box: [0.1, 0.2, 0.5, 0.6], label: 'Grundriss EG' }]}
+      />,
+    )
+    const mark = await screen.findByTestId('region-mark')
+    expect(mark.closest('[data-page]')?.getAttribute('data-page')).toBe('2')
+    expect(mark.style.left).toBe('10%')
+    expect(mark.style.top).toBe('20%')
+    expect(mark.style.width).toBe('40%')
+    expect(mark.style.height).toBe('40%')
+    expect(mark.style.getPropertyValue('--passage-tint')).toBe('var(--source-project)')
+    expect(screen.getByText('Grundriss EG')).toBeTruthy()
+    // The same way back a located passage gets.
+    expect(screen.getByText('Go to passage')).toBeTruthy()
+  })
+
+  it('draws no region without a page to draw it on', async () => {
+    state.pages = [{ items: [] }]
+    render(
+      <PdfDocumentView src="/api/doc.pdf" title="plan.pdf" regions={[{ box: [0.1, 0.2, 0.5, 0.6] }]} />,
+    )
+    await waitFor(() => expect(document.querySelectorAll('[data-page]')).toHaveLength(1))
+    expect(screen.queryByTestId('region-mark')).toBeNull()
+  })
+
   it('releases the document when the viewer goes away', async () => {
     state.pages = [{ items: [] }]
     const { unmount } = render(<PdfDocumentView src="/api/doc.pdf" title="doc.pdf" />)

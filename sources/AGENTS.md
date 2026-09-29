@@ -48,6 +48,13 @@ changed, and they stayed green through every gate because nothing ran them.
   (recorded as `search_input["requery_skipped"] = "family"`); a family the
   corpus lacks is judged as usual.
   Membership is derived from what is indexed, never listed.
+- A ranked search the requery judge found insufficient is re-read by the `jev`
+  decider after the requery round (`requery.judge_coverage`). A complete "no"
+  adds an `Abdeckung: unzureichend — …` line (`GroundingBlock.coverage_gap`)
+  and keeps the pool whole (ADR-0064: a decision never withholds a passage);
+  anything less claims nothing. Say
+  "insufficient" through that field, never as text a producer writes itself:
+  the prompt names the label (`COVERAGE_GAP_LABEL`).
 - [`aiq-add-data-source`](../skills/aiq-add-data-source/SKILL.md) is the
   step-by-step; [`aiq-add-tool`](../skills/aiq-add-tool/SKILL.md) covers a
   non-retrieval tool.

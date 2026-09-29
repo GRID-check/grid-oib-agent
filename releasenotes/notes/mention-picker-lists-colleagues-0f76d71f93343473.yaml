@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    The @ list shows your colleagues again as soon as the connection to the
+    sign-in service recovers. Before, one failed lookup could leave it empty
+    for several minutes.

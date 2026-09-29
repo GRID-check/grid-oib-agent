@@ -24,6 +24,7 @@ their own namespaces.
 | `skill-scheduler` | Deployment (always; fires schedules only when `skillsEnabled`, drives the run reconciler either way) | 1 | — | n/a (DB-claimed ticks) |
 | `postgres` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) | CloudNativePG `Cluster` | 1 (→3 HA) | RWO PVC | Add replicas |
 | `dragonfly` (Redis-proto cache) | Deployment | 1 | — (cache) | — |
+| `gotenberg` (office → PDF, ADR-0070; required to index Word, presentation, `.xls` and `.ods` files, ADR-0071; `gotenbergEnabled`, default on) | Deployment | 1 | — | n/a (stateless. A conversion it drops fails that ingest retryably, so a rollout drains for up to 120s) |
 | `seaweedfs` (filer + S3 gateway) | StatefulSet | 1 (`single`) / N (`split`) | RWO PVC `/data` (unused under the Postgres filer store) | See §4 |
 | `seaweedfs-master` (`split` only) | StatefulSet | 1 (3 = HA, untested) | RWO PVC `/data` (raft + volume-id sequence) | Odd replica counts only |
 | `seaweedfs-volume` (`split` only) | StatefulSet | N | RWO PVC `/data` per replica | `seaweedfsVolumeReplicas` — this is the object-capacity knob |
@@ -101,10 +102,9 @@ Runbook: [row-level security](../database/row-level-security.md).
   whose files changed are rebuilt (per-service change detection; a blog-post
   commit rebuilds just `grid-web`), while `release/**` pushes, version tags and
   manual runs build all three. Deploys pin each rebuilt service to its commit-SHA
-  tag; services that were not rebuilt keep the image reference already stored in
-  the stack config (`grid-oib:backendImage` / `grid-oib:frontendImage` /
-  `grid-oib:webImage`, falling back to `grid-oib:imageTag`, then `latest`) — see
-  [cd.md](cd.md). The kubelet pulls **anonymously**: if the GHCR packages are *private*, set
+  tag; a service that was not rebuilt gets the newest develop commit's tag that
+  GHCR actually has, and a resolved image older than the deployed one fails the
+  deploy — see [cd.md](cd.md#partial-deploys-per-service-images). The kubelet pulls **anonymously**: if the GHCR packages are *private*, set
   `registryUsername` + `registryPassword` (a token with `read:packages`) so the
   program creates the `grid-registry-pull` imagePullSecret — otherwise every app
   pod lands in ImagePullBackOff.
@@ -1008,7 +1008,11 @@ In `db` mode the `aiq-agent` web tier now runs `backendReplicas` replicas
 - **Ingestion status is persisted** to a shared `ingest_jobs` table
   (`src/aiq_agent/knowledge/ingest_status_store.py`), so a
   `GET /v1/documents/{job_id}/status` poll resolves from any replica instead of
-  404-ing on the replica that didn't accept the upload.
+  404-ing on the replica that didn't accept the upload. The job itself runs
+  on the accepting replica, which stamps itself as the row's `owner` and
+  refreshes `heartbeat_at` every 30 s; when that replica restarts, its live
+  rows are read as `failed` (reason `interrupted`, retryable) once the
+  heartbeat is two minutes old, rather than as in progress forever.
 - **The two unlocked background loops are now single-runner**: the ghost-job
   reaper (`routes/jobs.py`) and the knowledge TTL-cleanup thread
   (`knowledge/base.py` via `knowledge/leader_lock.py`) elect one runner per
@@ -1083,6 +1087,12 @@ see §10.
   edge (Envoy) to `frontend`/`seaweedfs`, and the CNPG operator to its pods.
   Egress is deliberately open (the agent calls many external LLM/search APIs);
   tightening it is the one item that needs a live-cluster validation pass first.
+  The exception is `gotenberg` (`gotenberg-frontend-only`): it parses untrusted
+  office files that can link external URLs, needs no network of its own, and so
+  gets ingress from the frontend alone and no egress at all, DNS included.
+  With `networkPolicies` off that policy is gone; Gotenberg's
+  `--libreoffice-deny-private-ips` and `--libreoffice-deny-public-ips` flags
+  still refuse every URL LibreOffice would fetch.
 - **Dragonfly authentication** (`grid-oib:dragonflyPassword` and
   `grid-oib:rateLimitStorePassword`, both **required**): `requirepass` on both
   instances, delivered as `DFLY_requirepass` from a Kubernetes Secret rather
@@ -1366,6 +1376,7 @@ Three things are true of this whole table and are easy to miss:
 | Frontend → backend (BFF/HTTP) | **No** | `http://aiq-agent:8000` inside the pod network. |
 | Frontend → backend (WebSocket chat) | **No** | `ws://`, per-replica via the headless service (ADR-0028 conversation affinity). This is the full chat transport, including prompts and answers. |
 | Producers → OTel Collector, Collector → dashboard | **No** | Plain OTLP on `http://otel-collector:4318`. This traffic carries **prompts, retrieved snippets, LLM output and live presigned S3 URLs**, so it is the most sensitive plaintext channel in the namespace; the unauthenticated Aspire UI on `:18888` is likewise kept off-limits only by NetworkPolicy, which is why `observabilityEnabled` refuses to deploy with `networkPolicies=false`. |
+| Frontend → Gotenberg | **No, and unauthenticated** | `http://gotenberg:3000`. It carries the bytes of every office file converted, and anyone who can reach it can have LibreOffice parse a file of their choosing. NetworkPolicy admits the frontend only. |
 | App → Chroma | **No, and unauthenticated** | `http://chroma:8000`, no credentials of any kind. Any pod that can reach it can read or delete every tenant's vectors. NetworkPolicy is the only control. |
 | Cluster egress (OpenRouter, Tavily, WorkOS, GitHub) | **Yes** | All HTTPS. |
 
@@ -1390,12 +1401,12 @@ the committed stack file is configured (see below), `tsc --noEmit` (typed
 manifests), and two checks on the *same commit* the apply runs —
 `scripts/validate-crs.mjs` (schema-validates every CustomResource against the
 real upstream CRD schemas) and the **CrossGuard policy pack** (§7c). The plan
-is previewed with the same image pins the apply deploys: the deploy asks the
-triggering Publish Images run which jobs it actually built (GitHub API, by job
-name) and pins **per service** — rebuilt services to the commit's
-`sha-<40-hex>` tag, the rest to the image reference already in the stack config
-(`grid-oib:backendImage` / `grid-oib:frontendImage` / `grid-oib:webImage`,
-falling back to the previously set `grid-oib:imageTag`, then `latest`). The
+is previewed with the same image pins the apply deploys, resolved **per
+service** by `deploy/pulumi/scripts/resolve-image-refs.sh`: services the
+triggering Publish Images run built get the commit's `sha-<40-hex>` tag, the
+rest the newest develop commit's tag that GHCR has, and a resolved image older
+than the stack output `deployedImages` fails the job
+([cd.md](cd.md#partial-deploys-per-service-images)). The
 apply then runs on the same runner (`pulumi up --yes`) — the policy pack does
 not re-run on the apply (accepted residual, see
 `docs/deployment/pulumi-cloud-feature-audit.md`). Because the

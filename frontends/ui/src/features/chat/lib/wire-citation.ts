@@ -5,6 +5,7 @@
 
 import type { CitationSource, WireCitationSource } from '../types'
 import { asShelf, asSourceKind } from './source-kinds'
+import { parsePageRegions } from '@/features/knowledge/lib/page-region'
 
 const trimmed = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() ? value.trim() : undefined
@@ -76,6 +77,7 @@ export const citationFromWire = (
     // unclassified source simply carries no binding chip rather than a
     // misleading one. See WireCitationSource.bindingStatus.
     bindingStatus: bindingStatusOrUndefined(wire.binding_status),
+    regions: parsePageRegions(wire.regions),
   }
 }
 

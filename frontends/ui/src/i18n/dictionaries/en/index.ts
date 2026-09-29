@@ -32,6 +32,7 @@ import { shortcuts } from './shortcuts'
 import { legal } from './legal'
 import { answerExport } from './answer-export'
 import { diagrams } from './diagrams'
+import { feedback } from './feedback'
 
 export const en = {
   common,
@@ -60,4 +61,5 @@ export const en = {
   legal,
   answerExport,
   diagrams,
+  feedback,
 } as const

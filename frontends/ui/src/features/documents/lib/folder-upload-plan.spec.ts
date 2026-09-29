@@ -4,6 +4,7 @@ import {
   countPlan,
   filesToUpload,
   isFolderUpload,
+  needsUploadDecision,
   type FolderUploadPlanInput,
 } from './folder-upload-plan'
 import type { FileItem, FolderItem } from '../components/project-file-workspace'
@@ -415,5 +416,147 @@ describe('countPlan / filesToUpload', () => {
     expect(countPlan(result.files, result.folders, true).uploading).toBe(2)
     expect(countPlan(result.files, result.folders, false).uploading).toBe(1)
     expect(filesToUpload(result, false).map((f) => f.file.name)).toEqual(['New.pdf'])
+  })
+})
+
+/**
+ * LOOSE FILES take the same plan (U1): a picked or dropped file whose name the
+ * shelf already holds is a new version of that document, and whether anybody
+ * is asked must not depend on what one browser remembers.
+ */
+describe('a loose file against the listing', () => {
+  function loose(name: string, size = 100): File {
+    const file = new File(['x'.repeat(size)], name, { type: 'application/pdf' })
+    Object.defineProperty(file, 'size', { value: size, configurable: true })
+    return file
+  }
+
+  it('is an update of the document of that name, filed where the reader stands', () => {
+    const result = plan({
+      files: [loose('EG.pdf')],
+      documents: [doc({ id: 'd1', filename: 'EG.pdf', folderId: 'f1' })],
+      folders: [folder('f1', 'Plaene')],
+      currentFolderId: 'f1',
+    })
+
+    expect(result.folders).toEqual([])
+    expect(result.files[0]).toMatchObject({ action: 'update', existingId: 'd1', targetPath: '' })
+    expect(result.files[0].refiledFromFolderId).toBeUndefined()
+    expect(needsUploadDecision(result)).toBe(true)
+  })
+
+  it('says when the document lives in another folder than the one the reader drops into', () => {
+    const result = plan({
+      files: [loose('EG.pdf')],
+      documents: [doc({ id: 'd1', filename: 'EG.pdf', folderId: 'f1' })],
+      folders: [folder('f1', 'Plaene'), folder('f2', 'Statik')],
+      currentFolderId: 'f2',
+    })
+
+    expect(result.files[0]).toMatchObject({ action: 'update', refiledFromFolderId: 'f1' })
+  })
+
+  it('needs no decision when nothing on the shelf shares a name', () => {
+    const result = plan({
+      files: [loose('Neu.pdf'), loose('Auch-neu.pdf')],
+      documents: [doc({ id: 'd1', filename: 'EG.pdf' })],
+    })
+
+    expect(needsUploadDecision(result)).toBe(false)
+  })
+
+  it('counts a hash candidate as a decision on the first pass — it is an update until proven identical', () => {
+    const result = plan({
+      files: [loose('EG.pdf', 100)],
+      documents: [doc({ id: 'd1', filename: 'EG.pdf', fileSize: 100, contentHash: 'sha256:abc' })],
+    })
+
+    expect(result.hashCandidates).toHaveLength(1)
+    expect(needsUploadDecision(result)).toBe(true)
+  })
+
+  it('ignores a machine-authored row of the same name, as the server does', () => {
+    const result = plan({
+      files: [loose('Bericht.pdf')],
+      documents: [doc({ id: 'a1', filename: 'Bericht.pdf', authoredBy: 'agent' })],
+    })
+
+    expect(needsUploadDecision(result)).toBe(false)
+  })
+})
+
+describe('a flat shelf (the Archiv)', () => {
+  it('plans no folders and reads only the name, whatever path a file carried', () => {
+    const result = plan({
+      files: [pathed('Einreichung/Plaene/EG.pdf')],
+      documents: [doc({ id: 'd1', filename: 'EG.pdf' })],
+      flat: true,
+    })
+
+    expect(result.folders).toEqual([])
+    expect(result.files[0]).toMatchObject({ action: 'update', targetPath: '', existingId: 'd1' })
+  })
+
+  it('still refuses two files of one name in one drop', () => {
+    const result = plan({
+      files: [pathed('A/Deckblatt.pdf'), pathed('B/Deckblatt.pdf')],
+      flat: true,
+    })
+
+    expect(result.files.map((file) => file.action)).toEqual(['collision', 'collision'])
+  })
+})
+
+/**
+ * The server versions a same-name document whatever its lifecycle, so the
+ * name probe returns archived matches too — and the plan has to say which
+ * they are, because the new version stays out of the listing with them.
+ */
+describe('buildFolderUploadPlan — an archived match', () => {
+  it('marks an update of an archived document', () => {
+    const result = plan({
+      files: [new File(['x'.repeat(50)], 'EG.pdf')],
+      documents: [{ ...doc({ id: 'd1', filename: 'EG.pdf' }), lifecycle: 'archived' }],
+      flat: true,
+    })
+    expect(result.files[0]).toMatchObject({ action: 'update', existingId: 'd1', existingArchived: true })
+  })
+
+  it('marks a recognised-by-alias archived document', () => {
+    const result = plan({
+      files: [new File(['x'], 'eg.pdf')],
+      documents: [{ ...doc({ id: 'd1', filename: 'EG.pdf' }), lifecycle: 'archived' }],
+      flat: true,
+    })
+    expect(result.files[0]).toMatchObject({ action: 'duplicate', existingArchived: true })
+  })
+
+  it('leaves an active match unmarked', () => {
+    const result = plan({
+      files: [new File(['x'.repeat(50)], 'EG.pdf')],
+      documents: [doc({ id: 'd1', filename: 'EG.pdf' })],
+      flat: true,
+    })
+    expect(result.files[0]).not.toHaveProperty('existingArchived')
+  })
+
+  it('plans against a name-probe row, which carries only what matching needs', () => {
+    const result = plan({
+      files: [new File(['x'.repeat(50)], 'EG.pdf')],
+      documents: [
+        {
+          id: 'd1',
+          filename: 'EG.pdf',
+          displayName: null,
+          fileSize: 10,
+          contentHash: null,
+          folderId: null,
+          authoredBy: 'user',
+          lifecycle: 'active',
+        },
+      ],
+      flat: true,
+    })
+    expect(result.files[0]).toMatchObject({ action: 'update', existingId: 'd1' })
   })
 })

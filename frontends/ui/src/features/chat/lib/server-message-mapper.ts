@@ -37,6 +37,7 @@ import { CAPPED_REASONS, sanitizeThinkingSteps } from '@/lib/conversations/messa
 import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { sanitizeFindings } from '@/lib/conversations/message-findings'
 import { sanitizeRetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
+import { sanitizeQuoteStamps } from '@/lib/conversations/message-quote-stamps'
 import { sanitizeStages } from '@/lib/conversations/message-stages'
 import { sanitizePromptOptions } from '@/lib/conversations/message-prompt'
 import { sanitizeRunLedger, sanitizeRunTitle } from '@/lib/runs/run-ledger'
@@ -155,6 +156,11 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
     ...(() => {
       const ledger = sanitizeRetrievalLedger(metadata.retrieval_ledger)
       return ledger ? { retrievalLedger: ledger } : {}
+    })(),
+    // The server's quote checks, when a row kept them in the wire spelling.
+    ...(() => {
+      const stamps = sanitizeQuoteStamps(metadata.quote_stamps)
+      return stamps ? { quoteStamps: stamps } : {}
     })(),
     // The run's own account of itself, on the one message a run owns
     // (`messages.run_id`). Re-sanitized on read for the same reason its
@@ -322,6 +328,8 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
   // steps it replaces reading from: re-sanitized on read, narrowed not cast.
   const ledger = sanitizeRetrievalLedger(provenance.retrievalLedger)
   if (ledger) out.retrievalLedger = ledger
+  const stamps = sanitizeQuoteStamps(provenance.quoteStamps)
+  if (stamps) out.quoteStamps = stamps
 
   return out
 }

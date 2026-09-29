@@ -1104,14 +1104,33 @@ next interval:
    stamping `reconcile_checked_at` in the same statement (`FOR UPDATE SKIP
    LOCKED`, migration 0096), asks the job store for each job's real verdict
    (`GET /v1/internal/jobs/{id}/outcome`, service token), and for a finished job
-   fills an empty run message (`writeRunReport`), settles a live ledger
-   (`applyRunLedgerOp`) and closes the row (`recordRunOutcome` with
-   `onlyIfActive`) — the same functions the worker's own writes reach. A job the
+   fills an empty run message (`writeRunReport`) and closes the row and settles
+   its block's ledger (`recordRunOutcome` with `onlyIfActive`) — the same
+   functions the worker's own writes reach. A job the
    store cannot find, or a run that never got a backend job id, is closed as
    failed once it is older than `GRID_RUN_RECONCILE_UNKNOWN_GRACE_MINUTES`
-   (default 120). The container logs a sweep only when it closed or failed
+   (default 120). The same sweep then heals up to 100 CLOSED runs nothing has
+   looked at since they ended (`claimClosedRunsToHeal`, migration 0099): a block
+   still reading „läuft" takes the ending its row records (`settleRunLedger`).
+   The container logs a sweep only when it closed, healed or failed
    something. See the run section of
    [`backend-deep-dive.md`](backend-deep-dive.md) and ADR-0062.
+
+**What the worker logs at ERROR.** ERROR is what err2issue files as a GitHub
+issue (ADR-0031), so a failure that heals itself on the next tick is a WARN.
+A claim or prune the database refuses because it is unreachable
+(`workers/database-unavailable.js`, the code set the BFF uses too), and a
+reconcile POST that fails in transport or gets a 404, 502, 503 or 504 (an old
+frontend pod mid-rollout, the BFF answering a database outage), each log a
+WARN per tick. When the same failure has lasted about five minutes (10 ticks
+at the 30 s default, `escalationTicks` in `workers/failure-streak.js`) it logs
+one fixed ERROR line, `… still failing after 10 consecutive ticks: <kind>`,
+and the first good tick after it logs `… recovered after <n> failed ticks`.
+No line carries an HTML body: a Next.js error page holds per-build asset
+hashes, which gave every deploy a new issue fingerprint (#785, #793). A failed
+fire (step 2), a 401 or 500 from the reconcile POST, and any claim error that
+is not an outage stay ERROR at once: a missed fire is not brought back by a
+later tick.
 
 Claiming advances the job **before** firing, which is what makes a run
 at-most-once per occurrence across replicas and crashes.

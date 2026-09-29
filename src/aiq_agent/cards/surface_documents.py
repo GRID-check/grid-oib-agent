@@ -47,9 +47,9 @@ _SHELF_OF_SOURCE: dict[str, str] = {"projekt": "project", "buero": "archiv"}
 # Two of the three convert exactly. `CLEAR_WINNER_GAP` does not — a difference
 # on a log scale is not a difference on a linear one — and is flagged below.
 #
-# All three are BACKEND-CONDITIONAL. Only the `llamaindex` backend reports a
-# cosine; `foundational_rag` reports clamped reranker logits, which are not in
-# cosine space and for which none of these numbers is calibrated.
+# All three are calibrated for the `llamaindex` backend's cosine, the only
+# backend there is (ADR-0072). A retriever that scored in another space
+# (reranker logits, say) would need its own numbers.
 # ---------------------------------------------------------------------------
 
 # Weak hits are how a citation-health screenshot pulls in every IFC in the

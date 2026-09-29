@@ -11,11 +11,18 @@ import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { getOrgSettings, saveOrgSettings } from '@/lib/organizations/service'
 import { locales } from '@/i18n/config'
+import { CHAT_EFFORT_SETTING, CHAT_EFFORTS, isChatEffort } from '@/lib/reasoning-settings/catalog'
 
 const putSchema = z.object({
   displayName: z.string().trim().max(200).nullable().optional(),
   defaultLocale: z.enum(locales).optional(),
-  settings: z.record(z.unknown()).optional(),
+  settings: z
+    .record(z.unknown())
+    .refine((bag) => !(CHAT_EFFORT_SETTING in bag) || isChatEffort(bag[CHAT_EFFORT_SETTING]), {
+      message: `${CHAT_EFFORT_SETTING} must be one of: ${CHAT_EFFORTS.join(', ')}`,
+      path: [CHAT_EFFORT_SETTING],
+    })
+    .optional(),
 })
 
 export const GET = apiRoute(

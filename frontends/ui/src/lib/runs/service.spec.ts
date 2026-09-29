@@ -55,7 +55,7 @@ import { withTenant } from '@/lib/db/tenant-context'
 import { addDocumentToBackendJob, cancelBackendJob, JobCancelError } from '@/lib/jobs/backend-client'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import * as taskRepository from '@/lib/tasks/repository'
-import { emptyRunLedger } from './run-ledger'
+import { emptyRunLedger, failRun, finishRun, openPhase } from './run-ledger'
 import {
   addRunDocument,
   applyRunLedgerOp,
@@ -63,7 +63,9 @@ import {
   createRunMessage,
   findRunMessageByBackendJobId,
   getRunView,
+  ledgerOpForEnding,
   runMessageId,
+  settleRunLedger,
   writeRunReport,
 } from './service'
 
@@ -124,8 +126,22 @@ beforeEach(() => {
   vi.mocked(findMessageInConversation).mockResolvedValue(
     message({ [`run_ledger`]: emptyRunLedger(RUN, T0) }),
   )
-  vi.mocked(mergeMessageMetadata).mockResolvedValue(message(null))
+  // The repository's contract, faithfully: the patch (or the function that
+  // computes it) is applied to the row as stored, and `writes` is what reached
+  // the column — so "wrote nothing" is observable, not just "was not called".
+  writes = []
+  vi.mocked(mergeMessageMetadata).mockImplementation(async (conversationId, messageId, patch) => {
+    const stored = await findMessageInConversation(conversationId, messageId)
+    if (!stored) return null
+    const current = (stored.metadata ?? {}) as Record<string, unknown>
+    const entries = typeof patch === 'function' ? patch(current) : patch
+    if (!entries) return stored
+    writes.push(entries)
+    return { ...stored, metadata: { ...current, ...entries } }
+  })
 })
+
+let writes: Record<string, unknown>[] = []
 
 describe('createRunMessage', () => {
   it('mints an empty assistant message that carries the run and an empty ledger', async () => {
@@ -176,6 +192,78 @@ describe('createRunMessage', () => {
   })
 })
 
+describe('the ledger stays under the lock', () => {
+  it('folds onto the ledger as stored when the lock is taken, not a copy read before it', async () => {
+    // A flush that landed between an earlier read and the lock is the one the
+    // fold must build on; the stored row is read INSIDE the merge.
+    await applyRunLedgerOp(RUN, { op: 'append', steps: [step] }, T1)
+    const [[, , patch]] = vi.mocked(mergeMessageMetadata).mock.calls
+    const landed = openPhase(emptyRunLedger(RUN, T0), 'planen', T0)
+    const written = (patch as (m: Record<string, unknown>) => Record<string, unknown>)({ run_ledger: landed })
+    expect((written.run_ledger as { phases: unknown[] }).phases).toHaveLength(1)
+  })
+})
+
+describe('ledgerOpForEnding', () => {
+  it('says each ending the way the worker’s fold says it', () => {
+    expect(ledgerOpForEnding({ status: 'success' }, T1)).toEqual({
+      op: 'finish',
+      result: { filedAt: T1.toISOString() },
+    })
+    expect(ledgerOpForEnding({ status: 'interrupted' }, T1)).toEqual({ op: 'append', status: 'abgebrochen' })
+    expect(ledgerOpForEnding({ status: 'failure', error: 'Zeitüberschreitung' }, T1)).toEqual({
+      op: 'finish',
+      error: { reason: 'Zeitüberschreitung' },
+    })
+    expect(ledgerOpForEnding({ status: 'failure', error: null }, T1)).toEqual({
+      op: 'finish',
+      error: { reason: 'Der Lauf ist fehlgeschlagen.' },
+    })
+  })
+})
+
+describe('settleRunLedger', () => {
+  it('ends a block that still reads as live — the run whose worker was gone', async () => {
+    const live = openPhase(emptyRunLedger(RUN, T0), 'recherchieren', T0)
+    vi.mocked(findMessageInConversation).mockResolvedValue(message({ run_ledger: live }))
+
+    expect(await settleRunLedger(run, { status: 'failure', error: 'Job timed out' }, T1)).toBe(true)
+
+    const [written] = writes
+    expect(written?.run_ledger).toMatchObject({ status: 'fehlgeschlagen', error: { reason: 'Job timed out' } })
+  })
+
+  it('says abgebrochen for a cancel, the status the block’s „Abbrechen" waits for', async () => {
+    expect(await settleRunLedger(run, { status: 'interrupted' }, T1)).toBe(true)
+    expect(writes[0]?.run_ledger).toMatchObject({ status: 'abgebrochen' })
+  })
+
+  it('leaves a ledger the worker already settled alone, whatever the ending says', async () => {
+    const done = finishRun(emptyRunLedger(RUN, T0), { filedAt: T0.toISOString(), fileId: 'doc-1' }, T0)
+    vi.mocked(findMessageInConversation).mockResolvedValue(message({ run_ledger: done }))
+    expect(await settleRunLedger(run, { status: 'failure', error: 'late' }, T1)).toBe(false)
+
+    const failed = failRun(emptyRunLedger(RUN, T0), 'Anbieter', T0)
+    vi.mocked(findMessageInConversation).mockResolvedValue(message({ run_ledger: failed }))
+    expect(await settleRunLedger(run, { status: 'success' }, T1)).toBe(false)
+
+    expect(writes).toEqual([])
+  })
+
+  it('does nothing for a run with no block, and nothing for a message that is gone', async () => {
+    expect(await settleRunLedger({ ...run, runMessageId: null }, { status: 'success' }, T1)).toBe(false)
+    expect(mergeMessageMetadata).not.toHaveBeenCalled()
+
+    vi.mocked(findMessageInConversation).mockResolvedValue(null)
+    expect(await settleRunLedger(run, { status: 'success' }, T1)).toBe(false)
+  })
+
+  it('lets a real write failure through, so the caller can leave the row active and retry', async () => {
+    vi.mocked(mergeMessageMetadata).mockRejectedValue(new Error('connection reset'))
+    await expect(settleRunLedger(run, { status: 'success' }, T1)).rejects.toThrow('connection reset')
+  })
+})
+
 describe('applyRunLedgerOp', () => {
   it('folds an append onto the stored ledger and writes only its own key', async () => {
     const { ledger } = await applyRunLedgerOp(
@@ -189,9 +277,8 @@ describe('applyRunLedgerOp', () => {
     expect(ledger.status).toBe('laeuft')
     // One top-level key. The report, its sources and the transparency keys are
     // written by the path that produces them, into the same message.
-    expect(mergeMessageMetadata).toHaveBeenCalledWith(CONVERSATION, runMessageId(RUN), {
-      run_ledger: ledger,
-    })
+    expect(mergeMessageMetadata).toHaveBeenCalledWith(CONVERSATION, runMessageId(RUN), expect.any(Function))
+    expect(writes).toEqual([{ run_ledger: ledger }])
   })
 
   it('enters the tenant the RUN names, never one the op could name', async () => {
@@ -297,7 +384,7 @@ describe('applyRunLedgerOp', () => {
     await expect(applyRunLedgerOp(RUN, { op: 'finish' }, T1)).rejects.toBeInstanceOf(
       BadRequestError,
     )
-    expect(mergeMessageMetadata).not.toHaveBeenCalled()
+    expect(writes).toEqual([])
   })
 
   it('refuses a run it cannot find, and one with no message to write into', async () => {

@@ -1,9 +1,9 @@
 """
 Knowledge Layer - Universal RAG interfaces and schemas.
 
-This module defines the foundational abstractions for knowledge ingestion and retrieval.
-All backend adapters (LlamaIndex, Foundational RAG, etc.) must implement these interfaces
-and output data conforming to these schemas.
+This module defines the abstractions for knowledge ingestion and retrieval. The one
+production backend, llamaindex (ADR-0072), implements them, and so do the fakes the
+tests register; both output data conforming to these schemas.
 
 Architecture:
     src/aiq_agent/knowledge/      # Core abstractions
@@ -12,9 +12,7 @@ Architecture:
     └── factory.py               # Registry + factory pattern
 
     sources/knowledge_layer/src/ # Backend implementations
-    ├── llamaindex/              # ChromaDB + NVIDIA embeddings
-    ├── nvingest/                # Milvus + NV-Ingest pipeline
-    └── foundational_rag/        # Hosted RAG Blueprint
+    └── llamaindex/              # ChromaDB + OpenRouter embeddings
 
 Usage:
     from aiq_agent.knowledge import Chunk, BaseRetriever, get_retriever

@@ -103,13 +103,51 @@ determine what a turn costs and how good it is.
 | | Model | Thinking level |
 |---|---|---|
 | Table | `platform_model_defaults` | `platform_reasoning_efforts` (0030) |
-| Org override | yes, per group, wins | **no — platform only** |
+| Org override | yes, per group, wins | no; the org sets only where a chat's dial starts |
+| Per chat | no | **yes**: the composer's Aufwand dial, chat answer only |
 | Validated against | the live OpenRouter catalog | a closed vocabulary we own |
 | Reaches the backend via | the signed `X-Grid-Request-Context` envelope's `modelOverrides`; the `x-grid-model-overrides` header only when no envelope arrived (a job worker); else the org-id fallback | `GET /api/internal/reasoning-efforts`, TTL-cached |
 | Falls back to | the YAML `model_name` | the YAML `reasoning_effort` for that role |
 
-There is deliberately no org layer for effort: a tenant choosing its own model is
-a product feature, a tenant dialling its own reasoning spend is not. And no
+### The Aufwand dial (per chat)
+
+The reader turns the level up or down per chat, in the composer
+(`features/chat/components/effort-dial`). Five stops, `minimal` to `xhigh`;
+`none` is not one, because without reasoning the model loses the answer
+envelope. A chat starts at the organization's default
+(`settings.chatReasoningEffort`, Organisation → Einstellungen, product default
+`medium`) and remembers its own level in the reader's browser
+(`stores/effort-store.ts`), not on the conversation row: a shared thread must
+not change speed under a colleague.
+
+Every question carries the level (`user_message.reasoning_effort`), so the
+backend never reads the org default. `turn/payload.extract_turn_inputs` puts it
+in a per-turn ContextVar (`reasoning_settings.set_turn_reasoning_effort`), and
+`request_llm_context.with_turn_effort` lays it over the platform efforts for
+the answering group (`shallow_research`) only. The clarifier, the card pass and
+the post-answer stages keep their platform levels. A turn that states no level
+(the CLI, a job) keeps the platform/YAML level.
+
+**The prompt cache is kept per level.** Measured 2026-09-28 against
+`openai/gpt-6-luna` through OpenRouter, with the real 11.9k-token static prompt.
+Six calls on a fresh prefix, first call excluded:
+
+| Sequence | Cache hits |
+|---|---|
+| same level every call | 14/15 |
+| a different level every call | 6/15 |
+| a different level every call, with `prompt_cache_key` | 6/15 |
+| alternating two levels already used | 24/24 |
+
+So a level change costs one uncached call per new level on a prefix, and going
+back to a level already used hits again. The effort never enters the prompt
+bytes, and every round of one turn runs at one level, so a turn never pays
+twice. The static half is shared by every tenant, so each level's cache warms
+fleet-wide.
+
+The platform owner's per-group level (the table above) is still the only lever
+over the other groups: a tenant choosing how long *its* answers take is a
+product feature, a tenant tuning the clarifier or the card pass is not. And no
 catalog round-trip on save — the accepted values are a closed vocabulary, and
 whether a given model honours a level is OpenRouter's business (it maps a
 requested effort to the nearest level each model supports, server-side, which is

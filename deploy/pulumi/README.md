@@ -177,6 +177,9 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `chromaEnabled` | `true` | Shared vector server; REQUIRED for db mode (fails closed) |
 | `chromaImage` | `chromadb/chroma:1.5.9` | Pinned to match the backend's chromadb client |
 | `chromaStorageSize` | `20Gi` | Vector store volume (grow via PVC patch) |
+| **Gotenberg (office → PDF, ADR-0070)** | | |
+| `gotenbergEnabled` | `true` | Office → PDF converter. Required for indexing Word, presentation, `.xls` and `.ods` files, which the backend reads only from the PDF (ADR-0071). `false` drops the workload and the frontend's `GOTENBERG_URL`: those files are then marked failed with a retryable reason, and `.xlsx`/`.xlsm` index without preview or thumbnail. With `networkPolicies` on it admits the frontend alone and has no egress (`gotenberg-frontend-only`); its flags refuse LibreOffice's outbound fetches either way. Drains a conversion in flight for up to 120s on a rollout |
+| `gotenbergImage` | `gotenberg/gotenberg:8.37.0-libreoffice` | Pinned, LibreOffice-only variant: no Chromium, so no HTML/URL → PDF routes. The container args are 8.x flag names, and an unknown flag (any `--chromium-*` on this variant) stops it at boot. Keep equal to the Compose pin (`gotenberg.spec.ts` checks) |
 | **SeaweedFS (S3)** | | |
 | `seaweedfsImage` | `chrislusf/seaweedfs:latest` | Prod template pins 3.80 (storage engine) |
 | `seaweedfsStorageSize` | `20Gi` | Object-store volume (grow via PVC patch) |
@@ -338,6 +341,9 @@ src/data/                postgres (CNPG), dragonfly, seaweedfs
 src/app/                 config (Secret + env), migrations Job,
                          audit-schemas Job, backend, frontend (+HPA),
                          workers, httproutes
+scripts/                 deploy.yml's helpers: GHCR tag lookup, the staging
+                         image resolver + downgrade guard (reads the
+                         `deployedImages` output), CR schema validation
 ```
 
 ## Notes

@@ -3,6 +3,21 @@ export const chat = {
   actions: {
     dismiss: 'Dismiss',
   },
+  effortDial: {
+    title: 'Effort',
+    trigger: 'Effort: {level}',
+    faster: 'Faster',
+    smarter: 'Smarter',
+    help: 'How long Piloti thinks before it answers. More effort helps with tricky questions but costs time and tokens. Applies to this chat.',
+    levels: {
+      minimal: 'Minimal',
+      low: 'Low',
+      medium: 'Medium',
+      high: 'High',
+      xhigh: 'Maximum',
+    },
+  },
+
   // Source preview (WS-9, FB-4): citation chips open a preview of the source.
   sourcePreview: {
     chipAria: 'Preview source: {label}',
@@ -27,6 +42,12 @@ export const chat = {
       auslegend: 'Auslegend',
     },
     openExternal: 'Open in RIS',
+    // Office files (Word, Excel, PowerPoint, ODF, RTF) are shown as a PDF Piloti
+    // renders from the original (ADR-0070); the original stays untouched and
+    // downloadable.
+    renditionNote: 'PDF preview of the original',
+    renditionPending: 'Creating PDF preview…',
+    downloadOriginal: 'Download original',
     // Coarse source kind (ADR-0026) shown in the info popover. Preferred
     // over `origins` because the origin token is kb/ris/web only, so a
     // knowledge-base copy of a legal text reads as project material.
@@ -92,8 +113,8 @@ export const chat = {
       buero: 'Office archive',
       session: 'Attachment in this chat',
     },
-    notIndexed: 'Not indexed — readable, but it cannot be cited.',
-    failed: 'Processing this file failed.',
+    notIndexed: 'Filed, not read. You can open it, but Piloti does not cite it.',
+    failed: 'Reading failed. Piloti cannot cite this file.',
   },
   composer: {
     /** Shown when the reader holds project:view but not project:chat. */
@@ -328,38 +349,6 @@ export const chat = {
     renameInputAria: 'Session title',
   },
   cards: {
-    legalBasis: 'Legal basis',
-    // Tooltip on the OIB / RIS tier badge: the badge itself is a proper noun
-    // that reads the same in both locales, so this is what says what it MEANS.
-    authority: 'Authority: {tag}',
-    viewOib: 'View OIB Richtlinie',
-    verifyRis: 'Verify in RIS',
-    aiGenerated:
-      'AI-generated citation — check the excerpt against the primary source (OIB / RIS).',
-    // The muted line under an UNPLACED legal basis surfaced flat above the
-    // prose (`EvidenceBlock`): the quote is model-generated, like the framed
-    // card's — shorter here, because the block beside it is spare already.
-    evidenceQuoteDisclaimer:
-      'AI-generated citation — check the excerpt against the primary source.',
-    conditionTree: {
-      eyebrow: 'Condition tree',
-      dependsOn: 'Depends on',
-      applies: 'applies here',
-      basis: 'Basis',
-      // Lead-in over the outcome of the case that DOES apply to this project.
-      appliesHere: 'For this project the following applies:',
-      // Lead-in over any other case, in the subjunctive: the grammar itself
-      // says this is a what-if, so a screenshot of the panel cannot be read
-      // as this project's answer.
-      previewLead: 'Under {condition} the following would apply:',
-      // Same lead-in where no branch is marked as this project's: nothing is
-      // being contrasted, so nothing is put in the subjunctive.
-      caseLead: 'Under {condition} the following applies:',
-      // Rides INSIDE the previewed panel, so it travels with a screenshot.
-      previewNotice: 'For comparison only — this project is {condition}: {outcome}',
-      backToActive: 'Back to {condition}',
-      caseAria: 'Case {condition}',
-    },
     askAbout: {
       chip: 'Ask about this',
       chipAria: 'Put a question about "{subject}" into the message box',
@@ -370,12 +359,10 @@ export const chat = {
     },
 
     // ── Shared schematic chrome ────────────────────────────────────────────
-    // `kit.tsx` draws fifteen cards. Its vocabulary lives here because it
+    // `kit.tsx` draws eight cards. Its vocabulary lives here because it
     // appears on every one of them: verdict, missing figure, provenance.
     kit: {
       eyebrow: 'Sketch',
-      // A card whose figure is a scale or a set of bars, not a drawing.
-      eyebrowCheck: 'Check',
       status: {
         pass: 'met',
         fail: 'not met',
@@ -443,13 +430,6 @@ export const chat = {
       // inputs: the card did the arithmetic, so what they audit is the inputs.
       computedNote:
         'The result is computed by this card from the figures above, not copied from the answer.',
-    },
-    // The one card whose picture the renderer did not compute — the model wrote
-    // the mermaid. The rest of its words are shared with the mermaid FENCE
-    // (`diagrams.schematicOnly`, `diagrams.fallback`): the same claim about the
-    // same picture, said once.
-    diagram: {
-      eyebrow: 'Diagram',
     },
     // A document Piloti wrote into this conversation's working directory. Not a
     // project document: nothing here is filed, indexed or citable until a
@@ -555,134 +535,16 @@ export const chat = {
         noProject: 'This chat is not attached to a project, so there is no file store to change.',
       },
     },
-    processMap: {
-      eyebrow: 'Procedure',
-      current: 'you are here',
-      done: 'done',
-      stepAria: 'Step {step}: {label}',
-      requires: 'Requires',
-      produces: 'Produces',
-      actor: 'Responsible',
-      duration: 'Deadline',
-      basis: 'Basis',
-      // Rides INSIDE an opened step that is not the current one, so it travels
-      // with a screenshot of that panel alone.
-      elsewhereNotice: 'For reference only — this project is at step {step}: {label}',
-      backToCurrent: 'Back to {label}',
-    },
-    // ── Submission documents ────────────────────────────────────────────
-    // The counts in the overview are worked out by the card from its own rows,
-    // so there is no field on the wire for a summary to disagree with.
-    documentChecklist: {
-      eyebrow: 'Documents',
-      itemAria: 'Document: {label}',
-      requirement: {
-        required: 'required',
-        conditional: 'conditional',
-      },
-      // The state of ONE row. „not known" is the normal case: only what the
-      // conversation established may stand here.
-      status: {
-        present: 'on hand',
-        missing: 'missing',
-        unknown: 'not known',
-      },
-      // The same words as modifiers, so a count reads grammatically.
-      tally: {
-        required: 'required',
-        conditional: 'conditional',
-        present: 'on hand',
-        missing: 'missing',
-        unknown: 'unresolved',
-      },
-      tallyAria: 'State of the dossier',
-      // Stands in for the second row when nothing is known about any document.
-      // A bar reading „0 of 5" there would be a claim about the project rather
-      // than a summary of the card.
-      noStatus: 'Whether you already hold these documents does not follow from the conversation.',
-      condition: 'Condition',
-      issuer: 'Issued by',
-      form: 'Form',
-      basis: 'Basis',
-    },
-    // ── Deadlines ───────────────────────────────────────────────────────
-    deadlineTimeline: {
-      eyebrow: 'Deadlines',
-      deadlineAria: 'Deadline {index}: {label}',
-      startsFrom: 'Clock starts',
-      consequence: 'If missed',
-      actor: 'Responsible',
-      basis: 'Basis',
-      // The sentence that keeps the card honest: the order is drawn, the
-      // length is not — each period runs from its own event.
-      notToScale: 'The order is drawn, not the lengths: each period runs from an event of its own.',
-      noDatesNote:
-        'Every period is carried as the provision words it. This card works out no dates.',
-    },
-    // ── Impact of a change ──────────────────────────────────────────────
-    changeImpact: {
-      eyebrow: 'Impact',
-      consequenceAria: 'Impact: {aspect}',
-      changeWithBefore: '{factor}: {from} → {to}',
-      changeWithoutBefore: '{factor} → {to}',
-      // Under the header when the current value is absent. Leaving „before"
-      // blank would be the quieter but less truthful option.
-      currentUnknown: 'The current value does not follow from the conversation.',
-      direction: {
-        tightens: 'tightens',
-        relaxes: 'relaxes',
-        unchanged: 'unchanged',
-      },
-      before: 'before',
-      after: 'then',
-      unknownBefore: 'current value not known',
-      basis: 'Basis',
-    },
     verdictHeader: {
       confidenceHigh: 'high confidence',
       confidenceMedium: 'medium confidence',
       confidenceLow: 'low confidence',
-    },
-    normChain: {
-      eyebrow: 'Chain of norms',
-      // Rank of the legal instrument. These are the names of the Austrian
-      // legal order and stay in German here too.
-      rank: {
-        bundesgesetz: 'Bundesgesetz',
-        landesgesetz: 'Landesgesetz',
-        verordnung: 'Verordnung',
-        oibRichtlinie: 'OIB-Richtlinie',
-        oenorm: 'ÖNORM',
-        leitfaden: 'Leitfaden',
-      },
-      binding: 'binding',
-      // An OIB-Richtlinie binds only once a Land declares it binding — that
-      // belongs on the link, not in a footnote.
-      bindingWhenDeclared: 'binding where declared',
-      interpretive: 'interpretive',
-    },
-    comparison: {
-      eyebrow: 'Comparison',
-      criterion: 'Criterion',
-    },
-    typedTable: {
-      eyebrow: 'Table',
     },
     // ── Labels inside the drawings ─────────────────────────────────────────
     // What is written on the sketch itself. Symbols (±0,00, Ø, N), units and
     // standard designations (A++ … G, DnT,w) are deliberately absent: they are
     // the same mark in every language.
     schematics: {
-      acoustic: {
-        soundClass: 'Sound insulation class',
-        airborne: 'Airborne sound',
-        impact: 'Impact sound',
-        airborneResultant: 'Airborne sound (resultant)',
-        lowerIsBetter: '↓ lower is better',
-        higherIsBetter: '↑ higher is better',
-        reserve: 'Margin +{margin} dB',
-        shortfall: 'Shortfall {margin} dB',
-      },
       daylight: {
         glassArea: 'Glazed area',
         window: 'Window',
@@ -690,31 +552,8 @@ export const chat = {
         requiredArea: 'Floor area {floor} m² → required glazed area ≥ {required} m² (10 %).',
         obstructionPierces: 'The obstruction pierces the 45° daylight cone.',
       },
-      density: {
-        coverage: 'Site coverage',
-        parcel: 'Parcel {area} m²',
-        builtUp: 'built',
-        builtUpUnknown: 'Built-up area: {missing}',
-        grossFloorArea: 'Gross floor area (BGF)',
-      },
       egress: {
         totalWalkLength: 'Total travel distance',
-      },
-      elevator: {
-        accessible: 'Accessible lift',
-        required: 'required',
-        notRequired: 'not required',
-        entranceLevel: 'Entrance level',
-        shaft: 'Lift',
-        // Storey label relative to the entrance level, in Austrian notation.
-        groundFloor: 'EG',
-        upperFloor: '{level}.OG',
-        basement: '{level}.KG',
-      },
-      energy: {
-        hwb: 'Heating demand (HWB)',
-        hwbMarker: 'HWB {value}',
-        fgee: 'Overall energy efficiency factor (fGEE)',
       },
       fireAccess: {
         routeWidth: 'Access route width',
@@ -731,10 +570,6 @@ export const chat = {
         street: 'STREET',
         gebaeudeklasse: 'Gebäudeklasse',
         walkTooFar: ' — the walk to the entrance exceeds the permitted distance.',
-      },
-      fireCompartment: {
-        storey: 'Storey {label}',
-        plan: 'Floor plan',
       },
       guardrail: {
         context: {
@@ -754,18 +589,6 @@ export const chat = {
         climbables:
           'Horizontal elements suitable for climbing within the no-climb zone (15–60 cm).',
       },
-      parking: {
-        car: 'Car parking spaces',
-        bicycle: 'Bicycle parking spaces',
-        // Abbreviation for parking spaces, used as the unit after the number.
-        unit: 'sp.',
-        basis: 'Basis',
-        short: '{provided} of {required} provided — {missing} short{overflow}',
-        surplus: '{provided} provided — surplus +{surplus}{overflow}',
-        exact: '{provided} of {required} provided{overflow}',
-        truncated: ' (excerpt)',
-        legend: 'Filled = provided, dashed = missing against the requirement.',
-      },
       setback: {
         side: {
           front: 'front',
@@ -778,6 +601,7 @@ export const chat = {
         building: 'Building',
         street: 'STREET',
         tooClose: 'At least one setback falls short of the required distance.',
+        stated: 'stated: {value}',
       },
       stair: {
         section: 'SECTION',
@@ -786,13 +610,6 @@ export const chat = {
         stepNotation: '{count} Stg · {rise}/{going} cm',
         // Without rise and going only the count is left.
         stepCount: '{count, plural, one {# step} other {# steps}}',
-      },
-      thermal: {
-        roof: 'Roof',
-        wall: 'External wall',
-        window: 'Window',
-        door: 'Door',
-        floor: 'Floor',
       },
     },
   },
@@ -867,6 +684,9 @@ export const chat = {
     triggerAria: 'Show details for this answer',
     // How long the turn took, question sent to answer final.
     duration: 'Answered in {duration}',
+    costCredits: '{value} credits',
+    costTokens: '{value} tokens',
+    costBreakdown: 'Input {prompt} · output {completion} · of which thinking {reasoning} tokens',
     // Retrieved-but-uncited documents: what the turn read beyond what the
     // answer claims. Document chips only — no passages, no new claims.
     readSources: {
@@ -1234,6 +1054,11 @@ export const chat = {
       title: 'Piloti was updated',
       message: 'Reload the page to continue.',
     },
+    serverIncompatible: {
+      title: 'Piloti is not reachable right now',
+      message:
+        'The server runs a different version than this page, which happens briefly during an update. Try again in a few minutes; if it persists, tell support.',
+    },
     connectionTimeout: {
       title: 'Request Timeout',
       message: 'The request took too long to complete.',
@@ -1277,12 +1102,6 @@ export const chat = {
       'Your usage budget is used up, so new messages can’t be sent right now. You can review your own usage under Organization → Usage & budgets. Ask an organization admin to raise your limit.',
     adminMessage:
       'The usage budget is used up, so new messages can’t be sent right now. Raise the limits under Organization → Usage & budgets.',
-  },
-  fileUpload: {
-    uploading:
-      'File is uploading and ingesting. Until completion, a file cannot be included in queries.',
-    pendingWarning:
-      'Files are pending! Wait until they are ready or send your query again to continue WITHOUT those files.',
   },
   noSources: {
     warning:

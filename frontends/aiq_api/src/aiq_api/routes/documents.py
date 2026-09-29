@@ -213,13 +213,11 @@ def add_document_routes(router: APIRouter):
     ) -> dict:
         """Return the rendered-drawing / image / chart descriptions ingestion
         produced for a document (the "detailed information" the summary is
-        distilled from). Fail-open: returns an empty list when the backend does
-        not support it or the document has no visual chunks."""
-        getter = getattr(ingestor, "get_document_visual_details", None)
-        if getter is None:
-            return {"details": []}
+        distilled from). Fail-open: returns an empty list when the lookup fails
+        or the document has no visual chunks."""
         try:
-            return {"details": await asyncio.to_thread(getter, collection_name, file_name)}
+            details = await asyncio.to_thread(ingestor.get_document_visual_details, collection_name, file_name)
+            return {"details": details}
         except Exception as e:
             logger.warning("Failed to fetch visual details for %s/%s: %s", collection_name, file_name, e)
             return {"details": []}

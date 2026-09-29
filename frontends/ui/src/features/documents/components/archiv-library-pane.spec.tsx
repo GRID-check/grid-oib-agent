@@ -78,9 +78,9 @@ describe('ArchivLibraryPane — card grid', () => {
 
   it('surfaces the failure reason on failed cards', () => {
     renderPane({
-      files: [{ ...files[0], status: 'failed', errorMessage: 'Could not be processed' }],
+      files: [{ ...files[0], status: 'failed', errorMessage: 'Request timed out after 180s' }],
     })
-    expect(screen.getByText('Could not be processed')).toBeInTheDocument()
+    expect(screen.getByText(/Reading took too long and was stopped/)).toBeInTheDocument()
     expect(screen.getByText('Failed')).toBeInTheDocument()
   })
 

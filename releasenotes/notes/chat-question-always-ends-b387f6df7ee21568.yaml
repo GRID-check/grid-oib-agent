@@ -1,0 +1,21 @@
+---
+fixes:
+  - >
+    A question in the chat no longer shows „Denkt nach" forever when the server
+    does not answer it. After half a minute without a reply it ends with an
+    error you can retry.
+  - >
+    The first question of a new chat is no longer lost when it is sent straight
+    from a suggestion without typing.
+  - >
+    A question you stopped before Piloti started on it is no longer sent again
+    when the connection comes back.
+  - >
+    When the chat reaches a server that runs a different version than the page,
+    Piloti now says so, instead of asking you to check your network.
+operators:
+  - >
+    The chat socket's first frame is now a hello carrying the deployed commit,
+    and the page sends nothing until it arrives. Roll the agent out before the
+    web tier, or together with it: a page from this release treats an agent
+    without the hello as incompatible and shows that instead of answering.

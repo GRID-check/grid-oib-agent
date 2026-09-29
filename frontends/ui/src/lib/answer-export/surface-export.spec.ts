@@ -32,11 +32,12 @@ const text = (blocks: DocBlock[]): string =>
     )
     .join('\n')
 
-const basis = (id: string, summary: string) => ({
+/** An untitled leaf that states one line: headed by its type's word, `note` as its text. */
+const basis = (id: string, note: string) => ({
   id,
-  component: 'legal_basis',
-  law: 'OIB-Richtlinie 2',
-  summary,
+  component: 'calculation',
+  note,
+  steps: [{ label: 'Fläche', operation: 'product', operands: [{ label: 'a', value: 2 }, { label: 'b', value: 3 }] }],
 })
 
 describe('a surface in the export', () => {
@@ -145,13 +146,6 @@ describe('a surface in the export', () => {
     expect(text(cardsBlocks([mermaidTab], t))).toContain('flowchart TD')
   })
 
-  it('prints a diagram card as the format asks', () => {
-    const diagram = { type: 'diagram', title: 'Ablauf', source: 'flowchart TD\n  A --> B' }
-    const printed = text(cardsBlocks([diagram], t, { diagramPlaceholder: PLACEHOLDER }))
-    expect(printed).toContain(PLACEHOLDER)
-    expect(printed).not.toContain('flowchart TD')
-  })
-
   it('sets a titled surface’s cards one level below its title', () => {
     const blocks = cardBlocks(
       {
@@ -193,11 +187,11 @@ describe('a surface in the export', () => {
     expect(levels(cardBlocks(tabbed('Varianten'), t))).toEqual([
       [3, 'Varianten'],
       [4, 'GK 4'],
-      [5, 'Rechtsgrundlage'],
+      [5, 'Rechenweg'],
     ])
     expect(levels(cardBlocks(tabbed(), t))).toEqual([
       [3, 'GK 4'],
-      [4, 'Rechtsgrundlage'],
+      [4, 'Rechenweg'],
     ])
   })
 
@@ -218,7 +212,7 @@ describe('a surface in the export', () => {
       [3, 'Varianten'],
       [4, 'Überblick'],
       [4, 'Detail'],
-      [4, 'Rechtsgrundlage'],
+      [4, 'Rechenweg'],
     ])
   })
 })

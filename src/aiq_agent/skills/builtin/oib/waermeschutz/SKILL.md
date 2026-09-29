@@ -4,7 +4,6 @@ description: >
   U-Wert, HWB und Schall. Zuerst ob Neubau oder Bestand.
 metadata:
   grid-agents: researcher,deep_researcher
-  grid-cards: thermal_envelope,energy_performance,acoustic_check,requirement_checklist,legal_basis
 ---
 
 # Eine Frage zu Energie oder Schall beantworten
@@ -32,10 +31,12 @@ wird, die sich dann als die falsche erweist.
 
 ## Welches Bild
 
-U-Werte je Bauteil der Hülle → `thermal_envelope`, eine Zeile je Bauteil.
-HWB und Energieklasse → `energy_performance`.
-Schallschutz je Bauteilpaarung → `acoustic_check`, die Paarung im Label.
-Mehrere Anforderungen nebeneinander → als Prüftabelle (Status-Spalte).
+U-Werte je Bauteil der Hülle → als Prüftabelle, eine Zeile je Bauteil, der
+Wert in Ist, der Grenzwert mit ≤ in Soll.
+HWB und Energieklasse → als Kennzahlen (Wert gegen Grenzwert), die
+Energieeffizienzklasse benannt.
+Schallschutz je Bauteilpaarung → als Prüftabelle, die Paarung in der ersten Spalte.
+Mehrere Anforderungen nebeneinander → als Prüftabelle mit Status-Spalte.
 
 ## Done
 

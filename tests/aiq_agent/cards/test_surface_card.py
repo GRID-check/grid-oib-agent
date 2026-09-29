@@ -26,14 +26,8 @@ from aiq_agent.cards.models import SURFACE_TEXT_MAX
 from aiq_agent.cards.models import SurfaceCard
 from aiq_agent.cards.models import grid_card_adapter
 
-BASIS_A = {
-    "id": "a",
-    "component": "legal_basis",
-    "law": "OIB-Richtlinie 2",
-    "article": "3.1",
-    "summary": "GK 4: REI 60.",
-}
-BASIS_B = {"id": "b", "component": "legal_basis", "law": "OIB-Richtlinie 2", "article": "3.1", "summary": "GK 5: R 90."}
+BASIS_A = {"id": "a", "component": "ifc_model_picker", "title": "Haus A", "note": "GK 4: REI 60."}
+BASIS_B = {"id": "b", "component": "ifc_model_picker", "title": "Haus B", "note": "GK 5: R 90."}
 
 
 def _tabs(**overrides: Any) -> dict[str, Any]:
@@ -69,9 +63,9 @@ class TestAValidSurface:
         # The leaf comes back as its card model dumps it: defaults applied,
         # nulls dropped, and still addressed by the model's own id.
         leaf = grid_card_adapter.validate_python(_tabs()).components[1]
-        assert leaf["id"] == "a" and leaf["component"] == "legal_basis"
+        assert leaf["id"] == "a" and leaf["component"] == "ifc_model_picker"
         assert "type" not in leaf
-        assert leaf["law"] == "OIB-Richtlinie 2"
+        assert leaf["title"] == "Haus A"
 
     def test_nested_containers_validate(self):
         card = _tabs()
@@ -121,9 +115,9 @@ class TestTheStructureIsA2uiChecked:
 class TestTheCardsInsideAreCardChecked:
     def test_a_card_its_own_model_refuses_is_refused_here(self):
         card = _tabs()
-        del card["components"][1]["law"]
+        del card["components"][1]["title"]
         message = _refusal(card)
-        assert "'a' (legal_basis)" in message and "law" in message
+        assert "'a' (ifc_model_picker)" in message and "title" in message
 
     @pytest.mark.parametrize("excluded", sorted(SURFACE_EXCLUDED_LEAVES))
     def test_tool_interactive_and_envelope_cards_cannot_be_leaves(self, excluded):
@@ -208,7 +202,7 @@ class TestTextCitations:
     def test_only_surfaces_are_touched(self):
         from aiq_agent.cards.surface_citations import recite_surface
 
-        basis = {"type": "legal_basis", "summary": "[9]"}
+        basis = {"type": "ifc_model_picker", "title": "[9]"}
         assert recite_surface(basis, {}, set()) is basis
         surface = {"type": "surface", "components": [{"id": "root"}, _text("a", "x [2]")]}
         assert recite_surface(surface, {}, {2})["components"][1]["text"] == "x [2]"
@@ -292,7 +286,7 @@ class TestTextRecital:
 
         recited = recite_surface(card, {}, {1})
 
-        assert recited["type"] == "legal_basis" and recited["law"] == BASIS_A["law"]
+        assert recited["type"] == "ifc_model_picker" and recited["title"] == BASIS_A["title"]
         grid_card_adapter.validate_python(recited)
 
     def test_a_surface_left_with_one_text_keeps_the_blank_marked_and_recites_the_rest(self):
@@ -403,17 +397,17 @@ class TestWhereASurfaceIsTaught:
         from aiq_agent.cards.envelope import compose_rule
 
         assert render_card_details(["surface"]) == compose_rule()
-        with_another = render_card_details(["surface", "legal_basis"])
+        with_another = render_card_details(["surface", "ifc_model_picker"])
         assert with_another.endswith(compose_rule())
-        assert '"legal_basis"' in with_another and "`Text` leaf is the one exception" in with_another
+        assert '"ifc_model_picker"' in with_another and "`Text` leaf is the one exception" in with_another
 
     def test_a_leaf_that_fails_is_repaired_from_its_own_shape(self):
         card = _tabs()
-        del card["components"][1]["law"]
+        del card["components"][1]["title"]
         validated, refusal = validate_model_card(card)
         assert validated is None and refusal is not None
         assert refusal.hint is not None and "COMPOSE." in refusal.hint
-        assert '"legal_basis"' in refusal.hint and "shape:" in refusal.hint
+        assert '"ifc_model_picker"' in refusal.hint and "shape:" in refusal.hint
 
     async def test_emit_card_refuses_a_surface(self):
         import json
@@ -450,17 +444,17 @@ class TestWhereASurfaceIsTaught:
         from aiq_agent.cards.models import validate_cards
 
         basis = {key: value for key, value in BASIS_A.items() if key not in ("id", "component")}
-        validated = validate_cards([_tabs(), {**basis, "type": "legal_basis"}])
-        assert [card["type"] for card in validated] == ["legal_basis"]
+        validated = validate_cards([_tabs(), {**basis, "type": "ifc_model_picker"}])
+        assert [card["type"] for card in validated] == ["ifc_model_picker"]
 
     def test_the_chat_contract_s_craft_names_no_card_it_withholds(self):
-        from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
+        from aiq_agent.cards.catalog import RETIRED_CARD_TYPES
         from aiq_agent.cards.catalog import render_card_doctrine
 
-        doctrine = render_card_doctrine(markdown_first=True)
-        withheld = [card for card in MARKDOWN_CARD_TYPES if re.search(rf"\b{card}\b", doctrine)]
+        doctrine = render_card_doctrine()
+        withheld = [card for card in RETIRED_CARD_TYPES if re.search(rf"-> {card}\b", doctrine)]
         assert withheld == []
-        assert "a table in the answer" in doctrine
+        assert "MARKDOWN FIRST" in doctrine
 
     def test_the_post_hoc_prompt_withholds_the_surface(self):
         from aiq_agent.cards.prompt import build_card_generation_prompt
@@ -496,7 +490,7 @@ class TestPipelineRecital:
         from aiq_agent.cards.registry import reset_card_registry
         from aiq_agent.cards.registry import set_card_registry
 
-        before = {"type": "legal_basis", "law": "OIB-Richtlinie 2", "summary": "x"}
+        before = {"type": "ifc_model_picker", "title": "OIB-Richtlinie 2", "note": "x"}
         card = _tabs(components=[_tabs()["components"][0], _text("a", "[3]"), _text("b", "REI 90 [5]")])
         registry = CardRegistry()
         registry.add(before)

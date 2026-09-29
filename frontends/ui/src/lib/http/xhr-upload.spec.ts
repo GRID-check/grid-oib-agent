@@ -43,6 +43,15 @@ describe('xhrUpload', () => {
     })
   })
 
+  test('a rate-limit refusal carries the server’s Retry-After', async () => {
+    const pending = upload()
+    xhr.last().respond(429, '{"error":"Too many requests"}', { 'retry-after': '7' })
+
+    const error = (await pending.catch((e: unknown) => e)) as XhrUploadError
+    expect(error.status).toBe(429)
+    expect(error.retryAfterSeconds).toBe(7)
+  })
+
   test('a network failure is distinguishable from a refusal', async () => {
     const pending = upload()
     xhr.last().failNetwork()

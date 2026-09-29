@@ -16,6 +16,11 @@
  *   4. Fallback: generic document.
  */
 
+import type {
+  OFFICE_RENDITION_CONTENT_TYPES,
+  OFFICE_RENDITION_EXTENSIONS,
+} from '@/lib/documents/preview-types'
+
 export type DocumentKind =
   | 'floorplan'
   | 'section'
@@ -173,4 +178,143 @@ const EXT_TINT: Record<string, ExtChipTint> = {
 
 export function extChipTint(extLabel: string): ExtChipTint {
   return EXT_TINT[extLabel.toLowerCase()] ?? TINTS.neutral
+}
+
+/**
+ * What a file IS, in words a reader knows: "Word document", "Image (PNG)",
+ * "DWG file" — never `application/vnd.openxmlformats-officedocument…`.
+ *
+ * Pure: it names a dictionary key under `files.preview.formats` and the values
+ * to interpolate, and the caller translates. Resolution order:
+ *   1. a known extension (the stored type is whatever the browser sent, and an
+ *      empty one is stored as NULL or `application/octet-stream`),
+ *   2. a known content type,
+ *   3. any `image/*`, labelled by its subtype,
+ *   4. the extension in caps ("DWG file"),
+ *   5. the raw content type, verbatim.
+ * `null` only when there is neither an extension nor a type.
+ */
+export type FileFormatKey =
+  | 'pdf'
+  | 'word'
+  | 'excel'
+  | 'powerpoint'
+  | 'odText'
+  | 'odSpreadsheet'
+  | 'odPresentation'
+  | 'rtf'
+  | 'csv'
+  | 'tsv'
+  | 'markdown'
+  | 'plainText'
+  | 'ifc'
+  | 'email'
+  | 'image'
+  | 'extension'
+  | 'raw'
+
+export interface FileFormatMessage {
+  /** Key under `files.preview.formats`. */
+  key: FileFormatKey
+  values?: Record<string, string>
+}
+
+type OfficeContentType = (typeof OFFICE_RENDITION_CONTENT_TYPES)[number]
+type OfficeExtension = (typeof OFFICE_RENDITION_EXTENSIONS)[number]
+type NamedFormat = Exclude<FileFormatKey, 'image' | 'extension' | 'raw'>
+
+/**
+ * Every office type the BFF renders (ADR-0070) must have a name here: the
+ * `Record<OfficeContentType, …>` makes a new entry in `preview-types.ts` a
+ * compile error until it is labelled.
+ */
+const OFFICE_TYPE_FORMAT: Record<OfficeContentType, NamedFormat> = {
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'word',
+  'application/vnd.ms-word.document.macroenabled.12': 'word',
+  'application/msword': 'word',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'excel',
+  'application/vnd.ms-excel.sheet.macroenabled.12': 'excel',
+  'application/vnd.ms-excel': 'excel',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'powerpoint',
+  'application/vnd.ms-powerpoint.presentation.macroenabled.12': 'powerpoint',
+  'application/vnd.ms-powerpoint': 'powerpoint',
+  'application/vnd.oasis.opendocument.text': 'odText',
+  'application/vnd.oasis.opendocument.spreadsheet': 'odSpreadsheet',
+  'application/vnd.oasis.opendocument.presentation': 'odPresentation',
+  'application/rtf': 'rtf',
+  'text/rtf': 'rtf',
+}
+
+const TYPE_FORMAT: Record<string, NamedFormat> = {
+  ...OFFICE_TYPE_FORMAT,
+  'application/pdf': 'pdf',
+  'text/csv': 'csv',
+  'text/tab-separated-values': 'tsv',
+  'text/markdown': 'markdown',
+  'text/x-markdown': 'markdown',
+  'text/plain': 'plainText',
+  'application/x-step': 'ifc',
+  'application/ifc': 'ifc',
+  'model/ifc': 'ifc',
+  'message/rfc822': 'email',
+  'application/vnd.ms-outlook': 'email',
+}
+
+/** Same guarantee as {@link OFFICE_TYPE_FORMAT}, for the extensions. */
+const OFFICE_EXT_FORMAT: Record<OfficeExtension, NamedFormat> = {
+  '.docx': 'word',
+  '.docm': 'word',
+  '.doc': 'word',
+  '.xlsx': 'excel',
+  '.xlsm': 'excel',
+  '.xls': 'excel',
+  '.pptx': 'powerpoint',
+  '.pptm': 'powerpoint',
+  '.ppt': 'powerpoint',
+  '.odt': 'odText',
+  '.ods': 'odSpreadsheet',
+  '.odp': 'odPresentation',
+  '.rtf': 'rtf',
+}
+
+const EXT_FORMAT: Record<string, NamedFormat> = {
+  ...OFFICE_EXT_FORMAT,
+  '.pdf': 'pdf',
+  '.csv': 'csv',
+  '.tsv': 'tsv',
+  '.md': 'markdown',
+  '.markdown': 'markdown',
+  '.txt': 'plainText',
+  '.ifc': 'ifc',
+  '.ifczip': 'ifc',
+  '.eml': 'email',
+  '.msg': 'email',
+}
+
+/** Subtype spellings that read better normalised ("jpg" and "jpeg" are one format). */
+const IMAGE_SUBTYPE_LABEL: Record<string, string> = { jpg: 'JPEG', 'svg+xml': 'SVG', tif: 'TIFF' }
+
+const imageSubtypeLabel = (subtype: string): string =>
+  IMAGE_SUBTYPE_LABEL[subtype] ?? subtype.split('+', 1)[0].toUpperCase()
+
+export function fileFormatMessage(file: {
+  filename?: string | null
+  contentType?: string | null
+}): FileFormatMessage | null {
+  const rawType = file.contentType?.trim() ?? ''
+  const type = rawType.split(';', 1)[0].trim().toLowerCase()
+  const name = file.filename?.trim().toLowerCase() ?? ''
+  const dot = name.lastIndexOf('.')
+  const ext = dot >= 0 ? name.slice(dot) : ''
+
+  const byExt = EXT_FORMAT[ext]
+  if (byExt) return { key: byExt }
+  const byType = TYPE_FORMAT[type]
+  if (byType) return { key: byType }
+  if (IMAGE_EXT.test(name)) return { key: 'image', values: { format: imageSubtypeLabel(ext.slice(1)) } }
+  if (type.startsWith('image/')) return { key: 'image', values: { format: imageSubtypeLabel(type.slice(6)) } }
+  const extLabel = fileExtensionLabel(file.filename ?? '')
+  if (extLabel) return { key: 'extension', values: { ext: extLabel } }
+  if (rawType) return { key: 'raw', values: { type: rawType } }
+  return null
 }

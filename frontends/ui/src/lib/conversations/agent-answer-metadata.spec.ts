@@ -260,6 +260,16 @@ describe('provenanceFromBackendMetadata', () => {
 })
 
 describe('normalizeAgentAnswerMetadata', () => {
+  it('lifts the quote stamps into provenance and drops the wire key', () => {
+    const result = normalizeAgentAnswerMetadata({
+      quote_stamps: [{ text: 'Wände sind in REI 90 auszuführen.', status: 'not_found' }, { text: '', status: 'verbatim' }],
+    })
+    expect(result).not.toHaveProperty('quote_stamps')
+    expect((result?.provenance as { quoteStamps?: unknown }).quoteStamps).toEqual([
+      { text: 'Wände sind in REI 90 auszuführen.', status: 'not_found' },
+    ])
+  })
+
   const backendMetadata = {
     cards: [{ type: 'memory_proposal' }],
     sources: [kbSource()],

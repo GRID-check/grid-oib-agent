@@ -12,6 +12,7 @@ import type { WireEvent } from '@/adapters/api/wire-v2'
 import { foldTurnEvents, type TurnView } from '@/features/chat/lib/turn-fold'
 import { WIRE_TURN_FILES, eventOf, frameOf, wireEvents } from '@/test-utils/wire-v2-fixtures'
 import { foldSpectatedEvent, hasSomethingToShow, observerCards, orderedSteps } from './spectator-frames'
+import { CARD_PREVIEW_FIXTURES } from '@/features/grid-cards/preview-fixtures'
 
 const spectate = (events: readonly WireEvent[]): TurnView | null =>
   events.reduce<TurnView | null>(foldSpectatedEvent, null)
@@ -57,13 +58,13 @@ describe('what only an observer does', () => {
       at(seq, { type: 'CUSTOM', name: 'card', value: { index, key: `k${index}`, card: value } })
     const view = spectate([
       card(1, 0, { type: 'memory_proposal', title: 'Merken?', content: 'REI 90', kind: 'preference', confidence: 'high' }),
-      card(2, 1, { type: 'legal_basis', law: 'OIB-Richtlinie 2', article: '3.1', summary: 'GK 4: REI 60.' }),
+      card(2, 1, { ...CARD_PREVIEW_FIXTURES.calculation! }),
     ])
     if (!view) throw new Error('nothing folded')
     const cards = observerCards(view)
     expect(cards).toHaveLength(2)
     expect(cards?.[0]).toBeUndefined()
-    expect(cards?.[1]?.type).toBe('legal_basis')
+    expect(cards?.[1]?.type).toBe('calculation')
   })
 
   it('has something to show on a step, a masthead or a prompt, not on a withheld card alone', () => {

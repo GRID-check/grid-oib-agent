@@ -41,6 +41,7 @@ vi.mock('@/adapters/api/conversations-client', () => ({
 
 import { useChatStore } from '../store'
 import { isAwaitingServerMessages, markAwaitingServerMessages } from './chat-storage'
+import { isConversationOnServer } from '../lib/conversation-on-server'
 import type { ChatMessage, Conversation } from '../types'
 
 let uniqueCounter = 0
@@ -445,19 +446,18 @@ describe('loadServerConversations merge', () => {
   })
 })
 
+const message = (id: string): ChatMessage => ({
+  id,
+  role: 'user',
+  content: `msg ${id}`,
+  timestamp: new Date(),
+  messageType: 'user',
+})
+
 describe('_appendMessage conversation ensure', () => {
   it('creates the server conversation only once for concurrent appends', async () => {
     const conv = makeConversation({ title: 'Race chat' })
     useChatStore.setState({ conversations: [conv], currentConversation: conv })
-    mockConversationsClient.list.mockResolvedValue([])
-
-    const message = (id: string): ChatMessage => ({
-      id,
-      role: 'user',
-      content: `msg ${id}`,
-      timestamp: new Date(),
-      messageType: 'user',
-    })
 
     await Promise.all([
       useChatStore.getState()._appendMessage(message('m1')),
@@ -466,6 +466,58 @@ describe('_appendMessage conversation ensure', () => {
 
     expect(mockConversationsClient.create).toHaveBeenCalledTimes(1)
     expect(mockConversationsClient.createMessage).toHaveBeenCalledTimes(2)
+  })
+
+  it('creates without listing first: the create is the idempotent check', async () => {
+    // The list was capped at 200 rows and a failure unrelated to this chat (a 429
+    // on the list) meant the message was never stored.
+    mockConversationsClient.list.mockRejectedValue(new Error('429'))
+    const conv = makeConversation({ title: 'Direct chat', projectId: 'p1' })
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+
+    await useChatStore.getState()._appendMessage(message('m1'))
+
+    expect(mockConversationsClient.list).not.toHaveBeenCalled()
+    expect(mockConversationsClient.create).toHaveBeenCalledWith(conv.id, 'Direct chat', 'p1', null)
+    expect(mockConversationsClient.createMessage).toHaveBeenCalledWith(
+      conv.id,
+      expect.objectContaining({ id: 'm1' })
+    )
+  })
+
+  it('retries the create on the next append when it failed', async () => {
+    const conv = makeConversation()
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+    mockConversationsClient.create.mockRejectedValueOnce(new Error('503'))
+
+    await useChatStore.getState()._appendMessage(message('m1'))
+    expect(mockConversationsClient.createMessage).not.toHaveBeenCalled()
+
+    await useChatStore.getState()._appendMessage(message('m2'))
+    expect(mockConversationsClient.create).toHaveBeenCalledTimes(2)
+    expect(mockConversationsClient.createMessage).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a chat minted in this page', () => {
+  it('is not on the server until its create succeeds, and is afterwards', async () => {
+    const id = useChatStore.getState().ensureSession()!
+    expect(isConversationOnServer(id)).toBe(false)
+
+    mockConversationsClient.create.mockRejectedValueOnce(new Error('429'))
+    await useChatStore.getState()._appendMessage(message('m1'))
+    expect(isConversationOnServer(id)).toBe(false)
+
+    await useChatStore.getState()._appendMessage(message('m2'))
+    expect(isConversationOnServer(id)).toBe(true)
+  })
+
+  it('a conversation the server listed was never minted here, so it is on the server', async () => {
+    mockConversationsClient.list.mockResolvedValue([
+      { id: 's_listed', createdBy: 'user-1', title: 'Alt', createdAt: '2026-07-01', updatedAt: '2026-07-01' },
+    ])
+    await useChatStore.getState().loadServerConversations()
+    expect(isConversationOnServer('s_listed')).toBe(true)
   })
 })
 

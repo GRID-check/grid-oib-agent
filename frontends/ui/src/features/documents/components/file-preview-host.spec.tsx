@@ -33,7 +33,8 @@ vi.mock('./file-preview-pane', async () => {
   }
 })
 
-import { FilePreviewBridge, FilePreviewHost, useFilePeekBesideChat } from './file-preview-host'
+import { FilePreviewBridge, FilePreviewHost, METADATA_GRACE_POLLS, useFilePeekBesideChat } from './file-preview-host'
+import { onDocumentsChanged } from '@/lib/documents/document-changes'
 
 const FILE: FileItem = {
   id: 'doc-1',
@@ -265,7 +266,7 @@ describe('FilePreviewHost', () => {
       // CONSEQUENCE is the assertion, not the badge: "Processing" is a word,
       // "Piloti cannot cite this file yet" is the reason the reader is about
       // to get a worse answer than they expect.
-      expect(screen.getByRole('status')).toHaveTextContent(/cannot cite this file until it is indexed/i)
+      expect(screen.getByRole('status')).toHaveTextContent(/cannot cite this file until it has been read/i)
     })
 
     it('stays quiet about a file that is ready', () => {
@@ -303,6 +304,135 @@ describe('FilePreviewHost', () => {
         expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-1/status')
         expect(useFilePreviewStore.getState().file?.status).toBe('ready')
       } finally {
+        vi.useRealTimers()
+        vi.unstubAllGlobals()
+      }
+    })
+
+    /** A `/status` answer, as `getDocumentStatus` shapes it. */
+    const statusBody = (overrides: Record<string, unknown>) => ({
+      ok: true,
+      json: async () => ({ id: 'doc-1', filename: 'model.ifc', status: 'ready', ...overrides }),
+    })
+
+    /** Render the peek over a file still being read, and advance `ticks` polls. */
+    const settle = async (ticks: number): Promise<void> => {
+      peekOnChat('processing')
+      render(
+        <FilePreviewBridge>
+          <div>chat transcript</div>
+        </FilePreviewBridge>,
+      )
+      for (let i = 0; i < ticks; i += 1) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(4_000)
+        })
+      }
+    }
+
+    it('lands everything the status read carries, not only the status', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        statusBody({
+          summary: 'Ein Brandschutzkonzept.',
+          pageCount: 12,
+          chunkCount: 40,
+          contentTypes: ['text', 'drawing'],
+          tags: ['Brandschutz'],
+          versionCount: 2,
+        }),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      vi.useFakeTimers()
+      try {
+        await settle(1)
+
+        expect(useFilePreviewStore.getState().file).toMatchObject({
+          status: 'ready',
+          summary: 'Ein Brandschutzkonzept.',
+          pageCount: 12,
+          chunkCount: 40,
+          contentTypes: ['text', 'drawing'],
+          tags: ['Brandschutz'],
+          versionCount: 2,
+        })
+      } finally {
+        vi.useRealTimers()
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('keeps asking after the terminal read until the summary arrives', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(statusBody({ summary: null }))
+        .mockResolvedValueOnce(statusBody({ summary: null }))
+        .mockResolvedValue(statusBody({ summary: 'Ein Grundriss.', pageCount: 3 }))
+      vi.stubGlobal('fetch', fetchMock)
+      vi.useFakeTimers()
+      try {
+        await settle(5)
+
+        expect(useFilePreviewStore.getState().file).toMatchObject({ summary: 'Ein Grundriss.', pageCount: 3 })
+        // Two reads without it, the one that carried it, and then silence.
+        expect(fetchMock).toHaveBeenCalledTimes(3)
+      } finally {
+        vi.useRealTimers()
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('gives up on a summary that never comes after a bounded grace', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(statusBody({ summary: null }))
+      vi.stubGlobal('fetch', fetchMock)
+      vi.useFakeTimers()
+      try {
+        await settle(10)
+
+        // The terminal read, then METADATA_GRACE_POLLS more.
+        expect(fetchMock).toHaveBeenCalledTimes(1 + METADATA_GRACE_POLLS)
+        expect(useFilePreviewStore.getState().file?.status).toBe('ready')
+      } finally {
+        vi.useRealTimers()
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('does not erase metadata it already has with a read that has not caught up', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(statusBody({ status: 'processing', summary: null, tags: null }))
+      vi.stubGlobal('fetch', fetchMock)
+      vi.useFakeTimers()
+      try {
+        nav.pathname = '/app/projects/p1/chat'
+        useFilePreviewStore
+          .getState()
+          .open({ ...FILE, status: 'processing', summary: 'Schon da.', tags: ['Statik'] }, 'peek', { projectId: 'p1' })
+        render(
+          <FilePreviewBridge>
+            <div>chat transcript</div>
+          </FilePreviewBridge>,
+        )
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(4_000)
+        })
+
+        expect(useFilePreviewStore.getState().file).toMatchObject({ summary: 'Schon da.', tags: ['Statik'] })
+      } finally {
+        vi.useRealTimers()
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('tells the document listings when the open file finishes', async () => {
+      const changed = vi.fn()
+      const off = onDocumentsChanged(changed)
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(statusBody({ summary: 'Fertig.' })))
+      vi.useFakeTimers()
+      try {
+        await settle(1)
+
+        expect(changed).toHaveBeenCalledTimes(1)
+      } finally {
+        off()
         vi.useRealTimers()
         vi.unstubAllGlobals()
       }

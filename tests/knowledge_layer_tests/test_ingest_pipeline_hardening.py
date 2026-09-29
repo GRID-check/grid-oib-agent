@@ -333,7 +333,7 @@ class TestRenderVisualPagesPageTexts:
     def test_page_texts_override_marks_watermark_page_visual(self, monkeypatch):
         """The pdfium text layer still holds the watermark (looks textful), but
         the caller's watermark-stripped text is empty → the page IS rendered."""
-        page = _FakeRenderPage("VECTORWORKS EDUCATIONAL VERSION " * 20, n_paths=0)
+        page = _FakeRenderPage("VECTORWORKS EDUCATIONAL VERSION " * 20, n_paths=1000)
         _install_fake_render_pdf(monkeypatch, [page])
 
         out = processing.render_visual_pages_no_vlm("ignored.pdf", page_texts={1: ""})
@@ -355,12 +355,29 @@ class TestRenderVisualPagesPageTexts:
 
     def test_missing_page_in_page_texts_counts_as_empty(self, monkeypatch):
         """A page absent from the extracted-text map (extraction failed for it)
-        is treated as text-empty and rendered."""
-        _install_fake_render_pdf(monkeypatch, [_FakeRenderPage("Some text", n_paths=0)])
+        is treated as text-empty and, being path-heavy, rendered."""
+        _install_fake_render_pdf(monkeypatch, [_FakeRenderPage("Some text", n_paths=1000)])
 
         out = processing.render_visual_pages_no_vlm("ignored.pdf", page_texts={})
 
         assert len(out) == 1
+
+    def test_a_text_low_page_without_paths_is_not_a_drawing(self, monkeypatch):
+        """The rule was text-low OR path-heavy, so every near-empty page — and
+        every scan — went through the drawing schema. A drawing needs both."""
+        _install_fake_render_pdf(monkeypatch, [_FakeRenderPage("", n_paths=0)])
+
+        assert processing.render_visual_pages_no_vlm("ignored.pdf", page_texts={1: ""}) == []
+
+    def test_only_pages_replaces_the_check(self, monkeypatch):
+        """The ingestion path hands in its own triage; the PDF is judged once."""
+        pages = [_FakeRenderPage("", n_paths=1000), _FakeRenderPage("", n_paths=0)]
+        _install_fake_render_pdf(monkeypatch, pages)
+
+        out = processing.render_visual_pages_no_vlm("ignored.pdf", only_pages={2})
+
+        assert [record["page_number"] for record in out] == [2]
+        assert pages[0].textpage_reads == 0
 
 
 # =============================================================================
@@ -789,7 +806,7 @@ class TestRenderVisualPagesSurvivesDamagedInput:
         monkeypatch.setattr(pdfium, "PdfDocument", _FakeDoc)
 
     def test_one_unreadable_page_does_not_cost_the_pages_after_it(self, monkeypatch):
-        pages = [_FakeRenderPage("", n_paths=0) for _ in range(3)]
+        pages = [_FakeRenderPage("", n_paths=1000) for _ in range(3)]
         self._install_doc(monkeypatch, pages, bad_indices={1})
 
         out = processing.render_visual_pages_no_vlm("ignored.pdf", page_texts={1: "", 2: "", 3: ""})
@@ -825,7 +842,7 @@ class TestRenderVisualPagesSurvivesDamagedInput:
         assert any(r.levelno == logging.WARNING for r in caplog.records)
 
     def test_skipped_pages_are_reported_rather_than_left_to_be_inferred(self, monkeypatch, caplog):
-        pages = [_FakeRenderPage("", n_paths=0) for _ in range(3)]
+        pages = [_FakeRenderPage("", n_paths=1000) for _ in range(3)]
         self._install_doc(monkeypatch, pages, bad_indices={1})
 
         with caplog.at_level(logging.DEBUG):

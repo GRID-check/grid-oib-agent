@@ -213,9 +213,10 @@ def reset_contributions() -> None:
 #    the only place ``cost`` lives — survives solely inside the span's
 #    ``nat.metadata`` JSON (``chat_responses[].message.response_metadata``),
 #    and only on the chat-completions path: a role on ``api_type: responses``
-#    leaves nothing there but LangChain's normalized ``usage_metadata``,
-#    whose ``input_token_details.cache_read`` is the cached bucket under
-#    another name. Reading only the provider shape is what rendered every
+#    leaves LangChain's normalized ``usage_metadata`` there, whose
+#    ``input_token_details.cache_read`` is the cached bucket under another
+#    name (the ``cost``/``is_byok`` that ``cost_tracking``'s carrier keeps
+#    beside it is for the ledger; this reader does not use it). Reading only the provider shape is what rendered every
 #    Piloti research generation with bare input/output/total and no cache
 #    bucket, however well the provider was caching.
 # 2. The turn's result carries no usage at all (a chat turn ends with a

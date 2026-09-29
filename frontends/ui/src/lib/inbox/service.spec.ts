@@ -5,6 +5,18 @@ vi.mock('@/lib/sharing/directory', () => ({ resolvePeople: vi.fn() }))
 vi.mock('@/lib/sharing/registry', () => ({ describeResource: vi.fn() }))
 vi.mock('@/lib/events/bus', () => ({ publishToUser: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+vi.mock('@/lib/authz/platform', () => ({
+  hasPlatformPermission: vi.fn(),
+  getPlatformOrganizationId: vi.fn(),
+}))
+// Records the organization each lane's query ran as. Pass-through otherwise.
+const laneScopes: string[] = []
+vi.mock('@/lib/db/tenant-context', () => ({
+  withTenant: vi.fn(async (scope: { organizationId: string }, fn: () => unknown) => {
+    laneScopes.push(scope.organizationId)
+    return await fn()
+  }),
+}))
 
 vi.mock('./repository', () => ({
   INBOX_LIST_LIMIT: 50,
@@ -32,6 +44,7 @@ import type { InboxItem, InboxItemType } from '@/lib/db/schema'
 import { getDb } from '@/lib/db'
 import { publishToUser } from '@/lib/events/bus'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { getPlatformOrganizationId, hasPlatformPermission } from '@/lib/authz/platform'
 import { resolveResourceAccess } from '@/lib/sharing/access'
 import { resolvePeople } from '@/lib/sharing/directory'
 import { describeResource } from '@/lib/sharing/registry'
@@ -143,6 +156,10 @@ beforeEach(() => {
   // opt-in is what `isCollaborationEnabled` reads. The gate's other state is
   // exercised explicitly rather than inherited from an unset variable.
   vi.stubEnv('GRID_COLLABORATION_ENABLED', 'true')
+  laneScopes.length = 0
+  // Not platform staff unless a test says so: the platform lane stays shut.
+  vi.mocked(hasPlatformPermission).mockResolvedValue(false)
+  vi.mocked(getPlatformOrganizationId).mockResolvedValue('org_platform')
   vi.mocked(repository.listInboxItems).mockResolvedValue([])
   vi.mocked(repository.countPendingInboxItems).mockResolvedValue(3)
   vi.mocked(resolveResourceAccess).mockResolvedValue(reachable)
@@ -654,5 +671,116 @@ describe('visibleInboxTypes gate — the inbox is not collaboration-only', () =>
     const [, , types] = vi.mocked(repository.markAllInboxItemsRead).mock.calls[0]!
     expect(types).toEqual([...OPERATIONAL_TYPES])
     expect(types).not.toContain('mention.requested')
+  })
+})
+
+/**
+ * The platform lane: rows addressed to platform staff live in the PLATFORM
+ * organization (product feedback), and an owner reads them from whichever
+ * organization they are working in.
+ */
+describe('the platform lane', () => {
+  const feedbackRow = row({
+    id: 'item_feedback',
+    organizationId: 'org_platform',
+    type: 'feedback.submitted',
+    resourceType: 'product_feedback',
+    resourceId: 'report_1',
+    actorUserId: 'user_elsewhere',
+    groupKey: 'feedback.submitted:product_feedback:report_1',
+    payload: { subject: 'Büro Nord', excerpt: 'Upload hängt', actorName: 'Maria Huber' },
+    updatedAt: new Date('2026-07-29T11:00:00.000Z'),
+  })
+
+  function listByOrganization(tenantRows: InboxItem[], platformRows: InboxItem[]) {
+    vi.mocked(repository.listInboxItems).mockImplementation(async (organizationId) =>
+      organizationId === 'org_platform' ? platformRows : tenantRows,
+    )
+  }
+
+  it('stays shut for a reader without the platform permission', async () => {
+    listByOrganization([row()], [feedbackRow])
+
+    const { items } = await listInbox(session)
+
+    expect(items.map((item) => item.id)).toEqual(['item_1'])
+    expect(laneScopes).toEqual([])
+    expect(vi.mocked(repository.listInboxItems).mock.calls.map((call) => call[0])).toEqual(['org_1'])
+  })
+
+  it('merges platform rows into the list, newest first, queried AS the platform organization', async () => {
+    vi.mocked(hasPlatformPermission).mockResolvedValue(true)
+    listByOrganization([row()], [feedbackRow])
+
+    const { items } = await listInbox(session)
+
+    expect(items.map((item) => item.id)).toEqual(['item_feedback', 'item_1'])
+    // RLS shows the platform rows only inside that tenant scope, and only
+    // the platform lane pays for it (its list and its badge count).
+    expect(laneScopes.length).toBeGreaterThan(0)
+    expect(new Set(laneScopes)).toEqual(new Set(['org_platform']))
+    const platformCall = vi
+      .mocked(repository.listInboxItems)
+      .mock.calls.find((call) => call[0] === 'org_platform')!
+    expect(platformCall[1]).toBe('user_1')
+    expect(platformCall[2].types).toEqual(['feedback.submitted'])
+  })
+
+  it('links the report and names its author from the payload snapshot', async () => {
+    vi.mocked(hasPlatformPermission).mockResolvedValue(true)
+    listByOrganization([], [feedbackRow])
+
+    const { items } = await listInbox(session)
+
+    expect(items[0]!.href).toBe('/app/platform/feedback?report=report_1')
+    // The author is in another organization, which the reader's directory
+    // cannot resolve.
+    expect(items[0]!.actorName).toBe('Maria Huber')
+    expect(items[0]!.excerpt).toBe('Upload hängt')
+  })
+
+  it('never asks the tenant lane for a platform type, so no row is listed twice', async () => {
+    vi.mocked(hasPlatformPermission).mockResolvedValue(true)
+    // The owner is ACTING in the platform organization.
+    const insidePlatform = makeSession({ organizationId: 'org_platform' })
+
+    await listInbox(insidePlatform)
+
+    const typeSets = vi.mocked(repository.listInboxItems).mock.calls.map((call) => call[2].types)
+    expect(typeSets).toHaveLength(2)
+    const [tenant, platform] = typeSets as InboxItemType[][]
+    expect(tenant).not.toContain('feedback.submitted')
+    expect(platform).toEqual(['feedback.submitted'])
+  })
+
+  it('counts both lanes in the badge', async () => {
+    vi.mocked(hasPlatformPermission).mockResolvedValue(true)
+    vi.mocked(repository.countPendingInboxItems).mockImplementation(async (organizationId) =>
+      organizationId === 'org_platform' ? 2 : 3,
+    )
+
+    expect(await getInboxSummary(session)).toEqual({ pending: 5 })
+  })
+
+  it('archives a platform row through its own lane', async () => {
+    vi.mocked(hasPlatformPermission).mockResolvedValue(true)
+    vi.mocked(repository.archiveInboxItem).mockImplementation(
+      async (organizationId) => organizationId === 'org_platform',
+    )
+
+    const result = await archiveItem(session, 'item_feedback')
+
+    expect(result.affected).toBe(1)
+  })
+
+  it('stays shut when the platform organization is not provisioned', async () => {
+    vi.mocked(hasPlatformPermission).mockResolvedValue(true)
+    vi.mocked(getPlatformOrganizationId).mockResolvedValue(null)
+
+    await getInboxSummary(session)
+
+    expect(vi.mocked(repository.countPendingInboxItems).mock.calls.map((call) => call[0])).toEqual([
+      'org_1',
+    ])
   })
 })

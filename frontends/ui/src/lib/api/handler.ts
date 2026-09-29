@@ -55,7 +55,7 @@ import { ZodError, type ZodType, type output } from 'zod'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { isAuthzError } from '@/lib/auth-utils'
 import { hasPermission, type KnownPermission } from '@/lib/authz/permissions'
-import { requireInternalToken } from '@/lib/internal-auth'
+import { requireInternalToken, type InternalTokenEnv } from '@/lib/internal-auth'
 import { runWithTenantSlot, withPlatformAccess } from '@/lib/db/tenant-context'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { DEFAULT_MUTATION_LIMIT } from '@/lib/limits/catalog'
@@ -209,6 +209,8 @@ export type InternalTenancy =
 
 export interface InternalRouteOptions extends FixedAuthzRouteOptions {
   readonly tenancy: InternalTenancy
+  /** The secret this route checks; the shared service token when omitted. */
+  readonly tokenEnv?: InternalTokenEnv
 }
 
 /** Options for the intentionally unauthenticated routes. */
@@ -414,7 +416,7 @@ export function internalApiRoute<TParams = Record<string, string | string[]>>(
   options: InternalRouteOptions
 ) {
   return async (request: Request, context?: NextRouteContext): Promise<Response> => {
-    const denied = requireInternalToken(request, label)
+    const denied = requireInternalToken(request, label, options.tokenEnv)
     if (denied) return denied
     // The slot matters most here: these routes carry no session, so a
     // `fromPayload` handler that forgot its scope MUST fail closed rather than

@@ -59,7 +59,7 @@ def _runtime() -> SkillRuntime:
         name="brandschutz",
         description="Brandabschnitt, Fluchtweg.",
         body="short",
-        metadata={"grid-cards": "fire_compartment,egress_diagram,legal_basis"},
+        metadata={"grid-cards": "fire_access_plan,egress_diagram,calculation"},
         origin="platform",
     )
     return SkillRuntime(skills=(short, ifc))
@@ -77,9 +77,9 @@ class TestTheFacts:
         # Every resolved skill is an option of the choice, the long IFC one included.
         assert facts.skills == [("brandschutz", "Brandabschnitt, Fluchtweg."), (IFC, "Am Modell messen.")]
         assert facts.project_facts == {"gebaeudeklasse": "4"}
-        # The card types are the content cards beyond the taught eight.
+        # The card types are the content cards beyond the shapes the envelope teaches.
         names = {t for t, _ in facts.card_types}
-        assert "fire_compartment" in names and "legal_basis" not in names
+        assert "fire_access_plan" in names and "calculation" not in names
         # `surface`'s shape is the compose rule the envelope contract carries.
         assert "surface" not in names
 
@@ -98,9 +98,9 @@ class TestTheEffects:
     def test_chosen_cards_become_the_shapes_block(self):
         state = ResearchAgentState(messages=[])
         _apply_decisions(
-            TurnDecisions(decided=True, cards=(("fire_compartment", 0.9), ("stair_diagram", 0.2))), state, None
+            TurnDecisions(decided=True, cards=(("fire_access_plan", 0.9), ("stair_diagram", 0.2))), state, None
         )
-        assert state.card_shapes_block and "fire_compartment" in state.card_shapes_block
+        assert state.card_shapes_block and "fire_access_plan" in state.card_shapes_block
         assert "stair_diagram" not in state.card_shapes_block
 
     def test_the_chosen_skills_preferred_shapes_beyond_the_contracts_ride_the_turn(self):
@@ -110,9 +110,9 @@ class TestTheEffects:
         _apply_decisions(decided, state, runtime)
         assert [s.name for s in runtime.inlined] == ["brandschutz"]
         block = state.card_shapes_block or ""
-        assert "fire_compartment" in block and "egress_diagram" in block
-        # `legal_basis` is one of the three the envelope already teaches.
-        assert '"legal_basis"' not in block
+        assert "fire_access_plan" in block and "egress_diagram" in block
+        # `calculation` is the shape the envelope already teaches.
+        assert '"calculation"' not in block
 
     def test_a_skill_preferring_a_surface_does_not_attach_its_compose_rule_twice(self):
         state = ResearchAgentState(messages=[])
@@ -120,13 +120,13 @@ class TestTheEffects:
             name="varianten",
             description="Varianten vergleichen.",
             body="short",
-            metadata={"grid-cards": "surface,fire_compartment"},
+            metadata={"grid-cards": "surface,fire_access_plan"},
             origin="platform",
         )
         decided = TurnDecisions(decided=True, skill="varianten", skill_p=0.8, skill_fit=0.9)
         _apply_decisions(decided, state, SkillRuntime(skills=(skill,)))
         block = state.card_shapes_block or ""
-        assert "fire_compartment" in block and '"surface"' not in block
+        assert "fire_access_plan" in block and '"surface"' not in block
 
     def test_the_previous_exchange_is_the_last_question_and_the_last_answer(self):
         from langchain_core.messages import AIMessage

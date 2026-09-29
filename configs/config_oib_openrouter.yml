@@ -172,8 +172,9 @@ llms:
     #    response; its `usage: {include: true}` request option "[is] deprecated
     #    and [has] no effect". Do not add one. What a `responses` role loses is
     #    the *carrier*, not the flag — langchain-openai builds no `llm_output`
-    #    on that path, so only LangChain's normalized `usage_metadata` (counts
-    #    + cache bucket, no cost) reaches the ledger; `cost_tracking` reads it.
+    #    on that path and keeps only the normalized `usage_metadata` (counts +
+    #    cache bucket). `cost_tracking.install_responses_cost_carrier` puts the
+    #    provider's `cost` and `is_byok` back, so this role is charged in credits.
     # 2. THE CACHE KEY IS DERIVED, NOT CONFIGURED. Caching itself is automatic
     #    for the OpenAI family (≥1024 prompt tokens, no `cache_control`
     #    breakpoint); what needs a request field is landing twice on the SAME
@@ -480,7 +481,6 @@ functions:
 
   knowledge_search:
     _type: knowledge_retrieval
-    backend: llamaindex
     collection_name: ${COLLECTION_NAME:-oib_knowledge}
     include_base_collection: true
     include_session_collection: true

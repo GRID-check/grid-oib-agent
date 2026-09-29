@@ -81,9 +81,20 @@ export const useChatStore = create<ChatStoreWithHydration>()(
 // Selectors
 // ============================================================
 
-export const selectHasConnectionError = (state: ChatStore): boolean =>
+/**
+ * A connection error the backend's health can clear (`useConnectionRecovery`).
+ * `connection.server_incompatible` is not one: an agent rolled back to an
+ * older socket answers `/health` like any other, so a healthy poll would
+ * dismiss a true message and start a ladder that ends the same way. That card
+ * goes when a socket says hello (`dismissConnectionErrors` on open), which the
+ * reader's next question tries.
+ */
+export const selectHasRecoverableConnectionError = (state: ChatStore): boolean =>
   state.currentConversation?.messages.some(
-    (m) => m.messageType === 'error' && m.errorData?.errorCode?.startsWith('connection.')
+    (m) =>
+      m.messageType === 'error' &&
+      m.errorData?.errorCode?.startsWith('connection.') &&
+      m.errorData.errorCode !== 'connection.server_incompatible'
   ) ?? false
 
 // ============================================================

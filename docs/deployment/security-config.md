@@ -161,13 +161,10 @@ resolver (`AIQ_EMBED_API_KEY`, else the key inferred from `AIQ_EMBED_BASE_URL`).
 ### What's Needed For VLM Features
 
 Vision-Language Model features (table extraction, image extraction, chart
-extraction) need only the extraction flags; the model and host default to
-OpenRouter:
+extraction) are on by default (`AIQ_EXTRACT_*`, set `false` to disable one);
+they need only a VLM key, and the model and host default to OpenRouter:
 
 ```bash
-AIQ_EXTRACT_TABLES=true
-AIQ_EXTRACT_IMAGES=true
-AIQ_EXTRACT_CHARTS=true
 # defaults, shown for completeness
 AIQ_VLM_MODEL=openai/gpt-6-luna
 AIQ_VLM_BASE_URL=https://openrouter.ai/api/v1

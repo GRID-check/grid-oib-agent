@@ -26,15 +26,15 @@ User's Browser                 Next.js BFF                    SeaweedFS         
       │                            │   document_id}           │                      │                    │
       │                            │ ──────────────────────────────────────────────► │                    │
       │                            │                          │                      │                    │
-      │  {documentId, jobId,       │                          │   GET presigned URL  │                    │
-      │   status: "pending"}       │                          │ ──────────────────► │                    │
+      │                            │ ◄────────────────────────────────────────────── │                    │
+      │  {documentId, jobId,       │  202 {job_id} at once:   │                      │                    │
+      │   status: "pending"}       │  submit_job(), no GET    │                      │                    │
       │ ◄──────────────────────────┤                          │                      │                    │
+      │                            │                          │  job: GET presigned  │                    │
+      │                            │                          │  URL (deferred)      │                    │
       │                            │                          │ ◄────────────────── │                    │
+      │                            │                          │ ──────────────────► │                    │
       │                            │                          │     file bytes       │                    │
-      │                            │                          │                      │                    │
-      │                            │                          │   submit_job()       │                    │
-      │                            │                          │   (background)       │                    │
-      │                            │                          │ ────────────────►    │                    │
       │                            │                          │                      │                    │
       │  Poll /api/documents/      │                          │                      │                    │
       │  {id}/status (5s)          │                          │                      │  Extract → Chunk   │
@@ -75,12 +75,50 @@ Body: { projectId: string, file: File }
 
 1. **Auth check** — `requireAuthorizedSession()` + `requireProjectAccess(session, projectId, 'project:edit')`
 2. **Generate documentId** — `uuidv4()`
-3. **Store in SeaweedFS** — `PutObjectCommand` with key `org/{orgId}/project/{projId}/doc/{docId}/{filename}` (built by `buildStorageKey()` in `s3.ts`)
+3. **Store in SeaweedFS** — `PutObjectCommand` with key `org/{orgId}/project/{projId}/doc/{docId}/{filename}` (built by `buildStorageKey()` in `s3.ts`). The filename segment goes through `storageKeySegment`: separators are flattened, and a name the pipelines write beside the original (`_render.pdf`, `_thumb.jpg`, `_img`, `_bim`, compared without case) or a dot-only name gets a `_` prefix, so a user file named `_render.pdf` is stored as `__render.pdf` and cannot be mistaken for a derived object. The row keeps the user's filename
 4. **Insert DB row** — Drizzle `documents` table with `status: 'uploaded'`, storing `documentId`, `organizationId`, `projectId`, `createdBy`, `filename`, `storageKey`, `collectionName`, `fileSize`, `contentType`
-5. **Generate presigned GET URL** — `getSignedUrl(s3Client, GetObjectCommand, { expiresIn: SEAWEED_PRESIGNED_URL_TTL_SECONDS || 600 })`
+5. **Generate presigned GET URL** — `getSignedUrl(s3Client, GetObjectCommand, { expiresIn: INGEST_JOB_REF_TTL_SECONDS })`. 24 hours, not the 600 s `SEAWEED_PRESIGNED_URL_TTL_SECONDS` default the other signed reads use: the ingest job downloads the file when the bounded ingest pool reaches it, which can be well after dispatch (Step 3)
 6. **Trigger ingestion** — POST to `{BACKEND_URL}/v1/ingest` with `{ file_ref: presignedUrl, collection: collectionName, document_id: documentId, file_name: filename, folder_path }`. `file_name` is the row's own `documents.filename`, stated rather than derived from the presigned URL's last path segment, because it is the join key every chunk purge addresses
 7. **Record the job** — on success the row is updated to `status: 'pending'` with `metadata: { ingestJobId }` so status reads can later reconcile the row against the backend job (see Step 5)
-8. **Return response** — `{ documentId, jobId, status: 'pending' | 'uploaded' }`
+8. **Return response** — `{ documentId, jobId, status: 'pending' | 'uploaded' | 'processing' }`
+
+Two kinds of file skip steps 6 and 7 and return `processing` with no job id:
+an IFC model (`beginModelExtraction`) and, when `GOTENBERG_URL` is set, an
+office file. Without it, a Word, presentation, `.xls` or `.ods` file returns
+`failed` at once.
+
+### Office files: convert, then ingest
+
+**File**: `frontends/ui/src/lib/documents/service.ts` (`beginRenditionIngest`)
+
+An office file (`isOfficeRenditionSource` on the row's filename and stored type)
+is converted to its PDF rendition before it is ingested, detached from the
+request ([ADR-0071](../adr/0071-word-and-presentation-files-are-indexed-from-their-rendition.md)):
+
+1. The row is set to `processing` and the upload returns.
+2. In the background, `ensureRendition` (`lib/documents/rendition.ts`) writes
+   `<dir>/_render.pdf` through Gotenberg, with a 120-second timeout. Each BFF
+   process runs at most `GOTENBERG_MAX_CONCURRENCY` conversions at once
+   (default 2), readers ahead of background work, and the 120 seconds start
+   when a slot is held, not while the conversion waits for one.
+3. `dispatchIngest` posts to `/v1/ingest` with `preview_ref`, a presigned GET of
+   the rendition for the thumbnail, and, when `isIndexedFromRendition(filename)`
+   (`lib/documents/preview-types.ts`: Word, presentations, `.xls`, `.ods`),
+   `extraction_ref`, the same URL for text extraction. `.xlsx` and `.xlsm` get
+   `preview_ref` only.
+4. The dispatch sets the row to `pending` with the job id, or to `failed`. A
+   throw anywhere around it marks the row `failed`, so a row never stays at
+   `processing` because of an error nobody saw.
+
+There is no fallback reader. A failed or timed-out conversion of a Word,
+presentation, `.xls` or `.ods` file marks the row `failed` with
+`RENDITION_REQUIRED_MESSAGE` and dispatches nothing. Without `GOTENBERG_URL` the
+dispatch marks such a file failed the same way, before any background work. A
+`.xlsx` or `.xlsm` goes out without `preview_ref` and is indexed from the
+original, only without a thumbnail. The re-ingest action („Erneut lesen“,
+`POST /api/documents/{id}/reingest`) takes the same path and converts again. A
+process restart during a conversion leaves the row at `processing` with no job,
+which re-ingest reads as lost and retries.
 
 **SeaweedFS config** (`frontends/ui/src/lib/s3.ts`):
 - Endpoint: `process.env.SEAWEED_ENDPOINT`
@@ -98,18 +136,28 @@ POST /v1/ingest
 Body: {
   file_ref: str, collection: str, document_id: str,
   file_name: str | None, folder_path: str | None, thumbnail_upload_url: str | None,
+  # office renditions (ADR-0070, ADR-0071): presigned GETs of _render.pdf
+  preview_ref: str | None, extraction_ref: str | None,
   # provenance, all four together or none (ADR-0054)
   authored_by: str | None, approved_by: str | None, approved_at: str | None, producer: str | None,
 }
 Status: 202 Accepted
 ```
 
-1. Validates `file_ref` and `collection` are present
-2. Downloads the file from the presigned URL via `httpx.AsyncClient` (follows redirects)
-3. Infers file suffix from `Content-Type` header or URL path
-4. Saves to a `tempfile.NamedTemporaryFile`
-5. Submits to the active ingestor via `ingestor.submit_job([temp_path], collection, config={cleanup_files: True, original_filenames: [...]})`. `original_filenames` is `file_name` when the BFF stated one and the URL basename otherwise; it becomes each chunk's `file_name` metadata
-6. Returns `{ job_id, status: 'pending', document_id }`
+The request downloads nothing. The BFF aborts it after ten seconds and sends it
+once more, so every second spent before the job id is returned is a false
+„failed" waiting to happen: a download here failed any file slower than that,
+and a retry landing on another replica while the first attempt was still
+downloading.
+
+1. Validates `file_ref` and `collection` are present, and passes `file_ref`, `extraction_ref`, `preview_ref` and `thumbnail_upload_url` through the object-store SSRF gates. It is the only gate those URLs meet: the job fetches them later without asking again
+2. With a `document_id`, looks for a live job under the dispatch key (sha256 of `document_id` and the object path of `file_ref`), under a per-key lock on this replica, and answers with that job's id when one exists
+3. Otherwise submits to the active ingestor: `ingestor.submit_job([DeferredObjectDownload(file_ref)], collection, config={cleanup_files: True, original_filenames: [...], ...})`. `original_filenames` is `file_name` when the BFF stated one and the URL basename otherwise; it becomes each chunk's `file_name` metadata. A rendition goes in as `extraction_paths: [DeferredObjectDownload(extraction_ref, suffix=".pdf")]`, positional like `original_filenames`, so the chunks are read from the PDF and still carry the original's name (`Bericht.docx`). `DeferredObjectDownload`'s `repr` is `<deferred object download>`: no presigned URL is logged or visible in the job config
+4. Returns `{ job_id, status: 'pending', document_id }` (202), then, only for an office original with `preview_ref` and no `extraction_ref` (a spreadsheet), draws its thumbnail from `preview_ref` in a background task
+
+A failed submit is a 500 with a fixed message. A missing object, an expired
+signature or an unreachable store is no longer a status of this request: it is a
+failed file on the job (Step 4).
 
 ### Provenance (ADR-0054)
 
@@ -131,7 +179,7 @@ published version is ever dispatched, so a draft has no chunks at all — see
 [`../architecture/agent-document-provenance.md`](../architecture/agent-document-provenance.md)
 for the lane and the label, and ADR-0054 for the door.
 
-On failure, the temp file is cleaned up in the `finally` block. The ingestion route delegates to the active ingestor singleton, which is set up during NAT function registration.
+The ingestion route delegates to the active ingestor singleton, which is set up during NAT function registration.
 
 ---
 
@@ -139,15 +187,32 @@ On failure, the temp file is cleaned up in the `finally` block. The ingestion ro
 
 **File**: `sources/knowledge_layer/src/llamaindex/adapter.py`
 
-The `LlamaIndexIngestor.submit_job()` creates a job with `JobState.PENDING` and spawns a daemon thread running `_run_ingestion()`.
+The `LlamaIndexIngestor.submit_job()` creates a job with `JobState.PENDING` and hands `_run_ingestion()` to the bounded ingest pool. An entry of `file_paths` is a local path (the multipart upload, the OIB sync) or a deferred download (`/v1/ingest`); the latter is kept unchecked, since nothing is on disk yet.
 
 ### `_run_ingestion(job_id, file_paths, collection_name, config)`
 
 For each file:
 
-1. **Text extraction** — `SimpleDirectoryReader(input_files=[file_path])` loads the file content into LlamaIndex `Document` objects
-2. **Table extraction** (PDF only, optional) — Uses `pdfplumber` to extract tables as markdown; each table becomes a `Document` with `content_type: "table"` metadata
+0. **Download and thumbnail** — a deferred original is downloaded first (`knowledge_layer.deferred_files.resolve_original`): one GET without redirects, into a temp file whose suffix comes from the response's `Content-Type` (the object path as fallback, scrubbed), owned and deleted by the job whether or not `cleanup_files` is set. A failed download fails the file with the stable error `original_download_failed: …` and nothing else is fetched for it, the rendition included; the log names the error class and HTTP status, never the URL. Then the rendition, when there is one, and then the 400px card thumbnail, drawn from the rendition or from a PDF or image original before any extraction, so the card has it as soon as anything has the bytes
+1. **Text extraction** — a PDF is read per page with pdfplumber, recording each line's font size and weight (`line_styles`). `.xlsx`/`.xlsm` go through `office_extractors`; `.md`, `.txt`, `.csv` and `.tsv` through `text_formats`, which decodes without dropping a byte (BOM, else strict UTF-8, else cp1252, else Latin-1; the encoding is stored as `source_encoding`). Any other extension falls to `SimpleDirectoryReader`. When the job carries an extraction path for the file, the PDF rendition is read instead and every later step treats it as a PDF: pages, tables, images and visual pages. For a `.pptx` or `.pptm` a companion reads the speaker notes from the original, one unit per slide labelled with its rendition page, because a PDF export drops them
+   **Chunking.** Every text chunk carries a locator a citation and `read_passage(punkt=…)` can use:
+
+   | Source | Unit | Locator (`punkt_id`) | `page_label` |
+   |---|---|---|---|
+   | OIB Richtlinie (`oib_doc_class` set) | a Punkt (`punkt_chunking`) | `3.5.2`, `Tabelle 3` | first page |
+   | Any other PDF with a heading structure | chunks of ~640 tokens inside a section that may span pages, 96 tokens of overlap inside the section, heading breadcrumb as the first line (`section_chunking`) | the heading's number (`3.2`, `§ 4`, `Artikel 2`), else its title path (`Brandschutz › Allgemeines`) | page the chunk's own text starts on; `page_end` where it ends |
+   | A PDF without one | one Document per page, split by `SentenceSplitter` | none | the page |
+   | `.md` (the IFC digest too) | one section per ATX heading, packed to the same budget, breadcrumb first | the heading path under the document title (`Geschoße › EG`) | none |
+   | `.txt` | paragraph blocks packed to the budget | `Zeilen 12-30` | none |
+   | `.csv`/`.tsv` | row groups that each repeat the header | `Zeilen 2-41` (file lines) | none |
+   | `.xlsx`/`.xlsm` sheet | row groups that each repeat the header, at most 10,000 rows a sheet; the rest are stated in the last group and counted as `rows_over_cap` on the file's job status | `Raumliste: Zeilen 2-41` | the sheet name |
+
+   A PDF counts as structured when it has at least three headings, at least half its text sits under one, and at most 30% of its lines are headings (`section_chunking.structure_is_usable`). A heading is a short line in a larger type than the body, in bold, or opened by a German numbering; lines that repeat at the top or bottom of most pages are running headers and are dropped. A transcribed page's Markdown ATX headings (`## 1 Befund`) are section headings. A numbered line in body type counts only when its title reads as one: at most 8 words, no finite verb, not ending mid-sentence. A line that runs on in lowercase into a line of another style is not a heading. Locators are normalised, so `§3` and `Art.3` become `§ 3` and `Art. 3`. `read_passage(page=N)` returns the chunks whose `[page_label, page_end]` range covers N, so a section chunk that starts on page 2 and ends on page 3 is found for page 3.
+2. **Table extraction** (PDF only, optional) — Uses `pdfplumber` to extract the tables the text pass did not already index as captioned tables; each becomes row groups that repeat the header row (`content_type: "table"`, `table_part` orders them), so the splitter never cuts a table into header-less rows
 3. **Image extraction** (PDF only, optional) — Uses `pypdfium2` to extract images (min 100×100px to filter icons); each image is sent to the VLM API (default: `openai/gpt-6-luna` via OpenRouter — image input verified, caption quality on OIB drawings still open, see the Configuration table) for classification (chart vs image) and captioning; captions become `Document` objects with `content_type: "chart"` or `"image"` metadata
+
+   Every PDFium call in the process (page triage, page renders, image extraction, thumbnails, `view_knowledge_image`) is serialized through `pdfium_lock` in `knowledge_layer/llamaindex/pdfium_lock.py`, because PDFium is not thread-safe; the lock is held per page and image encoding happens after it is released.
+
 4. **Summarization** (optional) — If `generate_summary` is enabled, the first and last chunks are combined and sent, as two **concurrent** calls to the same `summary_model` LLM, for a one-sentence summary and a tag classification (document type + OIB discipline; see "Backfilling tags" below). Both calls independently swallow exceptions/timeouts and return nothing on failure. A deterministic, text-derived fallback summary now fires whenever the LLM summary is missing — for any reason, independent of whether tag classification succeeded — so a document that finishes ingestion always gets a `document_metadata` row (see "Silent summary-row loss" below for the fix and the reconciliation backstop).
 5. **Indexing** — All `Document` objects are inserted into a `VectorStoreIndex` backed by ChromaDB with OpenRouter embeddings (`openai/text-embedding-3-large` by default; see "Embedding-model changes" below — stored vectors only match query vectors from the same model)
 6. **Job completion** — Status updated to `JobState.COMPLETED` with metadata about chunks, tables, charts, and images created
@@ -267,9 +332,9 @@ One window remains, narrow and named:
 | `embed_model` | `openai/text-embedding-3-large` (via OpenRouter) | Embedding model id; keep it stable, stored vectors only match query vectors from the same model — see "Embedding-model changes" below |
 | `chunk_size` | 1024 | Text chunk size (model supports up to 2048 tokens) |
 | `chunk_overlap` | 128 | Overlap between chunks |
-| `extract_tables` | false | Enable PDF table extraction |
-| `extract_images` | false | Enable PDF image extraction + VLM captioning |
-| `extract_charts` | false | Enable chart extraction with structured data |
+| `extract_tables` | true (`AIQ_EXTRACT_TABLES`) | PDF table extraction |
+| `extract_images` | true (`AIQ_EXTRACT_IMAGES`) | PDF image extraction + VLM captioning, at most `AIQ_MAX_IMAGES_PER_DOCUMENT` (64) per PDF |
+| `extract_charts` | true (`AIQ_EXTRACT_CHARTS`) | Index VLM-typed charts as `chart` chunks with structured data; off, as images |
 | `vlm_model` | `openai/gpt-6-luna` (via OpenRouter) | VLM for image captioning. TODO: evaluate caption quality on OIB drawings; neither this default nor its predecessor has been measured there |
 | `generate_summary` | false | Enable document summarization |
 | `summary_model` | null | LLM reference for summarization |
@@ -353,18 +418,27 @@ catches it on the next ingestion run for that collection.
 
 ## Step 5: Status Polling
 
-**Frontend**: `UploadOrchestrator` (singleton, lives outside React lifecycle)
-- Polls every 5 seconds via `/api/documents/{id}/status`
+Two pollers read two different things.
+
+**Upload progress**: `UploadOrchestrator` (`frontends/ui/src/features/documents/orchestrator.ts`, a singleton outside the React lifecycle)
+- Polls the backend JOB every 5 seconds through the BFF proxy: `GET /api/v1/documents/{jobId}/status` (`documentsClient.getJobStatus`), which reaches `GET /v1/documents/{job_id}/status` in `documents.py` and returns `IngestionJobStatus` with per-file progress
 - Maximum 420 poll attempts (~35 minutes)
 - Persists job state to localStorage for recovery on page refresh
-- Updates `TrackedFile` entries in Zustand store based on job status
+- Updates `TrackedFile` entries in the Zustand store from the job status
 
-**BFF status route**: `frontends/ui/src/app/api/documents/[id]/status/route.ts`
-- Reads `documents.status` from Drizzle, reconciling pending rows first (see below)
-- Returns `{ id, status, filename, fileSize, contentType, collectionName, errorMessage, createdAt, updatedAt }`
+**Document status**: `GET /api/documents/{id}/status` (`frontends/ui/src/app/api/documents/[id]/status/route.ts` → `getDocumentStatus` in `lib/documents/service.ts`)
+- Reads the `documents` row, reconciling an in-flight row first (see below)
+- Returns `{ id, status, filename, displayName, scope, fileSize, contentType, collectionName, errorMessage, createdAt, updatedAt, summary, pageCount, chunkCount, contentTypes, tags, authoredBy, openVersion, versionCount }`. `summary` through `tags` are read-only metadata merged from the backend's collection listing
+- Read by the open file preview, the composer's subject bar and the chat's document peek
 
-**Python job status**: `GET /v1/documents/{job_id}/status` (in `documents.py`)
-- Returns `IngestionJobStatus` with per-file progress via `ingestor.get_job_status(job_id)`
+**The open file follows ingestion live.** `file-preview-host.tsx` polls
+`/api/documents/{id}/status` while the open document's status can still change
+(`useSettlingRefresh`) and patches every field the payload carries into the
+open file: status, error, summary, page count, chunk count, content types, tags
+and version count. The summary and tags appear in the pane the moment indexing
+finishes, without closing and reopening the file. If a terminal answer still
+arrives without a summary, the host polls up to three more times
+(`METADATA_GRACE_POLLS`) and then stops, because some documents never get one.
 
 ### Status reconciliation (BFF)
 
@@ -383,7 +457,29 @@ reconciles lazily on every read of document rows (`GET /api/documents` list and
    by filename: `success` → `completed`, `failed` → `failed`
 4. Backend unreachable → leave the row untouched; the next read retries
 
+A job the backend lost to a restart is not an in-flight job forever: its status
+row stops being vouched for by a heartbeat, and the status endpoint answers
+`failed` with `error_message` starting `interrupted:` once the heartbeat is two
+minutes old, which step 2 records like any other failure and re-ingest can
+retry ([python endpoints](../api/python-endpoints.md#ingestion)).
+
+Dispatch (`dispatchIngest` in `service.ts`) sends `POST /v1/ingest` with a
+ten-second budget. A timeout is sent once more: the backend is idempotent per
+document and object, so the second request joins the job the first one started.
+Only a second timeout, a non-2xx answer or a connection that never reached the
+backend records `failed` with „Ingestion could not be started".
+
 The collection file list is fetched at most once per collection per request.
+
+Metadata enrichment reads the listing through a 15-second cache
+(`loadCollectionFilesCached`), except in two cases that read it fresh and
+replace the cache entry:
+
+- the read that moves a row to a terminal status. That read tells every client
+  to stop polling, and a cached listing from before the file was indexed would
+  have handed them a `completed` with no summary, counts or tags;
+- a row whose `updatedAt` is newer than the cached listing, which covers a
+  transition written by another read or by re-ingest.
 
 ---
 

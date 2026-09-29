@@ -81,6 +81,10 @@ const BOUNDARY_MIGRATIONS = [
   // a set one is that org's own, so the predicate carries a NULL arm.
   // Renumbered from 0087: develop took 0087 and 0088 first.
   '0089_skill_categories.sql',
+  // Adds product_feedback — bug reports and ideas a member sends to the
+  // platform owners. Keyed directly by the organization it was written from,
+  // secured exactly as `organization_instructions`.
+  '0100_product_feedback.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

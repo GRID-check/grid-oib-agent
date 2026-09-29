@@ -112,6 +112,13 @@ export const installFakeTurnServer = (
       window.setTimeout(() => {
         this.readyState = OPEN
         this.onopen?.(new Event('open'))
+        // The server's first frame, as `ChatSocket.serve` sends it: the client
+        // sends nothing on a socket that has not said hello.
+        this.onmessage?.(
+          new MessageEvent('message', {
+            data: JSON.stringify({ v: 2, type: 'CUSTOM', name: 'hello', ts: Date.now(), value: { build: 'dev' } }),
+          })
+        )
         sink.onOpen()
       }, 20)
     }

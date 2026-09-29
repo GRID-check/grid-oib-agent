@@ -24,38 +24,21 @@ If a value is unknown, omit it and set that check's status to "needs_input" — 
 the report does not carry what a card needs, emit no card: the report already answers the question
 without it."""
 
-# The CRAFT, in the only form this path can use: the part that is a TEST over a finished text
-# rather than an instruction about writing one. The answering agent's card craft rides with the
-# triggers in the shared doctrine now (`catalog._CARD_TRIGGERS`), and this path renders that
-# doctrine with `include_craft=False`: most of what is written there — mark `current_step` only
-# where the conversation established it, put the decisive passage in `original_text` — is an
-# instruction about an answer still being written, which a post-hoc call cannot act on.
+# The CRAFT, in the only form this path can use: a TEST over a finished text rather than an
+# instruction about writing one. The shared doctrine is rendered with `include_craft=False`, because
+# its craft is written for an answer still being composed.
 #
-# The `follow_ups` paragraph was removed when the card was retired
-# (`SYSTEM_CARD_TYPES`, docs/architecture/post-answer-stages.md §7.10), and the three envelope
-# paragraphs (`key_takeaways`, `verdict_header`, `callout`) went the same way when those shapes
-# left the card system for the `answer_meta` trailer (`ENVELOPE_CARD_TYPES`): `validate_cards`
-# drops every withheld type, so a paragraph teaching one would be an instruction to build a card
-# this path's own validator silently throws away — the worst kind of dead prompt weight.
-#
-# What that costs, stated rather than glossed: a finished deep-research REPORT currently carries
-# neither follow-up questions nor the rhetorical anatomy (verdict, takeaways, callout) a chat
-# answer now gets natively. The report's own lead paragraph is its verdict and the outline is its
-# navigation, so the loss is modest — and the honest fix is teaching the deep WRITER the same
-# `answer_meta` trailer and parsing it in the job runner, which is separate work and not in this
-# change. Building the anatomy as cards here again is NOT that fix: it would be a second,
-# parallel delivery system for the same content.
+# The retired types (`RETIRED_CARD_TYPES`: the table- and list-shaped cards, `legal_basis`, the
+# envelope's anatomy, `follow_ups`) are withheld from this path's catalog and dropped by
+# `validate_cards`: the report's own tables, lists and quotes already carry that content, so a
+# paragraph teaching one would be an instruction to build a card this path throws away.
 _POST_HOC_CRAFT = """\
 WHICH ONE EARNS ITS PLACE. A long report is exactly where a card pays off and exactly where they
-pile up, so each has to pass its own test against the report you were given:
-  condition_tree, typed_table and comparison_table all look like a table of cases and are
-    routinely confused. Ask what the reader does with the rows: exactly one row applies to this
-    project (condition_tree), all rows apply at once (typed_table), or the reader chooses one
-    (comparison_table).
-  a calculation card only for a number the report WORKED OUT, with the operands it states — never
-    one merely cited, and never operands completed from your own knowledge.
-One or two cards carrying real substance is a full kit even for a very long report — the shared
-doctrine above states the budget they spend, and this path does not get its own."""
+pile up, so each has to pass its own test against the report you were given. A calculation card
+only for a number the report WORKED OUT, with the operands it states — never one merely cited, and
+never operands completed from your own knowledge. A table, a list or a quote in the report is
+already the reader's; a card that repeats it is a restatement. One or two cards carrying real
+substance is a full kit even for a very long report."""
 
 # Ordering, which is the whole of what this path controls about placement. The runner attaches the
 # returned list to the finished report as-is (see `aiq_api.jobs.runner`), so list order IS render
