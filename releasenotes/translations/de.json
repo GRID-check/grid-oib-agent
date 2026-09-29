@@ -12,6 +12,18 @@
     "de": "Eine Markdown-Notiz oder eine Tabelle mit „Plan“ im Namen, etwa „Projektplan.md“, zeigt auf ihrer Karte keinen Grundriss mehr. Das Vorschaubild richtet sich nach dem Dateiformat."
   },
   {
+    "en": "A PDF whose text comes out as gibberish, as some drawing programs and scanners export it, is now read from the page itself, and the gibberish is no longer put into search.",
+    "de": "Ein PDF, dessen Text wie bei manchen Zeichenprogrammen und Scannern unleserlich ausgegeben wird, wird jetzt direkt aus dem Seitenbild ausgelesen; der unleserliche Text wird nicht mehr in die Suche übernommen."
+  },
+  {
+    "en": "A PDF with a few damaged pages is now indexed up to its last page instead of stopping at the first damaged one; a PDF with too many damaged pages fails with a retry instead of being indexed with holes.",
+    "de": "Ein PDF mit einigen beschädigten Seiten wird jetzt bis zur letzten Seite indexiert, statt bei der ersten beschädigten Seite abzubrechen; bei einem PDF mit zu vielen beschädigten Seiten schlägt die Indexierung mit der Möglichkeit zum erneuten Versuch fehl, statt das PDF mit Lücken zu indexieren."
+  },
+  {
+    "en": "A PDF with a great many pictures is now read up to its 64 largest pictures, and a scanned page is read once rather than twice, so such files finish sooner.",
+    "de": "PDFs mit sehr vielen Bildern werden jetzt nur noch bis zu den 64 größten Bildern ausgelesen, und gescannte Seiten werden nur einmal statt zweimal gelesen, sodass solche Dateien schneller verarbeitet werden."
+  },
+  {
     "en": "A Viewer opening a project's chat now sees the composer locked with the reason, instead of typing a question and watching it fail on send. The member roster reports the role each person really holds, instead of rounding narrower roles down to \"Viewer\".",
     "de": "Wenn Sie als Viewer den Chat eines Projekts öffnen, sehen Sie jetzt, dass das Eingabefeld mit Begründung gesperrt ist, statt erst eine Frage einzugeben und beim Senden festzustellen, dass es nicht funktioniert. Die Mitgliederliste zeigt die tatsächliche Rolle jeder Person an, statt spezifischere Rollen pauschal als „Viewer“ auszuweisen."
   },
@@ -156,6 +168,10 @@
     "de": "Eine Datei wird auch gefunden, wenn die Antwort ihren Namen anders groß schreibt oder wenn sie als Beilage in diesem Chat hochgeladen wurde."
   },
   {
+    "en": "A file that cannot be read from storage now fails with a reason that says so.",
+    "de": "Eine Datei, die sich nicht aus dem Speicher lesen lässt, wird jetzt mit einer entsprechenden Begründung als fehlgeschlagen markiert."
+  },
+  {
     "en": "A file that matches an existing document under a different spelling is held back and shown next to that document, instead of becoming a second document. The dialog also names both names of a document renamed in Piloti.",
     "de": "Eine Datei, die ein vorhandenes Dokument nur in anderer Schreibung trifft, wird zurückgehalten und neben ihm genannt, statt ein zweites Dokument zu werden. Bei einem in Piloti umbenannten Dokument nennt der Dialog beide Namen."
   },
@@ -166,6 +182,10 @@
   {
     "en": "A file whose name mentions an OIB-Richtlinie, such as your own commentary on it, is no longer merged with the Richtlinie into one source.",
     "de": "Eine Datei, deren Name eine OIB-Richtlinie nennt, etwa ein eigener Kommentar dazu, wird nicht mehr mit der Richtlinie zu einer Quelle zusammengefasst."
+  },
+  {
+    "en": "A file whose reading was cut short by a restart of the service that reads it now shows as failed with a retry, instead of staying in progress forever and refusing to be read again. A restart while a Word or PowerPoint file is still being converted is not covered: that file stays at Wird gelesen until you choose Erneut lesen.",
+    "de": "Eine Datei, deren Einlesen durch einen Neustart des zuständigen Dienstes unterbrochen wurde, wird jetzt als fehlgeschlagen angezeigt und kann erneut eingelesen werden, statt dauerhaft auf „Wird gelesen“ zu bleiben und sich nicht erneut einlesen zu lassen. Ein Neustart während der Konvertierung einer Word- oder PowerPoint-Datei ist davon nicht abgedeckt: Diese Datei bleibt auf „Wird gelesen“, bis Sie „Erneut lesen“ auswählen."
   },
   {
     "en": "A filed Recherchebericht now always lands in the project the research was actually run for. If you started a run outside a project, or reopened an older run while a different project was open, the report could previously be filed somewhere it did not belong — carrying a cover sheet naming that other project's Bundesland, which is the line that says which Bauordnung the report was checked against.",
@@ -214,6 +234,10 @@
   {
     "en": "A full browser storage no longer wipes your chat history: only the content of the oldest conversations makes room, while the list, titles and drafts stay. Such a conversation reloads its content from the server when you open it.",
     "de": "Ist der Speicher des Browsers voll, geht der Chatverlauf nicht mehr verloren: Nur der Inhalt der ältesten Unterhaltungen macht Platz, Liste, Titel und Entwürfe bleiben. Eine solche Unterhaltung lädt ihren Inhalt beim Öffnen vom Server nach."
+  },
+  {
+    "en": "A large upload no longer shows as failed while it is still being read: it stays at Wird gelesen, a notice says reading continues in the background, and the file becomes citable once it is ready.",
+    "de": "Ein großer Upload wird nicht mehr als fehlgeschlagen angezeigt, solange die Datei noch gelesen wird: Der Status bleibt auf „Wird gelesen“, ein Hinweis informiert Sie, dass das Lesen im Hintergrund fortgesetzt wird, und sobald die Datei bereit ist, ist sie zitierfähig."
   },
   {
     "en": "A legal hold now prevents every deletion: a held document, Archiv document, chat or chat attachment can no longer be deleted. The hold applies when it is on the item, its project or chat, the person who created it, or your organisation.",
@@ -350,6 +374,14 @@
   {
     "en": "A running task can be cancelled from its block. The research so far stays; only the report is not written.",
     "de": "Ein laufender Auftrag lässt sich im Block selbst abbrechen. Was bis dahin recherchiert wurde, bleibt stehen; nur der Bericht wird nicht mehr geschrieben."
+  },
+  {
+    "en": "A scanned PDF is now read word for word, up to 500 pages, tables included, and the file says how many pages were left. Before, only its first 20 pages were looked at and those were described rather than read, so the conditions in a scanned permit could not be found.",
+    "de": "Ein gescanntes PDF wird jetzt bis zu 500 Seiten wortgetreu gelesen, Tabellen inklusive. Die Datei zeigt außerdem an, wie viele Seiten noch übrig sind. Bisher wurden nur die ersten 20 Seiten betrachtet und beschrieben statt gelesen, sodass Auflagen in einem gescannten Bescheid nicht gefunden werden konnten."
+  },
+  {
+    "en": "A scanned PDF that cannot be read because no image model is set up now fails with that reason, rather than \"no content extracted\".",
+    "de": "Ein gescanntes PDF, das nicht gelesen werden kann, weil kein Bildmodell eingerichtet ist, schlägt jetzt mit diesem Grund fehl und nicht mehr mit „kein Inhalt extrahiert“."
   },
   {
     "en": "A schedule can run on several weekdays, such as Monday, Wednesday and Friday, at any time of day you choose.",
@@ -766,6 +798,14 @@
   {
     "en": "Creating a folder with a name that is already taken in that place now says the name is taken instead of showing a server error.",
     "de": "Wer einen Ordner unter einem Namen anlegt, den es dort schon gibt, erfährt jetzt, dass der Name vergeben ist, statt einen Serverfehler zu sehen."
+  },
+  {
+    "en": "Dateien and the Archiv now list up to 10,000 documents, and say so when a project has more. Before, only the newest 500 appeared, so older plans could not be found by search or filters, and a folder upload marked files that were already there as new.",
+    "de": "Dateien und das Archiv zeigen jetzt bis zu 10.000 Dokumente an und weisen darauf hin, wenn ein Projekt mehr enthält. Bisher wurden nur die neuesten 500 angezeigt, sodass ältere Pläne weder über die Suche noch über Filter gefunden werden konnten und ein Ordner-Upload bereits vorhandene Dateien als neu kennzeichnete."
+  },
+  {
+    "en": "Dateien and the Archiv now use one word for reading a document: Wird gelesen, Lesen fehlgeschlagen and Erneut lesen. Before, the same step appeared under five names.",
+    "de": "Dateien und das Archiv verwenden jetzt einheitliche Begriffe für das Lesen eines Dokuments: Wird gelesen, Lesen fehlgeschlagen und Erneut lesen. Bisher wurde derselbe Schritt mit fünf verschiedenen Bezeichnungen angezeigt."
   },
   {
     "en": "Dateien has a filter menu by responsibility, origin, status and file type, with sorting, and a number on the button shows how many filters are active.",
@@ -1204,6 +1244,10 @@
     "de": "Lange Textdokumente lassen sich in der Seitenvorschau jetzt korrekt scrollen."
   },
   {
+    "en": "Markdown, text and CSV files can now be cited and opened by section or by lines rather than only as a whole file, and every part of a long table, spreadsheet or CSV keeps its column headings.",
+    "de": "Markdown-, Text- und CSV-Dateien können nun abschnitts- oder zeilenweise zitiert und geöffnet werden, nicht mehr nur als ganze Datei; außerdem bleiben bei jedem Teil einer langen Tabelle, eines Tabellenblatts oder einer CSV-Datei die Spaltenüberschriften erhalten."
+  },
+  {
     "en": "Mentioning a colleague with @ now works from the very first moment of a new chat. The list of people used to stay empty for the rest of that chat.",
     "de": "Das Erwähnen einer Kollegin mit @ funktioniert jetzt schon im ersten Moment eines neuen Chats. Bisher blieb die Personenliste dann für den ganzen Chat leer."
   },
@@ -1544,6 +1588,10 @@
     "de": "Berichte aus vor dieser Änderung abgeschlossenen Durchläufen bleiben dort, in ihrer Konversation. Nichts wurde rückwirkend abgelegt."
   },
   {
+    "en": "Reports, concepts and other PDFs uploaded to a project are now read section by section along their own headings, so an answer finds the passage that belongs to a heading even when it runs over a page break, and cites it by its section number and page.",
+    "de": "Berichte, Konzepte und andere PDFs, die in ein Projekt hochgeladen werden, werden nun anhand ihrer jeweiligen Überschriften Abschnitt für Abschnitt gelesen. So findet eine Antwort die zu einer Überschrift gehörende Passage auch dann, wenn sie über einen Seitenumbruch hinweggeht, und zitiert sie mit Abschnittsnummer und Seitenzahl."
+  },
+  {
     "en": "Research reports are filed in your project under Berichte and say that Piloti wrote them. Project folders can be renamed, moved and deleted, and Piloti knows which folder a document is in. This changelog started this week.",
     "de": "Rechercheberichte werden in Ihrem Projekt unter „Berichte“ abgelegt und sagen, dass Piloti sie geschrieben hat. Projektordner lassen sich umbenennen, verschieben und löschen, und Piloti weiß, in welchem Ordner ein Dokument liegt. In dieser Woche ist auch dieses Changelog gestartet."
   },
@@ -1624,6 +1672,10 @@
     "de": "Quellen aus der Wissensdatenbank für Bauvorschriften werden während eines Deep-Research-Laufs im Quellenbereich nicht als zitiert gekennzeichnet, sodass ein Bericht, der mehrere Richtlinien zitiert, auf deutlich weniger Quellen zu beruhen scheint, als tatsächlich der Fall ist."
   },
   {
+    "en": "Spreadsheets with more than 1000 rows are now read in full up to 10,000 rows a sheet, and anything beyond that is stated rather than cut off without a word.",
+    "de": "Tabellen mit mehr als 1.000 Zeilen werden jetzt bis zu 10.000 Zeilen pro Tabellenblatt vollständig eingelesen; alles darüber wird ausgewiesen, statt stillschweigend abgeschnitten zu werden."
+  },
+  {
     "en": "Standing instructions shape form and focus only, up to 1,500 characters, and never supply a normative value; an OIB requirement always comes from the Richtlinie Piloti opened. Each change is saved with name and time.",
     "de": "Stehende Anweisungen betreffen nur Form und Fokus, bis 1.500 Zeichen, und liefern nie einen normativen Wert; eine OIB-Anforderung stammt immer aus der Richtlinie, die Piloti geöffnet hat. Jede Änderung wird mit Name und Zeitpunkt gespeichert."
   },
@@ -1652,12 +1704,20 @@
     "de": "Tabellen in Antworten behalten ihre Spaltenausrichtung, Checklisten zeigen echte Häkchen, und tief gegliederte Antworten behalten alle Überschriftenebenen."
   },
   {
+    "en": "Tables without a caption in an uploaded PDF are now found as tables, rather than as scrambled text from the page. Charts in a PDF are now found too: before, they were read and then left out of search.",
+    "de": "Tabellen ohne Beschriftung in einem hochgeladenen PDF werden nun als Tabellen statt als unstrukturierter Seitentext erkannt. Auch Diagramme in PDFs werden nun gefunden: Bisher werden sie zwar gelesen, aber bei der Suche ausgelassen."
+  },
+  {
     "en": "Task states stay live while the panel is open and speak planner words, so finished work no longer looks like it is still running.",
     "de": "Die Aufgabenstatus werden live aktualisiert, solange das Panel geöffnet ist, und verwenden Begriffe aus der Planung, damit abgeschlossene Arbeiten nicht mehr so wirken, als würden sie noch laufen."
   },
   {
     "en": "Tasks and schedules are one list, schedules on top and single runs below, and schedules are created and edited right there. Old links to the Jobs tab still land in the right place.",
     "de": "Aufgaben und Zeitpläne sind eine Liste, die Zeitpläne oben, die einzelnen Läufe darunter, und Zeitpläne entstehen und ändern sich direkt dort. Alte Links auf den Jobs-Tab landen weiterhin an der richtigen Stelle."
+  },
+  {
+    "en": "Text and CSV files saved by Excel or older Windows programs keep their umlauts and ß. Before, those letters were silently dropped.",
+    "de": "Text- und CSV-Dateien, die mit Excel oder älteren Windows-Programmen gespeichert werden, behalten ihre Umlaute und ihr ß. Bisher gehen diese Zeichen unbemerkt verloren."
   },
   {
     "en": "Text in a source document can now be selected and copied, and on request a selection becomes a ready citation with document and page, in the same form as citations from answers.",
@@ -1682,6 +1742,10 @@
   {
     "en": "The Archiv entry has moved out of the profile menu. It stays one click away in the sidebar and the organization header.",
     "de": "Der Menüpunkt „Archiv“ ist nicht mehr im Profilmenü. Über die Seitenleiste und den Organisationsheader ist er weiterhin mit einem Klick erreichbar."
+  },
+  {
+    "en": "The Archiv's Schnitt filter now says Schnitt / Ansicht, as in Dateien, because it also finds elevations.",
+    "de": "Der Schnitt-Filter im Archiv heißt jetzt wie in Dateien „Schnitt / Ansicht“, da er auch Ansichten findet."
   },
   {
     "en": "The Aufgaben list now stays current while it is visible and refreshes when you return to it, instead of showing the state from when the tab was opened. Early submission states also read as queued work rather than as raw technical labels.",
@@ -2168,6 +2232,10 @@
     "de": "Wenn ein Deep-Research-Lauf zugesagt hat, seinen Bericht im Projekt abzulegen, und das dann fehlschlug, blieb der Banner völlig stumm – so sah es aus, als wäre der Bericht abgelegt, obwohl „Berichte“ leer war. Jetzt nimmt der Banner die Zusage mit einer einzigen unaufdringlichen Zeile zurück; der Bericht selbst bleibt in jedem Fall im Research-Panel."
   },
   {
+    "en": "When a document cannot be read, the file card, the preview, the upload list and the chat's file list now say why in plain language and what helps, for example reading it again or asking the admins to set up a vision model for scanned pages. The original error text is still there under \"Details\".",
+    "de": "Wenn ein Dokument nicht gelesen werden kann, zeigen die Dateikarte, die Vorschau, die Upload-Liste und die Dateiliste im Chat jetzt in klarer Sprache, woran es liegt und was hilft – zum Beispiel, es erneut einzulesen oder Ihre Admins zu bitten, ein Vision-Modell für gescannte Seiten einzurichten. Der ursprüngliche Fehlertext steht weiterhin unter „Details“."
+  },
+  {
     "en": "When a draft is submitted for approval, you can now name who should look at it. Leave it as it is and everyone who may release files in the project is asked, so a draft nobody has taken on still reaches somebody.",
     "de": "Wenn Sie einen Entwurf zur Freigabe einreichen, können Sie jetzt festlegen, wer ihn prüfen soll. Wenn Sie nichts ändern, werden alle Personen angefragt, die im Projekt Dateien freigeben dürfen. So erreicht auch ein Entwurf, den niemand übernommen hat, jemanden."
   },
@@ -2214,6 +2282,10 @@
   {
     "en": "When something fails, the error message now carries a short reference for support that you can copy with one click.",
     "de": "Schlägt etwas fehl, nennt die Fehlermeldung jetzt eine kurze Referenz für den Support, die sich mit einem Klick kopieren lässt."
+  },
+  {
+    "en": "When the building-regulation search finds nothing that answers your question, Piloti now tells you it found no supporting passage, instead of answering from loosely related text.",
+    "de": "Wenn die Suche in den Bauvorschriften keine Antwort auf Ihre Frage findet, teilt Piloti Ihnen jetzt mit, dass keine passende Textstelle gefunden wurde, statt anhand lose verwandter Texte zu antworten."
   },
   {
     "en": "When the chat reaches a server that runs a different version than the page, Piloti now says so, instead of asking you to check your network.",

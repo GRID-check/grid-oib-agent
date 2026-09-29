@@ -63,14 +63,55 @@
               "de": "Sie können jetzt von überall in der App Feedback an das Piloti-Team senden: Melden Sie einen Fehler, schlagen Sie eine Idee vor, hinterlassen Sie Lob oder stellen Sie eine Frage – über das Avatar-Menü oder den neuen Button neben der Inbox."
             },
             {
+              "en": "Word, Excel and PowerPoint files now open in the document viewer as a PDF preview, and a reference to one opens that preview instead of only offering a download. Download still gives you the original file, unchanged.",
+              "de": "Word-, Excel- und PowerPoint-Dateien öffnen sich jetzt im Dokumentbetrachter als PDF-Vorschau, und ein Verweis auf eine solche Datei öffnet diese Vorschau, statt nur einen Download anzubieten. Der Download liefert weiterhin die unveränderte Originaldatei."
+            },
+            {
+              "en": "Pictures in Word and PowerPoint files are now read, so a photo or plan on a slide can be found and cited in an answer. Files uploaded earlier are read this way once you choose Erneut lesen in their menu.",
+              "de": "Bilder in Word- und PowerPoint-Dateien werden jetzt gelesen, sodass ein Foto oder Plan auf einer Folie gefunden und in einer Antwort zitiert werden kann. Früher hochgeladene Dateien werden so gelesen, sobald Sie in ihrem Menü „Erneut lesen“ wählen."
+            },
+            {
+              "en": "A reference to a Word or PowerPoint file opens its preview at the page the passage came from.",
+              "de": "Ein Verweis auf eine Word- oder PowerPoint-Datei öffnet die Vorschau auf der Seite, von der die Textstelle stammt."
+            },
+            {
+              "en": "An open file shows its summary, page count and tags as soon as indexing finishes, without closing and reopening it.",
+              "de": "Eine geöffnete Datei zeigt ihre Zusammenfassung, Seitenzahl und Tags, sobald die Indexierung abgeschlossen ist, ohne dass Sie sie schließen und erneut öffnen müssen."
+            },
+            {
               "en": "Opening a citation of a plan or photo now marks the drawing it refers to, such as the floor plan or the section, with a labelled box instead of only opening the page. The box shows which drawing on the sheet was read, not the exact object within it.",
               "de": "Beim Öffnen eines Verweises auf einen Plan oder ein Foto wird nun die zugehörige Zeichnung, etwa der Grundriss oder der Schnitt, mit einem beschrifteten Rahmen markiert, statt nur die Seite zu öffnen. Der Rahmen zeigt, welche Zeichnung auf dem Blatt gelesen wurde, nicht das genaue Objekt darin."
             }
           ]
         },
         {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "When a document cannot be read, the file card, the preview, the upload list and the chat's file list now say why in plain language and what helps, for example reading it again or asking the admins to set up a vision model for scanned pages. The original error text is still there under \"Details\".",
+              "de": "Wenn ein Dokument nicht gelesen werden kann, zeigen die Dateikarte, die Vorschau, die Upload-Liste und die Dateiliste im Chat jetzt in klarer Sprache, woran es liegt und was hilft – zum Beispiel, es erneut einzulesen oder Ihre Admins zu bitten, ein Vision-Modell für gescannte Seiten einzurichten. Der ursprüngliche Fehlertext steht weiterhin unter „Details“."
+            },
+            {
+              "en": "Reports, concepts and other PDFs uploaded to a project are now read section by section along their own headings, so an answer finds the passage that belongs to a heading even when it runs over a page break, and cites it by its section number and page.",
+              "de": "Berichte, Konzepte und andere PDFs, die in ein Projekt hochgeladen werden, werden nun anhand ihrer jeweiligen Überschriften Abschnitt für Abschnitt gelesen. So findet eine Antwort die zu einer Überschrift gehörende Passage auch dann, wenn sie über einen Seitenumbruch hinweggeht, und zitiert sie mit Abschnittsnummer und Seitenzahl."
+            },
+            {
+              "en": "Markdown, text and CSV files can now be cited and opened by section or by lines rather than only as a whole file, and every part of a long table, spreadsheet or CSV keeps its column headings.",
+              "de": "Markdown-, Text- und CSV-Dateien können nun abschnitts- oder zeilenweise zitiert und geöffnet werden, nicht mehr nur als ganze Datei; außerdem bleiben bei jedem Teil einer langen Tabelle, eines Tabellenblatts oder einer CSV-Datei die Spaltenüberschriften erhalten."
+            }
+          ]
+        },
+        {
           "key": "fixes",
           "notes": [
+            {
+              "en": "When the building-regulation search finds nothing that answers your question, Piloti now tells you it found no supporting passage, instead of answering from loosely related text.",
+              "de": "Wenn die Suche in den Bauvorschriften keine Antwort auf Ihre Frage findet, teilt Piloti Ihnen jetzt mit, dass keine passende Textstelle gefunden wurde, statt anhand lose verwandter Texte zu antworten."
+            },
+            {
+              "en": "Dateien and the Archiv now list up to 10,000 documents, and say so when a project has more. Before, only the newest 500 appeared, so older plans could not be found by search or filters, and a folder upload marked files that were already there as new.",
+              "de": "Dateien und das Archiv zeigen jetzt bis zu 10.000 Dokumente an und weisen darauf hin, wenn ein Projekt mehr enthält. Bisher wurden nur die neuesten 500 angezeigt, sodass ältere Pläne weder über die Suche noch über Filter gefunden werden konnten und ein Ordner-Upload bereits vorhandene Dateien als neu kennzeichnete."
+            },
             {
               "en": "An answer's details now show what the whole answer cost, where they showed about 0.1 credits for every answer. Your budget now counts the answer itself too, not only the suggestions that follow it.",
               "de": "In den Antwortdetails sehen Sie jetzt, was die gesamte Antwort gekostet hat; bisher wurden für jede Antwort etwa 0,1 Credits angezeigt. Ihr Budget berücksichtigt jetzt auch die Antwort selbst und nicht nur die anschließenden Vorschläge."
@@ -104,6 +145,30 @@
               "de": "Eine Frage, die nach einem kurzen Verbindungsabbruch erneut gesendet wird, wird nicht mehr doppelt beantwortet. Der Chat führt die bereits laufende Antwort fort."
             },
             {
+              "en": "A file whose reading was cut short by a restart of the service that reads it now shows as failed with a retry, instead of staying in progress forever and refusing to be read again. A restart while a Word or PowerPoint file is still being converted is not covered: that file stays at Wird gelesen until you choose Erneut lesen.",
+              "de": "Eine Datei, deren Einlesen durch einen Neustart des zuständigen Dienstes unterbrochen wurde, wird jetzt als fehlgeschlagen angezeigt und kann erneut eingelesen werden, statt dauerhaft auf „Wird gelesen“ zu bleiben und sich nicht erneut einlesen zu lassen. Ein Neustart während der Konvertierung einer Word- oder PowerPoint-Datei ist davon nicht abgedeckt: Diese Datei bleibt auf „Wird gelesen“, bis Sie „Erneut lesen“ auswählen."
+            },
+            {
+              "en": "A PDF with a few damaged pages is now indexed up to its last page instead of stopping at the first damaged one; a PDF with too many damaged pages fails with a retry instead of being indexed with holes.",
+              "de": "Ein PDF mit einigen beschädigten Seiten wird jetzt bis zur letzten Seite indexiert, statt bei der ersten beschädigten Seite abzubrechen; bei einem PDF mit zu vielen beschädigten Seiten schlägt die Indexierung mit der Möglichkeit zum erneuten Versuch fehl, statt das PDF mit Lücken zu indexieren."
+            },
+            {
+              "en": "A large upload no longer shows as failed while it is still being read: it stays at Wird gelesen, a notice says reading continues in the background, and the file becomes citable once it is ready.",
+              "de": "Ein großer Upload wird nicht mehr als fehlgeschlagen angezeigt, solange die Datei noch gelesen wird: Der Status bleibt auf „Wird gelesen“, ein Hinweis informiert Sie, dass das Lesen im Hintergrund fortgesetzt wird, und sobald die Datei bereit ist, ist sie zitierfähig."
+            },
+            {
+              "en": "A file that cannot be read from storage now fails with a reason that says so.",
+              "de": "Eine Datei, die sich nicht aus dem Speicher lesen lässt, wird jetzt mit einer entsprechenden Begründung als fehlgeschlagen markiert."
+            },
+            {
+              "en": "Dateien and the Archiv now use one word for reading a document: Wird gelesen, Lesen fehlgeschlagen and Erneut lesen. Before, the same step appeared under five names.",
+              "de": "Dateien und das Archiv verwenden jetzt einheitliche Begriffe für das Lesen eines Dokuments: Wird gelesen, Lesen fehlgeschlagen und Erneut lesen. Bisher wurde derselbe Schritt mit fünf verschiedenen Bezeichnungen angezeigt."
+            },
+            {
+              "en": "The Archiv's Schnitt filter now says Schnitt / Ansicht, as in Dateien, because it also finds elevations.",
+              "de": "Der Schnitt-Filter im Archiv heißt jetzt wie in Dateien „Schnitt / Ansicht“, da er auch Ansichten findet."
+            },
+            {
               "en": "The @ list shows your colleagues again as soon as the connection to the sign-in service recovers. Before, one failed lookup could leave it empty for several minutes.",
               "de": "Die @-Liste zeigt Ihre Kolleg:innen wieder an, sobald die Verbindung zum Login-Dienst wiederhergestellt ist. Bisher konnte eine fehlgeschlagene Suche dazu führen, dass sie mehrere Minuten lang leer blieb."
             },
@@ -112,12 +177,40 @@
               "de": "Eine Übersicht zeigt ihre Bestandteile jetzt entweder als Tabelle oder als Mindmap, nie beides. Die doppelte Darstellung erscheint während der Antwort und verschwindet nach deren Abschluss."
             },
             {
+              "en": "Text and CSV files saved by Excel or older Windows programs keep their umlauts and ß. Before, those letters were silently dropped.",
+              "de": "Text- und CSV-Dateien, die mit Excel oder älteren Windows-Programmen gespeichert werden, behalten ihre Umlaute und ihr ß. Bisher gehen diese Zeichen unbemerkt verloren."
+            },
+            {
+              "en": "Spreadsheets with more than 1000 rows are now read in full up to 10,000 rows a sheet, and anything beyond that is stated rather than cut off without a word.",
+              "de": "Tabellen mit mehr als 1.000 Zeilen werden jetzt bis zu 10.000 Zeilen pro Tabellenblatt vollständig eingelesen; alles darüber wird ausgewiesen, statt stillschweigend abgeschnitten zu werden."
+            },
+            {
               "en": "A project link with a mistyped or truncated address now shows the same \"no access\" page as any project you cannot open, instead of a general error page.",
               "de": "Ein Projektlink mit einer falsch eingegebenen oder abgeschnittenen Adresse zeigt jetzt dieselbe Seite „Kein Zugriff“ wie jedes Projekt, das Sie nicht öffnen können, statt einer allgemeinen Fehlerseite."
             },
             {
+              "en": "A scanned PDF is now read word for word, up to 500 pages, tables included, and the file says how many pages were left. Before, only its first 20 pages were looked at and those were described rather than read, so the conditions in a scanned permit could not be found.",
+              "de": "Ein gescanntes PDF wird jetzt bis zu 500 Seiten wortgetreu gelesen, Tabellen inklusive. Die Datei zeigt außerdem an, wie viele Seiten noch übrig sind. Bisher wurden nur die ersten 20 Seiten betrachtet und beschrieben statt gelesen, sodass Auflagen in einem gescannten Bescheid nicht gefunden werden konnten."
+            },
+            {
+              "en": "A PDF whose text comes out as gibberish, as some drawing programs and scanners export it, is now read from the page itself, and the gibberish is no longer put into search.",
+              "de": "Ein PDF, dessen Text wie bei manchen Zeichenprogrammen und Scannern unleserlich ausgegeben wird, wird jetzt direkt aus dem Seitenbild ausgelesen; der unleserliche Text wird nicht mehr in die Suche übernommen."
+            },
+            {
+              "en": "A scanned PDF that cannot be read because no image model is set up now fails with that reason, rather than \"no content extracted\".",
+              "de": "Ein gescanntes PDF, das nicht gelesen werden kann, weil kein Bildmodell eingerichtet ist, schlägt jetzt mit diesem Grund fehl und nicht mehr mit „kein Inhalt extrahiert“."
+            },
+            {
               "en": "Deep research runs that have stopped now show as ended, including the ones already stuck on „Läuft\". They used to keep a spinner in the chat list, and „Abbrechen\" did nothing.",
               "de": "Gestoppte Deep-Research-Läufe werden jetzt als beendet angezeigt, auch jene, die bereits bei „Läuft“ hängen geblieben waren. Bisher wurde in der Chatliste weiterhin ein Spinner angezeigt, und „Abbrechen“ hatte keine Wirkung."
+            },
+            {
+              "en": "Tables without a caption in an uploaded PDF are now found as tables, rather than as scrambled text from the page. Charts in a PDF are now found too: before, they were read and then left out of search.",
+              "de": "Tabellen ohne Beschriftung in einem hochgeladenen PDF werden nun als Tabellen statt als unstrukturierter Seitentext erkannt. Auch Diagramme in PDFs werden nun gefunden: Bisher werden sie zwar gelesen, aber bei der Suche ausgelassen."
+            },
+            {
+              "en": "A PDF with a great many pictures is now read up to its 64 largest pictures, and a scanned page is read once rather than twice, so such files finish sooner.",
+              "de": "PDFs mit sehr vielen Bildern werden jetzt nur noch bis zu den 64 größten Bildern ausgelesen, und gescannte Seiten werden nur einmal statt zweimal gelesen, sodass solche Dateien schneller verarbeitet werden."
             },
             {
               "en": "Opening a menu or panel with a click no longer pops up the hint of its first help icon, as the Aufwand dial and the project choice in the chat input did. Hints now appear on hover, and when you reach them with the Tab key.",
