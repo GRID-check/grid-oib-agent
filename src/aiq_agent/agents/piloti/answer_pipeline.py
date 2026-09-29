@@ -44,6 +44,8 @@ from aiq_agent.common.answer_envelope import AnswerMeta
 from aiq_agent.common.answer_envelope import extract_answer_envelope
 from aiq_agent.common.answer_envelope import gate_answer_meta
 from aiq_agent.common.answer_envelope import resolve_callout_marker
+from aiq_agent.common.answer_references import REFERENCES_SECTION_RE
+from aiq_agent.common.answer_references import prose_without_references
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
@@ -142,56 +144,6 @@ class FinalAnswer:
 # Text helpers
 # --------------------------------------------------------------------------
 
-#: A trailing reference list, in the headings this agent and the models it runs
-#: actually produce.
-_REFERENCES_SECTION_RE = re.compile(
-    r"\n\s*(?:\*\*(?:References|Sources|Quellen):?\*\*|#{2,3}\s+(?:References|Sources|Quellen))\s*(?:\n|$)",
-    re.IGNORECASE,
-)
-
-#: What a reference list is allowed to consist of: a blank line, or a line that
-#: carries an actual REFERENCE, a URL or a „[n]" citation marker. List
-#: punctuation is not enough and never was: „- " is available to any sentence,
-#: so accepting it let „- Damit ist der Raum unzulässig …" under a
-#: „**Quellen:**" heading count as a bibliography entry and leave the text
-#: before the brake ever read it.
-_REFERENCE_LINE_RE = re.compile(r"^\s*$|\[\d+\]|<?https?://")
-
-
-def prose_without_references(content: str) -> str:
-    """The answer's own sentences, with any trailing reference list removed.
-
-    The normative brake judges what the ANSWER asserts, and a bibliography
-    asserts nothing. It matters because of where that line comes from: the
-    single-source fallback appends it, so leaving it in made every
-    fallback-grounded answer read as normative and floored measured,
-    purely descriptive answers to "low" under a reason that was not true of a
-    single sentence the model wrote.
-
-    Only a genuinely TRAILING list is cut: a heading is a cut point only when
-    every line after it points at a source (a URL or a „[n]" marker) or is
-    blank; otherwise the search moves to the previous heading, and failing
-    that nothing is removed. Erring towards keeping text is the safe
-    direction: a reference line that survives costs a hedge, a verdict that
-    is dropped costs a claim about the law.
-
-    Known gap, left open deliberately: ANY tail line carrying a URL or a „[n]"
-    marker is cut, so a verdict smuggled into an all-references tail with a
-    marker on it („- Damit ist der Raum unzulässig [1]") is cut too. Keeping
-    the lines the normative brake fires on was measured and is inverted: a
-    compliance bibliography is a list of exactly the instrument names the
-    brake's strong tier matches (11 of 14 genuine entries fire, including the
-    line this module appends itself). A real finite-verb test needs a POS
-    tagger; a heuristic that cuts the wrong way is worse than the gap.
-    """
-    if not isinstance(content, str):
-        return ""
-    for match in reversed(list(_REFERENCES_SECTION_RE.finditer(content))):
-        tail = content[match.end() :]
-        if all(_REFERENCE_LINE_RE.search(line) for line in tail.splitlines()):
-            return content[: match.start()]
-    return content
-
 
 def _without_empty_reference_heading(content: str) -> tuple[str, str]:
     """``content`` without a trailing reference heading nothing follows, and the label to write instead.
@@ -200,7 +152,7 @@ def _without_empty_reference_heading(content: str) -> tuple[str, str]:
     as „**Quellen:**", anything else as „**References:**".
     """
     last = None
-    for last in _REFERENCES_SECTION_RE.finditer(content):
+    for last in REFERENCES_SECTION_RE.finditer(content):
         pass
     if last is None or content[last.end() :].strip():
         return content, "References"

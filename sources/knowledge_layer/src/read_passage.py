@@ -982,8 +982,13 @@ def _fetch_query(document: str, punkt: str | None, page: int | None) -> str:
 async def _fetch(target: PassageTarget, filters: dict[str, Any], query: str, top_k: int) -> list[Any]:
     """One filtered fetch against one collection, stamped with where it came from."""
     from aiq_agent.knowledge.factory import get_active_retriever
+    from aiq_agent.knowledge.factory import get_search_retriever
 
-    retriever = get_active_retriever()
+    # The search's retriever when the tool is up: the lazily built active one
+    # is a SECOND adapter over the same store, with its own init, embedding
+    # cache and result cache, so every read paid for a cold cache the search
+    # beside it had already warmed.
+    retriever = get_search_retriever() or get_active_retriever()
     result = await retriever.retrieve(
         query=query,
         collection_name=target.collection,

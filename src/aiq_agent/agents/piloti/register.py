@@ -69,6 +69,8 @@ from .decisions import attached_card_types
 from .decisions import decide_turn
 from .decisions import prefetch_calls
 from .decisions import prefetch_query
+from .decisions import skill_option
+from .history import is_context_message
 from .models import ResearchAgentState
 from .tool_search import ToolSearchSettings
 from .tool_search import tool_basename
@@ -316,7 +318,14 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
     from aiq_agent.common.source_kinds import Shelf
     from aiq_agent.knowledge.inventory import get_norm_families
 
-    humans = [str(m.content) for m in state.messages if isinstance(m, HumanMessage) and isinstance(m.content, str)]
+    # A colleague's ingested message is context, not a question put to the agent:
+    # read as `previous_message`, it made the repeat and follow-up checks compare
+    # this question with someone else's remark.
+    humans = [
+        str(m.content)
+        for m in state.messages
+        if isinstance(m, HumanMessage) and isinstance(m.content, str) and not is_context_message(m)
+    ]
     question = humans[-1] if humans else ""
     previous = humans[-2] if len(humans) > 1 else None
     answers = [
@@ -331,7 +340,7 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
         question=question,
         previous_message=previous,
         previous_answer=previous_answer,
-        skills=[(skill.name, " ".join(skill.description.split())) for skill in offered],
+        skills=[skill_option(skill) for skill in offered],
         focus_file_name=state.focus_file_name,
         project_facts={k: str(v) for k, v in facts_from_project_context(state.project_context or "").items()},
         families=get_norm_families(),
@@ -426,7 +435,7 @@ def _tools_in_scope(tools: list[Any]) -> list[Any]:
 
 
 def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtime: SkillRuntime | None) -> None:
-    """The two prompt-side effects: the chosen skill's body, and the likely card shapes.
+    """The prompt-side effects: the chosen skill's body, the likely card shapes, and a repeat.
 
     The chosen skill rides this turn's prompt in full (``inline_also``), the
     one method the question is the subject of; the shapes are its preferred
@@ -441,6 +450,7 @@ def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtim
     from aiq_agent.skills.models import preferred_cards
 
     withheld_shapes = {*ENVELOPE_SHAPE_TYPES, *CHAT_ONLY_CARD_TYPES}
+    state.answered_before = decisions.repeats_previous
 
     if runtime is not None and decisions.chosen_skill:
         runtime.inline_also((decisions.chosen_skill,))

@@ -182,6 +182,19 @@ class TestPruneToolResults:
         history = [*_turn("Q1", "P1", "A1"), HumanMessage(content="Q2")]
         assert prune_tool_results(history) == history
 
+    def test_a_turn_that_fetched_nothing_does_not_push_the_evidence_out(self):
+        """Research, then a repeat answered from the transcript, then a follow-up: P1 is still there."""
+        history = [
+            *_turn("Q1", "P1", "A1"),
+            HumanMessage(content="Q1 nochmal"),
+            AIMessage(content="A1 kürzer"),
+            HumanMessage(content="und in GK 4?"),
+        ]
+        assert prune_tool_results(history) == history
+        history += [AIMessage(content="A3"), *_turn("Q4", "P4", "A4"), HumanMessage(content="Q5")]
+        pruned = prune_tool_results(history)
+        assert "P1" not in [m.content for m in pruned] and "P4" in [m.content for m in pruned]
+
     def test_keep_turns_widens_the_window(self):
         history = [*_turn("Q1", "P1", "A1"), *_turn("Q2", "P2", "A2"), HumanMessage(content="Q3")]
         assert len(prune_tool_results(history, keep_turns=2)) == len(history)

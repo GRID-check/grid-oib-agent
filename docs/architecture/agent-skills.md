@@ -396,7 +396,9 @@ skill onto a turn: not the request, not the deployment, not a job.
 
 Progressive disclosure has two levels, and a measured shortcut (ADR-0063 as
 amended, ADR-0064): the turn-start decision asks a `skill` choice over every
-resolved skill with `none`, verified by one "fits" noul per skill, and the ONE
+resolved skill with `none` (each option the skill's description and the
+heading its body opens with, `decisions.skill_option`), vetoed by one noul
+when the message asks for something other than an expert answer, and the ONE
 chosen body rides this turn's prompt in full (`SkillRuntime.inline_also`,
 ~400 tokens for a chat method, the IFC method on a model question) with its
 preferred card shapes beyond the eight the envelope teaches. An inlined body

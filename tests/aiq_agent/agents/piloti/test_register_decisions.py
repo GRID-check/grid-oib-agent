@@ -89,7 +89,9 @@ class TestTheEffects:
         runtime = _runtime()
         assert runtime.inlined == ()
         _apply_decisions(
-            TurnDecisions(decided=True, skill=IFC, skill_p=0.9, skill_fit=0.8), ResearchAgentState(messages=[]), runtime
+            TurnDecisions(decided=True, skill=IFC, skill_p=0.9, skill_veto=0.05),
+            ResearchAgentState(messages=[]),
+            runtime,
         )
         assert [s.name for s in runtime.inlined] == [IFC]
         block = runtime.prompt_block() or ""
@@ -103,9 +105,24 @@ class TestTheEffects:
         assert state.card_shapes_block and "fire_access_plan" in state.card_shapes_block
         assert "stair_diagram" not in state.card_shapes_block
 
+    def test_a_repeat_reaches_the_prompt_and_nothing_else_does(self):
+        from aiq_agent.agents.piloti.prompt import render_system_prompt
+        from aiq_agent.agents.piloti.prompt import system_prompt_template
+
+        def render(state):
+            return render_system_prompt(system_prompt_template(), state, [])
+
+        state = ResearchAgentState(messages=[HumanMessage(content="was wißt du über die oib 2")])
+        _apply_decisions(TurnDecisions(decided=True, answered_before=0.94), state, None)
+        assert state.answered_before
+        assert "answered in the previous turn" in render(state)
+        _apply_decisions(TurnDecisions(decided=True, answered_before=0.3), state, None)
+        assert not state.answered_before
+        assert "answered in the previous turn" not in render(state)
+
     def test_the_chosen_skills_preferred_shapes_beyond_the_contracts_ride_the_turn(self):
         state = ResearchAgentState(messages=[])
-        decided = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.8, skill_fit=0.9)
+        decided = TurnDecisions(decided=True, skill="brandschutz", skill_p=0.8, skill_veto=0.05)
         runtime = _runtime()
         _apply_decisions(decided, state, runtime)
         assert [s.name for s in runtime.inlined] == ["brandschutz"]
@@ -123,10 +140,25 @@ class TestTheEffects:
             metadata={"grid-cards": "surface,fire_access_plan"},
             origin="platform",
         )
-        decided = TurnDecisions(decided=True, skill="varianten", skill_p=0.8, skill_fit=0.9)
+        decided = TurnDecisions(decided=True, skill="varianten", skill_p=0.8, skill_veto=0.05)
         _apply_decisions(decided, state, SkillRuntime(skills=(skill,)))
         block = state.card_shapes_block or ""
         assert "fire_access_plan" in block and '"surface"' not in block
+
+    def test_a_colleagues_ingested_message_is_not_the_previous_question(self):
+        from langchain_core.messages import AIMessage
+
+        from aiq_agent.agents.piloti.history import CONTEXT_MESSAGE_ID_PREFIX
+
+        state = ResearchAgentState(
+            messages=[
+                HumanMessage(content="Wie hoch ist die GK?"),
+                AIMessage(content="Gebäudeklasse 5."),
+                HumanMessage(content="Anna Weber: passt, danke", id=f"{CONTEXT_MESSAGE_ID_PREFIX}1"),
+                HumanMessage(content="und in GK 4?"),
+            ]
+        )
+        assert _turn_facts(state, None).previous_message == "Wie hoch ist die GK?"
 
     def test_the_previous_exchange_is_the_last_question_and_the_last_answer(self):
         from langchain_core.messages import AIMessage

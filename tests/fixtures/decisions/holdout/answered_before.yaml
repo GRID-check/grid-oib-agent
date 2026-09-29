@@ -1,0 +1,151 @@
+# Held-out set, written blind to the classifier wording (2026-09-29). Do not tune on it.
+- id: ab01
+  previous_message: "wie lang darf der fluchtweg in einem wohngebäude GK 3 maximal sein?"
+  previous_answer: "Nach OIB-Richtlinie 2, Punkt 5.1.1 muss von jeder Stelle eines Raumes in höchstens 40 m Gehweglänge ein direkter Ausgang zu einem Treppenhaus oder ins Freie erreichbar sein. Für Ihr Wohngebäude der GK 3 gilt dieser Wert unverändert. Ist das nicht möglich, braucht es einen zweiten, unabhängigen Fluchtweg (Punkt 5.1.2)."
+  message: "wie lang darf der fluchtweg in einem wohngebäude GK 3 maximal sein?"
+  answered_before: true
+- id: ab02
+  previous_message: "welche geländerhöhe brauch ich bei einem balkon im 2. OG?"
+  previous_answer: "Gemäß OIB-Richtlinie 4, Punkt 4.2.2 beträgt die Höhe der Absturzsicherung mindestens 1,00 m. Bei einer Absturzhöhe von mehr als 12 m ist sie auf mindestens 1,10 m zu erhöhen. Ein Balkon im 2. OG liegt üblicherweise deutlich unter 12 m, daher reichen hier 1,00 m, gemessen ab Oberkante des fertigen Belags."
+  message: "und bei einer innentreppe in der wohnung?"
+  answered_before: false
+- id: ab03
+  previous_message: "welcher u-wert gilt für die außenwand im neubau?"
+  previous_answer: "Nach OIB-Richtlinie 6, Punkt 4.4 (Anforderungen an wärmeübertragende Bauteile) darf der U-Wert einer Außenwand bei Neubau höchstens 0,35 W/m²K betragen. Das gilt unabhängig von der Nutzung für Wände gegen Außenluft; für Wände gegen unbeheizte Gebäudeteile gelten 0,60 W/m²K."
+  message: "welcher uwert gillt für die aussenwand beim neubau"
+  answered_before: true
+- id: ab04
+  previous_message: "welche feuerwiderstandsklasse braucht das tragwerk in GK 3?"
+  previous_answer: "Laut OIB-Richtlinie 2, Tabelle 1b müssen tragende Bauteile in Gebäuden der GK 3 in den oberirdischen Geschoßen R 60 erfüllen. Für das oberste Geschoß genügt R 30. In unterirdischen Geschoßen gilt R 90 mit A2. Trennwände und Trenndecken sind entsprechend als REI 60 bzw. EI 60 auszuführen."
+  message: "und in GK 5?"
+  answered_before: false
+- id: ab05
+  previous_message: "Wie viele Pkw-Stellplätze muss ich in Wien pro Wohnung nachweisen?"
+  previous_answer: "In Wien regelt das § 50 Wiener Garagengesetz 2008: Pro 100 m² Wohnnutzfläche ist ein Stellplatz zu schaffen. Die Zahl richtet sich also nicht nach der Anzahl der Wohnungen, sondern nach der Nutzfläche. Über ein Stellplatzregulativ im Bebauungsplan kann die Pflicht reduziert oder erhöht werden."
+  message: "was fordert die bundeshauptstadt an garagenplätzen je einheit?"
+  answered_before: true
+- id: ab06
+  previous_message: "wie breit muss eine tür barrierefrei sein?"
+  previous_answer: "Nach OIB-Richtlinie 4, Punkt 2.2.1 müssen Türen im Verlauf barrierefreier Wege eine nutzbare Durchgangslichte von mindestens 80 cm aufweisen. Bei Haupteingangstüren sind mindestens 90 cm erforderlich. Zusätzlich muss vor und nach der Tür eine freie Bewegungsfläche von 150 cm Durchmesser vorhanden sein."
+  message: "bist du sicher mit den 80 cm? ich hab 90 im kopf"
+  answered_before: false
+- id: ab07
+  previous_message: "gib mir mal einen überblick was die OIB-RL 4 alles regelt"
+  previous_answer: "Die OIB-Richtlinie 4 „Nutzungssicherheit und Barrierefreiheit“ gliedert sich in: Erschließung mit Gängen, Treppen und Rampen (Punkt 2), Schutz vor Rutsch- und Stolperunfällen (Punkt 3), Schutz vor Absturz (Punkt 4), Schutz vor Aufprall und herabstürzenden Gegenständen (Punkt 5), Schutz vor Verbrennungen (Punkt 6), Blitzschutz (Punkt 7) und barrierefreie Gestaltung (Punkt 8)."
+  message: "worum gehts in der OIB 4 nochmal grob?"
+  answered_before: true
+- id: ab08
+  previous_message: "was steht im bescheid zu den auflagen für die feuerwehrzufahrt?"
+  previous_answer: "Im Baubescheid vom 14.03.2026 (GZ MA37/123456-2025) regelt Auflage 7 die Feuerwehrzufahrt: Die Zufahrt ist mit mindestens 3,50 m Breite und einer Tragfähigkeit für 10 t Achslast herzustellen, dauerhaft freizuhalten und gemäß TRVB 134 F zu kennzeichnen. Die Herstellung ist mit der Fertigstellungsanzeige nachzuweisen."
+  message: "mach mir daraus einen kurzen aktenvermerk für die projektakte"
+  answered_before: false
+- id: ab09
+  previous_message: "welche trittschallwerte gelten zwischen wohnungen?"
+  previous_answer: "OIB-Richtlinie 5, Punkt 2.4.1: Der bewertete Standard-Trittschallpegel L'nT,w darf in Aufenthaltsräumen von Wohnungen bei Übertragung aus anderen Nutzungseinheiten höchstens 48 dB betragen. Aus allgemein zugänglichen Bereichen wie Stiegenhäusern gilt derselbe Grenzwert, aus Terrassen und Loggien 53 dB."
+  message: "nochmal bitte, was war der wert?"
+  answered_before: true
+- id: ab10
+  previous_message: "brauch ich im stiegenhaus eine rauchabzugseinrichtung?"
+  previous_answer: "Ja. Nach OIB-Richtlinie 2, Punkt 5.2 in Verbindung mit Tabelle 2a ist in Treppenhäusern ab GK 3 an oberster Stelle eine Rauchabzugseinrichtung mit mindestens 1,00 m² geometrisch freier Öffnungsfläche vorzusehen, die vom Erdgeschoß und vom obersten Podest aus auslösbar sein muss."
+  message: "warum erst ab GK 3?"
+  answered_before: false
+- id: ab11
+  previous_message: "was muss ein barrierefreier sanitärraum haben?"
+  previous_answer: "Nach OIB-Richtlinie 4, Punkt 8 in Verbindung mit ÖNORM B 1600 braucht ein barrierefreier Sanitärraum eine Wendefläche von 150 cm Durchmesser, ein WC mit seitlicher Anfahrfläche von 90 cm, beidseitige Stützklappgriffe, ein unterfahrbares Waschbecken und eine nach außen aufschlagende Tür mit 80 cm Durchgangslichte."
+  message: "kannst du mir das als stichpunktliste geben?"
+  answered_before: true
+- id: ab12
+  previous_message: "ab wann brauche ich in wien einen aufzug?"
+  previous_answer: "Die Bauordnung für Wien (§ 111) verlangt in Verbindung mit OIB-Richtlinie 4, Punkt 2.7, dass Gebäude mit mehr als zwei oberirdischen Geschoßen, die Wohnungen enthalten, mit einem Personenaufzug ausgestattet werden. Das gilt für Neubauten; bei Zubauten und Dachgeschoßausbauten sieht § 111 Erleichterungen vor."
+  message: "und wie ist das in tirol?"
+  answered_before: false
+- id: ab13
+  previous_message: "Was sind die Anforderungen an die Fassade beim Schallschutz?"
+  previous_answer: "OIB-Richtlinie 5, Punkt 2.2: Das erforderliche bewertete resultierende Bau-Schalldämm-Maß R'res,w der Außenbauteile richtet sich nach dem maßgeblichen Außenlärmpegel. Für Wohngebäude gilt R'res,w ≥ 33 dB als Mindestwert; bei höheren Außenlärmpegeln steigt die Anforderung stufenweise nach Tabelle 2."
+  message: "kurz: wie viel dB mindestens?"
+  answered_before: true
+- id: ab14
+  previous_message: "was sagt das brandschutzkonzept zur tiefgarage?"
+  previous_answer: "Das Brandschutzkonzept (Rev. C, 02.06.2026, Kap. 6) sieht für die Tiefgarage einen eigenen Brandabschnitt mit REI 90-Umfassung, eine CO-Warnanlage sowie eine natürliche Lüftung über die Rampe vor. Die Fluchtwege führen über zwei Stiegenhäuser mit Schleusen. Zur Brandmeldeanlage verweist das Konzept auf Anhang B."
+  message: "genauer bitte"
+  answered_before: false
+- id: ab15
+  previous_message: "ab welcher höhe braucht man eine zweite treppe?"
+  previous_answer: "Ein zweites Treppenhaus ist nach OIB-Richtlinie 2 nicht an eine Gebäudehöhe gebunden, sondern an die Fluchtweglänge: Liegt eine Stelle mehr als 40 m Gehweglänge vom nächsten Treppenhaus entfernt, braucht es einen zweiten Fluchtweg (Punkt 5.1). In GK 5 kann statt eines zweiten Treppenhauses ein Sicherheitstreppenhaus ausgeführt werden."
+  message: "eine zweite treppe braucht man ab welcher höhe?"
+  answered_before: true
+- id: ab16
+  previous_message: "wie hoch darf eine stufe bei der haupttreppe sein?"
+  previous_answer: "Nach OIB-Richtlinie 4, Punkt 2.2.2 (Tabelle 1) darf die Stufenhöhe bei Haupttreppen in Wohngebäuden höchstens 18 cm betragen, der Auftritt muss mindestens 27 cm sein. Für Treppen innerhalb von Wohnungen sind bis zu 20 cm Steigung bei 24 cm Auftritt zulässig."
+  message: "super danke dir!"
+  answered_before: false
+- id: ab17
+  previous_message: "hey, wie groß muss der wendekreis im bad sein?"
+  previous_answer: "Nach OIB-Richtlinie 4 in Verbindung mit ÖNORM B 1600 ist in barrierefreien Sanitärräumen eine freie Wendefläche mit einem Durchmesser von mindestens 150 cm erforderlich. Unterfahrbare Einrichtungen wie das Waschbecken dürfen in die Fläche einbezogen werden, Türaufschläge nach innen hingegen nicht."
+  message: "Sehr geehrte Damen und Herren, könnten Sie mir bitte mitteilen, welchen Durchmesser die Bewegungsfläche im Badezimmer aufweisen muss?"
+  answered_before: true
+- id: ab18
+  previous_message: "welche trittschallanforderung gilt zwischen zwei wohnungen?"
+  previous_answer: "OIB-Richtlinie 5, Punkt 2.4.1: Zwischen Wohnungen darf der bewertete Standard-Trittschallpegel L'nT,w in Aufenthaltsräumen höchstens 48 dB betragen. Das gilt für Übertragungen aus anderen Nutzungseinheiten ebenso wie aus Gängen und Stiegenhäusern. Maßgeblich ist der Messwert am fertigen Bauwerk."
+  message: "und wie viel luftschall?"
+  answered_before: false
+- id: ab19
+  previous_message: "welche unterlagen brauche ich für die fertigstellungsanzeige in wien?"
+  previous_answer: "Für die Fertigstellungsanzeige nach § 128 BO für Wien sind vorzulegen: die Bestätigung eines Ziviltechnikers über die bewilligungsgemäße Ausführung, der Befund über die Rauchfänge, die Bestätigung der Standsicherheit, der Nachweis der Brandschutzeinrichtungen sowie der Energieausweis. Bei Aufzügen zusätzlich die Abnahmeprüfung."
+  message: "kannst du das kürzer zusammenfassen?"
+  answered_before: true
+- id: ab20
+  previous_message: "welcher U-Wert gilt fürs Dach?"
+  previous_answer: "OIB-Richtlinie 6, Punkt 4.4: Für Decken und Dachschrägen jeweils gegen Außenluft darf der U-Wert bei Neubau höchstens 0,20 W/m²K betragen. Derselbe Wert gilt für die oberste Geschoßdecke gegen unbeheizte Dachräume. Maßgeblich ist der Wert des gesamten Aufbaus einschließlich Wärmebrückenzuschlag."
+  message: "das stimmt nicht, bei uns im gutachten steht 0,15"
+  answered_before: false
+- id: ab21
+  previous_message: "wie breit muss ein fluchtweg im gang sein?"
+  previous_answer: "Nach OIB-Richtlinie 4, Punkt 2.1.1 müssen Gänge im Verlauf von Fluchtwegen eine nutzbare Breite von mindestens 1,20 m aufweisen. Innerhalb von Wohnungen genügen 1,00 m. Werden die Gänge von mehr als 120 Personen benützt, erhöht sich die Breite je weiterer 10 Personen um 10 cm."
+  message: "ok. andere frage: brauchen wir für die tiefgarage eine sprinkleranlage?"
+  answered_before: false
+- id: ab22
+  previous_message: "wie steil darf eine barrierefreie rampe sein?"
+  previous_answer: "Nach OIB-Richtlinie 4, Punkt 2.4 darf die Längsneigung einer barrierefreien Rampe höchstens 6 % betragen. Nach jeweils 10 m Lauflänge ist ein Zwischenpodest von mindestens 120 cm Länge erforderlich, an Anfang und Ende eine Bewegungsfläche von 150 cm Durchmesser."
+  message: "wieviel prozent gefälle ist für rollstuhlfahrer beim zugang maximal zulässig?"
+  answered_before: true
+- id: ab23
+  previous_message: "hat der prüfer im brandschutzkonzept was zu den fenstern im stiegenhaus angemerkt?"
+  previous_answer: "Ja. In der Stellungnahme zum Brandschutzkonzept vom 21.07.2026, Punkt 4.3, merkt der Prüfer an, dass die Fenster im Stiegenhaus 2 als Rauchabzugsöffnung angerechnet werden, die geforderte freie Öffnungsfläche von 1,00 m² aber nicht nachgewiesen ist. Er verlangt einen Nachweis oder eine zusätzliche RWA-Klappe."
+  message: "schreib bitte eine mail an den fachplaner dass er das nachreichen soll"
+  answered_before: false
+- id: ab24
+  previous_message: "wie viele fahrradabstellplätze braucht ein wohnbau in wien?"
+  previous_answer: "Nach § 119 Abs. 5 BO für Wien ist bei Wohnbauten je angefangene 30 m² Wohnnutzfläche ein Fahrradabstellplatz herzustellen. Die Abstellplätze müssen gut zugänglich und versperrbar sein und überwiegend im Gebäude oder überdacht angeordnet werden."
+  message: "und bei einem bürogebäude?"
+  answered_before: false
+- id: ab25
+  previous_message: "wie viele stellplätze brauchen wir für die 24 wohnungen laut einreichplan?"
+  previous_answer: "Laut Einreichplan (Stand 11.05.2026) umfasst das Projekt 24 Wohnungen mit insgesamt 1.860 m² Wohnnutzfläche. Nach § 50 Wiener Garagengesetz ergibt das bei einem Stellplatz je 100 m² 18,6, also 19 Pflichtstellplätze. Geplant sind in der Tiefgarage 21 Stellplätze, die Pflicht ist damit erfüllt."
+  message: "also wie viele pflichtstellplätze warens jetzt?"
+  answered_before: true
+- id: ab26
+  previous_message: "welche anforderungen gelten an wohnungseingangstüren zum stiegenhaus?"
+  previous_answer: "Nach OIB-Richtlinie 2, Tabelle 2a müssen Wohnungseingangstüren ins Treppenhaus in GK 4 und 5 als EI2 30-C ausgeführt werden, in GK 2 und 3 genügt E 30-C. Die Türen müssen selbstschließend sein; Feststellanlagen sind nur mit rauchmeldergesteuerter Auslösung zulässig."
+  message: "hallo nochmal, bin wieder da"
+  answered_before: false
+- id: ab27
+  previous_message: "welche U-werte gelten für fenster?"
+  previous_answer: "OIB-Richtlinie 6, Punkt 4.4: Fenster, Fenstertüren und verglaste Türen in Wohngebäuden gegen Außenluft dürfen bei Neubau einen U-Wert von höchstens 1,40 W/m²K aufweisen, Dachflächenfenster höchstens 1,70 W/m²K. Maßgeblich ist der Wert für das gesamte Fenster (Uw), nicht nur die Verglasung."
+  message: "welcher g-wert ist für die sommertauglichkeit nötig?"
+  answered_before: false
+- id: ab28
+  previous_message: "welche auflagen hat der baubescheid zum lärmschutz?"
+  previous_answer: "Der Baubescheid vom 14.03.2026 enthält zum Lärmschutz zwei Auflagen: Auflage 12 verlangt für die straßenseitigen Aufenthaltsräume Fenster mit Rw ≥ 38 dB und schallgedämmte Lüftungselemente; Auflage 13 schreibt vor, dass die Lüftungsgeräte am Dach nachts 35 dB an der Grundgrenze nicht überschreiten."
+  message: "was steht im bescheid nochmal wegen schallschutz?"
+  answered_before: true
+- id: ab29
+  previous_message: "welche feuerwiderstandsdauer müssen wohnungstrenndecken in GK 4 haben?"
+  previous_answer: "Nach OIB-Richtlinie 2, Tabelle 1b müssen Trenndecken zwischen Wohnungen in Gebäuden der GK 4 die Anforderung REI 60 erfüllen. Für das oberste Geschoß und für Decken über Dachräumen ohne Aufenthaltsräume gelten Erleichterungen; in unterirdischen Geschoßen ist REI 90 gefordert."
+  message: "welche feuerwiderstandsdauer müssen wohnungstrennwände in GK 4 haben?"
+  answered_before: false
+- id: ab30
+  previous_message: "was ist der unterschied zwischen GK 4 und GK 5?"
+  previous_answer: "Die Gebäudeklassen unterscheiden sich nach den OIB-Begriffsbestimmungen vor allem im Fluchtniveau: GK 4 umfasst Gebäude mit einem Fluchtniveau von nicht mehr als 11 m und Nutzungseinheiten von je höchstens 400 m², GK 5 alle Gebäude mit einem Fluchtniveau bis 22 m, die nicht in GK 1 bis 4 fallen. Darüber gelten die Hochhausregeln."
+  message: "wie grenzen sich die gebäudeklassen vier und fünf voneinander ab?"
+  answered_before: true

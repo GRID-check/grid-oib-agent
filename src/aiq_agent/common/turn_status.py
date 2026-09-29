@@ -716,15 +716,23 @@ def _search_signature(args: dict[str, Any]) -> str:
     question. Every narrowing argument is part of the identity: the same words
     against a different ``file_name`` or ``folder`` is a different corpus and a
     different answer, which is why (e) is not a repeat.
+
+    A family overview is keyed by its family, not its words: „OIB 2",
+    „OIB-Richtlinie 2" and „was weißt du über die OIB 2" build the same
+    overview of every member, and each rewording re-sent all of it.
     """
+    from aiq_agent.common.norm_registry import family_query_number
+
     filters = args.get("filters")
     canonical = (
         json.dumps(filters, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str) if filters else ""
     )
+    query = " ".join(str(args.get("query") or "").split())
+    family = family_query_number(query)
     return _SIGNATURE_SEPARATOR.join(
         [
             "knowledge_search",
-            " ".join(str(args.get("query") or "").split()).casefold(),
+            f"family:{family}" if family else query.casefold(),
             _argument_text(args, "doc_class"),
             _argument_text(args, "title_contains"),
             _argument_text(args, "file_name", fold_case=True),

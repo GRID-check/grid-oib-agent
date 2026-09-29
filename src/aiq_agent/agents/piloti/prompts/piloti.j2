@@ -57,7 +57,11 @@ The exact shape of the cards this question most likely earns, beyond those in th
 
 {% endif %}
 
-{% if focus_file_name is defined and focus_file_name %}
+{# The turn-start decision (ADR-0064) found the previous answer already
+   answers this message. Round 0 fetched nothing; every tool stays bound. #}{% if answered_before is defined and answered_before %}## This message was answered in the previous turn
+Your previous answer already answers this message, so nothing was fetched ahead of you: answer it from that answer, per the research rules.
+
+{% endif %}{% if focus_file_name is defined and focus_file_name %}
 ## This turn's subject: **{{ focus_file_name }}**{% if focus_shelf_label is defined and focus_shelf_label %} ({{ focus_shelf_label }}){% endif %}
 
 The user has this file open, so every bare reference in their message („dieses Dokument", „das PDF", "it", or a request with no object at all) means **{{ focus_file_name }}**. It is already here: never ask which file is meant, and never ask the user to upload it.

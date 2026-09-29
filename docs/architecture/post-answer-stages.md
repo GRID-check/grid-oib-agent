@@ -721,6 +721,14 @@ per rendered answer (§1.7) to a render of `message.stages.memory_reflection`,
 and the chip becomes per-turn instead of per-conversation — which is what it
 always claimed to be.
 
+*Since 2026-09-25 (ADR-0064, use 5):* after the gate, the handler asks the
+decision model one yes/no over the exchange — does it establish anything
+about this project — and below 0.3 returns `StageEmpty("decided_nothing_durable")`
+without the reflection call. A decision that did not run, a turn whose
+`remember` call wrote something, and anything at 0.3 or above reflect as
+before. The empty outcome's reason is on the span, so the skip rate is a
+`GROUP BY` like every other.
+
 **The DB write stays the source of truth.** The frame is a notification, not a
 transfer of authority. `grid_app` stays single-writer.
 
@@ -1111,6 +1119,13 @@ Each failed condition produces `outcome:"skipped"` with that condition as
 > `deep_research_job`, `intent_out_of_scope`, `routing_meta`, `routing_error`,
 > `research_truncated`, `empty_turn`, `canned_non_answer`, `answer_too_short`,
 > `answer_ends_in_question`.
+>
+> **The text gates read the prose, not the reference list** (2026-09-29).
+> `answer_too_short`, `answer_ends_in_question` and reflection's insufficiency
+> keywords run on `common.answer_references.prose_without_references`. Read on
+> the whole answer, a cited answer's last line was a source, so the question
+> gate never fired on one, and the source list counted towards the length
+> floor and filled reflection's 800-character tail.
 >
 > **`emitted_card_types` is deliberately NOT a condition**, although §2.3 put
 > the field there for exactly this kind of use. A turn where the answering model

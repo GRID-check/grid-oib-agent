@@ -1,0 +1,96 @@
+# Held-out set, written blind to the classifier wording (2026-09-26). Do not tune on it.
+- durable: true
+  question: "Kurze Info vorab: der Bauherr hat gestern entschieden, dass im EG doch keine Arztpraxis kommt, sondern zwei Wohnungen. Was heißt das für die Fluchtwege?"
+  answer: "Mit dem Entfall der Praxis wird das Erdgeschoß reine Wohnnutzung, damit gelten für alle Geschoße dieselben Anforderungen an Wohngebäude. Die gesonderte Fluchtweglänge für die Ordination fällt weg; die Wohnungen im EG können direkt ins Freie entfluchtet werden. Ich halte fest, dass das EG jetzt zwei Wohneinheiten statt einer Praxis enthält."
+
+- durable: false
+  question: "Wie hoch muss eine Absturzsicherung bei einer Absturzhöhe über 12 m sein?"
+  answer: "Nach OIB-Richtlinie 4 muss die Absturzsicherung bei einer möglichen Absturzhöhe von mehr als 12 m mindestens 1,10 m hoch sein. Darunter genügen 1,00 m. Gemessen wird ab der Standfläche, bei Fenstern ab Fußbodenoberkante."
+
+- durable: false
+  question: "Wenn wir ein Gebäude der GK 4 haben, welche Feuerwiderstandsklasse brauchen dann die tragenden Wände?"
+  answer: "Für Gebäudeklasse 4 verlangt die OIB-Richtlinie 2 in den oberirdischen Geschoßen grundsätzlich R 60 bzw. REI 60 für tragende und brandabschnittsbildende Bauteile, im obersten Geschoß reicht R 30. In unterirdischen Geschoßen sind R 90 und A2 gefordert. Abweichungen sind über ein Brandschutzkonzept möglich."
+
+- durable: true
+  question: "Ich hab im Einreichplan nachgeschaut, das Fluchtniveau liegt bei 11,20 m. Ist das dann noch GK 4?"
+  answer: "Nein, mit einem Fluchtniveau von 11,20 m liegt das Gebäude knapp über der 11-m-Grenze und damit in Gebäudeklasse 5. Für GK 4 darf das Fluchtniveau höchstens 11 m betragen. Das Projekt ist daher als GK 5 einzustufen, sofern die Höhe im Plan stimmt."
+
+- durable: false
+  question: "Was ist eigentlich der Unterschied zwischen einem Brandabschnitt und einem Brandrauchabschnitt?"
+  answer: "Ein Brandabschnitt ist ein Bereich, der durch brandabschnittsbildende Wände und Decken so abgetrennt ist, dass sich ein Brand für eine bestimmte Zeit nicht in andere Abschnitte ausbreitet. Ein Rauchabschnitt begrenzt dagegen nur die Ausbreitung von Rauch, etwa durch Rauchschürzen oder rauchdichte Türen. Brandabschnitte haben Feuerwiderstandsanforderungen, Rauchabschnitte nicht zwingend."
+
+- durable: true
+  question: "Bitte bei diesem Projekt immer die Salzburger Bautechnikverordnung mitprüfen und nicht nur OIB – wie schaut's dann mit den Abstellräumen für Kinderwägen aus?"
+  answer: "Verstanden, ich ziehe für dieses Projekt zusätzlich die Salzburger Bautechnikverordnung heran. Für Wohnbauten mit mehr als drei Wohnungen verlangt das Salzburger Landesrecht einen versperrbaren Abstellraum für Kinderwägen und Fahrräder; die OIB-RL 3 selbst regelt das nicht. Die genaue Mindestgröße prüfe ich im Landesgesetz nach."
+
+- durable: false
+  question: "danke!!"
+  answer: "Gern geschehen. Melde dich, wenn noch etwas offen ist."
+
+- durable: true
+  question: "Welche U-Werte haben wir laut Bauphysik-Gutachten beim Dach angesetzt?"
+  answer: "Im Bauphysik-Gutachten vom Juni ist für das Flachdach über dem 4. OG ein U-Wert von 0,12 W/m²K angesetzt, mit 26 cm EPS-Gefälledämmung. Der Anforderungswert der OIB-RL 6 von 0,20 W/m²K wird damit deutlich unterschritten. Für das Terrassendach ist im Gutachten kein eigener Wert angegeben, das sollte der Bauphysiker nachreichen."
+
+- durable: false
+  question: "Wir brauchen doch bei Wohngebäuden immer einen Aufzug ab drei Geschoßen, oder?"
+  answer: "Nicht ganz: Die Aufzugspflicht knüpft an die Zahl der oberirdischen Geschoße und an die Barrierefreiheit an, und die Länder haben dazu teils abweichende Schwellen. Pauschal ab drei Geschoßen stimmt so nicht. Wie viele Geschoße relevant sind, hängt auch davon ab, ob das Dachgeschoß mitzählt."
+
+- durable: true
+  question: "Korrektur: die Tiefgarage hat nicht 45 sondern 52 Stellplätze, der Plan von letzter Woche war veraltet. Ändert sich was?"
+  answer: "Mit 52 Stellplätzen und rund 1.400 m² Nutzfläche bleibt die Garage eine Großgarage im Sinne der OIB-RL 2.2, an der Einstufung ändert sich nichts. Mehr Stellplätze bedeuten aber eine längere Rampenbelastung und eventuell eine zusätzliche Ausfahrt nach Landesrecht. Ich rechne ab jetzt mit 52 Stellplätzen."
+
+- durable: false
+  question: "Was bedeutet fGEE?"
+  answer: "fGEE ist der Gesamtenergieeffizienz-Faktor. Er vergleicht den Endenergiebedarf des Gebäudes mit einem Referenzbedarf nach den Anforderungen von 2007; ein Wert unter 1 heißt, das Gebäude ist effizienter als die Referenz. Er steht im Energieausweis neben HWB, PEB und CO2."
+
+- durable: true
+  question: "Hat die Baubehörde eigentlich schon auf unser Ansuchen um Abweichung bei der Stiegenbreite reagiert?"
+  answer: "In den Projektunterlagen findet sich bisher keine Antwort der Behörde; das letzte Schriftstück ist unser Ansuchen vom 12. August. Die Abweichung bei der Stiegenbreite (1,10 m statt 1,20 m) ist damit weiterhin offen. Ich würde das als offenen Punkt für die nächste Besprechung vormerken."
+
+- durable: false
+  question: "Wie lang darf ein Fluchtweg in einem Bürogebäude maximal sein?"
+  answer: "Nach OIB-RL 2 darf von jeder Stelle eines Raumes die Gehweglänge bis zu einem sicheren Ort oder einem Treppenhaus höchstens 40 m betragen. Bei Einbau einer Brandmeldeanlage oder in Sonderfällen gelten teils andere Werte. Für Bürogebäude mit großen offenen Flächen wird das oft im Brandschutzkonzept gesondert nachgewiesen."
+
+- durable: true
+  question: "Kannst du mir die Antworten zu diesem Projekt künftig kürzer halten, mit nur den Zahlen und dem Paragrafen? Der Bauherr liest mit. Wie breit muss der Gang im OG sein?"
+  answer: "Mach ich, für dieses Projekt ab jetzt knapp mit Wert und Fundstelle. Gangbreite im OG: mindestens 1,20 m, OIB-RL 4 Pkt. 2.2.1, bei Barrierefreiheit 1,50 m Wendekreis an Richtungsänderungen."
+
+- durable: false
+  question: "Hab ich das richtig verstanden, dass das nur für Neubauten gilt?"
+  answer: "Ja, die genannte Anforderung gilt für Neubauten. Bei Änderungen an bestehenden Gebäuden kann die Behörde nach Landesrecht Erleichterungen gewähren, wenn das Schutzniveau nicht verschlechtert wird."
+
+- durable: false
+  question: "Wie viele Stellplätze braucht man in Wien pro Wohnung?"
+  answer: "Nach dem Wiener Garagengesetz ist seit der Novelle 2014 grundsätzlich ein Stellplatz je 100 m² Wohnnutzfläche herzustellen. Der Bebauungsplan kann das reduzieren oder erhöhen, etwa in gut öffentlich erschlossenen Gebieten. Kann die Pflicht nicht erfüllt werden, ist eine Ausgleichsabgabe zu entrichten."
+
+- durable: true
+  question: "Wir haben uns mit dem Statiker geeinigt, dass die Decken über dem Keller in Brettsperrholz gemacht werden. Reicht da REI 60?"
+  answer: "Für die Kellerdecke verlangt die OIB-RL 2 in Gebäudeklasse 3 grundsätzlich REI 90 und A2, weil sie unterirdische Geschoße abschließt. Brettsperrholz ist damit nur über eine Abweichung mit Kompensationsmaßnahmen oder eine nichtbrennbare Bekleidung zulässig. Die Entscheidung für Brettsperrholz über dem Keller sollte daher mit dem Brandschutzplaner abgestimmt werden."
+
+- durable: false
+  question: "Wie misst man in einem IFC-Modell die Raumhöhe am besten?"
+  answer: "Am zuverlässigsten ist der Abstand zwischen Oberkante Fertigfußboden des Raumes und Unterkante der darüberliegenden Decke, ermittelt aus den Geometrien von IfcSlab bzw. IfcCovering. Die Eigenschaft Height am IfcSpace ist oft nur ein Näherungswert. Bei abgehängten Decken muss man klären, ob die lichte Höhe bis zur Abhängung gemeint ist."
+
+- durable: true
+  question: "Laut dem Gemeindebrief vom Montag ist das Grundstück doch nicht im Gefahrenbereich der Wildbachverbauung. Heißt das, der Keller geht wieder?"
+  answer: "Wenn die Gemeinde bestätigt, dass das Grundstück außerhalb der gelben Zone liegt, entfällt die Auflage zum hochwassersicheren Ausbau und ein Keller ist wieder grundsätzlich möglich. Die bisherige Annahme, dass wegen der Gefahrenzone auf den Keller verzichtet werden muss, ist damit überholt. Den Gemeindebrief sollte man der Einreichung beilegen."
+
+- durable: false
+  question: "Servus, bist du heute schnell unterwegs?"
+  answer: "Servus! Ja, ich bin bereit. Womit kann ich helfen?"
+
+- durable: false
+  question: "Und bei Holzbauweise?"
+  answer: "Bei Holzbauweise gelten dieselben Feuerwiderstandsklassen, zusätzlich verlangt die OIB-RL 2 je nach Gebäudeklasse eine Kapselung oder nichtbrennbare Bekleidung der Holzoberflächen in Fluchtwegen."
+
+- durable: true
+  question: "Wie viel Nettonutzfläche haben die Wohnungen im 2. OG laut Modell zusammen?"
+  answer: "Aus dem IFC-Modell ergeben sich für die fünf Wohnungen im 2. OG zusammen 387,4 m² Nutzfläche, Loggien nicht eingerechnet. Die größte ist Top 9 mit 94,1 m², die kleinste Top 12 mit 52,8 m². Die Werte beruhen auf den IfcSpace-Flächen und sollten mit der Flächenaufstellung des Büros abgeglichen werden."
+
+- durable: false
+  question: "Gilt in NÖ die OIB-RL 6 in der Ausgabe 2023 schon?"
+  answer: "Niederösterreich hat die OIB-Richtlinien 2023 mit einer Novelle der NÖ Bautechnikverordnung übernommen; maßgeblich ist das Datum der Antragstellung. Für Anträge vor dem Inkrafttreten gilt noch die Ausgabe 2019. Das genaue Datum steht in der Übergangsbestimmung der Verordnung."
+
+- durable: true
+  question: "Bei uns ist die Fassade hinterlüftet mit Holzschalung, das wollen wir unbedingt so behalten. Geht das bei vier Geschoßen?"
+  answer: "Bei vier oberirdischen Geschoßen und GK 4 lässt die OIB-RL 2 eine Holzfassade zu, wenn in jedem Geschoß eine Brandausbreitungsbarriere, etwa ein umlaufendes Stahlblech, ausgeführt wird. Die Hinterlüftung muss dabei geschoßweise unterbrochen werden. Die Holzschalung ist damit machbar, verlangt aber diese Detaillösung im Fassadenplan."

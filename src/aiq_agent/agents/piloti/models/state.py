@@ -251,6 +251,10 @@ class ResearchAgentState(BaseModel):
     # does not already carry. Rendered by the register before ``run()``;
     # None renders no section.
     card_shapes_block: str | None = None
+    # The turn-start decision (ADR-0064) found that the previous answer
+    # already answers this message: the prompt says so, and round 0 fetched
+    # nothing. Set by the register before ``run()``.
+    answered_before: bool = False
     # Ordered names of the skills whose BODY reached the model this turn, in
     # delivery order, deduped. DELIVERED, not offered: the disclosure renders
     # this as "what shaped this answer", and a skill the model read past in the

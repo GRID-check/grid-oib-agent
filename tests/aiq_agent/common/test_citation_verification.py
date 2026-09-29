@@ -1,6 +1,7 @@
 """Tests for citation verification module."""
 
 import re
+from unittest.mock import patch
 from urllib.parse import urlparse
 
 import pytest
@@ -3615,3 +3616,15 @@ class TestPunktAndScoreReachTheWire:
         bare = SourceEntry(url="https://example.at/x", source_type="web")
         assert "punkt" not in source_entry_to_wire(bare)
         assert "score" not in source_entry_to_wire(bare)
+
+
+class TestAVerbatimQuoteSkipsTheFuzzyScan:
+    """The fuzzy scan scored every chunk of a registry that grows each turn, even for a verbatim quote."""
+
+    def test_a_substring_scores_one_and_stops_before_the_fuzzy_scorer(self):
+        from aiq_agent.common import citation_verification as cv
+
+        chunks = [("tragende wände r 60 in gebäudeklasse 4", None), ("andere passage", None)]
+        assert cv._quote_coverage("r 60 in gebäudeklasse", chunks[0][0]) == 1.0
+        with patch.object(cv, "_quote_coverage", side_effect=AssertionError("fuzzy scan ran")):
+            assert cv._any_chunk_covers("r 60 in gebäudeklasse", chunks, 0.9)

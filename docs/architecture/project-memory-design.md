@@ -269,6 +269,12 @@ writers never file the same fact twice —
 backed by two partial UNIQUE indexes on normalized content (migration
 `0010_project_memory_dedup.sql`) that close the race window. This is a
 pragmatic slice of the §3.2 gate; embed-based consolidation remains a follow-up.
+*Since 2026-09-25:* a correction worded unlike the entry it corrects, which
+neither the embedder nor the polarity split catches, is found agent-side
+before the write: a yes/no per digest entry on the decision model
+(`memory/supersede.py`, ADR-0064 use 7) supplies the `supersedesContent`
+quote when the writer gave none, so the writer's own rules decide what is
+retired.
 See [memory-reflection-audit.md](./memory-reflection-audit.md).
 
 ## 4. Provenance & trust — non-negotiable for a compliance product

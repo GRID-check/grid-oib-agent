@@ -1,0 +1,101 @@
+# Hand-labelled tuning set for the turn decision's `answered_before` (2026-09-29).
+# The first three rows are the conversation that asked for it: „was weißt du zur
+# oib 2" three times, each turn a full search. Re-run with `task be:eval:decisions:offpath`.
+- previous_message: was weißt du zur oib 2
+  previous_answer: >-
+    Die OIB-Richtlinie 2 ist die Brandschutzrichtlinie des OIB und gilt für Gebäude [1]. Sie besteht aus
+    einer Basisrichtlinie und drei Sonderteilen, die je einen Gebäudetyp herausnehmen [1–4]. OIB-RL 2.1
+    Betriebsbauten, 2.2 Garagen, 2.3 Gebäude mit einem Fluchtniveau von mehr als 22 m.
+  message: was weißt du über die oib 2
+  answered_before: true
+- previous_message: was weißt du über die oib 2
+  previous_answer: >-
+    Die OIB-Richtlinie 2 ist die Brandschutzrichtlinie des OIB und gilt für Gebäude [1]. Die Ausgabe Mai
+    2023 besteht aus einer Basisrichtlinie und drei Sonderteilen, die jeweils einen Gebäudetyp aus der
+    Basisrichtlinie herausnehmen [1–4].
+  message: was wißt du über die oib 2
+  answered_before: true
+- previous_message: Was regelt die OIB-Richtlinie 4?
+  previous_answer: >-
+    Die OIB-Richtlinie 4 regelt Nutzungssicherheit und Barrierefreiheit: Erschließung, Treppen, Rampen,
+    Geländer und Brüstungen, Verglasungen, Türen sowie die barrierefreie Gestaltung von Gebäuden [1].
+  message: worum geht es in der OIB 4 nochmal?
+  answered_before: true
+- previous_message: Wie hoch muss ein Geländer bei 5 m Absturzhöhe sein?
+  previous_answer: >-
+    Bei einer Absturzhöhe bis 12 m muss die Absturzsicherung mindestens 1,00 m hoch sein, darüber 1,10 m
+    (OIB-RL 4, Pkt. 4.2.2) [1]. Bei 5 m Absturzhöhe sind es also 1,00 m.
+  message: also welche geländerhöhe brauche ich bei 5 m?
+  answered_before: true
+- previous_message: Welche Unterlagen brauche ich für die Einreichung in Wien?
+  previous_answer: >-
+    Für die Einreichung nach § 63 BO für Wien brauchen Sie: Baupläne in dreifacher Ausfertigung, den
+    Grundbuchsauszug, die Zustimmung der Grundeigentümer, den Energieausweis und die statischen Vorbemessungen [1].
+  message: kannst du mir die unterlagen nochmal als liste geben
+  answered_before: true
+- previous_message: Welchen Feuerwiderstand brauchen tragende Wände in GK 4?
+  previous_answer: >-
+    In Gebäudeklasse 4 müssen tragende Wände in oberirdischen Geschoßen R 60 erfüllen, in unterirdischen
+    Geschoßen R 90 und A2 (OIB-RL 2, Tabelle 1b) [1].
+  message: nochmal kurz, was gilt für tragende wände in gk4?
+  answered_before: true
+- previous_message: Welchen Feuerwiderstand brauchen tragende Wände in GK 4?
+  previous_answer: >-
+    In Gebäudeklasse 4 müssen tragende Wände in oberirdischen Geschoßen R 60 erfüllen, in unterirdischen
+    Geschoßen R 90 und A2 (OIB-RL 2, Tabelle 1b) [1].
+  message: und in GK 5?
+  answered_before: false
+- previous_message: Welchen Feuerwiderstand brauchen tragende Wände in GK 4?
+  previous_answer: >-
+    In Gebäudeklasse 4 müssen tragende Wände in oberirdischen Geschoßen R 60 erfüllen, in unterirdischen
+    Geschoßen R 90 und A2 (OIB-RL 2, Tabelle 1b) [1].
+  message: Welchen Feuerwiderstand brauchen Trenndecken in GK 4?
+  answered_before: false
+- previous_message: was weißt du zur oib 2
+  previous_answer: >-
+    Die OIB-Richtlinie 2 ist die Brandschutzrichtlinie des OIB und gilt für Gebäude [1]. Sie besteht aus
+    einer Basisrichtlinie und drei Sonderteilen, die je einen Gebäudetyp herausnehmen [1–4].
+  message: Was regelt Punkt 12 im Detail für den Bestand?
+  answered_before: false
+- previous_message: was weißt du zur oib 2
+  previous_answer: >-
+    Die OIB-Richtlinie 2 ist die Brandschutzrichtlinie des OIB und gilt für Gebäude [1]. Sie besteht aus
+    einer Basisrichtlinie und drei Sonderteilen, die je einen Gebäudetyp herausnehmen [1–4].
+  message: und was weißt du zur oib 3?
+  answered_before: false
+- previous_message: Wie hoch muss ein Geländer bei 5 m Absturzhöhe sein?
+  previous_answer: >-
+    Bei einer Absturzhöhe bis 12 m muss die Absturzsicherung mindestens 1,00 m hoch sein, darüber 1,10 m
+    (OIB-RL 4, Pkt. 4.2.2) [1]. Bei 5 m Absturzhöhe sind es also 1,00 m.
+  message: bist du sicher? ich hatte 1,10 m im kopf
+  answered_before: false
+- previous_message: Welche Unterlagen brauche ich für die Einreichung in Wien?
+  previous_answer: >-
+    Für die Einreichung nach § 63 BO für Wien brauchen Sie: Baupläne in dreifacher Ausfertigung, den
+    Grundbuchsauszug, die Zustimmung der Grundeigentümer, den Energieausweis und die statischen Vorbemessungen [1].
+  message: Und in Niederösterreich?
+  answered_before: false
+- previous_message: Was regelt die OIB-Richtlinie 4?
+  previous_answer: >-
+    Die OIB-Richtlinie 4 regelt Nutzungssicherheit und Barrierefreiheit: Erschließung, Treppen, Rampen,
+    Geländer und Brüstungen, Verglasungen, Türen sowie die barrierefreie Gestaltung von Gebäuden [1].
+  message: genauer bitte, was steht zu den Rampen?
+  answered_before: false
+- previous_message: Wie hoch muss ein Geländer bei 5 m Absturzhöhe sein?
+  previous_answer: >-
+    Bei einer Absturzhöhe bis 12 m muss die Absturzsicherung mindestens 1,00 m hoch sein, darüber 1,10 m
+    (OIB-RL 4, Pkt. 4.2.2) [1]. Bei 5 m Absturzhöhe sind es also 1,00 m.
+  message: danke dir!
+  answered_before: false
+- previous_message: Welchen Feuerwiderstand brauchen tragende Wände in GK 4?
+  previous_answer: >-
+    In Gebäudeklasse 4 müssen tragende Wände in oberirdischen Geschoßen R 60 erfüllen, in unterirdischen
+    Geschoßen R 90 und A2 (OIB-RL 2, Tabelle 1b) [1].
+  message: schreib mir daraus einen aktenvermerk
+  answered_before: false
+- previous_message: Was steht im Brandschutzkonzept zu den Fluchtwegen?
+  previous_answer: >-
+    Das Brandschutzkonzept (BSK_Kaiserstrasse.pdf, S. 12) sieht zwei bauliche Fluchtwege vor: das
+    Stiegenhaus A und eine Außenstiege an der Hofseite; die Fluchtweglänge beträgt höchstens 38 m [1].
+  message: Was steht im Brandschutzkonzept zur Brandmeldeanlage?
+  answered_before: false

@@ -858,6 +858,18 @@ class TestFetchSignature:
     Punkt — is not.
     """
 
+    def test_a_family_overview_is_one_fetch_however_it_is_worded(self) -> None:
+        """Round 0 searched the question; the model's „OIB-Richtlinie 2" re-sent the same overview."""
+
+        def sig(**args):
+            return turn_status.fetch_signature({"name": "knowledge_search", "args": args})
+
+        overview = sig(query="was weißt du über die OIB 2")
+        assert overview == sig(query="OIB-Richtlinie 2") == sig(query="OIB 2")
+        assert overview != sig(query="Fluchtweglänge OIB 2")
+        assert overview != sig(query="OIB 2", file_name="oib-rl_2.pdf")
+        assert overview != sig(query="OIB 4")
+
     def test_a_search_folds_case_and_whitespace_in_the_query(self) -> None:
         first = turn_status.fetch_signature({"name": "knowledge_search", "args": {"query": "Fluchtweglänge GK4"}})
         second = turn_status.fetch_signature({"name": "knowledge_search", "args": {"query": "  fluchtweglänge   gk4 "}})

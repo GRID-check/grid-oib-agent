@@ -19,6 +19,7 @@ turn carries out is a field of Piloti's own finished state, lifted by
 
 import contextlib
 import logging
+import uuid
 from collections.abc import AsyncIterator
 from collections.abc import Awaitable
 from collections.abc import Callable
@@ -55,6 +56,7 @@ from aiq_agent.turn.commission import CommissionedRun
 from aiq_agent.turn.commission import CommissionRefused
 
 from .clarify import ClarifyFn
+from .history import CONTEXT_MESSAGE_ID_PREFIX
 from .history import compact_tool_results
 from .history import prune_tool_results
 from .history import trim_message_history
@@ -658,6 +660,11 @@ class ConversationGraph:
         absent rather than becoming an empty list the nodes read as a value.
         """
         caller = list(state.already_read_digest or [])
+        if not caller:
+            # Nothing to merge: the field is conversation-scoped, so leaving it
+            # out keeps what the checkpoint holds, and the full-thread read on
+            # the path to the first token buys nothing.
+            return None
         checkpoint: list[str] = []
         try:
             snapshot = await self._graph.aget_state(graph_config)
@@ -724,7 +731,9 @@ class ConversationGraph:
         if not thread_id or not text:
             return
         graph_config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
-        await self._graph.aupdate_state(graph_config, {"messages": [HumanMessage(content=text)]})
+        # Tagged, so the turn decision does not read it as the user's previous question.
+        message = HumanMessage(content=text, id=f"{CONTEXT_MESSAGE_ID_PREFIX}{uuid.uuid4().hex}")
+        await self._graph.aupdate_state(graph_config, {"messages": [message]})
         logger.info("Conversation: ingested %d chars of context (thread %s)", len(text), thread_id)
 
     @property

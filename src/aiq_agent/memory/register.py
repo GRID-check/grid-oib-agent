@@ -233,6 +233,20 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
         )
         if isinstance(target, str):
             return target
+        if target.scope == "project":
+            # A correction the model did not quote is found by a yes/no per
+            # entry of the digest it was shown (ADR-0064, use 7).
+            from aiq_agent.memory.supersede import supersedes_for
+
+            supersedes = (
+                await supersedes_for(
+                    content,
+                    supersedes,
+                    project_context.get_memory_digest_from_context(),
+                    organization_id=target.organization_id,
+                )
+                or ""
+            )
 
         try:
             item_id = await asyncio.to_thread(

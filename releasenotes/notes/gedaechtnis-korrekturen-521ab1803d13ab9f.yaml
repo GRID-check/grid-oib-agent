@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    When a project detail changes, Piloti now replaces the old note in the
+    project memory even when the new one is worded quite differently, so
+    „Das Projekt liegt in Wien“ and „Das Grundstück liegt in St. Pölten“ no
+    longer stand side by side. A note you created or confirmed yourself is
+    still never replaced.

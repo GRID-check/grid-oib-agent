@@ -186,6 +186,22 @@ class TestGatingAndFlags:
 
 class TestObservability:
     @pytest.mark.asyncio
+    async def test_the_span_posts_run_off_the_event_loop(self):
+        """A stage task shares the worker's loop: a blocking POST there stalls every other turn."""
+        import threading
+
+        _spec(lambda ctx: _returns(None), stage_id="ran")
+        _spec(lambda ctx: _returns(None), stage_id="declined", gate=lambda f: GateDecision.skip("routing_meta"))
+        loop_thread = threading.get_ident()
+        threads: list[int] = []
+        with patch(
+            "aiq_agent.common.profiler._post_profiler_spans",
+            side_effect=lambda *a, **k: threads.append(threading.get_ident()),
+        ):
+            await _run_all(_facts(enabled_stages=frozenset({"ran", "declined"})))
+        assert len(threads) == 2 and loop_thread not in threads
+
+    @pytest.mark.asyncio
     async def test_every_terminal_state_emits_a_span_carrying_its_outcome(self):
         _spec(lambda ctx: _returns(None), stage_id="ran")
         _spec(lambda ctx: _returns(None), stage_id="declined", gate=lambda f: GateDecision.skip("routing_meta"))
