@@ -41,8 +41,14 @@ on:
 permissions:
   contents: read
 
+# A run the job condition below will skip (another label added) still enters
+# its workflow's concurrency group, and would cancel a suite in progress: it
+# gets a group of its own.
 concurrency:
-  group: answer-suite-${{ github.event.pull_request.number }}
+  group: >-
+    answer-suite-${{ github.event.pull_request.number }}${{
+    github.event.action == 'labeled' && github.event.label.name != 'answer-suite'
+    && format('-skipped-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
