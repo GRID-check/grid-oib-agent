@@ -19,10 +19,10 @@ export const baurecht: LandingEntry[] = [
       description:
         'Bauordnung für Wien, Bautechnikverordnung 2023, Garagen- und Kleingartengesetz: welche OIB-Richtlinien in Wien gelten und wie Piloti Wiener Fragen belegt.',
       heading: 'Baurecht in Wien: Bauordnung für Wien, WBTV 2023 und OIB-Richtlinien',
-      lede: 'In Wien steht das Baurecht für ein Projekt selten in einem einzigen Text. Die Bauordnung regelt Widmung und Verfahren, die Bautechnikverordnung macht die OIB-Richtlinien verbindlich, Garagen und Kleingärten haben eigene Gesetze, und die MA 37 legt in Merkblättern aus, wie sie das alles liest.',
+      lede: 'In Wien steht das Baurecht für ein Projekt selten in einem einzigen Text. Die Bauordnung regelt Widmung und Verfahren, die Bautechnikverordnung macht die OIB-Richtlinien verbindlich, Garagen und Kleingärten haben eigene Gesetze, und die MA 37 legt in Merkblättern aus, wie sie das alles liest. Piloti führt diese Texte für ein Projekt zusammen und zitiert jeden an der Stelle, die die Frage beantwortet.',
       note: 'OIB-Stand laut OIB-Übersicht „Inkrafttreten der OIB-Richtlinien“: Ausgabe 2023 Stand September 2025, RL 6 Ausgabe 2025 Stand Juli 2026. Gesetzestexte aus dem RIS.',
       answer:
-        'In Wien gelten die Bauordnung für Wien und die Wiener Bautechnikverordnung 2023, die die OIB-Richtlinien verbindlich macht. Laut OIB-Übersicht (Stand: September 2025) gelten die OIB-Richtlinien 1 bis 6 in der Ausgabe 2023 seit 23.2.2024, die OIB-Richtlinie 6 Ausgabe 2025 laut Übersicht (Stand: Juli 2026) seit 15.7.2026.',
+        'Piloti beantwortet Fragen zu einem Wiener Projekt aus der Bauordnung für Wien und der Wiener Bautechnikverordnung 2023, die die OIB-Richtlinien verbindlich macht, jeweils mit geprüfter Fundstelle. Laut OIB-Übersicht gelten in Wien die OIB-Richtlinien 1 bis 6 in der Ausgabe 2023 seit 23.2.2024 (Stand: September 2025), die OIB-Richtlinie 6 Ausgabe 2025 seit 15.7.2026 (Stand: Juli 2026).',
       blocks: [
         {
           kind: 'pairs',
@@ -60,7 +60,7 @@ export const baurecht: LandingEntry[] = [
           title: 'Zwei Ausgaben der RL 6',
           body: [
             'Für Energieeinsparung und Wärmeschutz hat Wien 2026 die Ausgabe gewechselt: Laut OIB-Übersicht gilt die OIB-Richtlinie 6 Ausgabe 2025 seit 15.7.2026, die Richtlinien 1 bis 5 bleiben in der Ausgabe 2023. Welche Fassung ein Verfahren trifft, das um diesen Tag herum eingereicht wurde, entscheidet das Übergangsrecht, und das steht in der Bautechnikverordnung, nicht in der Richtlinie.',
-            'Piloti nennt deshalb bei jeder Anforderung aus der RL 6 die Ausgabe, aus der der Wert stammt. Steht im Projekt kein Einreichdatum, fragt es danach oder schreibt dazu, welche Ausgabe es angenommen hat.',
+            'Piloti nennt deshalb bei jeder Anforderung aus der RL 6 die Ausgabe, die für das Verfahren gilt. Steht im Projekt kein Einreichdatum, fragt es danach oder schreibt dazu, welche Ausgabe es angenommen hat.',
           ],
         },
         {
@@ -86,13 +86,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Wo Piloti in Wien aufhört',
-          items: [
-            'Piloti ersetzt weder die MA 37 noch eine Auskunft der Baupolizei. Ob bewilligt wird, entscheidet die Behörde.',
-            'Was Flächenwidmungs- und Bebauungsplan für Ihr Grundstück festsetzen, weiß Piloti nur, wenn der Plan im Projekt liegt. Sonst sagt es, dass er fehlt und wo Sie nachsehen.',
-            'Ausnahmen und Übergangsbestimmungen der Wiener Bautechnikverordnung prüfen Sie für Ihr Verfahren selbst. Piloti weist darauf hin, entscheidet sie aber nicht.',
-            'Ein Merkblatt ist Verwaltungspraxis. Piloti zitiert es so, und wo es vom Gesetzestext abzuweichen scheint, gilt der Gesetzestext.',
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Über das Ansuchen entscheidet die Baubehörde, die Verantwortung für den Entwurf bleibt beim Büro. Piloti nennt jede Quelle so, dass Sie sie im RIS nachlesen, stellt Merkblätter der MA 37 als Auslegung neben das Gesetz und fragt nach, wenn Einreichdatum oder Widmung fehlen. Was Flächenwidmungs- und Bebauungsplan für Ihr Grundstück festsetzen, liest es aus dem Plan im Projekt.',
           ],
         },
       ],
@@ -120,10 +117,10 @@ export const baurecht: LandingEntry[] = [
       description:
         'Bauordnung für Wien, building technology ordinance 2023, garage and allotment acts: which OIB guidelines apply in Vienna and how Piloti cites answers.',
       heading: 'Building law in Vienna: Bauordnung für Wien, WBTV 2023 and OIB guidelines',
-      lede: 'In Vienna the building law for a project rarely sits in one text. The building code governs zoning and procedure, the building technology ordinance makes the OIB guidelines binding, garages and allotment gardens have their own acts, and MA 37 explains in its information sheets how it reads all of that.',
+      lede: 'In Vienna the building law for a project rarely sits in one text. The building code governs zoning and procedure, the building technology ordinance makes the OIB guidelines binding, garages and allotment gardens have their own acts, and MA 37 explains in its information sheets how it reads all of that. Piloti brings these texts together for a project and cites each at the passage that answers the question.',
       note: 'OIB status per the OIB overview “Inkrafttreten der OIB-Richtlinien”: 2023 edition as of September 2025, RL 6 edition 2025 as of July 2026. Legal texts from RIS.',
       answer:
-        'Vienna applies the Bauordnung für Wien and the Wiener Bautechnikverordnung 2023, which makes the OIB guidelines binding. According to the OIB overview (as of September 2025), OIB guidelines 1 to 6 in the 2023 edition have applied since 23 February 2024, and according to the overview (as of July 2026) OIB guideline 6, edition 2025, since 15 July 2026.',
+        'Piloti answers questions on a Vienna project from the Bauordnung für Wien and the Wiener Bautechnikverordnung 2023, which makes the OIB guidelines binding, each with a checked citation. According to the OIB overview, Vienna has applied OIB guidelines 1 to 6 in the 2023 edition since 23 February 2024 (as of September 2025) and OIB guideline 6, edition 2025, since 15 July 2026 (as of July 2026).',
       blocks: [
         {
           kind: 'pairs',
@@ -161,7 +158,7 @@ export const baurecht: LandingEntry[] = [
           title: 'Two editions of RL 6',
           body: [
             'For energy saving and thermal protection Vienna changed edition in 2026: according to the OIB overview, OIB guideline 6, edition 2025, has applied since 15 July 2026, while guidelines 1 to 5 stay in the 2023 edition. Which version governs a procedure filed around that date is a question of transition law, and that sits in the building technology ordinance, not in the guideline.',
-            'Piloti therefore names the edition a value comes from for every RL 6 requirement. If the project has no submission date, it asks for one or states which edition it assumed.',
+            'Piloti therefore names the edition that governs the procedure for every RL 6 requirement. If the project has no submission date, it asks for one or states which edition it assumed.',
           ],
         },
         {
@@ -187,13 +184,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Where Piloti stops in Vienna',
-          items: [
-            'Piloti replaces neither MA 37 nor information from the building authority. Whether a permit is granted is the authority’s decision.',
-            'What the zoning and development plan fixes for your plot, Piloti only knows if the plan is in the project. Otherwise it says the plan is missing and where to look.',
-            'You check the exceptions and transition rules of the Wiener Bautechnikverordnung for your procedure yourself. Piloti points to them but does not decide them.',
-            'An information sheet is administrative practice. Piloti cites it as such, and where it seems to depart from the legal text, the legal text governs.',
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'The building authority decides on the application; responsibility for the design stays with the office. Piloti names every source so you can read it in RIS, sets MA 37 information sheets beside the law as interpretation, and asks when the submission date or zoning is missing. What the zoning and development plan fixes for your plot, it reads from the plan in the project.',
           ],
         },
       ],
@@ -231,12 +225,12 @@ export const baurecht: LandingEntry[] = [
       lede: 'In Niederösterreich entscheiden zwei Ebenen über ein Projekt: die NÖ Bauordnung 2014 für das ganze Land und der Bebauungsplan der Gemeinde für das einzelne Grundstück. Piloti arbeitet mit der ersten aus dem RIS und mit der zweiten, sobald sie im Projekt liegt.',
       note: 'OIB-Stand laut OIB-Übersicht „Inkrafttreten der OIB-Richtlinien“: Ausgabe 2023 Stand September 2025, RL 6 Ausgabe 2025 Stand Juli 2026. Gesetzestext aus dem RIS.',
       answer:
-        'In Niederösterreich gilt die NÖ Bauordnung 2014. Laut OIB-Übersicht (Stand: September 2025) sind dort die OIB-Richtlinien 1 bis 6 in der Ausgabe 2023 seit 18.3.2025 verbindlich; die OIB-Richtlinie 6 Ausgabe 2025 ist laut Übersicht (Stand: Juli 2026) in Niederösterreich nicht in Kraft.',
+        'Piloti beantwortet Fragen zu einem Projekt in Niederösterreich aus der NÖ Bauordnung 2014 und den OIB-Richtlinien, mit geprüfter Fundstelle, und liest den Bebauungsplan der Gemeinde, sobald er im Projekt liegt. Laut OIB-Übersicht (Stand: September 2025) sind dort die OIB-Richtlinien 1 bis 6 in der Ausgabe 2023 seit 18.3.2025 verbindlich; die OIB-Richtlinie 6 Ausgabe 2025 ist laut Übersicht (Stand: Juli 2026) nicht in Kraft.',
       blocks: [
         {
           kind: 'pairs',
           title: 'Was in Niederösterreich gilt',
-          body: 'Im Register von Piloti steht für Niederösterreich das Landesgesetz, dazu die OIB-Richtlinien und Bundesrecht, wo ein Projekt es berührt.',
+          body: 'Für Niederösterreich zieht Piloti das Landesgesetz heran, dazu die OIB-Richtlinien und Bundesrecht, wo ein Projekt es berührt, jeweils mit Fundstelle.',
           items: [
             {
               name: 'NÖ Bauordnung 2014',
@@ -287,13 +281,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Wo Piloti in Niederösterreich aufhört',
-          items: [
-            'Piloti ersetzt nicht die Baubehörde der Gemeinde. Ob ein Vorhaben bewilligt wird, entscheidet sie.',
-            'Ohne Bebauungsplan im Projekt kann Piloti nicht sagen, was er für Ihr Grundstück festlegt.',
-            'Ausnahmen und Übergangsbestimmungen zur Verbindlichkeit der OIB-Richtlinien stehen im Landesrecht. Die Verordnung, mit der das Land sie verbindlich erklärt, prüfen Sie für Ihr Verfahren selbst.',
-            'Einen Energieausweis oder eine HWB-Berechnung erstellt Piloti nicht.',
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Über das Vorhaben entscheidet die Baubehörde der Gemeinde, die Verantwortung für den Entwurf bleibt beim Büro. Piloti nennt jede Quelle mit Fundstelle, fragt nach, wenn Standort oder Einreichdatum fehlen, und verweist auf die Übergangsregeln des Landes. Einen Energieausweis berechnet Piloti nicht; es sagt, welche Anforderung gilt und wie ein Wert dazu steht.',
           ],
         },
       ],
@@ -324,12 +315,12 @@ export const baurecht: LandingEntry[] = [
       lede: 'In Lower Austria two levels decide a project: the NÖ Bauordnung 2014 for the whole state and the municipality’s development plan for the individual plot. Piloti works with the first from RIS, and with the second as soon as it is in the project.',
       note: 'OIB status per the OIB overview “Inkrafttreten der OIB-Richtlinien”: 2023 edition as of September 2025, RL 6 edition 2025 as of July 2026. Legal text from RIS.',
       answer:
-        'Lower Austria applies the NÖ Bauordnung 2014. According to the OIB overview (as of September 2025), OIB guidelines 1 to 6 in the 2023 edition have been binding there since 18 March 2025; OIB guideline 6, edition 2025, is not in force in Lower Austria according to the overview (as of July 2026).',
+        'Piloti answers questions on a project in Lower Austria from the NÖ Bauordnung 2014 and the OIB guidelines, with a checked citation, and reads the municipal development plan as soon as it is in the project. According to the OIB overview (as of September 2025), OIB guidelines 1 to 6 in the 2023 edition have been binding there since 18 March 2025; OIB guideline 6, edition 2025, is not in force according to the overview (as of July 2026).',
       blocks: [
         {
           kind: 'pairs',
           title: 'What applies in Lower Austria',
-          body: 'Piloti’s register holds the state act for Lower Austria, alongside the OIB guidelines and federal law where a project touches it.',
+          body: 'For Lower Austria Piloti draws on the state act, alongside the OIB guidelines and federal law where a project touches it, each with its citation.',
           items: [
             {
               name: 'NÖ Bauordnung 2014',
@@ -380,13 +371,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Where Piloti stops in Lower Austria',
-          items: [
-            'Piloti does not replace the municipal building authority. Whether a project is permitted is its decision.',
-            'Without the development plan in the project, Piloti cannot say what it fixes for your plot.',
-            'Exceptions and transition rules on the binding force of the OIB guidelines sit in state law. You check the ordinance by which the state declares them binding for your procedure yourself.',
-            'Piloti does not produce an energy certificate or an HWB calculation.',
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'The municipal building authority decides on the project; responsibility for the design stays with the office. Piloti names every source with its citation, asks when the location or submission date is missing, and points to the state’s transition rules. Piloti does not calculate an energy certificate; it says which requirement applies and how a value stands against it.',
           ],
         },
       ],
@@ -421,10 +409,10 @@ export const baurecht: LandingEntry[] = [
       description:
         'Bauordnung Oberösterreich: Oö. Bauordnung 1994, OIB-Richtlinien 1–5 in der Ausgabe 2023 seit 1.10.2025, RL 6 nicht. Was das heißt und wie Piloti es belegt.',
       heading: 'Baurecht in Oberösterreich: Oö. Bauordnung 1994 und OIB-Richtlinien',
-      lede: 'Oberösterreich hat die OIB-Richtlinien 2023 nicht als Paket übernommen. Die Richtlinien 1 bis 5 gelten in der neuen Ausgabe, die Richtlinie 6 laut OIB-Übersicht nicht. Wer dort plant, arbeitet mit zwei Ausgaben in einem Projekt.',
+      lede: 'Oberösterreich hat die OIB-Richtlinien 2023 nicht als Paket übernommen. Die Richtlinien 1 bis 5 gelten in der neuen Ausgabe, die Richtlinie 6 laut OIB-Übersicht nicht. Wer dort plant, arbeitet mit zwei Ausgaben in einem Projekt. Piloti hält sie je Richtlinie auseinander und nennt bei jeder Anforderung die Ausgabe, die gilt.',
       note: 'OIB-Stand laut OIB-Übersicht „Inkrafttreten der OIB-Richtlinien“: Ausgabe 2023 Stand September 2025, RL 6 Ausgabe 2025 Stand Juli 2026. Gesetzestext aus dem RIS.',
       answer:
-        'In Oberösterreich gilt die Oö. Bauordnung 1994. Laut OIB-Übersicht (Stand: September 2025) sind dort die OIB-Richtlinien 1 bis 5 in der Ausgabe 2023 seit 1.10.2025 verbindlich; für die OIB-Richtlinie 6 weist die Übersicht die Ausgabe 2023 nicht als in Kraft aus, dort gilt in der Regel weiter die Ausgabe 2019.',
+        'Piloti beantwortet Fragen zu einem Projekt in Oberösterreich aus der Oö. Bauordnung 1994 und den OIB-Richtlinien und nennt je Richtlinie die Ausgabe, die dort gilt. Laut OIB-Übersicht (Stand: September 2025) sind die OIB-Richtlinien 1 bis 5 in der Ausgabe 2023 seit 1.10.2025 verbindlich; für die OIB-Richtlinie 6 weist die Übersicht die Ausgabe 2023 nicht als in Kraft aus, dort gilt in der Regel weiter die Ausgabe 2019.',
       blocks: [
         {
           kind: 'pairs',
@@ -451,7 +439,7 @@ export const baurecht: LandingEntry[] = [
           body: [
             'Ein Aktenvermerk, der für ein Projekt in Oberösterreich pauschal „nach OIB-Richtlinien 2023“ schreibt, stimmt für Brandschutz oder Schallschutz, beim Wärmeschutz aber in der Regel nicht. Dort ist laut OIB-Übersicht keine neuere Ausgabe als 2019 in Kraft.',
             'Dazu kommt der Stichtag: Die Richtlinien 1 bis 5 in der Ausgabe 2023 gelten erst seit 1.10.2025. Für Verfahren, die davor eingereicht wurden, kann noch die ältere Ausgabe maßgeblich sein. Das regeln die Übergangsbestimmungen des Landes, nicht die Richtlinie selbst.',
-            'Piloti nennt deshalb bei jeder OIB-Anforderung die Ausgabe einzeln, statt eine für das ganze Projekt anzunehmen, und sagt dazu, wenn der Wert aus einer anderen Ausgabe stammt als der, die im Land gilt.',
+            'Piloti nennt deshalb bei jeder OIB-Anforderung die Ausgabe einzeln, statt eine für das ganze Projekt anzunehmen. So steht im Aktenvermerk für jedes Thema die Richtlinie, die in Oberösterreich tatsächlich gilt.',
           ],
         },
         {
@@ -464,7 +452,7 @@ export const baurecht: LandingEntry[] = [
             },
             {
               name: 'Richtlinie und Ausgabe',
-              body: 'Eine Brandschutzfrage belegt es aus der RL 2 Ausgabe 2023, eine Frage zum Wärmeschutz mit dem Hinweis, dass in Oberösterreich eine ältere Ausgabe gilt.',
+              body: 'Eine Brandschutzfrage stützt es auf die RL 2 Ausgabe 2023. Bei einer Frage zum Wärmeschutz nennt es die Ausgabe, die in Oberösterreich für die RL 6 gilt.',
             },
             {
               name: 'Zitieren wie ein Bescheid',
@@ -473,13 +461,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Wo Piloti in Oberösterreich aufhört',
-          items: [
-            'Piloti ersetzt nicht die Baubehörde der Gemeinde. Die Entscheidung über das Vorhaben trifft sie.',
-            'Was der Bebauungsplan für Ihr Grundstück festlegt, liest Piloti nur aus dem Plan im Projekt. Fehlt er, sagt es das.',
-            'Welche OIB-Ausgabe ein laufendes Verfahren trifft und welche Ausnahmen das Land festlegt, steht im Landesrecht, das die Richtlinien verbindlich erklärt. Das prüfen Sie für Ihr Verfahren selbst.',
-            'Piloti zitiert die OIB-Richtlinien mit Ausgabe. Stammt ein Wert aus einer anderen Ausgabe als der in Oberösterreich geltenden, gleichen Sie ihn mit der geltenden ab.',
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Über das Vorhaben entscheidet die Baubehörde der Gemeinde, die Verantwortung für den Entwurf bleibt beim Büro. Piloti nennt jede Quelle mit Ausgabe und Fundstelle, damit das Büro sie prüfen kann, und fragt nach dem Einreichdatum, wenn die Übergangsregeln des Landes darüber entscheiden. Den Bebauungsplan liest es aus dem Projekt.',
           ],
         },
       ],
@@ -507,10 +492,10 @@ export const baurecht: LandingEntry[] = [
       description:
         'Upper Austria building law: Oö. Bauordnung 1994, OIB guidelines 1–5 in the 2023 edition since 1 October 2025, RL 6 not. What that means, cited by Piloti.',
       heading: 'Building law in Upper Austria: Oö. Bauordnung 1994 and OIB guidelines',
-      lede: 'Upper Austria did not adopt the 2023 OIB guidelines as a package. Guidelines 1 to 5 apply in the new edition, guideline 6 does not, according to the OIB overview. Anyone planning there works with two editions in one project.',
+      lede: 'Upper Austria did not adopt the 2023 OIB guidelines as a package. Guidelines 1 to 5 apply in the new edition, guideline 6 does not, according to the OIB overview. Anyone planning there works with two editions in one project. Piloti keeps them apart guideline by guideline and names the edition that applies for every requirement.',
       note: 'OIB status per the OIB overview “Inkrafttreten der OIB-Richtlinien”: 2023 edition as of September 2025, RL 6 edition 2025 as of July 2026. Legal text from RIS.',
       answer:
-        'Upper Austria applies the Oö. Bauordnung 1994. According to the OIB overview (as of September 2025), OIB guidelines 1 to 5 in the 2023 edition have been binding there since 1 October 2025; for OIB guideline 6 the overview does not list the 2023 edition as in force, so the 2019 edition generally still applies.',
+        'Piloti answers questions on a project in Upper Austria from the Oö. Bauordnung 1994 and the OIB guidelines and names, guideline by guideline, the edition that applies there. According to the OIB overview (as of September 2025), OIB guidelines 1 to 5 in the 2023 edition have been binding since 1 October 2025; for OIB guideline 6 the overview does not list the 2023 edition as in force, so the 2019 edition generally still applies.',
       blocks: [
         {
           kind: 'pairs',
@@ -537,7 +522,7 @@ export const baurecht: LandingEntry[] = [
           body: [
             'A file note that writes “according to OIB guidelines 2023” across the board for a project in Upper Austria is right for fire safety or sound insulation, but generally not for thermal protection. There, according to the OIB overview, no edition newer than 2019 is in force.',
             'Then there is the effective date: guidelines 1 to 5 in the 2023 edition only apply since 1 October 2025. For procedures filed before that, the older edition can still govern. The state’s transition rules decide that, not the guideline itself.',
-            'Piloti therefore names the edition for each OIB requirement separately instead of assuming one for the whole project, and says so when a value comes from a different edition than the one in force in the state.',
+            'Piloti therefore names the edition for each OIB requirement separately instead of assuming one for the whole project. The file note then carries, for every topic, the guideline actually in force in Upper Austria.',
           ],
         },
         {
@@ -550,7 +535,7 @@ export const baurecht: LandingEntry[] = [
             },
             {
               name: 'Guideline and edition',
-              body: 'A fire-safety question it cites from RL 2, 2023 edition; a thermal-protection question with the note that an older edition applies in Upper Austria.',
+              body: 'A fire-safety question it bases on RL 2, 2023 edition. For a thermal-protection question it names the edition that applies to RL 6 in Upper Austria.',
             },
             {
               name: 'Cite like a permit',
@@ -559,13 +544,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Where Piloti stops in Upper Austria',
-          items: [
-            'Piloti does not replace the municipal building authority. It decides on the project.',
-            'What the development plan fixes for your plot, Piloti reads only from the plan in the project. If it is missing, it says so.',
-            'Which OIB edition governs a pending procedure, and which exceptions the state sets, is in the state law that declares the guidelines binding. You check that for your procedure yourself.',
-            'Piloti cites the OIB guidelines with their edition. If a value comes from a different edition than the one in force in Upper Austria, check it against the one in force.',
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'The municipal building authority decides on the project; responsibility for the design stays with the office. Piloti names every source with edition and citation so the office can check it, and asks for the submission date when the state’s transition rules turn on it. It reads the development plan from the project.',
           ],
         },
       ],
@@ -600,10 +582,10 @@ export const baurecht: LandingEntry[] = [
       description:
         'Bauordnung Steiermark heißt Steiermärkisches Baugesetz. Welche OIB-Richtlinien dort laut OIB-Übersicht gelten, warum nicht 2023, und wie Piloti belegt.',
       heading: 'Baurecht in der Steiermark: Steiermärkisches Baugesetz und OIB-Richtlinien',
-      lede: 'Wer „Bauordnung Steiermark“ sucht, landet beim Steiermärkischen Baugesetz: So heißt das Gesetz im Land. Und wer die neuesten OIB-Richtlinien von der OIB-Website lädt, hat für ein steirisches Projekt laut OIB-Übersicht nicht die Ausgabe, die dort gilt.',
+      lede: 'Wer „Bauordnung Steiermark“ sucht, landet beim Steiermärkischen Baugesetz: So heißt das Gesetz im Land. Und wer die neuesten OIB-Richtlinien von der OIB-Website lädt, hat für ein steirisches Projekt laut OIB-Übersicht nicht die Ausgabe, die dort gilt. Piloti zitiert das Gesetz unter seinem Namen und die OIB-Richtlinien in der Ausgabe, die im Land verbindlich ist.',
       note: 'OIB-Stand laut OIB-Übersicht „Inkrafttreten der OIB-Richtlinien“: Ausgabe 2023 Stand September 2025, RL 6 Ausgabe 2025 Stand Juli 2026. Gesetzestext aus dem RIS.',
       answer:
-        'In der Steiermark gilt das Steiermärkische Baugesetz. Laut OIB-Übersicht (Stand: September 2025) hat die Steiermark die OIB-Richtlinien 2023 nicht für verbindlich erklärt, und auch die OIB-Richtlinie 6 Ausgabe 2025 ist dort laut Übersicht (Stand: Juli 2026) nicht in Kraft; es gilt in der Regel weiter die Ausgabe 2019.',
+        'Piloti beantwortet Fragen zu einem steirischen Projekt aus dem Steiermärkischen Baugesetz und den OIB-Richtlinien, mit geprüfter Fundstelle und der Ausgabe, die im Land gilt. Laut OIB-Übersicht hat die Steiermark die OIB-Richtlinien 2023 nicht für verbindlich erklärt (Stand: September 2025), auch die RL 6 Ausgabe 2025 ist dort nicht in Kraft (Stand: Juli 2026); es gilt in der Regel weiter die Ausgabe 2019.',
       blocks: [
         {
           kind: 'pairs',
@@ -629,7 +611,7 @@ export const baurecht: LandingEntry[] = [
           title: 'Die neueste Ausgabe ist nicht die geltende',
           body: [
             'Auf der Website des OIB stehen die Richtlinien in der Ausgabe 2023 und die RL 6 in der Ausgabe 2025. Für ein Projekt in der Steiermark sind das laut OIB-Übersicht nicht die verbindlichen Texte: Dort gilt die Ausgabe 2019, solange das Land keine neuere für verbindlich erklärt. Ein Wert, der zwischen den Ausgaben geändert wurde, ist in einem steirischen Einreichplan dann schlicht falsch zitiert.',
-            'Piloti zitiert die OIB-Richtlinien mit Ausgabe. Stammt eine Anforderung aus der Ausgabe 2023, sagt die Antwort das und weist darauf hin, dass in der Steiermark die Ausgabe 2019 gilt. Den Wert gleichen Sie dort ab, bevor er in einen Plan oder Bericht geht.',
+            'Piloti zitiert die OIB-Richtlinien mit Ausgabe und nennt für ein steirisches Projekt die, die dort laut OIB-Übersicht gilt. So geht eine Anforderung mit der Fundstelle in Plan oder Bericht, die im Land verbindlich ist.',
             'Die OIB-Richtlinien 2027 werden vorbereitet. Wann die Steiermark welche Ausgabe übernimmt, sagt die Verordnung des Landes, nicht die OIB-Website.',
           ],
         },
@@ -652,13 +634,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Wo Piloti in der Steiermark aufhört',
-          items: [
-            'Piloti ersetzt nicht die Baubehörde der Gemeinde. Bewilligt oder untersagt wird dort.',
-            'Was der Bebauungsplan Ihrer Gemeinde für das Grundstück festlegt, liest Piloti nur aus dem Plan im Projekt.',
-            'Mit welcher Verordnung das Land die OIB-Richtlinien verbindlich erklärt und mit welchen Ausnahmen, prüfen Sie im Landesrecht selbst. Piloti nennt den Stand laut OIB-Übersicht.',
-            'Ein Wert aus der Ausgabe 2023 ist für ein steirisches Projekt ein Hinweis, kein Beleg, bis Sie ihn mit der Ausgabe 2019 abgeglichen haben.',
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Bewilligt wird bei der Baubehörde der Gemeinde, die Verantwortung für den Entwurf bleibt beim Büro. Piloti nennt jede Quelle mit Ausgabe und Fundstelle und den OIB-Stand laut OIB-Übersicht; Ausnahmen und Übergangsregeln stehen in der Verordnung des Landes, auf die es verweist. Fehlt eine entscheidende Angabe, fragt es nach.',
           ],
         },
       ],
@@ -673,7 +652,7 @@ export const baurecht: LandingEntry[] = [
         },
         {
           q: 'Kann Piloti Fragen zum Steiermärkischen Baugesetz beantworten?',
-          a: 'Ja, mit Fundstelle aus dem Baugesetz und den OIB-Richtlinien, geprüft gegen den Quelltext, bevor sie erscheint. Bei OIB-Anforderungen sagt Piloti, aus welcher Ausgabe der Wert stammt, und weist darauf hin, dass in der Steiermark die Ausgabe 2019 gilt.',
+          a: 'Ja, mit Fundstelle aus dem Baugesetz und den OIB-Richtlinien, geprüft gegen den Quelltext, bevor sie erscheint. Bei OIB-Anforderungen nennt Piloti die Ausgabe, die in der Steiermark laut OIB-Übersicht gilt: 2019.',
         },
         {
           q: 'Gibt es eine „Steiermärkische Bauordnung“?',
@@ -686,10 +665,10 @@ export const baurecht: LandingEntry[] = [
       description:
         'Styria’s building code is the Steiermärkisches Baugesetz. Which OIB guidelines apply there per the OIB overview, why not 2023, and how Piloti cites it.',
       heading: 'Building law in Styria: Steiermärkisches Baugesetz and OIB guidelines',
-      lede: 'Anyone searching for Styria’s “building code” ends up at the Steiermärkisches Baugesetz: that is the act’s name in the state. And anyone downloading the newest OIB guidelines from the OIB website does not, for a Styrian project, have the edition that applies there according to the OIB overview.',
+      lede: 'Anyone searching for Styria’s “building code” ends up at the Steiermärkisches Baugesetz: that is the act’s name in the state. And anyone downloading the newest OIB guidelines from the OIB website does not, for a Styrian project, have the edition that applies there according to the OIB overview. Piloti cites the act under its own name and the OIB guidelines in the edition that is binding in the state.',
       note: 'OIB status per the OIB overview “Inkrafttreten der OIB-Richtlinien”: 2023 edition as of September 2025, RL 6 edition 2025 as of July 2026. Legal text from RIS.',
       answer:
-        'Styria applies the Steiermärkisches Baugesetz. According to the OIB overview (as of September 2025), Styria has not declared the 2023 OIB guidelines binding, and OIB guideline 6, edition 2025, is not in force there either according to the overview (as of July 2026); the 2019 edition generally still applies.',
+        'Piloti answers questions on a Styrian project from the Steiermärkisches Baugesetz and the OIB guidelines, with a checked citation and the edition that applies in the state. According to the OIB overview, Styria has not declared the 2023 OIB guidelines binding (as of September 2025), nor is RL 6, edition 2025, in force there (as of July 2026); the 2019 edition generally still applies.',
       blocks: [
         {
           kind: 'pairs',
@@ -715,7 +694,7 @@ export const baurecht: LandingEntry[] = [
           title: 'The newest edition is not the one in force',
           body: [
             'The OIB website carries the guidelines in the 2023 edition and RL 6 in the 2025 edition. For a project in Styria these are not the binding texts according to the OIB overview: the 2019 edition applies until the state declares a newer one binding. A value that changed between editions is then simply cited wrongly in a Styrian submission drawing.',
-            'Piloti cites the OIB guidelines with their edition. If a requirement comes from the 2023 edition, the answer says so and points out that the 2019 edition applies in Styria. Check the value there before it goes into a drawing or report.',
+            'Piloti cites the OIB guidelines with their edition and, for a Styrian project, names the one that applies there according to the OIB overview. A requirement then goes into the drawing or report with the citation that is binding in the state.',
             'The 2027 OIB guidelines are in preparation. When Styria adopts which edition is stated in the state’s ordinance, not on the OIB website.',
           ],
         },
@@ -738,13 +717,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Where Piloti stops in Styria',
-          items: [
-            'Piloti does not replace the municipal building authority. Permits are granted or refused there.',
-            'What your municipality’s development plan fixes for the plot, Piloti reads only from the plan in the project.',
-            'Which ordinance declares the OIB guidelines binding in the state, and with which exceptions, you check in state law yourself. Piloti gives the status per the OIB overview.',
-            'For a Styrian project, a value from the 2023 edition is a pointer, not evidence, until you have checked it against the 2019 edition.',
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'Permits are granted by the municipal building authority; responsibility for the design stays with the office. Piloti names every source with edition and citation and the OIB status per the OIB overview; exceptions and transition rules sit in the state ordinance it points to. If a deciding fact is missing, it asks.',
           ],
         },
       ],
@@ -759,7 +735,7 @@ export const baurecht: LandingEntry[] = [
         },
         {
           q: 'Can Piloti answer questions on the Steiermärkisches Baugesetz?',
-          a: 'Yes, with a citation from the Baugesetz and the OIB guidelines, checked against the source text before it appears. For OIB requirements Piloti says which edition the value comes from and points out that the 2019 edition applies in Styria.',
+          a: 'Yes, with a citation from the Baugesetz and the OIB guidelines, checked against the source text before it appears. For OIB requirements Piloti names the edition that applies in Styria according to the OIB overview: 2019.',
         },
         {
           q: 'Is there a “Steiermärkische Bauordnung”?',
@@ -779,10 +755,10 @@ export const baurecht: LandingEntry[] = [
       description:
         'Bauordnung Kärnten: K-BO 1996 und OIB-Richtlinien 2023, laut OIB-Übersicht seit 31.12.2024 verbindlich. Was in Kärnten gilt und wie Piloti es belegt.',
       heading: 'Baurecht in Kärnten: Kärntner Bauordnung 1996 und OIB-Richtlinien',
-      lede: 'Kärnten war unter den ersten Ländern mit den OIB-Richtlinien 2023: laut OIB-Übersicht alle sechs Richtlinien am 31.12.2024. Die Kärntner Bauordnung 1996, kurz K-BO 1996, bleibt das Gesetz, auf das sich jede Antwort stützt.',
+      lede: 'Kärnten war unter den ersten Ländern mit den OIB-Richtlinien 2023: laut OIB-Übersicht alle sechs Richtlinien am 31.12.2024. Die Kärntner Bauordnung 1996, kurz K-BO 1996, bleibt das Gesetz, auf das sich jede Antwort stützt. Piloti belegt Antworten aus beiden, mit einer Fundstelle wie in einem Bescheid.',
       note: 'OIB-Stand laut OIB-Übersicht „Inkrafttreten der OIB-Richtlinien“: Ausgabe 2023 Stand September 2025, RL 6 Ausgabe 2025 Stand Juli 2026. Gesetzestext aus dem RIS.',
       answer:
-        'In Kärnten gilt die Kärntner Bauordnung 1996 (K-BO 1996). Laut OIB-Übersicht (Stand: September 2025) sind dort die OIB-Richtlinien 1 bis 6 in der Ausgabe 2023 seit 31.12.2024 verbindlich; die OIB-Richtlinie 6 Ausgabe 2025 ist laut Übersicht (Stand: Juli 2026) in Kärnten nicht in Kraft.',
+        'Piloti beantwortet Fragen zu einem Kärntner Projekt aus der Kärntner Bauordnung 1996 (K-BO 1996) und den OIB-Richtlinien, mit geprüfter Fundstelle. Laut OIB-Übersicht (Stand: September 2025) sind dort die OIB-Richtlinien 1 bis 6 in der Ausgabe 2023 seit 31.12.2024 verbindlich; die OIB-Richtlinie 6 Ausgabe 2025 ist laut Übersicht (Stand: Juli 2026) in Kärnten nicht in Kraft.',
       blocks: [
         {
           kind: 'pairs',
@@ -838,12 +814,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Wo Piloti in Kärnten aufhört',
-          items: [
-            'Piloti ersetzt nicht die Baubehörde der Gemeinde, und keine Antwort ist eine Bewilligung.',
-            'Den Bebauungsplan Ihrer Gemeinde liest Piloti nur, wenn er im Projekt liegt. Sonst sagt es, dass er fehlt.',
-            'Ausnahmen und Übergangsbestimmungen zur Verbindlichkeit der OIB-Richtlinien prüfen Sie im Landesrecht selbst. Piloti nennt den Stand laut OIB-Übersicht.',
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Keine Antwort ist eine Bewilligung: Die erteilt die Baubehörde der Gemeinde, und die Verantwortung für den Entwurf bleibt beim Büro. Piloti nennt jede Quelle mit Fundstelle und fragt nach, wenn Einreichdatum oder Art des Vorhabens die Antwort ändern.',
           ],
         },
       ],
@@ -871,10 +845,10 @@ export const baurecht: LandingEntry[] = [
       description:
         'Carinthia building law: K-BO 1996 and the 2023 OIB guidelines, binding since 31 December 2024 per the OIB overview. What applies and how Piloti cites it.',
       heading: 'Building law in Carinthia: Kärntner Bauordnung 1996 and OIB guidelines',
-      lede: 'Carinthia was among the first states with the 2023 OIB guidelines: all six on 31 December 2024, according to the OIB overview. The Kärntner Bauordnung 1996, K-BO 1996 for short, remains the act every answer rests on.',
+      lede: 'Carinthia was among the first states with the 2023 OIB guidelines: all six on 31 December 2024, according to the OIB overview. The Kärntner Bauordnung 1996, K-BO 1996 for short, remains the act every answer rests on. Piloti cites answers from both, with a citation that reads like a permit.',
       note: 'OIB status per the OIB overview “Inkrafttreten der OIB-Richtlinien”: 2023 edition as of September 2025, RL 6 edition 2025 as of July 2026. Legal text from RIS.',
       answer:
-        'Carinthia applies the Kärntner Bauordnung 1996 (K-BO 1996). According to the OIB overview (as of September 2025), OIB guidelines 1 to 6 in the 2023 edition have been binding there since 31 December 2024; OIB guideline 6, edition 2025, is not in force in Carinthia according to the overview (as of July 2026).',
+        'Piloti answers questions on a Carinthian project from the Kärntner Bauordnung 1996 (K-BO 1996) and the OIB guidelines, with a checked citation. According to the OIB overview (as of September 2025), OIB guidelines 1 to 6 in the 2023 edition have been binding there since 31 December 2024; OIB guideline 6, edition 2025, is not in force in Carinthia according to the overview (as of July 2026).',
       blocks: [
         {
           kind: 'pairs',
@@ -930,12 +904,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Where Piloti stops in Carinthia',
-          items: [
-            'Piloti does not replace the municipal building authority, and no answer is a permit.',
-            'Piloti reads your municipality’s development plan only if it is in the project. Otherwise it says the plan is missing.',
-            'You check exceptions and transition rules on the binding force of the OIB guidelines in state law yourself. Piloti gives the status per the OIB overview.',
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'No answer is a permit: the municipal building authority grants that, and responsibility for the design stays with the office. Piloti names every source with its citation and asks when the submission date or the type of project changes the answer.',
           ],
         },
       ],
@@ -970,15 +942,15 @@ export const baurecht: LandingEntry[] = [
       description:
         'Baurecht Salzburg in zwei Gesetzen: Bautechnikgesetz 2015 und Baupolizeigesetz 1997. Welche OIB-Richtlinien gelten und wie Piloti das richtige zitiert.',
       heading: 'Baurecht in Salzburg: Bautechnikgesetz 2015, Baupolizeigesetz 1997 und OIB-Richtlinien',
-      lede: 'Eine einzige „Salzburger Bauordnung“ gibt es nicht. Was ein Bauwerk technisch erfüllen muss, steht im Salzburger Bautechnikgesetz 2015; ob und wie es bewilligt wird, im Baupolizeigesetz 1997. Eine Antwort, die das vermischt, zitiert das falsche Gesetz.',
+      lede: 'Eine einzige „Salzburger Bauordnung“ gibt es nicht. Was ein Bauwerk technisch erfüllen muss, steht im Salzburger Bautechnikgesetz 2015; ob und wie es bewilligt wird, im Baupolizeigesetz 1997. Eine Antwort, die das vermischt, zitiert das falsche Gesetz. Piloti ordnet jede Frage zuerst dem zuständigen Gesetz zu.',
       note: 'OIB-Stand laut OIB-Übersicht „Inkrafttreten der OIB-Richtlinien“: Ausgabe 2023 Stand September 2025, RL 6 Ausgabe 2025 Stand Juli 2026. Gesetzestexte aus dem RIS.',
       answer:
-        'In Salzburg gelten das Salzburger Bautechnikgesetz 2015 für die technischen Anforderungen und das Baupolizeigesetz 1997 für Bewilligung und Bauanzeige. Laut OIB-Übersicht (Stand: September 2025) hat Salzburg die OIB-Richtlinien 2023 nicht für verbindlich erklärt; in Kraft sind die OIB-Richtlinien 1 bis 5 in der Ausgabe 2019, für die RL 6 weist die Übersicht keine Ausgabe aus.',
+        'Piloti beantwortet Fragen zu einem Salzburger Projekt aus dem Salzburger Bautechnikgesetz 2015 (technische Anforderungen) und dem Baupolizeigesetz 1997 (Bewilligung und Bauanzeige) und zitiert je Frage das zuständige Gesetz. Laut OIB-Übersicht (Stand: September 2025) hat Salzburg die OIB-Richtlinien 2023 nicht für verbindlich erklärt; in Kraft sind die OIB-Richtlinien 1 bis 5 in der Ausgabe 2019, für die RL 6 weist die Übersicht keine Ausgabe aus.',
       blocks: [
         {
           kind: 'pairs',
           title: 'Was in Salzburg gilt',
-          body: 'Piloti führt für Salzburg zwei Landesgesetze im Register und wählt je Frage das zuständige.',
+          body: 'Für Salzburg zieht Piloti zwei Landesgesetze heran und wählt je Frage das zuständige.',
           items: [
             {
               name: 'Salzburger Bautechnikgesetz 2015',
@@ -1016,7 +988,7 @@ export const baurecht: LandingEntry[] = [
             },
             {
               name: 'Ausgabe nennen',
-              body: 'Hängt die Antwort an einer OIB-Richtlinie, sagt Piloti, aus welcher Ausgabe der Wert stammt, und dass in Salzburg laut OIB-Übersicht die Ausgabe 2019 gilt.',
+              body: 'Hängt die Antwort an einer OIB-Richtlinie, nennt Piloti die Ausgabe, die in Salzburg laut OIB-Übersicht gilt: 2019 für die Richtlinien 1 bis 5.',
             },
             {
               name: 'Zitieren wie ein Bescheid',
@@ -1025,13 +997,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Wo Piloti in Salzburg aufhört',
-          items: [
-            'Piloti ersetzt nicht die Baubehörde der Gemeinde. Ob ein Vorhaben bewilligungspflichtig ist, bestätigt im Zweifel sie.',
-            'Den Bebauungsplan Ihrer Gemeinde liest Piloti nur, wenn er im Projekt liegt.',
-            'Wie das Land die OIB-Richtlinien verbindlich macht, mit welchen Ausnahmen und Übergangsregeln, prüfen Sie im Landesrecht selbst.',
-            'Ein OIB-Wert aus einer anderen Ausgabe als 2019 ist für ein Salzburger Projekt ein Hinweis, kein Beleg, bis Sie ihn abgeglichen haben.',
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Ob ein Vorhaben bewilligungspflichtig ist, bestätigt im Zweifel die Baubehörde der Gemeinde; die Verantwortung für den Entwurf bleibt beim Büro. Piloti nennt jede Quelle mit Fundstelle und sagt, welches der beiden Gesetze es herangezogen hat, damit das Büro nachlesen kann.',
           ],
         },
       ],
@@ -1063,15 +1032,15 @@ export const baurecht: LandingEntry[] = [
       description:
         'Salzburg building law sits in two acts: Bautechnikgesetz 2015 and Baupolizeigesetz 1997. Which OIB guidelines apply and how Piloti cites the right one.',
       heading: 'Building law in Salzburg: Bautechnikgesetz 2015, Baupolizeigesetz 1997 and OIB guidelines',
-      lede: 'There is no single “Salzburg building code”. What a building must meet technically is in the Salzburger Bautechnikgesetz 2015; whether and how it is permitted, in the Baupolizeigesetz 1997. An answer that mixes the two cites the wrong act.',
+      lede: 'There is no single “Salzburg building code”. What a building must meet technically is in the Salzburger Bautechnikgesetz 2015; whether and how it is permitted, in the Baupolizeigesetz 1997. An answer that mixes the two cites the wrong act. Piloti first assigns every question to the act responsible for it.',
       note: 'OIB status per the OIB overview “Inkrafttreten der OIB-Richtlinien”: 2023 edition as of September 2025, RL 6 edition 2025 as of July 2026. Legal texts from RIS.',
       answer:
-        'Salzburg applies the Salzburger Bautechnikgesetz 2015 for technical requirements and the Baupolizeigesetz 1997 for permits and notification. According to the OIB overview (as of September 2025), Salzburg has not declared the 2023 OIB guidelines binding; OIB guidelines 1 to 5 in the 2019 edition are in force, and for RL 6 the overview lists no edition.',
+        'Piloti answers questions on a Salzburg project from the Salzburger Bautechnikgesetz 2015 (technical requirements) and the Baupolizeigesetz 1997 (permits and notification) and cites the act responsible for each question. According to the OIB overview (as of September 2025), Salzburg has not declared the 2023 OIB guidelines binding; OIB guidelines 1 to 5 in the 2019 edition are in force, and for RL 6 the overview lists no edition.',
       blocks: [
         {
           kind: 'pairs',
           title: 'What applies in Salzburg',
-          body: 'Piloti holds two state acts for Salzburg in its register and picks the one responsible for each question.',
+          body: 'For Salzburg Piloti draws on two state acts and picks the one responsible for each question.',
           items: [
             {
               name: 'Salzburger Bautechnikgesetz 2015',
@@ -1109,7 +1078,7 @@ export const baurecht: LandingEntry[] = [
             },
             {
               name: 'Name the edition',
-              body: 'If the answer hinges on an OIB guideline, Piloti says which edition the value comes from, and that the 2019 edition applies in Salzburg according to the OIB overview.',
+              body: 'If the answer hinges on an OIB guideline, Piloti names the edition that applies in Salzburg according to the OIB overview: 2019 for guidelines 1 to 5.',
             },
             {
               name: 'Cite like a permit',
@@ -1118,13 +1087,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Where Piloti stops in Salzburg',
-          items: [
-            'Piloti does not replace the municipal building authority. Whether a project needs a permit, it confirms when in doubt.',
-            'Piloti reads your municipality’s development plan only if it is in the project.',
-            'How the state makes the OIB guidelines binding, with which exceptions and transition rules, you check in state law yourself.',
-            'For a Salzburg project, an OIB value from an edition other than 2019 is a pointer, not evidence, until you have checked it.',
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'Whether a project needs a permit, the municipal building authority confirms when in doubt; responsibility for the design stays with the office. Piloti names every source with its citation and says which of the two acts it used, so the office can read it up.',
           ],
         },
       ],
@@ -1163,10 +1129,10 @@ export const baurecht: LandingEntry[] = [
       description:
         'Bauordnung Tirol: Tiroler Bauordnung 2022, seit 16.7.2026 OIB-Richtlinien 1–5 Ausgabe 2023 und RL 6 Ausgabe 2025. Was sich geändert hat, belegt von Piloti.',
       heading: 'Baurecht in Tirol: Tiroler Bauordnung 2022 und OIB-Richtlinien',
-      lede: 'In Tirol hat sich im Sommer 2026 die technische Grundlage verschoben. Laut OIB-Übersicht gelten seit 16.7.2026 die Richtlinien 1 bis 5 in der Ausgabe 2023 und die Richtlinie 6 gleich in der Ausgabe 2025. Die RL 6 Ausgabe 2023 hat Tirol übersprungen.',
+      lede: 'In Tirol hat sich im Sommer 2026 die technische Grundlage verschoben. Laut OIB-Übersicht gelten seit 16.7.2026 die Richtlinien 1 bis 5 in der Ausgabe 2023 und die Richtlinie 6 gleich in der Ausgabe 2025. Die RL 6 Ausgabe 2023 hat Tirol übersprungen. Piloti nennt bei jeder Anforderung die Ausgabe und fragt nach dem Einreichdatum, wenn es darauf ankommt.',
       note: 'OIB-Stand laut OIB-Übersicht „Inkrafttreten der OIB-Richtlinien“ und, für die RL 6 Ausgabe 2025, Stand Juli 2026. Gesetzestext aus dem RIS.',
       answer:
-        'In Tirol gilt die Tiroler Bauordnung 2022. Laut OIB-Übersicht sind dort seit 16.7.2026 die OIB-Richtlinien 1 bis 5 in der Ausgabe 2023 und die OIB-Richtlinie 6 in der Ausgabe 2025 verbindlich; die RL 6 Ausgabe 2023 war in Tirol laut Übersicht nicht in Kraft.',
+        'Piloti beantwortet Fragen zu einem Tiroler Projekt aus der Tiroler Bauordnung 2022 und den OIB-Richtlinien und nennt je Anforderung die Ausgabe, die gilt. Laut OIB-Übersicht sind dort seit 16.7.2026 die OIB-Richtlinien 1 bis 5 in der Ausgabe 2023 und die OIB-Richtlinie 6 in der Ausgabe 2025 verbindlich; die RL 6 Ausgabe 2023 war in Tirol laut Übersicht nicht in Kraft.',
       blocks: [
         {
           kind: 'pairs',
@@ -1222,13 +1188,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Wo Piloti in Tirol aufhört',
-          items: [
-            'Piloti ersetzt nicht die Baubehörde der Gemeinde. Die Entscheidung über das Ansuchen trifft sie.',
-            'Den Bebauungsplan Ihrer Gemeinde liest Piloti nur, wenn er im Projekt liegt. Sonst sagt es, dass er fehlt.',
-            'Welche Ausgabe ein Verfahren rund um den 16.7.2026 trifft und welche Ausnahmen das Land vorsieht, steht in der Verordnung, mit der Tirol die Richtlinien verbindlich erklärt. Das prüfen Sie selbst.',
-            'Nennt Piloti eine Anforderung aus einer anderen Ausgabe als der in Tirol geltenden, sagt es das dazu. Den Wert gleichen Sie dann mit der geltenden Ausgabe ab.',
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Über das Ansuchen entscheidet die Baubehörde der Gemeinde, die Verantwortung für den Entwurf bleibt beim Büro. Piloti nennt jede Anforderung mit Richtlinie, Punkt und Ausgabe und fragt nach dem Einreichdatum, wenn die Übergangsregeln des Landes darüber entscheiden. Den Bebauungsplan liest es aus dem Projekt.',
           ],
         },
       ],
@@ -1256,10 +1219,10 @@ export const baurecht: LandingEntry[] = [
       description:
         'Tyrol building law: Tiroler Bauordnung 2022; since 16 July 2026 OIB guidelines 1–5 in the 2023 edition and RL 6 in the 2025 edition. What changed.',
       heading: 'Building law in Tyrol: Tiroler Bauordnung 2022 and OIB guidelines',
-      lede: 'In Tyrol the technical basis shifted in summer 2026. According to the OIB overview, guidelines 1 to 5 in the 2023 edition and guideline 6 straight in the 2025 edition have applied since 16 July 2026. Tyrol skipped RL 6 in the 2023 edition.',
+      lede: 'In Tyrol the technical basis shifted in summer 2026. According to the OIB overview, guidelines 1 to 5 in the 2023 edition and guideline 6 straight in the 2025 edition have applied since 16 July 2026. Tyrol skipped RL 6 in the 2023 edition. Piloti names the edition for every requirement and asks for the submission date when it matters.',
       note: 'OIB status per the OIB overview “Inkrafttreten der OIB-Richtlinien” and, for RL 6 edition 2025, as of July 2026. Legal text from RIS.',
       answer:
-        'Tyrol applies the Tiroler Bauordnung 2022. According to the OIB overview, OIB guidelines 1 to 5 in the 2023 edition and OIB guideline 6 in the 2025 edition have been binding there since 16 July 2026; RL 6 in the 2023 edition was not in force in Tyrol according to the overview.',
+        'Piloti answers questions on a Tyrolean project from the Tiroler Bauordnung 2022 and the OIB guidelines and names the edition that applies for each requirement. According to the OIB overview, OIB guidelines 1 to 5 in the 2023 edition and OIB guideline 6 in the 2025 edition have been binding there since 16 July 2026; RL 6 in the 2023 edition was not in force in Tyrol according to the overview.',
       blocks: [
         {
           kind: 'pairs',
@@ -1315,13 +1278,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Where Piloti stops in Tyrol',
-          items: [
-            'Piloti does not replace the municipal building authority. It decides on the application.',
-            'Piloti reads your municipality’s development plan only if it is in the project. Otherwise it says the plan is missing.',
-            'Which edition governs a procedure around 16 July 2026, and which exceptions the state provides, is in the ordinance by which Tyrol declares the guidelines binding. You check that yourself.',
-            'If Piloti gives a requirement from an edition other than the one in force in Tyrol, it says so. Check the value against the edition in force.',
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'The municipal building authority decides on the application; responsibility for the design stays with the office. Piloti names every requirement with guideline, clause and edition, and asks for the submission date when the state’s transition rules turn on it. It reads the development plan from the project.',
           ],
         },
       ],
@@ -1356,10 +1316,10 @@ export const baurecht: LandingEntry[] = [
       description:
         'Bauordnung Vorarlberg heißt Baugesetz (Vbg. BauG). Welche OIB-Richtlinien laut OIB-Übersicht gelten, was anders ist als in Tirol, wie Piloti belegt.',
       heading: 'Baurecht in Vorarlberg: Baugesetz und OIB-Richtlinien',
-      lede: 'Vorarlberg regelt das Bauen im Baugesetz, kurz Vbg. BauG. Bei den OIB-Richtlinien geht das Land laut OIB-Übersicht einen anderen Weg als der Nachbar Tirol: Die Ausgaben 2023 und 2025 sind dort nicht in Kraft.',
+      lede: 'Vorarlberg regelt das Bauen im Baugesetz, kurz Vbg. BauG. Bei den OIB-Richtlinien geht das Land laut OIB-Übersicht einen anderen Weg als der Nachbar Tirol: Die Ausgaben 2023 und 2025 sind dort nicht in Kraft. Piloti hält das Bundesland im Projekt fest und zitiert mit der Ausgabe, die dort gilt.',
       note: 'OIB-Stand laut OIB-Übersicht „Inkrafttreten der OIB-Richtlinien“: Ausgabe 2023 Stand September 2025, RL 6 Ausgabe 2025 Stand Juli 2026. Gesetzestext aus dem RIS.',
       answer:
-        'In Vorarlberg gilt das Baugesetz (Vbg. BauG). Laut OIB-Übersicht (Stand: September 2025) hat Vorarlberg die OIB-Richtlinien 2023 nicht für verbindlich erklärt, und die RL 6 Ausgabe 2025 ist dort laut Übersicht (Stand: Juli 2026) ebenfalls nicht in Kraft; es gilt in der Regel weiter die Ausgabe 2019.',
+        'Piloti beantwortet Fragen zu einem Vorarlberger Projekt aus dem Baugesetz (Vbg. BauG) und den OIB-Richtlinien, mit geprüfter Fundstelle und der Ausgabe, die im Land gilt. Laut OIB-Übersicht hat Vorarlberg die OIB-Richtlinien 2023 nicht für verbindlich erklärt (Stand: September 2025), und die RL 6 Ausgabe 2025 ist dort ebenfalls nicht in Kraft (Stand: Juli 2026); es gilt in der Regel weiter die Ausgabe 2019.',
       blocks: [
         {
           kind: 'pairs',
@@ -1385,7 +1345,7 @@ export const baurecht: LandingEntry[] = [
           title: 'Zwei Nachbarn, zwei Stände',
           body: [
             'Wer am Arlberg auf beiden Seiten plant, hat seit 16.7.2026 laut OIB-Übersicht zwei verschiedene technische Grundlagen: in Tirol die Ausgaben 2023 und 2025, in Vorarlberg die Ausgabe 2019. Eine Anforderung, die ein Büro gerade für ein Tiroler Projekt nachgeschlagen hat, gilt für das Vorarlberger nicht zwingend.',
-            'Piloti hält das Bundesland im Projekt fest und nennt bei jeder OIB-Anforderung die Ausgabe. Stammt ein Wert aus einer anderen Ausgabe als 2019, sagt die Antwort das. Auf Wunsch stellt Piloti Vorarlberg und Tirol in Tabs nebeneinander, jede Seite mit eigener Quelle.',
+            'Piloti hält das Bundesland im Projekt fest und nennt bei jeder OIB-Anforderung die Ausgabe, die dort gilt. Auf Wunsch stellt Piloti Vorarlberg und Tirol in Tabs nebeneinander, jede Seite mit eigener Quelle.',
           ],
         },
         {
@@ -1407,13 +1367,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Wo Piloti in Vorarlberg aufhört',
-          items: [
-            'Piloti ersetzt nicht die Baubehörde der Gemeinde. Ob gebaut werden darf, entscheidet sie.',
-            'Was der Bebauungsplan Ihrer Gemeinde festlegt, liest Piloti nur aus dem Plan im Projekt.',
-            'Mit welcher Verordnung das Land die OIB-Richtlinien verbindlich erklärt und mit welchen Ausnahmen, prüfen Sie im Landesrecht selbst. Piloti nennt den Stand laut OIB-Übersicht.',
-            'Ein OIB-Wert aus der Ausgabe 2023 ist für ein Vorarlberger Projekt ein Hinweis, bis Sie ihn mit der Ausgabe 2019 abgeglichen haben.',
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Ob gebaut werden darf, entscheidet die Baubehörde der Gemeinde; die Verantwortung für den Entwurf bleibt beim Büro. Piloti nennt jede Quelle mit Ausgabe und Fundstelle und den OIB-Stand laut OIB-Übersicht, damit das Büro ihn in der Verordnung des Landes nachprüfen kann.',
           ],
         },
       ],
@@ -1428,7 +1385,7 @@ export const baurecht: LandingEntry[] = [
         },
         {
           q: 'Kann Piloti Fragen zum Vorarlberger Baugesetz beantworten?',
-          a: 'Ja, mit Fundstelle aus dem Baugesetz und den OIB-Richtlinien, geprüft gegen den Quelltext, bevor sie erscheint. Bei OIB-Anforderungen sagt Piloti, aus welcher Ausgabe der Wert stammt, und dass in Vorarlberg laut OIB-Übersicht die Ausgabe 2019 gilt.',
+          a: 'Ja, mit Fundstelle aus dem Baugesetz und den OIB-Richtlinien, geprüft gegen den Quelltext, bevor sie erscheint. Bei OIB-Anforderungen nennt Piloti die Ausgabe, die in Vorarlberg laut OIB-Übersicht gilt: 2019.',
         },
         {
           q: 'Gelten in Vorarlberg dieselben OIB-Richtlinien wie in Tirol?',
@@ -1441,10 +1398,10 @@ export const baurecht: LandingEntry[] = [
       description:
         'Vorarlberg’s building code is the Baugesetz (Vbg. BauG). Which OIB guidelines apply per the OIB overview, how that differs from Tyrol, how Piloti cites.',
       heading: 'Building law in Vorarlberg: Baugesetz and OIB guidelines',
-      lede: 'Vorarlberg governs building in its Baugesetz, Vbg. BauG for short. On the OIB guidelines the state takes a different path from its neighbour Tyrol, according to the OIB overview: the 2023 and 2025 editions are not in force there.',
+      lede: 'Vorarlberg governs building in its Baugesetz, Vbg. BauG for short. On the OIB guidelines the state takes a different path from its neighbour Tyrol, according to the OIB overview: the 2023 and 2025 editions are not in force there. Piloti keeps the state in the project and cites with the edition that applies there.',
       note: 'OIB status per the OIB overview “Inkrafttreten der OIB-Richtlinien”: 2023 edition as of September 2025, RL 6 edition 2025 as of July 2026. Legal text from RIS.',
       answer:
-        'Vorarlberg applies the Baugesetz (Vbg. BauG). According to the OIB overview (as of September 2025), Vorarlberg has not declared the 2023 OIB guidelines binding, and RL 6, edition 2025, is not in force there either according to the overview (as of July 2026); the 2019 edition generally still applies.',
+        'Piloti answers questions on a Vorarlberg project from the Baugesetz (Vbg. BauG) and the OIB guidelines, with a checked citation and the edition that applies in the state. According to the OIB overview, Vorarlberg has not declared the 2023 OIB guidelines binding (as of September 2025), and RL 6, edition 2025, is not in force there either (as of July 2026); the 2019 edition generally still applies.',
       blocks: [
         {
           kind: 'pairs',
@@ -1470,7 +1427,7 @@ export const baurecht: LandingEntry[] = [
           title: 'Two neighbours, two states of play',
           body: [
             'Anyone planning on both sides of the Arlberg has had two different technical bases since 16 July 2026, according to the OIB overview: the 2023 and 2025 editions in Tyrol, the 2019 edition in Vorarlberg. A requirement an office just looked up for a Tyrolean project does not necessarily apply to the one in Vorarlberg.',
-            'Piloti keeps the state in the project and names the edition for every OIB requirement. If a value comes from an edition other than 2019, the answer says so. On request Piloti sets Vorarlberg and Tyrol side by side in tabs, each with its own source.',
+            'Piloti keeps the state in the project and names the edition that applies there for every OIB requirement. On request Piloti sets Vorarlberg and Tyrol side by side in tabs, each with its own source.',
           ],
         },
         {
@@ -1492,13 +1449,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Where Piloti stops in Vorarlberg',
-          items: [
-            'Piloti does not replace the municipal building authority. Whether you may build, it decides.',
-            'What your municipality’s development plan fixes, Piloti reads only from the plan in the project.',
-            'Which ordinance declares the OIB guidelines binding in the state, and with which exceptions, you check in state law yourself. Piloti gives the status per the OIB overview.',
-            'For a Vorarlberg project, an OIB value from the 2023 edition is a pointer until you have checked it against the 2019 edition.',
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'Whether you may build, the municipal building authority decides; responsibility for the design stays with the office. Piloti names every source with edition and citation and the OIB status per the OIB overview, so the office can check it in the state ordinance.',
           ],
         },
       ],
@@ -1513,7 +1467,7 @@ export const baurecht: LandingEntry[] = [
         },
         {
           q: 'Can Piloti answer questions on the Vorarlberg Baugesetz?',
-          a: 'Yes, with a citation from the Baugesetz and the OIB guidelines, checked against the source text before it appears. For OIB requirements Piloti says which edition the value comes from, and that the 2019 edition applies in Vorarlberg according to the OIB overview.',
+          a: 'Yes, with a citation from the Baugesetz and the OIB guidelines, checked against the source text before it appears. For OIB requirements Piloti names the edition that applies in Vorarlberg according to the OIB overview: 2019.',
         },
         {
           q: 'Do the same OIB guidelines apply in Vorarlberg as in Tyrol?',
@@ -1533,10 +1487,10 @@ export const baurecht: LandingEntry[] = [
       description:
         'Bauordnung Burgenland heißt Burgenländisches Baugesetz 1997. Welche OIB-Richtlinien laut OIB-Übersicht gelten und warum andere als in Niederösterreich.',
       heading: 'Baurecht im Burgenland: Burgenländisches Baugesetz 1997 und OIB-Richtlinien',
-      lede: 'Wer aus Wien oder Niederösterreich für das Burgenland plant, wechselt die OIB-Ausgabe: Dort gelten die Richtlinien 2023, im Burgenland laut OIB-Übersicht noch die Ausgabe 2019. Das Landesgesetz heißt Burgenländisches Baugesetz 1997.',
+      lede: 'Wer aus Wien oder Niederösterreich für das Burgenland plant, wechselt die OIB-Ausgabe: Dort gelten die Richtlinien 2023, im Burgenland laut OIB-Übersicht noch die Ausgabe 2019. Das Landesgesetz heißt Burgenländisches Baugesetz 1997. Piloti nimmt das Bundesland aus dem Projekt und zitiert mit der Ausgabe, die dort gilt.',
       note: 'OIB-Stand laut OIB-Übersicht „Inkrafttreten der OIB-Richtlinien“: Ausgabe 2023 Stand September 2025, RL 6 Ausgabe 2025 Stand Juli 2026. Gesetzestext aus dem RIS.',
       answer:
-        'Im Burgenland gilt das Burgenländische Baugesetz 1997. Laut OIB-Übersicht (Stand: September 2025) hat das Burgenland die OIB-Richtlinien 2023 nicht für verbindlich erklärt, und die RL 6 Ausgabe 2025 ist dort laut Übersicht (Stand: Juli 2026) ebenfalls nicht in Kraft; es gilt in der Regel weiter die Ausgabe 2019.',
+        'Piloti beantwortet Fragen zu einem Projekt im Burgenland aus dem Burgenländischen Baugesetz 1997 und den OIB-Richtlinien, mit geprüfter Fundstelle und der Ausgabe, die im Land gilt. Laut OIB-Übersicht hat das Burgenland die OIB-Richtlinien 2023 nicht für verbindlich erklärt (Stand: September 2025), und die RL 6 Ausgabe 2025 ist dort ebenfalls nicht in Kraft (Stand: Juli 2026); es gilt in der Regel weiter die Ausgabe 2019.',
       blocks: [
         {
           kind: 'pairs',
@@ -1562,7 +1516,7 @@ export const baurecht: LandingEntry[] = [
           title: 'Die Ausgabe aus dem Nachbarland ist nicht die richtige',
           body: [
             'Ein Büro in Wien oder Niederösterreich arbeitet im Alltag laut OIB-Übersicht mit der Ausgabe 2023. Plant es im Burgenland, gilt dort die Ausgabe 2019. Eine Anforderung, die zwischen den Ausgaben geändert wurde, kann dann im Einreichplan mit dem falschen Wert stehen, ohne dass es beim Zeichnen auffällt.',
-            'Piloti nennt bei jeder OIB-Anforderung die Ausgabe. Stammt ein Wert aus der Ausgabe 2023, sagt die Antwort das und weist darauf hin, dass im Burgenland die Ausgabe 2019 gilt. Wer zwei Standorte prüft, bekommt Burgenland und Niederösterreich auf Wunsch in Tabs nebeneinander.',
+            'Piloti nennt bei jeder OIB-Anforderung die Ausgabe, die im Burgenland laut OIB-Übersicht gilt, und hält das Bundesland im Projekt fest. Wer zwei Standorte prüft, bekommt Burgenland und Niederösterreich auf Wunsch in Tabs nebeneinander.',
           ],
         },
         {
@@ -1588,13 +1542,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Wo Piloti im Burgenland aufhört',
-          items: [
-            'Piloti ersetzt nicht die Baubehörde der Gemeinde. Die Bewilligung erteilt sie.',
-            'Den Bebauungsplan Ihrer Gemeinde liest Piloti nur, wenn er im Projekt liegt. Fehlt er, sagt es das, statt einen Wert anzunehmen.',
-            'Mit welcher Verordnung das Land die OIB-Richtlinien verbindlich erklärt, mit welchen Ausnahmen und Übergangsregeln, prüfen Sie im Landesrecht selbst.',
-            'Ein Wert aus der Ausgabe 2023 ist für ein Projekt im Burgenland ein Hinweis, bis Sie ihn mit der Ausgabe 2019 abgeglichen haben.',
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Die Bewilligung erteilt die Baubehörde der Gemeinde, die Verantwortung für den Entwurf bleibt beim Büro. Piloti nennt jede Quelle mit Ausgabe und Fundstelle, fragt nach, wenn eine entscheidende Angabe fehlt, und sagt, wenn der Bebauungsplan nicht im Projekt liegt, statt einen Wert anzunehmen.',
           ],
         },
       ],
@@ -1609,7 +1560,7 @@ export const baurecht: LandingEntry[] = [
         },
         {
           q: 'Kann Piloti Fragen zum Burgenländischen Baugesetz beantworten?',
-          a: 'Ja, mit Fundstelle aus dem Baugesetz und den OIB-Richtlinien, geprüft gegen den Quelltext, bevor sie erscheint. Bei OIB-Anforderungen sagt Piloti, aus welcher Ausgabe der Wert stammt, und dass im Burgenland laut OIB-Übersicht die Ausgabe 2019 gilt.',
+          a: 'Ja, mit Fundstelle aus dem Baugesetz und den OIB-Richtlinien, geprüft gegen den Quelltext, bevor sie erscheint. Bei OIB-Anforderungen nennt Piloti die Ausgabe, die im Burgenland laut OIB-Übersicht gilt: 2019.',
         },
         {
           q: 'Gelten im Burgenland dieselben OIB-Richtlinien wie in Niederösterreich?',
@@ -1622,10 +1573,10 @@ export const baurecht: LandingEntry[] = [
       description:
         'Burgenland’s building code is the Burgenländisches Baugesetz 1997. Which OIB guidelines apply per the OIB overview, and why not those of Lower Austria.',
       heading: 'Building law in Burgenland: Burgenländisches Baugesetz 1997 and OIB guidelines',
-      lede: 'An office from Vienna or Lower Austria planning in Burgenland changes OIB edition: the 2023 guidelines apply at home; in Burgenland, according to the OIB overview, the 2019 edition still does. The state act is called the Burgenländisches Baugesetz 1997.',
+      lede: 'An office from Vienna or Lower Austria planning in Burgenland changes OIB edition: the 2023 guidelines apply at home; in Burgenland, according to the OIB overview, the 2019 edition still does. The state act is called the Burgenländisches Baugesetz 1997. Piloti takes the state from the project and cites with the edition that applies there.',
       note: 'OIB status per the OIB overview “Inkrafttreten der OIB-Richtlinien”: 2023 edition as of September 2025, RL 6 edition 2025 as of July 2026. Legal text from RIS.',
       answer:
-        'Burgenland applies the Burgenländisches Baugesetz 1997. According to the OIB overview (as of September 2025), Burgenland has not declared the 2023 OIB guidelines binding, and RL 6, edition 2025, is not in force there either according to the overview (as of July 2026); the 2019 edition generally still applies.',
+        'Piloti answers questions on a Burgenland project from the Burgenländisches Baugesetz 1997 and the OIB guidelines, with a checked citation and the edition that applies in the state. According to the OIB overview, Burgenland has not declared the 2023 OIB guidelines binding (as of September 2025), and RL 6, edition 2025, is not in force there either (as of July 2026); the 2019 edition generally still applies.',
       blocks: [
         {
           kind: 'pairs',
@@ -1651,7 +1602,7 @@ export const baurecht: LandingEntry[] = [
           title: 'The neighbour’s edition is not the right one',
           body: [
             'An office in Vienna or Lower Austria works day to day with the 2023 edition, according to the OIB overview. When it plans in Burgenland, the 2019 edition applies there. A requirement that changed between editions can then end up in the submission drawing with the wrong value, without anyone noticing while drawing.',
-            'Piloti names the edition for every OIB requirement. If a value comes from the 2023 edition, the answer says so and points out that the 2019 edition applies in Burgenland. Anyone weighing two sites gets Burgenland and Lower Austria side by side in tabs on request.',
+            'Piloti names the edition that applies in Burgenland according to the OIB overview for every OIB requirement, and keeps the state in the project. Anyone weighing two sites gets Burgenland and Lower Austria side by side in tabs on request.',
           ],
         },
         {
@@ -1677,13 +1628,10 @@ export const baurecht: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Where Piloti stops in Burgenland',
-          items: [
-            'Piloti does not replace the municipal building authority. It grants the permit.',
-            'Piloti reads your municipality’s development plan only if it is in the project. If it is missing, it says so instead of assuming a value.',
-            'Which ordinance declares the OIB guidelines binding in the state, with which exceptions and transition rules, you check in state law yourself.',
-            'For a Burgenland project, a value from the 2023 edition is a pointer until you have checked it against the 2019 edition.',
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'The municipal building authority grants the permit; responsibility for the design stays with the office. Piloti names every source with edition and citation, asks when a deciding fact is missing, and says when the development plan is not in the project instead of assuming a value.',
           ],
         },
       ],
@@ -1698,7 +1646,7 @@ export const baurecht: LandingEntry[] = [
         },
         {
           q: 'Can Piloti answer questions on the Burgenland Baugesetz?',
-          a: 'Yes, with a citation from the Baugesetz and the OIB guidelines, checked against the source text before it appears. For OIB requirements Piloti says which edition the value comes from, and that the 2019 edition applies in Burgenland according to the OIB overview.',
+          a: 'Yes, with a citation from the Baugesetz and the OIB guidelines, checked against the source text before it appears. For OIB requirements Piloti names the edition that applies in Burgenland according to the OIB overview: 2019.',
         },
         {
           q: 'Do the same OIB guidelines apply in Burgenland as in Lower Austria?',

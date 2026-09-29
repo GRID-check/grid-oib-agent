@@ -22,10 +22,10 @@ export const glossar: LandingEntry[] = [
       description:
         'Was ist Gebäudeklasse 4? Die Gebäudeklassen GK 1 bis 5 nach OIB: Fluchtniveau, Geschoße, Fläche, Nutzung – und warum das keine Bauklasse ist.',
       heading: 'Was ist eine Gebäudeklasse?',
-      lede: 'Fast jede Brandschutzfrage beginnt mit derselben Gegenfrage: Welche Gebäudeklasse? Hier die fünf Klassen nach den OIB-Richtlinien, was sie bestimmt und wo sie gern mit der Bauklasse verwechselt wird.',
+      lede: 'Fast jede Brandschutzfrage beginnt mit derselben Gegenfrage: Welche Gebäudeklasse? Hier die fünf Klassen nach den OIB-Richtlinien, was sie bestimmt und wo sie gern mit der Bauklasse verwechselt wird. Piloti stuft sie für Ihr Projekt ein, mit Fundstelle in den Begriffsbestimmungen.',
       note: 'Definitionen laut OIB-Richtlinien, Begriffsbestimmungen, Ausgabe Mai 2023.',
       answer:
-        'Die Gebäudeklasse (GK 1 bis 5) ordnet ein Gebäude nach den OIB-Richtlinien anhand von Fluchtniveau, Zahl der oberirdischen Geschoße, Fläche und Zahl der Wohnungen oder Betriebseinheiten ein; an ihr hängen vor allem die Brandschutzanforderungen der OIB-Richtlinie 2. Mit der Bauklasse einer Bauordnung, etwa der Wiener, hat sie nichts zu tun.',
+        'Die Gebäudeklasse (GK 1 bis 5) ordnet ein Gebäude nach den OIB-Richtlinien anhand von Fluchtniveau, Zahl der oberirdischen Geschoße, Fläche und Zahl der Wohnungen oder Betriebseinheiten ein; an ihr hängen vor allem die Brandschutzanforderungen der OIB-Richtlinie 2. Piloti stuft sie aus diesen Werten ein, mit Fundstelle, und hält sie getrennt von der Bauklasse einer Bauordnung.',
       blocks: [
         {
           kind: 'definition',
@@ -33,6 +33,15 @@ export const glossar: LandingEntry[] = [
           text: '„a) Gebäude mit nicht mehr als vier oberirdischen Geschoßen und mit einem Fluchtniveau von nicht mehr als 11 m, bestehend aus mehreren Wohnungen bzw. mehreren Betriebseinheiten von jeweils nicht mehr als 400 m² Nutzfläche der einzelnen Wohnungen bzw. Betriebseinheiten in den oberirdischen Geschoßen, b) Gebäude mit nicht mehr als vier oberirdischen Geschoßen und mit einem Fluchtniveau von nicht mehr als 11 m, bestehend aus einer Wohnung bzw. einer Betriebseinheit ohne Begrenzung der Brutto-Grundfläche der oberirdischen Geschoße.“',
           source: OIB_DEFS,
           sourceUrl: OIB_URL,
+        },
+        {
+          kind: 'list',
+          title: 'Wie Piloti die Gebäudeklasse einstuft',
+          items: [
+            'Aus Fluchtniveau, oberirdischen Geschoßen, Fläche und Nutzung, mit der Fundstelle in den Begriffsbestimmungen und dem Bundesland des Projekts.',
+            'Steht im Projekt schon eine bestätigte Gebäudeklasse, übernimmt Piloti sie. Fehlt ein entscheidender Wert, fragt es genau danach oder nennt die Annahme, mit der es rechnet.',
+            'Es sagt, welche OIB-Ausgabe im Bundesland gilt, wenn das die Einstufung verändert, und beantwortet Folgefragen wie „und in GK 4?“ aus dem, was es schon gelesen hat.',
+          ],
         },
         {
           kind: 'pairs',
@@ -78,13 +87,10 @@ export const glossar: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'Wie Piloti die Gebäudeklasse einstuft',
-          items: [
-            'Aus Fluchtniveau, oberirdischen Geschoßen, Fläche und Nutzung, mit der Fundstelle in den Begriffsbestimmungen und dem Bundesland des Projekts.',
-            'Steht im Projekt schon eine bestätigte Gebäudeklasse, übernimmt Piloti sie. Fehlt ein entscheidender Wert, fragt es genau danach oder nennt die Annahme, mit der es rechnet.',
-            'Es sagt, welche OIB-Ausgabe im Bundesland gilt, wenn das die Einstufung verändert, und beantwortet Folgefragen wie „und in GK 4?“ aus dem, was es schon gelesen hat.',
-            'Wo es aufhört: Das Fluchtniveau misst Piloti nicht aus Ihrem Plan heraus, es nimmt den Wert aus Ihren Unterlagen. Die Einstufung bleibt Ihre Entscheidung als Planverfasser:in.',
+          kind: 'text',
+          title: 'Gut zu wissen',
+          body: [
+            'Die Einstufung bleibt Ihre Entscheidung als Planverfasser:in; Piloti legt dafür Definition, Fundstelle und Annahmen offen. Das Fluchtniveau nimmt es aus Ihren Unterlagen, und fehlt ein entscheidender Wert, fragt es danach.',
           ],
         },
       ],
@@ -112,10 +118,10 @@ export const glossar: LandingEntry[] = [
       description:
         'What is building class 4? Austria’s building classes GK 1 to 5 under OIB: escape level, storeys, floor area, use – and why it is not a Bauklasse.',
       heading: 'What is a building class?',
-      lede: 'Almost every fire safety question starts with the same counter-question: which building class? Here are the five classes under the OIB guidelines, what determines them, and where they get confused with the Bauklasse.',
+      lede: 'Almost every fire safety question starts with the same counter-question: which building class? Here are the five classes under the OIB guidelines, what determines them, and where they get confused with the Bauklasse. Piloti classifies your project, citing the definitions.',
       note: 'Definitions from the OIB-Richtlinien, Begriffsbestimmungen, May 2023 edition, in our own translation.',
       answer:
-        'The building class (Gebäudeklasse, GK 1 to 5) classifies a building under the OIB guidelines by escape level, number of above-ground storeys, floor area and number of dwellings or business units; above all, the fire safety requirements of OIB guideline 2 depend on it. It has nothing to do with the Bauklasse of a building code, such as Vienna’s.',
+        'The building class (Gebäudeklasse, GK 1 to 5) classifies a building under the OIB guidelines by escape level, number of above-ground storeys, floor area and number of dwellings or business units; above all, the fire safety requirements of OIB guideline 2 depend on it. Piloti classifies it from these values, with the citation, and keeps it apart from the Bauklasse of a building code.',
       blocks: [
         {
           kind: 'definition',
@@ -123,6 +129,15 @@ export const glossar: LandingEntry[] = [
           text: '“a) Buildings with no more than four above-ground storeys and an escape level of no more than 11 m, consisting of several dwellings or several business units, each with no more than 400 m² usable floor area of the individual dwellings or business units in the above-ground storeys, b) buildings with no more than four above-ground storeys and an escape level of no more than 11 m, consisting of one dwelling or one business unit without a limit on the gross floor area of the above-ground storeys.”',
           source: OIB_DEFS_EN,
           sourceUrl: OIB_URL,
+        },
+        {
+          kind: 'list',
+          title: 'How Piloti classifies a building',
+          items: [
+            'From escape level, above-ground storeys, floor area and use, citing the definitions and the project’s state.',
+            'If the project already holds a confirmed building class, Piloti takes it. If a deciding value is missing, it asks for exactly that or states the assumption it works with.',
+            'It says which OIB edition applies in the state when that changes the class, and answers follow-ups such as “and in GK 4?” from what it has already read.',
+          ],
         },
         {
           kind: 'pairs',
@@ -168,13 +183,10 @@ export const glossar: LandingEntry[] = [
           ],
         },
         {
-          kind: 'list',
-          title: 'How Piloti classifies a building',
-          items: [
-            'From escape level, above-ground storeys, floor area and use, citing the definitions and the project’s state.',
-            'If the project already holds a confirmed building class, Piloti takes it. If a deciding value is missing, it asks for exactly that or states the assumption it works with.',
-            'It says which OIB edition applies in the state when that changes the class, and answers follow-ups such as “and in GK 4?” from what it has already read.',
-            'Where it stops: Piloti does not measure the escape level from your drawing; it takes the value from your documents. The classification remains your decision as the responsible planner.',
+          kind: 'text',
+          title: 'Good to know',
+          body: [
+            'The classification remains your decision as the responsible planner; Piloti lays out the definition, citation and assumptions for it. It takes the escape level from your documents, and if a deciding value is missing, it asks for it.',
           ],
         },
       ],
@@ -208,10 +220,10 @@ export const glossar: LandingEntry[] = [
       description:
         'Fluchtniveau Definition nach OIB-Begriffsbestimmungen: welcher Fußboden, welches Gelände, welches Mittel – und welche Schwellen die Gebäudeklasse setzen.',
       heading: 'Was ist das Fluchtniveau?',
-      lede: 'Das Fluchtniveau entscheidet über die Gebäudeklasse, und die Gebäudeklasse über den Brandschutz. Drei Wörter in der Definition machen den Unterschied: höchstgelegen, oberirdisch, nach Fertigstellung.',
+      lede: 'Das Fluchtniveau entscheidet über die Gebäudeklasse, und die Gebäudeklasse über den Brandschutz. Drei Wörter in der Definition machen den Unterschied: höchstgelegen, oberirdisch, nach Fertigstellung. Piloti stuft daraus die Gebäudeklasse ein und fragt nach dem Wert, wenn er im Projekt fehlt.',
       note: 'Definition laut OIB-Richtlinien, Begriffsbestimmungen, Ausgabe Mai 2023.',
       answer:
-        'Das Fluchtniveau ist nach den OIB-Begriffsbestimmungen die Höhendifferenz zwischen der Fußbodenoberkante des höchstgelegenen oberirdischen Geschoßes und der an das Gebäude angrenzenden Geländeoberfläche nach Fertigstellung, im Mittel. Es ist eine der Größen, aus denen sich die Gebäudeklasse ergibt.',
+        'Das Fluchtniveau ist nach den OIB-Begriffsbestimmungen die Höhendifferenz zwischen der Fußbodenoberkante des höchstgelegenen oberirdischen Geschoßes und der an das Gebäude angrenzenden Geländeoberfläche nach Fertigstellung, im Mittel. Aus ihm und den übrigen Größen stuft Piloti die Gebäudeklasse ein.',
       blocks: [
         {
           kind: 'definition',
@@ -219,6 +231,13 @@ export const glossar: LandingEntry[] = [
           text: '„Höhendifferenz zwischen der Fußbodenoberkante des höchstgelegenen oberirdischen Geschoßes und der an das Gebäude angrenzenden Geländeoberfläche nach Fertigstellung im Mittel.“',
           source: OIB_DEFS,
           sourceUrl: OIB_URL,
+        },
+        {
+          kind: 'text',
+          title: 'Wie Piloti dabei hilft',
+          body: [
+            'Piloti stuft die Gebäudeklasse aus dem Fluchtniveau und den übrigen Werten ein, mit der Fundstelle in den Begriffsbestimmungen und der OIB-Ausgabe, die im Bundesland gilt. Fehlt das Fluchtniveau, fragt es danach, statt es zu schätzen.',
+          ],
         },
         {
           kind: 'text',
@@ -249,10 +268,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wie Piloti dabei hilft',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti stuft die Gebäudeklasse aus dem Fluchtniveau und den übrigen Werten ein, mit der Fundstelle in den Begriffsbestimmungen und der OIB-Ausgabe, die im Bundesland gilt. Fehlt das Fluchtniveau, fragt es danach, statt es zu schätzen.',
-            'Wo es aufhört: Piloti rechnet das Fluchtniveau nicht aus Höhenkoten im Plan nach und entscheidet keine Auslegungsfrage zum Mittel für Sie. Es zeigt, was die Definition sagt, und legt die Annahme offen.',
+            'Wie das Mittel im Einzelfall gebildet wird, entscheidet die Planung; Piloti zeigt, was die Definition sagt, und legt die Annahme offen. Das Fluchtniveau nimmt es aus Ihren Unterlagen, statt es aus Höhenkoten im Plan nachzurechnen.',
           ],
         },
       ],
@@ -280,10 +298,10 @@ export const glossar: LandingEntry[] = [
       description:
         'Escape level (Fluchtniveau) as defined by the OIB: which floor, which ground, which average – and the thresholds that decide the building class in Austria.',
       heading: 'What is the escape level?',
-      lede: 'The escape level decides the building class, and the building class decides fire safety. Three words in the definition make the difference: highest, above-ground, after completion.',
+      lede: 'The escape level decides the building class, and the building class decides fire safety. Three words in the definition make the difference: highest, above-ground, after completion. Piloti derives the building class from it and asks for the value when the project lacks it.',
       note: 'Definition from the OIB-Richtlinien, Begriffsbestimmungen, May 2023 edition, in our own translation.',
       answer:
-        'Under the OIB definitions, the escape level (Fluchtniveau) is the height difference between the top of the floor of the highest above-ground storey and the ground surface adjoining the building after completion, on average. It is one of the values the building class is derived from.',
+        'Under the OIB definitions, the escape level (Fluchtniveau) is the height difference between the top of the floor of the highest above-ground storey and the ground surface adjoining the building after completion, on average. From it and the other values Piloti derives the building class.',
       blocks: [
         {
           kind: 'definition',
@@ -291,6 +309,13 @@ export const glossar: LandingEntry[] = [
           text: '“Height difference between the top of the floor of the highest above-ground storey and the ground surface adjoining the building after completion, on average.”',
           source: OIB_DEFS_EN,
           sourceUrl: OIB_URL,
+        },
+        {
+          kind: 'text',
+          title: 'How Piloti helps',
+          body: [
+            'Piloti derives the building class from the escape level and the other values, citing the definitions and the OIB edition that applies in the state. If the escape level is missing, it asks for it instead of estimating.',
+          ],
         },
         {
           kind: 'text',
@@ -321,10 +346,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'How Piloti helps',
+          title: 'Good to know',
           body: [
-            'Piloti derives the building class from the escape level and the other values, citing the definitions and the OIB edition that applies in the state. If the escape level is missing, it asks for it instead of estimating.',
-            'Where it stops: Piloti does not recalculate the escape level from spot heights in the drawing and does not settle an interpretation question about the average for you. It shows what the definition says and states the assumption.',
+            'How the average is formed in a specific case is for the design team to decide; Piloti shows what the definition says and states the assumption. It takes the escape level from your documents instead of recalculating it from spot heights in the drawing.',
           ],
         },
       ],
@@ -358,10 +382,10 @@ export const glossar: LandingEntry[] = [
       description:
         'Oberirdisches Geschoß Definition nach OIB: wann Hanggeschoß, Keller und Dachgeschoß zählen – und warum das die Gebäudeklasse verändern kann.',
       heading: 'Was ist ein oberirdisches Geschoß?',
-      lede: 'Wie viele Geschoße hat das Haus? Für die OIB-Richtlinien ist das keine Frage des Zählens, sondern der Definition. Und die hat zwei Hälften: eine Regel und eine Ausnahme.',
+      lede: 'Wie viele Geschoße hat das Haus? Für die OIB-Richtlinien ist das keine Frage des Zählens, sondern der Definition. Und die hat zwei Hälften: eine Regel und eine Ausnahme. Piloti zählt nach beiden Hälften, mit Fundstelle.',
       note: 'Definition laut OIB-Richtlinien, Begriffsbestimmungen, Ausgabe Mai 2023.',
       answer:
-        'Ein oberirdisches Geschoß ist nach den OIB-Begriffsbestimmungen ein Geschoß, dessen äußere Begrenzungsflächen in Summe zu mehr als der Hälfte über dem anschließenden Gelände nach Fertigstellung liegen; Geschoße ohne Wohnungen, Betriebseinheiten oder Teile davon, etwa nicht ausgebaute Dachräume, zählen nicht dazu.',
+        'Ein oberirdisches Geschoß ist nach den OIB-Begriffsbestimmungen ein Geschoß, dessen äußere Begrenzungsflächen in Summe zu mehr als der Hälfte über dem anschließenden Gelände nach Fertigstellung liegen; Geschoße ohne Wohnungen, Betriebseinheiten oder Teile davon, etwa nicht ausgebaute Dachräume, zählen nicht dazu. Piloti zählt die Geschoße für die Gebäudeklasse nach dieser Definition, mit Fundstelle.',
       blocks: [
         {
           kind: 'definition',
@@ -369,6 +393,13 @@ export const glossar: LandingEntry[] = [
           text: '„Geschoß, dessen äußere Begrenzungsflächen in Summe zu mehr als der Hälfte über dem anschließenden Gelände nach Fertigstellung liegen. Nicht zu den oberirdischen Geschoßen zählen solche, in denen sich keine Wohnungen, Betriebseinheiten oder Teile von solchen befinden (z.B. nicht ausgebaute Dachräume, Triebwerksräume, Räume für haustechnische Anlagen).“',
           source: OIB_DEFS,
           sourceUrl: OIB_URL,
+        },
+        {
+          kind: 'text',
+          title: 'Wie Piloti dabei hilft',
+          body: [
+            'Piloti zählt die oberirdischen Geschoße für die Gebäudeklasse nach dieser Definition, mit Fundstelle, und fragt nach, wenn aus Ihren Unterlagen nicht hervorgeht, ob ein Dachraum ausgebaut ist. Bei einem Umbau stuft es zuerst das Vorhaben ein und erst dann die Anforderung.',
+          ],
         },
         {
           kind: 'text',
@@ -398,10 +429,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wie Piloti dabei hilft',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti zählt die oberirdischen Geschoße für die Gebäudeklasse nach dieser Definition, mit Fundstelle, und fragt nach, wenn aus Ihren Unterlagen nicht hervorgeht, ob ein Dachraum ausgebaut ist. Bei einem Umbau stuft es zuerst das Vorhaben ein und erst dann die Anforderung.',
-            'Wo es aufhört: Ob ein Hanggeschoß zu mehr als der Hälfte über Gelände liegt, berechnet Piloti nicht aus Ihren Ansichten. Es sagt, welche Flächen dafür zu vergleichen sind, die Messung bleibt bei Ihnen.',
+            'Ob ein Hanggeschoß zu mehr als der Hälfte über Gelände liegt, misst die Planung an den Ansichten; Piloti sagt, welche Flächen dafür zu vergleichen sind. Geht aus den Unterlagen nicht hervor, ob ein Dachraum ausgebaut ist, fragt es nach.',
           ],
         },
       ],
@@ -429,10 +459,10 @@ export const glossar: LandingEntry[] = [
       description:
         'Above-ground storey (oberirdisches Geschoß) under OIB: when slope storeys, basements and roof storeys count – and why it can change the building class.',
       heading: 'What is an above-ground storey?',
-      lede: 'How many storeys does the building have? For the OIB guidelines that is not a matter of counting but of definition. And the definition has two halves: a rule and an exception.',
+      lede: 'How many storeys does the building have? For the OIB guidelines that is not a matter of counting but of definition. And the definition has two halves: a rule and an exception. Piloti counts by both halves, with the citation.',
       note: 'Definition from the OIB-Richtlinien, Begriffsbestimmungen, May 2023 edition, in our own translation.',
       answer:
-        'Under the OIB definitions, an above-ground storey is a storey whose external boundary surfaces lie, in total, more than half above the adjoining ground after completion; storeys without dwellings, business units or parts of them, such as unconverted roof spaces, do not count.',
+        'Under the OIB definitions, an above-ground storey is a storey whose external boundary surfaces lie, in total, more than half above the adjoining ground after completion; storeys without dwellings, business units or parts of them, such as unconverted roof spaces, do not count. Piloti counts the storeys for the building class under this definition, with the citation.',
       blocks: [
         {
           kind: 'definition',
@@ -440,6 +470,13 @@ export const glossar: LandingEntry[] = [
           text: '“Storey whose external boundary surfaces lie, in total, more than half above the adjoining ground after completion. Storeys in which there are no dwellings, business units or parts of them (e.g. unconverted roof spaces, machine rooms, rooms for building services) do not count as above-ground storeys.”',
           source: OIB_DEFS_EN,
           sourceUrl: OIB_URL,
+        },
+        {
+          kind: 'text',
+          title: 'How Piloti helps',
+          body: [
+            'Piloti counts the above-ground storeys for the building class under this definition, with the citation, and asks when your documents do not show whether a roof space is converted. For an alteration it first classifies the project, and only then the requirement.',
+          ],
         },
         {
           kind: 'text',
@@ -469,10 +506,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'How Piloti helps',
+          title: 'Good to know',
           body: [
-            'Piloti counts the above-ground storeys for the building class under this definition, with the citation, and asks when your documents do not show whether a roof space is converted. For an alteration it first classifies the project, and only then the requirement.',
-            'Where it stops: Piloti does not calculate from your elevations whether a slope storey lies more than half above ground. It says which surfaces to compare; the measurement stays with you.',
+            'Whether a slope storey lies more than half above ground, the design team measures on the elevations; Piloti says which surfaces to compare. If the documents do not show whether a roof space is converted, it asks.',
           ],
         },
       ],
@@ -506,10 +542,10 @@ export const glossar: LandingEntry[] = [
       description:
         'OIB-Richtlinien einfach erklärt: was die sechs Richtlinien regeln, wann sie verbindlich sind und welche Ausgabe laut OIB in welchem Bundesland gilt.',
       heading: 'Was sind die OIB-Richtlinien?',
-      lede: 'Sie stehen in fast jedem Bescheid und in keinem Gesetz im Volltext. Die OIB-Richtlinien sind die gemeinsame bautechnische Sprache der Länder, aber jedes Land entscheidet selbst, ab wann es sie spricht.',
+      lede: 'Sie stehen in fast jedem Bescheid und in keinem Gesetz im Volltext. Die OIB-Richtlinien sind die gemeinsame bautechnische Sprache der Länder, aber jedes Land entscheidet selbst, ab wann es sie spricht. Piloti nennt für jedes Projekt die Ausgabe, die im Land gilt, und zitiert auf den Punkt genau.',
       note: 'Inkrafttreten laut OIB-Übersicht auf oib.or.at, Stand September 2025 bzw. Juli 2026 für die OIB-Richtlinie 6, Ausgabe 2025.',
       answer:
-        'Die OIB-Richtlinien sind die vom Österreichischen Institut für Bautechnik herausgegebenen bautechnischen Richtlinien, mit denen die Bundesländer ihre technischen Anforderungen vereinheitlichen; verbindlich werden sie erst, wenn ein Land sie in seiner Bauordnung oder Bautechnikverordnung für verbindlich erklärt, und zwar in einer bestimmten Ausgabe.',
+        'Die OIB-Richtlinien sind die vom Österreichischen Institut für Bautechnik herausgegebenen bautechnischen Richtlinien, mit denen die Bundesländer ihre technischen Anforderungen vereinheitlichen; verbindlich werden sie erst, wenn ein Land sie in seiner Bauordnung oder Bautechnikverordnung für verbindlich erklärt, und zwar in einer bestimmten Ausgabe. Piloti zitiert sie auf den Punkt genau und nennt die Ausgabe, die im Bundesland des Projekts gilt.',
       blocks: [
         {
           kind: 'text',
@@ -517,6 +553,13 @@ export const glossar: LandingEntry[] = [
           body: [
             'Baurecht ist in Österreich Landesrecht. Damit ein Brandschutz- oder Wärmeschutzstandard nicht in neun Fassungen existiert, erarbeiten die Länder über das Österreichische Institut für Bautechnik (OIB) gemeinsame Richtlinien. Das OIB selbst erlässt kein Recht: Erst das Land erklärt die Richtlinien für verbindlich, meist in seiner Bautechnikverordnung oder im Baugesetz.',
             'Dazu gehören die Begriffsbestimmungen, in denen Wörter wie Gebäudeklasse, Fluchtniveau oder oberirdisches Geschoß definiert sind. Wer eine Richtlinie liest, ohne die Begriffsbestimmungen daneben zu haben, liest sie halb.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Wie Piloti mit den Richtlinien arbeitet',
+          body: [
+            'Piloti zitiert die OIB-Richtlinien auf den Punkt genau, etwa „Pkt. 3.5.2 · S. 7“, und prüft die Fundstelle gegen den Quelltext, bevor sie erscheint. Es sagt, welche Ausgabe im Bundesland des Projekts gilt, wenn das die Antwort verändert.',
           ],
         },
         {
@@ -559,10 +602,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wie Piloti mit den Richtlinien arbeitet',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti zitiert die OIB-Richtlinien auf den Punkt genau, etwa „Pkt. 3.5.2 · S. 7“, und prüft die Fundstelle gegen den Quelltext, bevor sie erscheint. Es sagt, welche Ausgabe im Bundesland des Projekts gilt, wenn das die Antwort verändert.',
-            'Wo es aufhört: Die ÖNORM-Texte selbst hat Piloti nicht, nur ein Normenverzeichnis. Verweist eine Richtlinie auf eine Norm, nennt Piloti sie, den Wortlaut schlagen Sie nach.',
+            'Verweist eine Richtlinie auf eine ÖNORM, nennt Piloti die Norm; den Wortlaut legt das Büro aus seiner Normensammlung daneben. Welche Ausgabe ein laufendes Verfahren trifft, regeln die Übergangsbestimmungen des Landes, auf die Piloti verweist.',
           ],
         },
       ],
@@ -590,10 +632,10 @@ export const glossar: LandingEntry[] = [
       description:
         'The OIB guidelines explained simply: what the six guidelines govern, when they are binding and which edition applies in which Austrian state.',
       heading: 'What are the OIB guidelines?',
-      lede: 'They appear in almost every permit and in no statute in full. The OIB guidelines are the states’ shared technical language, but each state decides for itself from when it speaks it.',
+      lede: 'They appear in almost every permit and in no statute in full. The OIB guidelines are the states’ shared technical language, but each state decides for itself from when it speaks it. For every project Piloti names the edition in force in the state and cites down to the clause.',
       note: 'Entry into force per the OIB overview on oib.or.at, as of September 2025, and as of July 2026 for OIB guideline 6, 2025 edition.',
       answer:
-        'The OIB guidelines are the building-technology guidelines issued by the Austrian Institute of Construction Engineering (OIB), with which the states harmonise their technical requirements; they become binding only when a state declares them binding in its building code or building-technology regulation, and then in a specific edition.',
+        'The OIB guidelines are the building-technology guidelines issued by the Austrian Institute of Construction Engineering (OIB), with which the states harmonise their technical requirements; they become binding only when a state declares them binding in its building code or building-technology regulation, and then in a specific edition. Piloti cites them down to the clause and names the edition in force in the project’s state.',
       blocks: [
         {
           kind: 'text',
@@ -601,6 +643,13 @@ export const glossar: LandingEntry[] = [
           body: [
             'In Austria, building law is state law. So that a fire safety or thermal protection standard does not exist in nine versions, the states draw up joint guidelines through the Austrian Institute of Construction Engineering (OIB). The OIB itself makes no law: only the state declares the guidelines binding, usually in its building-technology regulation or building act.',
             'They come with the definitions (Begriffsbestimmungen), where words such as building class, escape level or above-ground storey are defined. Anyone reading a guideline without the definitions next to it reads half of it.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'How Piloti works with the guidelines',
+          body: [
+            'Piloti cites the OIB guidelines down to the clause, for example “Pkt. 3.5.2 · S. 7”, and checks the citation against the source text before it appears. It says which edition applies in the project’s state when that changes the answer.',
           ],
         },
         {
@@ -643,10 +692,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'How Piloti works with the guidelines',
+          title: 'Good to know',
           body: [
-            'Piloti cites the OIB guidelines down to the clause, for example “Pkt. 3.5.2 · S. 7”, and checks the citation against the source text before it appears. It says which edition applies in the project’s state when that changes the answer.',
-            'Where it stops: Piloti does not have the ÖNORM texts themselves, only a register of standards. When a guideline refers to a standard, Piloti names it; you look up the wording.',
+            'When a guideline refers to an ÖNORM, Piloti names the standard; the office sets the wording beside it from its own collection of standards. Which edition governs a pending procedure is set by the state’s transition rules, which Piloti points to.',
           ],
         },
       ],
@@ -680,9 +728,9 @@ export const glossar: LandingEntry[] = [
       description:
         'RIS Rechtsinformationssystem und Bauordnung: wo das Landesrecht im RIS steht, wie man die geltende Fassung findet und was eine konsolidierte Fassung ist.',
       heading: 'Was ist das RIS?',
-      lede: 'Jede Bauordnung Österreichs steht im RIS, kostenlos und aktuell. Trotzdem landet man bei der Suche nach einem Paragrafen oft auf einer veralteten Kopie. Wie man im RIS findet, was man sucht.',
+      lede: 'Jede Bauordnung Österreichs steht im RIS, kostenlos und aktuell. Trotzdem landet man bei der Suche nach einem Paragrafen oft auf einer veralteten Kopie. Wie man im RIS findet, was man sucht. Piloti öffnet jede zitierte Stelle direkt aus dem RIS, markiert.',
       answer:
-        'Das RIS, das Rechtsinformationssystem des Bundes, ist die vom Bundeskanzleramt betriebene, frei zugängliche Datenbank des österreichischen Rechts; dort stehen unter anderem das Bundesrecht, das Landesrecht aller neun Bundesländer mit ihren Bauordnungen und die Entscheidungen der Höchstgerichte.',
+        'Das RIS, das Rechtsinformationssystem des Bundes, ist die vom Bundeskanzleramt betriebene, frei zugängliche Datenbank des österreichischen Rechts; dort stehen unter anderem das Bundesrecht, das Landesrecht aller neun Bundesländer mit ihren Bauordnungen und die Entscheidungen der Höchstgerichte. Piloti zitiert das Landesrecht so, wie ein Bescheid es nennt, und öffnet die Stelle aus dem RIS.',
       blocks: [
         {
           kind: 'text',
@@ -690,6 +738,13 @@ export const glossar: LandingEntry[] = [
           body: [
             'Das RIS (ris.bka.gv.at) sammelt das Bundesrecht und das Landesrecht in konsolidierter Fassung, die Gesetzblätter und die Rechtsprechung, etwa des Verfassungsgerichtshofs, des Verwaltungsgerichtshofs und der Landesverwaltungsgerichte. Für Planer:innen ist das Landesrecht der wichtigste Teil: Bauordnung, Bautechnikverordnung, Raumordnungsgesetz und die Verordnung, mit der das Land die OIB-Richtlinien für verbindlich erklärt.',
             'Die konsolidierte Fassung fügt alle Novellen in einen lesbaren Text zusammen. Sie ist eine Lesehilfe. Maßgeblich ist, was im jeweiligen Gesetzblatt kundgemacht wurde, und im Zweifel schaut man dort nach.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Wie Piloti das RIS nutzt',
+          body: [
+            'Piloti beantwortet Fragen aus den neun Landesbauordnungen und dem zugehörigen Landesrecht aus dem RIS und zitiert es, wie ein Bescheid es nennt, etwa „Bauordnung für Wien, § …“. Die Quelle öffnet sich in Piloti an der markierten Stelle, und die Fundstelle wird gegen den Text geprüft, bevor sie erscheint.',
           ],
         },
         {
@@ -718,10 +773,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wie Piloti das RIS nutzt',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti arbeitet mit den neun Landesbauordnungen und dem zugehörigen Landesrecht aus dem RIS und zitiert es, wie ein Bescheid es nennt, etwa „Bauordnung für Wien, § …“. Die Quelle öffnet sich in Piloti an der markierten Stelle, und die Fundstelle wird gegen den Text geprüft, bevor sie erscheint.',
-            'Wo es aufhört: Piloti arbeitet mit dem Landesrecht, das in seinem Verzeichnis steht, in der konsolidierten Fassung. Für eine ältere Fassung, etwa beim Bestand, schlagen Sie im RIS mit dem Stichtag nach. Welche Fassung für Ihr Verfahren gilt, entscheiden die Übergangsbestimmungen.',
+            'Piloti zitiert das Landesrecht in der geltenden Fassung. Für eine ältere Fassung, etwa beim Bestand, schlagen Sie im RIS mit dem Stichtag nach; welche Fassung für Ihr Verfahren gilt, entscheiden die Übergangsbestimmungen.',
           ],
         },
       ],
@@ -749,9 +803,9 @@ export const glossar: LandingEntry[] = [
       description:
         'The RIS legal information system and building codes: where state law sits in the RIS, how to find the version in force, and what a consolidated version is.',
       heading: 'What is the RIS?',
-      lede: 'Every Austrian building code is in the RIS, free and up to date. Still, searching for a section often lands you on an outdated copy. How to find what you are looking for in the RIS.',
+      lede: 'Every Austrian building code is in the RIS, free and up to date. Still, searching for a section often lands you on an outdated copy. How to find what you are looking for in the RIS. Piloti opens every cited passage straight from the RIS, marked.',
       answer:
-        'The RIS, the federal legal information system (Rechtsinformationssystem des Bundes), is the freely accessible database of Austrian law run by the Federal Chancellery; among other things it holds federal law, the law of all nine states including their building codes, and the decisions of the highest courts.',
+        'The RIS, the federal legal information system (Rechtsinformationssystem des Bundes), is the freely accessible database of Austrian law run by the Federal Chancellery; among other things it holds federal law, the law of all nine states including their building codes, and the decisions of the highest courts. Piloti cites state law the way a permit names it and opens the passage from the RIS.',
       blocks: [
         {
           kind: 'text',
@@ -759,6 +813,13 @@ export const glossar: LandingEntry[] = [
           body: [
             'The RIS (ris.bka.gv.at) collects federal and state law in consolidated form, the law gazettes and case law, for example of the Constitutional Court, the Supreme Administrative Court and the state administrative courts. For planners, state law is the key part: building code, building-technology regulation, spatial planning act and the regulation by which the state makes the OIB guidelines binding.',
             'The consolidated version merges all amendments into one readable text. It is a reading aid. What was promulgated in the relevant law gazette is what counts, and when in doubt that is where to look.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'How Piloti uses the RIS',
+          body: [
+            'Piloti answers questions from the nine state building codes and related state law from the RIS and cites them the way a permit would, for example “Bauordnung für Wien, § …”. The source opens inside Piloti at the marked passage, and the citation is checked against the text before it appears.',
           ],
         },
         {
@@ -787,10 +848,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'How Piloti uses the RIS',
+          title: 'Good to know',
           body: [
-            'Piloti works with the nine state building codes and related state law from the RIS and cites them the way a permit would, for example “Bauordnung für Wien, § …”. The source opens inside Piloti at the marked passage, and the citation is checked against the text before it appears.',
-            'Where it stops: Piloti works with the state law in its register, in the consolidated version. For an older version, for an existing building say, look it up in the RIS by date. Which version applies to your procedure is decided by the transition rules.',
+            'Piloti cites state law in the version in force. For an older version, for an existing building say, look it up in the RIS by date; which version applies to your procedure is decided by the transition rules.',
           ],
         },
       ],
@@ -824,9 +884,9 @@ export const glossar: LandingEntry[] = [
       description:
         'Bebauungsplan lesen: was Baulinien, Bauklasse, Bauweise und Dichte festlegen, wo Sie den Plan finden und was gilt, wenn es für ein Grundstück keinen gibt.',
       heading: 'Wie liest man einen Bebauungsplan?',
-      lede: 'Bevor irgendeine OIB-Frage zählt, entscheidet der Bebauungsplan, was auf dem Grundstück überhaupt stehen darf. Er ist Gemeinderecht auf Grundlage von Landesrecht, und in jedem Bundesland ein wenig anders.',
+      lede: 'Bevor irgendeine OIB-Frage zählt, entscheidet der Bebauungsplan, was auf dem Grundstück überhaupt stehen darf. Er ist Gemeinderecht auf Grundlage von Landesrecht, und in jedem Bundesland ein wenig anders. Piloti liest ihn mit, sobald er im Projekt liegt.',
       answer:
-        'Ein Bebauungsplan ist eine Verordnung der Gemeinde, die auf Grundlage des Raumordnungs- oder Baurechts des Landes festlegt, wie ein Grundstück bebaut werden darf, etwa mit Baulinien, Gebäudehöhe oder Bauklasse, Bauweise und Dichte; was er genau enthält und wie er heißt, regelt jedes Bundesland selbst.',
+        'Ein Bebauungsplan ist eine Verordnung der Gemeinde, die auf Grundlage des Raumordnungs- oder Baurechts des Landes festlegt, wie ein Grundstück bebaut werden darf, etwa mit Baulinien, Gebäudehöhe oder Bauklasse, Bauweise und Dichte; was er genau enthält und wie er heißt, regelt jedes Bundesland selbst. Piloti liest ihn mit, sobald er im Projekt liegt, und nennt die Festlegung, auf die es sich stützt.',
       blocks: [
         {
           kind: 'text',
@@ -834,6 +894,13 @@ export const glossar: LandingEntry[] = [
           body: [
             'Der Flächenwidmungsplan sagt, wofür eine Fläche gewidmet ist, etwa Bauland-Wohngebiet oder Grünland. Der Bebauungsplan sagt, wie auf dem Bauland gebaut werden darf. Beide sind Verordnungen der Gemeinde, erlassen nach dem Raumordnungsgesetz oder der Bauordnung des Landes.',
             'Die Namen und Inhalte unterscheiden sich. In Wien sind Flächenwidmungs- und Bebauungsplan ein gemeinsames Plandokument nach der Bauordnung für Wien, dort steht auch die Bauklasse. In anderen Ländern gibt es Bebauungspläne, Teilbebauungspläne oder Bebauungsrichtlinien, und nicht jedes Grundstück ist von einem erfasst.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Wie Piloti dabei hilft',
+          body: [
+            'Die Arbeitsweise „Bebauung“ klärt, was auf einem Grundstück gebaut werden darf: Bauklasse bzw. Gebäudehöhe, Bauwich, Widmung, Dichte, Stellplätze, nach Landes- und Gemeinderecht, nicht nach OIB. Liegt der Bebauungsplan im Projekt, liest Piloti ihn mit und nennt die Festlegung, auf die es sich stützt.',
           ],
         },
         {
@@ -858,10 +925,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wie Piloti dabei hilft',
+          title: 'Gut zu wissen',
           body: [
-            'Die Arbeitsweise „Bebauung“ klärt, was auf einem Grundstück gebaut werden darf: Bauklasse bzw. Gebäudehöhe, Bauwich, Widmung, Dichte, Stellplätze, nach Landes- und Gemeinderecht, nicht nach OIB. Liegt der Bebauungsplan im Projekt, liest Piloti ihn mit und nennt die Festlegung, auf die es sich stützt.',
-            'Wo es aufhört: Was der Bebauungsplan für genau dieses Grundstück festlegt, kann Piloti nicht wissen, solange der Plan nicht im Projekt liegt. Dann sagt es das ausdrücklich und wo Sie nachsehen, statt eine Festlegung anzunehmen.',
+            'Was der Bebauungsplan für genau dieses Grundstück festlegt, liest Piloti aus dem Plan im Projekt. Liegt er dort nicht, sagt es das und wo Sie nachsehen, statt eine Festlegung anzunehmen.',
           ],
         },
       ],
@@ -889,9 +955,9 @@ export const glossar: LandingEntry[] = [
       description:
         'Reading a development plan (Bebauungsplan): what building lines, Bauklasse, pattern and density fix, where to find it, and what applies without one.',
       heading: 'How do you read a development plan?',
-      lede: 'Before any OIB question counts, the development plan decides what may stand on the plot at all. It is municipal law based on state law, and a little different in every state.',
+      lede: 'Before any OIB question counts, the development plan decides what may stand on the plot at all. It is municipal law based on state law, and a little different in every state. Piloti reads it along as soon as it is in the project.',
       answer:
-        'A development plan (Bebauungsplan) is a municipal regulation that, based on the state’s spatial planning or building law, sets how a plot may be built on, for example with building lines, building height or Bauklasse, building pattern and density; what exactly it contains and what it is called is up to each state.',
+        'A development plan (Bebauungsplan) is a municipal regulation that, based on the state’s spatial planning or building law, sets how a plot may be built on, for example with building lines, building height or Bauklasse, building pattern and density; what exactly it contains and what it is called is up to each state. Piloti reads it as soon as it is in the project and names the provision it relies on.',
       blocks: [
         {
           kind: 'text',
@@ -899,6 +965,13 @@ export const glossar: LandingEntry[] = [
           body: [
             'The zoning plan (Flächenwidmungsplan) says what an area is zoned for, such as residential building land or green land. The development plan says how the building land may be built on. Both are municipal regulations, issued under the state’s spatial planning act or building code.',
             'Names and contents differ. In Vienna, the zoning and development plan is one plan document under the Bauordnung für Wien, and it sets the Bauklasse. Other states have development plans, partial development plans or development guidelines, and not every plot is covered by one.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'How Piloti helps',
+          body: [
+            'The “Bebauung” way of working clarifies what may be built on a plot: Bauklasse or building height, side distances, zoning, density, parking, under state and municipal law, not OIB. If the development plan is in the project, Piloti reads it too and names the provision it relies on.',
           ],
         },
         {
@@ -923,10 +996,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'How Piloti helps',
+          title: 'Good to know',
           body: [
-            'The “Bebauung” way of working clarifies what may be built on a plot: Bauklasse or building height, side distances, zoning, density, parking, under state and municipal law, not OIB. If the development plan is in the project, Piloti reads it too and names the provision it relies on.',
-            'Where it stops: Piloti cannot know what the development plan fixes for this very plot as long as the plan is not in the project. It then says so explicitly and where to look, instead of assuming a provision.',
+            'What the development plan fixes for this very plot, Piloti reads from the plan in the project. If it is not there, it says so and where to look, instead of assuming a provision.',
           ],
         },
       ],
@@ -960,9 +1032,9 @@ export const glossar: LandingEntry[] = [
       description:
         'Einreichplan Inhalt: welche Pläne und Unterlagen ein Bauansuchen in Österreich braucht, wer unterschreibt und warum das je Bundesland anders ist.',
       heading: 'Was gehört in einen Einreichplan?',
-      lede: 'Ein Einreichplan wird selten abgelehnt, weil der Entwurf schlecht ist, sondern weil etwas fehlt. Was hineingehört, bestimmt die Bauordnung des Landes, in dem das Projekt steht.',
+      lede: 'Ein Einreichplan wird selten abgelehnt, weil der Entwurf schlecht ist, sondern weil etwas fehlt. Was hineingehört, bestimmt die Bauordnung des Landes, in dem das Projekt steht. Der Einreichcheck von Piloti zeigt, was dem Paket noch fehlt, bevor die Behörde es tut.',
       answer:
-        'Der Einreichplan ist die Plandarstellung, die mit dem Bauansuchen oder der Bauanzeige bei der Baubehörde eingereicht wird, meist Lageplan, Grundrisse, Schnitte und Ansichten mit Baubeschreibung; was er genau enthalten muss und welche Unterlagen dazugehören, regelt die Bauordnung des jeweiligen Bundeslandes.',
+        'Der Einreichplan ist die Plandarstellung, die mit dem Bauansuchen oder der Bauanzeige bei der Baubehörde eingereicht wird, meist Lageplan, Grundrisse, Schnitte und Ansichten mit Baubeschreibung; was er genau enthalten muss und welche Unterlagen dazugehören, regelt die Bauordnung des jeweiligen Bundeslandes. Piloti prüft mit dem Einreichcheck, was dem Paket in diesem Bundesland noch fehlt, mit Fundstelle im Landesrecht.',
       blocks: [
         {
           kind: 'text',
@@ -970,6 +1042,13 @@ export const glossar: LandingEntry[] = [
           body: [
             'Der Einreichplan zeigt der Behörde das Vorhaben so, dass sie es nach Bau- und Raumordnungsrecht beurteilen kann. Er ist kein Ausführungsplan: Details der Konstruktion gehören meist nicht hinein, Lage, Höhen, Nutzungen und Abstände sehr wohl.',
             'Welche Pläne und Beilagen verlangt sind, steht in der Bauordnung und teils in eigenen Verordnungen des Landes. Auch das Verfahren unterscheidet sich: Bauansuchen, Bauanzeige, Bauanmeldung, je nach Land und Vorhaben mit anderen Unterlagen.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Wie Piloti dabei hilft',
+          body: [
+            'Die Arbeitsweise „Einreichcheck“ prüft, was einer Einreichung in diesem Bundesland noch fehlt: die Vollständigkeit des Pakets, mit Fundstelle im Landesrecht. Sie läuft auch als Aufgabe, etwa „Mach den Einreichcheck bis Freitag“, unter Ihrem Namen und mit Ihren Berechtigungen; das Ergebnis landet als offene Punkte im Projekt.',
           ],
         },
         {
@@ -993,10 +1072,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wie Piloti dabei hilft',
+          title: 'Gut zu wissen',
           body: [
-            'Die Arbeitsweise „Einreichcheck“ prüft, was einer Einreichung in diesem Bundesland noch fehlt: die Vollständigkeit des Pakets, mit Fundstelle im Landesrecht. Sie läuft auch als Aufgabe, etwa „Mach den Einreichcheck bis Freitag“, unter Ihrem Namen und mit Ihren Berechtigungen; das Ergebnis landet als offene Punkte im Projekt.',
-            'Wo es aufhört: Der Einreichcheck prüft nicht, ob der Entwurf das Baurecht einhält. Er sagt, was fehlt, nicht ob das Vorhaben genehmigungsfähig ist. Das bleibt Ihre Arbeit und die der Behörde.',
+            'Der Einreichcheck sagt, was dem Paket fehlt; ob das Vorhaben genehmigungsfähig ist, beurteilen Planung und Behörde. Einzelfragen dazu, etwa zur Gebäudeklasse oder zum Brandschutz, beantwortet Piloti getrennt, mit Fundstelle.',
           ],
         },
       ],
@@ -1024,9 +1102,9 @@ export const glossar: LandingEntry[] = [
       description:
         'What submission drawings (Einreichplan) contain: which plans and documents an Austrian building application needs, and why it differs by state.',
       heading: 'What goes into submission drawings?',
-      lede: 'Submission drawings are rarely rejected because the design is bad, but because something is missing. What belongs in them is set by the building code of the state the project is in.',
+      lede: 'Submission drawings are rarely rejected because the design is bad, but because something is missing. What belongs in them is set by the building code of the state the project is in. Piloti’s submission check shows what the package still lacks before the authority does.',
       answer:
-        'The Einreichplan is the set of drawings submitted to the building authority with the building application or building notice, usually site plan, floor plans, sections and elevations with a building description; what exactly it must contain and which documents go with it is governed by the building code of the state concerned.',
+        'The Einreichplan is the set of drawings submitted to the building authority with the building application or building notice, usually site plan, floor plans, sections and elevations with a building description; what exactly it must contain and which documents go with it is governed by the building code of the state concerned. Piloti’s submission check says what the package still lacks in that state, citing state law.',
       blocks: [
         {
           kind: 'text',
@@ -1034,6 +1112,13 @@ export const glossar: LandingEntry[] = [
           body: [
             'The submission drawings show the authority the project so that it can assess it under building and spatial planning law. They are not construction drawings: construction details usually do not belong in them; position, heights, uses and distances do.',
             'Which drawings and attachments are required is set by the building code and sometimes by separate state regulations. The procedure differs too: building application, building notice, building registration, each with different documents depending on the state and the project.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'How Piloti helps',
+          body: [
+            'The “Einreichcheck” way of working checks what a submission in this state still lacks: the completeness of the package, citing state law. It also runs as a task, for example “Do the submission check by Friday”, under your name and with your permissions; the result lands as open points in the project.',
           ],
         },
         {
@@ -1057,10 +1142,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'How Piloti helps',
+          title: 'Good to know',
           body: [
-            'The “Einreichcheck” way of working checks what a submission in this state still lacks: the completeness of the package, citing state law. It also runs as a task, for example “Do the submission check by Friday”, under your name and with your permissions; the result lands as open points in the project.',
-            'Where it stops: the submission check does not check whether the design complies with building law. It says what is missing, not whether the project can be approved. That remains your work and the authority’s.',
+            'The submission check says what the package lacks; whether the project can be approved is for the design team and the authority to judge. Piloti answers individual questions on that, such as building class or fire safety, separately and with citations.',
           ],
         },
       ],
@@ -1094,9 +1178,9 @@ export const glossar: LandingEntry[] = [
       description:
         'Aufenthaltsraum Definition nach OIB: welche Räume dazu zählen, was die OIB-Richtlinie 3 für sie regelt und warum Dachausbau und Souterrain daran hängen.',
       heading: 'Was ist ein Aufenthaltsraum?',
-      lede: 'Ob ein Raum Aufenthaltsraum ist, entscheidet, was er können muss: Raumhöhe, Belichtung, Lüftung. Die Einordnung kommt deshalb vor jeder Anforderung, und genau dort wird am häufigsten abgekürzt.',
+      lede: 'Ob ein Raum Aufenthaltsraum ist, entscheidet, was er können muss: Raumhöhe, Belichtung, Lüftung. Die Einordnung kommt deshalb vor jeder Anforderung, und genau dort wird am häufigsten abgekürzt. Piloti klärt die Einordnung zuerst und erst dann die Anforderung.',
       answer:
-        'Ein Aufenthaltsraum ist ein Raum, der zum längeren Aufenthalt von Menschen bestimmt ist, etwa Wohn-, Schlaf- und Arbeitsräume; die Anforderungen an ihn, etwa an Raumhöhe, Belichtung und Lüftung, stehen in der OIB-Richtlinie 3 in der Ausgabe, die das Bundesland für verbindlich erklärt hat.',
+        'Ein Aufenthaltsraum ist ein Raum, der zum längeren Aufenthalt von Menschen bestimmt ist, etwa Wohn-, Schlaf- und Arbeitsräume; die Anforderungen an ihn, etwa an Raumhöhe, Belichtung und Lüftung, stehen in der OIB-Richtlinie 3 in der Ausgabe, die das Bundesland für verbindlich erklärt hat. Piloti klärt zuerst, ob ein Raum Aufenthaltsraum ist, und dann, was er erfüllen muss.',
       blocks: [
         {
           kind: 'text',
@@ -1104,6 +1188,13 @@ export const glossar: LandingEntry[] = [
           body: [
             'Der Begriff unterscheidet Räume, in denen sich Menschen länger aufhalten, von Räumen, die sie nur kurz betreten. Wohnzimmer, Schlafzimmer, Kinderzimmer, Büros und Besprechungsräume sind typische Aufenthaltsräume. Bad, WC, Abstellraum, Gang und Stiegenhaus sind es in der Regel nicht.',
             'Definiert wird der Begriff in den OIB-Begriffsbestimmungen, die Anforderungen stehen in der OIB-Richtlinie 3 „Hygiene, Gesundheit und Umweltschutz“. Welche Ausgabe gilt, entscheidet das Bundesland; manche Bauordnungen und Bautechnikverordnungen ergänzen eigene Regeln. Lesen Sie Definition und Anforderung deshalb immer in der Fassung Ihres Landes.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Wie Piloti dabei hilft',
+          body: [
+            'Die Arbeitsweise „Hygiene“ klärt zuerst, ob ein Raum nach der OIB-Richtlinie 3 ein Aufenthaltsraum ist, und erst dann, was er erfüllen muss, mit Fundstelle bis auf den Punkt. Fehlt die Nutzung des Raums, fragt Piloti danach. Bei einem Umbau stuft die Arbeitsweise „Bestand“ zuerst das Vorhaben ein.',
           ],
         },
         {
@@ -1126,10 +1217,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wie Piloti dabei hilft',
+          title: 'Gut zu wissen',
           body: [
-            'Die Arbeitsweise „Hygiene“ klärt zuerst, ob ein Raum nach der OIB-Richtlinie 3 ein Aufenthaltsraum ist, und erst dann, was er erfüllen muss, mit Fundstelle bis auf den Punkt. Fehlt die Nutzung des Raums, fragt Piloti danach. Bei einem Umbau stuft die Arbeitsweise „Bestand“ zuerst das Vorhaben ein.',
-            'Wo es aufhört: Piloti rechnet keine Belichtungsflächen aus Ihrem Plan nach und misst keine Raumhöhen. Es sagt, welche Anforderung gilt und welcher Wert aus Ihrer Planung dafür gebraucht wird.',
+            'Belichtungsflächen und Raumhöhen nimmt Piloti aus Ihrer Planung; es sagt, welche Anforderung gilt und welcher Wert dafür gebraucht wird. Die Verantwortung für den Entwurf bleibt beim Büro.',
           ],
         },
       ],
@@ -1157,9 +1247,9 @@ export const glossar: LandingEntry[] = [
       description:
         'Habitable room (Aufenthaltsraum) under OIB: which rooms count, what OIB guideline 3 requires of them, and why roof conversions hinge on it.',
       heading: 'What is a habitable room?',
-      lede: 'Whether a room is a habitable room decides what it must provide: ceiling height, daylight, ventilation. The classification therefore comes before any requirement, and that is exactly where corners get cut most often.',
+      lede: 'Whether a room is a habitable room decides what it must provide: ceiling height, daylight, ventilation. The classification therefore comes before any requirement, and that is exactly where corners get cut most often. Piloti settles the classification first and only then the requirement.',
       answer:
-        'A habitable room (Aufenthaltsraum) is a room intended for people to stay in for longer periods, such as living rooms, bedrooms and workrooms; its requirements, for example on ceiling height, daylight and ventilation, are in OIB guideline 3 in the edition the state has declared binding.',
+        'A habitable room (Aufenthaltsraum) is a room intended for people to stay in for longer periods, such as living rooms, bedrooms and workrooms; its requirements, for example on ceiling height, daylight and ventilation, are in OIB guideline 3 in the edition the state has declared binding. Piloti first settles whether a room is habitable and then what it must meet.',
       blocks: [
         {
           kind: 'text',
@@ -1167,6 +1257,13 @@ export const glossar: LandingEntry[] = [
           body: [
             'The term separates rooms where people stay for longer from rooms they only enter briefly. Living rooms, bedrooms, children’s rooms, offices and meeting rooms are typical habitable rooms. Bathrooms, WCs, storage rooms, corridors and staircases generally are not.',
             'The term is defined in the OIB definitions, and the requirements are in OIB guideline 3, “Hygiene, health and environmental protection”. The state decides which edition applies; some building codes and building-technology regulations add their own rules. So always read definition and requirement in your state’s version.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'How Piloti helps',
+          body: [
+            'The “Hygiene” way of working first clarifies whether a room is a habitable room under OIB guideline 3, and only then what it must meet, citing down to the clause. If the room’s use is missing, Piloti asks for it. For an alteration, the “Bestand” way of working first classifies the project.',
           ],
         },
         {
@@ -1189,10 +1286,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'How Piloti helps',
+          title: 'Good to know',
           body: [
-            'The “Hygiene” way of working first clarifies whether a room is a habitable room under OIB guideline 3, and only then what it must meet, citing down to the clause. If the room’s use is missing, Piloti asks for it. For an alteration, the “Bestand” way of working first classifies the project.',
-            'Where it stops: Piloti does not recalculate window areas from your drawing and does not measure ceiling heights. It says which requirement applies and which value from your design it needs for that.',
+            'Piloti takes window areas and ceiling heights from your design; it says which requirement applies and which value is needed for it. Responsibility for the design stays with the office.',
           ],
         },
       ],
@@ -1226,9 +1322,9 @@ export const glossar: LandingEntry[] = [
       description:
         'Brandabschnitt Definition: was ein Brandabschnitt nach OIB-Richtlinie 2 ist, wovon seine Größe abhängt und wie er sich von der Brandwand unterscheidet.',
       heading: 'Was ist ein Brandabschnitt?',
-      lede: 'Ein Brand soll dort bleiben, wo er entsteht. Der Brandabschnitt ist das Werkzeug dafür, und die OIB-Richtlinie 2 sagt, wie groß er sein darf und was ihn begrenzen muss.',
+      lede: 'Ein Brand soll dort bleiben, wo er entsteht. Der Brandabschnitt ist das Werkzeug dafür, und die OIB-Richtlinie 2 sagt, wie groß er sein darf und was ihn begrenzen muss. Piloti prüft die Abschnittsbildung als Tabelle, mit Fundstelle und Ergebnis je Zeile.',
       answer:
-        'Ein Brandabschnitt ist ein Bereich eines Gebäudes, der durch brandabschnittsbildende Wände und Decken von anderen Bereichen getrennt ist, damit sich ein Brand für eine bestimmte Zeit nicht ausbreitet; zulässige Größe und Anforderungen regelt die OIB-Richtlinie 2 abhängig von Gebäudeklasse und Nutzung.',
+        'Ein Brandabschnitt ist ein Bereich eines Gebäudes, der durch brandabschnittsbildende Wände und Decken von anderen Bereichen getrennt ist, damit sich ein Brand für eine bestimmte Zeit nicht ausbreitet; zulässige Größe und Anforderungen regelt die OIB-Richtlinie 2 abhängig von Gebäudeklasse und Nutzung. Piloti prüft die Anforderungen, sobald die Gebäudeklasse feststeht, mit Fundstelle und Ergebnis je Zeile.',
       blocks: [
         {
           kind: 'text',
@@ -1236,6 +1332,13 @@ export const glossar: LandingEntry[] = [
           body: [
             'Ein Brandabschnitt begrenzt, wie viel eines Gebäudes ein Brand erfassen kann. Er wird von Wänden und Decken mit bestimmtem Feuerwiderstand gebildet, und jede Öffnung darin, jede Tür, jeder Schacht und jede Leitungsdurchführung, muss diesen Feuerwiderstand halten.',
             'Die Anforderungen stehen in der OIB-Richtlinie 2 „Brandschutz“, für Betriebsbauten und Garagen in eigenen Teilen. Welche Ausgabe gilt, entscheidet das Bundesland; laut OIB-Übersicht ist das nicht überall dieselbe.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'Wie Piloti dabei hilft',
+          body: [
+            'Die Arbeitsweise „Brandschutz“ behandelt Brandabschnitte, Fluchtwege und Feuerwiderstand, sobald die Gebäudeklasse feststeht. Sie trennt dabei, was die Richtlinie verlangt, von dem, ob dieses Gebäude es erfüllt, und zeigt die Prüfung als Tabelle mit Fundstelle und Ergebnis je Zeile, etwa „2 erfüllt · 1 offen“. Zwei Varianten der Abschnittsbildung stellt Piloti nebeneinander.',
           ],
         },
         {
@@ -1258,10 +1361,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wie Piloti dabei hilft',
+          title: 'Gut zu wissen',
           body: [
-            'Die Arbeitsweise „Brandschutz“ behandelt Brandabschnitte, Fluchtwege und Feuerwiderstand, sobald die Gebäudeklasse feststeht. Sie trennt dabei, was die Richtlinie verlangt, von dem, ob dieses Gebäude es erfüllt, und zeigt die Prüfung als Tabelle mit Fundstelle und Ergebnis je Zeile, etwa „2 erfüllt · 1 offen“. Zwei Varianten der Abschnittsbildung stellt Piloti nebeneinander.',
-            'Wo es aufhört: Piloti ersetzt kein Brandschutzkonzept und keine Brandschutzplaner:in. Es zeichnet keine Abschnitte in Ihren Plan und nimmt Flächen aus Ihren Unterlagen, statt sie zu messen.',
+            'Bei größeren oder besonderen Vorhaben gehören Brandschutzkonzept und Brandschutzplaner:in dazu; Piloti liefert die Anforderungen mit Fundstelle zu. Flächen nimmt es aus Ihren Unterlagen, statt sie im Plan zu messen.',
           ],
         },
       ],
@@ -1289,9 +1391,9 @@ export const glossar: LandingEntry[] = [
       description:
         'Fire compartment (Brandabschnitt) definition: what it is under OIB guideline 2, what its size depends on, and how it differs from a fire wall.',
       heading: 'What is a fire compartment?',
-      lede: 'A fire should stay where it starts. The fire compartment is the tool for that, and OIB guideline 2 says how large it may be and what must bound it.',
+      lede: 'A fire should stay where it starts. The fire compartment is the tool for that, and OIB guideline 2 says how large it may be and what must bound it. Piloti checks the compartmentation as a table, with a citation and a result per row.',
       answer:
-        'A fire compartment (Brandabschnitt) is an area of a building separated from other areas by compartment-forming walls and floors so that a fire does not spread for a set time; OIB guideline 2 governs its permitted size and requirements depending on building class and use.',
+        'A fire compartment (Brandabschnitt) is an area of a building separated from other areas by compartment-forming walls and floors so that a fire does not spread for a set time; OIB guideline 2 governs its permitted size and requirements depending on building class and use. Piloti checks the requirements once the building class stands, with a citation and a result per row.',
       blocks: [
         {
           kind: 'text',
@@ -1299,6 +1401,13 @@ export const glossar: LandingEntry[] = [
           body: [
             'A fire compartment limits how much of a building a fire can reach. It is formed by walls and floors of a set fire resistance, and every opening in them, every door, shaft and service penetration, must keep that fire resistance.',
             'The requirements are in OIB guideline 2, “Fire safety”, with separate parts for industrial buildings and garages. The state decides which edition applies; per the OIB overview, it is not the same everywhere.',
+          ],
+        },
+        {
+          kind: 'text',
+          title: 'How Piloti helps',
+          body: [
+            'The “Brandschutz” way of working covers fire compartments, escape routes and fire resistance once the building class stands. It separates what the guideline demands from whether this building meets it, and shows the check as a table with a citation and a result per row, for example “2 met · 1 open”. Piloti sets two compartment layouts side by side.',
           ],
         },
         {
@@ -1321,10 +1430,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'How Piloti helps',
+          title: 'Good to know',
           body: [
-            'The “Brandschutz” way of working covers fire compartments, escape routes and fire resistance once the building class stands. It separates what the guideline demands from whether this building meets it, and shows the check as a table with a citation and a result per row, for example “2 met · 1 open”. Piloti sets two compartment layouts side by side.',
-            'Where it stops: Piloti does not replace a fire safety concept or a fire safety engineer. It does not draw compartments into your drawing and takes areas from your documents instead of measuring them.',
+            'Larger or special projects call for a fire safety concept and a fire safety engineer; Piloti supplies the requirements with their citations. It takes areas from your documents instead of measuring them in the drawing.',
           ],
         },
       ],
@@ -1358,10 +1466,10 @@ export const glossar: LandingEntry[] = [
       description:
         'Reihenhaus und Gebäudeklasse: was nach den OIB-Begriffsbestimmungen als Reihenhaus gilt, warum ein Doppelhaus keines ist und wie das Fluchtniveau zählt.',
       heading: 'Was ist ein Reihenhaus nach OIB?',
-      lede: 'Im Alltag ist jedes Haus in einer Reihe ein Reihenhaus. Für die OIB-Richtlinien ist es ein Begriff mit fünf Bedingungen, und von ihm hängt ab, ob das Projekt in Gebäudeklasse 2 fällt.',
+      lede: 'Im Alltag ist jedes Haus in einer Reihe ein Reihenhaus. Für die OIB-Richtlinien ist es ein Begriff mit fünf Bedingungen, und von ihm hängt ab, ob das Projekt in Gebäudeklasse 2 fällt. Piloti prüft die fünf Bedingungen einzeln gegen Ihr Projekt.',
       note: 'Definition laut OIB-Richtlinien, Begriffsbestimmungen, Ausgabe Mai 2023.',
       answer:
-        'Ein Reihenhaus ist nach den OIB-Begriffsbestimmungen ein Gebäude mit mehr als zwei unmittelbar aneinander gebauten, nicht übereinander angeordneten, durch eine vertikale Wand getrennten Wohnungen oder Betriebseinheiten von je höchstens 400 m² Brutto-Grundfläche, jede mit eigenem Eingang aus dem Freien; für die Gebäudeklasse wird das Fluchtniveau jeder Einheit gesondert betrachtet.',
+        'Ein Reihenhaus ist nach den OIB-Begriffsbestimmungen ein Gebäude mit mehr als zwei unmittelbar aneinander gebauten, nicht übereinander angeordneten, durch eine vertikale Wand getrennten Wohnungen oder Betriebseinheiten von je höchstens 400 m² Brutto-Grundfläche, jede mit eigenem Eingang aus dem Freien; für die Gebäudeklasse wird das Fluchtniveau jeder Einheit gesondert betrachtet. Piloti prüft die Bedingungen gegen Ihr Projekt und stuft die Gebäudeklasse ein.',
       blocks: [
         {
           kind: 'definition',
@@ -1369,6 +1477,13 @@ export const glossar: LandingEntry[] = [
           text: '„Gebäude mit mehr als zwei unmittelbar aneinander gebauten, nicht übereinander angeordneten, durch mindestens eine vertikale Wand voneinander getrennten selbstständigen Wohnungen bzw. Betriebseinheiten von jeweils nicht mehr als 400 m² Brutto-Grundfläche der oberirdischen Geschoße und mit jeweils einem eigenen Eingang aus dem Freien für jede Wohnung bzw. Betriebseinheit. Für die Einstufung in eine Gebäudeklasse gemäß der OIB-Richtlinie 2 ist jede Wohnung bzw. Betriebseinheit hinsichtlich des Fluchtniveaus gesondert zu betrachten.“',
           source: OIB_DEFS,
           sourceUrl: OIB_URL,
+        },
+        {
+          kind: 'text',
+          title: 'Wie Piloti dabei hilft',
+          body: [
+            'Piloti prüft die Bedingungen der Definition gegen Ihr Projekt und stuft die Gebäudeklasse ein, mit Fundstelle. Fehlt ein Wert, etwa die Fläche einer Einheit oder das Fluchtniveau des höchsten Hauses, fragt es danach. Die Anforderungen an die Wände zwischen den Einheiten klärt anschließend die Arbeitsweise „Brandschutz“.',
+          ],
         },
         {
           kind: 'list',
@@ -1398,10 +1513,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'Wie Piloti dabei hilft',
+          title: 'Gut zu wissen',
           body: [
-            'Piloti prüft die Bedingungen der Definition gegen Ihr Projekt und stuft die Gebäudeklasse ein, mit Fundstelle. Fehlt ein Wert, etwa die Fläche einer Einheit oder das Fluchtniveau des höchsten Hauses, fragt es danach. Die Anforderungen an die Wände zwischen den Einheiten klärt anschließend die Arbeitsweise „Brandschutz“.',
-            'Wo es aufhört: Flächen und Höhen nimmt Piloti aus Ihren Unterlagen, es misst sie nicht im Plan. Und die Bauweise nach dem Bebauungsplan kennt es nur, wenn der Plan im Projekt liegt.',
+            'Flächen und Höhen nimmt Piloti aus Ihren Unterlagen, die Einstufung bleibt Ihre Entscheidung. Die Bauweise nach dem Bebauungsplan liest es aus dem Plan, sobald er im Projekt liegt.',
           ],
         },
       ],
@@ -1429,10 +1543,10 @@ export const glossar: LandingEntry[] = [
       description:
         'Row house (Reihenhaus) and building class: what counts as a row house under OIB, why a semi-detached pair does not, and how the escape level counts.',
       heading: 'What is a row house under OIB?',
-      lede: 'In everyday speech, every house in a row is a row house. For the OIB guidelines it is a term with five conditions, and it decides whether the project falls into building class 2.',
+      lede: 'In everyday speech, every house in a row is a row house. For the OIB guidelines it is a term with five conditions, and it decides whether the project falls into building class 2. Piloti checks the five conditions one by one against your project.',
       note: 'Definition from the OIB-Richtlinien, Begriffsbestimmungen, May 2023 edition, in our own translation.',
       answer:
-        'Under the OIB definitions, a row house (Reihenhaus) is a building with more than two dwellings or business units built directly against each other, not stacked, separated by a vertical wall, each with no more than 400 m² gross floor area and its own entrance from outside; for the building class, the escape level of each unit is considered separately.',
+        'Under the OIB definitions, a row house (Reihenhaus) is a building with more than two dwellings or business units built directly against each other, not stacked, separated by a vertical wall, each with no more than 400 m² gross floor area and its own entrance from outside; for the building class, the escape level of each unit is considered separately. Piloti checks the conditions against your project and classifies the building class.',
       blocks: [
         {
           kind: 'definition',
@@ -1440,6 +1554,13 @@ export const glossar: LandingEntry[] = [
           text: '“Building with more than two self-contained dwellings or business units built directly against each other, not arranged one above the other, separated from each other by at least one vertical wall, each with no more than 400 m² gross floor area of the above-ground storeys and each with its own entrance from outside for every dwelling or business unit. For classification into a building class under OIB guideline 2, each dwelling or business unit is to be considered separately with regard to the escape level.”',
           source: OIB_DEFS_EN,
           sourceUrl: OIB_URL,
+        },
+        {
+          kind: 'text',
+          title: 'How Piloti helps',
+          body: [
+            'Piloti checks the conditions of the definition against your project and classifies the building class, with the citation. If a value is missing, such as a unit’s area or the escape level of the highest house, it asks for it. The “Brandschutz” way of working then clarifies the requirements for the walls between the units.',
+          ],
         },
         {
           kind: 'list',
@@ -1469,10 +1590,9 @@ export const glossar: LandingEntry[] = [
         },
         {
           kind: 'text',
-          title: 'How Piloti helps',
+          title: 'Good to know',
           body: [
-            'Piloti checks the conditions of the definition against your project and classifies the building class, with the citation. If a value is missing, such as a unit’s area or the escape level of the highest house, it asks for it. The “Brandschutz” way of working then clarifies the requirements for the walls between the units.',
-            'Where it stops: Piloti takes areas and heights from your documents; it does not measure them in the drawing. And it knows the building pattern under the development plan only if the plan is in the project.',
+            'Piloti takes areas and heights from your documents; the classification remains your decision. It reads the building pattern under the development plan from the plan as soon as it is in the project.',
           ],
         },
       ],
