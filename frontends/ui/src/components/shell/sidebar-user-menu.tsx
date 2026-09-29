@@ -2,7 +2,19 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Building2, Check, Compass, Globe, LayoutDashboard, LogOut, Monitor, Moon, Sun, UserRound } from 'lucide-react'
+import {
+  Building2,
+  Check,
+  Compass,
+  Globe,
+  LayoutDashboard,
+  LogOut,
+  MessageSquarePlus,
+  Monitor,
+  Moon,
+  Sun,
+  UserRound,
+} from 'lucide-react'
 
 import { useAuth } from '@/adapters/auth/use-auth'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -19,6 +31,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useLayoutStore } from '@/features/layout/store'
 import { useStartProductTour } from '@/features/onboarding/components/product-tour'
+import { useFeedbackAvailable, useOpenFeedback } from '@/features/product-feedback/components'
 import type { ThemeMode } from '@/features/layout/types'
 import { useTranslations, useLocale, locales } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -93,6 +106,9 @@ export function SidebarUserMenu({
   const { locale, setLocale, localeNames } = useLocale()
   const ActiveThemeIcon = THEME_ICONS[theme]
   const startTour = useStartProductTour()
+  const openFeedback = useOpenFeedback()
+  const feedbackAvailable = useFeedbackAvailable()
+  const tFeedback = useTranslations('feedback')
 
   const displayName = user?.name || user?.email || t('userMenu.defaultUser')
   // Two-letter monogram from the first two words (e.g. "Anna Kaufmann" → "AK"),
@@ -238,6 +254,14 @@ export function SidebarUserMenu({
           <Compass className="size-4 text-muted-foreground" aria-hidden />
           {t('userMenu.productTour')}
         </DropdownMenuItem>
+        {/* The door to the people who build Piloti: a bug, an idea, praise.
+            Next to the tour because both are "help with Piloti itself". */}
+        {feedbackAvailable && (
+          <DropdownMenuItem onSelect={() => openFeedback()} className="gap-2" data-testid="user-menu-feedback">
+            <MessageSquarePlus className="size-4 text-muted-foreground" aria-hidden />
+            {tFeedback('open')}
+          </DropdownMenuItem>
+        )}
         {authRequired && (
           <>
             <DropdownMenuSeparator />

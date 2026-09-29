@@ -21,6 +21,18 @@ describe('PlatformNav', () => {
     expect(screen.getAllByRole('link')).toHaveLength(PLATFORM_SECTIONS.length * 2)
   })
 
+  test('labels every section from the dictionary, never with its raw key', () => {
+    // The label is `t(`nav.${key}`)`, a template the key-coverage spec cannot
+    // resolve, and a missing key renders as the key itself. A new section with
+    // no `platform.nav` entry used to ship as "platform.nav.feedback".
+    pathname.value = '/app/platform'
+    render(<PlatformNav />)
+
+    for (const link of screen.getAllByRole('link')) {
+      expect(link.textContent).not.toMatch(/platform\.nav\./)
+    }
+  })
+
   test('marks only the overview active at the bare platform path', () => {
     // A prefix test would light up every section here — the overview owns the
     // bare route, so it must match exactly.

@@ -36,6 +36,12 @@ const EXPECTED: Record<string, string> = {
   'cards/route.ts GET': 'settingsView',
   'citation-health/export/route.ts GET': 'organizationsView',
   'citation-health/route.ts GET': 'organizationsView',
+  // Product feedback (bugs, ideas) sent TO the platform. Filed with lessons,
+  // not with organization data: it is the platform's own work queue, read on
+  // view and triaged on manage.
+  'feedback/[reportId]/route.ts GET': 'settingsView',
+  'feedback/[reportId]/route.ts PATCH': 'settingsManage',
+  'feedback/route.ts GET': 'settingsView',
   'knowledge/documents/[fileName]/display-title/route.ts PATCH': 'settingsManage',
   'knowledge/documents/[fileName]/doc-class/route.ts PATCH': 'settingsManage',
   'knowledge/documents/[fileName]/route.ts DELETE': 'settingsManage',

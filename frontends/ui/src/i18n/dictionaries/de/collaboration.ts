@@ -234,6 +234,12 @@ export const collaboration: typeof en.collaboration = {
         titleNone: 'Nachrichten',
         body: 'in {subject}',
       },
+      // Platform tier: a member sent product feedback. {subject} is the
+      // organization it came from; the excerpt below the title is the message.
+      feedbackSubmitted: {
+        title: '{actor} hat Feedback gesendet',
+        body: 'aus {subject} – zum Sichten öffnen.',
+      },
       storageQuotaWarning: {
         title: 'Der Speicherplatz Ihrer Organisation wird knapp',
         body: '{subject} des Speicherkontingents sind belegt. Sobald es voll ist, schlagen Uploads fehl – löschen Sie nicht mehr benötigte Dokumente oder bitten Sie den Betreiber Ihrer Piloti-Installation, das Kontingent zu erhöhen.',

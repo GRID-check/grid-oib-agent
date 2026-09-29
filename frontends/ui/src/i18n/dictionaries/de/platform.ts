@@ -473,6 +473,7 @@ export const platform: typeof en.platform = {
     retrieval: 'Abruf',
     quality: 'Antwortqualität',
     lessons: 'Lektionen',
+    feedback: 'Feedback',
     cards: 'Karten',
     knowledge: 'Basiswissen',
     norms: 'Normenkatalog',
@@ -602,6 +603,11 @@ export const platform: typeof en.platform = {
       title: 'Lektionen',
       subtitle:
         'Was die Plattform aus negativem Feedback gelernt hat — anonymisiert, dedupliziert und in jede Antwort injiziert, damit ein gemeldeter Fehler sich nicht wiederholt. Jede Lektion ist ein symptomatisches Pflaster, keine Ursachenbehebung.',
+    },
+    feedback: {
+      title: 'Feedback',
+      subtitle:
+        'Was Mitglieder aus Piloti heraus melden — Fehler, Ideen, Lob und Fragen. Neue Meldungen landen auch in Ihrem Postfach.',
     },
     knowledge: {
       title: 'Basiswissen',

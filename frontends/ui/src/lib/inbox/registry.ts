@@ -13,6 +13,7 @@
  */
 
 import { INBOX_ITEM_TYPES, type InboxItemType, type InboxTargetType } from '@/lib/db/schema'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 
 /**
  * Which product gate a type lives behind.
@@ -27,8 +28,14 @@ import { INBOX_ITEM_TYPES, type InboxItemType, type InboxTargetType } from '@/li
  * alert is for. So the gate is a property OF THE TYPE, checked by the read path,
  * rather than a guard on the route: a hardcoded list of exceptions at the route
  * would drift the moment a second operational type is registered.
+ *
+ * `platform` types are addressed to the people who run the platform, not to a
+ * tenant: a member's product feedback, and whatever joins it later. Their rows
+ * live in the PLATFORM organization and are never part of a tenant's inbox.
+ * They reach a reader through the inbox's platform lane, which opens only for a
+ * session holding {@link PLATFORM_INBOX_PERMISSION} — see `platformInboxTypes`.
  */
-export type InboxTypeGate = 'collaboration' | 'operational'
+export type InboxTypeGate = 'collaboration' | 'operational' | 'platform'
 
 export interface InboxTypeDefinition {
   /**
@@ -49,7 +56,38 @@ export interface InboxTypeDefinition {
   readonly retentionDays: number
   /** Which feature gate this type lives behind. See {@link InboxTypeGate}. */
   readonly gate: InboxTypeGate
+  /**
+   * The type's default for the email channel (spec IB-5, IB-11). See
+   * {@link InboxEmailDefault} and `./delivery`.
+   */
+  readonly email: InboxEmailDefault
 }
+
+/**
+ * Whether a type ALSO reaches its recipient by email, and when (spec IB-11).
+ *
+ * The item is what happened; email is one way of telling somebody, so the
+ * policy is a property of the type and the row stays the one record. Nothing
+ * sends email yet — `./delivery` is the seam a sender plugs into — but every
+ * type has to state its answer today, so the day a sender exists no type ships
+ * silent by accident and none mails by accident.
+ *
+ *   - `never`     — in-app only. Ambient activity, FYIs, anything that would
+ *                   train people to filter our mail.
+ *   - `if-unread` — a reminder: mail the recipient when the row is still unread
+ *                   (and not archived, resolved or inert) `afterMinutes` after
+ *                   its last activity. `0` means as soon as the sender sees it.
+ *                   Reading it in the app first cancels the mail, which is what
+ *                   makes it a reminder rather than a copy.
+ *
+ * A digest mode and per-user overrides (spec IB-12) join this union when there
+ * is a sender to honour them.
+ */
+export type InboxEmailDefault =
+  | { readonly send: 'never' }
+  | { readonly send: 'if-unread'; readonly afterMinutes: number }
+
+const IN_APP_ONLY: InboxEmailDefault = { send: 'never' }
 
 export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> = {
   // A request for your input. Each mention is its own question, so no collapsing,
@@ -59,6 +97,7 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     grouping: 'per-anchor',
     retentionDays: 180,
     gate: 'collaboration',
+    email: { send: 'if-unread', afterMinutes: 60 },
   },
   // "Your request was answered" — one per answered request.
   'mention.answered': {
@@ -66,6 +105,7 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     grouping: 'per-anchor',
     retentionDays: 60,
     gate: 'collaboration',
+    email: IN_APP_ONLY,
   },
   // "You now have access" — one per resource; re-sharing should not stack.
   'conversation.shared_with_you': {
@@ -73,6 +113,7 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     grouping: 'collapse',
     retentionDays: 60,
     gate: 'collaboration',
+    email: IN_APP_ONLY,
   },
   // Ambient thread activity — the type that MUST collapse, or the inbox is noise.
   'conversation.activity': {
@@ -80,6 +121,7 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     grouping: 'collapse',
     retentionDays: 30,
     gate: 'collaboration',
+    email: IN_APP_ONLY,
   },
   /*
     Storage pressure (ADR-0042). `per-anchor` rather than `collapse`, and the
@@ -97,12 +139,14 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     grouping: 'per-anchor',
     retentionDays: 30,
     gate: 'operational',
+    email: { send: 'if-unread', afterMinutes: 0 },
   },
   'document.assigned_to_you': {
     actionable: false,
     grouping: 'collapse',
     retentionDays: 60,
     gate: 'collaboration',
+    email: IN_APP_ONLY,
   },
   /*
     A background run ended. `per-anchor` with the backend job id as the anchor:
@@ -118,12 +162,14 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     grouping: 'per-anchor',
     retentionDays: 30,
     gate: 'operational',
+    email: IN_APP_ONLY,
   },
   'job.failed': {
     actionable: false,
     grouping: 'per-anchor',
     retentionDays: 60,
     gate: 'operational',
+    email: { send: 'if-unread', afterMinutes: 30 },
   },
   /*
     A run has a question for the person who asked for it (ADR-0062, `wartet`).
@@ -138,6 +184,7 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     grouping: 'per-anchor',
     retentionDays: 30,
     gate: 'operational',
+    email: { send: 'if-unread', afterMinutes: 30 },
   },
   /*
     A version is waiting for a decision (ADR-0054). Actionable, because it IS an
@@ -158,8 +205,33 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     grouping: 'per-anchor',
     retentionDays: 180,
     gate: 'operational',
+    email: { send: 'if-unread', afterMinutes: 60 },
+  },
+  /*
+    A member sent product feedback (Platform → Feedback). Informational: the
+    triage status on the report is the work queue, and an actionable row would
+    need every owner's copy resolved when one of them triages it. `collapse` on
+    the REPORT, so each report is one row per owner. Kept a quarter: a report
+    nobody opened for three months is still on the triage page, which is the
+    record; the inbox row is only the announcement.
+  */
+  'feedback.submitted': {
+    actionable: false,
+    grouping: 'collapse',
+    retentionDays: 90,
+    gate: 'platform',
+    email: { send: 'if-unread', afterMinutes: 0 },
   },
 }
+
+/**
+ * The permission that opens the platform lane of a reader's inbox.
+ *
+ * `platform:settings:view` because it is the read half of the permission the
+ * triage page requires to change a report, and it is what Platform → Lessons
+ * reads with: whoever may read the platform's feedback may be told about it.
+ */
+export const PLATFORM_INBOX_PERMISSION = PLATFORM_PERMISSIONS.settingsView
 
 /** Whether a type is actionable (denormalized onto the row for a cheap count). */
 export function inboxItemIsActionable(type: InboxItemType): boolean {
@@ -179,9 +251,22 @@ export function inboxItemIsActionable(type: InboxItemType): boolean {
  * operational type is a one-line change with no second place to remember.
  */
 export function visibleInboxTypes(collaborationEnabled: boolean): InboxItemType[] {
-  return INBOX_ITEM_TYPES.filter(
-    (type) => collaborationEnabled || INBOX_TYPE_DEFINITIONS[type].gate === 'operational',
-  )
+  return INBOX_ITEM_TYPES.filter((type) => {
+    const { gate } = INBOX_TYPE_DEFINITIONS[type]
+    if (gate === 'platform') return false
+    return collaborationEnabled || gate === 'operational'
+  })
+}
+
+/**
+ * The types that live in the platform organization's inbox rows.
+ *
+ * Never part of {@link visibleInboxTypes}: a tenant lane must not return a
+ * platform row even when the reader's active organization IS the platform
+ * organization, or the platform lane would list it a second time.
+ */
+export function platformInboxTypes(): InboxItemType[] {
+  return INBOX_ITEM_TYPES.filter((type) => INBOX_TYPE_DEFINITIONS[type].gate === 'platform')
 }
 
 /**

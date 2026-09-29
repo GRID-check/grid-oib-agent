@@ -42,6 +42,25 @@ const now = Date.parse('2026-07-29T10:00:00Z')
 const ago = (minutes: number): string => new Date(now - minutes * 60_000).toISOString()
 
 const ITEMS: InboxItemView[] = [
+  // Platform lane: a member elsewhere in the fleet sent product feedback. The
+  // reader is a platform owner; the row lives in the platform organization.
+  {
+    id: 'i0',
+    type: 'feedback.submitted',
+    state: 'unread',
+    actionable: false,
+    resourceType: 'product_feedback',
+    resourceId: 'f1',
+    anchorId: null,
+    actorName: 'Maria Huber',
+    actorUserId: 'u-maria',
+    count: 1,
+    href: '/app/platform/feedback?report=f1',
+    subject: 'Architekturbüro Nord',
+    excerpt: 'Beim Hochladen eines 80-MB-Plans bleibt der Fortschritt bei 99 % stehen, auch nach 10 Minuten.',
+    createdAt: ago(4),
+    updatedAt: ago(4),
+  },
   {
     id: 'i1',
     type: 'mention.requested',
