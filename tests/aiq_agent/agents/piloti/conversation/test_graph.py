@@ -511,6 +511,10 @@ class TestAppendContextMessage:
         snapshot = await agent.graph.aget_state({"configurable": {"thread_id": "conv-1"}})
         assert [m.content for m in snapshot.values["messages"]] == ["Anna Weber: Ja, eigener Abschnitt."]
         assert calls == []
+        # Tagged, and it survives the checkpoint: the turn decision skips it.
+        from aiq_agent.agents.piloti.history import is_context_message
+
+        assert is_context_message(snapshot.values["messages"][0])
 
     @pytest.mark.asyncio
     async def test_the_next_real_turn_sees_the_ingested_context(self, trackers):

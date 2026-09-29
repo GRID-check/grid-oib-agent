@@ -145,6 +145,21 @@ class TestTheEffects:
         block = state.card_shapes_block or ""
         assert "fire_access_plan" in block and '"surface"' not in block
 
+    def test_a_colleagues_ingested_message_is_not_the_previous_question(self):
+        from langchain_core.messages import AIMessage
+
+        from aiq_agent.agents.piloti.history import CONTEXT_MESSAGE_ID_PREFIX
+
+        state = ResearchAgentState(
+            messages=[
+                HumanMessage(content="Wie hoch ist die GK?"),
+                AIMessage(content="Gebäudeklasse 5."),
+                HumanMessage(content="Anna Weber: passt, danke", id=f"{CONTEXT_MESSAGE_ID_PREFIX}1"),
+                HumanMessage(content="und in GK 4?"),
+            ]
+        )
+        assert _turn_facts(state, None).previous_message == "Wie hoch ist die GK?"
+
     def test_the_previous_exchange_is_the_last_question_and_the_last_answer(self):
         from langchain_core.messages import AIMessage
 

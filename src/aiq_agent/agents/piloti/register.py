@@ -70,6 +70,7 @@ from .decisions import decide_turn
 from .decisions import prefetch_calls
 from .decisions import prefetch_query
 from .decisions import skill_option
+from .history import is_context_message
 from .models import ResearchAgentState
 from .tool_search import ToolSearchSettings
 from .tool_search import tool_basename
@@ -317,7 +318,14 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
     from aiq_agent.common.source_kinds import Shelf
     from aiq_agent.knowledge.inventory import get_norm_families
 
-    humans = [str(m.content) for m in state.messages if isinstance(m, HumanMessage) and isinstance(m.content, str)]
+    # A colleague's ingested message is context, not a question put to the agent:
+    # read as `previous_message`, it made the repeat and follow-up checks compare
+    # this question with someone else's remark.
+    humans = [
+        str(m.content)
+        for m in state.messages
+        if isinstance(m, HumanMessage) and isinstance(m.content, str) and not is_context_message(m)
+    ]
     question = humans[-1] if humans else ""
     previous = humans[-2] if len(humans) > 1 else None
     answers = [

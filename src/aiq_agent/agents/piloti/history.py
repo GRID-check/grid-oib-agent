@@ -92,6 +92,17 @@ def trim_message_history(
     )
 
 
+#: The id prefix of a colleague's message ingested without a turn
+#: (``ConversationGraph.append_context_message``). An id, because it is the one
+#: field of a message no provider is sent.
+CONTEXT_MESSAGE_ID_PREFIX = "grid-context-"
+
+
+def is_context_message(message: BaseMessage) -> bool:
+    """Whether ``message`` is a colleague's ingested context, not a question put to the agent."""
+    return isinstance(message, HumanMessage) and str(message.id or "").startswith(CONTEXT_MESSAGE_ID_PREFIX)
+
+
 def prune_tool_results(messages: list[BaseMessage], *, keep_turns: int = 1) -> list[BaseMessage]:
     """The history with tool results kept for the last ``keep_turns`` turns that fetched.
 
