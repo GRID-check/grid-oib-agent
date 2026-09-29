@@ -275,14 +275,41 @@ describe('a cited office document opens on its PDF rendition (ADR-0070)', () => 
     }
   })
 
-  test('a Word or Excel locus page does not name a rendition page, so it opens at 1', () => {
-    // A .docx locus carries the constant 1 and an .xlsx one a sheet; neither
-    // says where the passage lands once LibreOffice lays the file out.
-    for (const fileName of ['Baubeschreibung.docx', 'Flaechen.xlsx', 'Notiz.odt']) {
+  test('a Word locus page is a rendition page, because the chunks were read from it (ADR-0071)', () => {
+    for (const fileName of ['Baubeschreibung.docx', 'Makro.docm', 'Alt.doc', 'Notiz.odt', 'Brief.rtf']) {
+      const target = resolveCitationTarget(cited(fileName, 4), {
+        storedDocuments: stored(fileName, null),
+      })
+      expect(target, fileName).toMatchObject({ kind: 'document', page: 4 })
+    }
+  })
+
+  test('a spreadsheet with no extractor of its own is indexed from the rendition too', () => {
+    for (const fileName of ['Alt.xls', 'Tabelle.ods']) {
+      const target = resolveCitationTarget(cited(fileName, 3), {
+        storedDocuments: stored(fileName, null),
+      })
+      expect(target, fileName).toMatchObject({ kind: 'document', page: 3 })
+    }
+  })
+
+  test('an .xlsx or .xlsm locus names a sheet, not a rendition page, so it opens at 1', () => {
+    // openpyxl still reads these from the original; one sheet can print across
+    // many PDF pages, so the sheet number says nothing about where it lands.
+    for (const fileName of ['Flaechen.xlsx', 'Makro.xlsm']) {
       const target = resolveCitationTarget(cited(fileName, 4), {
         storedDocuments: stored(fileName, null),
       })
       expect(target, fileName).toMatchObject({ kind: 'document', page: 1 })
+    }
+  })
+
+  test('a locus page that is not a whole positive number opens at 1', () => {
+    for (const page of [0, -2, 2.5]) {
+      const target = resolveCitationTarget(cited('Baubeschreibung.docx', page), {
+        storedDocuments: stored('Baubeschreibung.docx', null),
+      })
+      expect(target, String(page)).toMatchObject({ kind: 'document', page: 1 })
     }
   })
 

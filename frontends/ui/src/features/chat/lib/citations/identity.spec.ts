@@ -515,6 +515,23 @@ describe('resolveCitationTarget', () => {
     })
   })
 
+  test('a Word citation opens at its page, which is a rendition page (ADR-0071)', () => {
+    // Word files are indexed from the PDF rendition now, so the chunk's page is
+    // the page the viewer shows. The identity is still the .docx row.
+    const target = targetFor(
+      { url: '', content: '[KB] Vermessung.docx, p.3' },
+      storedDocuments,
+      baseCorpusFiles
+    )
+
+    expect(target).toMatchObject({
+      kind: 'document',
+      fileName: 'Vermessung.docx',
+      page: 3,
+      document: { type: 'stored', id: 'doc-2', filename: 'Vermessung.docx' },
+    })
+  })
+
   test('a citation that resolves to no document at all is still info', () => {
     const target = targetFor(
       { url: '', content: '[KB] Nirgendwo.docx' },

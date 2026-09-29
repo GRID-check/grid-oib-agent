@@ -16,7 +16,11 @@
 import type { Shelf } from '../source-kinds'
 import { citedLoci, isHttpUrl, type CitationLocus, type CitedDocument } from './model'
 import { parseKbLocator, type KbCitationLocator } from './locator'
-import { isInlinePreviewable, isOfficeRenditionSource } from '@/lib/documents/preview-types'
+import {
+  isIndexedFromRendition,
+  isInlinePreviewable,
+  isOfficeRenditionSource,
+} from '@/lib/documents/preview-types'
 
 /**
  * The minimal shape of a STORED document a citation can resolve against — a
@@ -138,31 +142,21 @@ export type CitationTarget =
  */
 const isPreviewableContentType = isInlinePreviewable
 
-/** Presentation formats: their rendition has one PDF page per slide, in order. */
-const SLIDE_EXTENSIONS: ReadonlySet<string> = new Set(['.pptx', '.pptm', '.ppt', '.odp'])
-
-const hasSlideExtension = (filename: string): boolean => {
-  const name = filename.trim().toLowerCase()
-  const dot = name.lastIndexOf('.')
-  return dot >= 0 && SLIDE_EXTENSIONS.has(name.slice(dot))
-}
-
 /**
  * The PDF page an office citation opens at, in its RENDITION.
  *
- * Only a slide number survives the conversion: LibreOffice prints one page per
- * slide, so slide 7 is page 7. Nothing else the chunker writes names a
- * rendition page. An `.xlsx` locus names a SHEET, and a sheet can span many
- * printed pages or share none; a `.docx` locus carries the constant "1" because
- * a Word file has no pages until something lays it out, and LibreOffice's
- * layout is not Word's. Both open at page 1 and let the viewer find the
- * passage from there (it looks next door on a miss), which is honest where a
- * made-up page would not be.
+ * For a format indexed from the rendition (ADR-0071: Word, presentations, and
+ * the spreadsheets with no extractor of their own) the chunker read the PDF, so
+ * a locus page IS a rendition page. An `.xlsx` or `.xlsm` is still read from the
+ * original: its locus names a SHEET, which can span many printed pages or share
+ * one, so it opens at page 1 and the viewer finds the passage from there (it
+ * looks next door on a miss). A Word file indexed before ADR-0071 carries the
+ * constant "1", which opens at page 1 and is correct anyway.
  */
 const renditionPage = (filename: string, locus: CitationLocus | undefined): number => {
   const page = locus?.page
   if (
-    hasSlideExtension(filename) &&
+    isIndexedFromRendition(filename) &&
     typeof page === 'number' &&
     Number.isInteger(page) &&
     page >= 1
@@ -330,8 +324,9 @@ export const resolveCitationTarget = (
         kind: 'document',
         title: doc.title,
         fileName: storedDoc.filename,
-        // An office file is read on its PDF rendition, whose pages are not the
-        // locus's pages — see `renditionPage`.
+        // An office file is read on its PDF rendition, whose pages match the
+        // locus's pages only when the chunks were read from it — see
+        // `renditionPage`.
         page: isOffice ? renditionPage(storedDoc.filename, locus) : locus?.page,
         snippet,
         document: {
