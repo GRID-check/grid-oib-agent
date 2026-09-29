@@ -56,6 +56,11 @@ const de = {
         description:
           'Wie die Piloti-Website mit Ihren Daten umgeht: keine Cookies, kein Tracking, welche Dienste beteiligt sind und welche Anbieter die Piloti-Anwendung nutzt.',
       },
+      warum: {
+        title: 'Warum Piloti: KI für Architekturbüros in Österreich',
+        description:
+          'Warum nicht einfach ChatGPT? Piloti verbindet österreichisches Baurecht, Ihre Pläne und Ihr Bürowissen zu Antworten mit prüfbaren Quellen, bis in den Akt.',
+      },
       notFound: {
         title: 'Seite nicht gefunden – Piloti',
         description: 'Diese Seite existiert nicht oder wurde verschoben.',
@@ -81,7 +86,11 @@ const de = {
     items: [
       {
         q: 'Was ist Piloti?',
-        a: 'Piloti ist eine KI-Wissensplattform für Architektur- und Planungsbüros. Sie beantwortet Planungsfragen aus dem geltenden Baurecht, den Unterlagen Ihres Büros und Ihres Projekts und nennt zu jeder Antwort die Quellen. Piloti ist ein Proof of Concept und wird derzeit mit ausgewählten Pilotbüros erprobt.',
+        a: 'Piloti ist eine KI-Wissensplattform für Architektur- und Planungsbüros. Sie beantwortet Planungsfragen aus dem geltenden Baurecht, den Unterlagen Ihres Büros und Ihres Projekts und nennt zu jeder Antwort die Quellen. Es übernimmt auch Arbeit, die länger dauert als eine Antwort: Prüfberichte und Aktenvermerke im Projekt, offene Punkte und wiederkehrende Checks. Piloti ist ein Proof of Concept und wird derzeit mit ausgewählten Pilotbüros erprobt.',
+      },
+      {
+        q: 'Warum nicht einfach ChatGPT?',
+        a: 'ChatGPT beantwortet Fragen. Piloti beantwortet sie im Zusammenhang Ihres Projekts: aus den Landesbauordnungen im RIS, den OIB-Richtlinien, Ihren Plänen und dem Archiv Ihres Büros, mit einer Fundstelle bis auf Paragraf, Punkt oder Seite, die vor dem Anzeigen gegen den Quelltext geprüft wird. Fehlt eine Unterlage, etwa der Bebauungsplan, sagt Piloti das, statt zu antworten, als hätte es sie gelesen.',
       },
       {
         q: 'Für wen ist Piloti gedacht?',
@@ -113,7 +122,7 @@ const de = {
       },
       {
         q: 'Wie wird mein Büro Pilotbüro?',
-        a: 'Schreiben Sie uns an {email}. Wir entwickeln Piloti mit wenigen Büros, die es mit echten Planungsfragen aus ihrem Alltag erproben und uns ehrlich sagen, was fehlt.',
+        a: 'Schicken Sie uns an {email} eine echte Planungsfrage aus einem laufenden Projekt. Wir zeigen Ihnen, wie Piloti sie beantwortet. Wir entwickeln Piloti mit wenigen Büros, die es mit echten Planungsfragen aus ihrem Alltag erproben und uns ehrlich sagen, was fehlt.',
       },
     ],
   },
@@ -123,18 +132,21 @@ const de = {
     hero: '01 Start',
     story: '02 Problem und Lösung',
     nutzung: '03 Nutzung',
-    daten: '04 Quellen und Daten',
-    wert: '05 Wert',
-    team: '06 Team',
-    faq: '07 Häufige Fragen',
-    kontakt: '08 Kontakt',
+    arbeit: '04 Arbeit übergeben',
+    daten: '05 Quellen und Daten',
+    wert: '06 Wert',
+    team: '07 Team',
+    faq: '08 Häufige Fragen',
+    kontakt: '09 Kontakt',
   },
   nav: {
     ariaLabel: 'Hauptnavigation',
     logoLabel: 'Piloti, Startseite',
     signIn: 'Anmelden',
     signInPending: 'Weiterleitung…',
-    cta: 'Pilotbüro werden',
+    cta: 'Frage mitbringen',
+    why: 'Warum Piloti',
+    compare: 'Vergleiche',
     langLabel: 'Sprache wählen',
     menu: 'Menü',
     menuOpen: 'Menü öffnen',
@@ -143,6 +155,7 @@ const de = {
     sections: [
       { href: '#problem', label: 'Problem und Lösung' },
       { href: '#nutzung', label: 'Nutzung' },
+      { href: '#arbeit', label: 'Arbeit übergeben' },
       { href: '#daten', label: 'Quellen und Daten' },
       { href: '#wert', label: 'Wertrechner' },
       { href: '#team', label: 'Team' },
@@ -156,7 +169,7 @@ const de = {
     title: 'Planen. Statt suchen.',
     sub: 'Baurecht, Büro- und Projektwissen. An einem Ort.',
     stage: 'Proof of Concept · Pilotphase mit ausgewählten Büros',
-    ctaDemo: 'Pilotbüro werden',
+    ctaDemo: 'Mit einer echten Frage testen',
     ctaMore: 'Mehr erfahren',
   },
   story: {
@@ -191,6 +204,60 @@ const de = {
     howLead: 'Wie eine Antwort entsteht:',
     howLabel: 'Wie Piloti funktioniert',
     howHref: '/blog/wie-piloti-funktioniert/',
+  },
+  // The handover: the step from an answer to work done. A fictional project,
+  // but every step is a shipped feature, in the changelog's own words where it
+  // has them (the task line, the finding count, the review actions).
+  arbeit: {
+    title: 'Übergeben Sie Arbeit. Nicht nur Fragen.',
+    body: 'Ein Nachschlagewerk wartet, bis Sie fragen. Piloti nimmt Aufträge an: Es recherchiert in Plänen und Vorschriften, legt den Bericht ins Projekt, macht aus Befunden offene Punkte und prüft wieder, wenn Sie es wollen.',
+    label: 'Fiktives Projekt · jeder Schritt eine ausgelieferte Funktion',
+    boardLabel: 'Eine Woche mit Piloti, fiktives Beispiel',
+    close: 'Fristen, Befunde und Freigaben bleiben im Projekt, für das ganze Team sichtbar. Das ist der Unterschied zwischen einem Werkzeug, das antwortet, und einem, das mitarbeitet.',
+    link: 'Jede Funktion im Changelog',
+    status: { ok: 'erfüllt', open: 'offen' },
+    steps: {
+      ask: {
+        when: 'Mo · Sie im Chat',
+        quote: '„Mach den Einreichcheck für den Wohnbau 1030 bis Freitag.“',
+        note: 'Ein Satz genügt. Daraus wird ein Auftrag, unter Ihrem Namen und mit Ihren Rechten.',
+      },
+      run: {
+        when: 'Mo · Auftrag läuft',
+        title: 'Einreichcheck · Wohnbau 1030',
+        line: 'Recherchieren · 3\u00a0Runden · 9\u00a0Dokumente',
+        note: 'Liest Pläne, Bescheid und Bebauungsplan des Projekts und die geltenden Vorschriften. Sie fragen im selben Chat weiter.',
+      },
+      report: {
+        when: 'Mo · Bericht im Projekt',
+        title: 'Prüfbericht Einreichung',
+        summary: '2 erfüllt · 1 offen',
+        rows: [
+          { req: 'Fluchtwege', ok: true },
+          { req: 'Stellplätze', ok: true },
+          { req: 'Brandschutzschott Fassade', ok: false },
+        ],
+        note: 'Urteil zuerst, dann eine Zeile je Anforderung, mit Fundstelle. Abgelegt unter „Berichte“.',
+      },
+      open: {
+        when: 'Di · Offener Punkt',
+        title: 'Schott im Fassadenschnitt fehlt',
+        action: 'Klären',
+        note: 'Aus dem Befund wird ein eigener Auftrag. Im Projektgedächtnis bleibt er offen, bis er geklärt ist.',
+      },
+      review: {
+        when: 'Do · Posteingang',
+        title: 'Prüfbericht zur Freigabe',
+        approve: 'Freigeben',
+        changes: 'Änderungen anfordern',
+        note: 'Die Projektleitung gibt frei oder schickt zurück, und Piloti überarbeitet anhand der Begründung.',
+      },
+      repeat: {
+        when: 'Ab jetzt · Zeitplan',
+        quote: '„Prüf das jeden Montag.“',
+        note: 'Der Check läuft jede Woche wieder, und das Ergebnis kommt in Ihren Posteingang.',
+      },
+    },
   },
   daten: {
     title: 'Quellen, die Sie prüfen können.',
@@ -328,24 +395,24 @@ const de = {
   },
   team: {
     title: 'Drei Gründer, ein Ziel: Wissen dort, wo geplant wird.',
-    body: 'Piloti ist in Gründung. Bis zur Eintragung arbeiten wir auf Basis einer Absichtserklärung (Letter of Intent) zusammen.',
+    body: 'Architektur, Software und Vertrieb an einem Tisch. Wir bauen Piloti gemeinsam mit unseren Pilotbüros, an ihren echten Fragen.',
     listLabel: 'Die Gründer',
   },
   cta: {
-    title: 'Werden Sie Pilotbüro.',
-    body: 'Wir entwickeln Piloti mit wenigen Büros. Sie bekommen früh Zugang, einen direkten Draht zu uns Gründern und Einfluss darauf, was wir als Nächstes bauen. Wir bekommen Ihre Planungsfragen aus dem Büroalltag und ehrliches Feedback.',
-    primary: 'Pilotbüro werden',
+    title: 'Bringen Sie eine echte Frage mit.',
+    body: 'Schicken Sie uns eine Planungsfrage aus einem laufenden Projekt, gern mit den Unterlagen dazu. Wir zeigen Ihnen, wie Piloti sie beantwortet, mit Quellen, die Sie am Original prüfen. Passt es, planen Sie als Pilotbüro mit: früher Zugang, ein direkter Draht zu uns Gründern und Einfluss darauf, was wir als Nächstes bauen.',
+    primary: 'Mit einer echten Frage testen',
     secondary: 'Gespräch anfragen',
     stepsLabel: 'So geht es weiter',
     steps: [
-      { title: 'Sie schreiben uns', body: 'Ein paar Zeilen zu Ihrem Büro genügen.' },
-      { title: 'Wir sprechen', body: 'Sie zeigen uns, wo Sie heute suchen. Wir zeigen Ihnen Piloti.' },
-      { title: 'Sie planen mit Piloti', body: 'Mit echten Fragen aus Ihrem Alltag, und Sie sagen uns, was fehlt.' },
+      { title: 'Sie schicken eine Frage', body: 'Eine echte aus Ihrem Projekt, dazu Ort und Gebäudeart. Unterlagen, wenn Sie mögen.' },
+      { title: 'Wir zeigen die Antwort', body: 'Im Gespräch, mit Ihren Unterlagen und den Quellen, die Piloti dafür heranzieht.' },
+      { title: 'Sie planen mit Piloti', body: 'Als Pilotbüro, mit Ihren Fragen aus dem Alltag, und Sie sagen uns, was fehlt.' },
     ],
-    subjectPilot: 'Pilotbüro',
+    subjectPilot: 'Planungsfrage für Piloti',
     subjectCall: 'Gespräch',
     bodyPilot:
-      'Guten Tag,\n\nwir interessieren uns für die Pilotphase.\n\nBüro:\nOrt:\nPlaner:innen im Team:\nWofür wir Piloti zuerst einsetzen würden:\n\n',
+      'Guten Tag,\n\nhier ist eine Frage aus einem unserer Projekte.\n\nUnsere Frage:\nBundesland und Ort:\nGebäudeart (z.\u00a0B. Wohnbau, Schule, Bestand):\nBüro und Planer:innen im Team:\n\n',
     bodyCall: 'Guten Tag,\n\nwir würden gern mit Ihnen sprechen.\n\nBüro:\nTermine, die uns passen:\n\n',
   },
   // The one line that closes a subpage (EndInvite), before the footer. Each
@@ -354,6 +421,7 @@ const de = {
     blog: 'Wir entwickeln Piloti mit wenigen Pilotbüros. Soll Ihres dabei sein, schreiben Sie uns.',
     changelog: 'Was hier als Nächstes steht, bestimmen die Pilotbüros mit.',
     rechenweg: 'Gemessen hat das noch niemand. Messen wir es in Ihrem Büro.',
+    warum: 'Die beste Probe ist eine Frage aus Ihrem laufenden Projekt. Schicken Sie uns eine.',
   },
   chat: {
     fictional: 'Fiktives Beispiel',
@@ -449,6 +517,7 @@ const de = {
     value: 'Wertrechner',
     working: 'Rechenweg',
     team: 'Team',
+    why: 'Warum Piloti',
     blog: 'Blog',
     changelog: 'Neuerungen',
     privacy: 'Datenschutz',
@@ -630,6 +699,11 @@ const en: typeof de = {
         description:
           'How the Piloti website handles your data: no cookies, no tracking, which services are involved, and which providers the Piloti application relies on.',
       },
+      warum: {
+        title: 'Why Piloti: AI for architecture firms in Austria',
+        description:
+          'Why not just ChatGPT? Piloti connects Austrian building law, your drawings and your office knowledge into answers with sources you can check, all the way to the file.',
+      },
       notFound: {
         title: 'Page not found – Piloti',
         description: 'This page does not exist or has been moved.',
@@ -652,7 +726,11 @@ const en: typeof de = {
     items: [
       {
         q: 'What is Piloti?',
-        a: 'Piloti is an AI knowledge platform for architecture and planning firms. It answers planning questions from the building law in force and from your office and project documents, and names the sources for every answer. Piloti is a proof of concept, currently being trialled with a small number of pilot offices.',
+        a: 'Piloti is an AI knowledge platform for architecture and planning firms. It answers planning questions from the building law in force and from your office and project documents, and names the sources for every answer. It also takes on work that takes longer than an answer: review reports and file notes in the project, open points and recurring checks. Piloti is a proof of concept, currently being trialled with a small number of pilot offices.',
+      },
+      {
+        q: 'Why not just use ChatGPT?',
+        a: 'ChatGPT answers questions. Piloti answers them in the context of your project: from the state building codes in RIS, the OIB guidelines, your drawings and your office’s archive, with a citation down to section, clause or page that is checked against the source text before it is shown. When a document is missing, such as the zoning plan, Piloti says so instead of answering as if it had read it.',
       },
       {
         q: 'Who is Piloti for?',
@@ -684,7 +762,7 @@ const en: typeof de = {
       },
       {
         q: 'How does my office become a pilot office?',
-        a: 'Write to us at {email}. We are building Piloti with a few offices that try it on real planning questions from their daily work and tell us honestly what is missing.',
+        a: 'Send a real planning question from a current project to {email}. We will show you how Piloti answers it. We are building Piloti with a few offices that try it on real planning questions from their daily work and tell us honestly what is missing.',
       },
     ],
   },
@@ -694,18 +772,21 @@ const en: typeof de = {
     hero: '01 Start',
     story: '02 Problem and solution',
     nutzung: '03 Usage',
-    daten: '04 Sources and data',
-    wert: '05 Value',
-    team: '06 Team',
-    faq: '07 Questions',
-    kontakt: '08 Contact',
+    arbeit: '04 Handing over work',
+    daten: '05 Sources and data',
+    wert: '06 Value',
+    team: '07 Team',
+    faq: '08 Questions',
+    kontakt: '09 Contact',
   },
   nav: {
     ariaLabel: 'Main navigation',
     logoLabel: 'Piloti, homepage',
     signIn: 'Sign in',
     signInPending: 'Redirecting…',
-    cta: 'Become a pilot office',
+    cta: 'Bring a question',
+    why: 'Why Piloti',
+    compare: 'Comparisons',
     langLabel: 'Choose language',
     menu: 'Menu',
     menuOpen: 'Open menu',
@@ -714,6 +795,7 @@ const en: typeof de = {
     sections: [
       { href: '#problem', label: 'Problem and solution' },
       { href: '#nutzung', label: 'Usage' },
+      { href: '#arbeit', label: 'Handing over work' },
       { href: '#daten', label: 'Sources and data' },
       { href: '#wert', label: 'Value calculator' },
       { href: '#team', label: 'Team' },
@@ -727,7 +809,7 @@ const en: typeof de = {
     title: 'Plan more. Search less.',
     sub: 'Building law, office and project knowledge. In one place.',
     stage: 'Proof of concept · Pilot phase with selected offices',
-    ctaDemo: 'Become a pilot office',
+    ctaDemo: 'Try it with a real question',
     ctaMore: 'Learn more',
   },
   story: {
@@ -760,6 +842,57 @@ const en: typeof de = {
     howLead: 'How an answer comes about:',
     howLabel: 'How Piloti works',
     howHref: '/en/blog/how-piloti-works/',
+  },
+  arbeit: {
+    title: 'Hand over work. Not just questions.',
+    body: 'A reference book waits until you ask. Piloti takes on tasks: it researches drawings and regulations, files the report in the project, turns findings into open points and checks again when you want it to.',
+    label: 'Fictional project · every step a shipped feature',
+    boardLabel: 'A week with Piloti, fictional example',
+    close: 'Deadlines, findings and approvals stay in the project, visible to the whole team. That is the difference between a tool that answers and one that works alongside you.',
+    link: 'Every feature in the changelog',
+    status: { ok: 'met', open: 'open' },
+    steps: {
+      ask: {
+        when: 'Mon · You, in the chat',
+        quote: '“Do the submission check for the Vienna 1030 housing scheme by Friday.”',
+        note: 'One sentence is enough. It becomes a task, under your name and with your permissions.',
+      },
+      run: {
+        when: 'Mon · Task running',
+        title: 'Submission check · Housing 1030',
+        line: 'Researching · 3\u00a0rounds · 9\u00a0documents',
+        note: 'Reads the project’s drawings, permit and zoning plan and the regulations that apply. You keep asking in the same chat.',
+      },
+      report: {
+        when: 'Mon · Report in the project',
+        title: 'Submission review report',
+        summary: '2 met · 1 open',
+        rows: [
+          { req: 'Escape routes', ok: true },
+          { req: 'Parking spaces', ok: true },
+          { req: 'Façade fire stop', ok: false },
+        ],
+        note: 'Verdict first, then one row per requirement, with its citation. Filed under “Reports”.',
+      },
+      open: {
+        when: 'Tue · Open point',
+        title: 'Fire stop missing in the façade section',
+        action: 'Clarify',
+        note: 'The finding becomes a task of its own. The project memory keeps it open until it is resolved.',
+      },
+      review: {
+        when: 'Thu · Inbox',
+        title: 'Review report for approval',
+        approve: 'Approve',
+        changes: 'Request changes',
+        note: 'The project lead approves or sends it back, and Piloti revises it from the reason given.',
+      },
+      repeat: {
+        when: 'From now on · Schedule',
+        quote: '“Check this every Monday.”',
+        note: 'The check runs again every week, and the result comes to your inbox.',
+      },
+    },
   },
   daten: {
     title: 'Sources you can check.',
@@ -892,30 +1025,31 @@ const en: typeof de = {
   },
   team: {
     title: 'Three founders, one aim: knowledge where the planning happens.',
-    body: 'Piloti is still being founded. Until it is registered, we work together under a letter of intent.',
+    body: 'Architecture, software and sales at one table. We are building Piloti together with our pilot offices, on their real questions.',
     listLabel: 'The founders',
   },
   cta: {
-    title: 'Become a pilot office.',
-    body: 'We are building Piloti with a small number of offices. You get early access, a direct line to us founders and a say in what we build next. We get the planning questions from your working day, and honest feedback.',
-    primary: 'Become a pilot office',
+    title: 'Bring us a real question.',
+    body: 'Send us a planning question from a current project, with the documents if you like. We will show you how Piloti answers it, with sources you check against the original. If it fits, you plan with us as a pilot office: early access, a direct line to us founders and a say in what we build next.',
+    primary: 'Try it with a real question',
     secondary: 'Request a call',
     stepsLabel: 'What happens next',
     steps: [
-      { title: 'You write to us', body: 'A few lines about your office are enough.' },
-      { title: 'We talk', body: 'You show us where you search today. We show you Piloti.' },
-      { title: 'You plan with Piloti', body: 'On real questions from your working day, and you tell us what is missing.' },
+      { title: 'You send a question', body: 'A real one from your project, with the location and building type. Documents if you like.' },
+      { title: 'We show you the answer', body: 'In a call, with your documents and the sources Piloti draws on.' },
+      { title: 'You plan with Piloti', body: 'As a pilot office, on questions from your working day, and you tell us what is missing.' },
     ],
-    subjectPilot: 'Pilot office',
+    subjectPilot: 'A planning question for Piloti',
     subjectCall: 'Call',
     bodyPilot:
-      'Hello,\n\nwe are interested in the pilot phase.\n\nOffice:\nLocation:\nPlanners on the team:\nWhat we would use Piloti for first:\n\n',
+      'Hello,\n\nhere is a question from one of our projects.\n\nOur question:\nState and location:\nBuilding type (e.g. housing, school, existing building):\nOffice and planners on the team:\n\n',
     bodyCall: 'Hello,\n\nwe would like to talk to you.\n\nOffice:\nTimes that suit us:\n\n',
   },
   invite: {
     blog: 'We are building Piloti with a few pilot offices. If yours should be one of them, write to us.',
     changelog: 'The pilot offices help decide what comes next on this list.',
     rechenweg: 'Nobody has measured this yet. Let us measure it in your office.',
+    warum: 'The best test is a question from your current project. Send us one.',
   },
   chat: {
     fictional: 'Fictional example',
@@ -1007,6 +1141,7 @@ const en: typeof de = {
     value: 'Value calculator',
     working: 'The maths',
     team: 'Team',
+    why: 'Why Piloti',
     blog: 'Blog',
     changelog: 'What’s new',
     privacy: 'Privacy',

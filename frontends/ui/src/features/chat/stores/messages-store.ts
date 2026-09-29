@@ -230,8 +230,9 @@ const compareThreadOrder = (a: ChatMessage, b: ChatMessage): number => {
 /**
  * Fold the server's facts about a message we already hold locally into the local
  * object: its authoritative timestamp (so ordering is the server's, not this
- * browser's clock) and the authorship/mention metadata the optimistic copy never
- * had. Returns the SAME object when nothing differs, because message-object
+ * browser's clock), the authorship/mention metadata the optimistic copy never
+ * had, and a run's ledger when the server's is newer — the copy the thread
+ * list's spinner and the toolbar's „Recherche läuft" read. Returns the SAME object when nothing differs, because message-object
  * identity is what lets the message list skip re-rendering (see ChatArea's memo).
  */
 const withServerFacts = (local: ChatMessage, remote: ChatMessage): ChatMessage => {
@@ -248,6 +249,12 @@ const withServerFacts = (local: ChatMessage, remote: ChatMessage): ChatMessage =
   }
   if (remote.mentions && !local.mentions) patch.mentions = remote.mentions
   if (remote.addressees && !local.addressees) patch.addressees = remote.addressees
+  // A run's ledger moves on the server after this copy was taken (its ending,
+  // a heal of a run whose ending never reached its block). Strictly newer
+  // only, as `useRunLedger` takes it: the fold bumps `updatedAt` on every op.
+  if (remote.runLedger && (!local.runLedger || remote.runLedger.updatedAt > local.runLedger.updatedAt)) {
+    patch.runLedger = remote.runLedger
+  }
 
   return Object.keys(patch).length === 0 ? local : { ...local, ...patch }
 }

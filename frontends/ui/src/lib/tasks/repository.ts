@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { and, desc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, lt, notInArray, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   taskDefinitions,
@@ -429,6 +429,56 @@ export async function claimRunsToReconcile(
     .set({ reconcileCheckedAt: sql`now()` })
     .where(inArray(taskRuns.id, due))
     .returning()
+}
+
+/**
+ * Claim up to `limit` CLOSED runs that nothing has looked at since they ended,
+ * and stamp them — the ledger heal's half of the reconciler sweep.
+ *
+ * A closed run whose block still reads „läuft" is one whose row was closed by
+ * a path that never settled its ledger (before `recordRunOutcome` did, or any
+ * path that closes a row some other way). This hands each closed run with a
+ * block to the heal exactly once after it ended: the stamp moves it past its
+ * own `finished_at`, out of `idx_task_runs_ledger_heal_due` (migration 0099),
+ * whose predicate this WHERE repeats so the scan stays on it.
+ *
+ * NOT tenant-filtered, like {@link claimRunsToReconcile}: the caller runs this
+ * under platform access and heals each run inside its own organization.
+ */
+export async function claimClosedRunsToHeal(limit: number): Promise<TaskRun[]> {
+  const db = getDb()
+  const ended = sql`COALESCE(${taskRuns.finishedAt}, ${taskRuns.updatedAt})`
+  const due = db
+    .select({ id: taskRuns.id })
+    .from(taskRuns)
+    .where(
+      and(
+        notInArray(taskRuns.status, [...ACTIVE_RUN_STATUSES]),
+        isNotNull(taskRuns.runMessageId),
+        sql`(${taskRuns.reconcileCheckedAt} IS NULL OR ${taskRuns.reconcileCheckedAt} < ${ended})`,
+      ),
+    )
+    .orderBy(ended)
+    .limit(limit)
+    .for('update', { skipLocked: true })
+  return db
+    .update(taskRuns)
+    .set({ reconcileCheckedAt: sql`now()` })
+    .where(inArray(taskRuns.id, due))
+    .returning()
+}
+
+/**
+ * Hand a claimed closed run back to the heal after its settlement failed.
+ *
+ * The claim's stamp already sits past the run's `finished_at`, and a closed
+ * run's `finished_at` never moves again, so a stamp left in place takes the run
+ * out of the heal for good: its block keeps reading „läuft". Clearing it makes
+ * the run due on the next sweep. Tenant-scoped: the caller holds the run's own
+ * organization.
+ */
+export async function releaseHealClaim(runId: string): Promise<void> {
+  await getDb().update(taskRuns).set({ reconcileCheckedAt: null }).where(eq(taskRuns.id, runId))
 }
 
 export async function listRunsForDefinition(

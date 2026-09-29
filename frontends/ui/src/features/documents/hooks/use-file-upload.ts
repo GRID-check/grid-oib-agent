@@ -21,7 +21,8 @@ import { useLayoutStore } from '@/features/layout/store'
 import type { TrackedFile } from '../types'
 import { mapUploadResponseStatus } from '../utils'
 import { shouldEmitProgress } from '../lib/upload-progress'
-import { runWithConcurrency, UPLOAD_CONCURRENCY } from '../lib/upload-queue'
+import { isJoblessIngesting } from '../lib/document-status-reads'
+import { runWithConcurrency, sendWaitingOutRateLimit, UPLOAD_CONCURRENCY } from '../lib/upload-queue'
 import { validateFileUpload, type ValidationContext } from '../validation'
 import { summarizeValidation } from '../lib/validation-messages'
 import { UploadOrchestrator } from '../orchestrator'
@@ -37,6 +38,8 @@ interface UploadDocumentResponse {
   documentId?: string
   jobId?: string | null
   status?: string
+  /** The bytes were already the live document's; nothing was written. */
+  unchanged?: boolean
 }
 
 /** Where each shelf deletes one of its documents. */
@@ -197,9 +200,9 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
     UploadOrchestrator.setAuthToken(idToken)
   }, [idToken])
 
-  useEffect(() => {
-    UploadOrchestrator.setCallbacks({ onComplete, onError })
-  }, [onComplete, onError])
+  // One subscription per mount: several surfaces use this hook at once, and
+  // each must hear about the uploads it is showing.
+  useEffect(() => UploadOrchestrator.subscribe({ onComplete, onError }), [onComplete, onError])
 
   useEffect(() => {
     const previousSessionId = previousSessionIdRef.current
@@ -390,19 +393,24 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
 
           let lastEmitted = 0
           try {
-            const responseText = await xhrUpload({
-              url: uploadUrl,
-              body: formData,
-              signal: controller.signal,
-              onProgress: (loaded, total) => {
-                // `total` counts multipart framing too; scale back to the
-                // file's own bytes so the row's percentage is the file's.
-                const bytes = total > 0 ? Math.min(file.size, Math.round((loaded / total) * file.size)) : 0
-                if (!shouldEmitProgress(lastEmitted, bytes, file.size)) return
-                lastEmitted = bytes
-                setUploadProgress(tracked.id, bytes)
-              },
-            })
+            const responseText = await sendWaitingOutRateLimit(
+              () =>
+                xhrUpload({
+                  url: uploadUrl,
+                  body: formData,
+                  signal: controller.signal,
+                  onProgress: (loaded, total) => {
+                    // `total` counts multipart framing too; scale back to the
+                    // file's own bytes so the row's percentage is the file's.
+                    const bytes = total > 0 ? Math.min(file.size, Math.round((loaded / total) * file.size)) : 0
+                    if (!shouldEmitProgress(lastEmitted, bytes, file.size)) return
+                    lastEmitted = bytes
+                    setUploadProgress(tracked.id, bytes)
+                  },
+                }),
+              (error) => (error instanceof XhrUploadError && error.status === 429 ? error.retryAfterSeconds ?? 1 : null),
+              controller.signal
+            )
 
             const result = JSON.parse(responseText) as UploadDocumentResponse
             // A re-upload replaces a document in place, under the same id: a
@@ -412,6 +420,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
               status: mapUploadResponseStatus(result.status),
               serverFileId: result.documentId,
               jobId: result.jobId ?? undefined,
+              ...(result.unchanged ? { unchanged: true } : {}),
               // Every byte is on the server now, whatever the last progress
               // event happened to say.
               bytesUploaded: file.size,
@@ -505,6 +514,11 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
           if (pendingJobEntries.length > 0) {
             UploadOrchestrator.enqueueJobs(pendingJobEntries)
           }
+          // A detached extraction (an `.ifc`, an office file converting to its
+          // rendition) has no job to poll. The orchestrator follows it by
+          // document status, so it settles wherever the upload was started.
+          const detached = settled.filter((file): file is TrackedFile => !!file && isJoblessIngesting(file))
+          if (detached.length > 0) UploadOrchestrator.watchDocuments(detached.map((file) => file.id))
         }
         setUploading(false)
       }
@@ -597,6 +611,11 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
     [shelf, trackedFiles, addTrackedFile, removeTrackedFile, unmarkRecentlyDeleted, setError]
   )
 
+  // Retries asked for in the same tick ("Retry all" calls this once per
+  // failed row) go out as ONE batch, so they share the batch's concurrency
+  // cap. One batch per row put every failed file in flight at once, straight
+  // into the rate limit that had failed most of them.
+  const pendingRetriesRef = useRef<{ files: File[]; done: Promise<void> } | null>(null)
   const retryFile = useCallback(
     async (fileId: string) => {
       const file = trackedFiles.find((f) => f.id === fileId)
@@ -608,9 +627,26 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       }
 
       removeTrackedFile(fileId)
-      await uploadFiles([file.file])
+      const pending = pendingRetriesRef.current
+      if (pending) {
+        pending.files.push(file.file)
+        return pending.done
+      }
+      const files = [file.file]
+      const done = Promise.resolve().then(async () => {
+        pendingRetriesRef.current = null
+        // The chat-session shelf caps a batch's count and total size, and the
+        // validator refuses a batch whole: the combined retries could fail
+        // validation although each file passed on its own, after their rows
+        // were already removed. There, retry one file at a time; the durable
+        // shelves have no batch cap and keep the single capped batch.
+        if (shelf !== 'session') return uploadFiles(files)
+        for (const each of files) await uploadFiles([each])
+      })
+      pendingRetriesRef.current = { files, done }
+      await done
     },
-    [trackedFiles, removeTrackedFile, uploadFiles, setError, t]
+    [trackedFiles, removeTrackedFile, uploadFiles, setError, t, shelf]
   )
 
   return {

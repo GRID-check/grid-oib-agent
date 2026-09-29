@@ -17,11 +17,13 @@ import { GridCardItem } from '@/features/grid-cards/components/GridCards'
 import { DrawnProvider, SURFACE_EXCLUDED_LEAVES, preflight, structuralRefusal } from './catalog'
 import { surfaceLeaves } from './surface-messages'
 
+/** One derivation step, enough for a `calculation` to pass its schema. */
+const STEPS = [{ label: 'Fläche', operation: 'product', unit: 'm²', operands: [{ label: 'Länge', value: 40 }, { label: 'Breite', value: 30 }] }]
+
 const BASIS = {
-  type: 'legal_basis',
-  law: 'OIB-Richtlinie 2',
-  article: '3.1.1',
-  summary: 'Brandabschnitte fassen höchstens 1.200 m².',
+  type: 'calculation',
+  title: 'Brandabschnitt 3.1.1',
+  steps: STEPS,
   reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b' },
 } as unknown as GridCard
 
@@ -48,17 +50,16 @@ describe('a card through A2UI', () => {
     render(<A2uiCard card={BASIS} surfaceKey="m1:0" render={renderCard} />)
     await waitFor(() => expect(document.querySelector('[data-a2ui-surface="m1:0"]')).not.toBeNull())
     const drawn = screen.getByTestId('card-root')
-    expect(drawn).toHaveAttribute('data-type', 'legal_basis')
+    expect(drawn).toHaveAttribute('data-type', 'calculation')
     expect(JSON.parse(drawn.textContent ?? '{}')).toMatchObject({
-      law: 'OIB-Richtlinie 2',
-      article: '3.1.1',
+      title: 'Brandabschnitt 3.1.1',
       reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b' },
     })
   })
 
   it('draws a lone card the surface excludes through A2UI, without a refusal', async () => {
     // The exclusion is for a leaf INSIDE a surface. A lone card sits in the
-    // message itself, so a stored proposal or summary draws like any card.
+    // message itself, so a stored proposal draws like any card.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const proposal = {
       type: 'memory_proposal',
@@ -76,7 +77,7 @@ describe('a card through A2UI', () => {
   })
 
   it('draws a Tabs surface one tab at a time', async () => {
-    const other = { ...BASIS, article: '5.2' } as GridCard
+    const other = { ...BASIS, title: '5.2' } as GridCard
     render(<A2uiCard card={tabs([['Variante A', BASIS], ['Variante B', other]])} surfaceKey="m1:1" render={renderCard} />)
     await waitFor(() => expect(screen.getByRole('tab', { name: 'Variante A' })).toBeInTheDocument())
     expect(screen.getByTestId('card-c0')).toBeInTheDocument()
@@ -90,8 +91,8 @@ describe('a card through A2UI', () => {
       type: 'surface',
       components: [
         { id: 'root', component: 'Row', children: ['a', 'b'] },
-        { id: 'a', component: 'legal_basis', law: 'OIB-Richtlinie 2', summary: 'x' },
-        { id: 'b', component: 'legal_basis', law: 'OIB-Richtlinie 4', summary: 'y' },
+        { id: 'a', component: 'calculation', title: 'x', steps: STEPS },
+        { id: 'b', component: 'calculation', title: 'y', steps: STEPS },
       ],
     } as unknown as GridCard
     render(<A2uiCard card={card} surfaceKey="m1:2" render={renderCard} />)
@@ -105,18 +106,18 @@ describe('a card through A2UI', () => {
       type: 'surface',
       components: [
         { id: 'root', component: 'Carousel', children: ['a'] },
-        { id: 'a', component: 'legal_basis', law: 'OIB-Richtlinie 2', summary: 'x' },
+        { id: 'a', component: 'calculation', title: 'x', steps: STEPS },
       ],
     } as unknown as GridCard
     render(<A2uiCard card={refused} surfaceKey="m1:3" render={renderCard} />)
-    await waitFor(() => expect(screen.getByTestId('card-a')).toHaveAttribute('data-type', 'legal_basis'))
+    await waitFor(() => expect(screen.getByTestId('card-a')).toHaveAttribute('data-type', 'calculation'))
     warn.mockRestore()
   })
 
   it('lists a surface’s cards in document order', () => {
     expect(surfaceLeaves(tabs([['A', BASIS], ['B', BASIS]])).map(({ id, leaf }) => [id, 'type' in leaf ? leaf.type : 'text'])).toEqual([
-      ['c0', 'legal_basis'],
-      ['c1', 'legal_basis'],
+      ['c0', 'calculation'],
+      ['c1', 'calculation'],
     ])
   })
 
@@ -126,7 +127,7 @@ describe('a card through A2UI', () => {
     components: [
       { id: 'root', component: 'Tabs', tabs: [{ title: 'Außentreppe', child: 'a' }, { title: 'Treppenhaus', child: 'b' }] },
       { id: 'a', component: 'Text', text: TABLE },
-      { id: 'b', component: 'legal_basis', law: 'OIB-Richtlinie 2', summary: 'x' },
+      { id: 'b', component: 'calculation', title: 'x', steps: STEPS },
     ],
   } as unknown as GridCard
 
@@ -146,7 +147,7 @@ describe('a card through A2UI', () => {
       components: [
         { id: 'root', component: 'Carousel', children: ['a', 'b'] },
         { id: 'a', component: 'Text', text: TABLE },
-        { id: 'b', component: 'legal_basis', law: 'OIB-Richtlinie 2', summary: 'x' },
+        { id: 'b', component: 'calculation', title: 'x', steps: STEPS },
       ],
     } as unknown as GridCard
     render(<A2uiCard card={refused} surfaceKey="m1:5" render={renderCard} />)
@@ -178,7 +179,7 @@ describe('a card through A2UI', () => {
       },
     ]
     expect(preflight(surface)).toMatch(/'b': a 'memory_proposal' cannot sit inside a surface/)
-    expect(preflight([{ id: 's', component: 'summary', content: 'Kurz.' }])).toMatch(/summary/)
+    expect(preflight([{ id: 's', component: 'surface', components: [] }])).toMatch(/surface/)
   })
 
   it('refuses what SurfaceCard refuses: a data-bound child list, a blank tab title', () => {
@@ -208,7 +209,7 @@ describe('a card through A2UI', () => {
     for (const type of INTERACTIVE_CARD_TYPES) expect(SURFACE_EXCLUDED_LEAVES.has(type)).toBe(true)
   })
 
-  const LEAF = { component: 'legal_basis', law: 'OIB-Richtlinie 2', summary: 'x' }
+  const LEAF = { component: 'calculation', title: 'x', steps: STEPS }
 
   it('refuses a surface that is not one tree under root', () => {
     // A2UI draws each of these as a grey "[Loading id...]" placeholder and
@@ -264,14 +265,14 @@ describe('a card through A2UI', () => {
   it('drops a malformed leaf from the fallback and draws its valid sibling', async () => {
     // A surface's components are open records, so nothing checks a leaf
     // before `preflight` refuses it; the fallback must not hand the renderer a
-    // `legal_basis` with no law and lose the whole answer to a TypeError.
+    // `calculation` with no steps and lose the whole answer to a TypeError.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const malformed = {
       type: 'surface',
       components: [
         { id: 'root', component: 'Row', children: ['a', 'b'] },
-        { id: 'a', component: 'legal_basis', summary: 'no law here' },
-        { id: 'b', component: 'legal_basis', law: 'OIB-Richtlinie 2', summary: 'fine' },
+        { id: 'a', component: 'calculation', title: 'no steps here' },
+        { id: 'b', component: 'calculation', title: 'fine', steps: STEPS },
       ],
     } as unknown as GridCard
     render(<GridCardItem card={malformed} index={0} messageId="m1" />)
@@ -335,13 +336,13 @@ describe('a card through A2UI', () => {
   it('retries A2UI when a surface that failed changes', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const first = { ...BASIS, article: '1' } as GridCard
+    const first = { ...BASIS, title: '1' } as GridCard
     let failing = true
     // Throws for A2UI's copy only: the direct copy is drawn from the card
     // object itself, A2UI's from a copy of its props.
     const Leaf = memo(function Leaf({ card }: { card: GridCard }) {
       if (failing && card !== first) throw new Error('library bug')
-      return <div data-testid="leaf">{(card as { article?: string }).article}</div>
+      return <div data-testid="leaf">{(card as { title?: string }).title}</div>
     })
     const renderLeaf = (card: GridCard) => <Leaf card={card} />
     const { rerender } = render(<A2uiCard card={first} surfaceKey="m1:9" render={renderLeaf} />)
@@ -349,7 +350,7 @@ describe('a card through A2UI', () => {
     expect(screen.getByTestId('leaf')).toHaveTextContent('1')
 
     failing = false
-    rerender(<A2uiCard card={{ ...BASIS, article: '2' } as GridCard} surfaceKey="m1:9" render={renderLeaf} />)
+    rerender(<A2uiCard card={{ ...BASIS, title: '2' } as GridCard} surfaceKey="m1:9" render={renderLeaf} />)
     await waitFor(() => expect(document.querySelector('[data-a2ui-surface="m1:9"]:not([aria-hidden])')).not.toBeNull())
     expect(screen.getByTestId('leaf')).toHaveTextContent('2')
     warn.mockRestore()

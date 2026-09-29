@@ -3,11 +3,12 @@
  *
  * A document is never one object. The ingest pipeline writes `_thumb.jpg` as a
  * sibling of the file and the rasters it extracted from a PDF under an `_img/`
- * prefix beneath it, and the IFC pipeline writes its digest and index under a
- * `_bim/` prefix. All are rendered FROM the file — a floor plan, a photo cut
- * out of a plan set and a parsed building are not less of a disclosure than
- * the source — so an erasure that removes the file and leaves any behind has
- * not erased the document.
+ * prefix beneath it, the BFF writes `_render.pdf` beside an office file as its
+ * PDF rendition (ADR-0070), and the IFC pipeline writes its digest and index
+ * under a `_bim/` prefix. All are rendered FROM the file — a floor plan, a
+ * photo cut out of a plan set, a Word file turned PDF and a parsed building are
+ * not less of a disclosure than the source — so an erasure that removes the
+ * file and leaves any behind has not erased the document.
  *
  * Shared by every shelf. The session cleanup (`session-documents/cleanup.ts`)
  * was where this first became a reported result rather than a swallowed error;
@@ -18,7 +19,7 @@
 
 import 'server-only'
 import { DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3'
-import { s3Client, buildImageDerivedPrefix, buildThumbnailStorageKey } from '@/lib/s3'
+import { s3Client, buildImageDerivedPrefix, buildRenditionStorageKey, buildThumbnailStorageKey } from '@/lib/s3'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import { deleteBimDerivedObjects } from '@/lib/bim/service'
 import type { Document } from '@/lib/db/schema'
@@ -108,9 +109,9 @@ function resolveBucket(doc: StoredObjectRef): { bucket: string } | { failure: Ex
 }
 
 /**
- * Remove what the pipelines derived from a document — the `_thumb.jpg` sibling,
- * the `_img/` rasters and the `_bim/` derivatives — and leave the file itself
- * in place.
+ * Remove what the pipelines derived from a document — the `_thumb.jpg` and
+ * `_render.pdf` siblings, the `_img/` rasters and the `_bim/` derivatives — and
+ * leave the file itself in place.
  *
  * Written for the replace path, which no longer needs it: since ADR-0054 a
  * re-upload lands under its own `v<n>/` key (`versionWriteKey`), and every
@@ -135,6 +136,18 @@ export async function deleteDerivedObjects(doc: StoredObjectRef): Promise<Extern
     if (!thumb.ok) return thumb
   }
 
+  // Deleted unconditionally rather than only for office files: whether one was
+  // written is not recorded anywhere but in the store, and a missing key is
+  // success (`isAlreadyGone`), so asking costs one request and guessing could
+  // leave a converted copy of a private file behind.
+  const renditionKey = buildRenditionStorageKey(storageKey)
+  if (renditionKey) {
+    const rendition = await attemptObjectDelete(`rendition ${renditionKey}`, () =>
+      s3Client.send(new DeleteObjectCommand({ Bucket: resolved.bucket, Key: renditionKey })),
+    )
+    if (!rendition.ok) return rendition
+  }
+
   const imagePrefix = buildImageDerivedPrefix(storageKey)
   if (imagePrefix) {
     const images = await attemptObjectDelete(`stored rasters under ${imagePrefix}`, () =>
@@ -150,8 +163,8 @@ export async function deleteDerivedObjects(doc: StoredObjectRef): Promise<Extern
 
 /**
  * Remove one stored document's objects: the file, the ingest pipeline's
- * `_thumb.jpg` sibling and `_img/` rasters, and the `_bim/` derivatives an IFC
- * extraction wrote underneath it.
+ * `_thumb.jpg` sibling and `_img/` rasters, the `_render.pdf` rendition of an
+ * office file, and the `_bim/` derivatives an IFC extraction wrote underneath it.
  *
  * **Reports whether the bytes are actually gone.** It used to swallow every
  * S3 failure, and the callers then deleted the row regardless — which is the
@@ -163,7 +176,7 @@ export async function deleteDerivedObjects(doc: StoredObjectRef): Promise<Extern
  * {@link isAlreadyGone}) — that is the outcome we wanted, and it is what makes
  * a retry able to finish.
  *
- * Every part counts. The thumbnail, the rasters and the `_bim/` derivatives are
+ * Every part counts. The thumbnail, the rendition, the rasters and the `_bim/` derivatives are
  * rendered FROM the private file — a floor plan and a parsed building are not
  * less of a disclosure than the source — so a failure on any is a failure of
  * the erasure, not a cosmetic remainder.
@@ -185,7 +198,7 @@ export async function deleteDocumentObjects(doc: StoredObjectRef): Promise<Exter
 
 /**
  * Erase every stored object of a document — each version's file, `_thumb.jpg`,
- * `_img/` rasters and `_bim/` derivatives — or throw and leave the row.
+ * `_render.pdf`, `_img/` rasters and `_bim/` derivatives — or throw and leave the row.
  *
  * Shared by the project and the Archiv delete, which used to delete the live
  * object by hand: the file, the thumbnail and `_bim/`, but never the `_img/`

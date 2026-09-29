@@ -201,7 +201,7 @@ describe('FileReferenceLink', () => {
     })
     await user.tab()
     expect(await screen.findByTestId('file-reference-peek')).toBeInTheDocument()
-    expect(screen.getByText(/nicht zitierfähig/)).toBeInTheDocument()
+    expect(screen.getByText(/Piloti zitiert sie nicht/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Neben der Antwort öffnen/ })).toBeInTheDocument()
   })
 })

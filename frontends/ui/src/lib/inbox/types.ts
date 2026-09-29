@@ -78,6 +78,7 @@ export interface InboxTypePresentation {
     | 'hard-drive'
     | 'alert-triangle'
     | 'clock'
+    | 'megaphone'
   /** i18n key under `inbox.types.<key>.title` / `.body`. */
   readonly i18nKey: string
   /**
@@ -114,6 +115,7 @@ export const INBOX_TYPE_PRESENTATION: Record<InboxItemType, InboxTypePresentatio
     i18nKey: 'documentReviewRequested',
     tone: 'request',
   },
+  'feedback.submitted': { icon: 'megaphone', i18nKey: 'feedbackSubmitted', tone: 'info' },
 }
 
 /**

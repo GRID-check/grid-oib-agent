@@ -12,9 +12,11 @@ import asyncio
 
 import pytest
 
+from aiq_api import conversation_bus
 from aiq_api.conversation_bus import CANCEL
 from aiq_api.conversation_bus import FRAME
 from aiq_api.conversation_bus import HITL_ANSWER
+from aiq_api.conversation_bus import BusUnavailable
 from aiq_api.conversation_bus import ConversationBus
 from aiq_api.conversation_bus import Envelope
 from aiq_api.conversation_bus import InMemoryTransport
@@ -175,3 +177,78 @@ def test_bus_is_in_memory_without_redis(monkeypatch):
     bus = get_bus()
     assert bus is get_bus()  # cached singleton
     reset_bus_for_tests()
+
+
+# ---------------------------------------------------------------------------
+# A black-holed bus, the turn claim, the subscription's ready signal
+# ---------------------------------------------------------------------------
+
+
+class _BlackHole(InMemoryTransport):
+    """Dragonfly that accepts the connection and never answers."""
+
+    async def xadd(self, stream: str, data: str, maxlen: int, ttl: int) -> None:
+        await asyncio.sleep(3600)
+
+
+@pytest.mark.asyncio
+async def test_a_black_holed_bus_costs_one_bound_per_outage_not_one_per_frame(monkeypatch):
+    """publish_frame runs under the turn's sequencer lock for every delta: a second each was measured."""
+    monkeypatch.setattr(conversation_bus, "BUS_CALL_TIMEOUT_S", 0.05)
+    bus = ConversationBus(_BlackHole(), replica_id="R1")
+    started = asyncio.get_running_loop().time()
+
+    for seq in range(1, 21):
+        with pytest.raises(BusUnavailable):
+            await bus.publish_frame(CONV, {"turn_id": "t1", "seq": seq})
+
+    assert asyncio.get_running_loop().time() - started < 0.05 * 3  # the first frame waited, the other 19 did not
+
+
+@pytest.mark.asyncio
+async def test_a_bus_marked_down_is_tried_again_after_the_retry_window(monkeypatch):
+    monkeypatch.setattr(conversation_bus, "BUS_CALL_TIMEOUT_S", 0.02)
+    monkeypatch.setattr(conversation_bus, "BUS_RETRY_AFTER_S", 0.05)
+    transport = _BlackHole()
+    bus = ConversationBus(transport, replica_id="R1")
+    with pytest.raises(BusUnavailable):
+        await bus.publish_frame(CONV, {"turn_id": "t1", "seq": 1})
+
+    await asyncio.sleep(0.06)
+    monkeypatch.setattr(transport, "xadd", InMemoryTransport.xadd.__get__(transport))
+    await bus.publish_frame(CONV, {"turn_id": "t1", "seq": 2})
+
+    assert [frame["seq"] for frame in await bus.replay_turn(CONV, "t1")] == [2]
+
+
+@pytest.mark.asyncio
+async def test_a_turn_id_is_claimed_by_one_replica():
+    first, second = _two_replicas()
+
+    assert await first.claim_turn(CONV, "t1")
+    assert not await second.claim_turn(CONV, "t1")
+    assert not await first.claim_turn(CONV, "t1")  # a resend on the same replica too
+    assert await second.claim_turn(CONV, "t2")
+    assert await second.claim_turn("conv-other", "t1")
+
+
+@pytest.mark.asyncio
+async def test_a_claim_expires_with_the_stream(monkeypatch):
+    monkeypatch.setattr(conversation_bus, "_STREAM_TTL_SECONDS", 0)
+    first, second = _two_replicas()
+
+    assert await first.claim_turn(CONV, "t1")
+    assert await second.claim_turn(CONV, "t1")
+
+
+@pytest.mark.asyncio
+async def test_the_subscription_says_when_no_publish_can_be_missed():
+    owner, relay = _two_replicas()
+    ready = asyncio.Event()
+    task, received = _start_collector(relay.subscribe_frames(CONV, ready), 1)
+
+    await asyncio.wait_for(ready.wait(), 1.0)
+    await owner.publish_frame(CONV, {"turn_id": "t1", "seq": 1})
+    await _await_collector(task)
+
+    assert received[0].payload == {"turn_id": "t1", "seq": 1}

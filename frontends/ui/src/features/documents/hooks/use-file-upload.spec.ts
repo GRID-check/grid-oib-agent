@@ -50,10 +50,11 @@ const { mockClient, mockDocumentsStoreState, mockOrchestratorFns } = vi.hoisted(
     mockDocumentsStoreState: state,
     mockOrchestratorFns: {
       setAuthToken: vi.fn(),
-      setCallbacks: vi.fn(),
+      subscribe: vi.fn(() => vi.fn()),
       handleSessionChange: vi.fn(),
       loadFilesForSession: vi.fn(),
       enqueueJobs: vi.fn(),
+      watchDocuments: vi.fn(),
       pollSessionDocuments: vi.fn(),
       stopPolling: vi.fn(),
     },
@@ -168,16 +169,21 @@ describe('useFileUpload', () => {
       expect(mockOrchestratorFns.setAuthToken).toHaveBeenCalledWith('test-token')
     })
 
-    test('sets callbacks on mount', () => {
+    test('subscribes its callbacks on mount and unsubscribes on unmount', () => {
       const onComplete = vi.fn()
       const onError = vi.fn()
+      const unsubscribe = vi.fn()
+      mockOrchestratorFns.subscribe.mockReturnValueOnce(unsubscribe)
 
-      renderHook(() => useFileUpload({ onComplete, onError }))
+      const { unmount } = renderHook(() => useFileUpload({ onComplete, onError }))
 
-      expect(mockOrchestratorFns.setCallbacks).toHaveBeenCalledWith({
+      expect(mockOrchestratorFns.subscribe).toHaveBeenCalledWith({
         onComplete,
         onError,
       })
+      expect(unsubscribe).not.toHaveBeenCalled()
+      unmount()
+      expect(unsubscribe).toHaveBeenCalledTimes(1)
     })
 
     test('calls handleSessionChange on initial mount with collectionName', () => {
@@ -411,6 +417,45 @@ describe('useFileUpload', () => {
       expect(mockDocumentsStoreState.removeTrackedFile).toHaveBeenCalledWith('file-1')
       expect(xhr.last().url).toBe('/api/session/documents/upload')
     })
+
+    test('same-tick retries on the session shelf go one file at a time, and none is dropped', async () => {
+      const files = ['a.pdf', 'b.pdf'].map((name) => new File(['x'], name, { type: 'application/pdf' }))
+      mockDocumentsStoreState.trackedFiles = files.map((file, index) => ({
+        id: `file-${index}`,
+        fileName: file.name,
+        collectionName: 'session-1',
+        fileSize: 1,
+        file,
+      })) as unknown[]
+
+      const xhr = installFakeXhr()
+      const { result } = renderHook(() => useFileUpload({ collectionName: 'session-1' }))
+
+      let pending!: Promise<void[]>
+      await act(async () => {
+        // "Retry all" calls retryFile once per failed row in the same tick.
+        pending = Promise.all([result.current.retryFile('file-0'), result.current.retryFile('file-1')])
+        await Promise.resolve()
+      })
+      // One request in flight: the second waits for the first, so the pair
+      // never meets the session batch cap together.
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(xhr.requests).toHaveLength(1)
+      await act(async () => {
+        xhr.requests[0].respond(200, JSON.stringify({ documentId: 'doc-0', jobId: null, status: 'pending' }))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      await act(async () => {
+        xhr.requests[1].respond(200, JSON.stringify({ documentId: 'doc-1', jobId: null, status: 'pending' }))
+        await pending
+      })
+      xhr.restore()
+
+      expect(xhr.requests).toHaveLength(2)
+      expect(xhr.requests.map((request) => (request.body as FormData).get('file'))).toEqual(files)
+    })
   })
 
   describe('clearError', () => {
@@ -485,6 +530,28 @@ describe('useFileUpload — durable document uploads', () => {
     const body = xhr.requests[0].body as FormData
     expect(body.get('projectId')).toBe('proj-1')
     expect(body.get('folderId')).toBe('folder-9')
+  })
+
+  test('carries the server’s „unchanged" answer onto the row, so it is not shown as a new upload', async () => {
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(1))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(
+        200,
+        JSON.stringify({ documentId: 'doc-1', jobId: null, status: 'uploaded', unchanged: true })
+      )
+      await pending
+    })
+
+    expect(mockDocumentsStoreState.updateTrackedFile).toHaveBeenCalledWith(
+      'mock-uuid',
+      expect.objectContaining({ status: 'success', serverFileId: 'doc-1', unchanged: true })
+    )
   })
 
   test('sends several at once instead of one after another', async () => {
@@ -571,6 +638,32 @@ describe('useFileUpload — durable document uploads', () => {
     )
     // …and the accepted files are still handed to the poller.
     expect(mockOrchestratorFns.enqueueJobs).toHaveBeenCalled()
+  })
+
+  test('a rate-limited file waits out Retry-After and goes again instead of failing', async () => {
+    vi.useFakeTimers()
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(1))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.requests[0].respond(429, JSON.stringify({ error: 'Too many requests' }), { 'Retry-After': '2' })
+      await vi.advanceTimersByTimeAsync(2_000)
+    })
+    await act(async () => {
+      xhr.requests[1].respond(200, uploadOk('doc-1'))
+      await pending
+    })
+    vi.useRealTimers()
+
+    expect(xhr.requests).toHaveLength(2)
+    expect(mockDocumentsStoreState.updateTrackedFile).not.toHaveBeenCalledWith(
+      'mock-uuid',
+      expect.objectContaining({ status: 'failed' })
+    )
   })
 
   test('cancelling aborts the transfer instead of letting it finish invisibly', async () => {

@@ -21,7 +21,6 @@ import {
   type CitationTarget,
   type StoredDocumentRef,
 } from './index'
-import type { GridCard } from '@/shared/cards/schemas'
 import type { CitationSource } from '../../types'
 
 const citation = (overrides: Partial<CitationSource>): CitationSource => ({
@@ -223,6 +222,7 @@ describe('resolveCitationTarget', () => {
       contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     },
     { id: 'doc-3', filename: 'Lageplan.png', contentType: 'image/png' },
+    { id: 'doc-4', filename: 'Bestandsplan.dwg', contentType: 'image/vnd.dwg' },
   ]
   const baseCorpusFiles = ['oib-rl_2_ausgabe_mai_2023.pdf']
 
@@ -469,7 +469,31 @@ describe('resolveCitationTarget', () => {
   test('a non-previewable project document is offered as a download, never as a broken viewer', () => {
     // It used to degrade to `info`, which said nothing and offered nothing —
     // and the reader concluded the product had lost their file (#623). It had
-    // not; it cannot DRAW a .docx. The two are different answers.
+    // not; it cannot DRAW a .dwg. The two are different answers.
+    const target = targetFor(
+      { url: '', content: '[KB] Bestandsplan.dwg' },
+      storedDocuments,
+      baseCorpusFiles
+    )
+
+    expect(target).toEqual({
+      kind: 'download',
+      title: 'Bestandsplan',
+      fileName: 'Bestandsplan.dwg',
+      snippet: undefined,
+      document: {
+        type: 'stored',
+        id: 'doc-4',
+        filename: 'Bestandsplan.dwg',
+        contentType: 'image/vnd.dwg',
+      },
+    })
+  })
+
+  test('an office project document opens in the viewer, on its PDF rendition (ADR-0070)', () => {
+    // A .docx was the #623 download example; it now has a viewer, the PDF the
+    // BFF renders from it. The ORIGINAL type travels with the target so the
+    // surface can say it is showing a rendition and download the Word file.
     const target = targetFor(
       { url: '', content: '[KB] Vermessung.docx' },
       storedDocuments,
@@ -477,9 +501,10 @@ describe('resolveCitationTarget', () => {
     )
 
     expect(target).toEqual({
-      kind: 'download',
+      kind: 'document',
       title: 'Vermessung',
       fileName: 'Vermessung.docx',
+      page: 1,
       snippet: undefined,
       document: {
         type: 'stored',
@@ -487,6 +512,23 @@ describe('resolveCitationTarget', () => {
         filename: 'Vermessung.docx',
         contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       },
+    })
+  })
+
+  test('a Word citation opens at its page, which is a rendition page (ADR-0071)', () => {
+    // Word files are indexed from the PDF rendition now, so the chunk's page is
+    // the page the viewer shows. The identity is still the .docx row.
+    const target = targetFor(
+      { url: '', content: '[KB] Vermessung.docx, p.3' },
+      storedDocuments,
+      baseCorpusFiles
+    )
+
+    expect(target).toMatchObject({
+      kind: 'document',
+      fileName: 'Vermessung.docx',
+      page: 3,
+      document: { type: 'stored', id: 'doc-2', filename: 'Vermessung.docx' },
     })
   })
 
@@ -550,8 +592,8 @@ describe('resolveCitationTarget', () => {
  * The canonical OIB key is a MERGE HINT, not an identity.
  *
  * It deliberately discards edition, revision and everything after the number,
- * which is right for the one thing it is for — joining a `legal_basis` card
- * that knows only „OIB-Richtlinie 2" to the citation of that Richtlinie — and
+ * which is right for the one thing it is for — joining a bare name that knows
+ * only „OIB-Richtlinie 2" to the citation of that Richtlinie — and
  * catastrophic as an identity: every document whose name merely mentions OIB or
  * "Richtlinie" was identified by its number alone.
  */
@@ -608,21 +650,19 @@ describe('two documents are not one because their names share a Richtlinie', () 
     expect(docs.map((doc) => doc.shelf).sort()).toEqual(['base', 'project'])
   })
 
-  test('the merge the key IS for still happens: a card joins its Richtlinie', () => {
-    const card = { type: 'legal_basis', law: 'OIB-Richtlinie 6' } as unknown as GridCard
+  test('the merge the key IS for still happens: a bare name joins its Richtlinie', () => {
     const docs = buildCitationModel({
       citations: [corpusHit('oib-rl_6_ausgabe_mai_2023.pdf', 2)],
-      cards: [card],
+      entries: [{ number: 1, markdown: 'OIB-Richtlinie 6', sourceKind: 'kb' }],
     })
 
     expect(docs).toHaveLength(1)
     expect(docs[0]!.fileName).toBe('oib-rl_6_ausgabe_mai_2023.pdf')
   })
 
-  test('but a card never attaches itself to a non-base document', () => {
-    // A Richtlinie is base law. A card naming one must not bind to a project
+  test('but a bare name never attaches itself to a non-base document', () => {
+    // A Richtlinie is base law. A name for one must not bind to a project
     // upload or a private attachment that merely mentions it.
-    const card = { type: 'legal_basis', law: 'OIB-Richtlinie 6' } as unknown as GridCard
     const docs = buildCitationModel({
       citations: [
         citation({
@@ -636,7 +676,7 @@ describe('two documents are not one because their names share a Richtlinie', () 
           isCited: true,
         }),
       ],
-      cards: [card],
+      entries: [{ number: 1, markdown: 'OIB-Richtlinie 6', sourceKind: 'kb' }],
     })
 
     expect(docs).toHaveLength(2)

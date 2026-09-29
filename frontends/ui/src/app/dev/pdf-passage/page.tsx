@@ -22,6 +22,9 @@
  *   `citation` the whole dialog: header, Fundstellen rail, document, mark.
  *   `single`   the same dialog for a document read at ONE page, which is a
  *              rail too. It used to be a differently shaped dialog.
+ *   `plan`     a plan sheet cited for two depictions of a Sitztreppe: the
+ *              dialog marks the Grundriss and the Schnitt by their boxes
+ *              rather than searching the sheet for text (issue #433).
  *   `quote`    the dialog with a passage the READER selected, and the offer
  *              that turns it into a citation. Driven by selecting a range and
  *              releasing the pointer — the same path a drag takes — because a
@@ -35,16 +38,18 @@ import { useEffect, useState, type FC } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { PdfDocumentView } from '@/features/knowledge/components/pdf-document-view'
 import { CitationDocumentDialog } from '@/features/chat/components/SourcePreview'
-import { buildCitationModel, resolveCitationTarget } from '@/features/chat/lib/citations'
+import {
+  buildCitationModel,
+  resolveCitationTarget,
+  type StoredDocumentRef,
+} from '@/features/chat/lib/citations'
 import type { CitationSource } from '@/features/chat/types'
+import { assemblePdf, buildPdf, pdfString, type PdfLine } from '../_fixtures/sample-pdf'
 
 const FILE_NAME = 'bescheid_ba-2026-0417.pdf'
 const TITLE = 'Bescheid BA-2026-0417'
 
-/** One printed line: text, point size, bold. */
-type Line = readonly [string, number, boolean]
-
-const PAGES: readonly (readonly Line[])[] = [
+const PAGES: readonly (readonly PdfLine[])[] = [
   [
     ['Bescheid der Baubehörde erster Instanz', 22, true],
     ['Geschäftszahl BA-2026-0417/12', 11, false],
@@ -102,78 +107,113 @@ const PAGES: readonly (readonly Line[])[] = [
 const CITED_PASSAGE =
   'Die beiden voneinander unabhängigen Fluchtwege je Nutzungseinheit sind während der gesamten Bauführung freizuhalten.'
 
-const PAGE_WIDTH = 595
-const PAGE_HEIGHT = 842
-
-/** Escape the three characters a PDF literal string cannot carry raw. */
-const pdfString = (text: string): string => text.replace(/([\\()])/g, '\\$1')
-
-/** One page's content stream, laid out from the top margin down. */
-const contentStream = (lines: readonly Line[]): string => {
-  let content = ''
-  let y = PAGE_HEIGHT - 70
-  for (const [text, size, bold] of lines) {
-    if (text) {
-      content += `BT /${bold ? 'F2' : 'F1'} ${size} Tf 1 0 0 1 64 ${y} Tm (${pdfString(text)}) Tj ET\n`
-    }
-    y -= size + 8
-  }
-  return content
-}
+const PLAN_FILE = 'einreichplan_eg.pdf'
+const PLAN_TITLE = 'Einreichplan Erdgeschoss'
+const PLAN_WIDTH = 842
+const PLAN_HEIGHT = 595
 
 /**
- * Assemble the document.
- *
- * Written out longhand rather than pulled from a library because the whole file
- * is a hundred lines of it, and because the cross-reference table has to carry
- * real byte offsets — which is exactly what a string-concatenating "generator"
- * gets wrong. Every character stays below U+0100, so the string's indices ARE
- * its byte offsets and WinAnsi encodes umlauts one byte each.
- *
- * Object numbering, since the Kids array has to name it before the objects
- * exist: 1 catalog, 2 pages, then one page object per sheet, then one content
- * stream per sheet, then the two fonts.
+ * One A3-landscape sheet, drawn with real vector paths: a Grundriss with a
+ * Sitztreppe on the left, a Schnitt through it on the right, a title block.
+ * Its geometry is in PDF points, bottom-left origin; {@link PLAN_REGIONS} are
+ * the same boxes normalised top-left, as the backend states them.
  */
-const buildPdf = (): Uint8Array<ArrayBuffer> => {
-  const count = PAGES.length
-  const firstPage = 3
-  const firstContent = firstPage + count
-  const [regular, bold] = [firstContent + count, firstContent + count + 1]
-  const kids = PAGES.map((_, index) => `${firstPage + index} 0 R`).join(' ')
+const planContent = (): string => {
+  const ops: string[] = ['0 0 0 RG']
+  const rect = (x: number, y: number, w: number, h: number, width = 0.8) =>
+    ops.push(`${width} w ${x} ${y} ${w} ${h} re S`)
+  const line = (x1: number, y1: number, x2: number, y2: number, width = 0.5) =>
+    ops.push(`${width} w ${x1} ${y1} m ${x2} ${y2} l S`)
+  const text = (x: number, y: number, size: number, value: string, bold = false) =>
+    ops.push(`BT /${bold ? 'F2' : 'F1'} ${size} Tf 1 0 0 1 ${x} ${y} Tm (${pdfString(value)}) Tj ET`)
 
+  // Grundriss EG: outer walls, two rooms, the Sitztreppe as eleven risers.
+  rect(60, 90, 380, 400, 2.4)
+  line(60, 300, 250, 300, 1.2)
+  line(250, 90, 250, 300, 1.2)
+  rect(270, 320, 150, 140, 0.8)
+  for (let step = 0; step <= 10; step += 1) line(270, 320 + step * 14, 420, 320 + step * 14, 0.6)
+  line(345, 330, 345, 450, 0.4)
+  text(90, 400, 10, 'Foyer')
+  text(100, 190, 10, 'Seminar')
+  text(300, 200, 10, 'Innenhof')
+  text(285, 466, 9, 'Sitztreppe')
+  text(60, 505, 12, 'Grundriss EG  1:100', true)
+
+  // Schnitt A-A: the same stair, stepped, in section.
+  line(500, 260, 800, 260, 1.6)
+  line(500, 430, 800, 430, 1.6)
+  for (let step = 0; step < 8; step += 1) {
+    const x = 560 + step * 22
+    const y = 260 + step * 18
+    line(x, y, x, y + 18, 0.8)
+    line(x, y + 18, x + 22, y + 18, 0.8)
+  }
+  text(500, 445, 12, 'Schnitt A-A  1:100', true)
+
+  // Title block.
+  rect(600, 40, 220, 70, 0.8)
+  text(612, 88, 10, 'Zubau Volksschule Nord', true)
+  text(612, 70, 9, 'Einreichplan  Plan-Nr. EP-02')
+  text(612, 54, 9, 'Architektur Muster ZT GmbH')
+  return ops.join('\n') + '\n'
+}
+
+const buildPlanPdf = (): Uint8Array<ArrayBuffer> => {
+  const content = planContent()
   const objects = [
     '<</Type/Catalog/Pages 2 0 R>>',
-    `<</Type/Pages/Kids[${kids}]/Count ${count}>>`,
-    ...PAGES.map(
-      (_, index) =>
-        `<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}]` +
-        `/Resources<</Font<</F1 ${regular} 0 R/F2 ${bold} 0 R>>>>` +
-        `/Contents ${firstContent + index} 0 R>>`
-    ),
-    ...PAGES.map((lines) => {
-      const content = contentStream(lines)
-      return `<</Length ${content.length}>>\nstream\n${content}endstream`
-    }),
+    '<</Type/Pages/Kids[3 0 R]/Count 1>>',
+    `<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${PLAN_WIDTH} ${PLAN_HEIGHT}]` +
+      '/Resources<</Font<</F1 5 0 R/F2 6 0 R>>>>/Contents 4 0 R>>',
+    `<</Length ${content.length}>>\nstream\n${content}endstream`,
     '<</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>>',
     '<</Type/Font/Subtype/Type1/BaseFont/Helvetica-Bold/Encoding/WinAnsiEncoding>>',
   ]
-
-  let file = '%PDF-1.4\n'
-  const offsets: number[] = []
-  objects.forEach((body, index) => {
-    offsets.push(file.length)
-    file += `${index + 1} 0 obj\n${body}\nendobj\n`
-  })
-
-  const xrefStart = file.length
-  file += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
-  for (const offset of offsets) file += `${String(offset).padStart(10, '0')} 00000 n \n`
-  file += `trailer\n<</Size ${objects.length + 1}/Root 1 0 R>>\nstartxref\n${xrefStart}\n%%EOF\n`
-
-  const bytes = new Uint8Array(new ArrayBuffer(file.length))
-  for (let i = 0; i < file.length; i += 1) bytes[i] = file.charCodeAt(i) & 0xff
-  return bytes
+  return assemblePdf(objects)
 }
+
+/** A box in PDF points (bottom-left origin) as the backend states it: 0-1, top-left. */
+const planBox = (x0: number, y0: number, x1: number, y1: number): [number, number, number, number] => [
+  +(x0 / PLAN_WIDTH).toFixed(4),
+  +(1 - y1 / PLAN_HEIGHT).toFixed(4),
+  +(x1 / PLAN_WIDTH).toFixed(4),
+  +(1 - y0 / PLAN_HEIGHT).toFixed(4),
+]
+
+/**
+ * The two depictions the vision model boxed on the sheet, with a little of the
+ * approximation a real box has: each one takes in its own heading.
+ */
+const PLAN_REGIONS = [
+  { box: planBox(48, 80, 452, 522), label: 'Grundriss EG' },
+  { box: planBox(490, 250, 810, 462), label: 'Schnitt A-A' },
+]
+
+const PLAN_SOURCES: CitationSource[] = [
+  {
+    id: 'plan-1',
+    content: `[KB] ${PLAN_FILE}, p.1`,
+    citationKey: `${PLAN_FILE}, p.1`,
+    documentId: `doc:proj_demo:${PLAN_FILE}`,
+    fileName: PLAN_FILE,
+    collection: 'proj_demo',
+    shelf: 'project',
+    title: PLAN_TITLE,
+    origin: 'kb',
+    kind: 'projekt',
+    lane: 'projekt',
+    laneLabel: 'Projektwissen',
+    sourceType: 'knowledge_layer',
+    page: 1,
+    number: 1,
+    isCited: true,
+    snippet:
+      '[DRAWING from page 1] Grundriss EG 1:100: Foyer, Seminarraum und eine Sitztreppe mit elf Stufen zum Innenhof. Schnitt A-A durch die Sitztreppe.',
+    regions: PLAN_REGIONS,
+    timestamp: new Date('2026-09-29T10:30:00'),
+  },
+]
 
 /** One wire source — one LOCUS of the document, the shape the backend sends. */
 const locus = (page: number, snippet: string, number?: number): CitationSource => ({
@@ -247,13 +287,25 @@ const SelectOnLoad: FC<{ contains: string }> = ({ contains }) => {
 }
 
 /** The real dialog, mounted open, over the fixture document. */
-const DialogPreview = ({ sources, src }: { sources: CitationSource[]; src: string }) => {
+const DialogPreview = ({
+  sources,
+  src,
+  fileName = FILE_NAME,
+  storedDocuments,
+}: {
+  sources: CitationSource[]
+  src: string
+  fileName?: string
+  /** A project upload resolves through its `documents` row, not the base corpus. */
+  storedDocuments?: StoredDocumentRef[]
+}) => {
   const [document] = buildCitationModel({ citations: sources })
   const [activeLocus, setActiveLocus] = useState(document?.loci[0])
   if (!document) return null
   const target = resolveCitationTarget(document, {
     locus: activeLocus,
-    baseCorpusFiles: [FILE_NAME],
+    baseCorpusFiles: storedDocuments ? [] : [fileName],
+    storedDocuments,
   })
   if (target.kind !== 'document') return null
   return (
@@ -269,16 +321,46 @@ const DialogPreview = ({ sources, src }: { sources: CitationSource[]; src: strin
   )
 }
 
+/** The plan sheet, served the way the other variants serve theirs. */
+const PlanPreview = () => {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    const url = URL.createObjectURL(new Blob([buildPlanPdf()], { type: 'application/pdf' }))
+    setSrc(url)
+    return () => URL.revokeObjectURL(url)
+  }, [])
+  return src ? (
+    <DialogPreview
+      sources={PLAN_SOURCES}
+      src={src}
+      fileName={PLAN_FILE}
+      storedDocuments={[
+        { id: 'plan-eg', filename: PLAN_FILE, contentType: 'application/pdf', shelf: 'project' },
+      ]}
+    />
+  ) : null
+}
+
 export default function PdfPassagePreviewPage() {
   if (process.env.NODE_ENV !== 'development') notFound()
   const variant = useSearchParams()?.get('variant')
   const [src, setSrc] = useState<string | null>(null)
 
   useEffect(() => {
-    const url = URL.createObjectURL(new Blob([buildPdf()], { type: 'application/pdf' }))
+    const url = URL.createObjectURL(new Blob([buildPdf(PAGES)], { type: 'application/pdf' }))
     setSrc(url)
     return () => URL.revokeObjectURL(url)
   }, [])
+
+  if (variant === 'plan') {
+    return (
+      <div className="min-h-dvh bg-background p-6">
+        {/* At rest, for the reason the other dialog shots give. */}
+        <style>{`.animate-passage-ping { animation: none; }`}</style>
+        <PlanPreview />
+      </div>
+    )
+  }
 
   if (variant === 'citation' || variant === 'single' || variant === 'quote') {
     return (

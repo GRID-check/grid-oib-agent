@@ -3,7 +3,7 @@ Universal Schema for Knowledge Layer.
 
 This module defines the "Golden Record" - strict Pydantic models that all
 adapters must output. This ensures agents always see a consistent format
-regardless of the underlying backend (LlamaIndex, Foundational RAG, and so on).
+whatever adapter produced them (the llamaindex backend, or a test fake).
 
 Schema Rules (enforced by all adapters):
 1. Five Pillars: content_type MUST be exactly "text", "table", "chart", "image", or "drawing"
@@ -41,7 +41,7 @@ class Chunk(BaseModel):
     """
     The Atomic Unit of Knowledge (The 'Golden Record').
 
-    This schema unifies data from ANY backend (NV-Ingest, LlamaIndex, and so on)
+    This schema is what every adapter outputs (llamaindex, and the test fakes)
     so the Agent always sees a consistent format.
     """
 
@@ -221,6 +221,21 @@ class FileProgress(BaseModel):
     progress_percent: float = Field(0.0, ge=0.0, le=100.0, description="Processing progress (0-100).")
     error_message: str | None = Field(default=None, description="Error message if processing failed.")
     chunks_created: int = Field(0, ge=0, description="Number of chunks created from this file.")
+    pages_failed: int = Field(
+        0,
+        ge=0,
+        description="PDF pages that could not be read and are missing from the index (below the failure threshold).",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Extraction counts for this file that the chunk count does not show, e.g. "
+            "`images_over_cap`: embedded images left unanalysed by AIQ_MAX_IMAGES_PER_DOCUMENT; "
+            "`pages_transcribed`, `pages_transcription_failed`, `pages_over_ocr_cap`, "
+            "`pages_not_transcribed_no_vlm`: scanned or garbled PDF pages and what became of them; "
+            "`drawing_pages_over_cap`: drawing pages past AIQ_MAX_RENDERED_PAGES."
+        ),
+    )
 
 
 class IngestionJobStatus(BaseModel):

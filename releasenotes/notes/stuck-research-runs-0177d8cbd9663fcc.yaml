@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    Deep research runs that have stopped now show as ended, including the ones
+    already stuck on „Läuft". They used to keep a spinner in the chat list, and
+    „Abbrechen" did nothing.

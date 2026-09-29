@@ -66,7 +66,7 @@ import {
   sanitizeRunTitle,
 } from './run-ledger'
 import type { RunLedger, RunLedgerRequest, RunLedgerResponse, RunView } from './run-ledger-types'
-import { runDisplayStatus } from './run-vocabulary'
+import { isLiveStatus, runDisplayStatus } from './run-vocabulary'
 
 /** Where the ledger lives on the message. Wire spelling, like `retrieval_ledger`. */
 export const RUN_LEDGER_METADATA_KEY = 'run_ledger'
@@ -183,6 +183,17 @@ export async function applyRunLedgerOp(
   op: RunLedgerRequest,
   at: Date = new Date()
 ): Promise<RunLedgerResponse> {
+  const { ledger } = await foldRunLedgerOp(runId, op, at, false)
+  return { runId, ledger }
+}
+
+/** {@link applyRunLedgerOp}, optionally only onto a live ledger, saying whether it wrote. */
+async function foldRunLedgerOp(
+  runId: string,
+  op: RunLedgerRequest,
+  at: Date,
+  onlyIfLive: boolean
+): Promise<{ ledger: RunLedger; applied: boolean }> {
   const run = await loadRunForLedger(runId)
   if (!run) throw new NotFoundError('Unknown run')
   // A run submitted before this tier minted run messages has nowhere to put a
@@ -196,27 +207,80 @@ export async function applyRunLedgerOp(
   const messageId = run.runMessageId
 
   return withTenant({ organizationId: run.organizationId }, async () => {
-    const message = await findMessageInConversation(conversationId, messageId)
-    if (!message) throw new NotFoundError('This run has no message to write a ledger into')
-
     // A message with no ledger yet — one minted before this column existed, or
     // one whose payload did not survive the sanitiser — starts from an empty
     // ledger dated to the run, never to now: a week-old run must not be dated
     // to the moment a flush arrived.
-    const current = storedLedger(message) ?? emptyRunLedger(runId, run.createdAt)
-    const next =
-      op.op === 'append'
-        ? applyRunLedgerAppend(current, op, at)
-        : applyRunLedgerFinish(current, finishOutcome(op), at)
-
-    // Sanitised once more on the way to the column: the moves already bound
-    // their output, and this is the line that makes „sanitised on write" true
-    // of the STORAGE rather than of the caller's good behaviour.
-    const ledger = sanitizeRunLedger(next) ?? current
-    await mergeMessageMetadata(conversationId, messageId, { [RUN_LEDGER_METADATA_KEY]: ledger })
+    let current = emptyRunLedger(runId, run.createdAt)
+    let ledger = current
+    let applied = false
+    const stored = await mergeMessageMetadata(conversationId, messageId, (metadata) => {
+      current = sanitizeRunLedger(metadata[RUN_LEDGER_METADATA_KEY]) ?? current
+      ledger = current
+      if (onlyIfLive && !isLiveStatus(runDisplayStatus(current))) return null
+      const next =
+        op.op === 'append'
+          ? applyRunLedgerAppend(current, op, at)
+          : applyRunLedgerFinish(current, finishOutcome(op), at)
+      // Sanitised once more on the way to the column: the moves already bound
+      // their output, and this is the line that makes „sanitised on write" true
+      // of the STORAGE rather than of the caller's good behaviour.
+      ledger = sanitizeRunLedger(next) ?? current
+      applied = true
+      return { [RUN_LEDGER_METADATA_KEY]: ledger }
+    })
+    if (!stored) throw new NotFoundError('This run has no message to write a ledger into')
     await notifyWaiting(run, current, ledger)
-    return { runId, ledger }
+    return { ledger, applied }
   })
+}
+
+/** How a run ended, as far as its ledger needs to know. */
+export interface RunEnding {
+  status: 'success' | 'failure' | 'interrupted'
+  error?: string | null
+}
+
+/** What the ledger says for a failure that carried no reason, as the worker's fold says it. */
+const DEFAULT_FAILURE_REASON = 'Der Lauf ist fehlgeschlagen.'
+
+/** How the ledger learns the run ended — the same op the worker's fold sends. */
+export function ledgerOpForEnding(ending: RunEnding, at: Date): RunLedgerRequest {
+  if (ending.status === 'success') return { op: 'finish', result: { filedAt: at.toISOString() } }
+  // A cancelled run has no finish op; „abgebrochen" travels as a status (ADR-0062).
+  if (ending.status === 'interrupted') return { op: 'append', status: 'abgebrochen' }
+  return { op: 'finish', error: { reason: (ending.error || DEFAULT_FAILURE_REASON).slice(0, 400) } }
+}
+
+/**
+ * Settle the run's block, when its ledger still reads as live, with the ending
+ * its row was just closed with.
+ *
+ * The worker's fold normally sends this op itself. It cannot when there is no
+ * worker left: the ghost reaper failing a run whose pod died, a cancel that
+ * dropped a job no worker had claimed, a reconciler closing what the job store
+ * already decided. Every one of those closes the row, and a closed row is one
+ * nothing looks at again — so before this, the block read „läuft" for good and
+ * its „Abbrechen" answered that the run had already ended.
+ *
+ * `onlyIfLive`, checked under the message's row lock: a ledger the worker has
+ * already settled keeps its own ending, which carries more than this one does
+ * (the filed document, the phase it stopped in). A run with no message has no
+ * block, and is nothing to settle. True when this call wrote the ending.
+ */
+export async function settleRunLedger(
+  run: Pick<TaskRun, 'id' | 'conversationId' | 'runMessageId'>,
+  ending: RunEnding,
+  at: Date = new Date()
+): Promise<boolean> {
+  if (!run.conversationId || !run.runMessageId) return false
+  try {
+    const { applied } = await foldRunLedgerOp(run.id, ledgerOpForEnding(ending, at), at, true)
+    return applied
+  } catch (error) {
+    if (!(error instanceof NotFoundError)) throw error
+    return false
+  }
 }
 
 /**

@@ -203,6 +203,8 @@ def assemble_result(
         result["citations_removed"] = summary
     if ledger is not None:
         result["retrieval_ledger"] = ledger
+    if final.quote_stamps:
+        result["quote_stamps"] = list(final.quote_stamps)
     state = ResearchAgentState.model_validate(result)
     if final.answered and (final.source_lookup_attempted or measurement_grounded):
         record_turn_ledger(

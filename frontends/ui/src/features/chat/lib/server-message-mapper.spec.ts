@@ -61,7 +61,7 @@ describe('mapServerMessageToChatMessage', () => {
         metadata: {
           messageType: 'error',
           errorData: { errorCode: 'system.unknown', errorMessage: 'boom' },
-          cards: [{ type: 'summary', title: 'Kurzfassung' }],
+          cards: [{ type: 'memory_proposal', title: 'Merken?', content: 'REI 90', kind: 'preference' }],
           enabledDataSources: ['web_search'],
           messageFiles: [{ id: 'f1', fileName: 'a.pdf' }],
         },
@@ -71,7 +71,7 @@ describe('mapServerMessageToChatMessage', () => {
     expect(mapped!.messageType).toBe('error')
     expect(mapped!.errorData).toEqual({ errorCode: 'system.unknown', errorMessage: 'boom' })
     expect(mapped!.cards).toEqual([
-      { type: 'summary', title: 'Kurzfassung', content: null, key_points: null },
+      { type: 'memory_proposal', title: 'Merken?', content: 'REI 90', kind: 'preference', confidence: 'medium' },
     ])
     expect(mapped!.enabledDataSources).toEqual(['web_search'])
     expect(mapped!.messageFiles).toEqual([{ id: 'f1', fileName: 'a.pdf' }])
@@ -92,13 +92,13 @@ describe('mapServerMessageToChatMessage', () => {
       serverMessage({
         role: 'assistant',
         metadata: {
-          cards: [{ kind: 'from-a-future-build' }, { type: 'summary', title: 'Kurzfassung' }],
+          cards: [{ kind: 'from-a-future-build' }, { type: 'memory_proposal', title: 'Merken?', content: 'REI 90', kind: 'preference' }],
         },
       })
     )
     expect(mapped!.cards).toHaveLength(2)
     expect(mapped!.cards?.[0]).toBeUndefined()
-    expect(mapped!.cards?.[1]).toMatchObject({ type: 'summary' })
+    expect(mapped!.cards?.[1]).toMatchObject({ type: 'memory_proposal' })
   })
 
   it('restores interactive-card decisions so a settled card cannot be re-answered', () => {
@@ -389,6 +389,22 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
       }),
     )
     expect(bad!.retrievalLedger).toBeUndefined()
+  })
+
+  it('restores the quote stamps from either spelling, bounded again', () => {
+    const stamp = { text: 'Wände sind in REI 90 auszuführen.', status: 'verbatim', number: 1, file_name: 'oib.pdf', page: 4 }
+    const fromProvenance = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance: { ...provenance, quoteStamps: [stamp] } } }),
+    )
+    expect(fromProvenance!.quoteStamps).toEqual([
+      { text: 'Wände sind in REI 90 auszuführen.', status: 'verbatim', number: 1, fileName: 'oib.pdf', page: 4 },
+    ])
+    const fromWire = mapServerMessageToChatMessage(serverMessage({ role: 'assistant', metadata: { quote_stamps: [stamp] } }))
+    expect(fromWire!.quoteStamps?.[0].status).toBe('verbatim')
+    const bad = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance: { quoteStamps: [{ text: 'x', status: 'sure' }] } } }),
+    )
+    expect(bad!.quoteStamps).toBeUndefined()
   })
 
   it('restores the run ledger on a run’s own message, bounded again on the way out', () => {

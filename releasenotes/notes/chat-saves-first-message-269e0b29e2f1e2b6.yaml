@@ -1,0 +1,5 @@
+---
+fixes:
+  - >
+    The first message of a new chat is saved even when Piloti is briefly busy.
+    Before, such a chat could be missing from your history after a reload.

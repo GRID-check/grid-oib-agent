@@ -3,6 +3,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import Image from 'next/image'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
+import { isOfficeRenditionSource } from '@/lib/documents/preview-types'
 import type { FileItem } from './project-file-workspace'
 import { formatBytes } from '@/lib/format'
 import { TimeAgo } from '@/components/ui/time-ago'
@@ -17,6 +18,7 @@ import { AuthorshipLine } from './authorship-line'
 import { DocumentVersionStateBadge } from './document-version-badge'
 import { DocumentStatusBadge, isCitableStatus, isSettlingStatus } from './document-status'
 import { SemanticMatch } from './semantic-match'
+import { useIngestFailureText } from './ingest-failure-notice'
 import { GridTileBody, GridTileFooter, GridTileMedia, GridTileShell } from './grid-tile'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -118,7 +120,13 @@ function loadThumbnail(fileId: string, provisional = false): Promise<string | nu
 export function ThumbnailWithFallback({ file }: { file: FileItem }) {
   const t = useTranslations('files')
   const kind = inferDocumentKind(file)
-  const canHaveThumbnail = file.contentType === 'application/pdf' || (file.contentType ?? '').startsWith('image/')
+  // Office files too: ingest renders their `_thumb.jpg` from the PDF rendition
+  // (ADR-0070). One uploaded before that, or with conversion off, has none, and
+  // the route answers `{ url: null }` — the kind sketch below, not a failure.
+  const canHaveThumbnail =
+    file.contentType === 'application/pdf' ||
+    (file.contentType ?? '').startsWith('image/') ||
+    isOfficeRenditionSource(file)
   const [state, setState] = useState<ThumbState>(canHaveThumbnail ? 'loading' : 'none')
   const [imgUrl, setImgUrl] = useState<string | null>(null)
 
@@ -264,7 +272,10 @@ export function FileCard({
   const name = documentDisplayName(file)
   const ext = fileExtensionLabel(file.filename)
   const isFailed = file.status === 'failed'
-  const failureReason = isFailed ? file.errorMessage || t('preview.ingestionFailedGeneric') : undefined
+  const failureText = useIngestFailureText(isFailed ? file.errorMessage : null)
+  // The card is one click target, so it carries no disclosure: the sentence
+  // shows, the stored text is the tooltip, and the preview pane has „Details".
+  const failureReason = isFailed ? (failureText?.sentence ?? t('ingestFailure.unknown')) : undefined
   const showStatus = !!file.status && !(hideStatusWhenReady && isCitableStatus(file.status))
   // The AI summary is the last thing ingestion produces, so a document that is
   // still being read has an empty description slot. Left blank it reads as a
@@ -382,7 +393,11 @@ export function FileCard({
             {match ? (
               <SemanticMatch snippet={match.snippet} page={match.page} score={match.score} />
             ) : isFailed ? (
-              <p className="mt-1 line-clamp-2 text-xs leading-[1.45] text-destructive" title={failureReason}>
+              <p
+                className="mt-1 line-clamp-2 text-xs leading-[1.45] text-destructive"
+                title={failureText?.raw ?? failureReason}
+                data-testid="file-card-failure"
+              >
                 {failureReason}
               </p>
             ) : isAwaitingSummary ? (

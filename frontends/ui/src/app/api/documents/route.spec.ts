@@ -27,12 +27,15 @@ vi.mock('@/lib/auth/require-auth', () => ({
     featureFlags: null,
   }),
 }))
-vi.mock('@/lib/documents/service', () => ({ listDocuments: vi.fn().mockResolvedValue([]) }))
+vi.mock('@/lib/documents/service', () => ({
+  listDocumentsPage: vi.fn().mockResolvedValue({ documents: [], nextCursor: null }),
+}))
 vi.mock('@/lib/documents/lifecycle', () => ({
   summarizeDocumentVersions: vi.fn().mockResolvedValue(new Map()),
 }))
 
-import { listDocuments } from '@/lib/documents/service'
+import { listDocumentsPage } from '@/lib/documents/service'
+import { encodeDocumentListCursor } from '@/lib/documents/list-cursor'
 import { GET } from './route'
 
 const call = (query: string) =>
@@ -43,14 +46,14 @@ const call = (query: string) =>
 describe('GET /api/documents', () => {
   it('lists the working set by default — archived documents have left it', async () => {
     await call('?projectId=proj_1')
-    expect(vi.mocked(listDocuments).mock.calls.at(-1)?.[2]).toMatchObject({
+    expect(vi.mocked(listDocumentsPage).mock.calls.at(-1)?.[2]).toMatchObject({
       includeArchived: false,
     })
   })
 
   it('widens to the archived ones on ?includeArchived=true', async () => {
     await call('?projectId=proj_1&includeArchived=true')
-    expect(vi.mocked(listDocuments).mock.calls.at(-1)?.[2]).toMatchObject({
+    expect(vi.mocked(listDocumentsPage).mock.calls.at(-1)?.[2]).toMatchObject({
       includeArchived: true,
     })
   })
@@ -65,5 +68,27 @@ describe('GET /api/documents', () => {
 
   it('validates the author filter against the column’s own tuple', async () => {
     expect((await call('?projectId=proj_1&authoredBy=nobody')).status).toBe(400)
+  })
+
+  // Paged, not capped: the oldest plans of a large project used to be absent
+  // from a listing that never said it had stopped.
+  it('passes a decoded cursor to the service and returns the next one', async () => {
+    const cursor = { createdAt: '2026-01-01T00:00:00.123456', id: '00000000-0000-4000-8000-000000000001' }
+    vi.mocked(listDocumentsPage).mockResolvedValueOnce({ documents: [], nextCursor: 'next-page' })
+
+    const response = await call(`?projectId=proj_1&cursor=${encodeDocumentListCursor(cursor)}`)
+
+    expect(response.status).toBe(200)
+    expect(vi.mocked(listDocumentsPage).mock.calls.at(-1)?.[2]).toMatchObject({ cursor })
+    expect(await response.json()).toMatchObject({ documents: [], nextCursor: 'next-page' })
+  })
+
+  it('says there is no next page on the last one', async () => {
+    const response = await call('?projectId=proj_1')
+    expect(await response.json()).toMatchObject({ nextCursor: null })
+  })
+
+  it('refuses a cursor it did not write', async () => {
+    expect((await call('?projectId=proj_1&cursor=not-a-cursor')).status).toBe(400)
   })
 })

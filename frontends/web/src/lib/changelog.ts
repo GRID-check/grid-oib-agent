@@ -120,3 +120,13 @@ export const releaseAnchor = (release: ChangelogRelease) => `r-${release.id}`
 export function releaseDateTime(release: ChangelogRelease): string | undefined {
   return release.date ?? undefined
 }
+
+/**
+ * How much has shipped, counted from the notes: every note in every section,
+ * and the weeks they came in. The landing page and /warum-piloti/ say it, so
+ * the number is the changelog's, never a figure someone typed.
+ */
+export function shippedTotals(): { notes: number; weeks: number } {
+  const notes = releases.reduce((sum, r) => sum + r.sections.reduce((n, s) => n + s.notes.length, 0), 0)
+  return { notes, weeks: releases.filter((r) => r.kind === 'week').length }
+}

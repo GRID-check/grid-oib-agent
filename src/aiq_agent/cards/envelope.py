@@ -38,12 +38,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
-from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
+from aiq_agent.cards.catalog import RETIRED_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.cards.catalog import render_card_doctrine
 from aiq_agent.cards.catalog import render_card_index
+from aiq_agent.cards.catalog import retired_refusal
 from aiq_agent.cards.catalog import shape_hint_for
 from aiq_agent.cards.models import SURFACE_MAX_CHILDREN
 from aiq_agent.cards.models import SURFACE_MAX_LEAVES
@@ -55,29 +55,15 @@ logger = logging.getLogger(__name__)
 
 #: The card types whose FULL shape the envelope contract teaches up front.
 #:
-#: The whole catalog's shapes are ~23 000 tokens (measured with ``o200k_base``),
-#: far too much for a prefix re-sent on every call. These three are the cards
-#: an answer earns most that Markdown cannot show: the Fundstelle as a
-#: quotable excerpt, a decision on one factor, a Verfahren the reader walks.
-#: Until 2026-09-24 the list also carried the five table- and list-shaped
-#: cards; their content is now written in the answer's Markdown
-#: (``catalog.MARKDOWN_CARD_TYPES``), which took ~2 000 tokens of shape out
-#: of every call and the repair round their nested building blocks invited.
-#: Every other type keeps its index line, and a miss on one of those is
-#: repaired by the small model rather than by a round.
-ENVELOPE_SHAPE_TYPES: tuple[str, ...] = (
-    "legal_basis",
-    "condition_tree",
-    "process_map",
-)
-
-#: The redirect for a model that reached for one of the envelope's OWN fields
-#: as a card type. Same sentence ``emit_card`` gives, because it is the same
-#: mistake on the same surface.
-ENVELOPE_REFUSAL = (
-    "card type '{card_type}' is not a card: put its content into the matching field of the "
-    "answer envelope (verdict, summary, takeaways, callout)."
-)
+#: The whole catalog's shapes are far too much for a prefix re-sent on every
+#: call. `calculation` is the one content card an answer earns that Markdown
+#: cannot carry and whose shape is easy to get wrong (operands, a `factor`, a
+#: limit, no result field). The cards that stood here before they were
+#: deleted (`legal_basis`, `condition_tree`, `process_map`) are written in the
+#: answer's Markdown now (``catalog.RETIRED_CARD_TYPES``). Every other type
+#: keeps its index line, and a miss on one of those is repaired by the small
+#: model rather than by a round.
+ENVELOPE_SHAPE_TYPES: tuple[str, ...] = ("calculation",)
 
 #: Composition (ADR-0065). Taught as prose plus one worked shape rather than
 #: through `render_card_details`: the model's `components` field is an A2UI
@@ -105,7 +91,7 @@ _COMPOSE_RULE = (
     '{"title": "Zweites Treppenhaus", "child": "b"}]}, '
     '{"id": "a", "component": "Text", '
     '"text": "| Kriterium | Anforderung | Status | Fundstelle |\\n|---|---|---|---|\\n…"}, '
-    '{"id": "b", "component": "process_map", "title": "…", "steps": […]}]}'
+    '{"id": "b", "component": "Text", "text": "1. …\\n2. …"}]}'
 )
 
 #: The marker rule the envelope's cards carry. Stated once, here, and rendered
@@ -134,8 +120,8 @@ def render_envelope_cards_contract() -> str:
     return "\n\n".join(
         part
         for part in (
-            render_card_doctrine(markdown_first=True),
-            render_card_index(exclude=MARKDOWN_CARD_TYPES),
+            render_card_doctrine(chat=True),
+            render_card_index(),
             (
                 "SHAPES. The exact shape of the cards answers most often earn follows; fill them "
                 "from these, and fill any other type from its index line above — a field you get wrong is "
@@ -157,7 +143,7 @@ def render_envelope_cards_contract() -> str:
 REFUSED_NOT_AN_OBJECT = "not_an_object"
 REFUSED_SHAPE = "shape"
 REFUSED_SYSTEM_TYPE = "system_type"
-REFUSED_ENVELOPE_TYPE = "envelope_type"
+REFUSED_RETIRED_TYPE = "retired_type"
 
 
 @dataclass(frozen=True)
@@ -181,7 +167,7 @@ class CardRefusal:
             return f"card of type '{self.card_type}' failed validation: {self.detail}."
         if self.kind == REFUSED_SYSTEM_TYPE:
             return f"card type '{self.card_type}' is system-emitted: the tool that does the work pushes it."
-        return ENVELOPE_REFUSAL.format(card_type=self.card_type)
+        return retired_refusal(self.card_type)
 
     def for_repair(self) -> str:
         """The refusal as the repair model reads it: the clauses, then the shape."""
@@ -209,6 +195,15 @@ def validate_model_card(payload: object) -> tuple[dict[str, Any] | None, CardRef
         return None, CardRefusal(REFUSED_NOT_AN_OBJECT, type(payload).__name__)
 
     card_type = str(payload.get("type", "?"))
+    # The closed channels first: a system card, or a type that no longer
+    # exists, is refused by its declared type, before a shape miss could send
+    # it to the repair model with nothing to repair it into.
+    if card_type in SYSTEM_CARD_TYPES:
+        logger.warning("card rejected: '%s' is system-emitted", card_type)
+        return None, CardRefusal(REFUSED_SYSTEM_TYPE, card_type)
+    if card_type in RETIRED_CARD_TYPES:
+        logger.warning("card rejected: '%s' no longer exists", card_type)
+        return None, CardRefusal(REFUSED_RETIRED_TYPE, card_type)
     try:
         validated = grid_card_adapter.validate_python(payload).model_dump(exclude_none=True)
     except Exception as exc:
@@ -216,12 +211,6 @@ def validate_model_card(payload: object) -> tuple[dict[str, Any] | None, CardRef
         logger.warning("card rejected: a '%s' card failed validation: %s", card_type, detail)
         return None, CardRefusal(REFUSED_SHAPE, card_type, detail=detail, hint=_repair_hint(payload, card_type))
 
-    if validated["type"] in SYSTEM_CARD_TYPES:
-        logger.warning("card rejected: '%s' is system-emitted", validated["type"])
-        return None, CardRefusal(REFUSED_SYSTEM_TYPE, validated["type"])
-    if validated["type"] in ENVELOPE_CARD_TYPES:
-        logger.warning("card rejected: '%s' is an envelope field", validated["type"])
-        return None, CardRefusal(REFUSED_ENVELOPE_TYPE, validated["type"])
     return validated, None
 
 

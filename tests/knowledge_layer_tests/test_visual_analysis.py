@@ -322,6 +322,10 @@ class TestParsing:
         assert bbox_of([0.05, -0.1, 0.55, 1.7]) == [0.05, 0.0, 0.55, 1.0]
         for malformed in ([0.5, 0.1, 0.4, 0.9], [0.1, 0.2, 0.3], "top left", None):
             assert bbox_of(malformed) is None
+        # Non-finite, which a plain clamp would turn into a plausible box: NaN
+        # to 0.0, an infinity to an edge.
+        for non_finite in ([float("nan"), 0.2, 0.8, 0.9], [0.1, 0.2, float("inf"), 0.9]):
+            assert bbox_of(non_finite) is None
 
     def test_caps_a_runaway_reply(self, registry):
         analysis = va.parse_visual_analysis(

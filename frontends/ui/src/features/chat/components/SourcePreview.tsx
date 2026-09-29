@@ -8,23 +8,29 @@
  *                 (`RisDocumentDialog`), with the authoritative RIS link kept in
  *                 its header. It used to link out like any web source, which
  *                 took the reader out of the answer to check it (#622).
- *  - `download` — a stored document with no in-app viewer (.docx, .xlsx, .dwg).
+ *  - `download` — a stored document with no in-app viewer (.dwg, .ifc, .zip).
  *                 The file is offered and the reason is stated; it is NOT the
  *                 same answer as `info` (#623).
  *  - `document` — knowledge-layer citations that resolve to a project upload
  *                 or a base-corpus PDF open the EXISTING PdfViewerDialog
  *                 (presigned preview URL for project docs, the corpus stream
  *                 route for base docs), with a provenance-tinted header chip
- *                 and the cited passage ("Fundstelle") when one exists.
+ *                 and the cited passage ("Fundstelle") when one exists. An
+ *                 office file opens on its PDF rendition (ADR-0070), says so
+ *                 in the header, and keeps a download of the ORIGINAL there;
+ *                 when the BFF cannot render one (415 disabled, 502 failed) the
+ *                 chip falls back to the `download` behaviour.
  *  - `info`     — unresolvable citations get a light popover (origin, title,
  *                 snippet) — never a broken viewer. Chips with nothing beyond
  *                 their label stay plain, non-interactive chips.
  *
- * Resolution data (one list per SHELF + the base-corpus file list) is fetched
- * lazily through existing read APIs (`/api/documents?projectId=…`,
- * `/api/session/documents?conversationId=…`, `/api/archiv/documents`,
- * `/api/knowledge-base`) and cached module-wide per project+conversation for
- * the lifetime of the page — source lists change rarely within one chat visit.
+ * Resolution data is fetched lazily and cached for the lifetime of the page:
+ * the cited document's project and Archiv rows BY NAME
+ * (`POST /api/documents/by-name`, `POST /api/archiv/documents/by-name`, batched
+ * across the chips of one render — the listings are paged, and a citation of a
+ * plan older than their first page used to resolve to nothing), plus this
+ * conversation's attachments (`/api/session/documents?conversationId=…`) and
+ * the base-corpus file list (`/api/knowledge-base`), per project+conversation.
  */
 
 'use client'
@@ -36,7 +42,12 @@ import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { documentFileUrl } from '@/lib/documents/urls'
 import { onDocumentsChanged, useDocumentsGeneration } from '@/lib/documents/document-changes'
+import {
+  resetDocumentsByNameCache,
+  resolveDocumentsByName,
+} from '@/features/documents/lib/documents-by-name'
 import { startDocumentDownload } from '@/lib/documents/download'
+import { isOfficeRenditionSource } from '@/lib/documents/preview-types'
 import { SectionLabel } from '@/components/ui/section-label'
 import { HoverPeekPanel } from '@/components/ui/hover-peek-panel'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
@@ -56,6 +67,7 @@ import { toQuoteList } from '../lib/source-citation'
 import { CopyCitationLinkButton } from './CopyCitationLink'
 import {
   citationNumbers,
+  citedFileName,
   openAtLocus,
   resolveCitationTarget,
   type CitationLocus,
@@ -73,9 +85,9 @@ import { AuthorityTag } from './AuthorityTag'
 
 export interface SourcePreviewIndex {
   /**
-   * Every DB-backed document the user can open: this project's uploads FIRST,
-   * then this conversation's private attachments, then the organization's
-   * Archiv. Each row carries the shelf it came from, so a citation that names
+   * The DB-backed documents the user can open that the citation could mean:
+   * this project's uploads with the cited name FIRST, then this conversation's
+   * private attachments, then the organization's Archiv rows with the name. Each row carries the shelf it came from, so a citation that names
    * its own shelf resolves to the right copy of a filename held on several;
    * order is only the tie-break for one that names no shelf at all.
    */
@@ -83,12 +95,19 @@ export interface SourcePreviewIndex {
   baseCorpusFiles: string[]
 }
 
-/** Module-wide cache: one fetch set per project+conversation per page lifetime. */
-const indexCache = new Map<string, Promise<SourcePreviewIndex>>()
+/** What does not depend on the cited name: attachments and the base corpus. */
+interface ShelfLists {
+  sessionDocuments: StoredDocumentRef[]
+  baseCorpusFiles: string[]
+}
 
-/** Test hook — clears the module cache between specs. */
+/** Module-wide cache: one fetch set per project+conversation per page lifetime. */
+const indexCache = new Map<string, Promise<ShelfLists>>()
+
+/** Test hook — clears the module caches between specs. */
 export const resetSourcePreviewIndexCache = (): void => {
   indexCache.clear()
+  resetDocumentsByNameCache()
 }
 
 // A document uploaded DURING the conversation is one the answer can cite and
@@ -97,10 +116,57 @@ export const resetSourcePreviewIndexCache = (): void => {
 // reach.
 onDocumentsChanged(resetSourcePreviewIndexCache)
 
-const loadSourcePreviewIndex = (
+// The shelf is stated by the LIST the rows came from — the project document
+// route or the org Archiv route — not guessed from a collection id.
+const toRefs = (rows: unknown, shelf: Shelf): StoredDocumentRef[] =>
+  Array.isArray(rows)
+    ? rows
+        .filter(
+          (doc): doc is { id: string; filename: string; contentType?: string | null } =>
+            !!doc && typeof doc.id === 'string' && typeof doc.filename === 'string'
+        )
+        .map((doc) => ({
+          id: doc.id,
+          filename: doc.filename,
+          contentType: doc.contentType ?? null,
+          shelf,
+        }))
+    : []
+
+/**
+ * The resolution index for one cited name: its project and Archiv rows asked
+ * of the server by name, between them the conversation's attachments, and the
+ * base corpus.
+ */
+const loadSourcePreviewIndex = async (
+  projectId: string | null,
+  conversationId: string | null,
+  fileName: string | null
+): Promise<SourcePreviewIndex> => {
+  const [lists, named] = await Promise.all([
+    loadShelfLists(projectId, conversationId),
+    fileName ? resolveDocumentsByName(projectId, [fileName]) : Promise.resolve(null),
+  ])
+  const answers = named ? [...named.values()] : []
+  // Tagged with the shelf each row came from, so a citation that names its own
+  // shelf resolves to the right copy of a filename held on several. Project
+  // uploads still come first, as the tie-break for a citation that does not.
+  // All three shelves that CAN be `documents` rows are represented here; the
+  // fourth (`base`) is the corpus and has no row to list.
+  return {
+    storedDocuments: [
+      ...toRefs(answers.flatMap((answer) => answer.projekt), 'project'),
+      ...lists.sessionDocuments,
+      ...toRefs(answers.flatMap((answer) => answer.buero), 'archiv'),
+    ],
+    baseCorpusFiles: lists.baseCorpusFiles,
+  }
+}
+
+const loadShelfLists = (
   projectId: string | null,
   conversationId: string | null
-): Promise<SourcePreviewIndex> => {
+): Promise<ShelfLists> => {
   // The conversation is part of the key, not just of the fetch: two chats in one
   // project have different private attachments, and a single cached list would
   // hand one thread the other's files.
@@ -108,13 +174,8 @@ const loadSourcePreviewIndex = (
   const existing = indexCache.get(key)
   if (existing) return existing
 
-  const promise = (async (): Promise<SourcePreviewIndex> => {
-    const [docsResult, sessionResult, archivResult, corpusResult] = await Promise.allSettled([
-      projectId
-        ? fetch(`/api/documents?projectId=${encodeURIComponent(projectId)}`).then((r) =>
-            r.ok ? r.json() : null
-          )
-        : Promise.resolve(null),
+  const promise = (async (): Promise<ShelfLists> => {
+    const [sessionResult, corpusResult] = await Promise.allSettled([
       // This conversation's private attachments (ADR-0047 Phase 2). Without
       // them the `session` shelf had NO rows at all, so a session citation
       // matched nothing — and, before the shelf became part of a document's
@@ -124,46 +185,10 @@ const loadSourcePreviewIndex = (
             (r) => (r.ok ? r.json() : null)
           )
         : Promise.resolve(null),
-      // The org Archiv (ADR-0024). Feature-gated, so a 403 here is normal and
-      // simply yields no Archiv entries — never a failed index. Without this
-      // fetch, every `buero`-kind citation resolved to a dead info popover even
-      // though its document was sitting in the Archiv and the preview route
-      // would have served it.
-      fetch('/api/archiv/documents').then((r) => (r.ok ? r.json() : null)),
       fetch('/api/knowledge-base').then((r) => (r.ok ? r.json() : null)),
     ])
-    const docs = docsResult.status === 'fulfilled' ? docsResult.value?.documents : null
     const sessionDocs = sessionResult.status === 'fulfilled' ? sessionResult.value?.documents : null
-    const archivDocs = archivResult.status === 'fulfilled' ? archivResult.value?.documents : null
     const files = corpusResult.status === 'fulfilled' ? corpusResult.value?.files : null
-
-    // The shelf is stated by the LIST the rows came from — the project document
-    // route or the org Archiv route — not guessed from a collection id.
-    const toRefs = (rows: unknown, shelf: Shelf): StoredDocumentRef[] =>
-      Array.isArray(rows)
-        ? rows
-            .filter(
-              (doc): doc is { id: string; filename: string; contentType?: string | null } =>
-                !!doc && typeof doc.id === 'string' && typeof doc.filename === 'string'
-            )
-            .map((doc) => ({
-              id: doc.id,
-              filename: doc.filename,
-              contentType: doc.contentType ?? null,
-              shelf,
-            }))
-        : []
-
-    // Tagged with the shelf each row came from, so a citation that names its own
-    // shelf resolves to the right copy of a filename held on several. Project
-    // uploads still come first, as the tie-break for a citation that does not.
-    // All three shelves that CAN be `documents` rows are represented here; the
-    // fourth (`base`) is the corpus below and has no row to list.
-    const storedDocuments: StoredDocumentRef[] = [
-      ...toRefs(docs, 'project'),
-      ...toRefs(sessionDocs, 'session'),
-      ...toRefs(archivDocs, 'archiv'),
-    ]
 
     // Only corpus files whose PDF actually exists on this deployment are
     // openable (index-only entries and removed files would 404 the viewer).
@@ -177,7 +202,7 @@ const loadSourcePreviewIndex = (
           .map((file) => file.fileName)
       : []
 
-    return { storedDocuments, baseCorpusFiles }
+    return { sessionDocuments: toRefs(sessionDocs, 'session'), baseCorpusFiles }
   })()
 
   indexCache.set(key, promise)
@@ -185,14 +210,20 @@ const loadSourcePreviewIndex = (
 }
 
 /**
- * Resolution index for the current project AND conversation. Returns null until
- * loaded (or while disabled); on any fetch failure the lists degrade to empty,
- * which downgrades chips to info/plain — never a broken viewer.
+ * Resolution index for one cited document in the current project AND
+ * conversation. Returns null until loaded (or while disabled); on any fetch
+ * failure the lists degrade to empty, which downgrades chips to info/plain —
+ * never a broken viewer.
+ *
+ * `fileName` is the name the citation resolves by (`citedFileName`); without
+ * one no stored row is asked for, and only the base corpus and attachments
+ * load.
  */
 export const useSourcePreviewIndex = (
   projectId: string | null,
   conversationId: string | null,
-  enabled: boolean
+  enabled: boolean,
+  fileName: string | null
 ): SourcePreviewIndex | null => {
   const [index, setIndex] = useState<SourcePreviewIndex | null>(null)
   // Reload after a document was added, renamed or deleted. Dropping the cache
@@ -203,7 +234,7 @@ export const useSourcePreviewIndex = (
   useEffect(() => {
     if (!enabled) return
     let cancelled = false
-    loadSourcePreviewIndex(projectId, conversationId)
+    loadSourcePreviewIndex(projectId, conversationId, fileName)
       .then((loaded) => {
         if (!cancelled) setIndex(loaded)
       })
@@ -213,7 +244,7 @@ export const useSourcePreviewIndex = (
     return () => {
       cancelled = true
     }
-  }, [projectId, conversationId, enabled, generation])
+  }, [projectId, conversationId, enabled, fileName, generation])
 
   return enabled ? index : null
 }
@@ -497,6 +528,49 @@ const isImageTarget = (target: DocumentTarget): boolean =>
   (target.document.contentType ?? '').toLowerCase().startsWith('image/')
 
 /**
+ * Whether the viewer will show a PDF the BFF rendered from this document rather
+ * than the document itself (ADR-0070). Decided by the same predicate the BFF
+ * uses to decide what to serve, so the header's "PDF-Vorschau" note is never
+ * shown over a file's own bytes, nor missing over a rendition.
+ */
+const isRenditionTarget = (target: DocumentTarget): boolean =>
+  target.document.type === 'stored' && isOfficeRenditionSource(target.document)
+
+/**
+ * The same stored document, as the file it is. What an office citation turns
+ * into when its rendition cannot be had, and what the viewer's "download the
+ * original" action hands over — always the ORIGINAL, through the download
+ * route, never the PDF on screen.
+ */
+const asDownloadTarget = (target: DocumentTarget): DownloadTarget | null =>
+  target.document.type === 'stored'
+    ? {
+        kind: 'download',
+        title: target.title,
+        fileName: target.document.filename,
+        snippet: target.snippet,
+        document: target.document,
+      }
+    : null
+
+/**
+ * The preview route's two answers that mean "there is no PDF of this office
+ * file", as opposed to "something broke": 415 when conversion is switched off
+ * (`GOTENBERG_URL` unset) and 502 `RENDITION_FAILED` when LibreOffice could not
+ * make one. Both leave the reader exactly where #623 left them before ADR-0070
+ * — a real file with no viewer — so both get that answer, the download.
+ */
+const isRenditionUnavailable = (status: number): boolean => status === 415 || status === 502
+
+/**
+ * How long an office open may take before the reader is told a PDF is being
+ * made. A rendition already in the store answers in well under this; a first
+ * open converts, which can take many seconds, and a busy chip alone does not
+ * say why nothing is happening.
+ */
+const RENDITION_PENDING_NOTICE_MS = 400
+
+/**
  * The Fundstellen a viewer can actually be pointed at: the ones that name a
  * page, in page order.
  *
@@ -744,7 +818,12 @@ export const CitationDocumentDialog: FC<{
   const headerSignal: SourceTint =
     citation?.document.tint ?? (target.document.type === 'base' ? 'law' : 'project')
   const page = activeLocus?.page ?? target.page
-  const passage = activeLocus?.snippet ?? target.snippet
+  // A passage read off a picture of the page (a plan's Grundriss) is marked
+  // by its box, not searched for: its "snippet" is the vision model's
+  // description of the drawing, and none of those words are on the sheet
+  // (issue #433). A locus with no box keeps the text search, as before.
+  const regions = activeLocus?.regions
+  const passage = regions?.length ? undefined : (activeLocus?.snippet ?? target.snippet)
   // What the rail will show, decided here because it also decides whether the
   // dialog draws the passage a second time above the document.
   const railLoci = citation ? navigableLoci(citation.document) : []
@@ -762,6 +841,13 @@ export const CitationDocumentDialog: FC<{
     document: citation.document,
     locus: activeLocus,
   }
+  // An office file is on screen as a PDF the BFF made from it. The reader is
+  // told so, and the one action that must not be lost is the original itself:
+  // the viewer's own "open in tab" and any save from it hand over the PDF.
+  const rendition = isRenditionTarget(target)
+  const { isDownloading, download } = useCitationDownload(
+    rendition ? asDownloadTarget(target) : null
+  )
 
   return (
     <PdfViewerDialog
@@ -779,6 +865,7 @@ export const CitationDocumentDialog: FC<{
       // page the reader then has to search — and it wears this source's own
       // tint, the same one the chip that opened the dialog wore.
       highlight={passage}
+      regions={regions}
       highlightColor={`var(--source-${headerSignal})`}
       // What the reader's OWN selection becomes on the clipboard. The viewer
       // knows the words and the page; only this side knows the document they
@@ -809,10 +896,31 @@ export const CitationDocumentDialog: FC<{
         </SourceSignalChip>
       }
       headerActions={
-        shown && (
+        (shown || rendition) && (
           <span className="flex shrink-0 items-center gap-2">
-            <CopyCitationLinkButton citation={shown} icon={<Link2 className="size-3" />} />
-            <CopySourceCitationButton citation={shown} />
+            {rendition && (
+              <>
+                <span className="text-muted-foreground text-xs font-normal" data-rendition-note="">
+                  {t('sourcePreview.renditionNote')}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void download()}
+                  disabled={isDownloading}
+                  data-citation-download-original=""
+                  className="text-muted-foreground duration-quick hover:text-foreground focus-visible:ring-ring/50 touch-target inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium transition-[color,transform] ease-out focus-visible:outline-none focus-visible:ring-2 active:scale-95 disabled:cursor-progress disabled:opacity-70 motion-reduce:transition-none motion-reduce:active:scale-100"
+                >
+                  <Download aria-hidden="true" className="size-3" />
+                  {t(isDownloading ? 'citationPeek.downloading' : 'sourcePreview.downloadOriginal')}
+                </button>
+              </>
+            )}
+            {shown && (
+              <>
+                <CopyCitationLinkButton citation={shown} icon={<Link2 className="size-3" />} />
+                <CopySourceCitationButton citation={shown} />
+              </>
+            )}
           </span>
         )
       }
@@ -836,12 +944,19 @@ export const CitationDocumentDialog: FC<{
  * presigned preview URL per open (they expire); base-corpus PDFs stream from
  * the knowledge-base route PdfViewerDialog already builds from `fileName`.
  * The dialog only ever opens with a renderable source — a failed presign
- * surfaces as a toast, not a broken viewer.
+ * surfaces as a toast, not a broken viewer, and an office file the BFF cannot
+ * render (415/502) is downloaded instead: the reader asked for its content,
+ * and the original is the content.
+ *
+ * `openPreview` says how it ended, so a caller with no chip to degrade (the
+ * `?cite=` dialog) knows when there will be no viewer to wait for.
  *
  * The dialog owns an ACTIVE LOCUS, not just a page: which Fundstelle the reader
  * is on is the thing the rail marks, the citation footer copies, and a deep
  * link restores.
  */
+type PreviewOutcome = 'opened' | 'downloaded' | 'failed'
+
 const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
   const t = useTranslations('chat')
   const [isOpen, setIsOpen] = useState(false)
@@ -873,20 +988,39 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
   }, [citation?.locus?.key])
 
   const isImage = isImageTarget(target)
+  const rendition = isRenditionTarget(target)
+  const { download } = useCitationDownload(asDownloadTarget(target))
 
-  const openPreview = async (locus?: CitationLocus): Promise<void> => {
+  const openPreview = async (locus?: CitationLocus): Promise<PreviewOutcome> => {
     if (locus && citation) setActiveLocus(openAtLocus(citation.document, locus))
     else if (locus) setActiveLocus(locus)
     if (target.document.type === 'base') {
       setIsOpen(true)
-      return
+      return 'opened'
     }
     setIsResolving(true)
+    // A first open of an office file converts it, which is slow enough to need
+    // saying; a rendition already stored answers before this ever shows.
+    let pendingToast: string | number | undefined
+    const pendingTimer = rendition
+      ? setTimeout(() => {
+          pendingToast = toast.loading(t('sourcePreview.renditionPending'))
+        }, RENDITION_PENDING_NOTICE_MS)
+      : undefined
     try {
       // The presign still runs, and not only out of habit: it is the
       // authorization and existence check that keeps a failure a toast instead
       // of a dialog that opens onto nothing.
       const res = await fetch(`/api/documents/${target.document.id}/preview`)
+      // Only an office source has a rendition to be refused. A 502 on an
+      // ordinary PDF is a gateway hiccup, and downloading the file instead of
+      // saying so turned a failed preview into a silent download.
+      if (rendition && isRenditionUnavailable(res.status)) {
+        clearTimeout(pendingTimer)
+        if (pendingToast !== undefined) toast.dismiss(pendingToast)
+        await download()
+        return 'downloaded'
+      }
       const data = res.ok ? await res.json() : null
       if (data?.url) {
         // An image is NAVIGATED to by `next/image` and keeps the presigned URL.
@@ -896,12 +1030,16 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
         // have loaded. See `documentFileUrl`.
         setSrc(isImage ? data.url : documentFileUrl(target.document.id))
         setIsOpen(true)
-      } else {
-        toast.error(t('sourcePreview.loadFailed'))
+        return 'opened'
       }
+      toast.error(t('sourcePreview.loadFailed'))
+      return 'failed'
     } catch {
       toast.error(t('sourcePreview.loadFailed'))
+      return 'failed'
     } finally {
+      clearTimeout(pendingTimer)
+      if (pendingToast !== undefined) toast.dismiss(pendingToast)
       setIsResolving(false)
     }
   }
@@ -936,6 +1074,12 @@ const DocumentPreviewChip: FC<{
   citation?: CitationRef
   trailing?: ReactNode
   detail?: CitationDetail
+  /**
+   * The document turned out to have no viewer after all — an office file whose
+   * rendition the BFF could not make. The owner re-renders the chip as the
+   * download it now is.
+   */
+  onUnrenderable?: () => void
 }> = ({
   target,
   signal,
@@ -947,6 +1091,7 @@ const DocumentPreviewChip: FC<{
   citation,
   trailing,
   detail,
+  onUnrenderable,
 }) => {
   const t = useTranslations('chat')
   const { isResolving, openPreview, dialog } = useDocumentPreview(target, citation)
@@ -956,7 +1101,9 @@ const DocumentPreviewChip: FC<{
     // The dialog supersedes the peek — the peek's question is "what is this?",
     // and the document answers it far better than a panel floating over it.
     peek.dismiss()
-    void openPreview()
+    void openPreview().then((outcome) => {
+      if (outcome === 'downloaded') onUnrenderable?.()
+    })
   }
 
   const face = (
@@ -1010,7 +1157,7 @@ const DocumentPreviewChip: FC<{
  * A cited document with no in-app viewer — offered as a file, with the reason.
  *
  * Same face as every other citation chip, because it is the same kind of thing:
- * the reader must not have to learn that a `.docx` source is a different
+ * the reader must not have to learn that a `.dwg` source is a different
  * species of chip. What differs is the one control the popover holds — a
  * download rather than an open — and the line above it saying why.
  */
@@ -1426,13 +1573,23 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   // stored file, so the index fetch is skipped entirely for link sources AND
   // for card-derived documents, which name a law but no document at all.
   const needsIndex = !doc.url && !!doc.fileName
-  const previewIndex = useSourcePreviewIndex(projectId, conversationId, needsIndex)
+  const previewIndex = useSourcePreviewIndex(projectId, conversationId, needsIndex, citedFileName(doc))
+  // The stored document whose office rendition the BFF refused (415/502). Only
+  // the preview route can say so, so it is learned on the first open, and from
+  // then on this chip is the download it would have been before ADR-0070.
+  const [unrenderableId, setUnrenderableId] = useState<string | null>(null)
 
-  const target = resolveCitationTarget(doc, {
+  const resolved = resolveCitationTarget(doc, {
     locus,
     storedDocuments: previewIndex?.storedDocuments,
     baseCorpusFiles: previewIndex?.baseCorpusFiles,
   })
+  const target: CitationTarget =
+    resolved.kind === 'document' &&
+    resolved.document.type === 'stored' &&
+    resolved.document.id === unrenderableId
+      ? (asDownloadTarget(resolved) ?? resolved)
+      : resolved
 
   const label = doc.title
   // A chip stands for a DOCUMENT, so it names every marker that document
@@ -1511,7 +1668,14 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   }
 
   if (target.kind === 'document') {
-    return <DocumentPreviewChip {...shared} target={target} />
+    const storedId = target.document.type === 'stored' ? target.document.id : null
+    return (
+      <DocumentPreviewChip
+        {...shared}
+        target={target}
+        onUnrenderable={storedId ? () => setUnrenderableId(storedId) : undefined}
+      />
+    )
   }
 
   // Resolved, and unrenderable. Not the same as unresolvable — see the
@@ -1596,7 +1760,12 @@ export const SourceDocumentDialog: FC<{
 }> = ({ citation, onClose }) => {
   const projectId = useChatStore((s) => s.projectId)
   const conversationId = useConversationId()
-  const previewIndex = useSourcePreviewIndex(projectId, conversationId, !citation.document.url)
+  const previewIndex = useSourcePreviewIndex(
+    projectId,
+    conversationId,
+    !citation.document.url,
+    citedFileName(citation.document)
+  )
   const target = resolveCitationTarget(citation.document, {
     locus: citation.locus,
     storedDocuments: previewIndex?.storedDocuments,
@@ -1612,9 +1781,16 @@ export const SourceDocumentDialog: FC<{
   )
 
   // Open as soon as resolution succeeds; close the owner when the reader
-  // dismisses the dialog, so the mount is tied to the viewing session.
+  // dismisses the dialog, so the mount is tied to the viewing session. An
+  // office citation opens its rendition here like any PDF; when there is none
+  // (415/502) the preview has already handed over the original, and when the
+  // open failed outright there is nothing left to show either — in both cases
+  // the owner is released rather than left mounted over no dialog.
   useEffect(() => {
-    if (isDocument && !isOpen) void openPreview(citation.locus)
+    if (isDocument && !isOpen)
+      void openPreview(citation.locus).then((outcome) => {
+        if (outcome !== 'opened') onClose()
+      })
     // Opening is a one-shot per resolved target; re-running on every render
     // would reopen a dialog the reader just dismissed.
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1,0 +1,9 @@
+---
+fixes:
+  - >
+    Dateien and the Archiv now use one word for reading a document: Wird
+    gelesen, Lesen fehlgeschlagen and Erneut lesen. Before, the same step
+    appeared under five names.
+  - >
+    The Archiv's Schnitt filter now says Schnitt / Ansicht, as in Dateien,
+    because it also finds elevations.

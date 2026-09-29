@@ -30,6 +30,7 @@ vi.mock('@/lib/documents/lifecycle', () => ({
 vi.mock('@/lib/documents/revision', () => ({ openDraftForRevision: vi.fn() }))
 vi.mock('@/lib/documents/repository', () => ({ findDocumentInOrg: vi.fn() }))
 vi.mock('@/lib/inbox/service', () => ({ emitInboxItems: vi.fn() }))
+vi.mock('@/lib/runs/service', () => ({ settleRunLedger: vi.fn() }))
 
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
@@ -43,6 +44,7 @@ import { findDocumentInOrg } from '@/lib/documents/repository'
 import { fileResearchReport } from '@/lib/documents/research-report'
 import { openDraftForRevision } from '@/lib/documents/revision'
 import { emitInboxItems } from '@/lib/inbox/service'
+import { settleRunLedger } from '@/lib/runs/service'
 import type { SkillSnapshot } from '@/lib/skills/types'
 import * as repository from './repository'
 import {
@@ -439,6 +441,37 @@ describe('recordRunOutcome', () => {
     })
   })
 
+  it('settles the run’s block before it closes the row, whoever reported the ending', async () => {
+    // The reaper's and the cancel route's reports carry no ledger op: there is
+    // no worker left to send one. Before, the row closed and the block read
+    // „läuft" for good.
+    const row = delegated()
+    const order: string[] = []
+    vi.mocked(settleRunLedger).mockImplementation(async () => {
+      order.push('block')
+      return true
+    })
+    const update = vi.mocked(repository.updateRun).getMockImplementation()
+    vi.mocked(repository.updateRun).mockImplementation(async (...args) => {
+      order.push('row')
+      return update!(...args)
+    })
+
+    await recordRunOutcome(row, { status: 'interrupted' })
+
+    expect(settleRunLedger).toHaveBeenCalledWith(expect.objectContaining({ id: 'run-1' }), { status: 'interrupted' })
+    // Block first: a failure between the two leaves the row active, and the
+    // retry (the worker's, or the reconciler's) does both.
+    expect(order[0]).toBe('block')
+    expect(order).toContain('row')
+  })
+
+  it('closes nothing when the block cannot be written, so the report is retried whole', async () => {
+    vi.mocked(settleRunLedger).mockRejectedValueOnce(new Error('db down'))
+    await expect(recordRunOutcome(delegated(), { status: 'failure' })).rejects.toThrow('db down')
+    expect(repository.updateRun).not.toHaveBeenCalled()
+  })
+
   it('tells the requester about a failure too, and files nothing', async () => {
     vi.mocked(emitInboxItems).mockResolvedValue(1)
     await recordRunOutcome(delegated(), { status: 'failure', error: 'Budget exhausted' })
@@ -478,6 +511,12 @@ describe('recordRunOutcome', () => {
       expect(recordAuditEvent).not.toHaveBeenCalled()
       expect(fileResearchReport).not.toHaveBeenCalled()
       expect(emitInboxItems).not.toHaveBeenCalled()
+    })
+
+    it('settles the block even when the row had already ended — a closed run is never left „läuft"', async () => {
+      vi.mocked(repository.closeActiveRun).mockResolvedValue(null)
+      await recordRunOutcome(run, { status: 'failure', error: 'Job timed out' }, { onlyIfActive: true })
+      expect(settleRunLedger).toHaveBeenCalledWith(run, { status: 'failure', error: 'Job timed out' })
     })
 
     it('the worker’s own report still closes unconditionally, so a retried report reaches the inbox', async () => {

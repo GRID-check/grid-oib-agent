@@ -79,13 +79,19 @@ reference (https://openrouter.ai/docs/api_reference/overview):
 - langchain-openai surfaces the usage object verbatim as
   `llm_output["token_usage"]` on each `LLMResult` (provider extras like
   `cost` survive the SDK's `model_dump`) — **on the chat-completions path
-  only**. A role on `api_type: responses` (today: `research_llm`) gets a
-  `ChatResult` with no `llm_output` at all and a `response_metadata` that
-  excludes `usage`, so the provider object never reaches this process. What
-  survives is LangChain's normalized `usage_metadata`, where the cache bucket
-  is spelled `input_token_details.cache_read` and `cost` does not exist;
-  `extract_usage_event` reads it and marks those rows `costSource: missing`
-  rather than inventing a number. Reconcile them by `generation_id` against
+  only**. A role on `api_type: responses` (today: `research_llm`, the main
+  answer) gets the same `cost` and `is_byok` on `response.usage`, but
+  langchain-openai builds a `ChatResult` with no `llm_output` and a
+  `response_metadata` that excludes `usage`, keeping only LangChain's
+  normalized `usage_metadata` (cache bucket spelled
+  `input_token_details.cache_read`, no cost).
+  `cost_tracking.install_responses_cost_carrier` wraps that constructor and
+  copies `cost` and `is_byok` onto `response_metadata["grid_usage_accounting"]`,
+  and `extract_usage_event` reads them back beside `usage_metadata`. Until
+  that carrier existed every `research_llm` row was written at cost 0, so the
+  answer itself was never charged in credits and its details showed only the
+  post-answer stages. A reply without `cost` is still recorded as
+  `costSource: missing`; reconcile those by `generation_id` against
   `GET /api/v1/generation?id=`.
 
 ### ⚠️ Dry-run verification status

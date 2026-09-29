@@ -54,6 +54,11 @@ import {
   getThreadSharing,
   resetThreadSharing,
 } from '@/shared/collaboration/thread-sharing'
+import {
+  markConversationMinted,
+  markConversationOnServer,
+  resetConversationsOnServer,
+} from '@/features/chat/lib/conversation-on-server'
 import { useSharedThread } from './use-shared-thread'
 
 const CONVERSATION_ID = 's_conv_shared'
@@ -923,6 +928,64 @@ describe('useSharedThread — sharedness is published for the agent-socket gate'
     })
 
     expect(getThreadSharing(CONVERSATION_ID)).toBe('unknown')
+  })
+})
+
+describe('useSharedThread — a chat this page minted', () => {
+  beforeEach(() => {
+    resetThreadSharing()
+    resetConversationsOnServer()
+  })
+  afterEach(() => {
+    resetConversationsOnServer()
+  })
+
+  test('is not asked about before the server has created it, and is private meanwhile', async () => {
+    // `ensureSession` mints the id on the first keystroke; the row exists only
+    // once the first message is stored. The read in between was a 404 on every
+    // new chat.
+    markConversationMinted(CONVERSATION_ID)
+
+    const { result } = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.current.shared).toBe(false)
+    // The socket gate still opens on mount, as it did when the 404 said so.
+    expect(getThreadSharing(CONVERSATION_ID)).toBe('private')
+  })
+
+  test('is read once the create has landed, without replacing what is on screen', async () => {
+    routes.shared = false
+    markConversationMinted(CONVERSATION_ID)
+    renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    act(() => markConversationOnServer(CONVERSATION_ID))
+
+    await waitFor(() => expect(requested()).toEqual([`/api/conversations/${CONVERSATION_ID}`]))
+  })
+
+  test('a conversation this page did not mint (a link, the list) is read at once', async () => {
+    // Somebody else's id: nothing here recorded it, so it must be treated as on
+    // the server, or a shared thread opened by link would never be read.
+    markConversationMinted('s_some_other_new_chat')
+
+    const { result } = renderHook(() =>
+      useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
+    )
+
+    await waitFor(() => expect(result.current.shared).toBe(true))
+    expect(requested()[0]).toBe(`/api/conversations/${CONVERSATION_ID}`)
   })
 })
 

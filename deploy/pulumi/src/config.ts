@@ -433,6 +433,18 @@ export interface GridConfig {
    */
   protectDataResources: boolean;
 
+  gotenberg: {
+    /**
+     * Run the office → PDF converter (ADR-0070). Required for indexing Word,
+     * presentation, .xls and .ods files, which the backend reads only from the
+     * PDF (ADR-0071). When false the frontend gets no `GOTENBERG_URL`: those
+     * files are marked failed with a retryable reason, and .xlsx/.xlsm index
+     * without preview or thumbnail.
+     */
+    enabled: boolean;
+    image: string;
+  };
+
   chroma: {
     /**
      * Run a shared Chroma server (horizontal scaling). When true, the backend
@@ -780,6 +792,12 @@ export interface GridConfig {
   internal: {
     apiToken: pulumi.Output<string>;
     adminToken: pulumi.Output<string>;
+    /**
+     * Token for `/api/internal/oib-corpus`, the corpus tarball the answer-suite
+     * CI workflow ingests. Its own secret, because it lives outside the cluster
+     * (a repository secret). Empty = the export is disabled (503).
+     */
+    corpusExportToken: pulumi.Output<string>;
     /**
      * 32-byte base64 KEK encrypting DB-claimed job payloads at rest (they carry
      * the user auth token). Empty = plaintext (dev only). Strongly recommended
@@ -2170,6 +2188,15 @@ export function loadConfig(): GridConfig {
 
     protectDataResources: bool(cfg, "protectDataResources", true),
 
+    gotenberg: {
+      enabled: bool(cfg, "gotenbergEnabled", true),
+      // Pinned, LibreOffice-only variant (no Chromium, so no HTML/URL routes).
+      // The container args in constants.ts are 8.x flag names, and a flag
+      // this binary does not know (any --chromium-*) stops it at boot. Keep it equal to the
+      // Compose pin (deploy/compose/docker-compose.yaml).
+      image: cfg.get("gotenbergImage") ?? "gotenberg/gotenberg:8.37.0-libreoffice",
+    },
+
     chroma: {
       enabled: chromaEnabled,
       // Deliberately pinned (NOT latest): the server API/wire protocol is
@@ -2353,6 +2380,7 @@ export function loadConfig(): GridConfig {
     internal: {
       apiToken: cfg.requireSecret("gridInternalApiToken"),
       adminToken: cfg.requireSecret("gridAdminToken"),
+      corpusExportToken: cfg.getSecret("gridCorpusExportToken") ?? pulumi.output(""),
       jobPayloadKek: jobPayloadKek ?? pulumi.output(""),
     },
 

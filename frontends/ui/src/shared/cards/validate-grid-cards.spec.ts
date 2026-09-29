@@ -15,7 +15,8 @@
  * silently, in cards whose own types shipped and work. On reload the same
  * shift would rebind a persisted Accept onto a proposal the user never saw.
  *
- * That is not hypothetical. `diagram` was added to the backend union and to the
+ * That is not hypothetical. `diagram` (since retired, ADR-0069) was added to
+ * the backend union and to the
  * catalog the model reads while the generated Zod on this side still had no
  * such member, so the first answer to place a `diagram` beside anything else
  * would have re-ordered the rest of its cards — the failure this file exists to
@@ -33,35 +34,48 @@
 import { describe, expect, it, vi } from 'vitest'
 import { validateGridCards } from './schemas'
 
-const DIAGRAM = {
-  type: 'diagram',
-  title: 'Baubewilligungsverfahren – wer wem was übergibt',
-  diagram_type: 'sequence',
-  source: 'sequenceDiagram\n  BW->>BB: Einreichunterlagen',
-  caption: 'Die Fristen zeigt die Grafik nicht.',
-  reference: { document: 'Wiener Bauordnung', section: '§§ 60 ff.' },
+const CALCULATION = {
+  type: 'calculation',
+  title: 'Schrittmaßregel – Treppenlauf Haus A',
+  steps: [
+    {
+      label: 'Schrittmaß',
+      operation: 'sum',
+      unit: 'cm',
+      operands: [
+        { label: 'Steigung', value: 17, unit: 'cm', factor: 2 },
+        { label: 'Auftritt', value: 30, unit: 'cm' },
+      ],
+    },
+  ],
+  reference: { document: 'OIB-Richtlinie 4', section: 'Pkt. 2.2' },
 }
 
-const SUMMARY = { type: 'summary', title: 'Zusammenfassung', content: 'Kurz gefasst.' }
+const PROPOSAL = { type: 'memory_proposal', title: 'Merken?', content: 'REI 90 bei GK 4.', kind: 'preference' }
 
-const CALLOUT = { type: 'callout', kind: 'frist', text: 'Binnen sechs Wochen.' }
+const PATCH = {
+  type: 'project_profile_patch',
+  title: 'Fluchtniveau aktualisieren',
+  rationale: 'Das Fluchtniveau liegt bei 25 m.',
+  patch: [{ op: 'add', path: '/facts/fluchtniveau', value: '>22m' }],
+}
 
 describe('a card the union knows keeps every card after it in place', () => {
-  it('validates a diagram rather than dropping it', () => {
-    const cards = validateGridCards([DIAGRAM])
+  it('validates a calculation rather than dropping it', () => {
+    const cards = validateGridCards([CALCULATION])
 
     expect(cards).toHaveLength(1)
-    expect(cards[0]?.type).toBe('diagram')
+    expect(cards[0]?.type).toBe('calculation')
   })
 
-  it('leaves the cards after a diagram at the index their marker names', () => {
-    // `[[card:2]]` means "the second card of this array". If the diagram were
-    // dropped the summary would answer to `[[card:1]]` and the callout to
-    // `[[card:2]]` — so the marker the model wrote for its Frist would draw a
-    // summary instead, in an answer where nothing looks broken.
-    const cards = validateGridCards([DIAGRAM, SUMMARY, CALLOUT])
+  it('leaves the cards after a calculation at the index their marker names', () => {
+    // `[[card:2]]` means "the second card of this array". If the calculation
+    // were dropped the proposal would answer to `[[card:1]]` and the patch to
+    // `[[card:2]]` — so the marker the model wrote for its patch would draw a
+    // proposal instead, in an answer where nothing looks broken.
+    const cards = validateGridCards([CALCULATION, PROPOSAL, PATCH])
 
-    expect(cards.map((card) => card?.type)).toEqual(['diagram', 'summary', 'callout'])
+    expect(cards.map((card) => card?.type)).toEqual(['calculation', 'memory_proposal', 'project_profile_patch'])
   })
 })
 
@@ -72,12 +86,12 @@ describe('a card the union rejects leaves a hole, not a shift', () => {
     // after it still names the card it was written for.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
-      const cards = validateGridCards([{ type: 'not_a_card_type' }, SUMMARY, CALLOUT])
+      const cards = validateGridCards([{ type: 'not_a_card_type' }, PROPOSAL, PATCH])
 
       expect(cards).toHaveLength(3)
       expect(cards[0]).toBeUndefined()
-      expect(cards[1]?.type).toBe('summary')
-      expect(cards[2]?.type).toBe('callout')
+      expect(cards[1]?.type).toBe('memory_proposal')
+      expect(cards[2]?.type).toBe('project_profile_patch')
       // Never in silence — schema drift has to be diagnosable from a console.
       expect(warn).toHaveBeenCalled()
     } finally {
@@ -88,9 +102,9 @@ describe('a card the union rejects leaves a hole, not a shift', () => {
   it('holds the middle when the middle card is the one that fails', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
-      const cards = validateGridCards([SUMMARY, { type: 'not_a_card_type' }, CALLOUT])
+      const cards = validateGridCards([PROPOSAL, { type: 'not_a_card_type' }, PATCH])
 
-      expect(cards.map((card) => card?.type)).toEqual(['summary', undefined, 'callout'])
+      expect(cards.map((card) => card?.type)).toEqual(['memory_proposal', undefined, 'project_profile_patch'])
     } finally {
       warn.mockRestore()
     }
@@ -99,6 +113,6 @@ describe('a card the union rejects leaves a hole, not a shift', () => {
   it('returns no cards for a non-array, and holes for nothing else', () => {
     expect(validateGridCards(undefined)).toEqual([])
     expect(validateGridCards(null)).toEqual([])
-    expect(validateGridCards({ type: 'summary' })).toEqual([])
+    expect(validateGridCards({ type: 'memory_proposal' })).toEqual([])
   })
 })

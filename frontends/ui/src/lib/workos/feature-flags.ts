@@ -131,7 +131,7 @@ export const POST_ANSWER_STAGE_FLAGS: readonly PostAnswerStageFlag[] = [
     // while the empty rate and the per-turn cost were read off the
     // `stage:follow_ups` spans. It is ON for every organization in both WorkOS
     // environments now, and the in-answer `follow_ups` CARD it replaces has been
-    // retired (`SYSTEM_CARD_TYPES`), so this stage is the only thing that
+    // deleted (ADR-0069), so this stage is the only thing that
     // produces follow-up questions at all.
     //
     // That is what moves the default: `defaultOn` is what a deployment without
@@ -143,8 +143,8 @@ export const POST_ANSWER_STAGE_FLAGS: readonly PostAnswerStageFlag[] = [
     //
     // Turning the WorkOS flag off still stops the frames within a turn or two,
     // no deploy and no reconnect, and the answer is unaffected either way. What
-    // it no longer does is fall back to the card: reversing that is §7.10 step 1
-    // — take `follow_ups` out of `SYSTEM_CARD_TYPES` and roll back `0062`.
+    // it no longer does is fall back to the card: the card type no longer
+    // exists, so reversing that means restoring it (ADR-0069).
     defaultOn: true,
   },
 ]

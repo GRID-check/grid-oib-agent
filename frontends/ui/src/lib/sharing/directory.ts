@@ -50,12 +50,18 @@ function displayName(user: {
  * than one page is not silently cut off. Returns an empty map on failure — the
  * callers all degrade to showing ids/initials rather than breaking, because a
  * WorkOS hiccup must not take the chat down.
+ *
+ * The failure is caught OUTSIDE `getCached`, so the empty map is never stored.
+ * Caught inside the loader, one failed `listUsers` was cached as the roster for
+ * the whole TTL: for five minutes every `@` picker, share dialog and reviewer
+ * picker in the organization listed nobody, and the next request could not
+ * notice that WorkOS had recovered.
  */
 export async function loadOrganizationDirectory(
   organizationId: string,
 ): Promise<Map<string, DirectoryPerson>> {
-  const people = await getCached(`directory:${organizationId}`, DIRECTORY_TTL_MS, async () => {
-    try {
+  try {
+    const people = await getCached(`directory:${organizationId}`, DIRECTORY_TTL_MS, async () => {
       const workos = getWorkOS()
       const users = await workos.userManagement
         .listUsers({ organizationId })
@@ -66,13 +72,12 @@ export async function loadOrganizationDirectory(
         name: displayName(user),
         profilePictureUrl: user.profilePictureUrl ?? null,
       })) satisfies DirectoryPerson[]
-    } catch (error) {
-      console.warn(`[directory] failed to load organization ${organizationId}:`, error)
-      return [] as DirectoryPerson[]
-    }
-  })
-
-  return new Map(people.map((person) => [person.userId, person]))
+    })
+    return new Map(people.map((person) => [person.userId, person]))
+  } catch (error) {
+    console.warn(`[directory] failed to load organization ${organizationId}:`, error)
+    return new Map()
+  }
 }
 
 /**

@@ -19,7 +19,43 @@ const Tooltip = ({ ...props }: React.ComponentPropsWithoutRef<typeof TooltipPrim
   </TooltipProvider>
 )
 
-const TooltipTrigger = TooltipPrimitive.Trigger
+/**
+ * Opens on hover, and on focus only when the focus is one a keyboard user can
+ * see (`:focus-visible`).
+ *
+ * Radix opens a tooltip on every focus event. A popover or dialog moves focus
+ * to its first focusable element when it opens and back to its trigger when it
+ * closes, so a help icon placed first in a popover showed its tooltip the
+ * moment a click opened the popover. The browser already tells the two apart:
+ * focus that follows a pointer click does not match `:focus-visible`, focus
+ * reached with Tab does. Cancelling the event is how Radix's composed handler
+ * is told to skip opening; focus itself is not cancelable, so nothing else
+ * changes.
+ */
+const TooltipTrigger = React.forwardRef<
+  React.ElementRef<typeof TooltipPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Trigger>
+>(({ onFocus, ...props }, ref) => (
+  <TooltipPrimitive.Trigger
+    ref={ref}
+    data-slot="tooltip-trigger"
+    onFocus={(event) => {
+      onFocus?.(event)
+      if (!isFocusVisible(event.currentTarget)) event.preventDefault()
+    }}
+    {...props}
+  />
+))
+TooltipTrigger.displayName = TooltipPrimitive.Trigger.displayName
+
+function isFocusVisible(element: Element): boolean {
+  try {
+    return element.matches(':focus-visible')
+  } catch {
+    // An engine without the selector keeps Radix's open-on-focus.
+    return true
+  }
+}
 
 const TooltipContent = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Content>,

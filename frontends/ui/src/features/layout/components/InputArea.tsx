@@ -52,6 +52,7 @@ import { AnimatePresence, motion, motionQuick, motionEntrance, springPress } fro
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
 import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
+import { EffortDial } from '@/features/chat/components/effort-dial'
 import { useLayoutStore } from '../store'
 import { computePresetSourceIds } from '../lib/source-presets'
 // Withheld with the Datenbasis picker below — restore together.
@@ -69,6 +70,8 @@ import type { ResolvedSubjectIdentity } from '@/features/documents/components/co
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 import { useFilePeekBesideChat } from '@/features/documents/components/file-preview-host'
 import { dropFileSubject } from '@/features/documents/lib/open-file-peek'
+import { failedWhileReading } from '@/features/documents/lib/ingest-failure'
+import { useIngestFailureText } from '@/features/documents/components/ingest-failure-notice'
 import { AddresseeIndicator } from '@/features/collaboration/components/AddresseeIndicator'
 import {
   MentionPicker,
@@ -184,10 +187,12 @@ const FileChip: FC<{
   const isPending = file.status === 'uploading' || file.status === 'ingesting'
   const isFailed = file.status === 'failed'
   const isSuccess = file.status === 'success'
+  const ingestFailure = useIngestFailureText(isFailed && failedWhileReading(file) ? file.errorMessage : null)
+  // Uploading and reading are both pending, but only one of them is an upload.
   const statusTitle = isPending
-    ? t('inputArea.fileUploadingStatus')
+    ? t(file.status === 'ingesting' ? 'fileSourceCard.statusIngesting' : 'inputArea.fileUploadingStatus')
     : isFailed
-      ? file.errorMessage || t('inputArea.fileFailedStatus')
+      ? (ingestFailure?.sentence ?? (file.errorMessage || t('inputArea.fileFailedStatus')))
       : t('inputArea.fileReadyStatus')
 
   const statusIcon = isPending ? (
@@ -1930,6 +1935,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   tabIndex={-1}
                   onChange={handleFileChange}
                 />
+
+                {/* How hard Piloti thinks, for this chat. A HITL response is
+                    not a question, so the dial has nothing to say there. */}
+                {!isResponseMode && (
+                  <EffortDial conversationId={currentConversationId} disabled={cannotContribute} />
+                )}
 
                 {/* Attach files */}
                 <Button

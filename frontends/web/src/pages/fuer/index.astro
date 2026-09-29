@@ -1,0 +1,14 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import LandingHub from '../../components/landing/LandingHub.astro'
+import EndInvite from '../../components/molecules/EndInvite.astro'
+import { SECTIONS } from '../../lib/landing'
+import { hubLd } from '../../lib/seo'
+
+const s = SECTIONS.fuer.de
+---
+
+<BaseLayout locale="de" title={s.title} description={s.description} ogArt={SECTIONS.fuer.og} jsonLd={hubLd('de', 'fuer', Astro.site)}>
+  <LandingHub locale="de" section="fuer" />
+  <EndInvite locale="de" page="warum" />
+</BaseLayout>

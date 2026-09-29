@@ -5,8 +5,8 @@
  *   platform  → cert-manager (+ Let's Encrypt issuer), Envoy Gateway, metrics-server
  *   data      → CloudNativePG Postgres (3 DBs), Dragonfly cache, SeaweedFS (S3)
  *   app       → aiq-agent (StatefulSet, the singleton agent), frontend
- *               (Deployment + HPA), purger, skill-scheduler, a migration Job
- *               and a WorkOS audit-schema reconcile Job
+ *               (Deployment + HPA), purger, skill-scheduler, gotenberg (office
+ *               → PDF), a migration Job and a WorkOS audit-schema reconcile Job
  *   edge      → Gateway API (Envoy Gateway) + HTTPRoutes with cert-manager TLS,
  *               for the app, the landing site and the public S3 endpoint
  *
@@ -17,7 +17,7 @@
  */
 import * as pulumi from "@pulumi/pulumi";
 
-import { loadConfig } from "./src/config";
+import { backendImage, frontendImage, loadConfig, webImage } from "./src/config";
 import { makeProvider } from "./src/platform/providers";
 import { makeAppNamespace } from "./src/platform/namespaces";
 import { installCertManager } from "./src/platform/cert-manager";
@@ -36,6 +36,7 @@ import { reconcileAuditSchemas } from "./src/app/audit-schemas-job";
 import { installBackend } from "./src/app/backend";
 import { installFrontend } from "./src/app/frontend";
 import { installWeb } from "./src/app/web";
+import { installGotenberg } from "./src/app/gotenberg";
 import { installWorkers } from "./src/app/workers";
 import { installAgentWorker } from "./src/app/agent-worker";
 import { installHttpRoutes } from "./src/app/httproutes";
@@ -163,6 +164,12 @@ const rateLimitStore = cfg.rateLimit.enabled
   ? installRateLimitStore(cfg, provider, namespace)
   : undefined;
 const chroma = cfg.chroma.enabled ? installChroma(cfg, provider, namespace) : undefined;
+// Office → PDF converter for the document viewer (ADR-0070). Stateless and
+// fail-open, so nothing waits on it; its NetworkPolicies admit the frontend
+// alone and deny it every egress.
+const gotenberg = cfg.gotenberg.enabled
+  ? installGotenberg(cfg, provider, namespace, [ns])
+  : undefined;
 
 // ── Shared wiring for the app tier ─────────────────────────────────────────
 // Pull Secret for private app images (no-op when none are configured).
@@ -175,6 +182,7 @@ const wiring: AppWiring = {
   seaweedInternalEndpoint: seaweed.internalEndpoint,
   seaweedPublicEndpoint: seaweed.publicEndpoint,
   chromaUrl: chroma?.url,
+  gotenbergUrl: gotenberg?.url,
   dsn: postgres.dsn,
   imagePullSecrets: pullSecret ? [{ name: PULL_SECRET_NAME }] : [],
 };
@@ -348,6 +356,16 @@ export const errorIssueRepo = cfg.err2issue.enabled
 export const dnsRecords = dns
   ? pulumi.all(managedRecordNames(dns)).apply((names) => names.join(", "))
   : pulumi.output("(none: dnsEnabled=false — records are maintained by hand)");
+// The image refs this update deployed. `deploy.yml` reads them back before the
+// next staging deploy and refuses one that would move a service to an older
+// commit (`scripts/resolve-image-refs.sh`). The stack file cannot answer that:
+// CI's `pulumi config set` never reaches git, so the committed file still says
+// `imageTag: latest` whatever is running. Rename this and the guard goes blind.
+export const deployedImages = {
+  backend: backendImage(cfg),
+  frontend: frontendImage(cfg),
+  web: webImage(cfg),
+};
 export const agentWorkerDeployment = agentWorker
   ? agentWorker.deployment.metadata.name
   : pulumi.output("(none: dask mode)");

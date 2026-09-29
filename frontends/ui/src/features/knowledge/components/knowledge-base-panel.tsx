@@ -7,7 +7,8 @@
  * the project's own uploaded documents that join the retrieval scope.
  *
  * Data sources: `GET /api/knowledge-base` (base corpus, served by the
- * dedicated BFF service) and `GET /api/documents?projectId=…` (project docs).
+ * dedicated BFF service) and `GET /api/documents?projectId=…` (project docs,
+ * every page — the panel counts and lists them all).
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -34,6 +35,7 @@ import { useLocale, useTranslations } from '@/i18n'
 import type { KnowledgeBaseStatus, KnowledgeFile, KnowledgeFileState } from '@/lib/knowledge/service'
 import { PdfViewerDialog } from './pdf-viewer-dialog'
 import { formatBytes } from '@/lib/format'
+import { fetchListingPages } from '@/features/documents/lib/fetch-listing-pages'
 
 interface ProjectDocument {
   id: string
@@ -199,9 +201,12 @@ export function KnowledgeBasePanel({ projectId }: KnowledgeBasePanelProps) {
     })
     // Project documents are complementary; their failure must not blank the
     // corpus view, so they resolve to an empty list instead of rejecting.
-    const documentsRequest = fetch(`/api/documents?projectId=${encodeURIComponent(projectId)}`)
-      .then((r) => (r.ok ? r.json() : { documents: [] }))
-      .then((data) => (data.documents ?? []) as ProjectDocument[])
+    // Every page: the stat cards count the project's documents, and a count
+    // read off the first page stopped at 500 without saying so.
+    const documentsRequest = fetchListingPages<ProjectDocument>(
+      `/api/documents?projectId=${encodeURIComponent(projectId)}`
+    )
+      .then(({ documents }) => documents)
       .catch(() => [] as ProjectDocument[])
 
     return Promise.all([corpusRequest, documentsRequest])

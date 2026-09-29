@@ -48,12 +48,12 @@ afterEach(() => {
 describe('DocumentGridCard', () => {
   it('resolves surfaced files to project + Archiv rows and shows the human summary', async () => {
     server.use(
-      http.get('/api/documents', () =>
+      http.post('/api/documents/by-name', () =>
         HttpResponse.json({
           documents: [row('p1', 'Fluchtwegplan.pdf', { summary: 'Fluchtwegplan EG mit zweitem Ausgang.' })],
         }),
       ),
-      http.get('/api/archiv/documents', () =>
+      http.post('/api/archiv/documents/by-name', () =>
         HttpResponse.json({
           documents: [row('a1', 'Referenzprojekt.pdf', { summary: 'Vergleichbarer Grundriss aus dem Archiv.' })],
           collectionName: 'archiv_o',
@@ -103,9 +103,9 @@ describe('DocumentGridCard', () => {
 
   it('degrades an unresolvable file to an honest, actionable card (not a dead tile)', async () => {
     server.use(
-      http.get('/api/documents', () => HttpResponse.json({ documents: [] })),
+      http.post('/api/documents/by-name', () => HttpResponse.json({ documents: [] })),
       // 403 = feature gate, fail-open — NOT a fetch error, so no retry state.
-      http.get('/api/archiv/documents', () => HttpResponse.json({}, { status: 403 }))
+      http.post('/api/archiv/documents/by-name', () => HttpResponse.json({}, { status: 403 }))
     )
 
     render(
@@ -129,14 +129,14 @@ describe('DocumentGridCard', () => {
   it('shows a retry affordance (not dead tiles) when the resolve fetch genuinely fails', async () => {
     let projectCalls = 0
     server.use(
-      http.get('/api/documents', () => {
+      http.post('/api/documents/by-name', () => {
         projectCalls += 1
         // First load fails (5xx = genuine error); the retry succeeds.
         return projectCalls === 1
           ? HttpResponse.json({}, { status: 500 })
           : HttpResponse.json({ documents: [row('p1', 'Fluchtwegplan.pdf')] })
       }),
-      http.get('/api/archiv/documents', () => HttpResponse.json({}, { status: 403 })),
+      http.post('/api/archiv/documents/by-name', () => HttpResponse.json({}, { status: 403 })),
       http.get('/api/documents/:id/thumbnail', () => HttpResponse.json({}, { status: 404 }))
     )
 
@@ -167,10 +167,10 @@ describe('DocumentGridCard', () => {
 
   it('one file is a receipt that peeks; several files stay a choice', async () => {
     server.use(
-      http.get('/api/documents', () =>
+      http.post('/api/documents/by-name', () =>
         HttpResponse.json({ documents: [row('p1', 'Plan.dwg', { contentType: 'application/acad' })] })
       ),
-      http.get('/api/archiv/documents', () => HttpResponse.json({}, { status: 403 })),
+      http.post('/api/archiv/documents/by-name', () => HttpResponse.json({}, { status: 403 })),
       http.get('/api/documents/:id/thumbnail', () => HttpResponse.json({}, { status: 404 })),
       http.get('/api/documents/:id/preview', () => HttpResponse.json({ url: null })),
       http.get('/api/documents/:id/visual-details', () => HttpResponse.json({ details: [] }))
@@ -191,8 +191,8 @@ describe('DocumentGridCard', () => {
     // Same filename in BOTH corpora; the surfaced hit is tagged 'buero' but the
     // Archiv list is empty — it must resolve to nothing, never the project file.
     server.use(
-      http.get('/api/documents', () => HttpResponse.json({ documents: [row('p1', 'Bericht.pdf')] })),
-      http.get('/api/archiv/documents', () => HttpResponse.json({ documents: [] }))
+      http.post('/api/documents/by-name', () => HttpResponse.json({ documents: [row('p1', 'Bericht.pdf')] })),
+      http.post('/api/archiv/documents/by-name', () => HttpResponse.json({ documents: [] }))
     )
 
     render(

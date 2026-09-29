@@ -24,8 +24,12 @@ const FORBIDDEN = [
   [/Stunden Suche|hours of searching/i, 'unmeasured claim: only the ≈30 s answer time is measured'],
   [/Standort offen|location disclosed/i, 'unsupported claim: provider locations are not listed'],
   [/\b(Die KI-Plattform|The AI platform)\b|ist die KI-Wissensplattform|is the AI knowledge platform/, 'category claim: say "eine" / "an"'],
-  [/jede Aussage lässt sich bis|every statement can be traced/i, 'unsupported claim: an answer cites its sources, not every statement its origin'],
+  [/jede Aussage lässt sich bis|every statement can be traced|(zu|für) jede[rn]? Aussage die (Quelle|Fundstelle)|(source|citation)s? (of|for) every statement|check every statement/i, 'unsupported claim: an answer cites its sources, not every statement its origin'],
   [/Piloti (kennt|versteht)\b|Piloti (knows|understands)\b/, 'anthropomorphic claim: say what Piloti works with'],
+  // Retracted in October 2026: pages stated which OIB edition Piloti's corpus
+  // holds and called its values mere pointers. Nobody on the site's side knows
+  // what the corpus holds at a given time; say what Piloti does instead.
+  [/\b(Korpus|corpus)\b|Hinweis, bis (Sie|er|man)|pointer until/i, 'unverified claim about what Piloti\'s corpus holds'],
 ]
 
 const ROOTS = ['src/i18n', 'src/components', 'src/content', 'src/data', 'src/pages', 'src/lib', 'src/layouts', 'src/consts.ts']

@@ -25,8 +25,8 @@ Use these repository docs as the source of truth:
 |---|---|---|
 | `configs/config_oib_openrouter.yml` | Every deployment: browser UI, Skill backend, CLI, Docker Compose, Kubernetes | The one shipped config. API-enabled, LlamaIndex/Chroma knowledge layer, every model, the embeddings, the VLM and the reranker through OpenRouter with `OPENROUTER_API_KEY`. |
 
-There is exactly one config. The Kimi-, NVIDIA- and FRAG-backed variants were
-removed; nothing in the repo calls a NVIDIA endpoint. If a request needs a
+There is exactly one config. The Kimi- and NVIDIA-backed variants and the NVIDIA RAG-server backend
+were removed (ADR-0072); nothing in the repo calls a NVIDIA endpoint. If a request needs a
 different config, stop and explain the customization gap instead of inventing
 one.
 

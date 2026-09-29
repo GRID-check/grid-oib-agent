@@ -238,7 +238,20 @@ are the models. What follows is the decision, per event.
 | `CUSTOM` `stage` | `{stage, status: ready \| empty \| failed, payload?}` | The post-answer stages. They are the only events after `RUN_FINISHED`, on the same `seq` |
 | `CUSTOM` `interaction_request` | `{interaction_id, input: text \| choice, text, options[{id,label}], placeholder?, expires_at}` | HITL, over NAT's `prompt_user_input` (below). Only the two shapes a producer builds exist. The legacy `approval` and `multiple_choice`, and the never-produced checkbox, dropdown, notification and oauth inputs, are gone |
 | `CUSTOM` `interaction_resolved` | `{interaction_id, outcome: answered \| expired \| cancelled}` | Closes the prompt in every tab and for spectators, who used to learn it only from the next frame |
-| `CUSTOM` `rejected` | `{of, code, message?}`, with `seq: 0` | A client message was refused (`auth_expired`, `conversation_mismatch`, `duplicate_turn`, `not_asker`, `no_pending_interaction`, `turn_not_found`, `invalid_message`). It is out of band and never ends a turn. That is why an unauthorised Stop is not a `RUN_ERROR` |
+| `CUSTOM` `rejected` | `{of, code, message?}`, with `seq: 0` | A client message was refused (`auth_expired`, `conversation_mismatch`, `duplicate_turn`, `not_asker`, `no_pending_interaction`, `turn_not_found`, `invalid_message`). It is out of band and never ends a turn. That is why an unauthorised Stop is not a `RUN_ERROR`. `of: unknown` answers a frame with no type this wire has, which used to be dropped: a client never waits on silence |
+
+**One frame is not a turn's: `hello`.** `{v: 2, type: CUSTOM, name: hello, ts,
+value: {build}}` is the server's first frame on every socket, sent once the
+version and the caller have passed (`ChatSocket.serve`). It is not in the
+`WireEvent` union and carries no `conversation_id`, `turn_id` or `seq`, because
+nothing about it belongs to a turn: the fold never sees it, the stream never
+holds it. It closes the other half of the version gate. `4426` lets a new
+server refuse an old page; nothing let a new page refuse an old server, and a
+dev deploy that rolled the agent back to NAT's stock socket proved it: that
+server accepted the upgrade, ignored `?v=2`, answered `user_message` with a
+frame the page could not read, and the page showed „Denkt nach…" forever. The
+client now sends nothing before the hello, and treats a socket that stays
+silent, or opens with anything else, as a failed attempt (§e.2).
 
 **Not in the set, on purpose.** There is no `run_handoff` event, because the
 commission is the turn's last act and `RUN_FINISHED.result.run` carries it
@@ -473,7 +486,10 @@ Expiry sends `interaction_resolved{expired}`, then `RUN_ERROR{interaction_expire
   frames were buffered above the last replayed seq. Nothing for that turn in the
   stream means `rejected{turn_not_found}`, and the client asks for the persisted
   answer (`restoreSessionState`). **A reload** knows its turn (`wsParentId` is
-  persisted) and sends `attach{after_seq: 0}`.
+  persisted) and sends `attach{after_seq: 0}`. *As built:* the replica running
+  the turn replays from the turn's own sequencer (`TurnWire.replay`), and any
+  other replica reads the stream only once its relay subscription is confirmed
+  (`docs/api/websocket-protocol.md`, Resume).
 - **The BFF `/frames` route** keeps only `?peek=1` (the socket-less liveness probe
   in `_awaitServerAnswer`). `?after=`, `readConversationFramesAfter` and
   `framesFromStreamEntries` are deleted, because resume moved to the socket.
@@ -533,9 +549,19 @@ a `sources` step's `TraceLane[]` becomes the stored `TraceLaneCard[]` (with its
 `adapters/api/turn-socket.ts` replaces `websocket-client.ts` (1 030 lines):
 connect with `?v=2`, `send(ClientMessage)`, reconnect with jittered backoff and
 the auth refresh before each attempt, and `attach` for every open turn on open.
-The watchdog declares the socket dead after 3 × `every_ms` of silence during a
-running turn, with no silence before `RUN_STARTED`. Close code `4426` means
-reload. **Buy, don't build:** use `partysocket`'s `ReconnectingWebSocket` (MIT,
+The socket is not open until the server's `hello` (§a): it sends nothing
+before it, and a socket that stays silent for `HELLO_TIMEOUT_MS` (5 s) or opens
+with anything else fails the attempt; a spent ladder then ends `incompatible`,
+not `failed`. The watchdog declares the socket dead after 3 × `every_ms` of
+silence during a running turn, counting only frames it could parse. Close code
+`4426` means reload, and so does a frame this bundle cannot parse after the
+hello: dropping it would leave its turn unable to fold another `seq`. Before
+`RUN_STARTED` the socket watches nothing; the driver does. A question has
+`ACK_TIMEOUT_MS` (15 s) to be answered, by `RUN_STARTED`, a `rejected` or any
+frame of its turn, or the socket is reopened; a second miss ends the turn with
+an error card. A running turn the watchdog finds silent on two sockets in a row
+is ended as interrupted. The full table is in
+[`websocket-protocol.md`](../api/websocket-protocol.md#the-client). **Buy, don't build:** use `partysocket`'s `ReconnectingWebSocket` (MIT,
 pure TypeScript, async URL provider for the auth refresh) for connect, backoff
 and reconnect, if it clears review for size and licence. What we write is then
 only `attach` and the watchdog, about 100 lines. Without it, about 200.

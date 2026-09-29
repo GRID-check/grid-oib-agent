@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GridCard } from '@/shared/cards/schemas'
 import { INTERACTIVE_CARD_TYPES } from './card-decision'
 import { GridCardItem, GridCards, GridCardView } from './components/GridCards'
+import { CARD_PREVIEW_FIXTURES } from './preview-fixtures'
 
 const setCardDecision = vi.fn()
 
@@ -200,7 +201,7 @@ describe('interactive card wiring', () => {
     it(`keys ${type} on its original index in the fallback block`, async () => {
       stubFetch()
       const user = userEvent.setup()
-      const filler: GridCard = { type: 'summary', title: 'Platzhalter', content: 'x' } as GridCard
+      const filler = CARD_PREVIEW_FIXTURES.calculation!
       render(
         <GridCards
           cards={[filler, testCase.card]}

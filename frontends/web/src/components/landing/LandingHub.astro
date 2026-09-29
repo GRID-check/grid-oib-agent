@@ -1,0 +1,55 @@
+---
+/**
+ * A section's index (/vergleich/, /anwendungen/, …): every page in it with its
+ * one-sentence answer, and the other sections below, so no search page is
+ * more than two clicks from any other.
+ */
+import PageHead from '../molecules/PageHead.astro'
+import { type Locale } from '../../i18n/ui'
+import { LANDING } from '../../data/landing'
+import { SECTIONS, SECTION_IDS, landingPath, type SectionId } from '../../lib/landing'
+
+interface Props {
+  locale: Locale
+  section: SectionId
+}
+const { locale, section } = Astro.props
+const s = SECTIONS[section][locale]
+const entries = LANDING[section]
+const more = locale === 'de' ? 'Mehr von Piloti' : 'More from Piloti'
+---
+
+<div class="frame pb-8 pt-28 md:pt-36">
+  <PageHead title={s.heading} locale={locale}>
+    <p class="m-0">{s.lede}</p>
+  </PageHead>
+  <ul class="m-0 grid list-none gap-x-10 gap-y-2 p-0 md:grid-cols-2">
+    {
+      entries.map((e) => (
+        <li class="border-b border-ink/12 py-6">
+          <a href={landingPath(locale, section, e.slug)} class="group block">
+            <h2 class="m-0 font-voice text-2xl text-ink group-hover:text-accent-600">{e[locale].heading}</h2>
+            <p class="m-0 mt-2 max-w-measure text-base leading-relaxed text-ink-soft">{e[locale].answer}</p>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+  <section aria-label={more} class="section-y">
+    <p class="m-0 font-mono text-xs uppercase tracking-wide text-ink-mute">{more}</p>
+    <ul class="m-0 mt-3 flex list-none flex-wrap gap-x-6 gap-y-2 p-0 text-base">
+      {
+        SECTION_IDS.filter((id) => id !== section).map((id) => (
+          <li>
+            <a href={landingPath(locale, id)} class="text-accent-600 underline underline-offset-4">{SECTIONS[id][locale].label}</a>
+          </li>
+        ))
+      }
+      <li>
+        <a href={locale === 'de' ? '/warum-piloti/' : '/en/warum-piloti/'} class="text-accent-600 underline underline-offset-4">
+          {locale === 'de' ? 'Warum Piloti' : 'Why Piloti'}
+        </a>
+      </li>
+    </ul>
+  </section>
+</div>

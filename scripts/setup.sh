@@ -65,7 +65,7 @@ echo "Benchmarks installed"
 echo ""
 echo "Installing data sources..."
 "${UV_BIN}" pip install -e ./sources/tavily_web_search
-"${UV_BIN}" pip install -e "./sources/knowledge_layer[llamaindex,foundational_rag]"
+"${UV_BIN}" pip install -e "./sources/knowledge_layer[llamaindex]"
 echo "Data Sources installed"
 
 # Setup pre-commit

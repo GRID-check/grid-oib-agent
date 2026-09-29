@@ -62,11 +62,42 @@ beforeEach(() => {
 })
 
 describe('deleteDerivedObjects', () => {
-  it('removes the thumbnail and the BIM derivatives but leaves the file', async () => {
+  it('removes the thumbnail, the rendition and the BIM derivatives but leaves the file', async () => {
     await expect(deleteDerivedObjects(doc)).resolves.toEqual({ ok: true })
 
-    expect(deletedKeys()).toEqual(['org/org-1/project/proj-1/doc/doc-1/_thumb.jpg'])
+    expect(deletedKeys()).toEqual([
+      'org/org-1/project/proj-1/doc/doc-1/_thumb.jpg',
+      'org/org-1/project/proj-1/doc/doc-1/_render.pdf',
+    ])
     expect(deleteBimDerivedObjects).toHaveBeenCalledWith(doc.storageKey, 'test-bucket')
+  })
+
+  // A Word file turned PDF is the Word file's content; leaving it behind after
+  // "delete" is the same disclosure as leaving the original (ADR-0070).
+  it('reports a rendition it could not remove instead of moving on', async () => {
+    send.mockImplementation(async (command: unknown) => {
+      if (command instanceof DeleteObjectCommand && command.input.Key?.endsWith('/_render.pdf')) {
+        throw new Error('SeaweedFS 500')
+      }
+      return {}
+    })
+
+    const result = await deleteDerivedObjects(doc)
+
+    expect(result.ok).toBe(false)
+    expect(result.reason).toMatch(/rendition/)
+    expect(deleteBimDerivedObjects).not.toHaveBeenCalled()
+  })
+
+  it('treats a rendition that was never written as already gone', async () => {
+    send.mockImplementation(async (command: unknown) => {
+      if (command instanceof DeleteObjectCommand && command.input.Key?.endsWith('/_render.pdf')) {
+        throw Object.assign(new Error('missing'), { name: 'NoSuchKey' })
+      }
+      return {}
+    })
+
+    await expect(deleteDerivedObjects(doc)).resolves.toEqual({ ok: true })
   })
 
   it('reports a failure it could not complete', async () => {
@@ -90,6 +121,7 @@ describe('deleteDerivedObjects', () => {
     expect(listed?.input).toMatchObject({ Bucket: 'test-bucket', Prefix: IMG_PREFIX })
     expect(deletedKeys()).toEqual([
       'org/org-1/project/proj-1/doc/doc-1/_thumb.jpg',
+      'org/org-1/project/proj-1/doc/doc-1/_render.pdf',
       `${IMG_PREFIX}0.jpg`,
       `${IMG_PREFIX}1.jpg`,
     ])
@@ -130,7 +162,7 @@ describe('deleteDerivedObjects', () => {
 describe('eraseDocumentObjectsOrKeepRow', () => {
   const live = { id: 'doc-1', ...doc }
 
-  it('erases the live file, its thumbnail, its _img/ rasters and its _bim/ derivatives', async () => {
+  it('erases the live file, its thumbnail, its rendition, its _img/ rasters and its _bim/ derivatives', async () => {
     storedRasters([`${IMG_PREFIX}0.jpg`, `${IMG_PREFIX}1.jpg`])
 
     await eraseDocumentObjectsOrKeepRow(live, 'org-1')
@@ -138,6 +170,7 @@ describe('eraseDocumentObjectsOrKeepRow', () => {
     expect(deletedKeys()).toEqual([
       doc.storageKey,
       'org/org-1/project/proj-1/doc/doc-1/_thumb.jpg',
+      'org/org-1/project/proj-1/doc/doc-1/_render.pdf',
       `${IMG_PREFIX}0.jpg`,
       `${IMG_PREFIX}1.jpg`,
     ])

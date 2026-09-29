@@ -42,6 +42,8 @@ from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.citation_verification import source_lane
 from aiq_agent.common.citation_verification import verify_citations
+from aiq_agent.common.grounding_block import begin_grounding_capture
+from aiq_agent.common.grounding_block import end_grounding_capture
 from sources.knowledge_layer.src.register import _CHUNK_TRUNCATE_CHARS
 from sources.knowledge_layer.src.register import _format_results
 
@@ -99,6 +101,10 @@ class Hit:
     image_index: int | None = None
     content_type: str = "text"
     score: float = 0.87
+    #: The segment box the visual analysis stored for a plan's depiction
+    #: (``drawing_data``), and the title it read off the sheet (issue #433).
+    drawing_bbox: tuple[float, float, float, float] | None = None
+    drawing_title: str | None = None
 
     def chunk(self) -> SimpleNamespace:
         return SimpleNamespace(
@@ -120,6 +126,9 @@ class Hit:
         ):
             if value:
                 metadata[key] = value
+        if self.drawing_bbox is not None:
+            segment = {"segment_type": "floor_plan", "title": self.drawing_title, "bbox": list(self.drawing_bbox)}
+            metadata["drawing_data"] = json.dumps({"schema_version": 4, "segment": segment, "document": {}})
         if self.image_index is not None:
             metadata["image_key"] = f"img/{self.file_name}"
             metadata["stored_image_index"] = self.image_index
@@ -309,6 +318,8 @@ GOLDEN_HITS = [
         page=4,
         collection="proj_abc",
         body="Der Einreichplan zeigt die Lage der Fluchtwege im Obergeschoss.",
+        drawing_bbox=(0.08, 0.12, 0.62, 0.71),
+        drawing_title="Grundriss 1. OG",
     ),
     Hit(
         file_name="detail_attika.pdf",
@@ -340,10 +351,17 @@ def run_golden_path():
     ``verify_citations`` → ``sanitize_report`` → ``source_entry_to_wire``,
     including the renumber remap the agent applies to the ``[N]`` labels.
     """
-    tool_output = format_hits(GOLDEN_HITS)
-    registry = SourceRegistry()
-    for entry in extract_sources_from_tool_result("knowledge_search", tool_output):
-        registry.add(entry)
+    # Under a grounding capture, as Piloti's turn runs: the registry reads the
+    # records the producer filed, not the text back. Only the records carry what
+    # the text does not state, such as a plan's region (issue #433).
+    token = begin_grounding_capture()
+    try:
+        tool_output = format_hits(GOLDEN_HITS)
+        registry = SourceRegistry()
+        for entry in extract_sources_from_tool_result("knowledge_search", tool_output):
+            registry.add(entry)
+    finally:
+        end_grounding_capture(token)
 
     verification = verify_citations(GOLDEN_ANSWER, registry, reference_sources=registry.all_sources())
     sanitization = sanitize_report(verification.verified_report)
@@ -457,6 +475,12 @@ class TestTheNoticeIsInsideTheBytes:
         assert [entry.citation_key for entry in block.hits] == [hit.citation_key]
 
 
+def _without_regions(entry: SourceEntry) -> dict[str, object]:
+    fields = dataclasses.asdict(entry)
+    fields.pop("regions")
+    return fields
+
+
 class TestTheTwoReadersAgree:
     """The structured reader and the text parser must produce the same entries.
 
@@ -523,8 +547,22 @@ class TestTheTwoReadersAgree:
         return structured, extract_sources_from_tool_result("knowledge_search", tool_output)
 
     def test_the_golden_hits_read_identically_field_by_field(self):
+        """Every field but ``regions``, which only the record carries (see below)."""
         structured, parsed = self.read_both_ways(GOLDEN_HITS)
-        assert [dataclasses.asdict(entry) for entry in structured] == [dataclasses.asdict(entry) for entry in parsed]
+        assert [_without_regions(entry) for entry in structured] == [_without_regions(entry) for entry in parsed]
+
+    def test_a_region_rides_on_the_record_and_never_on_the_text(self):
+        """The second place the two readers differ, written down rather than found.
+
+        A region is geometry for the reader's viewer, so it is deliberately not a
+        line of the text the model reads (issue #433), and the text parser has
+        nothing to recover it from. A replayed turn therefore opens a plan at its
+        page without the box, which is what every turn did before.
+        """
+        structured, parsed = self.read_both_ways(GOLDEN_HITS)
+        plan = next(entry for entry in structured if entry.citation_key == "einreichplan_og.pdf, p.4")
+        assert [region.label for region in plan.regions] == ["Grundriss 1. OG"]
+        assert all(entry.regions == [] for entry in parsed)
 
     def test_a_fully_stated_hit_reads_identically_field_by_field(self):
         """Punkt, score, doc_class, shelf, authored_by, content type, truncation."""

@@ -37,6 +37,7 @@ import * as React from 'react'
 import { usePathname } from 'next/navigation'
 
 import { ProductTour } from '@/features/onboarding/components/product-tour'
+import { FeedbackProvider } from '@/features/product-feedback/components'
 import { cn } from '@/lib/utils'
 import { AppSidebar } from './app-sidebar'
 import { OrgHeader } from './org-header'
@@ -94,6 +95,7 @@ export function AppShellChrome({
       canManageOrganization={chrome.canManageOrganization}
       eligible={chrome.tours}
     >
+    <FeedbackProvider userEmail={chrome.user?.email ?? null}>
     <div
       className={cn(
         'bg-background text-foreground flex h-dvh overflow-hidden',
@@ -130,6 +132,7 @@ export function AppShellChrome({
       {children}
       {overlay}
     </div>
+    </FeedbackProvider>
     </ProductTour>
   )
 }

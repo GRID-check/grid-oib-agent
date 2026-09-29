@@ -1,7 +1,8 @@
 /**
- * Document re-ingest API — re-dispatch a previously-failed document to the
- * backend ingest pipeline. Thin handler; all logic (access checks, status
- * guard, dispatch) lives in `@/lib/documents/service`.
+ * Document re-ingest API — send a document back through the backend ingest
+ * pipeline under its own id: a retry for a failed or lost one, a re-read for
+ * an indexed one. Thin handler; all logic (access checks, status guard, the
+ * 409 codes, dispatch) lives in `@/lib/documents/service`.
  */
 
 import { apiRoute } from '@/lib/api/handler'

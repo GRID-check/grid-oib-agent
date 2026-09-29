@@ -18,6 +18,7 @@ import pytest
 from pydantic import ValidationError
 
 from aiq_agent.common.wire_v2 import CLIENT_MESSAGE
+from aiq_agent.common.wire_v2 import HELLO
 from aiq_agent.common.wire_v2 import WIRE_EVENT
 from aiq_agent.common.wire_v2 import AnswerRetractedBody
 from aiq_agent.common.wire_v2 import EmptyValue
@@ -134,3 +135,24 @@ def test_the_committed_schema_is_the_one_the_models_generate() -> None:
         "shared/wire/v2.schema.json is stale: run `uv run python scripts/generate_wire_schema.py`, "
         "then `npm run generate:wire` in frontends/ui, and commit both."
     )
+
+
+@pytest.mark.parametrize("raw", _lines(FIXTURES / "hello.jsonl"))
+def test_the_hello_is_the_frame_the_server_writes_and_no_turn_event(raw: dict[str, Any]) -> None:
+    assert to_frame(HELLO.validate_python(raw)) == raw
+    # A reader that folds turns must never mistake it for one: it names no turn.
+    with pytest.raises(ValidationError):
+        WIRE_EVENT.validate_python(raw)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"v": 3, "type": "CUSTOM", "name": "hello", "ts": 1, "value": {"build": "abc"}},
+        {"v": 2, "type": "CUSTOM", "name": "hello", "ts": 1, "value": {}},
+        {"v": 2, "type": "CUSTOM", "name": "hello", "ts": 1, "value": {"build": "abc"}, "turn_id": "t"},
+    ],
+)
+def test_a_hello_in_another_dialect_is_refused(raw: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        HELLO.validate_python(raw)

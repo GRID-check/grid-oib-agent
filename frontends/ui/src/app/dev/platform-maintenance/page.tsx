@@ -1,7 +1,8 @@
 'use client'
 
 /**
- * Dev preview for the platform maintenance surface (the orphaned-vector sweep).
+ * Dev preview for the platform maintenance surface (the orphaned-vector sweep
+ * and the deep-research kill switch).
  *
  * Renders the REAL `VectorMaintenance` card twice — once as an operator first
  * meets it (explainer + "no sweep run yet"), once seeded with a finished run so
@@ -12,6 +13,7 @@
  */
 
 import type { JSX } from 'react'
+import { RunKillSwitch } from '@/app/app/(shell)/platform/run-kill-switch'
 import { VectorMaintenance } from '@/app/app/(shell)/platform/vector-maintenance'
 
 const RESULT = {
@@ -25,6 +27,15 @@ const RESULT = {
   ],
 }
 
+const KILL_RESULT = {
+  jobsFound: 7,
+  jobsKilled: 6,
+  jobsAlreadyFinished: 1,
+  runsClosed: 2,
+  failures: [{ id: 'job-4f2c', error: 'dask scheduler unreachable' }],
+  truncated: false,
+}
+
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   const w = window as unknown as { __platformMaintenanceShim?: boolean }
   if (!w.__platformMaintenanceShim) {
@@ -34,6 +45,9 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url.startsWith('/api/platform/maintenance/reconcile-vectors')) {
         return Response.json(RESULT)
+      }
+      if (url.startsWith('/api/platform/maintenance/kill-runs')) {
+        return Response.json(KILL_RESULT)
       }
       return real(input, init)
     }
@@ -55,6 +69,8 @@ export default function PlatformMaintenanceDevPage(): JSX.Element {
       </div>
       <VectorMaintenance />
       <VectorMaintenance initialResult={RESULT} />
+      <RunKillSwitch />
+      <RunKillSwitch initialResult={KILL_RESULT} />
     </main>
   )
 }

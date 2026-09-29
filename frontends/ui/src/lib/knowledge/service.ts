@@ -431,6 +431,35 @@ export async function reingestKnowledgeBaseDocuments(fileNames: string[]): Promi
 }
 
 /**
+ * The whole base corpus as one .tar.gz, for a CI ingest (the answer-suite
+ * workflow). The backend builds it from exactly the PDFs its sync ingests and
+ * refuses without a configured admin token; this passes the stream through.
+ */
+export async function streamKnowledgeBaseCorpus(): Promise<Response> {
+  let res: Response
+  try {
+    res = await fetch(`${getBackendUrl()}/v1/admin/oib/corpus.tar.gz`, {
+      headers: adminHeaders(),
+      // Tens of MB, tarred before the first byte: minutes, not seconds.
+      signal: AbortSignal.timeout(600_000),
+    })
+  } catch (error) {
+    throw new UpstreamError('Knowledge backend unreachable', error instanceof Error ? error.message : undefined)
+  }
+  if (!res.ok || !res.body) {
+    throw new UpstreamError(`Knowledge backend returned ${res.status}`)
+  }
+  return new Response(res.body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/gzip',
+      'Content-Disposition': 'attachment; filename="oib-corpus.tar.gz"',
+      'Cache-Control': 'no-store',
+    },
+  })
+}
+
+/**
  * Stream a corpus source PDF from the backend (for the citation/source
  * viewer). Returns a Response suitable to hand straight back to the browser.
  */

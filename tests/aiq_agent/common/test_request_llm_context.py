@@ -136,3 +136,32 @@ class TestTheAgentsReadThroughIt:
 
         _assert_off_the_loop(threads)
         prebuilt.run.assert_awaited_once_with(state)
+
+
+class TestTurnEffort:
+    """The asker's level lands on the chat answer's group only."""
+
+    def test_no_stated_level_leaves_the_platform_efforts(self):
+        efforts = {"shallow_research": "medium", "clarifier": "low"}
+
+        assert request_llm_context.with_turn_effort(efforts, None) is efforts
+
+    def test_the_stated_level_wins_for_the_answering_group_only(self):
+        efforts = {"shallow_research": "medium", "clarifier": "low"}
+
+        merged = request_llm_context.with_turn_effort(efforts, "high")
+
+        assert merged == {"shallow_research": "high", "clarifier": "low"}
+        assert efforts["shallow_research"] == "medium"
+
+    async def test_read_applies_the_turn_level_over_a_failed_lookup(self):
+        from aiq_agent.common.reasoning_settings import set_turn_reasoning_effort
+
+        set_turn_reasoning_effort("low")
+        try:
+            with patch.object(request_llm_context, "get_reasoning_efforts", side_effect=RuntimeError("bff down")):
+                efforts = await request_llm_context._read_reasoning_efforts()
+        finally:
+            set_turn_reasoning_effort(None)
+
+        assert efforts == {"shallow_research": "low"}

@@ -75,6 +75,12 @@ const wireSourceSchema = z
     lane_label: z.string().nullish(),
     binding_note: z.string().nullish(),
     binding_status: z.string().nullish(),
+    /**
+     * Boxes on the page for a passage read off a plan or photo (issue #433).
+     * Validated by `parsePageRegions` on the way out, like the live wire, so
+     * the schema only has to admit an array.
+     */
+    regions: z.array(z.unknown()).nullish(),
     /** Whether the answer cited this source, as opposed to merely retrieving it. */
     is_cited: z.boolean().nullish(),
   })
@@ -137,6 +143,7 @@ export const encodeCitations = (
       lane_label: citation.laneLabel,
       binding_note: citation.bindingNote,
       binding_status: citation.bindingStatus,
+      regions: citation.regions,
       is_cited: citation.isCited,
     })),
   }

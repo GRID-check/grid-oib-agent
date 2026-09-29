@@ -4,7 +4,7 @@ description: >
   Brandabschnitt, Fluchtweg und Feuerwiderstand, sobald die GK steht.
 metadata:
   grid-agents: researcher,deep_researcher
-  grid-cards: fire_compartment,egress_diagram,fire_access_plan,requirement_checklist,legal_basis
+  grid-cards: egress_diagram,fire_access_plan,calculation
 ---
 
 # Eine Brandschutzfrage beantworten
@@ -33,14 +33,14 @@ wohin er führt. Beides beantworten, oder sagen, welches offen ist.
 
 ## Welches Bild
 
-Ein Geschoß in Brandabschnitte geteilt, Flächen gegen die Grenze →
-`fire_compartment`.
+Ein Geschoß in Brandabschnitte geteilt, Flächen gegen die Grenze → als
+Prüftabelle, eine Zeile je Abschnitt; eine errechnete Fläche → `calculation`.
 Ein Fluchtweg aus Segmenten, deren Summe geprüft wird → `egress_diagram`. Die
 Segmente einzeln, nie nur die Summe: die Frage ist fast immer, *welches*
 Segment zu lang ist.
 Zufahrt, Durchfahrt, Aufstellfläche → `fire_access_plan`.
-Mehrere Anforderungen, jede mit eigenem Urteil → als Prüftabelle (Status-Spalte).
-Die Bestimmung selbst → `legal_basis`.
+Mehrere Anforderungen, jede mit eigenem Urteil → als Prüftabelle mit Status-Spalte.
+Die Stelle, an deren Wortlaut die Antwort hängt → als Zitatzeile `> „…“ [N]`.
 
 ## Done
 

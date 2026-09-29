@@ -339,6 +339,16 @@ describe('a Punkt is carried through to the citation', () => {
     expect(text.indexOf('Pkt. 3.5.2')).toBeLessThan(text.indexOf('S. 12'))
   })
 
+  test('carries „Pkt." only before a bare number', () => {
+    // A project document's section is addressed by what it is called („§ 4",
+    // „Zeilen 2-41"); prefixing those with „Pkt." names nothing.
+    for (const punkt of ['§ 4', 'Zeilen 2-41', 'Geschoße', 'Tabelle 3']) {
+      const text = toFachtext({ ...withPunkt, locus: { ...withPunkt.locus!, punkt } }, NOW)
+      expect(text).toContain(`, ${punkt}, `)
+      expect(text).not.toContain('Pkt.')
+    }
+  })
+
   test('is absent when the citation does not name one', () => {
     // A document-level reference has no Punkt, and inventing one would be the
     // same overstatement `refPage` refuses for pages.

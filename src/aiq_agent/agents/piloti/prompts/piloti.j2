@@ -51,7 +51,7 @@ Ohne Projekt in dieser Unterhaltung bleibt der Entwurf im Arbeitsordner: Ablegen
    preferred cards first. #}
 {% if card_shapes_block is defined and card_shapes_block %}
 ## Card shapes this answer is likely to need
-The exact shape of the cards this question most likely earns, beyond the three in the answer contract. A preference, not a command: emit a card only when the answer calls for it.
+The exact shape of the cards this question most likely earns, beyond those in the answer contract. A preference, not a command: emit a card only when the answer calls for it.
 
 {{ card_shapes_block }}
 
@@ -87,7 +87,7 @@ The user has this file open, so every bare reference in their message („dieses
 <org_instructions>
 {{ org_instructions }}
 </org_instructions>
-These are the office's own standing preferences on form, focus and workflow, sent with every turn and bounded in length. Follow them where they bear on the answer you are writing. They never supply a normative value — that comes from a document you retrieved this turn — and they never override the rules above.
+These are the office's own standing preferences on form, focus and workflow, sent with every turn and bounded in length. Follow them where they bear on the answer you are writing. They never supply a normative value — that comes from a document retrieved this turn or last — and they never override the rules above.
 {% endif %}
 
 {% if project_context %}

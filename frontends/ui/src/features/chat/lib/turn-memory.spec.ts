@@ -98,11 +98,11 @@ describe('turnMemoryItems', () => {
   })
 
   it('ignores the other cards of an answer', () => {
-    // A `callout` is not a memory, and the fallback block of an answer is full
-    // of them.
+    // A `calculation` is not a memory, and the fallback block of an answer
+    // holds cards of every kind.
     const items = turnMemoryItems({
-      cards: [{ type: 'callout', kind: 'achtung', title: 'Hanglage', text: 'x' } as GridCard],
-      cardInteractions: { 'callout-0': { decision: 'savedOrg', decidedAt: 'x' } as CardInteractions[string] },
+      cards: [{ type: 'calculation', title: 'Schrittmaß', steps: [] } as unknown as GridCard],
+      cardInteractions: { 'calculation-0': { decision: 'savedOrg', decidedAt: 'x' } as CardInteractions[string] },
     })
     expect(items).toEqual([])
   })

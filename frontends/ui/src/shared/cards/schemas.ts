@@ -6,13 +6,11 @@
 // `npm run generate:cards`.
 
 import { z } from 'zod'
-import { gridCardSchema, legalBasisCardSchema, summaryCardSchema, projectProfilePatchCardSchema } from './generated'
+import { gridCardSchema, projectProfilePatchCardSchema } from './generated'
 
-export { gridCardSchema, legalBasisCardSchema, summaryCardSchema, projectProfilePatchCardSchema }
+export { gridCardSchema, projectProfilePatchCardSchema }
 
 export type GridCard = z.infer<typeof gridCardSchema>
-export type SummaryCardData = z.infer<typeof summaryCardSchema>
-export type LegalBasisCardData = z.infer<typeof legalBasisCardSchema>
 export type ProjectProfilePatchCardData = z.infer<typeof projectProfilePatchCardSchema>
 
 /**

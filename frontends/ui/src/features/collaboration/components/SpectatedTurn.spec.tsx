@@ -12,6 +12,7 @@ import { initialTurnView, type KeyedCard, type TurnView } from '@/features/chat/
 import { eventOf, frameOf } from '@/test-utils/wire-v2-fixtures'
 import { foldSpectatedEvent } from '../lib/spectator-frames'
 import { SpectatedTurn } from './SpectatedTurn'
+import { CARD_PREVIEW_FIXTURES } from '@/features/grid-cards/preview-fixtures'
 
 const LABEL = 'Piloti beantwortet die Frage von Anna Berger…'
 
@@ -124,9 +125,9 @@ describe('SpectatedTurn', () => {
   })
 
   it('draws a turn that carries cards and no prose', () => {
-    const basis = keyed({ type: 'legal_basis', law: 'OIB-Richtlinie 2', article: '3.1', summary: 'GK 4: REI 60.' })
-    render(<SpectatedTurn turn={turn({ cards: [basis] })} label={LABEL} />)
-    expect(screen.getByTestId('spectated-turn')).toHaveTextContent('OIB-Richtlinie 2')
+    const stair = keyed({ ...CARD_PREVIEW_FIXTURES.stair_diagram!, title: 'Treppe Haus A' })
+    render(<SpectatedTurn turn={turn({ cards: [stair] })} label={LABEL} />)
+    expect(screen.getByTestId('spectated-turn')).toHaveTextContent('Treppe Haus A')
   })
 
   it('offers no copy controls once the turn is done', () => {

@@ -26,7 +26,6 @@ import json
 import logging
 import re
 
-from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.models import grid_card_adapter
 from aiq_agent.cards.registry import get_card_registry
@@ -130,7 +129,7 @@ def _salvage_card(card_json: str) -> None:
     """Validate and register one card the way the real ``emit_card`` tool does.
 
     Mirrors ``aiq_agent.cards.register.emit_card``: parse → validate against the
-    shared adapter → reject system-only card types → push into the active
+    shared adapter → reject system card types → push into the active
     conversation card registry. Fail-soft.
     """
     try:
@@ -140,10 +139,10 @@ def _salvage_card(card_json: str) -> None:
         if not isinstance(payload, dict):
             return
         validated = grid_card_adapter.validate_python(payload).model_dump(exclude_none=True)
-        if validated.get("type") in SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES:
+        if validated.get("type") in SYSTEM_CARD_TYPES:
             # System cards are emitted only by their owning tool on a sanctioned
-            # path, and envelope shapes are answer-envelope fields, not cards —
-            # never salvage either from leaked model text.
+            # path — never salvage one from leaked model text. A retired type
+            # is no union member and already failed validation above.
             return
         registry = get_card_registry()
         if registry is None:

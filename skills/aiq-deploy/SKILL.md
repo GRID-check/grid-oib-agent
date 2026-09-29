@@ -207,14 +207,13 @@ If your Blueprint version is not compatible:
   or example commands.
 - Do not overwrite `deploy/.env` when it already exists.
 - Ask before destructive cleanup such as deleting Docker volumes with `down -v`.
-- Do not claim FRAG is ready unless both `RAG_SERVER_URL` and `RAG_INGEST_URL` are configured and reachable.
 - Run verification commands yourself when possible.
 
 ## Limitations
 
 - This skill prepares and validates AI-Q infrastructure; it does not judge deep research report quality.
 - It cannot provide or inspect secret values. Users must configure credentials outside chat.
-- Helm, FRAG, custom config, and self-hosted model paths depend on infrastructure the user controls.
+- Helm, custom config, and self-hosted model paths depend on infrastructure the user controls.
 - Destructive cleanup, such as deleting Docker volumes, requires explicit user approval.
 
 ## Examples

@@ -100,6 +100,12 @@ export const llmUsageEvents = pgTable(
     conversationId: text('conversation_id'),
     /** Async job id when the generation ran inside a Dask worker. */
     jobId: text('job_id'),
+    /**
+     * The chat answer this generation belongs to (migration 0098): every call
+     * of the turn up to the answer, and its post-answer stages. What lets the
+     * answer's details show the credits it cost. NULL for jobs and older rows.
+     */
+    messageId: text('message_id'),
     /** Agent group (reserved — not populated by the v1 tracker). */
     agentGroup: text('agent_group'),
     /** Model id the request asked for (post-override). */
@@ -145,6 +151,7 @@ export const llmUsageEvents = pgTable(
       table.model,
       table.createdAt
     ),
+    orgMessageIdx: index('idx_llm_usage_events_org_message').on(table.organizationId, table.messageId),
   })
 )
 

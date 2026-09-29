@@ -11,6 +11,7 @@ import threading
 import time
 from abc import ABC
 from abc import abstractmethod
+from collections.abc import Callable
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -246,7 +247,7 @@ class BaseIngestor(ABC):
     @abstractmethod
     def submit_job(
         self,
-        file_paths: list[str],
+        file_paths: list[str | Callable[[], str]],
         collection_name: str,
         config: dict[str, Any] | None = None,
     ) -> str:
@@ -257,7 +258,11 @@ class BaseIngestor(ABC):
         processing happens asynchronously in the background.
 
         Args:
-            file_paths: List of file paths (local or S3 URIs) to ingest.
+            file_paths: Files to ingest. An entry is a local path, or a
+                zero-argument callable the job runs when it reaches the file,
+                which downloads it and returns the local path; that file is the
+                job's to delete. ``POST /v1/ingest`` hands over the latter so
+                the request downloads nothing (``knowledge_layer.deferred_files``).
             collection_name: Target collection/index name.
             config: Optional ingestion configuration (chunking, extraction, and so on).
 
@@ -278,6 +283,16 @@ class BaseIngestor(ABC):
         Returns:
             IngestionJobStatus with current state.
         """
+
+    def find_live_job(self, dispatch_key: str) -> str | None:
+        """The id of a pending or processing job submitted under ``dispatch_key``, or None.
+
+        ``dispatch_key`` rides in ``submit_job``'s config; ``POST /v1/ingest``
+        asks this before submitting, so a retried dispatch joins the job already
+        running instead of starting a second one. A backend that cannot answer
+        says None, and the dispatch submits as it always did.
+        """
+        return None
 
     @property
     @abstractmethod
@@ -387,8 +402,6 @@ class BaseIngestor(ABC):
         """
         Delete multiple files from a collection (batch delete).
 
-        Follows NVIDIA RAG Blueprint pattern for batch file deletion.
-
         Args:
             file_ids: List of file IDs to delete.
             collection_name: Collection containing the files.
@@ -490,6 +503,10 @@ class BaseIngestor(ABC):
             One-sentence summary or None if not implemented.
         """
         return None
+
+    def get_document_visual_details(self, collection_name: str, file_name: str) -> list[dict[str, Any]]:
+        """Per-page VLM descriptions of a document's visual chunks. Default: none."""
+        return []
 
     async def health_check(self) -> bool:
         """

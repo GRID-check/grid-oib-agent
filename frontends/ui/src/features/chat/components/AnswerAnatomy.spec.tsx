@@ -2,7 +2,7 @@ import { render as rtlRender, screen } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { describe, expect, test } from 'vitest'
 import { I18nProvider } from '@/i18n'
-import type { GridCard } from '@/shared/cards/schemas'
+import type { AnatomyVerdict } from '../lib/answer-meta-cards'
 import { answerMetaToAnatomy } from '../lib/answer-meta-cards'
 import { AnatomyMasthead } from './AnswerAnatomy'
 
@@ -21,7 +21,7 @@ const render = (ui: ReactElement) =>
     </I18nProvider>
   )
 
-const verdictCard: GridCard = {
+const verdictCard: AnatomyVerdict = {
   type: 'verdict_header',
   verdict: 'REI 60',
   subject: 'Feuerwiderstand tragender Bauteile',
@@ -173,8 +173,6 @@ describe('answerMetaToAnatomy topic carry-through', () => {
     })
     expect(anatomy?.topic).toBe('Geländerhöhe bei Balkonen')
     expect(anatomy?.context).toBe('Neubau in GK 4.')
-    // Cross-card coordination still sees cards only.
-    expect(anatomy?.all).toEqual([])
     expect(anatomy?.below).toEqual([])
   })
 
@@ -187,7 +185,6 @@ describe('answerMetaToAnatomy topic carry-through', () => {
     })
     expect(anatomy?.topic).toBe('Geländerhöhe bei Balkonen')
     expect(anatomy?.verdict?.type).toBe('verdict_header')
-    expect(anatomy?.all).toHaveLength(1)
   })
 
   test('no anatomy without anything renderable', () => {

@@ -1,8 +1,9 @@
 """Per-turn usage rollup in dollars: what one turn spent, in one record.
 
 The per-call ledger (``GridCostTracker`` → ``llm_usage_events``) records every
-model call, but its rows carry no turn id — per-turn waste is not a GROUP BY
-anywhere. This module is the usage sibling of ``common.citation_events``
+model call. Its rows name the chat answer they belong to (``message_id``,
+which the answer's cost line sums) but no turn of a job, and nothing in the
+BFF groups by turn. This module is the usage sibling of ``common.citation_events``
 (citation health) and mirrors its pattern exactly:
 
 - a pure :func:`build_usage_rollup` the tests exercise directly,

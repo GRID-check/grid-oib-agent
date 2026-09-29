@@ -4,6 +4,7 @@ import { createElement } from 'react'
 import { beforeAll, afterEach, afterAll, vi } from 'vitest'
 import { server } from '../../src/mocks/server'
 import { resetDatabase } from '../../src/mocks/database'
+import { refuseNetwork } from './network-guard'
 
 // Default mock for AuthKit components so tests that import `@/adapters/auth`
 // (or anything transitively pulling in `@workos-inc/authkit-nextjs/components`)
@@ -285,6 +286,8 @@ Number.prototype.toLocaleString = function (
 ) {
   return originalNumberToLocaleString.call(this, toEffectiveLocales(locales), options)
 }
+
+refuseNetwork()
 
 // MSW server lifecycle
 beforeAll(() => {

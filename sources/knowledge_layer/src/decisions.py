@@ -125,6 +125,7 @@ async def passage_verdicts(
     *,
     threshold: float = DEFAULT_SUFFICIENCY_THRESHOLD,
     timeout: float = DEFAULT_TIMEOUT_S,
+    injection: bool = True,
 ) -> PassageVerdicts | None:
     """Decide sufficiency over the head of a pool; ``None`` when no decision ran.
 
@@ -133,14 +134,17 @@ async def passage_verdicts(
     An EMPTY head decides nothing either: there is no passage to ask about,
     and the judge's own reading of an empty pool ("the strongest reason to
     try another formulation") stands.
+
+    ``injection=False`` asks the sufficiency question alone: the coverage
+    check re-reads passages the first pass already screened, and asking again
+    would record the same flag twice.
     """
     client = _client()
     if client is None or not query or not chunks:
         return None
-    questions = {
-        "answers": client.noul(_ANSWERS, true=_ANSWERS_TRUE, false=_ANSWERS_FALSE),
-        "injection": client.noul(_INJECTION, true=_INJECTION_TRUE, false=_INJECTION_FALSE),
-    }
+    questions = {"answers": client.noul(_ANSWERS, true=_ANSWERS_TRUE, false=_ANSWERS_FALSE)}
+    if injection:
+        questions["injection"] = client.noul(_INJECTION, true=_INJECTION_TRUE, false=_INJECTION_FALSE)
     decided = await client.decide_many(
         [_passage_state(query, chunk) for chunk in chunks], questions, slot="passages", timeout=timeout
     )
@@ -148,7 +152,7 @@ async def passage_verdicts(
         return None
     verdicts = PassageVerdicts(
         answers=tuple(d.noul("answers") if d else None for d in decided),
-        injection=tuple(d.noul("injection") if d else None for d in decided),
+        injection=tuple(d.noul("injection") if d and injection else None for d in decided),
         threshold=threshold,
     )
     _record_flags(verdicts, chunks)

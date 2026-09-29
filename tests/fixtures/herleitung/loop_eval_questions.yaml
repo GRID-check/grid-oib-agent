@@ -54,7 +54,10 @@
 #             mentions:     values that must appear (a list inside the list is
 #                           alternatives, e.g. [EI2 30, EI₂ 30])
 #             not_mentions: phrases that must not (a false claim seen live)
-#             shape:        tabs | table | diagram, or a list of acceptable ones
+#             shape:        tabs | table | diagram | a dialect block (check,
+#                           cases, metrics, procedure, compare, actions,
+#                           not-found, subsumption, details) | plain (no block
+#                           at all: the negative set), or a list of acceptable ones
 #             kind_also:    kinds the suite accepts besides `kind`, when a
 #                           second reading is as right (a list the law
 #                           prescribes is a walkthrough AND a ruling); the

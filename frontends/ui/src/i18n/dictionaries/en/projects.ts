@@ -338,18 +338,6 @@ export const projects = {
     removeTitle: 'Remove from memory',
   },
   overview: {
-    docStatus: {
-      unknown: 'Unknown',
-      uploaded: 'Uploaded',
-      ready: 'Ready',
-      ingested: 'Ingested',
-      success: 'Success',
-      pending: 'Pending',
-      ingesting: 'Ingesting',
-      processing: 'Processing',
-      uploading: 'Uploading',
-      failed: 'Failed',
-    },
     workspaceCreated: 'Project workspace · created {date}',
     workspace: 'Project workspace',
     askGrid: 'Ask Piloti',

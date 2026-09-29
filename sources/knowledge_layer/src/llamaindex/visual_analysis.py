@@ -87,6 +87,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from typing import Any
 
@@ -543,9 +544,14 @@ def _normalise_bbox(value: Any) -> list[float] | None:
     if not isinstance(value, (list, tuple)) or len(value) != 4:
         return None
     try:
-        coords = [min(1.0, max(0.0, float(part))) for part in value]
+        raw = [float(part) for part in value]
     except (TypeError, ValueError):
         return None
+    # A NaN clamps to 0.0 and an infinity to an edge, and both would then pass
+    # as a plausible box, so a non-finite coordinate drops the box.
+    if not all(math.isfinite(part) for part in raw):
+        return None
+    coords = [min(1.0, max(0.0, part)) for part in raw]
     x0, y0, x1, y1 = coords
     if x1 <= x0 or y1 <= y0:
         return None

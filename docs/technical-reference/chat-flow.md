@@ -12,7 +12,9 @@ the contract in [`websocket-protocol.md`](../api/websocket-protocol.md)).
 
 1. `createTurnSocket` (`frontends/ui/src/adapters/api/turn-socket.ts`) opens
    `ws://<host>/websocket?v=2&conversationId=<id>&projectId=<id>`, refreshing
-   the auth cookie before every attempt.
+   the auth cookie before every attempt. The socket is open, and sends, only
+   once the server's first frame, `hello`, says it speaks wire v2; a server
+   that stays silent or opens with anything else fails the attempt.
 2. `server.js` upgrade handler resolves auth and scope (see [WebSocket Gateway](websocket-gateway.md)).
 3. The client sends four messages: `user_message` (its `message_id` is the
    question's id, which becomes the turn id), `interaction_response`,
@@ -24,9 +26,12 @@ the contract in [`websocket-protocol.md`](../api/websocket-protocol.md)).
    (`features/chat/lib/turn-projection.ts`). Answer deltas wait for a 100 ms
    flush; anything else is folded at once.
 5. `RUN_STARTED` acknowledges the question; until it arrives the question is
-   resent on every reopen. A running turn, and a finished one whose stages
-   have not landed, is re-attached from its last seq whenever the socket
-   reopens. Close code 4426 asks the reader to reload.
+   resent on every reopen. A question not acknowledged within 15 s reopens the
+   socket, and a second miss ends the turn with an error card and its Retry.
+   A running turn, and a finished one whose stages have not landed, is
+   re-attached from its last seq whenever the socket reopens; one silent on
+   two sockets in a row is ended. Close code 4426, or a frame this bundle
+   cannot parse, asks the reader to reload.
 
 ## Chat store
 

@@ -331,7 +331,7 @@ When a `knowledge_retrieval` function is configured in your workflow, the plugin
 - **`/v1/collections`** – Create and list collections (uses the same ingestor as the knowledge tool).
 - **`/v1/documents`** – Upload files and trigger ingestion.
 
-Backend (LlamaIndex, Foundational RAG, etc.) is determined by the `knowledge_retrieval` config. If no knowledge function is configured, these routes are not registered.
+They serve the llamaindex backend that the `knowledge_retrieval` function sets up (ADR-0072). If no knowledge function is configured, these routes are not registered.
 
 ## Debug Console
 

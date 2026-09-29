@@ -33,6 +33,7 @@ describe('errorConcernsTheThread', () => {
       'connection.lost',
       'connection.failed',
       'connection.timeout',
+      'connection.server_incompatible',
       'auth.session_expired',
       'auth.unauthorized',
     ] as const) {

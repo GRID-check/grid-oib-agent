@@ -22,6 +22,7 @@ import { baseStackConfig } from "./src/test-support/stack-config";
  */
 
 const RESOURCES: Array<{ type: string; name: string }> = [];
+let STACK: Record<string, unknown> = {};
 
 pulumi.runtime.setMocks(
   {
@@ -58,6 +59,7 @@ describe("the program constructs in the split topology", () => {
       "grid-oib:observabilityEnabled": "false",
     });
     const stack = (await import("./index")) as Record<string, unknown>;
+    STACK = stack;
     // Importing the module is not enough. Pulumi registers resources
     // asynchronously, so the import resolves before a single `newResource` has
     // fired. Resolving every exported Output drains that queue — which is also
@@ -106,6 +108,29 @@ describe("the program constructs in the split topology", () => {
     // never reached the BFF. Left out, those runs would read "running" forever.
     expect(pulumi.runtime.allConfig()["grid-oib:skillsEnabled"]).not.toBe("true");
     expect(named("kubernetes:apps/v1:Deployment")).toContain("skill-scheduler");
+  });
+
+  it("exports the image refs it deployed, which the staging downgrade guard reads back", () => {
+    // `scripts/resolve-image-refs.sh` reads `deployedImages.<service>` from the
+    // stack outputs to refuse a deploy that moves a service to an older commit.
+    // A renamed output would not fail the deploy; it would turn the guard into
+    // a warning, which is how the 09-28 backend downgrade went unnoticed.
+    const tag = pulumi.runtime.allConfig()["grid-oib:imageTag"] ?? "latest";
+    expect(STACK.deployedImages).toEqual({
+      backend: `ghcr.io/grid-check/grid-oib-backend:${tag}`,
+      frontend: `ghcr.io/grid-check/grid-oib-frontend:${tag}`,
+      web: `ghcr.io/grid-check/grid-oib-web:${tag}`,
+    });
+  });
+
+  it("deploys the office converter and fences it by default (ADR-0070)", () => {
+    // Default-on: without it every Word/Excel/PowerPoint file is download-only,
+    // and nothing in a green `pulumi up` says so.
+    expect(named("kubernetes:apps/v1:Deployment")).toContain("gotenberg");
+    expect(named("kubernetes:core/v1:Service")).toContain("gotenberg");
+    expect(named("kubernetes:networking.k8s.io/v1:NetworkPolicy")).toContain(
+      "gotenberg-frontend-only",
+    );
   });
 
   it("keeps the S3 endpoint on the name the app tier already uses", () => {

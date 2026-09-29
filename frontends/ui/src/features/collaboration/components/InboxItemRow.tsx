@@ -42,6 +42,7 @@ import {
   Clock,
   EyeOff,
   HardDrive,
+  Megaphone,
   MessageSquare,
   UserPlus,
   type LucideIcon,
@@ -95,6 +96,7 @@ const ICONS: Record<(typeof INBOX_TYPE_PRESENTATION)[keyof typeof INBOX_TYPE_PRE
     'hard-drive': HardDrive,
     'alert-triangle': AlertTriangle,
     clock: Clock,
+    megaphone: Megaphone,
   }
 
 /** Dictionary root for the item-type entries. */

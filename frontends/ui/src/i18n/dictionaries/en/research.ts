@@ -142,7 +142,7 @@ export const research = {
 
   fileSourceCard: {
     statusUploading: 'Uploading...',
-    statusIngesting: 'Processing...',
+    statusIngesting: 'Reading',
     statusAvailable: 'Available',
     statusError: 'Error',
     statusDeleting: 'Deleting...',
@@ -210,7 +210,7 @@ export const research = {
     responseInput: 'Response input',
     chatMessageInput: 'Chat message input',
     stopStreaming: 'Stop response',
-    sendWhilePending: 'Files are still processing — send anyway?',
+    sendWhilePending: 'Not every file has been read yet. Send anyway?',
     heldForUpload: 'Sending as soon as the file has been read.',
     heldForUploadSendNow: 'Ask now without it',
     removeFile: 'Remove file: {name}',
