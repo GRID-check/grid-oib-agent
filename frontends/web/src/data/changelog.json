@@ -81,6 +81,26 @@
             {
               "en": "Opening a citation of a plan or photo now marks the drawing it refers to, such as the floor plan or the section, with a labelled box instead of only opening the page. The box shows which drawing on the sheet was read, not the exact object within it.",
               "de": "Beim Öffnen eines Verweises auf einen Plan oder ein Foto wird nun die zugehörige Zeichnung, etwa der Grundriss oder der Schnitt, mit einem beschrifteten Rahmen markiert, statt nur die Seite zu öffnen. Der Rahmen zeigt, welche Zeichnung auf dem Blatt gelesen wurde, nicht das genaue Objekt darin."
+            },
+            {
+              "en": "The Piloti website has a page on why Piloti, answering why not just ChatGPT and what an answer turns into in the project, and an honest comparison with Reiner AI, including where Reiner AI is ahead.",
+              "de": "Die Piloti-Website bietet eine Seite dazu, warum Piloti – mit Antworten auf die Fragen, warum nicht einfach ChatGPT und was aus einer Antwort im Projekt wird, sowie einem ehrlichen Vergleich mit Reiner AI, einschließlich der Bereiche, in denen Reiner AI weiter ist."
+            },
+            {
+              "en": "The website's main invitation is now to try Piloti with a real planning question from a current project; the prefilled email asks for the question, the location and the building type.",
+              "de": "Die zentrale Einladung auf der Website lautet jetzt, Piloti mit einer echten Planungsfrage aus einem aktuellen Projekt auszuprobieren; die vorausgefüllte E-Mail bittet um die Frage, den Standort und den Gebäudetyp."
+            },
+            {
+              "en": "The Piloti homepage shows how much has shipped, counted from the changelog, with the latest week's first changes, and the Journal has three new articles on AI in the architecture office, ChatGPT for building law and knowledge from past projects.",
+              "de": "Die Piloti-Homepage zeigt anhand des Changelog, wie viele Neuerungen bereits veröffentlicht wurden, wobei die Änderungen der letzten Woche zuerst angezeigt werden; im Journal gibt es drei neue Artikel zu KI im Architekturbüro, ChatGPT für das Baurecht und Wissen aus früheren Projekten."
+            },
+            {
+              "en": "The Piloti homepage and the why-Piloti page show a week of work handed to Piloti: a submission check given in one sentence, the task running, the report in the project, the open finding, the approval and the weekly recheck.",
+              "de": "Die Piloti-Homepage und die Warum-Piloti-Seite zeigen eine Woche Arbeit, die Piloti übergeben wird: eine mit einem Satz beauftragte Einreichprüfung, die laufende Aufgabe, den Bericht im Projekt, den offenen Befund, die Freigabe und die wöchentliche Nachprüfung."
+            },
+            {
+              "en": "The Piloti website compares Piloti with ChatGPT, Copilot, NotebookLM, Perplexity, Reiner AI and other tools, and has a page on the building law and OIB edition of each state, ten use cases, pages per type of office and a glossary of building-law terms.",
+              "de": "Die Piloti-Website vergleicht Piloti mit ChatGPT, Copilot, NotebookLM, Perplexity, Reiner AI und anderen Tools. Außerdem bietet sie eine Seite zum Baurecht und zur OIB-Ausgabe jedes Bundeslands, zehn Anwendungsfälle, Seiten für verschiedene Bürotypen und ein Glossar mit baurechtlichen Begriffen."
             }
           ]
         },
