@@ -252,6 +252,10 @@
     "de": "Ein Foto oder eine eingescannte Zeichnung in einem hochgeladenen PDF kann Piloti jetzt einzeln und in voller Auflösung ansehen, statt nur als Teil der ganzen Seite."
   },
   {
+    "en": "A project link with a mistyped or truncated address now shows the same \"no access\" page as any project you cannot open, instead of a general error page.",
+    "de": "Ein Projektlink mit einer falsch eingegebenen oder abgeschnittenen Adresse zeigt jetzt dieselbe Seite „Kein Zugriff“ wie jedes Projekt, das Sie nicht öffnen können, statt einer allgemeinen Fehlerseite."
+  },
+  {
     "en": "A project whose creation failed part-way is no longer left behind unreachable by the person who created it.",
     "de": "Ein Projekt, dessen Erstellung mittendrin fehlschlägt, ist für die Person, die es erstellt hat, nicht länger unerreichbar."
   },
@@ -1112,6 +1116,10 @@
     "de": "Bilder in PDFs werden jetzt so gründlich ausgewertet wie ganze Planseiten: Ein eingebetteter, eingescannter Plan wird je Teilzeichnung mit eigenem Maßstab erfasst."
   },
   {
+    "en": "In Safari, opening a citation now marks the quoted passage in the document, as it does in Chrome and Firefox.",
+    "de": "Beim Öffnen eines Zitats in Safari wird die zitierte Passage jetzt im Dokument markiert – wie in Chrome und Firefox."
+  },
+  {
     "en": "In a file's detail view you can expand what was recognised: rooms, circulation, structure, services, build-ups and key figures, each marked as labelled on the drawing or derived from it.",
     "de": "In der Detailansicht einer Datei lassen sich die erkannten Angaben aufklappen: Räume, Erschließung, Tragwerk, Technik, Bauteilaufbauten und Kennwerte, jeweils mit dem Hinweis, ob sie beschriftet oder abgeleitet sind."
   },
@@ -1270,6 +1278,10 @@
   {
     "en": "Only runs you start yourself file a report at the moment. Scheduled runs still deliver into their conversation and will follow later.",
     "de": "Nur von Ihnen selbst gestartete Läufe erstellen derzeit einen Bericht. Geplante Läufe werden weiterhin in der jeweiligen Unterhaltung zugestellt; Berichte folgen später."
+  },
+  {
+    "en": "Opening a citation of a plan or photo now marks the drawing it refers to, such as the floor plan or the section, with a labelled box instead of only opening the page. The box shows which drawing on the sheet was read, not the exact object within it.",
+    "de": "Beim Öffnen eines Verweises auf einen Plan oder ein Foto wird nun die zugehörige Zeichnung, etwa der Grundriss oder der Schnitt, mit einem beschrifteten Rahmen markiert, statt nur die Seite zu öffnen. Der Rahmen zeigt, welche Zeichnung auf dem Blatt gelesen wurde, nicht das genaue Objekt darin."
   },
   {
     "en": "Opening a file on a phone shows its name again. In the file preview, long filenames and the „Von Piloti erstellt\" line were being squeezed out by the row of buttons beside them.",

@@ -61,6 +61,10 @@
             {
               "en": "You can now send feedback to the Piloti team from anywhere in the app: report a bug, suggest an idea, leave praise or ask a question from the avatar menu or the new button next to the inbox.",
               "de": "Sie können jetzt von überall in der App Feedback an das Piloti-Team senden: Melden Sie einen Fehler, schlagen Sie eine Idee vor, hinterlassen Sie Lob oder stellen Sie eine Frage – über das Avatar-Menü oder den neuen Button neben der Inbox."
+            },
+            {
+              "en": "Opening a citation of a plan or photo now marks the drawing it refers to, such as the floor plan or the section, with a labelled box instead of only opening the page. The box shows which drawing on the sheet was read, not the exact object within it.",
+              "de": "Beim Öffnen eines Verweises auf einen Plan oder ein Foto wird nun die zugehörige Zeichnung, etwa der Grundriss oder der Schnitt, mit einem beschrifteten Rahmen markiert, statt nur die Seite zu öffnen. Der Rahmen zeigt, welche Zeichnung auf dem Blatt gelesen wurde, nicht das genaue Objekt darin."
             }
           ]
         },
@@ -108,6 +112,10 @@
               "de": "Eine Übersicht zeigt ihre Bestandteile jetzt entweder als Tabelle oder als Mindmap, nie beides. Die doppelte Darstellung erscheint während der Antwort und verschwindet nach deren Abschluss."
             },
             {
+              "en": "A project link with a mistyped or truncated address now shows the same \"no access\" page as any project you cannot open, instead of a general error page.",
+              "de": "Ein Projektlink mit einer falsch eingegebenen oder abgeschnittenen Adresse zeigt jetzt dieselbe Seite „Kein Zugriff“ wie jedes Projekt, das Sie nicht öffnen können, statt einer allgemeinen Fehlerseite."
+            },
+            {
               "en": "Deep research runs that have stopped now show as ended, including the ones already stuck on „Läuft\". They used to keep a spinner in the chat list, and „Abbrechen\" did nothing.",
               "de": "Gestoppte Deep-Research-Läufe werden jetzt als beendet angezeigt, auch jene, die bereits bei „Läuft“ hängen geblieben waren. Bisher wurde in der Chatliste weiterhin ein Spinner angezeigt, und „Abbrechen“ hatte keine Wirkung."
             },
@@ -118,6 +126,10 @@
             {
               "en": "Uploading a large folder to the Archiv or to a project no longer stops the chat from saving answers for the next minute. A big upload now slows down when it reaches the limit instead of failing files, and \"Retry all\" sends the failed files a few at a time instead of all at once.",
               "de": "Ein großer Upload ins Archiv oder in ein Projekt unterbricht nicht mehr eine Minute lang das Speichern von Antworten im Chat. Er wird am Limit nun verlangsamt, statt dass Dateien fehlschlagen, und „Retry all“ sendet fehlgeschlagene Dateien in kleinen Gruppen statt alle auf einmal."
+            },
+            {
+              "en": "In Safari, opening a citation now marks the quoted passage in the document, as it does in Chrome and Firefox.",
+              "de": "Beim Öffnen eines Zitats in Safari wird die zitierte Passage jetzt im Dokument markiert – wie in Chrome und Firefox."
             }
           ]
         }
