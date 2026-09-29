@@ -1,9 +1,8 @@
 ---
 fixes:
   - >
-    Wenn sich eine Projektangabe ändert, ersetzt Piloti die alte Notiz im
-    Projektgedächtnis, auch wenn die neue ganz anders formuliert ist. Bisher
-    blieben etwa „Das Projekt liegt in Wien" und „Das Grundstück liegt in
-    St. Pölten" nebeneinander stehen, und spätere Antworten konnten sich auf
-    die überholte stützen. Von Ihnen angelegte oder bestätigte Notizen
-    ersetzt Piloti weiterhin nicht selbst.
+    When a project detail changes, Piloti now replaces the old note in the
+    project memory even when the new one is worded quite differently, so
+    „Das Projekt liegt in Wien“ and „Das Grundstück liegt in St. Pölten“ no
+    longer stand side by side. A note you created or confirmed yourself is
+    still never replaced.
