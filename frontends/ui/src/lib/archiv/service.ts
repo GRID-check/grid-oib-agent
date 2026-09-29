@@ -155,6 +155,22 @@ export async function searchArchivDocuments(
 }
 
 /**
+ * The Archiv documents NAMED `filenames` (case-insensitive, either Unicode
+ * form), as listing rows — the by-name resolve
+ * (`POST /api/archiv/documents/by-name`). For the readers that want particular
+ * documents (citations, surfaced-document cards), which used to look them up in
+ * the listing's first page and missed every one past it. Any org member may
+ * read, as with `listArchiv`.
+ */
+export async function resolveArchivDocumentsByName(
+  session: AuthorizedSession,
+  filenames: readonly string[],
+): Promise<ArchivListedDocument[]> {
+  const rows = await findArchivDocumentsByFilenames(session.organizationId, filenames)
+  return toArchivListedDocuments(session, rows)
+}
+
+/**
  * Which of `names` the Archiv already holds — the upload planner's question,
  * asked of the database rather than of the paged listing (see
  * `probeProjectDocumentNames`). Any org member may read, as with `listArchiv`.

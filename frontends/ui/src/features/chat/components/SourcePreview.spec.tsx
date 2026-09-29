@@ -24,26 +24,45 @@ vi.mock('../store', () => ({
 
 const jsonResponse = (data: unknown) => ({ ok: true, json: async () => data })
 
+interface Row {
+  id: string
+  filename: string
+  contentType: string | null
+}
+
+const PROJECT_ROWS: Row[] = [
+  { id: 'doc-1', filename: 'Brandschutzkonzept.pdf', contentType: 'application/pdf' },
+  {
+    id: 'doc-word',
+    filename: 'Raumprogramm.docx',
+    contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  },
+  // Stored with no type: the extension alone makes it an office file.
+  { id: 'doc-sheet', filename: 'Kostenschaetzung.xlsx', contentType: null },
+  { id: 'doc-deck', filename: 'Entwurf.pptx', contentType: null },
+]
+
+const ARCHIV_ROWS: Row[] = [
+  { id: 'archiv-1', filename: 'Bueroe_Detail_Attika.pdf', contentType: 'application/pdf' },
+]
+
+/** The by-name resolve, answered the way the server matches: case-folded filename. */
+const byName = (rows: Row[], init?: RequestInit) => {
+  const names = (JSON.parse(String(init?.body)) as { names: string[] }).names.map((name) =>
+    name.toLowerCase()
+  )
+  return jsonResponse({
+    documents: rows
+      .filter((row) => names.includes(row.filename.toLowerCase()))
+      .map((row) => ({ ...row, createdAt: '2026-01-01T00:00:00.000Z' })),
+  })
+}
+
 /** Routes the module's read APIs (project docs, org Archiv, base corpus); anything else 404s. */
-const fetchMock = vi.fn((input: RequestInfo | URL) => {
+const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input)
-  if (url.startsWith('/api/documents?projectId=')) {
-    return Promise.resolve(
-      jsonResponse({
-        documents: [
-          { id: 'doc-1', filename: 'Brandschutzkonzept.pdf', contentType: 'application/pdf' },
-          {
-            id: 'doc-word',
-            filename: 'Raumprogramm.docx',
-            contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          },
-          // Stored with no type: the extension alone makes it an office file.
-          { id: 'doc-sheet', filename: 'Kostenschaetzung.xlsx', contentType: null },
-          { id: 'doc-deck', filename: 'Entwurf.pptx', contentType: null },
-        ],
-      })
-    )
-  }
+  if (url === '/api/documents/by-name') return Promise.resolve(byName(PROJECT_ROWS, init))
+  if (url === '/api/archiv/documents/by-name') return Promise.resolve(byName(ARCHIV_ROWS, init))
   // The BFF's two "no rendition" answers (ADR-0070): conversion switched off,
   // and conversion attempted and failed.
   if (url === '/api/documents/doc-sheet/preview') {
@@ -69,15 +88,6 @@ const fetchMock = vi.fn((input: RequestInfo | URL) => {
     return Promise.resolve(
       jsonResponse({
         files: [{ fileName: 'oib-rl_2.pdf', state: 'ingested', origin: 'corpus' }],
-      })
-    )
-  }
-  if (url === '/api/archiv/documents') {
-    return Promise.resolve(
-      jsonResponse({
-        documents: [
-          { id: 'archiv-1', filename: 'Bueroe_Detail_Attika.pdf', contentType: 'application/pdf' },
-        ],
       })
     )
   }
@@ -209,6 +219,14 @@ describe('SourcePreviewChip', () => {
     expect(within(dialog).getByText('Project document')).toBeInTheDocument()
     // The presigned preview URL was fetched for the project document.
     expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-1/preview')
+    // Resolved BY NAME, never looked up in the listing's first page — a cited
+    // plan older than the newest 500 used to resolve to nothing.
+    const byNameCall = fetchMock.mock.calls.find(([url]) => String(url) === '/api/documents/by-name')
+    expect(JSON.parse(String(byNameCall?.[1]?.body))).toEqual({
+      projectId: 'project-1',
+      names: ['Brandschutzkonzept.pdf'],
+    })
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/documents?'))).toBe(false)
   })
 
   test('an office citation opens its PDF rendition and keeps the original downloadable', async () => {

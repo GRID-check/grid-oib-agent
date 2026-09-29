@@ -14,7 +14,8 @@ import 'server-only'
 import { and, asc, count, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
-import { documentAliasKey, documentNameVariants } from './name-match'
+import { documentAliasKey, documentNameKey, documentNameVariants } from './name-match'
+import { FILENAME_LOOKUP_MAX_NAMES } from './filename-lookup'
 import { CURSOR_TIMESTAMP_FORMAT, type DocumentListCursor } from './list-cursor'
 import {
   documents,
@@ -300,6 +301,56 @@ export async function listProjectDocumentPage(
           .limit(probeLimit),
       ),
     limit,
+  )
+}
+
+/**
+ * Rows whose filename is one of `filenames` — in either Unicode form, and
+ * case-insensitively, because every reader of the answer (the citation
+ * resolver, the surfaced-documents index, the search join) compares names the
+ * way a person does, and a model that spelled `Grundriss.PDF` still means the
+ * row called `grundriss.pdf`. The exact list keeps the filename index in play
+ * for the common spelling; the folded one catches the rest.
+ *
+ * At most {@link FILENAME_LOOKUP_MAX_NAMES} names; `undefined` for none, which
+ * the callers turn into "ask nothing".
+ */
+export function filenameLookupWhere(filenames: readonly string[]): SQL | undefined {
+  const bounded = [...new Set(filenames.map(documentNameKey).filter((name) => name.length > 0))].slice(
+    0,
+    FILENAME_LOOKUP_MAX_NAMES,
+  )
+  if (bounded.length === 0) return undefined
+  const exact = [...new Set(bounded.flatMap(documentNameVariants))]
+  const folded = [...new Set(bounded.flatMap((name) => documentNameVariants(documentAliasKey(name))))]
+  return or(inArray(documents.filename, exact), inArray(sql`lower(${documents.filename})`, folded))
+}
+
+/**
+ * The project documents named `filenames` — the rows a listing would show
+ * (same shelf, same lifecycle rule), found by name rather than by paging.
+ *
+ * For the readers that need SPECIFIC documents: the semantic search's join and
+ * the by-name resolve behind citations and surfaced-document cards. Reading the
+ * first listing page for them dropped every hit past the newest 500 as if it
+ * did not exist. Bounded by its input and by `DOCUMENT_LIST_LIMIT`.
+ */
+export async function findProjectDocumentsByFilenames(
+  projectId: string,
+  organizationId: string,
+  filenames: readonly string[],
+  { includeArchived = false }: Pick<ListProjectDocumentsOptions, 'includeArchived'> = {},
+): Promise<DocumentListRow[]> {
+  const byName = filenameLookupWhere(filenames)
+  if (!byName) return []
+  const db = getDb()
+  return withTenant({ organizationId }, () =>
+    db
+      .select(documentListColumns)
+      .from(documents)
+      .where(and(projectListingWhere(projectId, organizationId, { includeArchived }), byName))
+      .orderBy(desc(documents.createdAt), asc(documents.id))
+      .limit(DOCUMENT_LIST_LIMIT),
   )
 }
 

@@ -56,6 +56,8 @@ export const settings: typeof en.settings = {
     reindexPartial:
       '{count, plural, one {# Dokument konnte} other {# Dokumente konnten}} nicht neu eingelesen werden. Der bisherige Index dieser Dokumente bleibt erhalten.',
     reindexFailed: 'Neuindizierung konnte nicht gestartet werden',
+    reindexTruncated:
+      'Nicht alle Dokumente wurden erreicht: Ein Durchlauf bearbeitet die neuesten 10.000 Dokumente, die älteren behalten ihren bisherigen Index.',
     membersDescriptionManage:
       'Weisen Sie Organisationsmitgliedern Projektrollen zu. Organisations-Admins haben immer Zugriff.',
     membersDescriptionReadOnly:

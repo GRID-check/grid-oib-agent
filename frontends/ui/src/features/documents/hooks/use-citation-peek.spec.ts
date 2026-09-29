@@ -56,6 +56,9 @@ const row = (id: string, filename: string) => ({
   tags: null,
 })
 
+/** Let effects, microtasks and a mocked request run to completion. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 50))
+
 describe('useCitationPeek', () => {
   beforeEach(() => {
     resetSurfacedDocumentsCache()
@@ -73,8 +76,8 @@ describe('useCitationPeek', () => {
       projectId: 'proj-1',
     })
     server.use(
-      http.get('/api/documents', () => HttpResponse.json({ documents: [row('p1', 'Plan.pdf')] })),
-      http.get('/api/archiv/documents', () => HttpResponse.json({ documents: [] })),
+      http.post('/api/documents/by-name', () => HttpResponse.json({ documents: [row('p1', 'Plan.pdf')] })),
+      http.post('/api/archiv/documents/by-name', () => HttpResponse.json({ documents: [] })),
     )
   })
 
@@ -111,7 +114,7 @@ describe('useCitationPeek', () => {
   it('does not peek while the answer is still streaming', async () => {
     let fetched = false
     server.use(
-      http.get('/api/documents', () => {
+      http.post('/api/documents/by-name', () => {
         fetched = true
         return HttpResponse.json({ documents: [row('p1', 'Plan.pdf')] })
       }),
@@ -120,14 +123,16 @@ describe('useCitationPeek', () => {
       currentConversation: conversation([answer({ isStreaming: true })]),
     })
     renderHook(() => useCitationPeek({ projectId: 'proj-1' }))
-    await waitFor(() => expect(fetched).toBe(true))
+    // Nothing to peek is nothing to resolve: no document is asked for by name.
+    await settle()
+    expect(fetched).toBe(false)
     expect(useFilePreviewStore.getState().file).toBeNull()
   })
 
   it('does not peek when two project files are cited', async () => {
     let fetched = false
     server.use(
-      http.get('/api/documents', () => {
+      http.post('/api/documents/by-name', () => {
         fetched = true
         return HttpResponse.json({ documents: [row('p1', 'Plan.pdf')] })
       }),
@@ -140,14 +145,16 @@ describe('useCitationPeek', () => {
       ]),
     })
     renderHook(() => useCitationPeek({ projectId: 'proj-1' }))
-    await waitFor(() => expect(fetched).toBe(true))
+    // Nothing to peek is nothing to resolve: no document is asked for by name.
+    await settle()
+    expect(fetched).toBe(false)
     expect(useFilePreviewStore.getState().file).toBeNull()
   })
 
   it('does not peek a baurecht-only answer', async () => {
     let fetched = false
     server.use(
-      http.get('/api/documents', () => {
+      http.post('/api/documents/by-name', () => {
         fetched = true
         return HttpResponse.json({ documents: [row('p1', 'Plan.pdf')] })
       }),
@@ -167,7 +174,9 @@ describe('useCitationPeek', () => {
       ]),
     })
     renderHook(() => useCitationPeek({ projectId: 'proj-1' }))
-    await waitFor(() => expect(fetched).toBe(true))
+    // Nothing to peek is nothing to resolve: no document is asked for by name.
+    await settle()
+    expect(fetched).toBe(false)
     expect(useFilePreviewStore.getState().file).toBeNull()
   })
 })

@@ -287,6 +287,22 @@ describe('the ingest dispatch sends the document folder path', () => {
   const bodyOf = (call: number): Record<string, unknown> =>
     JSON.parse(fetchSpy.mock.calls[call][1].body as string) as Record<string, unknown>
 
+  it('signs file_ref for an hour: the ingest job downloads it, not the request', async () => {
+    // `/v1/ingest` hands the job a deferred download and answers at once; the
+    // job may start well after dispatch behind the bounded ingest queue, so a
+    // ten-minute signature could expire before anything reads it.
+    await dispatchDocument(input('plan.pdf'))
+
+    const originalRead = vi
+      .mocked(getSignedUrl)
+      .mock.calls.find(
+        ([, command]) =>
+          (command as { input: { Key: string } }).input.Key === input('plan.pdf').storageKey &&
+          command.constructor.name === 'GetObjectCommand',
+      )
+    expect(originalRead?.[2]).toEqual({ expiresIn: 3600 })
+  })
+
   it('sends the folder path the document was filed under', async () => {
     await dispatchDocument({ ...input('plan.pdf'), folderPath: 'Brandschutz/Fluchtwege' })
 

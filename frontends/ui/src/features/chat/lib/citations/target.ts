@@ -180,6 +180,12 @@ const documentLocator = (doc: CitedDocument): KbCitationLocator | null => {
 }
 
 /**
+ * The filename a document resolves by — what the by-name index is asked for.
+ * `null` for a document that names none, which resolves to `info` anyway.
+ */
+export const citedFileName = (doc: CitedDocument): string | null => documentLocator(doc)?.filename ?? null
+
+/**
  * Hosts the in-app RIS reader can serve — mirrors `ALLOWED_DOCUMENT_HOSTS` in
  * `sources/ris_adapter/src/client.py`, which is what actually enforces it.
  *

@@ -139,7 +139,13 @@ import {
   deleteArchivDocument as deleteArchivDocumentRow,
 } from './repository'
 import { decodeDocumentListCursor, encodeDocumentListCursor } from '@/lib/documents/list-cursor'
-import { listArchiv, uploadArchivDocument, deleteArchivDocument, searchArchivDocuments } from './service'
+import {
+  listArchiv,
+  uploadArchivDocument,
+  deleteArchivDocument,
+  resolveArchivDocumentsByName,
+  searchArchivDocuments,
+} from './service'
 import { makeDocument } from '@/test-utils/db-fixtures'
 import { listDocumentVersionSummaries } from '@/lib/documents/version-repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -314,6 +320,30 @@ describe('searchArchivDocuments', () => {
     expect(fetchSemanticHits).toHaveBeenCalledWith('archiv_org-1', 'q', 20)
     // No hits, no lookup.
     expect(findArchivDocumentsByFilenames).not.toHaveBeenCalled()
+  })
+})
+
+describe('resolveArchivDocumentsByName', () => {
+  it('looks the names up directly and hydrates them like the listing', async () => {
+    const row = {
+      id: 'd9',
+      filename: 'Alt.pdf',
+      createdAt: new Date('2019-01-01T00:00:00Z'),
+      status: 'completed',
+      collectionName: 'archiv_org-1',
+      errorMessage: null,
+      authoredBy: 'user',
+      publishedVersionId: null,
+    }
+    vi.mocked(findArchivDocumentsByFilenames).mockResolvedValue([row] as never)
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([{ ...row, metadata: {} }] as never)
+
+    const documents = await resolveArchivDocumentsByName(session, ['alt.pdf'])
+
+    expect(findArchivDocumentsByFilenames).toHaveBeenCalledWith('org-1', ['alt.pdf'])
+    expect(listArchivDocuments).not.toHaveBeenCalled()
+    expect(documents.map((doc) => doc.id)).toEqual(['d9'])
+    expect(documents[0]).not.toHaveProperty('metadata')
   })
 })
 

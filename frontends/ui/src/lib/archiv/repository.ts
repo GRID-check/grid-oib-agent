@@ -10,7 +10,7 @@
  */
 
 import 'server-only'
-import { and, asc, desc, eq, inArray } from 'drizzle-orm'
+import { and, asc, desc, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
 import { documents, type Document } from '@/lib/db/schema'
@@ -18,6 +18,7 @@ import {
   DOCUMENT_LIST_LIMIT,
   afterDocumentListCursor,
   documentNameMatchColumns,
+  filenameLookupWhere,
   probeDocumentNames,
   type DocumentNameMatchRow,
   cursorCreatedAtColumn,
@@ -27,7 +28,6 @@ import {
   type DocumentListRow,
 } from '@/lib/documents/repository'
 import type { DocumentListCursor } from '@/lib/documents/list-cursor'
-import { documentNameVariants } from '@/lib/documents/name-match'
 
 /**
  * One keyset page of an organization's Archiv, most-recent first.
@@ -60,30 +60,24 @@ export async function listArchivDocuments(
 }
 
 /**
- * The Archiv rows answering to any of `filenames` — the semantic search's
- * join, which must reach a hit whatever page of the listing it would sit on.
+ * The Archiv rows named `filenames` — the semantic search's join and the
+ * by-name resolve, which must reach a document whatever page of the listing it
+ * would sit on.
  *
- * Bounded by its input: the caller passes the hit names (at most the search's
- * `top_k`), each in both Unicode forms so a row written before admission
- * normalized names is still found.
+ * Bounded by its input (`filenameLookupWhere`: at most
+ * `FILENAME_LOOKUP_MAX_NAMES`, each in both Unicode forms and case-folded).
  */
 export async function findArchivDocumentsByFilenames(
   organizationId: string,
   filenames: readonly string[],
 ): Promise<DocumentListRow[]> {
-  const names = [...new Set(filenames.flatMap(documentNameVariants))]
-  if (names.length === 0) return []
+  const byName = filenameLookupWhere(filenames)
+  if (!byName) return []
   const db = getDb()
   return db
     .select(documentListColumns)
     .from(documents)
-    .where(
-      and(
-        eq(documents.organizationId, organizationId),
-        eq(documents.scope, 'archiv'),
-        inArray(documents.filename, names),
-      ),
-    )
+    .where(and(eq(documents.organizationId, organizationId), eq(documents.scope, 'archiv'), byName))
     .orderBy(desc(documents.createdAt), asc(documents.id))
     .limit(DOCUMENT_LIST_LIMIT)
 }

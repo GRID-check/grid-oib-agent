@@ -99,6 +99,7 @@ vi.mock('./repository', () => ({
   findLiveDocumentByFilename: vi.fn().mockResolvedValue(null),
   listProjectDocuments: vi.fn(),
   listProjectDocumentPage: vi.fn().mockResolvedValue({ rows: [], nextCursor: null }),
+  findProjectDocumentsByFilenames: vi.fn().mockResolvedValue([]),
   findProjectDocumentsByNames: vi.fn().mockResolvedValue([]),
   deleteProjectDocument: vi.fn().mockResolvedValue(undefined),
   setDocumentDisplayName: vi.fn().mockResolvedValue(undefined),
@@ -134,8 +135,8 @@ import {
   findDocumentInOrg,
   findLiveDocumentByFilename,
   findFolderPathInProject,
-  listProjectDocuments,
   listProjectDocumentPage,
+  findProjectDocumentsByFilenames,
   findProjectDocumentsByNames,
   deleteProjectDocument,
   setDocumentDisplayName,
@@ -153,6 +154,8 @@ import {
   getDocumentVisualDetails,
   updateDocumentTags,
   reindexProject,
+  REINDEX_MAX_PAGES,
+  resolveProjectDocumentsByName,
   searchProjectDocuments,
   joinHitsToFiles,
   deriveSearchTopK,
@@ -837,8 +840,40 @@ describe('deriveSearchTopK', () => {
   })
 })
 
+describe('resolveProjectDocumentsByName', () => {
+  it('gates on project:view, looks the names up directly, and hydrates like the listing', async () => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    const row = {
+      id: 'doc-old',
+      filename: 'Bestand-1962.pdf',
+      createdAt: new Date('2019-01-01T00:00:00Z'),
+      status: 'completed',
+      collectionName: 'proj_abc',
+      errorMessage: null,
+      authoredBy: 'user',
+      publishedVersionId: null,
+    }
+    vi.mocked(findProjectDocumentsByFilenames).mockResolvedValue([row] as never)
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([{ ...row, metadata: { ingestJobId: 'j' } }] as never)
+
+    const documents = await resolveProjectDocumentsByName(session, 'proj-1', ['bestand-1962.pdf'])
+
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:view')
+    expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith('proj-1', 'org-1', ['bestand-1962.pdf'])
+    expect(listProjectDocumentPage).not.toHaveBeenCalled()
+    expect(documents).toEqual([expect.objectContaining({ id: 'doc-old', assignees: [] })])
+    expect(documents[0]).not.toHaveProperty('metadata')
+  })
+
+  it('reads nothing for a caller without access', async () => {
+    vi.mocked(requireProjectAccess).mockRejectedValueOnce(new ForbiddenError())
+    await expect(resolveProjectDocumentsByName(session, 'proj-1', ['a.pdf'])).rejects.toBeInstanceOf(ForbiddenError)
+    expect(findProjectDocumentsByFilenames).not.toHaveBeenCalled()
+  })
+})
+
 describe('searchProjectDocuments', () => {
-  // `listProjectDocuments` selects `authoredBy` (repository.ts), so every row
+  // `documentListColumns` selects `authoredBy` (repository.ts), so every row
   // reaching the join carries it. Building these rows without the column would
   // put the search seam on a shape production never produces — and would hide a
   // regression in the authorship filter behind the Archiv fallback.
@@ -867,7 +902,7 @@ describe('searchProjectDocuments', () => {
 
   beforeEach(() => {
     vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
-    vi.mocked(listProjectDocuments).mockResolvedValue([])
+    vi.mocked(findProjectDocumentsByFilenames).mockResolvedValue([])
     vi.mocked(reconcileDocumentStatuses).mockResolvedValue(
       fileRows.map((r) => ({ ...r, metadata: { ingestJobId: 'j' } }))
     )
@@ -923,6 +958,23 @@ describe('searchProjectDocuments', () => {
     // Reordered by score (permit first), each augmented with match evidence.
     expect(hits.map((h) => h.id)).toEqual(['doc-b', 'doc-a'])
     expect(hits[0]).toMatchObject({ snippet: 'permit snippet', page: 2, score: 0.91 })
+    // The rows are looked up by the hit names, not read from the paged
+    // listing: a hit on a document past the first page must still resolve.
+    expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith('proj-1', 'org-1', [
+      'permit.pdf',
+      'plan.pdf',
+    ])
+    expect(listProjectDocumentPage).not.toHaveBeenCalled()
+  })
+
+  it('asks for no rows when the search found nothing', async () => {
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ hits: [] }) })
+
+    const { hits } = await searchProjectDocuments(session, 'proj-1', 'q')
+
+    expect(hits).toEqual([])
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:view')
+    expect(findProjectDocumentsByFilenames).not.toHaveBeenCalled()
   })
 
   // The end-to-end half of the `joinHitsToFiles` authorship guard: the unit test
@@ -1900,7 +1952,7 @@ describe('the authorship gate on the (collection, filename) join', () => {
       // Belt to the `'user'` filter the listing already applies: a row that
       // reaches the rebuild loop machine-authored is counted as never-eligible,
       // and nothing naming the colliding human document's chunks is sent.
-      vi.mocked(listProjectDocuments).mockResolvedValue([
+      vi.mocked(listProjectDocumentPage).mockResolvedValueOnce({ nextCursor: null, rows: [
         {
           id: 'doc-agent',
           filename: collidingName,
@@ -1922,12 +1974,12 @@ describe('the authorship gate on the (collection, filename) join', () => {
           errorMessage: null,
           metadata: null,
         },
-      ])
+      ] })
       vi.mocked(findDocumentInOrg).mockResolvedValue(agentDoc)
 
       const result = await reindexProject(session, 'proj-1')
 
-      expect(result).toEqual({ projectId: 'proj-1', queued: 0, skipped: 1, failed: [] })
+      expect(result).toEqual({ projectId: 'proj-1', queued: 0, skipped: 1, failed: [], truncated: false })
       expect(documentCalls()).toHaveLength(0)
     })
   })
@@ -1965,7 +2017,7 @@ describe('reindexProject', () => {
   })
 
   it('re-dispatches without deleting the current chunks first', async () => {
-    vi.mocked(listProjectDocuments).mockResolvedValue([listRow('doc-1', 'plan.pdf')])
+    vi.mocked(listProjectDocumentPage).mockResolvedValueOnce({ rows: [listRow('doc-1', 'plan.pdf')], nextCursor: null })
     vi.mocked(findDocumentInOrg).mockResolvedValue(
       makeDocument({ id: 'doc-1', filename: 'plan.pdf', status: 'completed', storageKey: 'k/plan.pdf' })
     )
@@ -1973,7 +2025,7 @@ describe('reindexProject', () => {
 
     const result = await reindexProject(session, 'proj-1')
 
-    expect(result).toEqual({ projectId: 'proj-1', queued: 1, skipped: 0, failed: [] })
+    expect(result).toEqual({ projectId: 'proj-1', queued: 1, skipped: 0, failed: [], truncated: false })
     const methods = mockFetch.mock.calls.map(([, init]) => (init as RequestInit | undefined)?.method)
     expect(methods).not.toContain('DELETE')
     expect(mockFetch.mock.calls.map(([url]) => String(url))).toEqual([
@@ -1983,7 +2035,7 @@ describe('reindexProject', () => {
   })
 
   it('reports a failed dispatch, and sends nothing that removes chunks', async () => {
-    vi.mocked(listProjectDocuments).mockResolvedValue([listRow('doc-1', 'plan.pdf')])
+    vi.mocked(listProjectDocumentPage).mockResolvedValueOnce({ rows: [listRow('doc-1', 'plan.pdf')], nextCursor: null })
     vi.mocked(findDocumentInOrg).mockResolvedValue(
       makeDocument({ id: 'doc-1', filename: 'plan.pdf', status: 'completed', storageKey: 'k/plan.pdf' })
     )
@@ -1991,21 +2043,59 @@ describe('reindexProject', () => {
 
     const result = await reindexProject(session, 'proj-1')
 
-    expect(result).toEqual({ projectId: 'proj-1', queued: 0, skipped: 0, failed: ['plan.pdf'] })
+    expect(result).toEqual({ projectId: 'proj-1', queued: 0, skipped: 0, failed: ['plan.pdf'], truncated: false })
     const methods = mockFetch.mock.calls.map(([, init]) => (init as RequestInit | undefined)?.method)
     expect(methods).not.toContain('DELETE')
   })
 
   it('skips every in-flight spelling, not just pending and processing', async () => {
-    vi.mocked(listProjectDocuments).mockResolvedValue([listRow('doc-1', 'plan.pdf')])
+    vi.mocked(listProjectDocumentPage).mockResolvedValueOnce({ rows: [listRow('doc-1', 'plan.pdf')], nextCursor: null })
     vi.mocked(findDocumentInOrg).mockResolvedValue(
       makeDocument({ id: 'doc-1', filename: 'plan.pdf', status: 'ingesting', storageKey: 'k/plan.pdf' })
     )
 
     const result = await reindexProject(session, 'proj-1')
 
-    expect(result).toEqual({ projectId: 'proj-1', queued: 0, skipped: 1, failed: [] })
+    expect(result).toEqual({ projectId: 'proj-1', queued: 0, skipped: 1, failed: [], truncated: false })
     expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The walk used to read the newest `DOCUMENT_LIST_LIMIT` rows and stop, so
+   * a project-wide reindex of a large project left its oldest documents on the
+   * old chunks and said nothing.
+   */
+  it('walks every page of the listing, following the cursor', async () => {
+    const cursor = { createdAt: '2026-08-20T00:00:00.000000', id: 'doc-1' }
+    vi.mocked(listProjectDocumentPage)
+      .mockResolvedValueOnce({ rows: [listRow('doc-1', 'plan.pdf')], nextCursor: cursor })
+      .mockResolvedValueOnce({ rows: [listRow('doc-2', 'old.pdf')], nextCursor: null })
+    vi.mocked(findDocumentInOrg).mockImplementation(async (id: string) =>
+      makeDocument({ id, filename: `${id}.pdf`, status: 'completed', storageKey: `k/${id}.pdf` })
+    )
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ job_id: 'job-1' }) })
+
+    const result = await reindexProject(session, 'proj-1')
+
+    expect(result).toEqual({ projectId: 'proj-1', queued: 2, skipped: 0, failed: [], truncated: false })
+    expect(listProjectDocumentPage).toHaveBeenNthCalledWith(1, 'proj-1', 'org-1', {
+      authoredBy: 'user',
+      cursor: undefined,
+    })
+    expect(listProjectDocumentPage).toHaveBeenNthCalledWith(2, 'proj-1', 'org-1', {
+      authoredBy: 'user',
+      cursor,
+    })
+  })
+
+  it('stops at the page ceiling and says so', async () => {
+    const cursor = { createdAt: '2026-08-20T00:00:00.000000', id: 'doc-1' }
+    vi.mocked(listProjectDocumentPage).mockResolvedValue({ rows: [], nextCursor: cursor })
+
+    const result = await reindexProject(session, 'proj-1')
+
+    expect(result.truncated).toBe(true)
+    expect(listProjectDocumentPage).toHaveBeenCalledTimes(REINDEX_MAX_PAGES)
   })
 })
 
@@ -2079,6 +2169,33 @@ describe('getDocumentTextPreview', () => {
       | { input?: { Range?: string } }
       | undefined
     expect(command?.input?.Range).toBe(`bytes=0-${256 * 1024}`)
+  })
+
+  /** A Windows export: „Maß;Höhe" in cp1252 used to preview as „Ma�;H�he". */
+  it('previews a cp1252 CSV as its text, not as replacement glyphs', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(textDoc('text/csv'))
+    const cp1252 = Uint8Array.from([0x4d, 0x61, 0xdf, 0x3b, 0x48, 0xf6, 0x68, 0x65, 0x0a, 0x80, 0x0a])
+    vi.mocked(s3Client.send).mockResolvedValue({
+      Body: { transformToByteArray: async () => cp1252 },
+    } as never)
+
+    const { text } = await getDocumentTextPreview(session, 'doc-text')
+
+    expect(text).toBe('Maß;Höhe\n€\n')
+  })
+
+  it('keeps a UTF-8 file UTF-8 when the range cut lands inside a character', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(textDoc('text/plain'))
+    // 'ä' is two bytes; the cap falls between them, so the prefix is not valid
+    // UTF-8 on its own — which must not demote the whole text to cp1252.
+    const head = 'x'.repeat(256 * 1024 - 4) + '\n'
+    vi.mocked(s3Client.send).mockResolvedValue({ Body: bodyOf(head + 'ä'.repeat(4)) } as never)
+
+    const { text, truncated } = await getDocumentTextPreview(session, 'doc-text')
+
+    expect(truncated).toBe(true)
+    expect(text).toBe('x'.repeat(256 * 1024 - 4))
+    expect(text).not.toContain('Ã')
   })
 
   it('404s a document with no stored object', async () => {

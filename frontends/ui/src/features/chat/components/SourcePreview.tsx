@@ -24,11 +24,13 @@
  *                 snippet) — never a broken viewer. Chips with nothing beyond
  *                 their label stay plain, non-interactive chips.
  *
- * Resolution data (one list per SHELF + the base-corpus file list) is fetched
- * lazily through existing read APIs (`/api/documents?projectId=…`,
- * `/api/session/documents?conversationId=…`, `/api/archiv/documents`,
- * `/api/knowledge-base`) and cached module-wide per project+conversation for
- * the lifetime of the page — source lists change rarely within one chat visit.
+ * Resolution data is fetched lazily and cached for the lifetime of the page:
+ * the cited document's project and Archiv rows BY NAME
+ * (`POST /api/documents/by-name`, `POST /api/archiv/documents/by-name`, batched
+ * across the chips of one render — the listings are paged, and a citation of a
+ * plan older than their first page used to resolve to nothing), plus this
+ * conversation's attachments (`/api/session/documents?conversationId=…`) and
+ * the base-corpus file list (`/api/knowledge-base`), per project+conversation.
  */
 
 'use client'
@@ -40,6 +42,10 @@ import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { documentFileUrl } from '@/lib/documents/urls'
 import { onDocumentsChanged, useDocumentsGeneration } from '@/lib/documents/document-changes'
+import {
+  resetDocumentsByNameCache,
+  resolveDocumentsByName,
+} from '@/features/documents/lib/documents-by-name'
 import { startDocumentDownload } from '@/lib/documents/download'
 import { isOfficeRenditionSource } from '@/lib/documents/preview-types'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -61,6 +67,7 @@ import { toQuoteList } from '../lib/source-citation'
 import { CopyCitationLinkButton } from './CopyCitationLink'
 import {
   citationNumbers,
+  citedFileName,
   openAtLocus,
   resolveCitationTarget,
   type CitationLocus,
@@ -78,9 +85,9 @@ import { AuthorityTag } from './AuthorityTag'
 
 export interface SourcePreviewIndex {
   /**
-   * Every DB-backed document the user can open: this project's uploads FIRST,
-   * then this conversation's private attachments, then the organization's
-   * Archiv. Each row carries the shelf it came from, so a citation that names
+   * The DB-backed documents the user can open that the citation could mean:
+   * this project's uploads with the cited name FIRST, then this conversation's
+   * private attachments, then the organization's Archiv rows with the name. Each row carries the shelf it came from, so a citation that names
    * its own shelf resolves to the right copy of a filename held on several;
    * order is only the tie-break for one that names no shelf at all.
    */
@@ -88,12 +95,19 @@ export interface SourcePreviewIndex {
   baseCorpusFiles: string[]
 }
 
-/** Module-wide cache: one fetch set per project+conversation per page lifetime. */
-const indexCache = new Map<string, Promise<SourcePreviewIndex>>()
+/** What does not depend on the cited name: attachments and the base corpus. */
+interface ShelfLists {
+  sessionDocuments: StoredDocumentRef[]
+  baseCorpusFiles: string[]
+}
 
-/** Test hook — clears the module cache between specs. */
+/** Module-wide cache: one fetch set per project+conversation per page lifetime. */
+const indexCache = new Map<string, Promise<ShelfLists>>()
+
+/** Test hook — clears the module caches between specs. */
 export const resetSourcePreviewIndexCache = (): void => {
   indexCache.clear()
+  resetDocumentsByNameCache()
 }
 
 // A document uploaded DURING the conversation is one the answer can cite and
@@ -102,10 +116,57 @@ export const resetSourcePreviewIndexCache = (): void => {
 // reach.
 onDocumentsChanged(resetSourcePreviewIndexCache)
 
-const loadSourcePreviewIndex = (
+// The shelf is stated by the LIST the rows came from — the project document
+// route or the org Archiv route — not guessed from a collection id.
+const toRefs = (rows: unknown, shelf: Shelf): StoredDocumentRef[] =>
+  Array.isArray(rows)
+    ? rows
+        .filter(
+          (doc): doc is { id: string; filename: string; contentType?: string | null } =>
+            !!doc && typeof doc.id === 'string' && typeof doc.filename === 'string'
+        )
+        .map((doc) => ({
+          id: doc.id,
+          filename: doc.filename,
+          contentType: doc.contentType ?? null,
+          shelf,
+        }))
+    : []
+
+/**
+ * The resolution index for one cited name: its project and Archiv rows asked
+ * of the server by name, between them the conversation's attachments, and the
+ * base corpus.
+ */
+const loadSourcePreviewIndex = async (
+  projectId: string | null,
+  conversationId: string | null,
+  fileName: string | null
+): Promise<SourcePreviewIndex> => {
+  const [lists, named] = await Promise.all([
+    loadShelfLists(projectId, conversationId),
+    fileName ? resolveDocumentsByName(projectId, [fileName]) : Promise.resolve(null),
+  ])
+  const answers = named ? [...named.values()] : []
+  // Tagged with the shelf each row came from, so a citation that names its own
+  // shelf resolves to the right copy of a filename held on several. Project
+  // uploads still come first, as the tie-break for a citation that does not.
+  // All three shelves that CAN be `documents` rows are represented here; the
+  // fourth (`base`) is the corpus and has no row to list.
+  return {
+    storedDocuments: [
+      ...toRefs(answers.flatMap((answer) => answer.projekt), 'project'),
+      ...lists.sessionDocuments,
+      ...toRefs(answers.flatMap((answer) => answer.buero), 'archiv'),
+    ],
+    baseCorpusFiles: lists.baseCorpusFiles,
+  }
+}
+
+const loadShelfLists = (
   projectId: string | null,
   conversationId: string | null
-): Promise<SourcePreviewIndex> => {
+): Promise<ShelfLists> => {
   // The conversation is part of the key, not just of the fetch: two chats in one
   // project have different private attachments, and a single cached list would
   // hand one thread the other's files.
@@ -113,13 +174,8 @@ const loadSourcePreviewIndex = (
   const existing = indexCache.get(key)
   if (existing) return existing
 
-  const promise = (async (): Promise<SourcePreviewIndex> => {
-    const [docsResult, sessionResult, archivResult, corpusResult] = await Promise.allSettled([
-      projectId
-        ? fetch(`/api/documents?projectId=${encodeURIComponent(projectId)}`).then((r) =>
-            r.ok ? r.json() : null
-          )
-        : Promise.resolve(null),
+  const promise = (async (): Promise<ShelfLists> => {
+    const [sessionResult, corpusResult] = await Promise.allSettled([
       // This conversation's private attachments (ADR-0047 Phase 2). Without
       // them the `session` shelf had NO rows at all, so a session citation
       // matched nothing — and, before the shelf became part of a document's
@@ -129,46 +185,10 @@ const loadSourcePreviewIndex = (
             (r) => (r.ok ? r.json() : null)
           )
         : Promise.resolve(null),
-      // The org Archiv (ADR-0024). Feature-gated, so a 403 here is normal and
-      // simply yields no Archiv entries — never a failed index. Without this
-      // fetch, every `buero`-kind citation resolved to a dead info popover even
-      // though its document was sitting in the Archiv and the preview route
-      // would have served it.
-      fetch('/api/archiv/documents').then((r) => (r.ok ? r.json() : null)),
       fetch('/api/knowledge-base').then((r) => (r.ok ? r.json() : null)),
     ])
-    const docs = docsResult.status === 'fulfilled' ? docsResult.value?.documents : null
     const sessionDocs = sessionResult.status === 'fulfilled' ? sessionResult.value?.documents : null
-    const archivDocs = archivResult.status === 'fulfilled' ? archivResult.value?.documents : null
     const files = corpusResult.status === 'fulfilled' ? corpusResult.value?.files : null
-
-    // The shelf is stated by the LIST the rows came from — the project document
-    // route or the org Archiv route — not guessed from a collection id.
-    const toRefs = (rows: unknown, shelf: Shelf): StoredDocumentRef[] =>
-      Array.isArray(rows)
-        ? rows
-            .filter(
-              (doc): doc is { id: string; filename: string; contentType?: string | null } =>
-                !!doc && typeof doc.id === 'string' && typeof doc.filename === 'string'
-            )
-            .map((doc) => ({
-              id: doc.id,
-              filename: doc.filename,
-              contentType: doc.contentType ?? null,
-              shelf,
-            }))
-        : []
-
-    // Tagged with the shelf each row came from, so a citation that names its own
-    // shelf resolves to the right copy of a filename held on several. Project
-    // uploads still come first, as the tie-break for a citation that does not.
-    // All three shelves that CAN be `documents` rows are represented here; the
-    // fourth (`base`) is the corpus below and has no row to list.
-    const storedDocuments: StoredDocumentRef[] = [
-      ...toRefs(docs, 'project'),
-      ...toRefs(sessionDocs, 'session'),
-      ...toRefs(archivDocs, 'archiv'),
-    ]
 
     // Only corpus files whose PDF actually exists on this deployment are
     // openable (index-only entries and removed files would 404 the viewer).
@@ -182,7 +202,7 @@ const loadSourcePreviewIndex = (
           .map((file) => file.fileName)
       : []
 
-    return { storedDocuments, baseCorpusFiles }
+    return { sessionDocuments: toRefs(sessionDocs, 'session'), baseCorpusFiles }
   })()
 
   indexCache.set(key, promise)
@@ -190,14 +210,20 @@ const loadSourcePreviewIndex = (
 }
 
 /**
- * Resolution index for the current project AND conversation. Returns null until
- * loaded (or while disabled); on any fetch failure the lists degrade to empty,
- * which downgrades chips to info/plain — never a broken viewer.
+ * Resolution index for one cited document in the current project AND
+ * conversation. Returns null until loaded (or while disabled); on any fetch
+ * failure the lists degrade to empty, which downgrades chips to info/plain —
+ * never a broken viewer.
+ *
+ * `fileName` is the name the citation resolves by (`citedFileName`); without
+ * one no stored row is asked for, and only the base corpus and attachments
+ * load.
  */
 export const useSourcePreviewIndex = (
   projectId: string | null,
   conversationId: string | null,
-  enabled: boolean
+  enabled: boolean,
+  fileName: string | null
 ): SourcePreviewIndex | null => {
   const [index, setIndex] = useState<SourcePreviewIndex | null>(null)
   // Reload after a document was added, renamed or deleted. Dropping the cache
@@ -208,7 +234,7 @@ export const useSourcePreviewIndex = (
   useEffect(() => {
     if (!enabled) return
     let cancelled = false
-    loadSourcePreviewIndex(projectId, conversationId)
+    loadSourcePreviewIndex(projectId, conversationId, fileName)
       .then((loaded) => {
         if (!cancelled) setIndex(loaded)
       })
@@ -218,7 +244,7 @@ export const useSourcePreviewIndex = (
     return () => {
       cancelled = true
     }
-  }, [projectId, conversationId, enabled, generation])
+  }, [projectId, conversationId, enabled, fileName, generation])
 
   return enabled ? index : null
 }
@@ -1538,7 +1564,7 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   // stored file, so the index fetch is skipped entirely for link sources AND
   // for card-derived documents, which name a law but no document at all.
   const needsIndex = !doc.url && !!doc.fileName
-  const previewIndex = useSourcePreviewIndex(projectId, conversationId, needsIndex)
+  const previewIndex = useSourcePreviewIndex(projectId, conversationId, needsIndex, citedFileName(doc))
   // The stored document whose office rendition the BFF refused (415/502). Only
   // the preview route can say so, so it is learned on the first open, and from
   // then on this chip is the download it would have been before ADR-0070.
@@ -1725,7 +1751,12 @@ export const SourceDocumentDialog: FC<{
 }> = ({ citation, onClose }) => {
   const projectId = useChatStore((s) => s.projectId)
   const conversationId = useConversationId()
-  const previewIndex = useSourcePreviewIndex(projectId, conversationId, !citation.document.url)
+  const previewIndex = useSourcePreviewIndex(
+    projectId,
+    conversationId,
+    !citation.document.url,
+    citedFileName(citation.document)
+  )
   const target = resolveCitationTarget(citation.document, {
     locus: citation.locus,
     storedDocuments: previewIndex?.storedDocuments,

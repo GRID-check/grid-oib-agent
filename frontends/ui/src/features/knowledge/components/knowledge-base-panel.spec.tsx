@@ -119,6 +119,31 @@ describe('KnowledgeBasePanel', () => {
     expect(await screen.findByText('statik-gutachten.pdf')).toBeDefined()
   })
 
+  // The panel counts and lists the project's documents, so it reads every
+  // page: a first page of 500 used to be the whole project as far as it knew.
+  it('lists project documents from every page of the listing', async () => {
+    mockEndpoints()
+    const doc = (id: string, filename: string) => ({
+      id,
+      filename,
+      fileSize: 500,
+      contentType: 'application/pdf',
+      status: 'ready',
+      createdAt: '2026-07-02T00:00:00Z',
+    })
+    server.use(
+      http.get('/api/documents', ({ request }) =>
+        new URL(request.url).searchParams.get('cursor') === 'next'
+          ? HttpResponse.json({ documents: [doc('doc-old', 'bestand-1962.pdf')], nextCursor: null })
+          : HttpResponse.json({ documents: [doc('doc-new', 'statik-gutachten.pdf')], nextCursor: 'next' })
+      )
+    )
+    render(<KnowledgeBasePanel projectId="proj-1" />)
+
+    expect(await screen.findByText('statik-gutachten.pdf')).toBeDefined()
+    expect(screen.getByText('bestand-1962.pdf')).toBeDefined()
+  })
+
   it('shows the empty invitation when the project has no documents', async () => {
     mockEndpoints({ documents: [] })
     render(<KnowledgeBasePanel projectId="proj-1" />)

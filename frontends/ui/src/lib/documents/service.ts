@@ -75,8 +75,8 @@ import {
   findFolderPathInProject,
   findStorageKeyByCollectionAndFilename,
   findStorageKeyByIdAndCollection,
-  listProjectDocuments,
   listProjectDocumentPage,
+  findProjectDocumentsByFilenames,
   findProjectDocumentsByNames,
   type DocumentNameMatchRow,
   markDocumentIngestFailed,
@@ -88,6 +88,7 @@ import {
   type DocumentListRow,
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
+import { decodeTextBytes } from '@/lib/text/decode-text'
 import { encodeDocumentListCursor, type DocumentListCursor } from './list-cursor'
 import { runBimExtraction } from '@/lib/bim/service'
 import { getAccessibleDocument } from './access'
@@ -355,12 +356,13 @@ export async function dispatchIngest(
   const bucket = resolveDocumentBucket(storageBucket)
   // The backend fetches the file itself, from inside the Docker network —
   // sign with the internal-endpoint client, not the browser-facing one.
+  // An hour, like the rendition ref: the ingest JOB downloads it, not the
+  // request, and the job may start well after dispatch behind the bounded
+  // ingest queue.
   const presignedUrl = await getSignedUrl(
     s3Client,
     new GetObjectCommand({ Bucket: bucket, Key: storageKey }),
-    {
-      expiresIn: presignTtlSeconds(),
-    }
+    { expiresIn: RENDITION_REF_TTL_SECONDS }
   )
 
   // Presigned upload slot for the 200px JPEG thumbnail the ingest pipeline
@@ -476,24 +478,54 @@ export async function listDocumentsPage(
     cursor: options.cursor,
   })
   const nextCursor = page.nextCursor ? encodeDocumentListCursor(page.nextCursor) : null
+  return { documents: await toListedDocuments(session, page.rows), nextCursor }
+}
 
+/**
+ * What a project row needs before it leaves the BFF, whichever query found it:
+ * the listing page or a by-name lookup. The CALLER has already checked
+ * `project:view` for the project every row was read from.
+ */
+async function toListedDocuments(
+  session: AuthorizedSession,
+  rows: DocumentListRow[]
+): Promise<ListedDocument[]> {
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
-  const reconciled = await reconcileDocumentStatuses(page.rows, session.organizationId)
+  const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
 
   const listed = reconciled.map(({ metadata: _metadata, ...row }) => row)
 
   if (!isCollaborationEnabled(session) || listed.length === 0) {
-    return { documents: listed.map((row) => ({ ...row, assignees: [] })), nextCursor }
+    return listed.map((row) => ({ ...row, assignees: [] }))
   }
 
-  // Every id was read from this project, behind `project:view` above.
   const grouped = await listAssignmentsWithoutAccessCheck(
     session,
     'document',
     listed.map((row) => row.id)
   )
-  return { documents: listed.map((row) => ({ ...row, assignees: grouped[row.id] ?? [] })), nextCursor }
+  return listed.map((row) => ({ ...row, assignees: grouped[row.id] ?? [] }))
+}
+
+/**
+ * The project's documents NAMED `filenames` (case-insensitive, either Unicode
+ * form), as listing rows — the by-name resolve (`POST /api/documents/by-name`).
+ *
+ * For the readers that want particular documents rather than the corpus: a
+ * citation chip, a surfaced-documents card, a file operation naming its file.
+ * They used to read the first listing page and look the name up in it, so a
+ * cited document older than the newest 500 resolved to nothing. Same gate and
+ * same row as the listing; archived documents are left out as they are there.
+ */
+export async function resolveProjectDocumentsByName(
+  session: AuthorizedSession,
+  projectId: string,
+  filenames: readonly string[]
+): Promise<ListedDocument[]> {
+  await requireProjectAccess(session, projectId, 'project:view')
+  const rows = await findProjectDocumentsByFilenames(projectId, session.organizationId, filenames)
+  return toListedDocuments(session, rows)
 }
 
 /**
@@ -672,7 +704,7 @@ export function joinHitsToFiles<
     // under a „Von Piloti erstellt" label.
     //
     // `authoredBy` is required rather than optional on purpose. Both callers
-    // select it (`listProjectDocuments`, `listArchiv`); making it optional would
+    // select it (`documentListColumns`); making it optional would
     // mean a future caller that forgets the column fails OPEN at runtime instead
     // of failing to compile.
     if (file.authoredBy !== 'user') continue
@@ -693,27 +725,36 @@ export function joinHitsToFiles<
 
 /**
  * Document-centric semantic search over a project's corpus. Enforces
- * `project:view` (via `listDocuments`), resolves the project's RAG collection,
- * runs the deterministic vector search on the backend, and joins the hits to the
- * project's own file rows by filename. Fail-open: a backend error/timeout yields
- * `{ hits: [] }`, never a crash.
+ * `project:view`, resolves the project's RAG collection, runs the deterministic
+ * vector search on the backend, and joins the hits to the project's own file
+ * rows by filename. Fail-open: a backend error/timeout yields `{ hits: [] }`,
+ * never a crash.
+ *
+ * The rows are looked up BY THE HIT NAMES, as `searchArchivDocuments` does,
+ * never read from the listing: the listing is paged, and a hit on a document
+ * past its first page used to be dropped as if the search had not found it.
  */
 export async function searchProjectDocuments(
   session: AuthorizedSession,
   projectId: string,
   query: string,
   topK = 20
-): Promise<{ hits: Array<SearchedDocument<Awaited<ReturnType<typeof listDocuments>>[number]>> }> {
-  // Authorization (project:view) + the canonical file rows come from the same
-  // path the normal list uses, so a semantic result is always a real, visible
-  // document with its live status/metadata.
-  const files = await listDocuments(session, projectId)
+): Promise<{ hits: Array<SearchedDocument<ListedDocument>> }> {
+  await requireProjectAccess(session, projectId, 'project:view')
 
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError('Project not found')
 
   const hits = await fetchSemanticHits(project.collectionName, query, topK)
-  return { hits: joinHitsToFiles(hits, files) }
+  if (hits.length === 0) return { hits: [] }
+  // The canonical rows, hydrated exactly as the listing hydrates them, so a
+  // semantic result is always a real, visible document with its live status.
+  const rows = await findProjectDocumentsByFilenames(
+    projectId,
+    session.organizationId,
+    hits.map((hit) => hit.file_name)
+  )
+  return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows)) }
 }
 
 export interface UploadDocumentInput {
@@ -1651,10 +1692,22 @@ export interface ReindexProjectResult {
   skipped: number
   /** Display names whose dispatch failed. Their previous chunks are untouched. */
   failed: string[]
+  /**
+   * True when the page ceiling ({@link REINDEX_MAX_PAGES}) stopped the walk
+   * before the project's last document: the rest was NOT rebuilt, and the
+   * reader is told so rather than handed a count that looks like the project.
+   */
+  truncated: boolean
 }
 
 /** Re-dispatch runs this many documents at a time. */
 const REINDEX_CONCURRENCY = 4
+
+/**
+ * Listing pages one reindex walks — 20 of `DOCUMENT_LIST_LIMIT`, ten thousand
+ * documents. Each page is bounded by the repository; this bounds the request.
+ */
+export const REINDEX_MAX_PAGES = 20
 
 /**
  * Rebuild every document's chunks in one project.
@@ -1694,13 +1747,7 @@ export async function reindexProject(
 ): Promise<ReindexProjectResult> {
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
 
-  // `'user'` explicitly, not "everything": a machine-authored document must not
-  // be indexed (see `dispatchDocument`), and reaching the dispatcher's refusal
-  // would report a project-wide reindex as partially FAILED for rows that were
-  // never eligible. The dispatcher is the invariant; this is the caller not
-  // asking a question it already knows the answer to.
-  const rows = await listProjectDocuments(projectId, session.organizationId, { authoredBy: 'user' })
-  const result: ReindexProjectResult = { projectId, queued: 0, skipped: 0, failed: [] }
+  const result: ReindexProjectResult = { projectId, queued: 0, skipped: 0, failed: [], truncated: false }
 
   const redispatch = async (row: DocumentListRow): Promise<void> => {
     // Re-resolved rather than trusted from the list: this is the same read the
@@ -1714,10 +1761,10 @@ export async function reindexProject(
       return
     }
 
-    // Belt to the query's braces. The listing above already asks for `'user'`
+    // Belt to the query's braces. The listing below already asks for `'user'`
     // only, so this is never null in practice; a row that somehow arrives here
     // machine-authored is skipped, not reported failed: it was never eligible,
-    // exactly as the `'user'` filter above says, and `dispatchDocument` would
+    // exactly as the `'user'` filter below says, and `dispatchDocument` would
     // refuse it anyway.
     if (!collectionFileRef(doc)) {
       result.skipped += 1
@@ -1744,20 +1791,44 @@ export async function reindexProject(
 
   // Bounded rather than unbounded: a project with hundreds of documents would
   // otherwise open that many backend connections at once and time the request out.
-  let next = 0
-  const workers = Array.from({ length: Math.min(REINDEX_CONCURRENCY, rows.length) }, async () => {
-    while (next < rows.length) {
-      const row = rows[next++]
-      try {
-        await redispatch(row)
-      } catch {
-        // One document's failure must not abandon the rest of the project.
-        result.failed.push(documentDisplayName(row))
+  const redispatchPage = async (rows: DocumentListRow[]): Promise<void> => {
+    let next = 0
+    const workers = Array.from({ length: Math.min(REINDEX_CONCURRENCY, rows.length) }, async () => {
+      while (next < rows.length) {
+        const row = rows[next++]
+        try {
+          await redispatch(row)
+        } catch {
+          // One document's failure must not abandon the rest of the project.
+          result.failed.push(documentDisplayName(row))
+        }
       }
-    }
-  })
-  await Promise.all(workers)
+    })
+    await Promise.all(workers)
+  }
 
+  // Every page, not the first: this read the newest `DOCUMENT_LIST_LIMIT` rows
+  // and stopped, so a project-wide reindex of a large project silently left
+  // its oldest documents on the old chunks. The keyset order is `created_at`,
+  // which a dispatch never touches, so re-dispatching a page cannot move a row
+  // across the cursor.
+  //
+  // `'user'` explicitly, not "everything": a machine-authored document must not
+  // be indexed (see `dispatchDocument`), and reaching the dispatcher's refusal
+  // would report a project-wide reindex as partially FAILED for rows that were
+  // never eligible. The dispatcher is the invariant; this is the caller not
+  // asking a question it already knows the answer to.
+  let cursor: DocumentListCursor | undefined
+  for (let page = 0; page < REINDEX_MAX_PAGES; page++) {
+    const { rows, nextCursor } = await listProjectDocumentPage(projectId, session.organizationId, {
+      authoredBy: 'user',
+      cursor,
+    })
+    await redispatchPage(rows)
+    if (!nextCursor) return result
+    cursor = nextCursor
+  }
+  result.truncated = true
   return result
 }
 
@@ -2324,10 +2395,10 @@ export async function streamDocumentFile(
 /**
  * A text document's content, for the pane that renders it.
  *
- * Bounded by {@link TEXT_PREVIEW_MAX_BYTES} and decoded as UTF-8 with
- * replacement characters rather than a throw: a Windows-authored `.csv` in
- * cp1252 is common, and half a mojibake table still tells the reader which file
- * they are looking at. `truncated` is part of the contract because a viewer that
+ * Bounded by {@link TEXT_PREVIEW_MAX_BYTES} and decoded the way the knowledge
+ * layer reads the same bytes (`decodeTextBytes`: BOM, else strict UTF-8, else
+ * Windows-1252). A Windows-authored `.csv` in cp1252 is common, and decoding it
+ * as UTF-8 with replacement glyphs showed every umlaut as „�". `truncated` is part of the contract because a viewer that
  * silently shows the first half of a document is worse than one that shows none
  * of it — the reader would take the last line they see for the end of the file.
  */
@@ -2362,12 +2433,10 @@ export async function getDocumentTextPreview(
   }
 
   const truncated = bytes.byteLength > TEXT_PREVIEW_MAX_BYTES
-  const decoder = new TextDecoder('utf-8')
-  let text = decoder.decode(bytes.subarray(0, TEXT_PREVIEW_MAX_BYTES))
-  // A Range cut lands mid-codepoint as often as not, and the decoder turns the
-  // orphaned bytes into a replacement glyph at the very end of the text. Drop
-  // the trailing partial line instead: a half-written last row of a CSV reads
-  // as data, and the truncation notice below it is the honest statement.
+  let { text } = decodeTextBytes(bytes.subarray(0, TEXT_PREVIEW_MAX_BYTES), { truncated })
+  // A Range cut lands mid-line (and, in UTF-16, mid-character). Drop the
+  // trailing partial line: a half-written last row of a CSV reads as data, and
+  // the truncation notice below it is the honest statement.
   if (truncated) {
     const lastBreak = text.lastIndexOf('\n')
     if (lastBreak > 0) text = text.slice(0, lastBreak)

@@ -40,7 +40,13 @@ vi.mock('@/lib/db/tenant-context', () => ({
   withOptionalTenant: (_scope: unknown, fn: () => unknown) => fn(),
 }))
 
-import { DOCUMENT_LIST_LIMIT, findProjectDocumentsByNames, listProjectDocumentPage } from './repository'
+import {
+  DOCUMENT_LIST_LIMIT,
+  findProjectDocumentsByFilenames,
+  findProjectDocumentsByNames,
+  listProjectDocumentPage,
+} from './repository'
+import { FILENAME_LOOKUP_MAX_NAMES } from './filename-lookup'
 import {
   findArchivDocumentsByFilenames,
   findArchivDocumentsByNames,
@@ -177,6 +183,51 @@ describe('findArchivDocumentsByFilenames', () => {
     expect(sql).toMatch(/"documents"\."filename" in \(\$\d+, \$\d+\)/)
     expect(params).toEqual(expect.arrayContaining([composed, composed.normalize('NFD'), 'archiv', 'org-1']))
     expect(params.at(-1)).toBe(DOCUMENT_LIST_LIMIT)
+  })
+
+  it('matches a name the reader spelled in another case', async () => {
+    await findArchivDocumentsByFilenames('org-1', ['DETAIL.PDF'])
+    const { sql, params } = onlyQuery()
+    expect(sql).toMatch(/lower\("documents"\."filename"\) in/)
+    expect(params).toEqual(expect.arrayContaining(['DETAIL.PDF', 'detail.pdf']))
+  })
+})
+
+/**
+ * The by-name lookup behind the search join and the citation resolve. It must
+ * reach a document on any page of the listing, answer only what the listing
+ * would show (this project's shelf, active rows), and stay bounded.
+ */
+describe('findProjectDocumentsByFilenames', () => {
+  it('asks nothing for no names', async () => {
+    expect(await findProjectDocumentsByFilenames('p1', 'org-1', ['', '  '])).toEqual([])
+    expect(captured).toHaveLength(0)
+  })
+
+  it('matches the filename exactly or case-folded, on the listing\'s own shelf and lifecycle', async () => {
+    const decomposed = 'Übersicht.PDF'.normalize('NFD')
+    await findProjectDocumentsByFilenames('p1', 'org-1', [decomposed])
+    const { sql, params } = onlyQuery()
+    expect(sql).toMatch(/"documents"\."project_id" = \$\d+/)
+    expect(sql).toMatch(/"documents"\."scope" = \$\d+/)
+    expect(sql).toMatch(/"documents"\."lifecycle" = \$\d+/)
+    expect(sql).toMatch(/"documents"\."filename" in \(\$\d+, \$\d+\)/)
+    expect(sql).toMatch(/lower\("documents"\."filename"\) in/)
+    // Not the rename: this resolves the name the index and the model know.
+    expect(sql).not.toMatch(/display_name"\) in/)
+    const nfc = 'Übersicht.PDF'.normalize('NFC')
+    expect(params).toEqual(
+      expect.arrayContaining(['p1', 'org-1', 'project', 'active', nfc, nfc.normalize('NFD'), nfc.toLowerCase()]),
+    )
+    expect(params.at(-1)).toBe(DOCUMENT_LIST_LIMIT)
+  })
+
+  it('bounds how many names one query carries', async () => {
+    const names = Array.from({ length: FILENAME_LOOKUP_MAX_NAMES + 50 }, (_, i) => `f${i}.pdf`)
+    await findProjectDocumentsByFilenames('p1', 'org-1', names)
+    const { params } = onlyQuery()
+    expect(params).toContain(`f${FILENAME_LOOKUP_MAX_NAMES - 1}.pdf`)
+    expect(params).not.toContain(`f${FILENAME_LOOKUP_MAX_NAMES}.pdf`)
   })
 })
 
