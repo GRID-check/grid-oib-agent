@@ -3043,6 +3043,10 @@ def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
     quote_len = len(norm_quote)
     if quote_len == 0:
         return 0.0
+    # A verbatim substring is one uninterrupted run, which the windows below
+    # score 1.0 too; the substring test answers it in microseconds instead.
+    if norm_quote in norm_chunk:
+        return 1.0
     pad = max(_QUOTE_WINDOW_PAD_MIN, quote_len // 10)
     window_len = quote_len + pad
     base = difflib.SequenceMatcher(None, norm_quote, norm_chunk, autojunk=False)
@@ -3370,6 +3374,8 @@ def verify_quoted_spans(
         too_long = len(inner.split()) > _QUOTE_MAX_WORDS
         cited_numbers = _quote_cited_numbers(body, match.start(), match.end())
         uncited = not cited_numbers
+        if not (too_long or uncited) and _any_chunk_covers(norm_quote, normalized_chunks, threshold):
+            continue
         best_coverage = max(_quote_coverage(norm_quote, chunk) for chunk, _ in normalized_chunks)
         if not (too_long or uncited or best_coverage < threshold):
             continue
@@ -3393,6 +3399,17 @@ def verify_quoted_spans(
             )
         )
     return unverified
+
+
+def _any_chunk_covers(norm_quote: str, normalized_chunks: Sequence[tuple[str, Any]], threshold: float) -> bool:
+    """Whether some chunk covers the quote, stopping at the first that does.
+
+    A quote that passes is never reported, so its exact best coverage is never
+    read; scoring every chunk of a registry that grows each turn was the cost.
+    """
+    return any(norm_quote in chunk for chunk, _ in normalized_chunks) or any(
+        _quote_coverage(norm_quote, chunk) >= threshold for chunk, _ in normalized_chunks
+    )
 
 
 def annotate_unverified_quotes(answer_text: str, unverified: Sequence[UnverifiedQuote]) -> str:
