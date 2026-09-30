@@ -395,7 +395,9 @@ async def _prepare_turn(
     # a tool node sit between here and the call. Bound before the graph starts,
     # so the child contexts copy it; called on every turn, including with None,
     # which is what stops one turn resolving against the last one's.
-    set_turn_documents(inventory.available_documents)
+    # The UNCAPPED rows: the prompt cap bounds what the model reads, never
+    # what a tool can resolve (`Inventory.all_documents`).
+    set_turn_documents(inventory.all_documents or inventory.available_documents)
     set_norm_families(inventory.norm_families)
     set_inventory_drops(inventory.inventory_drops)
     state = _turn_state(inputs, context, inventory, header_scope, skip_clarifier=skip_clarifier)

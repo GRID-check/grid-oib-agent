@@ -4,7 +4,7 @@ import 'server-only'
  *
  * ## The gap this closes
  *
- * A chat turn writes an Aktenvermerk, `file_draft` files it, `submit_draft`
+ * A chat turn writes an Aktenvermerk, `file_draft` files it and, with `submit`,
  * sends it for review, and a Ziviltechniker presses „Änderungen anfordern" with
  * three sentences of what is wrong. Those sentences reached the Files pane, the
  * inbox item and the audit trail — and never reached the one place that could

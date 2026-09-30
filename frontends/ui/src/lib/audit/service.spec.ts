@@ -300,6 +300,7 @@ describe('trustedAppOrigin', () => {
   })
 
   it('falls back to the request origin when unconfigured', () => {
+    delete process.env.WORKOS_REDIRECT_URI
     delete process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI
     expect(trustedAppOrigin(new Request('https://grid.example/api/x'))).toBe('https://grid.example')
   })

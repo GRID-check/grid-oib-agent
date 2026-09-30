@@ -326,8 +326,13 @@ It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus in
 first). Every run costs model calls: the core set at two runs is twelve
 turns, about four minutes three at a time.
 
-**On a PR, add the `answer-suite` label** and CI runs it for you
-(`.github/workflows/answer-suite.yml`): the base and the head, the head's
+**The CI run is paused.** `.github/workflows/answer-suite.yml` is commented
+out behind a stub that only runs by hand, so the `answer-suite` label no longer
+starts anything: run the suite yourself, before and after, as above, and put
+the report in the PR. What the workflow did, for when it is restored (the
+header of that file says how):
+
+On a PR, the `answer-suite` label made CI run it: the base and the head, the head's
 report with its baseline deltas as one sticky comment, re-run on every push
 while the label stays on. It needs the repository secrets `OPENROUTER_API_KEY`
 and `OIB_CORPUS_URL`, and fails fast without them. The corpus is the

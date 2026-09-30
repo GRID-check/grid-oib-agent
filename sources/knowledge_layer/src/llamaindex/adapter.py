@@ -846,6 +846,23 @@ def _cosine_distances(query_embedding: Any, embeddings: Any, count: int) -> list
         return [1.0] * count
 
 
+def _is_missing_collection(exc: BaseException) -> bool:
+    """True when ``get_collection`` failed because the collection does not exist.
+
+    chromadb 1.x raises ``chromadb.errors.NotFoundError`` ("Collection [x] does
+    not exist"); 0.x raised a bare ``ValueError`` with the same wording, and an
+    HTTP client may surface it as its own error class. The message is the
+    common ground, the class the precise check.
+    """
+    try:
+        from chromadb.errors import NotFoundError
+    except ImportError:  # pragma: no cover - the adapter does not run without chromadb
+        NotFoundError = None  # noqa: N806
+    if NotFoundError is not None and isinstance(exc, NotFoundError):
+        return True
+    return "does not exist" in str(exc).lower()
+
+
 def _to_chroma_where(filters: dict[str, Any] | None):
     """Translate a backend-neutral filter dict into a Chroma ``where`` expression.
 
@@ -5156,6 +5173,59 @@ class LlamaIndexRetriever(BaseRetriever):
             await asyncio.to_thread(self._warm_sync, query)
         except Exception:  # noqa: BLE001 - a warm-up is worth less than the turn
             logger.debug("Query warm-up failed", exc_info=True)
+
+    async def find_text(
+        self,
+        collection_name: str,
+        pattern: str,
+        filters: dict[str, Any] | None = None,
+        limit: int = 500,
+    ) -> list[Chunk] | None:
+        """Every chunk matching the regex ``pattern``, via Chroma's own ``$regex``.
+
+        The vector store is the source of truth for chunk text, so this reads it
+        there rather than from the lexical mirror, which a deployment may not
+        have backfilled. No embedding, no ranking: a filter over the collection.
+        Chroma evaluates ``$regex`` with Rust's ``regex`` crate (Unicode ``\\s``,
+        ``\\b`` and ``(?i)``); ``$contains`` was byte-exact, so a mixed-case
+        original or a line break inside a phrase was a false „Keine Fundstelle“.
+        A collection that does not exist is an empty answer, not a failure; any
+        other store error raises, so the caller can say the search did not run.
+        """
+        return await asyncio.to_thread(self._find_text_sync, collection_name, pattern, filters, limit)
+
+    def _find_text_sync(
+        self, collection_name: str, pattern: str, filters: dict[str, Any] | None, limit: int
+    ) -> list[Chunk]:
+        if not pattern or limit <= 0:
+            return []
+        self._ensure_initialized()
+        try:
+            collection = self._chroma_client.get_collection(name=collection_name)
+        except Exception as exc:
+            # An absent collection holds no text, so it is an empty answer. Any
+            # other failure (the store down, a timeout) propagates: returned as
+            # [] it read as a reliable „Keine Fundstelle“ during an outage.
+            if _is_missing_collection(exc):
+                return []
+            raise
+        fetched = collection.get(
+            where=_to_chroma_where(filters),
+            where_document={"$regex": pattern},
+            limit=limit,
+            include=["documents", "metadatas"],
+        )
+        ids = fetched.get("ids") or []
+        # Distance 0: every returned chunk matches the pattern, so none ranks
+        # above another. The caller orders them by document and page.
+        return self._chunks_from_raw_query(
+            {
+                "ids": [ids],
+                "documents": [fetched.get("documents") or []],
+                "metadatas": [fetched.get("metadatas") or []],
+                "distances": [[0.0] * len(ids)],
+            }
+        )
 
     def _warm_sync(self, query: str) -> None:
         self._ensure_initialized()

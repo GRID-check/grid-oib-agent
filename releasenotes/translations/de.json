@@ -1000,6 +1000,10 @@
     "de": "Bestehende Budgetlimits wurden von Euro in Punkte umgerechnet. Prüfen Sie Ihre Organisations-, Mitglieder- und Projektlimits einmal und passen Sie sie an, wenn die neuen Werte nicht dem entsprechen, was Sie gemeint haben."
   },
   {
+    "en": "File names Piloti writes in an answer open the file more reliably, because Piloti now writes each name exactly as it is stored.",
+    "de": "Dateien lassen sich zuverlässiger öffnen, da Piloti Dateinamen in Antworten jetzt exakt so schreibt, wie sie gespeichert sind."
+  },
+  {
     "en": "Files Piloti writes no longer misspell their own names. A report on „Fluchtweglängen Gebäudeklasse 4\" is now saved as fluchtweglaengen-gebaeudeklasse-4, the way you would write it yourself and the way you would search for it a year later, and a client name with a Polish or Czech letter in it survives intact.",
     "de": "Die von Piloti erstellten Dateien haben keine falsch geschriebenen Namen mehr. Ein Bericht zu „Fluchtweglängen Gebäudeklasse 4“ wird jetzt als fluchtweglaengen-gebaeudeklasse-4 gespeichert – so, wie Sie ihn selbst schreiben und ein Jahr später danach suchen würden. Auch ein Kundenname mit einem polnischen oder tschechischen Buchstaben bleibt erhalten."
   },
@@ -1170,6 +1174,10 @@
   {
     "en": "In a file's detail view you can expand what was recognised: rooms, circulation, structure, services, build-ups and key figures, each marked as labelled on the drawing or derived from it.",
     "de": "In der Detailansicht einer Datei lassen sich die erkannten Angaben aufklappen: Räume, Erschließung, Tragwerk, Technik, Bauteilaufbauten und Kennwerte, jeweils mit dem Hinweis, ob sie beschriftet oder abgeleitet sind."
+  },
+  {
+    "en": "In a large project, Piloti can now rename, move and assign files beyond the first 50 as well. It used to refuse them as unknown files.",
+    "de": "In großen Projekten kann Piloti jetzt auch Dateien ab der 51. umbenennen, verschieben und zuordnen. Bisher lehnt Piloti sie als unbekannte Dateien ab."
   },
   {
     "en": "In the Herleitung a passage read by point now shows the point, such as „Pkt. 3.5.2“, before the page.",
@@ -1398,6 +1406,14 @@
   {
     "en": "Piloti can now draw a procedure. Where an answer turns on a sequence a paragraph cannot hold — who hands what to whom, a step that sends you back a stage, a Nachweis that two others wait on — it returns a drawing beside the text, and one click files that drawing into the project as an SVG and a PDF you can attach to an Einreichung.",
     "de": "Piloti kann jetzt Verfahrensabläufe zeichnen. Wenn eine Antwort von einer Abfolge abhängt, die sich nicht in einem Absatz darstellen lässt – wer wem was übergibt, ein Schritt, der Sie zu einer früheren Phase zurückführt, ein Nachweis, auf den zwei andere warten –, stellt Piloti neben dem Text eine Zeichnung bereit. Mit einem Klick legen Sie diese als SVG und PDF im Projekt ab, um sie einer Einreichung beizulegen."
+  },
+  {
+    "en": "Piloti can now find every place a word, name or number appears in your files, like a search across the whole project: „Wo kommt BA-03 überall vor?“ lists each matching file, how often and on which pages, with passages it can quote. Capitals and spellings such as ä or ae, ß or ss count as the same.",
+    "de": "Piloti findet jetzt jede Stelle, an der ein Wort, Name oder eine Zahl in Ihren Dateien vorkommt – wie eine Suche im gesamten Projekt: „Wo kommt BA-03 überall vor?“ listet jede Datei mit Treffern, die Anzahl der Treffer und die Seiten auf und zeigt Textstellen, die Piloti zitieren kann. Groß- und Kleinschreibung sowie Schreibweisen wie ä oder ae und ß oder ss werden gleich behandelt."
+  },
+  {
+    "en": "Piloti can now go through every file in the project, the office archive and this chat the way Dateien does, by folder, name, document type and upload date, instead of seeing only the first 50 or so names. „Was ist diese Woche neu?“ or „Was liegt im Ordner Brandschutz?“ now get a complete answer, and files still being processed are named as such.",
+    "de": "Piloti kann jetzt jede Datei im Projekt, im Büroarchiv und in diesem Chat durchsuchen – so wie Dateien, nach Ordner, Name, Dokumenttyp und Upload-Datum, statt nur die ersten rund 50 Dateinamen anzuzeigen. Auf „Was ist diese Woche neu?“ oder „Was liegt im Ordner Brandschutz?“ erhalten Sie jetzt eine vollständige Antwort, und Dateien, die noch verarbeitet werden, werden als solche gekennzeichnet."
   },
   {
     "en": "Piloti can now help tidy the project files. Ask it to move something into a folder, rename a file, create a folder or hand a document to a colleague, and it puts the change on a card beside the answer for you to apply or discard.",

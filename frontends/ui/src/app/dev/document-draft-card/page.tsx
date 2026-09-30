@@ -18,7 +18,7 @@
  *     real — opening it beside the conversation, and sending it for approval.
  *     „Zur Freigabe einreichen" is the interactive half and calls the same route
  *     the Files pane calls.
- *  3. **Already with a reviewer.** After `submit_draft`, or after the reader
+ *  3. **Already with a reviewer.** After `file_draft` with `submit`, or after the reader
  *     pressed the control in 2: the card reports the state and draws no control,
  *     because the version can no longer be replaced and the next move belongs to
  *     a person.
@@ -97,7 +97,7 @@ export default function DocumentDraftCardPreview() {
 
         <Panel
           title="Zur Freigabe eingereicht"
-          note="Nach `submit_draft` oder nach dem Klick oben: Die Fassung kann nicht mehr ersetzt werden, also gibt es hier keine Schaltfläche mehr — nur die Auskunft, worauf gewartet wird. Ein Knopf, den die Route ablehnen würde, wäre schlechter als keiner."
+          note="Nach `file_draft` mit `submit` oder nach dem Klick oben: Die Fassung kann nicht mehr ersetzt werden, also gibt es hier keine Schaltfläche mehr — nur die Auskunft, worauf gewartet wird. Ein Knopf, den die Route ablehnen würde, wäre schlechter als keiner."
         >
           <DocumentDraftCard
             title="Aktenvermerk – Abweichung Fluchtweglänge"

@@ -400,6 +400,7 @@ describe('what a delegated run is told to produce', () => {
         subject: kind === 'revision' ? { documentId: 'd', versionId: 'v', comment: 'c' } : undefined,
       })
       expect(insertedDefinition.plan.prompt).not.toContain('file_draft')
+      // The retired name too: a prompt that still teaches it names a tool that no longer exists.
       expect(insertedDefinition.plan.prompt).not.toContain('submit_draft')
       // The answer IS the document, which is what `completeRunForOutcome` files.
       expect(insertedDefinition.plan.prompt).toContain('Markdown')
