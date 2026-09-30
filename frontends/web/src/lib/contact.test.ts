@@ -10,7 +10,7 @@ import {
   type Deps,
 } from './contact.ts'
 
-const SECRET = 'test-secret'
+const SECRET = 'test-secret' // pragma: allowlist secret
 const NOW = 1_800_000_000_000
 const ENV = {
   CONTACT_FORM_SECRET: SECRET,
