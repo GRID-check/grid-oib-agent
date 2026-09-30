@@ -550,6 +550,119 @@ request body on the app route, so a mail up to Cloudflare's 25 MiB passes;
 
 ---
 
+## 3d. Contact address and form (`grid-oib:contactAddress`)
+
+Off by default. The company address (`kontakt@piloti.at`) is forwarded by
+Cloudflare Email Routing to the founders' own mailboxes, and the landing
+site's contact form sends to the same mailboxes through Cloudflare's Email
+Service. Sending to verified destination addresses is free on every plan
+([Email Service](https://developers.cloudflare.com/email-service/)).
+
+What `contactAddress` deploys (`src/platform/contact-mail.ts`,
+`src/app/web.ts`):
+
+- **Email Routing on the app zone's apex** (`dnsZoneName`). Cloudflare adds
+  and locks the apex's MX and SPF records.
+- **One destination address per `contactForwardTo` entry.** Creating one makes
+  Cloudflare send a verification mail to that inbox. Until its owner clicks the
+  link, nothing is forwarded there and the form cannot send to it. `pulumi up`
+  succeeds either way.
+- **One literal rule**: `contactAddress` forwards to every target. There is no
+  catch-all on this zone, so every other address on the apex is refused, as
+  it was before.
+- **On the web pods**: `CONTACT_FROM`, `CONTACT_FORWARD_TO`,
+  `CLOUDFLARE_ACCOUNT_ID` (the app zone's account), and
+  `CLOUDFLARE_EMAIL_TOKEN` and `CONTACT_FORM_SECRET` from a Secret of their
+  own, `web-contact`.
+- **At the edge**: a per-client bucket for form submissions
+  (`rateLimitWebContact`, 10/min, POST to `/api/kontakt`, `/kontakt/` and
+  `/en/kontakt/`), on top of `rateLimitWeb`. It is on for every stack, and
+  like every edge limit it observes only while `rateLimitShadowMode` is on.
+
+Guards, all before anything is created:
+
+- The stack must manage and own the app zone (`dnsEnabled` and
+  `dnsZoneBaseline`): routing on the apex is zone-level, like `_dmarc`.
+- The address must be on the `dnsZoneName` apex; the forward targets must be
+  outside it.
+- `pulumi preview` refuses an apex whose MX records point anywhere but
+  `*.mx.cloudflare.net`: Email Routing would take that mail over. No MX, or
+  Cloudflare's own, passes.
+- `pulumi preview` refuses the zone while `_dmarc.<apex>` holds more than one
+  DMARC record (see step 2).
+- The project mail inbox (§3c) may run in the same account, on a zone of its
+  own. `loadConfig` refuses it on the app zone, and `stack-files.spec.ts`
+  refuses one stack's inbox on another stack's contact zone.
+
+### Setup
+
+1. **Two tokens.** Widen the stack's `cloudflareApiToken` (the §3b token) by
+   Account · **Email Routing Addresses · Edit**, and on the app zone
+   **Email Routing Rules · Edit**, **Zone Settings · Edit**, **DNS · Edit** and
+   **Zone · Read**. Then create a second token for the web pods with Account ·
+   **Email Sending · Edit** and nothing else
+   ([send emails](https://developers.cloudflare.com/email-service/get-started/send-emails/)).
+   The web pods never get the stack's token.
+2. **Onboard the domain for Email Sending, once, in the dashboard.** The REST
+   send requires the sender's domain (`piloti.at`) to be onboarded, and
+   `@pulumi/cloudflare` 6.19 has no resource for it. Dashboard → Compute →
+   Email Service → Email Sending → Onboard Domain. Per Cloudflare's
+   [domain configuration](https://developers.cloudflare.com/email-service/configuration/domains/)
+   it adds:
+
+   | Type | Name | Content |
+   |---|---|---|
+   | MX | `cf-bounce.piloti.at` | `route1`/`route2`/`route3.mx.cloudflare.net` |
+   | TXT | `cf-bounce.piloti.at` | `v=spf1 include:_spf.mx.cloudflare.net ~all` |
+   | TXT | `cf-bounce._domainkey.piloti.at` | the DKIM public key |
+   | TXT | `_dmarc.piloti.at` | `v=DMARC1; p=reject;` |
+
+   The first three sit on `cf-bounce`, which neither Email Routing (apex MX,
+   apex SPF, `cf2024-1._domainkey`) nor the MX guard (apex only) touches. The
+   `_dmarc` record collides: prod already manages `_dmarc.piloti.at` through
+   `dnsDmarc`, and two DMARC records make receivers apply no policy at all
+   (RFC 7489 §6.6.3). **Delete the one onboarding adds** (or, to adopt
+   `p=reject`, change `dnsDmarc` and delete it anyway). `pulumi preview`
+   refuses the zone while it holds two.
+3. **Switch Email preview OFF** for `piloti.at` (Email Sending → the domain →
+   Email preview). It is on by default for domains onboarded since
+   2026-07-02 and keeps every sent message, content included, for about seven
+   days. Form messages are personal data that the privacy notice says are not
+   stored on our side; switch it off before the first real message is sent.
+4. **Set the keys.** Secrets in ESC, the rest in the stack file, below the
+   encrypted secrets block (`deploy/AGENTS.md`):
+
+   ```bash
+   esc env set matthiasbigl/grid-oib/<stack> pulumiConfig.grid-oib:contactEmailToken "<Email Sending token>" --secret
+   esc env set matthiasbigl/grid-oib/<stack> pulumiConfig.grid-oib:contactFormSecret "$(openssl rand -hex 32)" --secret
+
+   pulumi config set grid-oib:contactForwardTo "mail@jonathanuhlemann.de,mail@bigls.net"
+   pulumi config set grid-oib:contactAddress kontakt@piloti.at
+   ```
+
+   Set the secrets **before** the address: once it is set, `loadConfig`
+   refuses to plan without them.
+5. `pulumi up`. The stack output `contactAddress` shows the address and its
+   targets.
+6. **Each founder clicks the verification link** in the mail from Cloudflare.
+   The dashboard (Email → Email Routing → Destination addresses) shows both as
+   verified afterwards.
+7. Send a mail to `kontakt@piloti.at` from an outside address, and one message
+   through the form. Both arrive in both mailboxes; the form's reply goes to
+   the sender.
+
+### Deploy order
+
+Run steps 1–6 **before** deploying a site that shows `kontakt@piloti.at`. The
+Impressum must name an address that works; one that routes nowhere, or to an
+address nobody has verified yet, is a published contact that silently loses
+mail. Removing an entry from `contactForwardTo` deletes that destination
+address at Cloudflare; adding it back means a new verification click. A
+destination address that already exists in the account (added by hand) makes
+the create fail; adopt it with `pulumi import` instead.
+
+---
+
 ## 4. SeaweedFS — two topologies, and the migration between them
 
 `grid-oib:seaweedfsTopology` selects one of two layouts (ADR-0043). New stacks

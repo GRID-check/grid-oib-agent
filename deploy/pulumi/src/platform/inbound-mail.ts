@@ -3,6 +3,7 @@ import { join } from "node:path";
 import * as cloudflare from "@pulumi/cloudflare";
 import * as pulumi from "@pulumi/pulumi";
 import type { GridConfig } from "../config";
+import { checkedRoutingZone } from "./email-routing";
 
 /**
  * Project mail inbox: Cloudflare Email Routing for `inboundMailDomain`, and a
@@ -43,8 +44,16 @@ import type { GridConfig } from "../config";
  *
  * So `inboundMailDomain` must be the APEX of `inboundMailZoneId`: a domain of
  * its own (e.g. `piloti-post.at`), or the stack's own zone apex if nothing else
- * receives mail there. `loadConfig` refuses the subdomain-of-the-DNS-zone case
- * statically; the zone lookup below refuses every other mismatch at preview.
+ * receives mail there (the MX guard below checks). `loadConfig` refuses the
+ * subdomain-of-the-DNS-zone case statically; the zone lookup below refuses
+ * every other mismatch at preview.
+ *
+ * ## The apex must not already receive mail elsewhere
+ *
+ * The catch-all takes EVERY address on the apex, so an apex that is the
+ * company's own mail domain would have all of its mail captured. The preview
+ * refuses an apex whose MX records point anywhere but Cloudflare
+ * (`assertNoForeignMx` in `email-routing.ts`, which explains the rule).
  *
  * ## One stack per inbound zone
  *
@@ -58,7 +67,8 @@ import type { GridConfig } from "../config";
  *   - Account · Workers Scripts · Edit (the Worker)
  *   - Zone · Email Routing Rules · Edit (the catch-all), on the inbound zone
  *   - Zone · Zone Settings · Edit (enabling routing, `email/routing/dns`)
- *   - Zone · DNS · Edit (routing adds and locks its MX and SPF records)
+ *   - Zone · DNS · Edit (routing adds and locks its MX and SPF records; the
+ *     MX guard reads them)
  *   - Zone · Zone · Read (`getZone`: the apex check and the account id)
  */
 
@@ -107,14 +117,19 @@ export function installInboundMail(cfg: GridConfig): InboundMail | undefined {
   const provider = new cloudflare.Provider("cloudflare-inbound-mail", { apiToken: mail.apiToken });
   const opts = { provider };
 
-  // The zone lookup is the apex check (see the header) and the source of the
-  // account id the Worker is uploaded to, so nothing downstream exists unless
-  // the check passed.
-  const zone = cloudflare.getZoneOutput({ zoneId: mail.zoneId }, opts);
-  const accountId = zone.apply((z) => {
-    assertZoneApex(mail.domain, mail.zoneId, z.name);
-    return z.account.id;
+  // The zone lookups are the guards (see the header): the domain is the
+  // zone's apex, and the apex receives no mail elsewhere. Every resource below
+  // takes its account id or zone id from `checked`, so none of them is
+  // registered unless both guards passed.
+  const checked = checkedRoutingZone({
+    configKey: "inboundMailDomain",
+    zoneId: mail.zoneId,
+    domain: mail.domain,
+    provider,
+    checkZoneName: (zoneName) => assertZoneApex(mail.domain, mail.zoneId, zoneName),
   });
+  const accountId = checked.accountId;
+  const zoneId = checked.zoneId;
 
   const appOrigin = `https://${cfg.ingress.appDomain}`;
   const scriptName = workerScriptName(pulumi.getStack());
@@ -139,14 +154,14 @@ export function installInboundMail(cfg: GridConfig): InboundMail | undefined {
   // (`EmailRoutingSettings`): same effect, and this one names the domain.
   const routing = new cloudflare.EmailRoutingDns(
     "inbound-mail-routing",
-    { zoneId: mail.zoneId, name: mail.domain },
+    { zoneId, name: mail.domain },
     opts,
   );
 
   const catchAll = new cloudflare.EmailRoutingCatchAll(
     "inbound-mail-catch-all",
     {
-      zoneId: mail.zoneId,
+      zoneId,
       name: `Project mail inbox (${scriptName})`,
       enabled: true,
       matchers: [{ type: "all" }],

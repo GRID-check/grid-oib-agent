@@ -83,6 +83,27 @@ describe("committed stack files", () => {
       expect(files.length, `zone ${zoneId} is claimed by ${files.join(", ")}`).toBeLessThanOrEqual(1);
     }
   });
+
+  it("keep every project-mail zone apart from every stack's contact address", () => {
+    // `loadConfig` refuses the inbox on this stack's own contact zone; only
+    // this can see a dev stack pointing its inbox at the zone where prod
+    // routes kontakt@. The inbox's catch-all would then own that zone's mail.
+    const contactZones = new Map<string, string>();
+    for (const stack of stacks()) {
+      const zoneId = str(stack.config, "dnsZoneId");
+      if (str(stack.config, "contactAddress") === undefined || zoneId === undefined) continue;
+      contactZones.set(zoneId, stack.file);
+    }
+    for (const stack of stacks()) {
+      const zoneId = str(stack.config, "inboundMailZoneId");
+      if (str(stack.config, "inboundMailDomain") === undefined || zoneId === undefined) continue;
+      expect(
+        contactZones.get(zoneId),
+        `${stack.file} puts the project mail inbox on zone ${zoneId}, where ` +
+          `${contactZones.get(zoneId)} routes its contact address`,
+      ).toBeUndefined();
+    }
+  });
 });
 
 describe("the prod image pin the deploy verifies", () => {

@@ -30,10 +30,16 @@ pulumi.runtime.setMocks(
         state: { ...args.inputs, metadata: args.inputs.metadata ?? { name: args.name } },
       };
     },
-    call: (args: pulumi.runtime.MockCallArgs) =>
-      args.token === "cloudflare:index/getZone:getZone"
-        ? { id: args.inputs.zoneId, name: DOMAIN, account: { id: "account-1", name: "Grid" } }
-        : {},
+    call: (args: pulumi.runtime.MockCallArgs) => {
+      if (args.token === "cloudflare:index/getZone:getZone") {
+        return { id: args.inputs.zoneId, name: DOMAIN, account: { id: "account-1", name: "Grid" } };
+      }
+      if (args.token === "cloudflare:index/getDnsRecords:getDnsRecords") {
+        // The apex MX guard's lookup: Cloudflare's own MX, as after a first `up`.
+        return { results: [{ name: DOMAIN, content: "route1.mx.cloudflare.net", type: "MX" }] };
+      }
+      return {};
+    },
   },
   "grid-oib",
   "test",
@@ -112,9 +118,11 @@ describe("the program constructs with the project mail inbox on", () => {
   it("sets no connection buffer limit at the edge", () => {
     // Envoy streams request bodies, so today nothing at the edge caps a mail.
     // A `connection.bufferLimit` would start to bite the moment anything
-    // buffers (a request-buffer policy, an ext-auth body), and a mail cut off
-    // there is a 413 the Worker turns into a permanent bounce. Adding one
-    // means clearing INBOUND_MAIL_MAX_BODY_BYTES (26 MiB) and updating this.
+    // buffers (a request-buffer policy, an ext-auth body). A mail cut off
+    // there is a bare 413 with no `x-inbound-verdict`, which the Worker
+    // retries: the sender's server tries again for days and the mail never
+    // arrives. Adding one means clearing INBOUND_MAIL_MAX_BODY_BYTES (26 MiB)
+    // and updating this.
     const ctp = RESOURCES.find((r) => r.inputs.kind === "ClientTrafficPolicy");
     expect(ctp).toBeDefined();
     const spec = ctp?.inputs.spec as { connection?: { bufferLimit?: string } };

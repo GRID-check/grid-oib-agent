@@ -22,5 +22,8 @@
   ],
   "include": [
     "src/**/*.ts"
+  ],
+  "exclude": [
+    "src/platform/inbound-mail-worker.spec.ts"
   ]
 }

@@ -76,6 +76,7 @@ describe("BackendTrafficPolicies", () => {
 type Selector = {
   sourceCIDR: { value: string; type: string };
   path?: { type: string; value: string; invert?: boolean };
+  methods?: Array<{ value: string }>;
 };
 type Rule = { clientSelectors: Selector[]; limit: { requests: number; unit: string } };
 
@@ -120,5 +121,48 @@ describe("the project mail inbox webhook at the edge", () => {
     // `requestBuffer` would buffer and cap every body on the route; the mail
     // webhook needs at least 26 MiB (`INBOUND_MAIL_MAX_BODY_BYTES`).
     expect(policy("grid-app-timeouts")).not.toHaveProperty("requestBuffer");
+  });
+});
+
+describe("the contact form at the edge", () => {
+  function webRules(): Rule[] {
+    const spec = policy("grid-web-timeouts") as { rateLimit?: { global?: { rules: Rule[] } } };
+    return spec.rateLimit?.global?.rules ?? [];
+  }
+  const contactRules = () =>
+    webRules().filter((r) => r.clientSelectors[0].path?.type === "RegularExpression");
+
+  it("has a tight per-client bucket, POST only, in both address families", () => {
+    const rules = contactRules();
+    expect(rules.map((r) => r.clientSelectors[0].sourceCIDR.value).sort()).toEqual([
+      "0.0.0.0/0",
+      "::/0",
+    ]);
+    for (const rule of rules) {
+      expect(rule.clientSelectors[0].sourceCIDR.type).toBe("Distinct");
+      // Reading /kontakt/ costs nothing from this bucket; sending does.
+      expect(rule.clientSelectors[0].methods).toEqual([{ value: "POST" }]);
+      expect(rule.limit).toEqual({ requests: 10, unit: "Minute" });
+    }
+  });
+
+  it("covers the form's three endpoints with one pattern, and nothing else", () => {
+    // `/api/kontakt` (scripted), `/kontakt/` and `/en/kontakt/` (no script).
+    // One pattern is one bucket: a script cannot get three budgets by
+    // alternating endpoints, nor step around it with a query string.
+    const pattern = new RegExp(contactRules()[0].clientSelectors[0].path!.value);
+    const sends = ["/api/kontakt", "/kontakt/", "/kontakt", "/en/kontakt/", "/api/kontakt?x=1"];
+    for (const path of sends) {
+      expect(pattern.test(path), path).toBe(true);
+    }
+    for (const path of ["/", "/blog/kontakt-aufnehmen/", "/api/kontakt/../x", "/kontaktformular"]) {
+      expect(pattern.test(path), path).toBe(false);
+    }
+  });
+
+  it("stays inside the site's catch-all rather than exempt from it", () => {
+    const catchAll = webRules().filter((r) => r.clientSelectors[0].path === undefined);
+    expect(catchAll).toHaveLength(2);
+    for (const rule of catchAll) expect(rule.limit).toEqual({ requests: 120, unit: "Minute" });
   });
 });

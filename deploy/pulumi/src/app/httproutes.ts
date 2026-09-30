@@ -69,10 +69,12 @@ const edgeRetry: IRetry = {
 export const WEB_COMPRESSOR: ICompression[] = [{ type: "Brotli" }, { type: "Gzip" }];
 
 /**
- * Which paths a rule applies to: all of them, one prefix (`only`), or all but
- * one prefix (`except`).
+ * Which requests a rule applies to: all of them, one prefix (`only`), all but
+ * one prefix (`except`), or the paths a regular expression matches (`regex`).
+ * `methods` narrows any of these to those HTTP methods.
  */
-type PathScope = { only?: string; except?: string };
+type PathScope = { only?: string; except?: string; regex?: string; methods?: HttpMethod[] };
+type HttpMethod = "GET" | "HEAD" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS";
 
 /**
  * One per-client-IP rate limit rule (ADR-0040 layer L1).
@@ -102,12 +104,16 @@ function perClientIpRule(
       ? { type: "PathPrefix" as const, value: scope.only }
       : scope.except !== undefined
         ? { type: "PathPrefix" as const, value: scope.except, invert: true }
-        : undefined;
+        : scope.regex !== undefined
+          ? { type: "RegularExpression" as const, value: scope.regex }
+          : undefined;
+  const methods = scope.methods?.map((value) => ({ value }));
   return {
     clientSelectors: [
       {
         sourceCIDR: { value: cidr, type: "Distinct" },
         ...(path ? { path } : {}),
+        ...(methods ? { methods } : {}),
       },
     ],
     limit: { requests: requestsPerMinute, unit: "Minute" },
@@ -319,7 +325,19 @@ export function installHttpRoutes(
     // Prerendered marketing pages: a human reads a few per minute, a scraper
     // reads hundreds. This is the one route where the honest and abusive
     // patterns are far enough apart that a tight number is safe.
-    ...edgeRateLimit(cfg, perClientRules(cfg, cfg.rateLimit.limits.web)),
+    //
+    // The contact form gets a tighter bucket of its own on top: each POST
+    // sends a mail to the founders, so the flood to bound is mail, not load.
+    // On every stack, configured or not, because the endpoint is in the image
+    // either way; unconfigured it answers 503, which is no reason to let a
+    // script hammer it.
+    ...edgeRateLimit(cfg, [
+      ...perClientRules(cfg, cfg.rateLimit.limits.web),
+      ...perClientRules(cfg, cfg.rateLimit.limits.webContact, {
+        regex: EDGE_RATE_LIMIT.paths.webContact,
+        methods: ["POST"],
+      }),
+    ]),
   };
   new k8s.apiextensions.CustomResource(
     "grid-web-backend-traffic-policy",

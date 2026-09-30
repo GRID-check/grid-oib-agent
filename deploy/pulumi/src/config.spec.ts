@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import * as pulumi from "@pulumi/pulumi";
 import { loadConfig } from "./config";
 import { baseStackConfig } from "./test-support/stack-config";
+import { CONTACT_ZONE_ID, contactStackConfig } from "./test-support/contact-config";
 
 // `new pulumi.Config()` (config.ts:873) namespaces every key by the PROJECT
 // name, which the runtime reads from the mock context. Without this the keys
@@ -339,6 +340,122 @@ describe("project mail inbox", () => {
         "grid-oib:inboundMailZoneId": "zone-dns-1",
         "grid-oib:dnsZoneId": "zone-dns-1",
         "grid-oib:dnsZoneName": "example.test",
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("contact address and form", () => {
+  const contact = contactStackConfig();
+
+  function resolved(values: Record<string, string>) {
+    pulumi.runtime.setAllConfig({ ...baseStackConfig(), ...values });
+    return loadConfig().contact;
+  }
+
+  it("is off, and asks for nothing, while the address is unset", () => {
+    expect(loadWith({})).toBeNull();
+    expect(resolved({}).enabled).toBe(false);
+  });
+
+  it("loads with the address, its targets and both web secrets", () => {
+    expect(loadWith(contact)).toBeNull();
+    const c = resolved(contact);
+    expect(c.enabled).toBe(true);
+    expect(c.address).toBe("kontakt@example.test");
+    expect(c.zoneId).toBe(CONTACT_ZONE_ID);
+    expect(c.domain).toBe("example.test");
+  });
+
+  it("reads the targets as a comma-separated list, trimmed, lowercased and deduplicated", () => {
+    const c = resolved({
+      ...contact,
+      "grid-oib:contactForwardTo":
+        " Mail@Founder-One.example,,mail@founder-two.example, mail@founder-one.example ",
+    });
+    expect(c.forwardTo).toEqual(["mail@founder-one.example", "mail@founder-two.example"]);
+  });
+
+  it.each(["grid-oib:contactEmailToken", "grid-oib:contactFormSecret"])(
+    "refuses the address without %s",
+    (key) => {
+      expect(loadWith(contact, [key])?.message).toContain(key);
+    },
+  );
+
+  it("counts an empty secret as missing", () => {
+    expect(loadWith({ ...contact, "grid-oib:contactFormSecret": " " })?.message).toContain(
+      "grid-oib:contactFormSecret",
+    );
+  });
+
+  it("refuses the address without forward targets", () => {
+    expect(loadWith(contact, ["grid-oib:contactForwardTo"])?.message).toMatch(
+      /contactForwardTo is required/,
+    );
+    expect(loadWith({ ...contact, "grid-oib:contactForwardTo": " , " })?.message).toMatch(
+      /contactForwardTo is required/,
+    );
+  });
+
+  it.each([
+    ["kontakt@piloti.example", "another domain"],
+    ["kontakt@eingang.example.test", "a subdomain of the zone"],
+    ["example.test", "no local part"],
+    ["a@b@example.test", "two @"],
+  ])("refuses %s (%s)", (address) => {
+    expect(loadWith({ ...contact, "grid-oib:contactAddress": address })?.message).toMatch(
+      /must be an address on the app zone's apex/,
+    );
+  });
+
+  it.each([
+    ["kontakt@example.test", "the contact address itself, a loop"],
+    ["office@example.test", "another address on the routed apex, with no mailbox behind it"],
+    ["not-an-address", "no domain"],
+  ])("refuses %s as a forward target (%s)", (target) => {
+    expect(
+      loadWith({
+        ...contact,
+        "grid-oib:contactForwardTo": `mail@founder-one.example,${target}`,
+      })?.message,
+    ).toMatch(/each target must be a mailbox outside/);
+  });
+
+  it.each([
+    ["grid-oib:dnsZoneBaseline", "false"],
+    ["grid-oib:dnsEnabled", "false"],
+  ])("refuses the address unless this stack owns the app zone (%s=%s)", (key, value) => {
+    // Routing on the apex is zone-level, like _dmarc: two stacks both enabling
+    // it on one zone would each think they own it. The baseline flag is the
+    // one-owner-per-zone switch `stack-files.spec.ts` already checks.
+    const values = { ...contact, [key]: value };
+    // The apex-serving stack must itself be the baseline; serve a subdomain
+    // so that the only refusal left is the contact one.
+    values["grid-oib:baseDomain"] = "www2.example.test";
+    expect(loadWith(values)?.message).toMatch(/contactAddress needs grid-oib:dnsEnabled/);
+  });
+
+  it("refuses the project mail inbox on the same zone", () => {
+    // Both features would own the zone's routing settings; deleting either
+    // would switch routing off for both, and the catch-all would answer for
+    // every address but the contact one.
+    const error = loadWith({
+      ...contact,
+      "grid-oib:inboundMailDomain": "example.test",
+      "grid-oib:inboundMailZoneId": CONTACT_ZONE_ID,
+      "grid-oib:inboundMailToken": "inbound-token", // pragma: allowlist secret
+    });
+    expect(error?.message).toMatch(/both route mail on zone zone-app-1/);
+  });
+
+  it("accepts the project mail inbox on a zone of its own", () => {
+    expect(
+      loadWith({
+        ...contact,
+        "grid-oib:inboundMailDomain": "post.example.org",
+        "grid-oib:inboundMailZoneId": "zone-mail-1",
+        "grid-oib:inboundMailToken": "inbound-token", // pragma: allowlist secret
       }),
     ).toBeNull();
   });

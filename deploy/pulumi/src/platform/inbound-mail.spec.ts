@@ -19,6 +19,15 @@ const CALLS: Array<{ token: string; inputs: Record<string, unknown> }> = [];
 const ZONE_ID = "zone-mail-1";
 const DOMAIN = "post.example.test";
 
+/** What the MX lookup answers; each test sets it before `install`. */
+let MX_RECORDS: Array<{ name: string; content: string; type: string }> = [];
+
+const CLOUDFLARE_MX = ["route1", "route2", "route3"].map((host) => ({
+  name: DOMAIN,
+  content: `${host}.mx.cloudflare.net`,
+  type: "MX",
+}));
+
 pulumi.runtime.setMocks(
   {
     newResource: (args: pulumi.runtime.MockResourceArgs) => {
@@ -29,6 +38,9 @@ pulumi.runtime.setMocks(
       CALLS.push({ token: args.token, inputs: args.inputs });
       if (args.token === "cloudflare:index/getZone:getZone") {
         return { id: args.inputs.zoneId, name: DOMAIN, account: { id: "account-1", name: "Grid" } };
+      }
+      if (args.token === "cloudflare:index/getDnsRecords:getDnsRecords") {
+        return { results: MX_RECORDS };
       }
       return {};
     },
@@ -51,9 +63,10 @@ function mailConfig(overrides: Record<string, string> = {}): Record<string, stri
   };
 }
 
-async function install(values: Record<string, string>) {
+async function install(values: Record<string, string>, mx: typeof MX_RECORDS = []) {
   RESOURCES.length = 0;
   CALLS.length = 0;
+  MX_RECORDS = mx;
   pulumi.runtime.setAllConfig(values);
   const { loadConfig } = await import("../config");
   const { installInboundMail } = await import("./inbound-mail");
@@ -110,6 +123,18 @@ describe("inbound mail on Cloudflare", () => {
     expect(CALLS.map((c) => c.token)).toContain("cloudflare:index/getZone:getZone");
   });
 
+  it("keeps the Worker's route in step with the edge rate-limit bucket", async () => {
+    // Two copies of one path: the Worker posts to INBOUND_MAIL_PATH, the edge
+    // gives that path its own bucket. If they drift, mail lands in the shared
+    // per-client bucket, where Cloudflare's few egress addresses exhaust it.
+    const { EDGE_RATE_LIMIT } = await import("../constants");
+    await install(mailConfig());
+    const script = one("cloudflare:index/workersScript:WorkersScript");
+    expect(script.inputs.content).toContain(
+      `INBOUND_MAIL_PATH = "${EDGE_RATE_LIMIT.paths.inboundMail}"`,
+    );
+  });
+
   it("binds the BFF origin and the token under the names the Worker reads", async () => {
     await install(mailConfig());
     const bindings = reveal(one("cloudflare:index/workersScript:WorkersScript").inputs.bindings);
@@ -138,6 +163,30 @@ describe("inbound mail on Cloudflare", () => {
       matchers: [{ type: "all" }],
       actions: [{ type: "worker", values: ["grid-inbound-mail-test"] }],
     });
+  });
+
+  it("reads the apex's MX records before creating anything", async () => {
+    await install(mailConfig());
+    const lookup = CALLS.find((c) => c.token === "cloudflare:index/getDnsRecords:getDnsRecords");
+    // The apex only: the catch-all reaches nothing else, so a subdomain's MX
+    // (an outbound provider's bounce host, say) is no concern of the guard.
+    expect(lookup?.inputs).toMatchObject({
+      zoneId: ZONE_ID,
+      type: "MX",
+      name: { exact: DOMAIN },
+    });
+  });
+
+  it("creates the routing on a fresh apex with no MX records (the first run)", async () => {
+    await install(mailConfig(), []);
+    one("cloudflare:index/emailRoutingDns:EmailRoutingDns");
+    one("cloudflare:index/emailRoutingCatchAll:EmailRoutingCatchAll");
+  });
+
+  it("creates the routing on an apex that holds only Cloudflare's MX (every later run)", async () => {
+    await install(mailConfig(), CLOUDFLARE_MX);
+    one("cloudflare:index/emailRoutingDns:EmailRoutingDns");
+    one("cloudflare:index/emailRoutingCatchAll:EmailRoutingCatchAll");
   });
 
   it("uses its own provider, holding the configured token", async () => {

@@ -1,0 +1,24 @@
+{
+  // The Email Worker (`src/platform/inbound-mail-worker.js`) and its spec,
+  // checked against the Workers runtime types rather than Node's. A project
+  // of its own because `@cloudflare/workers-types` declares the same globals
+  // as `@types/node` (fetch, Response, ReadableStream) with different shapes,
+  // so the two cannot share one program. `tsconfig.json` excludes both files;
+  // `npm run typecheck` runs this one after it.
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": true,
+    "target": "es2022",
+    "module": "es2022",
+    "moduleResolution": "bundler",
+    "lib": ["es2022"],
+    "types": ["@cloudflare/workers-types"],
+    "skipLibCheck": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "files": ["src/platform/inbound-mail-worker.js", "src/platform/inbound-mail-worker.spec.ts"]
+}
