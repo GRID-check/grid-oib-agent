@@ -44,6 +44,7 @@ import { installObservabilityDashboard } from "./src/platform/observability";
 import { installOtelCollector } from "./src/platform/otel-collector";
 import { installErr2Issue } from "./src/platform/err2issue";
 import { installDns, managedRecordNames } from "./src/platform/dns";
+import { installInboundMail } from "./src/platform/inbound-mail";
 import { installLangfuse } from "./src/platform/langfuse";
 import { LANGFUSE } from "./src/constants";
 
@@ -325,6 +326,13 @@ if (cfg.observability.enabled) {
 // this exists to prevent.
 const dns = installDns(cfg);
 
+// ── Project mail inbox ───────────────────────────────────────────────────────
+//
+// Cloudflare-only as well, for the same reason: a Worker posting to a frontend
+// that is not up yet gets a connection error, throws, and the sending MTA
+// retries. Created only when `inboundMailDomain` is set.
+const inboundMail = installInboundMail(cfg);
+
 // ── Stack outputs ────────────────────────────────────────────────────────────
 export const appUrl = pulumi.interpolate`https://${cfg.ingress.appDomain}`;
 export const s3Url = pulumi.interpolate`https://${cfg.ingress.s3Domain}`;
@@ -356,6 +364,9 @@ export const errorIssueRepo = cfg.err2issue.enabled
 export const dnsRecords = dns
   ? pulumi.all(managedRecordNames(dns)).apply((names) => names.join(", "))
   : pulumi.output("(none: dnsEnabled=false — records are maintained by hand)");
+export const inboundMailWorker = inboundMail
+  ? inboundMail.script.scriptName
+  : pulumi.output("(none: inboundMailDomain unset)");
 // The image refs this update deployed. `deploy.yml` reads them back before the
 // next staging deploy and refuses one that would move a service to an older
 // commit (`scripts/resolve-image-refs.sh`). The stack file cannot answer that:

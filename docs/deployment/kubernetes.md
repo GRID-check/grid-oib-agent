@@ -431,6 +431,123 @@ directly while the old operator is still authoritative.
 Abandonable up to step 6: everything before it is invisible to the internet, and
 reverting is deleting a Cloudflare zone nobody is pointed at.
 
+## 3c. Project mail inbox (`grid-oib:inboundMailDomain`)
+
+Off by default. Every project can get an email address; a member mails files to
+it and the attachments are filed into the project. Setting
+`inboundMailDomain` creates the Cloudflare side
+(`src/platform/inbound-mail.ts`) and hands the frontend
+`GRID_INBOUND_MAIL_DOMAIN` and `GRID_INBOUND_MAIL_TOKEN`. Unset, nothing is
+created at Cloudflare, the UI shows no address, and the webhook answers 503.
+
+What it deploys, all at Cloudflare and none of it in the cluster:
+
+- **Email Routing** enabled on the inbound domain (Cloudflare adds and locks its
+  MX and SPF records).
+- **One Email Worker**, `grid-inbound-mail-<stack>`
+  (`src/platform/inbound-mail-worker.js`). It does not parse. It streams the raw
+  message to `https://<appDomain>/api/internal/inbound-mail` and maps the
+  answer: 2xx accepts; 403, 404 and 413 reject with one generic bounce text;
+  429, 5xx, network errors and anything else throw, so the sending server
+  retries later.
+- **The zone's catch-all rule**, sending every address to that Worker.
+
+### The domain must be a zone apex
+
+Not `eingang.piloti.at`. Cloudflare's catch-all exists only for a zone's apex:
+"Catch-all rules are only available for the apex domain"
+([Subdomains](https://developers.cloudflare.com/email-service/configuration/subdomains/));
+a subdomain can have Email Routing, but only with literal per-address rules, 200
+per domain. A subdomain gets routing, MX records and a Worker, then refuses
+every project address. A child zone for the subdomain is Enterprise-only.
+
+So the inbound domain is the apex of a Cloudflare zone of its own, typically a
+second, short domain (`piloti-post.at`), or the stack's own zone apex if nothing
+else receives mail there (Email Routing then owns the apex MX, so the domain
+cannot also host mailboxes elsewhere). The module header in
+`src/platform/inbound-mail.ts` lists the evidence. `loadConfig` refuses a
+subdomain of `dnsZoneName`, and `pulumi preview` refuses any domain that is not
+the named zone's apex.
+
+**One stack per inbound zone.** The catch-all is a single object per zone. A
+second stack on the same zone is no API error: its `up` points the catch-all at
+its own Worker and from then on files every mail. `stack-files.spec.ts` checks
+the committed stacks. A dev stack that wants the feature needs its own domain.
+
+### Setup
+
+1. Add the inbound domain to Cloudflare as a zone (the registrar delegates its
+   NS records, as in §3b) and copy its zone id. Leave its MX records to Email
+   Routing; delete any the zone scan imported.
+2. Widen `cloudflareApiToken` (the same token §3b uses), or set it if DNS is not
+   managed here. It needs:
+   - Account · **Workers Scripts · Edit** (the Worker)
+   - Zone · **Email Routing Rules · Edit** (the catch-all)
+   - Zone · **Zone Settings · Edit** (enabling Email Routing)
+   - Zone · **DNS · Edit** (Email Routing's MX and SPF records)
+   - Zone · **Zone · Read** (the apex check, and the account id the Worker is
+     uploaded to)
+
+   The zone permissions on the inbound zone; keep `Zone:DNS:Edit` on the DNS
+   zone as before.
+3. Set the keys. The token in ESC, the rest in the stack file. New keys go
+   **below** the encrypted secrets block (`deploy/AGENTS.md`):
+
+   ```bash
+   # The shared secret between the Worker and the BFF. Pulumi binds it into the
+   # Worker as a secret and into grid-secrets for the frontend.
+   esc env set matthiasbigl/grid-oib/<stack> pulumiConfig.grid-oib:inboundMailToken "$(openssl rand -hex 32)" --secret
+   # Only if cloudflareApiToken is not set yet (step 2):
+   esc env set matthiasbigl/grid-oib/<stack> pulumiConfig.grid-oib:cloudflareApiToken "<token>" --secret
+
+   pulumi config set grid-oib:inboundMailZoneId <zone id of the inbound domain>
+   pulumi config set grid-oib:inboundMailDomain piloti-post.at
+   ```
+
+   Set the token **before** the domain. Once the domain is set, `loadConfig`
+   refuses to plan without it, which on a CI-deployed stack turns a merge into
+   a failed deploy.
+4. `pulumi up`. The stack output `inboundMailWorker` names the Worker.
+5. Send a test mail from a project member's address to the project's address
+   (shown in the project's settings). Email Routing's Activity log in the
+   Cloudflare dashboard shows the delivery and whether the Worker accepted,
+   rejected or failed it; the files appear in the project under
+   `E-Mail-Eingang/`.
+
+### Keep message content out of Cloudflare's dashboards
+
+- **Email preview stays OFF.** It is an Email *Sending* setting that keeps the
+  full raw message, attachments included, for about seven days, and it is on by
+  default for sending domains onboarded since 2026-07-02
+  ([changelog](https://developers.cloudflare.com/changelog/post/2026-07-17-email-message-preview/)).
+  Do not onboard the inbound domain for Email Sending (v1 sends nothing); if it
+  ever is, turn Email preview off first. Nothing is stored by the product either:
+  the BFF parses the message in memory and keeps no `.eml`.
+- **Workers observability stays off** on the inbound Worker (the default, and
+  what Pulumi deploys). The Worker logs nothing itself, and persisted
+  invocation logs would be one more place mail metadata is kept.
+- Email Routing's Activity log shows delivery and authentication metadata (not
+  content) for the past 30 days. That one is Cloudflare's and has no switch.
+
+### Plan: Workers Paid is recommended
+
+Email Workers count against the ordinary Workers limits
+([limits](https://developers.cloudflare.com/email-service/platform/limits/)).
+On the Free plan that is 10 ms of CPU per invocation, and an overrun is an
+`EXCEEDED_CPU` failure, i.e. a retry, then a bounce. The Worker streams the
+message without reading it, so it should fit; measure it on the first real
+mails before relying on Free. Paid ($5 a month) removes the question.
+
+### At the edge
+
+`/api/internal/inbound-mail` has its own per-client-IP rate-limit bucket
+(`rateLimitAppInboundMail`, 600/min) and is exempt from the `rateLimitApp`
+catch-all: every mail arrives from Cloudflare's shared egress addresses, which
+other Cloudflare traffic uses too. The limits that shape mail are the BFF's,
+per address and per organization (ADR-0040 L2). Envoy puts no cap on the
+request body on the app route, so a mail up to Cloudflare's 25 MiB passes;
+`index-inbound-mail.spec.ts` fails if a connection buffer limit is added.
+
 ---
 
 ## 4. SeaweedFS — two topologies, and the migration between them

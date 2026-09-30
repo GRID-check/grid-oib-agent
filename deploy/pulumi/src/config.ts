@@ -208,6 +208,31 @@ export interface GridConfig {
   };
 
   /**
+   * Project mail inbox (`platform/inbound-mail.ts`): Cloudflare Email Routing
+   * on `domain`, a catch-all to one Email Worker, which streams every message
+   * to the BFF's `/api/internal/inbound-mail`.
+   *
+   * OFF unless `inboundMailDomain` is set. Off means no Cloudflare resource,
+   * no `GRID_INBOUND_MAIL_DOMAIN` on the frontend (the UI shows nothing), and
+   * an empty `GRID_INBOUND_MAIL_TOKEN` (the route answers 503).
+   */
+  inboundMail: {
+    enabled: boolean;
+    /**
+     * The address domain, and the APEX of the zone `zoneId` names. Not a
+     * subdomain of another zone: Cloudflare's catch-all only exists for a
+     * zone's apex (see the module header of `platform/inbound-mail.ts`).
+     */
+    domain: string;
+    /** Cloudflare zone whose apex is `domain`. */
+    zoneId: string;
+    /** Shared secret between the Worker and the BFF (`x-grid-internal-token`). */
+    token: pulumi.Output<string>;
+    /** The same `cloudflareApiToken` DNS uses, with the scopes the module header lists. */
+    apiToken: pulumi.Output<string>;
+  };
+
+  /**
    * Edge rate limiting — ADR-0040 layer L1. Enforced by Envoy Gateway's global
    * rate limit service against a dedicated counter store, so no application
    * implements it.
@@ -249,6 +274,12 @@ export interface GridConfig {
       appAuth: number;
       /** `/websocket` upgrades. Mirrors `GRID_WS_UPGRADE_RATE_LIMIT`. */
       appWsUpgrade: number;
+      /**
+       * `/api/internal/inbound-mail`, a bucket of its own and exempt from the
+       * `app` catch-all. Every inbound mail arrives from Cloudflare's egress
+       * addresses, which other Cloudflare traffic shares.
+       */
+      appInboundMail: number;
       /** Presigned S3 preview/download URLs. */
       s3: number;
       /** The public landing site + blog. */
@@ -2067,6 +2098,48 @@ export function loadConfig(): GridConfig {
     }
   }
 
+  // ── Project mail inbox (Cloudflare Email Routing) ────────────────────────────
+  //
+  // Opt-in by setting the domain; everything else is then required together,
+  // because each half alone fails silently: a domain without the BFF token is a
+  // Worker whose every delivery answers 503 (the sender retries for days, then
+  // bounces), and a domain without the zone has nowhere to enable routing.
+  const inboundMailDomain = (cfg.get("inboundMailDomain") ?? "").trim().toLowerCase().replace(/\.$/, "");
+  const inboundMailZoneId = cfg.get("inboundMailZoneId") ?? "";
+  if (inboundMailDomain !== "") {
+    requireSecretsTogether(
+      cfg,
+      ["inboundMailToken", "cloudflareApiToken"],
+      "when grid-oib:inboundMailDomain is set (the token the Worker presents to the BFF, " +
+        "and a Cloudflare token that may write the Worker and the zone's Email Routing)",
+    );
+    if (inboundMailZoneId === "") {
+      throw new Error(
+        "grid-oib:inboundMailZoneId is required when grid-oib:inboundMailDomain is set: the " +
+          "Cloudflare zone (dashboard → the zone → Overview → API) whose apex is that domain.",
+      );
+    }
+    if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(inboundMailDomain)) {
+      throw new Error(
+        `grid-oib:inboundMailDomain must be a bare domain name like "piloti-post.at" ` +
+          `(got "${inboundMailDomain}"): no scheme, no "@", no path.`,
+      );
+    }
+    // The one mistake this can see without calling Cloudflare. The catch-all
+    // is an apex-only feature, so a subdomain of the DNS zone gets routing
+    // enabled, MX records and a Worker, and then drops every message to an
+    // address nobody listed. `inbound-mail.ts` checks the general case against
+    // the zone's real name at preview time.
+    if (inboundMailZoneId === dnsZoneId && dnsZoneName !== "" && inboundMailDomain !== dnsZoneName) {
+      throw new Error(
+        `grid-oib:inboundMailDomain "${inboundMailDomain}" is not the apex of its zone ` +
+          `("${dnsZoneName}"). Cloudflare Email Routing has no catch-all for subdomains, so ` +
+          "mail to project addresses there would be refused. Use a domain that is a zone apex " +
+          "of its own (see docs/deployment/kubernetes.md, \"Project mail inbox\").",
+      );
+    }
+  }
+
   // ── err2issue (ADR-0031): same availability = flag AND capability rule ─────
   // Opt-in (default false) because turning it on starts writing to a GitHub
   // repo — a side effect outside the cluster, unlike every other component
@@ -2172,6 +2245,17 @@ export function loadConfig(): GridConfig {
       apexRedirectTo: dnsApexRedirectTo,
     },
 
+    inboundMail: {
+      enabled: inboundMailDomain !== "",
+      domain: inboundMailDomain,
+      zoneId: inboundMailZoneId,
+      // `??` only reached when disabled: the guard above requires both
+      // whenever the domain is set. The empty token is what the frontend then
+      // receives, and the BFF answers 503 on it.
+      token: cfg.getSecret("inboundMailToken") ?? pulumi.output(""),
+      apiToken: cloudflareApiToken ?? pulumi.secret(""),
+    },
+
     postgres: {
       instances: num(cfg, "pgInstances", 1),
       storageSize: cfg.get("pgStorageSize") ?? "20Gi",
@@ -2213,6 +2297,12 @@ export function loadConfig(): GridConfig {
         app: num(cfg, "rateLimitApp", 600),
         appAuth: num(cfg, "rateLimitAppAuth", 20),
         appWsUpgrade: num(cfg, "rateLimitAppWsUpgrade", 30),
+        // Per Cloudflare egress address, not per sender: every mail from every
+        // tenant arrives from that shared pool. The real limits are the BFF's,
+        // per address and per organization (ADR-0040 L2); this one only has to
+        // stay out of their way while still bounding an unauthenticated flood
+        // of 25 MiB POSTs.
+        appInboundMail: num(cfg, "rateLimitAppInboundMail", 600),
         s3: num(cfg, "rateLimitS3", 300),
         web: num(cfg, "rateLimitWeb", 120),
       },

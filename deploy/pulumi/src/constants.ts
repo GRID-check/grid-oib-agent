@@ -339,6 +339,13 @@ export const EDGE_RATE_LIMIT = {
      * that session, because every later turn rides the open socket (ADR-0009).
      */
     ws: "/websocket",
+    /**
+     * The project mail inbox webhook (`platform/inbound-mail.ts`). Every call
+     * comes from Cloudflare's Email Worker, so from Cloudflare's shared egress
+     * addresses: it gets a bucket of its own and is exempt from the catch-all.
+     * Must equal `INBOUND_MAIL_PATH` in `platform/inbound-mail-worker.js`.
+     */
+    inboundMail: "/api/internal/inbound-mail",
   },
 } as const;
 

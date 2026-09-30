@@ -17,6 +17,7 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 | App | `aiq-agent` StatefulSet (+ PVC, +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `skill-scheduler`, a one-shot `drizzle-kit migrate` Job, a one-shot WorkOS audit-schema reconcile Job (when `requireAuth`) |
 | Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `app.<baseDomain>` and `s3.<baseDomain>` |
 | DNS | Cloudflare A records for exactly the Gateway's HTTPS listener hosts, plus optionally the zone-level `www` / `_dmarc` / apex-redirect records — only when `dnsEnabled` (off by default; records are otherwise maintained by hand) |
+| Mail | Project mail inbox at Cloudflare: Email Routing on the inbound domain, its catch-all, and the Email Worker that streams each mail to the BFF — only when `inboundMailDomain` is set (off by default) |
 
 ## Prerequisites
 
@@ -142,6 +143,11 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `dnsZoneBaseline` | `false` | Whether this stack owns the zone-level records (`www`, `_dmarc`, the apex). **At most one stack** — two stacks writing the same record is not an API error, the later `up` silently wins |
 | `dnsDmarc` | — | Value of the `_dmarc` TXT record, when the baseline is owned here |
 | `dnsApexRedirectTo` | — | Absolute URL the apex and `www` redirect to (302) while no stack serves the apex. Unset it once one does — `loadConfig` refuses both at once |
+| **Project mail inbox (Cloudflare Email Routing)** — operator guide: [`docs/deployment/kubernetes.md` §3c](../../docs/deployment/kubernetes.md) | | |
+| `inboundMailDomain` | — | Domain of the project addresses. Setting it turns the feature on: Email Routing, the catch-all and the Worker at Cloudflare, `GRID_INBOUND_MAIL_DOMAIN` on the frontend. **Must be the apex of `inboundMailZoneId`**, not a subdomain: Cloudflare's catch-all exists only for a zone's apex (refused at load time for a subdomain of `dnsZoneName`, at preview for any other mismatch). At most one stack per inbound zone |
+| `inboundMailZoneId` | — | Cloudflare zone whose apex is `inboundMailDomain`. Required with it |
+| 🔒 `inboundMailToken` | — | Shared secret the Worker presents to `/api/internal/inbound-mail`; reaches the frontend as `GRID_INBOUND_MAIL_TOKEN`. Required with the domain. `openssl rand -hex 32` |
+| 🔒 `cloudflareApiToken` (widened) | — | With the inbox on it also needs Account `Workers Scripts:Edit` and, on the inbound zone, `Email Routing Rules:Edit`, `Zone Settings:Edit`, `DNS:Edit`, `Zone:Read` |
 | **Edge rate limiting (ADR-0040 L1)** | | |
 | `rateLimitEnabled` | `true` | Deploy the global rate limit service + its counter store and attach the per-route rules. Off = the app-layer limiters are the only ones |
 | `rateLimitShadowMode` | `true` | Evaluate every rule and emit its telemetry, but never refuse. **Ships on**: pick real numbers from the would-have-blocked counts, then flip it off |
@@ -149,6 +155,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `rateLimitApp` | `600`/min | Catch-all budget per client IP on the app host (deliberately loose — stops runaway clients, does not shape traffic) |
 | `rateLimitAppAuth` | `20`/min | `/api/auth/*` — the credential-stuffing surface |
 | `rateLimitAppWsUpgrade` | `30`/min | `/websocket` upgrades; mirrors `GRID_WS_UPGRADE_RATE_LIMIT` |
+| `rateLimitAppInboundMail` | `600`/min | `/api/internal/inbound-mail`, its own bucket and exempt from `rateLimitApp`: every mail arrives from Cloudflare's shared egress addresses. The BFF's per-address and per-organization limits are the real ones |
 | `rateLimitS3` | `300`/min | Presigned preview/download URLs (one preview fans out into many GETs) |
 | `rateLimitWeb` | `120`/min | Landing site + blog |
 | `rateLimitStoreMaxmemory` | `256mb` | Counter-store dataset cap (floor 256mb — Dragonfly's per-thread boot minimum) |
@@ -334,6 +341,8 @@ index.ts                 wiring + stack outputs
 src/config.ts            typed config (every knob + secret)
 src/platform/            provider, namespace, cert-manager, gateway (Envoy),
                          dns (Cloudflare records for the Gateway's hosts),
+                         inbound-mail (Email Routing + the Email Worker,
+                         inbound-mail-worker.js, uploaded verbatim),
                          metrics-server, scheduling (PDB/spread), rollout
                          (update strategy, drain, secret checksum)
 policy/                  CrossGuard policy pack (own package.json + npm ci)

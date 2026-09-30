@@ -72,3 +72,53 @@ describe("BackendTrafficPolicies", () => {
     }
   });
 });
+
+type Selector = {
+  sourceCIDR: { value: string; type: string };
+  path?: { type: string; value: string; invert?: boolean };
+};
+type Rule = { clientSelectors: Selector[]; limit: { requests: number; unit: string } };
+
+function appRules(): Rule[] {
+  const spec = policy("grid-app-timeouts") as { rateLimit?: { global?: { rules: Rule[] } } };
+  return spec.rateLimit?.global?.rules ?? [];
+}
+
+describe("the project mail inbox webhook at the edge", () => {
+  const PATH = "/api/internal/inbound-mail";
+
+  it("has a per-client bucket of its own, in both address families", () => {
+    // All inbound mail arrives from Cloudflare's shared egress addresses.
+    const own = appRules().filter((r) => {
+      const path = r.clientSelectors[0].path;
+      return path?.value === PATH && path.invert !== true;
+    });
+    expect(own.map((r) => r.clientSelectors[0].sourceCIDR.value).sort()).toEqual([
+      "0.0.0.0/0",
+      "::/0",
+    ]);
+    for (const rule of own) {
+      expect(rule.clientSelectors[0].sourceCIDR.type).toBe("Distinct");
+      expect(rule.limit).toEqual({ requests: 600, unit: "Minute" });
+    }
+  });
+
+  it("is exempt from the catch-all, and nothing else is", () => {
+    // Every rule without a narrowing prefix is the catch-all. If one of them
+    // lost its inverted match, the mail webhook would share a bucket with every
+    // other client behind the same Cloudflare address again.
+    const catchAll = appRules().filter(
+      (r) => r.clientSelectors[0].path === undefined || r.clientSelectors[0].path.invert === true,
+    );
+    expect(catchAll).toHaveLength(2);
+    for (const rule of catchAll) {
+      expect(rule.clientSelectors[0].path).toEqual({ type: "PathPrefix", value: PATH, invert: true });
+    }
+  });
+
+  it("puts no request-body cap on the app route, which carries mail up to 25 MiB", () => {
+    // `requestBuffer` would buffer and cap every body on the route; the mail
+    // webhook needs at least 26 MiB (`INBOUND_MAIL_MAX_BODY_BYTES`).
+    expect(policy("grid-app-timeouts")).not.toHaveProperty("requestBuffer");
+  });
+});
