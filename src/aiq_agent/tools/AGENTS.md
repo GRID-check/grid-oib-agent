@@ -28,11 +28,12 @@ before changing what a file verb may do.
 
 ## Filing ECHOES the BFF's envelope; it never signs one
 
-`file_draft` and `submit_draft` (`documents/register.py`) are the exception to
-the paragraph above and the only two tools here that change the project. They
-reach `POST /api/internal/document-versions` — one route, ops `create`, `update`
-and `submit`, closed on the BFF side by the transition table's `actor` field, so
-approve, publish, reject and archive have no machine path at all.
+`file_draft` (`documents/register.py`) is the exception to the paragraph above
+and the only tool here that changes the project: it files a draft and, with
+`submit=true`, sends that version for review (it absorbed `submit_draft`). It
+reaches `POST /api/internal/document-versions` — one route, ops `create`,
+`update` and `submit`, closed on the BFF side by the transition table's `actor`
+field, so approve, publish, reject and archive have no machine path at all.
 
 **The identity is not this tier's to choose.** The BFF minted a signed
 request-context envelope at the start of the turn, from a real session

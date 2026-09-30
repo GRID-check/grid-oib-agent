@@ -63,6 +63,7 @@ from aiq_agent.common.llm_factory import enforce_chat_request_contract
 from tests.fixtures.drafting_turns import DRAFTING_CASES
 from tests.fixtures.drafting_turns import FILE
 from tests.fixtures.drafting_turns import assert_turn_shape
+from tests.fixtures.drafting_turns import traced_tool_name
 
 logger = logging.getLogger(__name__)
 
@@ -336,7 +337,7 @@ async def test_a_plain_domain_question_still_searches(agent):
 
 
 def _filing_stubs(backend):
-    """`file_draft` and `submit_draft`, with the REAL descriptions.
+    """`file_draft`, with the REAL description.
 
     The description is the last thing the model reads before choosing a verb,
     so a stub that paraphrases it is measuring a different prompt. Imported
@@ -344,18 +345,17 @@ def _filing_stubs(backend):
     drift the day somebody edits the real one, and this eval would then be
     green about a sentence production no longer says.
 
-    ``submit_draft`` is bound although no case asks for it: „ablegen" must not
-    put an item in a colleague's inbox, and a verb the model cannot reach
-    cannot be shown to be avoided.
+    ``submit`` is part of the schema although no case asks for it: „ablegen"
+    must not put an item in a colleague's inbox, and an argument the model
+    cannot reach cannot be shown to be avoided.
     """
     from langchain_core.tools import StructuredTool
 
     from aiq_agent.tools.documents.cards import emit_draft_card
     from aiq_agent.tools.documents.register import _FILE_DRAFT_DESCRIPTION
-    from aiq_agent.tools.documents.register import _SUBMIT_DRAFT_DESCRIPTION
 
-    async def file_draft(path: str, title: str = "") -> str:
-        _CALLS.append(("file_draft", path))
+    async def file_draft(path: str, title: str = "", submit: bool = False, reviewer: str = "") -> str:
+        _CALLS.append((traced_tool_name("file_draft", {"submit": submit}), path))
         usage = await backend.aread(path)
         emit_draft_card(
             path=path,
@@ -370,15 +370,8 @@ def _filing_stubs(backend):
         )
         return "Im Projekt abgelegt. Es bleibt ein Entwurf: niemand hat ihn freigegeben."
 
-    async def submit_draft(path: str, reviewer: str = "") -> str:
-        _CALLS.append(("submit_draft", path))
-        return "Zur Freigabe eingereicht."
-
     return [
         StructuredTool.from_function(coroutine=file_draft, name="file_draft", description=_FILE_DRAFT_DESCRIPTION),
-        StructuredTool.from_function(
-            coroutine=submit_draft, name="submit_draft", description=_SUBMIT_DRAFT_DESCRIPTION
-        ),
     ]
 
 

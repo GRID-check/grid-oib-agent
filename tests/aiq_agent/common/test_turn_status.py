@@ -628,7 +628,7 @@ def _every_live_payload(steps) -> list:
         round_index=9,
     )
     turn_status.emit_retrieval(
-        [{"name": "submit_draft", "args": {"path": "/entwuerfe/a.md"}}],
+        [{"name": "file_draft", "args": {"path": "/entwuerfe/a.md", "submit": True}}],
         round_index=10,
     )
     turn_status.emit_retrieval(

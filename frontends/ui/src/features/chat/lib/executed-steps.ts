@@ -62,6 +62,8 @@ const TOOL_LABEL_KEYS: Record<string, string> = {
   edit_file: 'draft',
   ls: 'draft',
   file_draft: 'filing',
+  // Merged into `file_draft` (its `submit` argument); the old name stays
+  // because stored turns carry it.
   submit_draft: 'filing',
   create_task: 'task',
   // The file-operation tool proposes and never writes (ADR-0003). One tool

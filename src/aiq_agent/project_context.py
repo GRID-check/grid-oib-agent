@@ -98,8 +98,8 @@ TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     # header can only refuse, and refusing on every unattended run is the
     # failure this table was written for.
     "propose_file_change": (PROJECT_ID_HEADER,),
-    # Filing a draft into the project (`tools/documents/register.py`). The
-    # project header is what makes a filing ADDRESSABLE — a draft is filed INTO
+    # Filing a draft into the project, and with `submit` sending it for review
+    # (`tools/documents/register.py`). The project header is what makes a filing ADDRESSABLE — a draft is filed INTO
     # a project — so a run without it can only refuse.
     #
     # The signed envelope the tool ALSO needs is deliberately NOT declared here.
@@ -110,7 +110,6 @@ TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     # refuses the call, which is the honest shape — see the `_NO_ENVELOPE`
     # refusal in `tools/documents/filing.py`.
     "file_draft": (PROJECT_ID_HEADER,),
-    "submit_draft": (PROJECT_ID_HEADER,),
     # Delegating work (`tools/tasks/register.py`). A task hangs off a PROJECT —
     # `tasks.project_id` is NOT NULL and carries the tenant predicate — so a run
     # without the project header can only refuse. The signed envelope it also

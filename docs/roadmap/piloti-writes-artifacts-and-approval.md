@@ -109,9 +109,10 @@ existing file; the tool description does not repeat DeepAgents' unenforced
 "you must read before editing" line.
 
 *Since the ADR-0060 amendment:* those rules live in the tool descriptions that
-own them (`write_file`, `edit_file`, `ls`, `file_draft`, `submit_draft`), and
-the block keeps the two sentences no description can carry — what „mach daraus
-ein File" refers to, and that filing needs a project.
+own them (`write_file`, `edit_file`, `ls`, and `file_draft`, whose `submit`
+argument absorbed `submit_draft`), and the block keeps the two sentences no
+description can carry — what „mach daraus ein File" refers to, and that filing
+needs a project.
 
 **Deep research later.** The same backend can replace the in-memory
 `/shared/` route in `deepagents_runtime.py:168`, so a report draft persists

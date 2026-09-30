@@ -29,6 +29,7 @@ from tests.fixtures.drafting_turns import REVISE
 from tests.fixtures.drafting_turns import SEEDED_DRAFT_PATH
 from tests.fixtures.drafting_turns import assert_turn_shape
 from tests.fixtures.drafting_turns import draft_cards
+from tests.fixtures.drafting_turns import traced_tool_name
 
 
 async def _run_with_captured_registry(agent, state):
@@ -3461,7 +3462,7 @@ class TestTheWorkingDirectoryBlock:
         """The cut itself. Each of these was a sentence about how to hold a
         tool, charged on every call of every turn (ADR-0060 (d))."""
         block = _entwuerfe_block()
-        for teaching in ("`write_file`", "`edit_file`", "`file_draft`", "`submit_draft`", "`reviewer`"):
+        for teaching in ("`write_file`", "`edit_file`", "`file_draft`", "`submit=true`", "`reviewer`"):
             assert teaching not in block, teaching
 
     def test_the_block_follows_the_tools_and_not_a_second_switch(self):
@@ -3533,16 +3534,18 @@ class TestTheDraftingRulesLiveInTheTools:
         assert "ENTWURF" in _FILE_DRAFT_DESCRIPTION
         assert "niemand hat ihn freigegeben" in _FILE_DRAFT_DESCRIPTION
 
-    def test_submit_draft_needs_a_filed_draft_and_an_explicit_request(self):
-        from aiq_agent.tools.documents.register import _SUBMIT_DRAFT_DESCRIPTION
+    def test_submitting_needs_an_explicit_request(self):
+        """`submit_draft` merged into `file_draft(submit=true)`; its rules came with it."""
+        from aiq_agent.tools.documents.register import _FILE_DRAFT_DESCRIPTION
 
-        assert "bereits im Projekt abgelegten Entwurf" in _SUBMIT_DRAFT_DESCRIPTION
-        assert "Nur aufrufen, wenn die Nutzerin um Freigabe" in _SUBMIT_DRAFT_DESCRIPTION
+        assert "Nur mit `submit=true` aufrufen, wenn die Nutzerin um Freigabe" in _FILE_DRAFT_DESCRIPTION
+        # „ablegen" alone must not flip the flag.
+        assert "„ablegen“ allein ist keine solche Bitte" in _FILE_DRAFT_DESCRIPTION
         # The reviewer name is passed through and never guessed…
-        assert "unverändert" in _SUBMIT_DRAFT_DESCRIPTION
+        assert "unverändert" in _FILE_DRAFT_DESCRIPTION
         # …and without one the draft goes to the project's editors, which the
         # answer has to be able to say.
-        assert "an die Bearbeiter des Projekts" in _SUBMIT_DRAFT_DESCRIPTION
+        assert "an die Bearbeiter des Projekts" in _FILE_DRAFT_DESCRIPTION
 
 
 class TestTheDelegationRulesLiveInTheTool:
@@ -4189,6 +4192,7 @@ def _scripted_tool_names(scripted_llm) -> list[str]:
     for call in scripted_llm.ainvoke.await_args_list:
         for message in call.args[0]:
             for tool_call in getattr(message, "tool_calls", None) or []:
-                if tool_call["name"] not in names:
-                    names.append(tool_call["name"])
+                name = traced_tool_name(tool_call["name"], tool_call.get("args"))
+                if name not in names:
+                    names.append(name)
     return names

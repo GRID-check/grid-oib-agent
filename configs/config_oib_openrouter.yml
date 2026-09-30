@@ -659,22 +659,21 @@ functions:
   propose_file_change:
     _type: propose_file_change
 
-  # The working directory's two doors into the project (src/aiq_agent/tools/
+  # The working directory's door into the project (src/aiq_agent/tools/
   # documents). `file_draft` puts a draft the turn WROTE into the project as a
-  # draft version; `submit_draft` sends that version for review. Unlike the five
-  # proposal tools above these two DO change the project — and they do it through
+  # draft version, and with `submit: true` sends that version for review (it was
+  # a second tool, `submit_draft`, until the two merged). Unlike the proposal
+  # tool above this one DOES change the project — and it does it through
   # `POST /api/internal/document-versions`, echoing the BFF-signed request
   # envelope, so the write happens in the requesting person's pinned session
   # under their permissions and their audit actor (ADR-0054 §4). The BFF stays
   # the single writer of `grid_app`.
   #
   # Bound on Piloti only, for the same reason as the proposal
-  # tools and one more: the envelope is minted per chat turn, so an unattended
+  # tool and one more: the envelope is minted per chat turn, so an unattended
   # deep-research run has no signed identity to file as and the tool refuses.
   file_draft:
     _type: file_draft
-  submit_draft:
-    _type: submit_draft
 
   # Delegation (src/aiq_agent/tools/tasks). Hands work that outlives this turn
   # to a `tasks` row (ADR-0051) — a norm check, the Einreichcheck
@@ -749,7 +748,6 @@ functions:
       - surface_documents
       - propose_file_change
       - file_draft
-      - submit_draft
       - create_task
       - ifc_query
       - ifc_measure

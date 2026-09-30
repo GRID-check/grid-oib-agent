@@ -380,10 +380,11 @@ KEY_ACTION_DRAFT_EDIT = "status.action.draftEdit"
 #: a line naming the verb a second time would be the card, worse and earlier.
 #: What the line has to carry is that nothing is being changed yet.
 KEY_ACTION_FILE_PROPOSAL = "status.action.fileProposal"
-#: The two verbs that leave the conversation. Their own keys, and not the
-#: working directory's four, because what changes is not the draft but WHERE it
-#: is: „Entwurf wird geschrieben" while a document is being put into the
-#: project would describe the wrong half of what just happened. Filing and
+#: The two things `file_draft` does when a draft leaves the conversation:
+#: filing it, and — with `submit=true` — handing it to a reviewer. Their own
+#: keys, and not the working directory's four, because what changes is not the
+#: draft but WHERE it is: „Entwurf wird geschrieben" while a document is being
+#: put into the project would describe the wrong half of what just happened. Filing and
 #: submitting are also kept apart, unlike the five proposal verbs that share
 #: one key: there the card names the operation a moment later, while here there
 #: is nothing else on screen to tell a filing from a handover to a reviewer.
@@ -582,10 +583,26 @@ _ACTION_KEYS = {
     "write_file": KEY_ACTION_DRAFT_WRITE,
     "edit_file": KEY_ACTION_DRAFT_EDIT,
     "propose_file_change": KEY_ACTION_FILE_PROPOSAL,
+    # With `submit=true` the line is KEY_ACTION_DRAFT_SUBMITTED instead; see
+    # :func:`_action_key`. (`submit_draft` was merged into that argument.)
     "file_draft": KEY_ACTION_DRAFT_FILED,
-    "submit_draft": KEY_ACTION_DRAFT_SUBMITTED,
     "create_task": KEY_ACTION_TASK_CREATED,
 }
+
+
+def _action_key(base: str, args: Any) -> str | None:
+    """The live-line key for a non-retrieval tool call, read from its arguments where they decide it.
+
+    One tool, two promises: ``file_draft`` with ``submit`` hands the draft to a
+    reviewer, and the filing line would describe only the half of that call
+    which asks nobody for anything.
+    """
+    if base == "file_draft" and isinstance(args, dict) and str(args.get("submit")).strip().lower() == "true":
+        # `str(True)` is "True": a boolean and a model that quoted it read alike,
+        # the way the tool's own argument parsing reads them.
+        return KEY_ACTION_DRAFT_SUBMITTED
+    return _ACTION_KEYS.get(base)
+
 
 #: Argument names a retrieval query hides behind, in preference order.
 _QUERY_KEYS = ("query", "search_query", "question", "q", "text", "name_contains")
@@ -1033,7 +1050,7 @@ def _describe_calls(calls: list[dict[str, Any]]) -> dict[str, Any]:
             else:
                 query = query or _query_text(call.get("args"))
         elif action_key is None:
-            action_key = _ACTION_KEYS.get(base)
+            action_key = _action_key(base, call.get("args"))
 
     key: str | None
     values: dict[str, Any]
