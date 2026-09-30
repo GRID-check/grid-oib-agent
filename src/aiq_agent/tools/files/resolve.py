@@ -160,7 +160,7 @@ def known_folders() -> list[str]:
 
     Built from the ``folder_path`` on the inventory rows, so it is the tree as
     far as filed documents reveal it. A folder nobody has filed anything into
-    is invisible here — which is why ``create_folder`` exists, and why a move
+    is invisible here — which is why the ``create_folder`` operation exists, and why a move
     into an unknown folder is refused rather than silently creating one.
     """
     paths: set[str] = set()
@@ -194,7 +194,7 @@ def resolve_folder(path: str) -> str | Refusal:
     if not folders:
         return Refusal(
             f"Nicht gefunden: Dieses Projekt hat noch keine Ordner, „{_nfc(path)}“ also auch nicht. Schlage mit "
-            "`create_folder` einen Ordner vor, bevor du etwas hineinlegst."
+            "`propose_file_change(operation=\"create_folder\")` einen Ordner vor, bevor du etwas hineinlegst."
         )
 
     for candidates in (
@@ -210,5 +210,5 @@ def resolve_folder(path: str) -> str | Refusal:
     listed = ", ".join(f"`{folder}`" for folder in folders[:_MAX_NAMED_CANDIDATES])
     return Refusal(
         f"Nicht gefunden: Es gibt keinen Ordner „{_nfc(path)}“. Vorhanden sind: {listed}. Nenne einen davon "
-        "oder schlage den neuen Ordner erst mit `create_folder` vor."
+        "oder schlage den neuen Ordner erst mit `propose_file_change(operation=\"create_folder\")` vor."
     )

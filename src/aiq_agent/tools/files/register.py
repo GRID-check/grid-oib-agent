@@ -1,9 +1,18 @@
-"""The four write-side workspace tools. Every one of them proposes.
+"""The write-side workspace tool. It proposes; it never changes anything.
 
-``move_document``, ``rename_document``, ``create_folder`` and
-``assign_document``. Each resolves its arguments against what the turn can
-already see (``resolve.py``), emits one ``file_operation_proposal`` card, and
-returns text that says in its first words that NOTHING has been changed.
+ONE tool, ``propose_file_change``, with an ``operation`` of ``move``,
+``rename``, ``create_folder`` or ``assign``. It resolves its arguments against
+what the turn can already see (``resolve.py``), emits one
+``file_operation_proposal`` card, and returns text that says in its first words
+that NOTHING has been changed.
+
+It used to be four tools, one per operation. They shared the card, the
+contract, the resolver and every refusal; what differed was one or two
+arguments. Four names cost the model four choices and ~760 tokens of schema on
+every call for what a person thinks of as one act — "tidy the files" — so the
+operation is an argument now (docs/architecture/agent-tool-surface.md). The
+card's ``operation`` vocabulary is unchanged, so the frontend executor and every
+stored card read exactly as before.
 
 The reason is the invariant in ``src/aiq_agent/tools/AGENTS.md``: the BFF is
 the single writer of ``grid_app`` (ADR-0003), so this tier has no route to a
@@ -55,7 +64,7 @@ _NO_CARD = (
     "in der Dateiablage vornehmen muss."
 )
 
-#: Every one of the five acts on a project's workspace: folders are
+#: Every operation acts on a project's workspace: folders are
 #: project-scoped and the reader's session applies the change against a
 #: project. A chat with no project in scope has nothing to organise.
 _NO_PROJECT = (
@@ -75,63 +84,33 @@ def _document(name: str) -> ResolvedDocument | str:
     return resolved.message if isinstance(resolved, Refusal) else resolved
 
 
-# ── move_document ────────────────────────────────────────────────────────────
-
-_MOVE_DESCRIPTION = (
-    "SCHLÄGT VOR, eine Projekt- oder Büroarchiv-Datei in einen vorhandenen Ordner zu verschieben. "
-    "Verschiebt nichts: Es entsteht eine Karte, die die Nutzerin annimmt oder verwirft — erst dann "
-    "wird verschoben, in ihrer eigenen Sitzung. `document` ist der Dateiname genau so, wie er in der "
-    "Dateiübersicht steht; `target_folder` ist ein Ordnerpfad, der es bereits gibt (z. B. "
-    "'Einreichung/Pläne'), oder eine leere Zeichenkette für die oberste Ebene. Gibt es den Ordner noch "
-    "nicht, zuerst `create_folder` aufrufen. Mehrere Aufrufe in derselben Antwort sammeln sich auf EINER "
-    "Karte, damit „räum die Einreichunterlagen zusammen“ eine Entscheidung bleibt und nicht vier. "
-    "Nur vorschlagen, wenn die Nutzerin darum bittet („leg die Einreichunterlagen in einen Ordner“)."
-)
+# ── the four operations ─────────────────────────────────────────────────────
+# Each returns the result text. A proposal that could be shown ends on
+# `_PROPOSED`; anything else is a refusal the model can turn into its answer.
 
 
-class MoveDocumentConfig(FunctionBaseConfig, name="move_document"):
-    """Configuration for the ``move_document`` proposal tool."""
+def _move(document: str, target_folder: str) -> str:
+    resolved = _document(document)
+    if isinstance(resolved, str):
+        return resolved
+    folder = resolve_folder(target_folder)
+    if isinstance(folder, Refusal):
+        return folder.message
+    if folder == resolved.folder_path:
+        where = f"„{folder}“" if folder else "der obersten Ebene"
+        return f"`{resolved.file_name}` liegt bereits in {where}. Kein Vorschlag nötig."
 
+    item = {
+        "document": resolved.file_name,
+        "source": resolved.source,
+        "current": resolved.folder_path,
+        "target_folder": folder,
+    }
+    title = f"Verschieben nach „{folder}“" if folder else "Auf die oberste Ebene verschieben"
+    if not propose_file_operation(operation="move", title=title, item=item):
+        return _NO_CARD
+    return f"Vorgeschlagen: `{resolved.file_name}` → {folder or 'oberste Ebene'}. {_PROPOSED}"
 
-@register_function(config_type=MoveDocumentConfig)
-async def move_document(tool_config: MoveDocumentConfig, builder: Builder):
-    async def _move(document: str, target_folder: str = "") -> str:
-        """Propose moving one document into an existing folder."""
-        if (refused := _project_or_error()) is not None:
-            return refused
-        resolved = _document(document)
-        if isinstance(resolved, str):
-            return resolved
-        folder = resolve_folder(target_folder)
-        if isinstance(folder, Refusal):
-            return folder.message
-        if folder == resolved.folder_path:
-            where = f"„{folder}“" if folder else "der obersten Ebene"
-            return f"`{resolved.file_name}` liegt bereits in {where}. Kein Vorschlag nötig."
-
-        item = {
-            "document": resolved.file_name,
-            "source": resolved.source,
-            "current": resolved.folder_path,
-            "target_folder": folder,
-        }
-        title = f"Verschieben nach „{folder}“" if folder else "Auf die oberste Ebene verschieben"
-        if not propose_file_operation(operation="move", title=title, item=item):
-            return _NO_CARD
-        return f"Vorgeschlagen: `{resolved.file_name}` → {folder or 'oberste Ebene'}. {_PROPOSED}"
-
-    yield FunctionInfo.from_fn(_move, description=_MOVE_DESCRIPTION)
-
-
-# ── rename_document ──────────────────────────────────────────────────────────
-
-_RENAME_DESCRIPTION = (
-    "SCHLÄGT VOR, den Anzeigenamen einer Datei zu ändern. Benennt nichts um: Die Nutzerin entscheidet "
-    "auf der Karte. `document` ist der Dateiname aus der Übersicht, `new_display_name` der neue "
-    "Anzeigename (der Dateiname auf der Platte bleibt, was er ist). Nur vorschlagen, wenn die Nutzerin "
-    "eine Umbenennung will oder ein Name nachweislich falsch ist — nicht, um Namen zu vereinheitlichen, "
-    "nach denen niemand gefragt hat."
-)
 
 #: Same ceiling the BFF's rename route enforces
 #: (``MAX_DOCUMENT_NAME_LENGTH`` in ``lib/documents/display-name.ts``). Checked
@@ -140,51 +119,28 @@ _RENAME_DESCRIPTION = (
 MAX_DISPLAY_NAME_CHARS = 255
 
 
-class RenameDocumentConfig(FunctionBaseConfig, name="rename_document"):
-    """Configuration for the ``rename_document`` proposal tool."""
+def _rename(document: str, new_name: str) -> str:
+    resolved = _document(document)
+    if isinstance(resolved, str):
+        return resolved
+    name = " ".join((new_name or "").split())
+    if not name:
+        return "Fehler: `new_name` ist leer. Nenne den neuen Anzeigenamen."
+    if len(name) > MAX_DISPLAY_NAME_CHARS:
+        return f"Fehler: Der neue Name ist länger als {MAX_DISPLAY_NAME_CHARS} Zeichen. Kürze ihn."
+    if name == resolved.file_name:
+        return f"`{resolved.file_name}` heißt bereits so. Kein Vorschlag nötig."
 
+    item = {
+        "document": resolved.file_name,
+        "source": resolved.source,
+        "current": resolved.file_name,
+        "new_display_name": name,
+    }
+    if not propose_file_operation(operation="rename", title="Datei umbenennen", item=item):
+        return _NO_CARD
+    return f"Vorgeschlagen: `{resolved.file_name}` → „{name}“. {_PROPOSED}"
 
-@register_function(config_type=RenameDocumentConfig)
-async def rename_document(tool_config: RenameDocumentConfig, builder: Builder):
-    async def _rename(document: str, new_display_name: str) -> str:
-        """Propose a new display name for one document."""
-        if (refused := _project_or_error()) is not None:
-            return refused
-        resolved = _document(document)
-        if isinstance(resolved, str):
-            return resolved
-        name = " ".join((new_display_name or "").split())
-        if not name:
-            return "Fehler: `new_display_name` ist leer. Nenne den neuen Namen."
-        if len(name) > MAX_DISPLAY_NAME_CHARS:
-            return f"Fehler: Der neue Name ist länger als {MAX_DISPLAY_NAME_CHARS} Zeichen. Kürze ihn."
-        if name == resolved.file_name:
-            return f"`{resolved.file_name}` heißt bereits so. Kein Vorschlag nötig."
-
-        item = {
-            "document": resolved.file_name,
-            "source": resolved.source,
-            "current": resolved.file_name,
-            "new_display_name": name,
-        }
-        if not propose_file_operation(operation="rename", title="Datei umbenennen", item=item):
-            return _NO_CARD
-        return f"Vorgeschlagen: `{resolved.file_name}` → „{name}“. {_PROPOSED}"
-
-    yield FunctionInfo.from_fn(_rename, description=_RENAME_DESCRIPTION)
-
-
-# ── create_folder ────────────────────────────────────────────────────────────
-
-_CREATE_FOLDER_DESCRIPTION = (
-    "SCHLÄGT VOR, im Projekt einen neuen Ordner anzulegen. Legt nichts an: Die Nutzerin entscheidet auf "
-    "der Karte. `name` ist der Name des neuen Ordners (EIN Segment, keine Schrägstriche); `parent` ist "
-    "der Pfad eines vorhandenen Ordners oder eine leere Zeichenkette für die oberste Ebene. Danach kann "
-    "`move_document` Dateien hineinlegen — beide Vorschläge stehen dann als zwei Karten nebeneinander, "
-    "und die Nutzerin nimmt sie in dieser Reihenfolge an. "
-    "Nur vorschlagen, wenn die Nutzerin einen Ordner will oder ein gewünschtes Verschieben einen "
-    "braucht."
-)
 
 #: One segment. The BFF's own folder validation refuses separators
 #: (``lib/projects/folders.ts``); refusing them here keeps the model's mistake
@@ -192,73 +148,102 @@ _CREATE_FOLDER_DESCRIPTION = (
 _FOLDER_NAME_MAX = 120
 
 
-class CreateFolderConfig(FunctionBaseConfig, name="create_folder"):
-    """Configuration for the ``create_folder`` proposal tool."""
+def _create_folder(name: str, parent: str) -> str:
+    folder_name = " ".join((name or "").split())
+    if not folder_name:
+        return "Fehler: `new_name` ist leer. Nenne den Namen des neuen Ordners."
+    if "/" in folder_name or "\\" in folder_name:
+        return (
+            "Fehler: `new_name` ist EIN Ordnername ohne Schrägstriche. Für einen Unterordner den "
+            "übergeordneten Pfad in `target_folder` angeben."
+        )
+    if len(folder_name) > _FOLDER_NAME_MAX:
+        return f"Fehler: Ordnernamen sind auf {_FOLDER_NAME_MAX} Zeichen begrenzt. Kürze ihn."
+
+    parent_path = resolve_folder(parent)
+    if isinstance(parent_path, Refusal):
+        return parent_path.message
+    full = f"{parent_path}/{folder_name}" if parent_path else folder_name
+    if full.casefold() in {folder.casefold() for folder in known_folders()}:
+        return f"Den Ordner „{full}“ gibt es bereits. Kein Vorschlag nötig; du kannst direkt hineinlegen."
+
+    item = {"folder_name": folder_name, "parent_folder": parent_path, "current": full}
+    if not propose_file_operation(operation="create_folder", title="Neuen Ordner anlegen", item=item):
+        return _NO_CARD
+    return f"Vorgeschlagen: neuer Ordner „{full}“. {_PROPOSED}"
 
 
-@register_function(config_type=CreateFolderConfig)
-async def create_folder(tool_config: CreateFolderConfig, builder: Builder):
-    async def _create(name: str, parent: str = "") -> str:
-        """Propose one new project folder."""
-        if (refused := _project_or_error()) is not None:
-            return refused
-        folder_name = " ".join((name or "").split())
-        if not folder_name:
-            return "Fehler: `name` ist leer. Nenne den Ordnernamen."
-        if "/" in folder_name or "\\" in folder_name:
-            return (
-                "Fehler: `name` ist EIN Ordnername ohne Schrägstriche. Für einen Unterordner den "
-                "übergeordneten Pfad in `parent` angeben."
-            )
-        if len(folder_name) > _FOLDER_NAME_MAX:
-            return f"Fehler: Ordnernamen sind auf {_FOLDER_NAME_MAX} Zeichen begrenzt. Kürze ihn."
+def _assign(document: str, member: str) -> str:
+    resolved = _document(document)
+    if isinstance(resolved, str):
+        return resolved
+    person = " ".join((member or "").split())
+    if not person:
+        return "Fehler: `member` ist leer. Nenne die Person so, wie die Nutzerin sie genannt hat."
 
-        parent_path = resolve_folder(parent)
-        if isinstance(parent_path, Refusal):
-            return parent_path.message
-        full = f"{parent_path}/{folder_name}" if parent_path else folder_name
-        if full.casefold() in {folder.casefold() for folder in known_folders()}:
-            return f"Den Ordner „{full}“ gibt es bereits. Kein Vorschlag nötig; du kannst direkt hineinlegen."
-
-        item = {"folder_name": folder_name, "parent_folder": parent_path, "current": full}
-        if not propose_file_operation(operation="create_folder", title="Neuen Ordner anlegen", item=item):
-            return _NO_CARD
-        return f"Vorgeschlagen: neuer Ordner „{full}“. {_PROPOSED}"
-
-    yield FunctionInfo.from_fn(_create, description=_CREATE_FOLDER_DESCRIPTION)
+    item = {"document": resolved.file_name, "source": resolved.source, "member": person}
+    if not propose_file_operation(operation="assign", title="Datei zuweisen", item=item):
+        return _NO_CARD
+    return f"Vorgeschlagen: `{resolved.file_name}` → {person}. {_PROPOSED}"
 
 
-# ── assign_document ──────────────────────────────────────────────────────────
+# ── propose_file_change ─────────────────────────────────────────────────────
 
-_ASSIGN_DESCRIPTION = (
-    "SCHLÄGT VOR, eine Datei einer Person im Projekt zuzuweisen. Weist nichts zu: Die Nutzerin "
-    "entscheidet auf der Karte. `member` ist die Person so, wie sie in der Unterhaltung genannt wurde "
-    "(Name oder E-Mail) — DIESE Ausführung kennt die Projektmitglieder nicht und prüft den Namen nicht; "
-    "aufgelöst wird er beim Annehmen, gegen die tatsächliche Mitgliederliste des Projekts. Deshalb nur "
-    "vorschlagen, wenn die Nutzerin die Person selbst genannt hat, und den Namen unverändert übernehmen."
+_DESCRIPTION = (
+    "SCHLÄGT eine Änderung an der Dateiablage VOR — ändert selbst nichts. Es entsteht eine Karte, die "
+    "die Nutzerin annimmt oder verwirft; erst dann wird es ausgeführt, in ihrer eigenen Sitzung. "
+    "Nur vorschlagen, wenn die Nutzerin darum bittet („leg die Einreichunterlagen in einen Ordner“, "
+    "„benenn das um“, „gib das Anna“) oder ein Name nachweislich falsch ist.\n"
+    "`operation` und was sie braucht:\n"
+    "- `move`: `document` in den vorhandenen Ordner `target_folder` (Pfad wie 'Einreichung/Pläne', "
+    "leer = oberste Ebene).\n"
+    "- `rename`: `document` bekommt den Anzeigenamen `new_name` (der gespeicherte Dateiname bleibt).\n"
+    "- `create_folder`: neuer Ordner `new_name` (EIN Segment, keine Schrägstriche) unter "
+    "`target_folder` (leer = oberste Ebene). Danach kann `move` hineinlegen; die Nutzerin nimmt die "
+    "Karten in dieser Reihenfolge an.\n"
+    "- `assign`: `document` an die Person `member`, so wie die Nutzerin sie genannt hat (Name oder "
+    "E-Mail) — hier nicht geprüft, sondern beim Annehmen gegen die Projektmitglieder aufgelöst.\n"
+    "`document` ist der Dateiname genau so, wie ihn die Übersicht oder `list_files` zeigt. Mehrere "
+    "Aufrufe derselben Operation in einer Antwort sammeln sich auf EINER Karte: „räum die "
+    "Einreichunterlagen zusammen“ bleibt eine Entscheidung, nicht vier."
 )
 
-
-class AssignDocumentConfig(FunctionBaseConfig, name="assign_document"):
-    """Configuration for the ``assign_document`` proposal tool."""
+_OPERATIONS = ("move", "rename", "create_folder", "assign")
 
 
-@register_function(config_type=AssignDocumentConfig)
-async def assign_document(tool_config: AssignDocumentConfig, builder: Builder):
-    async def _assign(document: str, member: str) -> str:
-        """Propose assigning one document to one person."""
+class ProposeFileChangeConfig(FunctionBaseConfig, name="propose_file_change"):
+    """Configuration for the ``propose_file_change`` proposal tool."""
+
+
+@register_function(config_type=ProposeFileChangeConfig)
+async def propose_file_change(tool_config: ProposeFileChangeConfig, builder: Builder):
+    async def _propose(
+        operation: str,
+        document: str = "",
+        target_folder: str = "",
+        new_name: str = "",
+        member: str = "",
+    ) -> str:
+        """Propose one change to the project's files: move, rename, create_folder or assign.
+
+        Args:
+            operation: move | rename | create_folder | assign.
+            document: The file, exactly as the overview or `list_files` names it (move, rename, assign).
+            target_folder: Existing folder path; the destination for move, the parent for create_folder.
+            new_name: The new display name (rename) or the new folder's name (create_folder).
+            member: The person, as the user named them (assign).
+        """
         if (refused := _project_or_error()) is not None:
             return refused
-        resolved = _document(document)
-        if isinstance(resolved, str):
-            return resolved
-        person = " ".join((member or "").split())
-        if not person:
-            return "Fehler: `member` ist leer. Nenne die Person so, wie die Nutzerin sie genannt hat."
+        op = (operation or "").strip().lower()
+        if op == "move":
+            return _move(document, target_folder)
+        if op == "rename":
+            return _rename(document, new_name)
+        if op == "create_folder":
+            return _create_folder(new_name, target_folder)
+        if op == "assign":
+            return _assign(document, member)
+        return f"Fehler: `operation` muss eine von {', '.join(_OPERATIONS)} sein."
 
-        item = {"document": resolved.file_name, "source": resolved.source, "member": person}
-        if not propose_file_operation(operation="assign", title="Datei zuweisen", item=item):
-            return _NO_CARD
-        return f"Vorgeschlagen: `{resolved.file_name}` → {person}. {_PROPOSED}"
-
-    yield FunctionInfo.from_fn(_assign, description=_ASSIGN_DESCRIPTION)
+    yield FunctionInfo.from_fn(_propose, description=_DESCRIPTION)

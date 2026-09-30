@@ -58,12 +58,14 @@ versions rather than two documents.
 
 ## A write-side tool PROPOSES; acceptance executes in the user's session
 
-The same invariant, stated as the rule the next tool has to follow. The four
-verbs under `files/` — `move_document`, `rename_document`, `create_folder`,
-`assign_document` — all change the user's workspace, and not
-one of them changes anything. Each resolves its arguments against what the turn
-can already see, emits ONE `file_operation_proposal` card, and returns text
-whose first words are that nothing has happened.
+The same invariant, stated as the rule the next operation has to follow. The
+one tool under `files/`, `propose_file_change`, changes the user's workspace
+four ways — its `operation` argument is `move`, `rename`, `create_folder` or
+`assign` — and none of them changes anything. Each operation resolves its
+arguments against what the turn can already see, emits ONE
+`file_operation_proposal` card, and returns text whose first words are that
+nothing has happened. It was four tools until they merged; the card
+vocabulary kept its four operation kinds, so the browser side did not move.
 
 Accepting the card runs the operation from the browser, as the signed-in user,
 through the routes the Files pane already uses — `PATCH /api/documents/[id]`,
@@ -74,29 +76,28 @@ the audit trail and the feature gates are the ones that were already there —
 which is ADR-0055 read from this side: one HTTP surface per primitive, and this
 tier is a client of it like everybody else, never a second implementation.
 
-Three consequences worth knowing before writing the fifth verb:
+Three consequences worth knowing before adding a fifth operation:
 
 - **Nothing is resolved that the turn cannot see.** A document is matched
   against the turn's inventory rows (`knowledge/inventory.get_turn_documents`),
-  a folder against the paths those rows carry, a Dokumentart against the closed
-  vocabulary. A name that matches two files comes back as a question and never
+  and a folder against the paths those rows carry. A name that matches two files comes back as a question and never
   as a proposal naming one of them. A PERSON is the exception and is not
   resolved here at all: this tier has no member roster, so the card carries the
   name as the user said it and the reader's own session resolves it — inventing
   a match here would be exactly the guess the rest of the module prevents.
 - **A card carries several operations of one kind.** „Räum die
   Einreichunterlagen zusammen" is four moves, and four cards would be four
-  decisions for one intention. Repeated calls of the same verb extend the open
-  card (`files/cards.py`) up to `MAX_FILE_OPERATIONS`; accepting applies them in
-  order and reports each one, so a batch where the third fails says three
-  landed and one did not.
-- **A verb with no route behind it does not ship.** `set_doc_class` was the
-  fifth verb and is gone: the Dokumentart is settable only on the platform
-  corpus, a project document has no such route, and the card therefore drew the
-  proposal and no control — a decision the reader could read and could not take.
-  A proposal nobody can accept is not a smaller feature than one they can, it is
-  a different and worse thing, so the verb waits for the project-scoped route
-  rather than shipping ahead of it. Inventing a route on this side would put the
+  decisions for one intention. Repeated calls with the same `operation` extend
+  the open card (`files/cards.py`) up to `MAX_FILE_OPERATIONS`; accepting
+  applies them in order and reports each one, so a batch where the third fails
+  says three landed and one did not.
+- **An operation with no route behind it does not ship.** `set_doc_class`
+  was the fifth verb and is gone: the Dokumentart is settable only on the
+  platform corpus, a project document has no such route, and the card therefore
+  drew the proposal and no control — a decision the reader could read and could
+  not take. A proposal nobody can accept is not a smaller feature than one they
+  can, it is a different and worse thing, so the operation waits for the
+  project-scoped route rather than shipping ahead of it. Inventing a route on this side would put the
   write back behind the door the whole module exists to keep shut.
 
 ## Obligations
@@ -107,7 +108,7 @@ Three consequences worth knowing before writing the fifth verb:
 | Change what is stored per draft | Remember DeepAgents rebuilds the stored value from `content`/`encoding` on every edit: a key not re-stamped after the operation is gone | Nothing local. The version counter silently resets to 1 |
 | Take text from the model and compare it to stored text | NFC-normalise both, at the backend seam | An `edit_file` that fails with a string identical to the one in the file. [`gotchas.md`](../../../docs/contributing/gotchas.md) |
 | Add a tool under here | `@register_function` plus its own `nat.plugins` entry point, like every other tool ([`src/aiq_agent/AGENTS.md`](../AGENTS.md)) | NAT never discovers it |
-| Add a verb that WRITES | Make it propose: a `file_operation_proposal` card and a result saying nothing changed. Then its action key in `common/turn_status.py`, its row in `TOOL_CONTEXT_REQUIREMENTS`, and its executor in `grid-cards/lib/file-operations.ts` | Nothing local — which is the point. A tool that wrote directly would pass every test and bypass `requireProjectAccess`, the audit trail and the reader's consent in one call |
+| Add an operation that WRITES | Make it propose: its branch in `propose_file_change` (`files/register.py`) and its line in `_DESCRIPTION`, emitting a `file_operation_proposal` card and a result saying nothing changed. Then its kind in `FileOperationKind` (`cards/models.py`) and its executor in `grid-cards/lib/file-operations.ts`. The action key and the `TOOL_CONTEXT_REQUIREMENTS` row belong to the tool and are already there; a new write-side TOOL needs both | Nothing local — which is the point. A tool that wrote directly would pass every test and bypass `requireProjectAccess`, the audit trail and the reader's consent in one call |
 | Write a rule about how one of these tools is used | Put it in that tool's DESCRIPTION. The prompt blocks that used to hold these rules (`<entwuerfe>`, `<aufraeumen>`, `<delegieren>`) are gone: every one of them restated a bound tool's contract in prose charged on every call of every turn (ADR-0060 (d) and its amendment). The prompt keeps only what no description can carry: an antecedent that lives in the transcript | Review, and 1,500 tokens per turn. The rule also half-applies: a description reaches the model with the call, a prompt paragraph competes with everything else on the page |
 | Call the BFF from a tool that acts as a PERSON | Echo `GridRequestContext.envelope_header` / `envelope_signature` unchanged. Never build or sign an envelope here, and never read the acting user off the unsigned `x-grid-user-id` header | Nothing local, and everything downstream: the internal token is the signing secret, so a self-signed envelope is a tool choosing whose permissions it runs under |
 | Delete a conversation's working directory | Go through `DELETE /v1/drafts/{conversation_id}` (`frontends/aiq_api/routes/drafts.py`), which sweeps the store namespace. Nothing else may reach into `("conversation", id, "drafts")` | Nothing local. The drafts outlive the conversation as bytes under a key that names nothing |

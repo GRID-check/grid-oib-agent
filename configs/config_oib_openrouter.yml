@@ -643,10 +643,11 @@ functions:
   surface_documents:
     _type: surface_documents
 
-  # The five WRITE-side workspace tools (src/aiq_agent/tools/files). Each one
-  # proposes: it resolves the file, the folder or the Dokumentart against what
-  # the turn can already see, renders ONE `file_operation_proposal` card, and
-  # changes nothing. Accepting the card runs the operation through the routes
+  # The WRITE-side workspace tool (src/aiq_agent/tools/files): move, rename,
+  # create_folder and assign as one `operation` argument — four tools until
+  # they were merged (docs/architecture/agent-tool-surface.md). It proposes: it
+  # resolves the file or the folder against what the turn can already see,
+  # renders ONE `file_operation_proposal` card, and changes nothing. Accepting the card runs the operation through the routes
   # the Files pane already uses, in the reader's own session — the BFF stays
   # the single writer of `grid_app` (ADR-0003), which is why there is no
   # backend path here to write with.
@@ -655,15 +656,8 @@ functions:
   # job worker with nobody to press Accept, so a proposal card there is a
   # decision nobody is on the other end of; the two agents differ here for the
   # same reason `ask_user` does.
-  move_document:
-    _type: move_document
-  rename_document:
-    _type: rename_document
-  create_folder:
-    _type: create_folder
-  # No doc_class verb here: proposals wait for a project-scoped doc_class route.
-  assign_document:
-    _type: assign_document
+  propose_file_change:
+    _type: propose_file_change
 
   # The working directory's two doors into the project (src/aiq_agent/tools/
   # documents). `file_draft` puts a draft the turn WROTE into the project as a
@@ -753,10 +747,7 @@ functions:
       # envelope schema already teaches, and a model at low effort spent a
       # whole round on it (September 2026 census). Deep research binds its own.
       - surface_documents
-      - move_document
-      - rename_document
-      - create_folder
-      - assign_document
+      - propose_file_change
       - file_draft
       - submit_draft
       - create_task
