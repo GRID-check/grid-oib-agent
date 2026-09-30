@@ -160,7 +160,7 @@ export class UpstreamError extends ApiError {
 
 /** 503 — endpoint deliberately disabled (e.g. internal token unconfigured). */
 export class ServiceUnavailableError extends ApiError {
-  constructor(message = 'Service unavailable') {
-    super(503, 'SERVICE_UNAVAILABLE', message)
+  constructor(message = 'Service unavailable', details?: unknown) {
+    super(503, 'SERVICE_UNAVAILABLE', message, details)
   }
 }

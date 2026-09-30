@@ -76,9 +76,11 @@ Running in the application instead buys four things SQL cannot do:
    OpenRouter".
 2. **Validate**, against the live catalog, exactly as the admin PUT does — rather
    than asserting capabilities in a comment.
-3. **Record `model_snapshot`**, including `_zdr.safe`, so ZDR tenants inheriting
-   the default can be warned. A SQL seed would leave it NULL and silently
-   disable that control.
+3. **Refuse a default without zero data retention.** Every org is ZDR unless it
+   opted out, so the bootstrap model must have a ZDR endpoint that serves each
+   group (checked against the live `/endpoints/zdr` list, exactly as the admin
+   PUT checks it); an unreadable ZDR list skips the bootstrap with a log line
+   rather than writing an unchecked default. A SQL seed could do neither.
 4. **Invalidate the cache and write an audit event**
    (`platform.model_defaults.bootstrapped`, actor `system:bootstrap`), so the
    change reaches traffic at once and a decision no human made is still visible
@@ -202,7 +204,8 @@ to pin its own models.
 Zero data retention is the default for every organization (ADR-0074): only an
 explicit `settings.zdrOnly === false` turns it off. Because every org inherits
 the platform defaults under ZDR, a platform default without a ZDR endpoint is
-refused at save, and `model_snapshot._zdr.safe` records the check. The pin itself
+refused at save, and the platform page checks saved defaults against the live
+ZDR list (a stored snapshot would go stale). The pin itself
 is applied in one place, `src/aiq_agent/common/openrouter.py`: the per-request
 dials above carry it for the models an org chooses (`RequestLLMContext.apply`,
 `apply_model_override`, the worker's `provider.with_zdr` after BYOK), and every
@@ -271,7 +274,7 @@ selected model rides the standard override header/stored-config path.
 platform_model_defaults
   agent_group      text PK      -- 'shallow_research', …
   model            text         -- catalog-validated OpenRouter id
-  model_snapshot   jsonb        -- catalog metadata + _zdr.safe (audit only)
+  model_snapshot   jsonb        -- catalog metadata at save (audit only; older rows carry an unread _zdr.safe)
   note             text
   updated_by / updated_by_email / created_at / updated_at
 ```
@@ -281,7 +284,7 @@ the deployment rather than a tenant (ADR-0016). One row per group; **no row = th
 YAML**, which is what the first-boot bootstrap above exists to prevent for the
 groups it can safely fill. Rows it writes carry the sentinel actor
 `system:bootstrap` rather than a WorkOS user id; everything else about them —
-the catalog-validated model, the `model_snapshot` with `_zdr.safe` — is
+the catalog- and ZDR-validated model, the `model_snapshot` — is
 identical to a row an owner saved, because it goes through the same
 `savePlatformModelDefaults` path. A save REPLACES the set: groups omitted from the payload are deleted,
 which is how a group is handed back to the workflow config. Not versioned like
@@ -314,8 +317,13 @@ org_model_configs                      org_model_config_versions
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/platform/model-defaults` | registry + current default per group + the YAML fallback each group has |
-| PUT | `/api/platform/model-defaults` | validate against the platform catalog → replace the default set (200 / 422 / 503-catalog-down) |
-| GET | `/api/platform/model-defaults/models?group&q` | capability-filtered catalog search, annotated with `zdrSafe` |
+| PUT | `/api/platform/model-defaults` | validate against the platform catalog AND the ZDR list → replace the default set (200 / 422 with reason codes, incl. `not_zdr` / `zdr_endpoint_lacks_capability` / 503-catalog-or-ZDR-list-down, `details.reason: 'zdr_list_unavailable'` for the latter) |
+| GET | `/api/platform/model-defaults/models?group&q` | capability-filtered catalog search, **only models with a ZDR endpoint serving the group**; 503 rather than the unfiltered catalog when the ZDR list is down |
+
+GET reports `zdrSafe` per pinned default and `workflowDefaultsZdrSafe` per YAML
+fallback, both checked against the **live** ZDR list (null = the list could not
+be read), so a default that lost its last ZDR endpoint after it was saved is
+flagged: every ZDR org inheriting it has that group's requests refused.
 
 Deliberately **not** behind the per-org `modelConfiguration` feature flag: this
 is the layer *under* every tenant's configuration, not a tenant capability. The
@@ -327,11 +335,24 @@ tenant's BYOK provider listing.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/organization/model-config` | agent-group registry + active version |
-| PUT | `/api/organization/model-config` | validate against live catalog → new version + activate (201 / 422 / 503-catalog-down) |
+| GET | `/api/organization/model-config` | agent-group registry + active version + `zdrOnly` (effective, on unless opted out) + `zdrApplicable` (false for a BYOK key on a non-OpenRouter provider) + `zdrCoverage` (while ZDR is in force: `{status: 'checked'\|'unknown', blockedGroups: [{group, modelId, source: 'org'\|'platform'\|'workflow', reason}], unresolvedGroups}`) |
+| PUT | `/api/organization/model-config` | validate against live catalog (+ a ZDR endpoint serving each group while ZDR is in force) → new version + activate (201 / 422 with per-group reason codes / 503-catalog-or-ZDR-list-down) |
+| PUT | `/api/organization/model-config/zdr` | the ZDR switch, the **only** writer of `settings.zdrOnly`; never refuses turning ZDR on; returns `{zdrOnly, zdrApplicable, zdrCoverage}`, the last two best-effort after the write (null / `status: 'unknown'`, never an error once the switch has moved) |
 | GET | `/api/organization/model-config/versions` | history |
-| POST | `/api/organization/model-config/versions/{id}/activate` | rollback / re-activate; `{id}='none'` → defaults |
-| GET | `/api/organization/model-config/models?group&q` | capability-filtered catalog search |
+| POST | `/api/organization/model-config/versions/{id}/activate` | rollback / re-activate; `{id}='none'` → defaults. While ZDR is in force (and applicable to the org's credential) each model must have a ZDR endpoint serving its group — the ZDR check only, not the save's catalog/capability checks (422 `not_zdr` / `zdr_endpoint_lacks_capability`, 503 when the ZDR list is down); `'none'` is never refused |
+| GET | `/api/organization/model-config/models?group&q` | capability-filtered catalog search; under ZDR only models with a ZDR endpoint serving the group (503 `zdr_list_unavailable`, never the unfiltered catalog, when the list is down); an org that opted out sees every model with `zdrSafe` marks |
+
+A refusal's `details` is `{group: [{code, message, params?}]}` with `code` one
+of `lib/model-config/rejections.ts` `MODEL_REJECTION_CODES`; the admin cards
+render the code in the reader's language, never the English `message`.
+
+ZDR matching reads only each endpoint's `model_id` from `/endpoints/zdr` and
+matches ids **exactly**: `foo/bar:free` is not ZDR because `foo/bar` is. Only
+the routing-only shortcuts `:nitro` and `:floor` share their base model's
+endpoints. A model also needs one ZDR endpoint whose `supported_parameters`
+and `context_length` meet the group's requirements (tools, minimum context);
+image input is checked on the model, since the endpoint listing carries no
+modality.
 
 "The default" shown in the UI is resolved in `backend-defaults.ts`, and which
 one you get depends on which question is being asked:
@@ -484,8 +505,8 @@ for the platform rows):
 | Event | Writer |
 |---|---|
 | `model_config.version.activated` | org save and rollback / re-activate |
-| `model_config.zdr.updated` | ZDR toggle |
-| `org.settings.updated` | org settings save (check `fields` for `zdrOnly`/`webSearchEnabled`) |
+| `model_config.zdr.updated` | ZDR toggle (`metadata.zdrOnly` and `metadata.previous`, the effective value before) |
+| `org.settings.updated` | org settings save (`fields` lists what changed, `settings.<key>` per nested key; never `zdrOnly`, which that save refuses with a 400) |
 | `platform.model_defaults.updated` | platform-owner save |
 | `platform.model_defaults.bootstrapped` | first-boot bootstrap (`system:bootstrap`) |
 
@@ -512,6 +533,7 @@ invalidation: confirm `REDIS_URL` on both sides, then look for
 |---|---|
 | Catalog unreachable on save | 503, nothing written |
 | Catalog unreachable on picker | 503, picker shows error |
+| ZDR list unreachable (org or platform save, rollback, picker under ZDR) | 503 `details.reason: 'zdr_list_unavailable'`, nothing written and nothing offered; the org card's coverage reads "unknown", never "all clear" |
 | Header missing/malformed at runtime | JIT org-side resolution, then the YAML models (fail-open) |
 | `platform_model_defaults` unreadable | the org's own overrides still apply; everything else falls to the YAML models |
 | Platform default not ZDR-capable | refused at save (every org is ZDR unless it opted out); a saved default that later loses its ZDR endpoint is flagged on the platform page |

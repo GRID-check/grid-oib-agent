@@ -11,8 +11,8 @@ import { findOrganization, upsertOrganization } from './repository'
 import { getWorkOS } from '@/lib/workos/client'
 import { getCached, invalidateCached } from '@/lib/cache'
 import { invalidateBackendModelConfig } from '@/lib/model-config/backend-key'
-import { PLATFORM_OWNED_SETTINGS, type Organization } from '@/lib/db/schema'
-import { ForbiddenError } from '@/lib/api/errors'
+import { DEDICATED_ROUTE_SETTINGS, PLATFORM_OWNED_SETTINGS, type Organization } from '@/lib/db/schema'
+import { BadRequestError, ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { requirePlatformPermission } from '@/lib/authz/platform'
 import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
@@ -236,13 +236,21 @@ export async function updateOrgSettings(
   organizationId: string,
   patch: OrgSettingsPatch
 ): Promise<OrgSettings> {
-  const offending = Object.keys(patch.settings ?? {}).filter((key) =>
-    (PLATFORM_OWNED_SETTINGS as readonly string[]).includes(key)
-  )
+  const keys = Object.keys(patch.settings ?? {})
+  const offending = keys.filter((key) => (PLATFORM_OWNED_SETTINGS as readonly string[]).includes(key))
   if (offending.length > 0) {
     throw new ForbiddenError(
       `${offending.join(', ')} ${offending.length === 1 ? 'is' : 'are'} set by the platform ` +
         'operator, not by the organization.'
+    )
+  }
+  // Own keys only: `in` would also match `constructor` and `toString`.
+  const dedicated = keys.filter((key): key is keyof typeof DEDICATED_ROUTE_SETTINGS =>
+    Object.prototype.hasOwnProperty.call(DEDICATED_ROUTE_SETTINGS, key)
+  )
+  if (dedicated.length > 0) {
+    throw new BadRequestError(
+      dedicated.map((key) => `${key} cannot be changed here: ${DEDICATED_ROUTE_SETTINGS[key]}.`).join(' ')
     )
   }
   return writeOrgSettings(organizationId, patch)
@@ -329,37 +337,54 @@ export async function isWebSearchEnabledForOrg(
 }
 
 const ZDR_ONLY_CACHE_TTL_MS = 30_000
-const zdrOnlyCacheKey = (organizationId: string): string => `zdronly:${organizationId}`
+/**
+ * `:v2` because the meaning of an absent setting flipped from off to on. A
+ * replica still running the old reader could have cached `false` for an org
+ * that never chose; the new reader must not find that entry.
+ */
+const zdrOnlyCacheKey = (organizationId: string): string => `zdronly:v2:${organizationId}`
 
 /**
- * Whether the org restricts model selection AND inference to Zero-Data-
- * Retention endpoints (ADR-0014 privacy control). Stored in the org settings
- * JSON (`settings.zdrOnly`, default FALSE), gated by `org:models:manage`.
+ * Whether zero data retention is in force for the org (ADR-0014 privacy
+ * control). **On unless the org explicitly opted out**: only a stored boolean
+ * `false` in `settings.zdrOnly` turns it off, so an org that never touched the
+ * switch, a malformed value, and no org at all are all ZDR. Independent of the
+ * `model-configuration` feature flag, which gates the admin surface and never
+ * the default.
  *
  * Read by the model-config picker/save path (to filter the OpenRouter catalog)
  * and by the Python backend via `/api/internal/model-overrides` (to add
  * `provider.zdr` to every OpenRouter request). Cached briefly, write-
- * invalidated by `setOrgZdrOnly`/`saveOrgSettings`. No org = disabled.
+ * invalidated by `setOrgZdrOnly`.
  */
 export async function isZdrOnlyForOrg(organizationId: string | null | undefined): Promise<boolean> {
-  if (!organizationId) return false
+  if (!organizationId) return true
   return getCached(zdrOnlyCacheKey(organizationId), ZDR_ONLY_CACHE_TTL_MS, async () => {
     const { settings } = await getOrgSettings(organizationId)
-    return settings.zdrOnly === true
+    return isZdrOnlySetting(settings.zdrOnly)
   })
 }
 
+/** The one reading of the stored value: anything but an explicit `false` is ZDR. */
+export function isZdrOnlySetting(value: unknown): boolean {
+  return value !== false
+}
+
 /**
- * Toggle the org's Zero-Data-Retention-only policy and record the audit trail.
- * The gate (`org:models:manage`) is enforced at the route — the same
- * permission that governs the rest of model configuration.
+ * Toggle the org's zero-data-retention policy and record the audit trail with
+ * the value before and after. The only writer of `zdrOnly`: the generic
+ * settings save refuses the key (`DEDICATED_ROUTE_SETTINGS`), so the gate at
+ * the dedicated route (`org:models:manage` + the model-configuration flag) is
+ * the gate. Writes past `updateOrgSettings` for exactly that reason.
  */
 export async function setOrgZdrOnly(
   session: AuthorizedSession,
   enabled: boolean,
   request: Request
-): Promise<boolean> {
-  await updateOrgSettings(session.organizationId, { settings: { zdrOnly: enabled } })
+): Promise<{ zdrOnly: boolean; previous: boolean }> {
+  const before = await getOrgSettings(session.organizationId)
+  const previous = isZdrOnlySetting(before.settings.zdrOnly)
+  await writeOrgSettings(session.organizationId, { settings: { zdrOnly: enabled } })
   await invalidateCached(zdrOnlyCacheKey(session.organizationId))
   // The backend folds ZDR into the same cached record as the model overrides.
   await invalidateBackendModelConfig(session.organizationId)
@@ -369,10 +394,10 @@ export async function setOrgZdrOnly(
     action: 'model_config.zdr.updated',
     targetType: 'organization',
     targetId: session.organizationId,
-    metadata: { zdrOnly: String(enabled) },
+    metadata: { zdrOnly: String(enabled), previous: String(previous) },
     request,
   })
-  return enabled
+  return { zdrOnly: enabled, previous }
 }
 
 /**
@@ -385,18 +410,14 @@ export async function saveOrgSettings(
   patch: OrgSettingsPatch,
   request: Request
 ): Promise<OrgSettings> {
-  // Read before writing: the backend's shared record carries the model
-  // overrides + ZDR only, so the cross-tier delete fires solely when a
-  // backend-relevant field actually moves. A displayName/locale save — or a
-  // settings patch that leaves both fields untouched — skips it.
+  // Read before writing: the backend's shared record carries web search, so the
+  // cross-tier delete fires solely when that field actually moves, and the
+  // audit names only what changed. (`zdrOnly` cannot move here: the merge
+  // refuses it.)
   const before = await getOrgSettings(session.organizationId)
   const settings = await updateOrgSettings(session.organizationId, patch)
   await invalidateCached(webSearchCacheKey(session.organizationId))
-  await invalidateCached(zdrOnlyCacheKey(session.organizationId))
-  if (
-    before.settings.zdrOnly !== settings.settings.zdrOnly ||
-    before.settings.webSearchEnabled !== settings.settings.webSearchEnabled
-  ) {
+  if (before.settings.webSearchEnabled !== settings.settings.webSearchEnabled) {
     await invalidateBackendModelConfig(session.organizationId)
   }
   await recordAuditEvent({
@@ -405,8 +426,24 @@ export async function saveOrgSettings(
     action: 'org.settings.updated',
     targetType: 'organization',
     targetId: session.organizationId,
-    metadata: { fields: Object.keys(patch).join(',') },
+    metadata: { fields: changedSettingsFields(before, settings).join(',') },
     request,
   })
   return settings
+}
+
+/**
+ * What a save changed, as `displayName`, `defaultLocale` and `settings.<key>`.
+ * The bag is listed per key: `settings` alone told the trail nothing about
+ * which switch moved.
+ */
+export function changedSettingsFields(before: OrgSettings, after: OrgSettings): string[] {
+  const fields: string[] = []
+  if (before.displayName !== after.displayName) fields.push('displayName')
+  if (before.defaultLocale !== after.defaultLocale) fields.push('defaultLocale')
+  const keys = new Set([...Object.keys(before.settings), ...Object.keys(after.settings)])
+  for (const key of [...keys].sort()) {
+    if (JSON.stringify(before.settings[key]) !== JSON.stringify(after.settings[key])) fields.push(`settings.${key}`)
+  }
+  return fields
 }

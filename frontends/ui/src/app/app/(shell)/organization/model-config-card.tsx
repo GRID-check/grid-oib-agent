@@ -14,10 +14,15 @@
  * pinned nothing), resolved server-side by `getGroupDefaults()`. So a group
  * showing "Default" here follows a platform-side model change on its own —
  * which is the point of not overriding it.
+ *
+ * Zero data retention (`ZdrPolicySection`) is on unless the org opted out; the
+ * picker then lists only models with a ZDR endpoint, and a row whose effective
+ * model has none says so (`ZdrGroupNotice`). Every refusal the server sends is
+ * a reason code rendered in the reader's language, never raw server text.
  */
 
 import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, History, RotateCcw, ShieldCheck } from 'lucide-react'
+import { ChevronDown, History, RotateCcw, ShieldAlert } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -25,7 +30,7 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Item } from '@/components/ui/item'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -34,9 +39,10 @@ import { SearchField } from '@/components/ui/search-field'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
-import { Switch } from '@/components/ui/switch'
-import { useLocale, useTranslations } from '@/i18n'
+import { useLocale, useTranslations, type Translator } from '@/i18n'
 import { formatCredits } from '@/lib/format'
+import { describeRejections, isZdrListUnavailableResponse } from '@/lib/model-config/rejections'
+import { ZdrGroupNotice, ZdrPolicySection, type ZdrCoverage } from './zdr-policy-section'
 
 interface AgentGroupDto {
   id: string
@@ -55,6 +61,26 @@ interface ModelDto {
    * provider and is shown no credits at all.
    */
   creditsPerRequest: number | null
+  /** False: no zero-data-retention endpoint serves this task (only listed when ZDR is off). Null: unknown. */
+  zdrSafe: boolean | null
+}
+
+/** Why a picker or save request failed, as far as the reader needs to know. */
+type FailureKind = 'zdr_list_unavailable' | 'other'
+
+/** A 503 whose `details.reason` names the ZDR list is its own failure; everything else is generic. */
+async function failureKind(res: Response): Promise<FailureKind> {
+  return (await isZdrListUnavailableResponse(res)) ? 'zdr_list_unavailable' : 'other'
+}
+
+/** A 422's per-group rejections as one localized sentence list, or '' when it carried none. */
+async function rejectionText(res: Response, t: Translator, labelOf: (groupId: string) => string): Promise<string> {
+  try {
+    const body = (await res.json()) as { details?: unknown }
+    return describeRejections(body.details, t, labelOf).join(' ')
+  } catch {
+    return ''
+  }
 }
 
 interface VersionDto {
@@ -79,6 +105,10 @@ const ModelPicker: FC<{
   const { locale } = useLocale()
   const [query, setQuery] = useState('')
   const [models, setModels] = useState<ModelDto[] | null>(null)
+  const [failure, setFailure] = useState<FailureKind | null>(null)
+  // Whether the server narrowed this list to ZDR models: decides what an
+  // empty list means.
+  const [zdrFiltered, setZdrFiltered] = useState(false)
   const [loading, setLoading] = useState(true)
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -88,11 +118,20 @@ const ModelPicker: FC<{
       setLoading(true)
       fetch(`/api/organization/model-config/models?group=${encodeURIComponent(group.id)}&q=${encodeURIComponent(q)}`)
         .then(async (res) => {
-          if (!res.ok) throw new Error(String(res.status))
-          const body = (await res.json()) as { models: ModelDto[] }
+          if (!res.ok) {
+            setModels(null)
+            setFailure(await failureKind(res))
+            return
+          }
+          const body = (await res.json()) as { models: ModelDto[]; catalogSource?: { zdrOnly?: boolean } }
           setModels(body.models)
+          setZdrFiltered(body.catalogSource?.zdrOnly === true)
+          setFailure(null)
         })
-        .catch(() => setModels(null))
+        .catch(() => {
+          setModels(null)
+          setFailure('other')
+        })
         .finally(() => setLoading(false))
     },
     [group.id],
@@ -127,10 +166,12 @@ const ModelPicker: FC<{
         <div role="listbox">
           {loading && <Spinner className="mx-auto my-6" />}
           {!loading && models === null && (
-            <p className="px-2 py-4 text-sm text-destructive">{t('models.loadError')}</p>
+            <p className="px-2 py-4 text-sm text-destructive">
+              {failure === 'zdr_list_unavailable' ? t('models.zdrListUnavailable') : t('models.pickerLoadError')}
+            </p>
           )}
           {!loading && models?.length === 0 && (
-            <EmptyState variant="bare" title={t('models.noResults')} />
+            <EmptyState variant="bare" title={zdrFiltered ? t('models.noZdrResults') : t('models.noResults')} />
           )}
           {!loading &&
             models?.map((model) => (
@@ -142,11 +183,17 @@ const ModelPicker: FC<{
                   className="w-full flex-col items-start gap-0.5 px-2 py-1.5"
                   onClick={() => onPick(model.id)}
                 >
-                  <span className="truncate font-mono text-sm">{model.id}</span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate font-mono text-sm">{model.id}</span>
+                    {model.zdrSafe === false && (
+                      <ShieldAlert className="size-3.5 shrink-0 text-warning" aria-hidden />
+                    )}
+                  </span>
                   <span className="text-xs text-muted-foreground">
                     {t('models.contextWindow')} {formatContext(model.contextLength)}
                     {model.creditsPerRequest !== null &&
                       ` · ${t('models.creditsPerRequest', { credits: formatCredits(model.creditsPerRequest, locale) })}`}
+                    {model.zdrSafe === false && ` · ${t('models.noZdrMark')}`}
                   </span>
                 </button>
               </Item>
@@ -173,10 +220,11 @@ export const ModelConfigCard: FC = () => {
   const [activeVersionId, setActiveVersionId] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [catalogSource, setCatalogSource] = useState<{ source: string; provider: string | null } | null>(null)
-  const [zdrOnly, setZdrOnly] = useState(false)
-  const [zdrSaving, setZdrSaving] = useState(false)
-  // Gate for turning ZDR *off* — the compliance-critical direction.
-  const [zdrDisableOpen, setZdrDisableOpen] = useState(false)
+  // On until the server says otherwise: ZDR is the default, so a card that
+  // has not loaded yet must not suggest it is off.
+  const [zdrOnly, setZdrOnly] = useState(true)
+  const [zdrApplicable, setZdrApplicable] = useState(true)
+  const [zdrCoverage, setZdrCoverage] = useState<ZdrCoverage | null>(null)
   // Pending whole-org production swap awaiting confirmation: a specific version,
   // or 'none' (reset to the workflow defaults).
   const [pendingActivate, setPendingActivate] = useState<VersionDto | 'none' | null>(null)
@@ -184,8 +232,10 @@ export const ModelConfigCard: FC = () => {
   // re-runs its search against the newly filtered catalog.
   const [catalogEpoch, setCatalogEpoch] = useState(0)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  // `quiet`: re-derive without the skeleton, so a ZDR toggle does not unmount
+  // the section (and its dialog) that asked for the reload.
+  const load = useCallback(async (options?: { quiet?: boolean }) => {
+    if (!options?.quiet) setLoading(true)
     try {
       const res = await fetch('/api/organization/model-config')
       if (!res.ok) throw new Error(String(res.status))
@@ -194,12 +244,17 @@ export const ModelConfigCard: FC = () => {
         defaults: Record<string, string | null>
         catalogSource: { source: string; provider: string | null } | null
         zdrOnly?: boolean
+        zdrApplicable?: boolean
+        zdrCoverage?: ZdrCoverage | null
         activeVersion: VersionDto | null
       }
       setGroups(body.agentGroups)
       setDefaults(body.defaults ?? {})
       setCatalogSource(body.catalogSource ?? null)
-      setZdrOnly(body.zdrOnly === true)
+      // Anything but an explicit false is ZDR, the same reading as the server.
+      setZdrOnly(body.zdrOnly !== false)
+      setZdrApplicable(body.zdrApplicable !== false)
+      setZdrCoverage(body.zdrCoverage ?? null)
       const flat: Record<string, string> = {}
       for (const [groupId, value] of Object.entries(body.activeVersion?.overrides ?? {})) {
         if (value?.model) flat[groupId] = value.model
@@ -232,6 +287,21 @@ export const ModelConfigCard: FC = () => {
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(saved), [draft, saved])
 
+  const labelOf = useCallback(
+    (groupId: string) => groups.find((group) => group.id === groupId)?.label ?? groupId,
+    [groups],
+  )
+
+  /** A refused save or rollback, in the reader's language. */
+  const refusalMessage = useCallback(
+    async (res: Response, fallback: string): Promise<string> => {
+      if (res.status === 422) return `${fallback} ${await rejectionText(res, t, labelOf)}`.trim()
+      if ((await failureKind(res)) === 'zdr_list_unavailable') return t('models.saveErrorZdrUnavailable')
+      return fallback
+    },
+    [t, labelOf],
+  )
+
   const handleSave = useCallback(async () => {
     setSaving(true)
     try {
@@ -241,12 +311,10 @@ export const ModelConfigCard: FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ overrides, comment: comment.trim() || null }),
       })
-      if (res.status === 422) {
-        const body = (await res.json()) as { details?: Record<string, string> }
-        toast.error(`${t('models.saveError')} ${Object.values(body.details ?? {}).join('; ')}`)
+      if (!res.ok) {
+        toast.error(await refusalMessage(res, t('models.saveError')))
         return
       }
-      if (!res.ok) throw new Error(String(res.status))
       toast.success(t('models.saved'))
       setComment('')
       await load()
@@ -256,13 +324,16 @@ export const ModelConfigCard: FC = () => {
     } finally {
       setSaving(false)
     }
-  }, [draft, comment, t, load, loadVersions, historyOpen])
+  }, [draft, comment, t, load, loadVersions, historyOpen, refusalMessage])
 
   const handleActivate = useCallback(
     async (versionId: string | 'none') => {
       try {
         const res = await fetch(`/api/organization/model-config/versions/${versionId}/activate`, { method: 'POST' })
-        if (!res.ok) throw new Error(String(res.status))
+        if (!res.ok) {
+          toast.error(await refusalMessage(res, t('models.activateError')))
+          return
+        }
         toast.success(t('models.activated'))
         await load()
         await loadVersions()
@@ -270,48 +341,15 @@ export const ModelConfigCard: FC = () => {
         toast.error(t('models.activateError'))
       }
     },
-    [t, load, loadVersions],
+    [t, load, loadVersions, refusalMessage],
   )
 
-  const applyZdr = useCallback(
-    async (enabled: boolean) => {
-      setZdrSaving(true)
-      // Optimistic — the picker's next fetch reflects the new filter.
-      setZdrOnly(enabled)
-      setPickerGroup(null)
-      try {
-        const res = await fetch('/api/organization/model-config/zdr', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled }),
-        })
-        if (!res.ok) throw new Error(String(res.status))
-        const body = (await res.json()) as { zdrOnly: boolean }
-        setZdrOnly(body.zdrOnly)
-        setCatalogEpoch((n) => n + 1)
-        toast.success(body.zdrOnly ? t('models.zdrEnabled') : t('models.zdrDisabled'))
-      } catch {
-        setZdrOnly(!enabled) // revert
-        toast.error(t('models.zdrError'))
-      } finally {
-        setZdrSaving(false)
-      }
-    },
-    [t],
-  )
-
-  const handleZdrToggle = useCallback(
-    (enabled: boolean) => {
-      // Enabling ZDR is strictly safer — stay frictionless. Turning it OFF is the
-      // compliance-critical direction, so gate it behind an explicit confirm.
-      if (enabled) {
-        void applyZdr(true)
-      } else {
-        setZdrDisableOpen(true)
-      }
-    },
-    [applyZdr],
-  )
+  const onZdrChanged = useCallback(async () => {
+    setPickerGroup(null)
+    await load({ quiet: true })
+    // The picker's catalog is shaped by ZDR: an open one re-runs its search.
+    setCatalogEpoch((n) => n + 1)
+  }, [load])
 
   if (loading) {
     return (
@@ -338,17 +376,6 @@ export const ModelConfigCard: FC = () => {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Turning ZDR off can send requests to non-ZDR endpoints — gate it. */}
-      <ConfirmDialog
-        open={zdrDisableOpen}
-        onOpenChange={setZdrDisableOpen}
-        title={t('models.zdrDisableTitle')}
-        description={t('models.zdrDisableDescription')}
-        confirmLabel={t('models.zdrDisableConfirm')}
-        cancelLabel={tc('actions.cancel')}
-        tone="warning"
-        onConfirm={() => applyZdr(false)}
-      />
       {/* Activating a version / resetting to defaults swaps the production model
           for the whole org immediately — name the target and confirm. */}
       <ConfirmDialog
@@ -365,24 +392,13 @@ export const ModelConfigCard: FC = () => {
           handleActivate(pendingActivate === 'none' ? 'none' : (pendingActivate?.id ?? 'none'))
         }
       />
-      {/* Zero-Data-Retention policy — filters the picker to ZDR models and
-          makes the backend pin every request to ZDR endpoints. */}
-      <Field orientation="horizontal" className="rounded-lg border p-4">
-        <div className="flex min-w-0 gap-3">
-          <ShieldCheck className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
-          <div className="min-w-0">
-            <FieldLabel htmlFor="zdr-only-toggle">{t('models.zdrTitle')}</FieldLabel>
-            <FieldDescription className="mt-0.5">{t('models.zdrHint')}</FieldDescription>
-          </div>
-        </div>
-        <Switch
-          id="zdr-only-toggle"
-          checked={zdrOnly}
-          disabled={zdrSaving}
-          onCheckedChange={handleZdrToggle}
-          aria-label={t('models.zdrTitle')}
-        />
-      </Field>
+      <ZdrPolicySection
+        zdrOnly={zdrOnly}
+        zdrApplicable={zdrApplicable}
+        provider={catalogSource?.provider ?? null}
+        coverage={zdrCoverage}
+        onChanged={onZdrChanged}
+      />
 
       {/* BYOK (ADR-0022): the picker lists the org's own provider models. */}
       {catalogSource?.source === 'byok' && (
@@ -399,6 +415,7 @@ export const ModelConfigCard: FC = () => {
               <div className="min-w-0 sm:flex-1">
                 <p className="text-sm font-medium">{group.label}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{group.description}</p>
+                {zdrOnly && zdrApplicable && <ZdrGroupNotice groupId={group.id} coverage={zdrCoverage} />}
               </div>
               <div className="flex w-full min-w-0 items-center gap-1.5 sm:w-auto sm:shrink-0">
                 {override ? (

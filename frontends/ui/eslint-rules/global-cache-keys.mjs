@@ -35,6 +35,6 @@ export const GLOBAL_CACHE_KEYS = Object.freeze({
     'The platform-lessons digest is a cross-tenant artefact BY DESIGN — it is only ever read on platform surfaces, which are gated on GRID Platform membership plus a platform:* permission.',
   'openrouter:catalog':
     "OpenRouter's public model list. Fetched with the platform key, identical for every caller, and it is upstream data rather than ours.",
-  'openrouter:zdr-endpoints:v2':
+  'openrouter:zdr-endpoints:v3':
     "OpenRouter's zero-data-retention endpoint list. Upstream data, same as the catalog above.",
 })

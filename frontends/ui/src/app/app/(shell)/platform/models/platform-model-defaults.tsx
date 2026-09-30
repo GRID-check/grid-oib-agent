@@ -14,9 +14,12 @@
  *
  *  - What a group falls back to when no default is pinned (the YAML model), so
  *    "reset" names a concrete thing instead of an abstraction.
- *  - Which choices Zero-Data-Retention tenants cannot inherit. Those orgs pin
- *    every request to a ZDR endpoint; a default without one leaves them on
- *    their own model, and that is worth knowing before saving, not after.
+ *  - Zero data retention. Every organization is ZDR unless it opted out, so a
+ *    default must have a ZDR endpoint that serves its group: the picker lists
+ *    only such models and the save refuses anything else. A default already
+ *    saved can still lose its last ZDR endpoint upstream; the row then warns
+ *    that every ZDR organization inheriting it has that group's requests
+ *    refused until the default changes.
  *
  * Model and reasoning effort live on ONE row because they are two settings of
  * one decision: together they determine what a turn costs and how good it is,
@@ -49,6 +52,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { SectionCard } from '@/features/platform/components/section-card'
 import { useTranslations } from '@/i18n'
 import { REASONING_EFFORTS, type ReasoningEffort } from '@/lib/reasoning-settings/catalog'
+import { describeRejections, isZdrListUnavailableResponse } from '@/lib/model-config/rejections'
 
 interface AgentGroupDto {
   id: string
@@ -62,7 +66,6 @@ interface ModelDto {
   contextLength: number
   promptPrice: number
   completionPrice: number
-  zdrSafe: boolean | null
 }
 
 interface DefaultDto {
@@ -76,6 +79,8 @@ interface PayloadDto {
   agentGroups: AgentGroupDto[]
   defaults: Record<string, DefaultDto>
   workflowDefaults: Record<string, string | null>
+  /** Live ZDR status of each group's workflow YAML model; null when unknown. */
+  workflowDefaultsZdrSafe?: Record<string, boolean | null>
 }
 
 interface EffortDto {
@@ -102,6 +107,7 @@ const ModelPicker: FC<{ groupId: string; onPick: (modelId: string) => void }> = 
   const t = useTranslations('platform')
   const [query, setQuery] = useState('')
   const [models, setModels] = useState<ModelDto[] | null>(null)
+  const [zdrUnavailable, setZdrUnavailable] = useState(false)
   const [loading, setLoading] = useState(true)
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -117,12 +123,20 @@ const ModelPicker: FC<{ groupId: string; onPick: (modelId: string) => void }> = 
       const id = ++requestId.current
       fetch(`/api/platform/model-defaults/models?group=${encodeURIComponent(groupId)}&q=${encodeURIComponent(q)}`)
         .then(async (res) => {
-          if (!res.ok) throw new Error(String(res.status))
+          if (!res.ok) {
+            const zdrDown = await isZdrListUnavailableResponse(res)
+            if (id !== requestId.current) return
+            setModels(null)
+            setZdrUnavailable(zdrDown)
+            return
+          }
           const body = (await res.json()) as { models: ModelDto[] }
           if (id === requestId.current) setModels(body.models)
         })
         .catch(() => {
-          if (id === requestId.current) setModels(null)
+          if (id !== requestId.current) return
+          setModels(null)
+          setZdrUnavailable(false)
         })
         .finally(() => {
           if (id === requestId.current) setLoading(false)
@@ -160,9 +174,14 @@ const ModelPicker: FC<{ groupId: string; onPick: (modelId: string) => void }> = 
       />
       <ScrollArea className="max-h-64" role="listbox">
         {loading && <Spinner className="mx-auto my-6" />}
-        {!loading && models === null && <p className="px-2 py-4 text-sm text-destructive">{t('models.loadError')}</p>}
+        {!loading && models === null && (
+          <p className="px-2 py-4 text-sm text-destructive">
+            {zdrUnavailable ? t('models.zdrListUnavailable') : t('models.loadError')}
+          </p>
+        )}
+        {/* The server lists only models with a ZDR endpoint for this group. */}
         {!loading && models?.length === 0 && (
-          <p className="px-2 py-4 text-sm text-muted-foreground">{t('models.noResults')}</p>
+          <p className="px-2 py-4 text-sm text-muted-foreground">{t('models.noZdrResults')}</p>
         )}
         {!loading && models && models.length > 0 && (
           <ItemList>
@@ -183,9 +202,6 @@ const ModelPicker: FC<{ groupId: string; onPick: (modelId: string) => void }> = 
                 <ItemContent>
                   <ItemTitle className="flex items-center gap-1.5 font-mono">
                     {model.id}
-                    {model.zdrSafe === false && (
-                      <ShieldAlert className="size-3.5 shrink-0 text-muted-foreground" aria-label={t('models.noZdr')} />
-                    )}
                   </ItemTitle>
                   <ItemDescription>
                     {t('models.contextWindow')} {formatContext(model.contextLength)} · {perMillion(model.promptPrice)} in
@@ -204,6 +220,8 @@ const ModelPicker: FC<{ groupId: string; onPick: (modelId: string) => void }> = 
 export const PlatformModelDefaults: FC = () => {
   const t = useTranslations('platform')
   const tc = useTranslations('common')
+  // Rejection reasons share one vocabulary with the organization surface.
+  const to = useTranslations('organization')
   const [payload, setPayload] = useState<PayloadDto | null>(null)
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [effortPayload, setEffortPayload] = useState<EffortPayloadDto | null>(null)
@@ -286,15 +304,18 @@ export const PlatformModelDefaults: FC = () => {
         body: JSON.stringify({ defaults, note: note.trim() || null }),
       })
       if (res.status === 422) {
-        const body = (await res.json()) as { details?: Record<string, string> }
-        return `${t('models.saveError')} ${Object.values(body.details ?? {}).join('; ')}`
+        const body = (await res.json()) as { details?: unknown }
+        const labelOf = (groupId: string): string =>
+          payload?.agentGroups.find((group) => group.id === groupId)?.label ?? groupId
+        return `${t('models.saveError')} ${describeRejections(body.details, to, labelOf).join(' ')}`.trim()
       }
+      if (await isZdrListUnavailableResponse(res)) return t('models.zdrListUnavailable')
       if (!res.ok) throw new Error(String(res.status))
       return null
     } catch {
       return t('models.saveError')
     }
-  }, [dirty, draft, note, t])
+  }, [dirty, draft, note, t, to, payload])
 
   /** PUT the thinking-level half; returns an error string, or null. */
   const saveEfforts = useCallback(async (): Promise<string | null> => {
@@ -363,7 +384,13 @@ export const PlatformModelDefaults: FC = () => {
         {groups.map((group) => {
           const pinned = draft[group.id]
           const fallback = payload?.workflowDefaults?.[group.id] ?? null
-          const zdrSafe = payload?.defaults?.[group.id]?.zdrSafe ?? null
+          // The saved state's ZDR verdict, checked live by the server: the pinned
+          // default's, or the workflow model's when nothing is pinned.
+          const savedModel = saved[group.id]
+          const zdrSafe = savedModel
+            ? (payload?.defaults?.[group.id]?.zdrSafe ?? null)
+            : (payload?.workflowDefaultsZdrSafe?.[group.id] ?? null)
+          const showsSaved = (pinned ?? null) === (savedModel ?? null)
           const pinnedEffort = effortDraft[group.id]
           const effortFallback = effortPayload?.workflowEfforts?.[group.id] ?? null
           return (
@@ -376,10 +403,16 @@ export const PlatformModelDefaults: FC = () => {
               <div className="min-w-0">
                 <p className="text-sm font-medium">{group.label}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{group.description}</p>
-                {pinned && pinned === saved[group.id] && zdrSafe === false && (
-                  <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <ShieldAlert className="size-3.5 shrink-0" aria-hidden />
+                {showsSaved && zdrSafe === false && (
+                  <p className="mt-1 flex items-start gap-1.5 text-xs text-warning" data-testid={`zdr-warning-${group.id}`}>
+                    <ShieldAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
                     {t('models.zdrWarning')}
+                  </p>
+                )}
+                {showsSaved && zdrSafe === null && Boolean(pinned ?? fallback) && (
+                  <p className="mt-1 flex items-start gap-1.5 text-xs text-muted-foreground">
+                    <ShieldAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                    {t('models.zdrUnknown')}
                   </p>
                 )}
               </div>

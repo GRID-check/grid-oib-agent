@@ -7,8 +7,9 @@
  *
  *  - a group pinned to a platform default (`shallow_research`, `follow_ups`),
  *  - a group still on the workflow config (`clarifier`, `deep_research`, …),
- *  - a pinned default with no zero-data-retention endpoint (`deep_research_router`),
- *    which ZDR tenants cannot inherit,
+ *  - a pinned default that has lost its zero-data-retention endpoint
+ *    (`deep_research_router`): every ZDR organization inheriting it has that
+ *    group's requests refused, so the row warns,
  *  - the thinking level on the same rows: pinned at both ends of the scale and
  *    inheriting the concrete workflow level everywhere else.
  *
@@ -72,9 +73,8 @@ const WORKFLOW_EFFORTS: Record<string, string | null> = {
 }
 
 const CATALOG = [
-  { id: 'anthropic/claude-sonnet-5', name: 'Claude Sonnet 5', contextLength: 200000, promptPrice: 0.000003, completionPrice: 0.000015, zdrSafe: true },
-  { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', contextLength: 163840, promptPrice: 0.00000027, completionPrice: 0.0000011, zdrSafe: true },
-  { id: 'vendor/router-mini', name: 'Router Mini', contextLength: 65536, promptPrice: 0.0000001, completionPrice: 0.0000004, zdrSafe: false },
+  { id: 'anthropic/claude-sonnet-5', name: 'Claude Sonnet 5', contextLength: 200000, promptPrice: 0.000003, completionPrice: 0.000015 },
+  { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', contextLength: 163840, promptPrice: 0.00000027, completionPrice: 0.0000011 },
 ]
 
 const PREVIEW_PATH = '/dev/platform-models'
@@ -112,7 +112,12 @@ function installShim(): void {
         return Response.json({ group: 'preview', models: CATALOG })
       }
       if (url.includes('/api/platform/model-defaults')) {
-        return Response.json({ agentGroups: AGENT_GROUPS, defaults: DEFAULTS, workflowDefaults: WORKFLOW_DEFAULTS })
+        return Response.json({
+          agentGroups: AGENT_GROUPS,
+          defaults: DEFAULTS,
+          workflowDefaults: WORKFLOW_DEFAULTS,
+          workflowDefaultsZdrSafe: Object.fromEntries(Object.keys(WORKFLOW_DEFAULTS).map((group) => [group, true])),
+        })
       }
       if (url.includes('/api/platform/reasoning-efforts')) {
         return Response.json({ efforts: EFFORTS, workflowEfforts: WORKFLOW_EFFORTS })

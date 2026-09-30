@@ -109,8 +109,20 @@ export async function getEffectiveModelOverrides(organizationId: string): Promis
     }),
     getActiveModelOverrides(organizationId),
   ])
-  const merged: Record<string, string> = { ...platformDefaults, ...(orgOverrides ?? {}) }
+  const merged = layerOrgOverrides(platformDefaults, orgOverrides)
   return Object.keys(merged).length > 0 ? merged : null
+}
+
+/**
+ * The per-group merge every effective-model reader shares: the org's own
+ * choice wins, anything it did not choose is inherited. Pure, so the runtime
+ * map and the admin's ZDR coverage cannot resolve a group differently.
+ */
+export function layerOrgOverrides(
+  inherited: Record<string, string>,
+  orgOverrides: Record<string, string> | null,
+): Record<string, string> {
+  return { ...inherited, ...(orgOverrides ?? {}) }
 }
 
 export async function listVersions(organizationId: string, limit = 50): Promise<OrgModelConfigVersion[]> {
@@ -121,6 +133,11 @@ export async function listVersions(organizationId: string, limit = 50): Promise<
     .where(eq(orgModelConfigVersions.organizationId, organizationId))
     .orderBy(desc(orgModelConfigVersions.version))
     .limit(limit)
+}
+
+/** A version's `{group: modelId}`, for the groups that still exist. */
+export function versionModelsByGroup(version: Pick<OrgModelConfigVersion, 'overrides'>): Record<string, string> {
+  return flattenModelOverrides(version.overrides as ModelOverrides | null)
 }
 
 /** Create a new immutable version and make it the active one. */
@@ -189,11 +206,16 @@ export async function createAndActivateVersion(params: {
 /**
  * Point the org at an existing version (rollback / re-activate).
  * `versionId: null` deactivates all overrides (back to workflow defaults).
+ *
+ * `validate` runs on the row this call read, before anything is written, and
+ * refuses by throwing — so the version checked is the version activated, with
+ * no second lookup between them.
  */
 export async function activateVersion(params: {
   organizationId: string
   versionId: string | null
   actorUserId: string
+  validate?: (version: OrgModelConfigVersion) => Promise<void>
 }): Promise<OrgModelConfigVersion | null> {
   const db = getDb()
   let version: OrgModelConfigVersion | null = null
@@ -209,6 +231,7 @@ export async function activateVersion(params: {
       )
       .limit(1)
     if (!row) throw new Error('not found: version does not exist for this organization')
+    if (params.validate) await params.validate(row)
     version = row
   }
   // Same compare-before-delete as above: re-activating the already-active

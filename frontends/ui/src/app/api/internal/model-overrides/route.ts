@@ -10,8 +10,10 @@
  * `overrides` is the EFFECTIVE selection: the platform-owner defaults
  * (`platform_model_defaults`) with the org's own choices layered on top. It is
  * `null` only when neither layer has anything to say — then the workflow YAML
- * models apply. `zdrOnly` reports the org's Zero-Data-Retention policy so the
- * backend can add `provider.zdr` to its OpenRouter requests. Both reuse
+ * models apply. `zdrOnly` is the org's EFFECTIVE zero-data-retention policy, a
+ * boolean the backend uses to add `provider.zdr` to its OpenRouter requests: true
+ * unless the org explicitly opted out (`isZdrOnlyForOrg`), so an org that never
+ * touched the switch is reported as ZDR, not as an absent field. Both reuse
  * write-invalidated caches, so a config save/toggle — by the tenant OR by the
  * platform owner — is visible on the next backend fetch.
  */
