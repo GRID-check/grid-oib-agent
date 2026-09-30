@@ -438,3 +438,53 @@ def test_a_retry_writes_the_job_as_it_is_now(status_db, monkeypatch, held_ingest
     held_ingestor._beat()
 
     assert ingest_status_store.get("job-1").status == JobState.COMPLETED
+
+
+# ---------------------------------------------------------------------------
+# Fair share, and a job that runs in another process than the one that took it
+# ---------------------------------------------------------------------------
+
+
+def test_a_submitted_job_waits_in_its_organisations_lane(tmp_path, held_ingestor):
+    upload = tmp_path / "a.txt"
+    upload.write_text("x", encoding="utf-8")
+
+    held_ingestor.submit_job([str(upload)], "proj_1", config={"organization_id": "org-1"})
+
+    lane = held_ingestor._ingest_pool.submit.call_args.args[0]
+    assert lane == "org-1"
+
+
+def test_a_prepared_job_is_vouched_for_by_the_process_that_runs_it(tmp_path, monkeypatch):
+    url = f"sqlite:///{tmp_path / 'jobs.db'}"
+    monkeypatch.setenv("AIQ_SUMMARY_DB", url)
+    upload = tmp_path / "a.txt"
+    upload.write_text("x", encoding="utf-8")
+    accepting = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma")})
+    try:
+        prepared = accepting.prepare_job([str(upload)], "proj_1", config={"organization_id": "org-1"})
+
+        # Recorded for every replica to read, but not this process's to beat for:
+        # the durable queue may hand it to any worker.
+        assert accepting._live_job_ids() == []
+        assert accepting.get_job_status(prepared.job_id).status == JobState.PENDING
+        assert prepared.organization_id == "org-1"
+
+        running = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma")})
+        ran = []
+        monkeypatch.setattr(running, "_run_ingestion", lambda job_id, *_: ran.append(job_id))
+        running.run_prepared(prepared)
+
+        assert ran == [prepared.job_id]
+        assert running._live_job_ids() == [prepared.job_id]
+        assert [f.file_name for f in running._files.values()] == ["a.txt"]
+    finally:
+        ingest_status_store._initialized.discard(url)
+
+
+def test_a_job_that_fails_validation_is_final_at_once(tmp_path, held_ingestor):
+    prepared = held_ingestor.prepare_job([str(tmp_path / "missing.pdf")], "proj_1")
+
+    assert prepared.status.status == JobState.FAILED
+    assert held_ingestor.get_job_status(prepared.job_id).status == JobState.FAILED
+    held_ingestor._ingest_pool.submit.assert_not_called()
