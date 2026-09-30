@@ -4,6 +4,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
+vi.mock('next/server', () => ({
+  after: vi.fn(() => {
+    throw new Error('`after` was called outside a request scope')
+  }),
+}))
 vi.mock('@/lib/authz/platform', () => ({
   requirePlatformPermission: vi.fn(),
 }))
@@ -22,6 +27,7 @@ vi.mock('./repository', () => ({
   updateProductFeedbackStatus: vi.fn(),
 }))
 
+import { after } from 'next/server'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requirePlatformPermission } from '@/lib/authz/platform'
 import type { ProductFeedback } from '@/lib/db/schema'
@@ -120,8 +126,22 @@ describe('submitProductFeedback', () => {
   })
 
   it('hands the stored report to the GitHub filing, which decides by kind', async () => {
+    // Outside a Next request `after` throws, so the service files inline.
     await submitProductFeedback(session, input)
 
+    expect(fileProductFeedbackIssue).toHaveBeenCalledWith(stored())
+  })
+
+  it('files after the response inside a request, so the reporter never waits on GitHub', async () => {
+    const scheduled: Array<() => unknown> = []
+    vi.mocked(after).mockImplementationOnce((task) => {
+      scheduled.push(task as () => unknown)
+    })
+
+    await submitProductFeedback(session, input)
+    expect(fileProductFeedbackIssue).not.toHaveBeenCalled()
+
+    await scheduled[0]!()
     expect(fileProductFeedbackIssue).toHaveBeenCalledWith(stored())
   })
 

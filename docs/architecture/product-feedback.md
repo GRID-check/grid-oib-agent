@@ -47,9 +47,10 @@ confirmation.
 
 A report of kind `bug` is also filed as an issue in the repository named by
 `GRID_FEEDBACK_ISSUES_REPO`, labelled `bug` and `user-feedback`. Ideas, praise
-and questions stay on the triage page. Filing runs beside the announcement,
-after the insert, and fails open the same way: a GitHub outage is logged and
-the reporter still gets their confirmation.
+and questions stay on the triage page. Filing runs after the response has gone
+(Next's `after`), so the reporter's confirmation never waits on GitHub, and it
+fails open like the announcement: a GitHub outage is logged, and the report is
+already stored.
 
 The issue tracker is outside the tenant boundary, so the issue carries only
 what reproduces the bug: the message after `redactPii`, quoted in a fence so a

@@ -14,6 +14,7 @@
  * budget is per person and far below the default mutation budget.
  */
 
+import { after } from 'next/server'
 import 'server-only'
 import { NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
@@ -44,12 +45,12 @@ import {
 
 /**
  * Store one report from the caller, announce it to the platform owners and,
- * for a bug, file it as a GitHub issue.
+ * for a bug, file it as a GitHub issue once the response has gone.
  *
- * Both run after the insert and neither can fail the request (see
- * `announceProductFeedback` and `fileProductFeedbackIssue`): the stored report
- * is the record, and the triage page lists it whether or not anybody's inbox
- * or the issue tracker heard about it.
+ * Neither can fail the request (see `announceProductFeedback` and
+ * `fileProductFeedbackIssue`): the stored report is the record, and the triage
+ * page lists it whether or not anybody's inbox or the issue tracker heard
+ * about it.
  */
 export async function submitProductFeedback(
   session: AuthorizedSession,
@@ -68,10 +69,15 @@ export async function submitProductFeedback(
   })
 
   const organization = await findOrganization(session.organizationId).catch(() => null)
-  await Promise.all([
-    announceProductFeedback(report, organization?.displayName ?? null),
-    fileProductFeedbackIssue(report),
-  ])
+  await announceProductFeedback(report, organization?.displayName ?? null)
+  // After the response: the reporter's confirmation must not wait on GitHub,
+  // whose request is allowed ten seconds. `after` throws outside a Next request
+  // lifecycle (unit tests, a script), where waiting is the only way to file.
+  try {
+    after(() => fileProductFeedbackIssue(report))
+  } catch {
+    await fileProductFeedbackIssue(report)
+  }
 
   return { id: report.id, kind: report.kind, createdAt: report.createdAt.toISOString() }
 }
