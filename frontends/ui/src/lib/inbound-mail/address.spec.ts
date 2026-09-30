@@ -23,7 +23,7 @@ describe('parseInboundAddress', () => {
   })
 
   it('lowercases the local part and the domain', () => {
-    expect(parseInboundAddress(`Wohnbau.ABCDEFGH2345@Eingang.Piloti.AT`, DOMAIN)).toBe('abcdefgh2345')
+    expect(parseInboundAddress(`Wohnbau.ABCDEFGH2345@Piloti-Post.AT`, DOMAIN)).toBe('abcdefgh2345')
   })
 
   it('takes the segment after the LAST dot, whatever sits in the slug position', () => {
@@ -101,7 +101,7 @@ describe('projectSlug', () => {
 
 describe('formatInboundAddress', () => {
   it('joins slug and token, or uses the token alone', () => {
-    expect(formatInboundAddress('wohnbau', 'abcdefgh2345', 'Eingang.Piloti.at')).toBe(
+    expect(formatInboundAddress('wohnbau', 'abcdefgh2345', 'Piloti-Post.at')).toBe(
       'wohnbau.abcdefgh2345@piloti-post.at'
     )
     expect(formatInboundAddress('', 'abcdefgh2345', DOMAIN)).toBe(`abcdefgh2345@${DOMAIN}`)
@@ -118,6 +118,6 @@ describe('inboundMailDomain', () => {
   it('is null when unset or blank, and lowercased otherwise', () => {
     expect(inboundMailDomain({})).toBeNull()
     expect(inboundMailDomain({ GRID_INBOUND_MAIL_DOMAIN: '  ' })).toBeNull()
-    expect(inboundMailDomain({ GRID_INBOUND_MAIL_DOMAIN: 'Eingang.Piloti.AT' })).toBe(DOMAIN)
+    expect(inboundMailDomain({ GRID_INBOUND_MAIL_DOMAIN: 'Piloti-Post.AT' })).toBe(DOMAIN)
   })
 })

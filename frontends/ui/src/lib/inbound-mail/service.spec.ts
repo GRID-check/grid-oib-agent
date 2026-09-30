@@ -513,7 +513,7 @@ describe('the project address', () => {
 
     expect(first.enabled).toBe(true)
     expect(first.canRotate).toBe(false)
-    expect(first.address).toMatch(/^wohnbau\.[a-z2-7]{12}@eingang\.piloti\.at$/)
+    expect(first.address).toMatch(/^wohnbau\.[a-z2-7]{12}@piloti-post\.at$/)
     expect(second.address).toBe(first.address)
     expect(store.addresses).toHaveLength(1)
     expect(requireProjectAccess).toHaveBeenCalledWith(editor, PROJECT_A, ['project:documents:write', 'project:edit'])

@@ -130,7 +130,7 @@ describe('POST /api/projects/[id]/inbound-address/rotate', () => {
 
     expect(response.status).toBe(200)
     const body = rotateInboundAddressResponseSchema.parse(await response.json())
-    expect(body.address).toMatch(/^wohnbau-hietzing\.[a-z2-7]{12}@eingang\.piloti\.at$/)
+    expect(body.address).toMatch(/^wohnbau-hietzing\.[a-z2-7]{12}@piloti-post\.at$/)
     expect(requireProjectAccess).toHaveBeenCalledWith(expect.anything(), 'proj-1', 'project:manage')
     expect(rotateAddress).toHaveBeenCalledWith(expect.objectContaining({ revokedBy: 'user-1', projectId: 'proj-1' }))
   })
