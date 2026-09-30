@@ -1,0 +1,20 @@
+---
+features:
+  - >
+    The piloti.at website has a contact form at the end of the landing page and
+    on /kontakt/. The message goes straight to the founders by email, and
+    nothing is stored on the site. It works without JavaScript too. When a
+    message cannot be sent, the form shows kontakt@piloti.at instead.
+  - >
+    Piloti now has one contact address, kontakt@piloti.at. It replaces the
+    founders' personal addresses in the imprint, the privacy policy, the footer
+    and every "write to us" link.
+operators:
+  - >
+    The contact form answers 503 and shows kontakt@piloti.at until
+    CONTACT_FORM_SECRET, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_EMAIL_TOKEN and
+    CONTACT_FORWARD_TO are set on the web service (CONTACT_FROM is optional).
+    The recipients must be verified destination addresses in Cloudflare Email
+    Routing, and piloti.at must be onboarded for Email Sending. Deploy the site
+    only after Email Routing for kontakt@piloti.at is live, because the imprint
+    now names that address.

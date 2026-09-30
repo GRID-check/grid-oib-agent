@@ -353,7 +353,7 @@ const en: typeof de = {
       items: [
         {
           name: 'Copy the address',
-          body: 'Open the project’s settings, section “Email inbox”. The project address is there, with a button to copy it. Save it as a contact in your mail client.',
+          body: 'Open the project’s settings, section “Project email address”. The project address is there, with a button to copy it. Save it as a contact in your mail client.',
         },
         {
           name: 'Send the files',
@@ -365,7 +365,7 @@ const en: typeof de = {
         },
       ],
       missing:
-        'If you do not see the “Email inbox” section, either you may not add documents to this project, or the inbox is not set up in your deployment. Your administrator can help.',
+        'If you do not see the “Project email address” section, either you may not add documents to this project, or the inbox is not set up in your deployment. Your administrator can help.',
     },
     files: {
       title: 'What happens to the attachments',
@@ -448,7 +448,7 @@ const en: typeof de = {
     rotate: {
       title: 'Getting a new address',
       body: [
-        'If the address has reached someone who should not have it, whoever manages the project generates a new one in the project settings: “Email inbox”, then “Generate new address”. The old address stops working at once, and mail to it bounces. Give the new address to everyone who sends files to the project.',
+        'If the address has reached someone who should not have it, whoever manages the project generates a new one in the project settings: “Project email address”, then “Generate new address”. The old address stops working at once, and mail to it bounces. Give the new address to everyone who sends files to the project.',
         'A leaked address on its own lets nobody file anything: the sender must still be a verified member with write access.',
       ],
     },

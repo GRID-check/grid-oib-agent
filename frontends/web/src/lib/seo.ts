@@ -57,6 +57,8 @@ export const SHARE_ART = {
    * a letter; a card of its own is new art, not a pick from these.
    */
   mailInbox: 'tafeln/schichten/og',
+  /** Plate VIII, Offene Tür: the contact page, as it closes the landing page. */
+  kontakt: 'tafeln/tuer/og',
   /** Tragwerk II, Drei Säulen: the unlisted image page, all the prints on one slab. */
   bildmaterial: 'tragwerk/drei/og',
 } as const satisfies Record<string, OgArtId>

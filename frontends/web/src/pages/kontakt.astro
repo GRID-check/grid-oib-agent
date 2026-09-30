@@ -1,0 +1,21 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import KontaktBody from '../components/organisms/KontaktBody.astro'
+import { ui } from '../i18n/ui'
+import { contactPage } from '../lib/contact-page'
+import { SHARE_ART } from '../lib/seo'
+
+// Rendered per request: the form's timestamp is signed at render time, and a
+// browser without script posts the form here (`lib/contact-page.ts`).
+export const prerender = false
+
+const state = await contactPage(Astro.request, Astro.clientAddress, Astro.url, 'de')
+if ('redirect' in state) return Astro.redirect(state.redirect, 303)
+Astro.response.status = state.status
+Astro.response.headers.set('Cache-Control', 'no-store')
+const t = ui.de.seo.pages.kontakt
+---
+
+<BaseLayout locale="de" title={t.title} description={t.description} ogArt={SHARE_ART.kontakt} noindex>
+  <KontaktBody locale="de" form={state.form} />
+</BaseLayout>

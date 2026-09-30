@@ -1,20 +1,20 @@
 export const SITE_NAME = 'Piloti'
 /**
- * Where every enquiry goes. Piloti has no mailbox of its own yet, so mail
- * reaches two founders directly. `CONTACT_EMAIL` is the one address shown in
- * running text; `mailtoHref` addresses both, so a demo request cannot land in
- * one inbox while its owner is away.
+ * Where every enquiry goes: the one address the site shows, in running text,
+ * the Impressum, the footer and every mailto. Cloudflare Email Routing forwards
+ * it to the founders' mailboxes, so a demo request cannot land in one inbox
+ * while its owner is away. The contact form sends from it (`CONTACT_FROM`
+ * defaults to it) to the same mailboxes.
  */
-export const CONTACT_EMAILS = ['mail@jonathanuhlemann.de', 'mail@bigls.net'] as const
-export const CONTACT_EMAIL = CONTACT_EMAILS[0]
+export const CONTACT_EMAIL = 'kontakt@piloti.at'
 
 /**
- * A `mailto:` to every contact address, with an optional subject line and a
+ * A `mailto:` to the contact address, with an optional subject line and a
  * prefilled body: the few lines an office needs to write, so nobody faces an
- * empty mail to two strangers.
+ * empty mail to strangers.
  */
 export function mailtoHref(subject?: string, body?: string) {
-  const to = CONTACT_EMAILS.join(',')
+  const to = CONTACT_EMAIL
   const query = [subject && `subject=${encodeURIComponent(subject)}`, body && `body=${encodeURIComponent(body)}`]
     .filter(Boolean)
     .join('&')
@@ -39,9 +39,12 @@ export const SIGN_IN_HREF = '/sign-in'
  * `pages/en/[mailInbox].astro` from this slug alone.
  *
  * Stable ON PURPOSE, and pure ASCII: the app's settings card links it
- * (`MAIL_INBOX_HELP_PATH` in frontends/ui/src/lib/brand.ts) and the text a
- * refused mail bounces with names it, so every copy of that bounce in a
- * mailbox carries this URL. Renaming it breaks those links; do not.
+ * (`mailInboxHelpUrl` in frontends/ui/src/lib/brand.ts) and the Worker's bounce
+ * text for a refused mail names it, so every copy of that bounce in a mailbox
+ * carries this URL. The path is `paths.mailInbox` in `shared/public-site.json`;
+ * the Docker build cannot read that file, so this is a copy, and
+ * `scripts/check-public-site.mjs` (`npm run check`) fails when it drifts.
+ * Renaming it breaks every link already handed out; do not.
  */
 export const MAIL_INBOX_SLUG = 'e-mail-eingang'
 export const MAIL_INBOX_PATH = `/${MAIL_INBOX_SLUG}/`
