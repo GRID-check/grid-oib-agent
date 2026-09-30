@@ -279,6 +279,25 @@ config:
 
   # workers roll one at a time and a draining one holds its slot this long.
   grid-oib:agentWorkerDrainSeconds: "600"
+  # ── Ingestion tier (ADR-0074) ──
+
+  # Dedicated replicas claim the durable ingest queue fairly across
+
+  # organisations; KEDA sets the count from the queue depth, one replica per
+
+  # `ingestWorkerConcurrency` jobs waiting or running. The web tier stops
+
+  # claiming. Peak VLM calls in flight = replicas × concurrency × 4
+
+  # (AIQ_VLM_BATCH_WORKERS), all on the shared OpenRouter key; the
+
+  # cluster-autoscaler adds nodes for Pending replicas up to the worker group's
+
+  # max, so size that group for maxReplicas × the limits below.
+  grid-oib:ingestWorkerMinReplicas: "1"
+  grid-oib:ingestWorkerMaxReplicas: "12"
+  grid-oib:ingestWorkerConcurrency: "3"
+  grid-oib:ingestWorkerDrainSeconds: "600"
   # Chat/web replicas. Safe at >1 via conversation affinity (the frontend WS
 
   # proxy pins each conversation to its owning replica — ADR-0028).

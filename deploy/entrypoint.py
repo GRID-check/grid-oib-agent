@@ -108,6 +108,11 @@ def main() -> int:
     if role == "worker":
         print("Starting DB-claimed research worker (GRID_ROLE=worker)...", flush=True)
         os.execvp("python", ["python", "-m", "aiq_api.jobs.worker"])
+    # The ingestion tier (ADR-0074): claims from the durable ingest queue, fairly
+    # across organisations. No web server, no Dask; scaled on the queue's depth.
+    if role == "ingest-worker":
+        print("Starting DB-claimed ingest worker (GRID_ROLE=ingest-worker)...", flush=True)
+        os.execvp("python", ["python", "-m", "aiq_api.jobs.ingest_worker"])
 
     config_file = os.getenv(
         "CONFIG_FILE",

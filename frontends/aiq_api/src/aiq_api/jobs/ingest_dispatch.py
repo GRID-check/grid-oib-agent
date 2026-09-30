@@ -280,11 +280,20 @@ class QueueSource:
             ingest_status_store.put(failed)
 
 
-def attach(ingestor: BaseIngestor | None) -> bool:
-    """Start claiming from the durable queue in this process, when it should; whether it does."""
+def worker_id() -> str:
+    """This process as a claim's ``claimed_by``."""
+    return ingest_status_store.OWNER
+
+
+def attach(ingestor: BaseIngestor | None, *, claim: bool | None = None) -> bool:
+    """Start claiming from the durable queue in this process, when it should; whether it does.
+
+    ``claim`` overrides ``GRID_INGEST_QUEUE_CLAIM``: the ingest-worker tier
+    exists to claim, whatever the web tier's environment it shares says.
+    """
     if ingestor is None or getattr(ingestor, "supports_durable_jobs", False) is not True:
         return False
-    if not (queue_enabled() and claim_enabled()):
+    if not (queue_enabled() and (claim_enabled() if claim is None else claim)):
         logger.info("This process does not claim queued ingestion jobs")
         return False
     ingestor.attach_job_source(QueueSource(ingestor))

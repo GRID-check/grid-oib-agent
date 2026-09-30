@@ -29,7 +29,7 @@ export interface AppWiring {
   imagePullSecrets: { name: string }[];
 }
 
-const SECRET_NAME = "grid-secrets"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
+export const SECRET_NAME = "grid-secrets"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
 export const PULL_SECRET_NAME = "grid-registry-pull"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
 
 /**
@@ -240,6 +240,10 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "GRID_MAX_ACTIVE_JOBS", value: String(cfg.backend.maxActiveJobs) },
     { name: "GRID_MAX_ACTIVE_JOBS_PER_ORG", value: String(cfg.backend.maxActiveJobsPerOrg) },
     { name: "AIQ_INGEST_MAX_WORKERS", value: String(cfg.backend.ingestMaxWorkers) },
+    // With the ingest tier running, the chat pods take no queued ingestion
+    // (ADR-0074); their pool still runs the jobs with local files.
+    { name: "GRID_INGEST_QUEUE_CLAIM", value: String(!cfg.ingestWorker.enabled) },
+    { name: "GRID_INGEST_MAX_PER_ORG", value: String(cfg.ingestWorker.maxPerOrg) },
     // LLM / embeddings / VLM (all via OpenRouter).
     sref("OPENROUTER_API_KEY"),
     sref("TAVILY_API_KEY"),
@@ -287,6 +291,23 @@ export function workerEnv(w: AppWiring): EnvVar[] {
     ...backendEnv(w, "grid-agent-worker"),
     { name: "GRID_ROLE", value: "worker" },
     { name: "GRID_RESEARCH_WORKERS", value: String(w.cfg.agentWorker.concurrency) },
+  ];
+}
+
+/**
+ * Ingest worker (ADR-0074) environment: the full backend env (it builds the same
+ * ingestor: summary model, shared Chroma, object store, DSNs) plus the role, its
+ * per-process concurrency and the claim switch forced on.
+ */
+export function ingestWorkerEnv(w: AppWiring, livenessFile: string): EnvVar[] {
+  const overridden = new Set(["AIQ_INGEST_MAX_WORKERS", "GRID_INGEST_QUEUE_CLAIM"]);
+  return [
+    ...backendEnv(w, "grid-ingest-worker").filter((e) => !(typeof e.name === "string" && overridden.has(e.name))),
+    { name: "GRID_ROLE", value: "ingest-worker" },
+    { name: "AIQ_INGEST_MAX_WORKERS", value: String(w.cfg.ingestWorker.concurrency) },
+    { name: "GRID_INGEST_QUEUE_CLAIM", value: "true" },
+    { name: "GRID_INGEST_WORKER_DRAIN_SECONDS", value: String(w.cfg.ingestWorker.drainSeconds) },
+    { name: "GRID_WORKER_LIVENESS_FILE", value: livenessFile },
   ];
 }
 

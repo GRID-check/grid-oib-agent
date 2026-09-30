@@ -745,6 +745,37 @@ export interface GridConfig {
     drainSeconds: number;
   };
 
+  /**
+   * The ingestion tier (ADR-0074): dedicated replicas that claim jobs from the
+   * durable, fair ingest queue (`ingest_job_queue`), scaled by KEDA on its
+   * depth. When enabled the web tier stops claiming (`GRID_INGEST_QUEUE_CLAIM
+   * =false`), so ingestion no longer shares the chat pods' CPU and GIL.
+   */
+  ingestWorker: {
+    enabled: boolean;
+    resources: ResourceSpec;
+    /** Floor; 0 lets the tier scale to nothing while no job waits. */
+    minReplicas: number;
+    /**
+     * Ceiling. The real ceiling is the model provider's rate limit on the
+     * shared key: replicas × concurrency × `AIQ_VLM_BATCH_WORKERS` is the
+     * peak number of VLM calls in flight.
+     */
+    maxReplicas: number;
+    /** Jobs one replica runs at once (`AIQ_INGEST_MAX_WORKERS`); also KEDA's jobs-per-replica target. */
+    concurrency: number;
+    /** SIGTERM budget to finish claimed jobs; an unfinished one is claimed again elsewhere. */
+    drainSeconds: number;
+    /** Most jobs one organisation may run fleet-wide at once; 0 = no cap (the claim is fair regardless). */
+    maxPerOrg: number;
+  };
+
+  /**
+   * KEDA, the event-driven autoscaler the ingest tier scales with. Installed by
+   * this program unless the cluster already runs one (`installKeda=false`).
+   */
+  keda: { install: boolean };
+
   /** LLM / model-provider settings shared by backend + frontend. */
   llm: {
     openrouterApiKey: pulumi.Output<string>;
@@ -2384,6 +2415,24 @@ export function loadConfig(): GridConfig {
       // silent downgrade from Kubernetes' own behaviour.
       drainSeconds: Math.max(30, num(cfg, "agentWorkerDrainSeconds", 600)),
     },
+
+    ingestWorker: {
+      // Needs the durable queue's shared Postgres and a shared vector store,
+      // which is what `db` execution already requires (Chroma server mode).
+      enabled: jobExecution === "db" && cfg.getBoolean("ingestWorkerEnabled") !== false,
+      resources: {
+        requestsCpu: cfg.get("ingestWorkerRequestsCpu") ?? "500m",
+        requestsMemory: cfg.get("ingestWorkerRequestsMemory") ?? "1536Mi",
+        limitsCpu: cfg.get("ingestWorkerLimitsCpu") ?? "2",
+        limitsMemory: cfg.get("ingestWorkerLimitsMemory") ?? "6Gi",
+      },
+      minReplicas: Math.max(0, num(cfg, "ingestWorkerMinReplicas", 1)),
+      maxReplicas: Math.max(1, num(cfg, "ingestWorkerMaxReplicas", 20)),
+      concurrency: Math.max(1, num(cfg, "ingestWorkerConcurrency", 3)),
+      drainSeconds: Math.max(30, num(cfg, "ingestWorkerDrainSeconds", 600)),
+      maxPerOrg: Math.max(0, num(cfg, "ingestMaxPerOrg", 0)),
+    },
+    keda: { install: cfg.getBoolean("installKeda") ?? true },
 
     llm: {
       openrouterApiKey: cfg.requireSecret("openrouterApiKey"),

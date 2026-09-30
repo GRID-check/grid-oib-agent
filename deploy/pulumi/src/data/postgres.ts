@@ -40,7 +40,7 @@ export interface Postgres {
   langfuseStoreDeps: pulumi.Resource[];
 }
 
-const CLUSTER_NAME = "grid-pg";
+export const CLUSTER_NAME = "grid-pg";
 
 // Table DDL adapted from deploy/compose/init-db.sql, minus the psql
 // meta-commands (\gexec/\connect) — CNPG creates the databases, this Job only

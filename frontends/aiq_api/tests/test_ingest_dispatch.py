@@ -250,3 +250,46 @@ def test_another_ingestors_free_worker_claims_and_runs_the_job(db, tmp_path, mon
 
     assert ran == [(prepared.job_id, "proj_1", "org-1", True)]
     assert ingest_queue.depth() == 0
+
+
+async def test_the_ingest_worker_claims_until_told_to_stop_then_drains(db, monkeypatch, tmp_path):
+    import asyncio
+    import contextlib
+
+    from aiq_agent.knowledge import factory
+    from aiq_api.jobs import ingest_worker
+    from nat.builder import workflow_builder
+    from nat.runtime import loader
+
+    class Draining(FakeIngestor):
+        busy_workers = 0
+        detached = False
+
+        def detach_job_source(self) -> None:
+            self.detached = True
+
+    ingestor = Draining()
+
+    @contextlib.asynccontextmanager
+    async def fake_build(config):
+        yield object()
+
+    monkeypatch.setattr(loader, "load_config", lambda path: {"path": path})
+    monkeypatch.setattr(
+        workflow_builder.WorkflowBuilder, "from_config", staticmethod(lambda config: fake_build(config))
+    )
+    monkeypatch.setattr(factory, "get_active_ingestor", lambda: ingestor)
+    monkeypatch.setenv("GRID_INGEST_QUEUE_CLAIM", "false")  # the web tier's env; the worker claims anyway
+    monkeypatch.setenv("GRID_WORKER_LIVENESS_FILE", str(tmp_path / "alive"))
+
+    stop = asyncio.Event()
+    task = asyncio.create_task(ingest_worker.run(stop))
+    for _ in range(100):
+        if ingestor.source is not None and (tmp_path / "alive").exists():
+            break
+        await asyncio.sleep(0.02)
+    stop.set()
+    await asyncio.wait_for(task, 5)
+
+    assert ingestor.source is not None
+    assert ingestor.detached is True

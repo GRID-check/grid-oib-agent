@@ -39,6 +39,8 @@ import { installWeb } from "./src/app/web";
 import { installGotenberg } from "./src/app/gotenberg";
 import { installWorkers } from "./src/app/workers";
 import { installAgentWorker } from "./src/app/agent-worker";
+import { installIngestWorker } from "./src/app/ingest-worker";
+import { installKeda } from "./src/platform/keda";
 import { installHttpRoutes } from "./src/app/httproutes";
 import { installObservabilityDashboard } from "./src/platform/observability";
 import { installOtelCollector } from "./src/platform/otel-collector";
@@ -232,6 +234,19 @@ const agentWorker =
       ])
     : undefined;
 
+// Ingestion tier (ADR-0074) — claims the durable ingest queue fairly across
+// organisations, scaled by KEDA on the queue's depth.
+const keda = cfg.ingestWorker.enabled && cfg.keda.install ? installKeda(provider) : undefined;
+const ingestWorker = cfg.ingestWorker.enabled
+  ? installIngestWorker(wiring, cfg, secrets, [
+      postgres.initJob,
+      dragonfly.service,
+      seaweed.bucketInitJob,
+      ...(chroma ? [chroma.service] : []),
+      ...(keda ? [keda] : []),
+    ])
+  : undefined;
+
 // ── Edge (Gateway API) ───────────────────────────────────────────────────────
 const gatewayResources = installGatewayResources(cfg, provider, namespace, certManager.issuerName, [
   gatewayController,
@@ -366,6 +381,9 @@ export const deployedImages = {
   frontend: frontendImage(cfg),
   web: webImage(cfg),
 };
+export const ingestWorkerDeployment = ingestWorker
+  ? ingestWorker.deployment.metadata.name
+  : pulumi.output("(none: ingestion runs in the backend pods)");
 export const agentWorkerDeployment = agentWorker
   ? agentWorker.deployment.metadata.name
   : pulumi.output("(none: dask mode)");

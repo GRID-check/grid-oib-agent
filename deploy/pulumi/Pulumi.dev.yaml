@@ -135,6 +135,11 @@ config:
   # Drain budget for in-flight research jobs on shutdown (see Pulumi.prod.yaml).
   # Shorter on staging: faster deploys matter more than saving a staging job.
   grid-oib:agentWorkerDrainSeconds: "180"
+  # ── Ingestion tier (ADR-0074) ── scales to zero while nothing is queued.
+  grid-oib:ingestWorkerMinReplicas: "0"
+  grid-oib:ingestWorkerMaxReplicas: "3"
+  grid-oib:ingestWorkerConcurrency: "2"
+  grid-oib:ingestWorkerDrainSeconds: "180"
   # Staging is meant to be re-creatable, so the data resources are NOT protected
   # here — `pulumi destroy` must work without a manual unprotect. Prod keeps the
   # default (true).
