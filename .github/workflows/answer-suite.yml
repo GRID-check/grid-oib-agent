@@ -65,6 +65,11 @@ jobs:
       # One side at a time: the suite spends real model calls, and two sides
       # at once would double the rate against one key for no earlier answer.
       max-parallel: 1
+      # The two sides are independent measurements. With the default
+      # fail-fast, a base that cannot run (a harness bug the head fixes, a
+      # corpus the base cannot ingest) cancelled the head before it started,
+      # and the report said "the head side produced no results".
+      fail-fast: false
       matrix:
         side: [before, after]
     steps:
