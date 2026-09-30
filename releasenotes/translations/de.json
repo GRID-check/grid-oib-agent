@@ -2426,5 +2426,9 @@
   {
     "en": "„Zitierbar\" no longer appears on every file. A status shows only when it changes what you can do next — a document still being read, one that failed, or a report Piloti wrote and deliberately never indexed.",
     "de": "„Zitierbar“ erscheint nicht mehr bei jeder Datei. Ein Status wird nur angezeigt, wenn er beeinflusst, was Sie als Nächstes tun können – etwa bei einem Dokument, das noch gelesen wird, einem fehlgeschlagenen Dokument oder einem Bericht, den Piloti verfasst und bewusst nie indexiert hat."
+  },
+  {
+    "en": "Zero data retention is now on for every organization and covers every request Piloti sends to an AI model, including document reading, search and research reports, not only chat answers. Where a model is also hosted in the EU, that location is preferred.",
+    "de": "Zero Data Retention ist jetzt für jede Organisation eingeschaltet und gilt für jede Anfrage, die Piloti an ein KI-Modell sendet – auch beim Lesen von Dokumenten, bei der Suche und bei Rechercheberichten, nicht nur bei Chat-Antworten. Wird ein Modell auch in der EU betrieben, wird dieser Standort bevorzugt."
   }
 ]
