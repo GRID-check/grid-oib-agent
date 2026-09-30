@@ -17,15 +17,21 @@ vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn().mockResolvedValue(undefined),
 }))
 
+function emptyProfile(): ProjectProfile {
+  return { facts: {}, goals: {}, unknowns: [], assumptions: {} }
+}
+
 const repo = vi.hoisted(() => ({
   bindings: [] as DocumentRoleBinding[],
   inserted: [] as Record<string, unknown>[],
   deleted: [] as string[],
   confirmed: [] as Array<{ bindingId: string; confidence: string; source: string }>,
   documentInProject: true,
-  // `null` means "no profile saved yet", where the implicit first building
-  // (`bw1`) is the only one that exists.
-  profile: null as ProjectProfile | null,
+  // A project whose intake was never saved: the column holds `{}`, which
+  // `findProjectProfile` hands out as this empty profile (never `null` for an
+  // existing project). The implicit first building (`bw1`) is the only one.
+  // Modelling it as `null` here is how the 500 on the real value went unseen.
+  profile: emptyProfile() as ProjectProfile | null,
 }))
 
 vi.mock('@/lib/projects/repository', () => ({
@@ -296,7 +302,7 @@ describe('declareDocumentRole — the Bauwerk has to exist', () => {
     repo.deleted = []
     repo.confirmed = []
     repo.documentInProject = true
-    repo.profile = null
+    repo.profile = emptyProfile()
     vi.clearAllMocks()
   })
 

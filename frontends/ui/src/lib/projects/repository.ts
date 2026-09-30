@@ -19,6 +19,7 @@ import 'server-only'
 import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { isUuid } from '@/lib/ids'
+import { salvageProjectProfile } from '@/lib/project-profile/salvage'
 import { withOptionalTenant, withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { deletionQueue, projects, type Project } from '@/lib/db/schema'
 
@@ -396,7 +397,17 @@ export async function findProjectPromptView(
   return row?.profilePromptView ?? null
 }
 
-/** The stored structured profile for a project. Same nullable-org rules as above. */
+/**
+ * The stored structured profile for a project, normalized. Same nullable-org
+ * rules as above.
+ *
+ * The column is `jsonb NOT NULL DEFAULT '{}'`, so a project whose intake was
+ * never saved stores `{}`, not null. Handing that out as a `ProjectProfile`
+ * let `answersFromProfile` call `Object.keys(profile.facts)` on undefined:
+ * binding a Bestandsplan to a building answered 500 for every first intake.
+ * The salvage parse fills the empty parts and drops malformed entries, so no
+ * reader has to remember to.
+ */
 export async function findProjectProfile(
   projectId: string,
   organizationId: string | null | undefined
@@ -414,7 +425,7 @@ export async function findProjectProfile(
         .where(and(...conditions))
         .limit(1)
   )
-  return row?.profile ?? null
+  return row ? salvageProjectProfile(row.profile).profile : null
 }
 
 /** A project's Qdrant/Chroma collection name, scoped to its organization. */

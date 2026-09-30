@@ -1,0 +1,11 @@
+---
+fixes:
+  - >
+    Assigning existing plans to a building under Projektgrundlagen no longer
+    fails with an internal error when the project brief has not been saved yet.
+  - >
+    Dragging files into Dateien now uploads them even when they come straight
+    from an email or a cloud-synced folder, where the drop used to do nothing.
+  - >
+    A short overload at the language model provider no longer ends your
+    question with an error; Piloti waits a moment and tries again.
