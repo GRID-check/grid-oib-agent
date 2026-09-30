@@ -303,7 +303,7 @@ class TestSubmitting:
         assert "Bearbeiter des Projekts" in message
         assert _stored(_one_store)[FILED_STATE_KEY] == "draft"
 
-    async def test_a_400_without_a_named_reviewer_keeps_the_filing_wording(
+    async def test_a_400_without_a_named_reviewer_keeps_the_submit_wording(
         self, _one_store, monkeypatch, calls
     ) -> None:
         """The reviewer refusal is scoped to the argument that can produce it."""
@@ -317,7 +317,9 @@ class TestSubmitting:
         message = await filing_tools.run_file_draft(DRAFT, submit=True)
 
         assert "Ich kenne keine Person" not in message
-        assert "Arbeitsordner" in message
+        # The draft was filed in the call before, so the failure says it lies in
+        # the project; the old „nur im Arbeitsordner" wording was false here.
+        assert "als ENTWURF im Projekt" in message
 
     async def test_a_filed_unchanged_draft_is_only_submitted(self, _one_store, monkeypatch, calls) -> None:
         """Nothing to file: an ``update`` of the same bytes would only trip If-Match."""
@@ -595,6 +597,28 @@ class TestFilingAndSubmittingInOneCall:
         assert _stored(_one_store)[FILED_DOCUMENT_KEY] == "doc-1"
         assert _stored(_one_store)[FILED_STATE_KEY] == "draft"
         assert _draft_cards(registry)[-1]["version_state"] == "draft"
+
+    async def test_a_failed_submit_of_an_already_filed_draft_says_it_is_filed(
+        self, _one_store, monkeypatch, calls
+    ) -> None:
+        """The submit-only path: the draft was filed in an EARLIER call, so a
+        failed submit must say it lies in the project as a draft, never that
+        nothing was filed and it is only in the working directory."""
+        await _write(_one_store)
+        await _file(monkeypatch, [{"documentId": "doc-1", "version": _version("ver-1", "draft", "h1")}], calls)
+        calls.clear()
+
+        def _refuse_submit(payload, signed):  # noqa: ANN001, ARG001
+            calls.append((payload, signed))
+            raise filing.FilingError("the document API refused the call (500)", status=500)
+
+        monkeypatch.setattr(filing_tools, "post_document_version", _refuse_submit)
+        message = await filing_tools.run_file_draft(DRAFT, submit=True)
+
+        assert [payload["op"] for payload, _ in calls] == ["submit"]
+        assert "als ENTWURF im Projekt" in message
+        assert "nicht eingereicht" in message
+        assert "Es wurde nichts abgelegt" not in message
 
     async def test_an_unknown_reviewer_after_filing_keeps_the_reviewer_wording(self, _one_store, monkeypatch, calls):
         await _write(_one_store)

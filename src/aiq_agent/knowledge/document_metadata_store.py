@@ -285,7 +285,7 @@ class DocumentMetadataStore:
                 "display_title TEXT, "
                 "folder_path TEXT, "
                 "provenance TEXT, "
-                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                "created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, "
                 "PRIMARY KEY (collection, filename))"
             )
         )
@@ -719,7 +719,12 @@ class DocumentMetadataStore:
         """``created_at`` as the ``YYYY-MM-DD`` the office saw on its clock (Europe/Vienna).
 
         A datetime on Postgres, a ``YYYY-MM-DD HH:MM:SS`` string on SQLite; both
-        are written by ``CURRENT_TIMESTAMP`` and so are UTC when naive. Taking
+        are written by ``CURRENT_TIMESTAMP`` and so are UTC when naive. The
+        column is ``TIMESTAMP WITH TIME ZONE`` (here and in
+        ``deploy/compose/init-db.sql``), so Postgres returns an aware value; a
+        naive one only comes from SQLite, whose ``CURRENT_TIMESTAMP`` is UTC, or
+        from a table created before that, on a server whose ``TimeZone`` is UTC
+        (the Postgres image default). Taking
         the UTC date filed an upload made at 00:30 in Vienna under the day
         before, and „was ist seit heute neu“ missed it.
         """
