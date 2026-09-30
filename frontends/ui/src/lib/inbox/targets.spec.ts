@@ -180,6 +180,13 @@ describe('the project target', () => {
     expect(access!.deepLink({ itemType: 'inbound_mail.filed', anchorId: 'msg-1', folderId: null })).toBe(
       '/app/projects/proj_1/files',
     )
+    // A mail the drain gave up on lands in the files too, never on the automation tab.
+    expect(access!.deepLink({ itemType: 'inbound_mail.failed', anchorId: 'msg-1', folderId: null })).toBe(
+      '/app/projects/proj_1/files',
+    )
+    expect(access!.deepLink({ itemType: 'inbound_mail.failed', anchorId: 'msg-1', folderId: 'f9' })).toBe(
+      '/app/projects/proj_1/files?folder=f9',
+    )
   })
 
   it('redacts the row, rather than throwing, for a project the reader can no longer open', async () => {

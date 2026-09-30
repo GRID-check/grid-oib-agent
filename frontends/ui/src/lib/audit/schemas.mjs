@@ -231,9 +231,19 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'project' }],
     metadata: { organizationMembershipId: 'string', roleSlug: 'string' },
   },
+  // `replaced` marks new bytes under an existing id. `channel` and `channelRef`
+  // name an upload no person made at a screen (the inbound-mail drain, with the
+  // message row it filed from): present only then, like `replaced`.
   'document.uploaded': {
     targets: [{ type: 'document' }],
-    metadata: { projectId: 'string', filename: 'string', fileSize: 'number' },
+    metadata: {
+      projectId: 'string',
+      filename: 'string',
+      fileSize: 'number',
+      replaced: 'boolean',
+      channel: 'string',
+      channelRef: 'string',
+    },
   },
   'document.deleted': {
     targets: [{ type: 'document' }],

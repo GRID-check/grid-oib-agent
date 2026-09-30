@@ -51,6 +51,8 @@ import { describeResource } from '@/lib/sharing/registry'
 import * as repository from './repository'
 import {
   archiveItem,
+  emitInboxItems,
+  type InboxEmission,
   getInboxSummary,
   listInbox,
   markAllRead,
@@ -100,6 +102,7 @@ const ALL_TYPES = [
   'job.waiting',
   'document.review_requested',
   'inbound_mail.filed',
+  'inbound_mail.failed',
 ] as const satisfies readonly InboxItemType[]
 
 /** What a tenant WITHOUT collaboration may see: the operational types only. */
@@ -117,6 +120,8 @@ const OPERATIONAL_TYPES = [
   // A mail the reader sent to a project address was filed (ADR-0074): the
   // inbox is the sender's only receipt, whether or not collaboration is on.
   'inbound_mail.filed',
+  // ...and the only word the sender gets when the drain gave up on the mail.
+  'inbound_mail.failed',
 ] as const satisfies readonly InboxItemType[]
 
 const at = new Date('2026-07-29T10:00:00.000Z')
@@ -412,7 +417,12 @@ describe('listInbox — a filed mail (ADR-0074)', () => {
       payload: {
         subject: 'Pläne',
         folderId: 'folder-9',
-        params: { filed: 3, skipped: 1, project: 'Wohnbau Hietzing' },
+        params: {
+          filed: 3,
+          skipped: 1,
+          project: 'Wohnbau Hietzing',
+          skippedFiles: [{ name: 'Einladung.ics', reason: 'calendar' }],
+        },
       },
       ...overrides,
     })
@@ -425,11 +435,27 @@ describe('listInbox — a filed mail (ADR-0074)', () => {
     expect(items[0]).toMatchObject({
       href: '/app/projects/proj_1/files?folder=folder-9',
       subject: 'Pläne',
-      params: { filed: 3, skipped: 1, project: 'Wohnbau Hietzing' },
+      params: {
+        filed: 3,
+        skipped: 1,
+        project: 'Wohnbau Hietzing',
+        skippedFiles: [{ name: 'Einladung.ics', reason: 'calendar' }],
+      },
     })
   })
 
-  it('drops what copy must not interpolate, and withholds it all when redacted', async () => {
+  it('renders a subject the mail did not have as null, for the copy to word', async () => {
+    vi.mocked(repository.listInboxItems).mockResolvedValue([
+      filed({ payload: { subject: null, params: { filed: 0, skipped: 0, project: 'W', skippedFiles: [] } } }),
+    ])
+
+    const { items } = await listInbox(session)
+
+    expect(items[0].subject).toBeNull()
+    expect(items[0].params).toEqual({ filed: 0, skipped: 0, project: 'W', skippedFiles: [] })
+  })
+
+  it('drops params that do not fit the type\'s schema, and withholds it all when redacted', async () => {
     vi.mocked(repository.listInboxItems).mockResolvedValue([
       filed({
         id: 'junk',
@@ -439,15 +465,76 @@ describe('listInbox — a filed mail (ADR-0074)', () => {
         },
       }),
       filed({ id: 'inert', inertAt: at }),
+      // Params written for another type are not this type's.
+      row({ id: 'foreign', type: 'job.failed', payload: { params: { filed: 1 } } }),
     ])
 
     const { items } = await listInbox(session)
     const byId = new Map(items.map((item) => [item.id, item]))
 
-    expect(byId.get('junk')!.params).toEqual({ skipped: 2, project: `${'p'.repeat(120)}…` })
+    // Not a part of them: a row whose params no longer fit renders without.
+    expect(byId.get('junk')!.params).toBeUndefined()
+    expect(byId.get('foreign')!.params).toBeUndefined()
     // No folder named: the project's file root.
     expect(byId.get('junk')!.href).toBe('/app/projects/proj_1/files')
     expect(byId.get('inert')!.params).toBeUndefined()
+  })
+})
+
+describe('emitInboxItems — params are checked against the type (D11)', () => {
+  const mail = (params: unknown, subject: string | null = null) =>
+    ({
+      organizationId: 'org_1',
+      recipientUserId: 'user_1',
+      type: 'inbound_mail.filed',
+      resourceType: 'project',
+      resourceId: 'proj_1',
+      anchorId: 'msg-row-1',
+      actorUserId: null,
+      groupKey: 'inbound_mail.filed:project:proj_1:msg-row-1',
+      payload: { subject, folderId: null, params },
+    }) as InboxEmission
+
+  beforeEach(() => {
+    vi.mocked(repository.upsertInboxItems).mockResolvedValue([{ id: 'i1' }] as never)
+  })
+
+  it('writes params that match, with a null subject left for the copy', async () => {
+    const params = { filed: 0, skipped: 1, project: 'Wohnbau', skippedFiles: [{ name: 'a.ics', reason: 'calendar' }] }
+
+    await emitInboxItems([mail(params)])
+
+    const [rows] = vi.mocked(repository.upsertInboxItems).mock.calls[0]
+    expect(rows[0].payload).toEqual({ subject: null, folderId: null, params })
+  })
+
+  it.each([
+    ['a dropped value', { filed: 1, skipped: 0, project: 'W' }],
+    ['a renamed value', { filed: 1, skippedCount: 0, project: 'W', skippedFiles: [] }],
+    ['an unknown reason', { filed: 1, skipped: 1, project: 'W', skippedFiles: [{ name: 'x', reason: 'rejected' }] }],
+    ['more than ten skipped files', {
+      filed: 0, skipped: 11, project: 'W',
+      skippedFiles: Array.from({ length: 11 }, (_, n) => ({ name: `f${n}`, reason: 'limit' })),
+    }],
+    ['an uncapped name', { filed: 0, skipped: 1, project: 'W', skippedFiles: [{ name: 'n'.repeat(121), reason: 'type' }] }],
+  ])('refuses %s before anything is written', async (_label, params) => {
+    await expect(emitInboxItems([mail(params)])).rejects.toThrow(/inbound_mail\.filed/)
+    expect(repository.upsertInboxItems).not.toHaveBeenCalled()
+  })
+
+  it('refuses params on a type that declares none', async () => {
+    const stray = { ...mail(undefined), type: 'job.failed', payload: { params: { filed: 1 } } } as unknown as InboxEmission
+    await expect(emitInboxItems([stray])).rejects.toThrow(/takes no params/)
+  })
+
+  it('takes the failure notice with its project alone', async () => {
+    const failed = {
+      ...mail(undefined),
+      type: 'inbound_mail.failed',
+      groupKey: 'inbound_mail.failed:project:proj_1:msg-row-1',
+      payload: { subject: null, params: { project: 'Wohnbau' } },
+    } as InboxEmission
+    await expect(emitInboxItems([failed])).resolves.toBe(1)
   })
 })
 

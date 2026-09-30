@@ -14,8 +14,17 @@
  */
 
 import type { InboxItemType, InboxTargetType, ShareableResourceType } from '@/lib/db/schema'
+import type { InboxParamsByType, InboxTypeWithParams } from './registry'
 
 export type { InboxItemType, InboxTargetType, ShareableResourceType }
+export type { InboxParamsByType, InboxTypeWithParams }
+
+/** `inbound_mail.filed`: what became of each part of the mail. */
+export type InboundMailFiledParams = InboxParamsByType['inbound_mail.filed']
+/** `inbound_mail.failed`: the project the mail was addressed to. */
+export type InboundMailFailedParams = InboxParamsByType['inbound_mail.failed']
+/** Any type's params. Narrow on {@link InboxItemView.type} to know which. */
+export type InboxItemParams = InboxParamsByType[InboxTypeWithParams]
 
 /** Lifecycle state, derived from the row's timestamps. */
 export type InboxItemState = 'unread' | 'read' | 'resolved' | 'archived' | 'inert'
@@ -47,12 +56,12 @@ export interface InboxItemView {
   /** Short context line — e.g. the conversation title. */
   subject: string | null
   /**
-   * Extra interpolation values a type's copy names beyond `{subject}` and
-   * `{count}` — the filed and skipped counts of a mail, say. Short strings and
-   * finite numbers only, withheld with the rest of the payload when redacted.
-   * Absent for every type that needs none.
+   * Extra values a type's copy names beyond `{subject}` and `{count}`, typed
+   * per type by `INBOX_PARAMS_SCHEMAS` in `./registry` (the filed and skipped
+   * counts of a mail, and the files it skipped, say). Withheld with the rest of
+   * the payload when redacted, and absent for every type that has none.
    */
-  params?: Record<string, string | number>
+  params?: InboxItemParams
   /**
    * The asker's question, or a message excerpt. Stripped when the item is inert,
    * because an inbox must never leak content whose access was revoked (IB-13).
@@ -125,6 +134,7 @@ export const INBOX_TYPE_PRESENTATION: Record<InboxItemType, InboxTypePresentatio
   },
   'feedback.submitted': { icon: 'megaphone', i18nKey: 'feedbackSubmitted', tone: 'info' },
   'inbound_mail.filed': { icon: 'mail', i18nKey: 'inboundMailFiled', tone: 'info' },
+  'inbound_mail.failed': { icon: 'alert-triangle', i18nKey: 'inboundMailFailed', tone: 'warning' },
 }
 
 /**

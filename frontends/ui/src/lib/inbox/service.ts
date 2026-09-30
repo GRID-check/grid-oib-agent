@@ -42,10 +42,13 @@ import {
   type InboxResolutionTarget,
 } from './repository'
 import {
+  assertInboxParams,
   inboxItemIsActionable,
   PLATFORM_INBOX_PERMISSION,
   platformInboxTypes,
+  readInboxParams,
   visibleInboxTypes,
+  type InboxParamsByType,
 } from './registry'
 import type {
   InboxItemState,
@@ -55,20 +58,32 @@ import type {
 } from './types'
 
 /**
- * One notification to create. `groupKey` decides grouping/dedup/idempotency —
- * build it with the registry's helper rather than by hand.
+ * A type's payload: free-form display data, plus `params` exactly as the
+ * type's schema in `./registry` declares them. A type with a params schema
+ * must send them; a type without one may not.
  */
-export interface InboxEmission {
+export type InboxPayload<T extends InboxItemType> = Record<string, unknown> &
+  (T extends keyof InboxParamsByType ? { params: InboxParamsByType[T] } : { params?: never })
+
+interface InboxEmissionOf<T extends InboxItemType> {
   organizationId: string
   recipientUserId: string
-  type: InboxItemType
+  type: T
   resourceType: InboxTargetType
   resourceId: string
   anchorId?: string | null
   actorUserId?: string | null
   groupKey: string
-  payload?: Record<string, unknown>
+  payload?: InboxPayload<T>
 }
+
+/**
+ * One notification to create. `groupKey` decides grouping/dedup/idempotency —
+ * build it with the registry's helper rather than by hand. A union over the
+ * types, so `payload.params` is checked against the emitted type's schema at
+ * compile time, and again at run time by {@link emitInboxItems}.
+ */
+export type InboxEmission = { [T in InboxItemType]: InboxEmissionOf<T> }[InboxItemType]
 
 /**
  * Create (or fold) notifications and nudge each recipient's badge.
@@ -78,6 +93,12 @@ export interface InboxEmission {
  * feels like noise.
  */
 export async function emitInboxItems(emissions: InboxEmission[]): Promise<number> {
+  // Before anything is written: params that do not match their type's schema
+  // are an emitter bug, and a row stored with them would render with a blank
+  // where a count belongs. Throwing here fails the emitter's own tests.
+  for (const emission of emissions) {
+    assertInboxParams(emission.type, emission.payload?.params)
+  }
   const rows: NewInboxItem[] = emissions
     .filter((emission) => emission.recipientUserId !== emission.actorUserId)
     .map((emission) => ({
@@ -394,28 +415,6 @@ function nonEmpty(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
 }
 
-/** How many interpolation values a row may carry, and how long each string may be. */
-const PARAMS_MAX_KEYS = 8
-const PARAM_MAX_LENGTH = 120
-
-/**
- * `payload.params`, narrowed to what copy may interpolate: short strings and
- * finite numbers under plain keys. Attacker-influenced like the rest of the
- * payload, so anything else is dropped rather than rendered, and an object with
- * nothing usable left is absent rather than empty.
- */
-function coerceParams(value: unknown): Record<string, string | number> | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  const params: Record<string, string | number> = {}
-  for (const [key, raw] of Object.entries(value).slice(0, PARAMS_MAX_KEYS)) {
-    if (!/^[a-zA-Z][a-zA-Z0-9]{0,31}$/.test(key)) continue
-    if (typeof raw === 'number' && Number.isFinite(raw)) params[key] = raw
-    const text = coerceText(raw, PARAM_MAX_LENGTH)
-    if (text !== null) params[key] = text
-  }
-  return Object.keys(params).length > 0 ? params : undefined
-}
-
 function toItemView(
   row: InboxItem,
   targets: Map<string, InboxTargetAccess | null>,
@@ -441,7 +440,10 @@ function toItemView(
   // The folder a mail's files were filed into (`inbound_mail.filed`), so the
   // row opens that folder rather than the project's file root.
   const folderId = nonEmpty(payload.folderId)
-  const params = access ? coerceParams(payload.params) : undefined
+  // Parsed through the type's own schema (`./registry`): stored JSON an older
+  // deploy may have written, so a row whose params no longer fit renders
+  // without them rather than with a part of them.
+  const params = access ? readInboxParams(row.type, payload.params) : undefined
 
   return {
     id: row.id,

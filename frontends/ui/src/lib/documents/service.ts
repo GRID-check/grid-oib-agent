@@ -42,7 +42,8 @@ import { contentDigest } from './content-digest'
 import { documentStatusFacts } from './document-status'
 import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import { INGEST_ALREADY_DONE, INGEST_NOT_ELIGIBLE, INGEST_RUNNING } from './reingest-codes'
-import { documentNameKey } from './name-match'
+import { documentNameCandidates, documentNameKey } from './name-match'
+import type { AuthzErrorMode } from '@/lib/authz/errors'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
@@ -794,6 +795,41 @@ export interface UploadDocumentInput {
    * for why this is not Piloti's own folder path.
    */
   originPath?: string | null
+  /**
+   * What an upload does when a live document in the project already has this
+   * name. The project's live-name index is per PROJECT, not per folder, so the
+   * name may belong to a document anywhere in it.
+   *
+   *   - `'version'` (the default, what a person dropping a file means): these
+   *     bytes become the next version of that document, which moves into this
+   *     upload's folder.
+   *   - `'suffix'` (unattended intake, where the name is a coincidence): the
+   *     document is left alone and this one is filed under the first free
+   *     `Name (2).ext`, `Name (3).ext` … A candidate that is already a document
+   *     in THIS folder with THESE bytes answers `unchanged` whatever its status,
+   *     so a retried filing lands once.
+   */
+  onNameTaken?: OnNameTaken
+  /**
+   * The intake channel, for uploads no person made at a screen. Recorded on the
+   * `document.uploaded` event as `channel` and `channelRef`.
+   */
+  audit?: UploadAuditChannel
+  /**
+   * What an authorization lookup that could not complete does: deny (a 404,
+   * the default for a person at a screen) or throw `TransientAuthzError` so an
+   * unattended caller retries. Defaults to `'throw'` when `audit` names a
+   * channel, since only such a caller has a retry to fall back on.
+   */
+  onAuthzError?: AuthzErrorMode
+}
+
+export type OnNameTaken = 'version' | 'suffix'
+
+export interface UploadAuditChannel {
+  channel: 'inbound-mail'
+  /** The channel's own id for this delivery, e.g. the inbound-mail message row. */
+  ref: string
 }
 
 /** Longest origin path recorded. Deep office trees exist; unbounded text does not belong in a row. */
@@ -838,14 +874,15 @@ export interface UploadDocumentResult {
    * terminal "Abgelegt" badge for a model that is about to become openable.
    */
   status: 'pending' | 'uploaded' | 'failed' | 'processing'
+  /** The name the document was filed under: `Plan (2).pdf` when `'suffix'` numbered it. */
   filename: string
   /**
    * The bytes were already the live document's, so nothing was written and no
-   * version was made. Present only then. The browser says „Unverändert –
-   * bereits vorhanden" from it where it could not know beforehand (no stored
-   * digest, no `crypto.subtle`).
+   * version was made. The browser says „Unverändert – bereits vorhanden" from
+   * it where it could not know beforehand (no stored digest, no
+   * `crypto.subtle`).
    */
-  unchanged?: true
+  unchanged: boolean
 }
 
 /** Lowercased extension including the leading dot, or '' when there is none. */
@@ -923,12 +960,21 @@ export function assertFileSizeAllowed(sizeBytes: number, filename?: string): voi
 export async function uploadDocument(
   session: AuthorizedSession,
   input: UploadDocumentInput,
-  request: Request
+  /**
+   * The browser's request, for the audit actor's IP and user agent. Absent for
+   * an upload no person made at a screen: the trail then records no IP and no
+   * user agent rather than a relay's.
+   */
+  request?: Request
 ): Promise<UploadDocumentResult> {
   const { projectId, folderId, file } = input
   const originPath = sanitizeOriginPath(input.originPath)
+  const onNameTaken = input.onNameTaken ?? 'version'
+  const onAuthzError = input.onAuthzError ?? (input.audit ? 'throw' : 'deny')
 
-  await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
+  await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'], {
+    onError: onAuthzError,
+  })
   await assertUploadTypeAllowed(session, file.name)
   assertFileSizeAllowed(file.size, file.name)
   // Org-wide ceiling, checked after the per-file one so the caller gets the
@@ -981,7 +1027,7 @@ export async function uploadDocument(
    * `findLiveDocumentByFilename` still looks for both forms, because rows
    * written before this line exist. See `./name-match`.
    */
-  const filename = documentNameKey(file.name)
+  const requestedName = documentNameKey(file.name)
 
   // Create the organization's bucket if this is its first upload (ADR-0043).
   // A no-op — not even a round trip — when per-org buckets are off. Done before
@@ -1013,11 +1059,17 @@ export async function uploadDocument(
    * same two drops one after the other would have.
    */
   const placed = await retryRacedUpload(async () => {
-    const superseded = await findLiveDocumentByFilename(
-      session.organizationId,
-      collectionName,
-      filename
-    )
+    const target =
+      onNameTaken === 'suffix'
+        ? await resolveSuffixedTarget(session.organizationId, collectionName, requestedName, {
+            folderId: folderId ?? null,
+            contentHash,
+          })
+        : await resolveVersionedTarget(session.organizationId, collectionName, requestedName)
+    if (target.kind === 'unchanged') {
+      return { unchanged: true as const, documentId: target.documentId, filename: target.filename }
+    }
+    const { superseded, filename } = target
     const documentId = superseded?.id ?? crypto.randomUUID()
     /*
      * A re-upload writes NEW bytes, so it needs a NEW key (ADR-0054).
@@ -1079,7 +1131,7 @@ export async function uploadDocument(
       documentStatusFacts(superseded.status)?.variant === 'success' &&
       (superseded.folderId ?? null) === (folderId ?? null)
     ) {
-      return { unchanged: true as const, documentId }
+      return { unchanged: true as const, documentId, filename }
     }
 
     await s3Client.send(
@@ -1139,13 +1191,25 @@ export async function uploadDocument(
         status: 'uploaded',
       })
     }
-    return { unchanged: false as const, documentId, storageKey, replaced: Boolean(superseded) }
+    return {
+      unchanged: false as const,
+      documentId,
+      filename,
+      storageKey,
+      replaced: Boolean(superseded),
+    }
   })
 
   if (placed.unchanged) {
-    return { documentId: placed.documentId, jobId: null, status: 'uploaded', filename, unchanged: true }
+    return {
+      documentId: placed.documentId,
+      jobId: null,
+      status: 'uploaded',
+      filename: placed.filename,
+      unchanged: true,
+    }
   }
-  const { documentId, storageKey, replaced } = placed
+  const { documentId, filename, storageKey, replaced } = placed
 
   // The version, recorded through the SAME transition table the agent's drafts
   // walk (ADR-0054). Born `published` and born approved: the person who
@@ -1191,6 +1255,10 @@ export async function uploadDocument(
       filename: filename.slice(0, 200),
       fileSize: file.size,
       ...(replaced ? { replaced: true } : {}),
+      // An upload no person made at a screen names its channel, and the
+      // channel's own id for the delivery, so the trail can tell a mailed
+      // attachment from a dropped file (review finding E13).
+      ...(input.audit ? { channel: input.audit.channel, channelRef: input.audit.ref.slice(0, 200) } : {}),
     },
     request,
   })
@@ -1200,8 +1268,60 @@ export async function uploadDocument(
     jobId: ingestJobId,
     status: ingestStatus,
     filename,
+    unchanged: false,
   }
 }
+
+type LiveDocumentRow = NonNullable<Awaited<ReturnType<typeof findLiveDocumentByFilename>>>
+
+/** Where an upload lands: a name, and the live document it replaces, if any. */
+type UploadTarget =
+  | { kind: 'place'; filename: string; superseded: LiveDocumentRow | null }
+  | { kind: 'unchanged'; filename: string; documentId: string }
+
+/** `'version'`: the name is the document's identity; whatever holds it is replaced. */
+async function resolveVersionedTarget(
+  organizationId: string,
+  collectionName: string,
+  filename: string
+): Promise<UploadTarget> {
+  const superseded = await findLiveDocumentByFilename(organizationId, collectionName, filename)
+  return { kind: 'place', filename, superseded }
+}
+
+/**
+ * `'suffix'`: never touch a document this upload did not make.
+ *
+ * Walks `Name.ext`, `Name (2).ext` … and stops at the first candidate that is
+ * either free, or already THIS file in THIS folder (same content hash, any
+ * status), which answers `unchanged` so a retried delivery files once. A
+ * candidate held by anything else, in another folder or with other bytes, is
+ * stepped over. Runs inside `retryRacedUpload`: a concurrent upload that takes
+ * the free candidate first is refused by the live-name index, and the retry
+ * walks on from there.
+ */
+async function resolveSuffixedTarget(
+  organizationId: string,
+  collectionName: string,
+  requestedName: string,
+  mine: { folderId: string | null; contentHash: string }
+): Promise<UploadTarget> {
+  for (const filename of documentNameCandidates(requestedName, SUFFIX_CANDIDATE_LIMIT)) {
+    const holder = await findLiveDocumentByFilename(organizationId, collectionName, filename)
+    if (!holder) return { kind: 'place', filename, superseded: null }
+    if ((holder.folderId ?? null) === mine.folderId && holder.contentHash === mine.contentHash) {
+      return { kind: 'unchanged', filename, documentId: holder.id }
+    }
+  }
+  throw new ConflictError('No free name for this file in the project', { reason: 'no_free_name' })
+}
+
+/**
+ * How many numbered names a suffixed upload tries before giving up. Each is one
+ * indexed probe; a project holding a hundred files of one name is already
+ * pathological, and this keeps a single upload from walking further than that.
+ */
+const SUFFIX_CANDIDATE_LIMIT = 100
 
 export interface BeginModelExtractionInput {
   organizationId: string
