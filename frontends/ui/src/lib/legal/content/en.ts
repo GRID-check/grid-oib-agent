@@ -56,7 +56,7 @@ export const en: LegalContent = {
 
   privacy: {
     title: 'Privacy Policy',
-    updated: '2026-07-10',
+    updated: '2026-09-30',
     intro:
       'This policy explains how personal data is processed when you use Piloti, pursuant to Regulation (EU) 2016/679 (GDPR / DSGVO).',
     sections: [
@@ -72,6 +72,7 @@ export const en: LegalContent = {
         list: [
           'Account and organization data: name, email address, organization membership, roles and permissions. Identity is managed by our identity provider WorkOS (AuthKit); we deliberately keep no separate local copy of your identity profile.',
           'Content data: your chat questions and the answers generated for you, research reports, project documents you upload (plans, permits, specifications — which may themselves contain personal data), and project/organization memory entries derived from your interactions.',
+          'Files received by email: when project members send email to a project’s email address, the attachments are stored as project documents, in a folder whose name contains the date, subject and sender name of the email. The text of the email is not stored. To avoid filing a message twice, we keep a hash of its Message-ID, the sending account and the processing status for each email.',
           'Usage and billing data: a usage ledger recording, per AI request, the requested and actually serving AI model, token counts and cost, attributed to your organization, project and user.',
           'Audit data: privileged administrative actions (e.g. model configuration changes, budget changes, deletions, legal holds) are recorded with actor, timestamp, IP address and user agent.',
           'Technical data: server logs, session cookie (authentication), locale preference cookie.',
@@ -89,7 +90,7 @@ export const en: LegalContent = {
       {
         heading: '4. AI processing and recipients of your content',
         paragraphs: [
-          'To generate answers, your chat messages, relevant excerpts of your uploaded documents and retrieved regulation passages are transmitted to external AI model providers via the API gateway OpenRouter, Inc. (USA). Web-research queries derived from your questions are sent to the search provider Tavily. Identity and sign-in are handled by WorkOS, Inc. (USA).',
+          'To generate answers, your chat messages, relevant excerpts of your uploaded documents and retrieved regulation passages are transmitted to external AI model providers via the API gateway OpenRouter, Inc. (USA). Web-research queries derived from your questions are sent to the search provider Tavily. Identity and sign-in are handled by WorkOS, Inc. (USA). Emails to project email addresses are received by Cloudflare, Inc. (USA), which passes them on to Piloti without storing their content.',
         ],
         notice:
           'Important: which AI model — and therefore which upstream model provider (e.g. DeepSeek, OpenAI, Anthropic, Google, Meta, Mistral and others listed in the OpenRouter catalog) — processes your requests is configurable at runtime by your organization’s administrators. All AI traffic always flows through OpenRouter and never through any other gateway, but the effective downstream provider, and thus the location of that processing (which may be outside the EU/EEA), depends on the model your organization selects. Every model change is validated, versioned, attributable to the administrator who made it, and auditable; the model that actually served each request is recorded. The current list of external services is available on the Subprocessors page.',
@@ -250,7 +251,7 @@ export const en: LegalContent = {
 
   subprocessors: {
     title: 'External Services & Subprocessors',
-    updated: '2026-07-10',
+    updated: '2026-09-30',
     intro:
       'All external services that can process data when you use Piloti, and the infrastructure the operator runs itself. This page implements the transparency commitment referenced in the Privacy Policy.',
     sections: [
@@ -321,6 +322,13 @@ export const en: LegalContent = {
               'Chat messages, document excerpts, project profile text',
               'USA',
               'Optional (only if configured)',
+            ],
+            [
+              'Cloudflare, Inc.',
+              'Receiving the project email addresses (Email Routing, Email Worker) and DNS',
+              'Incoming emails in transit (sender, recipients, subject, attachments); no storage of content; delivery log with sender, recipient and subject for about 30 days',
+              'USA / global edge network (EU-US Data Privacy Framework)',
+              'Only if the project mail inbox is in use',
             ],
             [
               'Hosting provider',

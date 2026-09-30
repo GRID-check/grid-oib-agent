@@ -53,7 +53,7 @@ export const de: LegalContent = {
 
   privacy: {
     title: 'Datenschutzerklärung',
-    updated: '2026-07-10',
+    updated: '2026-09-30',
     intro:
       'Diese Erklärung informiert gemäß Verordnung (EU) 2016/679 (DSGVO) darüber, wie personenbezogene Daten bei der Nutzung von Piloti verarbeitet werden.',
     sections: [
@@ -69,6 +69,7 @@ export const de: LegalContent = {
         list: [
           'Konto- und Organisationsdaten: Name, E-Mail-Adresse, Organisationszugehörigkeit, Rollen und Berechtigungen. Die Identitätsverwaltung erfolgt über unseren Identitätsdienstleister WorkOS (AuthKit); wir führen bewusst keine eigene lokale Kopie Ihres Identitätsprofils.',
           'Inhaltsdaten: Ihre Chat-Fragen und die für Sie erzeugten Antworten, Rechercheberichte, von Ihnen hochgeladene Projektdokumente (Pläne, Bescheide, Spezifikationen — die selbst personenbezogene Daten enthalten können) sowie aus Ihren Interaktionen abgeleitete Projekt- und Organisationsnotizen (Memory).',
+          'Per E-Mail eingegangene Dateien: Senden Mitglieder eines Projekts E-Mails an dessen Projekt-E-Mail-Adresse, werden die Dateianhänge als Projektdokumente gespeichert, in einem Ordner, dessen Name Datum, Betreff und Absendername der E-Mail enthält. Der Text der E-Mail wird nicht gespeichert. Zur Vermeidung doppelter Ablage speichern wir je E-Mail einen Hashwert der Message-ID, das absendende Konto und den Verarbeitungsstatus.',
           'Nutzungs- und Abrechnungsdaten: ein Nutzungsledger, das je KI-Anfrage das angeforderte und das tatsächlich antwortende KI-Modell, Token-Zahlen und Kosten erfasst, zugeordnet zu Organisation, Projekt und Nutzer.',
           'Audit-Daten: privilegierte administrative Aktionen (z. B. Modellkonfigurations-Änderungen, Budgetänderungen, Löschungen, Legal Holds) werden mit handelnder Person, Zeitstempel, IP-Adresse und User-Agent protokolliert.',
           'Technische Daten: Server-Logs, Session-Cookie (Authentifizierung), Cookie für die Spracheinstellung.',
@@ -86,7 +87,7 @@ export const de: LegalContent = {
       {
         heading: '4. KI-Verarbeitung und Empfänger Ihrer Inhalte',
         paragraphs: [
-          'Zur Erzeugung von Antworten werden Ihre Chat-Nachrichten, relevante Auszüge Ihrer hochgeladenen Dokumente und abgerufene Vorschriftenpassagen über das API-Gateway OpenRouter, Inc. (USA) an externe KI-Modellanbieter übermittelt. Aus Ihren Fragen abgeleitete Web-Recherche-Anfragen gehen an den Suchdienst Tavily. Identität und Anmeldung werden von WorkOS, Inc. (USA) abgewickelt.',
+          'Zur Erzeugung von Antworten werden Ihre Chat-Nachrichten, relevante Auszüge Ihrer hochgeladenen Dokumente und abgerufene Vorschriftenpassagen über das API-Gateway OpenRouter, Inc. (USA) an externe KI-Modellanbieter übermittelt. Aus Ihren Fragen abgeleitete Web-Recherche-Anfragen gehen an den Suchdienst Tavily. Identität und Anmeldung werden von WorkOS, Inc. (USA) abgewickelt. E-Mails an Projekt-E-Mail-Adressen nimmt Cloudflare, Inc. (USA) entgegen und leitet sie ohne Speicherung der Inhalte an Piloti weiter.',
         ],
         notice:
           'Wichtig: Welches KI-Modell — und damit welcher vorgelagerte Modellanbieter (z. B. DeepSeek, OpenAI, Anthropic, Google, Meta, Mistral und weitere im OpenRouter-Katalog gelistete Anbieter) — Ihre Anfragen verarbeitet, kann von den Administratorinnen und Administratoren Ihrer Organisation zur Laufzeit konfiguriert werden. Der gesamte KI-Verkehr läuft stets über OpenRouter und niemals über ein anderes Gateway; der tatsächliche nachgelagerte Anbieter — und damit der Ort dieser Verarbeitung (auch außerhalb der EU/des EWR möglich) — hängt jedoch vom Modell ab, das Ihre Organisation auswählt. Jede Modelländerung wird validiert, versioniert, der handelnden Administratorin bzw. dem Administrator zugeordnet und ist nachvollziehbar; das Modell, das eine Anfrage tatsächlich beantwortet hat, wird protokolliert. Die aktuelle Liste externer Dienste finden Sie auf der Seite „Subunternehmer".',
@@ -247,7 +248,7 @@ export const de: LegalContent = {
 
   subprocessors: {
     title: 'Externe Dienste & Subunternehmer',
-    updated: '2026-07-10',
+    updated: '2026-09-30',
     intro:
       'Alle externen Dienste, die bei der Nutzung von Piloti Daten verarbeiten können, sowie die vom Betreiber selbst betriebene Infrastruktur. Diese Seite setzt die in der Datenschutzerklärung genannte Transparenzzusage um.',
     sections: [
@@ -318,6 +319,13 @@ export const de: LegalContent = {
               'Chat-Nachrichten, Dokumentauszüge, Projektprofil-Text',
               'USA',
               'Optional (nur falls konfiguriert)',
+            ],
+            [
+              'Cloudflare, Inc.',
+              'Empfang der Projekt-E-Mail-Adressen (Email Routing, Email Worker) und DNS',
+              'Eingehende E-Mails während der Zustellung (Absender, Empfänger, Betreff, Anhänge); keine Speicherung der Inhalte; Zustellprotokoll mit Absender, Empfänger und Betreff für etwa 30 Tage',
+              'USA / weltweites Edge-Netzwerk (EU-US Data Privacy Framework)',
+              'Nur wenn der Projekt-E-Mail-Eingang genutzt wird',
             ],
             [
               'Hosting-Anbieter',

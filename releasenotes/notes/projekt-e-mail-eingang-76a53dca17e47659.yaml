@@ -1,0 +1,14 @@
+---
+features:
+  - >
+    Every project now has its own email address, under the project settings in
+    E-Mail-Eingang. Forward a mail to it and Piloti files the attachments in the
+    project, one folder per mail; only project members who may add documents
+    can send, and the mail text itself is not stored.
+operators:
+  - >
+    The project mail inbox is off until GRID_INBOUND_MAIL_DOMAIN and
+    GRID_INBOUND_MAIL_TOKEN are set on the frontend and the stack's inbound mail
+    domain is configured, which sets up Cloudflare Email Routing and its Email
+    Worker. Cloudflare becomes a sub-processor; keep Email preview off for that
+    domain.

@@ -454,7 +454,7 @@ What it deploys, all at Cloudflare and none of it in the cluster:
 
 ### The domain must be a zone apex
 
-Not `eingang.piloti.at`. Cloudflare's catch-all exists only for a zone's apex:
+Not `piloti-post.at`. Cloudflare's catch-all exists only for a zone's apex:
 "Catch-all rules are only available for the apex domain"
 ([Subdomains](https://developers.cloudflare.com/email-service/configuration/subdomains/));
 a subdomain can have Email Routing, but only with literal per-address rules, 200

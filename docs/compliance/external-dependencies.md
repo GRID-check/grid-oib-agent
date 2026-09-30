@@ -41,6 +41,7 @@
 | **OpenRouter** | `openrouter.ai/api/v1` | All LLM inference (6 agent groups), embeddings + VLM in prod config, model catalog for admin picker, summary generation | **Yes** — full prompts, chat history, project context/memory (via `x-grid-*` headers → prompt), RAG chunks of uploaded docs, web results; embeddings = raw chunk text; VLM = page images | Yes (reference config) | `OPENROUTER_API_KEY` (backend + frontend) | `configs/config_oib_openrouter.yml:51-150`; `lib/model-config/openrouter.ts` |
 | **Upstream model providers** (via OpenRouter — dynamic) | varies | Actual inference of the org-selected model | Yes — OpenRouter forwards the full request | Implicit | none (runtime admin choice) | see statement above; `server.js:342` (`X-Grid-Model-Overrides`) |
 | **WorkOS** | `api.workos.com` + hosted AuthKit | AuthN/AuthZ (SSO, MFA, RBAC, FGA), org lifecycle, feature flags, **entire audit trail** | Personal data: accounts, memberships, sessions; audit events carry actor email, client IP, user agent, doc filenames | Prod: yes (`REQUIRE_AUTH=true`) | `WORKOS_CLIENT_ID/API_KEY/COOKIE_PASSWORD` | `lib/audit/service.ts:57-62`; `lib/documents/service.ts:196-205` |
+| **Cloudflare** | Email Routing MX for `GRID_INBOUND_MAIL_DOMAIN` + an Email Worker; also the zone's DNS (host records unproxied) | Receives mail to project addresses and streams the raw message to the BFF webhook ([ADR-0074](../adr/0074-project-mail-inbox-via-cloudflare-email-routing.md)); DNS | **Yes, in transit**: the whole inbound mail (headers, body, attachments); no content stored (Cloudflare's statement); activity log keeps from, to, subject, Message-ID, auth verdicts ~30 days, operator-only | Only if the project mail inbox is enabled (DNS: when the stack manages the zone) | `GRID_INBOUND_MAIL_DOMAIN`, `GRID_INBOUND_MAIL_TOKEN` | `deploy/pulumi/src/platform/inbound-mail.ts`; `frontends/ui/src/app/api/internal/inbound-mail/route.ts`; review: [`inbound-mail-review-2026-09.md`](inbound-mail-review-2026-09.md) |
 | **Tavily** | `api.tavily.com` | Primary web/news search | Search queries (LLM-derived from prompts); results flow back into prompts | Yes (all configs) | `TAVILY_API_KEY` | `sources/tavily_web_search/src/register.py:103-108` |
 | **OpenAI direct** | `api.openai.com` | summary fallback only | Yes | Optional | `OPENAI_API_KEY` | `frontends/aiq_api/.../generate_summary.py:52-58` |
 | **Serper.dev / Exa / DuckDuckGo / Polymarket** | various | Optional search plugins | Prompt-derived queries | Optional | `SERPER_API_KEY`, `EXA_API_KEY`, none, none | `sources/*/src/register.py` |
@@ -110,3 +111,7 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
    lists — remove.
 7. Uploaded document content leaves the deployment **by design** (embeddings/VLM/RAG
    to external providers); no local-embedding option exists in the repo.
+8. Inbound project mail transits Cloudflare (US, nearest data centre, no EU
+   guarantee) under the DPF; the "Email preview" setting, which would store
+   content, is a manual dashboard setting nothing checks. Review:
+   [`inbound-mail-review-2026-09.md`](inbound-mail-review-2026-09.md).
