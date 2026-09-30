@@ -194,7 +194,7 @@ def resolve_folder(path: str) -> str | Refusal:
     if not folders:
         return Refusal(
             f"Nicht gefunden: Dieses Projekt hat noch keine Ordner, „{_nfc(path)}“ also auch nicht. Schlage mit "
-            "`propose_file_change(operation=\"create_folder\")` einen Ordner vor, bevor du etwas hineinlegst."
+            '`propose_file_change(operation="create_folder")` einen Ordner vor, bevor du etwas hineinlegst.'
         )
 
     for candidates in (
@@ -210,5 +210,5 @@ def resolve_folder(path: str) -> str | Refusal:
     listed = ", ".join(f"`{folder}`" for folder in folders[:_MAX_NAMED_CANDIDATES])
     return Refusal(
         f"Nicht gefunden: Es gibt keinen Ordner „{_nfc(path)}“. Vorhanden sind: {listed}. Nenne einen davon "
-        "oder schlage den neuen Ordner erst mit `propose_file_change(operation=\"create_folder\")` vor."
+        'oder schlage den neuen Ordner erst mit `propose_file_change(operation="create_folder")` vor.'
     )

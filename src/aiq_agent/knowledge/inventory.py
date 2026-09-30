@@ -638,7 +638,7 @@ def render_inventory_block(
         if missing > 0:
             lines.append(
                 f"- (und {missing} weitere Datei(en) auf diesem Regal, hier nicht aufgeführt — "
-                f"diese Liste ist unvollständig. `list_files(shelf=\"{shelf.value}\")` zeigt alle, "
+                f'diese Liste ist unvollständig. `list_files(shelf="{shelf.value}")` zeigt alle, '
                 f"auch nach Ordner, Name oder Datum gefiltert; ohne diesen Aufruf behandle die Liste "
                 f"nicht als vollständig)"
             )
