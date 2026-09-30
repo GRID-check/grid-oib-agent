@@ -39,6 +39,7 @@ Typical usage (inside ``_run_ingestion``)::
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import io
 import logging
@@ -482,12 +483,14 @@ def enrich_vlm_batch(
     with ThreadPoolExecutor(max_workers=min(VLM_BATCH_WORKERS, total_tasks or 1)) as pool:
         futures = {}
 
+        # Each task runs in a copy of this thread's context, so the ingest job's
+        # data-policy scope (`openrouter.data_policy_scope`) reaches the VLM call.
         for record in image_records:
-            fut = pool.submit(_enrich_one_image, record)
+            fut = pool.submit(contextvars.copy_context().run, _enrich_one_image, record)
             futures[fut] = ("image", record)
 
         for page in drawing_pages:
-            fut = pool.submit(_enrich_one_drawing, page)
+            fut = pool.submit(contextvars.copy_context().run, _enrich_one_drawing, page)
             futures[fut] = ("drawing", page)
 
         for future in as_completed(futures):

@@ -121,20 +121,29 @@ def _resolve_llm(spec: StageSpec, llms: Mapping[AgentGroup, Any] | None) -> Any:
 
     Applied HERE — synchronously, at schedule time — and not inside the task,
     because both transforms read the request context, which is torn down by the
-    time the task runs. Fails open to the un-transformed model: a stage running
-    on the workflow default is better than a stage that does not run.
+    time the task runs. The credential first, so the ZDR pin inside
+    ``apply_model_override`` lands only on a model that still points at
+    OpenRouter. A failure falls back to the configured model PINNED to
+    zero-data-retention endpoints, never to the bare one: a stage running on the
+    workflow default is better than a stage that does not run, and a stage that
+    does not run is better than one that sends unpinned.
     """
     base = (llms or {}).get(spec.agent_group)
     if base is None:
         return None
-    try:
-        from aiq_agent.common import apply_model_override
-        from aiq_agent.common import apply_org_credential
+    from aiq_agent.common import apply_model_override
+    from aiq_agent.common import apply_org_credential
+    from aiq_agent.common import apply_zdr_routing
 
-        llm = apply_org_credential(apply_model_override(base, spec.agent_group))
+    try:
+        llm = apply_model_override(apply_org_credential(base), spec.agent_group)
     except Exception:
         logger.warning("Stage %s: model override/credential swap failed; using the configured model", spec.id)
-        llm = base
+        try:
+            llm = apply_zdr_routing(base)
+        except Exception:
+            logger.error("Stage %s: could not pin the configured model to ZDR; not running", spec.id)
+            return None
     if spec.max_output_tokens is not None:
         try:
             llm = llm.bind(max_tokens=spec.max_output_tokens)

@@ -47,14 +47,12 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from aiq_agent.common import decisions  # noqa: E402
 from aiq_agent.knowledge import document_classification as dc  # noqa: E402
 
 FIXTURES = ROOT / "tests" / "fixtures" / "decisions"
@@ -107,11 +105,9 @@ def eval_feedback_causes() -> bool:
 
 def main() -> int:
     os.environ.setdefault("OPENROUTER_API_KEY", os.environ.get("OPENROUTER_KEY", ""))
-    # Not a request: no organization, so no ZDR policy to look up over HTTP.
-    with patch.object(decisions, "_zdr_only_blocking", return_value=False):
-        ok = eval_tags()
-        ok = eval_doc_class() and ok
-        ok = eval_feedback_causes() and ok
+    ok = eval_tags()
+    ok = eval_doc_class() and ok
+    ok = eval_feedback_causes() and ok
     return 0 if ok else 1
 
 

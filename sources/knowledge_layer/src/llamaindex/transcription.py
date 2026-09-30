@@ -20,6 +20,7 @@ same scan costs nothing and a prompt change never serves the old reply.
 from __future__ import annotations
 
 import base64
+import contextvars
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -102,14 +103,7 @@ def _transcribe_live(image_bytes: bytes, *, ocr_model: str, base_url: str, api_k
     from knowledge_layer.llamaindex import adapter as _adapter
 
     try:
-        from openai import OpenAI
-
-        client = OpenAI(
-            base_url=base_url,
-            api_key=api_key,
-            timeout=_adapter.VLM_REQUEST_TIMEOUT_SECONDS,
-            max_retries=1,
-        )
+        client = _adapter._vlm_client(base_url, api_key)
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         reply = _adapter._vlm_chat_create(
             client,
@@ -235,8 +229,14 @@ def transcribe_pdf_pages(
             rendered = _processing.render_pdf_pages(pdf_path, batch, max_dim=max_dim)
             outcome.failed.extend(number for number in batch if number not in rendered)
             jobs = [(number, rendered[number]) for number in batch if number in rendered]
+            # One copy of THIS thread's context per page, taken here rather than
+            # in the pool thread, so the ingest job's data-policy scope
+            # (`openrouter.data_policy_scope`) reaches the call.
+            contexts = [contextvars.copy_context() for _ in jobs]
             replies = pool.map(
-                lambda job: transcribe_image(job[1], model=model, base_url=base_url, api_key=api_key), jobs
+                lambda job, ctx: ctx.run(transcribe_image, job[1], model=model, base_url=base_url, api_key=api_key),
+                jobs,
+                contexts,
             )
             for (number, _image), reply in zip(jobs, replies, strict=True):
                 _classify_reply(outcome, number, reply)

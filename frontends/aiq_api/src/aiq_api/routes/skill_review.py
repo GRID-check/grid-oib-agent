@@ -24,6 +24,7 @@ best-effort shape. Any failure returns HTTP 200 with an ``error`` code and
 someone from saving a skill.
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -33,6 +34,7 @@ import httpx
 from fastapi import APIRouter
 from fastapi import Header
 
+from aiq_agent.common.credential_resolution import ResolvedCredential
 from aiq_agent.skills import BUILTIN_SKILLS_DIR
 from aiq_agent.skills import parse_skill_md
 
@@ -174,8 +176,8 @@ def _build_system_prompt(rulebook: str) -> str:
 SYSTEM_PROMPT = _build_system_prompt(RULEBOOK)
 
 
-def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
-    """Resolve the model/api_key/base_url for the skill-review LLM call.
+def _llm_settings(organization_id: str | None = None) -> ResolvedCredential:
+    """Resolve the endpoint (model, key, base URL, data policy) for the skill-review LLM call.
 
     Goes through the shared credential resolver so this route reaches the org's
     BYOK credential like every other LLM call, then the same env chain as its
@@ -216,7 +218,7 @@ def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
         logger.warning(
             "No API key for skill-review LLM (BYOK / SKILL_REVIEW_LLM_API_KEY / LLM_API_KEY / OPENROUTER_API_KEY)"
         )
-    return cred.model, cred.api_key, cred.base_url
+    return cred
 
 
 def _clean_check(value: object) -> str:
@@ -321,8 +323,8 @@ def add_skill_review_routes(router: APIRouter) -> None:
             return SkillReviewResponse(findings=[])
 
         organization_id = request.organization_id or x_grid_organization_id
-        model, api_key, base_url = _llm_settings(organization_id)
-        if not api_key:
+        cred = await asyncio.to_thread(_llm_settings, organization_id)
+        if not cred.api_key:
             # No credentials — surface a diagnosable code instead of a guaranteed 401.
             return SkillReviewResponse(findings=None, error="llm_not_configured")
 
@@ -341,21 +343,23 @@ def add_skill_review_routes(router: APIRouter) -> None:
             f"body:\n{truncated_body}"
         )
 
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
-        payload = {
-            "model": model,
-            "temperature": 0.1,
-            "max_tokens": 1200,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-        }
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cred.api_key}"}
+        payload = cred.request_body(
+            {
+                "model": cred.model,
+                "temperature": 0.1,
+                "max_tokens": 1200,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+            }
+        )
 
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
+                response = await client.post(f"{cred.base_url}/chat/completions", json=payload, headers=headers)
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as exc:

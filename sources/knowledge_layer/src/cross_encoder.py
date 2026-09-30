@@ -47,6 +47,9 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from aiq_agent.common.openrouter import PLATFORM_FIXED
+from aiq_agent.common.openrouter import targets_openrouter
+
 logger = logging.getLogger(__name__)
 
 PROVIDER = "openrouter"
@@ -56,7 +59,10 @@ PROVIDER = "openrouter"
 _REMOVED_PROVIDERS = ("cohere", "voyage", "jina", "nvidia")
 _PATH = "/rerank"
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
-_DEFAULT_MODEL = "cohere/rerank-v3.5"
+#: Every request is pinned to zero-data-retention endpoints, and
+#: `cohere/rerank-v3.5` (the default until 2026-09) has none. Qwen3-Reranker
+#: is multilingual, and its one OpenRouter endpoint (Fireworks) is ZDR.
+_DEFAULT_MODEL = "qwen/qwen3-reranker-8b"
 _KEY_ENV = "OPENROUTER_API_KEY"
 _RESULTS_KEY = "results"
 _SCORE_KEY = "relevance_score"
@@ -113,10 +119,11 @@ DEFAULT_PROVIDER = os.environ.get("AIQ_RERANKER_PROVIDER", "none").strip().lower
 # @environment_variable AIQ_RERANKER_MODEL
 # @category Knowledge Layer
 # @type str
-# @default cohere/rerank-v3.5
+# @default qwen/qwen3-reranker-8b
 # @required false
 # Reranking model id on OpenRouter. The corpus is German, so a multilingual
-# model is not optional.
+# model is not optional, and every rerank is pinned to zero-data-retention
+# endpoints, so the model must have one (`/api/v1/endpoints/zdr`).
 DEFAULT_MODEL = os.environ.get("AIQ_RERANKER_MODEL", "").strip()
 
 # @environment_variable AIQ_RERANKER_BASE_URL
@@ -502,6 +509,12 @@ class CrossEncoderReranker:
         documents = [str(getattr(chunk, "content", ""))[: self.max_doc_chars] for chunk in chunks]
         credential = await self._credential_for_search()
         url = f"{credential.base_url}{_PATH}"
+        body = self._build_body(query, documents, top_n)
+        if targets_openrouter(credential.base_url):
+            # The reranker is the platform's, not an organization's choice:
+            # always pinned (`openrouter.PLATFORM_FIXED`), so its model must
+            # have a zero-data-retention endpoint (the default does).
+            body = PLATFORM_FIXED.apply(body)
         try:
             # Imported inside the guard: httpx is an optional transitive dependency, and
             # an ImportError here must degrade to "no opinion" like every other failure.
@@ -515,7 +528,7 @@ class CrossEncoderReranker:
                         "Content-Type": "application/json",
                         "Accept": "application/json",
                     },
-                    json=self._build_body(query, documents, top_n),
+                    json=body,
                 )
                 response.raise_for_status()
                 payload = response.json()

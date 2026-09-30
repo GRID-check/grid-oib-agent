@@ -121,12 +121,23 @@ async def test_ranking_parse_drops_dup_out_of_range_and_string_scores(monkeypatc
     assert ranked is not None
     assert [c.chunk_id for c in ranked] == ["c", "a", "b"]
     body = json.loads(seen[0].content.decode())
+    provider = body.pop("provider")
     assert body == {
         "model": "cohere/rerank-v3.5",
         "query": "query",
         "documents": ["text", "text", "text"],
         "top_n": 3,
     }
+    # The reranker is the platform's: every rerank is pinned, whatever the org's setting.
+    assert provider["zdr"] is True and provider["data_collection"] == "deny"
+
+
+def test_the_default_reranker_is_one_with_a_zdr_endpoint(monkeypatch) -> None:
+    """Every rerank is pinned, so a default without a ZDR endpoint would refuse every call."""
+    from knowledge_layer import cross_encoder
+
+    monkeypatch.setattr(cross_encoder, "DEFAULT_MODEL", "")
+    assert cross_encoder.CrossEncoderReranker(api_key="k").model == "qwen/qwen3-reranker-8b"
 
 
 async def test_timeout_returns_none(monkeypatch) -> None:
