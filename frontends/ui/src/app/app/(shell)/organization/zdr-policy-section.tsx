@@ -28,6 +28,7 @@ import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Switch } from '@/components/ui/switch'
 import { useTranslations } from '@/i18n'
 import type { ZdrBlockedGroup, ZdrCoverage } from '@/lib/model-config/zdr-coverage'
+import { isKnownProvider } from './llm-credentials-card'
 
 export type { ZdrBlockedGroup, ZdrCoverage }
 
@@ -43,6 +44,8 @@ export const ZdrPolicySection: FC<{
 }> = ({ zdrOnly, zdrApplicable, provider, coverage, onChanged }) => {
   const t = useTranslations('organization')
   const tc = useTranslations('common')
+  const providerLabel = (id: string | null): string =>
+    isKnownProvider(id) ? t(`byok.providers.${id}`) : (id ?? 'BYOK')
   const [saving, setSaving] = useState(false)
   const [disableOpen, setDisableOpen] = useState(false)
   const [acknowledged, setAcknowledged] = useState(false)
@@ -118,7 +121,7 @@ export const ZdrPolicySection: FC<{
             <FieldDescription className="mt-0.5">
               {zdrApplicable
                 ? t('models.zdrHint')
-                : t('models.zdrNotApplicable', { provider: provider ?? 'BYOK' })}
+                : t('models.zdrNotApplicable', { provider: providerLabel(provider) })}
             </FieldDescription>
           </div>
         </div>

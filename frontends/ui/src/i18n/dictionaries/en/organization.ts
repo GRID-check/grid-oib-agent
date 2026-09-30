@@ -240,7 +240,7 @@ export const organization = {
     zdrOffBody:
       'The model providers behind OpenRouter may store your organization’s prompts, documents, drawings and answers and, depending on the provider, use them for training. You can turn it back on above at any time, without confirmation.',
     zdrBlockedSummary:
-      '{count, plural, one {# task cannot} other {# tasks cannot}} run under zero data retention with its current model. See the marked rows below.',
+      '{count, plural, one {# task cannot run under zero data retention with its current model} other {# tasks cannot run under zero data retention with their current models}}. See the marked rows below.',
     zdrBlockedNotZdr:
       '{model} ({source}) has no zero-data-retention endpoint. Requests for this task are refused until you choose a ZDR model here.',
     zdrBlockedCapability:
