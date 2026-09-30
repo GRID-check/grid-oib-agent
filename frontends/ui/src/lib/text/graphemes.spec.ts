@@ -6,8 +6,8 @@ import { stripFormatControls, truncateGraphemes } from './graphemes'
 
 describe('stripFormatControls', () => {
   it('removes bidi overrides and isolates, zero-width characters and the BOM', () => {
-    expect(stripFormatControls('Rechnung‮fdp.exe')).toBe('Rechnungfdp.exe')
-    expect(stripFormatControls('⁦a⁩​b‍﻿')).toBe('ab')
+    expect(stripFormatControls('Rechnung\u202Efdp.exe')).toBe('Rechnungfdp.exe')
+    expect(stripFormatControls('\u2066a\u2069\u200Bb\u200D\uFEFF')).toBe('ab')
   })
 
   it('keeps ordinary text, umlauts and emoji', () => {
@@ -26,7 +26,7 @@ describe('truncateGraphemes', () => {
   })
 
   it('never splits a family emoji into its members', () => {
-    const family = '👨‍👩‍👧'
+    const family = '👨\u200D👩\u200D👧'
     expect(truncateGraphemes(`ab${family}cd`, 6)).toBe('ab')
     expect(truncateGraphemes(`ab${family}cd`, 2 + family.length)).toBe(`ab${family}`)
   })

@@ -31,7 +31,7 @@ describe('mailFolderName', () => {
   })
 
   it('strips bidi overrides and zero-width characters (A8)', () => {
-    const name = senderLabel({ name: '‮evil​ Büro', address: 'x@y.at' })
+    const name = senderLabel({ name: '\u202Eevil\u200B Büro', address: 'x@y.at' })
     expect(name).toBe('evil Büro')
   })
 
@@ -46,7 +46,7 @@ describe('mailFolderName', () => {
 
   it('cuts a long name between graphemes and leaves room for " (n)"', () => {
     const name = mailFolderName(new Date('2026-09-30T08:15:00Z'), {
-      name: `${'x'.repeat(78)}👨‍👩‍👧 Architekten`,
+      name: `${'x'.repeat(78)}👨\u200D👩\u200D👧 Architekten`,
       address: 'x@y.at',
     })
     expect(name.length).toBeLessThanOrEqual(110)

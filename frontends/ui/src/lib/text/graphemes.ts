@@ -6,7 +6,7 @@
  *
  *   - **Invisible format characters go.** Unicode category Cf holds the bidi
  *     overrides and isolates (U+202A–U+202E, U+2066–U+2069), zero-width
- *     spaces and joiners, and the byte-order mark. `Rechnung‮fdp.exe`
+ *     spaces and joiners, and the byte-order mark. `Rechnung\u202Efdp.exe`
  *     renders as `Rechnungexe.pdf`; nobody who sends a real file needs one.
  *   - **Cuts fall between graphemes.** `slice` counts UTF-16 units, so a cut
  *     can split a surrogate pair (a lone surrogate is not valid UTF-8 and
