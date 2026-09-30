@@ -1172,6 +1172,24 @@ export interface GridConfig {
     /** GitHub logins assigned to new issues (`E2I_ISSUE_ASSIGNEES`, max 10). Empty leaves them unassigned. */
     issueAssignees: string;
   };
+
+  /**
+   * Bug reports from the in-app feedback form become GitHub issues, filed by
+   * the BFF (`frontends/ui/src/lib/product-feedback/github.ts`).
+   *
+   * Reuses err2issue's PAT rather than a second one: it already holds Issues
+   * read/write on the repo, and one credential is one thing to rotate. It is
+   * independent of `err2issue.enabled` — the error sink needs the
+   * observability tier, a bug report does not.
+   */
+  feedbackIssues: {
+    /** The `feedbackIssuesEnabled` flag (default on) AND a token AND a repo. */
+    enabled: boolean;
+    /** `owner/repo`; defaults to `err2issueGithubRepo`. */
+    repo: string;
+    /** The err2issue PAT. Empty when filing is off. */
+    githubToken: pulumi.Output<string>;
+  };
 }
 
 export interface ResourceSpec {
@@ -2074,6 +2092,25 @@ export function loadConfig(): GridConfig {
     );
   }
 
+  // ── Feedback → GitHub issues: flag AND capability, the token is err2issue's ─
+  // Default ON, unlike err2issue: a report is filed only when a member sends
+  // one (rate limited per person), so there is no hot loop to cap, and a stack
+  // that has no token files nothing. Warn only when the flag was set by hand.
+  const feedbackIssuesFlag = bool(cfg, "feedbackIssuesEnabled", true);
+  const feedbackIssuesRepo = cfg.get("feedbackIssuesRepo") ?? err2issueGithubRepo;
+  const missingFeedbackIssuesDeps = [
+    feedbackIssuesRepo === "" ? "feedbackIssuesRepo (or err2issueGithubRepo)" : undefined,
+    err2issueGithubToken === undefined ? "err2issueGithubToken" : undefined,
+  ].filter((k): k is string => k !== undefined);
+  const feedbackIssuesEnabled = feedbackIssuesFlag && missingFeedbackIssuesDeps.length === 0;
+  if (cfg.getBoolean("feedbackIssuesEnabled") === true && !feedbackIssuesEnabled) {
+    pulumi.log.warn(
+      "Feedback → GitHub issues not wired: missing " +
+        missingFeedbackIssuesDeps.map((k) => `grid-oib:${k}`).join(", ") +
+        ". Bug reports are still stored and announced in the inbox.",
+    );
+  }
+
   return {
     namespace: cfg.get("namespace") ?? "grid",
     kubeconfig: cfg.requireSecret("kubeconfig"),
@@ -2512,6 +2549,12 @@ export function loadConfig(): GridConfig {
       traceUrlTemplate: observabilityEnabled ? `https://${otelDomain}/traces/detail/{trace_id}` : "",
       reopenNotPlanned: bool(cfg, "err2issueReopenNotPlanned", false),
       issueAssignees: cfg.get("err2issueIssueAssignees") ?? "",
+    },
+
+    feedbackIssues: {
+      enabled: feedbackIssuesEnabled,
+      repo: feedbackIssuesRepo,
+      githubToken: feedbackIssuesEnabled && err2issueGithubToken ? err2issueGithubToken : pulumi.output(""),
     },
   };
 }

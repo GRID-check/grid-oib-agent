@@ -51,3 +51,15 @@ export function closesCodeFence(line: string, fence: CodeFence, options: CodeFen
     match !== null && indentOk(match[1], options.maxIndent) && match[2][0] === fence.char && match[2].length >= fence.length
   )
 }
+
+/**
+ * `text` as a fenced block it cannot close: backticks one longer than its
+ * longest run, never fewer than three. The way to quote untrusted text into
+ * markdown someone else renders, where a bare `@name` pings that person, `#12`
+ * links an issue and `![](…)` loads an image from wherever the text says.
+ */
+export function fencedBlock(text: string, info = 'text'): string {
+  const longestRun = Math.max(0, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length))
+  const fence = '`'.repeat(Math.max(3, longestRun + 1))
+  return `${fence}${info}\n${text}\n${fence}`
+}

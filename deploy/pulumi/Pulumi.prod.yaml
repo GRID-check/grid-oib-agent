@@ -388,6 +388,14 @@ config:
   #   esc env set matthiasbigl/grid-oib/prod pulumiConfig.grid-oib:err2issueGithubToken ghp_... --secret
 
   grid-oib:err2issueEnabled: "false"
+
+  # ── Feedback → GitHub issues ──
+
+  # Bug reports from the feedback form are filed with the SAME token and repo,
+
+  # and do not need err2issueEnabled. Off here only because neither is set:
+
+  # the two lines above (repo, token) turn it on without deploying err2issue.
   grid-oib:protectDataResources: "true"
   grid-oib:seaweedfsPerOrgBuckets: "true"
   grid-oib:dnsZoneName: piloti.at
