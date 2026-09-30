@@ -69,6 +69,8 @@ The user has this file open, so every bare reference in their message („dieses
 
 {% if already_read_block is defined and already_read_block %}
 {{ already_read_block }}
+{% endif %}{% if held_evidence_block is defined and held_evidence_block %}
+{{ held_evidence_block }}
 {% endif %}
 
 {% if parcel_note is defined and parcel_note %}

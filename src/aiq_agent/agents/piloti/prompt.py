@@ -292,6 +292,10 @@ def render_system_prompt(
         # inventory: what THIS conversation opened, for the locator-first rule.
         # None renders no section (the template guards it).
         already_read_block=render_already_read_block(state.already_read_digest),
+        # Beside it, the passages still in THIS transcript that the
+        # held-evidence decision judged to answer the message (ADR-0064 use
+        # 10). None renders no section.
+        held_evidence_block=state.held_evidence_block,
         # Not a document list: the files that are NOT yet in one. The renderer
         # hands it to the inventory block.
         in_flight_documents=state.in_flight_documents,

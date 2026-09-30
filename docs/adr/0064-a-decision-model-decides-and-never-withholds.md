@@ -177,6 +177,40 @@ is left unlabelled, not guessed. The comment now leaves the BFF with its
 sample, fenced as data like the question. Tuning set (sixteen down-votes):
 16/16.
 
+**Use 10 — what the conversation already read** (`agents/piloti/held_evidence.py`,
+`register.py::_decide_held`; *added 2026-09-30*). Use 1 reads the message
+alone, so a message that names its own subject is searched as round 0
+whatever the transcript holds: „was weißt du zur oib 2", asked three times,
+ran three full researches, and a new question the previous turn's cited
+passages already settle („Was bedeutet Punkt 12?" after an overview that
+cited Punkt 12; GK 5 after a question about GK 3 answered from a table that
+lists both) searched too. One noul, in its own request beside use 1: do the
+passages still in the transcript hold what this message asks? The passages
+are the previous researching turn's cited ones, read back out of its tool
+results with the parser the registry reads with (at most twelve, 600
+characters each); an uncited passage was compacted to its header and holds
+no text. The state is the message and those passages as fields (source,
+citation, Punkt, text), which is a passage's text as the rule above allows,
+not the transcript. A confident yes (0.8) does two things, both additions: round 0 is not
+prefetched, and the prompt names the passages the verdict was about, as a
+pointer and not a rule — every tool stays bound, and the block says to search
+when they do not answer after all. A false yes costs the model a round of its
+own; a no, or no decision, is the turn as before. It asks about the evidence,
+not the wording of the last exchange, which is why it is not a repeat
+detector over the previous answer's text. Because it makes turns that fetch
+nothing more common, the history keeps the tool results of the last turn that
+FETCHED rather than of the last turn (`history.prune_tool_results`):
+otherwise a turn answered from the transcript pushed those very passages out
+of the next one. For the same reason the „Bereits gelesen" block's rule to
+re-open a passage with `read_passage` before citing it now applies only to a
+passage the transcript no longer holds (`knowledge/already_read.py`): applied
+to every passage, it sent the model back to re-read what it was looking at.
+Switch: `held_evidence` beside `turn_decisions`. The
+threshold is set by analogy, not measured: `task be:eval:decisions:held` runs
+the tuning rows (`tests/fixtures/decisions/held_coverage.yaml`) and holds two
+floors, no false yes at the threshold and a recall of at least 0.6; below
+them, `held_evidence: false`.
+
 **Held out.** The tuning numbers above were measured on the rows the criteria
 were written against. A held-out set per use, written blind to the wording from
 plain label definitions (`tests/fixtures/decisions/holdout/`,
@@ -262,6 +296,10 @@ numbers above are one run on German questions the product actually gets.
   mapping to effects, and that a decision that did not run changes nothing.
   *Amended 2026-09-25:* except the family question's own prefetch above,
   which adds a fetch and withholds nothing.
+- `tests/aiq_agent/agents/piloti/test_held_evidence.py`: only cited passages
+  are held, a confident yes skips round 0 and rides the prompt, a no, a
+  failure, a first message and either switch leave the turn as before;
+  `tests/test_decision_eval_held.py`: the use-10 floors' arithmetic.
 - `tests/aiq_agent/agents/piloti/test_prefetch_round.py`, through the
   compiled graph: round 0 runs before the first call, costs no budget, is
   drawn as `status:retrieval:0`, answers the model's repeat, and never runs

@@ -202,6 +202,14 @@ class TestRender:
         assert str(MAX_DIGEST_DOCS) in block
         assert str(MAX_DIGEST_TOKENS) in block
 
+    def test_a_passage_still_in_the_transcript_is_cited_without_reopening_it(self):
+        """The re-open rule is for what the transcript no longer holds; applied to everything it
+        sent the model back to `read_passage` for passages it was looking at."""
+        block = render_already_read_block(["a.pdf | c | Seiten 1 | Punkte - | Turn 1"])
+
+        assert "noch im Verlauf steht, wird von dort zitiert, ohne sie erneut zu öffnen" in block
+        assert "der abgerufen hat" in block
+
     def test_no_digest_renders_no_section(self):
         assert render_already_read_block(None) == ""
         assert render_already_read_block([]) == ""
