@@ -5104,6 +5104,54 @@ class LlamaIndexRetriever(BaseRetriever):
         except Exception:  # noqa: BLE001 - a warm-up is worth less than the turn
             logger.debug("Query warm-up failed", exc_info=True)
 
+    async def find_text(
+        self,
+        collection_name: str,
+        spellings: list[str],
+        filters: dict[str, Any] | None = None,
+        limit: int = 500,
+    ) -> list[Chunk] | None:
+        """Every chunk containing one of ``spellings``, via Chroma's own ``$contains``.
+
+        The vector store is the source of truth for chunk text, so this reads it
+        there rather than from the lexical mirror, which a deployment may not
+        have backfilled. No embedding, no ranking: a filter over the collection.
+        A collection that does not exist is an empty answer, not a failure.
+        """
+        return await asyncio.to_thread(self._find_text_sync, collection_name, spellings, filters, limit)
+
+    def _find_text_sync(
+        self, collection_name: str, spellings: list[str], filters: dict[str, Any] | None, limit: int
+    ) -> list[Chunk]:
+        wanted = [spelling for spelling in dict.fromkeys(spellings) if spelling]
+        if not wanted or limit <= 0:
+            return []
+        self._ensure_initialized()
+        try:
+            collection = self._chroma_client.get_collection(name=collection_name)
+        except Exception:  # noqa: BLE001 - an absent collection holds no text
+            return []
+        # Chroma rejects a one-element `$or`, the same shape `_to_chroma_where` guards.
+        contains = [{"$contains": spelling} for spelling in wanted]
+        where_document = contains[0] if len(contains) == 1 else {"$or": contains}
+        fetched = collection.get(
+            where=_to_chroma_where(filters),
+            where_document=where_document,
+            limit=limit,
+            include=["documents", "metadatas"],
+        )
+        ids = fetched.get("ids") or []
+        # Distance 0: every returned chunk contains the text, so none ranks
+        # above another. The caller orders them by document and page.
+        return self._chunks_from_raw_query(
+            {
+                "ids": [ids],
+                "documents": [fetched.get("documents") or []],
+                "metadatas": [fetched.get("metadatas") or []],
+                "distances": [[0.0] * len(ids)],
+            }
+        )
+
     def _warm_sync(self, query: str) -> None:
         self._ensure_initialized()
         self._embed_query_cached(query)

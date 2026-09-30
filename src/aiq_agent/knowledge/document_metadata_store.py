@@ -702,8 +702,19 @@ class DocumentMetadataStore:
             doc_class=row[3] or None,
             display_title=row[4] or None,
             folder_path=row[5] or None,
+            added_at=self._iso_date(row[6]) if len(row) > 6 else None,
             collection=collection,
         )
+
+    @staticmethod
+    def _iso_date(raw: Any) -> str | None:
+        """``created_at`` as ``YYYY-MM-DD``: a datetime on Postgres, a string on SQLite."""
+        if raw is None:
+            return None
+        if hasattr(raw, "date"):
+            return raw.date().isoformat()
+        text_value = str(raw).strip()
+        return text_value[:10] or None
 
     def get_all(self, collection: str) -> list[AvailableDocument]:
         """Get all documents with metadata for a collection (sync)."""
@@ -714,7 +725,8 @@ class DocumentMetadataStore:
                 result = conn.execute(
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
-                        f"SELECT filename, summary, tags, doc_class, display_title, folder_path FROM {TABLE_NAME} "
+                        "SELECT filename, summary, tags, doc_class, display_title, folder_path, created_at "
+                        f"FROM {TABLE_NAME} "
                         "WHERE collection = :collection"
                     ),
                     {"collection": collection},
@@ -735,7 +747,8 @@ class DocumentMetadataStore:
                 result = await conn.execute(
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
-                        f"SELECT filename, summary, tags, doc_class, display_title, folder_path FROM {TABLE_NAME} "
+                        "SELECT filename, summary, tags, doc_class, display_title, folder_path, created_at "
+                        f"FROM {TABLE_NAME} "
                         "WHERE collection = :collection"
                     ),
                     {"collection": collection},

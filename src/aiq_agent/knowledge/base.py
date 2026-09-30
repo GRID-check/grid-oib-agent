@@ -196,6 +196,23 @@ class BaseRetriever(ABC):
         """Prepare ``query`` for a search about to be made (its embedding). Optional; never raises."""
         return None
 
+    async def find_text(
+        self,
+        collection_name: str,
+        spellings: list[str],
+        filters: dict[str, Any] | None = None,
+        limit: int = 500,
+    ) -> list[Chunk] | None:
+        """Every chunk whose text CONTAINS one of ``spellings`` (byte-exact substring).
+
+        Exhaustive, unranked and embedding-free: the answer to "which files say
+        X", which a top-k similarity search cannot give. At most ``limit``
+        chunks. ``None`` means the backend cannot do it, never "no match": a
+        caller must be able to tell an empty result from an unsupported one.
+        Case folding is the CALLER's job — it passes the spellings to try.
+        """
+        return None
+
     @abstractmethod
     def normalize(self, raw_result: Any) -> Chunk:
         """

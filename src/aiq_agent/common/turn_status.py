@@ -563,6 +563,10 @@ _SEARCH_CORPORA: tuple[tuple[str, str], ...] = (
     ("advanced_web_search", "web"),
     ("web_search", "web"),
     ("surface_documents", "documents"),
+    # The file browser and the project-wide phrase search read the reader's own
+    # files, so the line says „in Ihren Unterlagen“, not the knowledge corpus.
+    ("list_files", "documents"),
+    ("find_in_files", "documents"),
     ("ifc_", "ifc"),
 )
 
