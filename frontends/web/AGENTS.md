@@ -61,8 +61,11 @@ title, canonical, hreflang, Open Graph, Twitter, RSS links, icons and the
 JSON-LD graph. The builders live in `src/lib/seo.ts`; the strings in `ui.ts`:
 `meta` (the landing page, and the one sentence that says what Piloti is),
 `seo.pages` (every other page's title and description) and `faq`.
-The prose of `/warum-piloti/` lives in `src/i18n/pages.ts`, linted like
-`ui.ts`. The search pages (comparisons, use cases, audiences, the nine states,
+The prose of `/warum-piloti/` and of `/e-mail-eingang/` lives in
+`src/i18n/pages.ts`, linted like `ui.ts`. `/e-mail-eingang/` is the help page
+for the project mail inbox: the app's settings card and the bounce text of a
+refused mail link it, so its slug is `MAIL_INBOX_SLUG` in `src/consts.ts`, read
+by the route (`src/pages/[mailInbox].astro`), and must not change. The search pages (comparisons, use cases, audiences, the nine states,
 the glossary) are one entry each in `src/data/landing/<section>.ts`, typed and
 explained in `src/lib/landing.ts`; a new page is a new entry, never a new
 route. A competitor's column says only what its own site says, with the month

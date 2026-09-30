@@ -1,7 +1,7 @@
 ---
 import { SECTIONS, SECTION_IDS, landingPath } from '../../lib/landing'
 import Logo from '../atoms/Logo.astro'
-import { CONTACT_EMAILS, mailtoHref } from '../../consts'
+import { CONTACT_EMAILS, MAIL_INBOX_PATH, mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
 
@@ -26,6 +26,7 @@ const columns = [
       { label: t.footer.data, href: `${home}#daten` },
       { label: t.footer.value, href: `${home}#wert` },
       { label: t.footer.working, href: translatePath('/rechenweg/') },
+      { label: t.footer.mailInbox, href: translatePath(MAIL_INBOX_PATH) },
     ],
   },
   {

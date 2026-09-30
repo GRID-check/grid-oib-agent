@@ -32,3 +32,16 @@ export function mailtoHref(subject?: string, body?: string) {
  * decided at build time here.
  */
 export const SIGN_IN_HREF = '/sign-in'
+
+/**
+ * The public page on the project mail inbox: `/e-mail-eingang/` and
+ * `/en/e-mail-eingang/`, prerendered by `pages/[mailInbox].astro` and
+ * `pages/en/[mailInbox].astro` from this slug alone.
+ *
+ * Stable ON PURPOSE, and pure ASCII: the app's settings card links it
+ * (`MAIL_INBOX_HELP_PATH` in frontends/ui/src/lib/brand.ts) and the text a
+ * refused mail bounces with names it, so every copy of that bounce in a
+ * mailbox carries this URL. Renaming it breaks those links; do not.
+ */
+export const MAIL_INBOX_SLUG = 'e-mail-eingang'
+export const MAIL_INBOX_PATH = `/${MAIL_INBOX_SLUG}/`

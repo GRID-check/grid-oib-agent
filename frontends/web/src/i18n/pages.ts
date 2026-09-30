@@ -1,8 +1,9 @@
 /**
- * The copy of /warum-piloti/, the argument page. Kept out of ui.ts because it
- * is a page of prose, not interface strings; its title and description stay
- * in ui.ts `seo.pages` with every other page's. The comparisons are search
- * pages now (src/data/landing/vergleich.ts).
+ * The copy of the prose pages: /warum-piloti/, the argument page, and
+ * /e-mail-eingang/, how the project mail inbox works. Kept out of ui.ts
+ * because they are pages of prose, not interface strings; their titles and
+ * descriptions stay in ui.ts `seo.pages` with every other page's. The
+ * comparisons are search pages now (src/data/landing/vergleich.ts).
  *
  * Same rules as ui.ts: both locales, German typography, and only what the
  * product does (each capability below shipped and is in the changelog). The
@@ -118,6 +119,124 @@ const de = {
       link: 'Alle Vergleiche',
     },
   },
+  // /e-mail-eingang/ (MAIL_INBOX_PATH in consts.ts): how the project mail
+  // inbox works, for the people who use it and for whoever a mail bounced
+  // on. Every rule here is one the receiving side enforces
+  // (docs/user-guides/project-mail-inbox.md, ADR-0074); `backticks` render
+  // as code.
+  mailInbox: {
+    heading: 'E-Mail-Eingang: Dateien per E-Mail ins Projekt',
+    lede: 'Jedes Projekt in Piloti hat eine eigene E-Mail-Adresse. Senden Sie Pläne, Bescheide oder Stellungnahmen als Anhang dorthin, und Piloti legt die Dateien im Projekt ab, als hätten Sie sie selbst hochgeladen. Aus Outlook speichern und wieder hineinziehen entfällt.',
+    address: {
+      label: 'So sieht eine Projektadresse aus',
+      example: 'wohnbau-hietzing.k3m7q2xw4pab@…',
+      note: 'Vor dem Punkt steht der Projektname, damit Sie die Adresse wiedererkennen. Nur die zwölf Zeichen danach bestimmen das Projekt, darum behält ein umbenanntes Projekt seine Adresse. Die Domain nach dem @ ist eine eigene Eingangsdomain, die Ihre Piloti-Installation festlegt.',
+    },
+    steps: {
+      title: 'So funktioniert es',
+      items: [
+        {
+          name: 'Adresse kopieren',
+          body: 'Öffnen Sie die Einstellungen des Projekts, Abschnitt „E-Mail-Eingang“. Dort steht die Projektadresse mit einer Schaltfläche zum Kopieren. Legen Sie sie am besten als Kontakt in Ihrem E-Mail-Programm an.',
+        },
+        {
+          name: 'Dateien senden',
+          body: 'Senden Sie die Dateien als Anhang, und zwar von der Adresse, mit der Sie sich bei Piloti anmelden. Eine E-Mail vom Fachplaner oder von der Behörde leiten Sie an die Projektadresse weiter.',
+        },
+        {
+          name: 'Im Projekt weiterarbeiten',
+          body: 'Jede E-Mail bekommt einen eigenen Ordner unter `E-Mail-Eingang`, benannt nach Datum, Betreff und Absender, etwa `E-Mail-Eingang/2026-09-30 Einreichplan Rev C – Anna Berger`. Sind die Dateien abgelegt, meldet Piloti das in Ihrem Postfach in der App.',
+        },
+      ],
+      missing:
+        'Sehen Sie den Abschnitt „E-Mail-Eingang“ nicht, dürfen Sie in diesem Projekt keine Dokumente hinzufügen, oder der E-Mail-Eingang ist in Ihrer Installation nicht eingerichtet. Dann hilft Ihre Administration weiter.',
+    },
+    files: {
+      title: 'Was mit den Anhängen passiert',
+      items: [
+        'Jeder Anhang wird ein Dokument im Projekt, genau wie ein Upload: durchsuchbar, von Piloti in Antworten zitierbar und mit Fassungen.',
+        'Die Dateien zählen zum Speicherkontingent Ihrer Organisation.',
+        'Es gelten dieselben Dateitypen und Größen wie beim Hochladen. Passt eine Datei nicht oder ist das Kontingent voll, wird nur diese Datei übersprungen; die übrigen Anhänge werden trotzdem abgelegt.',
+        'Übersprungen werden auch Signaturbilder (kleine eingebettete Bilder), leere Anhänge und `winmail.dat` aus Outlook. Für den Inhalt einer `winmail.dat` stellen Sie Outlook auf HTML oder Nur-Text und senden erneut.',
+        'Stellt ein Mailserver dieselbe E-Mail zweimal zu, legt Piloti sie einmal ab.',
+      ],
+    },
+    senders: {
+      title: 'Wer senden kann',
+      body: [
+        'Nur Mitglieder der Organisation, die im jeweiligen Projekt Dokumente hinzufügen dürfen. Piloti vergleicht die Absenderadresse mit den Mitgliedern der Organisation, der das Projekt gehört. Senden Sie deshalb von der Adresse, mit der Sie sich anmelden.',
+        'Bauherrschaft, Fachplaner und Behörden können noch nicht direkt an die Projektadresse senden. Leiten Sie deren E-Mails selbst weiter.',
+      ],
+    },
+    verify: {
+      title: 'Die Domain des Absenders muss prüfbar sein',
+      body: [
+        'Piloti nimmt eine E-Mail nur an, wenn sie nachweislich von Ihrer Domain kommt: Sie trägt eine gültige DKIM-Signatur der Domain in Ihrer Absenderadresse, oder Ihre Domain veröffentlicht eine DMARC-Richtlinie mit `quarantine` oder `reject`. Sonst könnte jeder Ihre Adresse in die Absenderzeile schreiben, und die E-Mail wird abgelehnt.',
+        'Am häufigsten betrifft das Microsoft 365: Solange Ihre IT DKIM nicht für die eigene Domain eingerichtet hat, signiert Microsoft Ihre E-Mails mit `ihrbuero.onmicrosoft.com` statt mit der Domain Ihrer Absenderadresse.',
+      ],
+      fixTitle: 'So schaltet Ihre IT DKIM ein',
+      fixes: [
+        {
+          name: 'Microsoft 365',
+          body: 'Im Microsoft Defender-Portal unter Email & collaboration → Policies & rules → Threat policies → Email authentication settings → DKIM die Domain wählen, die zwei angezeigten CNAME-Einträge im DNS veröffentlichen und die Signatur einschalten.',
+        },
+        {
+          name: 'Google Workspace',
+          body: 'In der Admin-Konsole unter Apps → Google Workspace → Gmail → Authenticate email den Schlüssel erzeugen, den TXT-Eintrag im DNS veröffentlichen und die Authentifizierung starten.',
+        },
+      ],
+      fixNote: 'Menünamen aus der englischen Oberfläche. Bis DKIM läuft, laden Sie die Dateien in der App hoch.',
+    },
+    bounce: {
+      title: 'Warum eine E-Mail zurückkommt',
+      body: 'Eine abgelehnte E-Mail kommt mit einem allgemeinen Hinweis zurück: Die Adresse ist unbekannt, oder der Absender ist nicht berechtigt oder nicht prüfbar. Der Hinweis ist für jeden Grund derselbe, damit niemand ausprobieren kann, welche Adressen es gibt oder wer Mitglied ist. Der Grund ist einer von diesen:',
+      reasons: [
+        {
+          name: 'Die Adresse ist vertippt oder wurde durch eine neue ersetzt.',
+          body: 'Kopieren Sie die aktuelle Adresse aus den Projekteinstellungen.',
+        },
+        {
+          name: 'Sie sind nicht Mitglied des Projekts.',
+          body: 'Bitten Sie, wer das Projekt verwaltet, Sie hinzuzufügen.',
+        },
+        {
+          name: 'Sie sind Mitglied, dürfen aber keine Dokumente hinzufügen.',
+          body: 'Bitten Sie um eine Rolle, die Dokumente bearbeiten darf.',
+        },
+        {
+          name: 'Sie haben von einer anderen Adresse gesendet als der Ihres Piloti-Kontos.',
+          body: 'Senden Sie von der Adresse, mit der Sie sich anmelden.',
+        },
+        {
+          name: 'Ihre Domain ist nicht prüfbar.',
+          body: 'Lassen Sie DKIM einschalten, wie oben beschrieben, oder laden Sie die Dateien in der App hoch.',
+        },
+      ],
+    },
+    limits: {
+      title: 'Grenzen',
+      items: [
+        'Höchstens 25 MB pro E-Mail, Anhänge eingerechnet. Größere E-Mails lehnt der Mailserver ab, bevor Piloti sie sieht.',
+        'Höchstens 60 E-Mails pro Stunde je Projektadresse. Was darüber hinausgeht, geht nicht verloren: Ihr Mailserver stellt es später erneut zu.',
+      ],
+    },
+    privacy: {
+      title: 'Datenschutz',
+      items: [
+        'Der Text der E-Mail wird nicht gespeichert, nur die Anhänge. Kommt es auf den Text an, speichern Sie ihn als PDF und hängen Sie ihn an.',
+        'Der Betreff steht im Namen des Ordners. Nennt er eine Person, bleibt er dort, bis Sie den Ordner umbenennen oder löschen.',
+        'Empfangen wird die E-Mail über Cloudflare, Inc. (USA), das sie an Piloti weiterreicht. Cloudflare speichert die E-Mail nicht, sondern führt nur ein Zustellprotokoll mit Absender, Empfänger, Betreff und Status. Verarbeitet wird sie im Rechenzentrum nahe dem Absender, das auch außerhalb der EU liegen kann. Cloudflare steht in der Liste der Unterauftragsverarbeiter der Piloti-Anwendung.',
+        'Sind die Dateien abgelegt, gilt für sie dasselbe wie für jeden Upload.',
+      ],
+    },
+    rotate: {
+      title: 'Eine neue Adresse erzeugen',
+      body: [
+        'Ist die Adresse bei jemandem gelandet, der sie nicht haben soll, erzeugt, wer das Projekt verwaltet, in den Projekteinstellungen unter „E-Mail-Eingang“ mit „Neue Adresse erzeugen“ eine neue. Die alte funktioniert ab sofort nicht mehr, E-Mails an sie kommen zurück. Geben Sie die neue Adresse allen, die Dateien an das Projekt senden.',
+        'Eine bekannt gewordene Adresse allein erlaubt niemandem, etwas abzulegen: Der Absender muss weiterhin ein geprüftes Mitglied mit Schreibrecht sein.',
+      ],
+    },
+  },
 }
 
 const en: typeof de = {
@@ -219,6 +338,119 @@ const en: typeof de = {
       title: 'Piloti compared',
       body: 'Weighing several AI tools for your office? Piloti next to ChatGPT, Copilot, NotebookLM, Reiner AI and BaurechtGPT, compared, and why Piloti is the better choice for planning questions in Austria.',
       link: 'All comparisons',
+    },
+  },
+  mailInbox: {
+    heading: 'Project mail inbox: send files to a project by email',
+    lede: 'Every project in Piloti has its own email address. Send drawings, permits or comments to it as attachments, and Piloti files them in the project as if you had uploaded them yourself. No more saving from Outlook and dragging the files back in.',
+    address: {
+      label: 'What a project address looks like',
+      example: 'wohnbau-hietzing.k3m7q2xw4pab@…',
+      note: 'The part before the dot is the project name, there for you to recognise the address. Only the twelve characters after it identify the project, so a renamed project keeps its address. The domain after the @ is a dedicated inbound domain set by your Piloti deployment.',
+    },
+    steps: {
+      title: 'How it works',
+      items: [
+        {
+          name: 'Copy the address',
+          body: 'Open the project’s settings, section “Email inbox”. The project address is there, with a button to copy it. Save it as a contact in your mail client.',
+        },
+        {
+          name: 'Send the files',
+          body: 'Send the files as attachments, from the address you sign in to Piloti with. Forward a mail from a consultant or the authority to the project address.',
+        },
+        {
+          name: 'Carry on in the project',
+          body: 'Each mail gets its own folder under `E-Mail-Eingang`, named after the date, the subject and the sender, for example `E-Mail-Eingang/2026-09-30 Einreichplan Rev C – Anna Berger`. When the files are filed, Piloti tells you in your inbox in the app.',
+        },
+      ],
+      missing:
+        'If you do not see the “Email inbox” section, either you may not add documents to this project, or the inbox is not set up in your deployment. Your administrator can help.',
+    },
+    files: {
+      title: 'What happens to the attachments',
+      items: [
+        'Every attachment becomes a document in the project, exactly like an upload: searchable, citable by Piloti in its answers, and versioned.',
+        'The files count against your organization’s storage quota.',
+        'The same file types and sizes apply as for uploads. A file that does not fit, or a full quota, skips that one file; the other attachments are still filed.',
+        'Signature images (small inline images), empty attachments and `winmail.dat` from Outlook are skipped too. To get the content of a `winmail.dat`, set Outlook to HTML or plain text and send again.',
+        'If a mail server delivers the same mail twice, Piloti files it once.',
+      ],
+    },
+    senders: {
+      title: 'Who can send',
+      body: [
+        'Only members of the organization who may add documents to that project. Piloti checks the sender address against the members of the organization the project belongs to, so send from the address you sign in with.',
+        'Clients, consultants and authorities cannot send to the project address directly yet. Forward their mail yourself.',
+      ],
+    },
+    verify: {
+      title: 'The sender’s domain must be verifiable',
+      body: [
+        'Piloti accepts a mail only when it provably comes from your domain: it carries a valid DKIM signature from the domain in your sender address, or your domain publishes a DMARC policy of `quarantine` or `reject`. Otherwise anyone could put your address in the From line, and the mail is rejected.',
+        'This hits Microsoft 365 most often. Unless your IT has set up DKIM for your own domain, Microsoft signs your mail as `yourcompany.onmicrosoft.com` instead of the domain in your sender address.',
+      ],
+      fixTitle: 'How your IT switches DKIM on',
+      fixes: [
+        {
+          name: 'Microsoft 365',
+          body: 'In the Microsoft Defender portal, under Email & collaboration → Policies & rules → Threat policies → Email authentication settings → DKIM, select your domain, publish the two CNAME records it shows in your DNS, then switch signing on.',
+        },
+        {
+          name: 'Google Workspace',
+          body: 'In the Admin console, under Apps → Google Workspace → Gmail → Authenticate email, generate the key, publish the TXT record in your DNS, then start authentication.',
+        },
+      ],
+      fixNote: 'Until DKIM works, upload the files in the app.',
+    },
+    bounce: {
+      title: 'Why a mail bounces',
+      body: 'A rejected mail comes back with one general notice: the address is unknown, or the sender is not authorised or cannot be verified. The notice is the same for every reason, so that nobody can probe which addresses exist or who is a member. The reason is one of these:',
+      reasons: [
+        {
+          name: 'The address is mistyped, or it was replaced by a new one.',
+          body: 'Copy the current address from the project settings.',
+        },
+        {
+          name: 'You are not a member of the project.',
+          body: 'Ask whoever manages the project to add you.',
+        },
+        {
+          name: 'You are a member but may not add documents.',
+          body: 'Ask for a role that can edit documents.',
+        },
+        {
+          name: 'You sent from a different address than your Piloti account.',
+          body: 'Send from the address you sign in with.',
+        },
+        {
+          name: 'Your domain cannot be verified.',
+          body: 'Have DKIM switched on, as described above, or upload the files in the app.',
+        },
+      ],
+    },
+    limits: {
+      title: 'Limits',
+      items: [
+        'At most 25 MB per mail, attachments included. Larger mails are rejected by the mail server before Piloti sees them.',
+        'At most 60 mails per hour per project address. Mail above that is not lost: your mail server delivers it again later.',
+      ],
+    },
+    privacy: {
+      title: 'Privacy',
+      items: [
+        'The text of the mail is not stored, only the attachments. If the text matters, save it as a PDF and attach it.',
+        'The subject appears in the folder name. If it names a person, it stays there until you rename or delete the folder.',
+        'The mail is received through Cloudflare, Inc. (USA), which passes it on to Piloti. Cloudflare does not store the mail; it keeps only a delivery log with sender, recipient, subject and status. The mail is processed in the data centre nearest the sender, which can be outside the EU. Cloudflare is on the Piloti application’s list of sub-processors.',
+        'Once the files are filed, the same applies to them as to any upload.',
+      ],
+    },
+    rotate: {
+      title: 'Getting a new address',
+      body: [
+        'If the address has reached someone who should not have it, whoever manages the project generates a new one in the project settings: “Email inbox”, then “Generate new address”. The old address stops working at once, and mail to it bounces. Give the new address to everyone who sends files to the project.',
+        'A leaked address on its own lets nobody file anything: the sender must still be a verified member with write access.',
+      ],
     },
   },
 }

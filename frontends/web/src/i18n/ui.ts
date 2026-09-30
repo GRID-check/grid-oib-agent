@@ -56,6 +56,11 @@ const de = {
         description:
           'Wie die Piloti-Website mit Ihren Daten umgeht: keine Cookies, kein Tracking, welche Dienste beteiligt sind und welche Anbieter die Piloti-Anwendung nutzt.',
       },
+      mailInbox: {
+        title: 'E-Mail-Eingang: Dateien per E-Mail ins Projekt – Piloti',
+        description:
+          'Jedes Projekt in Piloti hat eine eigene E-Mail-Adresse. Wer senden darf, was mit Anhängen passiert, warum eine E-Mail zurückkommt und wie Sie DKIM einschalten.',
+      },
       warum: {
         title: 'Warum Piloti: KI für Architekturbüros in Österreich',
         description:
@@ -422,6 +427,7 @@ const de = {
     changelog: 'Was hier als Nächstes steht, bestimmen die Pilotbüros mit.',
     rechenweg: 'Gemessen hat das noch niemand. Messen wir es in Ihrem Büro.',
     warum: 'Die beste Probe ist eine Frage aus Ihrem laufenden Projekt. Schicken Sie uns eine.',
+    mailInbox: 'Die Pläne kommen per E-Mail, die Fragen dazu beantwortet Piloti. Schicken Sie uns eine aus Ihrem laufenden Projekt.',
   },
   chat: {
     fictional: 'Fiktives Beispiel',
@@ -516,6 +522,7 @@ const de = {
     data: 'Quellen und Daten',
     value: 'Wertrechner',
     working: 'Rechenweg',
+    mailInbox: 'E-Mail-Eingang',
     team: 'Team',
     why: 'Warum Piloti',
     blog: 'Blog',
@@ -698,6 +705,11 @@ const en: typeof de = {
         title: 'Privacy policy – Piloti',
         description:
           'How the Piloti website handles your data: no cookies, no tracking, which services are involved, and which providers the Piloti application relies on.',
+      },
+      mailInbox: {
+        title: 'Project mail inbox: send files to a project by email – Piloti',
+        description:
+          'Every Piloti project has its own email address. Who can send, what happens to attachments, why a mail bounces, and how to switch on DKIM for your domain.',
       },
       warum: {
         title: 'Why Piloti: AI for architecture firms in Austria',
@@ -1050,6 +1062,7 @@ const en: typeof de = {
     changelog: 'The pilot offices help decide what comes next on this list.',
     rechenweg: 'Nobody has measured this yet. Let us measure it in your office.',
     warum: 'The best test is a question from your current project. Send us one.',
+    mailInbox: 'The drawings arrive by email; Piloti answers the questions about them. Send us one from your current project.',
   },
   chat: {
     fictional: 'Fictional example',
@@ -1140,6 +1153,7 @@ const en: typeof de = {
     data: 'Sources and data',
     value: 'Value calculator',
     working: 'The maths',
+    mailInbox: 'Project mail inbox',
     team: 'Team',
     why: 'Why Piloti',
     blog: 'Blog',

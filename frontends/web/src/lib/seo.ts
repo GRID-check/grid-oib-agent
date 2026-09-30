@@ -51,6 +51,12 @@ export const SHARE_ART = {
   legal: 'tafeln/pruefstand/og',
   /** Plate I, Drei Stützen: why Piloti, three columns under one answer (law, office, project). */
   warum: 'tafeln/stuetzen/og',
+  /**
+   * Plate II, Schichten, shared with the build log: sheets on their way from
+   * source to answer, which is where a mailed attachment goes. No plate shows
+   * a letter; a card of its own is new art, not a pick from these.
+   */
+  mailInbox: 'tafeln/schichten/og',
   /** Tragwerk II, Drei Säulen: the unlisted image page, all the prints on one slab. */
   bildmaterial: 'tragwerk/drei/og',
 } as const satisfies Record<string, OgArtId>
