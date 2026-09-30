@@ -653,8 +653,10 @@ export const projectFolders = pgTable('project_folders', {
 
 The project mail inbox. A member mails files to `<slug>.<token>@<GRID_INBOUND_MAIL_DOMAIN>`
 and the attachments are filed into the project as if that member had uploaded them
-(`lib/inbound-mail/service.ts`). **Neither table holds content**: the mail is parsed in
-memory inside the webhook request and dropped; its files are ordinary `documents` rows.
+(`lib/inbound-mail/receive.ts` accepts, `lib/inbound-mail/drain.ts` files). **Neither
+table holds the mail**: the webhook parses it in memory, stages only the attachments it
+selected as objects under the project's storage prefix, and queues one delivery row; the
+drain files them as ordinary `documents` rows and deletes the staging.
 
 `inbound_mail_addresses` — one row per address a project has had:
 
@@ -672,22 +674,34 @@ memory inside the webhook request and dropped; its files are ordinary `documents
 - `uniq_inbound_mail_addresses_active_project` — UNIQUE (`project_id`) WHERE `revoked_at IS NULL`: one active address per project. Partial, so it lives only in the migration. Lazy minting on first read races; the loser's 23505 is answered by re-reading the winner.
 - `inbound_mail_addresses_id_project_org_key` — UNIQUE (`id`, `project_id`, `organization_id`), the target of the message rows' composite FK.
 
-`inbound_mail_messages` — one row per delivery to an address, for idempotency:
+`inbound_mail_messages` — one row per delivery to an address: the durable queue the
+drain files from, and the idempotency record. Deleted 30 days after `received_at`:
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
-| `id` | `uuid` | PK | Also the anchor of the sender's `inbound_mail.filed` inbox item |
+| `id` | `uuid` | PK | Also the staging path segment and the anchor of the sender's `inbound_mail.filed` / `inbound_mail.failed` inbox item |
 | `organization_id`, `project_id` | `text`, `uuid` | NOT NULL, FK → `projects` (`id`, `organization_id`) ON DELETE CASCADE | |
 | `address_id` | `uuid` | NOT NULL, FK (`address_id`, `project_id`, `organization_id`) → `inbound_mail_addresses` ON DELETE CASCADE | A row cannot claim one tenant while pointing at another's address |
-| `message_id_hash` | `text` | NOT NULL, CHECK 64 hex | sha256 of the Message-ID header, or of the raw bytes when there is none |
-| `sender_user_id` | `text` | NOT NULL once `filed` (CHECK) | WorkOS user id the mail was filed as |
-| `status` | `text` | NOT NULL, CHECK `processing \| filed \| failed` | `filed` answers a redelivery as a duplicate; `failed`, and `processing` untouched for 15 minutes, may be re-run (safe: `uploadDocument` treats the same bytes in the same folder as unchanged) |
-| `filed_count`, `skipped_count`, `attempts` | `integer` | NOT NULL, non-negative | Counts only; no filenames |
-| `created_at`, `updated_at` | `timestamptz` | NOT NULL | |
+| `delivery_key` | `text` | NOT NULL, CHECK `^[0-9a-f]{64}$` | sha256 of the normalized Message-ID and the sorted attachment digests (`deliveryKey` in `lib/inbound-mail/mime.ts`). Stable across redeliveries of one mail; different for a device that reuses Message-IDs |
+| `sender_user_id` | `text` | NOT NULL | WorkOS user id the mail is filed as. Known before the row exists: only a verified member with write access is queued |
+| `status` | `text` | NOT NULL, DEFAULT `'queued'`, CHECK `queued \| processing \| filed \| failed` | A redelivery of a `queued`, `processing` or `filed` mail is answered as a duplicate; a `failed` one may be queued again |
+| `folder_name` | `text` | NOT NULL | The leaf under `E-Mail-Eingang/`: `<YYYY-MM-DD HH.mm> – <sender>`, Europe/Vienna time from `received_at`. Never the subject |
+| `folder_id` | `uuid` | FK (`folder_id`, `project_id`) → `project_folders` ON DELETE SET NULL (`folder_id`) | The folder the first filing attempt created; every later attempt reuses it |
+| `subject` | `text` | | For the one notification only. NULL once the row is `filed` or `failed` |
+| `staging_bucket` | `text` | CHECK set whenever `staged` is not empty | The bucket the staged objects went to (ADR-0043: recorded, never recomputed) |
+| `staged` | `jsonb` | NOT NULL, DEFAULT `[]`, CHECK array | `[{ key, filename, contentType, sha256, size }]`. Emptied when the drain has deleted the objects |
+| `skipped` | `jsonb` | NOT NULL, DEFAULT `[]`, CHECK array | `[{ filename, reason }]` while queued; `[{ reason }]` once terminal |
+| `filed_count`, `skipped_count`, `attempts` | `integer` | NOT NULL, DEFAULT 0, non-negative | |
+| `next_attempt_at` | `timestamptz` | NOT NULL | Backoff: the drain claims a `queued` row only after this |
+| `claim_token` | `uuid` | CHECK non-null exactly while `processing` | The attempt that owns the row; every write of that attempt is fenced on it |
+| `last_error` | `text` | | A class or reason code of the last failed attempt, never an error message (drizzle puts query parameters into those) |
+| `received_at`, `created_at` | `timestamptz` | NOT NULL | Retention runs on `received_at` |
+| `updated_at` | `timestamptz` | NOT NULL | The heartbeat: touched after each file; a `processing` row whose heartbeat stopped is reaped |
 
-- `uniq_inbound_mail_messages_address_hash` — UNIQUE (`address_id`, `message_id_hash`). Keyed by ADDRESS, not by Message-ID alone: one mail CC'd to projects in two organizations is two deliveries and both are filed.
+- `uniq_inbound_mail_messages_address_delivery` — UNIQUE (`address_id`, `delivery_key`). Keyed by ADDRESS, not by the mail alone: one mail CC'd to projects in two organizations is two deliveries and both are filed.
+- `inbound_mail_messages_due_idx` (`next_attempt_at`) WHERE `status = 'queued'`, the drain's claim; `inbound_mail_messages_processing_idx` (`updated_at`) WHERE `status = 'processing'`, the reaper; `inbound_mail_messages_received_idx` (`received_at`), the 30-day retention and the 7-day staging backstop; `inbound_mail_messages_project_created_idx` (`project_id`, `created_at`).
 
-Both are secured `organization_id = grid_current_org()` (the `document_roles` shape: the tenant is inside every key, so the predicate needs no join) and both cascade from the project, so the project purge — and the organization purge, which fans out to one project purge each — takes them along. The purger also deletes the `inbox_items` whose target is the project itself (`resource_type = 'project'`), which include the `inbound_mail.filed` rows quoting a mail's subject.
+Both are secured `organization_id = grid_current_org()` (the `document_roles` shape: the tenant is inside every key, so the predicate needs no join) and both cascade from the project, so the project purge takes them along. There is no organization purge; an organization's projects are purged one by one. The purger also deletes the staged objects (they are under the project's prefix, in the bucket `staging_bucket` names) and the `inbox_items` whose target is the project itself (`resource_type = 'project'`), which include the `inbound_mail.*` rows quoting a mail's subject.
 
 ---
 

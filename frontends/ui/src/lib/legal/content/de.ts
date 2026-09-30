@@ -69,7 +69,7 @@ export const de: LegalContent = {
         list: [
           'Konto- und Organisationsdaten: Name, E-Mail-Adresse, Organisationszugehörigkeit, Rollen und Berechtigungen. Die Identitätsverwaltung erfolgt über unseren Identitätsdienstleister WorkOS (AuthKit); wir führen bewusst keine eigene lokale Kopie Ihres Identitätsprofils.',
           'Inhaltsdaten: Ihre Chat-Fragen und die für Sie erzeugten Antworten, Rechercheberichte, von Ihnen hochgeladene Projektdokumente (Pläne, Bescheide, Spezifikationen — die selbst personenbezogene Daten enthalten können) sowie aus Ihren Interaktionen abgeleitete Projekt- und Organisationsnotizen (Memory).',
-          'Per E-Mail eingegangene Dateien: Senden Mitglieder eines Projekts E-Mails an dessen Projekt-E-Mail-Adresse, werden die Dateianhänge als Projektdokumente gespeichert, in einem Ordner, dessen Name Datum, Betreff und Absendername der E-Mail enthält. Der Text der E-Mail wird nicht gespeichert. Zur Vermeidung doppelter Ablage speichern wir je E-Mail einen Hashwert der Message-ID, das absendende Konto und den Verarbeitungsstatus.',
+          'Per E-Mail eingegangene Dateien: Senden Mitglieder eines Projekts E-Mails an dessen Projekt-E-Mail-Adresse, werden die Dateianhänge als Projektdokumente gespeichert, in einem Ordner, dessen Name Eingangszeit und Absendername enthält. Der Text der E-Mail wird nicht gespeichert, der Betreff steht in keinem Ordner- oder Dateinamen. Bis zur Ablage liegen die ausgewählten Anhänge im Objektspeicher der Organisation. Je E-Mail speichern wir einen Eingangsdatensatz (das absendende Konto, eine Prüfsumme aus Message-ID und Anhängen, den Ordnernamen, Zähler und den Verarbeitungsstatus; bis zur Ablage auch den Betreff und die Namen nicht abgelegter Dateien) sowie eine Meldung an die absendende Person, die Betreff und nicht abgelegte Dateien nennt.',
           'Nutzungs- und Abrechnungsdaten: ein Nutzungsledger, das je KI-Anfrage das angeforderte und das tatsächlich antwortende KI-Modell, Token-Zahlen und Kosten erfasst, zugeordnet zu Organisation, Projekt und Nutzer.',
           'Audit-Daten: privilegierte administrative Aktionen (z. B. Modellkonfigurations-Änderungen, Budgetänderungen, Löschungen, Legal Holds) werden mit handelnder Person, Zeitstempel, IP-Adresse und User-Agent protokolliert.',
           'Technische Daten: Server-Logs, Session-Cookie (Authentifizierung), Cookie für die Spracheinstellung.',
@@ -80,6 +80,7 @@ export const de: LegalContent = {
         list: [
           'Bereitstellung des Dienstes, Beantwortung Ihrer Fragen, Speicherung Ihrer Projekte — Art. 6 Abs. 1 lit. b (Vertragserfüllung).',
           'Sicherheit, Zugriffskontrolle, Audit-Trails, Missbrauchsvermeidung (Rate-Limits, Zulassungssteuerung) — Art. 6 Abs. 1 lit. f (berechtigtes Interesse an sicherem, nachvollziehbarem Betrieb).',
+          'Prüfen und Ablehnen von E-Mails an Projekt-E-Mail-Adressen, die keinem berechtigten Mitglied zugeordnet werden können; dafür sind wir selbst verantwortlich, und von einer abgelehnten E-Mail wird nichts gespeichert — Art. 6 Abs. 1 lit. f (berechtigtes Interesse an einem sicheren Betrieb).',
           'Nutzungsmessung und Budgetdurchsetzung — Art. 6 Abs. 1 lit. b und f.',
           'Erfüllung rechtlicher Pflichten (z. B. Aufbewahrung bei Legal Hold, Rechnungswesen) — Art. 6 Abs. 1 lit. c.',
         ],
@@ -87,7 +88,7 @@ export const de: LegalContent = {
       {
         heading: '4. KI-Verarbeitung und Empfänger Ihrer Inhalte',
         paragraphs: [
-          'Zur Erzeugung von Antworten werden Ihre Chat-Nachrichten, relevante Auszüge Ihrer hochgeladenen Dokumente und abgerufene Vorschriftenpassagen über das API-Gateway OpenRouter, Inc. (USA) an externe KI-Modellanbieter übermittelt. Aus Ihren Fragen abgeleitete Web-Recherche-Anfragen gehen an den Suchdienst Tavily. Identität und Anmeldung werden von WorkOS, Inc. (USA) abgewickelt. E-Mails an Projekt-E-Mail-Adressen nimmt Cloudflare, Inc. (USA) entgegen und leitet sie ohne Speicherung der Inhalte an Piloti weiter.',
+          'Zur Erzeugung von Antworten werden Ihre Chat-Nachrichten, relevante Auszüge Ihrer hochgeladenen Dokumente und abgerufene Vorschriftenpassagen über das API-Gateway OpenRouter, Inc. (USA) an externe KI-Modellanbieter übermittelt. Aus Ihren Fragen abgeleitete Web-Recherche-Anfragen gehen an den Suchdienst Tavily. Identität und Anmeldung werden von WorkOS, Inc. (USA) abgewickelt. E-Mails an Projekt-E-Mail-Adressen nimmt Cloudflare, Inc. (USA) entgegen und leitet sie an Piloti weiter. Cloudflare speichert die Inhalte nicht, führt aber ein Zustellprotokoll mit Absender, Empfänger und Betreff für etwa 30 Tage.',
         ],
         notice:
           'Wichtig: Welches KI-Modell — und damit welcher vorgelagerte Modellanbieter (z. B. DeepSeek, OpenAI, Anthropic, Google, Meta, Mistral und weitere im OpenRouter-Katalog gelistete Anbieter) — Ihre Anfragen verarbeitet, kann von den Administratorinnen und Administratoren Ihrer Organisation zur Laufzeit konfiguriert werden. Der gesamte KI-Verkehr läuft stets über OpenRouter und niemals über ein anderes Gateway; der tatsächliche nachgelagerte Anbieter — und damit der Ort dieser Verarbeitung (auch außerhalb der EU/des EWR möglich) — hängt jedoch vom Modell ab, das Ihre Organisation auswählt. Jede Modelländerung wird validiert, versioniert, der handelnden Administratorin bzw. dem Administrator zugeordnet und ist nachvollziehbar; das Modell, das eine Anfrage tatsächlich beantwortet hat, wird protokolliert. Die aktuelle Liste externer Dienste finden Sie auf der Seite „Subunternehmer".',
@@ -103,6 +104,7 @@ export const de: LegalContent = {
         paragraphs: [
           'Projektinhalte werden in unserer Anwendungsdatenbank, im Objektspeicher (hochgeladene Dokumente) und in einem Vektorindex (Dokument-Embeddings) gespeichert — alles in eigener Infrastruktur betrieben. Beim Löschen eines Projekts wird es zunächst als gelöscht markiert und ist während einer Karenzfrist wiederherstellbar; danach entfernt eine automatisierte Bereinigung es dauerhaft aus allen Speichern (Datenbank, Objektspeicher, Vektorindex und zugehörige Berechtigungsdatensätze). Die Löschung kann durch einen Legal Hold (Einschränkung nach Art. 18 DSGVO) ausgesetzt werden, den die Compliance-Rolle Ihrer Organisation setzt; jedes Setzen und Aufheben wird im Audit-Trail protokolliert.',
           'Nutzungsledger- und Audit-Datensätze werden zu Rechenschafts- und Abrechnungszwecken so lange aufbewahrt, wie es der Vertrag der Organisation und gesetzliche Aufbewahrungsfristen erfordern.',
+          'Per E-Mail eingegangene Anhänge werden nach der Ablage aus dem Zwischenspeicher gelöscht, spätestens nach 7 Tagen. Der Eingangsdatensatz einer E-Mail wird nach 30 Tagen gelöscht; Betreff und Dateinamen entfernen wir schon, sobald die E-Mail abgelegt oder aufgegeben ist. Die Meldung an die absendende Person wird nach 30 Tagen gelöscht.',
         ],
       },
       {
@@ -121,7 +123,7 @@ export const de: LegalContent = {
       {
         heading: '9. Datensicherheit (Art. 32 DSGVO)',
         paragraphs: [
-          'Der Zugriff ist durch Single Sign-on mit optionaler Mehr-Faktor-Authentifizierung, rollenbasierte Berechtigungen und bei jeder Anfrage durchgesetzte Mandantentrennung geschützt. Administrative Aktionen werden audit-protokolliert. Transportverschlüsselung (TLS) schützt Daten bei der Übertragung. Interne Dienst-zu-Dienst-Aufrufe werden mit eigenen Tokens authentifiziert.',
+          'Der Zugriff ist durch Single Sign-on mit optionaler Mehr-Faktor-Authentifizierung, rollenbasierte Berechtigungen und bei jeder Anfrage durchgesetzte Mandantentrennung geschützt. Administrative Aktionen werden audit-protokolliert. Verbindungen zur Anwendung sind mit TLS verschlüsselt. E-Mails an Projekt-E-Mail-Adressen erreichen Cloudflare nur dann verschlüsselt, wenn der absendende Mailserver TLS verwendet; darauf haben wir keinen Einfluss. Interne Dienst-zu-Dienst-Aufrufe werden mit eigenen Tokens authentifiziert.',
         ],
       },
       {
@@ -323,9 +325,9 @@ export const de: LegalContent = {
             [
               'Cloudflare, Inc.',
               'Empfang der Projekt-E-Mail-Adressen (Email Routing, Email Worker) und DNS',
-              'Eingehende E-Mails während der Zustellung (Absender, Empfänger, Betreff, Anhänge); keine Speicherung der Inhalte; Zustellprotokoll mit Absender, Empfänger und Betreff für etwa 30 Tage',
+              'Eingehende E-Mails während der Zustellung (Kopfzeilen, Text, Anhänge); keine Speicherung der Inhalte; Zustellprotokoll mit Absender, Empfänger, Betreff und Status für etwa 30 Tage',
               'USA / weltweites Edge-Netzwerk (EU-US Data Privacy Framework)',
-              'Nur wenn der Projekt-E-Mail-Eingang genutzt wird',
+              'Nur wenn der Projekt-E-Mail-Eingang für Ihre Organisation eingeschaltet ist',
             ],
             [
               'Hosting-Anbieter',

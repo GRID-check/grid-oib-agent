@@ -433,24 +433,40 @@ reverting is deleting a Cloudflare zone nobody is pointed at.
 
 ## 3c. Project mail inbox (`grid-oib:inboundMailDomain`)
 
-Off by default. Every project can get an email address; a member mails files to
-it and the attachments are filed into the project. Setting
+Off by default, twice. Every project can get an email address; a member mails
+files to it and the attachments are filed into the project. Setting
 `inboundMailDomain` creates the Cloudflare side
 (`src/platform/inbound-mail.ts`) and hands the frontend
 `GRID_INBOUND_MAIL_DOMAIN` and `GRID_INBOUND_MAIL_TOKEN`. Unset, nothing is
 created at Cloudflare, the UI shows no address, and the webhook answers 503.
+Set, the inbox is still off for every organization until its WorkOS feature
+flag `project-mail-inbox` is on (step 5): the operator switches it on per
+organization, after that organization has been told about the new
+sub-processor
+([review](../compliance/inbound-mail-review-2026-09.md), F1 and F16).
 
-What it deploys, all at Cloudflare and none of it in the cluster:
+What it deploys, all at Cloudflare:
 
 - **Email Routing** enabled on the inbound domain (Cloudflare adds and locks its
   MX and SPF records).
 - **One Email Worker**, `grid-inbound-mail-<stack>`
   (`src/platform/inbound-mail-worker.js`). It does not parse. It streams the raw
-  message to `https://<appDomain>/api/internal/inbound-mail` and maps the
-  answer: 2xx accepts; 403, 404 and 413 reject with one generic bounce text;
-  429, 5xx, network errors and anything else throw, so the sending server
-  retries later.
+  message to `https://<appDomain>/api/internal/inbound-mail`, with the size in
+  `x-inbound-raw-size` (a streamed body carries no Content-Length). It bounces
+  a mail **only** when the answer is a 4xx carrying `x-inbound-verdict: reject`,
+  which the BFF sets on a permanent refusal and nothing else. A 2xx accepts.
+  Every other answer throws, so the sending server retries: 401, 403, 404 or
+  413 without the header, 409, 429, 5xx, a redirect, a network error. A rotated
+  or mismatched token (403) or a `BFF_URL` that points at the wrong host (404)
+  therefore delays mail until you fix it; it never bounces it. The one bounce
+  text is ASCII and links the help page (`https://piloti.at/e-mail-eingang/`)
+  and the privacy page (`https://piloti.at/datenschutz/`).
 - **The zone's catch-all rule**, sending every address to that Worker.
+
+In the cluster there is nothing new to deploy. The webhook only queues; the
+`skill-scheduler` Deployment, which runs whatever `skillsEnabled` says, POSTs
+`/api/internal/inbound-mail/drain` on every tick (30 s by default) and that
+files the queued mail.
 
 ### The domain must be a zone apex
 
@@ -463,11 +479,18 @@ every project address. A child zone for the subdomain is Enterprise-only.
 
 So the inbound domain is the apex of a Cloudflare zone of its own, typically a
 second, short domain (`piloti-post.at`), or the stack's own zone apex if nothing
-else receives mail there (Email Routing then owns the apex MX, so the domain
-cannot also host mailboxes elsewhere). The module header in
-`src/platform/inbound-mail.ts` lists the evidence. `loadConfig` refuses a
-subdomain of `dnsZoneName`, and `pulumi preview` refuses any domain that is not
-the named zone's apex.
+else receives mail there. The module header in `src/platform/inbound-mail.ts`
+lists the evidence. `loadConfig` refuses a subdomain of `dnsZoneName`, and
+`pulumi preview` refuses any domain that is not the named zone's apex.
+
+**The apex must not receive mail anywhere else.** The catch-all takes every
+address on it, so an apex that is the company's mail domain would have all of
+its mail captured. `pulumi preview` reads the apex's MX records and refuses any
+that point anywhere but `*.mx.cloudflare.net` (`assertNoForeignMx` in
+`src/platform/email-routing.ts`). No MX passes: that is the first run on a
+fresh domain. Cloudflare's own MX passes: that is every run after it. MX
+records on subdomains are not read, since routing on the apex does not touch
+them.
 
 **One stack per inbound zone.** The catch-all is a single object per zone. A
 second stack on the same zone is no API error: its `up` points the catch-all at
@@ -478,13 +501,15 @@ the committed stacks. A dev stack that wants the feature needs its own domain.
 
 1. Add the inbound domain to Cloudflare as a zone (the registrar delegates its
    NS records, as in §3b) and copy its zone id. Leave its MX records to Email
-   Routing; delete any the zone scan imported.
+   Routing and delete any the zone scan imported: `pulumi preview` refuses the
+   zone while an apex MX record points anywhere but Cloudflare.
 2. Widen `cloudflareApiToken` (the same token §3b uses), or set it if DNS is not
    managed here. It needs:
    - Account · **Workers Scripts · Edit** (the Worker)
    - Zone · **Email Routing Rules · Edit** (the catch-all)
    - Zone · **Zone Settings · Edit** (enabling Email Routing)
-   - Zone · **DNS · Edit** (Email Routing's MX and SPF records)
+   - Zone · **DNS · Edit** (Email Routing's MX and SPF records; the MX guard
+     reads the apex MX with it)
    - Zone · **Zone · Read** (the apex check, and the account id the Worker is
      uploaded to)
 
@@ -508,11 +533,32 @@ the committed stacks. A dev stack that wants the feature needs its own domain.
    refuses to plan without it, which on a CI-deployed stack turns a merge into
    a failed deploy.
 4. `pulumi up`. The stack output `inboundMailWorker` names the Worker.
-5. Send a test mail from a project member's address to the project's address
-   (shown in the project's settings). Email Routing's Activity log in the
-   Cloudflare dashboard shows the delivery and whether the Worker accepted,
-   rejected or failed it; the files appear in the project under
-   `E-Mail-Eingang/`.
+5. **Create the WorkOS feature flag `project-mail-inbox`, OFF, in each
+   environment** (WorkOS dashboard → Feature Flags;
+   [`workos-provisioning.md`](workos-provisioning.md) §6). This is a write to
+   the production WorkOS environment: agree it with the platform owner first.
+   Target an organization only after it has been told that its mail will pass
+   through Cloudflare. Its members see the address card after their next sign-in;
+   the webhook and the drain read the flag without a session, through a 30 s
+   cache.
+6. **Launch gates.** Run both on staging before the first organization is
+   switched on in production. Nothing in the repository can prove either.
+   - **`DKIM-Signature` survives into `message.raw`.** Send a DKIM-signed mail
+     from a member to a project address and confirm it is filed. If Cloudflare
+     strips or rewrites the signature, every mail fails sender verification and
+     bounces. The BFF's log line then reads `outcome=refused-sender`.
+   - **A thrown Worker is an SMTP 4xx.** Point the Worker at an answer that
+     makes it throw (for example, set a wrong `INBOUND_MAIL_TOKEN` binding for
+     a moment, which the BFF answers 403 without a verdict) and confirm that the
+     sending server reports a temporary failure (4xx) and retries, not a bounce
+     (5xx). Restore the binding afterwards. If Cloudflare turns a throw into a
+     5xx, every retry path above is a bounce instead.
+7. Send a test mail from a project member's address to the project's address
+   (shown in the project's settings once the flag is on for that
+   organization). Email Routing's Activity log in the Cloudflare dashboard shows
+   the delivery and whether the Worker accepted, rejected or failed it. The
+   files appear in the project under `E-Mail-Eingang/<date> <time> – <sender>`
+   within a tick or two, and the sender gets an inbox notification.
 
 ### Keep message content out of Cloudflare's dashboards
 
@@ -520,9 +566,10 @@ the committed stacks. A dev stack that wants the feature needs its own domain.
   full raw message, attachments included, for about seven days, and it is on by
   default for sending domains onboarded since 2026-07-02
   ([changelog](https://developers.cloudflare.com/changelog/post/2026-07-17-email-message-preview/)).
-  Do not onboard the inbound domain for Email Sending (v1 sends nothing); if it
-  ever is, turn Email preview off first. Nothing is stored by the product either:
-  the BFF parses the message in memory and keeps no `.eml`.
+  Do not onboard the inbound domain for Email Sending (the inbox sends nothing);
+  if it ever is, turn Email preview off first. The product keeps no `.eml`
+  either: the webhook parses the message in memory and stages only the
+  attachments it selected, for at most seven days.
 - **Workers observability stays off** on the inbound Worker (the default, and
   what Pulumi deploys). The Worker logs nothing itself, and persisted
   invocation logs would be one more place mail metadata is kept.
@@ -534,9 +581,9 @@ the committed stacks. A dev stack that wants the feature needs its own domain.
 Email Workers count against the ordinary Workers limits
 ([limits](https://developers.cloudflare.com/email-service/platform/limits/)).
 On the Free plan that is 10 ms of CPU per invocation, and an overrun is an
-`EXCEEDED_CPU` failure, i.e. a retry, then a bounce. The Worker streams the
-message without reading it, so it should fit; measure it on the first real
-mails before relying on Free. Paid ($5 a month) removes the question.
+`EXCEEDED_CPU` failure, i.e. a retry. The Worker streams the message without
+reading it, so it should fit; measure it on the first real mails before
+relying on Free. Paid ($5 a month) removes the question.
 
 ### At the edge
 
@@ -545,7 +592,10 @@ mails before relying on Free. Paid ($5 a month) removes the question.
 catch-all: every mail arrives from Cloudflare's shared egress addresses, which
 other Cloudflare traffic uses too. The limits that shape mail are the BFF's,
 per address and per organization (ADR-0040 L2). Envoy puts no cap on the
-request body on the app route, so a mail up to Cloudflare's 25 MiB passes;
+request body on the app route, so a mail up to Cloudflare's 25 MiB passes.
+If one were ever added, a mail cut off there would be a bare 413 with no
+verdict header: the Worker retries it until the sending server gives up, days
+later, and the mail is never filed or bounced.
 `index-inbound-mail.spec.ts` fails if a connection buffer limit is added.
 
 ---
@@ -556,7 +606,11 @@ Off by default. The company address (`kontakt@piloti.at`) is forwarded by
 Cloudflare Email Routing to the founders' own mailboxes, and the landing
 site's contact form sends to the same mailboxes through Cloudflare's Email
 Service. Sending to verified destination addresses is free on every plan
-([Email Service](https://developers.cloudflare.com/email-service/)).
+([Email Service](https://developers.cloudflare.com/email-service/)). Why
+this path: [ADR-0075](../adr/0075-contact-form-via-cloudflare-email-sending.md).
+
+Kubernetes only. Docker Compose (`deploy/compose`) runs no landing-site
+service, so neither the form nor its variables exist there.
 
 What `contactAddress` deploys (`src/platform/contact-mail.ts`,
 `src/app/web.ts`):

@@ -13,7 +13,7 @@ There are two upload zones in the UI:
 
 To upload, drag and drop files onto the upload zone or click to browse. Multiple files can be uploaded at once.
 
-Files that reach you by email can also go to the project directly: every project has its own address, and the attachments of a mail sent to it are filed under **E-Mail-Eingang**. See [Project Mail Inbox](project-mail-inbox.md).
+Files that reach you by email can also go to the project directly: once the mail inbox is switched on for your organization, every project has its own address, and the attachments of a mail sent to it are filed under **E-Mail-Eingang**. See [Project Mail Inbox](project-mail-inbox.md).
 
 The project Files workspace shows folders, the file grid, and the preview side by side on desktop. On small screens the panes stack — folders above the file grid — and selecting a file opens the preview as a full-screen overlay with a close button.
 

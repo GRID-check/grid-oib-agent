@@ -134,6 +134,7 @@ Consequences, where a reader looks for them.
 | [0072](0072-the-knowledge-layer-has-one-backend-llamaindex.md) | The knowledge layer has one backend: llamaindex | Accepted |
 | [0073](0073-a-coverage-gap-is-stated-never-enforced.md) | A coverage gap is stated in the block, never enforced on the pool | Accepted |
 | [0074](0074-project-mail-inbox-via-cloudflare-email-routing.md) | Project mail inbox: receive through Cloudflare Email Routing and file through `uploadDocument` | Accepted |
+| [0075](0075-contact-form-via-cloudflare-email-sending.md) | Contact form: send through Cloudflare Email Sending to verified addresses only | Accepted |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off

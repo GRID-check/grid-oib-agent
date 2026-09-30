@@ -647,7 +647,7 @@ const de = {
         },
         {
           heading: 'Anmeldung und Piloti-Anwendung',
-          html: 'Mit „Anmelden“ verlassen Sie diese Website und gelangen zur Piloti-Anwendung; dort gilt deren eigene Datenschutzerklärung. Kurz vorab: Die Anmeldung läuft über WorkOS, Inc. (USA). KI-Anfragen werden über OpenRouter, Inc. (USA) an Modellanbieter weitergeleitet, die ihren Sitz auch außerhalb der EU haben können. Wir selbst trainieren keine KI-Modelle mit Ihren Daten.',
+          html: 'Mit „Anmelden“ verlassen Sie diese Website und gelangen zur Piloti-Anwendung; dort gilt deren eigene Datenschutzerklärung. Kurz vorab: Die Anmeldung läuft über WorkOS, Inc. (USA). KI-Anfragen werden über OpenRouter, Inc. (USA) an Modellanbieter weitergeleitet, die ihren Sitz auch außerhalb der EU haben können. E-Mails an die E-Mail-Adresse eines Projekts nimmt Cloudflare, Inc. (USA) entgegen und reicht sie an die Anwendung weiter; lehnt die Anwendung eine solche E-Mail ab, verarbeiten wir sie nur, um sie abzulehnen, und speichern nichts davon (berechtigtes Interesse, Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;f DSGVO). Wir selbst trainieren keine KI-Modelle mit Ihren Daten.',
         },
         {
           heading: 'Redaktionsbereich',
@@ -1302,7 +1302,7 @@ const en: typeof de = {
         },
         {
           heading: 'Sign-in and the Piloti application',
-          html: '“Sign in” takes you from this website to the Piloti application, which has its own privacy policy. In short: sign-in is handled by WorkOS, Inc. (USA). AI requests are routed through OpenRouter, Inc. (USA) to model providers that may be based outside the EU. We do not train AI models on your data.',
+          html: '“Sign in” takes you from this website to the Piloti application, which has its own privacy policy. In short: sign-in is handled by WorkOS, Inc. (USA). AI requests are routed through OpenRouter, Inc. (USA) to model providers that may be based outside the EU. Mail sent to a project’s email address is received by Cloudflare, Inc. (USA) and passed on to the application; if the application refuses such a mail, we process it only to refuse it and store none of it (legitimate interest, Art. 6(1)(f) GDPR). We do not train AI models on your data.',
         },
         {
           heading: 'Editorial area',

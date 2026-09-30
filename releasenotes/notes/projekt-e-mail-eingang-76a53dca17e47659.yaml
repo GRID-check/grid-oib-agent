@@ -1,14 +1,23 @@
 ---
 features:
   - >
-    Every project now has its own email address, under the project settings in
-    E-Mail-Eingang. Forward a mail to it and Piloti files the attachments in the
-    project, one folder per mail; only project members who may add documents
-    can send, and the mail text itself is not stored.
+    Each project can now have its own email address, under E-Mail-Eingang in
+    the project settings, once it is switched on for your organization. Send
+    attachments to it and Piloti files them in a folder for that mail, lists
+    anything it skipped in your inbox, and does not store the mail text.
+  - >
+    Only members who may add documents can send, from the address they sign in
+    with and a mail domain that signs its mail with DKIM. The help page at
+    piloti.at/e-mail-eingang explains why a mail came back and what to do.
 operators:
   - >
-    The project mail inbox is off until GRID_INBOUND_MAIL_DOMAIN and
-    GRID_INBOUND_MAIL_TOKEN are set on the frontend and the stack's inbound mail
-    domain is configured, which sets up Cloudflare Email Routing and its Email
-    Worker. Cloudflare becomes a sub-processor; keep Email preview off for that
-    domain.
+    The project mail inbox needs the stack's inboundMailDomain, the apex of a
+    Cloudflare zone of its own, which sets up Email Routing and its Worker;
+    Cloudflare becomes a sub-processor. It stays off for every organization
+    until you enable the WorkOS flag project-mail-inbox for it, after giving
+    the notice its contract requires.
+  - >
+    Before the first organization, prove on staging that the DKIM-Signature
+    header reaches the Worker intact and that a failing Worker makes the
+    sending server retry instead of bouncing. Keep Email preview off, and never
+    onboard the inbound domain for sending.
