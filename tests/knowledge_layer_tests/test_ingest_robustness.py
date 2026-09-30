@@ -488,3 +488,19 @@ def test_a_job_that_fails_validation_is_final_at_once(tmp_path, held_ingestor):
     assert prepared.status.status == JobState.FAILED
     assert held_ingestor.get_job_status(prepared.job_id).status == JobState.FAILED
     held_ingestor._ingest_pool.submit.assert_not_called()
+
+
+def test_a_job_the_pool_refuses_reads_failed_not_pending(tmp_path):
+    ing = LlamaIndexIngestor({"persist_dir": str(tmp_path / "chroma")})
+    ing._ingest_pool.shutdown(wait=True)
+    upload = tmp_path / "a.txt"
+    upload.write_text("x", encoding="utf-8")
+
+    with pytest.raises(RuntimeError):
+        ing.submit_job([str(upload)], "proj_1", config={"organization_id": "org-1"})
+
+    (job_id,) = ing._jobs
+    status = ing.get_job_status(job_id)
+    assert status.status == JobState.FAILED
+    assert status.error_message.startswith("interrupted:")
+    assert ing._live_job_ids() == []

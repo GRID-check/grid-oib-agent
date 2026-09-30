@@ -2933,14 +2933,25 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     def submit_prepared(self, prepared: PreparedIngestJob) -> None:
         """Queue a prepared job in this process's fair pool; it stays PENDING while it waits."""
         self._adopt(prepared)
-        self._ingest_pool.submit(
-            prepared.organization_id,
-            self._run_ingestion,
-            prepared.job_id,
-            prepared.file_paths,
-            prepared.collection_name,
-            self._job_config(prepared),
-        )
+        try:
+            self._ingest_pool.submit(
+                prepared.organization_id,
+                self._run_ingestion,
+                prepared.job_id,
+                prepared.file_paths,
+                prepared.collection_name,
+                self._job_config(prepared),
+            )
+        except RuntimeError as error:
+            # The pool is shutting down. Adopted and never run, the job would
+            # read PENDING for as long as this process beats for it.
+            with self._lock:
+                job = self._jobs[prepared.job_id]
+                job.status = JobState.FAILED
+                job.error_message = f"{ingest_status_store.INTERRUPTED}: {error}; retry to index this file"
+                job.completed_at = datetime.utcnow().isoformat()
+            self._persist(job)
+            raise
         logger.info("LlamaIndex ingestion job submitted: %s", prepared.job_id)
 
     def run_prepared(self, prepared: PreparedIngestJob) -> None:
