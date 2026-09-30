@@ -4,7 +4,7 @@
  * Dev preview — the `file_operation_proposal` card, in the states it has.
  *
  *  1. **A batch of moves.** The shape a tidying turn actually produces: „räum
- *     die Einreichunterlagen zusammen" is three `move_document` calls that
+ *     die Einreichunterlagen zusammen" is three `move` proposals that
  *     land on ONE card, so what has to read well is a LIST of „von → nach"
  *     rows under one question and one pair of buttons. Judge that the rows stay
  *     legible when a file name is long, that the arrow does not wrap away from

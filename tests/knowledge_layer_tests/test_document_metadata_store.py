@@ -135,6 +135,7 @@ class TestAvailableDocument:
             "doc_class": None,
             "display_title": None,
             "folder_path": None,
+            "added_at": None,
             "collection": None,
             "shelf": None,
         }
@@ -150,6 +151,7 @@ class TestAvailableDocument:
             "doc_class": None,
             "display_title": None,
             "folder_path": None,
+            "added_at": None,
             "collection": None,
             "shelf": None,
         }

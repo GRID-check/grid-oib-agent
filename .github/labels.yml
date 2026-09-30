@@ -36,4 +36,4 @@
 
 - name: answer-suite
   color: "5319e7"
-  description: "Run the answer suite on this PR, base against head (paid model calls, on every push while set)"
+  description: "Paused: the answer-suite CI run is commented out; run task be:eval:answer-suite locally"

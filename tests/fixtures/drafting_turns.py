@@ -46,6 +46,18 @@ FILED = "filed"
 #: research's. ``None`` is the legacy envelope and stays allowed.
 DRAFTING_ANSWER_KINDS: frozenset[str | None] = frozenset({None, "direct", "walkthrough"})
 
+#: ``file_draft`` called with ``submit=true``, as the trace names it. Submitting
+#: was its own tool (``submit_draft``) until it merged into that argument, and
+#: the cases still have to tell „abgelegt" from „eingereicht" apart.
+SUBMITTING = "file_draft(submit=true)"
+
+
+def traced_tool_name(name: str, args: Any) -> str:
+    """One tool call as the shape assertion names it; both harnesses build their trace with this."""
+    if name == "file_draft" and isinstance(args, dict) and str(args.get("submit")).strip().lower() == "true":
+        return SUBMITTING
+    return name
+
 
 @dataclass(frozen=True)
 class DraftingCase:
@@ -85,7 +97,7 @@ COMMISSION = DraftingCase(
     # A commission produces a draft in the conversation. Filing it is a second
     # request the reader has not made yet, and the tool description says so in
     # as many words („nicht von selbst nach jedem Schreiben").
-    forbidden_tools=("file_draft", "submit_draft"),
+    forbidden_tools=("file_draft", SUBMITTING),
     card=UNFILED,
 )
 
@@ -96,7 +108,7 @@ REVISE = DraftingCase(
     # the same content, and the reader's version history would show a new file
     # rather than a shortened paragraph.
     required_tools=("edit_file",),
-    forbidden_tools=("write_file", "file_draft", "submit_draft"),
+    forbidden_tools=("write_file", "file_draft", SUBMITTING),
     seed={_AKTENVERMERK: _SEEDED_DRAFT},
     card=UNFILED,
 )
@@ -107,7 +119,7 @@ FILE = DraftingCase(
     required_tools=("file_draft",),
     # Filing is not submitting. „Ablegen" asks nobody to review anything, and
     # a turn that submits has put an item in a colleague's inbox uninvited.
-    forbidden_tools=("submit_draft",),
+    forbidden_tools=(SUBMITTING,),
     seed={_AKTENVERMERK: _SEEDED_DRAFT},
     card=FILED,
 )
