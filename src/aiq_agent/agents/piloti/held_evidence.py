@@ -80,8 +80,9 @@ _TRUE = (
 _FALSE = (
     "The message asks for something the passages do not state: another regulation, Land, building "
     "class, use, element, value or document, a Punkt or page they do not contain, or more detail than "
-    "they hold. Passages that only name the subject, or list headings without the content asked for, "
-    "do not hold the answer. So does a message that needs no reading at all, such as thanks."
+    "they hold. Passages from a document other than the open one do not answer a message about the "
+    "open document. Passages that only name the subject, or list headings without the content asked "
+    "for, do not hold the answer. So does a message that needs no reading at all, such as thanks."
 )
 
 
@@ -124,13 +125,14 @@ def held_passages(messages: Sequence[Any], *, limit: int = MAX_HELD_PASSAGES) ->
     tools only (an ``emit_card`` confirmation is not evidence). A passage the
     last answer did not cite was compacted to its header
     (``history.compact_tool_results``) and holds no text, so it is not held.
-    The same citation key read twice counts once, at its last position.
+    The same passage read twice counts once, at its last position; two
+    passages on one page share a citation key and are two passages.
     """
     from aiq_agent.common.citation_verification import extract_sources_from_tool_result
     from aiq_agent.common.data_source_registry import get_source_id_for_tool
 
     last_human = max((i for i, m in enumerate(messages) if isinstance(m, HumanMessage)), default=-1)
-    held: dict[str, HeldPassage] = {}
+    held: dict[tuple[str, str], HeldPassage] = {}
     for message in messages[: max(last_human, 0)]:
         if not isinstance(message, ToolMessage) or not isinstance(message.content, str):
             continue
@@ -142,8 +144,9 @@ def held_passages(messages: Sequence[Any], *, limit: int = MAX_HELD_PASSAGES) ->
             text = (entry.chunk_text or "").strip()
             if not entry.citation_key or not text or text == UNCITED_PASSAGE_NOTE:
                 continue
-            held.pop(entry.citation_key, None)
-            held[entry.citation_key] = HeldPassage(
+            key = (entry.citation_key, text)
+            held.pop(key, None)
+            held[key] = HeldPassage(
                 citation_key=entry.citation_key,
                 source=entry.title or entry.citation_key,
                 punkt=entry.punkt,
@@ -159,20 +162,38 @@ def question() -> dict[str, dict[str, Any]]:
     return {"held": noul(_QUESTION, true=_TRUE, false=_FALSE)}
 
 
-def state_for(message: str, passages: Sequence[HeldPassage]) -> dict[str, Any]:
-    """What the decider is shown: the message and the held passages, bounded."""
-    return {"message": message[:1000], "language": "de", "passages": [p.state() for p in passages]}
+def state_for(message: str, passages: Sequence[HeldPassage], *, open_document: str | None = None) -> dict[str, Any]:
+    """What the decider is shown: the message, the file the user has open, and the held passages, bounded.
+
+    The open file is what a bare „dieses Dokument" means this turn; without it
+    a repeated „fass das Dokument zusammen" after the user opened another file
+    reads as answered by the old file's passages.
+    """
+    state: dict[str, Any] = {"message": message[:1000], "language": "de"}
+    if open_document:
+        state["open_document"] = open_document
+    state["passages"] = [p.state() for p in passages]
+    return state
 
 
 async def decide_held(
-    message: str, passages: Sequence[HeldPassage], *, organization_id: str | None = None
+    message: str,
+    passages: Sequence[HeldPassage],
+    *,
+    open_document: str | None = None,
+    organization_id: str | None = None,
 ) -> HeldCoverage | None:
     """The verdict over the held passages; ``None`` when there is nothing to judge or no decision ran."""
     if not message.strip() or not passages:
         return None
     from aiq_agent.common.decisions import decide
 
-    decision = await decide(state_for(message, passages), question(), slot=SLOT, organization_id=organization_id)
+    decision = await decide(
+        state_for(message, passages, open_document=open_document),
+        question(),
+        slot=SLOT,
+        organization_id=organization_id,
+    )
     p = decision.noul("held") if decision is not None else None
     if p is None:
         return None

@@ -23,6 +23,13 @@ def test_an_undecided_row_counts_as_a_no():
     assert (summary.recall, summary.false_yes, summary.undecided) == (0.5, 0, 2) and not summary.holds
 
 
+def test_a_passing_run_with_one_undecided_row_still_fails():
+    """Undecided measured nothing: that "no" row may be the false yes."""
+    scored = [Scored("a", True, 0.95), Scored("b", False, None)]
+    summary = summarise(scored, 0.8)
+    assert (summary.recall, summary.false_yes, summary.undecided) == (1.0, 0, 1) and not summary.holds
+
+
 def test_the_fixture_is_labelled_both_ways_and_every_row_reads():
     rows = yaml.safe_load(FIXTURE.read_text(encoding="utf-8"))["rows"]
     assert len({row["id"] for row in rows}) == len(rows)

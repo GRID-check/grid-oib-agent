@@ -122,6 +122,30 @@ class TestTheHeldPassages:
         messages = [*turn, *turn[1:], HumanMessage(content="nochmal?")]
         assert [p.citation_key for p in held_passages(messages)] == [PUNKT_12, PUNKT_2]
 
+    def test_two_passages_on_one_page_are_two_passages(self):
+        """They share a citation key (file and page); keying on it alone dropped the first."""
+        call = {"name": "knowledge_search", "args": {"query": "q"}, "id": "c1"}
+        text = render_grounding_block(
+            GroundingBlock(
+                preamble="Found 2 results",
+                degraded_banner="",
+                hits=(
+                    _hit(PUNKT_12, 14, "11", "Punkt 11 regelt die Nachweise."),
+                    _hit(PUNKT_12, 14, "12", "Punkt 12 regelt den Bestand."),
+                ),
+                lanes=(),
+                tool="knowledge_search",
+            )
+        )
+        messages = [
+            HumanMessage(content="q"),
+            AIMessage(content="", tool_calls=[call]),
+            ToolMessage(content=text, tool_call_id="c1", name="knowledge_search"),
+            HumanMessage(content="und Punkt 12?"),
+        ]
+        texts = [p.text for p in held_passages(messages)]
+        assert any("Punkt 11" in t for t in texts) and any("Punkt 12" in t for t in texts)
+
     def test_the_passages_are_bounded_to_the_most_recent(self):
         turn = _researched_turn("q", {PUNKT_12, PUNKT_2})
         assert [p.citation_key for p in held_passages([*turn, HumanMessage(content="?")], limit=1)] == [PUNKT_2]
@@ -147,6 +171,15 @@ class TestTheDecision:
         ]
         assert list(questions) == ["held"] and questions["held"]["type"] == "noul"
         assert decide.await_args.kwargs == {"slot": "held", "organization_id": "org-1"}
+        assert "open_document" not in state
+
+    async def test_the_open_document_is_part_of_the_state(self):
+        """„Fass das Dokument zusammen" means the file open NOW, which the old passages may not be from."""
+        with patch("aiq_agent.common.decisions.decide", new_callable=AsyncMock, return_value=_decision(0.1)) as decide:
+            await decide_held("Fass das Dokument zusammen", PASSAGES, open_document="Bescheid.pdf")
+        state, questions = decide.await_args.args
+        assert state["open_document"] == "Bescheid.pdf"
+        assert "open one" in questions["held"]["criteria"]["false"]
 
     async def test_below_the_threshold_is_not_covered(self):
         with patch("aiq_agent.common.decisions.decide", new_callable=AsyncMock, return_value=_decision(0.79)):
@@ -210,6 +243,12 @@ class TestTheTurn:
         # The question and the passages the transcript holds are what was asked.
         message, passages = decide.await_args.args
         assert message == OIB_2 and [p.citation_key for p in passages] == [PUNKT_12]
+        assert decide.await_args.kwargs["open_document"] is None
+
+    async def test_the_open_file_reaches_the_decision(self):
+        with patch.object(register_module, "decide_held", new_callable=AsyncMock, return_value=None) as decide:
+            await _run_turn(CONFIG, DECIDED, _repeat(), focus_file_name="Bescheid.pdf")
+        assert decide.await_args.kwargs["open_document"] == "Bescheid.pdf"
 
     async def test_a_no_leaves_round_0_as_the_turn_decision_named_it(self):
         with patch.object(register_module, "decide_held", new_callable=AsyncMock) as decide:

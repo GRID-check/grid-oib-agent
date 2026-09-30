@@ -394,7 +394,12 @@ async def _decide_held(facts: TurnFacts | None, state: ResearchAgentState) -> He
         passages = held_passages(state.messages)
         if not passages:
             return None
-        return await decide_held(facts.question, passages, organization_id=get_organization_id_from_context())
+        return await decide_held(
+            facts.question,
+            passages,
+            open_document=facts.focus_file_name,
+            organization_id=get_organization_id_from_context(),
+        )
     except Exception:  # noqa: BLE001 — a decision is worth less than the turn
         logger.warning("Held-evidence decision failed; running the turn as before", exc_info=True)
         return None

@@ -208,8 +208,10 @@ to every passage, it sent the model back to re-read what it was looking at.
 Switch: `held_evidence` beside `turn_decisions`. The
 threshold is set by analogy, not measured: `task be:eval:decisions:held` runs
 the tuning rows (`tests/fixtures/decisions/held_coverage.yaml`) and holds two
-floors, no false yes at the threshold and a recall of at least 0.6; below
-them, `held_evidence: false`.
+floors, no false yes at the threshold, a recall of at least 0.6, and every
+row decided; below them, `held_evidence: false`. The state carries the file
+the user has open, so a repeated „fass das Dokument zusammen" after opening
+another file is not answered by the old file's passages.
 
 **Held out.** The tuning numbers above were measured on the rows the criteria
 were written against. A held-out set per use, written blind to the wording from

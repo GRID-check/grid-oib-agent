@@ -20,6 +20,8 @@ THE FLOORS
   for with recall.
 - At least 60 % of the ``held: true`` rows at or above it. Below that the
   decision costs a call on every later turn for too little.
+- Every row decided. An undecided row measured nothing: a "no" row that did
+  not run may be the false yes the first floor is there to catch.
 Anything under them: set ``held_evidence: false`` and say so in the PR.
 
 A TUNING SET
@@ -81,7 +83,7 @@ class Summary:
 
     @property
     def holds(self) -> bool:
-        return self.false_yes == 0 and self.recall >= RECALL_FLOOR
+        return self.false_yes == 0 and self.recall >= RECALL_FLOOR and self.undecided == 0
 
 
 def summarise(scored: Sequence[Scored], threshold: float) -> Summary:
@@ -129,9 +131,9 @@ def main() -> int:
     result = summarise(scored, held_evidence.HELD_THRESHOLD)
     print(
         f"held evidence at {result.threshold}: recall {result.recall:.2f} (floor {RECALL_FLOOR}), "
-        f"false yes {result.false_yes} (floor 0), undecided {result.undecided}"
+        f"false yes {result.false_yes} (floor 0), undecided {result.undecided} (floor 0)"
     )
-    return 0 if result.holds and not result.undecided else 1
+    return 0 if result.holds else 1
 
 
 if __name__ == "__main__":
