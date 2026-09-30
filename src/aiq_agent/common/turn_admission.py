@@ -65,6 +65,9 @@ from contextlib import asynccontextmanager
 from contextlib import contextmanager
 
 from aiq_agent.common import cache
+from aiq_agent.common.lease_slots import ACQUIRE_LUA
+from aiq_agent.common.lease_slots import RELEASE_LUA
+from aiq_agent.common.lease_slots import RENEW_LUA
 
 logger = logging.getLogger(__name__)
 
@@ -123,44 +126,10 @@ class TurnAdmissionError(RuntimeError):
         self.retry_after_seconds = retry_after_seconds
 
 
-# Drop expired leases, refuse if the pool is full, otherwise take a slot.
-# One script because the three steps must be atomic: split apart, two turns
-# both read "one slot left" and both take it, which is precisely the
-# concurrency this exists to bound.
-_ACQUIRE_LUA = """
-local key = KEYS[1]
-local now = tonumber(ARGV[1])
-local lease = tonumber(ARGV[2])
-local limit = tonumber(ARGV[3])
-local member = ARGV[4]
-
-redis.call('ZREMRANGEBYSCORE', key, '-inf', now - lease)
-if redis.call('ZCARD', key) >= limit then
-  return 0
-end
-redis.call('ZADD', key, now, member)
-redis.call('EXPIRE', key, lease)
-return 1
-"""
-
-_RELEASE_LUA = "return redis.call('ZREM', KEYS[1], ARGV[1])"
-
-# Re-stamp a slot this turn still holds. A slot that was already reclaimed
-# stays gone: adding it back could take the pool past its limit, which is the
-# over-admission a renewal exists to prevent. Returns 1 when renewed.
-_RENEW_LUA = """
-local key = KEYS[1]
-local now = tonumber(ARGV[1])
-local lease = tonumber(ARGV[2])
-local member = ARGV[3]
-
-if not redis.call('ZSCORE', key, member) then
-  return 0
-end
-redis.call('ZADD', key, now, member)
-redis.call('EXPIRE', key, lease)
-return 1
-"""
+# The lease scripts are shared with every fleet-wide slot pool (lease_slots).
+_ACQUIRE_LUA = ACQUIRE_LUA
+_RELEASE_LUA = RELEASE_LUA
+_RENEW_LUA = RENEW_LUA
 
 # Per-process fallback, used only when there is no shared store (local dev, a
 # single-replica compose stack, tests). It bounds this replica honestly and says

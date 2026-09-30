@@ -35,6 +35,7 @@ import json
 import logging
 import math
 import os
+import random
 import re
 import threading
 import time
@@ -401,6 +402,29 @@ MAX_OCR_PAGES = _env_int("AIQ_MAX_OCR_PAGES", 500, minimum=0)
 # misconfigured 0 or negative value would fail every VLM request immediately and
 # silently disable captioning altogether.
 VLM_REQUEST_TIMEOUT_SECONDS = max(1, _env_int("AIQ_VLM_TIMEOUT_SECONDS", 180))
+
+# @environment_variable AIQ_VLM_FLEET_CONCURRENCY
+# @category Knowledge Layer
+# @type int
+# @default 48
+# @required false
+# Vision-model calls in flight across EVERY ingest process at once (a lease pool
+# on the shared cache, `common.lease_slots`); a call waits for a slot. This, not
+# the number of ingest workers, is what the provider sees, so scaling the ingest
+# tier out queues calls here instead of turning into upstream 429s. 0 disables.
+VLM_FLEET_CONCURRENCY = _env_int("AIQ_VLM_FLEET_CONCURRENCY", 48)
+
+# @environment_variable AIQ_VLM_RATE_LIMIT_RETRIES
+# @category Knowledge Layer
+# @type int
+# @default 4
+# @required false
+# Retries of a vision-model call the provider rate-limited (HTTP 429), with
+# exponential backoff or the provider's Retry-After, before the caption fails.
+VLM_RATE_LIMIT_RETRIES = max(0, _env_int("AIQ_VLM_RATE_LIMIT_RETRIES", 4))
+
+_VLM_SLOT_KEY = "ingest:vlm:inflight"
+_VLM_BACKOFF_CAP_SECONDS = 60.0
 
 # @environment_variable AIQ_EMBED_BATCH_SIZE
 # @category Knowledge Layer
@@ -1848,6 +1872,53 @@ def _table_to_markdown(table: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
+def _vlm_slot():
+    """One of the fleet's ``VLM_FLEET_CONCURRENCY`` vision-call slots, for as long as the call may last."""
+    from aiq_agent.common import lease_slots
+
+    return lease_slots.hold(
+        _VLM_SLOT_KEY,
+        VLM_FLEET_CONCURRENCY,
+        lease_seconds=VLM_REQUEST_TIMEOUT_SECONDS + 30,
+        max_wait_seconds=VLM_REQUEST_TIMEOUT_SECONDS * 3,
+    )
+
+
+def _rate_limited_for(error: Exception) -> float | None:
+    """Seconds to wait before retrying a call the provider rate-limited; None when it was not a 429."""
+    if getattr(error, "status_code", None) != 429 and "rate_limit" not in str(error).lower():
+        return None
+    headers = getattr(getattr(error, "response", None), "headers", None) or {}
+    try:
+        stated = float(headers.get("retry-after", ""))
+    except (TypeError, ValueError):
+        return 0.0
+    return min(max(stated, 0.0), _VLM_BACKOFF_CAP_SECONDS)
+
+
+def _vlm_create_fairly(client, **request):
+    """``client.chat.completions.create`` inside a fleet slot, waiting out the provider's 429s.
+
+    The OpenAI SDK retries a 429 once on its own (``max_retries=1``); a burst of
+    ingest workers outlasts that. Each further attempt waits OUTSIDE the slot
+    (Retry-After when the provider states it, else 2, 4, 8 … s with jitter), so
+    a rate-limited call never holds capacity another call could use once the
+    limit lifts.
+    """
+    for attempt in range(VLM_RATE_LIMIT_RETRIES + 1):
+        try:
+            with _vlm_slot():
+                return client.chat.completions.create(**request)
+        except Exception as error:
+            wait = _rate_limited_for(error)
+            if wait is None or attempt == VLM_RATE_LIMIT_RETRIES:
+                raise
+            wait = wait or min(_VLM_BACKOFF_CAP_SECONDS, 2.0 ** (attempt + 1))
+            logger.info("VLM call rate-limited; retrying in %.1fs (attempt %d)", wait, attempt + 1)
+            time.sleep(wait * (0.8 + 0.4 * random.random()))
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
 def _vlm_chat_create(client, *, model: str, messages: list, max_tokens: int, temperature: float = 0.2) -> str:
     """One VLM chat completion with a single truncation retry.
 
@@ -1869,7 +1940,8 @@ def _vlm_chat_create(client, *, model: str, messages: list, max_tokens: int, tem
       Raising here would discard usable content and — since failure placeholders
       are no longer indexed — drop the chunk entirely over a partial success.
     """
-    response = client.chat.completions.create(
+    response = _vlm_create_fairly(
+        client,
         model=model,
         messages=messages,
         max_tokens=max_tokens,
@@ -1891,12 +1963,13 @@ def _vlm_chat_create(client, *, model: str, messages: list, max_tokens: int, tem
         except Exception:  # pragma: no cover - defensive, SDK-shape dependent
             retry_client = client
     try:
-        response = retry_client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=max_tokens * 2,
-            temperature=temperature,
-        )
+        with _vlm_slot():
+            response = retry_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens * 2,
+                temperature=temperature,
+            )
     except Exception as exc:
         logger.warning("VLM truncation retry failed (%s); keeping the truncated caption", exc)
         return partial
