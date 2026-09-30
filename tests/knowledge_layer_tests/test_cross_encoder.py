@@ -132,6 +132,17 @@ async def test_ranking_parse_drops_dup_out_of_range_and_string_scores(monkeypatc
     assert provider["zdr"] is True and provider["data_collection"] == "deny"
 
 
+async def test_without_the_zdr_seam_the_rerank_is_skipped_not_sent_unpinned(monkeypatch) -> None:
+    """The package imports without aiq_agent; then no rerank goes out, rather than an unpinned one."""
+    import sys
+
+    seen = _serve(monkeypatch, lambda request: _ok({"results": []}))
+    monkeypatch.setitem(sys.modules, "aiq_agent.common.openrouter", None)
+
+    assert await _reranker().rerank("query", [_chunk("a"), _chunk("b")], top_n=2) is None
+    assert seen == []
+
+
 def test_the_default_reranker_is_one_with_a_zdr_endpoint(monkeypatch) -> None:
     """Every rerank is pinned, so a default without a ZDR endpoint would refuse every call."""
     from knowledge_layer import cross_encoder

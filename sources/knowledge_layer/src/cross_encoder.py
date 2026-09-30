@@ -47,9 +47,6 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from aiq_agent.common.openrouter import PLATFORM_FIXED
-from aiq_agent.common.openrouter import targets_openrouter
-
 logger = logging.getLogger(__name__)
 
 PROVIDER = "openrouter"
@@ -300,6 +297,24 @@ def _resolve_api_key(base_url: str, model: str, organization_id: str | None) -> 
     return _resolve_credential(base_url, model, organization_id).api_key
 
 
+def _pinned_body(body: dict[str, Any], base_url: str) -> dict[str, Any] | None:
+    """``body`` pinned to zero-data-retention endpoints, or ``None`` to skip the rerank.
+
+    The reranker is the platform's, not an organization's choice, so an
+    OpenRouter rerank is always pinned (``openrouter.PLATFORM_FIXED``, ADR-0074)
+    and its model must have a ZDR endpoint (the default does). Imported here,
+    not at module level, because this package imports without ``aiq_agent``;
+    without the seam the rerank is skipped rather than sent unpinned.
+    """
+    try:
+        from aiq_agent.common.openrouter import PLATFORM_FIXED
+        from aiq_agent.common.openrouter import targets_openrouter
+    except ImportError:
+        _throttled_warning("Cross-encoder skipped: the zero-data-retention seam (aiq_agent) is not installed")
+        return None
+    return PLATFORM_FIXED.apply(body) if targets_openrouter(base_url) else body
+
+
 def _organization_id_in_scope() -> str | None:
     """The organization this search belongs to, or ``None`` outside a turn.
 
@@ -509,12 +524,9 @@ class CrossEncoderReranker:
         documents = [str(getattr(chunk, "content", ""))[: self.max_doc_chars] for chunk in chunks]
         credential = await self._credential_for_search()
         url = f"{credential.base_url}{_PATH}"
-        body = self._build_body(query, documents, top_n)
-        if targets_openrouter(credential.base_url):
-            # The reranker is the platform's, not an organization's choice:
-            # always pinned (`openrouter.PLATFORM_FIXED`), so its model must
-            # have a zero-data-retention endpoint (the default does).
-            body = PLATFORM_FIXED.apply(body)
+        body = _pinned_body(self._build_body(query, documents, top_n), credential.base_url)
+        if body is None:
+            return None
         try:
             # Imported inside the guard: httpx is an optional transitive dependency, and
             # an ImportError here must degrade to "no opinion" like every other failure.
