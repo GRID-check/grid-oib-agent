@@ -14,9 +14,7 @@ The adapter modules can be used standalone without NAT.
 
 # Eagerly import NAT functions to trigger @register_function decorators
 try:
-    from .browse import FindInFilesConfig
     from .browse import ListFilesConfig
-    from .browse import find_in_files
     from .browse import list_files
     from .read_passage import ReadPassageConfig
     from .read_passage import read_passage
@@ -26,8 +24,6 @@ try:
     from .view_image import view_knowledge_image
 
     __all__ = [
-        "FindInFilesConfig",
-        "find_in_files",
         "ListFilesConfig",
         "list_files",
         "KnowledgeRetrievalConfig",

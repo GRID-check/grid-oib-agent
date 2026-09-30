@@ -376,12 +376,9 @@ functions:
           # off must take both, and `get_source_id_for_tool` must resolve it or
           # nothing it returns is captured as a citable source.
           - read_passage
-          # The file browser and the phrase search read the same files through
-          # the same scope, for the same two reasons: switching the knowledge
-          # base off must take them too, and `find_in_files` returns citable
-          # passages that are only captured if its name resolves here.
+          # The file browser reads the same files through the same scope, so
+          # switching the knowledge base off must take it too.
           - list_files
-          - find_in_files
       - id: ris
         name: "RIS – Österreichisches Recht"
         description: "Search Austrian federal/state law and case law in the official RIS (Rechtsinformationssystem des Bundes) and fetch entire documents on demand."
@@ -592,19 +589,15 @@ functions:
     _type: read_passage
     knowledge_search: knowledge_search
 
-  # The two tools that let the agent look at the reader's files the way a
-  # person does in the Files pane (sources/knowledge_layer/src/browse.py).
-  # `list_files` is `ls`: every file on the reader's own shelves, by folder,
-  # name, Dokumentart and upload date, paged — the prompt inventory stops at a
-  # few dozen names, this does not. `find_in_files` is Ctrl+F across the
-  # project: every chunk that contains a literal phrase, counted per file, with
-  # the first passages citable like a search hit. Both deterministic, no LLM,
-  # and both read only the scope `knowledge_search` reads.
+  # The file browser (sources/knowledge_layer/src/browse.py): `ls` over the
+  # reader's own shelves — every file, by folder, name, Dokumentart and upload
+  # date, paged. The prompt inventory stops at a few dozen names; this does
+  # not. Deterministic, no LLM, and it reads only the scope `knowledge_search`
+  # reads. Its partner, Ctrl+F across the files, is NOT a tool: it is
+  # `knowledge_search(match="exact")`, the same verb over the same scope
+  # (docs/architecture/agent-tool-surface.md).
   list_files:
     _type: list_files
-    knowledge_search: knowledge_search
-  find_in_files:
-    _type: find_in_files
     knowledge_search: knowledge_search
 
   # Project Memory: silent, observable capture of durable project findings.
@@ -744,7 +737,6 @@ functions:
       - knowledge_search
       - read_passage
       - list_files
-      - find_in_files
       - view_knowledge_image
       # ONE RIS tool on the chat surface. Search → pick → fetch → find the
       # paragraph was three charged calls and a 40 000-character blob that
@@ -1058,7 +1050,6 @@ functions:
       # round the run does not get back.
       - read_passage
       - list_files
-      - find_in_files
       - view_knowledge_image
       - ris_search_tool
       - ris_fetch_tool

@@ -1411,10 +1411,6 @@ register_source_parser(lambda name: "ris_lookup" in name, _parse_knowledge_layer
 # structured path reads its block by hash and would otherwise recover passages
 # the text path cannot (ADR-0061).
 register_source_parser(lambda name: "read_passage" in name, _parse_knowledge_layer)
-# ``find_in_files`` is the fourth: its matching passages render through the same
-# ``_format_results`` (the per-file Fundstellen table rides as the trailer), so a
-# phrase it found is citable exactly like a searched or opened passage.
-register_source_parser(lambda name: "find_in_files" in name, _parse_knowledge_layer)
 
 # ---------------------------------------------------------------------------
 # Citation parsing and source-section layout normalization

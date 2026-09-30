@@ -1,6 +1,6 @@
-"""The file browser and the project-wide phrase search.
+"""The file browser and the literal mode of the search.
 
-``list_files`` and ``find_in_files`` exist because the agent could see only the
+``list_files`` and ``knowledge_search(match="exact")`` exist because the agent could see only the
 first fifty names of a project and could only find what ranked in a top-k
 similarity search. These tests pin what makes them the Files pane and Ctrl+F:
 
@@ -23,10 +23,8 @@ from aiq_agent.knowledge.schema import AvailableDocument
 from aiq_agent.knowledge.schema import Chunk
 from aiq_agent.knowledge.schema import ContentType
 from aiq_agent.knowledge.scoping import ScopedCollection
-from sources.knowledge_layer.src.browse import FindInFilesConfig
 from sources.knowledge_layer.src.browse import ListFilesConfig
 from sources.knowledge_layer.src.browse import file_rows
-from sources.knowledge_layer.src.browse import find_in_files
 from sources.knowledge_layer.src.browse import group_matches
 from sources.knowledge_layer.src.browse import list_files
 from sources.knowledge_layer.src.browse import pick_passages
@@ -35,6 +33,7 @@ from sources.knowledge_layer.src.browse import select_files
 from sources.knowledge_layer.src.browse import spellings
 from sources.knowledge_layer.src.browse import split_alternatives
 from sources.knowledge_layer.src.register import KnowledgeRetrievalConfig
+from sources.knowledge_layer.src.register import knowledge_retrieval
 
 
 def _doc(name: str, folder: str | None = None, *, shelf: str = "project", **extra) -> AvailableDocument:
@@ -221,6 +220,8 @@ class TestPhraseMatching:
 
 
 class _TextStore:
+    """A retriever that only knows the literal lookup; a ranked search here is a bug."""
+
     def __init__(self, chunks):
         self.chunks = chunks
         self.calls: list[dict] = []
@@ -229,50 +230,118 @@ class _TextStore:
         self.calls.append({"collection": collection_name, "spellings": spellings, "filters": filters})
         return [chunk for chunk in self.chunks if chunk.metadata["collection"] == collection_name]
 
+    async def retrieve(self, *args, **kwargs):  # pragma: no cover - the exact mode never ranks
+        raise AssertionError("match='exact' must not run the ranked search")
 
-class TestFindInFilesTool:
-    async def _call(self, **kwargs) -> str:
-        async with find_in_files(FindInFilesConfig(), _builder()) as info:
-            return await info.single_fn(info.input_schema(**kwargs))
 
-    async def test_every_matching_file_is_listed_and_the_passages_are_citable(self, scope, monkeypatch):
-        store = _TextStore(
-            [
-                _chunk("Grundriss_EG.pdf", "Tür T30-2 im Brandabschnitt BA-03", page=1, chunk_id="1"),
-                _chunk("Schnitt_A-A.pdf", "Trennwand zu BA-03, ba-03 Nord", page=4, chunk_id="2"),
-                _chunk("Leitfaden_Buero.pdf", "Beispiel BA-03", page=9, chunk_id="3", collection="archiv_1"),
-            ]
+@pytest.fixture
+def search_with(monkeypatch, scope):
+    """Install a retriever into ``knowledge_search`` and neutralise its boot-time reach."""
+
+    def install(retriever):
+        monkeypatch.setattr("sources.knowledge_layer.src.register._get_retriever", lambda config: retriever)
+        monkeypatch.setattr("sources.knowledge_layer.src.register._initialize_ingestor", lambda config, llm: None)
+        monkeypatch.setattr("aiq_agent.knowledge.factory.configure_summary_db", lambda url: None)
+        monkeypatch.setattr("aiq_agent.knowledge.norm_store.configure_norm_store", lambda url: None)
+        return retriever
+
+    return install
+
+
+async def _exact(**kwargs) -> str:
+    config = KnowledgeRetrievalConfig(collection_name="oib_knowledge", include_base_collection=True)
+    async with knowledge_retrieval(config, MagicMock()) as info:
+        return await info.single_fn(info.input_schema(match="exact", **kwargs))
+
+
+class TestExactSearch:
+    async def test_every_matching_file_is_listed_and_the_passages_are_citable(self, search_with):
+        store = search_with(
+            _TextStore(
+                [
+                    _chunk("Grundriss_EG.pdf", "Tür T30-2 im Brandabschnitt BA-03", page=1, chunk_id="1"),
+                    _chunk("Schnitt_A-A.pdf", "Trennwand zu BA-03, ba-03 Nord", page=4, chunk_id="2"),
+                    _chunk("Leitfaden_Buero.pdf", "Beispiel BA-03", page=9, chunk_id="3", collection="archiv_1"),
+                    _chunk("oib-rl_2.pdf", "BA-03 BA-03 BA-03", page=2, chunk_id="4", collection="oib_knowledge"),
+                ]
+            )
         )
-        monkeypatch.setattr("aiq_agent.knowledge.factory.get_active_retriever", lambda: store)
-        text = await self._call(text="BA-03")
+        text = await _exact(query="BA-03")
         assert "Citation: Schnitt_A-A.pdf, p.4" in text
         assert "## Fundstellen für „BA-03“" in text
         assert "- Schnitt_A-A.pdf (Projektwissen): 2×, S. 4" in text
         assert "- Leitfaden_Buero.pdf (Büroarchiv): 1×, S. 9" in text
-        # The reader's own shelves only: the base corpus is never asked.
-        assert {call["collection"] for call in store.calls} == {"proj_1", "archiv_1"}
+        # Same scope as the ranked search, but the reader's own files are listed first.
+        table = text[text.index("## Fundstellen") :]
+        assert table.index("Schnitt_A-A.pdf") < table.index("oib-rl_2.pdf")
+        assert {call["collection"] for call in store.calls} == {"proj_1", "archiv_1", "oib_knowledge"}
 
-    async def test_a_folder_narrows_to_the_files_filed_under_it(self, scope, monkeypatch):
-        store = _TextStore([])
-        monkeypatch.setattr("aiq_agent.knowledge.factory.get_active_retriever", lambda: store)
-        text = await self._call(text="BA-03", folder="Plaene")
+    async def test_a_folder_narrows_to_the_files_filed_under_it(self, search_with):
+        store = search_with(_TextStore([]))
+        text = await _exact(query="BA-03", folder="Plaene")
         assert "Keine Fundstelle" in text
         assert [call["collection"] for call in store.calls] == ["proj_1"]
-        assert sorted(store.calls[0]["filters"]["file_name"]["$in"]) == [
-            "Grundriss_EG.pdf",
-            "Grundriss_OG1.pdf",
-            "Schnitt_A-A.pdf",
-        ]
+        assert store.calls[0]["filters"] == {
+            "file_name": {"$in": ["Grundriss_EG.pdf", "Grundriss_OG1.pdf", "Schnitt_A-A.pdf"]}
+        }
 
-    async def test_an_unsupported_backend_says_so_instead_of_reporting_no_match(self, scope, monkeypatch):
-        backend = SimpleNamespace(find_text=None)
+    async def test_a_narrowing_that_names_no_file_says_so(self, search_with):
+        search_with(_TextStore([]))
+        assert "list_files" in await _exact(query="BA-03", folder="Statik")
 
-        async def _unsupported(*args, **kwargs):
-            return None
+    async def test_an_unsupported_backend_says_so_instead_of_reporting_no_match(self, search_with):
+        class _Ranked:
+            async def find_text(self, *args, **kwargs):
+                return None
 
-        backend.find_text = _unsupported
-        monkeypatch.setattr("aiq_agent.knowledge.factory.get_active_retriever", lambda: backend)
-        assert "nicht verfügbar" in await self._call(text="BA-03")
+        search_with(_Ranked())
+        assert "nicht verfügbar" in await _exact(query="BA-03")
 
-    async def test_too_short_a_phrase_is_refused(self, scope):
-        assert "at least" in await self._call(text="E")
+    async def test_too_short_a_phrase_is_refused(self, search_with):
+        search_with(_TextStore([]))
+        assert "at least" in await _exact(query="E")
+
+    async def test_an_unknown_mode_is_refused(self, search_with):
+        search_with(_TextStore([]))
+        config = KnowledgeRetrievalConfig(collection_name="oib_knowledge", include_base_collection=True)
+        async with knowledge_retrieval(config, MagicMock()) as info:
+            out = await info.single_fn(info.input_schema(query="BA-03", match="fuzzy"))
+        assert "`match` must be" in out
+
+
+def test_the_exact_mode_is_never_withheld_as_a_repeat_of_the_ranked_one():
+    from aiq_agent.common.turn_status import fetch_signature
+
+    ranked = fetch_signature({"name": "knowledge_search", "args": {"query": "BA-03"}})
+    exact = fetch_signature({"name": "knowledge_search", "args": {"query": "BA-03", "match": "exact"}})
+    assert ranked != exact
+    assert ranked == fetch_signature({"name": "knowledge_search", "args": {"query": "ba-03", "match": "meaning"}})
+
+
+def test_the_store_query_finds_every_spelling_and_honours_a_file_filter():
+    """Against a real Chroma: the `$contains`/`$or` shape and the file filter are what the store accepts."""
+    chromadb = pytest.importorskip("chromadb")
+    from knowledge_layer.llamaindex.adapter import LlamaIndexRetriever
+
+    client = chromadb.EphemeralClient()
+    collection = client.get_or_create_collection(f"proj_{id(client)}")
+    collection.add(
+        ids=["a", "b", "c", "d"],
+        documents=["Firma Müller liefert", "MUELLER haftet", "nichts", "Brandabschnitt BA-03"],
+        metadatas=[
+            {"file_name": "a.pdf", "page_label": "1"},
+            {"file_name": "b.pdf", "page_label": "2"},
+            {"file_name": "a.pdf", "page_label": "3"},
+            {"file_name": "c.pdf", "page_label": "4"},
+        ],
+        embeddings=[[0.1, 0.2], [0.2, 0.1], [0.3, 0.3], [0.5, 0.1]],
+    )
+    retriever = LlamaIndexRetriever.__new__(LlamaIndexRetriever)
+    retriever._chroma_client = client
+    retriever._ensure_initialized = lambda: None
+
+    found = retriever._find_text_sync(collection.name, spellings("Müller"), None, 50)
+    assert sorted((chunk.file_name, chunk.page_number) for chunk in found) == [("a.pdf", 1), ("b.pdf", 2)]
+    narrowed = retriever._find_text_sync(collection.name, spellings("BA-03"), {"file_name": {"$in": ["c.pdf"]}}, 50)
+    assert [chunk.file_name for chunk in narrowed] == ["c.pdf"]
+    assert retriever._find_text_sync("no_such_collection", ["x"], None, 5) == []

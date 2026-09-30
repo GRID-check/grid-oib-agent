@@ -563,10 +563,9 @@ _SEARCH_CORPORA: tuple[tuple[str, str], ...] = (
     ("advanced_web_search", "web"),
     ("web_search", "web"),
     ("surface_documents", "documents"),
-    # The file browser and the project-wide phrase search read the reader's own
-    # files, so the line says „in Ihren Unterlagen“, not the knowledge corpus.
+    # The file browser reads the reader's own files, so the line says „in Ihren
+    # Unterlagen“, not the knowledge corpus.
     ("list_files", "documents"),
-    ("find_in_files", "documents"),
     ("ifc_", "ifc"),
 )
 
@@ -725,17 +724,22 @@ def _search_signature(args: dict[str, Any]) -> str:
     canonical = (
         json.dumps(filters, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str) if filters else ""
     )
-    return _SIGNATURE_SEPARATOR.join(
-        [
-            "knowledge_search",
-            " ".join(str(args.get("query") or "").split()).casefold(),
-            _argument_text(args, "doc_class"),
-            _argument_text(args, "title_contains"),
-            _argument_text(args, "file_name", fold_case=True),
-            _argument_text(args, "folder"),
-            canonical,
-        ]
-    )
+    parts = [
+        "knowledge_search",
+        " ".join(str(args.get("query") or "").split()).casefold(),
+        _argument_text(args, "doc_class"),
+        _argument_text(args, "title_contains"),
+        _argument_text(args, "file_name", fold_case=True),
+        _argument_text(args, "folder"),
+        canonical,
+    ]
+    # The literal mode is a different question over the same words: „BA-03"
+    # ranked and „BA-03" everywhere are two answers, so it may not be withheld
+    # as a repeat of the other. Appended only when set, so every meaning-mode
+    # signature is what it always was.
+    if str(args.get("match") or "").strip().lower() == "exact":
+        parts.append("exact")
+    return _SIGNATURE_SEPARATOR.join(parts)
 
 
 def _passage_signature(args: dict[str, Any]) -> str:

@@ -1,4 +1,4 @@
-"""The two tools that let the agent look at the files the way a person does.
+"""Looking at the files the way a person does: the listing and the exact search.
 
 A person in the Files pane does two things before they read anything: they
 LOOK at what is there (open a folder, sort by date, filter by name) and they
@@ -14,10 +14,16 @@ cap kept, and „wo kommt BA-03 überall vor?“ from the three passages that ra
   shelves, filtered by folder, name, Dokumentart and date, paged, with the
   subfolders and their counts. An INDEX, never evidence: a row proves a file
   exists, as the inventory does.
-- ``find_in_files`` is ``grep``: every chunk whose text contains a phrase, over
+- ``knowledge_search(match="exact")`` is ``grep`` (:func:`exact_search`, here
+  because it shares the rows and the folding): every chunk whose text contains a phrase, over
   every file in scope, counted per file — then the first passages of the
   best-covered files, rendered through the knowledge layer's own grounding
   block, so they are citable exactly like a search hit.
+
+The exact search is a MODE of the search rather than a tool of its own: it is
+the same verb over the same scope with the same narrowing arguments, and a
+second tool would have been one more name for the model to choose between
+(docs/architecture/agent-tool-surface.md).
 
 Both are deterministic: no reranker, no judge, no LLM. Both read only what the
 turn may read: the rows the turn's inventory resolved against the signed scope
@@ -65,7 +71,7 @@ MAX_SUMMARY_CHARS = 160
 USER_SHELVES = ("project", "archiv", "session")
 KNOWN_SHELVES = (*USER_SHELVES, "base")
 
-#: How many chunks one ``find_in_files`` call reads per collection. A bound
+#: How many chunks one exact search reads per collection. A bound
 #: against a phrase that is on every page, not a relevance budget: past it the
 #: count is stated as a floor.
 MAX_MATCH_CHUNKS = 500
@@ -77,7 +83,7 @@ MAX_MATCH_PASSAGES = 8
 #: A phrase shorter than this matches noise („EG“ is in half the words).
 MIN_PHRASE_CHARS = 2
 
-#: Alternatives in one ``find_in_files`` call. „BA-03 | BA 03 | Brandabschnitt 3“
+#: Alternatives in one exact search. „BA-03 | BA 03 | Brandabschnitt 3“
 #: is one question asked three ways; ten is a runaway.
 MAX_ALTERNATIVES = 6
 
@@ -334,13 +340,13 @@ def render_listing(listing: Listing, *, in_flight: Sequence[str] = ()) -> str:
         "Das ist ein Verzeichnis, keine Quelle: eine Zeile beweist, dass die Datei existiert, nicht was "
         "darin steht. Schreibe Dateinamen genau so, wie sie hier stehen — der Leser sieht jeden als Link, "
         "der die Datei öffnet. Lesen: `read_passage(document=…)`; darin suchen: "
-        "`knowledge_search(file_name=…)` oder `find_in_files`; eine Seite ansehen: `view_knowledge_image`."
+        '`knowledge_search(file_name=…)`, wörtlich mit `match="exact"`; eine Seite ansehen: `view_knowledge_image`.'
     )
     return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
-# find_in_files
+# The exact search (knowledge_search match="exact")
 # ---------------------------------------------------------------------------
 
 
@@ -400,7 +406,11 @@ def group_matches(chunks: Iterable[Any], phrases: Sequence[str]) -> list[FileMat
             group = groups[key] = FileMatches(chunk.file_name, metadata.get("shelf"), collection)
         group.chunks.append(chunk)
         group.occurrences += count
-    ordered = sorted(groups.values(), key=lambda group: (-group.occurrences, fold(group.file_name)))
+    # The reader's own files first: „wo steht EI 90" is about the project, and
+    # the OIB corpus says EI 90 on a hundred pages.
+    ordered = sorted(
+        groups.values(), key=lambda group: (group.shelf == "base", -group.occurrences, fold(group.file_name))
+    )
     for group in ordered:
         group.chunks.sort(key=lambda chunk: (getattr(chunk, "page_number", None) or 0, chunk.chunk_id))
     return ordered
@@ -455,8 +465,8 @@ def no_match_message(phrases: Sequence[str], searched: int) -> str:
     return (
         f"Keine Fundstelle für {wanted} in {searched} Sammlung(en) — auch nicht in anderer Groß-/Kleinschreibung "
         "oder Umlaut-Schreibweise. Das ist ein belastbares Nein für den WORTLAUT, nicht für das Thema: eine "
-        "andere Formulierung findet `knowledge_search`. Eingescannte Seiten ohne Textebene und Dateien, die "
-        "noch verarbeitet werden, sind nicht durchsuchbar."
+        "andere Formulierung findet `knowledge_search` ohne `match`. Eingescannte Seiten ohne Textebene "
+        "und Dateien, die noch verarbeitet werden, sind nicht durchsuchbar."
     )
 
 
@@ -542,32 +552,12 @@ _LIST_FILES_DESCRIPTION = (
     "- `shelf=` project | archiv | session | base (base = the platform OIB corpus, listed only when asked).\n"
     "- `offset=` the next page, as the result says.\n"
     "WHEN NOT TO CALL — to learn what a file SAYS: that is `read_passage` / `knowledge_search`. To "
-    "find which files MENTION a term: `find_in_files`.\n"
+    'find which files MENTION a term: `knowledge_search(match="exact")`.\n'
     "RETURNS — a count, the subfolders, then one line per file: exact file name, title, folder, "
     "Dokumentart, upload date, a one-line summary. An index, not a source: never cite it and never "
     "answer what a file contains from its summary. Write file names exactly as returned — each "
     "becomes a link the reader can open."
 )
-
-_FIND_IN_FILES_DESCRIPTION = (
-    "Find EVERY place a word, name, number or phrase is written in the reader's files — Ctrl+F "
-    "across the whole project. Exhaustive and literal, not ranked: it answers „in welchen Unterlagen "
-    "kommt die Firma Huber vor“, „wo steht überall BA-03“, „welche Pläne nennen Tür T30-2“, „ist "
-    "EI 90 irgendwo gefordert“, which `knowledge_search` (top few passages by meaning) cannot.\n"
-    "WHEN TO CALL — the question names a literal string: a company, a person, a room or door number, "
-    "a Brandabschnitt, a Bauteil code, a Geschäftszahl, a date, a specific wording. Also to check "
-    "that something is NOT written anywhere: an empty result is a reliable no for that wording.\n"
-    "- `text=` the phrase. Several spellings of one thing go into one call separated by „|“: "
-    "`BA-03 | BA 03 | Brandabschnitt 3`. Case and ä/ae, ß/ss spellings are matched for you.\n"
-    "- `folder=`, `file_name=` or `shelf=` (project | archiv | session | base) to narrow it. Default: "
-    "the reader's own files, not the OIB corpus.\n"
-    "WHEN NOT TO CALL — for a question about a topic or a requirement in other words („was gilt für "
-    "Fluchtwege“): that is `knowledge_search`.\n"
-    "RETURNS — the first matching passages as quotable excerpts with a Citation key (copy verbatim), "
-    "then `## Fundstellen`: every matching file with how often and on which pages. Cite only the "
-    "passages; open any other listed page with `read_passage(document=…, page=…)`."
-)
-
 
 # ---------------------------------------------------------------------------
 # NAT registration
@@ -580,15 +570,6 @@ class ListFilesConfig(FunctionBaseConfig, name="list_files"):
     knowledge_search: FunctionRef = Field(
         default=FunctionRef("knowledge_search"),
         description="The `knowledge_retrieval` instance whose collection scope this browser shares.",
-    )
-
-
-class FindInFilesConfig(FunctionBaseConfig, name="find_in_files"):
-    """``find_in_files`` reads the same scope as ``knowledge_search``, and none wider."""
-
-    knowledge_search: FunctionRef = Field(
-        default=FunctionRef("knowledge_search"),
-        description="The `knowledge_retrieval` instance whose collection scope this search shares.",
     )
 
 
@@ -675,97 +656,83 @@ async def list_files(config: ListFilesConfig, _builder: Builder):
     yield FunctionInfo.from_fn(_list, description=_LIST_FILES_DESCRIPTION)
 
 
-@register_function(config_type=FindInFilesConfig)
-async def find_in_files(config: FindInFilesConfig, _builder: Builder):
-    """Every place a phrase is written in the reader's files. Deterministic; no LLM, no embedding."""
-    search_config = _builder.get_function_config(config.knowledge_search)
+async def _files_by_collection(
+    search_config: Any,
+    *,
+    file_name: str | None,
+    folder: str | None,
+    doc_class: str | None,
+    title_contains: str | None,
+) -> dict[str, list[str]] | None:
+    """The files a narrowed exact search may read, per collection; ``None`` when nothing narrows it.
 
-    async def _find(
-        text: str,
-        folder: str | None = None,
-        file_name: str | None = None,
-        shelf: str | None = None,
-        conclusion: str = "",
-    ) -> str:
-        """Find every passage in the reader's files that contains a phrase.
-
-        Args:
-            text (str): The literal phrase. Alternatives for one thing separated by "|".
-            folder (str | None): Only files filed in this folder or below it.
-            file_name (str | None): Only this file (exact name from a listing or the inventory).
-            shelf (str | None): project | archiv | session | base. Omit for the reader's own files.
-            conclusion (str): ONE sentence: what you now know and what you still need, which is why
-                you are making this call. Empty on your first call of the turn. It is the Herleitung
-                checkpoint the reader sees above this fetch; it does not change what is searched.
-
-        Returns:
-            str: Quotable passages with Citation keys, then every matching file with counts and pages.
-        """
-        from aiq_agent.common.turn_status import lane_tool_scope
-
-        # `conclusion` is a checkpoint read off the CALL (see `register.search`), never an input.
-        phrases = split_alternatives(text)
-        if not phrases:
-            return f"Provide `text=` with at least {MIN_PHRASE_CHARS} characters: the word or phrase to find."
-        shelf, refusal = _check_shelf(shelf)
-        if refusal:
-            return refusal
-        folder = (folder or "").strip().strip("/") or None
-        file_name = (file_name or "").strip() or None
-
-        from .register import _restrict_scope_to_turn
-
-        shelves = (shelf,) if shelf else USER_SHELVES
-        entries = list(_restrict_scope_to_turn(_scope_entries(search_config)))
-        entries = [entry for entry in entries if _entry_shelf(entry) in shelves]
-        if not entries:
-            where = " / ".join(_SHELF_LABELS[s] for s in shelves)
-            return f"Auf {where} liegt in dieser Unterhaltung nichts, das durchsucht werden könnte."
-
-        filters_by_collection: dict[str, dict[str, Any] | None] = {entry.collection: None for entry in entries}
-        if file_name:
-            filters_by_collection = {entry.collection: {"file_name": file_name} for entry in entries}
-        elif folder:
-            # A folder is not on the chunks (ADR-0049: a rename would have to
-            # rewrite every vector), so it becomes the files filed under it.
-            names = await _files_in_folder(search_config, folder)
-            if not names:
-                return f"Im Ordner „{folder}“ liegt keine durchsuchbare Datei. `list_files` zeigt die Ordner."
-            filters_by_collection = {collection: {"file_name": {"$in": files}} for collection, files in names.items()}
-            entries = [entry for entry in entries if entry.collection in filters_by_collection]
-
-        with lane_tool_scope(FIND_IN_FILES_TOOL):
-            return await _search(entries, phrases, filters_by_collection)
-
-    yield FunctionInfo.from_fn(_find, description=_FIND_IN_FILES_DESCRIPTION)
-
-
-#: The tool basename the lane hits are stamped with.
-FIND_IN_FILES_TOOL = "find_in_files"
-
-
-async def _files_in_folder(search_config: Any, folder: str) -> dict[str, list[str]]:
-    """The files filed at or below ``folder``, per collection."""
+    A folder, a Dokumentart and a title are not on the chunks (ADR-0049: a
+    folder rename would rewrite every vector; ``doc_class`` is human-set and
+    store-authoritative), so every narrowing becomes the list of files it names.
+    """
+    if not (file_name or folder or doc_class or title_contains):
+        return None
     rows = await _turn_rows(search_config)
-    resolved = _folder_matches(rows, folder)
-    if resolved is None:
-        return {}
+    if folder:
+        resolved = _folder_matches(rows, folder)
+        rows = [row for row in rows if resolved is not None and _in_folder(row, resolved)]
+    if file_name:
+        wanted = fold(file_name)
+        rows = [row for row in rows if wanted in (fold(row.file_name), fold(row.display_title or ""))]
+    if doc_class:
+        rows = [row for row in rows if row.doc_class == doc_class]
+    if title_contains:
+        needle = fold(title_contains)
+        rows = [row for row in rows if needle in fold(f"{row.file_name} {row.display_title or ''}")]
     names: dict[str, list[str]] = {}
     for row in rows:
-        if _in_folder(row, resolved):
-            names.setdefault(row.collection, []).append(row.file_name)
+        names.setdefault(row.collection, []).append(row.file_name)
     return names
 
 
+async def exact_search(
+    entries: Sequence[Any],
+    text: str,
+    *,
+    search_config: Any,
+    retriever: Any,
+    file_name: str | None = None,
+    folder: str | None = None,
+    doc_class: str | None = None,
+    title_contains: str | None = None,
+) -> str:
+    """``knowledge_search(match="exact")``: every chunk in scope that contains the phrase.
+
+    ``entries`` is the scope the search already resolved and restricted to the
+    turn, so the exact mode reads exactly what the meaning mode reads.
+    """
+    phrases = split_alternatives(text)
+    if not phrases:
+        return f"Provide a `query` of at least {MIN_PHRASE_CHARS} characters: the literal word or phrase to find."
+    narrowed = await _files_by_collection(
+        search_config, file_name=file_name, folder=folder, doc_class=doc_class, title_contains=title_contains
+    )
+    filters_by_collection: dict[str, dict[str, Any] | None] = {entry.collection: None for entry in entries}
+    if narrowed is not None:
+        if not narrowed:
+            return (
+                "No file in scope matches that narrowing (`file_name`, `folder`, `doc_class`, "
+                "`title_contains`). `list_files` shows what exists."
+            )
+        entries = [entry for entry in entries if entry.collection in narrowed]
+        filters_by_collection = {
+            collection: {"file_name": {"$in": sorted(files)}} for collection, files in narrowed.items()
+        }
+    return await _search(retriever, entries, phrases, filters_by_collection)
+
+
 async def _search(
+    retriever: Any,
     entries: Sequence[Any], phrases: Sequence[str], filters_by_collection: dict[str, dict[str, Any] | None]
 ) -> str:
-    from aiq_agent.knowledge.factory import get_active_retriever
-
     from .read_passage import _passage_result
     from .register import _format_results
 
-    retriever = get_active_retriever()
     tried = list(dict.fromkeys(spelling for phrase in phrases for spelling in spellings(phrase)))
 
     async def _one(entry: Any) -> tuple[list[Any] | None, bool]:
@@ -786,7 +753,7 @@ async def _search(
     supported = False
     for entry, result in zip(entries, results, strict=True):
         if isinstance(result, BaseException):
-            logger.warning("find_in_files: %s failed: %s", entry.collection, result)
+            logger.warning("exact search: %s failed: %s", entry.collection, result)
             continue
         found, capped = result
         if found is None:
@@ -808,5 +775,5 @@ async def _search(
         query,
         trailer=match_table(groups, phrases, truncated=truncated),
     )
-    logger.info("find_in_files: %r matched %d file(s)", query, len(groups))
+    logger.info("exact search: %r matched %d file(s)", query, len(groups))
     return formatted

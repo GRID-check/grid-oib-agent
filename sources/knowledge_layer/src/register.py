@@ -82,6 +82,13 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "path the inventory prints after 'Ordner:', e.g. Brandschutz/Fluchtwege) "
     "when the user scoped the question to a folder — it also covers everything "
     "filed beneath that folder.\n"
+    '`match="exact"` turns the search into Ctrl+F across the files: EVERY '
+    "passage that contains the query literally, plus a table of every matching "
+    "file with its count and pages — for a company or person, a room or door "
+    "number, a Brandabschnitt, a Bauteil code, a Geschäftszahl, a wording, and "
+    "to prove something is NOT written anywhere. Several spellings of one thing "
+    "go into one query separated by '|' ('BA-03 | BA 03'); case and ä/ae, ß/ss "
+    "are matched for you. The reader's own files come first.\n"
     "WHEN NOT TO CALL — to put a file on screen (the user asked to SEE or "
     "BROWSE files, no legal question): that is `surface_documents`. After "
     "you cite a project or Büroarchiv file, do not also call "
@@ -1874,6 +1881,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         title_contains: str | None = None,
         file_name: str | None = None,
         folder: str | None = None,
+        match: str = "meaning",
         conclusion: str = "",
     ) -> str:
         """Read and cite passages from the ingested knowledge base.
@@ -1905,6 +1913,11 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             filters (dict | None): Rare. Metadata filter on the base
                 collection only (e.g. {"content_type": "text"}). Session and
                 project collections are never filtered.
+            match (str): "meaning" (default) ranks passages by what they say.
+                "exact" returns EVERY passage whose text contains the query
+                literally (case and ä/ae, ß/ss spellings matched; several
+                spellings separated by "|"), with a per-file count of all
+                matches — for a name, a number, a code or a wording.
 
         Returns:
             str: Numbered excerpts with a Citation key to copy verbatim.
@@ -1967,6 +1980,23 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         target_collections = _restrict_scope_to_turn(
             _resolve_scoped_collections(config, session_collection, base_collection)
         )
+
+        # The literal mode: same scope, same narrowing, no ranking at all.
+        if (match or "meaning").strip().lower() == "exact":
+            from .browse import exact_search
+
+            return await exact_search(
+                target_collections,
+                query,
+                search_config=config,
+                retriever=retriever,
+                file_name=file_name,
+                folder=folder,
+                doc_class=doc_class,
+                title_contains=title_contains,
+            )
+        if (match or "meaning").strip().lower() != "meaning":
+            return '`match` must be "meaning" (ranked by what a passage says) or "exact" (every literal occurrence).'
 
         # Cross-lingual bridge. The corpus is German; an English question reaches it
         # only weakly by embedding and not at all lexically. Measured on the golden
