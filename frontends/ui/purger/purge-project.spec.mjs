@@ -194,6 +194,24 @@ describe('purgeProject', () => {
     ])
   })
 
+  // A mail not yet filed is staged under the project prefix in the bucket its
+  // delivery row recorded (ADR-0074). A project with no document in that
+  // bucket would otherwise leave the staged attachments behind.
+  it('asks the mail inbox delivery rows for the buckets their staging is in', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [],
+      documentBucketRows: [{ storage_bucket: 'grid-org-org1-abcdef123456' }],
+    })
+
+    await purgeProject(tx, entry, makeDeps())
+
+    const bucketRead = executed.find(({ text }) => text.startsWith('SELECT DISTINCT storage_bucket'))
+    expect(bucketRead.text).toContain('FROM inbound_mail_messages')
+    expect(bucketRead.text).toContain('staging_bucket IS NOT NULL')
+    expect(bucketRead.values).toEqual(['p1', 'p1'])
+  })
+
   // The shared bucket is unconditional: NULL means shared (migration 0033), so
   // a project whose documents all predate the column records nothing, and the
   // sweep must still reach them.

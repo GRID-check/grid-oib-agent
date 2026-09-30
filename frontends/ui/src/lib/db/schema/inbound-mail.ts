@@ -4,6 +4,7 @@ import {
   foreignKey,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -65,10 +66,29 @@ export const inboundMailAddresses = pgTable(
   })
 )
 
-export const INBOUND_MAIL_MESSAGE_STATUSES = ['processing', 'filed', 'failed'] as const
+export const INBOUND_MAIL_MESSAGE_STATUSES = ['queued', 'processing', 'filed', 'failed'] as const
 export type InboundMailMessageStatus = (typeof INBOUND_MAIL_MESSAGE_STATUSES)[number]
 
-/** One delivery to an address, for idempotency. Hashes, ids, counts — no content. */
+/** One staged attachment: an object under the project's `inbound-mail/` prefix. */
+export interface StagedAttachment {
+  key: string
+  filename: string
+  contentType: string
+  /** Hex sha256 of the bytes, as selected from the mail. */
+  sha256: string
+  size: number
+}
+
+/** A part that was not filed. `filename` is dropped once the row is terminal. */
+export interface SkippedAttachment {
+  filename?: string
+  reason: string
+}
+
+/**
+ * One delivery to an address: the drain's durable queue and the idempotency
+ * record. Never the mail; see migration 0101 for what it holds and for how long.
+ */
 export const inboundMailMessages = pgTable(
   'inbound_mail_messages',
   {
@@ -76,26 +96,48 @@ export const inboundMailMessages = pgTable(
     organizationId: text('organization_id').notNull(),
     projectId: uuid('project_id').notNull(),
     addressId: uuid('address_id').notNull(),
-    /** sha256 hex of the Message-ID header, or of the raw bytes without one. */
-    messageIdHash: text('message_id_hash').notNull(),
-    senderUserId: text('sender_user_id'),
-    status: text('status').$type<InboundMailMessageStatus>().notNull().default('processing'),
+    /** sha256 hex of the Message-ID and the sorted attachment digests. */
+    deliveryKey: text('delivery_key').notNull(),
+    senderUserId: text('sender_user_id').notNull(),
+    status: text('status').$type<InboundMailMessageStatus>().notNull().default('queued'),
+    /** The leaf under `E-Mail-Eingang/`, fixed at acceptance. */
+    folderName: text('folder_name').notNull(),
+    /**
+     * NOTE: the database FK is COMPOSITE — `(folder_id, project_id)` ->
+     * `project_folders (id, project_id)` with `ON DELETE SET NULL
+     * ("folder_id")`. Drizzle cannot express a column-subset SET NULL, so it
+     * lives only in migration 0101, the arrangement `task_runs.definition_id`
+     * has in 0086.
+     */
+    folderId: uuid('folder_id'),
+    subject: text('subject'),
+    stagingBucket: text('staging_bucket'),
+    staged: jsonb('staged').$type<StagedAttachment[]>().notNull().default([]),
+    skipped: jsonb('skipped').$type<SkippedAttachment[]>().notNull().default([]),
     filedCount: integer('filed_count').notNull().default(0),
     skippedCount: integer('skipped_count').notNull().default(0),
-    attempts: integer('attempts').notNull().default(1),
+    attempts: integer('attempts').notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    claimToken: uuid('claim_token'),
+    lastError: text('last_error'),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     /** Keyed by ADDRESS: one mail to two projects is two deliveries. */
-    addressHashKey: uniqueIndex('uniq_inbound_mail_messages_address_hash').on(
+    addressDeliveryKey: uniqueIndex('uniq_inbound_mail_messages_address_delivery').on(
       table.addressId,
-      table.messageIdHash
+      table.deliveryKey
     ),
     projectCreatedIdx: index('inbound_mail_messages_project_created_idx').on(
       table.projectId,
       table.createdAt
     ),
+    receivedIdx: index('inbound_mail_messages_received_idx').on(table.receivedAt),
+    // NOTE: `inbound_mail_messages_due_idx` (next_attempt_at WHERE queued) and
+    // `inbound_mail_messages_processing_idx` (updated_at WHERE processing) are
+    // PARTIAL indexes; they live only in migration 0101.
     projectOrgFk: foreignKey({
       name: 'inbound_mail_messages_project_id_organization_id_fkey',
       columns: [table.projectId, table.organizationId],
@@ -113,16 +155,27 @@ export const inboundMailMessages = pgTable(
     }).onDelete('cascade'),
     statusKnown: check(
       'inbound_mail_messages_status_known',
-      sql`${table.status} IN ('processing', 'filed', 'failed')`
+      sql`${table.status} IN ('queued', 'processing', 'filed', 'failed')`
     ),
-    hashShape: check('inbound_mail_messages_hash_shape', sql`${table.messageIdHash} ~ '^[0-9a-f]{64}$'`),
+    deliveryKeyShape: check(
+      'inbound_mail_messages_delivery_key_shape',
+      sql`${table.deliveryKey} ~ '^[0-9a-f]{64}$'`
+    ),
     countsNonNegative: check(
       'inbound_mail_messages_counts_non_negative',
-      sql`${table.filedCount} >= 0 AND ${table.skippedCount} >= 0 AND ${table.attempts} >= 1`
+      sql`${table.filedCount} >= 0 AND ${table.skippedCount} >= 0 AND ${table.attempts} >= 0`
     ),
-    filedAttributed: check(
-      'inbound_mail_messages_filed_attributed',
-      sql`${table.status} <> 'filed' OR ${table.senderUserId} IS NOT NULL`
+    claimedWhileProcessing: check(
+      'inbound_mail_messages_claimed_while_processing',
+      sql`(${table.status} = 'processing') = (${table.claimToken} IS NOT NULL)`
+    ),
+    stagedIsArray: check(
+      'inbound_mail_messages_staged_is_array',
+      sql`jsonb_typeof(${table.staged}) = 'array' AND jsonb_typeof(${table.skipped}) = 'array'`
+    ),
+    stagingBucketKnown: check(
+      'inbound_mail_messages_staging_bucket_known',
+      sql`${table.staged} = '[]'::jsonb OR ${table.stagingBucket} IS NOT NULL`
     ),
   })
 )

@@ -11,7 +11,10 @@
  *   4. POSTs the BFF's run reconciler (`/api/internal/runs/reconcile`), which
  *      closes the runs whose ending never reached the BFF by asking the job
  *      store, and settles the block of any closed run that still reads
- *      „läuft" (`lib/runs/reconcile.ts`, backlog T3-11).
+ *      „läuft" (`lib/runs/reconcile.ts`, backlog T3-11);
+ *   5. POSTs the BFF's mail drain (`/api/internal/inbound-mail/drain`), which
+ *      files the mail the project inboxes accepted and sweeps its retention
+ *      (`lib/inbound-mail/drain.ts`, ADR-0074).
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:
@@ -25,8 +28,10 @@
  * Schedules gate (steps 1-3): only when GRID_SKILLS_ENABLED=true or
  * GRID_ENFORCE_FEATURE_FLAGS=true. Step 4 runs regardless, because runs exist
  * without Agent Skills: a chat question escalated to deep research is a
- * `task_runs` row with no definition behind it (ADR-0062). With the gate off the
- * container is a reconcile-only worker rather than exiting.
+ * `task_runs` row with no definition behind it (ADR-0062). Step 5 runs
+ * regardless too: the mail inbox is switched per organization inside the BFF,
+ * and the drain holds an organization's mail while its switch is off. With the
+ * gate off the container is a reconcile-and-drain worker rather than exiting.
  */
 
 const { createSql, claimDue, pruneOldRuns } = require('./db')
@@ -51,6 +56,9 @@ const FIRE_TIMEOUT_MS = 30000
 // with a 10 s timeout: about a minute in the worst case. The reentrancy guard in
 // main() keeps a slow sweep from overlapping the next tick.
 const RECONCILE_TIMEOUT_MS = 120000
+// The drain stops claiming after 45 s (DRAIN_BUDGET_MS in lib/inbound-mail/drain.ts)
+// and finishes the delivery in hand; a hundred-file mail fits in the rest.
+const DRAIN_TIMEOUT_MS = 120000
 
 /**
  * The schedules gate. Due definitions are claimed and fired only when the
@@ -84,7 +92,8 @@ function readConfig(env) {
 
 /**
  * The streaks the tick loop keeps between ticks (`workers/failure-streak.js`):
- * the reconcile POST, and the database work behind firing (claim and prune).
+ * the reconcile POST, the mail-drain POST, and the database work behind firing
+ * (claim and prune).
  * A transient failure of either is a WARN until it has lasted about five
  * minutes, which logs one ERROR, and the first success after logs a recovery.
  */
@@ -92,6 +101,7 @@ function createStreaks(config) {
   const escalateAfter = escalationTicks(config.pollMs)
   return {
     reconcile: createFailureStreak({ label: `${LOG} run reconcile`, escalateAfter }),
+    drain: createFailureStreak({ label: `${LOG} mail drain`, escalateAfter }),
     database: createFailureStreak({ label: `${LOG} schedule claim`, escalateAfter }),
   }
 }
@@ -142,6 +152,49 @@ async function reconcileRuns(config, fetchImpl, streak) {
         `${LOG} run reconcile: checked ${counts.checked}, closed ${counts.closed}, ` +
           `already closed ${counts.alreadyClosed}, waiting ${counts.waiting}, ` +
           `healed ${counts.healed ?? 0}, failed ${counts.failed}`,
+      )
+    }
+    return counts
+  } catch (error) {
+    streak.failed(describeTransportError(error))
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * One mail-drain pass: POST {frontendUrl}/api/internal/inbound-mail/drain.
+ *
+ * The same shape as {@link reconcileRuns}, for the same reasons: the BFF owns
+ * the delivery rows and the filing, this container supplies the clock, and the
+ * claim (`FOR UPDATE SKIP LOCKED`, a claim token per attempt) makes every
+ * replica safe to call it. Logs only when a pass filed, failed or expired
+ * something, or when the POST itself failed; never throws.
+ */
+async function drainInboundMail(config, fetchImpl, streak) {
+  const url = `${config.frontendUrl}/api/internal/inbound-mail/drain`
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), DRAIN_TIMEOUT_MS)
+  try {
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: { [INTERNAL_TOKEN_HEADER]: config.internalToken },
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      const failure = await describeFailedResponse(res)
+      if (isTransientStatus(res.status)) streak.failed(failure)
+      else console.error(`${LOG} mail drain failed: ${failure.detail}`)
+      return null
+    }
+    streak.succeeded()
+    const counts = await res.json().catch(() => null)
+    if (counts && (counts.filed > 0 || counts.failed > 0 || counts.reaped > 0 || counts.stagingExpired > 0)) {
+      console.log(
+        `${LOG} mail drain: filed ${counts.filed}, retried ${counts.retried}, failed ${counts.failed}, ` +
+          `held ${counts.held}, reaped ${counts.reaped}, staging expired ${counts.stagingExpired}, ` +
+          `deleted ${counts.deleted}`,
       )
     }
     return counts
@@ -213,13 +266,14 @@ async function fireOne(config, scheduleId, fetchImpl = fetch) {
 
 /**
  * One scheduler tick: the schedules (when their gate is on), then the run
- * reconciler (always). Neither can throw out of the tick. Returns the count
- * fired (for logs). `streaks` must outlive the tick (`createStreaks`): a fresh
- * one per tick would never reach its escalation.
+ * reconciler and the mail drain (always). None can throw out of the tick.
+ * Returns the count fired (for logs). `streaks` must outlive the tick
+ * (`createStreaks`): a fresh one per tick would never reach its escalation.
  */
 async function tick(sql, config, fetchImpl, streaks) {
   const fired = config.schedulesEnabled ? await fireDue(sql, config, streaks.database) : 0
   await reconcileRuns(config, fetchImpl, streaks.reconcile)
+  await drainInboundMail(config, fetchImpl, streaks.drain)
   return fired
 }
 
@@ -299,7 +353,7 @@ function main() {
     console.log(
       `${LOG} skills feature is off for this deployment ` +
         `(set GRID_SKILLS_ENABLED=true or GRID_ENFORCE_FEATURE_FLAGS=true to fire schedules) — ` +
-        `running the run reconciler only, every ${config.pollMs}ms (target ${config.frontendUrl})`,
+        `running the run reconciler and the mail drain only, every ${config.pollMs}ms (target ${config.frontendUrl})`,
     )
   }
   void runTick()
@@ -317,6 +371,7 @@ module.exports = {
   createStreaks,
   fireOne,
   reconcileRuns,
+  drainInboundMail,
   tick,
   INTERNAL_TOKEN_HEADER,
 }

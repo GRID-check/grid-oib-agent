@@ -8,7 +8,8 @@ vi.mock('@/lib/auth/require-auth', () => ({
 }))
 vi.mock('server-only', () => ({}))
 
-import { errorResponse } from './handler'
+import { PayloadTooLargeError } from './errors'
+import { errorResponse, readBoundedBody } from './handler'
 
 describe('errorResponse', () => {
   it('turns a postgres invalid-uuid failure into a 404, not a 500 (#572)', () => {
@@ -107,5 +108,34 @@ describe('errorResponse', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+})
+
+describe('readBoundedBody', () => {
+  const streamOf = (chunks: number, size: number) =>
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let i = 0; i < chunks; i += 1) controller.enqueue(new Uint8Array(size).fill(i))
+        controller.close()
+      },
+    })
+  const post = (body: BodyInit | null, headers: Record<string, string> = {}) =>
+    new Request('https://grid.test/x', { method: 'POST', headers, body, ...({ duplex: 'half' } as RequestInit) })
+
+  it('returns every byte of a body within the limit, in order', async () => {
+    const bytes = await readBoundedBody(post(streamOf(3, 4)), 12)
+    expect(Array.from(bytes)).toEqual([0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2])
+  })
+
+  it('refuses a declared Content-Length over the limit before reading', async () => {
+    await expect(readBoundedBody(post('abc', { 'content-length': '13' }), 12)).rejects.toBeInstanceOf(PayloadTooLargeError)
+  })
+
+  it('cuts a stream off at the limit whatever it declared', async () => {
+    await expect(readBoundedBody(post(streamOf(4, 4)), 12)).rejects.toBeInstanceOf(PayloadTooLargeError)
+  })
+
+  it('answers an empty body with no bytes', async () => {
+    expect((await readBoundedBody(post(null), 12)).byteLength).toBe(0)
   })
 })

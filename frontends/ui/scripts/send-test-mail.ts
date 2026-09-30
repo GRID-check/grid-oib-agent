@@ -1,7 +1,7 @@
 /**
  * Deliver an .eml file to a local BFF exactly as the Cloudflare Email Worker
  * would (ADR-0074): the raw bytes as the body, the envelope recipient in
- * `x-envelope-to`, and the Worker's own token.
+ * `x-envelope-to`, the size in `x-inbound-raw-size`, and the Worker's own token.
  *
  *   Usage:
  *     GRID_INBOUND_MAIL_TOKEN=… npx tsx scripts/send-test-mail.ts \
@@ -12,23 +12,41 @@
  *     --from <address>   envelope sender, informational (default: the From header's)
  *     --url <base>       BFF base URL (default: $BFF_URL or http://localhost:3000)
  *
- * The BFF verifies the sender for real — DKIM against DNS, or an enforcing
- * DMARC record — so a hand-written .eml from a domain without either is
- * refused with 403, which is the correct answer and not a bug in this script.
- * Save a real mail from your client ("Show original" / "Als Datei speichern")
- * to test the happy path; its DKIM signature still verifies as long as nothing
- * in the signed headers or the body was edited.
+ * The BFF verifies the sender for real: an aligned, passing DKIM signature
+ * that covers From, Subject and the To or Cc naming the project address. A
+ * hand-written .eml is refused with 403, which is the correct answer and not
+ * a bug in this script. Save a real mail from your client ("Show original" /
+ * "Als Datei speichern") that was sent To or Cc the project address to test
+ * the happy path; its signature still verifies as long as nothing it signs was
+ * edited. The organization's `project-mail-inbox` switch must be on
+ * (`GRID_PROJECT_MAIL_INBOX_ENABLED=true` without flag enforcement).
  *
- * Prints the status and the JSON answer, and maps the status the way the
+ * A 202 means the mail is queued, not filed: the scheduler's drain files it on
+ * its next tick (`POST /api/internal/inbound-mail/drain`, or run the scheduler).
+ *
+ * Prints the status and the JSON answer, and maps the answer the way the
  * Worker does, so what you see is what the sending server would be told.
  */
 
 import { readFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
+import {
+  INBOUND_ENVELOPE_TO_HEADER,
+  INBOUND_RAW_SIZE_HEADER,
+  INBOUND_VERDICT_HEADER,
+  INBOUND_VERDICT_REJECT,
+} from '../src/lib/inbound-mail/contract'
 
-function workerOutcome(status: number): string {
-  if (status >= 200 && status < 300) return 'accept'
-  if (status === 403 || status === 404 || status === 413) return 'reject (bounce)'
+/**
+ * The Worker's rule: bounce ONLY a 4xx that carries the reject verdict;
+ * accept a 2xx; throw (so the sending server retries) on everything else.
+ */
+function workerOutcome(response: Response): string {
+  if (response.status >= 200 && response.status < 300) {
+    return response.status === 202 ? 'accept (queued for the drain)' : 'accept (a duplicate: nothing new stored)'
+  }
+  const rejected = response.headers.get(INBOUND_VERDICT_HEADER) === INBOUND_VERDICT_REJECT
+  if (rejected && response.status >= 400 && response.status < 500) return 'reject (bounce)'
   return 'throw (the sending server retries)'
 }
 
@@ -61,7 +79,8 @@ async function main(): Promise<void> {
     headers: {
       'content-type': 'message/rfc822',
       'x-grid-internal-token': token,
-      'x-envelope-to': values.to,
+      [INBOUND_ENVELOPE_TO_HEADER]: values.to,
+      [INBOUND_RAW_SIZE_HEADER]: String(raw.byteLength),
       'x-envelope-from': values.from ?? fromHeader ?? '',
     },
     body: raw,
@@ -73,7 +92,7 @@ async function main(): Promise<void> {
   } catch {
     // Not JSON (a proxy error page, say): print it as it came.
   }
-  console.log(`${response.status} → ${workerOutcome(response.status)}`)
+  console.log(`${response.status} → ${workerOutcome(response)}`)
   console.log(typeof body === 'string' ? body : JSON.stringify(body, null, 2))
   if (!response.ok) process.exitCode = 1
 }

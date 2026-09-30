@@ -18,11 +18,14 @@ vi.mock('@/lib/auth/require-auth', () => ({
     email: 'anna@buero-a.at',
     role: 'member',
     permissions: [],
+    featureFlags: [],
   }),
 }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 vi.mock('@/lib/projects/repository', () => ({
   findProjectInOrg: vi.fn().mockResolvedValue({ id: 'proj-1', name: 'Wohnbau Hietzing' }),
+  // `can()` probes the tenancy on its denial path, to label the decision.
+  findProjectTenancy: vi.fn().mockResolvedValue({ organizationId: 'org-1', deletedAt: null }),
 }))
 vi.mock('@/lib/inbound-mail/repository', () => ({
   findActiveAddressForProject: vi.fn(),
@@ -70,6 +73,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   setLimitStore(createInProcessStore())
   vi.stubEnv('GRID_INBOUND_MAIL_DOMAIN', 'piloti-post.at')
+  vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', '')
+  vi.stubEnv('GRID_PROJECT_MAIL_INBOX_ENABLED', 'true')
   vi.mocked(findActiveAddressForProject).mockResolvedValue(row('abcdefgh2345'))
   vi.mocked(insertAddress).mockImplementation(async (input) => ({ ok: true, row: row(input.token) }))
   vi.mocked(rotateAddress).mockImplementation(async (input) => ({ ok: true, row: row(input.token) }))
@@ -107,10 +112,38 @@ describe('GET /api/projects/[id]/inbound-address', () => {
     expect(insertAddress).not.toHaveBeenCalled()
   })
 
-  it('says canRotate for a project manager', async () => {
+  it('says canRotate for whoever holds project:manage, asked as the permission', async () => {
     grant(['project:documents:write', 'project:manage'], 'project-admin')
     const body = inboundAddressResponseSchema.parse(await (await GET(new Request(url), context)).json())
     expect(body.canRotate).toBe(true)
+    // Through the decision point, not a role name: a custom role that holds
+    // `project:manage` rotates, whatever rung it maps to.
+    expect(requireProjectAccess).toHaveBeenCalledWith(expect.anything(), 'proj-1', 'project:manage')
+  })
+
+  it('does not read canRotate off the derived role', async () => {
+    // The derived rung says admin, the permission is not held: no rotation.
+    grant(['project:documents:write'], 'project-admin')
+    const body = inboundAddressResponseSchema.parse(await (await GET(new Request(url), context)).json())
+    expect(body.canRotate).toBe(false)
+  })
+
+  it('reports disabled, and mints nothing, while the organization switch is off', async () => {
+    grant(['project:documents:write'])
+    vi.stubEnv('GRID_PROJECT_MAIL_INBOX_ENABLED', '')
+    vi.mocked(findActiveAddressForProject).mockResolvedValue(null)
+    const body = inboundAddressResponseSchema.parse(await (await GET(new Request(url), context)).json())
+    expect(body).toEqual({ enabled: false, address: null, canRotate: false })
+    expect(insertAddress).not.toHaveBeenCalled()
+  })
+
+  it('reads the per-organization flag under enforcement', async () => {
+    grant(['project:documents:write'])
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    vi.stubEnv('GRID_PROJECT_MAIL_INBOX_ENABLED', 'true')
+    // The session carries no `project-mail-inbox` flag: off, whatever the env says.
+    const body = inboundAddressResponseSchema.parse(await (await GET(new Request(url), context)).json())
+    expect(body.enabled).toBe(false)
   })
 
   it('reports disabled without a domain', async () => {
@@ -133,6 +166,13 @@ describe('POST /api/projects/[id]/inbound-address/rotate', () => {
     expect(body.address).toMatch(/^wohnbau-hietzing\.[a-z2-7]{12}@piloti-post\.at$/)
     expect(requireProjectAccess).toHaveBeenCalledWith(expect.anything(), 'proj-1', 'project:manage')
     expect(rotateAddress).toHaveBeenCalledWith(expect.objectContaining({ revokedBy: 'user-1', projectId: 'proj-1' }))
+  })
+
+  it('is a 404 while the organization switch is off, and revokes nothing', async () => {
+    grant(['project:manage'], 'project-admin')
+    vi.stubEnv('GRID_PROJECT_MAIL_INBOX_ENABLED', '')
+    expect((await rotate()).status).toBe(404)
+    expect(rotateAddress).not.toHaveBeenCalled()
   })
 
   it('is a 404 for an editor without project:manage, and revokes nothing', async () => {

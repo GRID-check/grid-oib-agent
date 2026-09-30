@@ -13,55 +13,69 @@ import {
 
 const DOMAIN = 'piloti-post.at'
 
+const token = (value: string) => ({ kind: 'token', token: value })
+
 describe('parseInboundAddress', () => {
   it('takes the token after the slug', () => {
-    expect(parseInboundAddress(`wohnbau-hietzing.abcdefgh2345@${DOMAIN}`, DOMAIN)).toBe('abcdefgh2345')
+    expect(parseInboundAddress(`wohnbau-hietzing.abcdefgh2345@${DOMAIN}`, DOMAIN)).toEqual(token('abcdefgh2345'))
   })
 
   it('accepts a bare token (empty slug)', () => {
-    expect(parseInboundAddress(`abcdefgh2345@${DOMAIN}`, DOMAIN)).toBe('abcdefgh2345')
+    expect(parseInboundAddress(`abcdefgh2345@${DOMAIN}`, DOMAIN)).toEqual(token('abcdefgh2345'))
   })
 
   it('lowercases the local part and the domain', () => {
-    expect(parseInboundAddress(`Wohnbau.ABCDEFGH2345@Piloti-Post.AT`, DOMAIN)).toBe('abcdefgh2345')
+    expect(parseInboundAddress(`Wohnbau.ABCDEFGH2345@Piloti-Post.AT`, DOMAIN)).toEqual(token('abcdefgh2345'))
+  })
+
+  it('lowercases ASCII only: a Kelvin sign or dotted capital I is not a letter of the token', () => {
+    expect(parseInboundAddress(`wohnbau.abcdefgh234\u212a@${DOMAIN}`, DOMAIN)).toEqual({ kind: 'malformed' })
+    expect(parseInboundAddress(`wohnbau.\u0130bcdefgh2345@${DOMAIN}`, DOMAIN)).toEqual({ kind: 'malformed' })
   })
 
   it('takes the segment after the LAST dot, whatever sits in the slug position', () => {
     // A slug never contains a dot, but a hand-typed address may; only the
     // token resolves, so the rest is ignored rather than refused.
-    expect(parseInboundAddress(`a.b.wohnbau.abcdefgh2345@${DOMAIN}`, DOMAIN)).toBe('abcdefgh2345')
+    expect(parseInboundAddress(`a.b.wohnbau.abcdefgh2345@${DOMAIN}`, DOMAIN)).toEqual(token('abcdefgh2345'))
     // …and a slug that happens to LOOK like a token is not the token.
-    expect(parseInboundAddress(`zzzzzzzzzzzz.abcdefgh2345@${DOMAIN}`, DOMAIN)).toBe('abcdefgh2345')
+    expect(parseInboundAddress(`zzzzzzzzzzzz.abcdefgh2345@${DOMAIN}`, DOMAIN)).toEqual(token('abcdefgh2345'))
   })
 
-  it('refuses a foreign domain, including a lookalike subdomain', () => {
-    expect(parseInboundAddress('wohnbau.abcdefgh2345@example.com', DOMAIN)).toBeNull()
-    expect(parseInboundAddress(`wohnbau.abcdefgh2345@evil.${DOMAIN}`, DOMAIN)).toBeNull()
-    expect(parseInboundAddress(`wohnbau.abcdefgh2345@${DOMAIN}.evil.com`, DOMAIN)).toBeNull()
+  it('drops a +detail subaddress and the quotes of a quoted local part before the split', () => {
+    expect(parseInboundAddress(`wohnbau.abcdefgh2345+plaene@${DOMAIN}`, DOMAIN)).toEqual(token('abcdefgh2345'))
+    expect(parseInboundAddress(`wohnbau.abcdefgh2345+a.b@${DOMAIN}`, DOMAIN)).toEqual(token('abcdefgh2345'))
+    expect(parseInboundAddress(`"wohnbau.abcdefgh2345"@${DOMAIN}`, DOMAIN)).toEqual(token('abcdefgh2345'))
+    expect(parseInboundAddress(`"wohnbau.abcdefgh2345+x"@${DOMAIN}`, DOMAIN)).toEqual(token('abcdefgh2345'))
   })
 
-  it('refuses garbage', () => {
+  it('calls a foreign domain foreign, including a lookalike subdomain', () => {
+    expect(parseInboundAddress('wohnbau.abcdefgh2345@example.com', DOMAIN)).toEqual({ kind: 'foreign' })
+    expect(parseInboundAddress(`wohnbau.abcdefgh2345@evil.${DOMAIN}`, DOMAIN)).toEqual({ kind: 'foreign' })
+    expect(parseInboundAddress(`wohnbau.abcdefgh2345@${DOMAIN}.evil.com`, DOMAIN)).toEqual({ kind: 'foreign' })
+    expect(parseInboundAddress('no-at-sign', DOMAIN)).toEqual({ kind: 'foreign' })
+    expect(parseInboundAddress('', DOMAIN)).toEqual({ kind: 'foreign' })
+  })
+
+  it('calls an address in our domain without a well-formed token malformed', () => {
     for (const recipient of [
-      '',
-      'no-at-sign',
       `@${DOMAIN}`,
       `wohnbau.@${DOMAIN}`,
       `wohnbau.abcdefgh234@${DOMAIN}`, // 11 characters
       `wohnbau.abcdefgh23456@${DOMAIN}`, // 13 characters
       `wohnbau.abcdefgh2301@${DOMAIN}`, // 0 and 1 are not base32
       `wohnbau.abcdefgh234!@${DOMAIN}`,
-      `wohnbau+tag.abcdefgh2345+x@${DOMAIN}`,
+      `+abcdefgh2345@${DOMAIN}`,
     ]) {
-      expect(parseInboundAddress(recipient, DOMAIN), recipient).toBeNull()
+      expect(parseInboundAddress(recipient, DOMAIN), recipient).toEqual({ kind: 'malformed' })
     }
   })
 
-  it('refuses everything when no domain is configured', () => {
-    expect(parseInboundAddress(`abcdefgh2345@${DOMAIN}`, '')).toBeNull()
+  it('calls everything foreign when no domain is configured', () => {
+    expect(parseInboundAddress(`abcdefgh2345@${DOMAIN}`, '')).toEqual({ kind: 'foreign' })
   })
 
   it('tolerates angle brackets and whitespace around the recipient', () => {
-    expect(parseInboundAddress(` <abcdefgh2345@${DOMAIN}> `, DOMAIN)).toBe('abcdefgh2345')
+    expect(parseInboundAddress(` <abcdefgh2345@${DOMAIN}> `, DOMAIN)).toEqual(token('abcdefgh2345'))
   })
 })
 
@@ -70,9 +84,19 @@ describe('mintToken', () => {
     for (let i = 0; i < 200; i += 1) expect(isToken(mintToken())).toBe(true)
   })
 
-  it('reads the first 60 bits of the random bytes', () => {
-    expect(mintToken(() => Buffer.alloc(8, 0))).toBe('aaaaaaaaaaaa')
-    expect(mintToken(() => Buffer.alloc(8, 0xff))).toBe('777777777777')
+  it('maps each random byte to one letter by its low five bits', () => {
+    expect(mintToken(() => Buffer.alloc(12, 0))).toBe('aaaaaaaaaaaa')
+    expect(mintToken(() => Buffer.alloc(12, 0xff))).toBe('777777777777')
+    expect(mintToken(() => Buffer.from([0, 1, 25, 26, 31, 32, 33, 63, 64, 224, 255, 7]))).toBe('abz27ab7aa7h')
+  })
+
+  it('reads exactly twelve bytes', () => {
+    const sizes: number[] = []
+    mintToken((size) => {
+      sizes.push(size)
+      return Buffer.alloc(size)
+    })
+    expect(sizes).toEqual([12])
   })
 
   it('does not repeat', () => {
@@ -108,9 +132,9 @@ describe('formatInboundAddress', () => {
   })
 
   it('round-trips through the parser', () => {
-    const token = mintToken()
-    const address = formatInboundAddress(projectSlug('Wohnbau Hietzing'), token, DOMAIN)
-    expect(parseInboundAddress(address, DOMAIN)).toBe(token)
+    const minted = mintToken()
+    const address = formatInboundAddress(projectSlug('Wohnbau Hietzing'), minted, DOMAIN)
+    expect(parseInboundAddress(address, DOMAIN)).toEqual(token(minted))
   })
 })
 

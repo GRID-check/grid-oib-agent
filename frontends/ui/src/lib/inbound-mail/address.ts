@@ -13,7 +13,7 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { latinize } from '@/lib/text/latinize'
+import { slugify } from '@/lib/text/slugify'
 
 /** RFC 4648 base32, lowercased: the alphabet a token is drawn from. */
 const BASE32_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567' // pragma: allowlist secret
@@ -27,23 +27,11 @@ const TOKEN_PATTERN = /^[a-z2-7]{12}$/
 export const SLUG_MAX_LENGTH = 30
 
 /**
- * A fresh token. 8 random bytes are read and the first 60 bits used; the
- * remaining 4 are discarded rather than biasing the last character.
+ * A fresh token: one random byte per character, its low 5 bits an index into
+ * the 32-letter alphabet. 256 is a multiple of 32, so no letter is favoured.
  */
-export function mintToken(random: (size: number) => Buffer = randomBytes): string {
-  const bytes = random(8)
-  let token = ''
-  let buffer = 0
-  let buffered = 0
-  for (const byte of bytes) {
-    buffer = ((buffer << 8) | byte) & 0xfff
-    buffered += 8
-    while (buffered >= 5 && token.length < TOKEN_LENGTH) {
-      buffered -= 5
-      token += BASE32_ALPHABET[(buffer >> buffered) & 31]
-    }
-  }
-  return token
+export function mintToken(random: (size: number) => Uint8Array = randomBytes): string {
+  return Array.from(random(TOKEN_LENGTH), (byte) => BASE32_ALPHABET[byte & 31]).join('')
 }
 
 /**
@@ -53,11 +41,7 @@ export function mintToken(random: (size: number) => Buffer = randomBytes): strin
  * bare token.
  */
 export function projectSlug(projectName: string): string {
-  const slug = latinize(projectName)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return slug.slice(0, SLUG_MAX_LENGTH).replace(/-+$/, '')
+  return slugify(projectName, { max: SLUG_MAX_LENGTH })
 }
 
 /** `<slug>.<token>@<domain>`, or `<token>@<domain>` for an empty slug. */
@@ -67,22 +51,44 @@ export function formatInboundAddress(slug: string, token: string, domain: string
 }
 
 /**
- * The token an envelope recipient names, or `null` when it names none of ours.
+ * What an envelope recipient names.
  *
- * `null` covers a foreign domain, a malformed address, and a local part whose
- * last dot-segment is not a well-formed token. All three are answered the same
- * way (404), so nothing here distinguishes them for the caller.
+ * - `token`: a local part in our domain that carries a well-formed token.
+ * - `malformed`: our domain, but no token in it. Nothing will ever resolve it.
+ * - `foreign`: not our domain at all. Cloudflare routes only our domain to the
+ *   Worker, so this is a configuration fault on our side, never the sender's.
  */
-export function parseInboundAddress(recipient: string, domain: string): string | null {
+export type RecipientParse =
+  | { kind: 'token'; token: string }
+  | { kind: 'malformed' }
+  | { kind: 'foreign' }
+
+/** ASCII-only lowercasing: `İ` and `K` (Kelvin) must not fold onto `i` and `k`. */
+export function asciiLower(value: string): string {
+  return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase())
+}
+
+/**
+ * The local part without the decoration a sender's client may add: the
+ * surrounding quotes of a quoted local part, and a `+detail` subaddress
+ * (`wohnbau.abcdefgh2345+plaene`), which is dropped before the last-dot split.
+ */
+function bareLocalPart(local: string): string {
+  const unquoted = local.length >= 2 && local.startsWith('"') && local.endsWith('"') ? local.slice(1, -1) : local
+  const plus = unquoted.indexOf('+')
+  return plus === -1 ? unquoted : unquoted.slice(0, plus)
+}
+
+/** Parse an envelope recipient against the deployment's inbound domain. */
+export function parseInboundAddress(recipient: string, domain: string): RecipientParse {
   const trimmed = recipient.trim().replace(/^<|>$/g, '')
   const at = trimmed.lastIndexOf('@')
-  if (at <= 0) return null
-  const recipientDomain = trimmed.slice(at + 1).toLowerCase()
-  if (!domain || recipientDomain !== domain.toLowerCase()) return null
-  const local = trimmed.slice(0, at).toLowerCase()
+  const recipientDomain = at === -1 ? '' : asciiLower(trimmed.slice(at + 1))
+  if (!domain || recipientDomain !== asciiLower(domain)) return { kind: 'foreign' }
+  const local = asciiLower(bareLocalPart(trimmed.slice(0, at)))
   const dot = local.lastIndexOf('.')
   const token = dot === -1 ? local : local.slice(dot + 1)
-  return TOKEN_PATTERN.test(token) ? token : null
+  return TOKEN_PATTERN.test(token) ? { kind: 'token', token } : { kind: 'malformed' }
 }
 
 /** Whether a string is a well-formed token (the database CHECK, restated). */

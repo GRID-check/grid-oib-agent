@@ -4,8 +4,11 @@
  *
  * The unit specs show the service asks the right questions. Only this shows
  * the database refuses the wrong ones: that a token names one row across every
- * tenant, that one tenant cannot read or point at another's address, and that
- * the idempotency key is the address and not the Message-ID alone.
+ * tenant, that one tenant cannot read or point at another's address or folder,
+ * that the delivery key is unique per address and not per mail, and that the
+ * drain's claim is fenced: a stale attempt cannot write over a newer one. The
+ * backoff, the reaper and the retention sweeps are asserted here too, because
+ * each is a claim about a WHERE clause.
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/inbound-mail/repository.integration.spec.ts
@@ -13,6 +16,7 @@
  * `task db:test:rls` builds the database and runs this file.
  */
 
+import { createHash, randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
@@ -27,7 +31,7 @@ const ORG_B = `org_mail_b_${STAMP}`
 const suffix = STAMP.toString(32).replace(/[01]/g, 'z').replace(/[89]/g, 'y').slice(-6).padStart(6, 'q')
 const TOKEN_A = `aaaaaa${suffix}`.slice(0, 12)
 const TOKEN_B = `bbbbbb${suffix}`.slice(0, 12)
-const HASH = 'f'.repeat(64)
+const KEY = 'f'.repeat(64)
 
 function rootCause(error: unknown): Error & { code?: string } {
   let current = error as Error
@@ -48,6 +52,7 @@ describe.skipIf(!url)('inbound mail tables against live Postgres', () => {
   let db: ReturnType<typeof import('@/lib/db').getDb>
   let context: typeof import('@/lib/db/tenant-context')
   let repo: typeof import('./repository')
+  type NewDelivery = import('./repository').NewDelivery
   const projectOf: Record<string, string> = {}
   const addressOf: Record<string, string> = {}
   let bareProjectB = ''
@@ -145,64 +150,271 @@ describe.skipIf(!url)('inbound mail tables against live Postgres', () => {
     const cause = await refusal(() =>
       context.withTenant({ organizationId: ORG_A }, () =>
         db.execute(
-          sql`insert into inbound_mail_messages (organization_id, project_id, address_id, message_id_hash)
-              values (${ORG_A}, ${projectOf[ORG_A]}, ${addressOf[ORG_B]}, ${HASH})`
+          sql`insert into inbound_mail_messages (organization_id, project_id, address_id, delivery_key, sender_user_id, folder_name)
+              values (${ORG_A}, ${projectOf[ORG_A]}, ${addressOf[ORG_B]}, ${KEY}, 'user-anna', 'x')`
         )
       )
     )
     expect(cause.code).toBe('23503')
   })
 
-  it('keys idempotency by address: one Message-ID filed in two organizations is two deliveries', async () => {
-    const claim = (org: string) =>
-      context.withTenant({ organizationId: org }, () =>
-        repo.claimMessage({
-          addressId: addressOf[org],
-          organizationId: org,
-          projectId: projectOf[org],
-          messageIdHash: HASH,
-        })
+  it('refuses a message row that files into another project’s folder', async () => {
+    const [folder] = (await context.withTenant({ organizationId: ORG_B }, () =>
+      db.execute(
+        sql`insert into project_folders (project_id, name, path) values (${projectOf[ORG_B]}, 'Fremd', 'Fremd') returning id`
       )
-
-    const a = await claim(ORG_A)
-    const b = await claim(ORG_B)
-    expect(a.kind).toBe('claimed')
-    expect(b.kind).toBe('claimed')
-
-    // A second delivery while the first is still filing is busy, not a second claim.
-    expect((await claim(ORG_A)).kind).toBe('busy')
-
-    if (a.kind !== 'claimed' || b.kind !== 'claimed') throw new Error('unreachable')
-    await context.withTenant({ organizationId: ORG_A }, () =>
-      repo.markMessageFiled(a.messageRowId, { senderUserId: 'user-anna', filedCount: 2, skippedCount: 1 })
-    )
-    expect(await claim(ORG_A)).toEqual({ kind: 'duplicate', messageRowId: a.messageRowId, filedCount: 2 })
-
-    await context.withTenant({ organizationId: ORG_B }, () => repo.markMessageFailed(b.messageRowId))
-    expect(await claim(ORG_B)).toEqual({ kind: 'claimed', messageRowId: b.messageRowId })
-  })
-
-  it('takes over a processing row once it is stale', async () => {
-    const hash = 'e'.repeat(64)
-    const input = { addressId: addressOf[ORG_A], organizationId: ORG_A, projectId: projectOf[ORG_A], messageIdHash: hash }
-    const first = await context.withTenant({ organizationId: ORG_A }, () => repo.claimMessage(input))
-    expect(first.kind).toBe('claimed')
-
-    const later = new Date(Date.now() + repo.STALE_PROCESSING_MS + 60_000)
-    const takeover = await context.withTenant({ organizationId: ORG_A }, () => repo.claimMessage(input, later))
-    expect(takeover.kind).toBe('claimed')
-  })
-
-  it('refuses a filed row without a sender', async () => {
+    )) as unknown as { id: string }[]
     const cause = await refusal(() =>
       context.withTenant({ organizationId: ORG_A }, () =>
         db.execute(
-          sql`insert into inbound_mail_messages (organization_id, project_id, address_id, message_id_hash, status)
-              values (${ORG_A}, ${projectOf[ORG_A]}, ${addressOf[ORG_A]}, ${'d'.repeat(64)}, 'filed')`
+          sql`insert into inbound_mail_messages (organization_id, project_id, address_id, delivery_key, sender_user_id, folder_name, folder_id)
+              values (${ORG_A}, ${projectOf[ORG_A]}, ${addressOf[ORG_A]}, ${'9'.repeat(64)}, 'user-anna', 'x', ${folder.id})`
         )
       )
     )
-    expect(cause.code).toBe('23514')
+    expect(cause.code).toBe('23503')
+  })
+
+  it('keeps the claim token and the status in step, and a staged object never without its bucket', async () => {
+    const insert = (status: string, token: string | null, staged: string, bucket: string | null) =>
+      refusal(() =>
+        context.withTenant({ organizationId: ORG_A }, () =>
+          db.execute(
+            sql`insert into inbound_mail_messages
+                  (organization_id, project_id, address_id, delivery_key, sender_user_id, folder_name, status, claim_token, staged, staging_bucket)
+                values (${ORG_A}, ${projectOf[ORG_A]}, ${addressOf[ORG_A]}, ${'8'.repeat(64)}, 'user-anna', 'x',
+                        ${status}, ${token}, ${staged}::jsonb, ${bucket})`
+          )
+        )
+      )
+    expect((await insert('processing', null, '[]', null)).code).toBe('23514')
+    expect((await insert('queued', randomUUID(), '[]', null)).code).toBe('23514')
+    expect((await insert('queued', null, '[{"key":"k"}]', null)).code).toBe('23514')
+  })
+
+  describe('deliveries', () => {
+    let seq = 0
+    /** A fresh delivery key per test, so the tests do not see each other's rows. */
+    const freshKey = () => createHash('sha256').update(`${STAMP}-${(seq += 1)}`).digest('hex')
+
+    const queue = (org: string, key: string, overrides: Partial<NewDelivery> = {}) =>
+      context.withTenant({ organizationId: org }, () =>
+        repo.queueDelivery({
+          id: randomUUID(),
+          addressId: addressOf[org],
+          organizationId: org,
+          projectId: projectOf[org],
+          deliveryKey: key,
+          senderUserId: 'user-anna',
+          folderName: '2026-09-30 10.15 – Anna Berger',
+          subject: 'Pläne',
+          stagingBucket: 'grid-documents',
+          staged: [{ key: 'org/x/project/y/inbound-mail/z/1', filename: 'Plan.pdf', contentType: 'application/pdf', sha256: 'a'.repeat(64), size: 3 }],
+          skipped: [{ filename: 'image001.png', reason: 'embedded' }],
+          receivedAt: new Date(),
+          ...overrides,
+        })
+      )
+
+    const read = (id: string) =>
+      context.withPlatformAccess('test: read a delivery', async () => {
+        const [row] = (await db.execute(
+          sql`select status, claim_token, attempts, next_attempt_at > now() as backed_off, subject, staged, skipped,
+                     filed_count, skipped_count, last_error, folder_id
+                from inbound_mail_messages where id = ${id}`
+        )) as unknown as Record<string, unknown>[]
+        return row
+      })
+
+    /** Only `id` is due: every other queued row of these tenants waits a day. */
+    const onlyDue = (id: string) =>
+      context.withPlatformAccess('test: make one delivery due', () =>
+        db.execute(sql`update inbound_mail_messages set next_attempt_at = case when id = ${id} then now() - interval '1 second'
+                         else now() + interval '1 day' end
+                       where organization_id in (${ORG_A}, ${ORG_B}) and status = 'queued'`)
+      )
+
+    const claim = () => context.withPlatformAccess('test: claim', () => repo.claimNextDelivery())
+
+    it('keys a delivery by address: the same mail twice at one address is one row', async () => {
+      const key = freshKey()
+      const first = await queue(ORG_A, key)
+      expect(first).toEqual(expect.any(String))
+      expect(await queue(ORG_A, key)).toBeNull()
+      expect(await context.withTenant({ organizationId: ORG_A }, () => repo.findDelivery(addressOf[ORG_A], key))).toEqual({
+        id: first,
+        status: 'queued',
+      })
+    })
+
+    it('one mail to two organizations is queued, and filed, twice', async () => {
+      const key = freshKey()
+      const a = await queue(ORG_A, key)
+      const b = await queue(ORG_B, key)
+      expect(a).not.toBeNull()
+      expect(b).not.toBeNull()
+      expect(a).not.toBe(b)
+
+      for (const [org, id] of [[ORG_A, a], [ORG_B, b]] as const) {
+        await onlyDue(id!)
+        const claimed = await claim()
+        expect(claimed).toMatchObject({ id, organizationId: org, status: 'processing', attempts: 1 })
+        const filed = await context.withTenant({ organizationId: org }, () =>
+          repo.markDeliveryFiled(claimed!.id, claimed!.claimToken, { filedCount: 1, skipped: [], remaining: [] })
+        )
+        expect(filed).toBe(true)
+      }
+      expect((await read(a!)).status).toBe('filed')
+      expect((await read(b!)).status).toBe('filed')
+    })
+
+    it('takes over a row that was given up on, keeping its id and folder', async () => {
+      const key = freshKey()
+      const id = await queue(ORG_A, key)
+      await onlyDue(id!)
+      const first = await claim()
+      await context.withTenant({ organizationId: ORG_A }, () =>
+        repo.markDeliveryFailed(first!.id, first!.claimToken, { filedCount: 0, skipped: [], remaining: [], lastError: 'x' })
+      )
+      expect(await queue(ORG_A, key, { subject: 'Nochmal' })).toBe(id)
+      expect(await read(id!)).toMatchObject({ status: 'queued', attempts: 0, subject: 'Nochmal', last_error: null })
+    })
+
+    it('fences every write of an attempt on its claim token: a stale owner cannot overwrite a newer claim', async () => {
+      const id = await queue(ORG_A, freshKey())
+      await onlyDue(id!)
+      const stale = await claim()
+      expect(stale?.id).toBe(id)
+
+      // The first attempt stalls past the window; the reaper hands the row back.
+      await context.withPlatformAccess('test: age the heartbeat', () =>
+        db.execute(sql`update inbound_mail_messages set updated_at = now() - interval '11 minutes' where id = ${id}`)
+      )
+      expect(await context.withPlatformAccess('test: reap', () => repo.reapStaleClaims())).toBeGreaterThanOrEqual(1)
+      await onlyDue(id!)
+      const fresh = await claim()
+      expect(fresh?.id).toBe(id)
+      expect(fresh?.claimToken).not.toBe(stale?.claimToken)
+      expect(fresh?.attempts).toBe(2)
+
+      // The slow original wakes up and tries every write it has. None lands.
+      const inA = <T>(fn: () => Promise<T>) => context.withTenant({ organizationId: ORG_A }, fn)
+      const token = stale!.claimToken
+      expect(await inA(() => repo.heartbeat(id!, token))).toBe(false)
+      expect(await inA(() => repo.recordDeliveryFolder(id!, token, randomUUID()))).toBe(false)
+      expect(await inA(() => repo.scheduleRetry(id!, token, 60, 'x'))).toBe(false)
+      expect(await inA(() => repo.releaseClaim(id!, token, 60))).toBe(false)
+      expect(await inA(() => repo.markDeliveryFailed(id!, token, { filedCount: 0, skipped: [], remaining: [] }))).toBe(false)
+      expect(await inA(() => repo.markDeliveryFiled(id!, token, { filedCount: 9, skipped: [], remaining: [] }))).toBe(false)
+      expect(await read(id!)).toMatchObject({ status: 'processing', claim_token: fresh!.claimToken, filed_count: 0 })
+
+      // …while the attempt that owns it still can.
+      expect(await inA(() => repo.heartbeat(id!, fresh!.claimToken))).toBe(true)
+    })
+
+    it('reaps only attempts whose heartbeat stopped', async () => {
+      const id = await queue(ORG_A, freshKey())
+      await onlyDue(id!)
+      const live = await claim()
+      await context.withPlatformAccess('test: reap', () => repo.reapStaleClaims())
+      expect(await read(id!)).toMatchObject({ status: 'processing', claim_token: live!.claimToken })
+
+      await context.withPlatformAccess('test: age the heartbeat', () =>
+        db.execute(sql`update inbound_mail_messages set updated_at = now() - interval '11 minutes' where id = ${id}`)
+      )
+      await context.withPlatformAccess('test: reap', () => repo.reapStaleClaims())
+      expect(await read(id!)).toMatchObject({ status: 'queued', claim_token: null, attempts: 1, last_error: 'stale-claim' })
+    })
+
+    it('backs off: a retried row is not claimed before its time', async () => {
+      const id = await queue(ORG_A, freshKey())
+      await onlyDue(id!)
+      const first = await claim()
+      await context.withTenant({ organizationId: ORG_A }, () => repo.scheduleRetry(id!, first!.claimToken, 300, 'NotFoundError'))
+      expect(await read(id!)).toMatchObject({ status: 'queued', claim_token: null, backed_off: true, last_error: 'NotFoundError' })
+
+      await context.withPlatformAccess('test: park the rest', () =>
+        db.execute(sql`update inbound_mail_messages set next_attempt_at = now() + interval '1 day'
+                       where organization_id in (${ORG_A}, ${ORG_B}) and status = 'queued' and id <> ${id}`)
+      )
+      expect(await claim()).toBeNull()
+      await onlyDue(id!)
+      expect((await claim())?.attempts).toBe(2)
+    })
+
+    it('a hold gives the attempt back', async () => {
+      const id = await queue(ORG_A, freshKey())
+      await onlyDue(id!)
+      const first = await claim()
+      await context.withTenant({ organizationId: ORG_A }, () => repo.releaseClaim(id!, first!.claimToken, 3600))
+      expect(await read(id!)).toMatchObject({ status: 'queued', attempts: 0, backed_off: true, last_error: 'held' })
+    })
+
+    it('a finished row keeps counts and reason codes, and drops the subject and every name', async () => {
+      const id = await queue(ORG_A, freshKey())
+      await onlyDue(id!)
+      const first = await claim()
+      await context.withTenant({ organizationId: ORG_A }, () =>
+        repo.markDeliveryFiled(id!, first!.claimToken, {
+          filedCount: 1,
+          skipped: [{ filename: 'image001.png', reason: 'embedded' }, { filename: 'a.exe', reason: 'type' }],
+          remaining: [],
+        })
+      )
+      expect(await read(id!)).toMatchObject({
+        status: 'filed',
+        claim_token: null,
+        subject: null,
+        staged: [],
+        skipped: [{ reason: 'embedded' }, { reason: 'type' }],
+        filed_count: 1,
+        skipped_count: 2,
+      })
+    })
+
+    it('forgets a folder that was deleted, so the next attempt makes a new one', async () => {
+      const [folder] = (await context.withTenant({ organizationId: ORG_A }, () =>
+        db.execute(
+          sql`insert into project_folders (project_id, name, path) values (${projectOf[ORG_A]}, ${`Mail ${STAMP}`}, ${`Mail ${STAMP}`}) returning id`
+        )
+      )) as unknown as { id: string }[]
+      const id = await queue(ORG_A, freshKey())
+      await onlyDue(id!)
+      const first = await claim()
+      await context.withTenant({ organizationId: ORG_A }, () => repo.recordDeliveryFolder(id!, first!.claimToken, folder.id))
+      expect((await read(id!)).folder_id).toBe(folder.id)
+      await context.withTenant({ organizationId: ORG_A }, () => db.execute(sql`delete from project_folders where id = ${folder.id}`))
+      expect(await read(id!)).toMatchObject({ folder_id: null, status: 'processing' })
+    })
+
+    it('retention: staging past seven days is found, a queued row with it fails, and rows past thirty days go', async () => {
+      const old = await queue(ORG_A, freshKey())
+      const filedOld = await queue(ORG_A, freshKey(), { staged: [], stagingBucket: null })
+      const young = await queue(ORG_A, freshKey())
+      await context.withPlatformAccess('test: age the rows', () =>
+        db.execute(sql`update inbound_mail_messages set received_at = now() - interval '8 days' where id = ${old}`)
+      )
+      await context.withPlatformAccess('test: age the rows', () =>
+        db.execute(sql`update inbound_mail_messages set received_at = now() - interval '31 days', status = 'filed' where id = ${filedOld}`)
+      )
+
+      const expired = await context.withPlatformAccess('test: expired staging', () => repo.findExpiredStaging(100))
+      const ids = expired.map((row) => row.id)
+      expect(ids).toContain(old)
+      expect(ids).not.toContain(young)
+
+      const row = expired.find((candidate) => candidate.id === old)!
+      expect(await context.withTenant({ organizationId: ORG_A }, () => repo.clearExpiredStaging(row, []))).toBe(true)
+      expect(await read(old!)).toMatchObject({ status: 'failed', staged: [], subject: null, last_error: 'staging-expired' })
+
+      // A thirty-day-old row that still names staged objects is kept until they are gone.
+      await context.withPlatformAccess('test: age the rows', () =>
+        db.execute(sql`update inbound_mail_messages set received_at = now() - interval '31 days' where id = ${young}`)
+      )
+      await context.withPlatformAccess('test: retention', () => repo.deleteDeliveriesOlderThan())
+      expect(await read(filedOld!)).toBeUndefined()
+      expect(await read(young!)).toMatchObject({ status: 'queued' })
+    })
   })
 
   it('rotation revokes the old token: it resolves to nothing, like an unknown one', async () => {

@@ -206,10 +206,18 @@ async function purgeProject(tx, entry, deps) {
   //    Sequential rather than concurrent on purpose: the prefix sweep is a
   //    list-then-delete loop, and running several against one storage tier only
   //    trades a rarely-hot latency for contention on the thing being erased.
+  //
+  //    The mail inbox's staged attachments (ADR-0074) live under this same
+  //    project prefix, in the bucket their delivery row recorded. A project
+  //    whose only object in a tenant bucket is a mail not yet filed has no
+  //    document naming that bucket, so the rows that do are asked too.
   const recorded = /** @type {{ storage_bucket: string }[]} */ (
     await tx`
       SELECT DISTINCT storage_bucket FROM documents
-       WHERE project_id = ${projectId} AND storage_bucket IS NOT NULL`
+       WHERE project_id = ${projectId} AND storage_bucket IS NOT NULL
+      UNION
+      SELECT DISTINCT staging_bucket FROM inbound_mail_messages
+       WHERE project_id = ${projectId} AND staging_bucket IS NOT NULL`
   )
   const targets = new Set([bucket, ...recorded.map((row) => row.storage_bucket)])
   for (const target of targets) {
