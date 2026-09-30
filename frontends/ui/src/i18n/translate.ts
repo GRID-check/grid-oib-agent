@@ -15,7 +15,9 @@
  *
  * `#` stands for the number, and `{name}` placeholders inside a branch are
  * interpolated as usual. This is the ICU plural syntax, cut down to the two
- * categories German and English actually distinguish.
+ * categories German and English actually distinguish, plus ICU's exact-value
+ * branches (`=0 {Keine Datei}`), which win over the category: "0 Dateien" is
+ * grammatical and still not what anybody writes.
  *
  * It is here because the alternative did not scale. The dictionaries had
  * accumulated one hand-written pair per counted noun — `hitCount`/`hitCountOne`,
@@ -63,8 +65,8 @@ const HAS_PLURAL_RE = /,\s*plural\s*,/
 /** Header of a plural block: `{count, plural, ` at the start of a slice. */
 const PLURAL_HEADER_RE = /^\{(\w+),\s*plural,\s*/
 
-/** A branch label and its opening brace: `one {` at the start of a slice. */
-const PLURAL_BRANCH_RE = /^\s*(\w+)\s*\{/
+/** A branch label and its opening brace: `one {` or `=0 {` at the start of a slice. */
+const PLURAL_BRANCH_RE = /^\s*(=\d+|\w+)\s*\{/
 
 /**
  * Index of the `}` closing the `{` at `open`, or -1 when the braces do not
@@ -131,10 +133,12 @@ function applyPlurals(template: string, vars: TranslationVars): string {
     const branches = parseBranches(template.slice(start + header[0].length, close))
     const value = vars[header[1]]
     const count = typeof value === 'number' ? value : Number(value)
+    const exact = Number.isFinite(count) ? branches[`=${count}`] : undefined
     const chosen =
-      Number.isFinite(count) && count === 1 && branches.one !== undefined
+      exact ??
+      (Number.isFinite(count) && count === 1 && branches.one !== undefined
         ? branches.one
-        : (branches.other ?? '')
+        : (branches.other ?? ''))
 
     out += template.slice(cursor, start) + chosen.split('#').join(String(value ?? ''))
     cursor = close + 1

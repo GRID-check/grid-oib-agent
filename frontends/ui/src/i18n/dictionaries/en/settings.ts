@@ -43,7 +43,7 @@ export const settings = {
       memory: 'Project memory',
       insights: 'Insights',
       reindex: 'Knowledge index',
-      inboundMail: 'Email inbox',
+      inboundMail: 'Project email address',
     },
     reindexDescription:
       'Rebuild the indexed content of every document in this project. Nothing you uploaded is deleted — only the derived chunks answers are grounded on. Use this after a change to how documents are indexed.',
@@ -65,15 +65,18 @@ export const settings = {
     /** The project's own mail address: attachments sent to it are filed into the project. */
     inboundMail: {
       description:
-        'Send files as attachments to this address. They are filed in this project under E-Mail-Eingang.',
+        'Send files as attachments to this address. Piloti files them in this project under E-Mail-Eingang, each email in a folder of its own.',
       addressLabel: 'Project email address',
       rulesLabel: 'What applies',
       rules: {
-        members: 'Only project members who can edit documents can send to it.',
+        members:
+          'Project members who can edit documents can send to it, once the feature is switched on for the organization.',
         verified:
-          'The sender’s domain must be verifiable (DKIM or DMARC). Other mail is rejected.',
-        size: 'At most 25 MB per email.',
-        body: 'Piloti files the attachments only. The text of the email is not stored.',
+          'The sender’s domain must sign its mail with DKIM. Other mail is rejected.',
+        addressing: 'Put the address in To or Cc. Mail that has it only in Bcc is rejected.',
+        size: 'Attachments up to about 18 MB in total, and at most 100 files per email.',
+        attachmentsOnly:
+          'Only attachments are filed: not images pasted into the text, not links to cloud files. The text of the email is not stored.',
       },
       helpLink: 'How it works, and why mail bounces',
       rotate: 'Generate new address',
@@ -83,7 +86,6 @@ export const settings = {
       confirmAction: 'Generate new address',
       rotated: 'New address generated',
       rotateFailed: 'The new address could not be generated. The current one still works.',
-      loadFailedTitle: 'Address unavailable',
       loadFailed: 'The project’s email address could not be loaded.',
     },
     insights: {

@@ -423,11 +423,38 @@ export const collaboration = {
       },
       // The files of a mail sent to the project address were filed (ADR-0074).
       // {subject} is the mail's subject, {project} the project, {filed} and
-      // {skipped} how many attachments were filed and skipped.
+      // {skipped} how many attachments were filed and skipped. The row lists
+      // the skipped files itself, with `reasons`.
       inboundMailFiled: {
         title:
-          '{filed, plural, one {# file} other {# files}} from the email "{subject}" filed in {project}',
-        body: '{skipped, plural, one {# attachment skipped} other {# attachments skipped}} – the folder shows what arrived.',
+          '{filed, plural, =0 {No attachments} one {# file} other {# files}} from the email “{subject}” filed in {project}',
+        titleUntitled:
+          '{filed, plural, =0 {No attachments} one {# file} other {# files}} from an email filed in {project}',
+        titleWithheld: 'Attachments from an email filed',
+        skippedLabel: 'Not filed:',
+        more: '+{count} more',
+        cloudLinks: 'Piloti does not fetch links to cloud files. Attach the files, or upload them directly.',
+        reasons: {
+          embedded: 'image in the email text',
+          tnef: 'Outlook format (winmail.dat)',
+          signature: 'email signature',
+          encrypted: 'encrypted',
+          calendar: 'calendar invitation',
+          empty: 'empty file',
+          unknownType: 'file type not recognised',
+          limit: 'more than 100 files in the email',
+          type: 'file type not allowed',
+          size: 'file too large',
+          quota: 'organization storage full',
+        },
+      },
+      // The files of a mail could not be filed after every retry. {project} is
+      // the project, {subject} the mail's subject.
+      inboundMailFailed: {
+        title: 'The files from your email “{subject}” could not be filed in {project}',
+        titleUntitled: 'The files from your email could not be filed in {project}',
+        titleWithheld: 'The files from an email could not be filed',
+        body: 'Please upload them directly.',
       },
       unknown: {
         title: 'Something happened',

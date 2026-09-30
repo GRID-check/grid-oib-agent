@@ -68,18 +68,54 @@ describe('ProjectInboundMailCard', () => {
     expect(field).toHaveTextContent(ADDRESS)
     expect(fetchSpy).toHaveBeenCalledWith('/api/projects/proj-1/inbound-address')
 
-    const region = screen.getByRole('region', { name: 'Email inbox' })
+    const region = screen.getByRole('region', { name: 'Project email address' })
     const rules = within(region).getByRole('list', { name: 'What applies' })
-    expect(within(rules).getAllByRole('listitem')).toHaveLength(4)
-    expect(rules).toHaveTextContent('25 MB')
+    expect(within(rules).getAllByRole('listitem')).toHaveLength(5)
+    expect(rules).toHaveTextContent('18 MB')
+    expect(rules).toHaveTextContent('100 files')
     expect(rules).toHaveTextContent('DKIM')
+    expect(rules).toHaveTextContent('Bcc')
+    expect(rules).toHaveTextContent('cloud files')
+    expect(rules).not.toHaveTextContent('DMARC')
+  })
+
+  test('reads in task order: address, copy, rules, help, rotate', async () => {
+    stubRoutes(ready(true))
+    render(<ProjectInboundMailCard projectId="proj-1" />)
+
+    const region = await screen.findByRole('region', { name: 'Project email address' })
+    await within(region).findByRole('group', { name: 'Project email address' })
+    const order = [
+      within(region).getByText(ADDRESS),
+      within(region).getByRole('button', { name: 'Copy' }),
+      within(region).getByRole('list', { name: 'What applies' }),
+      within(region).getByRole('link', { name: /How it works/ }),
+      within(region).getByRole('button', { name: 'Generate new address' }),
+    ]
+    for (let i = 1; i < order.length; i += 1) {
+      expect(
+        order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    }
+  })
+
+  test('the address may break before its @ and dots, and the copy carries none of it', async () => {
+    stubRoutes(ready(false))
+    render(<ProjectInboundMailCard projectId="proj-1" />)
+
+    const value = await screen.findByText(ADDRESS)
+    expect(value.querySelectorAll('wbr')).toHaveLength(ADDRESS.split(/[@.]/).length - 1)
+    expect(value.className).toContain('wrap-anywhere')
+    expect(value.className).not.toContain('break-all')
   })
 
   test('links the public help page, in the reader’s language, in a new tab', async () => {
     stubRoutes(ready(false))
     const { unmount } = render(<ProjectInboundMailCard projectId="proj-1" />)
 
-    const link = await screen.findByRole('link', { name: 'How it works, and why mail bounces' })
+    const link = await screen.findByRole('link', {
+      name: 'How it works, and why mail bounces (opens in a new tab)',
+    })
     expect(link).toHaveAttribute('href', 'https://piloti.at/en/e-mail-eingang/')
     expect(link).toHaveAttribute('target', '_blank')
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
@@ -92,7 +128,9 @@ describe('ProjectInboundMailCard', () => {
     )
     // The German URL is the one the bounce text of a refused mail carries.
     expect(
-      await screen.findByRole('link', { name: 'Anleitung und Gründe für abgelehnte E-Mails' })
+      await screen.findByRole('link', {
+        name: 'Anleitung und Gründe für abgelehnte E-Mails (öffnet in einem neuen Tab)',
+      })
     ).toHaveAttribute('href', 'https://piloti.at/e-mail-eingang/')
   })
 

@@ -32,13 +32,17 @@ export const BRAND_MARK = {
  * pages the app links to. Not `GRID_LANDING_URL`: that is a server-side
  * setting a client component cannot read, and the help pages say the same on
  * every host.
+ *
+ * This and the path below are copies of `shared/public-site.json`, which the
+ * UI image cannot read at runtime (its build context is `frontends/ui`);
+ * `brand.spec.ts` fails when they drift from it.
  */
 export const PUBLIC_SITE_URL = 'https://piloti.at'
 
 /**
  * The public help page on the project mail inbox, in the reader's language.
- * The slug is `MAIL_INBOX_SLUG` in `frontends/web/src/consts.ts`, which never
- * changes because refused mail bounces with this URL in its text.
+ * Its path is `paths.mailInbox` in `shared/public-site.json`, which never
+ * changes: the Worker's bounce text for a refused mail links the same page.
  */
 export function mailInboxHelpUrl(locale: Locale): string {
   return `${PUBLIC_SITE_URL}${locale === 'en' ? '/en' : ''}/e-mail-eingang/`

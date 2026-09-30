@@ -7,7 +7,10 @@
  * token, an identifier. The value WRAPS rather than scrolling inside an
  * `<input>`: on a phone a 45-character address in a one-line field shows its
  * first 20 characters, and the reader cannot check what they are about to hand
- * out. One click selects all of it (`select-all`), so it can still be copied by
+ * out. It offers a break before every `@` and `.` (`<wbr>`, which a copy does
+ * not carry), so `projekt.k7m2@piloti-post.at` wraps between its parts, and
+ * uses `overflow-wrap: anywhere` rather than `word-break: break-all`, so a
+ * run of characters is split only when that run alone is wider than the field. One click selects all of it (`select-all`), so it can still be copied by
  * hand where the Clipboard API is refused. Below `sm` the button moves under
  * the value, which then gets the full width.
  *
@@ -19,13 +22,22 @@
  * `ConfirmDialog`.
  */
 
-import type { JSX } from 'react'
-import { useId } from 'react'
+import type { JSX, ReactNode } from 'react'
+import { Fragment, useId } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { cn } from '@/lib/utils'
+
+/** The value with a line-break opportunity before each `@` and `.`. */
+function withBreakpoints(value: string): ReactNode[] {
+  return value.split(/(?=[@.])/).map((part, index) => (
+    <Fragment key={index}>
+      {index > 0 && <wbr />}
+      {part}
+    </Fragment>
+  ))
+}
 
 export interface CopyFieldProps {
   value: string
@@ -61,9 +73,9 @@ export function CopyField({
     >
       <code
         id={valueId}
-        className="border-input bg-input-background flex min-h-10 min-w-0 items-center sm:flex-1 rounded-lg border px-3.5 py-2 font-mono text-sm break-all select-all"
+        className="border-input bg-input-background flex min-h-10 min-w-0 items-center sm:flex-1 rounded-lg border px-3.5 py-2 font-mono text-sm wrap-anywhere select-all"
       >
-        {value}
+        {withBreakpoints(value)}
       </code>
       <Button
         type="button"
@@ -75,19 +87,6 @@ export function CopyField({
         {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
         <span aria-live="polite">{copied ? copiedLabel : copyLabel}</span>
       </Button>
-    </div>
-  )
-}
-
-/** The CopyField's footprint while its value loads, so nothing shifts when it lands. */
-export function CopyFieldSkeleton({ className }: { className?: string }): JSX.Element {
-  return (
-    <div
-      className={cn('flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center', className)}
-      aria-hidden="true"
-    >
-      <Skeleton className="h-10 w-full min-w-0 rounded-lg sm:flex-1" />
-      <Skeleton className="h-9 w-full shrink-0 pointer-coarse:h-11 sm:w-28" />
     </div>
   )
 }

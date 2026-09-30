@@ -28,6 +28,10 @@ export const common = {
     copyFailed: 'Could not copy',
     copied: 'Copied',
   },
+  links: {
+    /** Spoken after the text of a link that opens a new tab (`ExternalLink`). */
+    opensInNewTab: 'opens in a new tab',
+  },
   codeBlock: {
     copy: 'Copy',
     copied: 'Copied',

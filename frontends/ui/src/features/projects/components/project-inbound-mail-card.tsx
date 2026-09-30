@@ -1,50 +1,43 @@
 'use client'
 
 /**
- * „E-Mail-Eingang": the project's own mail address, on the Settings page.
+ * „E-Mail-Eingang" (English: "Project email address"): the project's own mail
+ * address, on the Settings page.
  *
  * A project member mails files to it and the attachments are filed into the
- * project's „E-Mail-Eingang" folder as if that member had uploaded them. This
- * section is where the address is found, copied and, by a project manager,
- * replaced.
+ * project's „E-Mail-Eingang" folder, one subfolder per mail, as if that member
+ * had uploaded them. This section is where the address is found, copied and,
+ * by a project manager, replaced.
  *
  * Rendered only for callers who can write documents (the page decides), and
- * draws nothing when the deployment has no inbound mail domain: an address
- * nobody can use, or a notice about infrastructure the reader cannot change,
- * is noise on a page people come to for something else.
+ * draws nothing when the deployment has no inbound mail domain or the
+ * organization has not switched the inbox on: an address nobody can use, or a
+ * notice about infrastructure the reader cannot change, is noise on a page
+ * people come to for something else.
  *
- * The rules are the ones the receiving side enforces (members with write
- * access only, a verifiable sender domain, 25 MB, the body not kept), stated
- * here so a rejected mail is not the first place a sender learns them. The
- * full account, with the DKIM steps and every reason a mail bounces, is the
- * public help page it links to, the same page the bounce text names.
+ * The rules are the ones the receiving side enforces, stated here so a
+ * rejected mail is not the first place a sender learns them. The full account,
+ * with the DKIM steps and every reason a mail bounces, is the public help page
+ * it links to; the Worker's bounce text links the same page.
+ *
+ * Reading order is the task order: the address and its copy button, what
+ * applies, where to read more, and last the rotation, which only a manager
+ * sees and nobody needs on the way to the address.
  */
 
 import type { JSX } from 'react'
 import { useState } from 'react'
-import {
-  AlertCircle,
-  ExternalLink,
-  FileText,
-  Paperclip,
-  RefreshCw,
-  ShieldCheck,
-  Users,
-} from 'lucide-react'
+import { AtSign, FileText, Paperclip, RefreshCw, ShieldCheck, Users } from 'lucide-react'
 import { toast } from 'sonner'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { CopyField, CopyFieldSkeleton } from '@/components/ui/copy-field'
+import { CopyField } from '@/components/ui/copy-field'
+import { ExternalLink } from '@/components/ui/external-link'
+import { IconList, IconListItem } from '@/components/ui/icon-list'
+import { SectionCard } from '@/features/platform/components/section-card'
 import { useLocale, useTranslations } from '@/i18n'
 import { mailInboxHelpUrl } from '@/lib/brand'
 import { useInboundAddress } from '../lib/use-inbound-address'
-import {
-  SettingsRule,
-  SettingsRuleList,
-  SettingsSectionCard,
-  SettingsSectionHeader,
-} from './settings-section-atoms'
 
 export interface ProjectInboundMailCardProps {
   projectId: string
@@ -73,39 +66,35 @@ export function ProjectInboundMailCard({
     toast.success(t('project.inboundMail.rotated'))
   }
 
-  const rotateAction =
-    state.status === 'ready' && state.canRotate ? (
-      <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
-        <RefreshCw aria-hidden="true" />
-        {t('project.inboundMail.rotate')}
-      </Button>
-    ) : null
-
-  const retryAction =
-    state.status === 'error' ? (
-      <Button variant="outline" size="sm" onClick={reload}>
-        {tCommon('actions.retry')}
-      </Button>
-    ) : null
+  const canRotate = state.status === 'ready' && state.canRotate
 
   return (
-    <SettingsSectionCard label={t('project.sections.inboundMail')}>
-      <SettingsSectionHeader
-        title={t('project.sections.inboundMail')}
-        description={t('project.inboundMail.description')}
-        action={rotateAction ?? retryAction}
-      />
-
-      {state.status === 'loading' && <CopyFieldSkeleton />}
-
-      {state.status === 'error' && (
-        <Alert variant="destructive">
-          <AlertCircle />
-          <AlertTitle>{t('project.inboundMail.loadFailedTitle')}</AlertTitle>
-          <AlertDescription>{t('project.inboundMail.loadFailed')}</AlertDescription>
-        </Alert>
-      )}
-
+    <SectionCard
+      variant="raised"
+      title={t('project.sections.inboundMail')}
+      description={t('project.inboundMail.description')}
+      loading={state.status === 'loading'}
+      skeletonRows={2}
+      error={state.status === 'error'}
+      errorMessage={t('project.inboundMail.loadFailed')}
+      onRetry={reload}
+      footer={
+        <>
+          <ExternalLink
+            href={mailInboxHelpUrl(locale)}
+            newTabLabel={tCommon('links.opensInNewTab')}
+          >
+            {t('project.inboundMail.helpLink')}
+          </ExternalLink>
+          {canRotate && (
+            <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
+              <RefreshCw aria-hidden="true" />
+              {t('project.inboundMail.rotate')}
+            </Button>
+          )}
+        </>
+      }
+    >
       {state.status === 'ready' && (
         <CopyField
           value={state.address}
@@ -116,33 +105,26 @@ export function ProjectInboundMailCard({
         />
       )}
 
-      <SettingsRuleList label={t('project.inboundMail.rulesLabel')}>
-        <SettingsRule icon={Users}>{t('project.inboundMail.rules.members')}</SettingsRule>
-        <SettingsRule icon={ShieldCheck}>{t('project.inboundMail.rules.verified')}</SettingsRule>
-        <SettingsRule icon={Paperclip}>{t('project.inboundMail.rules.size')}</SettingsRule>
-        <SettingsRule icon={FileText}>{t('project.inboundMail.rules.body')}</SettingsRule>
-      </SettingsRuleList>
+      <IconList label={t('project.inboundMail.rulesLabel')}>
+        <IconListItem icon={Users}>{t('project.inboundMail.rules.members')}</IconListItem>
+        <IconListItem icon={ShieldCheck}>{t('project.inboundMail.rules.verified')}</IconListItem>
+        <IconListItem icon={AtSign}>{t('project.inboundMail.rules.addressing')}</IconListItem>
+        <IconListItem icon={Paperclip}>{t('project.inboundMail.rules.size')}</IconListItem>
+        <IconListItem icon={FileText}>{t('project.inboundMail.rules.attachmentsOnly')}</IconListItem>
+      </IconList>
 
-      <a
-        href={mailInboxHelpUrl(locale)}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-muted-foreground duration-quick hover:text-foreground touch-target inline-flex items-center gap-1.5 text-sm transition-colors ease-out motion-reduce:transition-none"
-      >
-        {t('project.inboundMail.helpLink')}
-        <ExternalLink className="size-3.5" aria-hidden="true" />
-      </a>
-
-      <ConfirmDialog
-        open={confirming}
-        onOpenChange={setConfirming}
-        tone="warning"
-        title={t('project.inboundMail.confirmTitle')}
-        description={t('project.inboundMail.confirmDescription')}
-        confirmLabel={t('project.inboundMail.confirmAction')}
-        cancelLabel={tCommon('actions.cancel')}
-        onConfirm={handleRotate}
-      />
-    </SettingsSectionCard>
+      {canRotate && (
+        <ConfirmDialog
+          open={confirming}
+          onOpenChange={setConfirming}
+          tone="warning"
+          title={t('project.inboundMail.confirmTitle')}
+          description={t('project.inboundMail.confirmDescription')}
+          confirmLabel={t('project.inboundMail.confirmAction')}
+          cancelLabel={tCommon('actions.cancel')}
+          onConfirm={handleRotate}
+        />
+      )}
+    </SectionCard>
   )
 }

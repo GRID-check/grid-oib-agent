@@ -30,6 +30,10 @@ export const common: typeof en.common = {
     copied: 'Kopiert',
     copyFailed: 'Kopieren nicht möglich',
   },
+  links: {
+    /** Nach dem Linktext vorgelesen, wenn der Link einen neuen Tab öffnet (`ExternalLink`). */
+    opensInNewTab: 'öffnet in einem neuen Tab',
+  },
   codeBlock: {
     copy: 'Kopieren',
     copied: 'Kopiert',

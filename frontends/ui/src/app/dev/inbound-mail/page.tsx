@@ -2,9 +2,10 @@
 
 /**
  * Dev preview for the project Settings „E-Mail-Eingang" section, in every state
- * it has: ready with and without the rotate control, loading, a failed load,
- * and a deployment without an inbound mail domain (the section draws nothing,
- * so that slot is empty on purpose).
+ * it has: ready with and without the rotate control, a long address, loading,
+ * a failed load, and a deployment without an inbound mail domain or an
+ * organization without the switch on (the section draws nothing, so that slot
+ * is empty on purpose).
  *
  * The real component renders each one. A module-scope fetch shim answers the
  * address routes per project id, the same way `/dev/settings` serves its
@@ -31,6 +32,13 @@ const ADDRESSES: Record<string, InboundAddressResponse> = {
     enabled: true,
     address: `wohnbau-mariahilf.k7m2qx4hz9ab@${DOMAIN}`,
     canRotate: false,
+  },
+  // A long project slug, so a phone shows where the address wraps: before the
+  // `@` and the dots, not in the middle of the token.
+  'preview-long': {
+    enabled: true,
+    address: `generalsanierung-schulzentrum-floridsdorf.k7m2qx4hz9ab@${DOMAIN}`,
+    canRotate: true,
   },
   'preview-disabled': { enabled: false, address: null, canRotate: false },
 }
@@ -85,7 +93,7 @@ export default function InboundMailDevPage(): JSX.Element {
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-8 p-8" data-testid="inbound-mail-preview">
       <div>
-        <h1 className="text-lg font-semibold">Project settings — E-Mail-Eingang</h1>
+        <h1 className="text-lg font-semibold">Project settings — Project email address</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           The project&rsquo;s mail address. Shown to document writers; the rotate control only to project
           managers.
@@ -98,13 +106,16 @@ export default function InboundMailDevPage(): JSX.Element {
       <State label="Ready, document writer (no rotate)">
         <ProjectInboundMailCard projectId="preview-member" />
       </State>
+      <State label="Long address (wraps before @ and dots)">
+        <ProjectInboundMailCard projectId="preview-long" />
+      </State>
       <State label="Loading">
         <ProjectInboundMailCard projectId="preview-loading" />
       </State>
       <State label="Load failed">
         <ProjectInboundMailCard projectId="preview-error" />
       </State>
-      <State label="Disabled (no inbound mail domain): renders nothing">
+      <State label="Disabled (no inbound mail domain, or the organization switch is off): renders nothing">
         <ProjectInboundMailCard projectId="preview-disabled" />
       </State>
     </main>

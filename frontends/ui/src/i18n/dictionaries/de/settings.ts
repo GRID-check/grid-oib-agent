@@ -67,15 +67,18 @@ export const settings: typeof en.settings = {
     /** Die eigene Adresse des Projekts: Anhänge, die an sie gehen, landen im Projekt. */
     inboundMail: {
       description:
-        'Senden Sie Dateien als Anhang an diese Adresse. Sie werden in diesem Projekt unter E-Mail-Eingang abgelegt.',
+        'Senden Sie Dateien als Anhang an diese Adresse. Piloti legt sie in diesem Projekt unter E-Mail-Eingang ab, jede E-Mail in einem eigenen Ordner.',
       addressLabel: 'Projektadresse',
       rulesLabel: 'Was gilt',
       rules: {
-        members: 'Senden können nur Projektmitglieder, die Dokumente bearbeiten dürfen.',
+        members:
+          'Senden können Projektmitglieder, die Dokumente bearbeiten dürfen, sobald der E-Mail-Eingang für die Organisation eingeschaltet ist.',
         verified:
-          'Die Domain des Absenders muss überprüfbar sein (DKIM oder DMARC). Andere E-Mails werden abgelehnt.',
-        size: 'Höchstens 25 MB pro E-Mail.',
-        body: 'Piloti legt nur die Anhänge ab. Der Text der E-Mail wird nicht gespeichert.',
+          'Die Domain des Absenders muss ihre E-Mails mit DKIM signieren. Andere E-Mails werden abgelehnt.',
+        addressing: 'Die Adresse gehört in An oder Cc. Steht sie nur in Bcc, wird die E-Mail abgelehnt.',
+        size: 'Anhänge zusammen höchstens etwa 18 MB, höchstens 100 Dateien pro E-Mail.',
+        attachmentsOnly:
+          'Abgelegt werden nur Anhänge: keine in den Text eingefügten Bilder, keine Links auf Cloud-Dateien. Der Text der E-Mail wird nicht gespeichert.',
       },
       helpLink: 'Anleitung und Gründe für abgelehnte E-Mails',
       rotate: 'Neue Adresse erzeugen',
@@ -85,7 +88,6 @@ export const settings: typeof en.settings = {
       confirmAction: 'Neue Adresse erzeugen',
       rotated: 'Neue Adresse erzeugt',
       rotateFailed: 'Die neue Adresse konnte nicht erzeugt werden. Die bisherige gilt weiter.',
-      loadFailedTitle: 'Adresse nicht verfügbar',
       loadFailed: 'Die E-Mail-Adresse des Projekts konnte nicht geladen werden.',
     },
     insights: {

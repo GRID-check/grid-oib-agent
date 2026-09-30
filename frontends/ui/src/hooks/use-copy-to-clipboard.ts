@@ -2,11 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-/** How long the "copied" acknowledgement stays up, matching `CodeBlock`. */
+/** How long the "copied" acknowledgement stays up. */
 const COPIED_MS = 1500
 
 /**
  * Copy text and hold a short-lived `copied` flag for the acknowledgement.
+ *
+ * The one clipboard copy for a button that says "copied": `CopyField`,
+ * `CodeBlock`, the citation link, the support reference and the user message
+ * all use it. Each used to carry its own `setTimeout` that outlived an
+ * unmounted component and cut a second click's acknowledgement short.
  *
  * `copy` resolves `false` when the Clipboard API is missing or refuses
  * (insecure context, denied permission), so the caller can say so instead of

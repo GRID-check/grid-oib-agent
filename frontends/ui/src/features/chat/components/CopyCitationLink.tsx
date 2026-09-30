@@ -10,9 +10,10 @@
 
 'use client'
 
-import { type FC, type ReactNode, useState } from 'react'
+import type { FC, ReactNode } from 'react'
 import { Check } from 'lucide-react'
 import { toast } from 'sonner'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { citationShareUrl, type CitationRef } from '../lib/citations'
@@ -22,7 +23,7 @@ export const CopyCitationLinkButton: FC<{ citation: CitationRef; icon?: ReactNod
   icon,
 }) => {
   const t = useTranslations('chat')
-  const [copied, setCopied] = useState(false)
+  const { copied, copy } = useCopyToClipboard()
 
   const handleCopy = async (): Promise<void> => {
     // Read the location here rather than in `citationShareUrl`, which stays
@@ -32,13 +33,7 @@ export const CopyCitationLinkButton: FC<{ citation: CitationRef; icon?: ReactNod
       pathname: window.location.pathname,
       search: window.location.search,
     })
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1500)
-    } catch {
-      toast.error(t('answerSources.copyFailed'))
-    }
+    if (!(await copy(url))) toast.error(t('answerSources.copyFailed'))
   }
 
   return (

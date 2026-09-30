@@ -41,7 +41,96 @@ import type { InboxItemView } from '@/lib/inbox/types'
 const now = Date.parse('2026-07-29T10:00:00Z')
 const ago = (minutes: number): string => new Date(now - minutes * 60_000).toISOString()
 
+/*
+  The project mail inbox (ADR-0074), in its three states: files filed with
+  some skipped (the list of names and reasons, capped at ten, "+N weitere"),
+  nothing filed (the zero form, the reasons and the cloud-link hint), and a
+  mail the drain gave up on. `?variant=mail` serves only these three.
+*/
+const MAIL_ITEMS: InboxItemView[] = [
+  {
+    id: 'm1',
+    type: 'inbound_mail.filed',
+    state: 'unread',
+    actionable: false,
+    resourceType: 'project',
+    resourceId: 'p1',
+    anchorId: 'msg-1',
+    actorName: null,
+    actorUserId: null,
+    count: 1,
+    href: '/app/projects/p1/files',
+    subject: 'Einreichplanung Stand 12.09.',
+    excerpt: null,
+    params: {
+      filed: 4,
+      skipped: 12,
+      project: 'Wohnbau Mariahilf',
+      skippedFiles: [
+        { name: 'winmail.dat', reason: 'tnef' },
+        { name: 'smime.p7s', reason: 'signature' },
+        { name: 'Einladung Baubesprechung.ics', reason: 'calendar' },
+        { name: 'Planexport_Makro.exe', reason: 'type' },
+        { name: 'Luftbild_Bestand_hochaufgelöst_Gesamtareal_Mariahilf.tif', reason: 'size' },
+        { name: 'Anhang-7.p7m', reason: 'encrypted' },
+        { name: 'leer.pdf', reason: 'empty' },
+        { name: 'Anhang', reason: 'unknown-type' },
+        { name: 'Schnitt_A-A.pdf', reason: 'quota' },
+        { name: 'Plan_101.pdf', reason: 'limit' },
+      ],
+    },
+    createdAt: ago(2),
+    updatedAt: ago(2),
+  },
+  {
+    id: 'm2',
+    type: 'inbound_mail.filed',
+    state: 'unread',
+    actionable: false,
+    resourceType: 'project',
+    resourceId: 'p1',
+    anchorId: 'msg-2',
+    actorName: null,
+    actorUserId: null,
+    count: 1,
+    href: '/app/projects/p1/files',
+    subject: 'Fotos Baustelle',
+    excerpt: null,
+    params: {
+      filed: 0,
+      skipped: 2,
+      project: 'Wohnbau Mariahilf',
+      skippedFiles: [
+        { name: 'image001.png', reason: 'embedded' },
+        { name: 'image002.png', reason: 'embedded' },
+      ],
+    },
+    createdAt: ago(9),
+    updatedAt: ago(9),
+  },
+  {
+    id: 'm3',
+    type: 'inbound_mail.failed',
+    state: 'unread',
+    actionable: false,
+    resourceType: 'project',
+    resourceId: 'p1',
+    anchorId: 'msg-3',
+    actorName: null,
+    actorUserId: null,
+    count: 1,
+    href: '/app/projects/p1/files',
+    // No subject: the row says „aus Ihrer E-Mail" from the dictionary.
+    subject: null,
+    excerpt: null,
+    params: { project: 'Wohnbau Mariahilf' },
+    createdAt: ago(31),
+    updatedAt: ago(31),
+  },
+]
+
 const ITEMS: InboxItemView[] = [
+  ...MAIL_ITEMS,
   // Platform lane: a member elsewhere in the fleet sent product feedback. The
   // reader is a platform owner; the row lives in the platform organization.
   {
@@ -255,11 +344,13 @@ const PENDING = ITEMS.filter((item) => (item.actionable && item.state !== 'resol
 /**
  * `?variant=empty` serves an inbox with nothing in it, so the crafted empty state
  * is captured as its own piece of evidence (NF-10 lists "empty inbox" separately).
+ * `?variant=mail` serves only the three mail-inbox rows.
  * Read at request time rather than at install time so a client-side navigation
  * between the two variants still serves the right fixture.
  */
-const isEmptyVariant = (): boolean =>
-  typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('variant') === 'empty'
+const variant = (): string | null =>
+  typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('variant')
+const isEmptyVariant = (): boolean => variant() === 'empty'
 
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   const w = window as unknown as { __inboxShim?: boolean }
@@ -274,6 +365,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       }
       if (url.startsWith('/api/inbox')) {
         if (empty) return Response.json({ items: [], pending: 0 })
+        if (variant() === 'mail') return Response.json({ items: MAIL_ITEMS, pending: MAIL_ITEMS.length })
         const pendingOnly = url.includes('pendingOnly=true')
         return Response.json({ items: pendingOnly ? PENDING : ITEMS, pending: PENDING.length })
       }
