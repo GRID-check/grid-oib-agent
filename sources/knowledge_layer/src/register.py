@@ -1994,6 +1994,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 folder=folder,
                 doc_class=doc_class,
                 title_contains=title_contains,
+                filters=filters,
             )
         if (match or "meaning").strip().lower() != "meaning":
             return '`match` must be "meaning" (ranked by what a passage says) or "exact" (every literal occurrence).'

@@ -12,7 +12,6 @@ similarity search. These tests pin what makes them the Files pane and Ctrl+F:
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -345,3 +344,206 @@ def test_the_store_query_finds_every_spelling_and_honours_a_file_filter():
     narrowed = retriever._find_text_sync(collection.name, spellings("BA-03"), {"file_name": {"$in": ["c.pdf"]}}, 50)
     assert [chunk.file_name for chunk in narrowed] == ["c.pdf"]
     assert retriever._find_text_sync("no_such_collection", ["x"], None, 5) == []
+
+
+# ---------------------------------------------------------------------------
+# Review regressions: each test failed before its fix.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def turn_shelves(monkeypatch):
+    """Restrict the turn to some shelves, as ``focus_file.set_turn_intent`` does for a focused turn."""
+
+    def install(shelves):
+        monkeypatch.setattr("aiq_agent.common.focus_file.get_turn_shelves", lambda: frozenset(shelves))
+
+    return install
+
+
+def _chroma_retriever():
+    chromadb = pytest.importorskip("chromadb")
+    from knowledge_layer.llamaindex.adapter import LlamaIndexRetriever
+
+    client = chromadb.EphemeralClient()
+    retriever = LlamaIndexRetriever.__new__(LlamaIndexRetriever)
+    retriever._chroma_client = client
+    retriever._ensure_initialized = lambda: None
+    return client, retriever
+
+
+def _seed(client, name: str, rows: list[tuple[str, str, int, dict]]) -> None:
+    collection = client.get_or_create_collection(name)
+    collection.add(
+        ids=[f"{name}-{index}" for index in range(len(rows))],
+        documents=[row[1] for row in rows],
+        metadatas=[{"file_name": row[0], "page_label": str(row[2]), **row[3]} for row in rows],
+        embeddings=[[0.1, 0.2]] * len(rows),
+    )
+
+
+class TestExactSearchReadsTheBaseCorpusLikeTheRankedSearch:
+    """An excluded edition and a cover page are not evidence in either mode."""
+
+    @pytest.fixture
+    def corpus(self, monkeypatch, search_with):
+        import uuid
+
+        client, retriever = _chroma_retriever()
+        suffix = uuid.uuid4().hex[:8]
+        base, project = f"base_{suffix}", f"proj_{suffix}"
+        _seed(
+            client,
+            base,
+            [
+                ("oib-rl_2_2023.pdf", "Brandabschnitt EI 90 gilt", 3, {"chunking": "punkt"}),
+                ("oib-rl_2_2019.pdf", "Brandabschnitt EI 90 alt", 4, {}),
+                ("oib-rl_2_2023.pdf", "Deckblatt EI 90", 1, {"chunking": "page"}),
+            ],
+        )
+        _seed(client, project, [("Notiz.docx", "Firma Müller, EI 90", 1, {})])
+        monkeypatch.setattr(
+            "aiq_agent.knowledge.scoping.get_scoped_collections_from_context",
+            lambda: [ScopedCollection(base, Shelf.BASE), ScopedCollection(project, Shelf.PROJECT)],
+        )
+        search_with(retriever)
+        set_turn_documents(
+            [
+                AvailableDocument(file_name="oib-rl_2_2023.pdf", collection=base, shelf="base"),
+                AvailableDocument(file_name="oib-rl_2_2019.pdf", collection=base, shelf="base"),
+                AvailableDocument(file_name="Notiz.docx", collection=project, shelf="project"),
+            ]
+        )
+        return base
+
+    async def _run(self, base: str, **kwargs) -> str:
+        config = KnowledgeRetrievalConfig(
+            collection_name=base, include_base_collection=True, exclude_file_names=["oib-rl_2_2019.pdf"]
+        )
+        async with knowledge_retrieval(config, MagicMock()) as info:
+            return await info.single_fn(info.input_schema(match="exact", **kwargs))
+
+    async def test_unnarrowed_search_drops_excluded_editions_and_page_chunks(self, corpus):
+        text = await self._run(corpus, query="EI 90")
+        assert "oib-rl_2_2019.pdf" not in text
+        assert "- oib-rl_2_2023.pdf (Basiswissen): 1×, S. 3" in text
+        assert "Deckblatt" not in text
+        assert "Notiz.docx" in text  # user collections are never filtered
+
+    async def test_narrowed_search_composes_the_file_list_with_the_base_filter(self, corpus):
+        text = await self._run(corpus, query="EI 90", file_name="oib-rl_2")
+        assert "oib-rl_2_2019.pdf" not in text
+        assert "Deckblatt" not in text
+        assert "- oib-rl_2_2023.pdf (Basiswissen): 1×, S. 3" in text
+
+    async def test_the_callers_filters_reach_the_base_collection_only(self, search_with):
+        store = search_with(_TextStore([]))
+        await _exact(query="BA-03", filters={"doc_type": "richtlinie"})
+        by_collection = {call["collection"]: call["filters"] for call in store.calls}
+        assert by_collection["proj_1"] is None and by_collection["archiv_1"] is None
+        assert {"doc_type": "richtlinie"} in by_collection["oib_knowledge"]["$and"]
+        assert {"chunking": {"$ne": "page"}} in by_collection["oib_knowledge"]["$and"]
+
+
+class _FailingStore(_TextStore):
+    def __init__(self, chunks, failing: set[str]):
+        super().__init__(chunks)
+        self.failing = failing
+
+    async def find_text(self, collection_name, spellings, filters=None, limit=500):
+        if collection_name in self.failing:
+            raise ConnectionError("chroma down")
+        return await super().find_text(collection_name, spellings, filters, limit)
+
+
+class TestAStoreOutageIsNeverANo:
+    def test_the_adapter_raises_on_an_outage_and_answers_empty_for_a_missing_collection(self):
+        _client, retriever = _chroma_retriever()
+        assert retriever._find_text_sync("no_such_collection_xyz", ["x"], None, 5) == []
+
+        class _Down:
+            def get_collection(self, name):
+                raise ConnectionError("chroma down")
+
+        retriever._chroma_client = _Down()
+        with pytest.raises(ConnectionError):
+            retriever._find_text_sync("proj_1", ["x"], None, 5)
+
+    async def test_every_collection_failing_says_the_search_did_not_run(self, search_with):
+        search_with(_FailingStore([], {"proj_1", "archiv_1", "oib_knowledge"}))
+        text = await _exact(query="BA-03")
+        assert "konnte nicht laufen" in text
+        assert "Keine Fundstelle" not in text and "belastbares Nein" not in text
+
+    async def test_a_partial_failure_counts_only_what_answered_and_says_it_is_incomplete(self, search_with):
+        search_with(_FailingStore([], {"archiv_1"}))
+        text = await _exact(query="BA-03")
+        assert "in 2 Sammlung(en)" in text
+        assert "UNVOLLSTÄNDIG" in text and "archiv_1" in text
+        assert "belastbares Nein" not in text
+
+    async def test_a_partial_failure_beside_matches_flags_the_table(self, search_with):
+        search_with(_FailingStore([_chunk("Grundriss_EG.pdf", "BA-03", page=1, chunk_id="1")], {"archiv_1"}))
+        text = await _exact(query="BA-03")
+        assert "- Grundriss_EG.pdf (Projektwissen): 1×" in text
+        assert "UNVOLLSTÄNDIG" in text
+
+
+class TestNarrowingLikeTheMeaningMode:
+    async def test_a_file_name_without_its_extension_finds_the_file(self, search_with):
+        set_turn_documents([*PROJECT, _doc("Notiz.docx")])
+        store = search_with(_TextStore([]))
+        text = await _exact(query="Müller", file_name="notiz")
+        assert "No file in scope" not in text
+        assert store.calls[0]["filters"] == {"file_name": {"$in": ["Notiz.docx"]}}
+
+    async def test_the_display_title_still_narrows(self, search_with):
+        store = search_with(_TextStore([]))
+        await _exact(query="Müller", file_name="brandschutzkonzept muellerstrasse")
+        assert store.calls[0]["filters"] == {"file_name": {"$in": ["Brandschutzkonzept.pdf"]}}
+
+    async def test_a_narrowing_onto_a_shelf_the_turn_dropped_says_so(self, search_with, turn_shelves):
+        turn_shelves({"archiv", "session", "base"})
+        search_with(_TextStore([]))
+        text = await _exact(query="BA-03", file_name="Grundriss_EG.pdf")
+        assert "No file in scope matches that narrowing" in text
+
+
+class TestListFilesHonoursTheTurn:
+    async def _call(self, **kwargs) -> str:
+        async with list_files(ListFilesConfig(), _builder()) as info:
+            return await info.single_fn(info.input_schema(**kwargs))
+
+    async def test_a_turn_restricted_to_the_office_lists_the_office(self, scope, turn_shelves):
+        turn_shelves({"archiv", "session", "base"})
+        text = await self._call()
+        assert "Leitfaden_Buero.pdf" in text
+        assert "Grundriss_EG.pdf" not in text
+        assert "1 Datei(en) auf Büroarchiv und Private Sitzung" in text
+
+    async def test_a_restriction_that_would_leave_nothing_keeps_everything(self, scope, turn_shelves):
+        set_turn_documents([_doc("Grundriss_EG.pdf", "Plaene")])
+        turn_shelves({"session"})
+        assert "Grundriss_EG.pdf" in await self._call()
+
+
+def test_spellings_reverse_the_transliteration_and_title_case_phrases():
+    assert {"Müller", "MÜLLER"} <= set(spellings("MUELLER"))
+    assert "Straße" in spellings("Strasse")
+    assert "Müller Straße" in spellings("müller strasse")
+    assert all(len(spellings(phrase)) <= 16 for phrase in ("Müllerstraße Süd Ost", "aeoeue ss AE OE UE"))
+
+
+def test_the_store_finds_the_umlaut_form_of_a_transliterated_phrase():
+    import uuid
+
+    client, retriever = _chroma_retriever()
+    name = f"rev_{uuid.uuid4().hex[:8]}"
+    _seed(client, name, [("a.pdf", "Firma Müller, Müllerstraße 3", 1, {}), ("b.pdf", "Müller Straße", 2, {})])
+
+    def files(phrase: str) -> set[str]:
+        return {chunk.file_name for chunk in retriever._find_text_sync(name, spellings(phrase), None, 5)}
+
+    assert files("MUELLER") == {"a.pdf", "b.pdf"}
+    assert files("Strasse") == {"a.pdf", "b.pdf"}
+    assert files("müller strasse") == {"b.pdf"}

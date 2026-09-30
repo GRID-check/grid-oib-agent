@@ -846,6 +846,23 @@ def _cosine_distances(query_embedding: Any, embeddings: Any, count: int) -> list
         return [1.0] * count
 
 
+def _is_missing_collection(exc: BaseException) -> bool:
+    """True when ``get_collection`` failed because the collection does not exist.
+
+    chromadb 1.x raises ``chromadb.errors.NotFoundError`` ("Collection [x] does
+    not exist"); 0.x raised a bare ``ValueError`` with the same wording, and an
+    HTTP client may surface it as its own error class. The message is the
+    common ground, the class the precise check.
+    """
+    try:
+        from chromadb.errors import NotFoundError
+    except ImportError:  # pragma: no cover - the adapter does not run without chromadb
+        NotFoundError = None  # noqa: N806
+    if NotFoundError is not None and isinstance(exc, NotFoundError):
+        return True
+    return "does not exist" in str(exc).lower()
+
+
 def _to_chroma_where(filters: dict[str, Any] | None):
     """Translate a backend-neutral filter dict into a Chroma ``where`` expression.
 
@@ -5116,7 +5133,8 @@ class LlamaIndexRetriever(BaseRetriever):
         The vector store is the source of truth for chunk text, so this reads it
         there rather than from the lexical mirror, which a deployment may not
         have backfilled. No embedding, no ranking: a filter over the collection.
-        A collection that does not exist is an empty answer, not a failure.
+        A collection that does not exist is an empty answer, not a failure; any
+        other store error raises, so the caller can say the search did not run.
         """
         return await asyncio.to_thread(self._find_text_sync, collection_name, spellings, filters, limit)
 
@@ -5129,8 +5147,13 @@ class LlamaIndexRetriever(BaseRetriever):
         self._ensure_initialized()
         try:
             collection = self._chroma_client.get_collection(name=collection_name)
-        except Exception:  # noqa: BLE001 - an absent collection holds no text
-            return []
+        except Exception as exc:
+            # An absent collection holds no text, so it is an empty answer. Any
+            # other failure (the store down, a timeout) propagates: returned as
+            # [] it read as a reliable „Keine Fundstelle“ during an outage.
+            if _is_missing_collection(exc):
+                return []
+            raise
         # Chroma rejects a one-element `$or`, the same shape `_to_chroma_where` guards.
         contains = [{"$contains": spelling} for spelling in wanted]
         where_document = contains[0] if len(contains) == 1 else {"$or": contains}

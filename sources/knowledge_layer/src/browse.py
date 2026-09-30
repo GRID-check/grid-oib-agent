@@ -28,7 +28,13 @@ second tool would have been one more name for the model to choose between
 Both are deterministic: no reranker, no judge, no LLM. Both read only what the
 turn may read: the rows the turn's inventory resolved against the signed scope
 (``knowledge.inventory.get_turn_documents``, uncapped), or — on a path that
-bound none — the same scope ``knowledge_search`` resolves.
+bound none — the same scope ``knowledge_search`` resolves. Both then subtract
+the shelves this turn did not ask for (``focus_file.get_turn_shelves``), the
+way ``register._restrict_scope_to_turn`` does for the ranked search, so a turn
+about one upload lists and greps that upload, not the Büroarchiv. The exact
+search reads the base corpus through the same store filter the ranked search
+uses (``register._base_collection_filters``): an excluded edition or a cover
+page is not evidence in either mode.
 """
 
 from __future__ import annotations
@@ -230,10 +236,15 @@ def select_files(
     sort: str = "folder",
     offset: int = 0,
     limit: int = DEFAULT_PAGE_SIZE,
+    default_shelves: Sequence[str] = USER_SHELVES,
 ) -> Listing:
-    """Filter, order and page the rows. Pure: the tool's whole behaviour is here."""
+    """Filter, order and page the rows. Pure: the tool's whole behaviour is here.
+
+    ``default_shelves`` is what „my files“ means when no ``shelf`` is asked
+    for: the user shelves, or the subset of them this turn is restricted to.
+    """
     notes: list[str] = []
-    shelves = (shelf,) if shelf else USER_SHELVES
+    shelves = (shelf,) if shelf else tuple(default_shelves)
     selected = [row for row in rows if row.shelf in shelves or (not shelf and row.shelf is None)]
 
     resolved_folder: str | None = None
@@ -356,19 +367,59 @@ def split_alternatives(text: str) -> list[str]:
     return [part for part in dict.fromkeys(parts) if len(part) >= MIN_PHRASE_CHARS][:MAX_ALTERNATIVES]
 
 
+#: Candidates one phrase may add to the store query. Six alternatives at this
+#: cap is under a hundred ``$contains`` clauses; a phrase rarely yields more
+#: than ten distinct spellings, so the cap only trims pathological inputs.
+MAX_SPELLINGS_PER_PHRASE = 16
+
+_TO_UMLAUT = (
+    ("ae", "ä"),
+    ("oe", "ö"),
+    ("ue", "ü"),
+    ("ss", "ß"),
+    ("AE", "Ä"),
+    ("OE", "Ö"),
+    ("UE", "Ü"),
+    ("Ae", "Ä"),
+    ("Oe", "Ö"),
+    ("Ue", "Ü"),
+)
+_CAPITAL_UMLAUT = {"Ä": "Ae", "Ö": "Oe", "Ü": "Ue"}
+
+
+def _to_ascii(text: str) -> str:
+    """„Müller“ → „Mueller“, „ÄRGER“ → „AERGER“, „Ärger“ → „Aerger“."""
+    text = text.translate(_FOLD)
+    text = re.sub(r"[ÄÖÜ](?=[a-zß])", lambda found: _CAPITAL_UMLAUT[found.group(0)], text)
+    return text.replace("Ä", "AE").replace("Ö", "OE").replace("Ü", "UE")
+
+
+def _to_umlauts(text: str) -> str:
+    """„Mueller“ → „Müller“, „Strasse“ → „Straße“. Over-eager on purpose („Feuer“ → „Feür“):
+    a spelling nothing contains costs one clause, and the caller re-checks every hit."""
+    for ascii_form, umlaut in _TO_UMLAUT:
+        text = text.replace(ascii_form, umlaut)
+    return text
+
+
 def spellings(phrase: str) -> list[str]:
     """The byte strings a case-sensitive ``$contains`` must try to find ``phrase``.
 
     The store matches bytes; a person's Ctrl+F does not. As typed, lowercase,
-    capitalised, uppercase, and each again with umlauts transliterated — so
-    „Müller“ also finds „MUELLER“ and „brandschutz“ finds „Brandschutz“.
-    The caller re-checks every candidate case-insensitively.
+    capitalised, uppercase, title-cased when it is several words, and each again
+    with umlauts transliterated in BOTH directions — so „Müller“ also finds
+    „MUELLER“, „Mueller“ finds „Müller“, „Strasse“ finds „Straße“ and
+    „brandschutz“ finds „Brandschutz“. The caller re-checks every candidate
+    case- and umlaut-insensitively (:func:`fold`), so an over-eager spelling
+    cannot add a false match. Bounded by :data:`MAX_SPELLINGS_PER_PHRASE`.
     """
     phrase = unicodedata.normalize("NFC", phrase)
-    base = [phrase, phrase.lower(), phrase[:1].upper() + phrase[1:], phrase.upper()]
-    folded = [variant.translate(str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})) for variant in base]
-    upper_folded = [variant.replace("Ä", "AE").replace("Ö", "OE").replace("Ü", "UE") for variant in folded]
-    return list(dict.fromkeys([*base, *folded, *upper_folded]))
+    cased = [phrase, phrase.lower(), phrase[:1].upper() + phrase[1:], phrase.capitalize(), phrase.upper()]
+    if len(phrase.split()) > 1:
+        cased.append(phrase.title())
+    ascii_forms = [_to_ascii(variant) for variant in cased]
+    umlaut_forms = [_to_umlauts(variant) for variant in ascii_forms]
+    return list(dict.fromkeys([*cased, *ascii_forms, *umlaut_forms]))[:MAX_SPELLINGS_PER_PHRASE]
 
 
 def _occurrences(body: str, phrases: Sequence[str]) -> int:
@@ -436,7 +487,16 @@ def _pages_label(pages: Sequence[int], limit: int = 12) -> str:
     return f", S. {shown}{more}"
 
 
-def match_table(groups: Sequence[FileMatches], phrases: Sequence[str], *, truncated: bool) -> str:
+def _failed_note(failed: Sequence[str]) -> str:
+    return (
+        f"UNVOLLSTÄNDIG: {len(failed)} Sammlung(en) konnten nicht durchsucht werden ({', '.join(failed)}). "
+        "Was dort steht, fehlt in dieser Antwort — sag das dem Leser, statt daraus ein Nein zu machen."
+    )
+
+
+def match_table(
+    groups: Sequence[FileMatches], phrases: Sequence[str], *, truncated: bool, failed: Sequence[str] = ()
+) -> str:
     """The per-file answer to „wo steht das überall“: every file, not the top three."""
     wanted = " | ".join(f"„{phrase}“" for phrase in phrases)
     floor = "mindestens " if truncated else ""
@@ -453,6 +513,8 @@ def match_table(groups: Sequence[FileMatches], phrases: Sequence[str], *, trunca
             "Die Suche hat an ihrer Obergrenze abgebrochen: die Liste ist unvollständig. Grenze sie mit "
             "`folder=` oder `file_name=` ein."
         )
+    if failed:
+        lines.append(_failed_note(failed))
     lines.append(
         "Die Tabelle ist ein Verzeichnis; zitierbar sind nur die Passagen oben. Eine weitere Stelle öffnest "
         "du mit `read_passage(document=…, page=…)`."
@@ -460,13 +522,29 @@ def match_table(groups: Sequence[FileMatches], phrases: Sequence[str], *, trunca
     return "\n".join(lines)
 
 
-def no_match_message(phrases: Sequence[str], searched: int) -> str:
+def no_match_message(phrases: Sequence[str], searched: int, failed: Sequence[str] = ()) -> str:
+    """„Nicht gefunden“ over the ``searched`` collections that ANSWERED; never an Nein over one that failed."""
     wanted = " | ".join(f"„{phrase}“" for phrase in phrases)
-    return (
+    head = (
         f"Keine Fundstelle für {wanted} in {searched} Sammlung(en) — auch nicht in anderer Groß-/Kleinschreibung "
-        "oder Umlaut-Schreibweise. Das ist ein belastbares Nein für den WORTLAUT, nicht für das Thema: eine "
+        "oder Umlaut-Schreibweise."
+    )
+    if failed:
+        return f"{head} {_failed_note(failed)} Für diese Sammlungen ist das KEIN Nein."
+    return (
+        f"{head} Das ist ein belastbares Nein für den WORTLAUT, nicht für das Thema: eine "
         "andere Formulierung findet `knowledge_search` ohne `match`. Eingescannte Seiten ohne Textebene "
         "und Dateien, die noch verarbeitet werden, sind nicht durchsuchbar."
+    )
+
+
+def search_failed_message(phrases: Sequence[str], failed: Sequence[str]) -> str:
+    """Every collection failed: there is no answer, and in particular no Nein."""
+    wanted = " | ".join(f"„{phrase}“" for phrase in phrases)
+    return (
+        f"Die Volltextsuche nach {wanted} konnte nicht laufen: keine der {len(failed)} Sammlung(en) hat "
+        f"geantwortet ({', '.join(failed)}). Das ist KEIN Ergebnis — weder ein Treffer noch ein Nein. Sag dem "
+        "Leser, dass die Suche gerade nicht möglich war, oder versuche `knowledge_search` ohne `match`."
     )
 
 
@@ -519,6 +597,29 @@ async def _turn_rows(search_config: Any) -> list[FileRow]:
             data = doc.model_dump() if hasattr(doc, "model_dump") else dict(doc)
             rows.append({**data, "collection": entry.collection, "shelf": _entry_shelf(entry)})
     return file_rows(rows)
+
+
+def restrict_rows_to_turn(rows: Sequence[FileRow]) -> tuple[list[FileRow], tuple[str, ...]]:
+    """Drop the shelves this turn did not ask for; the user shelves that remain.
+
+    The row-level twin of ``register._restrict_scope_to_turn``, with its rules:
+    turn intent only ever subtracts, a row without a shelf is kept, and a
+    restriction that would leave nothing keeps everything.
+    """
+    try:
+        from aiq_agent.common.focus_file import get_turn_shelves
+
+        allowed = get_turn_shelves()
+    except Exception:  # noqa: BLE001 — no turn intent is a valid standalone run
+        allowed = None
+    if not allowed:
+        return list(rows), USER_SHELVES
+    kept = [row for row in rows if row.shelf is None or row.shelf in allowed]
+    if not kept:
+        return list(rows), USER_SHELVES
+    # A law-only turn („nur Gesetz“) allows base alone: then base IS what it lists.
+    own = tuple(shelf for shelf in USER_SHELVES if shelf in allowed)
+    return kept, own or tuple(shelf for shelf in KNOWN_SHELVES if shelf in allowed) or USER_SHELVES
 
 
 def _in_flight(collections: Sequence[str]) -> list[str]:
@@ -636,9 +737,10 @@ async def list_files(config: ListFilesConfig, _builder: Builder):
             if not is_valid_doc_class(doc_class):
                 return f"Invalid doc_class {doc_class!r}. Valid values: {', '.join(DOCUMENT_CLASSES)}."
 
-        rows = await _turn_rows(search_config)
+        rows, own_shelves = restrict_rows_to_turn(await _turn_rows(search_config))
         listing = select_files(
             rows,
+            default_shelves=own_shelves,
             shelf=shelf,
             folder=(folder or "").strip().strip("/") or None,
             name_contains=(name_contains or "").strip() or None,
@@ -672,13 +774,21 @@ async def _files_by_collection(
     """
     if not (file_name or folder or doc_class or title_contains):
         return None
+    from .register import _file_name_matches
+
     rows = await _turn_rows(search_config)
     if folder:
         resolved = _folder_matches(rows, folder)
         rows = [row for row in rows if resolved is not None and _in_folder(row, resolved)]
     if file_name:
+        # The meaning mode's own test (either name contains the other, so
+        # „Notiz“ is „Notiz.docx“), plus the title the reader sees in the pane.
         wanted = fold(file_name)
-        rows = [row for row in rows if wanted in (fold(row.file_name), fold(row.display_title or ""))]
+        rows = [
+            row
+            for row in rows
+            if _file_name_matches(row.file_name, file_name) or wanted == fold(row.display_title or "")
+        ]
     if doc_class:
         rows = [row for row in rows if row.doc_class == doc_class]
     if title_contains:
@@ -700,11 +810,13 @@ async def exact_search(
     folder: str | None = None,
     doc_class: str | None = None,
     title_contains: str | None = None,
+    filters: dict[str, Any] | None = None,
 ) -> str:
     """``knowledge_search(match="exact")``: every chunk in scope that contains the phrase.
 
     ``entries`` is the scope the search already resolved and restricted to the
-    turn, so the exact mode reads exactly what the meaning mode reads.
+    turn, so the exact mode reads exactly what the meaning mode reads — and the
+    base corpus through the same store filter (:func:`_collection_filter`).
     """
     phrases = split_alternatives(text)
     if not phrases:
@@ -712,23 +824,62 @@ async def exact_search(
     narrowed = await _files_by_collection(
         search_config, file_name=file_name, folder=folder, doc_class=doc_class, title_contains=title_contains
     )
-    filters_by_collection: dict[str, dict[str, Any] | None] = {entry.collection: None for entry in entries}
     if narrowed is not None:
-        if not narrowed:
+        # The rows name files on every shelf; the turn may have dropped some of
+        # those shelves from ``entries``. Either way nothing in scope is left.
+        entries = [entry for entry in entries if entry.collection in narrowed]
+        if not entries:
             return (
                 "No file in scope matches that narrowing (`file_name`, `folder`, `doc_class`, "
                 "`title_contains`). `list_files` shows what exists."
             )
-        entries = [entry for entry in entries if entry.collection in narrowed]
-        filters_by_collection = {
-            collection: {"file_name": {"$in": sorted(files)}} for collection, files in narrowed.items()
-        }
+    from .register import _resolve_base_collection
+
+    base = _resolve_base_collection(search_config)
+    filters_by_collection = {
+        entry.collection: _collection_filter(
+            entry.collection,
+            base=base,
+            search_config=search_config,
+            caller_filters=filters,
+            files=None if narrowed is None else narrowed[entry.collection],
+        )
+        for entry in entries
+    }
     return await _search(retriever, entries, phrases, filters_by_collection)
+
+
+def _collection_filter(
+    collection: str,
+    *,
+    base: str,
+    search_config: Any,
+    caller_filters: dict[str, Any] | None,
+    files: Sequence[str] | None,
+) -> dict[str, Any] | None:
+    """The store filter for one collection: the file narrowing, and on the base corpus its standing filter.
+
+    The base corpus holds text that is not evidence (cover and Impressum page
+    chunks) and editions the deployment excludes; the ranked search keeps both
+    out with ``register._base_collection_filters``, and a literal search that
+    skipped it returned exactly those as citable passages. User collections are
+    never filtered beyond the narrowing, as in the ranked search.
+    """
+    narrowing = {"file_name": {"$in": sorted(files)}} if files is not None else None
+    if collection != base:
+        return narrowing
+    from .register import _base_collection_filters
+
+    extra = [clause for clause in (caller_filters, narrowing) if clause]
+    combined = extra[0] if len(extra) == 1 else ({"$and": extra} if extra else None)
+    return _base_collection_filters(search_config, combined)
 
 
 async def _search(
     retriever: Any,
-    entries: Sequence[Any], phrases: Sequence[str], filters_by_collection: dict[str, dict[str, Any] | None]
+    entries: Sequence[Any],
+    phrases: Sequence[str],
+    filters_by_collection: dict[str, dict[str, Any] | None],
 ) -> str:
     from .read_passage import _passage_result
     from .register import _format_results
@@ -750,30 +901,36 @@ async def _search(
     results = await asyncio.gather(*(_one(entry) for entry in entries), return_exceptions=True)
     chunks: list[Any] = []
     truncated = False
-    supported = False
+    answered = 0
+    failed: list[str] = []
     for entry, result in zip(entries, results, strict=True):
         if isinstance(result, BaseException):
+            # An outage is not an empty collection: counted, and said, never
+            # folded into „keine Fundstelle“.
             logger.warning("exact search: %s failed: %s", entry.collection, result)
+            failed.append(entry.collection)
             continue
         found, capped = result
         if found is None:
             continue
-        supported = True
+        answered += 1
         chunks.extend(found)
         truncated = truncated or capped
-    if not supported:
+    if not answered:
+        if failed:
+            return search_failed_message(phrases, failed)
         return "Die Volltextsuche ist in dieser Umgebung nicht verfügbar. Nutze `knowledge_search`."
 
     groups = group_matches(chunks, phrases)
     if not groups:
-        return no_match_message(phrases, len(entries))
+        return no_match_message(phrases, answered, failed)
     passages = pick_passages(groups)
     query = " | ".join(phrases)
     formatted = await asyncio.to_thread(
         _format_results,
         _passage_result(passages, query),
         query,
-        trailer=match_table(groups, phrases, truncated=truncated),
+        trailer=match_table(groups, phrases, truncated=truncated, failed=failed),
     )
     logger.info("exact search: %r matched %d file(s)", query, len(groups))
     return formatted
