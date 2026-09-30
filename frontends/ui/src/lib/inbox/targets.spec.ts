@@ -171,6 +171,17 @@ describe('the project target', () => {
     ).toBe('/app/projects/proj_1/automation?tab=jobs')
   })
 
+  it('lands a filed mail on its folder in the project files, or on the file root', async () => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-viewer' })
+    const access = await projectTarget.resolve(makeSession(), 'proj_1')
+    expect(access!.deepLink({ itemType: 'inbound_mail.filed', anchorId: 'msg-1', folderId: 'f 1' })).toBe(
+      '/app/projects/proj_1/files?folder=f%201',
+    )
+    expect(access!.deepLink({ itemType: 'inbound_mail.filed', anchorId: 'msg-1', folderId: null })).toBe(
+      '/app/projects/proj_1/files',
+    )
+  })
+
   it('redacts the row, rather than throwing, for a project the reader can no longer open', async () => {
     vi.mocked(requireProjectAccess).mockRejectedValueOnce(new Error('forbidden'))
     await expect(projectTarget.resolve(makeSession(), 'proj_gone')).resolves.toBeNull()

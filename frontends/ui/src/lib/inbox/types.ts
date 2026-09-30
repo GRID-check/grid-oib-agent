@@ -47,6 +47,13 @@ export interface InboxItemView {
   /** Short context line — e.g. the conversation title. */
   subject: string | null
   /**
+   * Extra interpolation values a type's copy names beyond `{subject}` and
+   * `{count}` — the filed and skipped counts of a mail, say. Short strings and
+   * finite numbers only, withheld with the rest of the payload when redacted.
+   * Absent for every type that needs none.
+   */
+  params?: Record<string, string | number>
+  /**
    * The asker's question, or a message excerpt. Stripped when the item is inert,
    * because an inbox must never leak content whose access was revoked (IB-13).
    */
@@ -79,6 +86,7 @@ export interface InboxTypePresentation {
     | 'alert-triangle'
     | 'clock'
     | 'megaphone'
+    | 'mail'
   /** i18n key under `inbox.types.<key>.title` / `.body`. */
   readonly i18nKey: string
   /**
@@ -116,6 +124,7 @@ export const INBOX_TYPE_PRESENTATION: Record<InboxItemType, InboxTypePresentatio
     tone: 'request',
   },
   'feedback.submitted': { icon: 'megaphone', i18nKey: 'feedbackSubmitted', tone: 'info' },
+  'inbound_mail.filed': { icon: 'mail', i18nKey: 'inboundMailFiled', tone: 'info' },
 }
 
 /**

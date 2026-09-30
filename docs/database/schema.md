@@ -35,6 +35,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
+| `inbound-mail.ts` | `inbound_mail_addresses`, `inbound_mail_messages` — the project mail inbox (migration 0101, ADR-0074) |
 
 ---
 
@@ -645,6 +646,48 @@ export const projectFolders = pgTable('project_folders', {
 - `uniq_project_folders_parent_name` — UNIQUE on (`project_id`, `COALESCE(parent_id, '00000000-0000-0000-0000-000000000000'::uuid)`, `name`) (migration `0063`). One folder per name per parent. The `COALESCE` is load-bearing: `parent_id` is `NULL` at the root and `NULL` never equals `NULL` in a unique index, so a plain three-column index would police nested folders and leave **root** folders — where a fixed, created-on-first-use destination like `Berichte` lands — uncontrolled. Get-or-create is not a transaction, and before this index two runs finishing at once produced two `Berichte` folders with no way to say which was real. Case- and whitespace-sensitive on purpose: it stops a race between identical writes, it does not police folder naming. An EXPRESSION index, so it lives only in the migration; `documents.spec.ts` pins it.
 
 > **Applying `0063` to an existing deployment:** nothing ever stopped two sibling folders sharing a name, so the migration first fails loudly with the full list of offenders rather than letting `CREATE UNIQUE INDEX` report one key. It deliberately does not deduplicate — deleting a folder row cascades to `documents.folder_id` and would silently unfile real evidence. Rename or merge through the application, then re-run.
+
+---
+
+## inbound_mail_addresses / inbound_mail_messages (migration 0101, ADR-0074)
+
+The project mail inbox. A member mails files to `<slug>.<token>@<GRID_INBOUND_MAIL_DOMAIN>`
+and the attachments are filed into the project as if that member had uploaded them
+(`lib/inbound-mail/service.ts`). **Neither table holds content**: the mail is parsed in
+memory inside the webhook request and dropped; its files are ordinary `documents` rows.
+
+`inbound_mail_addresses` — one row per address a project has had:
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK, `defaultRandom()` | |
+| `organization_id` | `text` | NOT NULL | Tenant column; inside both foreign keys below |
+| `project_id` | `uuid` | NOT NULL, FK (`project_id`, `organization_id`) → `projects` (`id`, `organization_id`) ON DELETE CASCADE | The project the address files into |
+| `token` | `text` | NOT NULL, CHECK `^[a-z2-7]{12}$`, **UNIQUE across all organizations** | The only part of the address that resolves. 60 bits from `crypto.randomBytes`. Global because the webhook looks it up before any organization is known (under the platform bypass): two orgs can both have a `wohnbau-hietzing` project, so the slug must never be what resolves |
+| `slug` | `text` | NOT NULL, DEFAULT `''`, CHECK `^[a-z0-9-]{0,30}$` | Decoration from the project name, frozen at mint time so a copied address keeps reading the same after a rename. No dots: the parser takes what follows the LAST dot as the token |
+| `created_by` | `text` | NOT NULL | WorkOS user id |
+| `created_at` | `timestamptz` | NOT NULL | |
+| `revoked_at` / `revoked_by` | `timestamptz` / `text` | CHECK both-or-neither | Set by rotation. A revoked token answers exactly like an unknown one |
+
+- `uniq_inbound_mail_addresses_active_project` — UNIQUE (`project_id`) WHERE `revoked_at IS NULL`: one active address per project. Partial, so it lives only in the migration. Lazy minting on first read races; the loser's 23505 is answered by re-reading the winner.
+- `inbound_mail_addresses_id_project_org_key` — UNIQUE (`id`, `project_id`, `organization_id`), the target of the message rows' composite FK.
+
+`inbound_mail_messages` — one row per delivery to an address, for idempotency:
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK | Also the anchor of the sender's `inbound_mail.filed` inbox item |
+| `organization_id`, `project_id` | `text`, `uuid` | NOT NULL, FK → `projects` (`id`, `organization_id`) ON DELETE CASCADE | |
+| `address_id` | `uuid` | NOT NULL, FK (`address_id`, `project_id`, `organization_id`) → `inbound_mail_addresses` ON DELETE CASCADE | A row cannot claim one tenant while pointing at another's address |
+| `message_id_hash` | `text` | NOT NULL, CHECK 64 hex | sha256 of the Message-ID header, or of the raw bytes when there is none |
+| `sender_user_id` | `text` | NOT NULL once `filed` (CHECK) | WorkOS user id the mail was filed as |
+| `status` | `text` | NOT NULL, CHECK `processing \| filed \| failed` | `filed` answers a redelivery as a duplicate; `failed`, and `processing` untouched for 15 minutes, may be re-run (safe: `uploadDocument` treats the same bytes in the same folder as unchanged) |
+| `filed_count`, `skipped_count`, `attempts` | `integer` | NOT NULL, non-negative | Counts only; no filenames |
+| `created_at`, `updated_at` | `timestamptz` | NOT NULL | |
+
+- `uniq_inbound_mail_messages_address_hash` — UNIQUE (`address_id`, `message_id_hash`). Keyed by ADDRESS, not by Message-ID alone: one mail CC'd to projects in two organizations is two deliveries and both are filed.
+
+Both are secured `organization_id = grid_current_org()` (the `document_roles` shape: the tenant is inside every key, so the predicate needs no join) and both cascade from the project, so the project purge — and the organization purge, which fans out to one project purge each — takes them along. The purger also deletes the `inbox_items` whose target is the project itself (`resource_type = 'project'`), which include the `inbound_mail.filed` rows quoting a mail's subject.
 
 ---
 

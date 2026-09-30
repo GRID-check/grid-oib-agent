@@ -272,7 +272,8 @@ async function purgeProject(tx, entry, deps) {
 
   // 4. grid_app rows: the collaboration rows FIRST, then conversations
   //    (messages and conversation_reads cascade), then the project row
-  //    (documents / folders / project-scoped memory cascade).
+  //    (documents / folders / project-scoped memory / the mail inbox's
+  //    addresses and delivery records cascade).
   //
   //    The collaboration tables address their target as a polymorphic
   //    `(resource_type, resource_id)` pair with no foreign key (ADR-0032), so
@@ -319,6 +320,11 @@ async function purgeProject(tx, entry, deps) {
   await tx`DELETE FROM mention_requests WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
   await tx`DELETE FROM resource_shares WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
   await tx`DELETE FROM resource_assignments WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
+  //    Items whose target is the PROJECT itself — a background run's outcome,
+  //    a mail filed from the project inbox (ADR-0074). Same polymorphic pair,
+  //    same missing cascade, and the payload quotes what the project held (a
+  //    run's title, a mail's subject), so it goes with the project.
+  await tx`DELETE FROM inbox_items WHERE resource_type = 'project' AND resource_id = ${projectId}`
   await tx`DELETE FROM conversations WHERE project_id = ${projectId}`
   await tx`DELETE FROM projects WHERE id = ${projectId}`
 }

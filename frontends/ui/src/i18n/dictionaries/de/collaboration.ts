@@ -268,6 +268,14 @@ export const collaboration: typeof en.collaboration = {
         title: '{actor} bittet Sie um die Freigabe von {subject}',
         body: 'Eine neue Fassung wartet auf Ihre Freigabe.',
       },
+      // Die Dateien einer E-Mail an die Projektadresse sind abgelegt (ADR-0074).
+      // {subject} ist der Betreff der E-Mail, {project} das Projekt, {filed}
+      // und {skipped} die Zahl der abgelegten und übersprungenen Anhänge.
+      inboundMailFiled: {
+        title:
+          '{filed, plural, one {# Datei} other {# Dateien}} aus der E-Mail „{subject}" in {project} abgelegt',
+        body: '{skipped, plural, one {# Anhang übersprungen} other {# Anhänge übersprungen}} – der Ordner zeigt, was angekommen ist.',
+      },
       unknown: {
         title: 'Es gab Aktivität',
         body: 'in {subject}',

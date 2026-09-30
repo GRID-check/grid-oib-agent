@@ -68,6 +68,11 @@ export interface InboxTargetLinkContext {
    * the question or the error is. Without them the task drawer is the fallback.
    */
   run?: RunMessageRef | null
+  /**
+   * The project folder the row is about, when the payload names one
+   * (`inbound_mail.filed`: the folder the mail's files were filed into).
+   */
+  folderId?: string | null
 }
 
 /** Where a run narrates itself: its thread, its id, its message. */
@@ -195,6 +200,7 @@ const projectTarget: InboxTargetDescriptor = {
     }
     return {
       deepLink: (context) => {
+        if (context.itemType === 'inbound_mail.filed') return filesDeepLink(resourceId, context.folderId)
         if (context.run) return runDeepLink(resourceId, context.run)
         const taskId = context.taskId?.trim() ? context.taskId.trim() : null
         if (taskId) {
@@ -204,6 +210,17 @@ const projectTarget: InboxTargetDescriptor = {
       },
     }
   },
+}
+
+/**
+ * The project's files, opened on one folder when the row names it — the
+ * `?folder=` parameter `project-file-workspace` reads. A mail whose every
+ * attachment was skipped created no folder, and lands on the file root.
+ */
+function filesDeepLink(projectId: string, folderId: string | null | undefined): string {
+  const base = `/app/projects/${projectId}/files`
+  const folder = folderId?.trim()
+  return folder ? `${base}?folder=${encodeURIComponent(folder)}` : base
 }
 
 /** The thread at the run: the shape `features/tasks/lib/task-view.ts` builds. */

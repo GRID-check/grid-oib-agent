@@ -222,6 +222,21 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     gate: 'platform',
     email: { send: 'if-unread', afterMinutes: 0 },
   },
+  /*
+    A mail the reader sent to a project's inbox address was filed (ADR-0074).
+    `per-anchor` on the DELIVERY (the `inbound_mail_messages` row), so two
+    mails are two rows and a redelivery of the same one folds into its own.
+    Operational: the mail inbox is not a collaboration feature. Never mailed —
+    telling somebody by email that their email arrived is the loop v1 exists to
+    avoid, and the row is the whole receipt.
+  */
+  'inbound_mail.filed': {
+    actionable: false,
+    grouping: 'per-anchor',
+    retentionDays: 30,
+    gate: 'operational',
+    email: IN_APP_ONLY,
+  },
 }
 
 /**

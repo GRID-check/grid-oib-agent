@@ -394,6 +394,28 @@ function nonEmpty(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
 }
 
+/** How many interpolation values a row may carry, and how long each string may be. */
+const PARAMS_MAX_KEYS = 8
+const PARAM_MAX_LENGTH = 120
+
+/**
+ * `payload.params`, narrowed to what copy may interpolate: short strings and
+ * finite numbers under plain keys. Attacker-influenced like the rest of the
+ * payload, so anything else is dropped rather than rendered, and an object with
+ * nothing usable left is absent rather than empty.
+ */
+function coerceParams(value: unknown): Record<string, string | number> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const params: Record<string, string | number> = {}
+  for (const [key, raw] of Object.entries(value).slice(0, PARAMS_MAX_KEYS)) {
+    if (!/^[a-zA-Z][a-zA-Z0-9]{0,31}$/.test(key)) continue
+    if (typeof raw === 'number' && Number.isFinite(raw)) params[key] = raw
+    const text = coerceText(raw, PARAM_MAX_LENGTH)
+    if (text !== null) params[key] = text
+  }
+  return Object.keys(params).length > 0 ? params : undefined
+}
+
 function toItemView(
   row: InboxItem,
   targets: Map<string, InboxTargetAccess | null>,
@@ -416,6 +438,10 @@ function toItemView(
   const messageId = nonEmpty(payload.runMessageId)
   const run: RunMessageRef | null =
     conversationId && runId && messageId ? { conversationId, runId, messageId } : null
+  // The folder a mail's files were filed into (`inbound_mail.filed`), so the
+  // row opens that folder rather than the project's file root.
+  const folderId = nonEmpty(payload.folderId)
+  const params = access ? coerceParams(payload.params) : undefined
 
   return {
     id: row.id,
@@ -438,10 +464,11 @@ function toItemView(
     actorUserId: row.actorUserId,
     count: row.count,
     href: access
-      ? access.deepLink({ itemType: row.type, anchorId: row.anchorId, taskId, run })
+      ? access.deepLink({ itemType: row.type, anchorId: row.anchorId, taskId, run, folderId })
       : null,
     subject: access ? coerceText(payload.subject, SUBJECT_MAX_LENGTH) : null,
     excerpt: access ? coerceText(payload.excerpt, EXCERPT_MAX_LENGTH) : null,
+    ...(params ? { params } : {}),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }

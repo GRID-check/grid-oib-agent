@@ -490,6 +490,25 @@ describe('collaboration rows', () => {
     }
   })
 
+  it("purges the inbox items that point at the project itself", async () => {
+    // Run outcomes and filed mail (ADR-0074) target `project`, not a chat or a
+    // document, so neither subquery above reaches them, and nothing cascades.
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_p1' },
+      conversationRows: [],
+    })
+
+    await purgeProject(tx, entry, makeDeps())
+
+    const projectItems = executed.filter(
+      (call) =>
+        call.text.startsWith('DELETE FROM inbox_items') &&
+        call.text.includes("resource_type = 'project'"),
+    )
+    expect(projectItems).toHaveLength(1)
+    expect(projectItems[0].values).toEqual(['p1'])
+  })
+
   it('expresses the conversation set as a subquery, not as N bound parameters', async () => {
     /*
       What this pins: with 70_000 conversations — past Postgres's hard 65535

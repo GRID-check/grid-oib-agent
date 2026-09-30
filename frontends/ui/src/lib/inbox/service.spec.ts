@@ -99,6 +99,7 @@ const ALL_TYPES = [
   'job.failed',
   'job.waiting',
   'document.review_requested',
+  'inbound_mail.filed',
 ] as const satisfies readonly InboxItemType[]
 
 /** What a tenant WITHOUT collaboration may see: the operational types only. */
@@ -113,6 +114,9 @@ const OPERATIONAL_TYPES = [
   // collaboration still has documents to approve, and gating the one review
   // queue in the product would make it invisible for exactly them.
   'document.review_requested',
+  // A mail the reader sent to a project address was filed (ADR-0074): the
+  // inbox is the sender's only receipt, whether or not collaboration is on.
+  'inbound_mail.filed',
 ] as const satisfies readonly InboxItemType[]
 
 const at = new Date('2026-07-29T10:00:00.000Z')
@@ -393,6 +397,57 @@ describe('listInbox — project href threads the delegated task', () => {
 
     expect(byId.get('job-no-task')!.href).toBe('/app/projects/proj_1/automation?tab=jobs')
     expect(byId.get('job-blank-task')!.href).toBe('/app/projects/proj_1/automation?tab=jobs')
+  })
+})
+
+describe('listInbox — a filed mail (ADR-0074)', () => {
+  const filed = (overrides: Partial<InboxItem> = {}) =>
+    row({
+      id: 'mail-1',
+      type: 'inbound_mail.filed',
+      resourceType: 'project',
+      resourceId: 'proj_1',
+      anchorId: 'msg-row-1',
+      actorUserId: null,
+      payload: {
+        subject: 'Pläne',
+        folderId: 'folder-9',
+        params: { filed: 3, skipped: 1, project: 'Wohnbau Hietzing' },
+      },
+      ...overrides,
+    })
+
+  it('opens the mail folder and carries the counts the copy interpolates', async () => {
+    vi.mocked(repository.listInboxItems).mockResolvedValue([filed()])
+
+    const { items } = await listInbox(session)
+
+    expect(items[0]).toMatchObject({
+      href: '/app/projects/proj_1/files?folder=folder-9',
+      subject: 'Pläne',
+      params: { filed: 3, skipped: 1, project: 'Wohnbau Hietzing' },
+    })
+  })
+
+  it('drops what copy must not interpolate, and withholds it all when redacted', async () => {
+    vi.mocked(repository.listInboxItems).mockResolvedValue([
+      filed({
+        id: 'junk',
+        payload: {
+          subject: 'x',
+          params: { filed: Number.NaN, skipped: 2, 'bad key': 'x', nested: { a: 1 }, project: 'p'.repeat(500) },
+        },
+      }),
+      filed({ id: 'inert', inertAt: at }),
+    ])
+
+    const { items } = await listInbox(session)
+    const byId = new Map(items.map((item) => [item.id, item]))
+
+    expect(byId.get('junk')!.params).toEqual({ skipped: 2, project: `${'p'.repeat(120)}…` })
+    // No folder named: the project's file root.
+    expect(byId.get('junk')!.href).toBe('/app/projects/proj_1/files')
+    expect(byId.get('inert')!.params).toBeUndefined()
   })
 })
 

@@ -42,6 +42,7 @@ import {
   Clock,
   EyeOff,
   HardDrive,
+  Mail,
   Megaphone,
   MessageSquare,
   UserPlus,
@@ -97,6 +98,7 @@ const ICONS: Record<(typeof INBOX_TYPE_PRESENTATION)[keyof typeof INBOX_TYPE_PRE
     'alert-triangle': AlertTriangle,
     clock: Clock,
     megaphone: Megaphone,
+    mail: Mail,
   }
 
 /** Dictionary root for the item-type entries. */
@@ -192,6 +194,9 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
   const redacted = !item.href
 
   const vars = {
+    // A type's own values first, so the three shared names below always mean
+    // what every other type's copy means by them.
+    ...item.params,
     actor: item.actorName ?? t('inbox.unknownActor'),
     subject: item.subject ?? t(redacted ? 'inbox.inert' : 'inbox.untitledConversation'),
     count: item.count,

@@ -292,6 +292,38 @@ describe('InboxItemRow — the operational storage alert (ADR-0042)', () => {
   })
 })
 
+describe('InboxItemRow — a filed mail (ADR-0074)', () => {
+  const filed = (params: Record<string, string | number>) =>
+    item({
+      type: 'inbound_mail.filed',
+      actionable: false,
+      resourceType: 'project',
+      resourceId: 'p1',
+      anchorId: 'msg-1',
+      actorName: null,
+      actorUserId: null,
+      href: '/app/projects/p1/files?folder=f1',
+      subject: 'Pläne Einreichung',
+      excerpt: null,
+      params,
+    })
+
+  test('says how many files landed where, and how many were skipped, in the plural it needs', () => {
+    render(<InboxItemRow item={filed({ filed: 3, skipped: 1, project: 'Wohnbau Hietzing' })} />)
+    expect(
+      screen.getByText('3 files from the email "Pläne Einreichung" filed in Wohnbau Hietzing'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('1 attachment skipped – the folder shows what arrived.')).toBeInTheDocument()
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/app/projects/p1/files?folder=f1')
+  })
+
+  test('uses the singular for one file', () => {
+    render(<InboxItemRow item={filed({ filed: 1, skipped: 0, project: 'Wohnbau' })} />)
+    expect(screen.getByText('1 file from the email "Pläne Einreichung" filed in Wohnbau')).toBeInTheDocument()
+    expect(screen.getByText('0 attachments skipped – the folder shows what arrived.')).toBeInTheDocument()
+  })
+})
+
 describe('InboxItemRow — a version waiting for a decision (ADR-0054)', () => {
   const reviewRequest = (overrides: Partial<InboxItemView> = {}): InboxItemView =>
     item({

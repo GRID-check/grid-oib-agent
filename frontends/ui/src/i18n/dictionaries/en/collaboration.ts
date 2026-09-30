@@ -421,6 +421,14 @@ export const collaboration = {
         title: '{actor} asked you to review {subject}',
         body: 'A new version is waiting for your approval.',
       },
+      // The files of a mail sent to the project address were filed (ADR-0074).
+      // {subject} is the mail's subject, {project} the project, {filed} and
+      // {skipped} how many attachments were filed and skipped.
+      inboundMailFiled: {
+        title:
+          '{filed, plural, one {# file} other {# files}} from the email "{subject}" filed in {project}',
+        body: '{skipped, plural, one {# attachment skipped} other {# attachments skipped}} – the folder shows what arrived.',
+      },
       unknown: {
         title: 'Something happened',
         body: 'in {subject}',
