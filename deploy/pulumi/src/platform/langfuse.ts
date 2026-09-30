@@ -13,7 +13,7 @@ import {
   startupBudgetSeconds,
 } from "./rollout";
 import { GATEWAY_NAME } from "./gateway";
-import { platformOidcSecurityPolicySpec } from "./platform-oidc";
+import { AGENT_TOKEN_HEADER, platformOidcSecurityPolicySpec } from "./platform-oidc";
 import { EDGE_TIMEOUT, LANGFUSE, PORT } from "../constants";
 
 /** Secret name. A constant rather than `secret.metadata.name` because the
@@ -571,6 +571,10 @@ export function installLangfuse(
     rules: [
       {
         backendRefs: [{ name: LANGFUSE.web, port: PORT.langfuseWeb }],
+        // The agent's WorkOS token has done its job at the edge (Envoy
+        // Gateway forwards every verified JWT header). Langfuse has no use for
+        // it, so it does not get one.
+        filters: [{ type: "RequestHeaderModifier", requestHeaderModifier: { remove: [AGENT_TOKEN_HEADER] } }],
         // Langfuse's trace views and CSV exports run analytical ClickHouse
         // queries over an unbounded date range, which Envoy's 15s default cuts
         // off as a 504 mid-render. Same budget the app routes already use.
