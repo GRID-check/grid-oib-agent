@@ -1411,6 +1411,15 @@ register_source_parser(lambda name: "ris_lookup" in name, _parse_knowledge_layer
 # structured path reads its block by hash and would otherwise recover passages
 # the text path cannot (ADR-0061).
 register_source_parser(lambda name: "read_passage" in name, _parse_knowledge_layer)
+# ``list_files`` is an INDEX, never evidence: a row proves a file exists, not
+# what it says. It sits in the knowledge data source, so its output is captured
+# like a search result, and with no parser it fell to the non-URL fallback and
+# registered one citable source keyed "list_files" — a citation that resolves to
+# a directory listing. Nothing it returns may ground a claim. ``endswith`` covers
+# a group-qualified name (``knowledge__list_files``); registered after the
+# knowledge parser, which a name containing "knowledge" reaches first and which
+# also finds no ``Citation:`` line in a listing.
+register_source_parser(lambda name: name.endswith("list_files"), lambda content, tool_name: [])
 
 # ---------------------------------------------------------------------------
 # Citation parsing and source-section layout normalization

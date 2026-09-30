@@ -310,6 +310,10 @@ class AvailableDocument(BaseModel):
             project root (or a shelf that has no folders at all). It is a PATH,
             not an id: it reads as itself, and a prefix match gives the folder's
             whole subtree.
+        added_at: Optional ``YYYY-MM-DD`` the document was first indexed under
+            this name (the row's ``created_at``; a re-ingest keeps it). A
+            string, not a datetime, because the row rides the checkpointed turn
+            state and the prompt cache key.
         collection: The RAG collection this row was loaded from.
         shelf: Wire shelf (ADR-0047). Rendering-only labels live on
             ``SHELF_QUALIFIERS``; do not infer this from ``collection``.
@@ -321,5 +325,6 @@ class AvailableDocument(BaseModel):
     doc_class: str | None = None
     display_title: str | None = None
     folder_path: str | None = None
+    added_at: str | None = None
     collection: str | None = None
     shelf: str | None = None

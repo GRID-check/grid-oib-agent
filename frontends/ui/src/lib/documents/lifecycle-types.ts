@@ -459,7 +459,7 @@ export const replaceContentRequestSchema = z
 /**
  * The order, in one sentence, that Einreichen states before it sends.
  *
- * Optional on the wire so the agent's `submit_draft` and every caller that
+ * Optional on the wire so the agent's `file_draft` submit and every caller that
  * predates the Auftragssatz keep working; when present it is non-empty and
  * bounded so an order stays an order. The inbox excerpt renders it, which is
  * what closes the ceremony that used to gate the button on a sentence the

@@ -1022,8 +1022,8 @@ class TaskCreatedCard(CardModel):
 #: before answering, and „alles verschieben" is not a proposal, it is a job.
 MAX_FILE_OPERATIONS = 8
 
-#: The four verbs. Each names the tool that emits it (`move_document`,
-#: `rename_document`, `create_folder`, `assign_document`).
+#: The four operations, each an `operation` value of the one tool that emits
+#: them, `propose_file_change` (four tools, one per kind, until they merged).
 #:
 #: A fifth, `set_doc_class`, was here and is gone. A project document has no
 #: doc_class route for an Accept to run, so the card drew the proposal and no
@@ -1080,8 +1080,8 @@ class FileOperationItem(CardModel):
 class FileOperationProposalCard(CardModel):
     """A workspace change the agent PROPOSES and the reader executes.
 
-    System-emitted by the four tools under ``src/aiq_agent/tools/files/``. Every
-    one of them is a write, none of them writes: the card is the proposal, the
+    System-emitted by ``propose_file_change`` (``src/aiq_agent/tools/files/``),
+    one card per ``operation``. Every operation is a write, none of them writes: the card is the proposal, the
     reader's Accept runs it through the existing document/folder/assignment
     routes in their own session, and the tool's own result text says plainly
     that nothing has changed yet.

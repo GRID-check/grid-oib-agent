@@ -1030,7 +1030,7 @@
       "type": "object"
     },
     "FileOperationProposalCard": {
-      "description": "A workspace change the agent PROPOSES and the reader executes.\n\nSystem-emitted by the four tools under ``src/aiq_agent/tools/files/``. Every\none of them is a write, none of them writes: the card is the proposal, the\nreader's Accept runs it through the existing document/folder/assignment\nroutes in their own session, and the tool's own result text says plainly\nthat nothing has changed yet.",
+      "description": "A workspace change the agent PROPOSES and the reader executes.\n\nSystem-emitted by ``propose_file_change`` (``src/aiq_agent/tools/files/``),\none card per ``operation``. Every operation is a write, none of them writes: the card is the proposal, the\nreader's Accept runs it through the existing document/folder/assignment\nroutes in their own session, and the tool's own result text says plainly\nthat nothing has changed yet.",
       "properties": {
         "note": {
           "anyOf": [

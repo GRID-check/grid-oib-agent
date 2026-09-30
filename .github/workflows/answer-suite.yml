@@ -1,204 +1,251 @@
-name: Answer suite
+# PAUSED (2026-09-30): the answer suite no longer runs in CI.
+#
+# Everything below the stub is the full workflow, commented out line by line.
+# To restore it, delete the stub (from `name:` to the end of the `paused` job)
+# and remove the leading "# " from every line of the original.
+#
+# Why a stub at all: a workflow file with no `on:` trigger is an invalid
+# workflow, which GitHub reports on every push. The stub is valid, has no PR or
+# push trigger, and only runs when someone starts it by hand, so nothing in CI
+# depends on it and nothing fails because of it.
+#
+# The suite itself still runs locally: `task be:eval:answer-suite`
+# (docs/contributing/testing-and-verification.md, "The answer suite").
 
-# The answer suite (docs/contributing/testing-and-verification.md, "The answer
-# suite") on a PR: the core reference questions through the real agent, once on
-# the base and once on the head, and the head's report with its baseline deltas
-# as one sticky PR comment. AGENTS.md asks for exactly this before and after on
-# any change that shapes an answer; until this workflow it needed a developer
-# with the corpus on their machine.
-#
-# OPT-IN, by the `answer-suite` label, and re-run on every push while the label
-# is on. Not on every PR: each run is live model calls on both sides (the core
-# set, two runs a question, about four minutes a side), and a change that shapes
-# no answer has nothing to measure.
-#
-# REQUIRES two repository secrets:
-# - `OPENROUTER_API_KEY`: the agent, its embeddings and reranker all route
-#   through it (docs/deployment/environment-variables.md).
-# - `OIB_CORPUS_URL`: where CI GETs the OIB corpus, as a .zip or .tar.gz of
-#   the PDFs under their published names (data/oib/README.md). The corpus is
-#   the operator's licensed material and is never committed. Normally the
-#   deployment's own export, `https://<app domain>/api/internal/oib-corpus`,
-#   which serves exactly the PDFs production ingests.
-# - `OIB_CORPUS_TOKEN`: sent as `x-grid-internal-token`. For the export above
-#   it is the deployment's `GRID_CORPUS_EXPORT_TOKEN` (its own secret, not the
-#   service token). Leave it unset for a URL that needs none.
-# When the corpus changes, bump the `OIB_CORPUS_VERSION` repository variable
-# so the ingest cache below is rebuilt.
-# Both fail the job fast when absent: a suite that skips reports success by not
-# running.
-
-#
-# Only `pull_request`, never `workflow_dispatch`: a dispatched run checks out a
-# ref its caller names and would write the ingest cache in the default
-# branch's scope, where every later run restores it (cache poisoning). A PR's
-# cache is scoped to the PR.
+name: Answer suite (paused)
 
 on:
-  pull_request:
-    types: [labeled, synchronize, reopened]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-# A run the job condition below will skip (another label added) still enters
-# its workflow's concurrency group, and would cancel a suite in progress: it
-# gets a group of its own.
-concurrency:
-  group: >-
-    answer-suite-${{ github.event.pull_request.number }}${{
-    github.event.action == 'labeled' && github.event.label.name != 'answer-suite'
-    && format('-skipped-{0}', github.run_id) || '' }}
-  cancel-in-progress: true
-
 jobs:
-  suite:
-    name: Answer suite (${{ matrix.side }})
-    # A `labeled` event for ANOTHER label (a path labeler, `docs`) would re-run
-    # both paid sides and cancel a run in progress: only this label starts one.
-    if: >-
-      contains(github.event.pull_request.labels.*.name, 'answer-suite') &&
-      (github.event.action != 'labeled' || github.event.label.name == 'answer-suite')
+  paused:
+    name: Answer suite (paused)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    strategy:
-      # One side at a time: the suite spends real model calls, and two sides
-      # at once would double the rate against one key for no earlier answer.
-      max-parallel: 1
-      matrix:
-        side: [before, after]
     steps:
-      - name: Resolve the commit this side measures
-        id: ref
-        env:
-          SIDE: ${{ matrix.side }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if [ "$SIDE" = before ]; then
-            echo "ref=$PR_BASE" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=$PR_HEAD" >> "$GITHUB_OUTPUT"
-          fi
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ steps.ref.outputs.ref }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-python-env
-        with:
-          python-version: "3.14"
-      - uses: ./.github/actions/setup-task
-      - name: Require the model key and the corpus
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OIB_CORPUS_URL: ${{ secrets.OIB_CORPUS_URL }}
-        run: |
-          missing=""
-          [ -n "$OPENROUTER_API_KEY" ] || missing="$missing OPENROUTER_API_KEY"
-          [ -n "$OIB_CORPUS_URL" ] || missing="$missing OIB_CORPUS_URL"
-          if [ -n "$missing" ]; then
-            echo "::error::Missing repository secret(s):$missing. See the header of this workflow."
-            exit 1
-          fi
-      - name: Fetch the corpus
-        env:
-          OIB_CORPUS_URL: ${{ secrets.OIB_CORPUS_URL }}
-          OIB_CORPUS_TOKEN: ${{ secrets.OIB_CORPUS_TOKEN }}
-        run: |
-          # A token-bearing request goes over HTTPS only and follows no
-          # redirect: curl would forward a custom header in clear text, or to
-          # whatever host a redirect names. A URL without a token may redirect.
-          opts=(-L)
-          if [ -n "$OIB_CORPUS_TOKEN" ]; then
-            opts=(--proto =https -H "x-grid-internal-token: $OIB_CORPUS_TOKEN")
-          fi
-          curl -fsS --retry 3 --max-time 900 "${opts[@]}" -o "$RUNNER_TEMP/corpus" "$OIB_CORPUS_URL"
-          case "$(file -b --mime-type "$RUNNER_TEMP/corpus")" in
-            application/zip) unzip -q -j "$RUNNER_TEMP/corpus" '*.pdf' -d data/oib ;;
-            application/gzip|application/x-gzip) tar -xzf "$RUNNER_TEMP/corpus" -C data/oib --wildcards --no-anchored '*.pdf' --transform 's#.*/##' ;;
-            *) echo "::error::OIB_CORPUS_URL is neither a .zip nor a .tar.gz"; exit 1 ;;
-          esac
-          ls data/oib/*.pdf | wc -l | xargs echo "PDFs:"
-      # The ingest is the slow, paid part and only changes with the corpus or
-      # the ingestion code, so it is cached per side on exactly those. An exact
-      # key only: the sync is incremental by file hash and would not re-ingest
-      # an unchanged PDF under changed ingestion code.
-      - name: Restore the ingested corpus
-        uses: actions/cache@v6
-        with:
-          path: |
-            .suite-index
-          key: answer-suite-index-${{ vars.OIB_CORPUS_VERSION }}-${{ hashFiles('src/aiq_agent/oib_sync.py', 'src/aiq_agent/knowledge/**', 'sources/knowledge_layer/src/**', 'configs/config_oib_openrouter.yml') }}
-      - name: Run the suite
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          AIQ_CHROMA_DIR: ${{ github.workspace }}/.suite-index/chroma
-          AIQ_SUMMARY_DB: sqlite+aiosqlite:///${{ github.workspace }}/.suite-index/summaries.db
-          OIB_REGISTRY_PATH: ${{ github.workspace }}/.suite-index/oib_registry.json
-          SIDE: ${{ matrix.side }}
-        run: |
-          mkdir -p .suite-index "$RUNNER_TEMP/suite"
-          task be:eval:answer-suite -- --ingest --out "$RUNNER_TEMP/suite/$SIDE"
-      - name: Keep the results
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: answer-suite-${{ matrix.side }}
-          path: ${{ runner.temp }}/suite/${{ matrix.side }}
-          if-no-files-found: warn
+      - run: echo "The answer suite is paused in CI; run it locally with 'task be:eval:answer-suite'."
 
-  # The head's results re-rendered against the base's: `--report` re-checks a
-  # results.json from its recordings and prints it, without paying for runs.
-  report:
-    name: Answer suite report
-    needs: suite
-    if: ${{ !cancelled() && needs.suite.result != 'skipped' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write # upsert the sticky comment
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-      - uses: ./.github/actions/setup-python-env
-        with:
-          python-version: "3.14"
-      - uses: ./.github/actions/setup-task
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: answer-suite-*
-          path: ${{ runner.temp }}
-      - name: Render the head against the base
-        run: |
-          after="$RUNNER_TEMP/answer-suite-after/results.json"
-          before="$RUNNER_TEMP/answer-suite-before/results.json"
-          if [ ! -f "$after" ]; then
-            echo "The head side produced no results; see the suite job's log." > "$RUNNER_TEMP/report.md"
-            exit 0
-          fi
-          args=(--report "$after")
-          [ -f "$before" ] && args+=(--baseline "$before")
-          # A failed render must not leave the previous run's report standing as
-          # the sticky comment: say this run failed instead.
-          if ! task be:eval:answer-suite -- "${args[@]}" > "$RUNNER_TEMP/report.md"; then
-            echo "Rendering the report failed; see this job's log." > "$RUNNER_TEMP/report.md"
-          fi
-      - name: Upsert the sticky PR comment
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const fs = require('fs')
-            const marker = '<!-- answer-suite -->'
-            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
-            const report = fs.readFileSync(`${process.env.RUNNER_TEMP}/report.md`, 'utf8')
-            const body = [marker, '## Answer suite (head against base)', '', report, '', `[Run](${runUrl})`].join('\n')
-            const pr = context.payload.pull_request.number
-            const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: pr })
-            const mine = comments.find((c) => c.user.type === 'Bot' && (c.body || '').startsWith(marker))
-            if (mine) {
-              await github.rest.issues.updateComment({ ...context.repo, comment_id: mine.id, body })
-            } else {
-              await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body })
-            }
+# ---------------------------------------------------------------------------
+# The original workflow, commented out.
+# ---------------------------------------------------------------------------
+# name: Answer suite
+#
+# # The answer suite (docs/contributing/testing-and-verification.md, "The answer
+# # suite") on a PR: the core reference questions through the real agent, once on
+# # the base and once on the head, and the head's report with its baseline deltas
+# # as one sticky PR comment. AGENTS.md asks for exactly this before and after on
+# # any change that shapes an answer; until this workflow it needed a developer
+# # with the corpus on their machine.
+# #
+# # OPT-IN, by the `answer-suite` label, and re-run on every push while the label
+# # is on. Not on every PR: each run is live model calls on both sides (the core
+# # set, two runs a question, about four minutes a side), and a change that shapes
+# # no answer has nothing to measure.
+# #
+# # REQUIRES two repository secrets:
+# # - `OPENROUTER_API_KEY`: the agent, its embeddings and reranker all route
+# #   through it (docs/deployment/environment-variables.md).
+# # - `OIB_CORPUS_URL`: where CI GETs the OIB corpus, as a .zip or .tar.gz of
+# #   the PDFs under their published names (data/oib/README.md). The corpus is
+# #   the operator's licensed material and is never committed. Normally the
+# #   deployment's own export, `https://<app domain>/api/internal/oib-corpus`,
+# #   which serves exactly the PDFs production ingests.
+# # - `OIB_CORPUS_TOKEN`: sent as `x-grid-internal-token`. For the export above
+# #   it is the deployment's `GRID_CORPUS_EXPORT_TOKEN` (its own secret, not the
+# #   service token). Leave it unset for a URL that needs none.
+# # When the corpus changes, bump the `OIB_CORPUS_VERSION` repository variable
+# # so the ingest cache below is rebuilt.
+# # Both fail the job fast when absent: a suite that skips reports success by not
+# # running.
+#
+# #
+# # Only `pull_request`, never `workflow_dispatch`: a dispatched run checks out a
+# # ref its caller names and would write the ingest cache in the default
+# # branch's scope, where every later run restores it (cache poisoning). A PR's
+# # cache is scoped to the PR.
+#
+# on:
+#   pull_request:
+#     types: [labeled, synchronize, reopened]
+#
+# permissions:
+#   contents: read
+#
+# # A run the job condition below will skip (another label added) still enters
+# # its workflow's concurrency group, and would cancel a suite in progress: it
+# # gets a group of its own.
+# concurrency:
+#   group: >-
+#     answer-suite-${{ github.event.pull_request.number }}${{
+#     github.event.action == 'labeled' && github.event.label.name != 'answer-suite'
+#     && format('-skipped-{0}', github.run_id) || '' }}
+#   cancel-in-progress: true
+#
+# jobs:
+#   suite:
+#     name: Answer suite (${{ matrix.side }})
+#     # A `labeled` event for ANOTHER label (a path labeler, `docs`) would re-run
+#     # both paid sides and cancel a run in progress: only this label starts one.
+#     if: >-
+#       contains(github.event.pull_request.labels.*.name, 'answer-suite') &&
+#       (github.event.action != 'labeled' || github.event.label.name == 'answer-suite')
+#     runs-on: ubuntu-latest
+#     timeout-minutes: 60
+#     strategy:
+#       # One side at a time: the suite spends real model calls, and two sides
+#       # at once would double the rate against one key for no earlier answer.
+#       max-parallel: 1
+#       # The two sides are independent measurements. With the default
+#       # fail-fast, a base that cannot run (a harness bug the head fixes, a
+#       # corpus the base cannot ingest) cancelled the head before it started,
+#       # and the report said "the head side produced no results".
+#       fail-fast: false
+#       matrix:
+#         side: [before, after]
+#     steps:
+#       - name: Resolve the commit this side measures
+#         id: ref
+#         env:
+#           SIDE: ${{ matrix.side }}
+#           PR_BASE: ${{ github.event.pull_request.base.sha }}
+#           PR_HEAD: ${{ github.event.pull_request.head.sha }}
+#         run: |
+#           if [ "$SIDE" = before ]; then
+#             echo "ref=$PR_BASE" >> "$GITHUB_OUTPUT"
+#           else
+#             echo "ref=$PR_HEAD" >> "$GITHUB_OUTPUT"
+#           fi
+#       - uses: actions/checkout@v7
+#         with:
+#           ref: ${{ steps.ref.outputs.ref }}
+#           persist-credentials: false
+#       - uses: ./.github/actions/setup-python-env
+#         with:
+#           python-version: "3.14"
+#       - uses: ./.github/actions/setup-task
+#       - name: Require the model key and the corpus
+#         env:
+#           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+#           OIB_CORPUS_URL: ${{ secrets.OIB_CORPUS_URL }}
+#         run: |
+#           missing=""
+#           [ -n "$OPENROUTER_API_KEY" ] || missing="$missing OPENROUTER_API_KEY"
+#           [ -n "$OIB_CORPUS_URL" ] || missing="$missing OIB_CORPUS_URL"
+#           if [ -n "$missing" ]; then
+#             echo "::error::Missing repository secret(s):$missing. See the header of this workflow."
+#             exit 1
+#           fi
+#       - name: Fetch the corpus
+#         env:
+#           OIB_CORPUS_URL: ${{ secrets.OIB_CORPUS_URL }}
+#           OIB_CORPUS_TOKEN: ${{ secrets.OIB_CORPUS_TOKEN }}
+#         run: |
+#           # A token-bearing request goes over HTTPS only and follows no
+#           # redirect: curl would forward a custom header in clear text, or to
+#           # whatever host a redirect names. A URL without a token may redirect.
+#           opts=(-L)
+#           if [ -n "$OIB_CORPUS_TOKEN" ]; then
+#             opts=(--proto =https -H "x-grid-internal-token: $OIB_CORPUS_TOKEN")
+#           fi
+#           curl -fsS --retry 3 --max-time 900 "${opts[@]}" -o "$RUNNER_TEMP/corpus" "$OIB_CORPUS_URL"
+#           case "$(file -b --mime-type "$RUNNER_TEMP/corpus")" in
+#             application/zip) unzip -q -j "$RUNNER_TEMP/corpus" '*.pdf' -d data/oib ;;
+#             application/gzip|application/x-gzip) tar -xzf "$RUNNER_TEMP/corpus" -C data/oib --wildcards --no-anchored '*.pdf' --transform 's#.*/##' ;;
+#             *) echo "::error::OIB_CORPUS_URL is neither a .zip nor a .tar.gz"; exit 1 ;;
+#           esac
+#           ls data/oib/*.pdf | wc -l | xargs echo "PDFs:"
+#       # The ingest is the slow, paid part and only changes with the corpus or
+#       # the ingestion code, so it is cached per side on exactly those. An exact
+#       # key only: the sync is incremental by file hash and would not re-ingest
+#       # an unchanged PDF under changed ingestion code.
+#       - name: Restore the ingested corpus
+#         uses: actions/cache@v6
+#         with:
+#           path: |
+#             .suite-index
+#           key: answer-suite-index-${{ vars.OIB_CORPUS_VERSION }}-${{ hashFiles('src/aiq_agent/oib_sync.py', 'src/aiq_agent/knowledge/**', 'sources/knowledge_layer/src/**', 'configs/config_oib_openrouter.yml') }}
+#       - name: Run the suite
+#         env:
+#           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+#           AIQ_CHROMA_DIR: ${{ github.workspace }}/.suite-index/chroma
+#           AIQ_SUMMARY_DB: sqlite+aiosqlite:///${{ github.workspace }}/.suite-index/summaries.db
+#           OIB_REGISTRY_PATH: ${{ github.workspace }}/.suite-index/oib_registry.json
+#           SIDE: ${{ matrix.side }}
+#         run: |
+#           mkdir -p .suite-index "$RUNNER_TEMP/suite"
+#           task be:eval:answer-suite -- --ingest --out "$RUNNER_TEMP/suite/$SIDE"
+#       - name: Keep the results
+#         if: ${{ !cancelled() }}
+#         uses: actions/upload-artifact@v7
+#         with:
+#           name: answer-suite-${{ matrix.side }}
+#           path: ${{ runner.temp }}/suite/${{ matrix.side }}
+#           if-no-files-found: warn
+#
+#   # The head's results re-rendered against the base's: `--report` re-checks a
+#   # results.json from its recordings and prints it, without paying for runs.
+#   report:
+#     name: Answer suite report
+#     needs: suite
+#     if: ${{ !cancelled() && needs.suite.result != 'skipped' }}
+#     runs-on: ubuntu-latest
+#     permissions:
+#       contents: read
+#       pull-requests: write # upsert the sticky comment
+#     steps:
+#       - uses: actions/checkout@v7
+#         with:
+#           ref: ${{ github.event.pull_request.head.sha }}
+#           persist-credentials: false
+#       - uses: ./.github/actions/setup-python-env
+#         with:
+#           python-version: "3.14"
+#       - uses: ./.github/actions/setup-task
+#       # One download per side, by name, into its own directory. With a
+#       # pattern, a run that uploaded only ONE side (a base that could not run)
+#       # was extracted straight into runner.temp, and the head's results were
+#       # reported as missing. Either side may be absent; the render step says which.
+#       - uses: actions/download-artifact@v8
+#         continue-on-error: true
+#         with:
+#           name: answer-suite-after
+#           path: ${{ runner.temp }}/answer-suite-after
+#       - uses: actions/download-artifact@v8
+#         continue-on-error: true
+#         with:
+#           name: answer-suite-before
+#           path: ${{ runner.temp }}/answer-suite-before
+#       - name: Render the head against the base
+#         run: |
+#           after="$RUNNER_TEMP/answer-suite-after/results.json"
+#           before="$RUNNER_TEMP/answer-suite-before/results.json"
+#           if [ ! -f "$after" ]; then
+#             echo "The head side produced no results; see the suite job's log." > "$RUNNER_TEMP/report.md"
+#             exit 0
+#           fi
+#           args=(--report "$after")
+#           [ -f "$before" ] && args+=(--baseline "$before")
+#           # A failed render must not leave the previous run's report standing as
+#           # the sticky comment: say this run failed instead.
+#           if ! task be:eval:answer-suite -- "${args[@]}" > "$RUNNER_TEMP/report.md"; then
+#             echo "Rendering the report failed; see this job's log." > "$RUNNER_TEMP/report.md"
+#           fi
+#       - name: Upsert the sticky PR comment
+#         uses: actions/github-script@v9
+#         with:
+#           script: |
+#             const fs = require('fs')
+#             const marker = '<!-- answer-suite -->'
+#             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+#             const report = fs.readFileSync(`${process.env.RUNNER_TEMP}/report.md`, 'utf8')
+#             const body = [marker, '## Answer suite (head against base)', '', report, '', `[Run](${runUrl})`].join('\n')
+#             const pr = context.payload.pull_request.number
+#             const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: pr })
+#             const mine = comments.find((c) => c.user.type === 'Bot' && (c.body || '').startsWith(marker))
+#             if (mine) {
+#               await github.rest.issues.updateComment({ ...context.repo, comment_id: mine.id, body })
+#             } else {
+#               await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body })
+#             }

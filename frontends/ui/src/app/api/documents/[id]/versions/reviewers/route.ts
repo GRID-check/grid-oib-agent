@@ -1,7 +1,7 @@
 /**
  * Who this document's next version can be sent to for release.
  *
- * The reviewer picker's list, and the one the agent's `submit_draft` resolves a
+ * The reviewer picker's list, and the one the agent's `file_draft` submit resolves a
  * NAME against (`POST /api/internal/document-versions`). Both read
  * `listReviewCandidates`, so „wen kann ich fragen" has one answer whichever side
  * asks it.
