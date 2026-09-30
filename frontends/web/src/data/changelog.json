@@ -79,6 +79,14 @@
               "de": "Eine geöffnete Datei zeigt ihre Zusammenfassung, Seitenzahl und Tags, sobald die Indexierung abgeschlossen ist, ohne dass Sie sie schließen und erneut öffnen müssen."
             },
             {
+              "en": "Piloti can now go through every file in the project, the office archive and this chat the way Dateien does, by folder, name, document type and upload date, instead of seeing only the first 50 or so names. „Was ist diese Woche neu?“ or „Was liegt im Ordner Brandschutz?“ now get a complete answer, and files still being processed are named as such.",
+              "de": "Piloti kann jetzt jede Datei im Projekt, im Büroarchiv und in diesem Chat durchsuchen – so wie Dateien, nach Ordner, Name, Dokumenttyp und Upload-Datum, statt nur die ersten rund 50 Dateinamen anzuzeigen. Auf „Was ist diese Woche neu?“ oder „Was liegt im Ordner Brandschutz?“ erhalten Sie jetzt eine vollständige Antwort, und Dateien, die noch verarbeitet werden, werden als solche gekennzeichnet."
+            },
+            {
+              "en": "Piloti can now find every place a word, name or number appears in your files, like a search across the whole project: „Wo kommt BA-03 überall vor?“ lists each matching file, how often and on which pages, with passages it can quote. Capitals and spellings such as ä or ae, ß or ss count as the same.",
+              "de": "Piloti findet jetzt jede Stelle, an der ein Wort, Name oder eine Zahl in Ihren Dateien vorkommt – wie eine Suche im gesamten Projekt: „Wo kommt BA-03 überall vor?“ listet jede Datei mit Treffern, die Anzahl der Treffer und die Seiten auf und zeigt Textstellen, die Piloti zitieren kann. Groß- und Kleinschreibung sowie Schreibweisen wie ä oder ae und ß oder ss werden gleich behandelt."
+            },
+            {
               "en": "Opening a citation of a plan or photo now marks the drawing it refers to, such as the floor plan or the section, with a labelled box instead of only opening the page. The box shows which drawing on the sheet was read, not the exact object within it.",
               "de": "Beim Öffnen eines Verweises auf einen Plan oder ein Foto wird nun die zugehörige Zeichnung, etwa der Grundriss oder der Schnitt, mit einem beschrifteten Rahmen markiert, statt nur die Seite zu öffnen. Der Rahmen zeigt, welche Zeichnung auf dem Blatt gelesen wurde, nicht das genaue Objekt darin."
             },
@@ -110,6 +118,10 @@
             {
               "en": "When a document cannot be read, the file card, the preview, the upload list and the chat's file list now say why in plain language and what helps, for example reading it again or asking the admins to set up a vision model for scanned pages. The original error text is still there under \"Details\".",
               "de": "Wenn ein Dokument nicht gelesen werden kann, zeigen die Dateikarte, die Vorschau, die Upload-Liste und die Dateiliste im Chat jetzt in klarer Sprache, woran es liegt und was hilft – zum Beispiel, es erneut einzulesen oder Ihre Admins zu bitten, ein Vision-Modell für gescannte Seiten einzurichten. Der ursprüngliche Fehlertext steht weiterhin unter „Details“."
+            },
+            {
+              "en": "File names Piloti writes in an answer open the file more reliably, because Piloti now writes each name exactly as it is stored.",
+              "de": "Dateien lassen sich zuverlässiger öffnen, da Piloti Dateinamen in Antworten jetzt exakt so schreibt, wie sie gespeichert sind."
             },
             {
               "en": "Reports, concepts and other PDFs uploaded to a project are now read section by section along their own headings, so an answer finds the passage that belongs to a heading even when it runs over a page break, and cites it by its section number and page.",
@@ -199,6 +211,10 @@
             {
               "en": "An overview now shows its parts either as a table or as a mindmap, never both. The duplicate drawing used to appear while the answer arrived and then vanish when it finished.",
               "de": "Eine Übersicht zeigt ihre Bestandteile jetzt entweder als Tabelle oder als Mindmap, nie beides. Die doppelte Darstellung erscheint während der Antwort und verschwindet nach deren Abschluss."
+            },
+            {
+              "en": "In a large project, Piloti can now rename, move and assign files beyond the first 50 as well. It used to refuse them as unknown files.",
+              "de": "In großen Projekten kann Piloti jetzt auch Dateien ab der 51. umbenennen, verschieben und zuordnen. Bisher lehnt Piloti sie als unbekannte Dateien ab."
             },
             {
               "en": "Text and CSV files saved by Excel or older Windows programs keep their umlauts and ß. Before, those letters were silently dropped.",

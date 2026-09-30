@@ -82,6 +82,12 @@ describe("frontendEnv", () => {
     expect(configSource).toContain('name: "GRID_SKILLS_ENABLED"');
     expect(configSource).not.toContain('name: "GRID_WORKFLOWS_ENABLED"');
   });
+
+  it("hands the BFF the GitHub token and the repo it files bug reports into", () => {
+    // The names the BFF reads (`lib/github/issues.ts`, `lib/product-feedback/github.ts`).
+    expect(configSource).toContain('sref("GRID_GITHUB_TOKEN")');
+    expect(configSource).toContain('name: "GRID_FEEDBACK_ISSUES_REPO"');
+  });
 });
 
 /**

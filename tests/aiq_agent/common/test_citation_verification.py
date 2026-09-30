@@ -3615,3 +3615,22 @@ class TestPunktAndScoreReachTheWire:
         bare = SourceEntry(url="https://example.at/x", source_type="web")
         assert "punkt" not in source_entry_to_wire(bare)
         assert "score" not in source_entry_to_wire(bare)
+
+
+class TestAFileListingIsNeverASource:
+    """``list_files`` is an index: its rows prove a file exists, not what it says."""
+
+    LISTING = (
+        "2 Datei(en) auf Projektwissen; hier 1–2.\n\nDateien:\n"
+        "- Plan.pdf · Ordner: Plaene · Dokumentart: plan — Grundriss EG\n"
+        "- Protokoll.docx · Ordner: (oberste Ebene)\n\n"
+        "Das ist ein Verzeichnis, keine Quelle."
+    )
+
+    @pytest.mark.parametrize("tool_name", ["list_files", "knowledge__list_files", "LIST_FILES"])
+    def test_a_listing_registers_no_source(self, tool_name):
+        assert extract_sources_from_tool_result(tool_name, self.LISTING, source_id="knowledge") == []
+
+    def test_a_listing_with_a_link_in_a_summary_registers_none_either(self):
+        content = self.LISTING + "\n- Link.pdf · Ordner: X — siehe https://example.org/norm"
+        assert extract_sources_from_tool_result("list_files", content) == []

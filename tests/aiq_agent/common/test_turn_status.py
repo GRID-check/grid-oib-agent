@@ -244,19 +244,22 @@ class TestRetrieval:
         assert payload.key == "status.action.draftWrite"
         assert payload.values == {}
 
-    def test_the_four_file_verbs_share_one_line(self, steps) -> None:
-        """One key for all four, unlike the working directory's own four.
+    def test_every_file_operation_shares_one_line(self, steps) -> None:
+        """One key for every operation, unlike the working directory's own four.
 
         The card that follows says which operation on which file, in the
         reader's own words and with the buttons attached. A live line naming
         the verb again would be the card, worse and one moment earlier — what
         the line has to carry is that nothing has changed yet.
         """
-        verbs = ("move_document", "rename_document", "create_folder", "assign_document")
-        for index, verb in enumerate(verbs):
-            turn_status.emit_retrieval([{"name": verb, "args": {"document": "plan.pdf"}}], round_index=index)
+        operations = ("move", "rename", "create_folder", "assign")
+        for index, operation in enumerate(operations):
+            turn_status.emit_retrieval(
+                [{"name": "propose_file_change", "args": {"operation": operation, "document": "plan.pdf"}}],
+                round_index=index,
+            )
         keys = [payload.key for payload in _live(steps)]
-        assert keys == ["status.action.fileProposal"] * len(verbs)
+        assert keys == ["status.action.fileProposal"] * len(operations)
 
     def test_handing_the_work_over_says_so(self, steps) -> None:
         """``create_task`` gets its own line, not one of the draft verbs.
@@ -275,7 +278,12 @@ class TestRetrieval:
     def test_a_file_proposal_is_an_action_and_never_a_retrieval(self, steps) -> None:
         """Nothing is being read: the file name is a name the reader gave, not a query."""
         turn_status.emit_retrieval(
-            [{"name": "move_document", "args": {"document": "Brandschutzplan.pdf", "target_folder": "Einreichung"}}],
+            [
+                {
+                    "name": "propose_file_change",
+                    "args": {"operation": "move", "document": "Brandschutzplan.pdf", "target_folder": "Einreichung"},
+                }
+            ],
             round_index=0,
         )
         payload = _live(steps)[0]
@@ -612,7 +620,7 @@ def _every_live_payload(steps) -> list:
     turn_status.emit_retrieval([{"name": "write_file", "args": {"file_path": "/entwuerfe/a.md"}}], round_index=6)
     turn_status.emit_retrieval([{"name": "edit_file", "args": {"file_path": "/entwuerfe/a.md"}}], round_index=7)
     turn_status.emit_retrieval(
-        [{"name": "move_document", "args": {"document": "plan.pdf", "target_folder": "Einreichung"}}],
+        [{"name": "propose_file_change", "args": {"operation": "move", "document": "plan.pdf"}}],
         round_index=8,
     )
     turn_status.emit_retrieval(
@@ -620,7 +628,7 @@ def _every_live_payload(steps) -> list:
         round_index=9,
     )
     turn_status.emit_retrieval(
-        [{"name": "submit_draft", "args": {"path": "/entwuerfe/a.md"}}],
+        [{"name": "file_draft", "args": {"path": "/entwuerfe/a.md", "submit": True}}],
         round_index=10,
     )
     turn_status.emit_retrieval(

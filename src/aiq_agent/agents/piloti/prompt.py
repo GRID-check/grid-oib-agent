@@ -271,8 +271,8 @@ def render_system_prompt(
         # write a document would be describing a tool it cannot call. What the
         # block still carries is the two sentences no tool description can: the
         # anaphora („mach daraus ein File") and what happens without a project.
-        # Everything else it used to say is in `write_file`, `edit_file`,
-        # `file_draft` and `submit_draft` (ADR-0060 (d)).
+        # Everything else it used to say is in `write_file`, `edit_file` and
+        # `file_draft` (ADR-0060 (d)).
         drafting_enabled=any(tool.get("name") == "write_file" for tool in tools_info),
         # Per TENANT, so it renders below the KV-cache boundary with the other
         # per-tenant blocks rather than narrowing the static contract. The

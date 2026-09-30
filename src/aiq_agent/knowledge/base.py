@@ -196,6 +196,28 @@ class BaseRetriever(ABC):
         """Prepare ``query`` for a search about to be made (its embedding). Optional; never raises."""
         return None
 
+    async def find_text(
+        self,
+        collection_name: str,
+        pattern: str,
+        filters: dict[str, Any] | None = None,
+        limit: int = 500,
+    ) -> list[Chunk] | None:
+        """Every chunk whose text matches the regular expression ``pattern`` anywhere.
+
+        Exhaustive, unranked and embedding-free: the answer to "which files say
+        X", which a top-k similarity search cannot give. At most ``limit``
+        chunks. ``None`` means the backend cannot do it, never "no match": a
+        caller must be able to tell an empty result from an unsupported one.
+
+        ``pattern`` is written in the subset Rust's ``regex`` and Python's
+        ``re`` read alike (no lookaround, no backreference), because the
+        caller re-checks every chunk with the same string. Case-insensitivity,
+        spelling variants and word boundaries are the CALLER's, expressed in
+        the pattern (``(?i)``, alternation, ``\\b``); a backend matches it as given.
+        """
+        return None
+
     @abstractmethod
     def normalize(self, raw_result: Any) -> Chunk:
         """

@@ -31,6 +31,7 @@
  */
 
 import 'server-only'
+import { configuredAppOrigin } from '@/lib/app-origin'
 import { getWorkOS } from '@/lib/workos/client'
 import type { AuthoredRefKind } from '@/lib/documents/document-authors'
 import { AUDIT_ACTIONS } from './schemas.mjs'
@@ -288,15 +289,7 @@ export async function recordAuditEventOrThrow(input: AuditEventInput): Promise<v
  * redirect URI env var already pins the real origin per deployment.
  */
 export function trustedAppOrigin(request: Request): string {
-  const configured = process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI
-  if (configured) {
-    try {
-      return new URL(configured).origin
-    } catch {
-      // fall through to the request origin
-    }
-  }
-  return new URL(request.url).origin
+  return configuredAppOrigin() ?? new URL(request.url).origin
 }
 
 /**

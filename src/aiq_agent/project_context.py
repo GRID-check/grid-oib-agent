@@ -92,17 +92,14 @@ USER_ID_HEADER = "x-grid-user-id"
 #: contract lived in two hand-maintained lists that nothing compared.
 TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "project_memory_remember": (PROJECT_ID_HEADER, ORGANIZATION_ID_HEADER),
-    # The four write-side workspace tools (`tools/files/`). Each proposes a
-    # change to a PROJECT's workspace — folders are project-scoped, and the
-    # reader's session applies the change against a project — so a run without
-    # the project header can only refuse, and refusing on every unattended run
-    # is the failure this table was written for.
-    "move_document": (PROJECT_ID_HEADER,),
-    "rename_document": (PROJECT_ID_HEADER,),
-    "create_folder": (PROJECT_ID_HEADER,),
-    "assign_document": (PROJECT_ID_HEADER,),
-    # Filing a draft into the project (`tools/documents/register.py`). The
-    # project header is what makes a filing ADDRESSABLE — a draft is filed INTO
+    # The write-side workspace tool (`tools/files/`). It proposes a change to a
+    # PROJECT's workspace — folders are project-scoped, and the reader's session
+    # applies the change against a project — so a run without the project
+    # header can only refuse, and refusing on every unattended run is the
+    # failure this table was written for.
+    "propose_file_change": (PROJECT_ID_HEADER,),
+    # Filing a draft into the project, and with `submit` sending it for review
+    # (`tools/documents/register.py`). The project header is what makes a filing ADDRESSABLE — a draft is filed INTO
     # a project — so a run without it can only refuse.
     #
     # The signed envelope the tool ALSO needs is deliberately NOT declared here.
@@ -113,7 +110,6 @@ TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     # refuses the call, which is the honest shape — see the `_NO_ENVELOPE`
     # refusal in `tools/documents/filing.py`.
     "file_draft": (PROJECT_ID_HEADER,),
-    "submit_draft": (PROJECT_ID_HEADER,),
     # Delegating work (`tools/tasks/register.py`). A task hangs off a PROJECT —
     # `tasks.project_id` is NOT NULL and carries the tenant predicate — so a run
     # without the project header can only refuse. The signed envelope it also

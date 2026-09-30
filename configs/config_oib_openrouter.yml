@@ -376,6 +376,9 @@ functions:
           # off must take both, and `get_source_id_for_tool` must resolve it or
           # nothing it returns is captured as a citable source.
           - read_passage
+          # The file browser reads the same files through the same scope, so
+          # switching the knowledge base off must take it too.
+          - list_files
       - id: ris
         name: "RIS – Österreichisches Recht"
         description: "Search Austrian federal/state law and case law in the official RIS (Rechtsinformationssystem des Bundes) and fetch entire documents on demand."
@@ -586,6 +589,17 @@ functions:
     _type: read_passage
     knowledge_search: knowledge_search
 
+  # The file browser (sources/knowledge_layer/src/browse.py): `ls` over the
+  # reader's own shelves — every file, by folder, name, Dokumentart and upload
+  # date, paged. The prompt inventory stops at a few dozen names; this does
+  # not. Deterministic, no LLM, and it reads only the scope `knowledge_search`
+  # reads. Its partner, Ctrl+F across the files, is NOT a tool: it is
+  # `knowledge_search(match="exact")`, the same verb over the same scope
+  # (docs/architecture/agent-tool-surface.md).
+  list_files:
+    _type: list_files
+    knowledge_search: knowledge_search
+
   # Project Memory: silent, observable capture of durable project findings.
   # Available in project-scoped chats; no-ops (with a clear error) elsewhere.
   remember:
@@ -629,10 +643,11 @@ functions:
   surface_documents:
     _type: surface_documents
 
-  # The five WRITE-side workspace tools (src/aiq_agent/tools/files). Each one
-  # proposes: it resolves the file, the folder or the Dokumentart against what
-  # the turn can already see, renders ONE `file_operation_proposal` card, and
-  # changes nothing. Accepting the card runs the operation through the routes
+  # The WRITE-side workspace tool (src/aiq_agent/tools/files): move, rename,
+  # create_folder and assign as one `operation` argument — four tools until
+  # they were merged (docs/architecture/agent-tool-surface.md). It proposes: it
+  # resolves the file or the folder against what the turn can already see,
+  # renders ONE `file_operation_proposal` card, and changes nothing. Accepting the card runs the operation through the routes
   # the Files pane already uses, in the reader's own session — the BFF stays
   # the single writer of `grid_app` (ADR-0003), which is why there is no
   # backend path here to write with.
@@ -641,32 +656,24 @@ functions:
   # job worker with nobody to press Accept, so a proposal card there is a
   # decision nobody is on the other end of; the two agents differ here for the
   # same reason `ask_user` does.
-  move_document:
-    _type: move_document
-  rename_document:
-    _type: rename_document
-  create_folder:
-    _type: create_folder
-  # No doc_class verb here: proposals wait for a project-scoped doc_class route.
-  assign_document:
-    _type: assign_document
+  propose_file_change:
+    _type: propose_file_change
 
-  # The working directory's two doors into the project (src/aiq_agent/tools/
+  # The working directory's door into the project (src/aiq_agent/tools/
   # documents). `file_draft` puts a draft the turn WROTE into the project as a
-  # draft version; `submit_draft` sends that version for review. Unlike the five
-  # proposal tools above these two DO change the project — and they do it through
+  # draft version, and with `submit: true` sends that version for review (it was
+  # a second tool, `submit_draft`, until the two merged). Unlike the proposal
+  # tool above this one DOES change the project — and it does it through
   # `POST /api/internal/document-versions`, echoing the BFF-signed request
   # envelope, so the write happens in the requesting person's pinned session
   # under their permissions and their audit actor (ADR-0054 §4). The BFF stays
   # the single writer of `grid_app`.
   #
   # Bound on Piloti only, for the same reason as the proposal
-  # tools and one more: the envelope is minted per chat turn, so an unattended
+  # tool and one more: the envelope is minted per chat turn, so an unattended
   # deep-research run has no signed identity to file as and the tool refuses.
   file_draft:
     _type: file_draft
-  submit_draft:
-    _type: submit_draft
 
   # Delegation (src/aiq_agent/tools/tasks). Hands work that outlives this turn
   # to a `tasks` row (ADR-0051) — a norm check, the Einreichcheck
@@ -722,6 +729,7 @@ functions:
       - web_search_tool
       - knowledge_search
       - read_passage
+      - list_files
       - view_knowledge_image
       # ONE RIS tool on the chat surface. Search → pick → fetch → find the
       # paragraph was three charged calls and a 40 000-character blob that
@@ -738,12 +746,8 @@ functions:
       # envelope schema already teaches, and a model at low effort spent a
       # whole round on it (September 2026 census). Deep research binds its own.
       - surface_documents
-      - move_document
-      - rename_document
-      - create_folder
-      - assign_document
+      - propose_file_change
       - file_draft
-      - submit_draft
       - create_task
       - ifc_query
       - ifc_measure
@@ -1039,6 +1043,7 @@ functions:
       # for an address it already held — and every batch it spent that way is a
       # round the run does not get back.
       - read_passage
+      - list_files
       - view_knowledge_image
       - ris_search_tool
       - ris_fetch_tool

@@ -380,10 +380,11 @@ KEY_ACTION_DRAFT_EDIT = "status.action.draftEdit"
 #: a line naming the verb a second time would be the card, worse and earlier.
 #: What the line has to carry is that nothing is being changed yet.
 KEY_ACTION_FILE_PROPOSAL = "status.action.fileProposal"
-#: The two verbs that leave the conversation. Their own keys, and not the
-#: working directory's four, because what changes is not the draft but WHERE it
-#: is: „Entwurf wird geschrieben" while a document is being put into the
-#: project would describe the wrong half of what just happened. Filing and
+#: The two things `file_draft` does when a draft leaves the conversation:
+#: filing it, and — with `submit=true` — handing it to a reviewer. Their own
+#: keys, and not the working directory's four, because what changes is not the
+#: draft but WHERE it is: „Entwurf wird geschrieben" while a document is being
+#: put into the project would describe the wrong half of what just happened. Filing and
 #: submitting are also kept apart, unlike the five proposal verbs that share
 #: one key: there the card names the operation a moment later, while here there
 #: is nothing else on screen to tell a filing from a handover to a reviewer.
@@ -563,6 +564,9 @@ _SEARCH_CORPORA: tuple[tuple[str, str], ...] = (
     ("advanced_web_search", "web"),
     ("web_search", "web"),
     ("surface_documents", "documents"),
+    # The file browser reads the reader's own files, so the line says „in Ihren
+    # Unterlagen“, not the knowledge corpus.
+    ("list_files", "documents"),
     ("ifc_", "ifc"),
 )
 
@@ -578,14 +582,27 @@ _ACTION_KEYS = {
     "read_file": KEY_ACTION_DRAFT_READ,
     "write_file": KEY_ACTION_DRAFT_WRITE,
     "edit_file": KEY_ACTION_DRAFT_EDIT,
-    "move_document": KEY_ACTION_FILE_PROPOSAL,
-    "rename_document": KEY_ACTION_FILE_PROPOSAL,
-    "create_folder": KEY_ACTION_FILE_PROPOSAL,
-    "assign_document": KEY_ACTION_FILE_PROPOSAL,
+    "propose_file_change": KEY_ACTION_FILE_PROPOSAL,
+    # With `submit=true` the line is KEY_ACTION_DRAFT_SUBMITTED instead; see
+    # :func:`_action_key`. (`submit_draft` was merged into that argument.)
     "file_draft": KEY_ACTION_DRAFT_FILED,
-    "submit_draft": KEY_ACTION_DRAFT_SUBMITTED,
     "create_task": KEY_ACTION_TASK_CREATED,
 }
+
+
+def _action_key(base: str, args: Any) -> str | None:
+    """The live-line key for a non-retrieval tool call, read from its arguments where they decide it.
+
+    One tool, two promises: ``file_draft`` with ``submit`` hands the draft to a
+    reviewer, and the filing line would describe only the half of that call
+    which asks nobody for anything.
+    """
+    if base == "file_draft" and isinstance(args, dict) and str(args.get("submit")).strip().lower() == "true":
+        # `str(True)` is "True": a boolean and a model that quoted it read alike,
+        # the way the tool's own argument parsing reads them.
+        return KEY_ACTION_DRAFT_SUBMITTED
+    return _ACTION_KEYS.get(base)
+
 
 #: Argument names a retrieval query hides behind, in preference order.
 _QUERY_KEYS = ("query", "search_query", "question", "q", "text", "name_contains")
@@ -721,17 +738,22 @@ def _search_signature(args: dict[str, Any]) -> str:
     canonical = (
         json.dumps(filters, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str) if filters else ""
     )
-    return _SIGNATURE_SEPARATOR.join(
-        [
-            "knowledge_search",
-            " ".join(str(args.get("query") or "").split()).casefold(),
-            _argument_text(args, "doc_class"),
-            _argument_text(args, "title_contains"),
-            _argument_text(args, "file_name", fold_case=True),
-            _argument_text(args, "folder"),
-            canonical,
-        ]
-    )
+    parts = [
+        "knowledge_search",
+        " ".join(str(args.get("query") or "").split()).casefold(),
+        _argument_text(args, "doc_class"),
+        _argument_text(args, "title_contains"),
+        _argument_text(args, "file_name", fold_case=True),
+        _argument_text(args, "folder"),
+        canonical,
+    ]
+    # The literal mode is a different question over the same words: „BA-03"
+    # ranked and „BA-03" everywhere are two answers, so it may not be withheld
+    # as a repeat of the other. Appended only when set, so every meaning-mode
+    # signature is what it always was.
+    if str(args.get("match") or "").strip().lower() == "exact":
+        parts.append("exact")
+    return _SIGNATURE_SEPARATOR.join(parts)
 
 
 def _passage_signature(args: dict[str, Any]) -> str:
@@ -1028,7 +1050,7 @@ def _describe_calls(calls: list[dict[str, Any]]) -> dict[str, Any]:
             else:
                 query = query or _query_text(call.get("args"))
         elif action_key is None:
-            action_key = _ACTION_KEYS.get(base)
+            action_key = _action_key(base, call.get("args"))
 
     key: str | None
     values: dict[str, Any]

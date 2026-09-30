@@ -107,15 +107,13 @@ aiq_bim = "aiq_agent.tools.bim.register"
 # independently loadable — and `ifc_query` keeps working on a deployment where
 # the spatial engine (ifcopenshell, shapely) is not installed at all.
 aiq_bim_measure = "aiq_agent.tools.bim.measure_register"
-# The four write-side workspace tools (move/rename/create_folder/assign). One
-# entry point for all four: they share their resolver and their card, have no
-# optional dependency between them, and a deployment that loads one loads the
-# reason for the other three.
+# The write-side workspace tool, `propose_file_change` (move, rename,
+# create_folder, assign as one `operation` argument).
 aiq_files = "aiq_agent.tools.files.register"
-# The working directory's two doors into the project (`file_draft`,
-# `submit_draft`). Its OTHER four verbs are stock DeepAgents tools bound
-# directly by Piloti's register and are not NAT functions at all, so
-# this entry point covers exactly the two that call the BFF.
+# The working directory's door into the project (`file_draft`, which files a
+# draft and, with `submit`, sends it for review). Its OTHER four verbs are stock
+# DeepAgents tools bound directly by Piloti's register and are not NAT
+# functions at all, so this entry point covers exactly the one that calls the BFF.
 aiq_documents = "aiq_agent.tools.documents.register"
 # Delegation (`create_task`). Its own entry point rather than a member of
 # `aiq_documents`: the two call different BFF routes with different contracts,

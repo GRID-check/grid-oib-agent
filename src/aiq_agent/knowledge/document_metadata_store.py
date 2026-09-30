@@ -22,8 +22,12 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import UTC
+from datetime import date
+from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from aiq_agent.common.db_utils import normalize_db_url as _normalize_db_url
 from aiq_agent.common.db_utils import redact_db_url
@@ -32,6 +36,10 @@ if TYPE_CHECKING:
     from .schema import AvailableDocument
 
 logger = logging.getLogger(__name__)
+
+#: The clock an upload date is read on. The product serves Austrian offices;
+#: a second country reads it from its profile when one arrives.
+_OFFICE_TIMEZONE = ZoneInfo("Europe/Vienna")
 
 ENGINE_CACHE_TTL_SECONDS = 3600
 ENGINE_CACHE_MAX_SIZE = 10
@@ -277,7 +285,7 @@ class DocumentMetadataStore:
                 "display_title TEXT, "
                 "folder_path TEXT, "
                 "provenance TEXT, "
-                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                "created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, "
                 "PRIMARY KEY (collection, filename))"
             )
         )
@@ -702,8 +710,39 @@ class DocumentMetadataStore:
             doc_class=row[3] or None,
             display_title=row[4] or None,
             folder_path=row[5] or None,
+            added_at=self._iso_date(row[6]) if len(row) > 6 else None,
             collection=collection,
         )
+
+    @staticmethod
+    def _iso_date(raw: Any) -> str | None:
+        """``created_at`` as the ``YYYY-MM-DD`` the office saw on its clock (Europe/Vienna).
+
+        A datetime on Postgres, a ``YYYY-MM-DD HH:MM:SS`` string on SQLite; both
+        are written by ``CURRENT_TIMESTAMP`` and so are UTC when naive. The
+        column is ``TIMESTAMP WITH TIME ZONE`` (here and in
+        ``deploy/compose/init-db.sql``), so Postgres returns an aware value; a
+        naive one only comes from SQLite, whose ``CURRENT_TIMESTAMP`` is UTC, or
+        from a table created before that, on a server whose ``TimeZone`` is UTC
+        (the Postgres image default). Taking
+        the UTC date filed an upload made at 00:30 in Vienna under the day
+        before, and „was ist seit heute neu“ missed it.
+        """
+        if raw is None:
+            return None
+        if isinstance(raw, datetime):
+            moment = raw
+        elif isinstance(raw, date):
+            return raw.isoformat()
+        else:
+            text_value = str(raw).strip()
+            try:
+                moment = datetime.fromisoformat(text_value)
+            except ValueError:
+                return text_value[:10] or None
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        return moment.astimezone(_OFFICE_TIMEZONE).date().isoformat()
 
     def get_all(self, collection: str) -> list[AvailableDocument]:
         """Get all documents with metadata for a collection (sync)."""
@@ -714,7 +753,8 @@ class DocumentMetadataStore:
                 result = conn.execute(
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
-                        f"SELECT filename, summary, tags, doc_class, display_title, folder_path FROM {TABLE_NAME} "
+                        "SELECT filename, summary, tags, doc_class, display_title, folder_path, created_at "
+                        f"FROM {TABLE_NAME} "
                         "WHERE collection = :collection"
                     ),
                     {"collection": collection},
@@ -735,7 +775,8 @@ class DocumentMetadataStore:
                 result = await conn.execute(
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
-                        f"SELECT filename, summary, tags, doc_class, display_title, folder_path FROM {TABLE_NAME} "
+                        "SELECT filename, summary, tags, doc_class, display_title, folder_path, created_at "
+                        f"FROM {TABLE_NAME} "
                         "WHERE collection = :collection"
                     ),
                     {"collection": collection},

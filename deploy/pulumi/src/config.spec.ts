@@ -228,3 +228,46 @@ describe("documents backup credentials", () => {
     ).toBeNull();
   });
 });
+
+describe("feedback → GitHub issues", () => {
+  function feedbackIssues(values: Record<string, string>) {
+    pulumi.runtime.setAllConfig({ ...baseStackConfig(), ...values });
+    return loadConfig().feedbackIssues;
+  }
+
+  it("rides on err2issue's token and repo, without needing err2issue deployed", () => {
+    const resolved = feedbackIssues({
+      "grid-oib:err2issueEnabled": "false",
+      "grid-oib:err2issueGithubRepo": "GRID-check/grid-oib-agent",
+      "grid-oib:err2issueGithubToken": "gh-token", // pragma: allowlist secret
+    });
+    expect(resolved.enabled).toBe(true);
+    expect(resolved.repo).toBe("GRID-check/grid-oib-agent");
+  });
+
+  it("can file into a repo of its own", () => {
+    const resolved = feedbackIssues({
+      "grid-oib:err2issueGithubRepo": "GRID-check/grid-oib-agent",
+      "grid-oib:err2issueGithubToken": "gh-token", // pragma: allowlist secret
+      "grid-oib:feedbackIssuesRepo": "GRID-check/feedback",
+    });
+    expect(resolved.repo).toBe("GRID-check/feedback");
+  });
+
+  it("is off without a token, whatever the flag says", () => {
+    const resolved = feedbackIssues({
+      "grid-oib:feedbackIssuesEnabled": "true",
+      "grid-oib:err2issueGithubRepo": "GRID-check/grid-oib-agent",
+    });
+    expect(resolved.enabled).toBe(false);
+  });
+
+  it("is off when the flag says so, token or not", () => {
+    const resolved = feedbackIssues({
+      "grid-oib:feedbackIssuesEnabled": "false",
+      "grid-oib:err2issueGithubRepo": "GRID-check/grid-oib-agent",
+      "grid-oib:err2issueGithubToken": "gh-token", // pragma: allowlist secret
+    });
+    expect(resolved.enabled).toBe(false);
+  });
+});
