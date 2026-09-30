@@ -435,9 +435,7 @@ async def _submit_unchanged(
     """``submit=True`` on a draft the project already holds: submit, and nothing else."""
     # The draft is already in the project, so a failed submit must not say
     # „nothing was filed" (`_CALL_FAILED`): only the review round failed.
-    submitted = await _submit(
-        backend, path, usage.filing, reviewer, envelope, failure=_SUBMIT_FAILED_AFTER_FILING
-    )
+    submitted = await _submit(backend, path, usage.filing, reviewer, envelope, failure=_SUBMIT_FAILED_AFTER_FILING)
     emit_draft_card(path=path, content=usage.content or "", version=usage.version or 1, filing=submitted)
     return (
         f"Zur Freigabe {_whom(reviewer)} eingereicht: „{draft_title(path, usage.content or '')}“ wartet jetzt "
