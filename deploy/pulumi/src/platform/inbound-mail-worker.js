@@ -121,7 +121,6 @@ export default {
       headers: {
         "x-grid-internal-token": env.INBOUND_MAIL_TOKEN,
         "x-envelope-to": message.to,
-        "x-envelope-from": message.from,
         [RAW_SIZE_HEADER]: String(message.rawSize),
         "content-type": "message/rfc822",
       },

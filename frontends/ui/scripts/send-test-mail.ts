@@ -9,7 +9,6 @@
  *
  *   Options:
  *     --to <address>     envelope recipient (required): the project address
- *     --from <address>   envelope sender, informational (default: the From header's)
  *     --url <base>       BFF base URL (default: $BFF_URL or http://localhost:3000)
  *
  * The BFF verifies the sender for real: an aligned, passing DKIM signature
@@ -55,14 +54,13 @@ async function main(): Promise<void> {
     allowPositionals: true,
     options: {
       to: { type: 'string' },
-      from: { type: 'string' },
       url: { type: 'string' },
     },
   })
   const file = positionals[0]
   const token = process.env.GRID_INBOUND_MAIL_TOKEN
   if (!file || !values.to) {
-    console.error('usage: send-test-mail.ts --to <project address> [--from <sender>] [--url <bff>] <file.eml>')
+    console.error('usage: send-test-mail.ts --to <project address> [--url <bff>] <file.eml>')
     process.exit(2)
   }
   if (!token) {
@@ -71,7 +69,6 @@ async function main(): Promise<void> {
   }
 
   const raw = await readFile(file)
-  const fromHeader = /^From:.*?([^\s<>"]+@[^\s<>"]+)/im.exec(raw.toString('latin1'))?.[1]
   const base = (values.url ?? process.env.BFF_URL ?? 'http://localhost:3000').replace(/\/$/, '')
 
   const response = await fetch(`${base}/api/internal/inbound-mail`, {
@@ -81,7 +78,6 @@ async function main(): Promise<void> {
       'x-grid-internal-token': token,
       [INBOUND_ENVELOPE_TO_HEADER]: values.to,
       [INBOUND_RAW_SIZE_HEADER]: String(raw.byteLength),
-      'x-envelope-from': values.from ?? fromHeader ?? '',
     },
     body: raw,
   })

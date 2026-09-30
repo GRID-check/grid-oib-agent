@@ -19,7 +19,9 @@
 -- the subject and the skipped names for the one notification, and the
 -- folder name it will file into. The drain empties `staged`, clears the
 -- subject and strips the skipped names once the mail is filed or given up;
--- what stays is ids, counts, reason codes and timestamps, for 30 days.
+-- what stays for 30 days is ids, counts, reason codes, timestamps, the
+-- `delivery_key` (a hash) and `folder_name`, which carries the sender's
+-- display name because the folder it names does too.
 --
 -- ## Accept durably, file later
 --

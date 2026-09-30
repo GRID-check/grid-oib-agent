@@ -80,7 +80,6 @@ describe("inbound mail worker: the request", () => {
     expect(init?.headers).toEqual({
       "x-grid-internal-token": "inbound-token", // pragma: allowlist secret
       "x-envelope-to": "wohnbau.abcdefghijkl@eingang.example.test",
-      "x-envelope-from": "bounce@sender.example",
       // Not content-length: Workers ignores a Content-Length set by hand on a
       // stream body and sends it chunked, so the size rides in its own header.
       "x-inbound-raw-size": String(RAW.byteLength),
