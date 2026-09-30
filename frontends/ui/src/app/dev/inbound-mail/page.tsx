@@ -35,9 +35,16 @@ const ADDRESSES: Record<string, InboundAddressResponse> = {
   'preview-disabled': { enabled: false, address: null, canRotate: false },
 }
 
+// Fixed sample tokens the preview's "rotate" cycles through. Real tokens are
+// minted server-side by `lib/inbound-mail/address.ts`; a second generator here
+// would be a copy of it.
+const PREVIEW_TOKENS = ['p3v6wn2cjt5d', 'x4hq7mz2rk6a', 'b2nw5tj3yc7e'] as const
+let previewRotations = 0
+
 function mintToken(): string {
-  const alphabet = 'abcdefghijklmnopqrstuvwxyz234567'
-  return Array.from({ length: 12 }, () => alphabet[Math.floor(Math.random() * 32)]).join('')
+  const token = PREVIEW_TOKENS[previewRotations % PREVIEW_TOKENS.length]
+  previewRotations += 1
+  return token
 }
 
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
