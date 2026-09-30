@@ -497,13 +497,23 @@ def source_commit() -> str:
 
 
 def _corpus_ready() -> bool:
+    """Whether the OIB collection holds chunks, asked through the client the ingest itself opens.
+
+    ``--ingest`` opens Chroma in THIS process with the adapter's settings, and
+    Chroma refuses a second client on the same path with other settings. A
+    bare ``PersistentClient`` here raised that, the error was swallowed, and a
+    corpus ingested a second earlier read as "not ingested" (the first answer
+    suite run in CI). The reason is printed now, so the next one is not silent.
+    """
     try:
-        import chromadb
+        from knowledge_layer.llamaindex.adapter import _make_chroma_client
 
         from aiq_agent.oib_sync import CHROMA_DIR
+        from aiq_agent.oib_sync import COLLECTION_NAME
 
-        return chromadb.PersistentClient(str(CHROMA_DIR)).get_collection("oib_knowledge").count() > 0
-    except Exception:
+        return _make_chroma_client(str(CHROMA_DIR)).get_collection(COLLECTION_NAME).count() > 0
+    except Exception as exc:  # noqa: BLE001 - any failure is "not ready", said out loud
+        print(f"corpus check failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return False
 
 

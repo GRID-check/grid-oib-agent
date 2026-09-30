@@ -65,6 +65,11 @@ jobs:
       # One side at a time: the suite spends real model calls, and two sides
       # at once would double the rate against one key for no earlier answer.
       max-parallel: 1
+      # The two sides are independent measurements. With the default
+      # fail-fast, a base that cannot run (a harness bug the head fixes, a
+      # corpus the base cannot ingest) cancelled the head before it started,
+      # and the report said "the head side produced no results".
+      fail-fast: false
       matrix:
         side: [before, after]
     steps:
@@ -166,10 +171,20 @@ jobs:
         with:
           python-version: "3.14"
       - uses: ./.github/actions/setup-task
+      # One download per side, by name, into its own directory. With a
+      # pattern, a run that uploaded only ONE side (a base that could not run)
+      # was extracted straight into runner.temp, and the head's results were
+      # reported as missing. Either side may be absent; the render step says which.
       - uses: actions/download-artifact@v8
+        continue-on-error: true
         with:
-          pattern: answer-suite-*
-          path: ${{ runner.temp }}
+          name: answer-suite-after
+          path: ${{ runner.temp }}/answer-suite-after
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: answer-suite-before
+          path: ${{ runner.temp }}/answer-suite-before
       - name: Render the head against the base
         run: |
           after="$RUNNER_TEMP/answer-suite-after/results.json"
