@@ -15,10 +15,14 @@ cap kept, and „wo kommt BA-03 überall vor?“ from the three passages that ra
   subfolders and their counts. An INDEX, never evidence: a row proves a file
   exists, as the inventory does.
 - ``knowledge_search(match="exact")`` is ``grep`` (:func:`exact_search`, here
-  because it shares the rows and the folding): every chunk whose text contains a phrase, over
+  because it shares the rows): every chunk whose text contains a phrase, over
   every file in scope, counted per file — then the first passages of the
   best-covered files, rendered through the knowledge layer's own grounding
-  block, so they are citable exactly like a search hit.
+  block, so they are citable exactly like a search hit. One regex
+  (:func:`phrase_pattern`) does the finding in the store and the counting
+  here, and it reads the phrase the way a person does: case, ä/ae and ß/ss
+  spellings, and a line break or hyphen between two words do not matter; a
+  term of two or three characters is a whole word.
 
 The exact search is a MODE of the search rather than a tool of its own: it is
 the same verb over the same scope with the same narrowing arguments, and a
@@ -86,7 +90,8 @@ MAX_MATCH_CHUNKS = 500
 #: covers every match; these are the text to quote from.
 MAX_MATCH_PASSAGES = 8
 
-#: A phrase shorter than this matches noise („EG“ is in half the words).
+#: A single character matches noise. Two and three characters („EG“, „T30“)
+#: are real search terms and match as whole words (:data:`WHOLE_WORD_MAX_CHARS`).
 MIN_PHRASE_CHARS = 2
 
 #: Alternatives in one exact search. „BA-03 | BA 03 | Brandabschnitt 3“
@@ -362,69 +367,85 @@ def render_listing(listing: Listing, *, in_flight: Sequence[str] = ()) -> str:
 
 
 def split_alternatives(text: str) -> list[str]:
-    """``"BA-03 | BA 03"`` → ``["BA-03", "BA 03"]``; empty and too-short parts dropped."""
-    parts = [" ".join(part.split()) for part in (text or "").split("|")]
-    return [part for part in dict.fromkeys(parts) if len(part) >= MIN_PHRASE_CHARS][:MAX_ALTERNATIVES]
+    """``"BA-03 | BA 03"`` → ``["BA-03", "BA 03"]``; empty, too-short and letterless parts dropped.
 
-
-#: Candidates one phrase may add to the store query. Six alternatives at this
-#: cap is under a hundred ``$contains`` clauses; a phrase rarely yields more
-#: than ten distinct spellings, so the cap only trims pathological inputs.
-MAX_SPELLINGS_PER_PHRASE = 16
-
-_TO_UMLAUT = (
-    ("ae", "ä"),
-    ("oe", "ö"),
-    ("ue", "ü"),
-    ("ss", "ß"),
-    ("AE", "Ä"),
-    ("OE", "Ö"),
-    ("UE", "Ü"),
-    ("Ae", "Ä"),
-    ("Oe", "Ö"),
-    ("Ue", "Ü"),
-)
-_CAPITAL_UMLAUT = {"Ä": "Ae", "Ö": "Oe", "Ü": "Ue"}
-
-
-def _to_ascii(text: str) -> str:
-    """„Müller“ → „Mueller“, „ÄRGER“ → „AERGER“, „Ärger“ → „Aerger“."""
-    text = text.translate(_FOLD)
-    text = re.sub(r"[ÄÖÜ](?=[a-zß])", lambda found: _CAPITAL_UMLAUT[found.group(0)], text)
-    return text.replace("Ä", "AE").replace("Ö", "OE").replace("Ü", "UE")
-
-
-def _to_umlauts(text: str) -> str:
-    """„Mueller“ → „Müller“, „Strasse“ → „Straße“. Over-eager on purpose („Feuer“ → „Feür“):
-    a spelling nothing contains costs one clause, and the caller re-checks every hit."""
-    for ascii_form, umlaut in _TO_UMLAUT:
-        text = text.replace(ascii_form, umlaut)
-    return text
-
-
-def spellings(phrase: str) -> list[str]:
-    """The byte strings a case-sensitive ``$contains`` must try to find ``phrase``.
-
-    The store matches bytes; a person's Ctrl+F does not. As typed, lowercase,
-    capitalised, uppercase, title-cased when it is several words, and each again
-    with umlauts transliterated in BOTH directions — so „Müller“ also finds
-    „MUELLER“, „Mueller“ finds „Müller“, „Strasse“ finds „Straße“ and
-    „brandschutz“ finds „Brandschutz“. The caller re-checks every candidate
-    case- and umlaut-insensitively (:func:`fold`), so an over-eager spelling
-    cannot add a false match. Bounded by :data:`MAX_SPELLINGS_PER_PHRASE`.
+    A part without a letter or digit („--“) would match every separator run.
     """
-    phrase = unicodedata.normalize("NFC", phrase)
-    cased = [phrase, phrase.lower(), phrase[:1].upper() + phrase[1:], phrase.capitalize(), phrase.upper()]
-    if len(phrase.split()) > 1:
-        cased.append(phrase.title())
-    ascii_forms = [_to_ascii(variant) for variant in cased]
-    umlaut_forms = [_to_umlauts(variant) for variant in ascii_forms]
-    return list(dict.fromkeys([*cased, *ascii_forms, *umlaut_forms]))[:MAX_SPELLINGS_PER_PHRASE]
+    parts = [" ".join(part.split()) for part in unicodedata.normalize("NFC", text or "").split("|")]
+    kept = [part for part in dict.fromkeys(parts) if len(part) >= MIN_PHRASE_CHARS and re.search(r"\w", part)]
+    return kept[:MAX_ALTERNATIVES]
 
 
-def _occurrences(body: str, phrases: Sequence[str]) -> int:
-    haystack = fold(body)
-    return sum(haystack.count(fold(phrase)) for phrase in phrases)
+#: What stands between two words in extracted text: whitespace (a line break,
+#: a double space, NBSP — ``\s`` is Unicode-aware in Python's ``re`` and in
+#: Rust's ``regex`` alike), a hyphen, a non-breaking hyphen, an en dash, a soft
+#: hyphen. A run of any of them in the phrase matches a run of any of them in
+#: the text, so „OIB Richtlinie“ finds „OIB-Richtlinie“ and „Brandabschnitt 3“
+#: finds „Brandabschnitt⏎3“. The ``-`` stands last so neither dialect reads a range.
+_SEPARATOR_CHARS = "\u00ad\u2010\u2011\u2013-"
+_SEPARATOR = f"[\\s{_SEPARATOR_CHARS}]+"
+
+#: One German letter and its ASCII transliteration are one letter to a reader.
+#: Either spelling in the phrase matches both in the text (and a decomposed
+#: umlaut, ``a`` + U+0308, which some PDF text layers carry). Case is the
+#: pattern's ``(?i)``, so „AE“ and „Ä“ are covered by the same group.
+_EQUIVALENT = {
+    "ä": "(?:ä|a\u0308|ae)",
+    "ö": "(?:ö|o\u0308|oe)",
+    "ü": "(?:ü|u\u0308|ue)",
+    "ß": "(?:ß|ss)",
+}
+_EQUIVALENT.update({"ae": _EQUIVALENT["ä"], "oe": _EQUIVALENT["ö"], "ue": _EQUIVALENT["ü"], "ss": _EQUIVALENT["ß"]})
+
+#: A phrase is read left to right as separator runs, transliteration digraphs
+#: and single characters; ``ae`` wins over ``a`` + ``e``.
+_TOKEN = re.compile(f"[\\s{_SEPARATOR_CHARS}]+|ae|oe|ue|ss|.", re.DOTALL)
+
+#: A phrase this short matches as a whole word only: „EG“ is inside „Weg“,
+#: „Steg“ and „Regel“, and a count of those is not an answer to „wo steht EG“.
+#: Four characters („BA03“, „T30-2“) are specific enough to match inside a word.
+#: The boundary goes only on an edge that is a word character, so „§ 5“ still
+#: matches after a space. ``\b`` is Unicode-aware in both dialects.
+WHOLE_WORD_MAX_CHARS = 3
+
+#: A bound on the pattern the store compiles. A phrase expands about fourfold
+#: (every umlaut and separator becomes a group), so this admits six
+#: alternatives of well over a hundred characters: a sentence, not a phrase.
+MAX_PATTERN_CHARS = 4000
+
+
+def _phrase_pattern(phrase: str) -> str:
+    """One phrase as a regex body: separators, umlaut spellings, whole word when short."""
+    text = unicodedata.normalize("NFC", phrase).lower()
+    body = "".join(
+        _SEPARATOR if token[0].isspace() or token[0] in _SEPARATOR_CHARS else _EQUIVALENT.get(token, re.escape(token))
+        for token in _TOKEN.findall(text)
+    )
+    if len(text) > WHOLE_WORD_MAX_CHARS:
+        return body
+    start = "\\b" if re.match(r"\w", text[0]) else ""
+    end = "\\b" if re.match(r"\w", text[-1]) else ""
+    return f"{start}{body}{end}"
+
+
+def phrase_pattern(phrases: Sequence[str]) -> str | None:
+    """The ONE case-insensitive regex that finds any of ``phrases``, or None when it is too long.
+
+    The store (Chroma's ``$regex``, Rust ``regex``) and the re-check here
+    (Python ``re``) run the same string, so it keeps to what both dialects read
+    alike: ``(?i)`` at the start, non-capturing groups, classes, ``\\s``,
+    ``\\b``, escaped literals; no lookaround, no backreference. Longest phrase
+    first, so at one position „Brandschutzplan“ is taken before „Brandschutz“
+    and a match is counted once however many alternatives it satisfies.
+    """
+    ordered = sorted(dict.fromkeys(phrases), key=len, reverse=True)
+    pattern = "(?i)" + "|".join(_phrase_pattern(phrase) for phrase in ordered)
+    return pattern if len(pattern) <= MAX_PATTERN_CHARS and ordered else None
+
+
+def _occurrences(body: str, pattern: re.Pattern[str]) -> int:
+    """Non-overlapping matches: one place in the text counts once, whichever alternative found it."""
+    return sum(1 for _ in pattern.finditer(body))
 
 
 @dataclass
@@ -442,11 +463,16 @@ class FileMatches:
         return sorted({chunk.page_number for chunk in self.chunks if getattr(chunk, "page_number", None)})
 
 
-def group_matches(chunks: Iterable[Any], phrases: Sequence[str]) -> list[FileMatches]:
-    """Chunks that really contain a phrase (case-insensitively), grouped per file, most occurrences first."""
+def group_matches(chunks: Iterable[Any], pattern: str) -> list[FileMatches]:
+    """Chunks the :func:`phrase_pattern` really matches, grouped per file, most occurrences first.
+
+    The same pattern the store filtered with, compiled here: what the store
+    returned and what is counted cannot disagree about what a match is.
+    """
+    compiled = re.compile(pattern)
     groups: dict[tuple[str, str], FileMatches] = {}
     for chunk in chunks:
-        count = _occurrences(getattr(chunk, "content", "") or "", phrases)
+        count = _occurrences(getattr(chunk, "content", "") or "", compiled)
         if not count:
             continue
         metadata = getattr(chunk, "metadata", None) or {}
@@ -494,6 +520,13 @@ def _failed_note(failed: Sequence[str]) -> str:
     )
 
 
+#: What the pattern tolerates, said where a count or a „Nein“ is stated.
+_TOLERATED = (
+    "Groß-/Kleinschreibung, Umlaut-Schreibweise (ä/ae, ö/oe, ü/ue, ß/ss) und Zeilenumbruch, Leerzeichen "
+    "oder Bindestrich zwischen den Wörtern berücksichtigt"
+)
+
+
 def match_table(
     groups: Sequence[FileMatches], phrases: Sequence[str], *, truncated: bool, failed: Sequence[str] = ()
 ) -> str:
@@ -502,8 +535,7 @@ def match_table(
     floor = "mindestens " if truncated else ""
     lines = [
         f"## Fundstellen für {wanted}",
-        f"{floor}{sum(group.occurrences for group in groups)} Vorkommen in {len(groups)} Datei(en), "
-        "Groß-/Kleinschreibung und Umlaut-Schreibweise ignoriert:",
+        f"{floor}{sum(group.occurrences for group in groups)} Vorkommen in {len(groups)} Datei(en), {_TOLERATED}:",
     ]
     for group in groups:
         shelf = f" ({_SHELF_LABELS[group.shelf]})" if group.shelf in _SHELF_LABELS else ""
@@ -525,10 +557,9 @@ def match_table(
 def no_match_message(phrases: Sequence[str], searched: int, failed: Sequence[str] = ()) -> str:
     """„Nicht gefunden“ over the ``searched`` collections that ANSWERED; never an Nein over one that failed."""
     wanted = " | ".join(f"„{phrase}“" for phrase in phrases)
-    head = (
-        f"Keine Fundstelle für {wanted} in {searched} Sammlung(en) — auch nicht in anderer Groß-/Kleinschreibung "
-        "oder Umlaut-Schreibweise."
-    )
+    short = " | ".join(f"„{phrase}“" for phrase in phrases if len(phrase) <= WHOLE_WORD_MAX_CHARS)
+    whole_word = f" {short} nur als ganzes Wort gesucht, nicht innerhalb längerer Wörter." if short else ""
+    head = f"Keine Fundstelle für {wanted} in {searched} Sammlung(en) — {_TOLERATED}.{whole_word}"
     if failed:
         return f"{head} {_failed_note(failed)} Für diese Sammlungen ist das KEIN Nein."
     return (
@@ -599,7 +630,18 @@ async def _turn_rows(search_config: Any) -> list[FileRow]:
     return file_rows(rows)
 
 
-def restrict_rows_to_turn(rows: Sequence[FileRow]) -> tuple[list[FileRow], tuple[str, ...]]:
+@dataclass(frozen=True)
+class TurnRows:
+    """The rows this turn may list, and what its restriction left."""
+
+    rows: list[FileRow]
+    #: What „my files“ means this turn: the user shelves that remain.
+    own_shelves: tuple[str, ...]
+    #: The shelves the turn allows when a restriction applied, else None.
+    allowed: frozenset[str] | None = None
+
+
+def restrict_rows_to_turn(rows: Sequence[FileRow]) -> TurnRows:
     """Drop the shelves this turn did not ask for; the user shelves that remain.
 
     The row-level twin of ``register._restrict_scope_to_turn``, with its rules:
@@ -613,13 +655,30 @@ def restrict_rows_to_turn(rows: Sequence[FileRow]) -> tuple[list[FileRow], tuple
     except Exception:  # noqa: BLE001 — no turn intent is a valid standalone run
         allowed = None
     if not allowed:
-        return list(rows), USER_SHELVES
+        return TurnRows(list(rows), USER_SHELVES)
     kept = [row for row in rows if row.shelf is None or row.shelf in allowed]
     if not kept:
-        return list(rows), USER_SHELVES
+        return TurnRows(list(rows), USER_SHELVES)
     # A law-only turn („nur Gesetz“) allows base alone: then base IS what it lists.
     own = tuple(shelf for shelf in USER_SHELVES if shelf in allowed)
-    return kept, own or tuple(shelf for shelf in KNOWN_SHELVES if shelf in allowed) or USER_SHELVES
+    own = own or tuple(shelf for shelf in KNOWN_SHELVES if shelf in allowed) or USER_SHELVES
+    return TurnRows(kept, own, frozenset(allowed))
+
+
+def shelf_restricted_message(shelf: str, allowed: Iterable[str]) -> str:
+    """An explicit ``shelf=`` the turn's restriction removed: say so, never „keine Datei“.
+
+    „Keine Datei auf Projektwissen“ would be a false statement about the
+    project; the shelf is only out of THIS question's reach.
+    """
+    allowed = set(allowed)
+    names = [_SHELF_LABELS[known] for known in KNOWN_SHELVES if known in allowed]
+    where = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} und {names[-1]}"
+    return (
+        f"Diese Frage ist durch die aktuelle Auswahl des Nutzers auf {where} beschränkt, deshalb wird "
+        f"{_SHELF_LABELS.get(shelf, shelf)} hier nicht gelistet. Das sagt nichts darüber, was dort liegt; "
+        "die Auswahl ändert nur der Nutzer."
+    )
 
 
 def _in_flight(collections: Sequence[str]) -> list[str]:
@@ -645,8 +704,9 @@ _LIST_FILES_DESCRIPTION = (
     "Protokoll zur Baubesprechung“, „wie heißt die Datei mit dem Schnitt genau“. Also first, when you "
     "need an exact file name for `read_passage`, `knowledge_search(file_name=…)` or a file operation "
     "and the inventory does not show it.\n"
-    "- no arguments: the top level of Projektwissen, Büroarchiv and Private Sitzung, with every "
-    "subfolder and its file count. `folder=` opens one folder (with everything below it).\n"
+    "- no arguments: every file on Projektwissen, Büroarchiv and Private Sitzung, paged and ordered "
+    "by folder, after an overview of the top-level folders with their file counts. `folder=` narrows "
+    "that to one folder and everything below it.\n"
     "- `name_contains=` words that must all appear in the file name or title („brandschutz eg“); "
     "case and umlaut spelling do not matter.\n"
     "- `doc_class=` one Dokumentart key; `added_since=` YYYY-MM-DD; `sort=newest` for recent uploads.\n"
@@ -708,7 +768,7 @@ async def list_files(config: ListFilesConfig, _builder: Builder):
 
         Args:
             folder (str | None): Folder path as a previous listing or the inventory printed it
-                ("Brandschutz/Fluchtwege"); includes everything below it. Omit for the top level.
+                ("Brandschutz/Fluchtwege"); includes everything below it. Omit to list every file.
             name_contains (str | None): Words that must all appear in the file name or title.
             doc_class (str | None): One Dokumentart key (e.g. "plan", "gutachten").
             added_since (str | None): Only files uploaded on or after this date, YYYY-MM-DD.
@@ -737,10 +797,13 @@ async def list_files(config: ListFilesConfig, _builder: Builder):
             if not is_valid_doc_class(doc_class):
                 return f"Invalid doc_class {doc_class!r}. Valid values: {', '.join(DOCUMENT_CLASSES)}."
 
-        rows, own_shelves = restrict_rows_to_turn(await _turn_rows(search_config))
+        turn = restrict_rows_to_turn(await _turn_rows(search_config))
+        if shelf and turn.allowed is not None and shelf not in turn.allowed:
+            return shelf_restricted_message(shelf, turn.allowed)
+        rows = turn.rows
         listing = select_files(
             rows,
-            default_shelves=own_shelves,
+            default_shelves=turn.own_shelves,
             shelf=shelf,
             folder=(folder or "").strip().strip("/") or None,
             name_contains=(name_contains or "").strip() or None,
@@ -821,6 +884,12 @@ async def exact_search(
     phrases = split_alternatives(text)
     if not phrases:
         return f"Provide a `query` of at least {MIN_PHRASE_CHARS} characters: the literal word or phrase to find."
+    pattern = phrase_pattern(phrases)
+    if pattern is None:
+        return (
+            "`query` is too long for the exact search: it finds a word or a short phrase, not a sentence. "
+            "Shorten it to the words that must appear literally."
+        )
     narrowed = await _files_by_collection(
         search_config, file_name=file_name, folder=folder, doc_class=doc_class, title_contains=title_contains
     )
@@ -846,7 +915,7 @@ async def exact_search(
         )
         for entry in entries
     }
-    return await _search(retriever, entries, phrases, filters_by_collection)
+    return await _search(retriever, entries, phrases, pattern, filters_by_collection)
 
 
 def _collection_filter(
@@ -879,16 +948,15 @@ async def _search(
     retriever: Any,
     entries: Sequence[Any],
     phrases: Sequence[str],
+    pattern: str,
     filters_by_collection: dict[str, dict[str, Any] | None],
 ) -> str:
     from .read_passage import _passage_result
     from .register import _format_results
 
-    tried = list(dict.fromkeys(spelling for phrase in phrases for spelling in spellings(phrase)))
-
     async def _one(entry: Any) -> tuple[list[Any] | None, bool]:
         chunks = await retriever.find_text(
-            entry.collection, tried, filters=filters_by_collection.get(entry.collection), limit=MAX_MATCH_CHUNKS
+            entry.collection, pattern, filters=filters_by_collection.get(entry.collection), limit=MAX_MATCH_CHUNKS
         )
         if chunks is None:
             return None, False
@@ -921,7 +989,7 @@ async def _search(
             return search_failed_message(phrases, failed)
         return "Die Volltextsuche ist in dieser Umgebung nicht verfügbar. Nutze `knowledge_search`."
 
-    groups = group_matches(chunks, phrases)
+    groups = group_matches(chunks, pattern)
     if not groups:
         return no_match_message(phrases, answered, failed)
     passages = pick_passages(groups)

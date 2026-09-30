@@ -5,8 +5,9 @@ first fifty names of a project and could only find what ranked in a top-k
 similarity search. These tests pin what makes them the Files pane and Ctrl+F:
 
 * the listing is complete (no cap), filtered and paged, with the subfolders;
-* the phrase search returns EVERY matching file with its count, matching case
-  and umlaut spellings, and its passages are citable grounding hits;
+* the phrase search returns EVERY matching file with its count, matching case,
+  umlaut spellings and line breaks or hyphens between words, and its passages
+  are citable grounding hits;
 * neither reads beyond the turn's scope, and neither guesses.
 """
 
@@ -26,10 +27,11 @@ from sources.knowledge_layer.src.browse import ListFilesConfig
 from sources.knowledge_layer.src.browse import file_rows
 from sources.knowledge_layer.src.browse import group_matches
 from sources.knowledge_layer.src.browse import list_files
+from sources.knowledge_layer.src.browse import no_match_message
+from sources.knowledge_layer.src.browse import phrase_pattern
 from sources.knowledge_layer.src.browse import pick_passages
 from sources.knowledge_layer.src.browse import render_listing
 from sources.knowledge_layer.src.browse import select_files
-from sources.knowledge_layer.src.browse import spellings
 from sources.knowledge_layer.src.browse import split_alternatives
 from sources.knowledge_layer.src.register import KnowledgeRetrievalConfig
 from sources.knowledge_layer.src.register import knowledge_retrieval
@@ -189,11 +191,14 @@ def _chunk(file_name: str, content: str, *, page: int, chunk_id: str, collection
 
 class TestPhraseMatching:
     def test_alternatives_split_on_the_bar_and_drop_noise(self):
-        assert split_alternatives(" BA-03 | BA 03 |x| BA-03 ") == ["BA-03", "BA 03"]
+        assert split_alternatives(" BA-03 | BA 03 |x| BA-03 | -- ") == ["BA-03", "BA 03"]
 
-    def test_spellings_cover_case_and_umlaut_transliteration(self):
-        tried = spellings("Müller")
-        assert {"Müller", "müller", "MÜLLER", "Mueller", "MUELLER"} <= set(tried)
+    def test_one_pattern_covers_case_and_umlaut_transliteration(self):
+        import re
+
+        pattern = re.compile(phrase_pattern(["Müller"]))
+        assert all(pattern.search(text) for text in ("Müller", "müller", "MÜLLER", "Mueller", "MUELLER"))
+        assert not pattern.search("Muller")
 
     def test_candidates_are_rechecked_and_counted_per_file(self):
         chunks = [
@@ -202,7 +207,7 @@ class TestPhraseMatching:
             _chunk("b.pdf", "Müllerstraße 3, Firma Müller", page=1, chunk_id="3"),
             _chunk("c.pdf", "nichts davon", page=1, chunk_id="4"),
         ]
-        groups = group_matches(chunks, ["Müller"])
+        groups = group_matches(chunks, phrase_pattern(["Müller"]))
         assert [(group.file_name, group.occurrences) for group in groups] == [("b.pdf", 3), ("a.pdf", 2)]
         assert groups[0].pages == [1, 5]
 
@@ -213,7 +218,7 @@ class TestPhraseMatching:
                 _chunk("a.pdf", "X", page=2, chunk_id="2"),
                 _chunk("b.pdf", "X", page=1, chunk_id="3"),
             ],
-            ["X"],
+            phrase_pattern(["X"]),
         )
         assert [chunk.chunk_id for chunk in pick_passages(groups, limit=2)] == ["1", "3"]
 
@@ -225,8 +230,8 @@ class _TextStore:
         self.chunks = chunks
         self.calls: list[dict] = []
 
-    async def find_text(self, collection_name, spellings, filters=None, limit=500):
-        self.calls.append({"collection": collection_name, "spellings": spellings, "filters": filters})
+    async def find_text(self, collection_name, pattern, filters=None, limit=500):
+        self.calls.append({"collection": collection_name, "pattern": pattern, "filters": filters})
         return [chunk for chunk in self.chunks if chunk.metadata["collection"] == collection_name]
 
     async def retrieve(self, *args, **kwargs):  # pragma: no cover - the exact mode never ranks
@@ -318,7 +323,7 @@ def test_the_exact_mode_is_never_withheld_as_a_repeat_of_the_ranked_one():
 
 
 def test_the_store_query_finds_every_spelling_and_honours_a_file_filter():
-    """Against a real Chroma: the `$contains`/`$or` shape and the file filter are what the store accepts."""
+    """Against a real Chroma: the `$regex` pattern and the file filter are what the store accepts."""
     chromadb = pytest.importorskip("chromadb")
     from knowledge_layer.llamaindex.adapter import LlamaIndexRetriever
 
@@ -339,11 +344,13 @@ def test_the_store_query_finds_every_spelling_and_honours_a_file_filter():
     retriever._chroma_client = client
     retriever._ensure_initialized = lambda: None
 
-    found = retriever._find_text_sync(collection.name, spellings("Müller"), None, 50)
+    found = retriever._find_text_sync(collection.name, phrase_pattern(["Müller"]), None, 50)
     assert sorted((chunk.file_name, chunk.page_number) for chunk in found) == [("a.pdf", 1), ("b.pdf", 2)]
-    narrowed = retriever._find_text_sync(collection.name, spellings("BA-03"), {"file_name": {"$in": ["c.pdf"]}}, 50)
+    narrowed = retriever._find_text_sync(
+        collection.name, phrase_pattern(["BA-03"]), {"file_name": {"$in": ["c.pdf"]}}, 50
+    )
     assert [chunk.file_name for chunk in narrowed] == ["c.pdf"]
-    assert retriever._find_text_sync("no_such_collection", ["x"], None, 5) == []
+    assert retriever._find_text_sync("no_such_collection", "x", None, 5) == []
 
 
 # ---------------------------------------------------------------------------
@@ -450,16 +457,16 @@ class _FailingStore(_TextStore):
         super().__init__(chunks)
         self.failing = failing
 
-    async def find_text(self, collection_name, spellings, filters=None, limit=500):
+    async def find_text(self, collection_name, pattern, filters=None, limit=500):
         if collection_name in self.failing:
             raise ConnectionError("chroma down")
-        return await super().find_text(collection_name, spellings, filters, limit)
+        return await super().find_text(collection_name, pattern, filters, limit)
 
 
 class TestAStoreOutageIsNeverANo:
     def test_the_adapter_raises_on_an_outage_and_answers_empty_for_a_missing_collection(self):
         _client, retriever = _chroma_retriever()
-        assert retriever._find_text_sync("no_such_collection_xyz", ["x"], None, 5) == []
+        assert retriever._find_text_sync("no_such_collection_xyz", "x", None, 5) == []
 
         class _Down:
             def get_collection(self, name):
@@ -467,7 +474,7 @@ class TestAStoreOutageIsNeverANo:
 
         retriever._chroma_client = _Down()
         with pytest.raises(ConnectionError):
-            retriever._find_text_sync("proj_1", ["x"], None, 5)
+            retriever._find_text_sync("proj_1", "x", None, 5)
 
     async def test_every_collection_failing_says_the_search_did_not_run(self, search_with):
         search_with(_FailingStore([], {"proj_1", "archiv_1", "oib_knowledge"}))
@@ -527,11 +534,12 @@ class TestListFilesHonoursTheTurn:
         assert "Grundriss_EG.pdf" in await self._call()
 
 
-def test_spellings_reverse_the_transliteration_and_title_case_phrases():
-    assert {"Müller", "MÜLLER"} <= set(spellings("MUELLER"))
-    assert "Straße" in spellings("Strasse")
-    assert "Müller Straße" in spellings("müller strasse")
-    assert all(len(spellings(phrase)) <= 16 for phrase in ("Müllerstraße Süd Ost", "aeoeue ss AE OE UE"))
+def test_the_pattern_reverses_the_transliteration_and_bounds_its_length():
+    import re
+
+    assert re.search(phrase_pattern(["MUELLER"]), "Firma Müller") and re.search(phrase_pattern(["Strasse"]), "Straße")
+    assert re.search(phrase_pattern(["müller strasse"]), "MÜLLER STRASSE")
+    assert phrase_pattern(["ä" * 2000]) is None
 
 
 def test_the_store_finds_the_umlaut_form_of_a_transliterated_phrase():
@@ -542,8 +550,117 @@ def test_the_store_finds_the_umlaut_form_of_a_transliterated_phrase():
     _seed(client, name, [("a.pdf", "Firma Müller, Müllerstraße 3", 1, {}), ("b.pdf", "Müller Straße", 2, {})])
 
     def files(phrase: str) -> set[str]:
-        return {chunk.file_name for chunk in retriever._find_text_sync(name, spellings(phrase), None, 5)}
+        return {chunk.file_name for chunk in retriever._find_text_sync(name, phrase_pattern([phrase]), None, 5)}
 
     assert files("MUELLER") == {"a.pdf", "b.pdf"}
     assert files("Strasse") == {"a.pdf", "b.pdf"}
     assert files("müller strasse") == {"b.pdf"}
+
+
+# ---------------------------------------------------------------------------
+# Review regressions: false „belastbares Nein“ from the byte-exact `$contains`.
+# ---------------------------------------------------------------------------
+
+#: One chunk per spelling a real PDF text layer carries.
+_ORIGINALS = [
+    ("oib.pdf", "Laut OIB-Richtlinie 2 gilt"),
+    ("firma.pdf", "Firma Huber GmbH liefert"),
+    ("umbruch.pdf", "im Brandabschnitt\n3 liegt"),
+    ("nbsp.pdf", "Decke EI\u00a090 gefordert"),
+    ("doppelt.pdf", "Wand EI  90 und T30"),
+    ("mueller.pdf", "Firma Müller, Straße 3"),
+    ("wege.pdf", "Weg und Steg nach der Regel"),
+    ("geschoss.pdf", "Technikraum im EG, Schacht"),
+    ("plan.pdf", "Der Brandschutzplan liegt vor"),
+]
+
+
+@pytest.fixture(scope="module")
+def originals_store():
+    import uuid
+
+    client, retriever = _chroma_retriever()
+    name = f"orig_{uuid.uuid4().hex[:8]}"
+    _seed(client, name, [(file_name, text, 1, {}) for file_name, text in _ORIGINALS])
+    return name, retriever
+
+
+class TestTheStoreFindsWhatAPersonWouldFind:
+    """Against a real Chroma: the store's `$regex` and the Python re-check agree on each case."""
+
+    @pytest.fixture
+    def store(self, originals_store):
+        return originals_store
+
+    def _files(self, store, query: str) -> set[str]:
+        name, retriever = store
+        pattern = phrase_pattern(split_alternatives(query))
+        found = retriever._find_text_sync(name, pattern, None, 50)
+        # What the store returned is what the Python side counts: no chunk is fetched and then dropped.
+        assert all(group.occurrences for group in group_matches(found, pattern))
+        return {chunk.file_name for chunk in found}
+
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        [
+            ("oib-richtlinie", {"oib.pdf"}),
+            ("OIB Richtlinie", {"oib.pdf"}),
+            ("gmbh", {"firma.pdf"}),
+            ("Brandabschnitt 3", {"umbruch.pdf"}),
+            ("EI 90", {"nbsp.pdf", "doppelt.pdf"}),
+            ("MUELLER", {"mueller.pdf"}),
+            ("Strasse", {"mueller.pdf"}),
+            ("EG", {"geschoss.pdf"}),
+        ],
+    )
+    def test_a_differently_written_original_is_found(self, store, query, expected):
+        assert self._files(store, query) == expected
+
+    def test_a_short_term_is_a_whole_word_not_part_of_weg_or_steg(self, store):
+        assert "wege.pdf" not in self._files(store, "EG")
+        assert self._files(store, "Weg") == {"wege.pdf"}
+
+    def test_overlapping_alternatives_count_one_occurrence_once(self, store):
+        name, retriever = store
+        pattern = phrase_pattern(split_alternatives("Brandschutz | Brandschutzplan"))
+        groups = group_matches(retriever._find_text_sync(name, pattern, None, 50), pattern)
+        assert [(group.file_name, group.occurrences) for group in groups] == [("plan.pdf", 1)]
+
+
+def test_overlapping_alternatives_are_counted_once_in_python_too():
+    chunk = _chunk("a.pdf", "Brandschutzplan und Brandschutz", page=1, chunk_id="1")
+    for query in ("Brandschutz | Brandschutzplan", "Brandschutzplan | Brandschutz"):
+        [group] = group_matches([chunk], phrase_pattern(split_alternatives(query)))
+        assert group.occurrences == 2
+
+
+def test_the_no_says_what_it_tolerated_and_that_a_short_term_is_a_whole_word():
+    text = no_match_message(["EG", "Brandschutzplan"], 3)
+    assert "Zeilenumbruch" in text and "ß/ss" in text
+    assert "„EG“ nur als ganzes Wort" in text
+    assert "Brandschutzplan“ nur als ganzes Wort" not in text
+
+
+async def test_a_query_too_long_for_one_pattern_is_refused(search_with):
+    store = search_with(_TextStore([]))
+    query = " | ".join(f"Müllerstraße Brandabschnitt Süd {index} " * 8 for index in range(6))
+    assert "too long" in await _exact(query=query)
+    assert store.calls == []
+
+
+class TestAShelfTheTurnRemoved:
+    async def _call(self, **kwargs) -> str:
+        async with list_files(ListFilesConfig(), _builder()) as info:
+            return await info.single_fn(info.input_schema(**kwargs))
+
+    async def test_an_explicit_shelf_outside_the_selection_says_so_instead_of_no_files(self, scope, turn_shelves):
+        turn_shelves({"archiv", "session", "base"})
+        text = await self._call(shelf="project")
+        assert "Keine Datei" not in text
+        assert "auf Büroarchiv, Private Sitzung und Basiswissen beschränkt" in text
+        assert "Projektwissen hier nicht gelistet" in text
+        assert "Grundriss_EG.pdf" not in text
+
+    async def test_an_explicit_shelf_inside_the_selection_still_lists(self, scope, turn_shelves):
+        turn_shelves({"archiv", "session", "base"})
+        assert "Leitfaden_Buero.pdf" in await self._call(shelf="archiv")

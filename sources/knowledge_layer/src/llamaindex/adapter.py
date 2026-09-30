@@ -5124,25 +5124,27 @@ class LlamaIndexRetriever(BaseRetriever):
     async def find_text(
         self,
         collection_name: str,
-        spellings: list[str],
+        pattern: str,
         filters: dict[str, Any] | None = None,
         limit: int = 500,
     ) -> list[Chunk] | None:
-        """Every chunk containing one of ``spellings``, via Chroma's own ``$contains``.
+        """Every chunk matching the regex ``pattern``, via Chroma's own ``$regex``.
 
         The vector store is the source of truth for chunk text, so this reads it
         there rather than from the lexical mirror, which a deployment may not
         have backfilled. No embedding, no ranking: a filter over the collection.
+        Chroma evaluates ``$regex`` with Rust's ``regex`` crate (Unicode ``\\s``,
+        ``\\b`` and ``(?i)``); ``$contains`` was byte-exact, so a mixed-case
+        original or a line break inside a phrase was a false „Keine Fundstelle“.
         A collection that does not exist is an empty answer, not a failure; any
         other store error raises, so the caller can say the search did not run.
         """
-        return await asyncio.to_thread(self._find_text_sync, collection_name, spellings, filters, limit)
+        return await asyncio.to_thread(self._find_text_sync, collection_name, pattern, filters, limit)
 
     def _find_text_sync(
-        self, collection_name: str, spellings: list[str], filters: dict[str, Any] | None, limit: int
+        self, collection_name: str, pattern: str, filters: dict[str, Any] | None, limit: int
     ) -> list[Chunk]:
-        wanted = [spelling for spelling in dict.fromkeys(spellings) if spelling]
-        if not wanted or limit <= 0:
+        if not pattern or limit <= 0:
             return []
         self._ensure_initialized()
         try:
@@ -5154,17 +5156,14 @@ class LlamaIndexRetriever(BaseRetriever):
             if _is_missing_collection(exc):
                 return []
             raise
-        # Chroma rejects a one-element `$or`, the same shape `_to_chroma_where` guards.
-        contains = [{"$contains": spelling} for spelling in wanted]
-        where_document = contains[0] if len(contains) == 1 else {"$or": contains}
         fetched = collection.get(
             where=_to_chroma_where(filters),
-            where_document=where_document,
+            where_document={"$regex": pattern},
             limit=limit,
             include=["documents", "metadatas"],
         )
         ids = fetched.get("ids") or []
-        # Distance 0: every returned chunk contains the text, so none ranks
+        # Distance 0: every returned chunk matches the pattern, so none ranks
         # above another. The caller orders them by document and page.
         return self._chunks_from_raw_query(
             {

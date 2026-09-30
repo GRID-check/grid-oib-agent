@@ -87,8 +87,10 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "file with its count and pages — for a company or person, a room or door "
     "number, a Brandabschnitt, a Bauteil code, a Geschäftszahl, a wording, and "
     "to prove something is NOT written anywhere. Several spellings of one thing "
-    "go into one query separated by '|' ('BA-03 | BA 03'); case and ä/ae, ß/ss "
-    "are matched for you. The reader's own files come first.\n"
+    "go into one query separated by '|' ('BA-03 | BA 03'); case, ä/ae and ß/ss, "
+    "and a line break, space or hyphen between words are matched for you "
+    "('OIB Richtlinie' finds 'OIB-Richtlinie'). A term of two or three "
+    "characters ('EG') matches as a whole word only. The reader's own files come first.\n"
     "WHEN NOT TO CALL — to put a file on screen (the user asked to SEE or "
     "BROWSE files, no legal question): that is `surface_documents`. After "
     "you cite a project or Büroarchiv file, do not also call "
@@ -1915,9 +1917,11 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 project collections are never filtered.
             match (str): "meaning" (default) ranks passages by what they say.
                 "exact" returns EVERY passage whose text contains the query
-                literally (case and ä/ae, ß/ss spellings matched; several
-                spellings separated by "|"), with a per-file count of all
-                matches — for a name, a number, a code or a wording.
+                literally (case, ä/ae, ß/ss spellings and line breaks or
+                hyphens between words matched; a term of up to three
+                characters as a whole word; several spellings separated by
+                "|"), with a per-file count of all matches — for a name, a
+                number, a code or a wording.
 
         Returns:
             str: Numbered excerpts with a Citation key to copy verbatim.
