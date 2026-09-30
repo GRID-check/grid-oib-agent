@@ -1022,8 +1022,8 @@ class TaskCreatedCard(CardModel):
 #: before answering, and „alles verschieben" is not a proposal, it is a job.
 MAX_FILE_OPERATIONS = 8
 
-#: The four verbs. Each names the tool that emits it (`move_document`,
-#: `rename_document`, `create_folder`, `assign_document`).
+#: The four operations, each an `operation` value of the one tool that emits
+#: them, `propose_file_change` (four tools, one per kind, until they merged).
 #:
 #: A fifth, `set_doc_class`, was here and is gone. A project document has no
 #: doc_class route for an Accept to run, so the card drew the proposal and no
