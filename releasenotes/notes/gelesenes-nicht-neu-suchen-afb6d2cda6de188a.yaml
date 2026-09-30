@@ -1,0 +1,8 @@
+---
+features:
+  - >
+    When the passages Piloti already read in a conversation answer your next
+    question, it answers from them instead of searching again, so the reply is
+    faster. That holds for the same question in other words and for a new
+    question those passages settle, such as another building class from a
+    table it already cited.

@@ -93,7 +93,7 @@ def trim_message_history(
 
 
 def prune_tool_results(messages: list[BaseMessage], *, keep_turns: int = 1) -> list[BaseMessage]:
-    """The history with tool results kept for the last ``keep_turns`` turns only.
+    """The history with tool results kept for the last ``keep_turns`` turns that fetched.
 
     A turn writes its whole transcript back to the conversation — the tool
     calls, their results, the answer — so the NEXT turn has the passages the
@@ -102,13 +102,19 @@ def prune_tool_results(messages: list[BaseMessage], *, keep_turns: int = 1) -> l
     ``ToolMessage``s go, and so does an ``AIMessage`` that was nothing but
     tool calls (a provider rejects a call with no result, so the two leave
     together); an assistant message with prose keeps its prose and drops its
-    calls. A turn starts at a ``HumanMessage``; the current question is a
-    turn of its own and counts.
+    calls. A turn starts at a ``HumanMessage``.
+
+    Counted in turns that FETCHED, not in turns: a turn answered from the
+    transcript („danke", a repeat, a follow-up) holds no tool result of its
+    own, and counting it pushed the passages it was answered from out of the
+    next turn, which then fetched them again.
     """
     boundaries = [i for i, m in enumerate(messages) if isinstance(m, HumanMessage)]
-    if len(boundaries) <= keep_turns + 1:
+    spans = zip(boundaries[:-1], boundaries[1:])
+    fetched = [start for start, end in spans if any(isinstance(m, ToolMessage) for m in messages[start:end])]
+    if len(fetched) <= keep_turns:
         return list(messages)
-    cutoff = boundaries[-(keep_turns + 1)]
+    cutoff = fetched[-keep_turns]
     pruned: list[BaseMessage] = []
     for index, message in enumerate(messages):
         if index >= cutoff or not isinstance(message, (AIMessage, ToolMessage)):

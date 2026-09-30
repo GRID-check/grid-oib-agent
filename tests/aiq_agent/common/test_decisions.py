@@ -210,6 +210,15 @@ class TestFailOpen:
         assert (endpoint, skipped) == (None, "zdr")
         zdr.assert_called_once_with("org-upload")
 
+    async def test_a_zdr_lookup_that_breaks_skips_the_decision(self):
+        """An unknown policy must not send the state to an endpoint that may retain it."""
+        with (
+            patch("aiq_agent.common.model_overrides.resolve_org_zdr_only", side_effect=RuntimeError("boom")),
+            patch.object(decisions, "_zdr_only_blocking", _ZDR_ONLY),
+        ):
+            endpoint, skipped = await decisions._endpoint("org-1")
+        assert (endpoint, skipped) == (None, "zdr")
+
     def test_decide_blocking_runs_from_sync_code_and_inside_a_loop(self, records):
         with patch.object(httpx, "AsyncHTTPTransport", side_effect=lambda: _transport(_ok)):
             assert decisions.decide_blocking("s", QUESTIONS, slot="t").noul("needs_evidence") == 0.93

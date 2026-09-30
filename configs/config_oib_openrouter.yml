@@ -885,6 +885,11 @@ functions:
     # says (ADR-0052). `scripts/decision_eval.py` is the adoption gate;
     # GRID_DECISIONS_ENABLED=false switches every decision off at once.
     turn_decisions: true
+    # Beside it (ADR-0064 use 10): do the passages this conversation already
+    # read, still in the transcript, hold what the new message asks? A
+    # confident yes skips round 0 and names those passages in the prompt; the
+    # model can still search. `task be:eval:decisions:held` measures it.
+    held_evidence: true
     skill_allowlist: []
     # Retrieval-based tool narrowing. OFF, deliberately — the block below is the
     # tested configuration, not a suggestion, and it is commented out because on

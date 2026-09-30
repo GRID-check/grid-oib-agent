@@ -164,7 +164,9 @@ class TestTheEffects:
         assert runtime.inlined == ()
 
 
-async def _run_turn(config: ResearchAgentConfig, decisions: TurnDecisions, messages=None, on_decide=None):
+async def _run_turn(
+    config: ResearchAgentConfig, decisions: TurnDecisions, messages=None, on_decide=None, focus_file_name=None
+):
     builder = _FakeBuilder({"knowledge_search": knowledge_search})
     agent = MagicMock()
     agent.run = AsyncMock(side_effect=lambda state, turn=None: state)
@@ -183,7 +185,9 @@ async def _run_turn(config: ResearchAgentConfig, decisions: TurnDecisions, messa
         ResolverCls.return_value.resolve.return_value = ()
         gen = research_agent.__wrapped__(config, builder)
         info = await gen.__anext__()
-        state = ResearchAgentState(messages=messages or [HumanMessage(content="Was weißt du über die OIB 2?")])
+        state = ResearchAgentState(
+            messages=messages or [HumanMessage(content="Was weißt du über die OIB 2?")], focus_file_name=focus_file_name
+        )
         await info.single_fn(state)
         await gen.aclose()
     return agent.run.await_args.kwargs["turn"], state, decide

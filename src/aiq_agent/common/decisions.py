@@ -327,13 +327,21 @@ def _zdr_only_blocking(organization_id: str | None = None) -> bool:
     By the id the caller named, not the request context: ingestion runs in a
     detached thread with no request, so a context read would say "no org"
     and send a ZDR org's document text to the endpoint.
+
+    Fails CLOSED, as the chat path's ``request_llm_context._read_zdr_only``
+    does: a BFF that is down already answers False inside
+    ``resolve_org_zdr_only``, so an exception here is the lookup itself
+    breaking, and the state (a message, a passage's text) must not leave for
+    an endpoint that may retain it. Skipping costs nothing ADR-0064 allows a
+    decision to cost: the turn runs as it would without one.
     """
     try:
         from aiq_agent.common.model_overrides import resolve_org_zdr_only
 
         return bool(resolve_org_zdr_only(organization_id))
-    except Exception:  # noqa: BLE001 — an unknown policy is not a ZDR policy
-        return False
+    except Exception:  # noqa: BLE001 — an unknown policy blocks the decision
+        logger.error("ZDR lookup failed; skipping the decision", exc_info=True)
+        return True
 
 
 async def _endpoint(organization_id: str | None) -> tuple[_Endpoint | None, str | None]:

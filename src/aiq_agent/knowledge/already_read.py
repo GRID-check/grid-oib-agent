@@ -23,9 +23,10 @@ Deliberate non-goals, each a sentence so the next reader does not re-litigate:
   detected up front — ``read_passage`` answers it with no-passage/unknown and
   the turn falls back to ``knowledge_search`` (miss-then-search).
 - Index, not evidence: a line proves the document was OPENED, not that its
-  wording is in front of the model now. Quoting or citing re-opens the passage
-  with ``read_passage`` under the exact digest name; the digest line itself is
-  never cited.
+  wording is in front of the model now. A passage the transcript still holds
+  (the last researching turn's cited ones) is cited from there; anything else
+  is re-opened with ``read_passage`` under the exact digest name before it is
+  quoted or cited. The digest line itself is never cited.
 """
 
 from __future__ import annotations
@@ -232,9 +233,10 @@ def render_already_read_block(digest: Sequence[str] | None) -> str:
             DIGEST_HEADING,
             "Dokumente, die in DIESER Unterhaltung bereits geöffnet wurden — ein Index, KEIN Beleg: "
             "Eine Zeile beweist, dass das Dokument geöffnet wurde, nicht dass sein Wortlaut jetzt vorliegt "
-            "(die Passagen des VORIGEN Zuges stehen noch im Verlauf; ältere nicht). "
-            "Zitieren oder wörtlich anführen erst nach erneutem Öffnen mit `read_passage` und dem exakten "
-            "Namen aus der Zeile; die Digest-Zeile selbst wird nie zitiert.",
+            "(die Passagen des letzten Zuges, der abgerufen hat, stehen noch im Verlauf; ältere nicht). "
+            "Eine Passage, die noch im Verlauf steht, wird von dort zitiert, ohne sie erneut zu öffnen; "
+            "jede andere erst nach erneutem Öffnen mit `read_passage` und dem exakten Namen aus der Zeile. "
+            "Die Digest-Zeile selbst wird nie zitiert.",
             f"Begrenzt auf höchstens {MAX_DIGEST_DOCS} Dokumente / ca. {MAX_DIGEST_TOKENS} Tokens — "
             "ältere Einträge fallen heraus; was hier fehlt, ist damit nicht widerlegt, sondern per "
             "`knowledge_search` zu suchen. Einträge können veraltet sein (neuere Fassung abgelegt): "

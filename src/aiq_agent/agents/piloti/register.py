@@ -69,6 +69,10 @@ from .decisions import attached_card_types
 from .decisions import decide_turn
 from .decisions import prefetch_calls
 from .decisions import prefetch_query
+from .held_evidence import HeldCoverage
+from .held_evidence import decide_held
+from .held_evidence import held_passages
+from .held_evidence import render_held_block
 from .models import ResearchAgentState
 from .tool_search import ToolSearchSettings
 from .tool_search import tool_basename
@@ -173,6 +177,16 @@ class ResearchAgentConfig(FunctionBaseConfig, name="research_agent"):
             "turn's prompt. Every tool stays bound whatever it says; "
             "a decision that cannot run leaves the turn exactly as before. GRID_DECISIONS_ENABLED=false "
             "is the global switch."
+        ),
+    )
+    held_evidence: bool = Field(
+        default=True,
+        description=(
+            "Ask the decision model (Jev, ADR-0064 use 10) at turn start whether the passages this "
+            "conversation already read, still in the transcript, hold what the new message asks. A "
+            "confident yes skips round 0 and names those passages in the prompt; every tool stays bound, "
+            "so the model can still search. Needs turn_decisions; GRID_DECISIONS_ENABLED=false is the "
+            "global switch."
         ),
     )
     skills_inline_budget_chars: int = Field(
@@ -367,6 +381,30 @@ async def _decide_turn(facts: TurnFacts | None) -> TurnDecisions:
         return TurnDecisions.none()
 
 
+async def _decide_held(facts: TurnFacts | None, state: ResearchAgentState) -> HeldCoverage | None:
+    """Whether the passages the transcript holds answer this message; ``None`` changes nothing.
+
+    ``facts`` is ``None`` when the config switched it off. A first message
+    holds no passages, so it is never asked; nor is a turn whose history
+    kept none.
+    """
+    if facts is None:
+        return None
+    try:
+        passages = held_passages(state.messages)
+        if not passages:
+            return None
+        return await decide_held(
+            facts.question,
+            passages,
+            open_document=facts.focus_file_name,
+            organization_id=get_organization_id_from_context(),
+        )
+    except Exception:  # noqa: BLE001 — a decision is worth less than the turn
+        logger.warning("Held-evidence decision failed; running the turn as before", exc_info=True)
+        return None
+
+
 #: The warm-ups still running (see _warm_question).
 _WARMING: set[asyncio.Task[None]] = set()
 
@@ -517,18 +555,25 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     # turn has no conversation to namespace by (CLI, eval, worker).
     # The turn-start decision (ADR-0064) runs beside it: a bounded call that
     # only adds to the turn — round-0 fetches, card shapes, the IFC skill.
+    # So does the held-evidence decision (use 10): whether the passages the
+    # transcript still holds answer this message, which the turn decision,
+    # reading the message alone, cannot tell.
     # The provider reads (four cache-first BFF lookups) run beside them too:
-    # nothing here depends on another, so the turn pays the slowest of the
-    # three, not their sum.
+    # nothing here depends on another, so the turn pays the slowest of them,
+    # not their sum.
     # The question's embedding is warmed beside them (see _warm_question), so
     # the round-0 search it prefetches does not pay that round trip after.
-    # The facts only feed the decision, so a config without it builds none.
+    # The facts only feed the decisions, so a config without them builds none.
     facts = _turn_facts(state, runtime) if config.turn_decisions else None
     _warm_question(facts)
-    draft_tools, decisions, llm_provider = await asyncio.gather(
-        draft_tools_for_turn(), _decide_turn(facts), _active_provider(deployment.provider)
+    draft_tools, decisions, held, llm_provider = await asyncio.gather(
+        draft_tools_for_turn(),
+        _decide_turn(facts),
+        _decide_held(facts if config.held_evidence else None, state),
+        _active_provider(deployment.provider),
     )
     _apply_decisions(decisions, state, runtime)
+    state.held_evidence_block = render_held_block(held)
     # After the decision: the skill it inlined is part of what this turn inlined.
     if runtime is not None:
         emit_skills_offered(runtime)
@@ -539,7 +584,7 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
         llm_provider=llm_provider,
         tools=turn_tools,
         disabled_sources=disabled_sources,
-        prefetch=_turn_prefetch(decisions, facts, state),
+        prefetch=_turn_prefetch(decisions, facts, state, held),
     )
     if runtime is not None:
         state.skills_block = _skills_block(runtime)
@@ -551,9 +596,19 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     return result
 
 
-def _turn_prefetch(decisions: TurnDecisions, facts: TurnFacts | None, state: ResearchAgentState) -> tuple:
-    """Round 0's tool calls; none when the config switched the decision off."""
+def _turn_prefetch(
+    decisions: TurnDecisions, facts: TurnFacts | None, state: ResearchAgentState, held: HeldCoverage | None = None
+) -> tuple:
+    """Round 0's tool calls; none when the config switched the decision off.
+
+    None either when the passages the transcript holds were judged to answer
+    the message: round 0 would search for what the model already has, and the
+    prompt's held-evidence block points it there instead.
+    """
     if facts is None:
+        return ()
+    if held is not None and held.covered:
+        logger.info("Round 0 not prefetched: the held passages answer the message (p=%.2f)", held.p)
         return ()
     return tuple(
         prefetch_calls(
