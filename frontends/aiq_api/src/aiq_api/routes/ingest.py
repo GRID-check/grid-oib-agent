@@ -107,7 +107,7 @@ async def _submit(ingestor: BaseIngestor, request: IngestRequest, config: dict) 
     """
     original = DeferredObjectDownload(request.file_ref)
     try:
-        job_id = await asyncio.to_thread(ingestor.submit_job, [original], request.collection, config=config)
+        job_id = await asyncio.to_thread(_submit_durably, ingestor, [original], request.collection, config)
     except Exception as error:
         # Class name, not `str(e)`: an arbitrary internal message is exactly
         # where a path, a DSN or a URL rides out to the client.
@@ -115,6 +115,20 @@ async def _submit(ingestor: BaseIngestor, request: IngestRequest, config: dict) 
         raise HTTPException(status_code=500, detail="Ingestion failed") from None
     logger.info("Submitted ingestion job %s for %s", job_id, config["original_filenames"][0])
     return job_id
+
+
+def _submit_durably(ingestor: BaseIngestor, files: list, collection: str, config: dict) -> str:
+    """Prepare the job and hand it to the durable, fair queue (``jobs.ingest_dispatch``).
+
+    An ingestor that cannot run a job in another process submits it as always.
+    """
+    if getattr(ingestor, "supports_durable_jobs", False) is not True:
+        return ingestor.submit_job(files, collection, config=config)
+    from ..jobs import ingest_dispatch
+
+    prepared = ingestor.prepare_job(files, collection, config)
+    ingest_dispatch.dispatch(ingestor, prepared)
+    return prepared.job_id
 
 
 def _job_config(request: IngestRequest, organization_id: str | None, dispatch_key: str | None) -> dict:
@@ -270,6 +284,22 @@ class DeferredObjectDownload:
 
     def __repr__(self) -> str:
         return "<deferred object download>"
+
+    def to_payload(self) -> dict[str, str | None]:
+        """The URL and suffix, for the durable ingest queue's ENCRYPTED payload only."""
+        return {"url": self._url, "suffix": self._suffix}
+
+    @classmethod
+    def from_payload(cls, data: dict) -> "DeferredObjectDownload":
+        """Rebuild one from a queue payload, through the same SSRF gates a request meets.
+
+        A row in the queue is not a request this route validated a moment ago:
+        without a KEK it is plaintext anyone who can write the table can forge,
+        so the gates run again before the worker requests anything.
+        """
+        url = data["url"]
+        _assert_fetchable_object_store_url(url)
+        return cls(url, data.get("suffix"))
 
     def __call__(self) -> str:
         # No redirects: a follow could land on a host outside the allowlist
