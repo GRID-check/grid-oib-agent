@@ -171,10 +171,20 @@ jobs:
         with:
           python-version: "3.14"
       - uses: ./.github/actions/setup-task
+      # One download per side, by name, into its own directory. With a
+      # pattern, a run that uploaded only ONE side (a base that could not run)
+      # was extracted straight into runner.temp, and the head's results were
+      # reported as missing. Either side may be absent; the render step says which.
       - uses: actions/download-artifact@v8
+        continue-on-error: true
         with:
-          pattern: answer-suite-*
-          path: ${{ runner.temp }}
+          name: answer-suite-after
+          path: ${{ runner.temp }}/answer-suite-after
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: answer-suite-before
+          path: ${{ runner.temp }}/answer-suite-before
       - name: Render the head against the base
         run: |
           after="$RUNNER_TEMP/answer-suite-after/results.json"
