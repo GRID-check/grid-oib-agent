@@ -45,6 +45,7 @@ export const settings: typeof en.settings = {
       memory: 'Projektgedächtnis',
       insights: 'Auswertung',
       reindex: 'Wissensindex',
+      inboundMail: 'E-Mail-Eingang',
     },
     reindexDescription:
       'Den indexierten Inhalt aller Dokumente dieses Projekts neu aufbauen. Hochgeladene Dateien werden nicht gelöscht — nur die daraus abgeleiteten Abschnitte, auf die sich Antworten stützen. Sinnvoll nach einer Änderung daran, wie Dokumente indexiert werden.',
@@ -63,6 +64,30 @@ export const settings: typeof en.settings = {
     membersDescriptionReadOnly:
       'Wer Zugriff auf dieses Projekt hat. Nur Projekt-Admins können Zuweisungen ändern.',
     knowledgeLink: 'Wissensbasis öffnen',
+    /** Die eigene Adresse des Projekts: Anhänge, die an sie gehen, landen im Projekt. */
+    inboundMail: {
+      description:
+        'Senden Sie Dateien als Anhang an diese Adresse. Sie werden in diesem Projekt unter E-Mail-Eingang abgelegt.',
+      addressLabel: 'Projektadresse',
+      rulesLabel: 'Was gilt',
+      rules: {
+        members: 'Senden können nur Projektmitglieder, die Dokumente bearbeiten dürfen.',
+        verified:
+          'Die Domain des Absenders muss überprüfbar sein (DKIM oder DMARC). Andere E-Mails werden abgelehnt.',
+        size: 'Höchstens 25 MB pro E-Mail.',
+        body: 'Piloti legt nur die Anhänge ab. Der Text der E-Mail wird nicht gespeichert.',
+      },
+      helpLink: 'Anleitung und Gründe für abgelehnte E-Mails',
+      rotate: 'Neue Adresse erzeugen',
+      confirmTitle: 'Neue Adresse erzeugen?',
+      confirmDescription:
+        'Die bisherige Adresse funktioniert ab sofort nicht mehr, E-Mails an sie werden abgelehnt. Geben Sie die neue Adresse an alle weiter, die Dateien an dieses Projekt senden.',
+      confirmAction: 'Neue Adresse erzeugen',
+      rotated: 'Neue Adresse erzeugt',
+      rotateFailed: 'Die neue Adresse konnte nicht erzeugt werden. Die bisherige gilt weiter.',
+      loadFailedTitle: 'Adresse nicht verfügbar',
+      loadFailed: 'Die E-Mail-Adresse des Projekts konnte nicht geladen werden.',
+    },
     insights: {
       emptyTitle: 'Noch keine Auswertung verfügbar',
       emptyDescription:

@@ -17,6 +17,7 @@ export const common: typeof en.common = {
     signOut: 'Abmelden',
     signIn: 'Anmelden',
     open: 'Öffnen',
+    copy: 'Kopieren',
     done: 'Fertig',
     skipToContent: 'Zum Inhalt springen',
   },
@@ -26,6 +27,7 @@ export const common: typeof en.common = {
     saved: 'Gespeichert',
     error: 'Etwas ist schiefgelaufen',
     empty: 'Noch nichts vorhanden',
+    copied: 'Kopiert',
     copyFailed: 'Kopieren nicht möglich',
   },
   codeBlock: {

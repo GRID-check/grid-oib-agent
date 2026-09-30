@@ -15,6 +15,7 @@ export const common = {
     signOut: 'Sign out',
     signIn: 'Sign in',
     open: 'Open',
+    copy: 'Copy',
     done: 'Done',
     skipToContent: 'Skip to content',
   },
@@ -25,6 +26,7 @@ export const common = {
     error: 'Something went wrong',
     empty: 'Nothing here yet',
     copyFailed: 'Could not copy',
+    copied: 'Copied',
   },
   codeBlock: {
     copy: 'Copy',
