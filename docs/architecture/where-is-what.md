@@ -111,6 +111,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | Inbox email defaults and the sender seam | `frontends/ui/src/lib/inbox/registry.ts` — `email` on each type; `frontends/ui/src/lib/inbox/delivery.ts` | [`product-feedback.md`](product-feedback.md#email-declared-now-sent-later) | ADR-0035 |
 | Inbox platform lane (platform-org rows read from any org) | `frontends/ui/src/lib/inbox/service.ts` — `lanesFor` | [`product-feedback.md`](product-feedback.md#the-platform-lane) | ADR-0035 |
 | Product feedback (bug reports, ideas) and its triage | `frontends/ui/src/lib/product-feedback`, `frontends/ui/src/features/product-feedback` | [`product-feedback.md`](product-feedback.md) | — |
+| Bug reports filed as GitHub issues; the reusable GitHub issue sender | `frontends/ui/src/lib/product-feedback/github.ts`; `frontends/ui/src/lib/github/issues.ts` | [`product-feedback.md`](product-feedback.md#bug-reports-become-github-issues) | ADR-0031 (the token) |
 | Inbox wire shapes and presentation | `frontends/ui/src/lib/inbox/types.ts` | [`docs/api/collaboration-routes.md`](../api/collaboration-routes.md) | ADR-0035 |
 | Mentions and handoff | `frontends/ui/src/lib/mentions`, `frontends/ui/src/lib/db/schema/mention-requests.ts` | [`docs/api/collaboration-routes.md`](../api/collaboration-routes.md) | ADR-0034 |
 | Live presence in a shared turn | `frontends/ui/src/lib/conversations/presence.ts` | [`collaboration-lifecycle.md`](collaboration-lifecycle.md) | ADR-0039 (live shared turns) |

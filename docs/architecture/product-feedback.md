@@ -11,8 +11,9 @@ product report never reaches that pipeline.
 ```
 member ── Feedback senden ──▶ POST /api/feedback/reports ──▶ product_feedback (reporter's org, RLS)
                                                        │
-                                                       └──▶ feedback.submitted inbox rows
-                                                            (platform org, one per owner)
+                                                       ├──▶ feedback.submitted inbox rows
+                                                       │    (platform org, one per owner)
+                                                       └──▶ GitHub issue (bugs only, when configured)
 owner's inbox (platform lane) ──▶ /app/platform/feedback?report=<id> ──▶ PATCH status
 ```
 
@@ -21,6 +22,7 @@ owner's inbox (platform lane) ──▶ /app/platform/feedback?report=<id> ─�
 | The form, and its entry points (avatar menu, org header) | `frontends/ui/src/features/product-feedback/components/feedback-dialog.tsx`, `feedback-provider.tsx` |
 | Submit route, rate limited by `FEEDBACK_REPORT_LIMIT` (10 an hour per person) | `frontends/ui/src/app/api/feedback/reports/route.ts` |
 | Store and announce | `frontends/ui/src/lib/product-feedback/service.ts`, `announce.ts` |
+| File a bug as a GitHub issue | `frontends/ui/src/lib/product-feedback/github.ts`, over `frontends/ui/src/lib/github/issues.ts` |
 | Table, bounds, RLS | `frontends/ui/drizzle/0100_product_feedback.sql` |
 | Triage routes (`platform:settings:view` to read, `:manage` to change status) | `frontends/ui/src/app/api/platform/feedback/` |
 | Triage page | `frontends/ui/src/features/product-feedback/components/feedback-triage.tsx` |
@@ -40,6 +42,35 @@ not told. They still see every report on the page.
 Announcing fails open. The report is stored first, and a WorkOS failure while
 resolving the roster is logged instead of costing the reporter their
 confirmation.
+
+## Bug reports become GitHub issues
+
+A report of kind `bug` is also filed as an issue in the repository named by
+`GRID_FEEDBACK_ISSUES_REPO`, labelled `bug` and `user-feedback`. Ideas, praise
+and questions stay on the triage page. Filing runs beside the announcement,
+after the insert, and fails open the same way: a GitHub outage is logged and
+the reporter still gets their confirmation.
+
+The issue tracker is outside the tenant boundary, so the issue carries only
+what reproduces the bug: the message after `redactPii`, quoted in a fence so a
+stray `@name` pings nobody, the page, the browser context, and a link to the
+report on the triage page. The reporter's name, email and organization stay
+behind that link.
+
+The token is err2issue's PAT (ADR-0031), handed to the frontend as
+`GRID_GITHUB_TOKEN` from the same stack secret. It does not need err2issue to
+be deployed. In Pulumi, `feedbackIssuesEnabled` defaults to on and needs
+`err2issueGithubToken`; the repository defaults to `err2issueGithubRepo`, and
+`feedbackIssuesRepo` sends bug reports somewhere else.
+
+`lib/github/issues.ts` is not specific to feedback. Anything else that should
+open an issue builds a `GitHubIssueDraft`, gets a sender from
+`githubIssueSenderFromEnv('<ITS_REPO_VARIABLE>')` and calls `send`. A null
+sender means that use is switched off.
+
+Nothing links the issue back onto the report row yet. The issue links the
+report, so the triage page's report is one click from GitHub but not the other
+way round.
 
 ## The platform lane
 

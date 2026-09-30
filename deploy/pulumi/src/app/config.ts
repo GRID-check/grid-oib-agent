@@ -136,6 +136,9 @@ export function buildSecrets(w: AppWiring): AppSecrets {
       as: { user: "grid_app_rw", password: cfg.postgres.runtimePassword },
     }),
     GRID_APP_MIGRATION_DATABASE_URL: w.dsn({ db: "grid_app" }),
+    // err2issue's PAT, for the BFF filing bug reports as issues. Absent rather
+    // than empty when that is off, so the Secret holds no credential it needn't.
+    ...(cfg.feedbackIssues.enabled ? { GRID_GITHUB_TOKEN: cfg.feedbackIssues.githubToken } : {}),
   };
 
   const secret = new k8s.core.v1.Secret(
@@ -358,6 +361,11 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "GRID_DISABLE_SELF_SERVE_ORGS", value: String(cfg.auth.disableSelfServeOrgs) },
     { name: "GRID_AUDIT_LOGS_ENABLED", value: String(cfg.auth.auditLogsEnabled) },
     { name: "GRID_ENFORCE_FEATURE_FLAGS", value: String(cfg.auth.enforceFeatureFlags) },
+    // Bug reports → GitHub issues. Both or neither: the repo variable is the
+    // switch the BFF reads, and without it the token is never used.
+    ...(cfg.feedbackIssues.enabled
+      ? [sref("GRID_GITHUB_TOKEN"), { name: "GRID_FEEDBACK_ISSUES_REPO", value: cfg.feedbackIssues.repo }]
+      : []),
     // Shared cache + WS rate limiting (needed for >1 replica correctness).
     // Authenticated: the URL carries the password, so it comes from the Secret.
     sref("REDIS_URL"),

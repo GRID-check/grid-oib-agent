@@ -254,3 +254,7 @@ config:
   # or duplicate stays closed when its error recurs; completed ones reopen).
   grid-oib:err2issueEnabled: "true"
   grid-oib:err2issueGithubRepo: GRID-check/grid-oib-agent
+  # ── Feedback → GitHub issues ──
+  # Bug reports from the in-app feedback form are filed as issues by the BFF,
+  # with the err2issue PAT and repo above (feedbackIssuesEnabled defaults on).
+  # To send them elsewhere: grid-oib:feedbackIssuesRepo owner/repo.
