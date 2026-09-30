@@ -465,6 +465,24 @@ turns answered with a friendly message the way a budget refusal already is.
   forever with increment/decrement, shrinking the pool until nobody can chat. A
   lease self-heals.
 
+### L3b — ingestion fair share and the provider ceiling (ADR-0074)
+
+Ingestion is not refused, it waits, so its L3 is an order and a ceiling rather
+than an admission.
+
+- **Fair share, not a cap.** `/v1/ingest` jobs sit in `ingest_job_queue`, and a
+  free worker claims the next job of the organisation with the fewest jobs
+  running fleet-wide, then the one served longest ago
+  (`aiq_agent.knowledge.ingest_queue`). A lone office uses every worker; a
+  second office's upload takes the next worker that frees up.
+  `GRID_INGEST_MAX_PER_ORG` adds a hard cap, off by default.
+- **Elastic.** The ingest-worker tier scales on the queue's depth through
+  KEDA, not on CPU (`deploy/pulumi/src/app/ingest-worker.ts`).
+- **A fixed ceiling at the provider.** However many workers run, at most
+  `AIQ_VLM_FLEET_CONCURRENCY` vision calls are in flight, a Dragonfly lease pool
+  sharing L3's scripts (`common/lease_slots.py`). A 429 backs off outside its
+  slot. Fails open like L3.
+
 ### L4 — cost
 
 Unchanged (ADR-0015). Still the only fail-**closed** refusal in the system.

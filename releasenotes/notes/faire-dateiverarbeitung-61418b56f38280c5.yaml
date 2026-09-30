@@ -1,0 +1,15 @@
+---
+improvements:
+  - >
+    Files you upload start being read right away, even while another office
+    is importing a large folder, and a busy day brings more reading capacity
+    instead of a longer wait.
+fixes:
+  - >
+    A file that was still waiting to be read when Piloti restarted is now read
+    afterwards instead of showing as failed.
+operators:
+  - >
+    Ingestion runs from a durable queue on its own worker tier, scaled by KEDA
+    on the queue's depth; see ADR-0074 and the ingest-worker settings in the
+    stack files before deploying.

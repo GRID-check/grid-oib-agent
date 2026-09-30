@@ -133,6 +133,7 @@ Consequences, where a reader looks for them.
 | [0071](0071-word-and-presentation-files-are-indexed-from-their-rendition.md) | Word and presentation files are indexed from their PDF rendition | Accepted |
 | [0072](0072-the-knowledge-layer-has-one-backend-llamaindex.md) | The knowledge layer has one backend: llamaindex | Accepted |
 | [0073](0073-a-coverage-gap-is-stated-never-enforced.md) | A coverage gap is stated in the block, never enforced on the pool | Accepted |
+| [0074](0074-ingestion-is-claimed-fairly-from-a-durable-queue.md) | Ingestion is claimed fairly from a durable queue, by a tier that scales on its depth | Proposed |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off
