@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod'
-import { COST_SOURCES } from '@/lib/db/schema'
+import { COST_SOURCES, USAGE_ACTIVITIES } from '@/lib/db/schema'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
 import { withTenant } from '@/lib/db/tenant-context'
 import { recordUsageEvents } from '@/lib/budgets/service'
@@ -23,6 +23,12 @@ const usageEventSchema = z.object({
   costUsd: z.number().min(0).finite().default(0),
   costSource: z.enum(COST_SOURCES).default('missing'),
   isByok: z.boolean().nullable().optional(),
+  /** What the call was for when it was not an agent's chat completion (stored as `agent_group`). */
+  role: z
+    .string()
+    .regex(/^[a-z][a-z0-9_]{0,63}$/)
+    .nullable()
+    .optional(),
 })
 
 const usageBatchSchema = z.object({
@@ -33,6 +39,8 @@ const usageBatchSchema = z.object({
   jobId: z.string().max(255).nullable().optional(),
   /** The chat answer the batch's spend belongs to (`turn.response.answer_message_id`). */
   messageId: z.string().max(128).nullable().optional(),
+  /** The kind of work the whole batch served (`ingest` for a document ingestion job). */
+  activity: z.enum(USAGE_ACTIVITIES).nullable().optional(),
   events: z.array(usageEventSchema).min(1).max(100),
 })
 
@@ -57,6 +65,8 @@ export const POST = internalApiRoute(
         conversationId: batch.conversationId ?? null,
         jobId: batch.jobId ?? null,
         messageId: batch.messageId ?? null,
+        activity: batch.activity ?? null,
+        agentGroup: event.role ?? null,
         requestedModel: event.requestedModel ?? null,
         model: event.model ?? null,
         generationId: event.generationId ?? null,

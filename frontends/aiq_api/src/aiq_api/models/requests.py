@@ -27,6 +27,16 @@ class IngestRequest(BaseModel):
     file_ref: str = Field(..., description="Presigned URL or file reference to download")
     collection: str = Field(..., description="Target collection name")
     document_id: str | None = Field(None, description="Optional document tracking ID")
+    project_id: str | None = Field(
+        None,
+        max_length=120,
+        description="The document's project, so its ingestion spend is booked to it on the usage ledger.",
+    )
+    user_id: str | None = Field(
+        None,
+        max_length=120,
+        description="The member who put the document there, so its ingestion spend is booked to them.",
+    )
     thumbnail_upload_url: str | None = Field(None, description="Presigned URL for uploading a generated thumbnail")
     preview_ref: str | None = Field(
         None,

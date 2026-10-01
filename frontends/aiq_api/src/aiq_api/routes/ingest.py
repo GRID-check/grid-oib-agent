@@ -163,6 +163,13 @@ def _job_config(request: IngestRequest, organization_id: str | None, dispatch_ke
     # VLM credential and runtime model override.
     if organization_id:
         config["organization_id"] = organization_id
+        # Who the job's model spend is booked to beside the organization
+        # (`_ingest_cost_scope`): attribution on the usage ledger only, never
+        # authorization, and only ever within the organization above.
+        if request.project_id:
+            config["project_id"] = request.project_id
+        if request.user_id:
+            config["user_id"] = request.user_id
     # The document's id, so the pipeline can ask the BFF for a PUT slot per
     # raster it extracts (`knowledge_layer.llamaindex.image_store`). Without
     # it the captions are indexed and the rasters discarded, which is what

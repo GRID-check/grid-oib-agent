@@ -26,6 +26,10 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from dataclasses import field
 
+from aiq_agent.common.cost_tracking import USAGE_ROLE_INGEST_TRANSCRIPTION
+from aiq_agent.common.cost_tracking import meter_openai_client
+from aiq_agent.common.cost_tracking import submit_in_context
+
 logger = logging.getLogger(__name__)
 
 #: Bumped whenever the prompt or the reply handling changes: it is part of the
@@ -104,11 +108,14 @@ def _transcribe_live(image_bytes: bytes, *, ocr_model: str, base_url: str, api_k
     try:
         from openai import OpenAI
 
-        client = OpenAI(
-            base_url=base_url,
-            api_key=api_key,
-            timeout=_adapter.VLM_REQUEST_TIMEOUT_SECONDS,
-            max_retries=1,
+        client = meter_openai_client(
+            OpenAI(
+                base_url=base_url,
+                api_key=api_key,
+                timeout=_adapter.VLM_REQUEST_TIMEOUT_SECONDS,
+                max_retries=1,
+            ),
+            role=USAGE_ROLE_INGEST_TRANSCRIPTION,
         )
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         reply = _adapter._vlm_chat_create(
@@ -235,9 +242,13 @@ def transcribe_pdf_pages(
             rendered = _processing.render_pdf_pages(pdf_path, batch, max_dim=max_dim)
             outcome.failed.extend(number for number in batch if number not in rendered)
             jobs = [(number, rendered[number]) for number in batch if number in rendered]
-            replies = pool.map(
-                lambda job: transcribe_image(job[1], model=model, base_url=base_url, api_key=api_key), jobs
-            )
+            # Submitted in the caller's context so each call lands on the job's
+            # cost ledger; results are read back in page order, as `map` gave them.
+            futures = [
+                submit_in_context(pool, transcribe_image, image, model=model, base_url=base_url, api_key=api_key)
+                for _number, image in jobs
+            ]
+            replies = [future.result() for future in futures]
             for (number, _image), reply in zip(jobs, replies, strict=True):
                 _classify_reply(outcome, number, reply)
     if outcome.failed:

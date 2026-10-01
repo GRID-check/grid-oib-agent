@@ -51,6 +51,9 @@ from typing import Any
 from aiq_agent.common.cache import get_json
 from aiq_agent.common.cache import set_json
 
+# The job's cost tracker is a ContextVar; each vision call carries it into the pool.
+from aiq_agent.common.cost_tracking import submit_in_context
+
 from .pdfium_lock import detached_pil
 from .pdfium_lock import pdfium_lock
 
@@ -483,11 +486,11 @@ def enrich_vlm_batch(
         futures = {}
 
         for record in image_records:
-            fut = pool.submit(_enrich_one_image, record)
+            fut = submit_in_context(pool, _enrich_one_image, record)
             futures[fut] = ("image", record)
 
         for page in drawing_pages:
-            fut = pool.submit(_enrich_one_drawing, page)
+            fut = submit_in_context(pool, _enrich_one_drawing, page)
             futures[fut] = ("drawing", page)
 
         for future in as_completed(futures):

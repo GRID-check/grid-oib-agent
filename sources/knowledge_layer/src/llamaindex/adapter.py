@@ -49,6 +49,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from aiq_agent.common.cost_tracking import USAGE_ROLE_EMBEDDING
+from aiq_agent.common.cost_tracking import USAGE_ROLE_INGEST_VISION
+from aiq_agent.common.cost_tracking import meter_openai_client
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.base import BaseRetriever
@@ -1877,6 +1880,27 @@ def _table_to_markdown(table: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
+def _ingest_cost_scope(job_id: str, config: dict[str, Any]):
+    """The cost tracker an ingestion job's model calls are recorded under (``activity = ingest``)."""
+    from aiq_agent.common.cost_tracking import USAGE_ACTIVITY_INGEST
+    from aiq_agent.common.cost_tracking import BudgetSnapshot
+    from aiq_agent.common.cost_tracking import track_llm_costs
+
+    return track_llm_costs(
+        job_id=job_id,
+        identity={
+            "organization_id": config.get("organization_id"),
+            "user_id": config.get("user_id"),
+            "project_id": config.get("project_id"),
+            "conversation_id": None,
+            "message_id": None,
+        },
+        # Unlimited, deliberately: see `_run_ingestion`.
+        budget=BudgetSnapshot(),
+        activity=USAGE_ACTIVITY_INGEST,
+    )
+
+
 def _vlm_slot():
     """One of the fleet's ``VLM_FLEET_CONCURRENCY`` vision-call slots, for as long as the call may last."""
     from aiq_agent.common import lease_slots
@@ -2053,11 +2077,15 @@ Provide a detailed, structured response."""
         # Encode image to base64
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-        client = OpenAI(
-            base_url=vlm_base_url,
-            api_key=api_key,
-            timeout=VLM_REQUEST_TIMEOUT_SECONDS,
-            max_retries=1,
+        # Metered: each call's usage lands on the job's cost ledger.
+        client = meter_openai_client(
+            OpenAI(
+                base_url=vlm_base_url,
+                api_key=api_key,
+                timeout=VLM_REQUEST_TIMEOUT_SECONDS,
+                max_retries=1,
+            ),
+            role=USAGE_ROLE_INGEST_VISION,
         )
 
         caption = _vlm_chat_create(
@@ -2212,11 +2240,15 @@ def _analyze_drawing_page_with_vlm(
 
     try:
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        client = OpenAI(
-            base_url=vlm_base_url,
-            api_key=api_key,
-            timeout=VLM_REQUEST_TIMEOUT_SECONDS,
-            max_retries=1,
+        # Metered: each call's usage lands on the job's cost ledger.
+        client = meter_openai_client(
+            OpenAI(
+                base_url=vlm_base_url,
+                api_key=api_key,
+                timeout=VLM_REQUEST_TIMEOUT_SECONDS,
+                max_retries=1,
+            ),
+            role=USAGE_ROLE_INGEST_VISION,
         )
         reply = _vlm_chat_create(
             client,
@@ -2699,6 +2731,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 timeout=EMBED_TIMEOUT_SECONDS,
                 max_retries=EMBED_MAX_RETRIES,
             )
+            # The embeddings' usage reaches the ledger of whatever scope makes
+            # them: an ingestion job's (`activity = ingest`), or a chat turn's.
+            meter_openai_client(getattr(self._embed_model, "_client", None), role=USAGE_ROLE_EMBEDDING)
 
             # Ensure persist directory exists
             os.makedirs(self.persist_dir, exist_ok=True)
@@ -4128,7 +4163,26 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         collection_name: str,
         config: dict[str, Any],
     ):
-        """Background ingestion worker with optional multimodal extraction."""
+        """Background ingestion worker with optional multimodal extraction, on the cost ledger.
+
+        Every model call the job makes (vision, transcription, summary, tags,
+        embeddings) is recorded under ``activity = ingest`` for the job's
+        organization, and its project and uploader when the request named them.
+        Before this no tracker existed off the chat path, so ingestion was the
+        one spend the platform view never showed. No budget is enforced here:
+        a document half-read because a limit ran out mid-job is worse than the
+        overrun, and the spend still lands in the budgets it counts toward.
+        """
+        with _ingest_cost_scope(job_id, config):
+            return self._run_ingestion_tracked(job_id, file_paths, collection_name, config)
+
+    def _run_ingestion_tracked(
+        self,
+        job_id: str,
+        file_paths: list[str | Callable[[], str]],
+        collection_name: str,
+        config: dict[str, Any],
+    ):
         from knowledge_layer.deferred_files import ORIGINAL_DOWNLOAD_FAILED
         from knowledge_layer.deferred_files import resolve_original
         from knowledge_layer.renditions import OFFICE_RENDITION_REQUIRED
@@ -4641,10 +4695,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         else:
                             llm_input = text_source
                         executor = ThreadPoolExecutor(max_workers=3)
-                        summary_future = executor.submit(
-                            _generate_document_summary, llm_input, file_name, self.summary_llm
+                        # In the job's context, so the summary and the tags
+                        # land on its cost ledger (`_ingest_cost_scope`).
+                        from aiq_agent.common.cost_tracking import submit_in_context
+
+                        summary_future = submit_in_context(
+                            executor, _generate_document_summary, llm_input, file_name, self.summary_llm
                         )
-                        tags_future = executor.submit(
+                        tags_future = submit_in_context(
+                            executor,
                             classify_document_tags,
                             llm_input,
                             file_name,
@@ -4659,8 +4718,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         if stored_doc_class is None and base_corpus and doc_class == DEFAULT_DOC_CLASS:
                             from aiq_agent.knowledge.document_classification import suggest_doc_class
 
-                            doc_class_future = executor.submit(
-                                suggest_doc_class, llm_input, file_name, organization_id=organization_id
+                            doc_class_future = submit_in_context(
+                                executor, suggest_doc_class, llm_input, file_name, organization_id=organization_id
                             )
 
                     # Wait for summary if started
@@ -5272,6 +5331,9 @@ class LlamaIndexRetriever(BaseRetriever):
                 timeout=QUERY_EMBED_TIMEOUT_SECONDS,
                 max_retries=EMBED_MAX_RETRIES,
             )
+            # The embeddings' usage reaches the ledger of whatever scope makes
+            # them: an ingestion job's (`activity = ingest`), or a chat turn's.
+            meter_openai_client(getattr(self._embed_model, "_client", None), role=USAGE_ROLE_EMBEDDING)
             # Not installed as the process-wide `Settings.embed_model`: every
             # index this retriever builds is handed the model explicitly
             # (`_get_index`), and the global would put this 3 s query model
